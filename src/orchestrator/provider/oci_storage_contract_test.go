@@ -1284,9 +1284,9 @@ func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
 		}
 		switch {
 		case strings.Contains(request.URL.Path, "/manifests/"):
-			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
+			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Content-Length": {stringInt(len(manifest))}, "Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
 		case strings.Contains(request.URL.Path, "/blobs/"):
-			return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {blobDigest}, "Content-Length": {"11"}}), nil
+			return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {blobDigest}, "Content-Length": {"11"}, "Content-Type": {"application/octet-stream"}}), nil
 		default:
 			return nil, io.ErrUnexpectedEOF
 		}

@@ -280,7 +280,7 @@ func TestStageAAttachmentReconciliationRejectsWrongScope(t *testing.T) {
 func TestStageARegistryBlobFollowsOneSafeRedirectWithoutCredentials(t *testing.T) {
 	blob := "redirected-layer"
 	digest := "sha256:" + objectSHA256([]byte(blob))
-	const target = "https://namespace.objectstorage.sa-saopaulo-1.oci.customer-oci.com/n/ns/b/bucket/o/layer?token=secret"
+	const target = "https://tenancy.objectstorage.sa-saopaulo-1.oci.customer-oci.com/p/signed?token=secret"
 	requests := 0
 	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
 		requests++
@@ -290,11 +290,11 @@ func TestStageARegistryBlobFollowsOneSafeRedirectWithoutCredentials(t *testing.T
 				t.Fatal("OCIR request is missing its credential")
 			}
 			return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {target}}), nil
-		case "namespace.objectstorage.sa-saopaulo-1.oci.customer-oci.com":
+		case "tenancy.objectstorage.sa-saopaulo-1.oci.customer-oci.com":
 			if request.Header.Get("Accept") != "application/octet-stream" || request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
 				t.Fatalf("redirect leaked headers %v", request.Header)
 			}
-			return testHTTPResponse(http.StatusOK, blob, http.Header{"Content-Length": {"16"}}), nil
+			return testHTTPResponse(http.StatusOK, blob, http.Header{"Content-Length": {"16"}, "Content-Type": {"application/octet-stream"}}), nil
 		default:
 			t.Fatalf("unexpected host %q", request.URL.Host)
 			return nil, nil
@@ -340,6 +340,10 @@ func TestStageARegistryBlobRejectsHostileRedirectsWithoutDisclosure(t *testing.T
 		{name: "userinfo", locations: []string{"https://user@objectstorage.sa-saopaulo-1.oraclecloud.com/object?token=secret"}},
 		{name: "fragment", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/object?token=secret#fragment"}},
 		{name: "invalid namespace", locations: []string{"https://bad.name.objectstorage.sa-saopaulo-1.oci.customer-oci.com/object?token=secret"}},
+		{name: "other namespace host", locations: []string{"https://another.objectstorage.sa-saopaulo-1.oci.customer-oci.com/p/signed?token=secret"}},
+		{name: "generic host missing namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/signed?token=secret"}},
+		{name: "generic host wrong namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/signed/n/another/b/bucket/o/layer?token=secret"}},
+		{name: "duplicate namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/n/tenancy/b/bucket/o/n/tenancy?token=secret"}},
 		{name: "duplicate", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/one?token=secret", "https://objectstorage.sa-saopaulo-1.oraclecloud.com/two?token=secret"}},
 	}
 	for _, test := range tests {
@@ -363,9 +367,9 @@ func TestStageARegistryBlobRejectsASecondRedirect(t *testing.T) {
 	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
 		requests++
 		if request.URL.Host == "gru.ocir.io" {
-			return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/first?token=secret"}}), nil
+			return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://tenancy.objectstorage.sa-saopaulo-1.oci.customer-oci.com/first?token=secret"}}), nil
 		}
-		return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/second?token=secret"}}), nil
+		return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://tenancy.objectstorage.sa-saopaulo-1.oci.customer-oci.com/second?token=secret"}}), nil
 	})
 	adapter := testRegistryAdapter(t, transport)
 	_, _, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
