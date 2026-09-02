@@ -1,4 +1,4 @@
-package control
+package evidence
 
 func evidenceValidId(value string, maximumLength int) bool {
 	if maximumLength <= 0 || len(value) == 0 || len(value) > maximumLength {
@@ -446,4 +446,33 @@ func evidenceCollectionsSnapshot[T any](source []T, maximum int, requireNonEmpty
 	result := make([]T, count)
 	copy(result, source[:count])
 	return result, !requireNonEmpty || count > 0
+}
+
+// EvidenceValidID reports whether value is a bounded, contract-safe evidence identifier.
+func EvidenceValidID(value string, maximumLength int) bool {
+	return evidenceValidId(value, maximumLength)
+}
+
+func LaneIsDefined(value EvidenceLane) bool { return evidenceLaneIsDefined(value) }
+func ExecutionKindIsDefined(value EvidenceExecutionKind) bool {
+	return evidenceExecutionKindIsDefined(value)
+}
+func DomainIsDefined(value EvidenceDomain) bool { return evidenceDomainIsDefined(value) }
+func ArchitectureIsDefined(value EvidenceArchitecture) bool {
+	return evidenceArchitectureIsDefined(value)
+}
+func ResultIsDefined(value EvidenceResult) bool { return evidenceResultIsDefined(value) }
+func ExclusionKindIsDefined(value EvidenceExclusionKind) bool {
+	return evidenceExclusionKindIsDefined(value)
+}
+func ChangeKindIsDefined(value EvidenceChangeKind) bool {
+	return evidenceChangeKindIsDefined(value)
+}
+func GateTargetIsDefined(value EvidenceGateTarget) bool {
+	return evidenceGateTargetIsDefined(value)
+}
+
+// CollectionsSnapshot returns a bounded defensive copy of source.
+func CollectionsSnapshot[T any](source []T, maximum int, requireNonEmpty bool) ([]T, bool) {
+	return evidenceCollectionsSnapshot(source, maximum, requireNonEmpty)
 }

@@ -14,12 +14,16 @@ import (
 type NatsOperationJournalCreateRequest = journalcore.NatsOperationJournalCreateRequest
 type NatsOperationJournalUpdateRequest = journalcore.NatsOperationJournalUpdateRequest
 type NatsOperationJournalMutationReply = journalcore.NatsOperationJournalMutationReply
+type NatsRuntimeLifecycleJournalReply = journalcore.NatsRuntimeLifecycleJournalReply
 type NatsOperationJournalMutationAuthorityProof = journalcore.NatsOperationJournalMutationAuthorityProof
 type NatsOperationJournalMutationAuthoritySigner = journalcore.NatsOperationJournalMutationAuthoritySigner
 type NatsOperationJournalMutationAuthorityVerifier = journalcore.NatsOperationJournalMutationAuthorityVerifier
+type NatsOperationJournalMutationReplySigner = journalcore.NatsOperationJournalMutationReplySigner
+type NatsOperationJournalMutationReplyVerifier = journalcore.NatsOperationJournalMutationReplyVerifier
 type NatsOperationJournalMutationProofConsumptionResult = journalcore.NatsOperationJournalMutationProofConsumptionResult
 
 const (
+	RuntimeLifecycleNatsProtocolSchemaVersion                         = journalcore.RuntimeLifecycleNatsProtocolSchemaVersion
 	NatsOperationJournalMutationProofConsumptionResultConsumed        = journalcore.NatsOperationJournalMutationProofConsumptionResultConsumed
 	NatsOperationJournalMutationProofConsumptionResultAlreadyConsumed = journalcore.NatsOperationJournalMutationProofConsumptionResultAlreadyConsumed
 	NatsOperationJournalMutationProofConsumptionResultUnavailable     = journalcore.NatsOperationJournalMutationProofConsumptionResultUnavailable
@@ -41,6 +45,18 @@ func NewNatsOperationJournalMutationAuthorityVerifier(
 	publicKey []byte,
 ) *NatsOperationJournalMutationAuthorityVerifier {
 	return journalcore.NewNatsOperationJournalMutationAuthorityVerifier(publicKey)
+}
+
+func NewNatsOperationJournalMutationReplySigner(
+	key *ecdsa.PrivateKey,
+) *NatsOperationJournalMutationReplySigner {
+	return journalcore.NewNatsOperationJournalMutationReplySigner(key)
+}
+
+func NewNatsOperationJournalMutationReplyVerifier(
+	publicKey []byte,
+) *NatsOperationJournalMutationReplyVerifier {
+	return journalcore.NewNatsOperationJournalMutationReplyVerifier(publicKey)
 }
 
 func NatsOperationJournalMutationRequestDigestCreate(
