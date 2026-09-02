@@ -334,10 +334,18 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if client == nil {
 		client = &http.Client{Timeout: config.Timeout}
 	}
+	// Never inherit an injected redirect policy for signed OCI requests. A
+	// redirect can move credentials to another authority, and the request is
+	// already signed for the configured endpoint. Clone the client so callers
+	// retain ownership of their own policy and transport.
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return errors.New("OCI redirects are forbidden")
+	}
 	// Keep the endpoint immutable from callers that reuse their config value.
 	endpoint := *config.Endpoint
 	config.Endpoint = &endpoint
-	return &OCIHTTPTransport{config, client, signer}, nil
+	return &OCIHTTPTransport{config, &clientCopy, signer}, nil
 }
 
 // NewOCIInstancePrincipalTransport composes the standard OCI transport with
@@ -346,6 +354,27 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 // endpoint access from a control process.
 func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Client, keyID string, key *rsa.PrivateKey) (*OCIHTTPTransport, error) {
 	signer, err := NewInstancePrincipalSigner(keyID, key)
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIHTTPTransport(config, client, signer)
+}
+
+// NewOCIInstancePrincipalTransportFromSource obtains short-lived credentials
+// from an injected source before constructing the signed transport. The
+// source is deliberately an interface so tests never contact metadata.
+func NewOCIInstancePrincipalTransportFromSource(config OCITransportConfig, client *http.Client, ctx context.Context, source InstancePrincipalCredentialSource) (*OCIHTTPTransport, error) {
+	if source == nil {
+		return nil, &InvalidOperationError{Message: "instance-principal credential source is unavailable"}
+	}
+	if ctx == nil {
+		return nil, &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	credentials, err := source.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := NewInstancePrincipalSigner(credentials.KeyID, credentials.Key)
 	if err != nil {
 		return nil, err
 	}

@@ -4,15 +4,248 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOCIInstancePrincipalMetadataSourceRetrievesCredentialWithBoundedAccess(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBody := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certBody := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "169.254.169.254" || request.Header.Get("Authorization") != "Bearer Oracle" {
+			t.Fatalf("metadata request escaped its bounded authority: %s headers=%v", request.URL, request.Header)
+		}
+		body := certBody
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			body = keyBody
+		}
+		return testHTTPResponse(http.StatusOK, string(body), nil), nil
+	})}
+	source, err := NewOCIInstancePrincipalMetadataSource(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := source.Retrieve(context.Background())
+	if err != nil || credentials.Key == nil || credentials.KeyID == "" {
+		t.Fatalf("metadata credentials = %+v, %v", credentials, err)
+	}
+}
+
+func TestOCIInstancePrincipalMetadataSourceRejectsMalformedCertificate(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBody := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			return testHTTPResponse(http.StatusOK, string(keyBody), nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, "not-a-certificate", nil), nil
+	})}
+	source, err := NewOCIInstancePrincipalMetadataSource(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Retrieve(context.Background()); err == nil {
+		t.Fatal("malformed metadata certificate was accepted")
+	}
+}
+
+func TestNextOCIPageRejectsSeventeenthPage(t *testing.T) {
+	response := testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-17"}})
+	if _, err := nextOCIPage(response, "page-16", maximumOCIPages-1); err == nil {
+		t.Fatal("pagination fetched beyond the 16-page bound")
+	}
+}
+
+func TestNextOCIPageRejectsMalformedContinuationHeaders(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "empty", value: ""},
+		{name: "oversized", value: strings.Repeat("x", 257)},
+		{name: "control", value: "page-1\r\nforged: value"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			headers := make(http.Header)
+			headers.Set("Opc-Next-Page", test.value)
+			if _, err := nextOCIPage(testHTTPResponse(http.StatusOK, `{"items":[]}`, headers), "", 0); err == nil {
+				t.Fatal("malformed continuation header was treated as end-of-list")
+			}
+		})
+	}
+	if _, err := nextOCIPage(testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-1", "page-2"}}), "", 0); err == nil {
+		t.Fatal("duplicate continuation headers were accepted")
+	}
+}
+
+func TestOCIListDecodersRejectMalformedDocuments(t *testing.T) {
+	for _, raw := range []string{"{}", "null", `{"items":null}`, `{"items":{}}`} {
+		if _, err := decodeOCIList[string]([]byte(raw)); err == nil {
+			t.Fatalf("decodeOCIList accepted %s", raw)
+		}
+		if _, err := decodeOCIInstanceList([]byte(raw)); err == nil {
+			t.Fatalf("decodeOCIInstanceList accepted %s", raw)
+		}
+	}
+	if items, err := decodeOCIList[string]([]byte(`[]`)); err != nil || items == nil {
+		t.Fatalf("decodeOCIList rejected an explicit empty list: items=%v err=%v", items, err)
+	}
+	if items, err := decodeOCIInstanceList([]byte(`{"items":[]}`)); err != nil || items == nil {
+		t.Fatalf("decodeOCIInstanceList rejected an explicit empty list: items=%v err=%v", items, err)
+	}
+	if items, err := decodeOCIInstanceList([]byte(`[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}]`)); err != nil || len(items) != 1 {
+		t.Fatalf("decodeOCIInstanceList rejected a direct array: items=%v err=%v", items, err)
+	}
+}
+
+func TestOCITransportRejectsInjectedRedirectPolicy(t *testing.T) {
+	redirects := 0
+	requests := 0
+	injected := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			redirects++
+			return nil
+		},
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requests++
+			if request.URL.Host != "iaas.gru.oraclecloud.com" {
+				t.Fatalf("redirected OCI request reached the injected transport: %s", request.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusTemporaryRedirect,
+				Header:     http.Header{"Location": []string{"https://evil.example/redirect"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}),
+	}
+	cfg, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewOCIHTTPTransport(cfg, injected, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.Do(context.Background(), http.MethodGet, "/20160918/instances", nil); err == nil {
+		t.Fatal("signed OCI transport followed a redirect")
+	}
+	if requests == 0 || redirects != 0 {
+		t.Fatalf("redirect handling requests=%d injected redirect calls=%d", requests, redirects)
+	}
+	if injected.CheckRedirect == nil {
+		t.Fatal("transport construction mutated the injected client")
+	}
+}
+
+func TestOCINodeLaunchResolutionBindsNetworkToEstate(t *testing.T) {
+	bootstrap := []byte("#cloud-config\n")
+	digest := sha256.Sum256(bootstrap)
+	request := CreateNodeProviderRequest{
+		Context:    ProviderOperationContext{CompartmentId: ProviderCompartmentId{Value: "ocid1.compartment.oc1.x"}},
+		Parameters: CreateNodeProviderParameters{BootstrapEnvelopeDigest: ProviderBootstrapEnvelopeDigest{Sha256: hex.EncodeToString(digest[:])}},
+	}
+	binding, err := NewOCINodeEstateBinding("ocid1.vcn.oc1.x", []string{"ocid1.subnet.oc1.x"}, []string{"ocid1.networksecuritygroup.oc1.x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := OciNodeLaunchSpec{CompartmentId: "ocid1.compartment.oc1.x", VcnId: "ocid1.vcn.oc1.x", SubnetId: "ocid1.subnet.oc1.x", ImageId: "ocid1.image.oc1.x", AvailabilityDomain: "AD-1", Shape: "VM.Standard.A1.Flex", NetworkSecurityGroupIds: []string{"ocid1.networksecuritygroup.oc1.x"}, Ocpus: 1, MemoryGB: 1, BootstrapBase64: base64.StdEncoding.EncodeToString(bootstrap)}
+	if err := validateOciNodeLaunchSpecWithEstate(base, request, binding); err != nil {
+		t.Fatalf("valid estate-bound launch rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*OciNodeLaunchSpec){
+		"wrong vcn":      func(spec *OciNodeLaunchSpec) { spec.VcnId = "ocid1.vcn.oc1.other" },
+		"outside subnet": func(spec *OciNodeLaunchSpec) { spec.SubnetId = "ocid1.subnet.oc1.other" },
+		"outside nsg": func(spec *OciNodeLaunchSpec) {
+			spec.NetworkSecurityGroupIds = []string{"ocid1.networksecuritygroup.oc1.other"}
+		},
+		"empty nsg": func(spec *OciNodeLaunchSpec) { spec.NetworkSecurityGroupIds = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := base
+			mutate(&spec)
+			if err := validateOciNodeLaunchSpecWithEstate(spec, request, binding); err == nil {
+				t.Fatal("out-of-scope launch resolution was accepted")
+			}
+		})
+	}
+}
+
+func TestOCIInstancePrincipalMetadataSourceBypassesConfiguredProxy(t *testing.T) {
+	key, cert := metadataCredentialFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Host != "169.254.169.254" || request.Header.Get("Authorization") != "Bearer Oracle" {
+			t.Fatalf("metadata request escaped its fixed authority: host=%q headers=%v", request.Host, request.Header)
+		}
+		body := cert
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			body = key
+		}
+		_, _ = response.Write(body)
+	}))
+	defer server.Close()
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			t.Fatal("metadata request used the configured proxy")
+			return nil, nil
+		},
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, serverURL.Host)
+		},
+	}
+	source, err := NewOCIInstancePrincipalMetadataSource(&http.Client{Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Retrieve(context.Background()); err != nil {
+		t.Fatalf("metadata retrieval through direct transport failed: %v", err)
+	}
+}
+
+func metadataCredentialFixture(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
 
 func TestInstancePrincipalSignerBindsMutationBody(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -152,7 +385,10 @@ func TestProviderMutationJournalRecordsObservedAbsentDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.absent", ETag: "instance-etag"}
-	record, err := journal.MarkSucceeded(context.Background(), intent, result)
+	if _, err := journal.MarkSucceeded(context.Background(), intent, result); err == nil {
+		t.Fatal("generic success bypassed the prepared mutation submission")
+	}
+	record, err := journal.MarkAbsentDeleteSucceeded(context.Background(), intent, result)
 	if err != nil || record.State != MutationSucceeded || record.Result != result {
 		t.Fatalf("observed-absent transition = %+v, %v", record, err)
 	}

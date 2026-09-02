@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -62,15 +63,18 @@ type ociEstateBucket struct {
 			TimeAmount int    `json:"timeAmount"`
 			TimeUnit   string `json:"timeUnit"`
 		} `json:"duration"`
+		TimeRuleLocked string `json:"timeRuleLocked"`
 	} `json:"retentionRules"`
 }
+
+const OCIEstateStartupTimeout = 30 * time.Second
 
 func LoadOCIEstateSpec(path string) (OCIEstateSpec, error) {
 	if !filepath.IsAbs(path) {
 		return OCIEstateSpec{}, &errs.Argument{Message: "OCI estate file path must be absolute"}
 	}
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return OCIEstateSpec{}, &InvalidDataError{Message: "OCI estate file is unavailable"}
 	}
 	body, err := os.ReadFile(path)
@@ -90,6 +94,7 @@ func validateOCIEstateSpec(spec OCIEstateSpec) error {
 	if len(spec.Region) < 1 || len(spec.Region) > 63 || !regionPattern.MatchString(spec.Region) ||
 		!isOCID(spec.TenancyID, "tenancy") || !isOCID(spec.ControlCompartmentID, "compartment") ||
 		!isOCID(spec.NetworkCompartmentID, "compartment") || !isOCID(spec.WorkloadCompartmentID, "compartment") ||
+		spec.ControlCompartmentID == spec.NetworkCompartmentID || spec.ControlCompartmentID == spec.WorkloadCompartmentID || spec.NetworkCompartmentID == spec.WorkloadCompartmentID ||
 		!isOCID(spec.VCNID, "vcn") || !isOCID(spec.IAMPolicyCompartmentID, "compartment") ||
 		!isOCID(spec.VaultID, "vault") || !isOCID(spec.KeyID, "key") ||
 		!validObjectPart(spec.ObjectNamespace, 128, false) || !validObjectPart(spec.LedgerBucket, 256, false) ||
@@ -169,6 +174,24 @@ func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEsta
 	if err != nil {
 		return nil, err
 	}
+	return newOCIEstateHTTPReader(spec, keyID, key, nil)
+}
+
+// NewOCIEstateHTTPReaderWithCredentialSource composes the read-only estate
+// verifier with a real, injected credential source. Metadata-backed sources
+// are bounded and test sources can be supplied without network access.
+func NewOCIEstateHTTPReaderWithCredentialSource(ctx context.Context, spec OCIEstateSpec, source InstancePrincipalCredentialSource) (*OCIEstateHTTPReader, error) {
+	if ctx == nil || validateOCIEstateSpec(spec) != nil || source == nil {
+		return nil, &errs.Argument{Message: "OCI estate verification credentials are invalid"}
+	}
+	credentials, err := source.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newOCIEstateHTTPReader(spec, credentials.KeyID, credentials.Key, nil)
+}
+
+func newOCIEstateHTTPReader(spec OCIEstateSpec, keyID string, key *rsa.PrivateKey, client *http.Client) (*OCIEstateHTTPReader, error) {
 	transports := make(map[OCIService]*OCIHTTPTransport, 5)
 	for _, service := range []OCIService{OCIServiceCore, OCIServiceIdentity, OCIServiceObjectStorage, OCIServiceVault} {
 		host, _ := ociServiceHost(service, spec.Region)
@@ -176,7 +199,7 @@ func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEsta
 		if configErr != nil {
 			return nil, configErr
 		}
-		transport, transportErr := NewOCIInstancePrincipalTransport(config, nil, keyID, key)
+		transport, transportErr := NewOCIInstancePrincipalTransport(config, client, keyID, key)
 		if transportErr != nil {
 			return nil, transportErr
 		}
@@ -186,7 +209,7 @@ func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEsta
 	if err != nil {
 		return nil, err
 	}
-	keyTransport, err := NewOCIInstancePrincipalTransport(keyConfig, nil, keyID, key)
+	keyTransport, err := NewOCIInstancePrincipalTransport(keyConfig, client, keyID, key)
 	if err != nil {
 		return nil, err
 	}
@@ -222,33 +245,35 @@ func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateRe
 	if ctx == nil || reader == nil || validateOCIEstateSpec(spec) != nil {
 		return &errs.Argument{Message: "OCI estate verification request is invalid"}
 	}
+	startupCtx, cancel := context.WithTimeout(ctx, OCIEstateStartupTimeout)
+	defer cancel()
 	for _, compartment := range []string{spec.ControlCompartmentID, spec.NetworkCompartmentID, spec.WorkloadCompartmentID} {
-		if err := verifyEstateResource(ctx, reader, OCIServiceIdentity, "/20160918/compartments/"+url.PathEscape(compartment), compartment, spec.TenancyID, "", false); err != nil {
+		if err := verifyEstateResource(startupCtx, reader, OCIServiceIdentity, "/20160918/compartments/"+url.PathEscape(compartment), compartment, spec.TenancyID, "", false); err != nil {
 			return err
 		}
 	}
-	if err := verifyEstateResource(ctx, reader, OCIServiceCore, "/20160918/vcns/"+url.PathEscape(spec.VCNID), spec.VCNID, spec.NetworkCompartmentID, "", false); err != nil {
+	if err := verifyEstateResource(startupCtx, reader, OCIServiceCore, "/20160918/vcns/"+url.PathEscape(spec.VCNID), spec.VCNID, spec.NetworkCompartmentID, "", false); err != nil {
 		return err
 	}
 	for _, subnet := range spec.SubnetIDs {
-		if err := verifyEstateResource(ctx, reader, OCIServiceCore, "/20160918/subnets/"+url.PathEscape(subnet), subnet, spec.NetworkCompartmentID, spec.VCNID, true); err != nil {
+		if err := verifyEstateResource(startupCtx, reader, OCIServiceCore, "/20160918/subnets/"+url.PathEscape(subnet), subnet, spec.NetworkCompartmentID, spec.VCNID, true); err != nil {
 			return err
 		}
 	}
 	for _, nsg := range spec.NetworkSecurityGroupIDs {
-		if err := verifyEstateResource(ctx, reader, OCIServiceCore, "/20160918/networkSecurityGroups/"+url.PathEscape(nsg), nsg, spec.NetworkCompartmentID, spec.VCNID, false); err != nil {
+		if err := verifyEstateResource(startupCtx, reader, OCIServiceCore, "/20160918/networkSecurityGroups/"+url.PathEscape(nsg), nsg, spec.NetworkCompartmentID, spec.VCNID, false); err != nil {
 			return err
 		}
 	}
 	for _, policy := range spec.IAMPolicies {
-		if err := verifyEstatePolicy(ctx, reader, spec.IAMPolicyCompartmentID, policy); err != nil {
+		if err := verifyEstatePolicy(startupCtx, reader, spec.IAMPolicyCompartmentID, policy); err != nil {
 			return err
 		}
 	}
-	if err := verifyEstateResource(ctx, reader, OCIServiceVault, "/20180608/vaults/"+url.PathEscape(spec.VaultID), spec.VaultID, spec.ControlCompartmentID, "", false); err != nil {
+	if err := verifyEstateResource(startupCtx, reader, OCIServiceVault, "/20180608/vaults/"+url.PathEscape(spec.VaultID), spec.VaultID, spec.ControlCompartmentID, "", false); err != nil {
 		return err
 	}
-	if err := verifyEstateResource(ctx, reader, OCIServiceVaultManagement, "/20180608/keys/"+url.PathEscape(spec.KeyID), spec.KeyID, spec.ControlCompartmentID, "", false); err != nil {
+	if err := verifyEstateResource(startupCtx, reader, OCIServiceVaultManagement, "/20180608/keys/"+url.PathEscape(spec.KeyID), spec.KeyID, spec.ControlCompartmentID, "", false); err != nil {
 		return err
 	}
 	allowedBuckets := map[string]struct{}{spec.LedgerBucket: {}, spec.BackupBucket: {}}
@@ -257,7 +282,7 @@ func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateRe
 			return &InvalidDataError{Message: "OCI estate verification rejected a bucket outside the allowlist"}
 		}
 		path := "/n/" + url.PathEscape(spec.ObjectNamespace) + "/b/" + url.PathEscape(bucket)
-		body, status, err := reader.Read(ctx, OCIServiceObjectStorage, path)
+		body, status, err := reader.Read(startupCtx, OCIServiceObjectStorage, path)
 		var document ociEstateBucket
 		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || !validEstateBucket(document, bucket, spec) {
 			return &InvalidDataError{Message: "OCI estate verification rejected a bucket"}
@@ -272,11 +297,14 @@ func validEstateBucket(document ociEstateBucket, expectedName string, spec OCIEs
 		return false
 	}
 	for _, rule := range document.RetentionRules {
-		if rule.Duration.TimeAmount > 0 && rule.Duration.TimeUnit == "DAYS" {
-			return true
+		if rule.Duration.TimeAmount <= 0 || rule.Duration.TimeUnit != "DAYS" || rule.TimeRuleLocked == "" {
+			return false
+		}
+		if _, err := time.Parse(time.RFC3339, rule.TimeRuleLocked); err != nil {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func verifyEstatePolicy(ctx context.Context, reader OCIEstateReader, compartment string, expected OCIEstatePolicy) error {

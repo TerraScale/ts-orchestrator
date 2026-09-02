@@ -12,9 +12,10 @@ import (
 )
 
 type OCIBlockStorageAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core         *OCIHTTPTransport
+	Journal      ProviderMutationJournal
+	Ownership    DurableOwnershipEvidence
+	WorkRequests WorkRequestProvider
 }
 
 func NewOCIBlockStorageAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIBlockStorageAdapter, error) {
@@ -142,6 +143,9 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 	volume, err := blockVolumeFromOCI(item, safeHeader(resp, "opc-work-request-id"))
 	if err != nil || volume.CompartmentID != request.CompartmentID {
 		return BlockVolume{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, volume.WorkRequestID); err != nil {
+		return BlockVolume{}, err
 	}
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: volume.ID, ETag: volume.ETag, WorkRequestID: volume.WorkRequestID}); err != nil {
 		return BlockVolume{}, err
@@ -279,7 +283,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 		return err
 	}
 	if !found {
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.VolumeID, ETag: request.IfMatch})
+		return markAbsentDeleteSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.VolumeID, ETag: request.IfMatch})
 	}
 	if record.State == MutationUnknown {
 		return &ProviderOutcomeUnknownError{}
@@ -297,7 +301,18 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.VolumeID, request.IfMatch))
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		workRequestID := safeHeader(resp, "opc-work-request-id")
+		if workRequestID == "" {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, workRequestID); err != nil {
+			return err
+		}
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.VolumeID, request.IfMatch))
 	}
@@ -305,9 +320,10 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 }
 
 type OCIVolumeAttachmentAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core         *OCIHTTPTransport
+	Journal      ProviderMutationJournal
+	Ownership    DurableOwnershipEvidence
+	WorkRequests WorkRequestProvider
 }
 
 func NewOCIVolumeAttachmentAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIVolumeAttachmentAdapter, error) {
@@ -425,6 +441,9 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	attachment, err := attachmentFromOCI(item, safeHeader(resp, "opc-work-request-id"))
 	if err != nil || attachment.CompartmentID != request.CompartmentID || attachment.InstanceID != request.InstanceID || attachment.VolumeID != request.VolumeID {
 		return VolumeAttachment{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, attachment.WorkRequestID); err != nil {
+		return VolumeAttachment{}, err
 	}
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: attachment.ID, ETag: attachment.ETag, WorkRequestID: attachment.WorkRequestID}); err != nil {
 		return VolumeAttachment{}, err
@@ -561,7 +580,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 		return err
 	}
 	if !found {
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.AttachmentID, ETag: request.IfMatch})
+		return markAbsentDeleteSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.AttachmentID, ETag: request.IfMatch})
 	}
 	if record.State == MutationUnknown {
 		return &ProviderOutcomeUnknownError{}
@@ -579,7 +598,18 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.AttachmentID, request.IfMatch))
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		workRequestID := safeHeader(resp, "opc-work-request-id")
+		if workRequestID == "" {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, workRequestID); err != nil {
+			return err
+		}
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.AttachmentID, request.IfMatch))
 	}

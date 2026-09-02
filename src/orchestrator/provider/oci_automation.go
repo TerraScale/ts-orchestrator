@@ -31,7 +31,7 @@ func fingerprintJSON(action string, value any) string {
 
 func decodeOCIList[T any](raw []byte) ([]T, error) {
 	var direct []T
-	if json.Unmarshal(raw, &direct) == nil {
+	if json.Unmarshal(raw, &direct) == nil && direct != nil {
 		return direct, nil
 	}
 	var wrapped struct {
@@ -44,11 +44,30 @@ func decodeOCIList[T any](raw []byte) ([]T, error) {
 }
 
 func nextOCIPage(resp *http.Response, page string, count int) (string, error) {
-	next := safeHeader(resp, "opc-next-page")
-	if next == "" {
+	if resp == nil {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	var values []string
+	found := false
+	for key, headers := range resp.Header {
+		if strings.EqualFold(key, "opc-next-page") {
+			found = true
+			values = append(values, headers...)
+		}
+	}
+	if !found {
 		return "", nil
 	}
-	if next == page || count >= maximumOCIPages {
+	if len(values) != 1 {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	next := values[0]
+	if next == "" || len(next) > 256 || strings.TrimSpace(next) != next || strings.IndexFunc(next, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	// pageCount is zero-based. A continuation on the sixteenth response would
+	// require fetching a seventeenth page, beyond the exact 16-page bound.
+	if next == page || count >= maximumOCIPages-1 {
 		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
 	}
 	return next, nil
@@ -156,6 +175,31 @@ func markSucceeded(ctx context.Context, journal ProviderMutationJournal, intent 
 	return err
 }
 
+func markAbsentDeleteSucceeded(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult) error {
+	_, err := journal.MarkAbsentDeleteSucceeded(ctx, intent, result)
+	return err
+}
+
+func finalizeOCIWorkRequest(ctx context.Context, workRequests WorkRequestProvider, journal ProviderMutationJournal, intent ProviderMutationIntent, workRequestID string) error {
+	if workRequestID == "" {
+		return nil
+	}
+	if workRequests == nil {
+		return finishUnknown(ctx, journal, intent)
+	}
+	_, err := workRequests.WaitWorkRequest(ctx, workRequestID, WorkRequestWaitPolicy{PollInterval: 100 * time.Millisecond, MaxPolls: 30, MaxNotFound: 3})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, new(*ProviderOutcomeUnknownError)) {
+		return finishUnknown(ctx, journal, intent)
+	}
+	if _, markErr := journal.MarkFailed(ctx, intent, "work-request-failed"); markErr != nil {
+		return markErr
+	}
+	return err
+}
+
 func readOCIErrorCode(resp *http.Response) (string, error) {
 	if resp == nil {
 		return "", &InvalidDataError{Message: "OCI request returned no response"}
@@ -194,9 +238,11 @@ func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, in
 }
 
 type OCIComputeAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core          *OCIHTTPTransport
+	Journal       ProviderMutationJournal
+	Ownership     DurableOwnershipEvidence
+	EstateBinding *OCINodeEstateBinding
+	WorkRequests  WorkRequestProvider
 }
 
 func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIComputeAdapter, error) {
@@ -204,6 +250,21 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 		return nil, err
 	}
 	return &OCIComputeAdapter{Core: core, Journal: journal}, nil
+}
+
+// NewOCIComputeAdapterWithEstateBinding composes the automated compute
+// adapter only after startup has verified the estate network scope.
+func NewOCIComputeAdapterWithEstateBinding(core *OCIHTTPTransport, journal ProviderMutationJournal, binding *OCINodeEstateBinding, workRequests WorkRequestProvider) (*OCIComputeAdapter, error) {
+	if binding == nil || binding.validate() != nil {
+		return nil, &InvalidOperationError{Message: "OCI compute adapter requires a verified estate network binding"}
+	}
+	adapter, err := NewOCIComputeAdapter(core, journal)
+	if err != nil {
+		return nil, err
+	}
+	adapter.EstateBinding = binding
+	adapter.WorkRequests = workRequests
+	return adapter, nil
 }
 
 type computeLaunchFingerprint struct {
@@ -226,6 +287,10 @@ func ComputeLaunchMutationScope(request ComputeLaunchRequest) string {
 }
 
 func validateComputeLaunch(request ComputeLaunchRequest) error {
+	return validateComputeLaunchWithEstate(request, nil)
+}
+
+func validateComputeLaunchWithEstate(request ComputeLaunchRequest, estate *OCINodeEstateBinding) error {
 	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.ImageID, "image") {
 		return &errs.Argument{Message: "compute launch resource identity is invalid"}
 	}
@@ -255,6 +320,16 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 			math.IsNaN(candidate.MemoryGiB) || math.IsInf(candidate.MemoryGiB, 0) || candidate.MemoryGiB <= 0 || candidate.MemoryGiB > 2048 {
 			return &errs.Argument{Message: "compute launch capacity candidate is invalid"}
 		}
+		if estate != nil {
+			if !estate.allowsSubnet(candidate.SubnetID) {
+				return &InvalidDataError{Message: "OCI compute launch uses an unverified subnet"}
+			}
+			for _, id := range request.NSGIDs {
+				if !estate.allowsNetworkSecurityGroup(id) {
+					return &InvalidDataError{Message: "OCI compute launch uses an unverified network group"}
+				}
+			}
+		}
 	}
 	if _, err := safeFreeformTags(request.Tags); err != nil {
 		return err
@@ -282,7 +357,10 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 	if err := ctx.Err(); err != nil {
 		return ComputeInstance{}, err
 	}
-	if err := validateComputeLaunch(request); err != nil {
+	if a.EstateBinding == nil || a.EstateBinding.validate() != nil {
+		return ComputeInstance{}, &InvalidOperationError{Message: "OCI compute adapter requires a verified estate network binding"}
+	}
+	if err := validateComputeLaunchWithEstate(request, a.EstateBinding); err != nil {
 		return ComputeInstance{}, err
 	}
 	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
@@ -384,6 +462,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		instance := ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: safeHeader(resp, "opc-work-request-id"), AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}
+		if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, instance.WorkRequestID); err != nil {
+			return ComputeInstance{}, err
+		}
 		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 			return ComputeInstance{}, err
 		}
@@ -514,7 +595,7 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 		return err
 	}
 	if !found {
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
+		return markAbsentDeleteSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
 	}
 	if record.State == MutationUnknown {
 		return &ProviderOutcomeUnknownError{}
@@ -532,7 +613,18 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.InstanceID, request.IfMatch))
+	}
+	if resp.StatusCode == http.StatusAccepted {
+		workRequestID := safeHeader(resp, "opc-work-request-id")
+		if workRequestID == "" {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, workRequestID); err != nil {
+			return err
+		}
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.InstanceID, request.IfMatch))
 	}

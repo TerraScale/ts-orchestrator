@@ -1,11 +1,15 @@
 package provider
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,9 +19,124 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
+const instancePrincipalMetadataLimit = 64 << 10
+
+type InstancePrincipalCredentials struct {
+	KeyID string
+	Key   *rsa.PrivateKey
+}
+
+type InstancePrincipalCredentialSource interface {
+	Retrieve(context.Context) (InstancePrincipalCredentials, error)
+}
+
+// OCIInstancePrincipalMetadataSource retrieves the short-lived private key and
+// certificate exposed by the OCI instance metadata service. The endpoint is
+// fixed to the link-local metadata address; callers cannot redirect signing
+// authority to a tenant-controlled host.
+type OCIInstancePrincipalMetadataSource struct {
+	Client *http.Client
+}
+
+func NewOCIInstancePrincipalMetadataSource(client *http.Client) (*OCIInstancePrincipalMetadataSource, error) {
+	if client == nil {
+		client = &http.Client{Transport: directMetadataTransport(nil)}
+	}
+	return &OCIInstancePrincipalMetadataSource{Client: client}, nil
+}
+
+func (s *OCIInstancePrincipalMetadataSource) Retrieve(ctx context.Context) (InstancePrincipalCredentials, error) {
+	if s == nil || s.Client == nil {
+		return InstancePrincipalCredentials{}, &InvalidOperationError{Message: "instance-principal metadata source is unavailable"}
+	}
+	if ctx == nil {
+		return InstancePrincipalCredentials{}, &errs.Argument{Message: "instance-principal metadata context is required"}
+	}
+	metadataCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	client := *s.Client
+	client.Transport = directMetadataTransport(client.Transport)
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return errors.New("metadata redirects are forbidden") }
+	read := func(path string) ([]byte, error) {
+		req, err := http.NewRequestWithContext(metadataCtx, http.MethodGet, "http://169.254.169.254"+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer Oracle")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, &ProviderOutcomeUnknownError{Message: "instance-principal metadata request failed"}
+		}
+		if resp.StatusCode != http.StatusOK {
+			_, _ = ReadBoundedBody(resp, instancePrincipalMetadataLimit)
+			return nil, &ProviderOutcomeUnknownError{Message: "instance-principal metadata request was rejected"}
+		}
+		body, err := ReadBoundedBody(resp, instancePrincipalMetadataLimit)
+		if err != nil {
+			return nil, &InvalidDataError{Message: "instance-principal metadata response is invalid"}
+		}
+		return body, nil
+	}
+	keyPEM, err := read("/opc/v2/identity/key.pem")
+	if err != nil {
+		return InstancePrincipalCredentials{}, err
+	}
+	certPEM, err := read("/opc/v2/identity/cert.pem")
+	if err != nil {
+		return InstancePrincipalCredentials{}, err
+	}
+	key, err := parseMetadataRSAKey(keyPEM)
+	if err != nil {
+		return InstancePrincipalCredentials{}, err
+	}
+	block, rest := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" || len(rest) != 0 {
+		return InstancePrincipalCredentials{}, &InvalidDataError{Message: "instance-principal certificate is invalid"}
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return InstancePrincipalCredentials{}, &InvalidDataError{Message: "instance-principal certificate is invalid"}
+	}
+	public, ok := cert.PublicKey.(*rsa.PublicKey)
+	if !ok || public.N.Cmp(key.N) != 0 || public.E != key.E {
+		return InstancePrincipalCredentials{}, &InvalidDataError{Message: "instance-principal certificate does not match its private key"}
+	}
+	return InstancePrincipalCredentials{KeyID: "http://169.254.169.254/opc/v2/identity/cert.pem", Key: key}, nil
+}
+
+func directMetadataTransport(transport http.RoundTripper) http.RoundTripper {
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	if base, ok := transport.(*http.Transport); ok {
+		clone := base.Clone()
+		clone.Proxy = nil
+		return clone
+	}
+	// Custom transports remain injectable for tests. Production construction
+	// uses the standard transport above, with proxying explicitly disabled.
+	return transport
+}
+
+func parseMetadataRSAKey(raw []byte) (*rsa.PrivateKey, error) {
+	block, rest := pem.Decode(raw)
+	if block == nil || len(rest) != 0 {
+		return nil, &InvalidDataError{Message: "instance-principal private key is invalid"}
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil && key.N.BitLen() >= 2048 {
+		return key, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	key, ok := parsed.(*rsa.PrivateKey)
+	if err != nil || !ok || key.N.BitLen() < 2048 {
+		return nil, &InvalidDataError{Message: "instance-principal private key is invalid"}
+	}
+	return key, nil
+}
+
 // InstancePrincipalSigner is a small OCI HTTP-signature implementation. The
-// key is supplied by the host's instance-principal credential loader, so this
-// package never reads metadata endpoints or stores a credential on disk.
+// key is supplied by an injected instance-principal credential source, so the
+// signer never stores a credential on disk.
 type InstancePrincipalSigner struct {
 	Key   *rsa.PrivateKey
 	KeyID string

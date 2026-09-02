@@ -114,8 +114,11 @@ var (
 	runEmbeddedNatsServer   = func(ctx context.Context, configuration bootstrap.NatsServerConfig) error {
 		return bootstrap.RunNatsServer(ctx, configuration)
 	}
-	renderCatalog = writeCatalog
-	verifyEstate  = verifyConfiguredOCIEstate
+	renderCatalog                           = writeCatalog
+	verifyEstate                            = verifyConfiguredOCIEstate
+	newOCIInstancePrincipalCredentialSource = func() (provider.InstancePrincipalCredentialSource, error) {
+		return provider.NewOCIInstancePrincipalMetadataSource(nil)
+	}
 )
 
 // NatsProvision is a variable-friendly spelling for the package singleton's
@@ -225,18 +228,41 @@ func verifyConfiguredOCIEstate(ctx context.Context, lookup envLookup) error {
 	estateFile, estatePresent := lookup(ociEstateFileEnvironment)
 	keyID, keyPresent := lookup(ociKeyIDEnvironment)
 	keyFile, keyFilePresent := lookup(ociPrivateKeyFileEnvironment)
-	if !estatePresent || !keyPresent || !keyFilePresent || strings.TrimSpace(estateFile) == "" || strings.TrimSpace(keyID) == "" || strings.TrimSpace(keyFile) == "" {
+	if !estatePresent || strings.TrimSpace(estateFile) == "" {
 		return errors.New("OCI estate verification configuration is required")
+	}
+	if keyPresent != keyFilePresent || (keyPresent && (strings.TrimSpace(keyID) == "" || strings.TrimSpace(keyFile) == "")) {
+		return errors.New("OCI explicit signing credentials must include both key ID and key file")
 	}
 	spec, err := provider.LoadOCIEstateSpec(estateFile)
 	if err != nil {
 		return err
 	}
-	reader, err := provider.NewOCIEstateHTTPReader(spec, keyID, keyFile)
+	reader, err := newConfiguredOCIEstateReader(ctx, spec, keyID, keyFile)
 	if err != nil {
 		return err
 	}
 	return provider.VerifyOCIEstate(ctx, spec, reader)
+}
+
+func newConfiguredOCIEstateReader(ctx context.Context, spec provider.OCIEstateSpec, keyID, keyFile string) (*provider.OCIEstateHTTPReader, error) {
+	keyID = strings.TrimSpace(keyID)
+	keyFile = strings.TrimSpace(keyFile)
+	switch {
+	case keyID == "" && keyFile == "":
+		if newOCIInstancePrincipalCredentialSource == nil {
+			return nil, errors.New("OCI instance-principal credential source is unavailable")
+		}
+		source, err := newOCIInstancePrincipalCredentialSource()
+		if err != nil {
+			return nil, err
+		}
+		return provider.NewOCIEstateHTTPReaderWithCredentialSource(ctx, spec, source)
+	case keyID == "" || keyFile == "":
+		return nil, errors.New("OCI explicit signing credentials must include both key ID and key file")
+	default:
+		return provider.NewOCIEstateHTTPReader(spec, keyID, keyFile)
+	}
 }
 
 func requestedCommand(args []string) (string, error) {

@@ -15,9 +15,28 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
+type OCIObjectStorageBinding struct {
+	Namespace    string
+	LedgerBucket string
+	BackupBucket string
+	namespace    string
+	buckets      map[string]struct{}
+}
+
+func NewOCIObjectStorageBinding(namespace, ledgerBucket, backupBucket string) (*OCIObjectStorageBinding, error) {
+	if !validObjectPart(namespace, 128, false) || !validObjectPart(ledgerBucket, 256, false) || !validObjectPart(backupBucket, 256, false) || ledgerBucket == backupBucket {
+		return nil, &errs.Argument{Message: "OCI Object Storage estate buckets are invalid"}
+	}
+	return &OCIObjectStorageBinding{
+		Namespace: namespace, LedgerBucket: ledgerBucket, BackupBucket: backupBucket,
+		namespace: namespace, buckets: map[string]struct{}{ledgerBucket: {}, backupBucket: {}},
+	}, nil
+}
+
 type OCIObjectStorageAdapter struct {
 	ObjectStorage *OCIHTTPTransport
 	Journal       ProviderMutationJournal
+	Binding       *OCIObjectStorageBinding
 }
 
 func NewOCIObjectStorageAdapter(transport *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIObjectStorageAdapter, error) {
@@ -25,6 +44,25 @@ func NewOCIObjectStorageAdapter(transport *OCIHTTPTransport, journal ProviderMut
 		return nil, err
 	}
 	return &OCIObjectStorageAdapter{ObjectStorage: transport, Journal: journal}, nil
+}
+
+func NewOCIObjectStorageAdapterWithBinding(transport *OCIHTTPTransport, journal ProviderMutationJournal, binding *OCIObjectStorageBinding) (*OCIObjectStorageAdapter, error) {
+	if binding == nil || binding.namespace == "" || len(binding.buckets) != 2 {
+		return nil, &InvalidOperationError{Message: "OCI Object Storage adapter requires a verified estate bucket binding"}
+	}
+	adapter, err := NewOCIObjectStorageAdapter(transport, journal)
+	if err != nil {
+		return nil, err
+	}
+	adapter.Binding = binding
+	return adapter, nil
+}
+
+func (a *OCIObjectStorageAdapter) allowsObject(object ObjectRef) bool {
+	return a != nil && a.Binding != nil && object.Namespace == a.Binding.namespace && func() bool {
+		_, ok := a.Binding.buckets[object.Bucket]
+		return ok
+	}()
 }
 
 func validateObjectRef(object ObjectRef) error {
@@ -62,6 +100,9 @@ func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectP
 	}
 	if err := validateObjectRef(request.Object); err != nil {
 		return ObjectMetadata{}, err
+	}
+	if !a.allowsObject(request.Object) {
+		return ObjectMetadata{}, &InvalidOperationError{Message: "OCI Object Storage object is outside the verified estate buckets"}
 	}
 	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
 		return ObjectMetadata{}, &errs.Argument{Message: "object storage content binding is invalid"}
@@ -160,6 +201,9 @@ func (a *OCIObjectStorageAdapter) HeadObject(ctx context.Context, object ObjectR
 	if err := validateObjectRef(object); err != nil {
 		return ObjectMetadata{}, false, err
 	}
+	if !a.allowsObject(object) {
+		return ObjectMetadata{}, false, &InvalidOperationError{Message: "OCI Object Storage object is outside the verified estate buckets"}
+	}
 	resp, err := a.ObjectStorage.Do(ctx, http.MethodHead, objectStoragePath(object), nil)
 	if err != nil {
 		return ObjectMetadata{}, false, err
@@ -183,6 +227,9 @@ func (a *OCIObjectStorageAdapter) GetObject(ctx context.Context, object ObjectRe
 	}
 	if err := validateObjectRef(object); err != nil {
 		return nil, ObjectMetadata{}, err
+	}
+	if !a.allowsObject(object) {
+		return nil, ObjectMetadata{}, &InvalidOperationError{Message: "OCI Object Storage object is outside the verified estate buckets"}
 	}
 	resp, err := a.ObjectStorage.Do(ctx, http.MethodGet, objectStoragePath(object), nil)
 	if err != nil {
@@ -222,6 +269,9 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	if err := validateObjectRef(request.Object); err != nil {
 		return err
 	}
+	if !a.allowsObject(request.Object) {
+		return &InvalidOperationError{Message: "OCI Object Storage object is outside the verified estate buckets"}
+	}
 	if !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "object delete ETag fence is invalid"}
 	}
@@ -240,7 +290,7 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 		return err
 	}
 	if !found {
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
+		return markAbsentDeleteSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
 	}
 	if record.State == MutationUnknown {
 		return &ProviderOutcomeUnknownError{}

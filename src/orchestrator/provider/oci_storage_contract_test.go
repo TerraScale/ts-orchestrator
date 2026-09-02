@@ -95,7 +95,11 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 		}
 		return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"object-etag"}}), nil
 	})
-	adapter, err := NewOCIObjectStorageAdapter(transport, testJournal(t))
+	binding, err := NewOCIObjectStorageBinding("namespace", "ledger", "backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewOCIObjectStorageAdapterWithBinding(transport, testJournal(t), binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +198,11 @@ func TestOCIStorageDeletesConvergeWhenResourcesAreAlreadyAbsent(t *testing.T) {
 		}
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
-	objectAdapter, err := NewOCIObjectStorageAdapter(objectTransport, testJournal(t))
+	binding, err := NewOCIObjectStorageBinding("namespace", "ledger", "backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectAdapter, err := NewOCIObjectStorageAdapterWithBinding(objectTransport, testJournal(t), binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +307,11 @@ func TestOCIObjectDeleteAbsentIsDurablyIdempotent(t *testing.T) {
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
 	journal := testJournal(t)
-	adapter, err := NewOCIObjectStorageAdapter(transport, journal)
+	binding, err := NewOCIObjectStorageBinding("namespace", "ledger", "backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewOCIObjectStorageAdapterWithBinding(transport, journal, binding)
 	if err != nil {
 		t.Fatal(err)
 	}

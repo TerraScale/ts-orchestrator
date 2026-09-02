@@ -88,11 +88,123 @@ type CreateNodeProvider interface {
 // template and placement. No environment, credential, or implicit default is
 // consulted by the provider; all launch material must be injected here.
 type OciNodeLaunchSpec struct {
-	CompartmentId, AvailabilityDomain, FaultDomain, SubnetId, ImageId string
-	Shape                                                             string
-	NetworkSecurityGroupIds                                           []string
-	Ocpus, MemoryGB                                                   float64
-	BootstrapBase64                                                   string
+	CompartmentId, AvailabilityDomain, FaultDomain, VcnId, SubnetId, ImageId string
+	Shape                                                                    string
+	NetworkSecurityGroupIds                                                  []string
+	Ocpus, MemoryGB                                                          float64
+	BootstrapBase64                                                          string
+}
+
+// OCINodeEstateBinding is the network portion of an estate after startup
+// verification. The constructor copies the allowlists so a resolver cannot
+// mutate the scope while a node request is being assembled.
+type OCINodeEstateBinding struct {
+	VCNID                   string
+	SubnetIDs               []string
+	NetworkSecurityGroupIDs []string
+	vcnID                   string
+	subnets                 map[string]struct{}
+	networkSecurityGroups   map[string]struct{}
+}
+
+func NewOCINodeEstateBinding(vcnID string, subnetIDs, networkSecurityGroupIDs []string) (*OCINodeEstateBinding, error) {
+	if !isOCID(vcnID, "vcn") || len(subnetIDs) < 1 || len(subnetIDs) > 16 || len(networkSecurityGroupIDs) < 1 || len(networkSecurityGroupIDs) > 16 {
+		return nil, &InvalidDataError{Message: "OCI node estate binding is incomplete"}
+	}
+	if err := validateEstateIDs(subnetIDs, "subnet", networkSecurityGroupIDs, "networksecuritygroup"); err != nil {
+		return nil, &InvalidDataError{Message: "OCI node estate binding contains invalid resource identities"}
+	}
+	binding := &OCINodeEstateBinding{
+		VCNID:                   vcnID,
+		SubnetIDs:               append([]string(nil), subnetIDs...),
+		NetworkSecurityGroupIDs: append([]string(nil), networkSecurityGroupIDs...),
+		vcnID:                   vcnID,
+		subnets:                 make(map[string]struct{}, len(subnetIDs)),
+		networkSecurityGroups:   make(map[string]struct{}, len(networkSecurityGroupIDs)),
+	}
+	if len(binding.subnets) != len(subnetIDs) || len(binding.networkSecurityGroups) != len(networkSecurityGroupIDs) {
+		return nil, &InvalidDataError{Message: "OCI node estate binding contains duplicate resource identities"}
+	}
+	for _, id := range subnetIDs {
+		binding.subnets[id] = struct{}{}
+	}
+	for _, id := range networkSecurityGroupIDs {
+		binding.networkSecurityGroups[id] = struct{}{}
+	}
+	if err := binding.validate(); err != nil {
+		return nil, err
+	}
+	return binding, nil
+}
+
+// NewOCINodeEstateBindingFromSpec extracts the network allowlists from a
+// startup-verified estate specification. Call it only after VerifyOCIEstate
+// succeeds; the spec validation here also protects callers that assemble the
+// binding at a different composition boundary.
+func NewOCINodeEstateBindingFromSpec(spec OCIEstateSpec) (*OCINodeEstateBinding, error) {
+	if err := validateOCIEstateSpec(spec); err != nil {
+		return nil, &InvalidDataError{Message: "OCI node estate specification is invalid"}
+	}
+	return NewOCINodeEstateBinding(spec.VCNID, spec.SubnetIDs, spec.NetworkSecurityGroupIDs)
+}
+
+func (b *OCINodeEstateBinding) validate() error {
+	if b != nil && b.vcnID != "" {
+		if !isOCID(b.vcnID, "vcn") || len(b.subnets) < 1 || len(b.subnets) > 16 || len(b.networkSecurityGroups) < 1 || len(b.networkSecurityGroups) > 16 {
+			return &InvalidDataError{Message: "OCI node estate binding is incomplete"}
+		}
+		for id := range b.subnets {
+			if !isOCID(id, "subnet") {
+				return &InvalidDataError{Message: "OCI node estate binding contains invalid subnet identity"}
+			}
+		}
+		for id := range b.networkSecurityGroups {
+			if !isOCID(id, "networksecuritygroup") {
+				return &InvalidDataError{Message: "OCI node estate binding contains invalid network group identity"}
+			}
+		}
+		return nil
+	}
+	if b == nil || !isOCID(b.VCNID, "vcn") || len(b.SubnetIDs) < 1 || len(b.SubnetIDs) > 16 || len(b.NetworkSecurityGroupIDs) < 1 || len(b.NetworkSecurityGroupIDs) > 16 {
+		return &InvalidDataError{Message: "OCI node estate binding is incomplete"}
+	}
+	if err := validateEstateIDs(b.SubnetIDs, "subnet", b.NetworkSecurityGroupIDs, "networksecuritygroup"); err != nil {
+		return &InvalidDataError{Message: "OCI node estate binding contains invalid resource identities"}
+	}
+	return nil
+}
+
+func (b *OCINodeEstateBinding) allowsSubnet(id string) bool {
+	if b != nil && b.subnets != nil {
+		_, ok := b.subnets[id]
+		return ok
+	}
+	for _, allowed := range b.SubnetIDs {
+		if allowed == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *OCINodeEstateBinding) vcn() string {
+	if b != nil && b.vcnID != "" {
+		return b.vcnID
+	}
+	return b.VCNID
+}
+
+func (b *OCINodeEstateBinding) allowsNetworkSecurityGroup(id string) bool {
+	if b != nil && b.networkSecurityGroups != nil {
+		_, ok := b.networkSecurityGroups[id]
+		return ok
+	}
+	for _, allowed := range b.NetworkSecurityGroupIDs {
+		if allowed == id {
+			return true
+		}
+	}
+	return false
 }
 
 // OciNodeLaunchResolver is the explicit seam between opaque domain template /
@@ -222,6 +334,7 @@ type OciCreateNodeProvider struct {
 	Journal                            CreateNodeJournal
 	Clock                              func() time.Time
 	LaunchResolver                     OciNodeLaunchResolver
+	EstateBinding                      *OCINodeEstateBinding
 	Ownership                          DurableOwnershipEvidence
 }
 
@@ -234,7 +347,10 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	}
 	client := p.Client
 	if client == nil && p.OCI != nil {
-		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, Ownership: p.Ownership}
+		if p.EstateBinding == nil {
+			return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode requires a verified estate network binding"}
+		}
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, EstateBinding: p.EstateBinding, Ownership: p.Ownership}
 	}
 	if client == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
@@ -265,7 +381,7 @@ func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r Creat
 	}
 	client := p.Client
 	if client == nil && p.OCI != nil {
-		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, Ownership: p.Ownership}
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, EstateBinding: p.EstateBinding, Ownership: p.Ownership}
 	}
 	if client == nil {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
