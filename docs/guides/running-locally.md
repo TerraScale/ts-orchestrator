@@ -17,8 +17,11 @@ the deterministic end-to-end proof lives in
   your user), and a systemd **user** manager with linger enabled
   (`loginctl enable-linger "$USER"`);
 - Go 1.27;
-- the regional NATS URL you will use everywhere below, written `nats://127.0.0.1:4222`
-  in the examples.
+- a regional TLS NATS URL (the examples use `tls://127.0.0.1:4222`);
+- owner-private files for the controller NKey and mTLS tuple, and a separate
+  owner-private, node-scoped NKey (or credentials file) and mTLS tuple. The
+  node identity must not be the controller identity; all node private files
+  must be readable by the configured `TS_ORCH_AUTOSCALER_RUN_AS_UID` account.
 
 On NixOS the absolute podman and systemctl paths differ from the conventional
 ones; see the notes on `--podman-binary` below.
@@ -56,7 +59,11 @@ as uid 0.
 ```sh
 ./bin/ts-node \
   --node-id as-node-1 \
-  --nats-url nats://127.0.0.1:4222 \
+  --nats-url tls://127.0.0.1:4222 \
+  --nats-nkey-file /run/credentials/terrascale/node.seed \
+  --nats-tls-ca-file /run/credentials/terrascale/ca.pem \
+  --nats-tls-cert-file /run/credentials/terrascale/node.pem \
+  --nats-tls-key-file /run/credentials/terrascale/node-key.pem \
   --podman-binary /usr/bin/podman \
   --heartbeat-interval 5s
 ```
@@ -66,12 +73,17 @@ The agent subscribes to the six node subjects
 answers with the typed receipts, and publishes
 `terrascale.node.v1.as-node-1.heartbeat` every interval.
 
-Flags (all optional except the first two):
+Flags (all optional except identity, URL, NATS authentication, and mTLS
+flags):
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--node-id` | required | lowercase DNS-style node token |
-| `--nats-url` | required | regional NATS URL the agent dials |
+| `--nats-url` | required | regional `tls://` NATS URL the agent dials |
+| `--nats-nkey-file` / `--nats-credentials-file` | exactly one required | node-scoped NATS identity file; secret bytes never belong in argv |
+| `--nats-tls-ca-file` | required | NATS server trust-root PEM |
+| `--nats-tls-cert-file` | required | node client certificate PEM |
+| `--nats-tls-key-file` | required | private node client-key PEM |
 | `--node-class` | `greenfield` | informational node class token (the provisioner passes it) |
 | `--podman-binary` | `/usr/bin/podman` | absolute rootless podman path |
 | `--xdg-runtime-dir` | `/run/user/<uid>` | absolute XDG runtime dir of this account |
@@ -112,7 +124,15 @@ emits: provision/retire through a local process provisioner that spawns
 NATS subject.
 
 ```sh
-TS_ORCH_NATS_URL=nats://127.0.0.1:4222 \
+TS_ORCH_NATS_URL=tls://127.0.0.1:4222 \
+TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.seed \
+TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
+TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
+TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE=/run/credentials/terrascale/node.seed \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE=/run/credentials/terrascale/node.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_KEY_FILE=/run/credentials/terrascale/node-key.pem \
 TS_ORCH_AUTOSCALER_TICK_INTERVAL=10s \
 TS_ORCH_AUTOSCALER_MIN_NODES=1 \
 TS_ORCH_AUTOSCALER_MAX_NODES=3 \
@@ -127,6 +147,13 @@ TS_ORCH_AUTOSCALER_RUN_AS_UID=1000 \
 TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES=1048576 \
   ./bin/orchestrator autoscaler
 ```
+
+The `TS_ORCH_AUTOSCALER_NODE_NATS_*` values are required for every autoscaler
+deployment. Use `..._CREDENTIALS_FILE` instead of
+`..._NKEY_FILE` when the node identity is packaged as a NATS credentials file,
+but never set both. The autoscaler validates these files before starting and
+passes their paths to each spawned `ts-node`; it does not inherit ambient
+environment variables or pass secret contents.
 
 What it does on every tick: nodes are tracked from their heartbeats (a node
 silent for three tick intervals leaves the snapshot), the drain gate consults

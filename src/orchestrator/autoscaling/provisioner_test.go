@@ -57,11 +57,29 @@ func validNodeProcessSpec(t *testing.T) NodeProcessSpec {
 		"nats://127.0.0.1:4222",
 		[]string{"--region", "gru", "--node-class", "worker-medium"},
 		map[string]string{"TS_REGION": "gru"},
-		1000)
+		1000, testNodeNatsCredentials())
 	if err != nil {
 		t.Fatalf("spec: %v", err)
 	}
 	return spec
+}
+
+func testNodeNatsCredentials() NodeNatsCredentials {
+	return NodeNatsCredentials{
+		NKeyFile:    "/run/credentials/terrascale/node.seed",
+		TlsCaFile:   "/run/credentials/terrascale/ca.pem",
+		TlsCertFile: "/run/credentials/terrascale/node.pem",
+		TlsKeyFile:  "/run/credentials/terrascale/node-key.pem",
+	}
+}
+
+func testNodeNatsCredentialsFile() NodeNatsCredentials {
+	return NodeNatsCredentials{
+		CredentialsFile: "/run/credentials/terrascale/node.creds",
+		TlsCaFile:       "/run/credentials/terrascale/ca.pem",
+		TlsCertFile:     "/run/credentials/terrascale/node.pem",
+		TlsKeyFile:      "/run/credentials/terrascale/node-key.pem",
+	}
 }
 
 func TestNewNodeProcessSpec(t *testing.T) {
@@ -168,6 +186,24 @@ func TestNewNodeProcessSpec(t *testing.T) {
 			expectParam: "args",
 		},
 		{
+			name:        "reserved NATS trust flag",
+			binaryPath:  "/opt/terrascale/bin/ts-node",
+			nodeId:      "gru-node-9",
+			natsUrl:     "nats://127.0.0.1:4222",
+			args:        []string{"--nats-tls-key-file=attacker"},
+			runAsUid:    1000,
+			expectParam: "args",
+		},
+		{
+			name:        "reserved runtime flag",
+			binaryPath:  "/opt/terrascale/bin/ts-node",
+			nodeId:      "gru-node-9",
+			natsUrl:     "nats://127.0.0.1:4222",
+			args:        []string{"--xdg-runtime-dir", "/tmp/other-user"},
+			runAsUid:    1000,
+			expectParam: "args",
+		},
+		{
 			name:        "argument with control characters",
 			binaryPath:  "/opt/terrascale/bin/ts-node",
 			nodeId:      "gru-node-9",
@@ -208,7 +244,10 @@ func TestNewNodeProcessSpec(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			spec, err := NewNodeProcessSpec(
-				test.binaryPath, test.nodeId, test.natsUrl, test.args, test.env, test.runAsUid)
+				test.binaryPath, test.nodeId, test.natsUrl, test.args, test.env, test.runAsUid,
+				testNodeNatsCredentials())
+			// The node transport is always authenticated; the credential paths
+			// are validated as paths here and their contents by role composition.
 			if test.expectParam != "" {
 				if err == nil {
 					t.Fatal("expected an error, got a valid spec")
@@ -229,7 +268,7 @@ func TestNewNodeProcessSpec(t *testing.T) {
 
 	tooManyArguments := make([]string, autoscalingMaximumArgumentCount+1)
 	if _, err := NewNodeProcessSpec("/opt/terrascale/bin/ts-node", "gru-node-9",
-		"nats://127.0.0.1:4222", tooManyArguments, nil, 1000); !errorsAsParam(err, "args") {
+		"nats://127.0.0.1:4222", tooManyArguments, nil, 1000, testNodeNatsCredentials()); !errorsAsParam(err, "args") {
 		t.Fatalf("argument count must be bounded, got %v", err)
 	}
 	tooManyEntries := make(map[string]string, autoscalingMaximumEnvironmentCount+1)
@@ -237,7 +276,7 @@ func TestNewNodeProcessSpec(t *testing.T) {
 		tooManyEntries[string(rune('A'+index%26))+string(rune('A'+index/26))] = "v"
 	}
 	if _, err := NewNodeProcessSpec("/opt/terrascale/bin/ts-node", "gru-node-9",
-		"nats://127.0.0.1:4222", nil, tooManyEntries, 1000); !errorsAsParam(err, "env") {
+		"nats://127.0.0.1:4222", nil, tooManyEntries, 1000, testNodeNatsCredentials()); !errorsAsParam(err, "env") {
 		t.Fatalf("environment count must be bounded, got %v", err)
 	}
 }
@@ -249,6 +288,10 @@ func TestNodeProcessSpecComposesExplicitArgumentsAndEnvironment(t *testing.T) {
 	expected := []string{
 		"--region", "gru", "--node-class", "worker-medium",
 		"--node-id", "gru-node-9", "--nats-url", "nats://127.0.0.1:4222",
+		"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+		"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+		"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+		"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem",
 	}
 	if len(arguments) != len(expected) {
 		t.Fatalf("arguments = %v", arguments)
@@ -272,6 +315,25 @@ func TestNodeProcessSpecComposesExplicitArgumentsAndEnvironment(t *testing.T) {
 			t.Fatalf("environment = %v, want %v", environment, expectedEnvironment)
 		}
 	}
+}
+
+func TestNodeProcessSpecUsesCredentialsFileWithoutSecretBytes(t *testing.T) {
+	spec, err := NewNodeProcessSpec(
+		"/opt/terrascale/bin/ts-node", "gru-node-9", "tls://127.0.0.1:4222",
+		nil, nil, 1000, testNodeNatsCredentialsFile())
+	if err != nil {
+		t.Fatalf("spec: %v", err)
+	}
+	arguments := spec.childArguments()
+	for index := 0; index < len(arguments); index++ {
+		if arguments[index] == "--nats-credentials-file" {
+			if index+1 >= len(arguments) || arguments[index+1] != "/run/credentials/terrascale/node.creds" {
+				t.Fatalf("credentials argument = %v", arguments)
+			}
+			return
+		}
+	}
+	t.Fatalf("credentials file flag missing from %v", arguments)
 }
 
 func TestStaticNodeProvisionerRecordsAndRevalidates(t *testing.T) {
@@ -333,7 +395,7 @@ func validProvisionerConfig(t *testing.T) LocalProcessProvisionerConfig {
 		"/opt/terrascale/bin/ts-node",
 		"nats://127.0.0.1:4222",
 		[]string{"--region", "gru"},
-		1000)
+		1000, testNodeNatsCredentials())
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -364,8 +426,30 @@ func TestNewLocalProcessProvisionerRequiresExplicitConfigAndSpawner(t *testing.T
 		t.Fatalf("a root configuration must be refused, got %v", err)
 	}
 	if _, err := NewLocalProcessProvisionerConfig(
-		"/opt/terrascale/bin/ts-node", "nats://127.0.0.1:4222", nil, 0); !errorsAsParam(err, "runAsUid") {
+		"/opt/terrascale/bin/ts-node", "nats://127.0.0.1:4222", nil, 0, testNodeNatsCredentials()); !errorsAsParam(err, "runAsUid") {
 		t.Fatalf("a root configuration must be refused, got %v", err)
+	}
+}
+
+func TestNodeProcessSpecRequiresScopedNatsIdentityAndMTLS(t *testing.T) {
+	if _, err := NewNodeProcessSpec(
+		"/opt/terrascale/bin/ts-node", "gru-node-9", "tls://127.0.0.1:4222",
+		nil, nil, 1000); !errorsAsParam(err, "nats") {
+		t.Fatalf("missing node credentials must fail closed, got %v", err)
+	}
+	credentials := testNodeNatsCredentials()
+	credentials.TlsKeyFile = ""
+	if _, err := NewNodeProcessSpec(
+		"/opt/terrascale/bin/ts-node", "gru-node-9", "tls://127.0.0.1:4222",
+		nil, nil, 1000, credentials); !errorsAsParam(err, "nats") {
+		t.Fatalf("partial node mTLS must fail closed, got %v", err)
+	}
+	credentials = testNodeNatsCredentials()
+	credentials.CredentialsFile = "/run/credentials/terrascale/node.creds"
+	if _, err := NewNodeProcessSpec(
+		"/opt/terrascale/bin/ts-node", "gru-node-9", "tls://127.0.0.1:4222",
+		nil, nil, 1000, credentials); !errorsAsParam(err, "nats") {
+		t.Fatalf("two node identities must fail closed, got %v", err)
 	}
 }
 

@@ -116,8 +116,10 @@ invocation, ever runs as uid 0.**
 ## NATS transport map
 
 Each node runs one host agent that connects to the regional embedded NATS
-(ADR 0033 keeps NATS the control transport). The subjects are closed and
-built only from validated `NodeId` tokens:
+(ADR 0033 keeps NATS the control transport). The agent uses a separately
+scoped host-agent NKey (or credentials file) and its complete client mTLS
+tuple; the regional controller identity is never reused by a node. The
+subjects are closed and built only from validated `NodeId` tokens:
 
 | Subject | Pattern | Use |
 | --- | --- | --- |
@@ -201,12 +203,17 @@ operation, not a fast path.
   local adapter (systemd user units or rootless podman, chosen by the
   plan's driver), returns typed receipts, and publishes heartbeats whose
   running-task gauge comes from its own tracked allocations. It holds no
-  cluster credentials beyond its regional NATS connection.
+  cluster credentials beyond its scoped regional NATS identity and mTLS
+  files.
 - **Autoscaler role** — a control-plane role that consumes heartbeats and
   the schedule state, applies the decision rules above, and drives a
   `NodeProvisioner` implementation (the greenfield OCI estate of ADR 0024
   provides the provisioning seam; ADR 0033 gives the regional autonomy
-  model).
+  model). Its explicit `TS_ORCH_AUTOSCALER_NODE_NATS_*` configuration is
+  validated before startup. The process provisioner appends the resulting
+  node identity and mTLS file paths to every `ts-node` argv; caller-supplied
+  extra arguments cannot override those security-owned flags, and secret
+  bytes are never placed in argv.
 - **DrainSafetyEvaluator** — one implementation in the control plane that
   combines replica health from heartbeats with the placement state.
 

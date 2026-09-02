@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,13 +11,22 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const MaximumDeliveryPlanBytes = 8 << 20
 
+const (
+	// DeliveryClaimLease is deliberately finite. A process that disappears
+	// after claiming a plan must not leave the plan pending forever.
+	DeliveryClaimLease        = 15 * time.Second
+	maximumDeliveryClaimLease = 5 * time.Minute
+)
+
 var (
 	ErrDeliveryFenced   = errors.New("delivery authority changed")
 	ErrDeliveryConflict = errors.New("delivery plan identity changed")
+	ErrDeliveryClaimed  = errors.New("delivery plan is claimed by another runtime")
 )
 
 // DeliveryHandoff is the only deployment boundary owned by this package. The
@@ -101,6 +111,7 @@ const (
 	DeliveryDuplicate
 	DeliveryHeld
 	DeliveryFenced
+	DeliveryClaimed
 )
 
 type DeliveryReceipt struct {
@@ -109,18 +120,21 @@ type DeliveryReceipt struct {
 }
 
 type DeliveryProcessor struct {
-	Graph     *RepositorySourceGraph
-	Ledger    Ledger
-	Handoff   DeliveryHandoff
-	Authority func() AuthoritySnapshot
-	mu        sync.Mutex
+	Graph      *RepositorySourceGraph
+	Ledger     Ledger
+	Handoff    DeliveryHandoff
+	Authority  func() AuthoritySnapshot
+	claimID    string
+	claimLease time.Duration
+	now        func() time.Time
+	mu         sync.Mutex
 }
 
 func NewDeliveryProcessor(graph *RepositorySourceGraph, ledger Ledger, handoff DeliveryHandoff, authority func() AuthoritySnapshot) *DeliveryProcessor {
 	if authority == nil {
 		authority = func() AuthoritySnapshot { return AuthoritySnapshot{Ready: true, Leader: true, Epoch: 1} }
 	}
-	return &DeliveryProcessor{Graph: graph, Ledger: ledger, Handoff: handoff, Authority: authority}
+	return &DeliveryProcessor{Graph: graph, Ledger: ledger, Handoff: handoff, Authority: authority, claimID: newDeliveryClaimID(), claimLease: DeliveryClaimLease, now: time.Now}
 }
 
 func NewDeliveryProcessorWithReconciler(graph *RepositorySourceGraph, ledger Ledger, reconciler DeliveryReconciler, authority func() AuthoritySnapshot) *DeliveryProcessor {
@@ -132,8 +146,9 @@ func NewDeliveryProcessorWithReconciler(graph *RepositorySourceGraph, ledger Led
 }
 
 // Process consumes one already authenticated webhook. It is safe to retry the
-// same event after a handoff or process failure. The durable record is written
-// before the external call and committed with a compare-and-swap afterwards.
+// same event after a handoff or process failure. The durable record and its
+// fenced lease claim are written before the external call and committed with a
+// compare-and-swap afterwards.
 func (p *DeliveryProcessor) Process(ctx context.Context, event *WebhookEnvelope) (DeliveryReceipt, error) {
 	return p.process(ctx, event, nil)
 }
@@ -161,6 +176,15 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.claimID == "" {
+		p.claimID = newDeliveryClaimID()
+	}
+	if p.claimLease <= 0 {
+		p.claimLease = DeliveryClaimLease
+	}
+	if p.now == nil {
+		p.now = time.Now
+	}
 	if !ValidRepository(event.Repository) || event.PayloadSHA256 == "" || event.DeliveryID == "" {
 		return DeliveryReceipt{}, errors.New("delivery event identity is incomplete")
 	}
@@ -252,11 +276,36 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 		return DeliveryReceipt{Disposition: DeliveryDuplicate, Digest: reservation.Digest}, nil
 	}
 	if trigger.Disposition == TriggerDispatch {
+		claim, err := p.claim(ctx, key, doc, authority)
+		if err != nil {
+			disposition := DeliveryUnspecified
+			if errors.Is(err, ErrDeliveryFenced) {
+				disposition = DeliveryFenced
+			}
+			return DeliveryReceipt{Disposition: disposition, Digest: plan.Digest}, err
+		}
+		if !claim.Claimed {
+			if claim.Reservation.State == "accepted" {
+				return DeliveryReceipt{Disposition: DeliveryDuplicate, Digest: claim.Reservation.Digest}, nil
+			}
+			return DeliveryReceipt{Disposition: DeliveryClaimed, Digest: plan.Digest}, ErrDeliveryClaimed
+		}
+		reservation = claim.Reservation
+		doc.ClaimOwner = reservation.ClaimOwner
+		doc.ClaimEpoch = reservation.ClaimEpoch
+		doc.ClaimedAt = reservation.ClaimedAt
+		doc.ClaimExpiresAt = reservation.ClaimExpiresAt
 		if err := ensureAuthority(p.Authority, authority); err != nil {
+			_ = p.releaseClaim(ctx, key, reservation)
 			return DeliveryReceipt{}, err
 		}
-		if err := p.Handoff.Handoff(ctx, &plan); err != nil {
-			return DeliveryReceipt{}, err
+		handoffErr := p.invokeHandoff(ctx, key, reservation, authority, &plan)
+		if handoffErr != nil {
+			// A known failed handoff can be retried immediately. The release is
+			// itself fenced by the claim owner and ledger revision, so it cannot
+			// clear a successor's claim after a restart or lease expiry.
+			_ = p.releaseClaim(ctx, key, reservation)
+			return DeliveryReceipt{}, handoffErr
 		}
 		if err := ensureAuthority(p.Authority, authority); err != nil {
 			return DeliveryReceipt{}, err
@@ -282,6 +331,10 @@ type deliveryJournalDocument struct {
 	Descriptors    []SourceDescriptor   `json:"descriptors,omitempty"`
 	Archives       []ArchiveDescriptor  `json:"archives,omitempty"`
 	Intent         ReconciliationIntent `json:"intent"`
+	ClaimOwner     string               `json:"claimOwner,omitempty"`
+	ClaimEpoch     int64                `json:"claimEpoch,omitempty"`
+	ClaimedAt      int64                `json:"claimedAt,omitempty"`
+	ClaimExpiresAt int64                `json:"claimExpiresAt,omitempty"`
 }
 
 func (d deliveryJournalDocument) matches(e *WebhookEnvelope) bool {
@@ -293,16 +346,241 @@ func decodeDeliveryJournal(b []byte) (deliveryJournalDocument, error) {
 	if err := json.Unmarshal(b, &d); err != nil {
 		return d, fmt.Errorf("invalid delivery journal: %w", err)
 	}
-	if d.SchemaVersion != 1 || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.Digest != "" && len(d.Digest) != 64 || d.AuthorityEpoch <= 0 {
+	if d.SchemaVersion != 1 || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.Digest != "" && len(d.Digest) != 64 || d.AuthorityEpoch <= 0 || !validDeliveryClaim(d) {
 		return d, errors.New("invalid delivery journal identity")
 	}
 	return d, nil
 }
 
 type deliveryReservation struct {
-	Revision uint64
-	State    string
-	Digest   string
+	Revision       uint64
+	State          string
+	Digest         string
+	ClaimOwner     string
+	ClaimEpoch     int64
+	ClaimedAt      int64
+	ClaimExpiresAt int64
+}
+
+type deliveryClaimResult struct {
+	Reservation deliveryReservation
+	Claimed     bool
+}
+
+func newDeliveryClaimID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	// A random owner is preferred, but a startup must still fail closed into
+	// a distinct lease owner if the system random source is unavailable.
+	return hash(fmt.Sprintf("delivery-claim-%d", time.Now().UnixNano()))
+}
+
+func (p *DeliveryProcessor) deliveryClaimLease() time.Duration {
+	if p == nil || p.claimLease <= 0 || p.claimLease > maximumDeliveryClaimLease {
+		return DeliveryClaimLease
+	}
+	return p.claimLease
+}
+
+func (p *DeliveryProcessor) deliveryNow() time.Time {
+	if p == nil || p.now == nil {
+		return time.Now()
+	}
+	return p.now()
+}
+
+func validDeliveryClaim(d deliveryJournalDocument) bool {
+	empty := d.ClaimOwner == "" && d.ClaimEpoch == 0 && d.ClaimedAt == 0 && d.ClaimExpiresAt == 0
+	if empty {
+		return true
+	}
+	return d.ClaimOwner != "" && d.ClaimEpoch > 0 && d.ClaimedAt >= 0 && d.ClaimExpiresAt > d.ClaimedAt && d.ClaimExpiresAt-d.ClaimedAt <= maximumDeliveryClaimLease.Nanoseconds()
+}
+
+func (d deliveryJournalDocument) claimIsStale(epoch int64, now int64) bool {
+	return d.ClaimOwner == "" || d.ClaimEpoch < epoch || d.ClaimExpiresAt <= now
+}
+
+func (p *DeliveryProcessor) claim(ctx context.Context, key string, wanted deliveryJournalDocument, authority AuthoritySnapshot) (deliveryClaimResult, error) {
+	if authority.Epoch <= 0 || p.claimID == "" {
+		return deliveryClaimResult{}, ErrDeliveryFenced
+	}
+	lease := p.deliveryClaimLease()
+	for i := 0; i < 8; i++ {
+		cur, err := p.Ledger.Get(ctx, key)
+		if err != nil {
+			return deliveryClaimResult{}, err
+		}
+		if cur == nil {
+			return deliveryClaimResult{}, ErrDeliveryConflict
+		}
+		doc, err := decodeDeliveryJournal(cur.Value)
+		if err != nil {
+			return deliveryClaimResult{}, err
+		}
+		if !doc.matches(&wanted.Envelope) || doc.Digest != wanted.Digest {
+			return deliveryClaimResult{}, ErrDeliveryConflict
+		}
+		if doc.State == "accepted" {
+			return deliveryClaimResult{Reservation: deliveryReservation{Revision: cur.Revision, State: doc.State, Digest: doc.Digest}, Claimed: false}, nil
+		}
+		now := p.deliveryNow().UnixNano()
+		if doc.ClaimOwner != "" && doc.ClaimedAt > now+maximumDeliveryClaimLease.Nanoseconds() {
+			return deliveryClaimResult{}, ErrDeliveryFenced
+		}
+		if doc.ClaimOwner != "" && doc.ClaimEpoch > authority.Epoch {
+			return deliveryClaimResult{}, ErrDeliveryFenced
+		}
+		if !doc.claimIsStale(authority.Epoch, now) {
+			if doc.ClaimOwner == p.claimID && doc.ClaimEpoch == authority.Epoch {
+				return deliveryClaimResult{Reservation: deliveryReservation{Revision: cur.Revision, State: doc.State, Digest: doc.Digest, ClaimOwner: doc.ClaimOwner, ClaimEpoch: doc.ClaimEpoch, ClaimedAt: doc.ClaimedAt, ClaimExpiresAt: doc.ClaimExpiresAt}, Claimed: true}, nil
+			}
+			return deliveryClaimResult{Reservation: deliveryReservation{Revision: cur.Revision, State: doc.State, Digest: doc.Digest}, Claimed: false}, nil
+		}
+		doc.ClaimOwner = p.claimID
+		doc.ClaimEpoch = authority.Epoch
+		doc.ClaimedAt = now
+		doc.ClaimExpiresAt = time.Unix(0, now).Add(lease).UnixNano()
+		b, err := json.Marshal(doc)
+		if err != nil {
+			return deliveryClaimResult{}, err
+		}
+		if len(b) > MaximumDeliveryPlanBytes {
+			return deliveryClaimResult{}, errors.New("delivery journal record exceeds bound")
+		}
+		updated, err := p.Ledger.Update(ctx, key, b, cur.Revision)
+		if err == nil {
+			return deliveryClaimResult{Reservation: deliveryReservation{Revision: updated.Revision, State: doc.State, Digest: doc.Digest, ClaimOwner: doc.ClaimOwner, ClaimEpoch: doc.ClaimEpoch, ClaimedAt: doc.ClaimedAt, ClaimExpiresAt: doc.ClaimExpiresAt}, Claimed: true}, nil
+		}
+		if !errors.Is(err, ErrLedgerConflict) {
+			return deliveryClaimResult{}, err
+		}
+	}
+	return deliveryClaimResult{}, errors.New("delivery claim conflicts exceeded")
+}
+
+func (p *DeliveryProcessor) renewClaim(ctx context.Context, key string, claim deliveryReservation, authority AuthoritySnapshot) (deliveryReservation, error) {
+	cur, err := p.Ledger.Get(ctx, key)
+	if err != nil {
+		return deliveryReservation{}, err
+	}
+	if cur == nil {
+		return deliveryReservation{}, ErrDeliveryClaimed
+	}
+	doc, err := decodeDeliveryJournal(cur.Value)
+	if err != nil {
+		return deliveryReservation{}, err
+	}
+	if doc.State == "accepted" || doc.ClaimOwner != claim.ClaimOwner || doc.ClaimEpoch != claim.ClaimEpoch || doc.ClaimEpoch != authority.Epoch {
+		return deliveryReservation{}, ErrDeliveryClaimed
+	}
+	now := p.deliveryNow().UnixNano()
+	if doc.ClaimExpiresAt <= now {
+		return deliveryReservation{}, ErrDeliveryClaimed
+	}
+	doc.ClaimExpiresAt = time.Unix(0, now).Add(p.deliveryClaimLease()).UnixNano()
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return deliveryReservation{}, err
+	}
+	updated, err := p.Ledger.Update(ctx, key, b, cur.Revision)
+	if err != nil {
+		if errors.Is(err, ErrLedgerConflict) {
+			return deliveryReservation{}, ErrDeliveryClaimed
+		}
+		return deliveryReservation{}, err
+	}
+	claim.Revision = updated.Revision
+	claim.ClaimExpiresAt = doc.ClaimExpiresAt
+	return claim, nil
+}
+
+func (p *DeliveryProcessor) invokeHandoff(ctx context.Context, key string, claim deliveryReservation, authority AuthoritySnapshot, plan *DeliveryPlan) error {
+	callCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	lost := make(chan error, 1)
+	stop := make(chan struct{})
+	var heartbeat sync.WaitGroup
+	heartbeat.Add(1)
+	go func() {
+		defer heartbeat.Done()
+		interval := p.deliveryClaimLease() / 3
+		if interval <= 0 {
+			interval = time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-callCtx.Done():
+				return
+			case <-ticker.C:
+				if err := ensureAuthority(p.Authority, authority); err != nil {
+					select {
+					case lost <- err:
+					default:
+					}
+					cancel()
+					return
+				}
+				var err error
+				claim, err = p.renewClaim(callCtx, key, claim, authority)
+				if err != nil {
+					select {
+					case lost <- err:
+					default:
+					}
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	err := p.Handoff.Handoff(callCtx, plan)
+	close(stop)
+	heartbeat.Wait()
+	select {
+	case lostErr := <-lost:
+		if err == nil || errors.Is(err, context.Canceled) {
+			return lostErr
+		}
+	default:
+	}
+	return err
+}
+
+func (p *DeliveryProcessor) releaseClaim(ctx context.Context, key string, claim deliveryReservation) error {
+	for i := 0; i < 8; i++ {
+		cur, err := p.Ledger.Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if cur == nil {
+			return nil
+		}
+		doc, err := decodeDeliveryJournal(cur.Value)
+		if err != nil {
+			return err
+		}
+		if doc.State == "accepted" || doc.ClaimOwner != claim.ClaimOwner || doc.ClaimEpoch != claim.ClaimEpoch {
+			return nil
+		}
+		doc.ClaimOwner, doc.ClaimEpoch, doc.ClaimedAt, doc.ClaimExpiresAt = "", 0, 0, 0
+		b, err := json.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		if _, err = p.Ledger.Update(ctx, key, b, cur.Revision); err == nil {
+			return nil
+		} else if !errors.Is(err, ErrLedgerConflict) {
+			return err
+		}
+	}
+	return errors.New("delivery claim release conflicts exceeded")
 }
 
 func (p *DeliveryProcessor) reserve(ctx context.Context, key string, wanted deliveryJournalDocument) (deliveryReservation, error) {
@@ -358,6 +636,10 @@ func (p *DeliveryProcessor) reserve(ctx context.Context, key string, wanted deli
 func (p *DeliveryProcessor) accept(ctx context.Context, key string, r deliveryReservation, pending deliveryJournalDocument, digest string) error {
 	pending.State = "accepted"
 	pending.Digest = digest
+	pending.ClaimOwner = r.ClaimOwner
+	pending.ClaimEpoch = r.ClaimEpoch
+	pending.ClaimedAt = r.ClaimedAt
+	pending.ClaimExpiresAt = r.ClaimExpiresAt
 	b, err := json.Marshal(pending)
 	if err != nil {
 		return err
@@ -388,7 +670,12 @@ func (p *DeliveryProcessor) accept(ctx context.Context, key string, r deliveryRe
 		if doc.State == "accepted" {
 			return nil
 		}
+		if r.ClaimOwner != "" && (doc.ClaimOwner != r.ClaimOwner || doc.ClaimEpoch != r.ClaimEpoch) {
+			return ErrDeliveryClaimed
+		}
 		r.Revision = cur.Revision
+		r.ClaimedAt = doc.ClaimedAt
+		r.ClaimExpiresAt = doc.ClaimExpiresAt
 	}
 	return errors.New("delivery journal commit conflicts exceeded")
 }
