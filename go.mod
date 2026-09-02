@@ -6,6 +6,7 @@ require (
 	github.com/nats-io/nats-server/v2 v2.14.6
 	github.com/nats-io/nats.go v1.53.1
 	github.com/nats-io/nkeys v0.4.16
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
