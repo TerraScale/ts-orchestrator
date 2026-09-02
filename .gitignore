@@ -1,16 +1,9 @@
 bin/
 obj/
 .idea/
-.vs/
-.vscode/
-TestResults/
 coverage/
 artifacts/
 test-evidence/runs/
-__pycache__/
-*.py[cod]
-*.user
-*.suo
 orchestrator-tooling
 /ts-node
 .codex-worktrees/
