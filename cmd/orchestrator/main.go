@@ -567,12 +567,8 @@ func defaultGlobalConfiguration(options *control.OrchestratorOptions, regional c
 	if options == nil || options.GlobalNats == nil {
 		return nil, errors.New("global NATS configuration is missing")
 	}
-	authority, err := control.GlobalAuthorityNatsConfigurationFrom(options.GlobalNats, options.Cell)
-	if err != nil {
-		return nil, err
-	}
 	configuration := &control.GlobalNatsRuntimeConfiguration{
-		Authority:            authority,
+		Authority:            options.GlobalNats,
 		Cell:                 options.Cell,
 		Instance:             options.Instance,
 		CiRunnerNatsIdentity: options.CiRunnerNatsIdentity,

@@ -110,7 +110,7 @@ func (globalNatsAccessContract) Create(
 	}
 
 	if capability == GlobalNatsCapabilityGlobalAuthority {
-		if err := GlobalNatsConfigurationValidateLegacyAuthorityAlias(cell); err != nil {
+		if err := globalNatsConfigurationValidateLegacyAuthorityAlias(cell); err != nil {
 			return nil, err
 		}
 	}

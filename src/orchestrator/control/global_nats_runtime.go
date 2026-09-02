@@ -77,19 +77,6 @@ type GlobalNatsRuntimeConfiguration struct {
 	NativeGitOpsConsumerEnabled bool
 }
 
-// GlobalNatsRuntimeConfigurationFrom converts the legacy global NATS
-// configuration while retaining the GRU-only authority boundary.
-func GlobalNatsRuntimeConfigurationFrom(configuration *GlobalNatsConfiguration, instance, cell string) (*GlobalNatsRuntimeConfiguration, error) {
-	if configuration == nil {
-		return nil, errors.New("(Parameter 'configuration')")
-	}
-	authority, err := GlobalAuthorityNatsConfigurationFrom(configuration, cell)
-	if err != nil {
-		return nil, err
-	}
-	return &GlobalNatsRuntimeConfiguration{Authority: authority, Cell: cell, Instance: instance}, nil
-}
-
 type globalNatsRuntimeState struct {
 	js            jetstream.JetStream
 	leaders       jetstream.KeyValue
@@ -262,28 +249,6 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 
 	go runtime.watchCompletion()
 	return runtime, nil
-}
-
-// GlobalNatsRuntimeStart is the synchronous spelling retained for callers
-// that do not use the migration's Async naming convention.
-func GlobalNatsRuntimeStart(ctx context.Context, configuration *GlobalNatsRuntimeConfiguration) (*GlobalNatsRuntime, error) {
-	return GlobalNatsRuntimeStartAsync(ctx, configuration)
-}
-
-// GlobalNatsRuntimeStartFromConfigurationAsync is a migration-friendly entry
-// point for callers that still hold the legacy GlobalNatsConfiguration.
-func GlobalNatsRuntimeStartFromConfigurationAsync(ctx context.Context, configuration *GlobalNatsConfiguration, instance, cell string) (*GlobalNatsRuntime, error) {
-	runtimeConfiguration, err := GlobalNatsRuntimeConfigurationFrom(configuration, instance, cell)
-	if err != nil {
-		return nil, err
-	}
-	return GlobalNatsRuntimeStartAsync(ctx, runtimeConfiguration)
-}
-
-// GlobalNatsRuntimeStartFromConfiguration is the synchronous spelling of the
-// legacy-configuration entry point.
-func GlobalNatsRuntimeStartFromConfiguration(ctx context.Context, configuration *GlobalNatsConfiguration, instance, cell string) (*GlobalNatsRuntime, error) {
-	return GlobalNatsRuntimeStartFromConfigurationAsync(ctx, configuration, instance, cell)
 }
 
 func validateGlobalNatsRuntimeConfiguration(ctx context.Context, configuration *GlobalNatsRuntimeConfiguration) error {

@@ -149,15 +149,6 @@ func NatsJournalWriterRuntimeStartAsync(
 	return runtime, nil
 }
 
-// StartNatsJournalWriterRuntime is a readable alias for callers that do not
-// use the migration's *StartAsync naming convention.
-func StartNatsJournalWriterRuntime(
-	ctx context.Context,
-	options *OrchestratorOptions,
-) (*NatsJournalWriterRuntime, error) {
-	return NatsJournalWriterRuntimeStartAsync(ctx, options)
-}
-
 // Completion closes when the runtime has been disposed or its startup
 // context is canceled.
 func (r *NatsJournalWriterRuntime) Completion() <-chan struct{} {
@@ -190,10 +181,6 @@ func (r *NatsJournalWriterRuntime) Close() error {
 // Dispose is the synchronous Go lifecycle spelling of the C# DisposeAsync
 // boundary. Resource teardown itself is synchronous and idempotent.
 func (r *NatsJournalWriterRuntime) Dispose() error { return r.Close() }
-
-// DisposeAsync is retained as a migration-friendly spelling for callers that
-// model disposable runtimes after the source C# API.
-func (r *NatsJournalWriterRuntime) DisposeAsync() error { return r.Close() }
 
 func journalWriterConfigurationComplete(journal *NatsAuthoritativeJournalConfiguration) bool {
 	if journal == nil || strings.TrimSpace(journal.NKeyFile) == "" || journal.Tls == nil ||

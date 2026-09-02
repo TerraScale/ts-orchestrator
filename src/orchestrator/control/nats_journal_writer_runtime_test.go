@@ -117,7 +117,7 @@ func TestNatsJournalWriterRuntimeCloseIsIdempotent(t *testing.T) {
 	if err := runtime.Dispose(); err != nil {
 		t.Fatalf("second dispose: %v", err)
 	}
-	if err := runtime.DisposeAsync(); err != nil {
+	if err := runtime.Dispose(); err != nil {
 		t.Fatalf("third dispose: %v", err)
 	}
 	select {

@@ -50,7 +50,7 @@ type OrchestratorOptions struct {
 	Instance                   string
 	NatsNKeyFile               *string
 	NatsTls                    *NatsTlsFiles
-	GlobalNats                 *GlobalNatsConfiguration
+	GlobalNats                 *GlobalAuthorityNatsConfiguration
 	GlobalDirectoryNats        *GlobalDirectoryNatsConfiguration
 	GlobalDirectoryServiceNats *GlobalDirectoryServiceNatsConfiguration
 	// CiRunnerNatsIdentity is the controller-owned account signer used to
@@ -237,11 +237,11 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		return nil, errors.New("Infrastructure and controller NATS mTLS identities must be distinct.")
 	}
 
-	var global *GlobalNatsConfiguration
+	var global *GlobalAuthorityNatsConfiguration
 	var directory *GlobalDirectoryNatsConfiguration
 	var service *GlobalDirectoryServiceNatsConfiguration
 	if command == OrchestratorCommandRun || command == OrchestratorCommandCheck {
-		global, err = GlobalNatsConfigurationResolveWithCredentials(globalURL, globalNKey, globalCredentials, globalCA, globalCert, globalKey, replicas, cell)
+		global, err = GlobalAuthorityNatsConfigurationResolveWithCredentials(globalURL, globalNKey, globalCredentials, globalCA, globalCert, globalKey, replicas, cell)
 		if err != nil {
 			return nil, err
 		}
@@ -323,11 +323,6 @@ func ParseOrchestratorOptions(args []string, environment EnvironmentLookup) (*Or
 	return NewOrchestratorOptions(args, environment)
 }
 
-// OrchestratorOptionsParse is retained as a migration-friendly symbol name.
-func OrchestratorOptionsParse(args []string, environment EnvironmentLookup) (*OrchestratorOptions, error) {
-	return NewOrchestratorOptions(args, environment)
-}
-
 func parseOrchestratorCommand(args []string) (OrchestratorCommand, error) {
 	if len(args) == 0 {
 		return OrchestratorCommandRun, nil
@@ -399,7 +394,7 @@ func anyOptionSupplied(values []string) bool {
 	return false
 }
 
-func validateDistinctNatsIdentities(regionalNKey *string, regionalTLS *NatsTlsFiles, authority *GlobalNatsConfiguration, directory *GlobalDirectoryNatsConfiguration, service *GlobalDirectoryServiceNatsConfiguration) error {
+func validateDistinctNatsIdentities(regionalNKey *string, regionalTLS *NatsTlsFiles, authority *GlobalAuthorityNatsConfiguration, directory *GlobalDirectoryNatsConfiguration, service *GlobalDirectoryServiceNatsConfiguration) error {
 	type identity struct {
 		name   string
 		public string

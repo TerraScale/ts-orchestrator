@@ -228,7 +228,7 @@ func TestRunClosesComponentsInReverseOrder(t *testing.T) {
 	global := &fakeComponent{done: make(chan struct{}), name: "global", order: &order}
 	parseOptions = func([]string, control.EnvironmentLookup) (*control.OrchestratorOptions, error) {
 		o := fakeOptions(control.OrchestratorCommandRun)
-		o.GlobalNats = &control.GlobalNatsConfiguration{}
+		o.GlobalNats = &control.GlobalAuthorityNatsConfiguration{}
 		return o, nil
 	}
 	makeGlobalConfiguration = func(*control.OrchestratorOptions, component) (*control.GlobalNatsRuntimeConfiguration, error) {
@@ -293,7 +293,7 @@ func TestGlobalCheckUsesDirectDirectoryProbeBeforeGlobalClose(t *testing.T) {
 	order := []string{}
 	parseOptions = func([]string, control.EnvironmentLookup) (*control.OrchestratorOptions, error) {
 		o := fakeOptions(control.OrchestratorCommandCheck)
-		o.GlobalNats = &control.GlobalNatsConfiguration{}
+		o.GlobalNats = &control.GlobalAuthorityNatsConfiguration{}
 		o.GlobalDirectoryNats = &control.GlobalDirectoryNatsConfiguration{}
 		return o, nil
 	}

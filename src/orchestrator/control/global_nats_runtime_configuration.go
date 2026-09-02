@@ -8,6 +8,21 @@ import (
 	"strings"
 )
 
+// globalNatsConfigurationIsLegacyAuthorityAliasAllowed: the legacy
+// TS_ORCH_GLOBAL_NATS_* settings identify GRU global authority.
+func globalNatsConfigurationIsLegacyAuthorityAliasAllowed(cell string) bool {
+	return cell == "gru" && GlobalNatsTopologyIsCellToken(cell)
+}
+
+func globalNatsConfigurationValidateLegacyAuthorityAlias(cell string) error {
+	if !globalNatsConfigurationIsLegacyAuthorityAliasAllowed(cell) {
+		return errors.New(
+			"TS_ORCH_GLOBAL_NATS_* is a GRU-only global-authority alias. (Parameter 'cell')")
+	}
+
+	return nil
+}
+
 // GlobalDirectoryNatsConfiguration mirrors the C# sealed class: connection and
 // access settings for a regional directory publisher with one durable
 // capability, the GLOBAL_CELLS projection.
@@ -414,7 +429,7 @@ func NewGlobalAuthorityNatsConfiguration(
 	replicas int,
 	cell string,
 ) (*GlobalAuthorityNatsConfiguration, error) {
-	if err := GlobalNatsConfigurationValidateLegacyAuthorityAlias(cell); err != nil {
+	if err := globalNatsConfigurationValidateLegacyAuthorityAlias(cell); err != nil {
 		return nil, err
 	}
 
@@ -449,15 +464,48 @@ func (c *GlobalAuthorityNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, 
 	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityGlobalAuthority)
 }
 
-// GlobalAuthorityNatsConfigurationFrom mirrors the C# From factory.
-func GlobalAuthorityNatsConfigurationFrom(
-	configuration *GlobalNatsConfiguration,
+// GlobalAuthorityNatsConfigurationResolveWithCredentials resolves the
+// TS_ORCH_GLOBAL_NATS_* settings; nil means no setting was supplied.
+func GlobalAuthorityNatsConfigurationResolveWithCredentials(
+	rawUrl string,
+	nkeyFile string,
+	credentialsFile string,
+	caFile string,
+	certificateFile string,
+	keyFile string,
+	replicas int,
 	cell string,
 ) (*GlobalAuthorityNatsConfiguration, error) {
-	if configuration == nil {
-		return nil, errors.New("(Parameter 'configuration')")
+	values := []string{rawUrl, nkeyFile, credentialsFile, caFile, certificateFile, keyFile}
+	supplied := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			supplied++
+		}
 	}
 
-	return NewGlobalAuthorityNatsConfiguration(
-		configuration.Url, configuration.Authentication, configuration.Tls, 3, cell)
+	if supplied == 0 {
+		return nil, nil
+	}
+
+	authentication, err := NatsAuthenticationFilesResolve(nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_NATS")
+	if err != nil {
+		return nil, err
+	}
+
+	if rawUrl == "" || authentication == nil || caFile == "" || certificateFile == "" || keyFile == "" {
+		return nil, errors.New(
+			"Global control NATS requires URL, authentication, CA, certificate, and key together.")
+	}
+
+	tls, err := NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_NATS_TLS")
+	if err != nil {
+		return nil, err
+	}
+
+	if tls == nil {
+		return nil, errors.New("TS_ORCH_GLOBAL_NATS_TLS credentials are missing.")
+	}
+
+	return NewGlobalAuthorityNatsConfiguration(rawUrl, authentication, tls, replicas, cell)
 }
