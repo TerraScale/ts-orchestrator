@@ -55,9 +55,9 @@ Region, spill data into an unselected Region, or appoint a leader.
 
 ## Database transport
 
-Database API is the only TBEP client. TBEP uses generated FlatBuffers over QUIC
-with mutual TLS on remote and loopback paths. UDS, raw HTTP, NATS, or a broker
-cannot become alternate correctness paths.
+TBEP is the private control protocol (gRPC per D-02); no customer data
+rides it. NATS stays inside the orchestrator and never carries customer
+data.
 
 Region-to-Region TerraBase replication also uses direct QUIC with mutual TLS.
 TerraBase owns flow control, batching, acknowledgements, causal reconciliation,

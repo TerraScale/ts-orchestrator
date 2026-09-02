@@ -44,9 +44,8 @@ The active product roles are:
 | Orchestrator | Infrastructure, scheduling, workload identity, placement intent, repair orchestration, and delivery. |
 
 Dashboard uses `@terrascale/sdk` and public TerraScale APIs like any customer
-Project. It never connects directly to TerraBase or TBEP. Database API alone
-uses generated FlatBuffers TBEP over QUIC with mutual TLS to TerraBase,
-including on the same host.
+Project. It never connects directly to TerraBase or TBEP. The member's
+control path is the private TBEP gRPC protocol (D-02).
 
 The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
 services are migration sources. Direct cutover removes them after the Dashboard
