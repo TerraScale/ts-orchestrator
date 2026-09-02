@@ -241,48 +241,6 @@ func toolingTestSuite() []toolingTest {
 		{"owner semantic drift", func() {
 			assertInvalidDocument(mutateDocument("docs/decisions/owner-decision-packet.json", testSegments("questions", 0, "question"), "drift"), OwnerDecisionCommand.Validate)
 		}},
-		{"phase 0 evidence baseline", assertPhase0Valid},
-		{"phase 0 invalid schema version", func() {
-			assertInvalidDocument(mutateDocument("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", testSegments("schema_version"), 2), Phase0EvidenceCommand.ValidateInventory)
-		}},
-		{"phase 0 scalar descriptor", func() {
-			assertInvalidDocument(mutateDocument("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", testSegments("repositories", 0, "descriptors", 0), "invalid"), Phase0EvidenceCommand.ValidateInventory)
-		}},
-		{"phase 0 malformed descriptor hash", func() {
-			assertInvalidDocument(mutateDocument("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", testSegments("repositories", 0, "descriptors", 0, "source_sha256"), strings.Repeat("A", 64)), Phase0EvidenceCommand.ValidateInventory)
-		}},
-		{"phase 0 unavailable repository commit", func() {
-			assertInvalidDocument(mutateDocument("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", testSegments("repositories", 0, "source_commit"), strings.Repeat("0", 40)), Phase0EvidenceCommand.ValidateInventory)
-		}},
-		{"workaround illicit closure", func() {
-			assertInvalidDocument(mutateDocument("docs/retirement/workaround-ledger.yaml", testSegments("entries", 0, "status"), "retired"), Phase0EvidenceCommand.ValidateWorkaroundLedger)
-		}},
-		{"workaround identified receipt", workaroundIdentifiedReceipt},
-		{"workaround missing closure key", workaroundMissingClosureKey},
-		{"workaround extra closure key", workaroundExtraClosureKey},
-		{"workaround unavailable closure receipt", func() {
-			assertInvalidClosureReceipt(strings.Repeat("0", 40), strings.Repeat("a", 64))
-		}},
-		{"workaround mismatched closure receipt", func() {
-			assertInvalidClosureReceipt("9653c0a337fb252602899b594b315639d32c8b20", strings.Repeat("a", 64))
-		}},
-		{"workaround unbound real closure receipt", workaroundUnboundRealClosureReceipt},
-		{"workaround unrelated real closure receipt", workaroundUnrelatedRealClosureReceipt},
-		{"workaround archival source mismatch", func() {
-			assertInvalidDocument(mutateDocument("docs/retirement/workaround-ledger.yaml", testSegments("archivalSourceEvidence", "WRK-001", 0, "sha256"), strings.Repeat("a", 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)
-		}},
-		{"workaround missing archival source evidence", workaroundMissingArchivalSourceEvidence},
-		{"workaround archival anchor drift", func() {
-			assertInvalidDocument(mutateDocument("docs/retirement/workaround-ledger.yaml", testSegments("entries", 0, "source_anchors", 0), "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)
-		}},
-		{"workaround malformed archival anchor", func() {
-			assertInvalidDocument(mutateDocument("docs/retirement/workaround-ledger.yaml", testSegments("entries", 0, "source_anchors", 0), "archive:unknown/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)
-		}},
-		{"workaround archival receipt swap", workaroundArchivalReceiptSwap},
-		{"workaround archival receipt commit retarget", workaroundArchivalReceiptCommitRetarget},
-		{"workaround archival anchor line bounds", workaroundArchivalAnchorLineBounds},
-		{"workaround archival oversized anchor range end", workaroundArchivalOversizedAnchorRangeEnd},
-		{"workaround archival anchor and receipt retarget", workaroundArchivalAnchorAndReceiptRetarget},
 		{"git bytes preserve non UTF-8 blob", gitBytesPreserveNonUtf8Blob},
 		{"no python sources", noPythonSources},
 		{"CI result manifest", testCiResultManifest},
@@ -299,13 +257,6 @@ func testSegments(segments ...any) []any {
 	return segments
 }
 
-func assertPhase0Valid() {
-	assertValidErrors(Phase0EvidenceCommand.ValidateInventory(
-		mustDocument(ToolingSupport.ReadObject("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml"))))
-	assertValidErrors(Phase0EvidenceCommand.ValidateWorkaroundLedger(
-		mustDocument(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"))))
-}
-
 func adrExecutableDependencyCycle() {
 	document := cloneToolingDocument("docs/adr/readiness-index.yaml")
 	entries := objectArray(document.Get("entries"))
@@ -318,129 +269,6 @@ func adrInvalidClosureReference() {
 	document := cloneToolingDocument("docs/adr/readiness-index.yaml")
 	objectArray(document.Get("entries")).Get(0).(*JsonObject).Set("closureEvidence", intJsonArray(99))
 	assertInvalidDocument(document, AdrReadinessCommand.Validate)
-}
-
-func workaroundIdentifiedReceipt() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	closure := testObjectWith("repository", "TerraScale.Infrastructure")
-	document.Get("closureEvidence").(*JsonObject).Set("WRK-001", closure)
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundMissingClosureKey() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	document.Get("closureEvidence").(*JsonObject).Remove("WRK-022")
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundExtraClosureKey() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	document.Get("closureEvidence").(*JsonObject).Set("WRK-023", nil)
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func assertInvalidClosureReceipt(commit string, hash string) {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	objectArray(document.Get("entries")).Get(0).(*JsonObject).Set("status", "retired")
-	closure := newJsonObject()
-	closure.Set("repository", "TerraBase")
-	closure.Set("commit", commit)
-	closure.Set("path", "TerraBase.slnx")
-	closure.Set("sha256", hash)
-	closure.Set("gate", "L1")
-	closure.Set("timestamp", "2026-08-05T00:00:00Z")
-	closure.Set("authority", "test")
-	document.Get("closureEvidence").(*JsonObject).Set("WRK-001", closure)
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundUnboundRealClosureReceipt() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	unrelated := objectArray(document.Get("archivalSourceEvidence").(*JsonObject).Get("WRK-002")).Get(0).(*JsonObject)
-	entries := objectArray(document.Get("entries"))
-	closure := newJsonObject()
-	closure.Set("workaround_id", "WRK-002")
-	closure.Set("native_replacement_gate", mustDeepClone(entries.Get(1).(*JsonObject).Get("native_replacement_gate")))
-	closure.Set("removal_assertion", "The retired implementation and its authority were removed.")
-	closure.Set("approved_cleanup_authority", "approved test authority")
-	closure.Set("repository", mustDeepClone(unrelated.Get("repository")))
-	closure.Set("commit", mustDeepClone(unrelated.Get("commit")))
-	closure.Set("path", mustDeepClone(unrelated.Get("path")))
-	closure.Set("sha256", mustDeepClone(unrelated.Get("sha256")))
-	closure.Set("timestamp", "2026-08-05T00:00:00Z")
-	entries.Get(0).(*JsonObject).Set("status", "retired")
-	document.Get("closureEvidence").(*JsonObject).Set("WRK-001", closure)
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundUnrelatedRealClosureReceipt() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	unrelated := objectArray(document.Get("archivalSourceEvidence").(*JsonObject).Get("WRK-002")).Get(0).(*JsonObject)
-	entries := objectArray(document.Get("entries"))
-	paths := &JsonArray{}
-	paths.Append("safe/path")
-	closure := newJsonObject()
-	closure.Set("workaround_id", "WRK-001")
-	closure.Set("native_replacement_gate", mustDeepClone(entries.Get(0).(*JsonObject).Get("native_replacement_gate")))
-	closure.Set("removal_assertion", "The retired implementation and its authority were removed.")
-	closure.Set("approved_cleanup_authority", "approved test authority")
-	closure.Set("affected_safe_paths", paths)
-	closure.Set("approval_identity", "test approver")
-	closure.Set("repository", mustDeepClone(unrelated.Get("repository")))
-	closure.Set("commit", mustDeepClone(unrelated.Get("commit")))
-	closure.Set("path", mustDeepClone(unrelated.Get("path")))
-	closure.Set("sha256", mustDeepClone(unrelated.Get("sha256")))
-	closure.Set("timestamp", "2026-08-05T00:00:00Z")
-	entries.Get(0).(*JsonObject).Set("status", "retired")
-	document.Get("closureEvidence").(*JsonObject).Set("WRK-001", closure)
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundMissingArchivalSourceEvidence() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	entries := objectArray(document.Get("entries"))
-	entries.Get(0).(*JsonObject).Set("source_anchors", &JsonArray{})
-	document.Get("archivalSourceEvidence").(*JsonObject).Set("WRK-001", &JsonArray{})
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundArchivalReceiptSwap() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	receipt := objectArray(document.Get("archivalSourceEvidence").(*JsonObject).Get("WRK-001")).Get(0).(*JsonObject)
-	receipt.Set("path", "src/TerraScale.Infrastructure/Program.cs")
-	receipt.Set("sha256", "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4")
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundArchivalReceiptCommitRetarget() {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	receipt := objectArray(document.Get("archivalSourceEvidence").(*JsonObject).Get("WRK-001")).Get(0).(*JsonObject)
-	receipt.Set("commit", "3bfdb4ee0124fbcce43e7db57cf00045f374fbcb")
-	receipt.Set("sha256", "f6b47e51a041bda7633dcc5a8f24e840604c1c85c98c8b742289c1c32868c462")
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func retargetArchiveAnchor(anchor string, anchorSha256 string) {
-	document := cloneToolingDocument("docs/retirement/workaround-ledger.yaml")
-	objectArray(document.Get("entries")).Get(0).(*JsonObject).Get("source_anchors").(*JsonArray).Set(0, anchor)
-	receipt := objectArray(document.Get("archivalSourceEvidence").(*JsonObject).Get("WRK-001")).Get(0).(*JsonObject)
-	receipt.Set("anchor", anchor)
-	if anchorSha256 != "" {
-		receipt.Set("anchor_sha256", anchorSha256)
-	}
-	assertInvalidDocument(document, Phase0EvidenceCommand.ValidateWorkaroundLedger)
-}
-
-func workaroundArchivalAnchorLineBounds() {
-	retargetArchiveAnchor("archive:TerraScale.Infrastructure/AGENTS.md:999999", "")
-}
-
-func workaroundArchivalOversizedAnchorRangeEnd() {
-	retargetArchiveAnchor("archive:TerraScale.Infrastructure/AGENTS.md:66-2147483648", "")
-}
-
-func workaroundArchivalAnchorAndReceiptRetarget() {
-	retargetArchiveAnchor("archive:TerraScale.Infrastructure/AGENTS.md:65", "f288db607b8e7372ebff2a7dd7d8e39700ba65451d1445b2063fa300177ca7ab")
 }
 
 func gitBytesPreserveNonUtf8Blob() {

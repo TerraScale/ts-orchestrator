@@ -31,9 +31,6 @@ var toolCommands = []toolCommand{
 	{"development-attest", func(_ context.Context, arguments []string) (int, error) {
 		return DevelopmentEvidenceCommand.Run(arguments)
 	}},
-	{"phase0-evidence", func(_ context.Context, arguments []string) (int, error) {
-		return Phase0EvidenceCommand.Run(arguments)
-	}},
 	{"json-format", func(_ context.Context, arguments []string) (int, error) {
 		return JsonFormatCommand.Run(arguments)
 	}},

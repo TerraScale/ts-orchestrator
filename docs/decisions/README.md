@@ -6,7 +6,7 @@
 > the old service catalog. The machine-readable packet remains intact as
 > evidence of what was accepted in July.
 
-See also the consolidated documentation index in [`../README.md`](../README.md) and Phase 0 summary in [`../guides/phase0-evidence.md`](../guides/phase0-evidence.md).
+See also the consolidated documentation index in [`../README.md`](../README.md).
 
 Status: owner choices 1A–10A accepted on 2026-07-16 with reliability first; measurable targets and later implementation selections remain pending.
 
