@@ -1,5 +1,5 @@
-// Package contracts defines the frozen command identifiers, contract version,
-// resource-model value objects, and permanent stable identifier registries.
+// Package contracts defines the frozen command identifiers shared by the
+// protocol and control packages.
 package contracts
 
 import "strings"
