@@ -76,14 +76,16 @@ defined by D-24.
 
 ## Delivery
 
-Forgejo Actions calls `ts-deploy` to build, test, publish, and submit the exact
-candidate digest. The handoff includes source and tree identity, Deploy CLI
+Forgejo Actions calls `ts-deploy` to build, test, publish, and prepare the exact
+candidate handoff. The handoff includes source and tree identity, Deploy CLI
 identity, image digests, and test results. It does not authorize rollout.
 
-Orchestrator admits the candidate under current fenced authority and owns
-regional blue-green rollout, the durable routing generation, and rollback by
-the retained digest. CI success on `develop`, immutable image digests, and
-tests are the release record. No parallel approval ledger exists.
+`ts-deploy` prepares that handoff; Orchestrator does not currently parse or
+consume the external candidate schema. External admission integration is
+pending DEP-3. Once integrated, Orchestrator will own regional blue-green
+rollout, the durable routing generation, and rollback by the retained digest.
+CI success on `develop`, immutable image digests, and tests are the release
+record. No parallel approval ledger exists.
 
 ## Scope limits
 

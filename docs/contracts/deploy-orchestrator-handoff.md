@@ -1,61 +1,49 @@
 # Deploy to Orchestrator handoff
 
-Status: target contract for DEP-3 and the Orchestrator v2 delivery path.
+Status: current implementation boundary; the external Deploy candidate schema
+is pending DEP-3.
+
+## Current behavior
+
+The code in `src/orchestrator/delivery` accepts bounded Forgejo delivery events,
+resolves repository source, builds an internal `DeliveryPlan`, and calls an
+in-process `DeliveryHandoff`. The plan and handoff do not define or parse a
+signed document submitted by `ts-deploy`.
+
+No machine-readable Deploy candidate migration exists in this repository.
+Orchestrator therefore must not claim that it admits a versioned external
+candidate handoff, verifies that document's signature, or provides replay
+compatibility for such a document. Fixtures without a production parser and
+consumer are not a contract.
 
 ## Ownership
 
-`ts-deploy` runs inside Forgejo Actions. It owns source inspection, build,
-tests, image publication, and submission of the candidate handoff.
+`ts-deploy` runs inside Forgejo Actions. It owns source inspection, tests,
+build, and image publication. Orchestrator owns admission, rollout planning,
+regional execution, routing, rollback, and operation history.
 
-Orchestrator owns admission, rollout planning, regional execution, routing,
-rollback, and operation history. A handoff can identify a candidate. It cannot
-grant an authority term or trigger a provider or routing mutation by itself.
+The existing in-process handoff carries an internal plan to the delivery
+reconciler. It does not grant an authority term or authorize a provider,
+runtime, or routing mutation by itself.
 
-## Handoff content
+## Required machine migration
 
-The bounded, signed document contains:
+DEP-3 must add the external handoff as code before this document can describe
+it as current behavior. The migration must include:
 
-- schema version and signing identity;
-- source repository, commit, and tree digest;
-- Deploy CLI version and executable digest;
-- immutable image manifest and platform digests;
-- captured dependency lockfile digests;
-- the names and results of required CI tests;
-- target service, environment, and ordered region list;
-- configuration and optional migration revision;
-- the retained rollback digest when a previous release exists; and
-- operation ID, actor, issue time, expiry, and audience.
+- one bounded schema shared with `ts-deploy`;
+- strict parsing with duplicate-key and unknown-field rejection;
+- signature, audience, expiry, source, test, target, and immutable-digest
+  checks;
+- idempotent replay and conflict behavior backed by the durable journal;
+- a translation into the current internal `DeliveryPlan` without granting
+  mutation authority; and
+- cross-repository fixtures consumed by automated tests on both sides.
 
-The handoff contains no credentials, provider responses, customer content,
-benchmark authorization, mutable image tags, free-form executable commands, or
-rollout approvals.
+The migration must preserve published image digests through promotion and
+rollback. It must keep credentials, provider responses, customer content,
+benchmark authorization, mutable tags, free-form commands, and rollout
+approval out of the handoff.
 
-## Admission
-
-Orchestrator rejects malformed documents, unknown fields, duplicate keys,
-unsupported versions, expired signatures, source mismatch, missing tests,
-failed required tests, mutable artifact references, platform mismatch, target
-mismatch, or an absent rollback digest for an existing deployment.
-
-Admission verifies the signature and exact values against the current release
-policy. It records an admitted candidate with zero live mutation authority. A
-separate regional rollout operation must bind that candidate to the current
-global release generation and regional authority term before execution.
-
-## Digest discipline
-
-Promotion and rollback reuse the published digest. Neither Deploy nor
-Orchestrator rebuilds an image after handoff. The multi-platform manifest and
-each selected platform image are checked by digest.
-
-## Replay behavior
-
-The operation ID and candidate digest form the idempotency identity. Replaying
-the same signed document returns the same admission outcome. Reusing the
-operation ID with different bytes is a conflict and performs no mutation.
-
-## Protocol
-
-Orchestrator delivery uses the `ts.orch.v2` subject and envelope taxonomy. The
-handoff is admitted through that contract before a regional rollout operation
-can bind it to current authority.
+No external candidate document is currently accepted. Any future parser must
+fail closed for unsupported schema versions and must preserve these checks.

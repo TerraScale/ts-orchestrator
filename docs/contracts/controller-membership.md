@@ -1,8 +1,9 @@
 # Controller membership and the global region directory
 
-- Status: current v2 contract
+- Status: implementation notes; combined mutation eligibility is not wired
 - Subject root: `ts.orch.v2`
-- Implementation: `src/orchestrator/control` and
+- Implementation layout: `src/orchestrator/membership`,
+  `src/orchestrator/authority`, `src/orchestrator/control`, and
   `src/orchestrator/protocol`
 
 ## Regional membership
@@ -41,15 +42,21 @@ Readers classify a slot as healthy, stale, missing, unexpected, wrong-region,
 conflicting-session, stale-term, invalid-signature, or malformed. Missing and
 stale are observations, not deletion or failover authority.
 
-Controller eligibility combines membership with the live authority claim:
+Membership health does not currently grant mutation eligibility. A heartbeat
+records the publisher's observed authority term and revision, but no production
+boundary consumes membership and authority as one eligibility decision.
 
-- a live claim, matching term, leadership, and quorum permits mutation;
-- a peer's live claim makes the controller read-only;
-- quorum loss makes authority uncertain and read-only; and
-- an expired, malformed, or stale claim is ineligible.
+Until that integration lands:
 
-The mutation boundary rechecks the current authority claim immediately before
-an external effect and before acknowledging its control operation.
+- membership records are health and discovery input, not mutation permits;
+- existing mutation boundaries must perform their own current authority check;
+- a healthy membership record cannot turn stale or uncertain authority into a
+  permit; and
+- an unhealthy record cannot authorize failover, deletion, or provider work.
+
+The combined boundary must stay fail-closed when it is implemented. It must
+recheck membership, the live authority claim, term, leadership, and quorum
+immediately before an external effect and before acknowledging the operation.
 
 ## Global region directory
 
@@ -81,7 +88,8 @@ not metric labels.
 
 ## Verification
 
-Tests cover virtual-clock lease transitions, canonical signatures,
-compare-and-swap races, stale term rejection, one-controller loss, one-server
-loss in R3, directory publisher loss, gateway isolation, reconnect, and
-conflicting-session recovery.
+Membership tests cover lease transitions, canonical signatures,
+compare-and-swap races, stale term rejection, reconnect reconciliation, and
+conflicting-session recovery. Control-plane tests cover directory and NATS
+failure behavior separately. No test currently proves combined membership and
+authority eligibility at a live mutation boundary.

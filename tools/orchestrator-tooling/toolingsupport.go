@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -305,42 +304,6 @@ func deepEqualJSON(left, right any) bool {
 		return ok && leftValue == rightValue
 	}
 	return false
-}
-
-// Scalar accessors mirroring JsonValue.TryGetValue / GetValue semantics.
-func tryString(node any) (string, bool) {
-	value, ok := node.(string)
-	return value, ok
-}
-
-func tryInt(node any) (int, bool) {
-	switch value := node.(type) {
-	case json.Number:
-		parsed, err := strconv.ParseInt(string(value), 10, 32)
-		if err != nil {
-			return 0, false
-		}
-		return int(parsed), true
-	case int:
-		return value, true
-	case int64:
-		if value < -1<<31 || value > 1<<31-1 {
-			return 0, false
-		}
-		return int(value), true
-	}
-	return 0, false
-}
-
-func tryBool(node any) (bool, bool) {
-	value, ok := node.(bool)
-	return value, ok
-}
-
-// stringValue mirrors the C# StringValue helper: the node's string value or
-// null when it is not a string scalar.
-func stringValue(node any) (string, bool) {
-	return tryString(node)
 }
 
 // ProcessResult mirrors the C# ProcessResult record.

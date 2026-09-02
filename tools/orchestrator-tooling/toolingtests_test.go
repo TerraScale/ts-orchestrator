@@ -11,15 +11,9 @@ import (
 )
 
 var hermeticToolingTests = map[string]bool{
-	"git bytes preserve non UTF-8 blob":                  true,
-	"no python sources":                                  true,
-	"CI result manifest":                                 true,
-	"development evidence fixed topology authorization":  true,
-	"development evidence bounded execution":             true,
-	"development bounded process observation":            true,
-	"development validation lease":                       true,
-	"development validation lease recovers stale holder": true,
-	"workspace topology lease":                           true,
+	"git bytes preserve non UTF-8 blob": true,
+	"no python sources":                 true,
+	"workspace topology lease":          true,
 }
 
 func TestToolingHermetic(t *testing.T) {
@@ -41,15 +35,18 @@ func TestToolingHermetic(t *testing.T) {
 	}
 }
 
-func TestRetiredDocumentCommandsAreAbsent(t *testing.T) {
-	retired := map[string]bool{
-		"adr-readiness":   true,
-		"owner-decisions": true,
-		"phase0-evidence": true,
+func TestCommandInventoryIsExact(t *testing.T) {
+	expected := map[string]bool{
+		"json-format":                     true,
+		"test":                            true,
+		"workspace-topology-lease-holder": true,
+	}
+	if len(toolCommands) != len(expected) {
+		t.Fatalf("command count = %d, want %d", len(toolCommands), len(expected))
 	}
 	for _, command := range toolCommands {
-		if retired[command.name] {
-			t.Fatalf("retired document command %q remains registered", command.name)
+		if !expected[command.name] {
+			t.Fatalf("unexpected command %q remains registered", command.name)
 		}
 	}
 }
