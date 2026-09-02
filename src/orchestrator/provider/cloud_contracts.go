@@ -541,9 +541,41 @@ type RegistryPullProvider interface {
 
 type RegistryManifestRequest struct{ Repository, Reference string }
 type RegistryBlobRequest struct{ Repository, Digest string }
+
+// RegistryPullRequest is the durable, scoped form of a manifest read. The
+// repository ownership record is keyed by Repository and must name the same
+// CompartmentID before the registry is contacted.
+type RegistryPullRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Repository    string
+	Reference     string
+}
+
+// RegistryBlobPullRequest is the durable, scoped form of a blob read.
+type RegistryBlobPullRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Repository    string
+	Digest        string
+}
+
+// RegistryTagListRequest asks the registry for one bounded, resumable tag
+// listing. The registry's Link header advances the same durable operation.
+type RegistryTagListRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Repository    string
+}
 type RegistryManifest struct {
 	Digest, MediaType string
 	Content           []byte
+}
+
+type RegistryTagPullProvider interface {
+	PullManifestScoped(context.Context, RegistryPullRequest) (RegistryManifest, error)
+	PullBlobScoped(context.Context, RegistryBlobPullRequest) (io.ReadCloser, int64, error)
+	ListTagsScoped(context.Context, RegistryTagListRequest) ([]string, error)
 }
 
 type ObjectStorageProvider interface {
@@ -551,6 +583,50 @@ type ObjectStorageProvider interface {
 	HeadObject(context.Context, ObjectRef) (ObjectMetadata, bool, error)
 	GetObject(context.Context, ObjectRef) (io.ReadCloser, ObjectMetadata, error)
 	DeleteObject(context.Context, ObjectDeleteRequest) error
+}
+
+// ObjectHeadRequest is the durable, compartment-scoped form of an Object
+// Storage metadata read.
+type ObjectHeadRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Object        ObjectRef
+}
+
+// ObjectGetRequest is the durable, compartment-scoped form of a streamed
+// Object Storage read. MaxBytes must be positive and is capped by the
+// adapter's configured read limit.
+type ObjectGetRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Object        ObjectRef
+	MaxBytes      int64
+}
+
+// ObjectPutScopedRequest binds a ledger or backup object write to its durable
+// compartment ownership record.
+type ObjectPutScopedRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Object        ObjectRef
+	Content       []byte
+	SHA256        string
+}
+
+// ObjectDeleteScopedRequest binds an object deletion to its durable
+// compartment ownership record and observed ETag.
+type ObjectDeleteScopedRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	Object        ObjectRef
+	IfMatch       string
+}
+
+type ScopedObjectStorageProvider interface {
+	PutObjectScoped(context.Context, ObjectPutScopedRequest) (ObjectMetadata, error)
+	HeadObjectScoped(context.Context, ObjectHeadRequest) (ObjectMetadata, bool, error)
+	GetObjectScoped(context.Context, ObjectGetRequest) (io.ReadCloser, ObjectMetadata, error)
+	DeleteObjectScoped(context.Context, ObjectDeleteScopedRequest) error
 }
 
 type ObjectRef struct{ Namespace, Bucket, Name string }

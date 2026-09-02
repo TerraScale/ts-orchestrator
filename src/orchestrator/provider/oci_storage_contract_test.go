@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1241,6 +1242,7 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 		}
 		return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"object-etag"}}), nil
 	})
+	transport.Signer = stageASignerFunc(func(*http.Request) error { return nil })
 	adapter, err := NewOCIObjectStorageAdapter(transport, testJournal(t))
 	if err != nil {
 		t.Fatal(err)
@@ -1250,6 +1252,170 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 	metadata, err := adapter.PutObject(context.Background(), request)
 	if err != nil || metadata.ETag != "object-etag" || metadata.SHA256 != digest || putCalls != 1 {
 		t.Fatalf("put object = %+v, calls=%d, err=%v", metadata, putCalls, err)
+	}
+}
+
+func TestOCIObjectStorageScopedAdapterFencesAndVerifiesReads(t *testing.T) {
+	const compartment = "ocid1.compartment.oc1..testcompartment"
+	object := ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "gru/segment-1"}
+	resource := ObjectStorageResourceID(object)
+	content := []byte("durable ledger segment")
+	digest := objectSHA256(content)
+
+	t.Run("production construction requires signer", func(t *testing.T) {
+		transport := testOCITransport(t, OCIServiceObjectStorage, func(*http.Request) (*http.Response, error) {
+			return nil, io.ErrUnexpectedEOF
+		})
+		if _, err := NewOCIObjectStorageScopedAdapter(transport, testJournal(t), testOwnership(t, resource), 1024); err == nil {
+			t.Fatal("unsigned Object Storage production adapter was accepted")
+		}
+	})
+
+	t.Run("head and get are scoped and signed", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+			calls++
+			if request.Header.Get("X-Test-Signed") != "yes" || request.URL.EscapedPath() != "/n/namespace/b/ledger/o/gru%2Fsegment-1" {
+				return nil, io.ErrUnexpectedEOF
+			}
+			switch request.Method {
+			case http.MethodHead:
+				return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"ledger-etag"}, "Content-Length": {strconv.Itoa(len(content))}, "Opc-Meta-Terrascale-Sha256": {digest}}), nil
+			case http.MethodGet:
+				return testHTTPResponse(http.StatusOK, string(content), http.Header{"Etag": {"ledger-etag"}, "Content-Length": {strconv.Itoa(len(content))}, "Opc-Meta-Terrascale-Sha256": {digest}}), nil
+			default:
+				return nil, io.ErrUnexpectedEOF
+			}
+		})
+		transport.Signer = stageASignerFunc(func(request *http.Request) error {
+			request.Header.Set("X-Test-Signed", "yes")
+			return nil
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIObjectStorageScopedAdapter(transport, journal, testOwnership(t, resource), 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		head := ObjectHeadRequest{CompartmentID: compartment, Object: object}
+		head.Mutation = testMutation("object.head", ObjectHeadMutationScope(head), ObjectHeadMutationFingerprint(head), 1)
+		metadata, found, err := adapter.HeadObjectScoped(context.Background(), head)
+		if err != nil || !found || metadata.SHA256 != digest || calls != 1 {
+			t.Fatalf("head metadata=%+v found=%v calls=%d err=%v", metadata, found, calls, err)
+		}
+		get := ObjectGetRequest{CompartmentID: compartment, Object: object, MaxBytes: 1024}
+		get.Mutation = testMutation("object.get", ObjectGetMutationScope(get), ObjectGetMutationFingerprint(get), 1)
+		reader, metadata, err := adapter.GetObjectScoped(context.Background(), get)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if err != nil || closeErr != nil || string(got) != string(content) || metadata.ETag != "ledger-etag" || calls != 2 {
+			t.Fatalf("get body=%q metadata=%+v calls=%d readErr=%v closeErr=%v", got, metadata, calls, err, closeErr)
+		}
+		record, err := journal.Prepare(context.Background(), get.Mutation)
+		if err != nil || record.State != MutationSucceeded {
+			t.Fatalf("get journal=%+v err=%v", record, err)
+		}
+	})
+
+	t.Run("missing ownership never contacts storage", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceObjectStorage, func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, io.ErrUnexpectedEOF
+		})
+		transport.Signer = stageASignerFunc(func(*http.Request) error { return nil })
+		adapter, err := NewOCIObjectStorageScopedAdapter(transport, testJournal(t), testOwnership(t), 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		head := ObjectHeadRequest{CompartmentID: compartment, Object: object}
+		head.Mutation = testMutation("object.head", ObjectHeadMutationScope(head), ObjectHeadMutationFingerprint(head), 1)
+		if _, _, err := adapter.HeadObjectScoped(context.Background(), head); err == nil || calls != 0 {
+			t.Fatalf("missing owner calls=%d err=%v", calls, err)
+		}
+	})
+
+	t.Run("early close is unknown and same intent resumes", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceObjectStorage, func(*http.Request) (*http.Response, error) {
+			calls++
+			return testHTTPResponse(http.StatusOK, string(content), http.Header{"Etag": {"ledger-etag"}, "Content-Length": {strconv.Itoa(len(content))}, "Opc-Meta-Terrascale-Sha256": {digest}}), nil
+		})
+		transport.Signer = stageASignerFunc(func(*http.Request) error { return nil })
+		journal := testJournal(t)
+		adapter, err := NewOCIObjectStorageScopedAdapter(transport, journal, testOwnership(t, resource), 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		get := ObjectGetRequest{CompartmentID: compartment, Object: object, MaxBytes: 1024}
+		get.Mutation = testMutation("object.get", ObjectGetMutationScope(get), ObjectGetMutationFingerprint(get), 1)
+		reader, _, err := adapter.GetObjectScoped(context.Background(), get)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reader.Close(); err == nil {
+			t.Fatal("unverified close was accepted")
+		}
+		record, err := journal.Prepare(context.Background(), get.Mutation)
+		if err != nil || record.State != MutationUnknown || calls != 1 {
+			t.Fatalf("unknown get journal=%+v calls=%d err=%v", record, calls, err)
+		}
+		get.Mutation.Epoch.Value++
+		reader, _, err = adapter.GetObjectScoped(context.Background(), get)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.ReadAll(reader); err != nil {
+			t.Fatal(err)
+		}
+		if err := reader.Close(); err != nil || calls != 2 {
+			t.Fatalf("resumed get calls=%d closeErr=%v", calls, err)
+		}
+	})
+}
+
+func TestOCIObjectStorageScopedAdapterCapsWritesAndRejectsDuplicateJSON(t *testing.T) {
+	const compartment = "ocid1.compartment.oc1..testcompartment"
+	object := ObjectRef{Namespace: "namespace", Bucket: "backups", Name: "fra/snapshot-1"}
+	resource := ObjectStorageResourceID(object)
+	content := []byte("backup bytes")
+	digest := objectSHA256(content)
+	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPut {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"backup-etag"}}), nil
+	})
+	transport.Signer = stageASignerFunc(func(request *http.Request) error {
+		request.Header.Set("X-Test-Signed", "yes")
+		return nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIObjectStorageScopedAdapter(transport, journal, testOwnership(t, resource), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := ObjectPutScopedRequest{CompartmentID: compartment, Object: object, Content: content, SHA256: digest}
+	put.Mutation = testMutation("object.put", ObjectPutScopedMutationScope(put), ObjectPutScopedMutationFingerprint(put), 1)
+	metadata, err := adapter.PutObjectScoped(context.Background(), put)
+	if err != nil || metadata.ETag != "backup-etag" {
+		t.Fatalf("scoped put metadata=%+v err=%v", metadata, err)
+	}
+
+	if rejectDuplicateJSONKeys([]byte(`{"name":"x","name":"y"}`)) == nil {
+		t.Fatal("duplicate JSON key was accepted")
+	}
+	if rejectDuplicateJSONKeys([]byte(`{"outer":{"name":"x","name":"y"}}`)) == nil {
+		t.Fatal("nested duplicate JSON key was accepted")
+	}
+	if _, err := objectMetadataFromResponse(testHTTPResponse(http.StatusOK, "", http.Header{
+		"Etag":                       {"one", "two"},
+		"Content-Length":             {"0"},
+		"Opc-Meta-Terrascale-Sha256": {objectSHA256(nil)},
+	})); err == nil {
+		t.Fatal("duplicate Object Storage metadata header was accepted")
 	}
 }
 
@@ -1293,5 +1459,219 @@ func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
 	gotBlob, err := io.ReadAll(reader)
 	if err != nil || size != int64(len(blob)) || string(gotBlob) != blob {
 		t.Fatalf("blob size=%d body=%q err=%v", size, gotBlob, err)
+	}
+}
+
+func TestOCIRegistryScopedPullResumesTheSameDurableIntent(t *testing.T) {
+	const (
+		compartment = "ocid1.compartment.oc1..testcompartment"
+		repository  = "tenancy/terrascale/member"
+	)
+	manifest := []byte(`{"schemaVersion":2}`)
+	manifestDigest := "sha256:" + objectSHA256(manifest)
+
+	t.Run("missing ownership never contacts registry", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, io.ErrUnexpectedEOF
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding := registryPullBinding(compartment, repository, manifestDigest)
+		request := RegistryPullRequest{CompartmentID: compartment, Repository: repository, Reference: manifestDigest}
+		request.Mutation = testMutation("registry.manifest.pull", ProviderMutationScope("registry-manifest", compartment, repository, manifestDigest), fingerprintJSON("registry.manifest.pull", binding), 1)
+		if _, err := adapter.PullManifestScoped(context.Background(), request); err == nil || calls != 0 {
+			t.Fatalf("missing ownership calls=%d err=%v", calls, err)
+		}
+	})
+
+	t.Run("manifest unknown outcome resumes without replacement", func(t *testing.T) {
+		calls := 0
+		available := false
+		transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
+			calls++
+			if !available {
+				return nil, io.ErrUnexpectedEOF
+			}
+			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
+		})
+		transport.Config.MaxRetries = 0
+		journal := testJournal(t)
+		adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+		if err != nil {
+			t.Fatal(err)
+		}
+		binding := registryPullBinding(compartment, repository, manifestDigest)
+		request := RegistryPullRequest{CompartmentID: compartment, Repository: repository, Reference: manifestDigest}
+		request.Mutation = testMutation("registry.manifest.pull", ProviderMutationScope("registry-manifest", compartment, repository, manifestDigest), fingerprintJSON("registry.manifest.pull", binding), 1)
+		if _, err := adapter.PullManifestScoped(context.Background(), request); err == nil {
+			t.Fatal("indeterminate manifest read was accepted")
+		}
+		record, err := journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationUnknown || calls != 1 {
+			t.Fatalf("unknown manifest record=%+v calls=%d err=%v", record, calls, err)
+		}
+		available = true
+		request.Mutation.Epoch.Value++
+		got, err := adapter.PullManifestScoped(context.Background(), request)
+		if err != nil || got.Digest != manifestDigest || calls != 2 {
+			t.Fatalf("resumed manifest=%+v calls=%d err=%v", got, calls, err)
+		}
+		record, err = journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationSucceeded || record.Result.ResourceID != registryPullResource(repository, manifestDigest) {
+			t.Fatalf("resumed manifest record=%+v err=%v", record, err)
+		}
+	})
+
+	t.Run("compartment mismatch never contacts registry", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, io.ErrUnexpectedEOF
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := RegistryPullRequest{CompartmentID: "ocid1.compartment.oc1..wrongcompartment", Repository: repository, Reference: manifestDigest}
+		request.Mutation = testMutation("registry.manifest.pull", ProviderMutationScope("registry-manifest", request.CompartmentID, repository, manifestDigest), fingerprintJSON("registry.manifest.pull", registryPullBinding(request.CompartmentID, repository, manifestDigest)), 1)
+		if _, err := adapter.PullManifestScoped(context.Background(), request); err == nil || calls != 0 {
+			t.Fatalf("compartment mismatch calls=%d err=%v", calls, err)
+		}
+	})
+
+	t.Run("malformed manifest becomes unknown", func(t *testing.T) {
+		malformed := []byte(`{"schemaVersion":1}`)
+		digest := "sha256:" + objectSHA256(malformed)
+		calls := 0
+		transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+			calls++
+			return testHTTPResponse(http.StatusOK, string(malformed), http.Header{"Docker-Content-Digest": {digest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := RegistryPullRequest{CompartmentID: compartment, Repository: repository, Reference: digest}
+		request.Mutation = testMutation("registry.manifest.pull", ProviderMutationScope("registry-manifest", compartment, repository, digest), fingerprintJSON("registry.manifest.pull", registryPullBinding(compartment, repository, digest)), 1)
+		if _, err := adapter.PullManifestScoped(context.Background(), request); err == nil {
+			t.Fatal("malformed manifest was accepted")
+		}
+		record, err := journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationUnknown || calls != 1 {
+			t.Fatalf("malformed manifest record=%+v calls=%d err=%v", record, calls, err)
+		}
+	})
+}
+
+func TestOCIRegistryScopedBlobRequiresCompleteVerificationBeforeSuccess(t *testing.T) {
+	const (
+		compartment = "ocid1.compartment.oc1..testcompartment"
+		repository  = "tenancy/terrascale/member"
+	)
+	blob := "layer-bytes"
+	digest := "sha256:" + objectSHA256([]byte(blob))
+	calls := 0
+	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
+		calls++
+		return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {digest}, "Content-Length": {strconv.Itoa(len(blob))}}), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := registryBlobPullBinding(compartment, repository, digest)
+	request := RegistryBlobPullRequest{CompartmentID: compartment, Repository: repository, Digest: digest}
+	request.Mutation = testMutation("registry.blob.pull", ProviderMutationScope("registry-blob", compartment, repository, digest), fingerprintJSON("registry.blob.pull", binding), 1)
+	reader, _, err := adapter.PullBlobScoped(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err == nil {
+		t.Fatal("closing an unverified blob was accepted")
+	}
+	record, err := journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationUnknown || calls != 1 {
+		t.Fatalf("partial blob record=%+v calls=%d err=%v", record, calls, err)
+	}
+	request.Mutation.Epoch.Value++
+	reader, size, err := adapter.PullBlobScoped(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if err != nil || closeErr != nil || string(got) != blob || size != int64(len(blob)) || calls != 2 {
+		t.Fatalf("resumed blob size=%d body=%q calls=%d readErr=%v closeErr=%v", size, got, calls, err, closeErr)
+	}
+	record, err = journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationSucceeded || record.Result.ResourceID != registryPullResource(repository, digest) {
+		t.Fatalf("resumed blob record=%+v err=%v", record, err)
+	}
+}
+
+func TestOCIRegistryScopedTagListingIsBoundedAndPaged(t *testing.T) {
+	const (
+		compartment = "ocid1.compartment.oc1..testcompartment"
+		repository  = "tenancy/terrascale/member"
+	)
+	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/v2/tenancy/terrascale/member/tags/list" || request.URL.Query().Get("n") != "1000" {
+			return nil, io.ErrUnexpectedEOF
+		}
+		if request.URL.Query().Get("last") == "" {
+			return testHTTPResponse(http.StatusOK, `{"name":"tenancy/terrascale/member","tags":["v1"]}`, http.Header{"Link": {`</v2/tenancy/terrascale/member/tags/list?n=1000&last=v1>; rel="next"`}}), nil
+		}
+		if request.URL.Query().Get("last") != "v1" {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return testHTTPResponse(http.StatusOK, `{"name":"tenancy/terrascale/member","tags":["v2"]}`, nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := registryTagListBinding(compartment, repository)
+	request := RegistryTagListRequest{CompartmentID: compartment, Repository: repository}
+	request.Mutation = testMutation("registry.tags.list", ProviderMutationScope("registry-tags", compartment, repository), fingerprintJSON("registry.tags.list", binding), 1)
+	tags, err := adapter.ListTagsScoped(context.Background(), request)
+	if err != nil || strings.Join(tags, ",") != "v1,v2" {
+		t.Fatalf("tags=%v err=%v", tags, err)
+	}
+	record, err := journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationSucceeded {
+		t.Fatalf("tag listing record=%+v err=%v", record, err)
+	}
+}
+
+func TestOCIRegistryScopedTagListingRejectsMalformedPagination(t *testing.T) {
+	const (
+		compartment = "ocid1.compartment.oc1..testcompartment"
+		repository  = "tenancy/terrascale/member"
+	)
+	transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"name":"tenancy/terrascale/member","tags":["v1"]}`, http.Header{"Link": {`https://attacker.test/v2/tenancy/terrascale/member/tags/list?n=1000&last=v1; rel="next"`}}), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIRegistryPullAdapter(transport, journal, testOwnership(t, repository))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := RegistryTagListRequest{CompartmentID: compartment, Repository: repository}
+	request.Mutation = testMutation("registry.tags.list", ProviderMutationScope("registry-tags", compartment, repository), fingerprintJSON("registry.tags.list", registryTagListBinding(compartment, repository)), 1)
+	if _, err := adapter.ListTagsScoped(context.Background(), request); err == nil {
+		t.Fatal("absolute registry pagination link was accepted")
+	}
+	record, err := journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationUnknown {
+		t.Fatalf("malformed pagination record=%+v err=%v", record, err)
 	}
 }
