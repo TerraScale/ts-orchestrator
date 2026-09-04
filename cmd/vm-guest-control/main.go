@@ -9,8 +9,8 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	"terrascale.tech/orchestrator/src/orchestrator/vmguest"
 	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/vmguest"
 )
 
 func main() {

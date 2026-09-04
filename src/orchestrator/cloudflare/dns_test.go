@@ -29,25 +29,34 @@ func TestDNSReconcile(t *testing.T) {
 		},
 		{
 			name:     "no-op when declared",
-			live:     `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true},{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true}]`,
+			live:     `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true,"tags":["terrascale-managed"]},{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true,"tags":["terrascale-managed"]}]`,
 			wantPlan: nil,
 		},
 		{
 			name:       "drift on proxied flag is repaired by update",
-			live:       `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":false},{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true}]`,
+			live:       `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":false,"tags":["terrascale-managed"]},{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true,"tags":["terrascale-managed"]}]`,
 			wantPlan:   []string{"update dns-record A api.terrascale.tech -> 192.0.2.1 proxied=true"},
 			wantMethod: []string{http.MethodPatch},
 		},
 		{
-			name:       "orphan records are deleted",
-			live:       `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true},{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true},{"id":"old","type":"CNAME","name":"legacy.terrascale.tech","content":"elsewhere.example","ttl":3600,"proxied":true}]`,
-			wantPlan:   []string{"delete dns-record CNAME legacy.terrascale.tech -> elsewhere.example"},
+			// Ownership is the tag, not the name: an owned but undeclared
+			// record is deleted, an unowned record is preserved with an
+			// alert (D-67: deletion authority must be proven).
+			name: "owned orphan deleted; unowned record preserved with an alert",
+			live: `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true,"tags":["terrascale-managed"]},` +
+				`{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.10","ttl":1,"proxied":true,"tags":["terrascale-managed"]},` +
+				`{"id":"old","type":"CNAME","name":"legacy.terrascale.tech","content":"elsewhere.example","ttl":3600,"proxied":true,"tags":["terrascale-managed"]},` +
+				`{"id":"fx","type":"A","name":"stray.terrascale.tech","content":"203.0.113.99","ttl":3600,"proxied":true}]`,
+			wantPlan: []string{
+				"alert dns-record preserving unowned DNS record A stray.terrascale.tech -> 203.0.113.99",
+				"delete dns-record CNAME legacy.terrascale.tech -> elsewhere.example",
+			},
 			wantMethod: []string{http.MethodDelete},
 		},
 		{
 			name: "replaced member is one delete and one create",
-			live: `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true},` +
-				`{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.99","ttl":1,"proxied":true}]`,
+			live: `[{"id":"r1","type":"A","name":"api.terrascale.tech","content":"192.0.2.1","ttl":1,"proxied":true,"tags":["terrascale-managed"]},` +
+				`{"id":"r2","type":"A","name":"sync.api.terrascale.tech","content":"198.51.100.99","ttl":1,"proxied":true,"tags":["terrascale-managed"]}]`,
 			wantPlan: []string{
 				"create dns-record A sync.api.terrascale.tech -> 198.51.100.10 proxied=true",
 				"delete dns-record A sync.api.terrascale.tech -> 198.51.100.99",
@@ -82,7 +91,14 @@ func TestDNSReconcile(t *testing.T) {
 			if !reflect.DeepEqual(methods, tc.wantMethod) {
 				t.Fatalf("applied methods = %v, want %v", methods, tc.wantMethod)
 			}
-			if len(ft.recorded()) != len(tc.wantMethod)+1 && len(tc.wantMethod) > 0 {
+			// The observe list plus one re-observation before every delete.
+			relists := 0
+			for _, m := range tc.wantMethod {
+				if m == http.MethodDelete {
+					relists++
+				}
+			}
+			if len(tc.wantMethod) > 0 && len(ft.recorded()) != len(tc.wantMethod)+1+relists {
 				t.Fatalf("unexpected call count: %d", len(ft.recorded()))
 			}
 		})

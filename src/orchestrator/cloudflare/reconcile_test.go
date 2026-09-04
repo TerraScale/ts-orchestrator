@@ -249,9 +249,12 @@ func miniClient(m *miniCF) *Client {
 func driftEverywhere(m *miniCF) {
 	m.dns["ns"] = DNSRecord{ID: "ns", Type: "NS", Name: "terrascale.tech", Content: "beth.ns.cloudflare.com"}
 	m.dns["soa"] = DNSRecord{ID: "soa", Type: "SOA", Name: "terrascale.tech", Content: "..."}
-	// app exists but DNS-only (someone flipped the cloud); api missing.
-	m.dns["app"] = DNSRecord{ID: "app", Type: "A", Name: "app.terrascale.tech", Content: workerOrigin, Proxied: false}
-	// An orphan from a retired direction.
+	// app exists but DNS-only (someone flipped the cloud); it stays owned via
+	// its tag, so the drift is repaired. api missing.
+	m.dns["app"] = DNSRecord{ID: "app", Type: "A", Name: "app.terrascale.tech", Content: workerOrigin,
+		Proxied: false, Tags: []string{DNSOwnershipTag}}
+	// An untagged orphan: not ours to delete, so it is preserved with an
+	// alert (D-67).
 	m.dns["old"] = DNSRecord{ID: "old", Type: "A", Name: "legacy.terrascale.tech", Content: "203.0.113.99"}
 
 	// One console-clicked cache rule, declared rule missing, tiered off.
@@ -311,8 +314,8 @@ func TestFullZoneReconcilePass(t *testing.T) {
 		counts[ch.Resource][ch.Action]++
 	}
 	wantCounts := map[string]map[Action]int{
-		"dns-record":   {Create: 10, Update: 1, Delete: 1}, // app exists (drifted); apex/api/docs/status + 3 sync + 3 region creates
-		"cache-rule":   {Create: 1, Delete: 1},
+		"dns-record":   {Create: 10, Update: 1, Alert: 1}, // app drifts (update); legacy is unowned (alert); apex/api/docs/status + 3 sync + 3 region creates
+		"cache-rule":   {Create: 1, Alert: 1},
 		"tiered-cache": {Update: 1},
 		"snippet-rule": {Update: 1},
 		"worker-route": {Create: 1, Update: 1, Delete: 1},
@@ -333,17 +336,31 @@ func TestFullZoneReconcilePass(t *testing.T) {
 		t.Fatalf("apply failed: %v", err)
 	}
 
-	// The zone now matches the declaration: a second pass plans nothing.
+	// The owned estate converged: a second pass plans nothing except the
+	// two alerts for records this pass proved it does not own (D-67).
 	again, err := ReconcileZone(context.Background(), c, z)
 	if err != nil {
 		t.Fatalf("second observe pass failed: %v", err)
 	}
-	if len(again.Changes) != 0 {
-		t.Fatalf("zone did not converge:\n%s", again)
+	if len(again.Changes) != 2 {
+		t.Fatalf("zone should converge except the two unowned alerts:\n%s", again)
+	}
+	for _, ch := range again.Changes {
+		if ch.Action != Alert {
+			t.Fatalf("only alerts may remain, got %v:\n%s", ch.Action, again)
+		}
+	}
+	alerts := summarize(again)
+	want := []string{
+		"alert dns-record preserving unowned DNS record A legacy.terrascale.tech -> 203.0.113.99",
+		"alert cache-rule preserving unowned Cloudflare rule c-foreign",
+	}
+	if !reflect.DeepEqual(alerts, want) {
+		t.Fatalf("remaining alerts = %v\nwant %v", alerts, want)
 	}
 
-	// Final DNS state is exactly the apex, D-24, and the Cloudflare-managed
-	// records.
+	// Final DNS state is exactly the apex, D-24, the Cloudflare-managed
+	// records, and the preserved unowned legacy record.
 	names := map[string]int{}
 	m.mu.Lock()
 	for _, rec := range m.dns {
@@ -356,12 +373,12 @@ func TestFullZoneReconcilePass(t *testing.T) {
 	rateRules := len(m.phases["http_ratelimit"])
 	tiered := m.tiered
 	m.mu.Unlock()
-	for _, want := range []string{"", "api.", "sync.api.", "gru.api.", "sfo.api.", "fra.api.", "app.", "docs.", "status."} {
+	for _, want := range []string{"", "api.", "sync.api.", "gru.api.", "sfo.api.", "fra.api.", "app.", "docs.", "status.", "legacy."} {
 		if names[want+ZoneName] == 0 {
 			t.Errorf("D-24 hostname %s missing after reconcile (dns=%v)", want+ZoneName, names)
 		}
 	}
-	if len(names) != 9 { // the apex (A + NS + SOA) + 8 declared hostnames
+	if len(names) != 10 { // the apex (A + NS + SOA) + 8 declared hostnames + preserved legacy
 		t.Errorf("stray DNS names remain: %v", names)
 	}
 	if !kvTitles[DBPlacementNamespace] || kvTitles["old-maps"] {

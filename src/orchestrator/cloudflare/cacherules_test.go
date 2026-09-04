@@ -63,15 +63,17 @@ func TestCacheRulesReconcile(t *testing.T) {
 			wantMethod: []string{http.MethodPut},
 		},
 		{
-			name:      "foreign and retired rules are deleted",
+			// Owned rules the declaration dropped are deleted; a rule we
+			// cannot prove ownership of is preserved with an alert (D-67).
+			name:      "retired owned rule deleted; unowned rule preserved with an alert",
 			phaseGet:  http.StatusOK,
 			phaseBody: `[` + declaredCacheRule + `,{"id":"c2","description":"someone clicked a console","expression":"true","action":"set_cache_settings","enabled":true},{"id":"c3","description":"terrascale:retired","expression":"http.host eq \"old\"","action":"set_cache_settings","enabled":true}]`,
 			tiered:    "on",
 			wantPlan: []string{
-				"delete cache-rule true",
+				"alert cache-rule preserving unowned Cloudflare rule c2",
 				"delete cache-rule http.host eq \"old\"",
 			},
-			wantMethod: []string{http.MethodPut, http.MethodPut},
+			wantMethod: []string{http.MethodPut},
 		},
 		{
 			name:       "smart tiered cache drift",
