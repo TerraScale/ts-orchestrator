@@ -40,18 +40,39 @@ func RefKey(ref estate.ResourceRef) string {
 	return string(ref.Kind) + "/" + ref.Region + "/" + ref.Name
 }
 
-// ByRef indexes the state by resource identity. Duplicate identities are an
-// observation bug and are reported instead of silently collapsed.
+// ByRef indexes the state by resource identity. A resource repeated with an
+// identical attribute multiset is collapsed — duplicate provider listings
+// must not block convergence (D-67) — while conflicting observations of one
+// identity are an ambiguity the reconciler refuses to plan against.
 func (s State) ByRef() (map[string]Resource, error) {
 	indexed := make(map[string]Resource, len(s.Resources))
 	for _, resource := range s.Resources {
 		key := RefKey(resource.Ref)
-		if _, exists := indexed[key]; exists {
-			return nil, fmt.Errorf("duplicate observed resource %s", key)
+		previous, exists := indexed[key]
+		if !exists {
+			indexed[key] = resource
+			continue
 		}
-		indexed[key] = resource
+		if !sameAttributes(previous.Attributes, resource.Attributes) {
+			return nil, fmt.Errorf("conflicting observed resource %s", key)
+		}
 	}
 	return indexed, nil
+}
+
+// sameAttributes compares two attribute multisets order-insensitively.
+func sameAttributes(left, right []Attribute) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	normalizedLeft := normalizeAttributes(left)
+	normalizedRight := normalizeAttributes(right)
+	for i := range normalizedLeft {
+		if normalizedLeft[i] != normalizedRight[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Declared renders the declared estate into the provider-neutral State. This

@@ -290,19 +290,22 @@ func TestDeclaredRejectsInvalidSpecs(t *testing.T) {
 	}
 }
 
-func TestStateByRefRejectsDuplicateIdentities(t *testing.T) {
+func TestStateByRefCollapsesDuplicatesAndRejectsConflicts(t *testing.T) {
 	ref := estate.ResourceRef{Kind: estate.ResourceBucket, Region: "gru", Name: "backups"}
-	state := State{Resources: []Resource{{Ref: ref}, {Ref: ref}}}
-	if _, err := state.ByRef(); err == nil {
-		t.Fatal("duplicate identities must fail observation indexing")
-	}
-	single := State{Resources: []Resource{{Ref: ref}}}
-	indexed, err := single.ByRef()
+	resource := Resource{Ref: ref, Attributes: []Attribute{{Name: "bucket.purpose", Value: "database-backup"}}}
+	// Duplicate identical listings collapse: the reconciler keeps converging.
+	indexed, err := State{Resources: []Resource{resource, resource}}.ByRef()
 	if err != nil {
-		t.Fatalf("indexing a clean observation failed: %v", err)
+		t.Fatalf("collapsing duplicate observations failed: %v", err)
 	}
-	if _, ok := indexed[RefKey(ref)]; !ok {
-		t.Fatalf("index is missing %s", RefKey(ref))
+	if len(indexed) != 1 {
+		t.Fatalf("index has %d entries, want the duplicate collapsed", len(indexed))
+	}
+	// Conflicting observations of one identity are refused.
+	conflicting := resource
+	conflicting.Attributes = []Attribute{{Name: "bucket.purpose", Value: "unknown"}}
+	if _, err := (State{Resources: []Resource{resource, conflicting}}).ByRef(); err == nil {
+		t.Fatal("conflicting identities must fail observation indexing")
 	}
 }
 

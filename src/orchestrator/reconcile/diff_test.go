@@ -139,9 +139,26 @@ func TestDiffScopedToOwnedKinds(t *testing.T) {
 	}
 }
 
-func TestDiffRejectsDuplicateObservations(t *testing.T) {
-	duplicated := State{Resources: []Resource{gruBucket(), gruBucket()}}
-	if _, err := Diff(State{Resources: []Resource{gruBucket()}}, duplicated); err == nil {
-		t.Fatal("duplicate observed resources must fail the diff")
+func TestDiffConvergesPastDuplicateObservations(t *testing.T) {
+	declared := State{Resources: []Resource{gruBucket()}}
+	// The same resource listed twice by a provider must not block
+	// convergence (D-67: converge after duplicate provider responses).
+	plan, err := Diff(declared, State{Resources: []Resource{gruBucket(), gruBucket()}})
+	if err != nil {
+		t.Fatalf("diff of duplicate identical observations failed: %v", err)
+	}
+	if !plan.Empty() {
+		t.Fatalf("duplicate identical observation produced %+v", plan.Actions)
+	}
+}
+
+func TestDiffRejectsConflictingObservations(t *testing.T) {
+	conflicting := gruBucket()
+	conflicting.Attributes[2].Value = "expire-history|delete|7"
+	if _, err := Diff(
+		State{Resources: []Resource{gruBucket()}},
+		State{Resources: []Resource{gruBucket(), conflicting}},
+	); err == nil {
+		t.Fatal("conflicting observations of one identity must fail the diff")
 	}
 }
