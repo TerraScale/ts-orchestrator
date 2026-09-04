@@ -138,9 +138,10 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	}
 	if name == "bootstrap" {
 		// Greenfield OCI bootstrap (D-67): compartment, VCN, NSGs, vault,
-		// buckets, and the first two home-Region hosts. Fails loudly when
-		// the owner's OCI credentials are absent; the real run is I-7.
-		if err := provider.RunOCIBootstrapFromEnvironment(ctx, lookup, provider.BootstrapRequest{}, output); err != nil {
+		// buckets, and the first two home-Region hosts whose cloud-init
+		// installs only ts-node; the hosts then fetch the orchestrator and
+		// form the fenced temporary GRU R1. --dry-run prints the runbook.
+		if err := runBootstrap(ctx, args, lookup, output); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil
@@ -228,6 +229,12 @@ func requestedCommand(args []string) (string, error) {
 		if (len(args) == 2 && args[1] != "" && !strings.HasPrefix(args[1], "-")) ||
 			(len(args) == 3 && args[1] != "" && !strings.HasPrefix(args[1], "-") && args[2] == dryRunFlag) {
 			return "add-region", nil
+		}
+		return "unsupported", errors.New("orchestrator: unsupported command")
+	}
+	if args[0] == "bootstrap" {
+		if len(args) == 1 || len(args) == 2 && args[1] == dryRunFlag {
+			return "bootstrap", nil
 		}
 		return "unsupported", errors.New("orchestrator: unsupported command")
 	}
@@ -696,6 +703,7 @@ func writeCatalog(output io.Writer) error {
 		{Name: "journal-writer", Description: "start the isolated authoritative journal writer"},
 		{Name: "reconcile", Description: "drive the observed estate to the declared estate; --dry-run prints the plan"},
 		{Name: "add-region", Description: "bring one declared region from empty OCI to serving members; --dry-run prints the runbook"},
+		{Name: "bootstrap", Description: "greenfield bootstrap from an empty tenancy to the fenced temporary GRU R1; --dry-run prints the runbook"},
 	}
 	environment := []string{
 		"TS_ORCH_CELL", "TS_ORCH_NATS_URL", "TS_ORCH_REPLICAS", "TS_ORCH_INSTANCE",

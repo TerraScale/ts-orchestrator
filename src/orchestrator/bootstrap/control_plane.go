@@ -131,6 +131,14 @@ func (s ControlPlaneState) Validate() error {
 	return nil
 }
 
+// AlreadyBootstrapped reports whether durable control state has passed the
+// greenfield empty phase. A raw zero-value state (a fresh journal) counts as
+// empty, so bootstrap callers can decide resume-versus-no-op without
+// duplicating normalization rules.
+func (s ControlPlaneState) AlreadyBootstrapped() bool {
+	return s.normalize().Phase != ControlPhaseEmpty
+}
+
 func validControlRegion(region string) bool {
 	if region == "" || len(region) > 63 || strings.ContainsAny(region, "\r\n\x00") {
 		return false
