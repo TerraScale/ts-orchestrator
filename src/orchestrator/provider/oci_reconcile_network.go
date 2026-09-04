@@ -17,12 +17,17 @@ import (
 )
 
 // The network reconciler creates and repairs each Region's VCN, private
-// subnets, and network security groups from the declared estate (D-67). VCN
-// and subnet CIDR drift is refused loudly instead of repaired: renumbering a
-// live network strands every attached resource.
+// subnets, network security groups, NAT gateway, and route tables from the
+// declared estate (D-67). VCN and subnet CIDR drift is refused loudly
+// instead of repaired: renumbering a live network strands every attached
+// resource. Route rules are repaired to the declared set.
 
 // VCNName derives the deterministic VCN display name for a Region code.
 func VCNName(regionCode string) string { return "terrascale-" + regionCode }
+
+// NATGatewayName derives the deterministic NAT gateway display name for a
+// Region code. Private member subnets egress only through it (D-66).
+func NATGatewayName(regionCode string) string { return "terrascale-" + regionCode + "-nat" }
 
 type ObservedVCN struct {
 	ID             string
@@ -37,6 +42,7 @@ type ObservedSubnet struct {
 	DisplayName    string
 	CIDR           string
 	LifecycleState string
+	RouteTableID   string
 }
 
 type ObservedNSG struct {
@@ -44,6 +50,30 @@ type ObservedNSG struct {
 	VCNID          string
 	DisplayName    string
 	LifecycleState string
+}
+
+type ObservedNATGateway struct {
+	ID             string
+	VCNID          string
+	DisplayName    string
+	LifecycleState string
+}
+
+// ObservedRouteRule is one route table rule as OCI reports it. TargetType is
+// normalized from the wire or derived from the target OCID ("natgateway",
+// "internetgateway", ...).
+type ObservedRouteRule struct {
+	Destination string
+	TargetID    string
+	TargetType  string
+}
+
+type ObservedRouteTable struct {
+	ID             string
+	VCNID          string
+	DisplayName    string
+	LifecycleState string
+	Routes         []ObservedRouteRule
 }
 
 // ObservedSecurityRule is one NSG rule as OCI reports it. Protocol is the
@@ -59,10 +89,12 @@ type ObservedSecurityRule struct {
 }
 
 type NetworkObserved struct {
-	VCN     *ObservedVCN
-	Subnets []ObservedSubnet
-	NSGs    []ObservedNSG
-	Rules   map[string][]ObservedSecurityRule
+	VCN         *ObservedVCN
+	Subnets     []ObservedSubnet
+	NSGs        []ObservedNSG
+	NATGateways []ObservedNATGateway
+	RouteTables []ObservedRouteTable
+	Rules       map[string][]ObservedSecurityRule
 }
 
 // SecurityRuleSpec is the provider-neutral rule shape the estate declares
@@ -73,6 +105,14 @@ type SecurityRuleSpec struct {
 	Peer      string
 	PortMin   uint16
 	PortMax   uint16
+}
+
+// RouteRuleSpec is the provider-neutral route shape the estate declares:
+// one destination CIDR forwarded through the Region's NAT gateway. The
+// gateway identity is filled in at apply time from the live NAT gateway.
+type RouteRuleSpec struct {
+	Destination  string
+	NATGatewayID string
 }
 
 // NetworkGateway is the OCI core-service seam for network reconciliation.
@@ -88,6 +128,12 @@ type NetworkGateway interface {
 	ListNSGRules(ctx context.Context, nsgID string) ([]ObservedSecurityRule, error)
 	AddNSGRules(ctx context.Context, nsgID string, rules []SecurityRuleSpec) error
 	RemoveNSGRules(ctx context.Context, nsgID string, ruleIDs []string) error
+	ListNATGateways(ctx context.Context, vcnID string) ([]ObservedNATGateway, error)
+	CreateNATGateway(ctx context.Context, vcnID, name string) (ObservedNATGateway, error)
+	ListRouteTables(ctx context.Context, vcnID string) ([]ObservedRouteTable, error)
+	CreateRouteTable(ctx context.Context, vcnID, name string, rules []RouteRuleSpec) (ObservedRouteTable, error)
+	ReplaceRouteRules(ctx context.Context, routeTableID string, rules []RouteRuleSpec) error
+	AttachSubnetRouteTable(ctx context.Context, subnetID, routeTableID string) error
 }
 
 type CreateVCNAction struct{ Name, CIDR string }
@@ -114,6 +160,42 @@ type ReplaceNSGRulesAction struct {
 func (a ReplaceNSGRulesAction) Kind() OCIActionKind { return OCIActionReplaceNSGRules }
 func (a ReplaceNSGRulesAction) Summary() string {
 	return "replace " + strconv.Itoa(len(a.Add)) + " added and " + strconv.Itoa(len(a.RemoveIDs)) + " removed rules in " + a.Name
+}
+
+type CreateNATGatewayAction struct{ Name string }
+
+func (a CreateNATGatewayAction) Kind() OCIActionKind { return OCIActionCreateNATGateway }
+func (a CreateNATGatewayAction) Summary() string     { return "create NAT gateway " + a.Name }
+
+type CreateRouteTableAction struct {
+	Name   string
+	Subnet string
+	Rules  []RouteRuleSpec
+}
+
+func (a CreateRouteTableAction) Kind() OCIActionKind { return OCIActionCreateRouteTable }
+func (a CreateRouteTableAction) Summary() string {
+	return "create route table " + a.Name + " with " + strconv.Itoa(len(a.Rules)) + " routes for subnet " + a.Subnet
+}
+
+type ReplaceRouteRulesAction struct {
+	Name  string
+	Rules []RouteRuleSpec
+}
+
+func (a ReplaceRouteRulesAction) Kind() OCIActionKind { return OCIActionReplaceRouteRules }
+func (a ReplaceRouteRulesAction) Summary() string {
+	return "replace routes in " + a.Name + " with " + strconv.Itoa(len(a.Rules)) + " declared routes"
+}
+
+type AttachSubnetRouteTableAction struct {
+	Subnet     string
+	RouteTable string
+}
+
+func (a AttachSubnetRouteTableAction) Kind() OCIActionKind { return OCIActionAttachSubnetRoute }
+func (a AttachSubnetRouteTableAction) Summary() string {
+	return "attach subnet " + a.Subnet + " to route table " + a.RouteTable
 }
 
 // NetworkReconciler converges one Region's network toward its declaration.
@@ -161,6 +243,14 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 		return NetworkObserved{}, err
 	}
 	observed.NSGs, err = r.Gateway.ListNSGs(ctx, observed.VCN.ID)
+	if err != nil {
+		return NetworkObserved{}, err
+	}
+	observed.NATGateways, err = r.Gateway.ListNATGateways(ctx, observed.VCN.ID)
+	if err != nil {
+		return NetworkObserved{}, err
+	}
+	observed.RouteTables, err = r.Gateway.ListRouteTables(ctx, observed.VCN.ID)
 	if err != nil {
 		return NetworkObserved{}, err
 	}
@@ -257,7 +347,88 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 			plan.Actions = append(plan.Actions, ReplaceNSGRulesAction{Name: declaredGroup.Name, Add: add, RemoveIDs: remove})
 		}
 	}
+	if len(declared.Network.RouteTables) > 0 {
+		natID, natMissing, err := resolveDeclaredNAT(declared, observed)
+		if err != nil {
+			return OCIPlan{}, err
+		}
+		if natMissing {
+			plan.Actions = append(plan.Actions, CreateNATGatewayAction{Name: NATGatewayName(declared.Code)})
+			// The NAT gateway create is asynchronous; route tables reference it
+			// after the next observation confirms it is usable.
+			return plan, nil
+		}
+		if natID == "" {
+			// The NAT gateway is still provisioning; routes replan once it is
+			// usable.
+			return plan, nil
+		}
+		routeTables := make(map[string]ObservedRouteTable, len(observed.RouteTables))
+		for _, table := range observed.RouteTables {
+			switch observedNetworkState(table.LifecycleState) {
+			case networkStateAbsent:
+				continue
+			case networkStateFailed:
+				return OCIPlan{}, &InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
+			case networkStateUnknown:
+				return OCIPlan{}, &InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
+			}
+			if _, duplicate := routeTables[table.DisplayName]; duplicate {
+				return OCIPlan{}, &InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
+			}
+			routeTables[table.DisplayName] = table
+		}
+		for _, declaredTable := range declared.Network.RouteTables {
+			existing, ok := routeTables[declaredTable.Name]
+			if !ok {
+				plan.Actions = append(plan.Actions, CreateRouteTableAction{Name: declaredTable.Name, Subnet: declaredTable.Subnet, Rules: routeRuleSpecs(declaredTable.Routes)})
+				// The table is created asynchronously; subnet association is
+				// planned after the next observation confirms it is usable.
+				continue
+			}
+			if observedNetworkState(existing.LifecycleState) != networkStateActive {
+				continue
+			}
+			if !routeRulesMatch(declaredTable.Routes, existing.Routes, natID) {
+				plan.Actions = append(plan.Actions, ReplaceRouteRulesAction{Name: declaredTable.Name, Rules: routeRuleSpecs(declaredTable.Routes)})
+			}
+			if subnet, ok := subnets[declaredTable.Subnet]; ok && subnet.RouteTableID != existing.ID {
+				plan.Actions = append(plan.Actions, AttachSubnetRouteTableAction{Subnet: declaredTable.Subnet, RouteTable: declaredTable.Name})
+			}
+		}
+	}
 	return plan, nil
+}
+
+// resolveDeclaredNAT resolves the Region's NAT gateway from the
+// observation. It returns the live gateway identity, whether the gateway is
+// missing entirely (so the caller plans its create), or an empty identity
+// while it is still provisioning. Ambiguous or unusable gateways fail
+// closed.
+func resolveDeclaredNAT(declared estate.Region, observed NetworkObserved) (natID string, missing bool, err error) {
+	natName := NATGatewayName(declared.Code)
+	seen := false
+	for _, gateway := range observed.NATGateways {
+		switch observedNetworkState(gateway.LifecycleState) {
+		case networkStateAbsent:
+			continue
+		case networkStateFailed:
+			return "", false, &InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " failed and cannot be used"}
+		case networkStateUnknown:
+			return "", false, &InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " has an unusable lifecycle state"}
+		}
+		if gateway.DisplayName != natName {
+			continue
+		}
+		if seen {
+			return "", false, &InvalidDataError{Message: "multiple NAT gateways share the declared name " + natName}
+		}
+		seen = true
+		if observedNetworkState(gateway.LifecycleState) == networkStateActive {
+			natID = gateway.ID
+		}
+	}
+	return natID, !seen, nil
 }
 
 type networkResourceState uint8
@@ -346,6 +517,40 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 			return false, nil
 		}
 	}
+	if len(declared.Network.RouteTables) > 0 {
+		natID, natMissing, err := resolveDeclaredNAT(declared, observed)
+		if err != nil {
+			return false, err
+		}
+		if natMissing || natID == "" {
+			return false, nil
+		}
+		routeTables := make(map[string]ObservedRouteTable, len(observed.RouteTables))
+		for _, table := range observed.RouteTables {
+			switch observedNetworkState(table.LifecycleState) {
+			case networkStateAbsent:
+				continue
+			case networkStateFailed:
+				return false, &InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
+			case networkStateUnknown:
+				return false, &InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
+			}
+			if _, duplicate := routeTables[table.DisplayName]; duplicate {
+				return false, &InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
+			}
+			routeTables[table.DisplayName] = table
+		}
+		for _, want := range declared.Network.RouteTables {
+			table, exists := routeTables[want.Name]
+			if !exists || observedNetworkState(table.LifecycleState) != networkStateActive || !routeRulesMatch(want.Routes, table.Routes, natID) {
+				return false, nil
+			}
+			subnet, exists := subnets[want.Subnet]
+			if !exists || observedNetworkState(subnet.LifecycleState) != networkStateActive || subnet.RouteTableID != table.ID {
+				return false, nil
+			}
+		}
+	}
 	return true, nil
 }
 
@@ -366,6 +571,30 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 	createdNSGs := make(map[string]string)
 	for _, group := range observed.NSGs {
 		createdNSGs[group.DisplayName] = group.ID
+	}
+	subnetIDs := make(map[string]string, len(observed.Subnets))
+	for _, subnet := range observed.Subnets {
+		subnetIDs[subnet.DisplayName] = subnet.ID
+	}
+	routeTableIDs := make(map[string]string, len(observed.RouteTables))
+	for _, table := range observed.RouteTables {
+		routeTableIDs[table.DisplayName] = table.ID
+	}
+	natID := ""
+	for _, gateway := range observed.NATGateways {
+		if gateway.DisplayName == NATGatewayName(declared.Code) && observedNetworkState(gateway.LifecycleState) == networkStateActive {
+			natID = gateway.ID
+		}
+	}
+	routedSpecs := func(rules []RouteRuleSpec) ([]RouteRuleSpec, error) {
+		if !isOCID(natID, "natgateway") {
+			return nil, &InvalidOperationError{Message: "route reconciliation requires a live NAT gateway"}
+		}
+		resolved := make([]RouteRuleSpec, 0, len(rules))
+		for _, spec := range rules {
+			resolved = append(resolved, RouteRuleSpec{Destination: spec.Destination, NATGatewayID: natID})
+		}
+		return resolved, nil
 	}
 	for _, action := range plan.Actions {
 		switch a := action.(type) {
@@ -406,6 +635,48 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 					return err
 				}
 			}
+		case CreateNATGatewayAction:
+			if !isOCID(vcnID, "vcn") {
+				return &InvalidOperationError{Message: "NAT gateway create requires a live VCN"}
+			}
+			created, err := r.Gateway.CreateNATGateway(ctx, vcnID, a.Name)
+			if err != nil {
+				return err
+			}
+			natID = created.ID
+		case CreateRouteTableAction:
+			if !isOCID(vcnID, "vcn") {
+				return &InvalidOperationError{Message: "route table create requires a live VCN"}
+			}
+			rules, err := routedSpecs(a.Rules)
+			if err != nil {
+				return err
+			}
+			created, err := r.Gateway.CreateRouteTable(ctx, vcnID, a.Name, rules)
+			if err != nil {
+				return err
+			}
+			routeTableIDs[created.DisplayName] = created.ID
+		case ReplaceRouteRulesAction:
+			tableID := routeTableIDs[a.Name]
+			if !isOCID(tableID, "routetable") {
+				return &InvalidOperationError{Message: "route rule replacement requires a live route table"}
+			}
+			rules, err := routedSpecs(a.Rules)
+			if err != nil {
+				return err
+			}
+			if err := r.Gateway.ReplaceRouteRules(ctx, tableID, rules); err != nil {
+				return err
+			}
+		case AttachSubnetRouteTableAction:
+			subnetID, tableID := subnetIDs[a.Subnet], routeTableIDs[a.RouteTable]
+			if !isOCID(subnetID, "subnet") || !isOCID(tableID, "routetable") {
+				return &InvalidOperationError{Message: "subnet route attachment requires a live subnet and route table"}
+			}
+			if err := r.Gateway.AttachSubnetRouteTable(ctx, subnetID, tableID); err != nil {
+				return err
+			}
 		default:
 			return &InvalidOperationError{Message: "network reconciler received a foreign action"}
 		}
@@ -421,6 +692,53 @@ func SecurityRuleSpecs(group estate.NetworkSecurityGroup) []SecurityRuleSpec {
 		specs = append(specs, SecurityRuleSpec{Direction: rule.Direction, Protocol: rule.Protocol, Peer: rule.Peer, PortMin: rule.PortMin, PortMax: rule.PortMax})
 	}
 	return specs
+}
+
+// routeRuleSpecs converts declared routes into provider route specs. The
+// NAT gateway identity is resolved at apply time.
+func routeRuleSpecs(rules []estate.RouteRule) []RouteRuleSpec {
+	specs := make([]RouteRuleSpec, 0, len(rules))
+	for _, rule := range rules {
+		specs = append(specs, RouteRuleSpec{Destination: rule.Destination})
+	}
+	return specs
+}
+
+// routeRulesMatch reports whether the observed rule set is exactly the
+// declared routes through the Region NAT gateway.
+func routeRulesMatch(declared []estate.RouteRule, observed []ObservedRouteRule, natID string) bool {
+	if len(declared) != len(observed) {
+		return false
+	}
+	matched := make([]bool, len(observed))
+	for _, rule := range declared {
+		found := false
+		for i, candidate := range observed {
+			if matched[i] || candidate.TargetID != natID || !sameRouteDestination(rule.Destination, candidate.Destination) {
+				continue
+			}
+			matched[i] = true
+			found = true
+			break
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// sameRouteDestination compares two CIDR destinations canonically.
+func sameRouteDestination(declared, observed string) bool {
+	want, err := netip.ParsePrefix(declared)
+	if err != nil {
+		return false
+	}
+	have, err := netip.ParsePrefix(observed)
+	if err != nil {
+		return false
+	}
+	return want.Masked() == have.Masked()
 }
 
 // diffSecurityRules returns the rules to add and the observed rule ids to
@@ -556,6 +874,7 @@ type ociSubnetDocument struct {
 	CIDRBlock              string `json:"cidrBlock"`
 	LifecycleState         string `json:"lifecycleState"`
 	ProhibitPublicIPOnVNIC bool   `json:"prohibitPublicIpOnVnic"`
+	RouteTableID           string `json:"routeTableId"`
 }
 
 func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]ObservedSubnet, error) {
@@ -576,7 +895,7 @@ func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]Ob
 		if !isOCID(item.ID, "subnet") {
 			return nil, &InvalidDataError{Message: "OCI subnet response is invalid"}
 		}
-		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState})
+		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState, RouteTableID: item.RouteTableID})
 	}
 	return subnets, nil
 }
@@ -598,7 +917,7 @@ func (g *OCINetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr 
 	if !isOCID(document.ID, "subnet") {
 		return ObservedSubnet{}, &InvalidDataError{Message: "OCI subnet create response is invalid"}
 	}
-	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState}, nil
+	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState, RouteTableID: document.RouteTableID}, nil
 }
 
 type ociNSGDocument struct {
@@ -806,6 +1125,220 @@ func (g *OCINetworkGateway) RemoveNSGRules(ctx context.Context, nsgID string, ru
 		NSG string
 		IDs []string
 	}{nsgID, ruleIDs})}, nil)
+}
+
+type ociNATGatewayDocument struct {
+	ID             string `json:"id"`
+	VCNID          string `json:"vcnId"`
+	DisplayName    string `json:"displayName"`
+	LifecycleState string `json:"lifecycleState"`
+}
+
+func ociNATGatewayObserved(document ociNATGatewayDocument) (ObservedNATGateway, error) {
+	if !isOCID(document.ID, "natgateway") {
+		return ObservedNATGateway{}, &InvalidDataError{Message: "OCI NAT gateway response is invalid"}
+	}
+	return ObservedNATGateway{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState}, nil
+}
+
+func (g *OCINetworkGateway) ListNATGateways(ctx context.Context, vcnID string) ([]ObservedNATGateway, error) {
+	if !isOCID(vcnID, "vcn") {
+		return nil, &errs.Argument{Message: "NAT gateway list requires a VCN identity"}
+	}
+	query := url.Values{}
+	query.Set("compartmentId", g.CompartmentID)
+	query.Set("vcnId", vcnID)
+	var list struct {
+		Items []ociNATGatewayDocument `json:"items"`
+	}
+	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/natGateways?"+query.Encode(), nil, nil, &list); err != nil {
+		return nil, err
+	}
+	gateways := make([]ObservedNATGateway, 0, len(list.Items))
+	for _, item := range list.Items {
+		observed, err := ociNATGatewayObserved(item)
+		if err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, observed)
+	}
+	return gateways, nil
+}
+
+func (g *OCINetworkGateway) CreateNATGateway(ctx context.Context, vcnID, name string) (ObservedNATGateway, error) {
+	if !isOCID(vcnID, "vcn") || !validEstateName(name) {
+		return ObservedNATGateway{}, &errs.Argument{Message: "NAT gateway create request is invalid"}
+	}
+	var document ociNATGatewayDocument
+	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/natGateways", struct {
+		CompartmentID string `json:"compartmentId"`
+		VCNID         string `json:"vcnId"`
+		DisplayName   string `json:"displayName"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name}, map[string]string{"opc-retry-token": networkRetryToken("nat-gateway", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
+		return ObservedNATGateway{}, err
+	}
+	return ociNATGatewayObserved(document)
+}
+
+type ociRouteRuleDocument struct {
+	Destination     string `json:"destination"`
+	DestinationType string `json:"destinationType"`
+	NetworkEntityID string `json:"networkEntityId"`
+}
+
+type ociRouteTableDocument struct {
+	ID             string                 `json:"id"`
+	VCNID          string                 `json:"vcnId"`
+	DisplayName    string                 `json:"displayName"`
+	LifecycleState string                 `json:"lifecycleState"`
+	RouteRules     []ociRouteRuleDocument `json:"routeRules"`
+}
+
+// networkEntityType derives the OCI entity kind from a target OCID
+// (ocid1.natgateway.oc1... -> "natgateway"); empty when unrecognized.
+func networkEntityType(ocid string) string {
+	rest, ok := strings.CutPrefix(ocid, "ocid1.")
+	if !ok {
+		return ""
+	}
+	kind, _, ok := strings.Cut(rest, ".")
+	if !ok {
+		return ""
+	}
+	return kind
+}
+
+// observedRouteRule normalizes one reported route rule. Rules without a
+// target entity or destination are rejected: they cannot be matched against
+// a declaration.
+func observedRouteRule(document ociRouteRuleDocument) (ObservedRouteRule, error) {
+	if document.NetworkEntityID == "" || document.Destination == "" {
+		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule response is invalid"}
+	}
+	targetType := networkEntityType(document.NetworkEntityID)
+	if targetType == "" {
+		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule target is unrecognized"}
+	}
+	if _, err := netip.ParsePrefix(document.Destination); err != nil {
+		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule destination is invalid"}
+	}
+	return ObservedRouteRule{Destination: document.Destination, TargetID: document.NetworkEntityID, TargetType: targetType}, nil
+}
+
+func ociRouteTableObserved(document ociRouteTableDocument) (ObservedRouteTable, error) {
+	if !isOCID(document.ID, "routetable") {
+		return ObservedRouteTable{}, &InvalidDataError{Message: "OCI route table response is invalid"}
+	}
+	rules := make([]ObservedRouteRule, 0, len(document.RouteRules))
+	for _, item := range document.RouteRules {
+		rule, err := observedRouteRule(item)
+		if err != nil {
+			return ObservedRouteTable{}, err
+		}
+		rules = append(rules, rule)
+	}
+	return ObservedRouteTable{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Routes: rules}, nil
+}
+
+func (g *OCINetworkGateway) ListRouteTables(ctx context.Context, vcnID string) ([]ObservedRouteTable, error) {
+	if !isOCID(vcnID, "vcn") {
+		return nil, &errs.Argument{Message: "route table list requires a VCN identity"}
+	}
+	query := url.Values{}
+	query.Set("compartmentId", g.CompartmentID)
+	query.Set("vcnId", vcnID)
+	var list struct {
+		Items []ociRouteTableDocument `json:"items"`
+	}
+	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/routeTables?"+query.Encode(), nil, nil, &list); err != nil {
+		return nil, err
+	}
+	tables := make([]ObservedRouteTable, 0, len(list.Items))
+	for _, item := range list.Items {
+		observed, err := ociRouteTableObserved(item)
+		if err != nil {
+			return nil, err
+		}
+		tables = append(tables, observed)
+	}
+	return tables, nil
+}
+
+// routeRuleWire renders one declared route for the OCI API: a CIDR_BLOCK
+// destination through the Region's NAT gateway.
+func routeRuleWire(spec RouteRuleSpec) (ociRouteRuleDocument, error) {
+	destination, err := netip.ParsePrefix(spec.Destination)
+	if err != nil {
+		return ociRouteRuleDocument{}, &errs.Argument{Message: "route destination must be a CIDR prefix"}
+	}
+	if !isOCID(spec.NATGatewayID, "natgateway") {
+		return ociRouteRuleDocument{}, &errs.Argument{Message: "route target must be a NAT gateway identity"}
+	}
+	return ociRouteRuleDocument{Destination: destination.Masked().String(), DestinationType: "CIDR_BLOCK", NetworkEntityID: spec.NATGatewayID}, nil
+}
+
+func routeRulesWire(rules []RouteRuleSpec) ([]ociRouteRuleDocument, error) {
+	if len(rules) == 0 {
+		return nil, &errs.Argument{Message: "route table must declare at least one route"}
+	}
+	wire := make([]ociRouteRuleDocument, 0, len(rules))
+	for _, spec := range rules {
+		rule, err := routeRuleWire(spec)
+		if err != nil {
+			return nil, err
+		}
+		wire = append(wire, rule)
+	}
+	return wire, nil
+}
+
+func (g *OCINetworkGateway) CreateRouteTable(ctx context.Context, vcnID, name string, rules []RouteRuleSpec) (ObservedRouteTable, error) {
+	if !isOCID(vcnID, "vcn") || !validEstateName(name) {
+		return ObservedRouteTable{}, &errs.Argument{Message: "route table create request is invalid"}
+	}
+	wire, err := routeRulesWire(rules)
+	if err != nil {
+		return ObservedRouteTable{}, err
+	}
+	var document ociRouteTableDocument
+	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/routeTables", struct {
+		CompartmentID string                 `json:"compartmentId"`
+		VCNID         string                 `json:"vcnId"`
+		DisplayName   string                 `json:"displayName"`
+		RouteRules    []ociRouteRuleDocument `json:"routeRules"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, RouteRules: wire}, map[string]string{"opc-retry-token": networkRetryToken("route-table", struct {
+		VCN   string
+		Name  string
+		Rules []RouteRuleSpec
+	}{vcnID, name, rules})}, &document); err != nil {
+		return ObservedRouteTable{}, err
+	}
+	return ociRouteTableObserved(document)
+}
+
+func (g *OCINetworkGateway) ReplaceRouteRules(ctx context.Context, routeTableID string, rules []RouteRuleSpec) error {
+	if !isOCID(routeTableID, "routetable") {
+		return &errs.Argument{Message: "route rule replacement requires a route table identity"}
+	}
+	wire, err := routeRulesWire(rules)
+	if err != nil {
+		return err
+	}
+	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPut, "/20160918/routeTables/"+url.PathEscape(routeTableID), struct {
+		RouteRules []ociRouteRuleDocument `json:"routeRules"`
+	}{RouteRules: wire}, map[string]string{"opc-retry-token": networkRetryToken("route-table-rules", struct {
+		Table string
+		Rules []RouteRuleSpec
+	}{routeTableID, rules})}, nil)
+}
+
+func (g *OCINetworkGateway) AttachSubnetRouteTable(ctx context.Context, subnetID, routeTableID string) error {
+	if !isOCID(subnetID, "subnet") || !isOCID(routeTableID, "routetable") {
+		return &errs.Argument{Message: "subnet route attachment request is invalid"}
+	}
+	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPut, "/20160918/subnets/"+url.PathEscape(subnetID), struct {
+		RouteTableID string `json:"routeTableId"`
+	}{RouteTableID: routeTableID}, map[string]string{"opc-retry-token": networkRetryToken("subnet-route-attach", struct{ Subnet, Table string }{subnetID, routeTableID})}, nil)
 }
 
 func validEstateName(name string) bool {
