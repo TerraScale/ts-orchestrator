@@ -214,16 +214,18 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 		return errors.New("vmnet: nil context")
 	}
 	// Cleanup is a safety operation. It must still run when the controller's
-	// request was cancelled or its deadline expired.
-	ctx = context.WithoutCancel(ctx)
+	// request was cancelled, but no individual host command may hang forever.
+	baseContext := context.WithoutCancel(ctx)
 	var first error
 	for _, c := range p.Commands {
+		commandContext, cancel := context.WithTimeout(baseContext, 10*time.Second)
 		var err error
 		if cleanupRunner, ok := runner.(CleanupRunner); ok {
-			err = cleanupRunner.RunCleanup(ctx, c.Executable, append([]string(nil), c.Args...))
+			err = cleanupRunner.RunCleanup(commandContext, c.Executable, append([]string(nil), c.Args...))
 		} else {
-			err = runner.Run(ctx, c.Executable, append([]string(nil), c.Args...))
+			err = runner.Run(commandContext, c.Executable, append([]string(nil), c.Args...))
 		}
+		cancel()
 		if err != nil && first == nil {
 			first = err
 		}
