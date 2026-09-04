@@ -44,4 +44,3 @@ func TestOriginProofAcceptsOnePreviousBucketOnly(t *testing.T) {
 		t.Fatal("proof older than one bucket was accepted")
 	}
 }
-

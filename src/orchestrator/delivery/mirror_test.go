@@ -16,6 +16,14 @@ type mirrorIdentityStore struct {
 	failPut  map[string]error
 	failHead map[string]error
 	puts     []string
+	fences   []OperationFence
+}
+
+func (s *mirrorIdentityStore) PutFenced(ctx context.Context, region, bucket, object string, body []byte, fence OperationFence) error {
+	s.mu.Lock()
+	s.fences = append(s.fences, fence)
+	s.mu.Unlock()
+	return s.Put(ctx, region, bucket, object, body)
 }
 
 func (s *mirrorIdentityStore) Put(_ context.Context, region, bucket, object string, body []byte) error {
@@ -56,6 +64,32 @@ func TestMirrorAllVerifiesReadAfterWriteIdentity(t *testing.T) {
 	}
 	if len(store.puts) != len(estate.Default().Regions) {
 		t.Fatalf("puts = %d, want %d", len(store.puts), len(estate.Default().Regions))
+	}
+}
+
+func TestMirrorAllFencedPassesFenceAtProviderBoundary(t *testing.T) {
+	store := &mirrorIdentityStore{objects: map[string]ObjectIdentity{}, failPut: map[string]error{}, failHead: map[string]error{}}
+	mirror, err := NewArtifactMirror(estate.Default(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := NewJournal()
+	request := journalTestRequest("mirror-fence")
+	operation, _, err := journal.Begin(request, OperationLease{OwnerID: "owner", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence := fenceFor(operation)
+	if err := mirror.MirrorAllFenced(context.Background(), mirrorArtifact(), fence, journal.VerifyFence); err != nil {
+		t.Fatalf("fenced mirror = %v", err)
+	}
+	if len(store.fences) != len(estate.Default().Regions) {
+		t.Fatalf("fence dispatches = %d, want %d", len(store.fences), len(estate.Default().Regions))
+	}
+	for _, received := range store.fences {
+		if received != fence {
+			t.Fatalf("provider received fence %+v, want %+v", received, fence)
+		}
 	}
 }
 

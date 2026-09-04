@@ -384,6 +384,9 @@ func validateProgressDirectory(directory string) error {
 			if info.Mode().Perm()&0022 != 0 {
 				return fmt.Errorf("progress directory %s is group/world writable", current)
 			}
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok && uint32(stat.Uid) != uint32(os.Getuid()) && uint32(stat.Uid) != 0 {
+				return fmt.Errorf("progress directory %s is not owned by the orchestrator", current)
+			}
 			return nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
