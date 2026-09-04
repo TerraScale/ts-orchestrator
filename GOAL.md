@@ -733,6 +733,32 @@ still gates production. Firecracker is mandatory because it proves the host,
 systemd, network, disk, process, restart, and failure behavior on which the
 orchestrator depends; it is not evidence of OCI or Cloudflare availability.
 
+### Firecracker completion gate for the greenfield refactor
+
+Run the real production orchestrator, `ts-node`, and TerraBase binaries in
+Firecracker Ubuntu systemd guests. Each of the six GRU/SFO/FRA member VMs must
+run TerraBase and its local orchestrator on the same guest. Exercise GRU-first
+bootstrap, regional admission, fenced R1-to-R3 promotion, host-local control,
+and a fourth two-host Region with local orchestrators without adding global
+storage replicas. The fourth-Region scenario extends the six-VM baseline.
+
+Prove orchestration through the real CLI and service transports, including
+provider reconciliation, signed delivery, rollback, master and local process
+restart, joint host loss, Region loss, WAN partition and recovery, disk faults,
+identity rotation, and control-state and TerraBase restore. Exercise faults
+during in-flight operations and verify durable recovery, isolation, and
+cleanup. Unit fakes and provider-contract endpoints support this suite but
+cannot replace guest execution or real TerraBase readiness evidence.
+
+Run `make vm-doctor`, `make vm-image`, `make vm-smoke`, `make vm-stack`,
+`make vm-test`, and `make vm-clean` as the documented workflow requires.
+Retain exact binary digests, scenario results, resource measurements, and
+bounded failure diagnostics. A missing KVM capability, missing artifact,
+skipped scenario, or failed gate is an explicit qualification blocker, never
+a passing result. Complete every independently executable implementation and
+verification task while recording the remaining external blocker precisely.
+Real-provider qualification and production drills remain separate gates.
+
 ## Production drills and acceptance
 
 Before G2, the owner must supervise automated GRU bootstrap in the real PAYG
@@ -761,6 +787,32 @@ rehearsal in every Region, 14 consecutive daily restore drills, live external
 SLO probes and paging, no critical security findings, and the complete
 workspace acceptance checklist.
 
+## Greenfield implementation policy
+
+This is a greenfield project. Refactor, redesign, rename, move, or replace any
+code, package, command, configuration, persisted format, or internal protocol
+needed to complete this goal. Existing code is implementation material, not a
+compatibility requirement. Complete the actual production paths and delete
+superseded implementations in the same change series.
+
+Do not add or retain compatibility layers, shims, legacy aliases, deprecated
+entry points, dual implementations, old-format readers, migration bridges, or
+fallback paths whose purpose is to preserve a retired design. Update callers,
+contracts, fixtures, tests, and documentation together to the final design.
+Do not create a generic framework where a direct TerraBase-specific
+implementation meets the requirement. Missing production dependencies must be
+implemented and wired, not hidden behind successful stubs or test defaults.
+
+Disposable local fixtures and test state may be regenerated for the new
+contract. This policy does not authorize deleting unknown cloud resources,
+secrets, customer data, or unrelated work. Idempotency, durable operation
+recovery, fencing, backups, and tested release rollback remain requirements of
+the final implementation. They do not justify preserving legacy interfaces.
+
+Implementation work must continue through integration and qualification.
+A package refactor, interface definition, passing unit suite, or documented
+TODO is not completion while a required operational path remains unfinished.
+
 ## Refactoring order and completion criteria
 
 Refactoring must produce working operational paths in this order:
@@ -780,7 +832,9 @@ Refactoring must produce working operational paths in this order:
    boundaries.
 5. Remove superseded roles, duplicate policy implementations, obsolete
    adapters, and stale documentation as each replacement passes its gates.
-   Preserve or explicitly migrate acknowledged journal and wire contracts.
+   Replace pre-production journal and wire contracts directly and update all
+   consumers together. Do not introduce compatibility readers or migration
+   shims for discarded greenfield contracts.
 6. Pass portable checks, Firecracker qualification, real-provider drills, and
    launch soak requirements on the intended release. Record measured recovery
    time, acknowledged-state loss, and capacity against declared limits.

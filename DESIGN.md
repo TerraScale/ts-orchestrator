@@ -58,9 +58,11 @@ and symbol names carry the contract identity.
 - Env var names and defaults (TS_ORCH_*, TS_ORCH_CELL, etc.).
 - Control-plane message protocol versioning and admission rules.
 
-These contracts remain exact while their current adapter exists. A goal-driven
-replacement must migrate acknowledged control state, update its tests and
-documentation, and delete the superseded contract in the same series.
+This is a greenfield implementation. Replace these contracts wherever the goal
+requires it, update every consumer, test, and document together, and delete the
+superseded implementation in the same series. Do not retain compatibility
+adapters, legacy readers, aliases, or migration shims. The final design must
+still prove durable operation recovery and safe release rollback.
 
 ## Local qualification boundary
 

@@ -78,7 +78,8 @@ refactor after the in-flight implementation is integrated.
    that the old identity cannot resume mutations.
 6. Remove superseded paths after their replacements pass. Keep policy in Go
    decision packages, provider effects in adapters, and process composition
-   explicit. Migrate persisted contracts before deleting their readers.
+   explicit. Replace greenfield persisted contracts and all consumers together;
+   delete old readers instead of adding compatibility layers or migration shims.
 
 These slices refine the workspace infrastructure track; they do not replace
 its gates. Each slice needs a concrete input contract, operation journal,
