@@ -1,4 +1,4 @@
-package control
+package monitoring
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"time"
 )
@@ -531,8 +532,8 @@ func (h NatsMeshHealth) DisconnectedCells() int { return h.Count(NatsMeshCellSta
 // staleness with the gateway link observations.
 func NatsMeshHealthEvaluate(
 	expectedCells []string,
-	membershipByCell map[string]RegionalRuntimeMembershipHealth,
-	directory GlobalCellDirectorySnapshot,
+	membershipByCell map[string]directory.RegionalRuntimeMembershipHealth,
+	cellDirectory directory.GlobalCellDirectorySnapshot,
 	gatewaysByCell map[string]NatsGatewaysObservation,
 	observedAt time.Time,
 ) (NatsMeshHealth, error) {
@@ -551,7 +552,7 @@ func NatsMeshHealthEvaluate(
 	for _, cell := range ordered {
 		cells = append(cells, NatsMeshCell{
 			Cell:  cell,
-			State: natsMeshStateFor(cell, membershipByCell, directory, gatewaysByCell, observedAt),
+			State: natsMeshStateFor(cell, membershipByCell, cellDirectory, gatewaysByCell, observedAt),
 		})
 	}
 
@@ -570,8 +571,8 @@ func NatsMeshHealthEvaluate(
 
 func natsMeshStateFor(
 	cell string,
-	membershipByCell map[string]RegionalRuntimeMembershipHealth,
-	directory GlobalCellDirectorySnapshot,
+	membershipByCell map[string]directory.RegionalRuntimeMembershipHealth,
+	cellDirectory directory.GlobalCellDirectorySnapshot,
 	gatewaysByCell map[string]NatsGatewaysObservation,
 	observedAt time.Time,
 ) NatsMeshCellState {
@@ -581,10 +582,10 @@ func natsMeshStateFor(
 		return NatsMeshCellStateDisconnected
 	}
 
-	var entry *GlobalCellDirectoryEntry
-	for index := range directory.Cells {
-		if directory.Cells[index].Cell == cell {
-			entry = &directory.Cells[index]
+	var entry *directory.GlobalCellDirectoryEntry
+	for index := range cellDirectory.Cells {
+		if cellDirectory.Cells[index].Cell == cell {
+			entry = &cellDirectory.Cells[index]
 			break
 		}
 	}
@@ -601,7 +602,7 @@ func natsMeshStateFor(
 		return NatsMeshCellStateConflicting
 	}
 
-	if entry.Membership.Condition == RegionalRuntimeMembershipConditionHealthy {
+	if entry.Membership.Condition == directory.RegionalRuntimeMembershipConditionHealthy {
 		return NatsMeshCellStateHealthy
 	}
 
