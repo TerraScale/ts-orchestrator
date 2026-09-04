@@ -265,115 +265,9 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
 }
 
-type OCIRegistryAdapter struct{ Registry *OCIHTTPTransport }
-
-// OCIRegistryTokenSigner supplies the Docker Registry v2 basic credential
-// expected by OCIR. The token stays process-local and errors never include it.
-type OCIRegistryTokenSigner struct{ username, token string }
-
-func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
-	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
-		strings.TrimSpace(username) != username || strings.ContainsAny(username+token, "\r\n") {
-		return nil, &errs.Argument{Message: "OCI registry credential is invalid"}
-	}
-	return &OCIRegistryTokenSigner{username: username, token: token}, nil
-}
-
-func (s *OCIRegistryTokenSigner) Sign(request *http.Request) error {
-	if s == nil || s.username == "" || s.token == "" || request == nil {
-		return &InvalidOperationError{Message: "OCI registry credential is unavailable"}
-	}
-	request.SetBasicAuth(s.username, s.token)
-	return nil
-}
-
-func NewOCIRegistryAdapter(transport *OCIHTTPTransport) (*OCIRegistryAdapter, error) {
-	if transport == nil || transport.Config.Service != OCIServiceRegistry {
-		return nil, &InvalidOperationError{Message: "OCI registry transport is unavailable or has the wrong authority"}
-	}
-	return &OCIRegistryAdapter{Registry: transport}, nil
-}
-
-func registryRepositoryPath(repository string) (string, error) {
-	if len(repository) < 1 || len(repository) > 512 || strings.ContainsAny(repository, "\r\n\\") {
-		return "", &errs.Argument{Message: "registry repository is invalid"}
-	}
-	parts := strings.Split(repository, "/")
-	for index, part := range parts {
-		if len(part) < 1 || len(part) > 128 || strings.Contains(part, "..") {
-			return "", &errs.Argument{Message: "registry repository is invalid"}
-		}
-		parts[index] = url.PathEscape(part)
-	}
-	return strings.Join(parts, "/"), nil
-}
-
-func validRegistryReference(reference string) bool {
-	if len(reference) < 1 || len(reference) > 128 || strings.ContainsAny(reference, "\r\n/") {
-		return false
-	}
-	if strings.HasPrefix(reference, "sha256:") {
-		return validSHA256Hex(strings.TrimPrefix(reference, "sha256:"))
-	}
-	return true
-}
-
-func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryManifestRequest) (RegistryManifest, error) {
-	if a == nil || a.Registry == nil {
-		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
-	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !validRegistryReference(request.Reference) {
-		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
-	}
-	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{"Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json"})
-	if err != nil {
-		return RegistryManifest{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		drainClose(resp.Body)
-		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry manifest pull failed"}
-	}
-	body, err := ReadBoundedBody(resp, a.Registry.Config.MaxBodyBytes)
-	if err != nil {
-		return RegistryManifest{}, err
-	}
-	sum := sha256.Sum256(body)
-	digest := "sha256:" + hex.EncodeToString(sum[:])
-	if header := safeHeader(resp, "Docker-Content-Digest"); header == "" || header != digest || (strings.HasPrefix(request.Reference, "sha256:") && request.Reference != digest) {
-		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest digest is invalid"}
-	}
-	mediaType := safeHeader(resp, "Content-Type")
-	if mediaType == "" || len(mediaType) > 256 {
-		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest media type is invalid"}
-	}
-	return RegistryManifest{Digest: digest, MediaType: mediaType, Content: body}, nil
-}
-
-func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobRequest) (io.ReadCloser, int64, error) {
-	if a == nil || a.Registry == nil {
-		return nil, 0, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
-	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !strings.HasPrefix(request.Digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(request.Digest, "sha256:")) {
-		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
-	}
-	resp, err := a.Registry.Do(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		drainClose(resp.Body)
-		return nil, 0, &InvalidOperationError{Message: "OCI registry blob pull failed"}
-	}
-	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
-	if err != nil || size < 0 || size > 64<<30 || safeHeader(resp, "Docker-Content-Digest") != request.Digest {
-		drainClose(resp.Body)
-		return nil, 0, &InvalidDataError{Message: "OCI registry blob metadata is invalid"}
-	}
-	return newDigestVerifyingReadCloser(resp.Body, strings.TrimPrefix(request.Digest, "sha256:")), size, nil
-}
-
+// digestVerifyingReadCloser verifies the streamed bytes against the object's
+// SHA-256 digest as they are read, so a truncated or tampered transfer fails
+// at the read boundary instead of after the fact.
 type digestVerifyingReadCloser struct {
 	source   io.ReadCloser
 	digest   hash.Hash
@@ -403,6 +297,4 @@ func (r *digestVerifyingReadCloser) Close() error { return r.source.Close() }
 
 var (
 	_ ObjectStorageProvider = (*OCIObjectStorageAdapter)(nil)
-	_ RegistryPullProvider  = (*OCIRegistryAdapter)(nil)
-	_ RequestSigner         = (*OCIRegistryTokenSigner)(nil)
 )

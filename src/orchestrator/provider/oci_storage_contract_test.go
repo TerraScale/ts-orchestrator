@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
 )
 
@@ -104,48 +103,5 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 	metadata, err := adapter.PutObject(context.Background(), request)
 	if err != nil || metadata.ETag != "object-etag" || metadata.SHA256 != digest || putCalls != 1 {
 		t.Fatalf("put object = %+v, calls=%d, err=%v", metadata, putCalls, err)
-	}
-}
-
-func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
-	manifest := []byte(`{"schemaVersion":2}`)
-	manifestDigest := "sha256:" + objectSHA256(manifest)
-	blob := "layer-bytes"
-	blobDigest := "sha256:" + objectSHA256([]byte(blob))
-	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
-		username, token, ok := request.BasicAuth()
-		if !ok || username != "namespace/runner" || token != "registry-token" {
-			t.Fatal("registry request did not carry the injected OCIR credential")
-		}
-		switch {
-		case strings.Contains(request.URL.Path, "/manifests/"):
-			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
-		case strings.Contains(request.URL.Path, "/blobs/"):
-			return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {blobDigest}, "Content-Length": {"11"}}), nil
-		default:
-			return nil, io.ErrUnexpectedEOF
-		}
-	})
-	signer, err := NewOCIRegistryTokenSigner("namespace/runner", "registry-token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	transport.Signer = signer
-	adapter, err := NewOCIRegistryAdapter(transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gotManifest, err := adapter.PullManifest(context.Background(), RegistryManifestRequest{Repository: "tenancy/terrascale/member", Reference: manifestDigest})
-	if err != nil || gotManifest.Digest != manifestDigest || string(gotManifest.Content) != string(manifest) {
-		t.Fatalf("manifest = %+v, %v", gotManifest, err)
-	}
-	reader, size, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/terrascale/member", Digest: blobDigest})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-	gotBlob, err := io.ReadAll(reader)
-	if err != nil || size != int64(len(blob)) || string(gotBlob) != blob {
-		t.Fatalf("blob size=%d body=%q err=%v", size, gotBlob, err)
 	}
 }

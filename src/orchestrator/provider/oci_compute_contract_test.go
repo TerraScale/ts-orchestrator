@@ -267,10 +267,4 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	if _, err := NewOCIServiceTransportConfig(OCIServiceIdentity, "sa-saopaulo-1", "https://identity.sa-saopaulo-1.oraclecloud.com"); err == nil {
 		t.Fatal("Identity signer accepted an authority without the OCI service label")
 	}
-	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "us-sanjose-1", "https://sjc.ocir.io"); err != nil {
-		t.Fatalf("SJC OCIR authority rejected: %v", err)
-	}
-	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "us-sanjose-1", "https://sfo.ocir.io"); err == nil {
-		t.Fatal("SFO alias accepted the wrong OCIR region key")
-	}
 }

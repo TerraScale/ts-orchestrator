@@ -218,7 +218,6 @@ const (
 	OCIServiceCore            OCIService = "core"
 	OCIServiceIdentity        OCIService = "identity"
 	OCIServiceObjectStorage   OCIService = "object-storage"
-	OCIServiceRegistry        OCIService = "registry"
 	OCIServiceVault           OCIService = "vault"
 	OCIServiceVaultManagement OCIService = "vault-management"
 )
@@ -231,29 +230,10 @@ func ociServiceHost(service OCIService, region string) (string, bool) {
 		return "identity." + region + ".oci.oraclecloud.com", true
 	case OCIServiceObjectStorage:
 		return "objectstorage." + region + ".oraclecloud.com", true
-	case OCIServiceRegistry:
-		key, ok := ociRegistryRegionKey(region)
-		if !ok {
-			return "", false
-		}
-		return key + ".ocir.io", true
 	case OCIServiceVault:
 		return "vaults." + region + ".oci.oraclecloud.com", true
 	case OCIServiceVaultManagement:
 		return "", true
-	default:
-		return "", false
-	}
-}
-
-func ociRegistryRegionKey(region string) (string, bool) {
-	switch region {
-	case "sa-saopaulo-1":
-		return "gru", true
-	case "us-sanjose-1":
-		return "sjc", true
-	case "eu-frankfurt-1":
-		return "fra", true
 	default:
 		return "", false
 	}

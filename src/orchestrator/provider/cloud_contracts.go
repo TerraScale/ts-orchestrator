@@ -503,18 +503,6 @@ type VolumeAttachment struct {
 	WorkRequestID  string
 }
 
-type RegistryPullProvider interface {
-	PullManifest(context.Context, RegistryManifestRequest) (RegistryManifest, error)
-	PullBlob(context.Context, RegistryBlobRequest) (io.ReadCloser, int64, error)
-}
-
-type RegistryManifestRequest struct{ Repository, Reference string }
-type RegistryBlobRequest struct{ Repository, Digest string }
-type RegistryManifest struct {
-	Digest, MediaType string
-	Content           []byte
-}
-
 type ObjectStorageProvider interface {
 	PutObject(context.Context, ObjectPutRequest) (ObjectMetadata, error)
 	HeadObject(context.Context, ObjectRef) (ObjectMetadata, bool, error)
