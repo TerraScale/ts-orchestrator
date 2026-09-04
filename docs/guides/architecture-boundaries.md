@@ -32,9 +32,11 @@ its own regional orchestrator from initial admission. The master manages
 those processes; they reconcile local OCI resources and coordinate TerraBase
 members under fenced, Region-scoped authority.
 
-At launch there are no dedicated control hosts. One orchestrator is co-hosted
-on a member host in each of GRU, SFO, and FRA. Their embedded NATS replicas
-form the permanent global JetStream R3 after the temporary pre-customer GRU
+Every TerraBase member machine runs its own local `ts-orchestrator` as a
+separate systemd service. Local processes coordinate under fenced regional
+authority and use local `ts-node` for host mutations. There are no dedicated
+control hosts, including after launch. One selected orchestrator in each of GRU, SFO, and
+FRA hosts a global control-store replica. Those embedded NATS replicas form the permanent global JetStream R3 after the temporary pre-customer GRU
 R1 bootstrap. Regions 4 through 20 also run regional orchestrators but do not
 join the global R3. They use it for authoritative control state. A separate
 regional R3 requires at least three eligible hosts and remains post-launch
@@ -66,8 +68,8 @@ control plane. `add-region <code>` creates and qualifies a complete Region.
 ## Hosts and delivery
 
 Production hosts are Ubuntu LTS minimal with no container runtime, production
-OCI image, or registry. They run only `ts-node`, TerraBase, a control replica
-where placed, and the Grafana agent. `ts-node` installs versioned static
+OCI image, or registry. They run `ts-node`, TerraBase, a local `ts-orchestrator`, and the Grafana
+agent. Global control-store replicas run only on selected member hosts. `ts-node` installs versioned static
 binaries under `/opt/terrascale`, verifies ed25519 signatures and SHA-256
 digests, writes hardened systemd units, coordinates drain, atomically activates
 the new version, and restores the prior digest on rollback.

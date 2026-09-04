@@ -40,8 +40,8 @@ reconciles until it has:
 3. created two member hosts in separate failure domains, using Ampere A1 and
    automatically selecting E5 amd64 when A1 capacity is unavailable;
 4. installed only `ts-node` through cloud-init;
-5. admitted host identities and let `ts-node` fetch and verify the signed
-   orchestrator and TerraBase artifacts;
+5. admitted host identities and let `ts-node` fetch, verify, and run the signed
+   orchestrator and TerraBase artifacts together on each member machine;
 6. started the first GRU master and regional orchestrator with temporary
    pre-customer R1 storage on the selected GRU member;
 7. converged certificates, Cloudflare DNS and routes, KV, telemetry, and
@@ -57,8 +57,8 @@ same operation rather than creating parallel estate.
 ## Completion
 
 Bootstrap completes only after both GRU member hosts, storage and backup
-targets, the control replica, identities, edge routing, telemetry, and external
-probes are healthy. Partial completion remains declared state for automatic
+targets, a local orchestrator on each member machine, the control replica,
+identities, edge routing, telemetry, and external probes are healthy. Partial completion remains declared state for automatic
 repair; it does not turn into a list of console steps.
 
 Every added Region uses `terrascale-orchestrator add-region <code>` and starts

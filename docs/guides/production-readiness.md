@@ -9,8 +9,10 @@ uncommitted implementation work; recheck these findings as that work lands.
 
 GRU is first and hosts the single active global master. Every Region runs its
 own regional orchestrator, including Regions with only two member hosts. The
-master manages those orchestrators; each operates its regional OCI resources
-and TerraBase members. `ts-node` performs host mutations. TerraBase owns data
+master manages those orchestrators. Every TerraBase machine runs its own local
+`ts-orchestrator` to manage that machine's TerraBase instance. These local
+processes coordinate regional OCI work under fenced authority; only selected
+processes host global control-store replicas. `ts-node` performs host mutations. TerraBase owns data
 correctness and membership acceptance.
 
 ```text
@@ -50,7 +52,9 @@ refactor after the in-flight implementation is integrated.
 
 ## First implementation slices
 
-1. Define explicit master and regional roles and their durable identities.
+1. Define explicit master, regional, and host-local roles and their durable
+   identities. Install `ts-orchestrator` beside TerraBase on every member
+   machine and prove local management without duplicate regional mutations.
    Trace a global declaration through regional admission, scoped authority,
    regional reconciliation, and a receipt returned to the master. Include a
    fourth two-host Region to expose remote-only assumptions.
@@ -67,8 +71,9 @@ refactor after the in-flight implementation is integrated.
    Prove placement, drain, catch-up, safe replacement, rollout, backup, and
    restore against the real TerraBase binary. A timeout must trigger status
    observation before retrying a mutation.
-5. Qualify self-management. Kill a regional orchestrator and replace it through
-   the master. Upgrade global replicas one at a time. Restart the master
+5. Qualify self-management. Restart a local orchestrator while TerraBase
+   continues serving. Lose the whole machine and use a surviving authorized
+   controller to replace both components before readmission. Upgrade global replicas one at a time. Restart the master
    during a rollout, restore control state without a running master, and prove
    that the old identity cannot resume mutations.
 6. Remove superseded paths after their replacements pass. Keep policy in Go

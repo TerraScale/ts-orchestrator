@@ -27,13 +27,14 @@ _Avoid_: assumed state, cached permission to delete.
 One process participating in the launch JetStream R3 control group. At launch,
 one replica is co-hosted in each of GRU, SFO, and FRA; there is one group across
 the three Regions.
-_Avoid_: independent global master, dedicated launch control host.
+_Avoid_: independent global master, dedicated control host.
 
 **Regional orchestrator**
 
-The Go process present in every Region from initial admission. It reconciles
-local OCI resources and coordinates TerraBase members under authority issued
-by the GRU master. It need not host an independent regional JetStream R3.
+The coordinated Go orchestrator processes present in every Region from initial
+admission, with one local process on every TerraBase member machine. They
+manage local TerraBase instances and reconcile regional OCI resources under
+fenced authority issued by the GRU master. It need not host an independent regional JetStream R3.
 _Avoid_: remote-only Region, autonomous global master.
 
 **GRU master**
@@ -58,8 +59,9 @@ _Avoid_: product database, customer event bus.
 ## Hosts and delivery
 
 **Member host**  
-An admitted Ubuntu LTS machine that runs `ts-node`, TerraBase, an optional
-co-hosted control replica, and the Grafana agent under systemd.
+An admitted Ubuntu LTS machine that runs `ts-node`, TerraBase,
+`ts-orchestrator`, and the Grafana agent under systemd. Selected local
+orchestrators also host authoritative control-store replicas.
 _Avoid_: Kubernetes node, container host.
 
 **`ts-node`**  

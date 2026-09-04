@@ -16,7 +16,8 @@ review records.
 Build TerraScale's Go orchestrator specifically for TerraBase. It manages the
 infrastructure that runs both itself and the TerraBase cluster. GRU is created
 first and hosts the single active global master. Every Region, including GRU,
-runs its own regional orchestrator from initial admission.
+runs its own regional orchestrator from initial admission. Every TerraBase
+member machine runs a local `ts-orchestrator` process on that same machine.
 
 The GRU master manages the regional orchestrators. Each regional orchestrator
 reconciles its own OCI resources, operates local hosts through `ts-node`, and
@@ -110,9 +111,11 @@ reactive frames, or usage truth.
   only after the R3 quorum and a post-transition snapshot are verified.
 - Launch and production use one permanent global R3, with one replica co-hosted
   in each of GRU, SFO, and FRA. They never downgrade to R1 after promotion.
-- There are no dedicated control hosts at launch.
-- Every Region starts with a regional orchestrator co-hosted on one of its
-  two member hosts. Regions 4 through 20 do not join the global R3. Their
+- There are no dedicated orchestrator machines or servers. Orchestration
+  capacity shares TerraBase member hosts at launch and as Regions grow.
+- Every TerraBase member host runs `ts-orchestrator` alongside TerraBase.
+  A two-member Region therefore starts with two local orchestrator processes.
+  Regions 4 through 20 do not join the global R3. Their
   regional orchestrators execute Region-scoped work under GRU-issued authority
   and use the global R3 for authoritative control records.
 - A later Region may gain a separate three-replica regional control group only
@@ -126,6 +129,31 @@ reactive frames, or usage truth.
 - Control mutations are fenced, authenticated, idempotent, restart-safe, and
   durably journaled. Missing, stale, conflicting, or unverified authority fails
   closed.
+
+### Same-machine management
+
+Every TerraBase member runs on the same machine as the `ts-orchestrator`
+process responsible for its local lifecycle. This applies to initial
+bootstrap, Region addition, scaling, and replacement. The GRU master role
+also runs on a TerraBase member machine.
+
+Local orchestrator processes coordinate as the Region's orchestrator under
+GRU authority. Host-scoped commands target the matching host identity;
+Region-wide OCI reconciliation has one fenced mutation owner per operation.
+Adding a host-local process does not grant another global master role or
+another authoritative JetStream replica.
+
+`ts-orchestrator` manages the local TerraBase instance through private TBEP
+and delegates installation, systemd changes, and activation to local
+`ts-node`. They run as separate systemd services with bounded resources.
+An orchestrator restart must not stop TerraBase. When the entire machine
+fails, a surviving authorized controller provisions its replacement and
+installs both components before admitting the replacement member.
+
+Bootstrap and VM qualification must verify a local orchestrator on every
+member machine, authenticated host identity matching, same-machine TBEP
+management, independent process restart, and replacement after joint host
+loss. A healthy remote regional controller alone does not satisfy this gate.
 
 ### Master and regional responsibilities
 
@@ -176,8 +204,9 @@ ownership of usage truth by TerraBase and collected telemetry by Grafana Cloud.
 - Placement refuses a Region with fewer than two admitted member hosts.
 - Hosts run Ubuntu LTS minimal. Production hosts contain no Docker, Podman,
   containerd, container runtime, production image, or image registry.
-- TerraScale-managed services on a host are only `ts-node`, `terrabase`, an
-  orchestrator control replica when placed there, and the Grafana agent. The
+- TerraScale-managed services on every member host are `ts-node`, `terrabase`,
+  `ts-orchestrator`, and the Grafana agent. Only selected orchestrator
+  processes host replicas of the authoritative global control store. The
   base OS still runs normal systemd, networking, time, storage, SSH, and update
   services.
 - Every Region has its own object storage for Litestream, release artifacts,
