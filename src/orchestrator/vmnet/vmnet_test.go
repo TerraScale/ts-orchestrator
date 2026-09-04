@@ -20,6 +20,21 @@ type fakeJournalWriter struct {
 	plan   Journal
 }
 
+type fakeCleanupRunner struct {
+	runs     int
+	cleanups int
+}
+
+func (f *fakeCleanupRunner) Run(context.Context, string, []string) error {
+	f.runs++
+	return errors.New("ordinary Run must not handle cleanup")
+}
+
+func (f *fakeCleanupRunner) RunCleanup(context.Context, string, []string) error {
+	f.cleanups++
+	return nil
+}
+
 func (f *fakeJournalWriter) WriteJournal(_ context.Context, journal Journal) error {
 	f.writes++
 	f.plan = journal
@@ -45,6 +60,10 @@ func TestDefaultPlanIsStableAndCoversNetworkSurfaces(t *testing.T) {
 	if err != nil || address != "10.77.2.11" {
 		t.Fatalf("stable guest address = %q, %v", address, err)
 	}
+	mac, err := StableGuestMAC(FRA, 2)
+	if err != nil || mac != "02:fc:77:03:02:01" {
+		t.Fatalf("stable guest MAC = %q, %v", mac, err)
+	}
 	first, err := Plan(DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -66,13 +85,52 @@ func TestDefaultPlanIsStableAndCoversNetworkSurfaces(t *testing.T) {
 	for _, c := range first.Commands {
 		joined += c.Executable + " " + strings.Join(c.Args, " ") + "\n"
 	}
-	for _, want := range []string{"netns", "tuntap", "bridge", "nft", "forward", "veth", "route"} {
+	for _, want := range []string{"netns", "tuntap", "bridge", "nft", "forward", "veth", "route", "sysctl"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("plan lacks %s operations", want)
 		}
 	}
 	if len(first.Cleanup.Commands) == 0 || first.Journal.Fingerprint != first.Fingerprint {
 		t.Fatal("missing crash cleanup journal")
+	}
+	for _, region := range first.Regions {
+		if region.NamespacePath != "/run/netns/"+region.Namespace {
+			t.Fatalf("namespace path = %q for %s", region.NamespacePath, region.Code)
+		}
+		for _, guest := range region.Guests {
+			if !strings.HasPrefix(guest.ID, strings.ToLower(string(region.Code))+"-") || guest.MAC == "" {
+				t.Fatalf("unresolved guest identity: %+v", guest)
+			}
+			for _, command := range first.Commands {
+				line := strings.Join(command.Args, " ")
+				if strings.Contains(line, guest.Address+"/32") && strings.Contains(line, "dev "+guest.TAP) {
+					t.Fatalf("guest address was assigned to host TAP: %s", line)
+				}
+			}
+		}
+	}
+	for _, command := range first.Commands {
+		line := strings.Join(command.Args, " ")
+		if strings.Contains(line, " link set ts-v-") && strings.Contains(line, " master ") {
+			t.Fatalf("transit veth was bridged instead of routed: %s", line)
+		}
+	}
+}
+
+func TestTAPOwnershipIsExplicitWhenConfigured(t *testing.T) {
+	config := Config{TAPUID: 1234, TAPGID: 5678, Regions: []RegionSpec{{Code: GRU, Guests: []GuestSpec{{ID: "gru-member-1"}}}}}
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, command := range plan.Commands {
+		if contains(command.Args, "tuntap") {
+			found = contains(command.Args, "user") && contains(command.Args, "1234") && contains(command.Args, "group") && contains(command.Args, "5678")
+		}
+	}
+	if !found {
+		t.Fatal("TAP owner and group were not emitted")
 	}
 }
 
@@ -88,7 +146,7 @@ func TestFaultsAreDirectionalNetemAndPartition(t *testing.T) {
 	}
 	foundTC, foundDrop := false, false
 	for _, c := range plan.Commands {
-		if c.Executable == "ip" && len(c.Args) > 2 && c.Args[0] == "-n" && c.Args[2] == "tc" {
+		if c.Executable == "ip" && len(c.Args) > 3 && c.Args[0] == "netns" && c.Args[1] == "exec" && c.Args[3] == "tc" {
 			foundTC = true
 			if !contains(c.Args, "120ms") || !contains(c.Args, "15ms") || !contains(c.Args, "2.5%") || !contains(c.Args, "512kbit") {
 				t.Errorf("incomplete tc netem args: %v", c.Args)
@@ -179,6 +237,20 @@ func TestCleanupContinuesAfterError(t *testing.T) {
 	}
 	if len(runner.commands) != len(plan.Cleanup.Commands) {
 		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), len(plan.Cleanup.Commands))
+	}
+}
+
+func TestCleanupUsesIdempotentRunnerWhenAvailable(t *testing.T) {
+	plan, err := Plan(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeCleanupRunner{}
+	if err := plan.Cleanup.Run(context.Background(), runner); err != nil {
+		t.Fatal(err)
+	}
+	if runner.runs != 0 || runner.cleanups != len(plan.Cleanup.Commands) {
+		t.Fatalf("cleanup dispatch runs=%d cleanups=%d", runner.runs, runner.cleanups)
 	}
 }
 

@@ -26,6 +26,13 @@ type Runner interface {
 	Run(context.Context, string, []string) error
 }
 
+// CleanupRunner may normalize an absent owned resource while replaying a
+// cleanup journal. Other failures, including permission errors, remain fatal.
+type CleanupRunner interface {
+	Runner
+	RunCleanup(context.Context, string, []string) error
+}
+
 // FuncRunner adapts a function to Runner.
 type FuncRunner func(context.Context, string, []string) error
 
@@ -99,6 +106,16 @@ func StableGuestAddress(region RegionCode, ordinal int) (string, error) {
 	return netip.AddrFrom4(address).String(), nil
 }
 
+// StableGuestMAC returns a locally administered unicast MAC for a one-based
+// guest ordinal. It is derived only from the closed launch-Region allocation.
+func StableGuestMAC(region RegionCode, ordinal int) (string, error) {
+	index := regionIndex(region)
+	if index < 0 || ordinal < 1 || ordinal > 32 {
+		return "", fmt.Errorf("vmnet: guest ordinal %d is invalid for %s", ordinal, region)
+	}
+	return fmt.Sprintf("02:fc:77:%02x:%02x:01", index+1, ordinal), nil
+}
+
 // GuestSpec declares one Firecracker guest's host-side TAP and stable address.
 // Empty TAP and Address values receive deterministic values from the guest's
 // sorted position in its Region.
@@ -134,6 +151,8 @@ type Config struct {
 	Prefix  string       `json:"prefix,omitempty"`
 	Regions []RegionSpec `json:"regions"`
 	Faults  []FaultSpec  `json:"faults,omitempty"`
+	TAPUID  uint32       `json:"tap_uid,omitempty"`
+	TAPGID  uint32       `json:"tap_gid,omitempty"`
 }
 
 // DefaultConfig returns the six-guest GRU/SFO/FRA qualification topology.
@@ -142,7 +161,7 @@ func DefaultConfig() Config {
 	for _, region := range launchRegions {
 		config.Regions = append(config.Regions, RegionSpec{
 			Code: region, CIDR: StableCIDR(region),
-			Guests: []GuestSpec{{ID: "member-1"}, {ID: "member-2"}},
+			Guests: []GuestSpec{{ID: strings.ToLower(string(region)) + "-member-1"}, {ID: strings.ToLower(string(region)) + "-member-2"}},
 		})
 	}
 	return config
@@ -150,12 +169,13 @@ func DefaultConfig() Config {
 
 // RegionNetwork describes the addresses and names derived for one Region.
 type RegionNetwork struct {
-	Code      RegionCode     `json:"code"`
-	CIDR      string         `json:"cidr"`
-	Namespace string         `json:"namespace"`
-	Bridge    string         `json:"bridge"`
-	Gateway   string         `json:"gateway"`
-	Guests    []GuestNetwork `json:"guests"`
+	Code          RegionCode     `json:"code"`
+	CIDR          string         `json:"cidr"`
+	Namespace     string         `json:"namespace"`
+	NamespacePath string         `json:"namespace_path"`
+	Bridge        string         `json:"bridge"`
+	Gateway       string         `json:"gateway"`
+	Guests        []GuestNetwork `json:"guests"`
 }
 
 // GuestNetwork is a resolved guest declaration.
@@ -163,6 +183,7 @@ type GuestNetwork struct {
 	ID      string `json:"id"`
 	TAP     string `json:"tap"`
 	Address string `json:"address"`
+	MAC     string `json:"mac"`
 }
 
 // CleanupPlan is safe to replay. Missing resources are expected during
@@ -197,7 +218,13 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 	ctx = context.WithoutCancel(ctx)
 	var first error
 	for _, c := range p.Commands {
-		if err := runner.Run(ctx, c.Executable, append([]string(nil), c.Args...)); err != nil && first == nil {
+		var err error
+		if cleanupRunner, ok := runner.(CleanupRunner); ok {
+			err = cleanupRunner.RunCleanup(ctx, c.Executable, append([]string(nil), c.Args...))
+		} else {
+			err = runner.Run(ctx, c.Executable, append([]string(nil), c.Args...))
+		}
+		if err != nil && first == nil {
 			first = err
 		}
 	}
@@ -222,8 +249,10 @@ type JournalWriter interface {
 // NetworkPlan is a deterministic setup and cleanup plan.
 type NetworkPlan struct {
 	Version     int             `json:"version"`
+	Prefix      string          `json:"prefix"`
 	Fingerprint string          `json:"fingerprint"`
 	Regions     []RegionNetwork `json:"regions"`
+	Faults      []FaultSpec     `json:"faults,omitempty"`
 	Commands    []Command       `json:"commands"`
 	Cleanup     CleanupPlan     `json:"cleanup"`
 	Journal     Journal         `json:"journal"`
@@ -329,6 +358,10 @@ func regionNetworkName(prefix string, code RegionCode, kind string) string {
 	return prefix + "-" + kind + "-" + strings.ToLower(string(code))
 }
 
+func faultChain(prefix string, from, to RegionCode) string {
+	return prefix + "_" + strings.ToLower(string(from)) + "_" + strings.ToLower(string(to))
+}
+
 func transitIP(index int, side int) (netip.Addr, netip.Addr, error) {
 	// 169.254.240.0/24 is reserved solely for the three deterministic
 	// cross-Region /30 links.
@@ -424,10 +457,12 @@ func Plan(config Config) (NetworkPlan, error) {
 				return NetworkPlan{}, fmt.Errorf("vmnet: guest %s address %q is outside %s", guest.ID, address, prefixCIDR)
 			}
 			seenAddresses[guestAddress] = true
-			resolvedGuests = append(resolvedGuests, GuestNetwork{ID: guest.ID, TAP: tap, Address: guestAddress.String()})
+			mac, _ := StableGuestMAC(spec.Code, guestIndex+1)
+			resolvedGuests = append(resolvedGuests, GuestNetwork{ID: guest.ID, TAP: tap, Address: guestAddress.String(), MAC: mac})
 		}
 		gateway := netip.AddrFrom4([4]byte{prefixCIDR.Addr().As4()[0], prefixCIDR.Addr().As4()[1], prefixCIDR.Addr().As4()[2], 1}).String()
-		resolved = append(resolved, RegionNetwork{Code: spec.Code, CIDR: prefixCIDR.String(), Namespace: regionNetworkName(prefix, spec.Code, "n"), Bridge: regionNetworkName(prefix, spec.Code, "b"), Gateway: gateway, Guests: resolvedGuests})
+		namespace := regionNetworkName(prefix, spec.Code, "n")
+		resolved = append(resolved, RegionNetwork{Code: spec.Code, CIDR: prefixCIDR.String(), Namespace: namespace, NamespacePath: "/run/netns/" + namespace, Bridge: regionNetworkName(prefix, spec.Code, "b"), Gateway: gateway, Guests: resolvedGuests})
 	}
 
 	commands := make([]Command, 0)
@@ -435,16 +470,24 @@ func Plan(config Config) (NetworkPlan, error) {
 	for _, region := range resolved {
 		commands = append(commands,
 			command("ip", "netns", "add", region.Namespace),
+			command("ip", "-n", region.Namespace, "link", "set", "lo", "up"),
 			command("ip", "-n", region.Namespace, "link", "add", region.Bridge, "type", "bridge"),
 			command("ip", "-n", region.Namespace, "link", "set", region.Bridge, "up"),
 			command("ip", "-n", region.Namespace, "addr", "add", region.Gateway+"/"+strconv.Itoa(netip.MustParsePrefix(region.CIDR).Bits()), "dev", region.Bridge),
 			command("ip", "-n", region.Namespace, "link", "set", "dev", region.Bridge, "mtu", "1500"),
+			command("ip", "netns", "exec", region.Namespace, "sysctl", "-q", "-w", "net.ipv4.ip_forward=1"),
 		)
 		for _, guest := range region.Guests {
+			tuntap := []string{"-n", region.Namespace, "tuntap", "add", "dev", guest.TAP, "mode", "tap"}
+			if config.TAPUID != 0 {
+				tuntap = append(tuntap, "user", strconv.FormatUint(uint64(config.TAPUID), 10))
+			}
+			if config.TAPGID != 0 {
+				tuntap = append(tuntap, "group", strconv.FormatUint(uint64(config.TAPGID), 10))
+			}
 			commands = append(commands,
-				command("ip", "-n", region.Namespace, "tuntap", "add", "dev", guest.TAP, "mode", "tap"),
+				command("ip", tuntap...),
 				command("ip", "-n", region.Namespace, "link", "set", guest.TAP, "master", region.Bridge),
-				command("ip", "-n", region.Namespace, "addr", "add", guest.Address+"/32", "dev", guest.TAP),
 				command("ip", "-n", region.Namespace, "link", "set", guest.TAP, "up"),
 			)
 		}
@@ -478,16 +521,20 @@ func Plan(config Config) (NetworkPlan, error) {
 				command("ip", "link", "add", va, "type", "veth", "peer", "name", vb),
 				command("ip", "link", "set", va, "netns", a.Namespace),
 				command("ip", "link", "set", vb, "netns", b.Namespace),
-				command("ip", "-n", a.Namespace, "link", "set", va, "master", a.Bridge),
-				command("ip", "-n", b.Namespace, "link", "set", vb, "master", b.Bridge),
-				command("ip", "-n", a.Namespace, "addr", "add", ipA.String()+"/30", "dev", a.Bridge),
-				command("ip", "-n", b.Namespace, "addr", "add", ipB.String()+"/30", "dev", b.Bridge),
-				command("ip", "-n", a.Namespace, "route", "add", b.CIDR, "via", ipB.String(), "dev", a.Bridge),
-				command("ip", "-n", b.Namespace, "route", "add", a.CIDR, "via", ipA.String(), "dev", b.Bridge),
+				command("ip", "-n", a.Namespace, "addr", "add", ipA.String()+"/30", "dev", va),
+				command("ip", "-n", b.Namespace, "addr", "add", ipB.String()+"/30", "dev", vb),
+				command("ip", "-n", a.Namespace, "route", "add", b.CIDR, "via", ipB.String(), "dev", va),
+				command("ip", "-n", b.Namespace, "route", "add", a.CIDR, "via", ipA.String(), "dev", vb),
 				command("ip", "-n", a.Namespace, "link", "set", va, "up"),
 				command("ip", "-n", b.Namespace, "link", "set", vb, "up"),
+				command("ip", "netns", "exec", a.Namespace, "nft", "add", "chain", "inet", prefix+"_vmnet", faultChain(prefix, a.Code, b.Code)),
+				command("ip", "netns", "exec", b.Namespace, "nft", "add", "chain", "inet", prefix+"_vmnet", faultChain(prefix, b.Code, a.Code)),
+				command("ip", "netns", "exec", a.Namespace, "nft", "insert", "rule", "inet", prefix+"_vmnet", "forward", "iifname", a.Bridge, "oifname", va, "jump", faultChain(prefix, a.Code, b.Code)),
+				command("ip", "netns", "exec", b.Namespace, "nft", "insert", "rule", "inet", prefix+"_vmnet", "forward", "iifname", b.Bridge, "oifname", vb, "jump", faultChain(prefix, b.Code, a.Code)),
 				command("ip", "netns", "exec", a.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", "forward", "iifname", a.Bridge, "oifname", va, "accept"),
+				command("ip", "netns", "exec", a.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", "forward", "iifname", va, "oifname", a.Bridge, "accept"),
 				command("ip", "netns", "exec", b.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", "forward", "iifname", b.Bridge, "oifname", vb, "accept"),
+				command("ip", "netns", "exec", b.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", "forward", "iifname", vb, "oifname", b.Bridge, "accept"),
 			)
 			linkIndex++
 		}
@@ -534,12 +581,13 @@ func Plan(config Config) (NetworkPlan, error) {
 		}
 		veth := fmt.Sprintf("%s-v-%s-%s", prefix, strings.ToLower(string(from.Code)), strings.ToLower(string(to.Code)))
 		if fault.Partition {
-			commands = append(commands, command("ip", "netns", "exec", from.Namespace, "nft", "insert", "rule", "inet", prefix+"_vmnet", "forward", "iifname", from.Bridge, "oifname", veth, "drop"))
-			reverseVeth := fmt.Sprintf("%s-v-%s-%s", prefix, strings.ToLower(string(to.Code)), strings.ToLower(string(from.Code)))
-			commands = append(commands, command("ip", "netns", "exec", to.Namespace, "nft", "insert", "rule", "inet", prefix+"_vmnet", "forward", "iifname", to.Bridge, "oifname", reverseVeth, "drop"))
+			commands = append(commands,
+				command("ip", "netns", "exec", from.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", faultChain(prefix, from.Code, to.Code), "drop"),
+				command("ip", "netns", "exec", to.Namespace, "nft", "add", "rule", "inet", prefix+"_vmnet", faultChain(prefix, to.Code, from.Code), "drop"),
+			)
 		}
 		if fault.Latency != 0 || fault.Jitter != 0 || fault.LossPercent != 0 || fault.BandwidthKbit != 0 {
-			args := []string{"-n", from.Namespace, "tc", "qdisc", "replace", "dev", veth, "root", "netem"}
+			args := []string{"netns", "exec", from.Namespace, "tc", "qdisc", "replace", "dev", veth, "root", "netem"}
 			if fault.Latency != 0 || fault.Jitter != 0 {
 				args = append(args, "delay", netemDuration(fault.Latency))
 				if fault.Jitter != 0 {
@@ -580,5 +628,5 @@ func Plan(config Config) (NetworkPlan, error) {
 	fingerprint := hex.EncodeToString(hash[:])
 	cleanupPlan := CleanupPlan{Version: 1, Fingerprint: fingerprint, Commands: cleanup}
 	journal := Journal{Version: 1, Fingerprint: fingerprint, Cleanup: cleanupPlan.copy()}
-	return NetworkPlan{Version: 1, Fingerprint: fingerprint, Regions: resolved, Commands: commands, Cleanup: cleanupPlan, Journal: journal}, nil
+	return NetworkPlan{Version: 1, Prefix: prefix, Fingerprint: fingerprint, Regions: resolved, Faults: append([]FaultSpec(nil), faults...), Commands: commands, Cleanup: cleanupPlan, Journal: journal}, nil
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -91,7 +90,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		_ = vmqual.WriteSuiteReport(out, report)
 		return err
 	case "clean":
-		return vmqual.CleanJournal(ctx, config.JournalPath, commandRunnerNetwork{})
+		runner, err := vmnet.DiscoverHostRunner()
+		if err != nil {
+			return err
+		}
+		return vmqual.CleanJournal(ctx, config.JournalPath, runner)
 	default:
 		return errors.New("unknown command")
 	}
@@ -107,30 +110,17 @@ func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqua
 	if err != nil {
 		return nil, nil, err
 	}
-	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "member-1"}}}}}
+	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
 	if full {
 		networkConfig = vmnet.DefaultConfig()
 	}
-	network, err := vmqual.NewNetworkController(networkConfig, commandRunnerNetwork{}, "")
+	runner, err := vmnet.DiscoverHostRunner()
+	if err != nil {
+		return nil, nil, err
+	}
+	network, err := vmqual.NewNetworkController(networkConfig, runner, "")
 	if err != nil {
 		return nil, nil, err
 	}
 	return factory, network, nil
-}
-
-type commandRunnerNetwork struct{}
-
-func (commandRunnerNetwork) Run(ctx context.Context, executable string, args []string) error {
-	return runArgv(ctx, executable, args)
-}
-func runArgv(ctx context.Context, executable string, args []string) error {
-	if executable == "" {
-		return errors.New("empty executable")
-	}
-	command := filepath.Clean(executable)
-	if !filepath.IsAbs(command) {
-		return fmt.Errorf("network executable must be absolute: %s", executable)
-	}
-	process := exec.CommandContext(ctx, command, args...)
-	return process.Run()
 }
