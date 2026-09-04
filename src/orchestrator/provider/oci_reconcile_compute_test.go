@@ -32,7 +32,7 @@ func testComputeDeclared(t *testing.T) ComputeDeclared {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ComputeDeclared{Region: testComputeRegion(), ImageID: "ocid1.image.oc1.x", CloudInitBase64: cloudInit}
+	return ComputeDeclared{Region: testComputeRegion(), ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitBase64: cloudInit}
 }
 
 // fakeComputeGateway models member instances with shape capacity behavior.
@@ -205,12 +205,109 @@ func TestComputeApplyFallsBackFromA1ToE5(t *testing.T) {
 		t.Fatalf("launch attempts = %d, want two primary+fallback pairs", len(gateway.launches))
 	}
 	for i, spec := range gateway.launches {
-		want := "VM.Standard.A1.Flex"
+		wantShape := "VM.Standard.A1.Flex"
+		wantImage := "ocid1.image.oc1.arm64"
 		if i%2 == 1 {
-			want = "VM.Standard.E5.Flex"
+			wantShape = "VM.Standard.E5.Flex"
+			wantImage = "ocid1.image.oc1.amd64"
 		}
-		if spec.Shape != want {
-			t.Fatalf("launch %d shape = %s, want %s", i, spec.Shape, want)
+		if spec.Shape != wantShape {
+			t.Fatalf("launch %d shape = %s, want %s", i, spec.Shape, wantShape)
+		}
+		if spec.ImageID != wantImage {
+			t.Fatalf("launch %d image = %s, want %s (arch must follow the shape)", i, spec.ImageID, wantImage)
+		}
+	}
+}
+
+func TestComputeApplyRefusesCrossArchFallbackWithoutImage(t *testing.T) {
+	declared := testComputeDeclared(t)
+	declared.FallbackImageID = ""
+	gateway := &fakeComputeGateway{noCapacity: map[string]bool{"VM.Standard.A1.Flex": true}}
+	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
+	ctx := context.Background()
+	plan, err := reconciler.Reconcile(ctx, declared, testComputeObserved())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = reconciler.Apply(ctx, declared, testComputeObserved(), plan)
+	var invalid *InvalidDataError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Apply without an amd64 image = %v, want InvalidDataError", err)
+	}
+	if len(gateway.launches) != 1 {
+		t.Fatalf("launch attempts = %d, want exactly one primary attempt (never boot arm64 on E5)", len(gateway.launches))
+	}
+}
+
+func TestComputeApplySameArchFallbackReusesPrimaryImage(t *testing.T) {
+	declared := testComputeDeclared(t)
+	declared.Region.Members.PrimaryShape = "VM.Standard.E5.Flex"
+	declared.Region.Members.FallbackShape = "VM.Standard.E4.Flex"
+	declared.FallbackImageID = ""
+	gateway := &fakeComputeGateway{noCapacity: map[string]bool{"VM.Standard.E5.Flex": true}}
+	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
+	ctx := context.Background()
+	plan, err := reconciler.Reconcile(ctx, declared, testComputeObserved())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Apply(ctx, declared, testComputeObserved(), plan); err != nil {
+		t.Fatalf("Apply with same-arch fallback failed: %v", err)
+	}
+	if len(gateway.launches) != 4 {
+		t.Fatalf("launch attempts = %d, want two primary+fallback pairs", len(gateway.launches))
+	}
+	for i, spec := range gateway.launches {
+		if spec.ImageID != declared.ImageID {
+			t.Fatalf("launch %d image = %s, want the primary image reused on the same arch", i, spec.ImageID)
+		}
+	}
+	if gateway.launches[1].Shape != "VM.Standard.E4.Flex" {
+		t.Fatalf("fallback launch shape = %s, want VM.Standard.E4.Flex", gateway.launches[1].Shape)
+	}
+}
+
+func TestComputeReconcileRefusesSubFloorAndUnknownArch(t *testing.T) {
+	declared := testComputeDeclared(t)
+	declared.Region.Members.Count = 1
+	reconciler := &ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}
+	if _, err := reconciler.Reconcile(context.Background(), declared, testComputeObserved()); err == nil {
+		t.Fatal("sub-floor member pool accepted")
+	}
+	declared = testComputeDeclared(t)
+	declared.Region.Members.PrimaryShape = "VM.Standard.X9.Flex"
+	if _, err := reconciler.Reconcile(context.Background(), declared, testComputeObserved()); err == nil {
+		t.Fatal("unknown-architecture primary shape accepted")
+	}
+	declared = testComputeDeclared(t)
+	declared.Region.Members.FallbackShape = "BM.Standard.A1.Flex"
+	if _, err := reconciler.Reconcile(context.Background(), declared, testComputeObserved()); err == nil {
+		t.Fatal("unknown-architecture fallback shape accepted")
+	}
+}
+
+func TestShapeArch(t *testing.T) {
+	cases := []struct {
+		shape string
+		arch  string
+		ok    bool
+	}{
+		{"VM.Standard.A1.Flex", MemberArchArm64, true},
+		{"VM.Standard.A1.2", MemberArchArm64, true},
+		{"VM.Standard.E5.Flex", MemberArchAMD64, true},
+		{"VM.Standard.E4.Flex", MemberArchAMD64, true},
+		{"VM.Standard.E2.2", MemberArchAMD64, true},
+		{"VM.Standard.X9.Flex", "", false},
+		{"BM.Standard.A1.Flex", "", false},
+		{"VM.Standard.E", "", false},
+		{"VM.Standard.Even.Flex", "", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		arch, ok := ShapeArch(tc.shape)
+		if arch != tc.arch || ok != tc.ok {
+			t.Fatalf("ShapeArch(%q) = %q, %v; want %q, %v", tc.shape, arch, ok, tc.arch, tc.ok)
 		}
 	}
 }
@@ -304,7 +401,8 @@ func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
 
 func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	sha := strings.Repeat("0123456789abcdef", 4)
-	encoded, err := TSNodeCloudInit("1.2.3", sha, "https://git.terrascale.tech/releases/ts-node")
+	key := strings.Repeat("ab", 32)
+	encoded, err := TSNodeCloudInit("1.2.3", sha, "https://git.terrascale.tech/releases/ts-node", "https://git.terrascale.tech/releases/ts-node.sig", key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,10 +419,16 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 			t.Fatalf("cloud-init installs more than ts-node: found %q", forbidden)
 		}
 	}
-	for _, required := range []string{sha, "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service"} {
+	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=terrascale-node", "Group=terrascale-node", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale/ts-node", "NoNewPrivileges=true", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("cloud-init lacks %q", required)
 		}
+	}
+	if !strings.Contains(document, "BEGIN PUBLIC KEY") || !strings.Contains(document, "name: terrascale-node") {
+		t.Fatal("cloud-init must provision the pinned key and dedicated user")
+	}
+	if strings.Contains(document, "PRIVATE KEY") {
+		t.Fatal("cloud-init must never contain private key material")
 	}
 	if _, err := TSNodeCloudInit("bad version", sha, "https://example.com/x"); err == nil {
 		t.Fatal("invalid version accepted")
@@ -334,6 +438,12 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	}
 	if _, err := TSNodeCloudInit("1.2.3", sha, "http://insecure.example.com/x"); err == nil {
 		t.Fatal("non-https artifact URL accepted")
+	}
+	if _, err := TSNodeCloudInit("1.2.3", sha, "https://example.com/x", "https://example.com/x.sig", strings.Repeat("not-a-key", 4)); err == nil {
+		t.Fatal("invalid Ed25519 trust key accepted")
+	}
+	if _, err := TSNodeCloudInit("1.2.3", sha, "https://example.com/x", "http://example.com/x.sig", key); err == nil {
+		t.Fatal("non-https signature URL accepted")
 	}
 }
 
@@ -356,7 +466,8 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 	}
 	member, err := gateway.LaunchMember(context.Background(), MemberLaunchSpec{
 		DisplayName: "terrascale-gru-1", Index: 1, Shape: "VM.Standard.A1.Flex",
-		OCPUs: 2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x",
+		ImageID: "ocid1.image.oc1.arm64",
+		OCPUs:   2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x",
 		NSGIDs: []string{"ocid1.networksecuritygroup.oc1.x"}, AvailabilityDomain: "AD-1", CloudInitBase64: "dHNub2Rl",
 	})
 	if err != nil || member.ID != "ocid1.instance.oc1.x" || member.Index != 1 {
@@ -373,8 +484,8 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 		t.Fatalf("launch vnic = %+v", vnic)
 	}
 	source := requestBody["sourceDetails"].(map[string]any)
-	if source["imageId"] != "ocid1.image.oc1.x" {
-		t.Fatalf("launch source = %+v", source)
+	if source["imageId"] != "ocid1.image.oc1.arm64" {
+		t.Fatalf("launch source = %+v; the spec image must win over the gateway default", source)
 	}
 	metadata := requestBody["metadata"].(map[string]any)
 	if metadata["user_data"] != "dHNub2Rl" {
@@ -386,5 +497,24 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 	}
 	if _, present := requestBody["metadata"].(map[string]any)["ssh_authorized_keys"]; present {
 		t.Fatal("launch must not install SSH keys")
+	}
+	// Without a spec image the gateway boots its own declared image.
+	requestBody = nil
+	if _, err := gateway.LaunchMember(context.Background(), MemberLaunchSpec{
+		DisplayName: "terrascale-gru-2", Index: 2, Shape: "VM.Standard.E5.Flex",
+		OCPUs: 2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: "dHNub2Rl",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	source = requestBody["sourceDetails"].(map[string]any)
+	if source["imageId"] != "ocid1.image.oc1.x" {
+		t.Fatalf("launch source = %+v; the gateway image is the default", source)
+	}
+	if _, err := gateway.LaunchMember(context.Background(), MemberLaunchSpec{
+		DisplayName: "terrascale-gru-3", Index: 3, Shape: "VM.Standard.A1.Flex",
+		ImageID: "not-an-image",
+		OCPUs:   2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: "dHNub2Rl",
+	}); err == nil {
+		t.Fatal("invalid boot image accepted")
 	}
 }

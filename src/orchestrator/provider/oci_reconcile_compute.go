@@ -2,8 +2,11 @@ package provider
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/url"
@@ -20,7 +23,9 @@ import (
 // automatic fallback when A1 capacity is unavailable (D-69), a cloud-init
 // that installs ONLY ts-node, and no credentials anywhere on the host — the
 // hosts authenticate to OCI with instance principals and fetch everything
-// else from the orchestrator.
+// else from the orchestrator. Shape and image architectures must agree
+// (D-69): A1 hosts are arm64, the x86 flex shapes are amd64, and every
+// launch boots the image declared for its shape's architecture.
 
 // MemberIndexTag is the freeform tag carrying the member's stable slot.
 const MemberIndexTag = "terrascale-member-index"
@@ -43,12 +48,17 @@ type ObservedMember struct {
 }
 
 // MemberLaunchSpec is one member launch request. FallbackShape is tried
-// automatically when the primary shape is out of capacity.
+// automatically when the primary shape is out of capacity. ImageID boots
+// Shape and FallbackImageID boots FallbackShape: a cross-architecture
+// fallback (A1 arm64 → E5 amd64) refuses to launch without its own image,
+// a same-architecture fallback may reuse ImageID.
 type MemberLaunchSpec struct {
 	DisplayName        string
 	Index              int
 	Shape              string
 	FallbackShape      string
+	ImageID            string
+	FallbackImageID    string
 	OCPUs, MemoryGiB   float64
 	SubnetID           string
 	NSGIDs             []string
@@ -57,8 +67,11 @@ type MemberLaunchSpec struct {
 }
 
 type ComputeDeclared struct {
-	Region          estate.Region
+	Region estate.Region
+	// ImageID boots the primary shape; FallbackImageID boots the fallback
+	// shape whenever the two shapes span architectures (D-69).
 	ImageID         string
+	FallbackImageID string
 	CloudInitBase64 string
 }
 
@@ -110,6 +123,25 @@ var _ OCIReconciler[ComputeDeclared, ComputeObserved] = (*ComputeReconciler)(nil
 
 func memberIsLive(state string) bool {
 	return state != "TERMINATED" && state != "TERMINATING" && state != "" && state != "FAILED" && state != "ERROR"
+}
+
+// Member CPU architectures (D-69). A launch must boot an image built for
+// its shape's architecture; mixing them strands a host in cloud-init.
+const (
+	MemberArchArm64 = "arm64"
+	MemberArchAMD64 = "amd64"
+)
+
+// ShapeArch classifies an OCI VM shape's CPU architecture. An unrecognized
+// shape is never guessed: the reconciler refuses to plan or launch it.
+func ShapeArch(shape string) (string, bool) {
+	if strings.HasPrefix(shape, "VM.Standard.A1.") {
+		return MemberArchArm64, true
+	}
+	if rest, ok := strings.CutPrefix(shape, "VM.Standard.E"); ok && rest != "" && rest[0] >= '0' && rest[0] <= '9' {
+		return MemberArchAMD64, true
+	}
+	return "", false
 }
 
 func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclared) (ComputeObserved, error) {
@@ -181,6 +213,12 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	pool := declared.Region.Members
 	if pool.Count < PlacementMinimumMemberHosts {
 		return OCIPlan{}, &errs.Argument{Message: "declared member pool is below the placement host floor"}
+	}
+	if _, ok := ShapeArch(pool.PrimaryShape); !ok {
+		return OCIPlan{}, &InvalidDataError{Message: "declared primary shape " + pool.PrimaryShape + " has an unrecognized architecture"}
+	}
+	if _, ok := ShapeArch(pool.FallbackShape); !ok {
+		return OCIPlan{}, &InvalidDataError{Message: "declared fallback shape " + pool.FallbackShape + " has an unrecognized architecture"}
 	}
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
@@ -316,6 +354,8 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 		Index:              index,
 		Shape:              pool.PrimaryShape,
 		FallbackShape:      pool.FallbackShape,
+		ImageID:            declared.ImageID,
+		FallbackImageID:    declared.FallbackImageID,
 		OCPUs:              float64(pool.OCPUs),
 		MemoryGiB:          float64(pool.MemoryGiB),
 		SubnetID:           subnetID,
@@ -358,8 +398,11 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 
 // launchWithFallback implements the D-69 capacity rule: an out-of-capacity
 // rejection on the primary shape (Ampere A1 exhaustion is routine) retries
-// once on the declared fallback shape. Quota errors are never retried on
-// another shape: they need an owner decision.
+// once on the declared fallback shape, booting the image declared for that
+// shape's architecture — A1 hosts are arm64, the x86 flex shapes are amd64,
+// and a cross-architecture fallback without its own image fails closed
+// instead of launching an unbootable host. Quota errors are never retried
+// on another shape: they need an owner decision.
 func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberLaunchSpec) error {
 	_, err := r.Compute.LaunchMember(ctx, spec)
 	if err == nil {
@@ -369,17 +412,41 @@ func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberL
 	if !errors.As(err, &capacity) || spec.FallbackShape == "" || spec.FallbackShape == spec.Shape {
 		return err
 	}
+	primaryArch, primaryOK := ShapeArch(spec.Shape)
+	fallbackArch, fallbackOK := ShapeArch(spec.FallbackShape)
+	if !primaryOK || !fallbackOK {
+		return err
+	}
+	image := spec.FallbackImageID
+	if !isOCID(image, "image") {
+		if fallbackArch != primaryArch {
+			return &InvalidDataError{Message: "fallback shape " + spec.FallbackShape + " is " + fallbackArch + " while the primary is " + primaryArch + "; the declaration names no " + fallbackArch + " boot image"}
+		}
+		image = spec.ImageID
+	}
 	fallback := spec
 	fallback.Shape = spec.FallbackShape
+	fallback.ImageID = image
 	_, err = r.Compute.LaunchMember(ctx, fallback)
 	return err
 }
 
+const (
+	tsNodeUser         = "terrascale-node"
+	tsNodeTrustKeyPath = "/etc/terrascale/ts-node.pub"
+	tsNodeDataVolume   = "/var/lib/terrascale/ts-node"
+)
+
 // TSNodeCloudInit renders the D-67 bootstrap cloud-config and returns its
-// base64 OCI user_data value. It installs ONLY ts-node: download the signed
-// release binary, verify its SHA-256, expose it through the `current`
-// symlink, and run one minimal system unit. Hosts carry no credentials.
-func TSNodeCloudInit(version, sha256Hex, artifactURL string) (string, error) {
+// base64 OCI user_data value. It installs ONLY ts-node: download the release
+// binary and its detached signature, verify both the SHA-256 and Ed25519
+// signature, expose it through the current symlink, and run one hardened
+// system unit as a dedicated account. The optional arguments are the
+// signature URL and pinned public-key material (hex, base64, or Ed25519 PKIX
+// PEM). With no optional arguments the signature URL is artifactURL + ".sig"
+// and the image-provisioned key at tsNodeTrustKeyPath is used. No credentials
+// are written to the host or emitted in cloud-init command output.
+func TSNodeCloudInit(version, sha256Hex, artifactURL string, trust ...string) (string, error) {
 	if len(version) < 1 || len(version) > 32 || !tokenPattern.MatchString(version) {
 		return "", &errs.Argument{Message: "ts-node release version is invalid"}
 	}
@@ -389,34 +456,156 @@ func TSNodeCloudInit(version, sha256Hex, artifactURL string) (string, error) {
 	if _, err := hex.DecodeString(sha256Hex); err != nil {
 		return "", &errs.Argument{Message: "ts-node release digest must be canonical SHA-256"}
 	}
-	parsed, err := url.Parse(artifactURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || strings.ContainsAny(artifactURL, "\r\n\x00") || len(artifactURL) > 2048 {
+	if err := validateTSNodeReleaseURL(artifactURL); err != nil {
 		return "", &errs.Argument{Message: "ts-node release URL is invalid"}
 	}
+	signatureURL := artifactURL + ".sig"
+	publicKeyPath := tsNodeTrustKeyPath
+	publicKeyPEM := ""
+	if len(trust) > 2 {
+		return "", &errs.Argument{Message: "ts-node trust material is invalid"}
+	}
+	if len(trust) > 0 && trust[0] != "" {
+		signatureURL = trust[0]
+	}
+	if err := validateTSNodeReleaseURL(signatureURL); err != nil {
+		return "", &errs.Argument{Message: "ts-node signature URL is invalid"}
+	}
+	if len(trust) == 2 && trust[1] != "" {
+		if strings.HasPrefix(trust[1], "/") {
+			if !strings.HasPrefix(trust[1], "/etc/terrascale/") || strings.Contains(trust[1], "..") || strings.ContainsAny(trust[1], "\r\n\x00 \t") || len(trust[1]) > 256 {
+				return "", &errs.Argument{Message: "ts-node trust key path is invalid"}
+			}
+			publicKeyPath = trust[1]
+		} else {
+			var err error
+			publicKeyPEM, err = canonicalTSNodePublicKey(trust[1])
+			if err != nil {
+				return "", &errs.Argument{Message: "ts-node trust key is invalid"}
+			}
+		}
+	}
+	artifactPath := "/opt/terrascale/ts-node/" + version + "/ts-node"
+	artifactTempPath := artifactPath + ".download"
+	signatureTempPath := artifactPath + ".sig.download"
 	var b strings.Builder
 	b.WriteString("#cloud-config\n")
+	b.WriteString("users:\n")
+	b.WriteString("  - default\n")
+	b.WriteString("  - name: " + tsNodeUser + "\n")
+	b.WriteString("    system: true\n")
+	b.WriteString("    shell: /usr/sbin/nologin\n")
+	b.WriteString("    lock_passwd: true\n")
 	b.WriteString("write_files:\n")
+	if publicKeyPEM != "" {
+		b.WriteString("  - path: " + publicKeyPath + "\n")
+		b.WriteString("    owner: root:root\n")
+		b.WriteString("    permissions: '0644'\n")
+		b.WriteString("    content: |\n")
+		for _, line := range strings.Split(strings.TrimSuffix(publicKeyPEM, "\n"), "\n") {
+			b.WriteString("      " + line + "\n")
+		}
+	}
 	b.WriteString("  - path: /etc/systemd/system/terrascale-ts-node.service\n")
+	b.WriteString("    owner: root:root\n")
+	b.WriteString("    permissions: '0644'\n")
 	b.WriteString("    content: |\n")
 	b.WriteString("      [Unit]\n")
 	b.WriteString("      Description=TerraScale ts-node host agent\n")
 	b.WriteString("      After=network-online.target\n")
 	b.WriteString("      Wants=network-online.target\n")
 	b.WriteString("      [Service]\n")
+	b.WriteString("      Type=exec\n")
+	b.WriteString("      User=" + tsNodeUser + "\n")
+	b.WriteString("      Group=" + tsNodeUser + "\n")
 	b.WriteString("      ExecStart=/opt/terrascale/ts-node/current/ts-node\n")
-	b.WriteString("      Restart=always\n")
-	b.WriteString("      RestartSec=2\n")
+	b.WriteString("      Restart=on-failure\n")
+	b.WriteString("      RestartSec=2s\n")
+	b.WriteString("      NoNewPrivileges=true\n")
+	b.WriteString("      ProtectSystem=strict\n")
+	b.WriteString("      ProtectHome=yes\n")
+	b.WriteString("      PrivateTmp=yes\n")
+	b.WriteString("      PrivateDevices=yes\n")
+	b.WriteString("      ProtectKernelTunables=yes\n")
+	b.WriteString("      ProtectKernelModules=yes\n")
+	b.WriteString("      ProtectControlGroups=yes\n")
+	b.WriteString("      CapabilityBoundingSet=\n")
+	b.WriteString("      SystemCallFilter=@system-service\n")
+	b.WriteString("      RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6\n")
+	b.WriteString("      RestrictSUIDSGID=yes\n")
+	b.WriteString("      LockPersonality=yes\n")
+	b.WriteString("      UMask=0077\n")
+	b.WriteString("      ReadWritePaths=" + tsNodeDataVolume + "\n")
+	b.WriteString("      CPUWeight=100\n")
+	b.WriteString("      MemoryMax=536870912\n")
+	b.WriteString("      IOWeight=100\n")
 	b.WriteString("      [Install]\n")
 	b.WriteString("      WantedBy=multi-user.target\n")
 	b.WriteString("runcmd:\n")
-	b.WriteString("  - [mkdir, -p, /opt/terrascale/ts-node/" + version + "]\n")
-	b.WriteString("  - [curl, -fsSL, -o, /opt/terrascale/ts-node/" + version + "/ts-node, " + artifactURL + "]\n")
-	b.WriteString("  - [sh, -c, \"echo '" + sha256Hex + "  /opt/terrascale/ts-node/" + version + "/ts-node' | sha256sum -c -\"]\n")
-	b.WriteString("  - [chmod, 0755, /opt/terrascale/ts-node/" + version + "/ts-node]\n")
+	b.WriteString("  - [install, -d, -o, root, -g, root, -m, 0755, /opt/terrascale/ts-node/" + version + "]\n")
+	b.WriteString("  - [install, -d, -o, " + tsNodeUser + ", -g, " + tsNodeUser + ", -m, 0700, " + tsNodeDataVolume + "]\n")
+	b.WriteString("  - [rm, -f, " + artifactTempPath + ", " + signatureTempPath + "]\n")
+	b.WriteString("  - [curl, --fail, --silent, --show-error, --location, --proto, '=https', --tlsv1.2, --max-redirs, 3, --connect-timeout, 10, --max-time, 300, --max-filesize, 67108864, --output, " + artifactTempPath + ", " + tsNodeShellQuote(artifactURL) + "]\n")
+	b.WriteString("  - [curl, --fail, --silent, --show-error, --location, --proto, '=https', --tlsv1.2, --max-redirs, 3, --connect-timeout, 10, --max-time, 300, --max-filesize, 128, --output, " + signatureTempPath + ", " + tsNodeShellQuote(signatureURL) + "]\n")
+	b.WriteString("  - [sh, -c, \"printf '%s  %s\\\\n' " + sha256Hex + " " + artifactTempPath + " | /usr/bin/sha256sum -c --strict\"]\n")
+	b.WriteString("  - [openssl, pkeyutl, -verify, -pubin, -inkey, " + publicKeyPath + ", -in, " + artifactTempPath + ", -sigfile, " + signatureTempPath + "]\n")
+	b.WriteString("  - [install, -o, root, -g, root, -m, 0755, " + artifactTempPath + ", " + artifactPath + "]\n")
+	b.WriteString("  - [rm, -f, " + signatureTempPath + "]\n")
 	b.WriteString("  - [ln, -sfn, /opt/terrascale/ts-node/" + version + ", /opt/terrascale/ts-node/current]\n")
 	b.WriteString("  - [systemctl, daemon-reload]\n")
-	b.WriteString("  - [systemctl, enable, --now, terrascale-ts-node]\n")
+	b.WriteString("  - [systemctl, enable, --now, terrascale-ts-node.service]\n")
 	return base64.StdEncoding.EncodeToString([]byte(b.String())), nil
+}
+
+func validateTSNodeReleaseURL(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(value, "\r\n\x00") || len(value) > 2048 {
+		return errors.New("invalid release URL")
+	}
+	return nil
+}
+
+func canonicalTSNodePublicKey(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || len(trimmed) > 4096 || strings.ContainsRune(trimmed, '\x00') {
+		return "", errors.New("empty trust key")
+	}
+	var publicKey ed25519.PublicKey
+	if block, rest := pem.Decode([]byte(trimmed)); block != nil && strings.TrimSpace(string(rest)) == "" {
+		if block.Type != "PUBLIC KEY" {
+			return "", errors.New("trust key is not an Ed25519 PKIX key")
+		}
+		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return "", err
+		}
+		var ok bool
+		publicKey, ok = parsed.(ed25519.PublicKey)
+		if !ok {
+			return "", errors.New("trust key is not Ed25519")
+		}
+	} else {
+		decoded, err := hex.DecodeString(trimmed)
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			decoded, err = base64.StdEncoding.DecodeString(trimmed)
+			if err != nil || len(decoded) != ed25519.PublicKeySize {
+				decoded, err = base64.RawStdEncoding.DecodeString(trimmed)
+			}
+		}
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return "", errors.New("trust key is not 32 Ed25519 bytes")
+		}
+		publicKey = ed25519.PublicKey(decoded)
+	}
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
+}
+
+func tsNodeShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // ociMemberGateway is the real compute gateway over the signed core-service
@@ -505,6 +694,16 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 			return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid network security group"}
 		}
 	}
+	// Boot the image carried by the spec — the reconciler resolves one per
+	// shape architecture (D-69) — falling back to the gateway's image when
+	// the spec names none.
+	imageID := g.ImageID
+	if spec.ImageID != "" {
+		imageID = spec.ImageID
+	}
+	if !isOCID(imageID, "image") || (spec.FallbackImageID != "" && !isOCID(spec.FallbackImageID, "image")) {
+		return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid boot image"}
+	}
 	payload := struct {
 		CompartmentID string `json:"compartmentId"`
 		DisplayName   string `json:"displayName"`
@@ -542,7 +741,7 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 		SourceDetails: struct {
 			SourceType string `json:"sourceType"`
 			ImageID    string `json:"imageId"`
-		}{SourceType: "image", ImageID: g.ImageID},
+		}{SourceType: "image", ImageID: imageID},
 		Metadata:     map[string]string{"user_data": spec.CloudInitBase64},
 		FreeformTags: map[string]string{"terrascale-managed": ManagedMemberTagValue, MemberIndexTag: strconv.Itoa(spec.Index)},
 	}
