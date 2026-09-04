@@ -22,7 +22,7 @@ This repository uses a single domain context:
 
 ## Use the glossary's vocabulary
 
-Use the terms defined in `CONTEXT.md` in issue titles, specifications, proposals, tests, and code.
+Use the terms defined in `CONTEXT.md` in specifications, proposals, tests, and code.
 
 If a needed concept is missing, first check whether the repository already uses another term. Record a genuine vocabulary gap for the domain-modeling workflow.
 
