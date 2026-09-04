@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"debug/elf"
 	"encoding/base64"
 	"encoding/hex"
@@ -571,10 +572,16 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 	if len(control) == 0 || len(control) > vmguest.MaxTransferBytes {
 		return "", errors.New("vmqual: guest control binary exceeds the transfer limit")
 	}
-	artifacts, err := loadProductionArtifacts(factory.config, vmimage.Architecture(factory.image.Manifest.Architecture))
+	artifacts, releasePublicKey, err := loadProductionArtifacts(factory.config, vmimage.Architecture(factory.image.Manifest.Architecture))
 	if err != nil {
 		return "", err
 	}
+	defer zeroBytes(releasePublicKey)
+	defer func() {
+		for index := range artifacts {
+			zeroBytes(artifacts[index].signature)
+		}
+	}()
 	network, err := guestNetwork(factory.config.NetworkPlan, guest)
 	if err != nil {
 		return "", err
@@ -661,55 +668,167 @@ func requireOwnedDirectory(path string) error {
 	return nil
 }
 
-func loadProductionArtifacts(config Config, architecture vmimage.Architecture) ([]guestArtifactInput, error) {
-	type componentInput struct{ component, pathEnvironment, versionEnvironment string }
-	components := []componentInput{{"ts-node", "TS_VM_TS_NODE", "TS_VM_TS_NODE_VERSION"}, {"orchestrator", "TS_VM_ORCHESTRATOR", "TS_VM_ORCHESTRATOR_VERSION"}, {"terrabase", "TS_VM_TERRABASE", "TS_VM_TERRABASE_VERSION"}}
+func loadProductionArtifacts(config Config, architecture vmimage.Architecture) ([]guestArtifactInput, ed25519.PublicKey, error) {
+	publicKeyData, _, err := readSecureInput(config.ReleasePublicKeyPath, 128, false)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vmqual: TS_VM_RELEASE_PUBLIC_KEY: %w", err)
+	}
+	defer zeroBytes(publicKeyData)
+	publicKeyText := publicKeyData
+	if len(publicKeyText) == ed25519.PublicKeySize*2+1 && publicKeyText[len(publicKeyText)-1] == '\n' {
+		publicKeyText = publicKeyText[:len(publicKeyText)-1]
+	}
+	if len(publicKeyText) != ed25519.PublicKeySize*2 || string(publicKeyText) != strings.ToLower(string(publicKeyText)) {
+		return nil, nil, errors.New("vmqual: release public key must be 64 lowercase hexadecimal characters")
+	}
+	decodedPublicKey, err := hex.DecodeString(string(publicKeyText))
+	if err != nil || len(decodedPublicKey) != ed25519.PublicKeySize {
+		return nil, nil, errors.New("vmqual: release public key is not Ed25519")
+	}
+	publicKey := ed25519.PublicKey(decodedPublicKey)
+	type componentInput struct {
+		component   string
+		environment string
+		input       ProductionArtifactInput
+	}
+	components := []componentInput{
+		{component: "ts-node", environment: "TS_VM_TS_NODE", input: config.TSNode},
+		{component: "orchestrator", environment: "TS_VM_ORCHESTRATOR", input: config.Orchestrator},
+		{component: "terrabase", environment: "TS_VM_TERRABASE", input: config.TerraBase},
+	}
 	controlDigest, err := fileSHA256(config.GuestControlPath)
 	if err != nil {
-		return nil, err
+		zeroBytes(publicKey)
+		return nil, nil, err
 	}
 	var artifacts []guestArtifactInput
 	var infos []os.FileInfo
 	seenDigests := map[string]string{controlDigest: "guest-control"}
 	for _, component := range components {
-		path := strings.TrimSpace(os.Getenv(component.pathEnvironment))
-		if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-			return nil, fmt.Errorf("vmqual: %s must name an absolute %s binary", component.pathEnvironment, component.component)
-		}
-		info, err := os.Lstat(path)
+		path := component.input.Path
+		data, info, err := readSecureInput(path, vmguest.MaxTransferBytes, true)
 		if err != nil {
-			return nil, fmt.Errorf("vmqual: %s artifact: %w", component.component, err)
-		}
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o111 == 0 || info.Size() <= 0 || info.Size() > vmguest.MaxTransferBytes {
-			return nil, fmt.Errorf("vmqual: %s artifact is not a bounded regular executable", component.component)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s artifact: %w", component.environment, err)
 		}
 		for index, prior := range infos {
 			if os.SameFile(info, prior) {
-				return nil, fmt.Errorf("vmqual: %s artifact aliases %s", component.component, artifacts[index].manifest.Component)
+				zeroBytes(data)
+				zeroArtifactInputs(artifacts)
+				zeroBytes(publicKey)
+				return nil, nil, fmt.Errorf("vmqual: %s artifact aliases %s", component.component, artifacts[index].manifest.Component)
 			}
 		}
 		if err := validateStaticELF(path, architecture); err != nil {
-			return nil, fmt.Errorf("vmqual: %s artifact: %w", component.component, err)
+			zeroBytes(data)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s artifact: %w", component.component, err)
 		}
-		digest, err := fileSHA256(path)
-		if err != nil {
-			return nil, err
-		}
+		digestBytes := sha256.Sum256(data)
+		digest := hex.EncodeToString(digestBytes[:])
 		if prior, exists := seenDigests[digest]; exists {
-			return nil, fmt.Errorf("vmqual: %s artifact duplicates %s bytes", component.component, prior)
+			zeroBytes(data)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s artifact duplicates %s bytes", component.component, prior)
 		}
 		seenDigests[digest] = component.component
-		version := strings.TrimSpace(os.Getenv(component.versionEnvironment))
-		if version == "" {
-			version = "qualification"
-		}
+		version := component.input.Version
 		if !artifactVersionToken.MatchString(version) {
-			return nil, fmt.Errorf("vmqual: %s is not a safe artifact version", component.versionEnvironment)
+			zeroBytes(data)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s_VERSION is not a required safe artifact version", component.environment)
 		}
+		signatureData, _, err := readSecureInput(component.input.SignaturePath, 256, false)
+		if err != nil {
+			zeroBytes(data)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s_SIGNATURE: %w", component.environment, err)
+		}
+		signature, err := decodeDetachedSignature(signatureData)
+		zeroBytes(signatureData)
+		if err != nil || !ed25519.Verify(publicKey, data, signature) {
+			zeroBytes(data)
+			zeroBytes(signature)
+			zeroArtifactInputs(artifacts)
+			zeroBytes(publicKey)
+			return nil, nil, fmt.Errorf("vmqual: %s detached Ed25519 signature is invalid", component.component)
+		}
+		zeroBytes(data)
 		artifact := vmimage.GuestArtifact{Component: component.component, Architecture: architecture, Version: version, Source: path, SHA256: digest, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
-		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, path: path}), append(infos, info)
+		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, path: path, signaturePath: component.input.SignaturePath, signature: signature}), append(infos, info)
 	}
-	return artifacts, nil
+	return artifacts, publicKey, nil
+}
+
+func readSecureInput(path string, maximum int64, executable bool) ([]byte, os.FileInfo, error) {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || maximum <= 0 {
+		return nil, nil, errors.New("path must be clean and absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || resolved != path {
+		return nil, nil, errors.New("path must not contain symlinks")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	mode := info.Mode()
+	if !mode.IsRegular() || mode&os.ModeSymlink != 0 || mode&0o022 != 0 || info.Size() <= 0 || info.Size() > maximum {
+		return nil, nil, errors.New("file must be a bounded regular file and not group/world writable")
+	}
+	if executable && mode.Perm() != 0o755 {
+		return nil, nil, errors.New("binary mode must be 0755")
+	}
+	if !executable && mode.Perm()&0o111 != 0 {
+		return nil, nil, errors.New("data file must not be executable")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, nil, errors.New("file identity changed while opening")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || int64(len(data)) != info.Size() {
+		zeroBytes(data)
+		if err == nil {
+			err = errors.New("file changed while reading")
+		}
+		return nil, nil, err
+	}
+	return data, info, nil
+}
+
+func decodeDetachedSignature(input []byte) ([]byte, error) {
+	if len(input) > 0 && input[len(input)-1] == '\n' {
+		input = input[:len(input)-1]
+	}
+	if len(input) == 0 || bytes.IndexAny(input, " \t\r\n") >= 0 {
+		return nil, errors.New("signature is not canonical base64")
+	}
+	if decoded, err := base64.StdEncoding.Strict().DecodeString(string(input)); err == nil && len(decoded) == ed25519.SignatureSize {
+		return decoded, nil
+	}
+	decoded, err := base64.RawStdEncoding.Strict().DecodeString(string(input))
+	if err != nil || len(decoded) != ed25519.SignatureSize {
+		zeroBytes(decoded)
+		return nil, errors.New("signature is not a base64 Ed25519 signature")
+	}
+	return decoded, nil
+}
+
+func zeroArtifactInputs(artifacts []guestArtifactInput) {
+	for index := range artifacts {
+		zeroBytes(artifacts[index].signature)
+	}
 }
 
 func validateStaticELF(path string, architecture vmimage.Architecture) error {
@@ -737,14 +856,23 @@ func validateStaticELF(path string, architecture vmimage.Architecture) error {
 }
 
 func readVerifiedArtifact(artifact guestArtifactInput) ([]byte, error) {
-	info, err := os.Lstat(artifact.path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != artifact.manifest.Size || uint32(info.Mode().Perm()) != artifact.manifest.Mode {
+	data, info, err := readSecureInput(artifact.path, vmguest.MaxTransferBytes, true)
+	if err != nil || info.Size() != artifact.manifest.Size || uint32(info.Mode().Perm()) != artifact.manifest.Mode {
 		return nil, fmt.Errorf("vmqual: %s artifact changed before upload", artifact.manifest.Component)
 	}
-	data, err := os.ReadFile(artifact.path)
+	signatureData, _, err := readSecureInput(artifact.signaturePath, 256, false)
 	if err != nil {
+		zeroBytes(data)
 		return nil, err
 	}
+	signature, err := decodeDetachedSignature(signatureData)
+	zeroBytes(signatureData)
+	if err != nil || !bytes.Equal(signature, artifact.signature) {
+		zeroBytes(data)
+		zeroBytes(signature)
+		return nil, fmt.Errorf("vmqual: %s artifact signature changed before use", artifact.manifest.Component)
+	}
+	zeroBytes(signature)
 	if vmimage.GuestChannelSeedDigest(data) != artifact.manifest.SHA256 {
 		zeroBytes(data)
 		return nil, fmt.Errorf("vmqual: %s artifact digest changed before upload", artifact.manifest.Component)

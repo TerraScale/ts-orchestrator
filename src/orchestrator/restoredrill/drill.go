@@ -80,6 +80,27 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 		return RunRecord{ID: runID, Status: RunFailed}, sanitizeError(err)
 	}
 	if found && run.Status == RunSucceeded {
+		// A process may be upgraded from a pre-snapshot build while today's
+		// durable run already exists. Complete the missing all-Region JetStream
+		// proof before treating that run as finished.
+		if !isNil(d.config.Snapshotter) && !snapshotComplete(run, d.config.SnapshotRegions) {
+			snapshot, mirrored, snapshotErr := d.snapshotControlState(ctx, run)
+			if snapshot.ID != "" {
+				run.Snapshot = snapshot
+				run.SnapshotRegions = mirrored
+			}
+			if snapshotErr != nil {
+				run.Status = RunFailed
+				run.Error = snapshotErr.Error()
+				run.CompletedAt = d.config.Now().UTC()
+				_ = d.journal.SaveRun(durableContext(ctx), copyRun(run))
+				_ = d.pager.Page(durableContext(ctx), Page{RunID: runID, Reason: run.Error, Outcome: copyRun(run)})
+				return copyRun(run), snapshotErr
+			}
+			if err := d.journal.SaveRun(durableContext(ctx), copyRun(run)); err != nil {
+				return copyRun(run), sanitizeError(err)
+			}
+		}
 		return copyRun(run), nil
 	}
 	if !found {
@@ -440,6 +461,22 @@ func (d *Drill) History(ctx context.Context, at time.Time) (RestoreHistory, erro
 func sameUTCDate(a, b time.Time) bool {
 	a, b = a.UTC(), b.UTC()
 	return a.Year() == b.Year() && a.YearDay() == b.YearDay()
+}
+
+func snapshotComplete(run RunRecord, regions []string) bool {
+	if run.Snapshot.ID == "" || len(run.SnapshotRegions) != len(regions) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(run.SnapshotRegions))
+	for _, region := range run.SnapshotRegions {
+		seen[region] = struct{}{}
+	}
+	for _, region := range regions {
+		if _, ok := seen[region]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func durableContext(ctx context.Context) context.Context {

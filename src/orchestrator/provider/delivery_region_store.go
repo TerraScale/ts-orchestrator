@@ -259,7 +259,7 @@ func (s *DeliveryRegionStore) putWithFence(ctx context.Context, region, bucket, 
 	if len(body) == 0 || keyDigest(object) != digestHex(body) {
 		return delivery.ObjectIdentity{}, errors.New("provider: delivery artifact bytes do not match immutable key digest")
 	}
-	if fence != nil && (fence.OperationID == "" || fence.RequestDigest == "" || fence.Generation == 0) {
+	if fence != nil && (fence.OperationID == "" || fence.RequestDigest == "" || fence.OwnerID == "" || fence.Generation == 0) {
 		return delivery.ObjectIdentity{}, errors.New("provider: delivery operation fence is incomplete")
 	}
 	lockValue, _ := s.putLocks.LoadOrStore(region+"\x00"+bucket+"\x00"+object, &sync.Mutex{})
