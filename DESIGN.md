@@ -1,62 +1,49 @@
-# TerraScale.Orchestrator Go migration design
+# TerraScale.Orchestrator design
 
 Status: active Go implementation. This document is the binding contract for
-the package layout and wire-compatible behavior, following the approach proven
-in `ts-internals` (see ../ts-internals/docs/go-migration/DESIGN.md). Historical
-source names in the mapping below identify where contracts originated; they are
-not active source paths or build inputs.
+the package layout and wire-compatible behavior.
 
 ## Module
 
 - Module path: `terrascale.tech/orchestrator`, Go 1.27, single module.
-- Binary entry points: `cmd/orchestrator` (runtime),
-  `tools/orchestrator-tooling` (repository validation), and `tests/journalchild`
-  (the fixture executable spawned by control journal tests).
+- Binary entry points: `cmd/orchestrator` (runtime), `cmd/ts-node` (host
+  agent), `tools/orchestrator-tooling` (repository validation), and
+  `tests/journalchild` (the fixture executable spawned by control journal
+  tests).
 
-## Package map (historical source area → Go package)
+## Package map
 
-The historical dependency analysis (folder-level import graph) shows
-ControlPlane, Delivery, Messaging, Observability and Operations form one
-strongly connected component, so they share ONE Go package:
-
-| Historical area (files, lines) | Go package | Imports |
+| Area | Go package | Imports |
 | --- | --- | --- |
-| Contracts (12, 1.5k) | `src/orchestrator/contracts` | — |
-| Protocol (23, 4.7k) | `src/orchestrator/protocol` | contracts |
-| Runtime (9, 2.3k) | `src/orchestrator/runtime` | — (leaf) |
-| Security (4, 1.2k) | `src/orchestrator/security` | — (leaf) |
-| Scheduling (4, 1.4k) | `src/orchestrator/scheduling` | — (leaf) |
-| ControlPlane + Delivery + Messaging + Observability + Operations (212, 63k) | `src/orchestrator/control` | contracts, protocol, runtime (+ security via root) |
-| Bootstrap (6, 0.9k) | `src/orchestrator/bootstrap` | security, control |
-| Root files (Program.cs, OrchestratorRuntimeConfiguration/Composition, ProcessLifecycle, CellTokenRule, BuildVersion, OrchestratorOptions, AssemblyInfo) | `cmd/orchestrator` + `src/orchestrator/control` for the pieces other code calls | control etc. |
-| CLI source | `cmd/orchestrator` | control |
-| Repository tooling | `tools/orchestrator-tooling` | — (standalone) |
-| tests/*.Tests projects | `*_test.go` inside the matching package (control tests in src/orchestrator/control, protocol tests in src/orchestrator/protocol, …) | |
+| Contracts | `src/orchestrator/contracts` | — |
+| Protocol | `src/orchestrator/protocol` | contracts |
+| Runtime | `src/orchestrator/runtime` | — (leaf) |
+| Security | `src/orchestrator/security` | — (leaf) |
+| Scheduling | `src/orchestrator/scheduling` | — (leaf) |
+| Estate (declared desired state) | `src/orchestrator/estate` | — (leaf) |
+| Provider (OCI cloud) | `src/orchestrator/provider` | — (leaf) |
+| Control plane (delivery, messaging, observability, operations) | `src/orchestrator/control` | contracts, protocol, runtime, security |
+| Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
+| Host agent | `src/orchestrator/hostagent` | runtime |
+| CLI / process entry | `cmd/orchestrator` | control, provider |
 
 Within `src/orchestrator/control`, use concise snake_case filenames named for
-the Go responsibility (`authority_engine.go`, `journal_store.go`). Package and
-symbol names carry the contract identity; filenames must not concatenate the
-old C# folder and class names.
+the Go responsibility (`authority_engine.go`, `journal_store.go`). Package
+and symbol names carry the contract identity.
 
-## Stack mapping
+## Go conventions
 
-| .NET | Go |
-| --- | --- |
-| NATS.Net (core + JetStream) | github.com/nats-io/nats.go (JetStream context) — same subjects, stream/config names, headers, NKey/creds/JWT auth semantics |
-| OCI.DotNetSDK.Core (Oracle Cloud) | github.com/oracle/oci-go-sdk/v65 — same API calls/regions |
-| OpenTelemetry OTLP export | go.opentelemetry.io/otel + otlp exporters |
-| ZString | strings.Builder / fmt |
-| System.Text.Json | encoding/json, SetEscapeHTML(false); mirror casing (camelCase for Web defaults, PascalCase for default options) and null semantics (pointers) exactly |
-| System.Security.Cryptography (certs, signatures) | crypto/x509, crypto/ecdsa, crypto/ed25519, crypto/rand |
-| Microsoft.Extensions.* (hosting/logging/config/DI) | explicit constructors + log/slog + env/JSON config loader (follow ts-internals src/core/hosting idioms — copy the helper if needed) |
-| Spectre-free CLI dispatch in Tooling/CLI | manual dispatch like ts-internals src/cli |
-| CancellationToken | context.Context (first param) |
-| async Task | (T, error) returns |
-| Records | structs, exported same-name fields |
-| Exceptions | error returns; typed error structs where callers distinguish |
-| Static classes | `var Name name` (unexported struct) with methods, so call sites read like C# |
-| Interlocked/locks | sync/atomic, sync.Mutex |
-| Channels/TaskCompletionSource | native Go channels, sync.Cond |
+- NATS through `github.com/nats-io/nats.go` (JetStream context).
+- OCI cloud access through raw `net/http` transports in `src/orchestrator/provider`.
+- JSON through `encoding/json` with `SetEscapeHTML(false)`; wire casing
+  (camelCase for Web-style payloads, PascalCase elsewhere) and null
+  semantics (pointers) are part of each contract.
+- Certificates and signatures through `crypto/x509`, `crypto/ecdsa`,
+  `crypto/ed25519`, `crypto/rand`.
+- Cancellation through `context.Context` as the first parameter; async
+  boundaries are `(T, error)` returns.
+- Service singletons are `var Name name` (unexported struct) with methods.
+- Concurrency through `sync/atomic`, `sync.Mutex`, channels, `sync.Cond`.
 
 ## Contracts that must stay EXACT
 
@@ -72,14 +59,10 @@ old C# folder and class names.
 ## Rules
 
 1. Keep cohesive Go responsibilities together and use concise snake_case
-   filenames. Do not preserve C# folder prefixes or one-class-per-file naming
-   when that makes the Go package harder to navigate.
-2. Keep C# type names. Interfaces keep their C# names; ports become
-   one-method Go interfaces where the C# had single-method interfaces.
-3. `go build ./... && go vet ./... && gofmt -l .` clean; ported packages get
-   their C# tests ported into `*_test.go` (skip no-longer-meaningful
-   .NET-pinning tests; note skips in the report).
-4. Fail-closed semantics preserved everywhere (admission, verification,
-   secrets handling). Never log secret material.
-5. Do not create import cycles beyond the C# project graph (single C#
-   project = the `control` package absorbs all intra-cycle areas).
+   filenames.
+2. `go build ./... && go vet ./... && gofmt -l .` clean; behavior changes ship
+   with the tests that pin them.
+3. Fail-closed semantics everywhere (admission, verification, secrets
+   handling). Never log secret material.
+4. Keep the package graph acyclic: the `control` package absorbs anything
+   that would otherwise cycle.

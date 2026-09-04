@@ -303,11 +303,10 @@ The remaining greenfield rollout gates are:
 7. retire v1 credentials and stores only after rollback and evidence gates
    close.
 
-This ADR supersedes ADR 0004's Pulumi owner, ADR 0013's Git authority after
-admission, and the optional-NATS target in the previous architecture. It does
-not weaken ADR 0020 provider fencing, ADR 0024 greenfield quarantine, ADR 0025
-rollback, ADR 0029 stateless tenant scope, ADR 0031 tenant containers, or any
-TerraBase boundary in the workspace goal.
+This ADR supersedes ADR 0013's Git authority after admission and the
+optional-NATS target in the previous architecture. It does not weaken ADR 0020
+provider fencing, ADR 0024 greenfield quarantine, ADR 0025 rollback, ADR 0029
+stateless tenant scope, or any TerraBase boundary in the workspace goal.
 
 ## Required evidence
 

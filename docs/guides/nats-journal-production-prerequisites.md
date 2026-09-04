@@ -38,7 +38,7 @@ credentials plus its necessary public authority/controller identity inputs, and
 the mutation service. A controller uses its own scoped request/reply NATS
 identity and only public reply-verification material; it never opens, reads, or
 validates either protected journal store during readiness. `provision-journal`
-does not load the generic Infisical runtime secret environment.
+does not load any generic runtime secret environment.
 The development fixture models those identities and permissions but does not
 establish a deployed workload, host mount policy, or R3 boundary.
 

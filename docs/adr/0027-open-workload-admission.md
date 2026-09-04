@@ -1,6 +1,6 @@
 # Open workload admission beyond TerraScale services
 
-Status: superseded by [ADR 0030](0030-run-customer-workloads-as-wasi-components.md)
+Status: superseded; the container-workload direction is retired (no container runtime, D-69)
 
 TerraScale Orchestrator will become a general-purpose container orchestration platform. It will continue to operate TerraScale's first-party workloads and will add policy-governed admission for arbitrary internal workloads, followed by customer tenant workloads. OCI remains the first infrastructure provider behind provider-neutral contracts. Kubernetes APIs and workload compatibility are not part of this decision.
 

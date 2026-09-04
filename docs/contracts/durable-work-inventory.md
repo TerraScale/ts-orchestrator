@@ -58,7 +58,7 @@ All profiles are pull consumers bounded by `MaxAckPending`, `MaxBatch`, `MaxExpi
 ## 5. Evidence
 
 Real-NATS proofs belong in the Go control and delivery integration tests (the
-rootless Podman lane): message-id suppression including the silently-swallowed
+host-agent lane): message-id suppression including the silently-swallowed
 conflicting payload, durable replay after consumer recreation converging through
 idempotency, lost-acknowledgement redelivery inside the backoff bound, and
 redelivery stopping at the declared delivery cap.

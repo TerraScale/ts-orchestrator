@@ -19,9 +19,10 @@ TerraBase and the TerraScale APIs are trusted container workloads.
 _Avoid_: Tenant container, arbitrary container, customer image
 
 **Tenant workload**:
-A stateless service or serverless handler submitted as an unprivileged,
-digest-pinned OCI container and bound to an admitted TerraScale interface set.
-_Avoid_: Arbitrary container, customer image, Docker workload
+A stateless service or serverless handler submitted as a signed,
+digest-pinned binary and run under systemd, bound to an admitted TerraScale
+interface set. Tenant compute is post-launch.
+_Avoid_: Container runtimes, arbitrary customer images, image registries
 
 **Infrastructure provider**:
 A supported supplier of compute, network, and storage capacity. Provider choice must not change the workload's product-level identity or desired behavior.

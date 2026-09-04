@@ -164,7 +164,7 @@
     {
       "id": 4,
       "question": "Runtime defaults",
-      "optionA": "Superseded by ADR 0031 (superseding ADR 0030): trusted OCI containers for TerraBase and TerraScale APIs, unprivileged OCI containers for customer compute, and systemd only for admitted host-native roles",
+      "optionA": "Superseded: the container direction is deleted (D-69); every workload runs as a systemd binary from the closed catalog",
       "optionB": "The former native-TerraBase/container split",
       "recommended": "A",
       "answer": "A",

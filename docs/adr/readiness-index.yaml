@@ -199,7 +199,7 @@
     {
       "id": 6,
       "slug": "workload-runtime-contract",
-      "title": "Unified workload schema and systemd/containerd driver contract",
+      "title": "Unified workload schema and systemd driver contract",
       "status": "evidence-required",
       "ownerLane": "Runtime",
       "decisionAdrReferences": ["ADR-0006"], "sourceAnchors": ["docs/architecture/orchestrator.md:400-445"], "evidenceLocations": ["docs/architecture/orchestrator.md:400-445"],
@@ -213,9 +213,7 @@
         "docs/architecture/orchestrator.md:843-871"
       ],
       "missingEvidence": [
-        "Pinned containerd/runc versions",
-        "systemd D-Bus and containerd API contract spikes",
-        "Cross-driver lifecycle fixtures"
+            "Systemd lifecycle fixtures"
       ],
       "executableDependencies": [],
       "closureEvidence": [
@@ -227,7 +225,7 @@
         "Owner decision 4",
         "Closed role and typed WorkloadSpec schemas",
         "L0 admission/capability denial tests",
-        "L1R identical lifecycle/identity/health/volume/rollback contract for both drivers",
+        "L1R identical lifecycle/identity/health/volume/rollback contract for the systemd driver",
         "L4 ARM64 artifact/runtime qualification"
       ]
     },
@@ -827,16 +825,13 @@
       ],
       "openInputOwnershipReferences": ["artifact-and-evidence-signing"],
       "availableEvidence": [
-        "docs/architecture/orchestrator.md:1114-1179",
-        "Directory.Packages.props:1-9",
-        "global.json:1-9"
+        "docs/architecture/orchestrator.md:1114-1179"
       ],
       "missingEvidence": [
         "Complete canonical registry and generated trace",
         "Property/model/fuzz/mutation/analyzer pins",
         "Signing/SBOM selection and tools",
-        "Forgejo/IAM credential enforcement design",
-        "Pinned Podman and image-manifest evidence"
+        "Forgejo/IAM credential enforcement design"
       ],
       "executableDependencies": [],
       "closureEvidence": [
@@ -855,7 +850,7 @@
     {
       "id": 24,
       "slug": "greenfield-bringup",
-      "title": "Greenfield OCI inventory, stale-resource quarantine/approved cleanup, partial-create recovery, initial trust/NATS/TerraBase seeding, independent regional partial success, Pulumi handoff, cleanup-PR sequencing, ingress activation/withdrawal, and first-production rollback boundaries",
+      "title": "Greenfield OCI inventory, stale-resource quarantine/approved cleanup, partial-create recovery, initial trust/NATS/TerraBase seeding, independent regional partial success, cleanup-PR sequencing, ingress activation/withdrawal, and first-production rollback boundaries",
       "status": "owner-input-required",
       "ownerLane": "Cloud",
       "decisionAdrReferences": ["ADR-0024"], "sourceAnchors": ["docs/architecture/orchestrator.md:54-66"], "evidenceLocations": ["docs/architecture/orchestrator.md:54-66"],

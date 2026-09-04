@@ -43,7 +43,7 @@ regional control group and TerraBase Members. Review these rules:
 - Regional control traffic is admitted only from the regional control NSG.
 - Member replication is admitted only from the member NSGs and the reviewed
   cross-region CIDRs.
-- Egress is limited to OCI service gateways, OCIR, time/DNS, and the reviewed
+- Egress is limited to OCI service gateways, time/DNS, and the reviewed
   inter-region paths.
 
 Record the VCN, subnet, and NSG OCIDs. The startup check proves each subnet and
@@ -59,7 +59,8 @@ following capabilities:
 - Use the recorded subnets and NSGs in `terrascale-network`.
 - Read work requests for resources it manages.
 - Read the recorded compartments, VCN, subnets, NSGs, and IAM policies.
-- Pull the TerraScale repositories from OCIR. Do not grant repository delete.
+- Download release artifacts from the Forgejo package registry only through the
+  reviewed egress paths.
 - Manage objects only in the recorded ledger and backup buckets.
 - Use the recorded Vault key. Do not grant Vault or key creation/deletion.
 

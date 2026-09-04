@@ -15,7 +15,7 @@ Status: superseded architecture record.
 Authority: repository [`GOAL.md`](../../GOAL.md), then workspace
 [`GOAL.md`](../../../GOAL.md).
 
-Target: C#/.NET 10 on systemd/containerd hosts, initially OCI ARM64 and x64.
+Target: Go on systemd hosts, initially OCI ARM64 and x64.
 
 ## Mission
 
@@ -34,7 +34,6 @@ customer data proxy.
 | Component | Owner |
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript project owning Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows |
-| Database API | Independent C#/.NET 10 ASP.NET Core service owning public database and reactive APIs and the sole QUIC TBEP gateway |
 | TerraBase | Private Rust engine owning native replication, database authorization, reactive sync, usage accounting, and recovery |
 | Orchestrator | Infrastructure, scheduling, identity, certificates, capacity, placement intent, repair orchestration, delivery, and the NATS control network |
 | Public SDKs | Typed customer and reactive contracts |
@@ -193,7 +192,7 @@ NATS never carries:
 - Better Auth secrets or sessions;
 - payment secrets;
 - authoritative usage or billing data;
-- OCI images or database backups; or
+- object-storage artifacts or database backups; or
 - a database membership decision.
 
 The control code depends on a typed distribution and durable-state interface,
@@ -353,7 +352,7 @@ traffic never blocks on telemetry.
 2. Process-level protocol and adapter tests.
 3. Process-level NATS and controller tests from test-owned fixtures.
 4. Targeted one-Region production-component lanes.
-5. Disposable real systemd/containerd/provider fixtures.
+5. Disposable real systemd/provider fixtures.
 6. Full production qualification and bounded rollout.
 
 Mocks cannot qualify a destructive provider, storage, membership, certificate,

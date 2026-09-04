@@ -39,7 +39,6 @@ The active product roles are:
 | Role | Owner and runtime |
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript application. It owns Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows. |
-| Database API | An independently deployable C#/.NET 10 ASP.NET Core service and the sole TBEP gateway. Its permanent source home is `TerraScale.Internals`; the standalone `TerraScale.Database` repository retires after migration receipts pass. |
 | Database engine | TerraBase, the private Rust engine. |
 | Orchestrator | Infrastructure, scheduling, workload identity, placement intent, repair orchestration, and delivery. |
 
@@ -219,17 +218,18 @@ complete mutual TLS identity. Credential files must be owner-private. Never
 pass raw secret material on the command line or record it in logs, traces,
 metrics, NATS, fixtures, or receipts.
 
-The current adapter supports Infisical Universal Auth for secret references.
-Explicit typed configuration wins over fetched configuration. The runtime
-materializes file-valued secrets into owner-private temporary files and removes
-them on shutdown. Production secret retrieval uses authenticated TLS. A
-development-only transport or secret default is not part of the target runtime.
+Secret references resolve through the platform secret store; key rotation
+into the store is the orchestrator's job (I-3). Explicit typed configuration
+wins over fetched configuration. The runtime materializes file-valued secrets
+into owner-private temporary files and removes them on shutdown. Production
+secret retrieval uses authenticated TLS. A development-only transport or
+secret default is not part of the target runtime.
 
 ## Production repository boundary
 
 The target production solution and artifact contain no embedded development
 host, `dev` runtime mode, local product composition, development NATS bootstrap,
-development PKI or credentials, fixed lab route, local Podman supervisor,
+development PKI or credentials, fixed lab route, local workload supervisor,
 development-host-specific fixture, or fake-provider runtime registration. Generic fakes
 and process fixtures may exist only in test or tooling projects with no
 production reference. The current legacy implementation is migration debt, not
@@ -247,7 +247,7 @@ surge Members and accepted membership, not a second writable cluster.
 
 Pure tests and test-owned fixtures do not prove:
 
-- production systemd, containerd, cloud, or provider storage;
+- production systemd, cloud, or provider storage;
 - remote mutual TLS and certificate rotation;
 - RF=2 local durability and host-loss recovery;
 - native TerraBase replication or reactive sync under production load;

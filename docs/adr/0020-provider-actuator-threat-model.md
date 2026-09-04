@@ -53,7 +53,7 @@ The adapter must reject a context whose authorization state, commit digest, payl
 - Every mutating adapter call consumes an exact committed `AuthorizedForProviderCall` record; an adapter cannot invent business intent or execute a merely `Prepared` operation.
 - Exactly one logical operation may own a target transition. A leadership change changes the executor, not the authorized terminal outcome.
 - All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second instance ([scale-out rule, lines 706-725](../../docs/architecture/orchestrator.md#L706-L725)).
-- The irreversible commit requires fresh observation, exact target identity, generation match, an unexpired deadline, all required approvals, and positive ownership under ADR 0004.
+- The irreversible commit requires fresh observation, exact target identity, generation match, an unexpired deadline, all required approvals, and positive provider ownership.
 - Wall-clock anomalies before commit hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps ([partition rule, line 589](../../docs/architecture/orchestrator.md#L589)). After commit, anomaly or expiry can hold dispatch but cannot erase or alter the committed authorization; resume/reconciliation stays on the same operation.
 - An unknown response is reconciled through read/work-request APIs before retry or compensation.
 - A stale leader's late call can only be absent or safely complete the existing operation; it cannot create a second accepted writer or conflicting terminal state.

@@ -24,15 +24,14 @@ tenant-isolated product contract owned by the `TerraScale.MCP` repository.
 The qualified artifact format is a digest-bound self-contained HTTP
 executable archive produced by the `TerraScale.MCP` repository (one archive
 per platform, including `linux-arm64` and `linux-x64`). Because that is a
-native executable rather than an OCI image, the admitted driver is native
+native executable, the admitted driver is native
 systemd through the existing closed native first-party lane — the same lane
 `Orchestrator`, the NATS servers, `RoutePolicyController`, and
 `JournalWriter` already use — with the standard hardening envelope
 (`NoNewPrivileges`, `ProtectSystem=strict`, dropped SUID/SGID, cgroup v2
-limits, encrypted credential loading). ADR 0031 governs tenant runtimes
-(unprivileged OCI is the only tenant runtime); first-party roles keep the
-closed catalog as their allow-list, and an OCI image lane for MCP may be
-added only when `TerraScale.MCP` qualifies one.
+limits, encrypted credential loading). First-party roles keep the closed
+catalog as their allow-list. There is no container runtime anywhere (D-69):
+every workload, MCP included, runs as a native systemd unit.
 
 ## Placement and ownership
 
@@ -112,35 +111,3 @@ the Internals MCP access and token-exchange contract.
 - The closed catalog, the direct-delivery target allow-lists, and the
   typed manifest admission are the only ways to run or deliver this
   workload; there is no MCP-specific mutation path.
-- `CONTEXT.md` still summarizes "all workloads run as OCI containers";
-  the native first-party lane this ADR uses predates it and is recorded
-  here so the glossary can be reconciled by the integration steward.
-
-## Amendment (2026-08-25) — scope relative to ADR 0031
-
-ADR 0031's body text states that OCI containers are "its only workload
-runtime", read broadly that sentence covers every workload in the
-repository, not only tenant compute. That broader reading conflicts with
-this ADR's native-systemd admission for `McpServer`, so the conflict is
-recorded here instead of being left implicit or silently resolved by
-editing ADR 0031 (which stays untouched).
-
-The operative scoping is `docs/architecture/orchestrator.md`'s authoritative decision
-register, which ADR 0031 itself cites: decision 4A (as superseded) runs
-"trusted OCI containers for TerraBase and TerraScale APIs, unprivileged
-OCI containers for customer compute, and **systemd only for admitted
-host-native roles**". The closed role catalog has carried a native
-first-party lane since before ADR 0031 (`Orchestrator`, `ControlNatsServer`,
-`ProductNatsServer`, `RoutePolicyController`, `JournalWriter`, and
-`TerraBaseMember`'s native option), and `AdmittedRoleCatalog` remains the
-allow-list for first-party roles. ADR 0031's OCI-only rule is therefore
-tenant-scoped in effect, and this ADR admits `McpServer` onto the
-pre-existing native first-party lane because the qualified artifact format
-is a digest-bound self-contained HTTP executable, not an OCI image.
-
-This amendment is recorded with the parent-steward's authorization
-(repair loop, 2026-08-25). Moving MCP to an OCI image lane
-remains open and requires no superseding decision here: it becomes the
-preferred shape once `TerraScale.MCP` qualifies an OCI image, at which
-point the catalog entry's allowed drivers change through the normal
-qualification record. Until then, no OCI image of MCP is admitted.

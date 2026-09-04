@@ -32,7 +32,7 @@ The audited release contract independently requires immutable candidates, a fenc
 
 ### Fresh native contract only
 
-Define a versioned TerraScale desired-state schema directly from the closed C# admitted-role catalog and reviewed product/runtime contracts. Publish JSON Schema, semantic validation, visible defaults, plans, fixtures, and generated documentation from that same versioned contract (`INV-015`).
+Define a versioned TerraScale desired-state schema directly from the closed admitted-role catalog and reviewed product/runtime contracts. Publish JSON Schema, semantic validation, visible defaults, plans, fixtures, and generated documentation from that same versioned contract (`INV-015`).
 
 The source adapter accepts only:
 
@@ -140,7 +140,7 @@ Costs and risks:
 
 This ADR may become Accepted only when all of the following are reviewed against one exact integration tree:
 
-- fresh C# resource contracts, generated JSON Schema/docs, unknown-field/version/default behavior, and golden native fixtures; no compatibility reader exists;
+- fresh resource contracts, generated JSON Schema/docs, unknown-field/version/default behavior, and golden native fixtures; no compatibility reader exists;
 - a complete historical-behavior disposition for every Flux/Kubernetes delivery finding, including `AUD-SRC-006` and `WRK-002` through `WRK-005`;
 - L0 positive and adversarial tests for dependency/cycle planning, signatures, immutable digest resolution, ownership-aware diff/drift/prune, durable acknowledgement, fencing, idempotency, staged promotion, rollback, and restart at every state-machine checkpoint (`docs/architecture/orchestrator.md:1114-1163`);
 - L3S Git/OCI/webhook/NATS/controller/WAN failure and recovery at every reconciliation checkpoint, exact-digest SFO/FRA/GRU convergence, stale-writer rejection, and safe rollback (`docs/architecture/orchestrator.md:1561-1571`);
