@@ -32,8 +32,8 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 		}
 	}
 	assertDriver(AdmittedRoleTerraBaseMember, RuntimeDriverNativeSystemd)
-	assertDriver(AdmittedRoleDashboard, RuntimeDriverOciContainer)
-	assertDriver(AdmittedRoleDatabaseAPI, RuntimeDriverOciContainer)
+	assertDriver(AdmittedRoleNats, RuntimeDriverNativeSystemd)
+	assertDriver(AdmittedRoleAutoscaler, RuntimeDriverNativeSystemd)
 	assertReplicas := func(role AdmittedRole, minimumReplicas int) {
 		t.Helper()
 		descriptor, err := AdmittedRoleCatalog.Get(role)
@@ -46,7 +46,7 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	}
 	assertReplicas(AdmittedRoleNats, 3)
 	assertReplicas(AdmittedRoleAutoscaler, 3)
-	assertReplicas(AdmittedRoleDatabaseAPI, 2)
+	assertReplicas(AdmittedRoleTerraBaseMember, 2)
 	assertDriver(AdmittedRoleJournalWriter, RuntimeDriverNativeSystemd)
 	journalWriter, err := AdmittedRoleCatalog.Get(AdmittedRoleJournalWriter)
 	if err != nil {
@@ -80,15 +80,25 @@ func TestPersistedRoleValuesRemainCompatibleWithV1Checkpoints(t *testing.T) {
 }
 
 func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
-	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleDashboard, RuntimeDriverNativeSystemd); err == nil {
-		t.Fatal("Dashboard is not admitted on systemd")
+	// D-69: no containers. The OCI driver is retired for every role (I-3
+	// replaces it with native systemd delivery).
+	for _, role := range AllAdmittedRoles {
+		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverOciContainer); err == nil {
+			t.Fatalf("%v must not be admitted on OCI", role)
+		}
 	}
-	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleAutoscaler, RuntimeDriverOciContainer); err == nil {
-		t.Fatal("Autoscaler is not admitted on OCI")
+	// Retired v1 container roles are refused on every driver.
+	for _, role := range []AdmittedRole{AdmittedRoleDashboard, AdmittedRoleDatabaseAPI} {
+		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverNativeSystemd); err == nil {
+			t.Fatalf("retired role %v was admitted on systemd", role)
+		}
+		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverOciContainer); err == nil {
+			t.Fatalf("retired role %v was admitted on OCI", role)
+		}
 	}
-	descriptor, err := AdmittedRoleCatalog.Admit(AdmittedRoleTerraBaseMember, RuntimeDriverOciContainer)
+	descriptor, err := AdmittedRoleCatalog.Admit(AdmittedRoleTerraBaseMember, RuntimeDriverNativeSystemd)
 	if err != nil {
-		t.Fatalf("TerraBaseMember on OCI: %v", err)
+		t.Fatalf("TerraBaseMember on systemd: %v", err)
 	}
 	if descriptor.Role != AdmittedRoleTerraBaseMember {
 		t.Fatal("admitted descriptor must carry the requested role")
@@ -97,8 +107,6 @@ func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
 
 func TestRuntimeRoleParserAdmitsOnlyTheLaunchCatalog(t *testing.T) {
 	want := map[string]AdmittedRole{
-		"dashboard":        AdmittedRoleDashboard,
-		"database-api":     AdmittedRoleDatabaseAPI,
 		"terrabase-member": AdmittedRoleTerraBaseMember,
 		"nats":             AdmittedRoleNats,
 		"autoscaler":       AdmittedRoleAutoscaler,
@@ -111,6 +119,7 @@ func TestRuntimeRoleParserAdmitsOnlyTheLaunchCatalog(t *testing.T) {
 		}
 	}
 	for _, removed := range []string{
+		"dashboard", "database-api",
 		"platform", "mcp", "grafana", "loki", "vpn-coordination-relay",
 		"control-nats-server", "product-nats-server", "ci-runner",
 	} {

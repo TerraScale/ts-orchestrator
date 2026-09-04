@@ -21,7 +21,6 @@ func agentTestConfig(t *testing.T, connection NatsConnection) HostAgentConfig {
 		NodeId:            executorTestNodeId(t),
 		Connection:        connection,
 		Systemd:           &fakeNativeAdapter{observation: runningSystemdObservation()},
-		Container:         &fakeContainerAdapter{observation: runningPodmanObservation(t)},
 		Metrics:           defaultMetricsForTest(),
 		HeartbeatInterval: 30 * time.Second,
 		Now:               fixedTestClock,
@@ -68,11 +67,6 @@ func TestNewHostAgentValidatesConfiguration(t *testing.T) {
 			name:      "missing systemd adapter",
 			mutate:    func(c *HostAgentConfig) { c.Systemd = nil },
 			wantParam: "Systemd",
-		},
-		{
-			name:      "missing container adapter",
-			mutate:    func(c *HostAgentConfig) { c.Container = nil },
-			wantParam: "Container",
 		},
 		{
 			name:      "missing metrics source",

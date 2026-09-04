@@ -77,48 +77,6 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 	containsString(t, plan.Systemd.Properties, "Nice=0")
 }
 
-func TestOciPlanIsDigestPinnedRootlessAndCapabilityFree(t *testing.T) {
-	plan, err := NewHostRuntimePlan(
-		AdmittedRoleDashboard,
-		RuntimeDriverOciContainer,
-		mustRuntimeAllocationId(t, "sfo-dashboard-1"),
-		mustArtifactDigest(t, hostRuntimePlanDigest),
-		HostArchitectureArm64,
-		nil)
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
-
-	if plan.Oci == nil {
-		t.Fatal("OCI plan must carry an OCI plan")
-	}
-	if plan.Systemd != nil {
-		t.Fatal("OCI plan must not carry a systemd plan")
-	}
-	image := "registry.terrascale.internal/terrascale/terrascale-dashboard@sha256:" + hostRuntimePlanDigest
-	if plan.Oci.ImageReference != image {
-		t.Fatalf("unexpected image reference %q", plan.Oci.ImageReference)
-	}
-	if plan.Oci.Platform != "linux/arm64" {
-		t.Fatalf("unexpected platform %q", plan.Oci.Platform)
-	}
-	if plan.Oci.Security.RunAsUser != 65532 {
-		t.Fatalf("unexpected run-as user %d", plan.Oci.Security.RunAsUser)
-	}
-	if !plan.Oci.Security.NoNewPrivileges || !plan.Oci.Security.ReadOnlyRootFileSystem {
-		t.Fatal("OCI plan must be rootless and read-only")
-	}
-	if len(plan.Oci.Security.DroppedCapabilities) != 1 || plan.Oci.Security.DroppedCapabilities[0] != "ALL" {
-		t.Fatalf("unexpected dropped capabilities %v", plan.Oci.Security.DroppedCapabilities)
-	}
-	if plan.Oci.Security.CgroupParent != "terrascale/sfo-dashboard-1" {
-		t.Fatalf("unexpected cgroup parent %q", plan.Oci.Security.CgroupParent)
-	}
-	if plan.Resources.MemorySwapMaxBytes() != 0 {
-		t.Fatal("swap must be pinned to zero")
-	}
-}
-
 func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {
 	requested := RuntimeResourceLimits{
 		MemoryMaxBytes: 512 * 1024 * 1024, TasksMax: 128,
@@ -126,9 +84,9 @@ func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {
 	}
 
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleDashboard,
-		RuntimeDriverOciContainer,
-		mustRuntimeAllocationId(t, "gru-dashboard-limited"),
+		AdmittedRoleAutoscaler,
+		RuntimeDriverNativeSystemd,
+		mustRuntimeAllocationId(t, "gru-autoscaler-limited"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
 		HostArchitectureArm64,
 		&requested)
@@ -153,9 +111,9 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 		CpuQuotaPercent: 100, CpuWeight: 100, IoWeight: 100, Nice: 5,
 	}
 	_, err := NewHostRuntimePlan(
-		AdmittedRoleDashboard,
-		RuntimeDriverOciContainer,
-		mustRuntimeAllocationId(t, "gru-dashboard-excessive"),
+		AdmittedRoleAutoscaler,
+		RuntimeDriverNativeSystemd,
+		mustRuntimeAllocationId(t, "gru-autoscaler-excessive"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
 		HostArchitectureArm64,
 		&excessive)
@@ -165,9 +123,9 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 	}
 }
 
-func TestRuntimeCliAcceptsExplicitContainerLimits(t *testing.T) {
+func TestRuntimeCliAcceptsExplicitNativeLimits(t *testing.T) {
 	plan, err := HostRuntimeCli.ParsePlan([]string{
-		"plan", "--role", "dashboard", "--allocation", "gru-dashboard-cli",
+		"plan", "--role", "autoscaler", "--allocation", "gru-autoscaler-cli",
 		"--digest", hostRuntimePlanDigest,
 		"--memory-max-bytes", "536870912", "--tasks-max", "128",
 		"--cpu-quota-percent", "100", "--cpu-weight", "100", "--io-weight", "100", "--nice", "5",
