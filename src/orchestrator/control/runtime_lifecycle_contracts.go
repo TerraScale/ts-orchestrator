@@ -475,12 +475,10 @@ func fingerprintResources(resources runtime.RuntimeResourceLimits) []string {
 }
 
 func (runtimeLifecycleFingerprint) Plan(plan HostRuntimePlan) (RuntimeLifecyclePlanFingerprint, error) {
-	systemdDriver := plan.Driver == runtime.RuntimeDriverNativeSystemd
-	ociDriver := plan.Driver == runtime.RuntimeDriverOciContainer
 	if plan.SchemaVersion != 2 || !hostAdmittedRoleIsDefined(plan.Role) ||
-		!(plan.Driver == runtime.RuntimeDriverNativeSystemd || plan.Driver == runtime.RuntimeDriverOciContainer) ||
+		plan.Driver != runtime.RuntimeDriverNativeSystemd ||
 		!(plan.Architecture == runtime.HostArchitectureArm64 || plan.Architecture == runtime.HostArchitectureX64) ||
-		(systemdDriver != (plan.Systemd != nil)) || (ociDriver != (plan.Oci != nil)) {
+		plan.Systemd == nil || plan.Oci != nil {
 		return RuntimeLifecyclePlanFingerprint{}, invalidArgument("Host runtime plan is not a supported closed plan.")
 	}
 	fields := []string{"host-runtime-plan-v1", strconv.Itoa(plan.SchemaVersion), strconv.Itoa(int(plan.Role)),
@@ -491,15 +489,6 @@ func (runtimeLifecycleFingerprint) Plan(plan HostRuntimePlan) (RuntimeLifecycleP
 		fields = append(fields, "systemd", plan.Systemd.UnitName, plan.Systemd.Executable)
 		fields = fingerprintList(plan.Systemd.Arguments, fields)
 		fields = fingerprintList(plan.Systemd.Properties, fields)
-	}
-	if plan.Oci != nil {
-		fields = append(fields, "oci", plan.Oci.ContainerId, plan.Oci.ImageReference, plan.Oci.Platform,
-			strconv.FormatUint(uint64(plan.Oci.Security.RunAsUser), 10),
-			strconv.FormatUint(uint64(plan.Oci.Security.RunAsGroup), 10),
-			boolDigit(plan.Oci.Security.NoNewPrivileges), boolDigit(plan.Oci.Security.ReadOnlyRootFileSystem))
-		fields = fingerprintList(plan.Oci.Security.DroppedCapabilities, fields)
-		fields = append(fields, plan.Oci.Security.SeccompProfile, plan.Oci.Security.CgroupParent)
-		fields = append(fields, fingerprintResources(plan.Oci.Resources)...)
 	}
 	return NewRuntimeLifecyclePlanFingerprint(fingerprintCanonicalHash(fields))
 }
@@ -513,9 +502,8 @@ func boolDigit(value bool) string {
 
 func hostAdmittedRoleIsDefined(role runtime.AdmittedRole) bool {
 	switch role {
-	case runtime.AdmittedRoleDashboard, runtime.AdmittedRoleDatabaseAPI,
-		runtime.AdmittedRoleTerraBaseMember, runtime.AdmittedRoleNats,
-		runtime.AdmittedRoleAutoscaler, runtime.AdmittedRoleJournalWriter:
+	case runtime.AdmittedRoleTerraBaseMember, runtime.AdmittedRoleNats,
+		runtime.AdmittedRoleJournalWriter:
 		return true
 	default:
 		return false

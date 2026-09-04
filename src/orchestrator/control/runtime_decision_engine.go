@@ -515,19 +515,13 @@ func runtimeArtifactMatches(expected UpdateArtifactSubject, evidence UpdateArtif
 
 func runtimeDescriptorMatches(spec WorkloadRuntimeSpec) bool {
 	native, isNative := spec.Payload.(NativeRuntimePayload)
-	oci, isOci := spec.Payload.(OciRuntimePayload)
 	switch spec.Role {
 	case RuntimeRoleOrchestrator:
 		return isNative && native.Descriptor == NativeUnitDescriptorOrchestrator
 	case RuntimeRoleTerraBase:
-		if isNative && native.Descriptor == NativeUnitDescriptorTerraBase {
-			return true
-		}
-		return isOci && oci.Descriptor == OciRuntimeDescriptorTerraBase
+		return isNative && native.Descriptor == NativeUnitDescriptorTerraBase
 	case RuntimeRoleNatsServer:
 		return isNative && native.Descriptor == NativeUnitDescriptorNatsServer
-	case RuntimeRoleDashboard:
-		return isOci && oci.Descriptor == OciRuntimeDescriptorDashboard
 	default:
 		// Removed roles and every unknown value fail closed, including when a
 		// caller hand-builds a WorkloadRuntimeSpec around a legacy payload.

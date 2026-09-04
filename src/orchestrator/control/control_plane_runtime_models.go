@@ -207,11 +207,10 @@ type RuntimeDriver int
 
 const (
 	RuntimeDriverNativeSystemd RuntimeDriver = 1
-	RuntimeDriverOciContainer  RuntimeDriver = 2
 )
 
 func runtimeDriverIsDefined(value RuntimeDriver) bool {
-	return value == RuntimeDriverNativeSystemd || value == RuntimeDriverOciContainer
+	return value == RuntimeDriverNativeSystemd
 }
 
 type RuntimeArchitecture int
@@ -228,14 +227,14 @@ func runtimeArchitectureIsDefined(value RuntimeArchitecture) bool {
 type RuntimeRole int
 
 const (
-	// These four roles retain their v1 control-plane meanings. The removed
-	// values remain named below so old payloads can be identified and refused;
-	// none may be reused for the reduced runtime.AdmittedRole catalog.
+	// These roles retain their v1 control-plane meanings. Removed values
+	// (including Dashboard, retired with the legacy product roles) stay
+	// unnamed so old payloads are refused; none may be reused for the
+	// reduced runtime.AdmittedRole catalog.
 	RuntimeRoleOrchestrator   RuntimeRole = 1
 	RuntimeRoleTerraBase      RuntimeRole = 2
 	RuntimeRolePlatform       RuntimeRole = 3
 	RuntimeRoleAuthentication RuntimeRole = 4
-	RuntimeRoleDashboard      RuntimeRole = 5
 	RuntimeRoleNatsServer     RuntimeRole = 6
 	RuntimeRoleTelemetry      RuntimeRole = 7
 	RuntimeRoleGrafana        RuntimeRole = 8
@@ -245,7 +244,7 @@ const (
 func runtimeRoleIsDefined(value RuntimeRole) bool {
 	switch value {
 	case RuntimeRoleOrchestrator, RuntimeRoleTerraBase,
-		RuntimeRoleDashboard, RuntimeRoleNatsServer:
+		RuntimeRoleNatsServer:
 		return true
 	default:
 		// The removed roles and the reduced catalog's unrelated ordinals have
@@ -265,22 +264,6 @@ const (
 
 func nativeUnitDescriptorIsDefined(value NativeUnitDescriptor) bool {
 	return value >= NativeUnitDescriptorOrchestrator && value <= NativeUnitDescriptorTelemetry
-}
-
-type OciRuntimeDescriptor int
-
-const (
-	OciRuntimeDescriptorPlatform       OciRuntimeDescriptor = 1
-	OciRuntimeDescriptorAuthentication OciRuntimeDescriptor = 2
-	OciRuntimeDescriptorDashboard      OciRuntimeDescriptor = 3
-	OciRuntimeDescriptorTerraBase      OciRuntimeDescriptor = 4
-	OciRuntimeDescriptorTelemetry      OciRuntimeDescriptor = 5
-	OciRuntimeDescriptorGrafana        OciRuntimeDescriptor = 6
-	OciRuntimeDescriptorTrustedCi      OciRuntimeDescriptor = 7
-)
-
-func ociRuntimeDescriptorIsDefined(value OciRuntimeDescriptor) bool {
-	return value >= OciRuntimeDescriptorPlatform && value <= OciRuntimeDescriptorTrustedCi
 }
 
 type VolumeRetention int
@@ -556,29 +539,6 @@ func NewNativeRuntimePayload(artifactId RuntimeArtifactId, digest RuntimeDigest,
 func (p NativeRuntimePayload) Driver() RuntimeDriver { return RuntimeDriverNativeSystemd }
 
 func (p NativeRuntimePayload) ActivationDigest() RuntimeDigest { return p.Digest }
-
-type OciRuntimePayload struct {
-	runtimePayloadBase
-	ImageDigest RuntimeDigest
-	Descriptor  OciRuntimeDescriptor
-}
-
-func NewOciRuntimePayload(artifactId RuntimeArtifactId, manifestDigest RuntimeDigest, imageDigest RuntimeDigest,
-	signatureId RuntimeSignatureId, signingProfileId RuntimeSigningProfileId, hostImageId RuntimeHostImageId,
-	runtimeVersionId RuntimeVersionId, architecture RuntimeArchitecture, descriptor OciRuntimeDescriptor) (OciRuntimePayload, error) {
-	if !runtimeArchitectureIsDefined(architecture) {
-		return OciRuntimePayload{}, argumentOutOfRange("architecture")
-	}
-	if !ociRuntimeDescriptorIsDefined(descriptor) {
-		return OciRuntimePayload{}, argumentOutOfRange("descriptor")
-	}
-	return OciRuntimePayload{runtimePayloadBase{artifactId, manifestDigest, signatureId, signingProfileId,
-		hostImageId, runtimeVersionId, architecture}, imageDigest, descriptor}, nil
-}
-
-func (p OciRuntimePayload) Driver() RuntimeDriver { return RuntimeDriverOciContainer }
-
-func (p OciRuntimePayload) ActivationDigest() RuntimeDigest { return p.ImageDigest }
 
 type RuntimeVolumeBinding struct {
 	VolumeId  RuntimeVolumeId
