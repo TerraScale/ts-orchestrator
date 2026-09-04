@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -107,5 +108,30 @@ func TestBoundedDiagnosticWriterRetainsBoundAcrossRestart(t *testing.T) {
 	}
 	if string(data) != "first-se" || second.observation().Bytes != 8 || !second.observation().Truncated {
 		t.Fatalf("bounded restart output = %q, observation=%+v", data, second.observation())
+	}
+}
+
+func TestBoundedDiagnosticWriterRejectsUnsafeExistingPath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "diagnostic")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newBoundedDiagnosticWriter(link, 8); err == nil || !strings.Contains(err.Error(), "unsafe") {
+		t.Fatalf("symlink error = %v", err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newBoundedDiagnosticWriter(link, 8); err == nil || !strings.Contains(err.Error(), "unsafe") {
+		t.Fatalf("mode error = %v", err)
 	}
 }

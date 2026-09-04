@@ -603,18 +603,24 @@ func (p *Publisher) removeStale(ctx context.Context, generation uint64, seen map
 	}
 	sort.Slice(refs, func(i, j int) bool { return refs[i].ID < refs[j].ID })
 	deleted := 0
+	listed := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
 		if !validID(ref.ID) {
 			return deleted, errors.New("estate publisher: listing contained an invalid document id")
 		}
+		if _, duplicate := listed[ref.ID]; duplicate {
+			continue
+		}
+		listed[ref.ID] = struct{}{}
 		if _, ok := seen[ref.ID]; ok {
 			continue
 		}
 		if err := p.checkFence(ctx, generation); err != nil {
 			return deleted, err
 		}
-		sum := sha256.Sum256([]byte("delete\x00" + ref.ID))
-		options := WriteOptions{Generation: generation, FenceToken: p.fenceToken, IdempotencyKey: "estate-delete-" + hex.EncodeToString(sum[:])}
+		digest := sha256.New()
+		_, _ = fmt.Fprintf(digest, "estate-delete-v2\x00%d\x00%s", generation, ref.ID)
+		options := WriteOptions{Generation: generation, FenceToken: p.fenceToken, IdempotencyKey: "estate-delete-" + hex.EncodeToString(digest.Sum(nil))}
 		if err := p.delete(ctx, ref.ID, options); err != nil {
 			return deleted, fmt.Errorf("delete stale %s: %w", estate.QualifiedName(ref.ID), redact(err))
 		}

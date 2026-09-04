@@ -736,7 +736,7 @@ func loadProductionArtifacts(config Config, architecture vmimage.Architecture) (
 		}
 		seenDigests[digest] = component.component
 		version := component.input.Version
-		if !artifactVersionToken.MatchString(version) {
+		if len(version) > 63 || !artifactVersionToken.MatchString(version) {
 			zeroBytes(data)
 			zeroArtifactInputs(artifacts)
 			zeroBytes(publicKey)

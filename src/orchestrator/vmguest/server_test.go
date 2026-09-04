@@ -332,6 +332,44 @@ func TestStorageRejectsWritableRootAndHandlesConcurrentParents(t *testing.T) {
 	}
 }
 
+func TestStorageQuotaAccountsNewFilesAndReplacementDeltas(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "quota")
+	quota := storageQuota{maxBytes: 5, maxFiles: 2}
+	write := func(path, value string) error {
+		return atomicWriteWithinQuota(context.Background(), root, path, []byte(value), 0o600, quota)
+	}
+	if err := write("a", "aaa"); err != nil {
+		t.Fatal(err)
+	}
+	if err := write("nested/b", "bb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := write("nested/c", "x"); err == nil || !strings.Contains(err.Error(), "quota") {
+		t.Fatalf("file-count overflow returned %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "nested", "c")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected file-count overflow mutated storage: %v", err)
+	}
+	if err := write("new/c", "x"); err == nil || !strings.Contains(err.Error(), "quota") {
+		t.Fatalf("missing-parent file-count overflow returned %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "new")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected quota write created parent directories: %v", err)
+	}
+	if err := write("a", "aa"); err != nil {
+		t.Fatalf("shrinking replacement failed: %v", err)
+	}
+	if err := write("nested/b", "bbb"); err != nil {
+		t.Fatalf("exact byte-boundary replacement failed: %v", err)
+	}
+	if err := write("nested/b", "bbbb"); err == nil || !strings.Contains(err.Error(), "quota") {
+		t.Fatalf("byte overflow returned %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "nested", "b")); err != nil || string(data) != "bbb" {
+		t.Fatalf("rejected replacement changed the target: %q, %v", data, err)
+	}
+}
+
 func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
 	root := t.TempDir()
 	external := filepath.Join(t.TempDir(), "external")

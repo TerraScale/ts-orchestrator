@@ -1235,207 +1235,6 @@ func (s *Store) usageLocked() (Usage, error) {
 	return usage, nil
 }
 
-func (s *Store) loadMetadataV2(id string) (diskMetadata, string, error) {
-	if err := validateID(id); err != nil {
-		return diskMetadata{}, "", err
-	}
-	dir := s.driveDir(id)
-	if err := ensureNoSymlinkPath(s.drives, dir); err != nil {
-		return diskMetadata{}, "", err
-	}
-	if _, err := readArtifactOwner(dir, s.owner); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return diskMetadata{}, "", ErrNotFound
-		}
-		return diskMetadata{}, "", err
-	}
-	var state diskMetadata
-	if err := readStrictJSON(s.metadataPath(id), s.owner, 0o600, &state); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return diskMetadata{}, "", ErrNotFound
-		}
-		return diskMetadata{}, "", fmt.Errorf("%w: drive metadata %s: %v", ErrCorruptState, id, err)
-	}
-	want := state.Integrity
-	state.Integrity = ""
-	if state.Version != metadataVersion || state.RunID != s.runID || state.ID != id || validateID(state.Artifact) != nil || state.Size <= 0 || state.Size > maxDriveSize || want != structureDigest(state) {
-		return diskMetadata{}, "", fmt.Errorf("%w: invalid metadata for %s", ErrCorruptState, id)
-	}
-	state.Integrity = want
-	path := filepath.Join(dir, state.Artifact)
-	if err := ensureNoSymlinkPath(dir, path); err != nil {
-		return diskMetadata{}, "", err
-	}
-	if info, err := os.Lstat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return diskMetadata{}, "", ErrNotFound
-		}
-		return diskMetadata{}, "", err
-	} else if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || validateOwnerMode(info, s.owner, 0o600) != nil {
-		return diskMetadata{}, "", ErrOwnership
-	}
-	return state, path, nil
-}
-
-func (s *Store) writeDiskMetadataV2(ctx context.Context, path string, state diskMetadata) (bool, error) {
-	state.Integrity = ""
-	sealDiskMetadata(&state)
-	if s.hooks.beforeMetadataCommit != nil {
-		if err := s.hooks.beforeMetadataCommit(path); err != nil {
-			return false, err
-		}
-	}
-	_, err := atomicWriteJSON(ctx, path, state, s.owner, 0o600)
-	return err == nil, err
-}
-
-func checksumExactV2(ctx context.Context, path string, size int64) (string, error) {
-	if err := contextErr(ctx); err != nil {
-		return "", err
-	}
-	if size <= 0 {
-		return "", ErrInvalidSize
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	limited := io.LimitReader(file, size+1)
-	count, err := io.CopyBuffer(hash, contextReader{ctx: ctx, reader: limited}, make([]byte, copyBufferSize))
-	if err != nil {
-		return "", err
-	}
-	if count != size {
-		return "", io.ErrUnexpectedEOF
-	}
-	var extra [1]byte
-	if n, err := file.Read(extra[:]); err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	} else if n != 0 {
-		return "", ErrCorruptState
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-type contextReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (r contextReader) Read(p []byte) (int, error) {
-	if err := contextErr(r.ctx); err != nil {
-		return 0, err
-	}
-	return r.reader.Read(p)
-}
-
-func (s *Store) stageCloneV2(ctx context.Context, state diskMetadata, oldPath string, generation uint64, size int64, mutate func(string) error) (string, error) {
-	if err := contextErr(ctx); err != nil {
-		return "", err
-	}
-	if s.hooks.beforeCopy != nil {
-		if err := s.hooks.beforeCopy(oldPath); err != nil {
-			return "", err
-		}
-	}
-	path := filepath.Join(s.driveDir(state.ID), artifactName(generation))
-	if err := copyExact(ctx, oldPath, path, state.Size, s.owner); err != nil {
-		return "", err
-	}
-	remove := true
-	defer func() {
-		if remove {
-			_ = os.Remove(path)
-		}
-	}()
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return "", err
-	}
-	if size != state.Size {
-		if err := file.Truncate(size); err != nil {
-			_ = file.Close()
-			return "", err
-		}
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		return "", err
-	}
-	if mutate != nil {
-		if err := mutate(path); err != nil {
-			return "", err
-		}
-	}
-	remove = false
-	return path, nil
-}
-
-func copyExact(ctx context.Context, src, dst string, size int64, owner Ownership) error {
-	if err := contextErr(ctx); err != nil {
-		return err
-	}
-	in, err := openOwnedRegular(src, os.O_RDONLY, owner, 0o600)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = out.Close()
-			_ = os.Remove(dst)
-		}
-	}()
-	if err := out.Chown(owner.UID, owner.GID); err != nil {
-		return fmt.Errorf("%w: chown artifact: %v", ErrOwnership, err)
-	}
-	reader := contextReader{ctx: ctx, reader: io.LimitReader(in, size)}
-	count, err := io.CopyBuffer(out, reader, make([]byte, copyBufferSize))
-	if err != nil {
-		return err
-	}
-	if count != size {
-		return io.ErrUnexpectedEOF
-	}
-	if err := out.Sync(); err != nil {
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	ok = true
-	return nil
-}
-
-func (s *Store) commitArtifactStateV2(ctx context.Context, previous diskMetadata, oldPath string, next diskMetadata, newPath string) error {
-	if err := contextErr(ctx); err != nil {
-		return err
-	}
-	if previous.Generation >= next.Generation || filepath.Dir(oldPath) != filepath.Dir(newPath) {
-		return ErrDriveBusy
-	}
-	next.Artifact = filepath.Base(newPath)
-	if _, err := s.writeDiskMetadata(ctx, s.metadataPath(next.ID), next); err != nil {
-		return err
-	}
-	if oldPath != newPath {
-		if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	return syncDirectory(s.driveDir(next.ID))
-}
-
 func (s *Store) snapshotLocked(ctx context.Context, state diskMetadata, path string) (Snapshot, error) {
 	checksum, err := checksumExact(ctx, path, state.Size)
 	if err != nil {
@@ -1847,6 +1646,39 @@ func removeVerifiedDirectory(path string, owner Ownership) error {
 
 func validManagedFileName(name string) bool {
 	return name == ownerFileName || name == metadataName || name == snapshotImage || strings.HasPrefix(name, jsonTemporaryPrefix) || validArtifactName(name)
+}
+
+func ensureNoSymlinkPath(root, path string) error {
+	root, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return ErrOutsideRoot
+	}
+	path, err = filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return ErrOutsideRoot
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || filepath.IsAbs(relative) {
+		return ErrOutsideRoot
+	}
+	current := root
+	for _, part := range strings.Split(relative, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrOutsideRoot
+		}
+	}
+	return nil
 }
 
 func validArtifactNameV2(name string) bool {

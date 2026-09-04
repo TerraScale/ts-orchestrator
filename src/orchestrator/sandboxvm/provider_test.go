@@ -20,6 +20,7 @@ type fakeMachine struct {
 	mu                                            sync.Mutex
 	start, shutdown, stop, wait, version, inspect int
 	shutdownBlock                                 <-chan struct{}
+	waitBlock                                     <-chan struct{}
 	versionValue                                  string
 	pid                                           int
 	processStartTime                              uint64
@@ -70,7 +71,20 @@ func (m *fakeMachine) StopVMM() error {
 	m.mu.Unlock()
 	return nil
 }
-func (m *fakeMachine) Wait(context.Context) error { m.mu.Lock(); m.wait++; m.mu.Unlock(); return nil }
+func (m *fakeMachine) Wait(ctx context.Context) error {
+	m.mu.Lock()
+	m.wait++
+	block := m.waitBlock
+	m.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
 func (m *fakeMachine) Version(context.Context) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -314,6 +328,30 @@ func TestVersionMismatchAbortsBeforeReadinessProbe(t *testing.T) {
 	}
 }
 
+func TestStartRevalidatesAnAlreadyRunningMachine(t *testing.T) {
+	cfg := testConfig(t)
+	machine := &fakeMachine{versionValue: cfg.ExpectedVersion}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	machine.dead = true
+	machine.mu.Unlock()
+	if err := p.Start(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "not alive") {
+		t.Fatalf("second Start() error = %v", err)
+	}
+	machine.mu.Lock()
+	starts := machine.start
+	machine.mu.Unlock()
+	if starts != 1 {
+		t.Fatalf("dead machine was started through a sticky state: %d calls", starts)
+	}
+}
+
 func TestInspectRejectsDeadOrChangedProcessIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -322,6 +360,7 @@ func TestInspectRejectsDeadOrChangedProcessIdentity(t *testing.T) {
 		{name: "dead process", mutate: func(machine *fakeMachine) { machine.dead = true }},
 		{name: "changed PID", mutate: func(machine *fakeMachine) { machine.pid++ }},
 		{name: "changed start time", mutate: func(machine *fakeMachine) { machine.processStartTime++ }},
+		{name: "changed executable", mutate: func(machine *fakeMachine) { machine.executable = "/bin/sh" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig(t)
@@ -379,6 +418,30 @@ func TestConcurrentStopIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestStopTimeoutRemainsRetryableAndBlocksDelete(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.StopTimeout = 10 * time.Millisecond
+	never := make(chan struct{})
+	machine := &fakeMachine{waitBlock: never}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	created, err := p.Create(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "exit was not confirmed") {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if err := p.Delete(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "exit was not confirmed") {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := os.Stat(created.Paths.StateDir); err != nil {
+		t.Fatalf("indeterminate process state was deleted: %v", err)
+	}
+}
+
 func TestUnownedStateCannotBeDeleted(t *testing.T) {
 	cfg := testConfig(t)
 	if err := os.MkdirAll(filepath.Join(cfg.StateRoot, cfg.ID), 0700); err != nil {
@@ -389,6 +452,25 @@ func TestUnownedStateCannotBeDeleted(t *testing.T) {
 	}
 	if err := removeOwnedState(filepath.Join(cfg.StateRoot, cfg.ID), cfg.ID); !errors.Is(err, ErrUnowned) {
 		t.Fatalf("expected ownership error, got %v", err)
+	}
+}
+
+func TestResetRejectsUnexpectedTransientPath(t *testing.T) {
+	cfg := testConfig(t)
+	p := testProvider(t, &fakeMachine{}, &fakeProbe{}, nil)
+	created, err := p.Create(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unexpected := filepath.Join(created.Paths.StateDir, "firecracker-log.fifo")
+	if err := os.WriteFile(unexpected, []byte("not a fifo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "unexpected transient path") {
+		t.Fatalf("Start() error = %v", err)
 	}
 }
 
@@ -569,5 +651,25 @@ func TestUnixSocketOpenAPI(t *testing.T) {
 	}
 	if err := client.PatchVM(context.Background(), "invalid"); err == nil {
 		t.Fatal("invalid VM patch accepted")
+	}
+}
+
+func TestSocketReadyRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: target, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	link := filepath.Join(dir, "link.sock")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if !SocketReady(target) {
+		t.Fatal("real Unix socket was not ready")
+	}
+	if SocketReady(link) {
+		t.Fatal("symlinked Unix socket was accepted")
 	}
 }

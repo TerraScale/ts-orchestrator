@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	MaxInboxStorageBytes       = 128 << 20
-	MaxInboxStorageFiles       = 64
-	MaxPersistentStorageBytes  = 32 << 20
-	MaxPersistentStorageFiles  = 128
-	directoryOpenFlags       = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
-	storageIOChunk           = 64 << 10
-	maxStorageDirectoryDepth = 3
+	MaxInboxStorageBytes      = 128 << 20
+	MaxInboxStorageFiles      = 64
+	MaxPersistentStorageBytes = 32 << 20
+	MaxPersistentStorageFiles = 128
+	directoryOpenFlags        = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	storageIOChunk            = 64 << 10
+	maxStorageDirectoryDepth  = 3
 )
 
 var storageWriteGate = make(chan struct{}, 1)
@@ -158,82 +158,6 @@ func atomicWriteWithinQuota(ctx context.Context, rootPath, relative string, data
 type storageUsage struct {
 	bytes int64
 	files int64
-}
-
-func scanStorageUsage(ctx context.Context, directoryFD int, rootStat unix.Stat_t, rootMount uint64, depth int) (storageUsage, error) {
-	if err := ctx.Err(); err != nil {
-		return storageUsage{}, err
-	}
-	if depth > maxStorageDirectoryDepth {
-		return storageUsage{}, errors.New("vmguest: storage directory depth exceeded")
-	}
-	dup, err := unix.FcntlInt(uintptr(directoryFD), unix.F_DUPFD_CLOEXEC, 0)
-	if err != nil {
-		return storageUsage{}, errors.New("vmguest: duplicate storage directory for usage")
-	}
-	directory := os.NewFile(uintptr(dup), "vmguest-storage-usage")
-	if directory == nil {
-		_ = unix.Close(dup)
-		return storageUsage{}, errors.New("vmguest: wrap storage directory for usage")
-	}
-	defer directory.Close()
-	var usage storageUsage
-	for {
-		if err := ctx.Err(); err != nil {
-			return storageUsage{}, err
-		}
-		entries, readErr := directory.Readdirnames(64)
-		for _, name := range entries {
-			if err := ctx.Err(); err != nil {
-				return storageUsage{}, err
-			}
-			var stat unix.Stat_t
-			if err := unix.Fstatat(directoryFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-				if errors.Is(err, unix.ENOENT) {
-					continue
-				}
-				return storageUsage{}, errors.New("vmguest: inspect storage usage entry")
-			}
-			switch stat.Mode & unix.S_IFMT {
-			case unix.S_IFREG:
-				if !safeStorageFile(stat, rootStat, 0o600) || stat.Size < 0 || usage.files == math.MaxInt64 || usage.bytes > math.MaxInt64-stat.Size {
-					return storageUsage{}, errors.New("vmguest: storage usage entry is unsafe")
-				}
-				usage.files++
-				usage.bytes += stat.Size
-			case unix.S_IFDIR:
-				if depth == maxStorageDirectoryDepth {
-					return storageUsage{}, errors.New("vmguest: storage directory depth exceeded")
-				}
-				child, openErr := unix.Openat(directoryFD, name, directoryOpenFlags, 0)
-				if openErr != nil {
-					return storageUsage{}, errors.New("vmguest: open storage usage directory")
-				}
-				if err := validateOwnedDirectory(child, rootMount); err != nil {
-					_ = unix.Close(child)
-					return storageUsage{}, err
-				}
-				nested, nestedErr := scanStorageUsage(ctx, child, rootStat, rootMount, depth+1)
-				_ = unix.Close(child)
-				if nestedErr != nil {
-					return storageUsage{}, nestedErr
-				}
-				if nested.files > math.MaxInt64-usage.files || nested.bytes > math.MaxInt64-usage.bytes {
-					return storageUsage{}, errors.New("vmguest: storage usage overflow")
-				}
-				usage.files += nested.files
-				usage.bytes += nested.bytes
-			default:
-				return storageUsage{}, errors.New("vmguest: storage usage contains an unsafe entry")
-			}
-		}
-		if errors.Is(readErr, io.EOF) {
-			return usage, nil
-		}
-		if readErr != nil {
-			return storageUsage{}, errors.New("vmguest: read storage usage directory")
-		}
-	}
 }
 
 func validateStorageQuota(usage storageUsage, targetExists bool, targetBytes int64, replacementBytes int, quota storageQuota) error {
