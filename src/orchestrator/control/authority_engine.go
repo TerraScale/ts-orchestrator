@@ -2,6 +2,7 @@ package control
 
 import (
 	"sort"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 var AuthorityEngine authorityEngine
@@ -11,10 +12,10 @@ type authorityEngine struct{}
 // Decide mirrors AuthorityEngine.Decide(IReadOnlyList<AuthorityEvent>, AuthorityCommand).
 func (authorityEngine) Decide(history []AuthorityEvent, command AuthorityCommand) (*AuthorityDecision, error) {
 	if history == nil {
-		return nil, argumentNil("history")
+		return nil, shared.ArgumentNil("history")
 	}
 	if command == nil {
-		return nil, argumentNil("command")
+		return nil, shared.ArgumentNil("command")
 	}
 	replay, err := AuthorityEngine.Replay(history)
 	if err != nil {
@@ -31,10 +32,10 @@ func (authorityEngine) Decide(history []AuthorityEvent, command AuthorityCommand
 // replaying the journal so long-running lease renewal stays O(1) per tick.
 func (authorityEngine) DecideFromState(state *AuthorityState, command AuthorityCommand) (*AuthorityDecision, error) {
 	if state == nil {
-		return nil, argumentNil("state")
+		return nil, shared.ArgumentNil("state")
 	}
 	if command == nil {
-		return nil, argumentNil("command")
+		return nil, shared.ArgumentNil("command")
 	}
 	common := authorityValidateCommand(state, command)
 	if common != nil {
@@ -68,7 +69,7 @@ func (authorityEngine) DecideFromState(state *AuthorityState, command AuthorityC
 
 func (authorityEngine) Replay(history []AuthorityEvent) (*AuthorityDecision, error) {
 	if history == nil {
-		return nil, argumentNil("history")
+		return nil, shared.ArgumentNil("history")
 	}
 	state := AuthorityStateEmpty
 	if authorityHistoryContainsNil(history) {
@@ -136,7 +137,7 @@ func authorityAcquire(state *AuthorityState, command *AcquireAuthority) *Authori
 	if input == nil {
 		input = authorityValidateHealth(command.Health)
 	}
-	if input != nil || isNullOrWhiteSpace(command.LeaseId) || command.LeaseDuration <= 0 {
+	if input != nil || shared.IsNullOrWhiteSpace(command.LeaseId) || command.LeaseDuration <= 0 {
 		if input != nil {
 			return authorityReject(state, *input)
 		}
@@ -169,14 +170,14 @@ func authorityAcquire(state *AuthorityState, command *AcquireAuthority) *Authori
 		}
 	}
 
-	epoch, ok := checkedAddInt64(command.Baseline.Epoch, 1)
+	epoch, ok := shared.CheckedAddInt64(command.Baseline.Epoch, 1)
 	if !ok {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "Fencing epoch overflowed."))
 	}
-	if command.Baseline.KvRevision == int64max {
+	if command.Baseline.KvRevision == shared.Int64Max {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision cannot advance."))
 	}
-	if !canAddDuration(command.Health.ServerTime, command.LeaseDuration) {
+	if !shared.CanAddDuration(command.Health.ServerTime, command.LeaseDuration) {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-005", "Lease expiry overflows timestamp range."))
 	}
 
@@ -216,14 +217,14 @@ func authorityRenew(state *AuthorityState, command *RenewAuthority) *AuthorityDe
 	if command.Current.AuthorityId != command.AuthorityId {
 		return authorityReject(state, authorityError(AuthorityErrorCodeIdentityMismatch, "INV-004", "Renewal observation belongs to another authority."))
 	}
-	if command.Current.KvRevision == int64max {
+	if command.Current.KvRevision == shared.Int64Max {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision cannot advance."))
 	}
 	exact := authorityEnsureExactCurrent(state, command.Current, command.Health)
 	if exact != nil {
 		return authorityLoseAuthority(state, command, command.Current, *exact)
 	}
-	if !canAddDuration(command.Health.ServerTime, command.LeaseDuration) {
+	if !shared.CanAddDuration(command.Health.ServerTime, command.LeaseDuration) {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "Renewal expiry overflows timestamp range."))
 	}
 
@@ -258,7 +259,7 @@ func authorityRelease(state *AuthorityState, command *ReleaseAuthority) *Authori
 	if command.Current.AuthorityId != command.AuthorityId {
 		return authorityReject(state, authorityError(AuthorityErrorCodeIdentityMismatch, "INV-004", "Release observation belongs to another authority."))
 	}
-	if command.Current.KvRevision == int64max {
+	if command.Current.KvRevision == shared.Int64Max {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision cannot advance."))
 	}
 	exact := authorityEnsureExactCurrent(state, command.Current, command.Health)
@@ -339,7 +340,7 @@ func authorityObserveSet(state *AuthorityState, command *ObserveAuthorityCas) *A
 		if observationError := authorityValidateObservation(observation); observationError != nil {
 			return authorityReject(state, *observationError)
 		}
-		revision, ok := checkedAddInt64(pending.ExpectedRevision, 1)
+		revision, ok := shared.CheckedAddInt64(pending.ExpectedRevision, 1)
 		if !ok {
 			return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision overflowed."))
 		}
@@ -423,7 +424,7 @@ func authorityObserveDelete(state *AuthorityState, command *ObserveAuthorityDele
 		return authorityReject(state, *validation)
 	}
 	pending := state.PendingDelete
-	revision, ok := checkedAddInt64(pending.ExpectedRevision, 1)
+	revision, ok := shared.CheckedAddInt64(pending.ExpectedRevision, 1)
 	if !ok {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision overflowed."))
 	}
@@ -511,7 +512,7 @@ func authorityEnsureExactCurrent(state *AuthorityState, observation *AuthorityOb
 	if safety := authoritySafetyError(health); safety != nil {
 		return safety
 	}
-	if state.Confirmed == nil || observation.AuthorityId != derefString(state.AuthorityId) {
+	if state.Confirmed == nil || observation.AuthorityId != shared.DerefString(state.AuthorityId) {
 		return authorityErrorPointer(AuthorityErrorCodeIdentityMismatch, "INV-004", "Authority observation identity differs.")
 	}
 	if observation.Epoch > state.Confirmed.Epoch {
@@ -534,7 +535,7 @@ func authorityLeaseError(observation *AuthorityObservation, health *AuthorityHea
 	if health.ServerTime.Before(observation.Lease.ServerIssuedAt) || health.MonotonicElapsed < 0 {
 		return authorityErrorPointer(AuthorityErrorCodeClockAnomaly, "INV-004", "Lease time moved backwards.")
 	}
-	if !canAddDuration(observation.Lease.ServerIssuedAt, observation.Lease.Duration) {
+	if !shared.CanAddDuration(observation.Lease.ServerIssuedAt, observation.Lease.Duration) {
 		return authorityErrorPointer(AuthorityErrorCodeArithmeticOverflow, "INV-004", "Lease expiry overflows timestamp range.")
 	}
 	expiry := observation.Lease.ServerIssuedAt.Add(observation.Lease.Duration)
@@ -556,25 +557,25 @@ func authoritySafetyError(health *AuthorityHealth) *AuthorityError {
 
 func authorityValidateCommand(state *AuthorityState, command AuthorityCommand) *AuthorityError {
 	common := command.authorityCommandCommon()
-	if isNullOrWhiteSpace(common.AuthorityId) || isNullOrWhiteSpace(common.CandidateId) || isNullOrWhiteSpace(common.RequestId) {
+	if shared.IsNullOrWhiteSpace(common.AuthorityId) || shared.IsNullOrWhiteSpace(common.CandidateId) || shared.IsNullOrWhiteSpace(common.RequestId) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidInput, "INV-005", "Authority, candidate, and request identities are required.")
 	}
 	if state.AuthorityId != nil &&
-		(*state.AuthorityId != common.AuthorityId || derefString(state.CandidateId) != common.CandidateId) {
+		(*state.AuthorityId != common.AuthorityId || shared.DerefString(state.CandidateId) != common.CandidateId) {
 		return authorityErrorPointer(AuthorityErrorCodeIdentityMismatch, "INV-004", "Command identity differs from journal ownership.")
 	}
 	return nil
 }
 
 func authorityValidateObservation(observation *AuthorityObservation) *AuthorityError {
-	if observation == nil || isNullOrWhiteSpace(observation.AuthorityId) ||
-		isNullOrWhiteSpace(observation.ObservationId) || observation.KvRevision < 0 || observation.Epoch < 0 ||
+	if observation == nil || shared.IsNullOrWhiteSpace(observation.AuthorityId) ||
+		shared.IsNullOrWhiteSpace(observation.ObservationId) || observation.KvRevision < 0 || observation.Epoch < 0 ||
 		((observation.KvRevision == 0 || observation.Epoch == 0) &&
 			(observation.KvRevision != 0 || observation.Epoch != 0 || observation.Lease != nil)) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidInput, "INV-005", "Observation requires stable identity and either genesis zeroes or positive revision/epoch.")
 	}
-	if observation.Lease != nil && (isNullOrWhiteSpace(observation.Lease.CandidateId) ||
-		isNullOrWhiteSpace(observation.Lease.LeaseId) || observation.Lease.ServerIssuedAt.IsZero() || observation.Lease.Duration <= 0) {
+	if observation.Lease != nil && (shared.IsNullOrWhiteSpace(observation.Lease.CandidateId) ||
+		shared.IsNullOrWhiteSpace(observation.Lease.LeaseId) || observation.Lease.ServerIssuedAt.IsZero() || observation.Lease.Duration <= 0) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidInput, "INV-005", "Observed lease is malformed.")
 	}
 	return nil
@@ -623,11 +624,11 @@ func authorityValidateNext(state *AuthorityState, event AuthorityEvent) *Authori
 	if err != nil || common.EventDigest != digest {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-005", "Authority journal chain is not append-only.")
 	}
-	if isNullOrWhiteSpace(common.AuthorityId) || isNullOrWhiteSpace(common.CandidateId) || isNullOrWhiteSpace(common.RequestId) {
+	if shared.IsNullOrWhiteSpace(common.AuthorityId) || shared.IsNullOrWhiteSpace(common.CandidateId) || shared.IsNullOrWhiteSpace(common.RequestId) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-005", "Authority event identity is malformed.")
 	}
 	if state.AuthorityId != nil &&
-		(*state.AuthorityId != common.AuthorityId || derefString(state.CandidateId) != common.CandidateId) {
+		(*state.AuthorityId != common.AuthorityId || shared.DerefString(state.CandidateId) != common.CandidateId) {
 		return authorityErrorPointer(AuthorityErrorCodeIdentityMismatch, "INV-004", "Authority journal mixes identities.")
 	}
 	if semantic := authorityValidateEventSemantics(state, event); semantic != nil {
@@ -693,9 +694,9 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 				pending.ExpectedRevision != state.Confirmed.KvRevision ||
 				pending.ExpectedEpoch != state.Confirmed.Epoch ||
 				!pending.ExpectedObservation.Equal(*state.Confirmed) ||
-				pending.ProposedLease.CandidateId != derefString(state.CandidateId) ||
+				pending.ProposedLease.CandidateId != shared.DerefString(state.CandidateId) ||
 				state.Confirmed.Lease == nil || pending.ProposedLease.LeaseId != state.Confirmed.Lease.LeaseId ||
-				!instantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) ||
+				!shared.InstantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) ||
 				authorityEnsureExactCurrent(state, pending.ExpectedObservation, pending.RequestedAtHealth) != nil {
 				return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Renewal request does not preserve exact lease ownership and epoch.")
 			}
@@ -711,10 +712,10 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 				}
 			}
 			if pending.ProposedLease.CandidateId != requested.CandidateId ||
-				!instantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) {
+				!shared.InstantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) {
 				return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Acquisition proposal identity/time differs from request evidence.")
 			}
-			expectedEpoch, ok := checkedAddInt64(pending.ExpectedEpoch, 1)
+			expectedEpoch, ok := shared.CheckedAddInt64(pending.ExpectedEpoch, 1)
 			if !ok {
 				return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Acquisition epoch overflowed in journal.")
 			}
@@ -735,7 +736,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 			confirmed.CandidateId != state.PendingSet.ProposedLease.CandidateId {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed CAS does not exactly match pending request.")
 		}
-		expectedRevision, ok := checkedAddInt64(state.PendingSet.ExpectedRevision, 1)
+		expectedRevision, ok := shared.CheckedAddInt64(state.PendingSet.ExpectedRevision, 1)
 		if !ok {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed CAS revision overflowed.")
 		}
@@ -788,7 +789,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 			confirmed.CandidateId != state.PendingDelete.ExpectedLease.CandidateId {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Delete confirmation does not prove exact absence.")
 		}
-		expectedRevision, ok := checkedAddInt64(state.PendingDelete.ExpectedRevision, 1)
+		expectedRevision, ok := shared.CheckedAddInt64(state.PendingDelete.ExpectedRevision, 1)
 		if !ok {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Delete confirmation revision overflowed.")
 		}
@@ -819,7 +820,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 		held := value
 		if !authorityStatusIsDefined(held.HeldFrom) || !authorityErrorCodeIsDefined(held.Error.Code) ||
 			held.HeldFrom != state.Status ||
-			isNullOrWhiteSpace(held.Error.Requirement) || isNullOrWhiteSpace(held.Error.Message) ||
+			shared.IsNullOrWhiteSpace(held.Error.Requirement) || shared.IsNullOrWhiteSpace(held.Error.Message) ||
 			(held.Observation != nil &&
 				(authorityValidateObservation(held.Observation) != nil || held.Observation.AuthorityId != held.AuthorityId)) {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-005", "Hold does not match the current state.")
@@ -828,8 +829,8 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 	case *AuthorityFencedEvent:
 		fenced := value
 		if !authorityErrorCodeIsDefined(fenced.Error.Code) ||
-			isNullOrWhiteSpace(fenced.Error.Requirement) ||
-			isNullOrWhiteSpace(fenced.Error.Message) ||
+			shared.IsNullOrWhiteSpace(fenced.Error.Requirement) ||
+			shared.IsNullOrWhiteSpace(fenced.Error.Message) ||
 			(fenced.Observation != nil &&
 				(fenced.Observation.AuthorityId != fenced.AuthorityId ||
 					authorityValidateObservation(fenced.Observation) != nil)) {
@@ -841,8 +842,8 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 }
 
 func authorityValidateLease(lease AuthorityLease) *AuthorityError {
-	if isNullOrWhiteSpace(lease.CandidateId) || isNullOrWhiteSpace(lease.LeaseId) ||
-		lease.ServerIssuedAt.IsZero() || lease.Duration <= 0 || !canAddDuration(lease.ServerIssuedAt, lease.Duration) {
+	if shared.IsNullOrWhiteSpace(lease.CandidateId) || shared.IsNullOrWhiteSpace(lease.LeaseId) ||
+		lease.ServerIssuedAt.IsZero() || lease.Duration <= 0 || !shared.CanAddDuration(lease.ServerIssuedAt, lease.Duration) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidInput, "INV-005", "Lease is malformed.")
 	}
 	return nil
@@ -863,8 +864,8 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		} else {
 			next.Status = AuthorityStatusAcquisitionPending
 		}
-		next.HighestEpoch = maxInt64(state.HighestEpoch, value.Pending.ExpectedEpoch)
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, value.Pending.ExpectedRevision)
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, value.Pending.ExpectedEpoch)
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, value.Pending.ExpectedRevision)
 		pending := value.Pending
 		next.PendingSet = &pending
 		next.PendingDelete = nil
@@ -873,8 +874,8 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		next.LastError = nil
 	case *AuthoritySetConfirmed:
 		next.Status = AuthorityStatusLeader
-		next.HighestEpoch = maxInt64(state.HighestEpoch, value.Observation.Epoch)
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, value.Observation.KvRevision)
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, value.Observation.Epoch)
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, value.Observation.KvRevision)
 		observation := *value.Observation
 		next.Confirmed = &observation
 		next.PendingSet = nil
@@ -886,9 +887,9 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		} else {
 			next.Status = AuthorityStatusReadOnlyHeld
 		}
-		next.HighestEpoch = maxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
 		next.PendingSet = nil
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
 		next.LastCompletedRequestId = stringPointer(value.RequestId)
 		err := value.Error
 		next.LastError = &err
@@ -899,8 +900,8 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		next.LastError = nil
 	case *AuthorityDeleteConfirmed:
 		next.Status = AuthorityStatusFollower
-		next.HighestEpoch = maxInt64(state.HighestEpoch, value.Observation.Epoch)
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, value.Observation.KvRevision)
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, value.Observation.Epoch)
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, value.Observation.KvRevision)
 		observation := *value.Observation
 		next.Confirmed = &observation
 		next.PendingDelete = nil
@@ -919,10 +920,10 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		} else {
 			next.Status = AuthorityStatusFollower
 		}
-		next.HighestEpoch = maxInt64(state.HighestEpoch, value.Observation.Epoch)
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, value.Observation.Epoch)
 		observation := *value.Observation
 		next.Confirmed = &observation
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, value.Observation.KvRevision)
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, value.Observation.KvRevision)
 		next.PendingReadRequestId = nil
 		next.PendingReadCandidateId = nil
 		next.ReadResumeStatus = nil
@@ -932,8 +933,8 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		next.Status = AuthorityStatusReadOnlyHeld
 		next.PendingSet = nil
 		next.PendingDelete = nil
-		next.HighestEpoch = maxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
 		next.PendingReadRequestId = nil
 		next.PendingReadCandidateId = nil
 		if value.HeldFrom == AuthorityStatusLeader {
@@ -945,8 +946,8 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		next.LastError = &err
 	case *AuthorityFencedEvent:
 		next.Status = AuthorityStatusFenced
-		next.HighestEpoch = maxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
-		next.HighestKvRevision = maxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
+		next.HighestEpoch = shared.MaxInt64(state.HighestEpoch, authorityObservationEpochOrZero(value.Observation))
+		next.HighestKvRevision = shared.MaxInt64(state.HighestKvRevision, authorityObservationKvRevisionOrZero(value.Observation))
 		next.PendingSet = nil
 		next.PendingDelete = nil
 		next.PendingReadRequestId = nil
@@ -955,7 +956,7 @@ func authorityApply(state *AuthorityState, event AuthorityEvent) *AuthorityState
 		err := value.Error
 		next.LastError = &err
 	default:
-		panic(invalidArgument("Unsupported authority event."))
+		panic(shared.InvalidArgument("Unsupported authority event."))
 	}
 	return &next
 }

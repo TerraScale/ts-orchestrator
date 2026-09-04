@@ -10,6 +10,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -293,7 +294,7 @@ func GlobalNatsTopologyCellSpecSubject(cell string) (string, error) {
 	return GlobalNatsTopologyCellSpecSubjectPrefix() + "." + cell, nil
 }
 
-func GlobalNatsTopologyIsCellToken(cell string) bool { return messagingCellTokenIsValid(cell) }
+func GlobalNatsTopologyIsCellToken(cell string) bool { return shared.MessagingCellTokenIsValid(cell) }
 
 func GlobalNatsTopologyCellAdvertisementKey(cell string) (string, error) {
 	if !GlobalNatsTopologyIsCellToken(cell) {

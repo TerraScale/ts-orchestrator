@@ -3,6 +3,7 @@ package control
 import (
 	"regexp"
 	"sort"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 var runtimeIdentityTokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
@@ -14,19 +15,19 @@ type runtimeIdentityStatic struct{}
 
 func (runtimeIdentityStatic) Token(value, name string) (string, error) {
 	if len(value) < 1 || len(value) > 128 || !runtimeIdentityTokenPattern.MatchString(value) {
-		return "", invalidArgument("Runtime identity must be a bounded canonical token.")
+		return "", shared.InvalidArgument("Runtime identity must be a bounded canonical token.")
 	}
 	return value, nil
 }
 
 func (runtimeIdentityStatic) Digest(value, name string) (string, error) {
 	if len(value) != 64 {
-		return "", invalidArgument("Digest must be canonical SHA-256.")
+		return "", shared.InvalidArgument("Digest must be canonical SHA-256.")
 	}
 	for i := 0; i < len(value); i++ {
 		c := value[i]
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return "", invalidArgument("Digest must be canonical SHA-256.")
+			return "", shared.InvalidArgument("Digest must be canonical SHA-256.")
 		}
 	}
 	return value, nil
@@ -159,7 +160,7 @@ type PositiveRuntimeNumber struct {
 
 func newPositiveRuntimeNumber(value uint64) (PositiveRuntimeNumber, error) {
 	if value == 0 {
-		return PositiveRuntimeNumber{}, argumentOutOfRange("value")
+		return PositiveRuntimeNumber{}, shared.ArgumentOutOfRange("value")
 	}
 	return PositiveRuntimeNumber{Value: value}, nil
 }
@@ -198,7 +199,7 @@ type RuntimePort struct {
 
 func NewRuntimePort(value uint16) (RuntimePort, error) {
 	if value == 0 {
-		return RuntimePort{}, argumentOutOfRange("value")
+		return RuntimePort{}, shared.ArgumentOutOfRange("value")
 	}
 	return RuntimePort{Value: value}, nil
 }
@@ -458,10 +459,10 @@ const UpdateRollbackPolicyLocalKnownGoodOnHealthOrCompatibilityFailure UpdateRol
 // runtimeInputSnapshotCopy ports the internal RuntimeInputSnapshot.Copy.
 func runtimeInputSnapshotCopy[T any](source []T, maximum int, parameterName string) ([]T, error) {
 	if source == nil {
-		return nil, argumentNil(parameterName)
+		return nil, shared.ArgumentNil(parameterName)
 	}
 	if len(source) > maximum {
-		return nil, invalidArgument("Runtime input exceeds the technical item limit.")
+		return nil, shared.InvalidArgument("Runtime input exceeds the technical item limit.")
 	}
 	result := make([]T, len(source))
 	copy(result, source)
@@ -485,10 +486,10 @@ func runtimeEnumsCopyDistinctEnum[T ~int](source []T, name string, isDefined fun
 	seen := make(map[T]struct{}, len(values))
 	for _, value := range values {
 		if !isDefined(value) {
-			return nil, argumentOutOfRange(name)
+			return nil, shared.ArgumentOutOfRange(name)
 		}
 		if _, duplicate := seen[value]; duplicate {
-			return nil, invalidArgument("Duplicate catalog value.")
+			return nil, shared.InvalidArgument("Duplicate catalog value.")
 		}
 		seen[value] = struct{}{}
 	}
@@ -527,10 +528,10 @@ func NewNativeRuntimePayload(artifactId RuntimeArtifactId, digest RuntimeDigest,
 	signingProfileId RuntimeSigningProfileId, hostImageId RuntimeHostImageId, runtimeVersionId RuntimeVersionId,
 	architecture RuntimeArchitecture, descriptor NativeUnitDescriptor) (NativeRuntimePayload, error) {
 	if !runtimeArchitectureIsDefined(architecture) {
-		return NativeRuntimePayload{}, argumentOutOfRange("architecture")
+		return NativeRuntimePayload{}, shared.ArgumentOutOfRange("architecture")
 	}
 	if !nativeUnitDescriptorIsDefined(descriptor) {
-		return NativeRuntimePayload{}, argumentOutOfRange("descriptor")
+		return NativeRuntimePayload{}, shared.ArgumentOutOfRange("descriptor")
 	}
 	return NativeRuntimePayload{runtimePayloadBase{artifactId, digest, signatureId, signingProfileId,
 		hostImageId, runtimeVersionId, architecture}, descriptor}, nil
@@ -547,7 +548,7 @@ type RuntimeVolumeBinding struct {
 
 func NewRuntimeVolumeBinding(volumeId RuntimeVolumeId, retention VolumeRetention) (RuntimeVolumeBinding, error) {
 	if !volumeRetentionIsDefined(retention) {
-		return RuntimeVolumeBinding{}, argumentOutOfRange("retention")
+		return RuntimeVolumeBinding{}, shared.ArgumentOutOfRange("retention")
 	}
 	return RuntimeVolumeBinding{VolumeId: volumeId, Retention: retention}, nil
 }
@@ -571,10 +572,10 @@ func NewWorkloadRuntimeSpec(workloadId RuntimeWorkloadId, allocationId RuntimeAl
 	secretVersions []RuntimeSecretVersionId, volumes []RuntimeVolumeBinding, ports []RuntimePort,
 	requiredHealth []HealthDimension) (WorkloadRuntimeSpec, error) {
 	if !runtimeRoleIsDefined(role) {
-		return WorkloadRuntimeSpec{}, argumentOutOfRange("role")
+		return WorkloadRuntimeSpec{}, shared.ArgumentOutOfRange("role")
 	}
 	if payload == nil {
-		return WorkloadRuntimeSpec{}, argumentNil("payload")
+		return WorkloadRuntimeSpec{}, shared.ArgumentNil("payload")
 	}
 	secrets, err := runtimeEnumsCopy(secretVersions, "secretVersions")
 	if err != nil {
@@ -603,21 +604,21 @@ func NewWorkloadRuntimeSpec(workloadId RuntimeWorkloadId, allocationId RuntimeAl
 		seenSecrets[value.Value] = struct{}{}
 	}
 	if len(seenSecrets) != len(secrets) {
-		return WorkloadRuntimeSpec{}, invalidArgument("Duplicate runtime binding.")
+		return WorkloadRuntimeSpec{}, shared.InvalidArgument("Duplicate runtime binding.")
 	}
 	seenVolumes := map[string]struct{}{}
 	for _, binding := range volumeBindings {
 		seenVolumes[binding.VolumeId.Value] = struct{}{}
 	}
 	if len(seenVolumes) != len(volumeBindings) {
-		return WorkloadRuntimeSpec{}, invalidArgument("Duplicate runtime binding.")
+		return WorkloadRuntimeSpec{}, shared.InvalidArgument("Duplicate runtime binding.")
 	}
 	seenPorts := map[uint16]struct{}{}
 	for _, value := range portCopy {
 		seenPorts[value.Value] = struct{}{}
 	}
 	if len(seenPorts) != len(portCopy) {
-		return WorkloadRuntimeSpec{}, invalidArgument("Duplicate runtime binding.")
+		return WorkloadRuntimeSpec{}, shared.InvalidArgument("Duplicate runtime binding.")
 	}
 	mandatory := map[HealthDimension]bool{}
 	for _, dimension := range health {
@@ -625,7 +626,7 @@ func NewWorkloadRuntimeSpec(workloadId RuntimeWorkloadId, allocationId RuntimeAl
 	}
 	if !mandatory[HealthDimensionLiveness] || !mandatory[HealthDimensionLocalReadiness] ||
 		!mandatory[HealthDimensionDependencyReadiness] {
-		return WorkloadRuntimeSpec{}, invalidArgument(
+		return WorkloadRuntimeSpec{}, shared.InvalidArgument(
 			"Liveness, local readiness, and dependency readiness are mandatory.")
 	}
 
@@ -643,13 +644,13 @@ type RuntimeAdmission struct {
 func NewRuntimeAdmission(role RuntimeRole, driver RuntimeDriver, architecture RuntimeArchitecture,
 	policyGeneration RuntimeGeneration) (RuntimeAdmission, error) {
 	if !runtimeRoleIsDefined(role) {
-		return RuntimeAdmission{}, argumentOutOfRange("role")
+		return RuntimeAdmission{}, shared.ArgumentOutOfRange("role")
 	}
 	if !runtimeDriverIsDefined(driver) {
-		return RuntimeAdmission{}, argumentOutOfRange("driver")
+		return RuntimeAdmission{}, shared.ArgumentOutOfRange("driver")
 	}
 	if !runtimeArchitectureIsDefined(architecture) {
-		return RuntimeAdmission{}, argumentOutOfRange("architecture")
+		return RuntimeAdmission{}, shared.ArgumentOutOfRange("architecture")
 	}
 	return RuntimeAdmission{role, driver, architecture, policyGeneration}, nil
 }
@@ -666,10 +667,10 @@ type RuntimeHealthEvidence struct {
 func NewRuntimeHealthEvidence(id RuntimeHealthId, operationId RuntimeOperationId, allocationId RuntimeAllocationId,
 	generation RuntimeGeneration, dimension HealthDimension, status HealthStatus) (RuntimeHealthEvidence, error) {
 	if !healthDimensionIsDefined(dimension) {
-		return RuntimeHealthEvidence{}, argumentOutOfRange("dimension")
+		return RuntimeHealthEvidence{}, shared.ArgumentOutOfRange("dimension")
 	}
 	if !healthStatusIsDefined(status) {
-		return RuntimeHealthEvidence{}, argumentOutOfRange("status")
+		return RuntimeHealthEvidence{}, shared.ArgumentOutOfRange("status")
 	}
 	return RuntimeHealthEvidence{id, operationId, allocationId, generation, dimension, status}, nil
 }
@@ -689,13 +690,13 @@ func NewRuntimeObservation(operationId RuntimeOperationId, allocationId RuntimeA
 	generation RuntimeGeneration, phase LifecyclePhase, artifactDigest RuntimeDigest, processStatus ProcessStatus,
 	callStatus ExecutorCallStatus) (RuntimeObservation, error) {
 	if !lifecyclePhaseIsDefined(phase) {
-		return RuntimeObservation{}, argumentOutOfRange("phase")
+		return RuntimeObservation{}, shared.ArgumentOutOfRange("phase")
 	}
 	if !processStatusIsDefined(processStatus) {
-		return RuntimeObservation{}, argumentOutOfRange("processStatus")
+		return RuntimeObservation{}, shared.ArgumentOutOfRange("processStatus")
 	}
 	if !executorCallStatusIsDefined(callStatus) {
-		return RuntimeObservation{}, argumentOutOfRange("callStatus")
+		return RuntimeObservation{}, shared.ArgumentOutOfRange("callStatus")
 	}
 	return RuntimeObservation{operationId, allocationId, epoch, generation, phase, artifactDigest,
 		processStatus, callStatus}, nil
@@ -732,7 +733,7 @@ type RuntimeInventoryEvidence struct {
 func NewRuntimeInventoryEvidence(operationId RuntimeOperationId, nodeId RuntimeNodeId, generation RuntimeGeneration,
 	completeness EvidenceCompleteness, allocations []RuntimeConflictEvidence) (RuntimeInventoryEvidence, error) {
 	if !evidenceCompletenessIsDefined(completeness) {
-		return RuntimeInventoryEvidence{}, argumentOutOfRange("completeness")
+		return RuntimeInventoryEvidence{}, shared.ArgumentOutOfRange("completeness")
 	}
 	allocationCopy, err := runtimeEnumsCopy(allocations, "allocations")
 	if err != nil {
@@ -741,12 +742,12 @@ func NewRuntimeInventoryEvidence(operationId RuntimeOperationId, nodeId RuntimeN
 	seen := map[string]struct{}{}
 	for index, allocation := range allocationCopy {
 		if _, duplicate := seen[allocation.AllocationId.Value]; duplicate {
-			return RuntimeInventoryEvidence{}, invalidArgument("Duplicate allocation inventory.")
+			return RuntimeInventoryEvidence{}, shared.InvalidArgument("Duplicate allocation inventory.")
 		}
 		seen[allocation.AllocationId.Value] = struct{}{}
 		if allocation.NodeId != nodeId {
 			_ = index
-			return RuntimeInventoryEvidence{}, invalidArgument("Allocation inventory must belong to its scoped node.")
+			return RuntimeInventoryEvidence{}, shared.InvalidArgument("Allocation inventory must belong to its scoped node.")
 		}
 	}
 	return RuntimeInventoryEvidence{operationId, nodeId, generation, completeness, allocationCopy}, nil
@@ -773,7 +774,7 @@ func NewRuntimeLifecycleRequest(operationId RuntimeOperationId, epoch RuntimeEpo
 	action LifecycleAction, observation RuntimeObservation, health []RuntimeHealthEvidence,
 	inventory RuntimeInventoryEvidence) (RuntimeLifecycleRequest, error) {
 	if !lifecycleActionIsDefined(action) {
-		return RuntimeLifecycleRequest{}, argumentOutOfRange("action")
+		return RuntimeLifecycleRequest{}, shared.ArgumentOutOfRange("action")
 	}
 	healthCopy, err := runtimeEnumsCopy(health, "health")
 	if err != nil {
@@ -798,7 +799,7 @@ func NewUpdateArtifactSubject(releaseId RuntimeReleaseId, artifactId RuntimeArti
 	signatureId RuntimeSignatureId, signingProfileId RuntimeSigningProfileId, architecture RuntimeArchitecture,
 	generation RuntimeGeneration) (UpdateArtifactSubject, error) {
 	if !runtimeArchitectureIsDefined(architecture) {
-		return UpdateArtifactSubject{}, argumentOutOfRange("architecture")
+		return UpdateArtifactSubject{}, shared.ArgumentOutOfRange("architecture")
 	}
 	return UpdateArtifactSubject{releaseId, artifactId, digest, signatureId, signingProfileId,
 		architecture, generation}, nil
@@ -821,13 +822,13 @@ func NewUpdateArtifactEvidence(releaseId RuntimeReleaseId, artifactId RuntimeArt
 	generation RuntimeGeneration, availability ArtifactAvailability,
 	verification ArtifactVerificationStatus) (UpdateArtifactEvidence, error) {
 	if !runtimeArchitectureIsDefined(architecture) {
-		return UpdateArtifactEvidence{}, argumentOutOfRange("architecture")
+		return UpdateArtifactEvidence{}, shared.ArgumentOutOfRange("architecture")
 	}
 	if !artifactAvailabilityIsDefined(availability) {
-		return UpdateArtifactEvidence{}, argumentOutOfRange("availability")
+		return UpdateArtifactEvidence{}, shared.ArgumentOutOfRange("availability")
 	}
 	if !artifactVerificationStatusIsDefined(verification) {
-		return UpdateArtifactEvidence{}, argumentOutOfRange("verification")
+		return UpdateArtifactEvidence{}, shared.ArgumentOutOfRange("verification")
 	}
 	return UpdateArtifactEvidence{releaseId, artifactId, digest, signatureId, signingProfileId,
 		architecture, generation, availability, verification}, nil
@@ -847,10 +848,10 @@ func NewUpdateCompatibilityEvidence(operationId RuntimeOperationId, currentGener
 	targetGeneration RuntimeGeneration, protocolGeneration RuntimeGeneration, schemaGeneration RuntimeGeneration,
 	nToNMinusOne CompatibilityStatus, status CompatibilityStatus) (UpdateCompatibilityEvidence, error) {
 	if !compatibilityStatusIsDefined(nToNMinusOne) {
-		return UpdateCompatibilityEvidence{}, argumentOutOfRange("nToNMinusOne")
+		return UpdateCompatibilityEvidence{}, shared.ArgumentOutOfRange("nToNMinusOne")
 	}
 	if !compatibilityStatusIsDefined(status) {
-		return UpdateCompatibilityEvidence{}, argumentOutOfRange("status")
+		return UpdateCompatibilityEvidence{}, shared.ArgumentOutOfRange("status")
 	}
 	return UpdateCompatibilityEvidence{operationId, currentGeneration, targetGeneration,
 		protocolGeneration, schemaGeneration, nToNMinusOne, status}, nil
@@ -871,19 +872,19 @@ func NewSelfUpdateObservation(operationId RuntimeOperationId, nodeId RuntimeNode
 	targetGeneration RuntimeGeneration, phase UpdatePhase, activeSlot UpdateSlot, inactiveSlot UpdateSlot,
 	callStatus ExecutorCallStatus) (SelfUpdateObservation, error) {
 	if !updatePhaseIsDefined(phase) {
-		return SelfUpdateObservation{}, argumentOutOfRange("phase")
+		return SelfUpdateObservation{}, shared.ArgumentOutOfRange("phase")
 	}
 	if !updateSlotIsDefined(activeSlot) {
-		return SelfUpdateObservation{}, argumentOutOfRange("activeSlot")
+		return SelfUpdateObservation{}, shared.ArgumentOutOfRange("activeSlot")
 	}
 	if !updateSlotIsDefined(inactiveSlot) {
-		return SelfUpdateObservation{}, argumentOutOfRange("inactiveSlot")
+		return SelfUpdateObservation{}, shared.ArgumentOutOfRange("inactiveSlot")
 	}
 	if !executorCallStatusIsDefined(callStatus) {
-		return SelfUpdateObservation{}, argumentOutOfRange("callStatus")
+		return SelfUpdateObservation{}, shared.ArgumentOutOfRange("callStatus")
 	}
 	if activeSlot == inactiveSlot {
-		return SelfUpdateObservation{}, invalidArgument("A/B slots must be distinct.")
+		return SelfUpdateObservation{}, shared.InvalidArgument("A/B slots must be distinct.")
 	}
 	return SelfUpdateObservation{operationId, nodeId, epoch, targetGeneration, phase, activeSlot,
 		inactiveSlot, callStatus}, nil
@@ -903,7 +904,7 @@ func NewUpdateSoakEvidence(operationId RuntimeOperationId, nodeId RuntimeNodeId,
 	allocationId RuntimeAllocationId, epoch RuntimeEpoch, targetGeneration RuntimeGeneration,
 	activeSlot UpdateSlot, observedDuration RuntimeDurationSeconds) (UpdateSoakEvidence, error) {
 	if !updateSlotIsDefined(activeSlot) {
-		return UpdateSoakEvidence{}, argumentOutOfRange("activeSlot")
+		return UpdateSoakEvidence{}, shared.ArgumentOutOfRange("activeSlot")
 	}
 	return UpdateSoakEvidence{operationId, nodeId, allocationId, epoch, targetGeneration, activeSlot,
 		observedDuration}, nil
@@ -948,10 +949,10 @@ func NewSelfUpdateRequest(operationId RuntimeOperationId, nodeId RuntimeNodeId, 
 	compatibility UpdateCompatibilityEvidence, observation SelfUpdateObservation, soak *UpdateSoakEvidence,
 	health []RuntimeHealthEvidence) (SelfUpdateRequest, error) {
 	if !runtimeArchitectureIsDefined(architecture) {
-		return SelfUpdateRequest{}, argumentOutOfRange("architecture")
+		return SelfUpdateRequest{}, shared.ArgumentOutOfRange("architecture")
 	}
 	if expectedActiveSlot == expectedInactiveSlot {
-		return SelfUpdateRequest{}, invalidArgument("Expected A/B slots must be distinct.")
+		return SelfUpdateRequest{}, shared.InvalidArgument("Expected A/B slots must be distinct.")
 	}
 	healthCopy, err := runtimeEnumsCopy(health, "health")
 	if err != nil {
@@ -1027,7 +1028,7 @@ func (b *runtimeIntentBase) OperationId() RuntimeOperationId { return b.operatio
 
 func (b *runtimeIntentBase) RequireLifecycleRequest() *RuntimeLifecycleRequest {
 	if b.lifecycleRequest == nil {
-		panic(invalidArgument("This intent does not carry a lifecycle request."))
+		panic(shared.InvalidArgument("This intent does not carry a lifecycle request."))
 	}
 	return b.lifecycleRequest
 }

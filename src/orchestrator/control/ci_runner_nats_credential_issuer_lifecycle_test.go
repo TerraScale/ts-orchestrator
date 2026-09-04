@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 func newTestAccountJwtSigner(t *testing.T) *NatsAccountJwtSigner {
@@ -163,7 +164,7 @@ func TestOpenedAccountSignerRejectsUserAndOperatorKeys(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if natsRequireAccountPublicKey(public, "cross-type") == nil {
+			if shared.NatsRequireAccountPublicKey(public, "cross-type") == nil {
 				t.Fatal("cross-type public key was accepted")
 			}
 			seed, err := pair.Seed()

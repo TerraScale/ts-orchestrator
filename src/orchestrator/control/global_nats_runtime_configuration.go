@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // globalNatsConfigurationIsLegacyAuthorityAliasAllowed: the legacy
@@ -95,7 +96,7 @@ func NewGlobalDirectoryNatsConfiguration(
 		return nil, errors.New("(Parameter 'tls')")
 	}
 
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New("The global directory cell is invalid. (Parameter 'cell')")
 	}
 
@@ -177,7 +178,7 @@ func GlobalDirectoryNatsConfigurationResolveWithCredentials(
 		return nil, nil
 	}
 
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New("The global directory cell is invalid. (Parameter 'cell')")
 	}
 
@@ -285,7 +286,7 @@ func NewGlobalDirectoryServiceNatsConfiguration(
 	replicas int,
 	cell string,
 ) (*GlobalDirectoryServiceNatsConfiguration, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New("The global directory service cell is invalid. (Parameter 'cell')")
 	}
 
@@ -365,7 +366,7 @@ func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 		return nil, nil
 	}
 
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New("The global directory service cell is invalid. (Parameter 'cell')")
 	}
 

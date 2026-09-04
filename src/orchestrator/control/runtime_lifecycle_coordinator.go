@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // RuntimeLifecycleCoordinator coordinates one fenced host mutation. The
@@ -17,13 +18,13 @@ type RuntimeLifecycleCoordinator struct {
 func NewRuntimeLifecycleCoordinator(journal IRuntimeLifecycleJournal, authority IRuntimeLifecycleAuthorityGate,
 	executor IRuntimeLifecycleHostExecutor) (*RuntimeLifecycleCoordinator, error) {
 	if journal == nil {
-		return nil, argumentNil("journal")
+		return nil, shared.ArgumentNil("journal")
 	}
 	if authority == nil {
-		return nil, argumentNil("authority")
+		return nil, shared.ArgumentNil("authority")
 	}
 	if executor == nil {
-		return nil, argumentNil("executor")
+		return nil, shared.ArgumentNil("executor")
 	}
 	return &RuntimeLifecycleCoordinator{journal: journal, authority: authority, executor: executor}, nil
 }
@@ -416,7 +417,7 @@ func (c *RuntimeLifecycleCoordinator) advanceAsync(ctx context.Context, current 
 		return runtimeLifecycleWriteOutcome{err: RuntimeLifecycleErrorCodeInvalidCheckpoint}, nil
 	}
 	if current.JournalRevision == ^uint64(0) {
-		return runtimeLifecycleWriteOutcome{}, argumentOutOfRange("current")
+		return runtimeLifecycleWriteOutcome{}, shared.ArgumentOutOfRange("current")
 	}
 	next := current
 	next.Phase = phase

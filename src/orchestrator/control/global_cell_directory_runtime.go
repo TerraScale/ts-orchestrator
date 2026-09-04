@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -282,7 +283,7 @@ func (r *GlobalCellDirectoryRuntime) publishLoop() {
 				continue
 			}
 
-			if err != nil && isNatsTransientError(err) {
+			if err != nil && shared.IsNatsTransientError(err) {
 				// The regional control plane continues from its local R3 state.
 				// The next tick retries and remote readers observe lease
 				// staleness.

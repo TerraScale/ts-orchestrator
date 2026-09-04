@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // GlobalNatsCapability is the capability selected by a global-control
@@ -97,7 +98,7 @@ func (globalNatsAccessContract) Create(
 	cell string,
 	capability GlobalNatsCapability,
 ) (*GlobalNatsAccessPlan, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New(
 			"The global NATS access cell is not a lowercase DNS-style token. (Parameter 'cell')")
 	}
@@ -218,7 +219,7 @@ const (
 // GlobalNatsAccountNamesRegionalControl builds the regional control account
 // name for a cell.
 func GlobalNatsAccountNamesRegionalControl(cell string) (string, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return "", errors.New(
 			"The regional NATS account cell is not a lowercase DNS-style token. (Parameter 'cell')")
 	}

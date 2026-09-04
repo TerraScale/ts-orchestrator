@@ -1,5 +1,9 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 // BudgetTechnicalInputLimits ports the technical caller-input snapshot
 // limits; these are not monetary, capacity, or approval policy.
 const (
@@ -23,7 +27,7 @@ func budgetIdentityRulesIsValid(value string, maximumLength int) bool {
 	runes := []rune(value)
 	for index := 0; index < len(runes); index++ {
 		character := runes[index]
-		if isSpaceRune(character) || isControlRune(character) {
+		if shared.IsSpaceRune(character) || isControlRune(character) {
 			return false
 		}
 		if character >= 0xD800 && character <= 0xDBFF {
@@ -220,7 +224,7 @@ func (v BudgetVector) tryCombine(other BudgetVector, add bool) (BudgetVector, bo
 	right := other.values()
 	var values [9]int64
 	for index := 0; index < 9; index++ {
-		sum, ok := checkedAddInt64(left[index], right[index])
+		sum, ok := shared.CheckedAddInt64(left[index], right[index])
 		if add {
 			if !ok {
 				return BudgetVector{}, false
@@ -282,9 +286,9 @@ func (v BudgetVector) Equal(other BudgetVector) bool {
 }
 
 func (v BudgetVector) String() string {
-	return "cpu=" + itoaCompact(v.Cpu.Value) + ";memory=" + itoaCompact(v.Memory.Value) +
-		";storage=" + itoaCompact(v.Storage.Value) + ";iops=" + itoaCompact(v.Iops.Value) +
-		";throughput=" + itoaCompact(v.Throughput.Value) + ";publicIp=" + itoaCompact(v.PublicIp.Value) +
-		";lbBackend=" + itoaCompact(v.LoadBalancerBackend.Value) + ";hourly=" + itoaCompact(v.HourlySpend.Value) +
-		";daily=" + itoaCompact(v.DailySpend.Value)
+	return "cpu=" + shared.ItoaCompact(v.Cpu.Value) + ";memory=" + shared.ItoaCompact(v.Memory.Value) +
+		";storage=" + shared.ItoaCompact(v.Storage.Value) + ";iops=" + shared.ItoaCompact(v.Iops.Value) +
+		";throughput=" + shared.ItoaCompact(v.Throughput.Value) + ";publicIp=" + shared.ItoaCompact(v.PublicIp.Value) +
+		";lbBackend=" + shared.ItoaCompact(v.LoadBalancerBackend.Value) + ";hourly=" + shared.ItoaCompact(v.HourlySpend.Value) +
+		";daily=" + shared.ItoaCompact(v.DailySpend.Value)
 }

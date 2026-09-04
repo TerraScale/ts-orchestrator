@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // NatsRuntimeLifecycleAuthorityGate maps the sampled regional authority state
@@ -14,7 +15,7 @@ type NatsRuntimeLifecycleAuthorityGate struct {
 func NewNatsRuntimeLifecycleAuthorityGate(cell RuntimeLifecycleCellId,
 	authority *RegionalAuthorityCoordinator) (*NatsRuntimeLifecycleAuthorityGate, error) {
 	if authority == nil {
-		return nil, argumentNil("authority")
+		return nil, shared.ArgumentNil("authority")
 	}
 	return &NatsRuntimeLifecycleAuthorityGate{cell: cell, authority: authority}, nil
 }
@@ -22,10 +23,10 @@ func NewNatsRuntimeLifecycleAuthorityGate(cell RuntimeLifecycleCellId,
 func (g *NatsRuntimeLifecycleAuthorityGate) ReadAsync(ctx context.Context,
 	requestedCell RuntimeLifecycleCellId) (RuntimeLifecycleAuthority, error) {
 	if g == nil || g.authority == nil {
-		return RuntimeLifecycleAuthority{}, argumentNil("authority")
+		return RuntimeLifecycleAuthority{}, shared.ArgumentNil("authority")
 	}
 	if ctx == nil {
-		return RuntimeLifecycleAuthority{}, argumentNil("ctx")
+		return RuntimeLifecycleAuthority{}, shared.ArgumentNil("ctx")
 	}
 	if ctx.Err() != nil {
 		return RuntimeLifecycleAuthority{}, ctx.Err()

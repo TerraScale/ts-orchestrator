@@ -1,12 +1,16 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 var RuntimeDecisionEngine runtimeDecisionEngine
 
 type runtimeDecisionEngine struct{}
 
 func (runtimeDecisionEngine) EvaluateLifecycle(request *RuntimeLifecycleRequest) (*RuntimeDecision, error) {
 	if request == nil {
-		return nil, argumentNil("request")
+		return nil, shared.ArgumentNil("request")
 	}
 	var trace []RuntimeDecisionReason
 	healthGroups := make(map[HealthDimension][]RuntimeHealthEvidence)
@@ -273,7 +277,7 @@ func runtimeProcessConsistent(action LifecycleAction, phase LifecyclePhase, stat
 
 func (runtimeDecisionEngine) EvaluateSelfUpdate(request *SelfUpdateRequest) (*RuntimeDecision, error) {
 	if request == nil {
-		return nil, argumentNil("request")
+		return nil, shared.ArgumentNil("request")
 	}
 	var trace []RuntimeDecisionReason
 	observation := request.Observation

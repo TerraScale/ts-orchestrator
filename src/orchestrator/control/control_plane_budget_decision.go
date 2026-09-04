@@ -1,5 +1,9 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 type BudgetDecisionKind int
 
 const (
@@ -164,7 +168,7 @@ func (budgetAuthorizationEngine) Evaluate(
 		return budgetDecisionHeld(BudgetDecisionReasonArithmeticUnderflow)
 	}
 
-	projectedNodes, nodesOk := checkedAddInt64(int64(nodeUsage.CurrentCount), int64(proposal.NodeCount))
+	projectedNodes, nodesOk := shared.CheckedAddInt64(int64(nodeUsage.CurrentCount), int64(proposal.NodeCount))
 	if add {
 		if !nodesOk {
 			return budgetDecisionHeld(BudgetDecisionReasonArithmeticOverflow)

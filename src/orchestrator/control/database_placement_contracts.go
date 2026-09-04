@@ -1,5 +1,9 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 // DatabasePlacementPolicy holds the fixed replication and active-Region limits
 // for a production database.
 const (
@@ -58,7 +62,7 @@ func RegionCodeTryCreate(value string) (RegionCode, bool) {
 func RegionCodeFromValue(value string) (RegionCode, error) {
 	code, ok := RegionCodeTryCreate(value)
 	if !ok {
-		return RegionCode{}, invalidArgument("A RegionCode must contain exactly three uppercase ASCII letters.")
+		return RegionCode{}, shared.InvalidArgument("A RegionCode must contain exactly three uppercase ASCII letters.")
 	}
 	return code, nil
 }

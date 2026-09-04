@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // NatsRuntimeLifecycleJournal is the controller-side lifecycle journal. It
@@ -16,7 +17,7 @@ type NatsRuntimeLifecycleJournal struct {
 func NewNatsRuntimeLifecycleJournal(cell RuntimeLifecycleCellId,
 	mutations *NatsOperationJournalMutationClient) (*NatsRuntimeLifecycleJournal, error) {
 	if mutations == nil {
-		return nil, argumentNil("mutations")
+		return nil, shared.ArgumentNil("mutations")
 	}
 	return &NatsRuntimeLifecycleJournal{cell: cell, mutations: mutations}, nil
 }
@@ -28,10 +29,10 @@ func isContextCancellation(ctx context.Context, err error) bool {
 func (j *NatsRuntimeLifecycleJournal) ReadAsync(ctx context.Context,
 	operationKey RuntimeLifecycleOperationKey) (RuntimeLifecycleJournalRead, error) {
 	if j == nil || j.mutations == nil {
-		return RuntimeLifecycleJournalRead{}, argumentNil("mutations")
+		return RuntimeLifecycleJournalRead{}, shared.ArgumentNil("mutations")
 	}
 	if ctx == nil {
-		return RuntimeLifecycleJournalRead{}, argumentNil("ctx")
+		return RuntimeLifecycleJournalRead{}, shared.ArgumentNil("ctx")
 	}
 	reply, err := j.mutations.ReadRuntimeLifecycleAsync(ctx, j.cell.Value,
 		RuntimeLifecycleNatsProtocol.Key(operationKey))
@@ -49,7 +50,7 @@ func (j *NatsRuntimeLifecycleJournal) ReadAsync(ctx context.Context,
 	if status != RuntimeLifecycleJournalReadStatusFound {
 		return RuntimeLifecycleJournalRead{Status: status}, nil
 	}
-	checkpoint, ok := RuntimeLifecycleNatsProtocol.TryDeserialize(derefString(reply.Checkpoint))
+	checkpoint, ok := RuntimeLifecycleNatsProtocol.TryDeserialize(shared.DerefString(reply.Checkpoint))
 	if !ok || !j.matches(checkpoint, operationKey, reply.Revision) {
 		return RuntimeLifecycleJournalRead{Status: RuntimeLifecycleJournalReadStatusAmbiguous}, nil
 	}
@@ -60,10 +61,10 @@ func (j *NatsRuntimeLifecycleJournal) CompareExchangeAsync(ctx context.Context,
 	operationKey RuntimeLifecycleOperationKey, expectedRevision *uint64,
 	checkpoint RuntimeLifecycleCheckpoint) (RuntimeLifecycleJournalWrite, error) {
 	if j == nil || j.mutations == nil {
-		return RuntimeLifecycleJournalWrite{}, argumentNil("mutations")
+		return RuntimeLifecycleJournalWrite{}, shared.ArgumentNil("mutations")
 	}
 	if ctx == nil {
-		return RuntimeLifecycleJournalWrite{}, argumentNil("ctx")
+		return RuntimeLifecycleJournalWrite{}, shared.ArgumentNil("ctx")
 	}
 	if ctx.Err() != nil {
 		return RuntimeLifecycleJournalWrite{}, ctx.Err()
@@ -77,7 +78,7 @@ func (j *NatsRuntimeLifecycleJournal) CompareExchangeAsync(ctx context.Context,
 		normalized = j.normalizeCreate(checkpoint)
 	}
 	if expected == ^uint64(0) {
-		return RuntimeLifecycleJournalWrite{}, argumentOutOfRange("expectedRevision")
+		return RuntimeLifecycleJournalWrite{}, shared.ArgumentOutOfRange("expectedRevision")
 	}
 	if !j.matches(normalized, operationKey, expected+1) {
 		return RuntimeLifecycleJournalWrite{Status: RuntimeLifecycleJournalWriteStatusAmbiguous}, nil
@@ -105,7 +106,7 @@ func (j *NatsRuntimeLifecycleJournal) CompareExchangeAsync(ctx context.Context,
 	if status != RuntimeLifecycleJournalWriteStatusApplied {
 		return RuntimeLifecycleJournalWrite{Status: status}, nil
 	}
-	persisted, ok := RuntimeLifecycleNatsProtocol.TryDeserialize(derefString(reply.Checkpoint))
+	persisted, ok := RuntimeLifecycleNatsProtocol.TryDeserialize(shared.DerefString(reply.Checkpoint))
 	if !ok || !j.matches(persisted, operationKey, reply.Revision) {
 		return RuntimeLifecycleJournalWrite{Status: RuntimeLifecycleJournalWriteStatusAmbiguous}, nil
 	}

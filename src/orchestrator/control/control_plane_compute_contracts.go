@@ -1,5 +1,9 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 // ComputeTechnicalInputLimits ports the technical caller-input snapshot
 // limits; these are not scaling, replica, or capacity policy caps.
 const (
@@ -10,10 +14,10 @@ const (
 // computeInputSnapshotCopy ports the internal ComputeInputSnapshot.Copy.
 func computeInputSnapshotCopy[T any](source []T, maximum int, parameterName, inputName string) ([]T, error) {
 	if source == nil {
-		return nil, argumentNil(parameterName)
+		return nil, shared.ArgumentNil(parameterName)
 	}
 	if len(source) > maximum {
-		return nil, invalidArgument(inputName + " exceeds the technical snapshot bound.")
+		return nil, shared.InvalidArgument(inputName + " exceeds the technical snapshot bound.")
 	}
 	result := make([]T, len(source))
 	copy(result, source)

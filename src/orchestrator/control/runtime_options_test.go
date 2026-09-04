@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 func TestCiRunnerNatsIdentityOptionsRequireSecureBoundedSigningFile(t *testing.T) {
@@ -47,7 +48,7 @@ func TestCiRunnerNatsIdentityOptionsRequireCompleteGroupAndValidateAccount(t *te
 	}
 	directory := t.TempDir()
 	seedPath := mustRuntimeOptionsAccountSeed(t, filepath.Join(directory, "account.seed"), 0o600)
-	if identity, err := resolveCiRunnerNatsIdentityForOptions(seedPath, strings.Repeat("A", natsAccountPublicKeyMaximumCharacters+1)); err == nil || identity != nil {
+	if identity, err := resolveCiRunnerNatsIdentityForOptions(seedPath, strings.Repeat("A", shared.NatsAccountPublicKeyMaximumCharacters+1)); err == nil || identity != nil {
 		t.Fatalf("oversized account identity = %#v, err=%v", identity, err)
 	}
 	accountPair, err := nkeys.FromSeed([]byte(mustRuntimeOptionsSeed(t, seedPath)))

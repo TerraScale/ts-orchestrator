@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
@@ -95,7 +96,7 @@ func TestRetiredV1RoleValueDoesNotAcquireNewMeaning(t *testing.T) {
 }
 
 func TestV1DigestAndLifecycleLengthsUseUTF16CodeUnits(t *testing.T) {
-	writer := newDigestWriter()
+	writer := shared.NewDigestWriter()
 	writer.WriteString("a\U0001F680")
 	if got, want := writer.Finish(), "S3:a\U0001F680;"; got != want {
 		t.Fatalf("digest encoding = %q, want %q", got, want)

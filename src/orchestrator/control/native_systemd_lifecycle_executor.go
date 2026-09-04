@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
@@ -65,7 +66,7 @@ func NewNativeSystemdRuntimeLifecycleExecutor() *NativeSystemdRuntimeLifecycleEx
 func NewNativeSystemdRuntimeLifecycleExecutorWithFactory(
 	admissionFactory INativeSystemdRuntimeLifecycleAdmissionFactory) (*NativeSystemdRuntimeLifecycleExecutor, error) {
 	if admissionFactory == nil {
-		return nil, argumentNil("admissionFactory")
+		return nil, shared.ArgumentNil("admissionFactory")
 	}
 	return &NativeSystemdRuntimeLifecycleExecutor{admissionFactory: admissionFactory}, nil
 }
@@ -90,7 +91,7 @@ func (e *NativeSystemdRuntimeLifecycleExecutor) ExecuteAsync(ctx context.Context
 			return nil, err
 		}
 	default:
-		return nil, argumentOutOfRangeError("request",
+		return nil, shared.ArgumentOutOfRangeError("request",
 			"The lifecycle action is not supported by native systemd.")
 	}
 
@@ -105,7 +106,7 @@ func (e *NativeSystemdRuntimeLifecycleExecutor) ObserveAsync(ctx context.Context
 		return nil, err
 	}
 	if request.PreviousObservationWatermark == ^uint64(0) {
-		return nil, argumentOutOfRange("request")
+		return nil, shared.ArgumentOutOfRange("request")
 	}
 	watermark := request.PreviousObservationWatermark + 1
 
@@ -160,21 +161,21 @@ func (r RuntimeLifecycleExecutionRequest) PlanFingerprintForValidation() Runtime
 func nativeSystemdLifecycleValidate(plan HostRuntimePlan, action LifecycleAction,
 	expectedPlanFingerprint RuntimeLifecyclePlanFingerprint) error {
 	if expectedPlanFingerprint.Value == "" {
-		return argumentNil("expectedPlanFingerprint")
+		return shared.ArgumentNil("expectedPlanFingerprint")
 	}
 	if !lifecycleActionIsDefined(action) || action == LifecycleActionCleanup {
-		return argumentOutOfRangeError("action",
+		return shared.ArgumentOutOfRangeError("action",
 			"Destructive cleanup is not supported by native systemd lifecycle execution.")
 	}
 	if plan.Driver != runtime.RuntimeDriverNativeSystemd {
-		return invalidArgument("Native systemd lifecycle execution requires a native systemd plan.")
+		return shared.InvalidArgument("Native systemd lifecycle execution requires a native systemd plan.")
 	}
 	fingerprint, err := RuntimeLifecycleFingerprint.Plan(plan)
 	if err != nil {
 		return err
 	}
 	if fingerprint != expectedPlanFingerprint {
-		return invalidOperation("The lifecycle request plan fingerprint does not bind the supplied plan.")
+		return shared.InvalidOperation("The lifecycle request plan fingerprint does not bind the supplied plan.")
 	}
 	return nil
 }

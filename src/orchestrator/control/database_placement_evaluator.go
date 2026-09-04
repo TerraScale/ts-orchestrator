@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // DatabasePlacementEvaluator performs pure, deterministic admission of a
@@ -196,7 +197,7 @@ func (databasePlacementEvaluator) Evaluate(request *DatabasePlacementRequest, ca
 			databasePlacementKey(orderedPartitions[j].Partition.Value)
 	})
 	for _, partition := range orderedPartitions {
-		if isNullOrWhiteSpace(partition.Partition.Value) {
+		if shared.IsNullOrWhiteSpace(partition.Partition.Value) {
 			errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePartitionIdMissing,
 				Partition: &partition.Partition})
 			regionsComplete = false
@@ -314,7 +315,7 @@ func databasePlacementEvaluateSeats(placement *PartitionRegionPlacement, partiti
 			continue
 		}
 		concrete = append(concrete, *seat)
-		if isNullOrWhiteSpace(seat.Member.Value) {
+		if shared.IsNullOrWhiteSpace(seat.Member.Value) {
 			*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeSeatIdMissing,
 				Region: &region, Partition: &partition, Member: &seat.Member})
 			*replicasExact = false
@@ -335,7 +336,7 @@ func databasePlacementEvaluateSeats(placement *PartitionRegionPlacement, partiti
 			*replicasExact = false
 			*domainsIndependent = false
 		}
-		if isNullOrWhiteSpace(seat.FailureDomain.Value) {
+		if shared.IsNullOrWhiteSpace(seat.FailureDomain.Value) {
 			*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeFailureDomainMissing,
 				Region: &region, Partition: &partition, Member: &seat.Member})
 			*replicasExact = false
@@ -367,7 +368,7 @@ func databasePlacementEvaluateSeats(placement *PartitionRegionPlacement, partiti
 
 	var activeDomains []string
 	for _, seat := range concrete {
-		if seat.IsActive && !isNullOrWhiteSpace(seat.FailureDomain.Value) {
+		if seat.IsActive && !shared.IsNullOrWhiteSpace(seat.FailureDomain.Value) {
 			activeDomains = append(activeDomains, databasePlacementKey(seat.FailureDomain.Value))
 		}
 	}
@@ -388,11 +389,11 @@ func databasePlacementEvaluateBackup(backup *BackupPlacement, activeKeys []strin
 		return true
 	}
 	qualified := true
-	if isNullOrWhiteSpace(backup.Backup.Value) {
+	if shared.IsNullOrWhiteSpace(backup.Backup.Value) {
 		*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeBackupIdMissing})
 		qualified = false
 	}
-	if isNullOrWhiteSpace(backup.Region.Value()) {
+	if shared.IsNullOrWhiteSpace(backup.Region.Value()) {
 		*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeBackupRegionMissing})
 		qualified = false
 	}

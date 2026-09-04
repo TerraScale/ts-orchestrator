@@ -20,6 +20,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -36,7 +37,7 @@ const (
 type NatsRuntime struct {
 	client         *nats.Conn
 	topology       *NatsTopology
-	service        *natsSvcServer
+	service        *shared.NatsSvcServer
 	serviceInfo    *nats.Subscription
 	authority      *RegionalAuthorityCoordinator
 	membership     *RegionalRuntimeMembership
@@ -198,13 +199,13 @@ func validateNatsRuntimeInputs(ctx context.Context, options *OrchestratorOptions
 	if options.Command != command {
 		return fmt.Errorf("only the %s command can compose the regional NATS runtime", command.String())
 	}
-	if strings.TrimSpace(options.Cell) == "" || !messagingCellTokenIsValid(options.Cell) {
+	if strings.TrimSpace(options.Cell) == "" || !shared.MessagingCellTokenIsValid(options.Cell) {
 		return errors.New("The regional NATS cell is invalid.")
 	}
 	if options.Replicas != 1 && options.Replicas != 3 && options.Replicas != 5 {
 		return errors.New("The regional NATS replica count is invalid.")
 	}
-	if strings.TrimSpace(options.Instance) == "" || !messagingCellTokenIsValid(options.Instance) {
+	if strings.TrimSpace(options.Instance) == "" || !shared.MessagingCellTokenIsValid(options.Instance) {
 		return errors.New("The regional NATS instance is invalid.")
 	}
 	if strings.TrimSpace(options.NatsURL) == "" {
@@ -560,13 +561,13 @@ func (r *NatsRuntime) startService() error {
 	if r == nil || r.client == nil || r.authority == nil || r.membership == nil || r.topology == nil {
 		return errors.New("NATS runtime composition is incomplete.")
 	}
-	r.service = newNatsSvcServer(r.client, natsSvcConfig{
+	r.service = shared.NewNatsSvcServer(r.client, shared.NatsSvcConfig{
 		Name: r.topology.ServiceName(), Version: "1.0.0", Description: "TerraScale regional control service",
 		Metadata:   map[string]string{"cell": r.topology.Cell, "instance": r.topology.Instance},
 		QueueGroup: r.topology.ServiceQueueGroup(),
 	})
 	add := func(name string, subject string, metadata map[string]string, handler func(context.Context, *nats.Msg) error) error {
-		return r.service.AddEndpoint(natsSvcEndpointConfig{Name: name, Subject: subject, Metadata: metadata, Handler: handler})
+		return r.service.AddEndpoint(shared.NatsSvcEndpointConfig{Name: name, Subject: subject, Metadata: metadata, Handler: handler})
 	}
 	replyEnvelope := func(subject, payloadType string, value any, message *nats.Msg) error {
 		observedAt := time.Now().UTC()
@@ -662,7 +663,7 @@ func (r *NatsRuntime) startService() error {
 		return err
 	}
 	infoSubject := "$SRV.INFO." + r.topology.ServiceName()
-	info, err := r.client.Subscribe(infoSubject, func(message *nats.Msg) { _ = message.Respond(r.service.discoveryDocument()) })
+	info, err := r.client.Subscribe(infoSubject, func(message *nats.Msg) { _ = message.Respond(r.service.DiscoveryDocument()) })
 	if err != nil {
 		r.service.Stop()
 		return err

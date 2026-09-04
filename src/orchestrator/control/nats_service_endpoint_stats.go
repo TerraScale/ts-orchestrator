@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"time"
 )
 
@@ -248,7 +249,7 @@ func NatsServiceStatsDocumentCreate(
 	observedAt time.Time,
 	endpoints []NatsServiceEndpointMeasurement,
 ) (*NatsServiceStatsDocument, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New("The cell is not a bounded token. (Parameter 'cell')")
 	}
 
@@ -275,7 +276,7 @@ func NatsServiceStatsDocumentCreate(
 
 func (d *NatsServiceStatsDocument) Validate() error {
 	if d.SchemaVersion != NatsServiceStatsDocumentCurrentSchemaVersion ||
-		!messagingCellTokenIsValid(d.Cell) ||
+		!shared.MessagingCellTokenIsValid(d.Cell) ||
 		d.Service != "terrascale_orchestrator_"+d.Cell ||
 		d.Version == "" || d.SchemaGeneration <= 0 || d.ObservedAt.IsZero() {
 		return errors.New("The NATS service stats document is invalid.")

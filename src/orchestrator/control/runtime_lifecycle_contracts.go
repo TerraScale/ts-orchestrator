@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
@@ -213,7 +214,7 @@ type RuntimeLifecycleDeadlineEvidence struct {
 
 func NewRuntimeLifecycleDeadlineEvidence(digest RuntimeDigest, watermark uint64) (RuntimeLifecycleDeadlineEvidence, error) {
 	if watermark == 0 {
-		return RuntimeLifecycleDeadlineEvidence{}, argumentOutOfRange("watermark")
+		return RuntimeLifecycleDeadlineEvidence{}, shared.ArgumentOutOfRange("watermark")
 	}
 	return RuntimeLifecycleDeadlineEvidence{Digest: digest, Watermark: watermark}, nil
 }
@@ -225,7 +226,7 @@ type RuntimeLifecycleAuthority struct {
 
 func NewRuntimeLifecycleAuthority(status RuntimeLifecycleAuthorityStatus, epoch RuntimeEpoch) (RuntimeLifecycleAuthority, error) {
 	if !runtimeLifecycleAuthorityStatusIsDefined(status) {
-		return RuntimeLifecycleAuthority{}, argumentOutOfRange("status")
+		return RuntimeLifecycleAuthority{}, shared.ArgumentOutOfRange("status")
 	}
 	return RuntimeLifecycleAuthority{Status: status, Epoch: epoch}, nil
 }
@@ -261,17 +262,17 @@ func NewRuntimeLifecycleOperationRequest(
 	deadlineEvidence RuntimeLifecycleDeadlineEvidence,
 	compensationPolicy RuntimeLifecycleCompensationPolicy) (RuntimeLifecycleOperationRequest, error) {
 	if !lifecycleActionIsDefined(action) {
-		return RuntimeLifecycleOperationRequest{}, argumentOutOfRange("action")
+		return RuntimeLifecycleOperationRequest{}, shared.ArgumentOutOfRange("action")
 	}
 	if action == LifecycleActionCleanup {
-		return RuntimeLifecycleOperationRequest{}, argumentOutOfRangeError("action",
+		return RuntimeLifecycleOperationRequest{}, shared.ArgumentOutOfRangeError("action",
 			"Destructive cleanup is not enabled by this lifecycle contract.")
 	}
 	if !runtimeLifecycleCompensationPolicyIsDefined(compensationPolicy) {
-		return RuntimeLifecycleOperationRequest{}, argumentOutOfRange("compensationPolicy")
+		return RuntimeLifecycleOperationRequest{}, shared.ArgumentOutOfRange("compensationPolicy")
 	}
 	if compensationPolicy != RuntimeLifecycleCompensationPolicyNone {
-		return RuntimeLifecycleOperationRequest{}, argumentOutOfRangeError("compensationPolicy",
+		return RuntimeLifecycleOperationRequest{}, shared.ArgumentOutOfRangeError("compensationPolicy",
 			"Destructive cleanup is not enabled by this lifecycle contract.")
 	}
 	planFingerprint, err := RuntimeLifecycleFingerprint.Plan(plan)
@@ -445,7 +446,7 @@ type runtimeLifecycleFingerprint struct{}
 
 func canonicalStrings(builder *strings.Builder, values []string) {
 	for _, value := range values {
-		builder.WriteString(strconv.Itoa(v1UTF16CodeUnitCount(value)))
+		builder.WriteString(strconv.Itoa(shared.V1UTF16CodeUnitCount(value)))
 		builder.WriteByte(':')
 		builder.WriteString(value)
 		builder.WriteByte(';')
@@ -479,7 +480,7 @@ func (runtimeLifecycleFingerprint) Plan(plan HostRuntimePlan) (RuntimeLifecycleP
 		plan.Driver != runtime.RuntimeDriverNativeSystemd ||
 		!(plan.Architecture == runtime.HostArchitectureArm64 || plan.Architecture == runtime.HostArchitectureX64) ||
 		plan.Systemd == nil || plan.Oci != nil {
-		return RuntimeLifecyclePlanFingerprint{}, invalidArgument("Host runtime plan is not a supported closed plan.")
+		return RuntimeLifecyclePlanFingerprint{}, shared.InvalidArgument("Host runtime plan is not a supported closed plan.")
 	}
 	fields := []string{"host-runtime-plan-v1", strconv.Itoa(plan.SchemaVersion), strconv.Itoa(int(plan.Role)),
 		strconv.Itoa(int(plan.Driver)), plan.AllocationId.Value, plan.ArtifactDigest.Value,
@@ -547,5 +548,5 @@ func (runtimeLifecycleFingerprint) Event(checkpoint RuntimeLifecycleCheckpoint) 
 }
 
 func (runtimeLifecycleFingerprint) Hash(value string) string {
-	return digestHash(value)
+	return shared.DigestHash(value)
 }

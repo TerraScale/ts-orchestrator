@@ -9,17 +9,16 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -29,7 +28,7 @@ const natsOperationJournalMaximumValueBytes = 16 * 1024
 // NatsOperationJournalMutationService is the private typed mutation boundary.
 // Only this service holds journal KV write credentials.
 type NatsOperationJournalMutationService struct {
-	service  *natsSvcServer
+	service  *shared.NatsSvcServer
 	replies  *NatsOperationJournalMutationReplySigner
 	lifetime context.CancelFunc
 }
@@ -78,7 +77,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 	}
 
 	lifetimeCtx, lifetime := context.WithCancel(ctx)
-	service := newNatsSvcServer(writer, natsSvcConfig{
+	service := shared.NewNatsSvcServer(writer, shared.NatsSvcConfig{
 		Name:        "terrascale_orchestrator_journal_writer_" + topology.Cell,
 		Version:     "1.0.0",
 		Description: "Private typed CreateNode journal mutation service",
@@ -97,7 +96,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 		return nil, err
 	}
 
-	if err := service.AddEndpoint(natsSvcEndpointConfig{
+	if err := service.AddEndpoint(shared.NatsSvcEndpointConfig{
 		Name:     "create",
 		Subject:  createSubject,
 		Metadata: map[string]string{"private": "true"},
@@ -111,7 +110,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 		return nil, err
 	}
 
-	if err := service.AddEndpoint(natsSvcEndpointConfig{
+	if err := service.AddEndpoint(shared.NatsSvcEndpointConfig{
 		Name:     "update",
 		Subject:  updateSubject,
 		Metadata: map[string]string{"private": "true"},
@@ -158,7 +157,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 				authority, controllerIdentities, replies)
 		}
 
-		if err := service.AddEndpoint(natsSvcEndpointConfig{
+		if err := service.AddEndpoint(shared.NatsSvcEndpointConfig{
 			Name:     "runtime-lifecycle-read",
 			Subject:  readSubject,
 			Metadata: map[string]string{"private": "true"},
@@ -169,7 +168,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 			return nil, err
 		}
 
-		if err := service.AddEndpoint(natsSvcEndpointConfig{
+		if err := service.AddEndpoint(shared.NatsSvcEndpointConfig{
 			Name:     "runtime-lifecycle-write",
 			Subject:  writeSubject,
 			Metadata: map[string]string{"private": "true"},
@@ -742,7 +741,7 @@ func (c *NatsOperationJournalMutationClient) ReadRuntimeLifecycleAsync(
 			return NatsRuntimeLifecycleJournalReply{}, err
 		}
 
-		requestId := randomNatsNonce()
+		requestId := shared.RandomNatsNonce()
 		binding := RuntimeLifecycleNatsProtocol.ProofBinding(RuntimeLifecycleNatsProtocolReadAction,
 			RuntimeLifecycleNatsProtocolSchemaVersion, cell, key, 0, 0, requestId, nil)
 		request := NatsRuntimeLifecycleJournalReadRequest{
@@ -803,7 +802,7 @@ func (c *NatsOperationJournalMutationClient) WriteRuntimeLifecycleAsync(
 		action = RuntimeLifecycleNatsProtocolCreateAction
 	}
 
-	requestId := randomNatsNonce()
+	requestId := shared.RandomNatsNonce()
 	parsed, valid := RuntimeLifecycleNatsProtocol.TryDeserialize(checkpoint)
 	if !valid {
 		return NatsRuntimeLifecycleJournalReply{}, errors.New(
@@ -855,7 +854,7 @@ func (c *NatsOperationJournalMutationClient) requestAsync(
 	if err := c.validate(); err != nil {
 		return NatsOperationJournalMutationReply{}, err
 	}
-	replySubject, err := c.topology.OperationJournalReplySubject(c.authority.CallerIdentity, randomNatsNonce())
+	replySubject, err := c.topology.OperationJournalReplySubject(c.authority.CallerIdentity, shared.RandomNatsNonce())
 	if err != nil {
 		return NatsOperationJournalMutationReply{}, err
 	}
@@ -910,7 +909,7 @@ func (c *NatsOperationJournalMutationClient) requestRuntimeAsync(
 	if err := c.validate(); err != nil {
 		return NatsRuntimeLifecycleJournalReply{}, err
 	}
-	replySubject, err := RuntimeLifecycleNatsProtocol.ReplySubject(cell, c.authority.CallerIdentity, randomNatsNonce())
+	replySubject, err := RuntimeLifecycleNatsProtocol.ReplySubject(cell, c.authority.CallerIdentity, shared.RandomNatsNonce())
 	if err != nil {
 		return NatsRuntimeLifecycleJournalReply{}, err
 	}
@@ -1122,9 +1121,9 @@ func (s *NatsOperationJournalMutationAuthoritySigner) Issue(
 		Key:              keyName,
 		Revision:         revision,
 		CiphertextDigest: hex.EncodeToString(digest[:]),
-		Lease:            randomNatsNonce(),
+		Lease:            shared.RandomNatsNonce(),
 		ExpiresAt:        time.Now().UTC().Add(2 * time.Minute),
-		Nonce:            randomNatsNonce(),
+		Nonce:            shared.RandomNatsNonce(),
 		Signature:        "",
 	}
 
@@ -1374,177 +1373,4 @@ func (v *NatsOperationJournalMutationReplyVerifier) verifySignature(digest []byt
 
 func natsJournalIsP256(key *ecdsa.PublicKey) bool {
 	return key != nil && key.Curve != nil && key.Curve.Params().Name == elliptic.P256().Params().Name
-}
-
-// The service adapter maps the NATS micro-service protocol onto nats.go
-// subscriptions. Endpoints are queue-grouped request handlers, and the $SRV
-// discovery subjects return the standard micro-service wire shape.
-
-type natsSvcConfig struct {
-	Name        string
-	Version     string
-	Description string
-	Metadata    map[string]string
-	QueueGroup  string
-}
-
-type natsSvcEndpointConfig struct {
-	Name       string
-	Subject    string
-	QueueGroup string
-	Metadata   map[string]string
-	Handler    func(context.Context, *nats.Msg) error
-}
-
-type natsSvcServer struct {
-	client        *nats.Conn
-	config        natsSvcConfig
-	endpoints     []natsSvcEndpointConfig
-	subscriptions []*nats.Subscription
-	started       bool
-	mu            sync.Mutex
-}
-
-func newNatsSvcServer(client *nats.Conn, config natsSvcConfig) *natsSvcServer {
-	return &natsSvcServer{client: client, config: config}
-}
-
-func (s *natsSvcServer) AddEndpoint(config natsSvcEndpointConfig) error {
-	if s == nil {
-		return errors.New("NATS service is unavailable.")
-	}
-	if config.Handler == nil {
-		return errors.New("NATS service endpoint handler is required.")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if config.QueueGroup == "" {
-		config.QueueGroup = s.config.QueueGroup
-	}
-
-	s.endpoints = append(s.endpoints, config)
-	return nil
-}
-
-func (s *natsSvcServer) Start(ctx context.Context) error {
-	if s == nil {
-		return errors.New("NATS service is unavailable.")
-	}
-	if ctx == nil {
-		return errors.New("(Parameter 'ctx')")
-	}
-	if s.client == nil {
-		return errors.New("NATS service client is unavailable.")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.started {
-		return nil
-	}
-
-	for _, endpoint := range s.endpoints {
-		endpoint := endpoint
-		handler := func(message *nats.Msg) {
-			if err := endpoint.Handler(ctx, message); err != nil {
-				// The instrumentation wrapper at the call site records errors;
-				// the service itself keeps serving.
-				_ = err
-			}
-		}
-
-		var subscription *nats.Subscription
-		var err error
-		if endpoint.QueueGroup != "" {
-			subscription, err = s.client.QueueSubscribe(endpoint.Subject, endpoint.QueueGroup, handler)
-		} else {
-			subscription, err = s.client.Subscribe(endpoint.Subject, handler)
-		}
-
-		if err != nil {
-			s.stopLocked()
-			return err
-		}
-
-		s.subscriptions = append(s.subscriptions, subscription)
-	}
-
-	s.subscriptions = append(s.subscriptions, s.subscribeDiscovery("$SRV.PING")...)
-	s.started = true
-	return s.client.Flush()
-}
-
-func (s *natsSvcServer) subscribeDiscovery(subject string) []*nats.Subscription {
-	subscription, err := s.client.Subscribe(subject, func(message *nats.Msg) {
-		_ = message.Respond(s.discoveryDocument())
-	})
-	if err != nil {
-		return nil
-	}
-
-	return []*nats.Subscription{subscription}
-}
-
-type natsSvcEndpointInfo struct {
-	Name       string            `json:"name"`
-	Subject    string            `json:"subject"`
-	QueueGroup string            `json:"queue_group"`
-	Metadata   map[string]string `json:"metadata"`
-}
-
-type natsSvcDiscoveryDocument struct {
-	Type        string                `json:"type"`
-	Id          string                `json:"id"`
-	Name        string                `json:"name"`
-	Version     string                `json:"version"`
-	Description string                `json:"description"`
-	Endpoints   []natsSvcEndpointInfo `json:"endpoints"`
-}
-
-func (s *natsSvcServer) discoveryDocument() []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	endpoints := make([]natsSvcEndpointInfo, 0, len(s.endpoints))
-	for _, endpoint := range s.endpoints {
-		endpoints = append(endpoints, natsSvcEndpointInfo{
-			Name:       endpoint.Name,
-			Subject:    endpoint.Subject,
-			QueueGroup: endpoint.QueueGroup,
-			Metadata:   endpoint.Metadata,
-		})
-	}
-
-	document := natsSvcDiscoveryDocument{
-		Type:        "io.nats.micro.v1.info_response",
-		Id:          s.config.Name,
-		Name:        s.config.Name,
-		Version:     s.config.Version,
-		Description: s.config.Description,
-		Endpoints:   endpoints,
-	}
-
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		return []byte("{}")
-	}
-
-	return encoded
-}
-
-func (s *natsSvcServer) Stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.stopLocked()
-}
-
-func (s *natsSvcServer) stopLocked() {
-	for _, subscription := range s.subscriptions {
-		_ = subscription.Drain()
-	}
-
-	s.subscriptions = nil
-	s.started = false
 }

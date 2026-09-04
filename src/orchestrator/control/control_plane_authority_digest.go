@@ -1,7 +1,11 @@
 package control
 
+import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+)
+
 // AuthorityDigestEmptyJournalDigest mirrors AuthorityDigest.EmptyJournalDigest.
-var AuthorityDigestEmptyJournalDigest = digestHash("TerraScale.AuthorityJournal.v1")
+var AuthorityDigestEmptyJournalDigest = shared.DigestHash("TerraScale.AuthorityJournal.v1")
 
 var AuthorityDigest authorityDigest
 
@@ -12,15 +16,15 @@ func (authorityDigest) Event(event AuthorityEvent) (string, error) {
 }
 
 func (authorityDigest) State(state *AuthorityState) string {
-	w := newDigestWriter()
+	w := shared.NewDigestWriter()
 	w.WriteString("authority-state-v1")
 	authorityAppendStateValues(w, state)
-	return digestHash(w.Finish())
+	return shared.DigestHash(w.Finish())
 }
 
 func (authorityDigest) Decision(state *AuthorityState, events []AuthorityEvent, intents []AuthorityIntent,
 	errors []AuthorityError, permit *MutationAuthorityPermit) string {
-	w := newDigestWriter()
+	w := shared.NewDigestWriter()
 	w.WriteString("authority-decision-v1")
 	w.WriteString(AuthorityDigest.State(state))
 	w.WriteArrayHeader(len(events))
@@ -47,10 +51,10 @@ func (authorityDigest) Decision(state *AuthorityState, events []AuthorityEvent, 
 	} else {
 		w.WriteRaw(authorityEncodePermit(permit))
 	}
-	return digestHash(w.Finish())
+	return shared.DigestHash(w.Finish())
 }
 
-func authorityAppendStateValues(w *digestWriter, state *AuthorityState) {
+func authorityAppendStateValues(w *shared.DigestWriter, state *AuthorityState) {
 	w.WriteStringPointer(state.AuthorityId)
 	w.WriteStringPointer(state.CandidateId)
 	w.WriteInt64(int64(state.Status))
@@ -77,7 +81,7 @@ func authorityAppendStateValues(w *digestWriter, state *AuthorityState) {
 }
 
 func authorityEncodeEvent(event AuthorityEvent, includeDigest bool) (string, error) {
-	w := newDigestWriter()
+	w := shared.NewDigestWriter()
 	switch value := event.(type) {
 	case *AuthoritySetRequested:
 		w.WriteString("set-requested")
@@ -124,12 +128,12 @@ func authorityEncodeEvent(event AuthorityEvent, includeDigest bool) (string, err
 		authorityAppendObservation(w, value.Observation)
 		authorityAppendErrorValue(w, value.Error)
 	default:
-		return "", invalidArgument("Unsupported digest value for authority event.")
+		return "", shared.InvalidArgument("Unsupported digest value for authority event.")
 	}
 	return w.Finish(), nil
 }
 
-func authorityAppendEventCommon(w *digestWriter, value *AuthorityEventBase, includeDigest bool) {
+func authorityAppendEventCommon(w *shared.DigestWriter, value *AuthorityEventBase, includeDigest bool) {
 	w.WriteInt64(value.Sequence)
 	w.WriteString(value.PreviousDigest)
 	if includeDigest {
@@ -142,9 +146,9 @@ func authorityAppendEventCommon(w *digestWriter, value *AuthorityEventBase, incl
 	w.WriteString(value.RequestId)
 }
 
-func authorityAppendLease(w *digestWriter, lease AuthorityLease) {
+func authorityAppendLease(w *shared.DigestWriter, lease AuthorityLease) {
 	w.WriteRaw(authorityEncode(
-		"lease-v1", func(next *digestWriter) {
+		"lease-v1", func(next *shared.DigestWriter) {
 			next.WriteString(lease.CandidateId)
 			next.WriteString(lease.LeaseId)
 			next.WriteTime(lease.ServerIssuedAt)
@@ -152,13 +156,13 @@ func authorityAppendLease(w *digestWriter, lease AuthorityLease) {
 		}))
 }
 
-func authorityAppendObservation(w *digestWriter, observation *AuthorityObservation) {
+func authorityAppendObservation(w *shared.DigestWriter, observation *AuthorityObservation) {
 	if observation == nil {
 		w.WriteNull()
 		return
 	}
 	w.WriteRaw(authorityEncode(
-		"observation-v1", func(next *digestWriter) {
+		"observation-v1", func(next *shared.DigestWriter) {
 			next.WriteString(observation.AuthorityId)
 			next.WriteInt64(observation.KvRevision)
 			next.WriteInt64(observation.Epoch)
@@ -171,13 +175,13 @@ func authorityAppendObservation(w *digestWriter, observation *AuthorityObservati
 		}))
 }
 
-func authorityAppendHealth(w *digestWriter, health *AuthorityHealth) {
+func authorityAppendHealth(w *shared.DigestWriter, health *AuthorityHealth) {
 	if health == nil {
 		w.WriteNull()
 		return
 	}
 	w.WriteRaw(authorityEncode(
-		"health-v1", func(next *digestWriter) {
+		"health-v1", func(next *shared.DigestWriter) {
 			next.WriteTime(health.ServerTime)
 			next.WriteDuration(health.MonotonicElapsed)
 			next.WriteBool(health.PartitionCertain)
@@ -185,7 +189,7 @@ func authorityAppendHealth(w *digestWriter, health *AuthorityHealth) {
 		}))
 }
 
-func authorityAppendPendingSetPointer(w *digestWriter, pending *PendingAuthoritySet) {
+func authorityAppendPendingSetPointer(w *shared.DigestWriter, pending *PendingAuthoritySet) {
 	if pending == nil {
 		w.WriteNull()
 		return
@@ -193,9 +197,9 @@ func authorityAppendPendingSetPointer(w *digestWriter, pending *PendingAuthority
 	authorityAppendPendingSetValue(w, *pending)
 }
 
-func authorityAppendPendingSetValue(w *digestWriter, pending PendingAuthoritySet) {
+func authorityAppendPendingSetValue(w *shared.DigestWriter, pending PendingAuthoritySet) {
 	w.WriteRaw(authorityEncode(
-		"pending-set-v1", func(next *digestWriter) {
+		"pending-set-v1", func(next *shared.DigestWriter) {
 			next.WriteString(pending.RequestId)
 			next.WriteInt64(pending.ExpectedRevision)
 			next.WriteInt64(pending.ExpectedEpoch)
@@ -207,7 +211,7 @@ func authorityAppendPendingSetValue(w *digestWriter, pending PendingAuthoritySet
 		}))
 }
 
-func authorityAppendPendingDeletePointer(w *digestWriter, pending *PendingAuthorityDelete) {
+func authorityAppendPendingDeletePointer(w *shared.DigestWriter, pending *PendingAuthorityDelete) {
 	if pending == nil {
 		w.WriteNull()
 		return
@@ -215,9 +219,9 @@ func authorityAppendPendingDeletePointer(w *digestWriter, pending *PendingAuthor
 	authorityAppendPendingDeleteValue(w, *pending)
 }
 
-func authorityAppendPendingDeleteValue(w *digestWriter, pending PendingAuthorityDelete) {
+func authorityAppendPendingDeleteValue(w *shared.DigestWriter, pending PendingAuthorityDelete) {
 	w.WriteRaw(authorityEncode(
-		"pending-delete-v1", func(next *digestWriter) {
+		"pending-delete-v1", func(next *shared.DigestWriter) {
 			next.WriteString(pending.RequestId)
 			next.WriteInt64(pending.ExpectedRevision)
 			next.WriteInt64(pending.ExpectedEpoch)
@@ -226,20 +230,20 @@ func authorityAppendPendingDeleteValue(w *digestWriter, pending PendingAuthority
 		}))
 }
 
-func authorityAppendErrorValue(w *digestWriter, err AuthorityError) {
+func authorityAppendErrorValue(w *shared.DigestWriter, err AuthorityError) {
 	w.WriteRaw(authorityEncode(
-		"error-v1", func(next *digestWriter) {
+		"error-v1", func(next *shared.DigestWriter) {
 			next.WriteInt64(int64(err.Code))
 			next.WriteString(err.Requirement)
 			next.WriteString(err.Message)
 		}))
 }
 
-func authorityAppendIntent(w *digestWriter, intent AuthorityIntent) {
+func authorityAppendIntent(w *shared.DigestWriter, intent AuthorityIntent) {
 	switch value := intent.(type) {
 	case *CompareAndSetLeaseIntent:
 		w.WriteRaw(authorityEncode(
-			"cas-set-v1", func(next *digestWriter) {
+			"cas-set-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.RequestId)
 				next.WriteInt64(value.ExpectedRevision)
@@ -249,7 +253,7 @@ func authorityAppendIntent(w *digestWriter, intent AuthorityIntent) {
 			}))
 	case *CompareAndDeleteLeaseIntent:
 		w.WriteRaw(authorityEncode(
-			"cas-delete-v1", func(next *digestWriter) {
+			"cas-delete-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.RequestId)
 				next.WriteInt64(value.ExpectedRevision)
@@ -258,7 +262,7 @@ func authorityAppendIntent(w *digestWriter, intent AuthorityIntent) {
 			}))
 	case *ReadAuthorityIntent:
 		w.WriteRaw(authorityEncode(
-			"read-v1", func(next *digestWriter) {
+			"read-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.RequestId)
 				next.WriteString(value.CandidateId)
@@ -272,7 +276,7 @@ func authorityAppendIntent(w *digestWriter, intent AuthorityIntent) {
 
 func authorityEncodePermit(permit *MutationAuthorityPermit) string {
 	return authorityEncode(
-		"mutation-permit-v1", func(next *digestWriter) {
+		"mutation-permit-v1", func(next *shared.DigestWriter) {
 			next.WriteString(authorityEncodePermitCommand(permit.authorizingCommand))
 			next.WriteString(permit.AuthorityId)
 			next.WriteString(permit.CandidateId)
@@ -290,7 +294,7 @@ func authorityEncodePermitCommand(command AuthorityCommand) string {
 	switch value := command.(type) {
 	case *ObserveAuthorityCas:
 		return authorityEncode(
-			"observe-authority-cas-command-v1", func(next *digestWriter) {
+			"observe-authority-cas-command-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.CandidateId)
 				next.WriteString(value.RequestId)
@@ -300,7 +304,7 @@ func authorityEncodePermitCommand(command AuthorityCommand) string {
 			})
 	case *ObserveAuthorityRead:
 		return authorityEncode(
-			"observe-authority-read-command-v1", func(next *digestWriter) {
+			"observe-authority-read-command-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.CandidateId)
 				next.WriteString(value.RequestId)
@@ -310,7 +314,7 @@ func authorityEncodePermitCommand(command AuthorityCommand) string {
 			})
 	case *EvaluateMutationAuthority:
 		return authorityEncode(
-			"evaluate-mutation-authority-command-v1", func(next *digestWriter) {
+			"evaluate-mutation-authority-command-v1", func(next *shared.DigestWriter) {
 				next.WriteString(value.AuthorityId)
 				next.WriteString(value.CandidateId)
 				next.WriteString(value.RequestId)
@@ -318,12 +322,12 @@ func authorityEncodePermitCommand(command AuthorityCommand) string {
 				authorityAppendHealth(next, value.Health)
 			})
 	default:
-		panic(invalidArgument("Unsupported permit command."))
+		panic(shared.InvalidArgument("Unsupported permit command."))
 	}
 }
 
-func authorityEncode(label string, body func(w *digestWriter)) string {
-	w := newDigestWriter()
+func authorityEncode(label string, body func(w *shared.DigestWriter)) string {
+	w := shared.NewDigestWriter()
 	w.WriteString(label)
 	body(w)
 	return w.Finish()

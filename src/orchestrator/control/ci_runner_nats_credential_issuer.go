@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // CiRunnerNatsIdentityConfiguration holds the issuer signing key file and an
@@ -103,7 +104,7 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 		return nil, errors.New("The NATS account signing credential is invalid. (Parameter 'path')")
 	}
 
-	if err := natsRequireAccountPublicKey(issuer, "The NATS signing seed must be an account NKey."); err != nil {
+	if err := shared.NatsRequireAccountPublicKey(issuer, "The NATS signing seed must be an account NKey."); err != nil {
 		return nil, errors.New("The NATS account signing credential is invalid. (Parameter 'path')")
 	}
 
@@ -112,7 +113,7 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 		account = strings.TrimSpace(*accountPublicKey)
 	}
 
-	if err := natsRequireAccountPublicKey(account, "The NATS issuer account must be an account public NKey."); err != nil {
+	if err := shared.NatsRequireAccountPublicKey(account, "The NATS issuer account must be an account public NKey."); err != nil {
 		return nil, errors.New("The NATS account signing credential is invalid. (Parameter 'path')")
 	}
 
@@ -183,24 +184,6 @@ func (s *NatsAccountJwtSigner) Dispose() {
 		s.seed[index] = 0
 	}
 	s.seed = nil
-}
-
-func natsRequireAccountPublicKey(value, message string) error {
-	if len(value) == 0 || len(value) > natsAccountPublicKeyMaximumCharacters {
-		return errors.New(message)
-	}
-	decoded, err := nkeys.Decode(nkeys.PrefixByteAccount, []byte(value))
-	if err != nil {
-		return errors.New(message)
-	}
-
-	// nkeys.Decode strips the one-byte type prefix; account public keys
-	// therefore decode to exactly the 32-byte payload.
-	if len(decoded) != 32 {
-		return errors.New(message)
-	}
-
-	return nil
 }
 
 // CiRunnerNatsCredentialLease is a short-lived user JWT and nonce-signing
@@ -328,7 +311,6 @@ const (
 	CiRunnerNatsCredentialIssuerMinimumLifetime      = time.Minute
 	CiRunnerNatsCredentialIssuerMaximumPayloadBytes  = 128 * 1024
 	CiRunnerNatsCredentialIssuerMaximumSubscriptions = 32
-	natsAccountPublicKeyMaximumCharacters            = 128
 )
 
 // CiRunnerNatsCredentialIssuer issues a short-lived NATS user only after its

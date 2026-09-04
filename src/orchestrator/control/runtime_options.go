@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // resolveCiRunnerNatsIdentityForOptions resolves and verifies the controller's
@@ -34,7 +35,7 @@ func resolveCiRunnerNatsIdentityForOptions(signingKeyFile, accountPublicKey stri
 }
 
 func isAccountPublicKey(value string) bool {
-	return natsRequireAccountPublicKey(strings.TrimSpace(value), "") == nil
+	return shared.NatsRequireAccountPublicKey(strings.TrimSpace(value), "") == nil
 }
 
 // String intentionally omits both the private path and public identity. The

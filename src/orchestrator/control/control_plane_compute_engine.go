@@ -1,6 +1,7 @@
 package control
 
 import "sort"
+import "terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 
 var ComputeEngine computeEngine
 
@@ -10,7 +11,7 @@ const computeEngineRequirement = ComputeRequirementCodeReqO011
 
 func (computeEngine) DecideScaleOut(request *ScaleOutRequest) (*ComputeDecision, error) {
 	if request == nil {
-		return nil, argumentNil("request")
+		return nil, shared.ArgumentNil("request")
 	}
 	decision := computeDecideScaleOutCore(request)
 	if len(decision.Errors) == 0 {
@@ -160,7 +161,7 @@ func computeDecideScaleOutCore(request *ScaleOutRequest) *ComputeDecision {
 
 func (computeEngine) DecideScaleIn(request *ScaleInRequest) (*ComputeDecision, error) {
 	if request == nil {
-		return nil, argumentNil("request")
+		return nil, shared.ArgumentNil("request")
 	}
 	operation := request.Binding.Compute.Operation
 	if !computeValidScaleInBinding(request.Binding, request.MaximumIdentityLength) ||
@@ -263,7 +264,7 @@ func (computeEngine) DecideScaleIn(request *ScaleInRequest) (*ComputeDecision, e
 
 func (computeEngine) DecideSurvival(request *SurvivalRequest) (*ComputeDecision, error) {
 	if request == nil {
-		return nil, argumentNil("request")
+		return nil, shared.ArgumentNil("request")
 	}
 	operation := ComputeOperationId{}
 	if request.ReplacementTarget != nil {
@@ -654,7 +655,7 @@ func computeValid(value string, max int) bool {
 	runes := []rune(value)
 	for index := 0; index < len(runes); index++ {
 		character := runes[index]
-		if isSpaceRune(character) || isControlRune(character) {
+		if shared.IsSpaceRune(character) || isControlRune(character) {
 			return false
 		}
 		if character >= 0xD800 && character <= 0xDFFF {

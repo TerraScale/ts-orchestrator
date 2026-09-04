@@ -1,6 +1,7 @@
 package control
 
 import "time"
+import "terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 
 type AuthorityStatus int
 
@@ -155,7 +156,7 @@ type AuthorityLease struct {
 func (l AuthorityLease) Equal(other AuthorityLease) bool {
 	return l.CandidateId == other.CandidateId &&
 		l.LeaseId == other.LeaseId &&
-		instantsEqual(l.ServerIssuedAt, other.ServerIssuedAt) &&
+		shared.InstantsEqual(l.ServerIssuedAt, other.ServerIssuedAt) &&
 		l.Duration == other.Duration
 }
 
@@ -443,7 +444,7 @@ func NewMutationAuthorityPermit(authorizingCommand AuthorityCommand) (*MutationA
 		}
 	}
 	if observation == nil || health == nil || lease == nil {
-		return nil, invalidArgument(
+		return nil, shared.InvalidArgument(
 			"A mutation permit requires an accepted CAS, read, or evaluation command with lease evidence.")
 	}
 	return &MutationAuthorityPermit{

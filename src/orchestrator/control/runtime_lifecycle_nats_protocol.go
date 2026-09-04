@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -65,13 +66,13 @@ func (runtimeLifecycleNatsProtocol) Serialize(checkpoint RuntimeLifecycleCheckpo
 		return "", err
 	}
 	if len(encoded) > RuntimeLifecycleNatsProtocolMaximumCheckpointBytes {
-		return "", invalidArgument("Runtime lifecycle checkpoint exceeds its journal bound.")
+		return "", shared.InvalidArgument("Runtime lifecycle checkpoint exceeds its journal bound.")
 	}
 	return encoded, nil
 }
 
 func (runtimeLifecycleNatsProtocol) TryDeserialize(value string) (RuntimeLifecycleCheckpoint, bool) {
-	if isNullOrWhiteSpace(value) || len(value) > RuntimeLifecycleNatsProtocolMaximumCheckpointBytes {
+	if shared.IsNullOrWhiteSpace(value) || len(value) > RuntimeLifecycleNatsProtocolMaximumCheckpointBytes {
 		return RuntimeLifecycleCheckpoint{}, false
 	}
 	checkpoint, err := unmarshalCheckpointJSON(value)
@@ -155,7 +156,7 @@ func (runtimeLifecycleNatsProtocol) IsCell(value string) bool {
 
 func runtimeLifecycleRequireCell(value string) (string, error) {
 	if !RuntimeLifecycleNatsProtocol.IsCell(value) {
-		return "", argumentOutOfRange("value")
+		return "", shared.ArgumentOutOfRange("value")
 	}
 	return value, nil
 }

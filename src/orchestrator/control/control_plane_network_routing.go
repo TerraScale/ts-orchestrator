@@ -3,6 +3,7 @@ package control
 import (
 	"sort"
 	"strconv"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // NetworkTechnicalLimits ports the technical denial-of-service safety limits;
@@ -12,10 +13,10 @@ const NetworkTechnicalLimitsMaximumCapturedItems = 4096
 // networkInputSnapshotCopy ports the internal NetworkInputSnapshot.Copy.
 func networkInputSnapshotCopy[T any](source []T, maximum int, parameterName string) ([]T, error) {
 	if source == nil {
-		return nil, argumentNil(parameterName)
+		return nil, shared.ArgumentNil(parameterName)
 	}
 	if len(source) > maximum {
-		return nil, invalidArgument("Network input exceeds the technical item limit.")
+		return nil, shared.InvalidArgument("Network input exceeds the technical item limit.")
 	}
 	result := make([]T, len(source))
 	copy(result, source)

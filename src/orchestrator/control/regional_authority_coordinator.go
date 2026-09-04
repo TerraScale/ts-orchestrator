@@ -2,16 +2,14 @@ package control
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 type RegionalAuthoritySnapshot struct {
@@ -165,7 +163,7 @@ func RegionalAuthorityCoordinatorStartAsync(
 	if store == nil {
 		return nil, errors.New("(Parameter 'store')")
 	}
-	if !messagingCellTokenIsValid(cell) || !messagingCellTokenIsValid(instance) {
+	if !shared.MessagingCellTokenIsValid(cell) || !shared.MessagingCellTokenIsValid(instance) {
 		return nil, errors.New("The regional authority identity is invalid.")
 	}
 	coordinator := newRegionalAuthorityCoordinator(
@@ -196,7 +194,7 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	if !GlobalNatsTopologyIsCellToken(cell) {
 		return nil, errors.New("The global authority candidate cell is invalid. (Parameter 'cell')")
 	}
-	if !messagingCellTokenIsValid(instance) {
+	if !shared.MessagingCellTokenIsValid(instance) {
 		return nil, errors.New("The global authority candidate instance is invalid. (Parameter 'instance')")
 	}
 
@@ -250,7 +248,7 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 			}
 
 			if err := c.tick(c.stoppingCtx); err != nil &&
-				c.tolerateTransientFailures && isNatsTransientError(err) {
+				c.tolerateTransientFailures && shared.IsNatsTransientError(err) {
 				c.stateMu.Lock()
 				confirmed := AuthorityObservation{
 					AuthorityId:   c.authorityId,
@@ -333,14 +331,14 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 		return nil
 	}
 
-	requestId := "acquire-" + randomNatsNonce()
+	requestId := "acquire-" + shared.RandomNatsNonce()
 	health := regionalAuthorityHealth(now, time.Duration(0))
 	baseline := observed
 	acquisition, err := AuthorityEngine.DecideFromState(c.currentState(), NewAcquireAuthority(
 		c.authorityId,
 		c.candidateId,
 		requestId,
-		"lease-"+randomNatsNonce(),
+		"lease-"+shared.RandomNatsNonce(),
 		&baseline,
 		&health,
 		c.leaseDuration))
@@ -361,7 +359,7 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 
 func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current AuthorityObservation) error {
 	now := time.Now().UTC()
-	requestId := "renew-" + randomNatsNonce()
+	requestId := "renew-" + shared.RandomNatsNonce()
 	c.stateMu.Lock()
 	elapsed := time.Duration(0)
 	if !c.confirmedLeaseAge.IsZero() {
@@ -534,15 +532,6 @@ func regionalAuthorityHealth(now time.Time, confirmedLeaseAge time.Duration) Aut
 	}
 }
 
-func isNatsTransientError(err error) bool {
-	return errors.Is(err, jetstream.ErrKeyNotFound) ||
-		errors.Is(err, jetstream.ErrKeyExists) ||
-		errors.Is(err, jetstream.ErrKeyRevisionMismatch) ||
-		errors.Is(err, jetstream.ErrBucketNotFound) ||
-		errors.Is(err, nats.ErrNoResponders) ||
-		errors.Is(err, nats.ErrTimeout)
-}
-
 func (c *RegionalAuthorityCoordinator) currentState() *AuthorityState {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
@@ -651,13 +640,4 @@ func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (*CompareAndSetLe
 
 	intent, ok := intents[0].(*CompareAndSetLeaseIntent)
 	return intent, ok
-}
-
-func randomNatsNonce() string {
-	sessionBytes := make([]byte, 16)
-	if _, err := rand.Read(sessionBytes); err != nil {
-		return "00000000000000000000000000000000"
-	}
-
-	return hex.EncodeToString(sessionBytes)
 }

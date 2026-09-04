@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -782,7 +783,7 @@ func NatsMonitoringSnapshotFrom(aggregate NatsMonitoringAggregate) (*NatsMonitor
 
 func (s *NatsMonitoringSnapshot) Validate() error {
 	if s.SchemaVersion != NatsMonitoringSnapshotCurrentSchemaVersion ||
-		!messagingCellTokenIsValid(s.Cell) || s.ObservedAt.IsZero() ||
+		!shared.MessagingCellTokenIsValid(s.Cell) || s.ObservedAt.IsZero() ||
 		s.Availability < NatsMonitoringAvailabilityAvailable ||
 		s.Availability > NatsMonitoringAvailabilityUnavailable {
 		return errors.New("The NATS monitoring snapshot is invalid.")

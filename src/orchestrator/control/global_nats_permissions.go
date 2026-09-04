@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // GlobalNatsRole identifies one global-control role.
@@ -55,7 +56,7 @@ var GlobalNatsPermissions globalNatsPermissions
 type globalNatsPermissions struct{}
 
 func GlobalNatsPermissionsCreate(cell string, role GlobalNatsRole) (*GlobalNatsPermissionPlan, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New(
 			"The global NATS permission cell is not a lowercase DNS-style token. (Parameter 'cell')")
 	}

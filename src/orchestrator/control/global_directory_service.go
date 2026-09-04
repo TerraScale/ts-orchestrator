@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -16,7 +17,7 @@ import (
 // a read-only NATS service with a distinct identity.
 type GlobalCellDirectoryServiceRuntime struct {
 	client   *nats.Conn
-	service  *natsSvcServer
+	service  *shared.NatsSvcServer
 	disposed int32
 }
 
@@ -63,7 +64,7 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 		return nil, err
 	}
 
-	service := newNatsSvcServer(client, natsSvcConfig{
+	service := shared.NewNatsSvcServer(client, shared.NatsSvcConfig{
 		Name:        "terrascale-global-cell-directory-gru",
 		Version:     "1.0.0",
 		Description: "TerraScale read-only global cell directory",
@@ -71,7 +72,7 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 		QueueGroup:  "ts-orch-global-cell-directory",
 	})
 
-	err = service.AddEndpoint(natsSvcEndpointConfig{
+	err = service.AddEndpoint(shared.NatsSvcEndpointConfig{
 		Name:    "cells",
 		Subject: GlobalNatsTopologyCellDirectorySubject(),
 		Metadata: map[string]string{

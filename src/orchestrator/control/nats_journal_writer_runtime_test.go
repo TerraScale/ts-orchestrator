@@ -15,6 +15,7 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 func TestNatsJournalWriterRuntimeRequiresIsolatedWriterRole(t *testing.T) {
@@ -83,7 +84,7 @@ func TestNatsJournalWriterRuntimeCloseIsIdempotent(t *testing.T) {
 	}
 	replies := &NatsOperationJournalMutationReplySigner{key: key}
 	lifetimeCtx, lifetime := context.WithCancel(context.Background())
-	service := newNatsSvcServer(client, natsSvcConfig{Name: "test-journal-writer"})
+	service := shared.NewNatsSvcServer(client, shared.NatsSvcConfig{Name: "test-journal-writer"})
 	mutations := &NatsOperationJournalMutationService{
 		service:  service,
 		replies:  replies,

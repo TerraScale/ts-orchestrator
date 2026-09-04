@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
 // NatsGatewayPlane is the NATS trust plane a cluster belongs to. The control
@@ -609,7 +610,7 @@ func NewNatsGatewayCluster(
 	trustGeneration int,
 	configurationGeneration int,
 ) (*NatsGatewayCluster, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !shared.MessagingCellTokenIsValid(cell) {
 		return nil, errors.New(
 			"The cluster cell is not a lowercase DNS-style token. (Parameter 'cell')")
 	}
