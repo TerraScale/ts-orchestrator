@@ -102,11 +102,61 @@ type BlockStorageReconciler struct {
 var _ OCIReconciler[estate.Region, BlockStorageObserved] = (*BlockStorageReconciler)(nil)
 
 func volumeIsLive(state string) bool {
-	return state != "TERMINATED" && state != "TERMINATING" && state != ""
+	return state != "TERMINATED" && state != "TERMINATING" && state != "" && state != "FAILED" && state != "ERROR"
 }
 
 func attachmentIsLive(state string) bool {
-	return state != "DETACHED" && state != "DETACHING" && state != ""
+	return state != "DETACHED" && state != "DETACHING" && state != "" && state != "FAILED" && state != "ERROR"
+}
+
+type volumeLifecycleState uint8
+
+const (
+	volumeStateAbsent volumeLifecycleState = iota
+	volumeStatePending
+	volumeStateActive
+	volumeStateFailed
+	volumeStateUnknown
+)
+
+func observedVolumeState(state string) volumeLifecycleState {
+	switch state {
+	case "AVAILABLE":
+		return volumeStateActive
+	case "CREATING", "PROVISIONING", "RESTORING", "UPDATING", "ATTACHING":
+		return volumeStatePending
+	case "TERMINATED", "TERMINATING", "":
+		return volumeStateAbsent
+	case "FAILED", "ERROR":
+		return volumeStateFailed
+	default:
+		return volumeStateUnknown
+	}
+}
+
+type attachmentLifecycleState uint8
+
+const (
+	attachmentStateAbsent attachmentLifecycleState = iota
+	attachmentStatePending
+	attachmentStateActive
+	attachmentStateFailed
+	attachmentStateUnknown
+)
+
+func observedAttachmentState(state string) attachmentLifecycleState {
+	switch state {
+	case "ATTACHED":
+		return attachmentStateActive
+	case "ATTACHING", "DETACHING", "UPDATING":
+		return attachmentStatePending
+	case "DETACHED", "":
+		return attachmentStateAbsent
+	case "FAILED", "ERROR":
+		return attachmentStateFailed
+	default:
+		return attachmentStateUnknown
+	}
 }
 
 func (r *BlockStorageReconciler) Observe(ctx context.Context, declared estate.Region) (BlockStorageObserved, error) {
@@ -146,9 +196,18 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	}
 	members := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
-		if memberIsLive(member.LifecycleState) {
-			members[member.Index] = member
+		switch observedMemberState(member.LifecycleState) {
+		case memberStateAbsent:
+			continue
+		case memberStateFailed:
+			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
+		case memberStateUnknown:
+			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
 		}
+		if _, duplicate := members[member.Index]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+		}
+		members[member.Index] = member
 	}
 	volumes := make(map[string]ObservedVolume, len(observed.Volumes))
 	declaredVolumeNames := make(map[string]bool, int(pool.Count))
@@ -157,32 +216,58 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	}
 	plan := OCIPlan{}
 	for _, volume := range observed.Volumes {
-		if volumeIsLive(volume.LifecycleState) && declaredVolumeNames[volume.DisplayName] {
-			volumes[volume.DisplayName] = volume
+		if !declaredVolumeNames[volume.DisplayName] {
+			continue
 		}
+		switch observedVolumeState(volume.LifecycleState) {
+		case volumeStateAbsent:
+			continue
+		case volumeStateFailed:
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " failed and cannot be used"}
+		case volumeStateUnknown:
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
+		}
+		if _, duplicate := volumes[volume.DisplayName]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
+		}
+		volumes[volume.DisplayName] = volume
 	}
 	attachments := make(map[string]ObservedAttachment, len(observed.Attachments))
 	for _, attachment := range observed.Attachments {
-		if attachmentIsLive(attachment.LifecycleState) && declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
-			attachments[attachment.VolumeID] = attachment
+		state := observedAttachmentState(attachment.LifecycleState)
+		if state == attachmentStateFailed {
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
 		}
+		if state == attachmentStateUnknown {
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
+		}
+		if state == attachmentStateAbsent || !declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
+			continue
+		}
+		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
+		}
+		attachments[attachment.VolumeID] = attachment
 	}
 	for index := 1; index <= int(pool.Count); index++ {
 		name := DataVolumeName(declared.Code, index)
 		member, memberExists := members[index]
 		volume, volumeExists := volumes[name]
+		if !memberExists || observedMemberState(member.LifecycleState) != memberStateActive {
+			// Compute must produce a RUNNING instance before a volume can be
+			// created or attached. Bootstrap polls this pending slot.
+			continue
+		}
 		if !volumeExists {
-			if !memberExists {
-				// The instance launches first; the next reconcile pass
-				// creates this volume once it is observed.
-				continue
-			}
 			plan.Actions = append(plan.Actions, CreateVolumeAction{Spec: VolumeSpec{
 				DisplayName:        name,
 				SizeGiB:            uint64(pool.DataVolumeGiB),
 				VPUsPerGiB:         BalancedVPUsPerGiB,
 				AvailabilityDomain: member.AvailabilityDomain,
 			}})
+			continue
+		}
+		if observedVolumeState(volume.LifecycleState) == volumeStatePending {
 			continue
 		}
 		if volume.SizeGiB < uint64(pool.DataVolumeGiB) {
@@ -194,17 +279,24 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " is not on the Balanced performance tier"}
 		}
 		if attachment, attached := attachments[volume.ID]; attached {
+			if observedAttachmentState(attachment.LifecycleState) == attachmentStatePending {
+				continue
+			}
 			if attachment.InstanceID == member.ID {
 				continue
 			}
 			plan.Actions = append(plan.Actions, DetachAttachmentAction{AttachmentID: attachment.ID})
-		}
-		if memberExists {
+			// The detach and attach form one ordered repair. OCI accepts the
+			// deterministic attach retry token; a later pass observes the
+			// attachment if the provider performs the operation asynchronously.
 			plan.Actions = append(plan.Actions, AttachVolumeAction{InstanceID: member.ID, VolumeID: volume.ID})
+			continue
 		}
+		plan.Actions = append(plan.Actions, AttachVolumeAction{InstanceID: member.ID, VolumeID: volume.ID})
 	}
 	for _, attachment := range observed.Attachments {
-		if attachmentIsLive(attachment.LifecycleState) && !declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
+		state := observedAttachmentState(attachment.LifecycleState)
+		if state == attachmentStateActive && !declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
 			plan.Actions = append(plan.Actions, DetachAttachmentAction{AttachmentID: attachment.ID})
 		}
 	}
@@ -218,6 +310,101 @@ func volumeNameByID(observed BlockStorageObserved, volumeID string) string {
 		}
 	}
 	return ""
+}
+
+func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (bool, error) {
+	observed, ok := value.(BlockStorageObserved)
+	if !ok {
+		return false, &InvalidDataError{Message: "block storage convergence observation has the wrong type"}
+	}
+	declared, ok := declaration.(estate.Region)
+	if !ok {
+		return false, &InvalidDataError{Message: "block storage convergence declaration has the wrong type"}
+	}
+	members := make(map[int]ObservedMember, len(observed.Members))
+	for _, member := range observed.Members {
+		switch observedMemberState(member.LifecycleState) {
+		case memberStateFailed:
+			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
+		case memberStateUnknown:
+			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+		case memberStateAbsent:
+			continue
+		}
+		if _, duplicate := members[member.Index]; duplicate {
+			return false, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+		}
+		members[member.Index] = member
+	}
+	volumes := make(map[string]ObservedVolume, len(observed.Volumes))
+	for _, volume := range observed.Volumes {
+		if !declaredVolumeName(declared, volume.DisplayName) {
+			continue
+		}
+		switch observedVolumeState(volume.LifecycleState) {
+		case volumeStatePending:
+			return false, nil
+		case volumeStateFailed:
+			return false, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " failed and cannot be used"}
+		case volumeStateUnknown:
+			return false, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
+		case volumeStateAbsent:
+			continue
+		}
+		if _, duplicate := volumes[volume.DisplayName]; duplicate {
+			return false, &InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
+		}
+		volumes[volume.DisplayName] = volume
+	}
+	attachments := make(map[string]ObservedAttachment, len(observed.Attachments))
+	for _, attachment := range observed.Attachments {
+		state := observedAttachmentState(attachment.LifecycleState)
+		if !declaredVolumeName(declared, volumeNameByID(observed, attachment.VolumeID)) {
+			if state == attachmentStatePending {
+				return false, nil
+			}
+			continue
+		}
+		switch state {
+		case attachmentStatePending:
+			return false, nil
+		case attachmentStateFailed:
+			return false, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
+		case attachmentStateUnknown:
+			return false, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
+		case attachmentStateAbsent:
+			continue
+		}
+		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
+			return false, &InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
+		}
+		attachments[attachment.VolumeID] = attachment
+	}
+	for index := 1; index <= int(declared.Members.Count); index++ {
+		member, memberOK := members[index]
+		if !memberOK || observedMemberState(member.LifecycleState) != memberStateActive {
+			return false, nil
+		}
+		name := DataVolumeName(declared.Code, index)
+		volume, volumeOK := volumes[name]
+		if !volumeOK || observedVolumeState(volume.LifecycleState) != volumeStateActive || volume.SizeGiB != uint64(declared.Members.DataVolumeGiB) || volume.VPUsPerGiB != BalancedVPUsPerGiB {
+			return false, nil
+		}
+		attachment, attached := attachments[volume.ID]
+		if !attached || observedAttachmentState(attachment.LifecycleState) != attachmentStateActive || attachment.InstanceID != member.ID {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func declaredVolumeName(region estate.Region, name string) bool {
+	for index := 1; index <= int(region.Members.Count); index++ {
+		if DataVolumeName(region.Code, index) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Region, observed BlockStorageObserved, plan OCIPlan) error {
@@ -315,7 +502,7 @@ func (g *OCIBlockStorageGateway) CreateVolume(ctx context.Context, spec VolumeSp
 		DisplayName        string `json:"displayName"`
 		SizeInGBs          uint64 `json:"sizeInGBs"`
 		VPUsPerGB          uint64 `json:"vpusPerGB"`
-	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB}, map[string]string{"opc-retry-token": spec.DisplayName}, &document); err != nil {
 		return ObservedVolume{}, err
 	}
 	if !isOCID(document.ID, "volume") {
@@ -374,7 +561,7 @@ func (g *OCIBlockStorageGateway) AttachVolume(ctx context.Context, instanceID, v
 		VolumeID      string `json:"volumeId"`
 		AttachmentTyp string `json:"type"`
 		DisplayName   string `json:"displayName"`
-	}{CompartmentID: g.CompartmentID, InstanceID: instanceID, VolumeID: volumeID, AttachmentTyp: "iscsi", DisplayName: displayName}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, InstanceID: instanceID, VolumeID: volumeID, AttachmentTyp: "iscsi", DisplayName: displayName}, map[string]string{"opc-retry-token": instanceID + "/" + volumeID}, &document); err != nil {
 		return ObservedAttachment{}, err
 	}
 	if !isOCID(document.ID, "volumeattachment") {

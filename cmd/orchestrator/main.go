@@ -24,15 +24,26 @@ import (
 )
 
 const (
-	natsServerConfigEnvironment      = "TS_ORCH_NATS_SERVER_CONFIG_FILE"
-	natsServerReadinessEnvironment   = "TS_ORCH_NATS_SERVER_READINESS_TIMEOUT"
-	natsServerConfigAliasEnvironment = "TS_ORCH_NATS_SERVER_CONFIG"
-	natsConfigAliasEnvironment       = "TS_ORCH_NATS_CONFIG_FILE"
-	natsReadinessAliasEnvironment    = "TS_ORCH_NATS_READINESS_TIMEOUT"
-	ociEstateFileEnvironment         = "TS_ORCH_OCI_ESTATE_FILE"
-	ociKeyIDEnvironment              = "TS_ORCH_OCI_KEY_ID"
-	ociPrivateKeyFileEnvironment     = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
-	providerEnvironment              = "TS_ORCH_PROVIDER"
+	natsServerConfigEnvironment        = "TS_ORCH_NATS_SERVER_CONFIG_FILE"
+	natsServerReadinessEnvironment     = "TS_ORCH_NATS_SERVER_READINESS_TIMEOUT"
+	natsServerConfigAliasEnvironment   = "TS_ORCH_NATS_SERVER_CONFIG"
+	natsConfigAliasEnvironment         = "TS_ORCH_NATS_CONFIG_FILE"
+	natsReadinessAliasEnvironment      = "TS_ORCH_NATS_READINESS_TIMEOUT"
+	ociEstateFileEnvironment           = "TS_ORCH_OCI_ESTATE_FILE"
+	ociKeyIDEnvironment                = "TS_ORCH_OCI_KEY_ID"
+	ociPrivateKeyFileEnvironment       = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
+	ociImageIDEnvironment              = "TS_ORCH_OCI_IMAGE_ID"
+	ociCertificateAuthorityEnvironment = "TS_ORCH_OCI_CERTIFICATE_AUTHORITY_ID"
+	providerEnvironment                = "TS_ORCH_PROVIDER"
+	cloudflareTokenEnvironment         = "CLOUDFLARE_API_TOKEN"
+	cloudflareZoneIDEnvironment        = "TS_ORCH_CLOUDFLARE_ZONE_ID"
+	cloudflareAccountIDEnvironment     = "TS_ORCH_CLOUDFLARE_ACCOUNT_ID"
+	cloudflareMembersEnvironment       = "TS_ORCH_CLOUDFLARE_MEMBERS_JSON"
+	cloudflareEgressEnvironment        = "TS_ORCH_CLOUDFLARE_TAILSCALE_EGRESS_JSON"
+	grafanaMetricsEnvironment          = "TS_ORCH_GRAFANA_METRICS_ENDPOINT"
+	grafanaLogsEnvironment             = "TS_ORCH_GRAFANA_LOGS_ENDPOINT"
+	grafanaUsernameEnvironment         = "TS_ORCH_GRAFANA_USERNAME"
+	grafanaAPIKeyEnvironment           = "TS_ORCH_GRAFANA_API_KEY"
 
 	globalCheckTimeout = 30 * time.Second
 )
@@ -120,7 +131,7 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		return nil
 	}
 	if name == "reconcile" {
-		if err := runReconcile(ctx, args, output); err != nil {
+		if err := runReconcileWithLookup(ctx, args, lookup, output); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil

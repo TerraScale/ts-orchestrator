@@ -5,10 +5,87 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 )
+
+type pollingStageObservation struct{ Ready bool }
+
+type pollingStageReconciler struct {
+	passes     int
+	readyAfter int
+}
+
+func (r *pollingStageReconciler) Observe(context.Context, string) (pollingStageObservation, error) {
+	r.passes++
+	readyAfter := r.readyAfter
+	if readyAfter == 0 {
+		readyAfter = 2
+	}
+	return pollingStageObservation{Ready: r.passes >= readyAfter}, nil
+}
+
+func (*pollingStageReconciler) Reconcile(context.Context, string, pollingStageObservation) (OCIPlan, error) {
+	return OCIPlan{}, nil
+}
+
+func (*pollingStageReconciler) Apply(context.Context, string, pollingStageObservation, OCIPlan) error {
+	return nil
+}
+
+func (r *pollingStageReconciler) bootstrapConverged(value, _ any) (bool, error) {
+	return value.(pollingStageObservation).Ready, nil
+}
+
+func TestConvergeStagePollsEmptyPendingPlans(t *testing.T) {
+	reconciler := &pollingStageReconciler{}
+	if err := convergeStage(context.Background(), "poll", reconciler, "declared", nil, BootstrapConvergenceConfig{Deadline: time.Second, MaxPasses: 4, PollInitial: time.Millisecond, PollMaximum: 2 * time.Millisecond}); err != nil {
+		t.Fatalf("convergeStage failed: %v", err)
+	}
+	if reconciler.passes != 2 {
+		t.Fatalf("observe passes = %d, want 2", reconciler.passes)
+	}
+}
+
+func TestConvergeStageDeadlineIsRetryableAndPreservesCause(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	reconciler := &pollingStageReconciler{readyAfter: 1000}
+	err := convergeStage(ctx, "deadline", reconciler, "declared", nil, BootstrapConvergenceConfig{
+		Deadline: 500 * time.Millisecond, MaxPasses: 100, PollInitial: time.Millisecond, PollMaximum: 2 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("convergeStage unexpectedly converged")
+	}
+	var unknown *ProviderOutcomeUnknownError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("deadline error = %v, want retryable unknown outcome", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline error = %v, want context deadline cause", err)
+	}
+	if strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("deadline error leaked provider detail: %v", err)
+	}
+}
+
+func TestBootstrapConvergenceConfigRejectsInvalidBounds(t *testing.T) {
+	request := bootstrapTestRequest(t)
+	request.Convergence.PollMaximum = time.Millisecond
+	request.Convergence.PollInitial = 2 * time.Millisecond
+	if err := request.validate(); err == nil {
+		t.Fatal("invalid polling bounds accepted")
+	}
+	if got := classifyBootstrapOutcome(&ProviderOutcomeUnknownError{Message: "accepted"}); got.Error() != "accepted" {
+		t.Fatalf("known unknown outcome was rewritten: %v", got)
+	}
+	request.Convergence = BootstrapConvergenceConfig{MaxPasses: bootstrapMaximumPasses + 1}
+	if err := request.validate(); err == nil {
+		t.Fatal("unbounded pass budget accepted")
+	}
+}
 
 func TestBootstrapCredentialsFromEnvFailsLoudly(t *testing.T) {
 	_, err := BootstrapCredentialsFromEnv(func(string) (string, bool) { return "", false })
@@ -58,6 +135,7 @@ func bootstrapTestRequest(t *testing.T) BootstrapRequest {
 		TSNodeVersion:   "1.0.0",
 		TSNodeSHA256:    strings.Repeat("a", 64),
 		TSNodeURL:       "https://git.terrascale.tech/releases/ts-node-1.0.0",
+		Convergence:     BootstrapConvergenceConfig{Deadline: time.Second, MaxPasses: 8, PollInitial: time.Millisecond, PollMaximum: 4 * time.Millisecond},
 	}
 }
 

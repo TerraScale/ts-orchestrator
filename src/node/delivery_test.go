@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 type testProcess struct {
@@ -34,7 +36,11 @@ func (p *testProcess) Run(_ context.Context, executable string, args []string) (
 	return ProcessResult{}, nil
 }
 
-type testDrain struct{ events []string }
+type testDrain struct {
+	events      []string
+	endCalls    int
+	failEndCall int
+}
 
 func (d *testDrain) BeginDrain(context.Context, string) error {
 	d.events = append(d.events, "begin")
@@ -42,7 +48,38 @@ func (d *testDrain) BeginDrain(context.Context, string) error {
 }
 func (d *testDrain) EndDrain(context.Context, string) error {
 	d.events = append(d.events, "end")
+	d.endCalls++
+	if d.failEndCall != 0 && d.endCalls == d.failEndCall {
+		return errors.New("drain end unavailable")
+	}
 	return nil
+}
+
+type hangingDrain struct {
+	started chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	calls   int
+}
+
+func (d *hangingDrain) BeginDrain(context.Context, string) error { return nil }
+
+func (d *hangingDrain) EndDrain(context.Context, string) error {
+	d.mu.Lock()
+	d.calls++
+	call := d.calls
+	d.mu.Unlock()
+	if call == 1 {
+		close(d.started)
+		<-d.release
+	}
+	return nil
+}
+
+func (d *hangingDrain) endCalls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
 }
 
 func testArtifact(t *testing.T, component, version string, payload []byte) Artifact {
@@ -356,5 +393,281 @@ func TestRollbackInterruptionLeavesTypedRecoveryState(t *testing.T) {
 	}
 	if state.Phase != "rollback_failed" || state.Recovery != RecoveryInterrupted {
 		t.Fatalf("rollback interruption state = %#v", state)
+	}
+}
+
+func TestDeliverRetriesDrainEndFromDurableStateAfterRestart(t *testing.T) {
+	payload := []byte("static terrabase")
+	artifact := testArtifact(t, "terrabase", "v1", payload)
+	process := &testProcess{}
+	drain := &testDrain{failEndCall: 1}
+	healthCalls := 0
+	health := HealthFunc(func(context.Context, string, string) error {
+		healthCalls++
+		return nil
+	})
+	download := DownloadFunc(func(context.Context, Artifact) ([]byte, error) { return payload, nil })
+	delivery, root, units := testDelivery(t, process, download, health, drain)
+	if err := delivery.Deliver(context.Background(), artifact); err == nil {
+		t.Fatal("delivery unexpectedly succeeded")
+	} else {
+		var recovery *RecoveryError
+		if !errors.As(err, &recovery) || recovery.State != RecoveryDrainFailed {
+			t.Fatalf("delivery error = %v, recovery = %#v", err, recovery)
+		}
+	}
+
+	journal := filepath.Join(root, artifact.Component, ".delivery-state.json")
+	contents, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state deliveryState
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "committed" || state.Recovery != RecoveryDrainFailed || !state.Drained {
+		t.Fatalf("durable drain recovery = %#v", state)
+	}
+
+	restarted, err := NewDelivery(Config{FileSystem: OSFileSystem{}, Downloader: download, Process: process,
+		Drain: drain, Health: health, ArtifactRoot: root, UnitDirectory: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Deliver(context.Background(), artifact); err != nil {
+		t.Fatalf("retry delivery = %v", err)
+	}
+	if len(process.calls) != 2 {
+		t.Fatalf("retry restarted the unit: %#v", process.calls)
+	}
+	if healthCalls != 2 || !reflect.DeepEqual(drain.events, []string{"begin", "end", "end"}) {
+		t.Fatalf("retry coordination: health=%d drain=%#v", healthCalls, drain.events)
+	}
+	contents, err = os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = deliveryState{}
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "committed" || state.Recovery != RecoveryNone || state.Drained {
+		t.Fatalf("completed drain state = %#v", state)
+	}
+}
+
+func TestRollbackRetriesDrainEndFromDurableStateAfterRestart(t *testing.T) {
+	old := testArtifact(t, "terrabase", "v1", []byte("old"))
+	next := testArtifact(t, "terrabase", "v2", []byte("new"))
+	process := &testProcess{}
+	drain := &testDrain{failEndCall: 3}
+	download := DownloadFunc(func(_ context.Context, artifact Artifact) ([]byte, error) {
+		if artifact.Version == old.Version {
+			return []byte("old"), nil
+		}
+		return []byte("new"), nil
+	})
+	health := HealthFunc(func(context.Context, string, string) error { return nil })
+	delivery, root, units := testDelivery(t, process, download, health, drain)
+	if err := delivery.Deliver(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if err := delivery.Deliver(context.Background(), next); err != nil {
+		t.Fatal(err)
+	}
+	if err := delivery.Rollback(context.Background(), old.Component, old.Version); err == nil {
+		t.Fatal("rollback unexpectedly succeeded")
+	} else {
+		var recovery *RecoveryError
+		if !errors.As(err, &recovery) || recovery.State != RecoveryDrainFailed {
+			t.Fatalf("rollback error = %v, recovery = %#v", err, recovery)
+		}
+	}
+
+	journal := filepath.Join(root, old.Component, ".delivery-state.json")
+	contents, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state deliveryState
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "committed" || state.Recovery != RecoveryDrainFailed || !state.Drained {
+		t.Fatalf("durable rollback drain recovery = %#v", state)
+	}
+
+	restarted, err := NewDelivery(Config{FileSystem: OSFileSystem{}, Downloader: download, Process: process,
+		Drain: drain, Health: health, ArtifactRoot: root, UnitDirectory: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Rollback(context.Background(), old.Component, old.Version); err != nil {
+		t.Fatalf("retry rollback = %v", err)
+	}
+	if len(process.calls) != 6 {
+		t.Fatalf("retry restarted the unit: %#v", process.calls)
+	}
+	if !reflect.DeepEqual(drain.events, []string{"begin", "end", "begin", "end", "begin", "end", "end"}) {
+		t.Fatalf("retry drain coordination = %#v", drain.events)
+	}
+	contents, err = os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = deliveryState{}
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "committed" || state.Recovery != RecoveryNone || state.Drained {
+		t.Fatalf("completed rollback drain state = %#v", state)
+	}
+}
+
+func TestDeliverAutomaticRollbackRetriesDrainEndAfterRestart(t *testing.T) {
+	old := testArtifact(t, "terrabase", "v1", []byte("old"))
+	candidate := testArtifact(t, "terrabase", "v2", []byte("new"))
+	process := &testProcess{}
+	drain := &testDrain{failEndCall: 2}
+	download := DownloadFunc(func(_ context.Context, artifact Artifact) ([]byte, error) {
+		if artifact.Version == old.Version {
+			return []byte("old"), nil
+		}
+		return []byte("new"), nil
+	})
+	health := HealthFunc(func(_ context.Context, _, version string) error {
+		if version == candidate.Version {
+			return errors.New("candidate is not ready")
+		}
+		return nil
+	})
+	delivery, root, units := testDelivery(t, process, download, health, drain)
+	if err := delivery.Deliver(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	if err := delivery.Deliver(context.Background(), candidate); err == nil {
+		t.Fatal("candidate unexpectedly succeeded")
+	}
+
+	journal := filepath.Join(root, old.Component, ".delivery-state.json")
+	contents, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state deliveryState
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "rolled_back" || state.Recovery != RecoveryDrainFailed || !state.Drained {
+		t.Fatalf("automatic rollback drain recovery = %#v", state)
+	}
+
+	restarted, err := NewDelivery(Config{FileSystem: OSFileSystem{}, Downloader: download, Process: process,
+		Drain: drain, Health: health, ArtifactRoot: root, UnitDirectory: units})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Deliver(context.Background(), candidate); err == nil {
+		t.Fatal("candidate retry unexpectedly succeeded")
+	}
+	if drain.endCalls < 3 || drain.events[4] != "end" {
+		t.Fatalf("automatic rollback did not retry drain end first: calls=%d events=%#v", drain.endCalls, drain.events)
+	}
+	contents, err = os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = deliveryState{}
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Phase != "rolled_back" || state.Recovery != RecoveryNone || state.Drained {
+		t.Fatalf("automatic rollback after retry = %#v", state)
+	}
+}
+
+func TestDeliverBoundsCanceledFailureDrainCleanupAndRetriesAfterRestart(t *testing.T) {
+	payload := []byte("static terrabase")
+	artifact := testArtifact(t, "terrabase", "v1", payload)
+	process := &testProcess{}
+	drain := &hangingDrain{started: make(chan struct{}), release: make(chan struct{})}
+	defer close(drain.release)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	healthCalls := 0
+	health := HealthFunc(func(_ context.Context, _, _ string) error {
+		healthCalls++
+		if healthCalls == 1 {
+			cancel()
+			return context.Canceled
+		}
+		return nil
+	})
+	download := DownloadFunc(func(context.Context, Artifact) ([]byte, error) { return payload, nil })
+	root := t.TempDir()
+	units := t.TempDir()
+	delivery, err := NewDelivery(Config{FileSystem: OSFileSystem{}, Downloader: download, Process: process,
+		Drain: drain, Health: health, ArtifactRoot: root, UnitDirectory: units, DrainCleanupTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	result := make(chan error, 1)
+	go func() { result <- delivery.Deliver(ctx, artifact) }()
+	select {
+	case <-drain.started:
+	case <-time.After(time.Second):
+		t.Fatal("EndDrain was not started")
+	}
+	var deliveryErr error
+	select {
+	case deliveryErr = <-result:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("delivery did not honor the drain cleanup deadline")
+	}
+	if time.Since(started) >= 500*time.Millisecond {
+		t.Fatalf("delivery cleanup exceeded deadline: %s", time.Since(started))
+	}
+	var recovery *RecoveryError
+	if !errors.As(deliveryErr, &recovery) || recovery.State != RecoveryDrainFailed || !errors.Is(deliveryErr, context.DeadlineExceeded) {
+		t.Fatalf("bounded cleanup error = %v, recovery = %#v", deliveryErr, recovery)
+	}
+
+	journal := filepath.Join(root, artifact.Component, ".delivery-state.json")
+	contents, err := os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state deliveryState
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Recovery != RecoveryDrainFailed || !state.Drained {
+		t.Fatalf("bounded cleanup recovery state = %#v", state)
+	}
+
+	restarted, err := NewDelivery(Config{FileSystem: OSFileSystem{}, Downloader: download, Process: process,
+		Drain: drain, Health: health, ArtifactRoot: root, UnitDirectory: units, DrainCleanupTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Deliver(context.Background(), artifact); err != nil {
+		t.Fatalf("retry after bounded cleanup = %v", err)
+	}
+	if drain.endCalls() != 2 || len(process.calls) != 2 {
+		t.Fatalf("retry repeated activation or cleanup: drain=%d process=%#v", drain.endCalls(), process.calls)
+	}
+	contents, err = os.ReadFile(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = deliveryState{}
+	if err := json.Unmarshal(contents, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Recovery != RecoveryNone || state.Drained {
+		t.Fatalf("retry completion state = %#v", state)
 	}
 }

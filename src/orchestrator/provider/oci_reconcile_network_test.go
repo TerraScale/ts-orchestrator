@@ -142,9 +142,9 @@ func TestNetworkReconcilePlans(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "empty tenancy plans vcn subnet nsg and rules",
+			name:      "empty tenancy starts with only the vcn",
 			observed:  NetworkObserved{Rules: map[string][]ObservedSecurityRule{}},
-			wantKinds: []OCIActionKind{OCIActionCreateVCN, OCIActionCreateSubnet, OCIActionCreateNSG, OCIActionReplaceNSGRules},
+			wantKinds: []OCIActionKind{OCIActionCreateVCN},
 		},
 		{
 			name: "converged network plans nothing",
@@ -210,6 +210,69 @@ func TestNetworkReconcilePlans(t *testing.T) {
 	}
 }
 
+func TestNetworkReconcileRejectsDuplicateActiveNames(t *testing.T) {
+	declared := testNetworkRegion()
+	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"}
+	for _, tc := range []struct {
+		name     string
+		observed NetworkObserved
+	}{
+		{name: "subnet", observed: NetworkObserved{VCN: vcn, Subnets: []ObservedSubnet{
+			{ID: "ocid1.subnet.oc1.x.1", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"},
+			{ID: "ocid1.subnet.oc1.x.2", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"},
+		}, Rules: map[string][]ObservedSecurityRule{}}},
+		{name: "network security group", observed: NetworkObserved{VCN: vcn, NSGs: []ObservedNSG{
+			{ID: "ocid1.networksecuritygroup.oc1.x.1", DisplayName: "gru-members", LifecycleState: "AVAILABLE"},
+			{ID: "ocid1.networksecuritygroup.oc1.x.2", DisplayName: "gru-members", LifecycleState: "AVAILABLE"},
+		}, Rules: map[string][]ObservedSecurityRule{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := (&NetworkReconciler{Gateway: &fakeNetworkGateway{}}).Reconcile(context.Background(), declared, tc.observed); err == nil {
+				t.Fatal("duplicate active identity was accepted")
+			}
+		})
+	}
+}
+
+func TestNetworkBootstrapConvergenceWaitsForPendingResources(t *testing.T) {
+	declared := testNetworkRegion()
+	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", CIDR: declared.Network.CIDR, LifecycleState: "CREATING"}
+	reconciler := &NetworkReconciler{Gateway: &fakeNetworkGateway{}}
+	converged, err := reconciler.bootstrapConverged(NetworkObserved{VCN: vcn}, declared)
+	if err != nil || converged {
+		t.Fatalf("pending VCN convergence = %v, %v; want false, nil", converged, err)
+	}
+	converged, err = reconciler.bootstrapConverged(NetworkObserved{
+		VCN:     &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
+		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "CREATING"}},
+	}, declared)
+	if err != nil || converged {
+		t.Fatalf("pending subnet convergence = %v, %v; want false, nil", converged, err)
+	}
+	_, err = reconciler.bootstrapConverged(NetworkObserved{
+		VCN:     &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
+		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"}},
+		NSGs:    []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "FAILED"}},
+	}, declared)
+	if err == nil {
+		t.Fatal("failed NSG convergence was accepted")
+	}
+	ready := NetworkObserved{
+		VCN:     &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
+		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"}},
+		NSGs:    []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "AVAILABLE"}},
+		Rules: map[string][]ObservedSecurityRule{"gru-members": {
+			{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
+			{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
+			{ID: "ocid1.securityrule.oc1.x.3", Direction: "EGRESS", Protocol: "1", Peer: "0.0.0.0/0"},
+		}},
+	}
+	converged, err = reconciler.bootstrapConverged(ready, declared)
+	if err != nil || !converged {
+		t.Fatalf("ready network convergence = %v, %v; want true, nil", converged, err)
+	}
+}
+
 func TestNetworkApplyConvergesIdempotently(t *testing.T) {
 	declared := testNetworkRegion()
 	gateway := &fakeNetworkGateway{rules: map[string][]ObservedSecurityRule{}}
@@ -230,7 +293,7 @@ func TestNetworkApplyConvergesIdempotently(t *testing.T) {
 
 	// Converge: rules for a group created in the same apply plan their
 	// addition on the next pass, so bootstrap runs until the plan is empty.
-	for pass := 0; pass < 3; pass++ {
+	for pass := 0; pass < 4; pass++ {
 		observed, err = reconciler.Observe(ctx, declared)
 		if err != nil {
 			t.Fatalf("re-observe failed: %v", err)
@@ -325,6 +388,32 @@ func TestOCINetworkGatewayVCNContract(t *testing.T) {
 	}
 	if requestBody["displayName"] != "terrascale-gru" || requestBody["prohibitPublicIpOnVnic"] != nil {
 		t.Fatalf("vcn payload = %+v", requestBody)
+	}
+	if requestBody == nil {
+		t.Fatal("VCN request body was not captured")
+	}
+}
+
+func TestOCINetworkGatewayReusesStableRetryToken(t *testing.T) {
+	var tokens []string
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost || request.URL.Path != "/20160918/vcns" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
+		}
+		tokens = append(tokens, request.Header.Get("opc-retry-token"))
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.vcn.oc1.x","displayName":"terrascale-gru","cidrBlocks":["10.0.0.0/16"],"lifecycleState":"AVAILABLE"}`, http.Header{}), nil
+	})
+	gateway, err := NewOCINetworkGateway(transport, "ocid1.compartment.oc1.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := gateway.CreateVCN(context.Background(), "terrascale-gru", "10.0.0.0/16"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(tokens) != 2 || tokens[0] == "" || tokens[0] != tokens[1] {
+		t.Fatalf("retry tokens = %q, want one stable non-empty token", tokens)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
@@ -71,6 +72,10 @@ func TestAddRegionDryRunOutputsTheRunbook(t *testing.T) {
 		`"ociRegion": "us-sanjose-1"`,
 		`"estateVersion": 2`,
 		`"count": 2`,
+		`"residencyRegion": "sfo"`,
+		`"minimumMemberHosts": 2`,
+		`"certificates"`,
+		`"edge"`,
 		`"co-hosted"`,
 		`"backups"`,
 		`"infrequent-access"`,
@@ -156,12 +161,19 @@ func TestCheckAddRegionFloor(t *testing.T) {
 
 func TestAddRegionRunsTheBootstrapStages(t *testing.T) {
 	old := runAddRegionBootstrap
+	oldCertificates, oldEdge, oldProbes := runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes
 	var got provider.BootstrapRequest
 	runAddRegionBootstrap = func(_ context.Context, _ func(string) (string, bool), request provider.BootstrapRequest, _ io.Writer) error {
 		got = request
 		return nil
 	}
-	t.Cleanup(func() { runAddRegionBootstrap = old })
+	runAddRegionCertificates = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	runAddRegionEdge = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	runAddRegionProbes = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	t.Cleanup(func() {
+		runAddRegionBootstrap = old
+		runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes = oldCertificates, oldEdge, oldProbes
+	})
 	if err := execute(context.Background(), []string{"add-region", "fra"}, addRegionLookup(), &bytes.Buffer{}); err != nil {
 		t.Fatalf("add-region failed: %v", err)
 	}
@@ -170,13 +182,169 @@ func TestAddRegionRunsTheBootstrapStages(t *testing.T) {
 	}
 }
 
+func TestAddRegionRefusesBeforeOCIWhenRequiredStageIsMissing(t *testing.T) {
+	oldBootstrap := runAddRegionBootstrap
+	oldCertificates, oldEdge, oldProbes := runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes
+	called := false
+	runAddRegionBootstrap = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+		called = true
+		return nil
+	}
+	runAddRegionCertificates = nil
+	runAddRegionEdge = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	runAddRegionProbes = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	t.Cleanup(func() {
+		runAddRegionBootstrap = oldBootstrap
+		runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes = oldCertificates, oldEdge, oldProbes
+	})
+	err := runAddRegion(context.Background(), []string{"add-region", "sfo"}, addRegionLookup(), &bytes.Buffer{})
+	var missing *AddRegionMissingStageError
+	if !errors.As(err, &missing) || missing.Stage != "certificates" {
+		t.Fatalf("missing stage error = %v; want certificates typed refusal", err)
+	}
+	if called {
+		t.Fatal("OCI bootstrap ran despite an unwired required stage")
+	}
+}
+
+func TestAddRegionRealConstructorPreflightRefusesMissingConfigBeforeOCI(t *testing.T) {
+	oldBootstrap := runAddRegionBootstrap
+	oldCertificates, oldEdge, oldProbes := runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes
+	oldCertificateConstructor, oldCloudflareConstructor := newAddRegionCertificate, newAddRegionCloudflare
+	called := false
+	runAddRegionBootstrap = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+		called = true
+		return nil
+	}
+	// Keep the real stage constructors active. The empty lookup must be
+	// rejected by constructor validation before OCI is allowed to mutate.
+	runAddRegionCertificates = addRegionCertificatesFromEnvironment
+	runAddRegionEdge = addRegionEdgeFromEnvironment
+	runAddRegionProbes = addRegionProbesFromHost
+	newAddRegionCertificate = newAddRegionCertificateReconciler
+	newAddRegionCloudflare = newAddRegionCloudflareController
+	t.Cleanup(func() {
+		runAddRegionBootstrap = oldBootstrap
+		runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes = oldCertificates, oldEdge, oldProbes
+		newAddRegionCertificate, newAddRegionCloudflare = oldCertificateConstructor, oldCloudflareConstructor
+	})
+	err := runAddRegion(context.Background(), []string{"add-region", "sfo"}, addRegionLookup(), &bytes.Buffer{})
+	var missing *AddRegionMissingStageError
+	if !errors.As(err, &missing) || missing.Stage != "certificates" {
+		t.Fatalf("constructor preflight error = %v; want certificates typed refusal", err)
+	}
+	if called {
+		t.Fatal("OCI bootstrap ran before constructor preflight")
+	}
+}
+
+type addRegionCertificateGatewayFake struct{}
+
+func (addRegionCertificateGatewayFake) ListCertificates(context.Context) ([]provider.ObservedCert, error) {
+	return []provider.ObservedCert{{
+		ID: "ocid1.certificate.oc1.x", DisplayName: "terrascale-sfo-member-control", LifecycleState: "ACTIVE",
+		DNSNames: []string{"sfo.api.terrascale.tech"}, ExpiresAtUnix: time.Now().Add(90 * 24 * time.Hour).Unix(),
+	}}, nil
+}
+
+func (addRegionCertificateGatewayFake) CreateCertificate(context.Context, string, []string) (provider.ObservedCert, error) {
+	return provider.ObservedCert{}, errors.New("unexpected certificate create")
+}
+
+func (addRegionCertificateGatewayFake) RenewCertificate(context.Context, string, []string) (provider.ObservedCert, error) {
+	return provider.ObservedCert{}, errors.New("unexpected certificate renew")
+}
+
+func TestAddRegionCertificateAdapterUsesInjectedConstructor(t *testing.T) {
+	old := newAddRegionCertificate
+	called := false
+	newAddRegionCertificate = func(_ estate.Spec, _ estate.Region, _ envLookup) (*provider.CertReconciler, error) {
+		called = true
+		return &provider.CertReconciler{Gateway: addRegionCertificateGatewayFake{}}, nil
+	}
+	t.Cleanup(func() { newAddRegionCertificate = old })
+	if err := addRegionCertificatesFromEnvironment(context.Background(), addRegionLookup(), estate.Default(), estate.Default().Regions[1], nil); err != nil {
+		t.Fatalf("certificate adapter failed: %v", err)
+	}
+	if !called {
+		t.Fatal("certificate stage did not use the injected constructor")
+	}
+}
+
+func TestAddRegionRunsStagesInOrderAndRetriesAsyncState(t *testing.T) {
+	oldBootstrap := runAddRegionBootstrap
+	oldCertificates, oldEdge, oldProbes := runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes
+	oldWait := waitAddRegionRetry
+	var order []string
+	waits := 0
+	runAddRegionBootstrap = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+		order = append(order, "oci")
+		return nil
+	}
+	certAttempts := 0
+	runAddRegionCertificates = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
+		order = append(order, "certificates")
+		certAttempts++
+		if certAttempts == 1 {
+			return &AddRegionRetryableError{Stage: "certificates", State: "accepted"}
+		}
+		return nil
+	}
+	runAddRegionEdge = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
+		order = append(order, "edge")
+		return nil
+	}
+	runAddRegionProbes = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
+		order = append(order, "probes")
+		return nil
+	}
+	waitAddRegionRetry = func(context.Context, time.Duration) error { waits++; return nil }
+	t.Cleanup(func() {
+		runAddRegionBootstrap = oldBootstrap
+		runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes = oldCertificates, oldEdge, oldProbes
+		waitAddRegionRetry = oldWait
+	})
+	if err := runAddRegion(context.Background(), []string{"add-region", "sfo"}, addRegionLookup(), &bytes.Buffer{}); err != nil {
+		t.Fatalf("add-region failed: %v", err)
+	}
+	if got, want := strings.Join(order, ","), "oci,certificates,certificates,edge,probes"; got != want {
+		t.Fatalf("stage order = %s; want %s", got, want)
+	}
+	if waits != 1 {
+		t.Fatalf("retry waits = %d; want 1", waits)
+	}
+}
+
+func TestAddRegionRetryBudgetFailsClosed(t *testing.T) {
+	oldWait := waitAddRegionRetry
+	waits := 0
+	waitAddRegionRetry = func(context.Context, time.Duration) error { waits++; return nil }
+	t.Cleanup(func() { waitAddRegionRetry = oldWait })
+	err := runAddRegionStage(context.Background(), "probes", func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
+		return &AddRegionRetryableError{Stage: "probes", State: "in-progress"}
+	}, addRegionLookup(), estate.Default(), estate.Default().Regions[0], nil)
+	if err == nil || !strings.Contains(err.Error(), "retry budget exhausted") {
+		t.Fatalf("retry exhaustion = %v", err)
+	}
+	if waits != addRegionStageRetryBudget-1 {
+		t.Fatalf("retry waits = %d; want %d", waits, addRegionStageRetryBudget-1)
+	}
+}
+
 func TestAddRegionReportsBootstrapFailureWithoutLeaking(t *testing.T) {
 	old := runAddRegionBootstrap
+	oldCertificates, oldEdge, oldProbes := runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes
 	boom := errors.New("bootstrap unavailable")
 	runAddRegionBootstrap = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
 		return boom
 	}
-	t.Cleanup(func() { runAddRegionBootstrap = old })
+	runAddRegionCertificates = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	runAddRegionEdge = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	runAddRegionProbes = func(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error { return nil }
+	t.Cleanup(func() {
+		runAddRegionBootstrap = old
+		runAddRegionCertificates, runAddRegionEdge, runAddRegionProbes = oldCertificates, oldEdge, oldProbes
+	})
 	err := execute(context.Background(), []string{"add-region", "sfo"}, addRegionLookup(), &bytes.Buffer{})
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "orchestrator add-region failed") {
 		t.Fatalf("bootstrap failure = %v; want the redacted add-region failure", err)

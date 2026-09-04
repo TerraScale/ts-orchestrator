@@ -175,3 +175,36 @@ func TestVaultApplyRefusesKeysWithoutActiveVault(t *testing.T) {
 		t.Fatalf("Apply() = %v, want invalid operation", err)
 	}
 }
+
+func TestVaultPendingAndFailedStatesAreNotConverged(t *testing.T) {
+	declared := testVaultRegion()
+	reconciler := &VaultReconciler{Vault: &fakeVaultGateway{}}
+	pending := VaultObserved{Vault: &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"}, Keys: []ObservedKey{
+		{DisplayName: "region-kek", LifecycleState: "CREATING"},
+		{DisplayName: "capability-hmac", LifecycleState: "ENABLED"},
+	}}
+	plan, err := reconciler.Reconcile(context.Background(), declared, pending)
+	if err != nil || !plan.Empty() {
+		t.Fatalf("pending key reconcile = %v, %v; want empty retry plan", plan.Kinds(), err)
+	}
+	converged, err := reconciler.bootstrapConverged(pending, declared)
+	if err != nil || converged {
+		t.Fatalf("pending key convergence = %v, %v; want false", converged, err)
+	}
+	failed := pending
+	failed.Vault = &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "FAILED"}
+	if _, err := reconciler.Reconcile(context.Background(), declared, failed); err == nil {
+		t.Fatal("failed vault accepted")
+	}
+}
+
+func TestVaultDuplicateKeyIsRefused(t *testing.T) {
+	declared := testVaultRegion()
+	observed := VaultObserved{Vault: &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"}, Keys: []ObservedKey{
+		{DisplayName: "region-kek", LifecycleState: "ENABLED"},
+		{DisplayName: "region-kek", LifecycleState: "ENABLED"},
+	}}
+	if _, err := (&VaultReconciler{Vault: &fakeVaultGateway{}}).Reconcile(context.Background(), declared, observed); err == nil {
+		t.Fatal("duplicate vault key accepted")
+	}
+}

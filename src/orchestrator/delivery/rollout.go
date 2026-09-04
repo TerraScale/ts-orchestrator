@@ -42,6 +42,10 @@ type RolloutConfig struct {
 	GateTimeout time.Duration
 	// Now overrides the clock for tests.
 	Now func() time.Time
+	// Wait sleeps for at most the requested duration, or returns when the
+	// context is canceled. It is injectable so gate polling can be
+	// deterministic in tests.
+	Wait func(context.Context, time.Duration) error
 }
 
 // HostInventory lists the hosts of one Region in rollout order. The
@@ -94,6 +98,12 @@ func NewRollout(config RolloutConfig) (*Rollout, error) {
 	}
 	if config.GateTimeout <= 0 {
 		config.GateTimeout = 10 * time.Minute
+	}
+	if config.Now == nil {
+		config.Now = defaultRolloutNow
+	}
+	if config.Wait == nil {
+		config.Wait = waitRollout
 	}
 	return &Rollout{config: config}, nil
 }
@@ -245,7 +255,7 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 	if err := r.config.Control.Cordon(ctx, step.host, true); err != nil {
 		return r.failStep(checks, "cordon:"+label, err)
 	}
-	if err := waitForGate(ctx, r.config.GateTimeout, func() (bool, error) {
+	if err := waitForGate(ctx, r.config.GateTimeout, r.now, r.wait, func() (bool, error) {
 		report, err := r.config.Control.DrainStatus(ctx, step.host)
 		if err != nil {
 			return false, err
@@ -447,24 +457,80 @@ func componentRole(component string) (runtime.AdmittedRole, error) {
 }
 
 // waitForGate polls one gate condition until it holds or the timeout ends.
-func waitForGate(ctx context.Context, timeout time.Duration, condition func() (bool, error)) error {
-	deadline := time.Now().Add(timeout)
+// now and wait are injected so the rollout's deadline and polling do not
+// depend on ambient wall-clock time or an unbounded real sleep. The wait
+// budget also bounds the loop when a test clock jumps backwards or a custom
+// waiter returns immediately.
+func waitForGate(ctx context.Context, timeout time.Duration, now func() time.Time, wait func(context.Context, time.Duration) error, condition func() (bool, error)) error {
+	if now == nil {
+		now = defaultRolloutNow
+	}
+	if wait == nil {
+		wait = waitRollout
+	}
+	deadline := now().Add(timeout)
+	waited := time.Duration(0)
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ok, err := condition()
 		if err == nil && ok {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		current := now()
+		if !current.Before(deadline) || waited >= timeout {
 			if err != nil {
 				return fmt.Errorf("gate did not pass within %s: %w", timeout, err)
 			}
 			return fmt.Errorf("gate did not pass within %s", timeout)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		remaining := deadline.Sub(current)
+		if budget := timeout - waited; budget < remaining {
+			remaining = budget
 		}
+		interval := 50 * time.Millisecond
+		if remaining < interval {
+			interval = remaining
+		}
+		if err := wait(ctx, interval); err != nil {
+			return err
+		}
+		waited += interval
+	}
+}
+
+func (r *Rollout) now() time.Time {
+	if r != nil && r.config.Now != nil {
+		return r.config.Now()
+	}
+	return defaultRolloutNow()
+}
+
+func (r *Rollout) wait(ctx context.Context, duration time.Duration) error {
+	if r != nil && r.config.Wait != nil {
+		return r.config.Wait(ctx, duration)
+	}
+	return waitRollout(ctx, duration)
+}
+
+// defaultRolloutNow is the production clock adapter. Rollout logic only
+// calls the injected function above, leaving this ambient dependency at the
+// composition boundary.
+func defaultRolloutNow() time.Time { return time.Now() }
+
+// waitRollout is the production bounded waiter used by rollout polling.
+func waitRollout(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

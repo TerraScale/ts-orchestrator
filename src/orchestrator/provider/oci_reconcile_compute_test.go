@@ -274,6 +274,34 @@ func TestComputeApplyConvergesIdempotently(t *testing.T) {
 	t.Fatal("compute did not converge in three passes")
 }
 
+func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
+	declared := testComputeDeclared(t)
+	reconciler := &ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}
+	observed := testComputeObserved()
+	observed.Members = []ObservedMember{
+		{ID: "ocid1.instance.oc1.x.1", DisplayName: MemberDisplayName("gru", 1), Index: 1, Shape: declared.Region.Members.PrimaryShape, LifecycleState: "PROVISIONING"},
+		{ID: "ocid1.instance.oc1.x.2", DisplayName: MemberDisplayName("gru", 2), Index: 2, Shape: declared.Region.Members.PrimaryShape, LifecycleState: "RUNNING"},
+	}
+	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
+	if err != nil || !plan.Empty() {
+		t.Fatalf("pending member reconcile = %v, %v; want empty retry plan", plan.Kinds(), err)
+	}
+	converged, err := reconciler.bootstrapConverged(observed, declared)
+	if err != nil || converged {
+		t.Fatalf("pending member convergence = %v, %v; want false", converged, err)
+	}
+	failed := observed
+	failed.Members[0].LifecycleState = "FAILED"
+	if _, err := reconciler.Reconcile(context.Background(), declared, failed); err == nil {
+		t.Fatal("failed member accepted")
+	}
+	duplicate := observed
+	duplicate.Members = append(duplicate.Members, duplicate.Members[1])
+	if _, err := reconciler.Reconcile(context.Background(), declared, duplicate); err == nil {
+		t.Fatal("duplicate member slot accepted")
+	}
+}
+
 func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	sha := strings.Repeat("0123456789abcdef", 4)
 	encoded, err := TSNodeCloudInit("1.2.3", sha, "https://git.terrascale.tech/releases/ts-node")

@@ -109,7 +109,7 @@ type ComputeReconciler struct {
 var _ OCIReconciler[ComputeDeclared, ComputeObserved] = (*ComputeReconciler)(nil)
 
 func memberIsLive(state string) bool {
-	return state != "TERMINATED" && state != "TERMINATING" && state != ""
+	return state != "TERMINATED" && state != "TERMINATING" && state != "" && state != "FAILED" && state != "ERROR"
 }
 
 func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclared) (ComputeObserved, error) {
@@ -185,10 +185,17 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
 	for _, member := range observed.Members {
-		if !memberIsLive(member.LifecycleState) {
+		state := observedMemberState(member.LifecycleState)
+		if state == memberStateFailed {
+			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
+		}
+		if state == memberStateAbsent {
 			continue
 		}
 		if member.Index >= 1 && member.Index <= int(pool.Count) {
+			if _, duplicate := live[member.Index]; duplicate {
+				return OCIPlan{}, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+			}
 			live[member.Index] = member
 			continue
 		}
@@ -215,6 +222,11 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed))
 			continue
 		}
+		if observedMemberState(member.LifecycleState) == memberStatePending {
+			// OCI is still provisioning/updating this slot. Adopt it and wait;
+			// launching a second instance would violate the stable slot identity.
+			continue
+		}
 		if member.Shape != pool.PrimaryShape && member.Shape != pool.FallbackShape {
 			plan.Actions = append(plan.Actions, TerminateMemberAction{InstanceID: member.ID})
 			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed))
@@ -225,6 +237,72 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 		}
 	}
 	return plan, nil
+}
+
+type memberLifecycleState uint8
+
+const (
+	memberStateAbsent memberLifecycleState = iota
+	memberStatePending
+	memberStateActive
+	memberStateStopped
+	memberStateFailed
+	memberStateUnknown
+)
+
+func observedMemberState(state string) memberLifecycleState {
+	switch state {
+	case "RUNNING":
+		return memberStateActive
+	case "STOPPED":
+		return memberStateStopped
+	case "PROVISIONING", "STARTING", "STOPPING", "UPDATING", "REBOOTING":
+		return memberStatePending
+	case "TERMINATED", "TERMINATING", "":
+		return memberStateAbsent
+	case "FAILED", "ERROR":
+		return memberStateFailed
+	default:
+		return memberStateUnknown
+	}
+}
+
+func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, error) {
+	observed, ok := value.(ComputeObserved)
+	if !ok {
+		return false, &InvalidDataError{Message: "compute convergence observation has the wrong type"}
+	}
+	declared, ok := declaration.(ComputeDeclared)
+	if !ok {
+		return false, &InvalidDataError{Message: "compute convergence declaration has the wrong type"}
+	}
+	slots := make(map[int]ObservedMember, len(observed.Members))
+	for _, member := range observed.Members {
+		switch observedMemberState(member.LifecycleState) {
+		case memberStateFailed:
+			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
+		case memberStatePending, memberStateStopped, memberStateAbsent:
+			return false, nil
+		case memberStateUnknown:
+			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+		}
+		if member.Index >= 1 && member.Index <= int(declared.Region.Members.Count) {
+			if _, duplicate := slots[member.Index]; duplicate {
+				return false, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+			}
+			slots[member.Index] = member
+		}
+	}
+	for index := 1; index <= int(declared.Region.Members.Count); index++ {
+		member, exists := slots[index]
+		if !exists || observedMemberState(member.LifecycleState) != memberStateActive {
+			return false, nil
+		}
+		if member.Shape != declared.Region.Members.PrimaryShape && member.Shape != declared.Region.Members.FallbackShape {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, subnetID string, nsgIDs []string, observed ComputeObserved) LaunchMemberAction {

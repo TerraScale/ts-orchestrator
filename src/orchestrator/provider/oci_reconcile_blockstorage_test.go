@@ -203,6 +203,36 @@ func TestBlockStorageApplyConvergesIdempotently(t *testing.T) {
 	t.Fatal("block storage did not converge in four passes")
 }
 
+func TestBlockStoragePendingFailedAndDuplicateResources(t *testing.T) {
+	declared := testComputeRegion()
+	member1 := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	member2 := ObservedMember{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-2"}
+	reconciler := &BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}}
+	observed := testBlockObserved(member1, member2)
+	observed.Volumes = []ObservedVolume{
+		{ID: "ocid1.volume.oc1.x.1", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "CREATING"},
+		{ID: "ocid1.volume.oc1.x.2", DisplayName: DataVolumeName("gru", 2), SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "CREATING"},
+	}
+	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
+	if err != nil || !plan.Empty() {
+		t.Fatalf("pending volume reconcile = %v, %v; want empty retry plan", plan.Kinds(), err)
+	}
+	converged, err := reconciler.bootstrapConverged(observed, declared)
+	if err != nil || converged {
+		t.Fatalf("pending volume convergence = %v, %v; want false", converged, err)
+	}
+	failed := observed
+	failed.Volumes[0].LifecycleState = "FAILED"
+	if _, err := reconciler.Reconcile(context.Background(), declared, failed); err == nil {
+		t.Fatal("failed volume accepted")
+	}
+	duplicate := observed
+	duplicate.Volumes = append(duplicate.Volumes, duplicate.Volumes[0])
+	if _, err := reconciler.Reconcile(context.Background(), declared, duplicate); err == nil {
+		t.Fatal("duplicate volume accepted")
+	}
+}
+
 func countKinds(plan OCIPlan, kind OCIActionKind) int {
 	total := 0
 	for _, action := range plan.Actions {

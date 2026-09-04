@@ -2,12 +2,14 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -20,7 +22,47 @@ import (
 // gateways. The real run needs the owner's OCI API key (O-4/I-7); without
 // it, bootstrap fails loudly before any request is signed.
 
-const bootstrapMaxPasses = 8
+const (
+	bootstrapDefaultMaxPasses    = 32
+	bootstrapDefaultStageTimeout = 30 * time.Minute
+	bootstrapDefaultPollBase     = time.Second
+	bootstrapDefaultPollMaximum  = 30 * time.Second
+	bootstrapMaximumPasses       = 1024
+)
+
+// BootstrapConvergenceConfig controls how long an OCI stage may wait for
+// asynchronous work requests and how often it re-observes them. Zero fields
+// select production defaults; non-zero values are useful for deterministic
+// tests and controlled operators' runbooks.
+type BootstrapConvergenceConfig struct {
+	Deadline    time.Duration
+	MaxPasses   int
+	PollInitial time.Duration
+	PollMaximum time.Duration
+}
+
+func (c BootstrapConvergenceConfig) normalized() BootstrapConvergenceConfig {
+	if c.Deadline == 0 {
+		c.Deadline = bootstrapDefaultStageTimeout
+	}
+	if c.MaxPasses == 0 {
+		c.MaxPasses = bootstrapDefaultMaxPasses
+	}
+	if c.PollInitial == 0 {
+		c.PollInitial = bootstrapDefaultPollBase
+	}
+	if c.PollMaximum == 0 {
+		c.PollMaximum = bootstrapDefaultPollMaximum
+	}
+	return c
+}
+
+func (c BootstrapConvergenceConfig) validate() error {
+	if c.Deadline < 0 || c.MaxPasses < 0 || c.MaxPasses > bootstrapMaximumPasses || c.PollInitial < 0 || c.PollMaximum < 0 || (c.PollInitial > 0 && c.PollMaximum > 0 && c.PollMaximum < c.PollInitial) {
+		return &errs.Argument{Message: "bootstrap convergence settings are invalid"}
+	}
+	return nil
+}
 
 // Environment variables holding the owner's OCI bootstrap credentials and
 // the ts-node release the first hosts install. The private key reuses the
@@ -140,6 +182,7 @@ type BootstrapRequest struct {
 	TSNodeVersion   string
 	TSNodeSHA256    string
 	TSNodeURL       string
+	Convergence     BootstrapConvergenceConfig
 }
 
 func (r BootstrapRequest) validate() error {
@@ -153,6 +196,9 @@ func (r BootstrapRequest) validate() error {
 		return &errs.Argument{Message: "bootstrap compartment name is invalid"}
 	}
 	if _, err := TSNodeCloudInit(r.TSNodeVersion, r.TSNodeSHA256, r.TSNodeURL); err != nil {
+		return err
+	}
+	if err := r.Convergence.validate(); err != nil {
 		return err
 	}
 	return nil
@@ -185,7 +231,7 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return classifyBootstrapOutcome(err)
 	}
 	if err := request.validate(); err != nil {
 		return err
@@ -202,35 +248,66 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 	object := &ObjectStorageReconciler{Object: gateways.Object}
 	compute := &ComputeReconciler{Compute: gateways.Compute, Network: gateways.Network}
 	block := &BlockStorageReconciler{Block: gateways.Block, Compute: gateways.Compute}
-	if err := convergeStage(ctx, "network", network, request.Region, progress); err != nil {
+	if err := convergeStage(ctx, "network", network, request.Region, progress, request.Convergence); err != nil {
 		return err
 	}
-	if err := convergeStage(ctx, "vault", vault, request.Region, progress); err != nil {
+	if err := convergeStage(ctx, "vault", vault, request.Region, progress, request.Convergence); err != nil {
 		return err
 	}
-	if err := convergeStage(ctx, "buckets", object, request.Region, progress); err != nil {
+	if err := convergeStage(ctx, "buckets", object, request.Region, progress, request.Convergence); err != nil {
 		return err
 	}
-	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitBase64: cloudInit}, progress); err != nil {
+	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitBase64: cloudInit}, progress, request.Convergence); err != nil {
 		return err
 	}
-	return convergeStage(ctx, "volumes", block, request.Region, progress)
+	return convergeStage(ctx, "volumes", block, request.Region, progress, request.Convergence)
 }
 
 // convergeStage replans one reconciler until its plan is empty. Async OCI
 // resources (vaults, keys, instances) reach their terminal states between
 // passes.
-func convergeStage[D any, O any](ctx context.Context, stage string, reconciler OCIReconciler[D, O], declared D, progress io.Writer) error {
-	for pass := 1; pass <= bootstrapMaxPasses; pass++ {
-		observed, err := reconciler.Observe(ctx, declared)
-		if err != nil {
-			return fmt.Errorf("bootstrap %s observe failed: %w", stage, err)
+func convergeStage[D any, O any](ctx context.Context, stage string, reconciler OCIReconciler[D, O], declared D, progress io.Writer, settings ...BootstrapConvergenceConfig) error {
+	if ctx == nil {
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if reconciler == nil {
+		return &InvalidOperationError{Message: "bootstrap reconciler is unavailable: " + stage}
+	}
+	config := BootstrapConvergenceConfig{}
+	if len(settings) > 0 {
+		config = settings[0]
+	}
+	if err := config.validate(); err != nil {
+		return err
+	}
+	config = config.normalized()
+	stageCtx, cancel := context.WithTimeout(ctx, config.Deadline)
+	defer cancel()
+	for pass := 1; pass <= config.MaxPasses; pass++ {
+		if err := stageCtx.Err(); err != nil {
+			return fmt.Errorf("bootstrap %s polling cancelled: %w", stage, classifyBootstrapOutcome(err))
 		}
-		plan, err := reconciler.Reconcile(ctx, declared, observed)
+		observed, err := reconciler.Observe(stageCtx, declared)
 		if err != nil {
-			return fmt.Errorf("bootstrap %s reconcile failed: %w", stage, err)
+			return fmt.Errorf("bootstrap %s observe failed: %w", stage, classifyBootstrapOutcome(err))
+		}
+		plan, err := reconciler.Reconcile(stageCtx, declared, observed)
+		if err != nil {
+			return fmt.Errorf("bootstrap %s reconcile failed: %w", stage, classifyBootstrapOutcome(err))
 		}
 		if plan.Empty() {
+			if converger, ok := any(reconciler).(bootstrapConverger); ok {
+				converged, convergenceErr := converger.bootstrapConverged(observed, declared)
+				if convergenceErr != nil {
+					return fmt.Errorf("bootstrap %s convergence check failed: %w", stage, classifyBootstrapOutcome(convergenceErr))
+				}
+				if !converged {
+					if err := waitBootstrapPoll(stageCtx, pass, config); err != nil {
+						return fmt.Errorf("bootstrap %s polling cancelled: %w", stage, classifyBootstrapOutcome(err))
+					}
+					continue
+				}
+			}
 			return nil
 		}
 		for _, action := range plan.Actions {
@@ -240,11 +317,89 @@ func convergeStage[D any, O any](ctx context.Context, stage string, reconciler O
 				}
 			}
 		}
-		if err := reconciler.Apply(ctx, declared, observed, plan); err != nil {
-			return fmt.Errorf("bootstrap %s apply failed: %w", stage, err)
+		if err := reconciler.Apply(stageCtx, declared, observed, plan); err != nil {
+			return fmt.Errorf("bootstrap %s apply failed: %w", stage, classifyBootstrapOutcome(err))
+		}
+		if pass < config.MaxPasses {
+			if err := waitBootstrapPoll(stageCtx, pass, config); err != nil {
+				return fmt.Errorf("bootstrap %s polling cancelled: %w", stage, classifyBootstrapOutcome(err))
+			}
 		}
 	}
-	return &InvalidOperationError{Message: "bootstrap stage did not converge within its pass budget: " + stage}
+	if err := stageCtx.Err(); err != nil {
+		return fmt.Errorf("bootstrap %s polling cancelled: %w", stage, classifyBootstrapOutcome(err))
+	}
+	return classifyBootstrapOutcome(&ProviderOutcomeUnknownError{Message: "bootstrap stage did not converge within its polling budget: " + stage})
+}
+
+// bootstrapConverger lets asynchronous resource reconcilers distinguish an
+// empty action plan from a usable resource. A pending OCI operation must be
+// observed again before the dependent stage is allowed to run.
+type bootstrapConverger interface {
+	bootstrapConverged(observed, declared any) (bool, error)
+}
+
+func waitBootstrapPoll(ctx context.Context, pass int, settings ...BootstrapConvergenceConfig) error {
+	config := BootstrapConvergenceConfig{}
+	if len(settings) > 0 {
+		config = settings[0]
+	}
+	config = config.normalized()
+	multiplier := time.Duration(1)
+	for shift := 1; shift < pass && shift < 62; shift++ {
+		multiplier *= 2
+	}
+	delay := config.PollInitial * multiplier
+	if delay < 0 || delay/multiplier != config.PollInitial {
+		delay = config.PollMaximum
+	}
+	if delay > config.PollMaximum {
+		delay = config.PollMaximum
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// classifyBootstrapOutcome marks transport/deadline outcomes as unknown. A
+// mutating OCI request may have been accepted before its response was lost;
+// add-region must retry the same declared intent after re-observation instead
+// of treating that state as a failed partial build.
+func classifyBootstrapOutcome(err error) error {
+	if err == nil {
+		return nil
+	}
+	var unknown *ProviderOutcomeUnknownError
+	if errors.As(err, &unknown) {
+		return err
+	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return &bootstrapOutcomeUnknownError{
+		ProviderOutcomeUnknownError: &ProviderOutcomeUnknownError{Message: "OCI bootstrap operation outcome is unknown; retry the same declaration"},
+		cause:                       err,
+	}
+}
+
+type bootstrapOutcomeUnknownError struct {
+	*ProviderOutcomeUnknownError
+	cause error
+}
+
+func (e *bootstrapOutcomeUnknownError) Unwrap() error { return e.cause }
+
+func (e *bootstrapOutcomeUnknownError) As(target any) bool {
+	if destination, ok := target.(**ProviderOutcomeUnknownError); ok {
+		*destination = e.ProviderOutcomeUnknownError
+		return true
+	}
+	return errors.As(e.cause, target)
 }
 
 // IdentityGateway is the OCI identity seam bootstrap needs before anything
@@ -273,28 +428,103 @@ func NewOCIIdentityGateway(identity *OCIHTTPTransport, tenancyID string) (*OCIId
 }
 
 // EnsureCompartment returns the ACTIVE compartment's id, creating it when
-// absent. Creation is asynchronous: a just-created compartment may still be
-// CREATING, and the stage that needs it fails loudly on the first pass —
-// rerunning bootstrap converges, which is its normal operating mode.
+// absent. Creation is asynchronous, so an existing in-flight compartment is
+// adopted and polled rather than creating a duplicate.
 func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string) (string, error) {
+	if g == nil || g.Identity == nil {
+		return "", &InvalidOperationError{Message: "identity gateway is unavailable"}
+	}
+	if ctx == nil {
+		return "", &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
 	if !validEstateName(name) {
 		return "", &errs.Argument{Message: "compartment name is invalid"}
 	}
-	query := url.Values{}
-	query.Set("compartmentId", g.TenancyID)
-	query.Set("name", name)
-	var list struct {
-		Items []struct {
-			ID             string `json:"id"`
-			LifecycleState string `json:"lifecycleState"`
-		} `json:"items"`
+	type compartment struct {
+		ID             string `json:"id"`
+		LifecycleState string `json:"lifecycleState"`
 	}
-	if err := doOCIJSON(ctx, g.Identity, http.MethodGet, "/20160918/compartments?"+query.Encode(), nil, nil, &list); err != nil {
+	listCompartments := func() ([]compartment, error) {
+		query := url.Values{}
+		query.Set("compartmentId", g.TenancyID)
+		query.Set("name", name)
+		var list struct {
+			Items []compartment `json:"items"`
+		}
+		if err := doOCIJSON(ctx, g.Identity, http.MethodGet, "/20160918/compartments?"+query.Encode(), nil, nil, &list); err != nil {
+			return nil, err
+		}
+		return list.Items, nil
+	}
+	findCompartment := func(items []compartment) (string, string, error) {
+		var found *compartment
+		for i := range items {
+			item := items[i]
+			if item.LifecycleState == "DELETED" {
+				continue
+			}
+			if !isOCID(item.ID, "compartment") {
+				return "", "", &InvalidDataError{Message: "OCI compartment response is invalid"}
+			}
+			if found != nil {
+				return "", "", &InvalidDataError{Message: "multiple compartments share the declared name"}
+			}
+			found = &item
+		}
+		if found == nil {
+			return "", "", nil
+		}
+		return found.ID, found.LifecycleState, nil
+	}
+	waitForCompartment := func() (string, error) {
+		for pass := 1; pass <= bootstrapDefaultMaxPasses; pass++ {
+			items, err := listCompartments()
+			if err != nil {
+				return "", err
+			}
+			id, state, err := findCompartment(items)
+			if err != nil {
+				return "", err
+			}
+			switch state {
+			case "ACTIVE":
+				return id, nil
+			case "CREATING", "UPDATING", "DELETING":
+				if err := waitBootstrapPoll(ctx, pass); err != nil {
+					return "", err
+				}
+			case "FAILED", "ERROR":
+				return "", &InvalidDataError{Message: "OCI compartment creation failed"}
+			case "":
+				// A create that disappears before becoming ACTIVE has an
+				// ambiguous provider outcome. Do not issue another create from
+				// this invocation; add-region will re-observe the same intent.
+				return "", &ProviderOutcomeUnknownError{Message: "OCI compartment outcome is unknown before it became ACTIVE"}
+			default:
+				return "", &InvalidDataError{Message: "OCI compartment lifecycle state is unusable"}
+			}
+		}
+		return "", &InvalidOperationError{Message: "OCI compartment did not become ACTIVE within the polling budget"}
+	}
+	items, err := listCompartments()
+	if err != nil {
 		return "", err
 	}
-	for _, item := range list.Items {
-		if isOCID(item.ID, "compartment") && item.LifecycleState == "ACTIVE" {
-			return item.ID, nil
+	if id, state, findErr := findCompartment(items); findErr != nil {
+		return "", findErr
+	} else if state != "" {
+		if state == "ACTIVE" {
+			return id, nil
+		}
+		if state == "FAILED" || state == "ERROR" {
+			return "", &InvalidDataError{Message: "OCI compartment creation failed"}
+		}
+		activeID, err := waitForCompartment()
+		if err != nil {
+			return "", err
+		}
+		if activeID != "" {
+			return activeID, nil
 		}
 	}
 	var created struct {
@@ -305,19 +535,28 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 		CompartmentID string `json:"compartmentId"`
 		Name          string `json:"name"`
 		Description   string `json:"description"`
-	}{CompartmentID: g.TenancyID, Name: name, Description: "TerraScale estate (orchestrator-managed)"}, nil, &created); err != nil {
+	}{CompartmentID: g.TenancyID, Name: name, Description: "TerraScale estate (orchestrator-managed)"}, map[string]string{"opc-retry-token": name}, &created); err != nil {
 		return "", err
 	}
 	if !isOCID(created.ID, "compartment") {
 		return "", &InvalidDataError{Message: "OCI compartment create response is invalid"}
 	}
-	return created.ID, nil
+	if created.LifecycleState == "ACTIVE" {
+		return created.ID, nil
+	}
+	return waitForCompartment()
 }
 
 // RunOCIBootstrapFromEnvironment is the whole bootstrap entry point behind
 // the subcommand: read credentials loudly, sign with the owner's API key,
 // ensure the compartment, build the service gateways, and run the stages.
 func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (string, bool), request BootstrapRequest, progress io.Writer) error {
+	if ctx == nil {
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return classifyBootstrapOutcome(err)
+	}
 	credentials, err := BootstrapCredentialsFromEnv(lookup)
 	if err != nil {
 		return err
@@ -389,7 +628,7 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	}
 	compartmentID, err := identity.EnsureCompartment(ctx, request.CompartmentName)
 	if err != nil {
-		return fmt.Errorf("bootstrap compartment failed: %w", err)
+		return fmt.Errorf("bootstrap compartment failed: %w", classifyBootstrapOutcome(err))
 	}
 	network, err := NewOCINetworkGateway(core, compartmentID)
 	if err != nil {

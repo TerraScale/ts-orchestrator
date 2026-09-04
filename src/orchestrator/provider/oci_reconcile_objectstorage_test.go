@@ -125,6 +125,33 @@ func TestObjectStorageReconcilePlans(t *testing.T) {
 	}
 }
 
+func TestObjectStorageReconcileRejectsDuplicateBucketNames(t *testing.T) {
+	declared := testObjectRegion()
+	reconciler := &ObjectStorageReconciler{Object: &fakeObjectGateway{}}
+	_, err := reconciler.Reconcile(context.Background(), declared, ObjectStorageObserved{
+		Namespace: "ts-ns",
+		Buckets: []ObservedBucket{
+			{Name: "terrascale-backups-gru", Versioning: true},
+			{Name: "terrascale-backups-gru", Versioning: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("duplicate bucket identity was accepted")
+	}
+}
+
+func TestObjectStorageBootstrapConvergenceRequiresPolicy(t *testing.T) {
+	declared := testObjectRegion()
+	reconciler := &ObjectStorageReconciler{Object: &fakeObjectGateway{}}
+	converged, err := reconciler.bootstrapConverged(ObjectStorageObserved{
+		Namespace: "ts-ns",
+		Buckets:   []ObservedBucket{{Name: "terrascale-backups-gru", Versioning: true}},
+	}, declared)
+	if err != nil || converged {
+		t.Fatalf("missing policy convergence = %v, %v; want false, nil", converged, err)
+	}
+}
+
 func TestObjectStorageApplyConvergesIdempotently(t *testing.T) {
 	declared := testObjectRegion()
 	gateway := &fakeObjectGateway{namespace: "ts-ns", buckets: map[string]ObservedBucket{}}
@@ -193,6 +220,32 @@ func TestOCIObjectStorageGatewayLifecycleContract(t *testing.T) {
 	filter := second["objectNameFilter"].(map[string]any)
 	if second["action"] != "ARCHIVE" || filter["inclusionPrefixes"].([]any)[0] != "segments/" {
 		t.Fatalf("second lifecycle item = %+v", second)
+	}
+	if requestBody == nil {
+		t.Fatal("lifecycle request body was not captured")
+	}
+}
+
+func TestOCIObjectStorageGatewayReusesStableRetryToken(t *testing.T) {
+	var tokens []string
+	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost || request.URL.Path != "/n/ts-ns/b/" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
+		}
+		tokens = append(tokens, request.Header.Get("opc-retry-token"))
+		return testHTTPResponse(http.StatusOK, `{}`, http.Header{}), nil
+	})
+	gateway, err := NewOCIObjectStorageGateway(transport, "ocid1.compartment.oc1.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := gateway.CreateBucket(context.Background(), "ts-ns", "terrascale-backups-gru", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(tokens) != 2 || tokens[0] == "" || tokens[0] != tokens[1] {
+		t.Fatalf("retry tokens = %q, want one stable non-empty token", tokens)
 	}
 }
 

@@ -27,6 +27,15 @@ type Roller interface {
 	Roll(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error)
 }
 
+// RolloutRollbacker is an optional recovery surface for a Roller. A Roller
+// that can mutate hosts should retain its touched-host progress and expose
+// rollback here; the API invokes it when Roll returns an error or panics.
+// Rollers without this surface are recorded as rollback_failed because an
+// interrupted rollout cannot safely claim that rollback was unnecessary.
+type RolloutRollbacker interface {
+	Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error)
+}
+
 // RolloutResult is the terminal outcome of one rollout.
 type RolloutResult struct {
 	Status    string
@@ -196,11 +205,18 @@ type conflictError struct{ operationID string }
 
 func (e *conflictError) Error() string { return "delivery: operation " + e.operationID + " conflicts" }
 
+var errRolloutPanicked = errors.New("delivery: rollout panicked")
+
+const rolloutRecoveryTimeout = 30 * time.Second
+
 // Submit runs one delivery end to end: idempotent admission, artifact
 // verification, all-Region mirroring, rollout, and the terminal receipt.
 // The terminal receipt always validates against the request before it is
 // returned or stored.
 func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error) {
+	if request == nil {
+		return nil, errors.New("delivery: request is required")
+	}
 	operation, exists, err := s.config.Journal.Begin(request)
 	if err != nil {
 		return nil, &conflictError{operationID: request.OperationID}
@@ -221,7 +237,16 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 		return nil, err
 	}
 	if err := ValidateReceipt(receipt, request); err != nil {
-		return nil, fmt.Errorf("delivery: produced an invalid receipt for %s: %w", request.OperationID, err)
+		// A malformed rollout result must not strand the admitted operation in
+		// running. Persist a fixed, redacted failure instead of exposing the
+		// validator detail (which may contain implementation-specific text).
+		receipt, err = buildReceipt(request, rolloutFailureResult("rollout_result_invalid", nil), true)
+		if err != nil {
+			return nil, fmt.Errorf("delivery: produced an invalid receipt for %s: %w", request.OperationID, err)
+		}
+		if err := ValidateReceipt(receipt, request); err != nil {
+			return nil, fmt.Errorf("delivery: produced an invalid failure receipt for %s: %w", request.OperationID, err)
+		}
 	}
 	if err := s.config.Journal.Finish(request.OperationID, operation.RequestDigest, receipt); err != nil {
 		return nil, err
@@ -230,9 +255,9 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 }
 
 // deliver is the verify → mirror → roll pipeline. Every failure produces a
-// terminal failed receipt (never a half-ack): verification and mirroring
-// failures mean the deploy never started; rollout failures carry the
-// rollout's own terminal status.
+// terminal receipt (never a half-ack): verification and mirroring failures
+// mean the deploy never started; rollout errors, cancellation, and panics are
+// converted to a fixed failed result so the operation can be finished.
 func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error) {
 	failed := func(code, message, remediation string) (*Receipt, error) {
 		return buildReceipt(request, RolloutResult{
@@ -252,11 +277,116 @@ func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error
 		// stranded mid-way.
 		return failed("mirror_incomplete", "The artifact could not be mirrored into every Region.", "Retry the same operation ID after the Region object stores are reachable.")
 	}
-	result, err := s.config.Rollout.Roll(ctx, request, artifact)
+	result, err := rollSafely(ctx, s.config.Rollout, request, artifact)
 	if err != nil {
-		return nil, err
+		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), recoverRollout(ctx, s.config.Rollout, request, artifact)), true)
 	}
 	return buildReceipt(request, result, true)
+}
+
+func rollSafely(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact) (result RolloutResult, err error) {
+	defer func() {
+		if recover() != nil {
+			result = RolloutResult{}
+			err = errRolloutPanicked
+		}
+	}()
+	return roller.Roll(ctx, request, artifact)
+}
+
+func rolloutFailureCode(ctx context.Context, err error) string {
+	if errors.Is(err, errRolloutPanicked) {
+		return "rollout_panicked"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil) {
+		return "rollout_cancelled"
+	}
+	return "rollout_failed"
+}
+
+func recoverRollout(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact) *Rollback {
+	rollback := &Rollback{Status: RollbackFailed}
+	if _, ok := roller.(RolloutRollbacker); !ok {
+		if _, ok := roller.(interface {
+			Rollback(context.Context, *Request, *ReleaseArtifact) (Rollback, error)
+		}); !ok {
+			if _, ok := roller.(interface {
+				Rollback(context.Context, *Request, *ReleaseArtifact) error
+			}); !ok {
+				return rollback
+			}
+		}
+	}
+	rollback.Attempted = true
+	recoveryContext := context.Background()
+	if ctx != nil {
+		// Rollback must not inherit a cancellation that interrupted the forward
+		// rollout; the API still imposes a finite recovery bound below.
+		recoveryContext = context.WithoutCancel(ctx)
+	}
+	recoveryContext, cancel := context.WithTimeout(recoveryContext, rolloutRecoveryTimeout)
+	defer cancel()
+	var recovered *Rollback
+	var recoveryErr error
+	func() {
+		defer func() {
+			if recover() != nil {
+				recovered = nil
+				recoveryErr = errRolloutPanicked
+			}
+		}()
+		switch recovery := roller.(type) {
+		case RolloutRollbacker:
+			recovered, recoveryErr = recovery.Rollback(recoveryContext, request, artifact)
+		case interface {
+			Rollback(context.Context, *Request, *ReleaseArtifact) (Rollback, error)
+		}:
+			var value Rollback
+			value, recoveryErr = recovery.Rollback(recoveryContext, request, artifact)
+			recovered = &value
+		case interface {
+			Rollback(context.Context, *Request, *ReleaseArtifact) error
+		}:
+			recoveryErr = recovery.Rollback(recoveryContext, request, artifact)
+			if recoveryErr == nil {
+				recovered = &Rollback{Status: RollbackSucceeded}
+			}
+		}
+	}()
+	if recoveryErr != nil || recovered == nil {
+		return rollback
+	}
+	copy := *recovered
+	copy.Attempted = true
+	if copy.Status != RollbackSucceeded {
+		copy.Status = RollbackFailed
+	}
+	return &copy
+}
+
+func rolloutFailureResult(code string, rollback *Rollback) RolloutResult {
+	if rollback == nil {
+		rollback = &Rollback{Status: RollbackFailed}
+	}
+	message := "The rollout did not reach a terminal outcome."
+	remediation := "Retry with a fresh operation ID after reviewing the rollout logs."
+	if code == "rollout_cancelled" {
+		message = "The rollout was cancelled before it reached a terminal outcome."
+		remediation = "Retry with a fresh operation ID after the target is ready."
+	}
+	if code == "rollout_panicked" {
+		message = "The rollout terminated unexpectedly."
+	}
+	if rollback.Status == RollbackFailed {
+		remediation = "Inspect the recorded rollback status, then retry with a fresh operation ID."
+	}
+	return RolloutResult{
+		Status:    StatusFailed,
+		Checks:    []*HealthCheck{{Name: "rollout", Status: "failed"}},
+		Converged: false,
+		Rollback:  rollback,
+		Error:     &Error{Code: ptr(code), Message: ptr(message), Remediation: ptr(remediation)},
+	}
 }
 
 // buildReceipt assembles the terminal receipt of one delivery. verified is

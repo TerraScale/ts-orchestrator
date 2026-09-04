@@ -13,8 +13,8 @@ import (
 // its keys (D-65/D-70): one software-protected DEFAULT vault — never a
 // Virtual Private Vault — holding one AES-256 key per declared purpose
 // (the Region KEK that wraps per-database DEKs). Vault and key creation
-// are asynchronous on OCI, so a CREATING resource plans nothing and the
-// next pass finishes the job.
+// are asynchronous on OCI. Pending resources produce no duplicate create
+// action, but are not considered converged until they are usable.
 
 // DefaultVaultName derives the deterministic vault display name for a
 // Region code.
@@ -95,7 +95,7 @@ func (r *VaultReconciler) Observe(ctx context.Context, declared estate.Region) (
 	}
 	observed := VaultObserved{}
 	for i := range vaults {
-		if vaults[i].DisplayName == DefaultVaultName(declared.Code) && vaults[i].LifecycleState != "DELETED" && vaults[i].LifecycleState != "DELETING" {
+		if vaults[i].DisplayName == DefaultVaultName(declared.Code) && vaults[i].LifecycleState != "DELETED" {
 			if observed.Vault != nil {
 				return VaultObserved{}, &InvalidDataError{Message: "multiple vaults share the declared name"}
 			}
@@ -129,23 +129,129 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 		// put the estate on a paid tier it never declared.
 		return OCIPlan{}, &InvalidDataError{Message: "observed vault is a Virtual Private Vault, which the estate never declares"}
 	}
-	if observed.Vault.LifecycleState != "ACTIVE" {
+	switch observedVaultState(observed.Vault.LifecycleState) {
+	case vaultStatePending:
 		// Creation or restoration is in flight; keys wait for an ACTIVE
-		// vault, and the next reconcile pass picks them up.
+		// vault, and bootstrap polls before advancing to buckets.
 		return plan, nil
+	case vaultStateFailed:
+		return OCIPlan{}, &InvalidDataError{Message: "observed vault failed and cannot be used"}
+	case vaultStateAbsent:
+		return OCIPlan{}, &InvalidDataError{Message: "observed vault is not usable"}
 	}
-	keys := make(map[string]bool, len(observed.Keys))
+	keys := make(map[string]vaultKeyState, len(observed.Keys))
 	for _, key := range observed.Keys {
-		if key.LifecycleState == "ENABLED" || key.LifecycleState == "CREATING" || key.LifecycleState == "PENDING_DELETION" {
-			keys[key.DisplayName] = true
+		state := observedKeyState(key.LifecycleState)
+		if _, exists := keys[key.DisplayName]; exists {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple vault keys share the declared name"}
 		}
+		keys[key.DisplayName] = state
 	}
 	for _, declaredKey := range declared.VaultKeys {
-		if !keys[declaredKey.Name] {
+		switch keys[declaredKey.Name] {
+		case vaultKeyStateActive:
+			continue
+		case vaultKeyStatePending:
+			// An in-flight key is adopted by name. Creating another key while
+			// OCI is still processing this one is not idempotent.
+			continue
+		case vaultKeyStateFailed:
+			return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " failed and cannot be used"}
+		case vaultKeyStateUnknown:
+			return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " has an unusable lifecycle state"}
+		default:
 			plan.Actions = append(plan.Actions, CreateVaultKeyAction{VaultName: observed.Vault.DisplayName, KeyName: declaredKey.Name})
 		}
 	}
 	return plan, nil
+}
+
+type vaultLifecycleState uint8
+
+const (
+	vaultStateAbsent vaultLifecycleState = iota
+	vaultStatePending
+	vaultStateActive
+	vaultStateFailed
+)
+
+func observedVaultState(state string) vaultLifecycleState {
+	switch state {
+	case "ACTIVE":
+		return vaultStateActive
+	case "CREATING", "UPDATING", "DELETING":
+		return vaultStatePending
+	case "FAILED", "ERROR":
+		return vaultStateFailed
+	default:
+		return vaultStateAbsent
+	}
+}
+
+type vaultKeyState uint8
+
+const (
+	vaultKeyStateMissing vaultKeyState = iota
+	vaultKeyStatePending
+	vaultKeyStateActive
+	vaultKeyStateFailed
+	vaultKeyStateUnknown
+)
+
+func observedKeyState(state string) vaultKeyState {
+	switch state {
+	case "ENABLED":
+		return vaultKeyStateActive
+	case "CREATING", "UPDATING", "PENDING_DELETION":
+		return vaultKeyStatePending
+	case "FAILED", "ERROR":
+		return vaultKeyStateFailed
+	default:
+		return vaultKeyStateUnknown
+	}
+}
+
+func (r *VaultReconciler) bootstrapConverged(value, declaration any) (bool, error) {
+	observed, ok := value.(VaultObserved)
+	if !ok {
+		return false, &InvalidDataError{Message: "vault convergence observation has the wrong type"}
+	}
+	declared, ok := declaration.(estate.Region)
+	if !ok {
+		return false, &InvalidDataError{Message: "vault convergence declaration has the wrong type"}
+	}
+	if observed.Vault == nil {
+		return false, nil
+	}
+	switch observedVaultState(observed.Vault.LifecycleState) {
+	case vaultStatePending:
+		return false, nil
+	case vaultStateFailed:
+		return false, &InvalidDataError{Message: "observed vault failed and cannot be used"}
+	case vaultStateAbsent:
+		return false, &InvalidDataError{Message: "observed vault is not usable"}
+	}
+	for _, key := range observed.Keys {
+		switch observedKeyState(key.LifecycleState) {
+		case vaultKeyStatePending:
+			return false, nil
+		case vaultKeyStateFailed:
+			return false, &InvalidDataError{Message: "observed vault key " + key.DisplayName + " failed and cannot be used"}
+		}
+	}
+	for _, declaredKey := range declared.VaultKeys {
+		found := false
+		for _, key := range observed.Keys {
+			if key.DisplayName == declaredKey.Name {
+				found = observedKeyState(key.LifecycleState) == vaultKeyStateActive
+				break
+			}
+		}
+		if !found {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r *VaultReconciler) Apply(ctx context.Context, declared estate.Region, observed VaultObserved, plan OCIPlan) error {
@@ -256,7 +362,7 @@ func (g *OCIVaultGateway) CreateVault(ctx context.Context, name string) (Observe
 		CompartmentID string `json:"compartmentId"`
 		DisplayName   string `json:"displayName"`
 		VaultType     string `json:"vaultType"`
-	}{CompartmentID: g.CompartmentID, DisplayName: name, VaultType: vaultTypeDefault}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, DisplayName: name, VaultType: vaultTypeDefault}, map[string]string{"opc-retry-token": name}, &document); err != nil {
 		return ObservedVault{}, err
 	}
 	created, err := observedVault(document)
@@ -334,7 +440,7 @@ func (g *OCIVaultGateway) CreateKey(ctx context.Context, vault ObservedVault, ke
 		Algorithm  string `json:"algorithm"`
 		Length     int    `json:"length"`
 		Protection string `json:"protectionMode"`
-	}{Algorithm: vaultKeyAlgorithmAES, Length: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret}}, nil, &document); err != nil {
+	}{Algorithm: vaultKeyAlgorithmAES, Length: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret}}, map[string]string{"opc-retry-token": vault.ID + "/" + keyName}, &document); err != nil {
 		return ObservedKey{}, err
 	}
 	if !isOCID(document.ID, "key") {

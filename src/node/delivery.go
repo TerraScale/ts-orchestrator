@@ -219,14 +219,15 @@ type FileSystem interface {
 // Config composes one node installer. ArtifactRoot and UnitDirectory are
 // overridable only as test seams; production uses the two fixed defaults.
 type Config struct {
-	FileSystem      FileSystem
-	Downloader      ArtifactDownloader
-	Process         ProcessRunner
-	Drain           DrainCoordinator
-	Health          HealthGate
-	ArtifactRoot    string
-	UnitDirectory   string
-	RollbackTimeout time.Duration
+	FileSystem          FileSystem
+	Downloader          ArtifactDownloader
+	Process             ProcessRunner
+	Drain               DrainCoordinator
+	Health              HealthGate
+	ArtifactRoot        string
+	UnitDirectory       string
+	RollbackTimeout     time.Duration
+	DrainCleanupTimeout time.Duration
 }
 
 // NodeConfig is an alias retained for callers composing the ts-node agent.
@@ -236,15 +237,16 @@ type NodeConfig = Config
 // different components may proceed independently; each component has a
 // crash-safe serialized boundary.
 type Delivery struct {
-	fs              FileSystem
-	downloader      ArtifactDownloader
-	process         ProcessRunner
-	drain           DrainCoordinator
-	health          HealthGate
-	artifactRoot    string
-	unitDirectory   string
-	rollbackTimeout time.Duration
-	locks           sync.Map // map[string]chan struct{}
+	fs                  FileSystem
+	downloader          ArtifactDownloader
+	process             ProcessRunner
+	drain               DrainCoordinator
+	health              HealthGate
+	artifactRoot        string
+	unitDirectory       string
+	rollbackTimeout     time.Duration
+	drainCleanupTimeout time.Duration
+	locks               sync.Map // map[string]chan struct{}
 }
 
 // NewDelivery validates dependencies and creates an installer.
@@ -278,10 +280,13 @@ func NewDelivery(config Config) (*Delivery, error) {
 	if config.RollbackTimeout <= 0 {
 		config.RollbackTimeout = 30 * time.Second
 	}
+	if config.DrainCleanupTimeout <= 0 {
+		config.DrainCleanupTimeout = 30 * time.Second
+	}
 	return &Delivery{fs: config.FileSystem, downloader: config.Downloader,
 		process: config.Process, drain: config.Drain, health: config.Health,
 		artifactRoot: filepath.Clean(root), unitDirectory: filepath.Clean(units),
-		rollbackTimeout: config.RollbackTimeout}, nil
+		rollbackTimeout: config.RollbackTimeout, drainCleanupTimeout: config.DrainCleanupTimeout}, nil
 }
 
 // Node is the host-agent delivery core.
@@ -338,7 +343,7 @@ func CurrentPath(root, component string) (string, error) {
 // its unit configuration.
 // Repeating the same call after a crash converges from the durable symlink and
 // journal rather than downloading or applying a second mutable release.
-func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) error {
+func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) (returnErr error) {
 	if ctx == nil {
 		return errors.New("node: context must not be nil")
 	}
@@ -390,6 +395,13 @@ func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) error {
 	if err != nil {
 		return err
 	}
+	if pending != nil && pending.Component == artifact.Component && pending.Drained {
+		if err := d.finishDrain(ctx, journalPath, *pending); err != nil {
+			return err
+		}
+		pending.Recovery = RecoveryNone
+		pending.Drained = false
+	}
 	if pending != nil && pending.Component == artifact.Component && pending.Phase == "rollback_failed" {
 		return fmt.Errorf("node: delivery for %s is pending recovery", pending.Target)
 	}
@@ -439,11 +451,18 @@ func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) error {
 	drained := true
 	defer func() {
 		if drained {
-			// EndDrain is best effort after the unit has either recovered or
-			// been rolled back. Its error is returned explicitly below.
-			_ = d.drain.EndDrain(context.WithoutCancel(ctx), artifact.Component)
+			// A failed operation still has to release customer traffic. If the
+			// release itself fails, persist that fact so a later retry can
+			// converge instead of silently declaring the node active.
+			if drainErr := d.finishDrain(context.WithoutCancel(ctx), journalPath, state); drainErr != nil {
+				returnErr = errors.Join(returnErr, drainErr)
+			}
 		}
 	}()
+	state.Drained = true
+	if err := d.writeState(journalPath, state.withPhase("prepared")); err != nil {
+		return err
+	}
 
 	if !pendingActivation || !hasPrevious || !sameVersionTarget(previous, artifact.Version) {
 		if err := d.writeUnit(unit, artifact); err != nil {
@@ -467,8 +486,10 @@ func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) error {
 	if err := d.writeState(journalPath, state.withPhase("committed")); err != nil {
 		return err
 	}
-	if err := d.drain.EndDrain(ctx, artifact.Component); err != nil {
-		drained = false
+	if err := d.finishDrain(ctx, journalPath, state.withPhase("committed")); err != nil {
+		// If the recovery write itself failed, retain the in-process cleanup
+		// obligation so the deferred attempt can still release the fence.
+		drained = !d.drainRecoveryDurable(journalPath)
 		return fmt.Errorf("node: release %s is healthy but drain ended with an error: %w", artifact.Version, err)
 	}
 	drained = false
@@ -480,7 +501,7 @@ func (d *Delivery) Deliver(ctx context.Context, artifact Artifact) error {
 // requires that version to pass the same health gate. It is intentionally
 // version-only: callers can roll back only to a safe path token already
 // present in the durable trust record on this host.
-func (d *Delivery) Rollback(ctx context.Context, component, version string) error {
+func (d *Delivery) Rollback(ctx context.Context, component, version string) (returnErr error) {
 	if ctx == nil {
 		return errors.New("node: context must not be nil")
 	}
@@ -507,6 +528,13 @@ func (d *Delivery) Rollback(ctx context.Context, component, version string) erro
 	pending, err := d.readState(journalPath)
 	if err != nil {
 		return err
+	}
+	if pending != nil && pending.Component == component && pending.Drained {
+		if err := d.finishDrain(ctx, journalPath, *pending); err != nil {
+			return err
+		}
+		pending.Recovery = RecoveryNone
+		pending.Drained = false
 	}
 	if pending != nil && pending.Component == component && isRecoveryPending(pending.Phase) && !rollbackRecoveryRetry(pending, version) {
 		return fmt.Errorf("node: delivery for %s is pending recovery", pending.Target)
@@ -556,9 +584,15 @@ func (d *Delivery) Rollback(ctx context.Context, component, version string) erro
 	drained := true
 	defer func() {
 		if drained {
-			_ = d.drain.EndDrain(context.WithoutCancel(ctx), component)
+			if drainErr := d.finishDrain(context.WithoutCancel(ctx), journalPath, state); drainErr != nil {
+				returnErr = errors.Join(returnErr, drainErr)
+			}
 		}
 	}()
+	state.Drained = true
+	if err := d.writeState(journalPath, state.withPhase("prepared")); err != nil {
+		return err
+	}
 	unitPath, err := d.unitPath(component)
 	if err != nil {
 		return d.persistRecovery(journalPath, state, RecoveryActivationFailed, err)
@@ -578,14 +612,14 @@ func (d *Delivery) Rollback(ctx context.Context, component, version string) erro
 	if err := d.health.WaitHealthy(ctx, component, version); err != nil {
 		return d.persistRecovery(journalPath, state, recoveryStateForHealth(err), err)
 	}
-	if err := d.drain.EndDrain(ctx, component); err != nil {
-		drained = false
-		return d.persistRecovery(journalPath, state, RecoveryDrainFailed, err)
-	}
-	drained = false
 	if err := d.writeState(journalPath, state.withPhase("committed")); err != nil {
 		return err
 	}
+	if err := d.finishDrain(ctx, journalPath, state.withPhase("committed")); err != nil {
+		drained = !d.drainRecoveryDurable(journalPath)
+		return err
+	}
+	drained = false
 	return nil
 }
 
@@ -683,6 +717,51 @@ func (d *Delivery) persistRecovery(path string, state deliveryState, recovery Re
 		return errors.Join(&RecoveryError{State: recovery, Err: cause}, fmt.Errorf("node: persist recovery state: %w", err))
 	}
 	return &RecoveryError{State: recovery, Err: cause}
+}
+
+// finishDrain releases the traffic fence and records the result durably. The
+// latest journal is loaded first because an error path may have completed an
+// automatic rollback after the caller's in-memory state was created.
+func (d *Delivery) finishDrain(ctx context.Context, path string, state deliveryState) error {
+	if latest, err := d.readState(path); err == nil && latest != nil {
+		state = *latest
+	}
+	state.Drained = true
+	cleanupContext := context.WithoutCancel(ctx)
+	cleanupTimeout := d.drainCleanupTimeout
+	if cleanupTimeout <= 0 {
+		cleanupTimeout = 30 * time.Second
+	}
+	cleanupContext, cancel := context.WithTimeout(cleanupContext, cleanupTimeout)
+	defer cancel()
+	endResult := make(chan error, 1)
+	go func() { endResult <- d.drain.EndDrain(cleanupContext, state.Component) }()
+	var endErr error
+	select {
+	case endErr = <-endResult:
+	case <-cleanupContext.Done():
+		endErr = cleanupContext.Err()
+	}
+	if endErr != nil {
+		state.Recovery = RecoveryDrainFailed
+		if persistErr := d.writeState(path, state); persistErr != nil {
+			return errors.Join(&RecoveryError{State: RecoveryDrainFailed, Err: endErr}, fmt.Errorf("node: persist drain recovery state: %w", persistErr))
+		}
+		return &RecoveryError{State: RecoveryDrainFailed, Err: endErr}
+	}
+	state.Drained = false
+	if state.Recovery == RecoveryDrainFailed {
+		state.Recovery = RecoveryNone
+	}
+	if err := d.writeState(path, state); err != nil {
+		return fmt.Errorf("node: persist drain completion state: %w", err)
+	}
+	return nil
+}
+
+func (d *Delivery) drainRecoveryDurable(path string) bool {
+	state, err := d.readState(path)
+	return err == nil && state != nil && state.Drained && state.Recovery == RecoveryDrainFailed
 }
 
 func recoveryStateForError(err error) RecoveryState {
@@ -928,6 +1007,7 @@ type deliveryState struct {
 	Phase     string                         `json:"phase"`
 	Action    string                         `json:"action,omitempty"`
 	Recovery  RecoveryState                  `json:"recovery,omitempty"`
+	Drained   bool                           `json:"drained,omitempty"`
 	Trusted   map[string]artifactTrustRecord `json:"trusted,omitempty"`
 	Units     map[string]string              `json:"units,omitempty"`
 }

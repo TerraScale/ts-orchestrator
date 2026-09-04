@@ -39,7 +39,43 @@ type fakeRoller struct {
 	calls  int
 	result RolloutResult
 	err    error
+	panic  bool
 	gate   chan struct{} // non-nil: block until closed
+}
+
+type panicAfterMutationRoller struct {
+	mu             sync.Mutex
+	mutated        bool
+	rollbackCalls  int
+	rollbackResult *Rollback
+}
+
+func (r *panicAfterMutationRoller) Roll(context.Context, *Request, *ReleaseArtifact) (RolloutResult, error) {
+	r.mu.Lock()
+	r.mutated = true
+	r.mu.Unlock()
+	panic("host mutation completed before rollout panic")
+}
+
+func (r *panicAfterMutationRoller) Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rollbackCalls++
+	r.mutated = false
+	result := *r.rollbackResult
+	return &result, nil
+}
+
+func (r *panicAfterMutationRoller) rollbackCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rollbackCalls
+}
+
+func (r *panicAfterMutationRoller) wasMutated() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.mutated
 }
 
 func (r *fakeRoller) Roll(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error) {
@@ -52,6 +88,9 @@ func (r *fakeRoller) Roll(ctx context.Context, request *Request, artifact *Relea
 		case <-ctx.Done():
 			return RolloutResult{}, ctx.Err()
 		}
+	}
+	if r.panic {
+		panic("panic includes no receipt details")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -73,7 +112,7 @@ func (r *fakeRoller) callCount() int {
 	return r.calls
 }
 
-func testServer(t *testing.T, roller *fakeRoller, store *fakeStore) (*Server, *httptest.Server) {
+func testServer(t *testing.T, roller Roller, store *fakeStore) (*Server, *httptest.Server) {
 	t.Helper()
 	request, fetcher, trust, _ := testRelease(t, nil)
 	_ = request
@@ -268,6 +307,161 @@ func TestDeliveryAPIIdempotencyAndConflict(t *testing.T) {
 	changed.Reason = "a different request entirely"
 	if _, err := server.Submit(context.Background(), &changed); err == nil {
 		t.Fatal("a reused operation ID with a different request must conflict")
+	}
+}
+
+// TestDeliveryAPIRolloutErrorsBecomeTerminalReceipts proves that a rollout
+// error is durable and replayable. A failed rollout is never retried under
+// the same operation ID: the caller must submit a new ID explicitly.
+func TestDeliveryAPIRolloutErrorsBecomeTerminalReceipts(t *testing.T) {
+	roller := &fakeRoller{err: errors.New("rollout failed: bearer=secret-token " + string(make([]byte, 4096)))}
+	store := &fakeStore{}
+	server, httpServer := testServer(t, roller, store)
+	request := testDeliveryRequest(t)
+
+	response, receipt := postDelivery(t, httpServer, "delivery-token", request)
+	if response.StatusCode != http.StatusOK || receipt == nil {
+		t.Fatalf("rollout error status = %d receipt=%+v", response.StatusCode, receipt)
+	}
+	if receipt.Status != StatusFailed || receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "rollout_failed" {
+		t.Fatalf("rollout error receipt = %+v", receipt)
+	}
+	if receipt.Provenance == nil || !receipt.Provenance.Verified || receipt.Health == nil || receipt.Health.Converged {
+		t.Fatalf("rollout error must retain verified provenance and failed convergence: %+v", receipt)
+	}
+	if len(*receipt.Error.Message) > 256 || bytes.Contains([]byte(*receipt.Error.Message), []byte("secret-token")) {
+		t.Fatalf("rollout error details were not redacted/bounded: %q", *receipt.Error.Message)
+	}
+	if err := ValidateReceipt(receipt, request); err != nil {
+		t.Fatalf("terminal rollout error receipt must validate: %v", err)
+	}
+
+	replay, err := server.Submit(context.Background(), request)
+	if err != nil || replay.Status != StatusFailed || roller.callCount() != 1 {
+		t.Fatalf("same-ID replay = %+v err=%v calls=%d", replay, err, roller.callCount())
+	}
+	changed := *request
+	changed.Reason = "retry with changed payload"
+	if _, err := server.Submit(context.Background(), &changed); err == nil {
+		t.Fatal("different payload must conflict after terminal failure")
+	}
+
+	poll, err := httpServer.Client().Get(httpServer.URL + OperationsPath + "/" + request.OperationID)
+	if err != nil {
+		t.Fatalf("poll terminal rollout error: %v", err)
+	}
+	defer poll.Body.Close()
+	if poll.StatusCode != http.StatusOK {
+		t.Fatalf("terminal rollout poll status = %d", poll.StatusCode)
+	}
+	operation, ok := server.config.Journal.Get(request.OperationID)
+	if !ok || operation.State != OperationDone || operation.Receipt == nil || operation.Receipt.Status != StatusFailed {
+		t.Fatalf("journal did not persist terminal failure: %+v", operation)
+	}
+}
+
+func TestDeliveryAPIRolloutPanicBecomesTerminalReceipt(t *testing.T) {
+	roller := &fakeRoller{panic: true}
+	server, httpServer := testServer(t, roller, &fakeStore{})
+	request := testDeliveryRequest(t)
+
+	response, receipt := postDelivery(t, httpServer, "delivery-token", request)
+	if response.StatusCode != http.StatusOK || receipt == nil || receipt.Status != StatusFailed {
+		t.Fatalf("panic status = %d receipt=%+v", response.StatusCode, receipt)
+	}
+	if receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "rollout_panicked" {
+		t.Fatalf("panic receipt error = %+v", receipt.Error)
+	}
+	if receipt.Rollback == nil || receipt.Rollback.Status == RollbackNotRequired {
+		t.Fatalf("panic receipt must not claim rollback was unnecessary: %+v", receipt.Rollback)
+	}
+	if bytes.Contains([]byte(Serialize(receipt)), []byte("panic includes")) {
+		t.Fatal("panic details must not appear in a receipt")
+	}
+	if _, err := server.Submit(context.Background(), request); err != nil || roller.callCount() != 1 {
+		t.Fatalf("panic replay = err=%v calls=%d", err, roller.callCount())
+	}
+}
+
+func TestDeliveryAPIPartialPanicAttemptsRollback(t *testing.T) {
+	request := testDeliveryRequest(t)
+	roller := &panicAfterMutationRoller{rollbackResult: &Rollback{
+		Status:               RollbackSucceeded,
+		TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest),
+		TargetManifestDigest: ptr(request.Rollback.ManifestDigest),
+	}}
+	server, httpServer := testServer(t, roller, &fakeStore{})
+
+	response, receipt := postDelivery(t, httpServer, "delivery-token", request)
+	if response.StatusCode != http.StatusOK || receipt == nil || receipt.Status != StatusFailed {
+		t.Fatalf("partial panic status = %d receipt=%+v", response.StatusCode, receipt)
+	}
+	if roller.wasMutated() {
+		t.Fatal("rollback must clear the partial mutation")
+	}
+	if receipt.Rollback == nil || !receipt.Rollback.Attempted || receipt.Rollback.Status != RollbackSucceeded {
+		t.Fatalf("partial panic rollback = %+v", receipt.Rollback)
+	}
+	if roller.rollbackCount() != 1 {
+		t.Fatalf("rollback calls = %d, want 1", roller.rollbackCount())
+	}
+	if err := ValidateReceipt(receipt, request); err != nil {
+		t.Fatalf("partial panic receipt must validate: %v", err)
+	}
+	if _, err := server.Submit(context.Background(), request); err != nil || roller.rollbackCount() != 1 {
+		t.Fatalf("partial panic replay = err=%v rollback calls=%d", err, roller.rollbackCount())
+	}
+}
+
+func TestDeliveryAPIRolloutCancellationBecomesTerminalReceipt(t *testing.T) {
+	roller := &fakeRoller{gate: make(chan struct{})}
+	server, _ := testServer(t, roller, &fakeStore{})
+	request := testDeliveryRequest(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	receipt, err := server.Submit(ctx, request)
+	if err != nil || receipt == nil || receipt.Status != StatusFailed {
+		t.Fatalf("cancelled rollout = receipt=%+v err=%v", receipt, err)
+	}
+	if receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "rollout_cancelled" {
+		t.Fatalf("cancelled rollout error = %+v", receipt.Error)
+	}
+	replay, err := server.Submit(context.Background(), request)
+	if err != nil || replay.Status != StatusFailed || roller.callCount() != 1 {
+		t.Fatalf("cancelled replay = receipt=%+v err=%v calls=%d", replay, err, roller.callCount())
+	}
+}
+
+func TestDeliveryAPIRolloutErrorConcurrency(t *testing.T) {
+	gate := make(chan struct{})
+	roller := &fakeRoller{gate: gate, err: errors.New("rollout unavailable")}
+	server, httpServer := testServer(t, roller, &fakeStore{})
+	request := testDeliveryRequest(t)
+
+	firstDone := make(chan *Receipt, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		receipt, err := server.Submit(context.Background(), request)
+		firstDone <- receipt
+		firstErr <- err
+	}()
+	waitFor(t, func() bool { return roller.callCount() == 1 })
+
+	response, _ := postDelivery(t, httpServer, "delivery-token", request)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("concurrent replay status = %d", response.StatusCode)
+	}
+	close(gate)
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first rollout error = %v", err)
+	}
+	if receipt := <-firstDone; receipt == nil || receipt.Status != StatusFailed {
+		t.Fatalf("first terminal receipt = %+v", receipt)
+	}
+	replay, err := server.Submit(context.Background(), request)
+	if err != nil || replay.Status != StatusFailed || roller.callCount() != 1 {
+		t.Fatalf("post-terminal replay = %+v err=%v calls=%d", replay, err, roller.callCount())
 	}
 }
 

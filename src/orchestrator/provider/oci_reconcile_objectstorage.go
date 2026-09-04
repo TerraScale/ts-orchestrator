@@ -156,6 +156,9 @@ func (r *ObjectStorageReconciler) Reconcile(ctx context.Context, declared estate
 	}
 	byName := make(map[string]ObservedBucket, len(observed.Buckets))
 	for _, bucket := range observed.Buckets {
+		if _, duplicate := byName[bucket.Name]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
+		}
 		byName[bucket.Name] = bucket
 	}
 	plan := OCIPlan{}
@@ -177,6 +180,43 @@ func (r *ObjectStorageReconciler) Reconcile(ctx context.Context, declared estate
 		}
 	}
 	return plan, nil
+}
+
+// bootstrapConverged distinguishes an empty plan from a usable object-store
+// state and rejects ambiguous observations before dependent stages proceed.
+func (r *ObjectStorageReconciler) bootstrapConverged(value, declaration any) (bool, error) {
+	observed, ok := value.(ObjectStorageObserved)
+	if !ok {
+		return false, &InvalidDataError{Message: "object storage convergence observation has the wrong type"}
+	}
+	declared, ok := declaration.(estate.Region)
+	if !ok {
+		return false, &InvalidDataError{Message: "object storage convergence declaration has the wrong type"}
+	}
+	if observed.Namespace == "" {
+		return false, nil
+	}
+	byName := make(map[string]ObservedBucket, len(observed.Buckets))
+	for _, bucket := range observed.Buckets {
+		if _, duplicate := byName[bucket.Name]; duplicate {
+			return false, &InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
+		}
+		byName[bucket.Name] = bucket
+	}
+	for _, want := range declared.Buckets {
+		bucket, exists := byName[want.Name]
+		if !exists || bucket.Versioning != want.Versioning {
+			return false, nil
+		}
+		rules, err := LifecycleRuleSpecs(want)
+		if err != nil {
+			return false, err
+		}
+		if !lifecycleMatches(rules, bucket) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // lifecycleMatches reports whether the observed policy already equals the
@@ -398,7 +438,10 @@ func (g *OCIObjectStorageGateway) CreateBucket(ctx context.Context, namespace, n
 	if versioning {
 		payload.Versioning = "Enabled"
 	}
-	return doOCIJSON[struct{}](ctx, g.Object, http.MethodPost, "/n/"+url.PathEscape(namespace)+"/b/", payload, nil, nil)
+	return doOCIJSON[struct{}](ctx, g.Object, http.MethodPost, "/n/"+url.PathEscape(namespace)+"/b/", payload, map[string]string{"opc-retry-token": networkRetryToken("bucket", struct {
+		Namespace string
+		Name      string
+	}{namespace, name})}, nil)
 }
 
 func (g *OCIObjectStorageGateway) SetVersioning(ctx context.Context, namespace, bucket string, enabled bool) error {
@@ -411,7 +454,11 @@ func (g *OCIObjectStorageGateway) SetVersioning(ctx context.Context, namespace, 
 	}
 	return doOCIJSON[struct{}](ctx, g.Object, http.MethodPut, "/n/"+url.PathEscape(namespace)+"/b/"+url.PathEscape(bucket), struct {
 		Versioning string `json:"versioning"`
-	}{Versioning: value}, nil, nil)
+	}{Versioning: value}, map[string]string{"opc-retry-token": networkRetryToken("bucket-versioning", struct {
+		Namespace string
+		Name      string
+		Enabled   bool
+	}{namespace, bucket, enabled})}, nil)
 }
 
 func (g *OCIObjectStorageGateway) SetLifecycleRules(ctx context.Context, namespace, bucket string, rules []LifecycleRuleSpec) error {
@@ -430,5 +477,9 @@ func (g *OCIObjectStorageGateway) SetLifecycleRules(ctx context.Context, namespa
 		}
 		items = append(items, item)
 	}
-	return doOCIJSON[struct{}](ctx, g.Object, http.MethodPut, "/n/"+url.PathEscape(namespace)+"/b/"+url.PathEscape(bucket)+"/lifecyclePolicy", ociLifecyclePolicy{Items: items}, nil, nil)
+	return doOCIJSON[struct{}](ctx, g.Object, http.MethodPut, "/n/"+url.PathEscape(namespace)+"/b/"+url.PathEscape(bucket)+"/lifecyclePolicy", ociLifecyclePolicy{Items: items}, map[string]string{"opc-retry-token": networkRetryToken("bucket-lifecycle", struct {
+		Namespace string
+		Name      string
+		Rules     []LifecycleRuleSpec
+	}{namespace, bucket, rules})}, nil)
 }

@@ -2,9 +2,13 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -149,6 +153,9 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 	if observed.VCN == nil {
 		return observed, nil
 	}
+	if observedNetworkState(observed.VCN.LifecycleState) != networkStateActive {
+		return observed, nil
+	}
 	observed.Subnets, err = r.Gateway.ListSubnets(ctx, observed.VCN.ID)
 	if err != nil {
 		return NetworkObserved{}, err
@@ -158,6 +165,9 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 		return NetworkObserved{}, err
 	}
 	for _, group := range observed.NSGs {
+		if observedNetworkState(group.LifecycleState) != networkStateActive {
+			continue
+		}
 		rules, err := r.Gateway.ListNSGRules(ctx, group.ID)
 		if err != nil {
 			return NetworkObserved{}, err
@@ -177,14 +187,36 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	plan := OCIPlan{}
 	if observed.VCN == nil {
 		plan.Actions = append(plan.Actions, CreateVCNAction{Name: VCNName(declared.Code), CIDR: declared.Network.CIDR})
-	} else if observed.VCN.CIDR != declared.Network.CIDR {
-		return OCIPlan{}, &InvalidDataError{Message: "observed VCN CIDR does not match the declared network and cannot be renumbered"}
+		// The VCN create is asynchronous. Do not submit dependent subnet/NSG
+		// mutations against an ID that does not exist in the observation yet.
+		return plan, nil
+	} else {
+		switch observedNetworkState(observed.VCN.LifecycleState) {
+		case networkStatePending:
+			// Do not create dependent resources until the VCN is usable.
+			return plan, nil
+		case networkStateFailed, networkStateUnknown, networkStateAbsent:
+			return OCIPlan{}, &InvalidDataError{Message: "observed VCN has an unusable lifecycle state"}
+		case networkStateActive:
+			if observed.VCN.CIDR != declared.Network.CIDR {
+				return OCIPlan{}, &InvalidDataError{Message: "observed VCN CIDR does not match the declared network and cannot be renumbered"}
+			}
+		}
 	}
 	subnets := make(map[string]ObservedSubnet, len(observed.Subnets))
 	for _, subnet := range observed.Subnets {
-		if subnet.LifecycleState != "TERMINATED" && subnet.LifecycleState != "TERMINATING" {
-			subnets[subnet.DisplayName] = subnet
+		switch observedNetworkState(subnet.LifecycleState) {
+		case networkStateAbsent:
+			continue
+		case networkStateFailed:
+			return OCIPlan{}, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
+		case networkStateUnknown:
+			return OCIPlan{}, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
 		}
+		if _, duplicate := subnets[subnet.DisplayName]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
+		}
+		subnets[subnet.DisplayName] = subnet
 	}
 	for _, declaredSubnet := range declared.Network.Subnets {
 		if existing, ok := subnets[declaredSubnet.Name]; ok {
@@ -197,13 +229,28 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	}
 	groups := make(map[string]ObservedNSG, len(observed.NSGs))
 	for _, group := range observed.NSGs {
-		if group.LifecycleState != "TERMINATED" && group.LifecycleState != "TERMINATING" {
-			groups[group.DisplayName] = group
+		switch observedNetworkState(group.LifecycleState) {
+		case networkStateAbsent:
+			continue
+		case networkStateFailed:
+			return OCIPlan{}, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
+		case networkStateUnknown:
+			return OCIPlan{}, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
 		}
+		if _, duplicate := groups[group.DisplayName]; duplicate {
+			return OCIPlan{}, &InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
+		}
+		groups[group.DisplayName] = group
 	}
 	for _, declaredGroup := range declared.Network.SecurityGroups {
 		if _, ok := groups[declaredGroup.Name]; !ok {
 			plan.Actions = append(plan.Actions, CreateNSGAction{Name: declaredGroup.Name})
+			// The group is created asynchronously; rules are applied after the
+			// next observation confirms the group is usable.
+			continue
+		}
+		if existing, ok := groups[declaredGroup.Name]; ok && observedNetworkState(existing.LifecycleState) != networkStateActive {
+			continue
 		}
 		add, remove := diffSecurityRules(declaredGroup.Rules, observed.Rules[declaredGroup.Name])
 		if len(add) > 0 || len(remove) > 0 {
@@ -211,6 +258,95 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 		}
 	}
 	return plan, nil
+}
+
+type networkResourceState uint8
+
+const (
+	networkStateAbsent networkResourceState = iota
+	networkStatePending
+	networkStateActive
+	networkStateFailed
+	networkStateUnknown
+)
+
+func observedNetworkState(state string) networkResourceState {
+	switch state {
+	case "AVAILABLE", "ACTIVE":
+		return networkStateActive
+	case "CREATING", "PROVISIONING", "UPDATING":
+		return networkStatePending
+	case "TERMINATED", "TERMINATING", "DELETED", "DELETING", "":
+		return networkStateAbsent
+	case "FAILED", "ERROR":
+		return networkStateFailed
+	default:
+		return networkStateUnknown
+	}
+}
+
+func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, error) {
+	observed, ok := value.(NetworkObserved)
+	if !ok {
+		return false, &InvalidDataError{Message: "network convergence observation has the wrong type"}
+	}
+	declared, ok := declaration.(estate.Region)
+	if !ok {
+		return false, &InvalidDataError{Message: "network convergence declaration has the wrong type"}
+	}
+	if observed.VCN == nil {
+		return false, nil
+	}
+	if observedNetworkState(observed.VCN.LifecycleState) != networkStateActive || observed.VCN.CIDR != declared.Network.CIDR {
+		return false, nil
+	}
+	subnets := make(map[string]ObservedSubnet, len(observed.Subnets))
+	for _, subnet := range observed.Subnets {
+		switch observedNetworkState(subnet.LifecycleState) {
+		case networkStateAbsent:
+			continue
+		case networkStateFailed:
+			return false, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
+		case networkStateUnknown:
+			return false, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
+		}
+		if _, duplicate := subnets[subnet.DisplayName]; duplicate {
+			return false, &InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
+		}
+		subnets[subnet.DisplayName] = subnet
+	}
+	for _, want := range declared.Network.Subnets {
+		subnet, exists := subnets[want.Name]
+		if !exists || observedNetworkState(subnet.LifecycleState) != networkStateActive || subnet.CIDR != want.CIDR {
+			return false, nil
+		}
+	}
+	groups := make(map[string]ObservedNSG, len(observed.NSGs))
+	for _, group := range observed.NSGs {
+		switch observedNetworkState(group.LifecycleState) {
+		case networkStateAbsent:
+			continue
+		case networkStateFailed:
+			return false, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
+		case networkStateUnknown:
+			return false, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
+		}
+		if _, duplicate := groups[group.DisplayName]; duplicate {
+			return false, &InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
+		}
+		groups[group.DisplayName] = group
+	}
+	for _, want := range declared.Network.SecurityGroups {
+		group, exists := groups[want.Name]
+		if !exists || observedNetworkState(group.LifecycleState) != networkStateActive {
+			return false, nil
+		}
+		add, remove := diffSecurityRules(want.Rules, observed.Rules[want.Name])
+		if len(add) != 0 || len(remove) != 0 {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, observed NetworkObserved, plan OCIPlan) error {
@@ -312,6 +448,7 @@ func diffSecurityRules(declared []estate.NetworkSecurityRule, observed []Observe
 			removeIDs = append(removeIDs, candidate.ID)
 		}
 	}
+	sort.Strings(removeIDs)
 	return add, removeIDs
 }
 
@@ -341,6 +478,15 @@ type OCINetworkGateway struct {
 }
 
 var _ NetworkGateway = (*OCINetworkGateway)(nil)
+
+// networkRetryToken is deterministic for one logical mutation. Hashing the
+// operation identity keeps the OCI header bounded while allowing an
+// ambiguous response to be retried without creating a second resource.
+func networkRetryToken(kind string, value any) string {
+	raw, _ := json.Marshal(value)
+	digest := sha256.Sum256(append([]byte(kind+"\x00"), raw...))
+	return "terrascale-" + kind + "-" + hex.EncodeToString(digest[:])
+}
 
 // NewOCINetworkGateway validates the compartment scope and service authority.
 func NewOCINetworkGateway(core *OCIHTTPTransport, compartmentID string) (*OCINetworkGateway, error) {
@@ -397,7 +543,7 @@ func (g *OCINetworkGateway) CreateVCN(ctx context.Context, name, cidr string) (O
 		CompartmentID string   `json:"compartmentId"`
 		DisplayName   string   `json:"displayName"`
 		CIDRBlocks    []string `json:"cidrBlocks"`
-	}{CompartmentID: g.CompartmentID, DisplayName: name, CIDRBlocks: []string{cidr}}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, DisplayName: name, CIDRBlocks: []string{cidr}}, map[string]string{"opc-retry-token": networkRetryToken("vcn", struct{ Compartment, Name, CIDR string }{g.CompartmentID, name, cidr})}, &document); err != nil {
 		return ObservedVCN{}, err
 	}
 	return ociVCNObserved(document)
@@ -446,7 +592,7 @@ func (g *OCINetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr 
 		DisplayName            string `json:"displayName"`
 		CIDRBlock              string `json:"cidrBlock"`
 		ProhibitPublicIPOnVNIC bool   `json:"prohibitPublicIpOnVnic"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, CIDRBlock: cidr, ProhibitPublicIPOnVNIC: true}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, CIDRBlock: cidr, ProhibitPublicIPOnVNIC: true}, map[string]string{"opc-retry-token": networkRetryToken("subnet", struct{ VCN, Name, CIDR string }{vcnID, name, cidr})}, &document); err != nil {
 		return ObservedSubnet{}, err
 	}
 	if !isOCID(document.ID, "subnet") {
@@ -494,7 +640,7 @@ func (g *OCINetworkGateway) CreateNSG(ctx context.Context, vcnID, name string) (
 		CompartmentID string `json:"compartmentId"`
 		VCNID         string `json:"vcnId"`
 		DisplayName   string `json:"displayName"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name}, nil, &document); err != nil {
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name}, map[string]string{"opc-retry-token": networkRetryToken("nsg", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
 		return ObservedNSG{}, err
 	}
 	if !isOCID(document.ID, "networksecuritygroup") {
@@ -639,7 +785,10 @@ func (g *OCINetworkGateway) AddNSGRules(ctx context.Context, nsgID string, rules
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPost, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules", struct {
 		SecurityRules []ociSecurityRuleWire `json:"securityRules"`
-	}{SecurityRules: wire}, nil, nil)
+	}{SecurityRules: wire}, map[string]string{"opc-retry-token": networkRetryToken("nsg-rules-add", struct {
+		NSG   string
+		Rules []SecurityRuleSpec
+	}{nsgID, rules})}, nil)
 }
 
 func (g *OCINetworkGateway) RemoveNSGRules(ctx context.Context, nsgID string, ruleIDs []string) error {
@@ -653,7 +802,10 @@ func (g *OCINetworkGateway) RemoveNSGRules(ctx context.Context, nsgID string, ru
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPost, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules/actions/remove", struct {
 		SecurityRuleIDs []string `json:"securityRuleIds"`
-	}{SecurityRuleIDs: ruleIDs}, nil, nil)
+	}{SecurityRuleIDs: ruleIDs}, map[string]string{"opc-retry-token": networkRetryToken("nsg-rules-remove", struct {
+		NSG string
+		IDs []string
+	}{nsgID, ruleIDs})}, nil)
 }
 
 func validEstateName(name string) bool {

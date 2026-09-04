@@ -1,7 +1,9 @@
 # TerraScale.Orchestrator design
 
-Status: active Go implementation. This document is the binding contract for
-the package layout and wire-compatible behavior.
+Status: current Go implementation map, not product authority. The workspace
+[`GOAL.md`](../GOAL.md) and repository [`GOAL.md`](GOAL.md) control target
+architecture and replacement work. Package names and adapter contracts below
+describe code that exists today; they do not preserve a retired topology.
 
 ## Module
 
@@ -45,7 +47,7 @@ and symbol names carry the contract identity.
 - Service singletons are `var Name name` (unexported struct) with methods.
 - Concurrency through `sync/atomic`, `sync.Mutex`, channels, `sync.Cond`.
 
-## Contracts that must stay EXACT
+## Current compatibility-sensitive contracts
 
 - NATS subjects, stream names, consumer names, message JSON payloads, headers,
   and the `ts.orch.v2` domain naming.
@@ -55,6 +57,24 @@ and symbol names carry the contract identity.
   the tooling dispatcher.
 - Env var names and defaults (TS_ORCH_*, TS_ORCH_CELL, etc.).
 - Control-plane message protocol versioning and admission rules.
+
+These contracts remain exact while their current adapter exists. A goal-driven
+replacement must migrate acknowledged control state, update its tests and
+documentation, and delete the superseded contract in the same series.
+
+## Local qualification boundary
+
+The required end-to-end test path is the Firecracker architecture in
+[`GOAL.md`](GOAL.md). Its Go `SandboxVMProvider`, Firecracker Unix-socket
+client, provider-contract endpoints, guest-image builder, and fault controller
+live only in test or tooling packages. Production packages may depend on
+provider-neutral behavior contracts, but never on Firecracker, TAP management,
+`nftables`, `tc`, test credentials, or local provider endpoints.
+
+The qualification stack runs the production `ts-node`, orchestrator, and
+TerraBase binaries in Ubuntu LTS guests under systemd. Host lifecycle,
+delivery, repair, storage, networking, and degraded mode are not complete when
+proved only by in-process fakes.
 
 ## Rules
 

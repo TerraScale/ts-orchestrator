@@ -21,6 +21,45 @@ func (i fakeInventory) Hosts(_ context.Context, region string) ([]string, error)
 	return i.hosts[region], nil
 }
 
+type fakeRolloutClock struct {
+	mu    sync.Mutex
+	now   time.Time
+	waits []time.Duration
+}
+
+func newFakeRolloutClock() *fakeRolloutClock {
+	return &fakeRolloutClock{now: time.Unix(1_000, 0)}
+}
+
+func (c *fakeRolloutClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeRolloutClock) Wait(ctx context.Context, duration time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.waits = append(c.waits, duration)
+	c.now = c.now.Add(duration)
+	return nil
+}
+
+func (c *fakeRolloutClock) jump(duration time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(duration)
+}
+
+func (c *fakeRolloutClock) waitCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.waits)
+}
+
 // fakeControl records the rollout's host-command sequence. drainReady lists
 // hosts that ever report drained; hosts missing from it never drain.
 type fakeControl struct {
@@ -295,6 +334,7 @@ func TestRolloutDrainTimeoutFailsTheStep(t *testing.T) {
 	}
 	// gru-member-1 (the canary) never drains.
 	reports := NewHostReports()
+	clock := newFakeRolloutClock()
 	rollout, err := NewRollout(RolloutConfig{
 		Spec: estate.Default(),
 		Hosts: fakeInventory{hosts: map[string][]string{
@@ -305,6 +345,8 @@ func TestRolloutDrainTimeoutFailsTheStep(t *testing.T) {
 		Control:     control,
 		Gates:       []Gate{HealthGate{Source: reports}, CatchUpGate{Source: reports}},
 		GateTimeout: 50 * time.Millisecond,
+		Now:         clock.Now,
+		Wait:        clock.Wait,
 	})
 	if err != nil {
 		t.Fatalf("build rollout: %v", err)
@@ -325,6 +367,54 @@ func TestRolloutDrainTimeoutFailsTheStep(t *testing.T) {
 	}
 	if !failedDrain {
 		t.Fatalf("no failed drain check in %+v", result.Checks)
+	}
+	if clock.waitCount() != 1 {
+		t.Fatalf("waits = %d, want one deterministic bounded wait", clock.waitCount())
+	}
+}
+
+func TestWaitForGateTimesOutOnInjectedClockJump(t *testing.T) {
+	clock := newFakeRolloutClock()
+	jumped := false
+	wait := func(ctx context.Context, duration time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !jumped {
+			clock.jump(2 * time.Second)
+			jumped = true
+		}
+		return nil
+	}
+
+	err := waitForGate(context.Background(), time.Second, clock.Now, wait, func() (bool, error) {
+		return false, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "gate did not pass within 1s") {
+		t.Fatalf("err = %v, want deterministic timeout", err)
+	}
+}
+
+func TestWaitForGateRemainsBoundedWhenInjectedClockMovesBack(t *testing.T) {
+	clock := newFakeRolloutClock()
+	wait := func(ctx context.Context, duration time.Duration) error {
+		if err := clock.Wait(ctx, duration); err != nil {
+			return err
+		}
+		if clock.waitCount() == 1 {
+			clock.jump(-2 * time.Second)
+		}
+		return nil
+	}
+
+	err := waitForGate(context.Background(), time.Second, clock.Now, wait, func() (bool, error) {
+		return false, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "gate did not pass within 1s") {
+		t.Fatalf("err = %v, want deterministic timeout after backward jump", err)
+	}
+	if count := clock.waitCount(); count == 0 || count > 20 {
+		t.Fatalf("wait count = %d, want bounded polling", count)
 	}
 }
 
