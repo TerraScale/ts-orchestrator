@@ -1,0 +1,367 @@
+package delivery
+
+import (
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// HTTP paths of the delivery API. ts-deploy POSTs a DeliveryRequest to
+// OperationsPath; receipts are polled at OperationPath with the operation ID.
+const (
+	OperationsPath   = "/delivery/v1/operations"
+	operationsPrefix = OperationsPath + "/"
+)
+
+// Roller executes one verified delivery against the estate: the canary-to-
+// rolling rollout for host services, edge promotion for Workers and
+// Snippets. It returns the terminal receipt facts; the API validates and
+// publishes them, never inventing one.
+type Roller interface {
+	Roll(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error)
+}
+
+// RolloutResult is the terminal outcome of one rollout.
+type RolloutResult struct {
+	Status    string
+	Checks    []*HealthCheck
+	Converged bool
+	Rollback  *Rollback
+	Error     *Error
+}
+
+// ServerConfig is the fully explicit delivery API configuration. Every
+// dependency is required; none is defaulted.
+type ServerConfig struct {
+	// Token returns the delivery bearer token (the O-3 Forgejo Actions
+	// secret). Required: an unauthenticated delivery API is refused.
+	Token func() (string, error)
+	// Fetcher retrieves release artifacts. Required.
+	Fetcher ArtifactFetcher
+	// Trust returns the active release-signing trust set; a function so the
+	// 24-hour rotation swaps are visible without restart. Required.
+	Trust func() *TrustSet
+	// Mirror mirrors artifacts into every Region's bucket (D-71). Required.
+	Mirror *ArtifactMirror
+	// Rollout executes verified deliveries. Required.
+	Rollout Roller
+	// Journal records operations and receipts. Required.
+	Journal *Journal
+	// Now overrides the clock for tests.
+	Now func() time.Time
+}
+
+// Server is the signed delivery API of D-67: it authenticates ts-deploy's
+// request, verifies the artifact signature and sha256, mirrors the artifact
+// into every Region's release bucket, drives the rollout, and publishes the
+// terminal receipt ts-deploy can poll. It is safe for concurrent use.
+type Server struct {
+	config   ServerConfig
+	inFlight sync.Map // operation ID -> struct{}
+}
+
+// NewServer validates the configuration and composes the API.
+func NewServer(config ServerConfig) (*Server, error) {
+	if config.Token == nil {
+		return nil, errors.New("delivery: server requires a delivery token source")
+	}
+	if config.Fetcher == nil {
+		return nil, errors.New("delivery: server requires an artifact fetcher")
+	}
+	if config.Trust == nil {
+		return nil, errors.New("delivery: server requires a release trust source")
+	}
+	if config.Mirror == nil {
+		return nil, errors.New("delivery: server requires an artifact mirror")
+	}
+	if config.Rollout == nil {
+		return nil, errors.New("delivery: server requires a rollout")
+	}
+	if config.Journal == nil {
+		return nil, errors.New("delivery: server requires a journal")
+	}
+	return &Server{config: config}, nil
+}
+
+// Handler serves the delivery API: POST one DeliveryRequest, GET one receipt
+// by operation ID, GET the operation summary list.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(OperationsPath, s.serveOperations)
+	mux.HandleFunc(operationsPrefix, s.serveOperation)
+	return mux
+}
+
+func (s *Server) serveOperations(writer http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodPost:
+		s.handleSubmit(writer, request)
+	case http.MethodGet:
+		s.writeJSON(writer, http.StatusOK, operationSummaries(s.config.Journal.Snapshot()))
+	default:
+		s.writeMethodNotAllowed(writer)
+	}
+}
+
+func (s *Server) serveOperation(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		s.writeMethodNotAllowed(writer)
+		return
+	}
+	operationID := strings.TrimPrefix(request.URL.Path, operationsPrefix)
+	if operationID == "" || strings.Contains(operationID, "/") {
+		s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
+		return
+	}
+	operation, ok := s.config.Journal.Get(operationID)
+	if !ok {
+		s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
+		return
+	}
+	if operation.State != OperationDone || operation.Receipt == nil {
+		// The version-1 contract has no in-flight receipt status, so an
+		// operation that has not finished answers not-found until its
+		// terminal receipt exists.
+		s.writeError(writer, http.StatusNotFound, "operation_in_progress", "The operation has not finished.", "Poll again; the terminal receipt appears when the rollout finishes.")
+		return
+	}
+	s.writeJSON(writer, http.StatusOK, operation.Receipt)
+}
+
+func (s *Server) handleSubmit(writer http.ResponseWriter, request *http.Request) {
+	if err := s.authorize(request); err != nil {
+		s.writeError(writer, http.StatusUnauthorized, "delivery_unauthorized", "The delivery token is missing or invalid.", "Send the orchestrator delivery token as a bearer token.")
+		return
+	}
+	body := http.MaxBytesReader(writer, request.Body, MaxDocumentBytes)
+	payload, err := io.ReadAll(body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			s.writeError(writer, http.StatusRequestEntityTooLarge, "request_too_large", "The delivery request exceeds the 1 MiB limit.", "Write a bounded request document and retry.")
+			return
+		}
+		s.writeError(writer, http.StatusBadRequest, "delivery_request_invalid", "The delivery request body could not be read.", "Retry with a bounded UTF-8 JSON document.")
+		return
+	}
+	parsed, err := ParseRequest(string(payload))
+	if err != nil {
+		s.writeValidationError(writer, err)
+		return
+	}
+	if err := ValidateRequest(parsed); err != nil {
+		s.writeValidationError(writer, err)
+		return
+	}
+	// The shared contract admits source-only deliveries; the orchestrator's
+	// delivery API does not: every accepted candidate is an exact, signed
+	// artifact (D-67), so the artifact identity is required here.
+	if parsed.Artifact == nil {
+		s.writeError(writer, http.StatusBadRequest, "artifact_required", "The orchestrator delivers exact artifacts only.", "Include artifact.digest, artifact.manifestDigest, artifact.kind, and artifact.architecture.")
+		return
+	}
+	receipt, err := s.Submit(request.Context(), parsed)
+	if err != nil {
+		var inProgress *inProgressError
+		if errors.As(err, &inProgress) {
+			s.writeError(writer, http.StatusConflict, "operation_in_progress", "The operation is already running.", "Poll the receipt endpoint until the terminal receipt appears.")
+			return
+		}
+		var conflict *conflictError
+		if errors.As(err, &conflict) {
+			s.writeError(writer, http.StatusConflict, "operation_conflict", "The operation ID was reused with a different request.", "Retry with a fresh operation ID.")
+			return
+		}
+		s.writeError(writer, http.StatusInternalServerError, "delivery_internal", "The delivery could not be processed.", "Retry the same operation ID after the transient failure is resolved.")
+		return
+	}
+	s.writeJSON(writer, http.StatusOK, receipt)
+}
+
+// ErrInProgress marks an operation already running; ErrConflict an operation
+// ID reused with a different request.
+type inProgressError struct{ operationID string }
+
+func (e *inProgressError) Error() string {
+	return "delivery: operation " + e.operationID + " is already running"
+}
+
+type conflictError struct{ operationID string }
+
+func (e *conflictError) Error() string { return "delivery: operation " + e.operationID + " conflicts" }
+
+// Submit runs one delivery end to end: idempotent admission, artifact
+// verification, all-Region mirroring, rollout, and the terminal receipt.
+// The terminal receipt always validates against the request before it is
+// returned or stored.
+func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error) {
+	operation, exists, err := s.config.Journal.Begin(request)
+	if err != nil {
+		return nil, &conflictError{operationID: request.OperationID}
+	}
+	if exists {
+		if operation.State == OperationDone && operation.Receipt != nil {
+			return operation.Receipt, nil
+		}
+		return nil, &inProgressError{operationID: request.OperationID}
+	}
+	if _, loaded := s.inFlight.LoadOrStore(request.OperationID, struct{}{}); loaded {
+		return nil, &inProgressError{operationID: request.OperationID}
+	}
+	defer s.inFlight.Delete(request.OperationID)
+
+	receipt, err := s.deliver(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateReceipt(receipt, request); err != nil {
+		return nil, fmt.Errorf("delivery: produced an invalid receipt for %s: %w", request.OperationID, err)
+	}
+	if err := s.config.Journal.Finish(request.OperationID, operation.RequestDigest, receipt); err != nil {
+		return nil, err
+	}
+	return receipt, nil
+}
+
+// deliver is the verify → mirror → roll pipeline. Every failure produces a
+// terminal failed receipt (never a half-ack): verification and mirroring
+// failures mean the deploy never started; rollout failures carry the
+// rollout's own terminal status.
+func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error) {
+	failed := func(code, message, remediation string) (*Receipt, error) {
+		return buildReceipt(request, RolloutResult{
+			Status: StatusFailed,
+			Checks: []*HealthCheck{{Name: "verify", Status: "failed"}},
+			Error:  &Error{Code: ptr(code), Message: ptr(message), Remediation: ptr(remediation)},
+		}, false)
+	}
+
+	artifact, err := verifyArtifact(ctx, s.config.Fetcher, s.config.Trust(), request)
+	if err != nil {
+		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
+	}
+	if err := s.config.Mirror.MirrorAll(ctx, artifact); err != nil {
+		// D-71: the artifact mirrors into every Region before rollout starts;
+		// a partial mirror means the deploy never started, so nothing is
+		// stranded mid-way.
+		return failed("mirror_incomplete", "The artifact could not be mirrored into every Region.", "Retry the same operation ID after the Region object stores are reachable.")
+	}
+	result, err := s.config.Rollout.Roll(ctx, request, artifact)
+	if err != nil {
+		return nil, err
+	}
+	return buildReceipt(request, result, true)
+}
+
+// buildReceipt assembles the terminal receipt of one delivery. verified is
+// the artifact provenance outcome; the rollout result carries the rest.
+func buildReceipt(request *Request, result RolloutResult, verified bool) (*Receipt, error) {
+	if result.Rollback == nil {
+		result.Rollback = &Rollback{Status: RollbackNotRequired}
+	}
+	if result.Checks == nil {
+		result.Checks = []*HealthCheck{}
+	}
+	status := result.Status
+	if status == "" {
+		status = StatusFailed
+	}
+	var artifactDigest, manifestDigest *string
+	if request.Artifact != nil {
+		artifactDigest = ptr(request.Artifact.Digest)
+		manifestDigest = ptr(request.Artifact.ManifestDigest)
+	}
+	return &Receipt{
+		SchemaVersion:          ContractVersion,
+		OperationID:            request.OperationID,
+		Status:                 status,
+		Source:                 request.Source,
+		ArtifactDigest:         artifactDigest,
+		Target:                 request.Target,
+		Provenance:             &Provenance{Verified: verified, ConfigurationRevision: request.ConfigurationRevision, MigrationRevision: request.MigrationRevision},
+		Health:                 &Health{Checks: result.Checks, Converged: result.Converged},
+		Rollback:               result.Rollback,
+		AuditID:                "op-" + request.OperationID,
+		Error:                  result.Error,
+		ArtifactManifestDigest: manifestDigest,
+	}, nil
+}
+
+func (s *Server) authorize(request *http.Request) error {
+	header := request.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return errors.New("delivery: missing bearer token")
+	}
+	presented := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+	expected, err := s.config.Token()
+	if err != nil || expected == "" {
+		return errors.New("delivery: delivery token is not configured")
+	}
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(expected)) != 1 {
+		return errors.New("delivery: bearer token mismatch")
+	}
+	return nil
+}
+
+func (s *Server) writeJSON(writer http.ResponseWriter, status int, value any) {
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.WriteHeader(status)
+	_, _ = writer.Write([]byte(Serialize(value)))
+}
+
+func (s *Server) writeError(writer http.ResponseWriter, status int, code, message, remediation string) {
+	s.writeJSON(writer, status, &Error{Code: ptr(code), Message: ptr(message), Remediation: ptr(remediation)})
+}
+
+func (s *Server) writeValidationError(writer http.ResponseWriter, err error) {
+	if code, ok := AsValidationError(err); ok {
+		s.writeError(writer, http.StatusBadRequest, code.Code, code.Message, code.Remediation)
+		return
+	}
+	s.writeError(writer, http.StatusBadRequest, "delivery_request_invalid", "The delivery document is not valid version-1 JSON.", "Check the field names and value types against the delivery contract.")
+}
+
+func (s *Server) writeMethodNotAllowed(writer http.ResponseWriter) {
+	s.writeError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "The delivery API accepts POST of requests and GET of receipts.", "Retry with POST or GET.")
+}
+
+// OperationSummary is one row of the operation list the rollout status
+// command renders.
+type OperationSummary struct {
+	OperationID string   `json:"operationId"`
+	Service     string   `json:"service"`
+	State       string   `json:"state"`
+	Status      string   `json:"status,omitempty"`
+	StartedAt   string   `json:"startedAt"`
+	FinishedAt  string   `json:"finishedAt,omitempty"`
+	Regions     []string `json:"regions,omitempty"`
+}
+
+func operationSummaries(operations []Operation) []OperationSummary {
+	summaries := make([]OperationSummary, 0, len(operations))
+	for _, operation := range operations {
+		summary := OperationSummary{
+			OperationID: operation.OperationID,
+			State:       operation.State,
+			StartedAt:   operation.StartedAt.UTC().Format(time.RFC3339),
+		}
+		if operation.Request != nil && operation.Request.Target != nil {
+			summary.Service = operation.Request.Target.Service
+			summary.Regions = operation.Request.Target.Regions
+		}
+		if operation.Receipt != nil {
+			summary.Status = operation.Receipt.Status
+		}
+		if !operation.FinishedAt.IsZero() {
+			summary.FinishedAt = operation.FinishedAt.UTC().Format(time.RFC3339)
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries
+}
