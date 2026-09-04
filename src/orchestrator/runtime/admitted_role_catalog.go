@@ -25,8 +25,10 @@ func (e *InvalidDataError) Error() string { return e.Message }
 type AdmittedRole int
 
 const (
-	// Retained roles keep their v1 persisted values. New roles use values after
-	// the retired v1 range so old checkpoints cannot acquire a new meaning.
+	// Retired v1 container roles (D-69, no containers): Dashboard and
+	// DatabaseAPI keep their persisted values so old checkpoints are
+	// identified and refused, never admitted. Replaced by I-1 declared-estate
+	// types.
 	AdmittedRoleDashboard       AdmittedRole = 0
 	AdmittedRoleDatabaseAPI     AdmittedRole = 17
 	AdmittedRoleTerraBaseMember AdmittedRole = 1
@@ -37,7 +39,7 @@ const (
 
 func (r AdmittedRole) defined() bool {
 	switch r {
-	case AdmittedRoleDashboard, AdmittedRoleDatabaseAPI, AdmittedRoleTerraBaseMember,
+	case AdmittedRoleTerraBaseMember,
 		AdmittedRoleNats, AdmittedRoleAutoscaler, AdmittedRoleJournalWriter:
 		return true
 	default:
@@ -66,8 +68,6 @@ func (r AdmittedRole) String() string {
 
 // AllAdmittedRoles lists every role in declared order.
 var AllAdmittedRoles = []AdmittedRole{
-	AdmittedRoleDashboard,
-	AdmittedRoleDatabaseAPI,
 	AdmittedRoleTerraBaseMember,
 	AdmittedRoleNats,
 	AdmittedRoleAutoscaler,
@@ -188,32 +188,8 @@ func init() {
 			MinimumReplicas: minimumReplicas,
 		}
 	}
-	oci := func(role AdmittedRole, artifactKey string, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
-		return AdmittedRoleDescriptor{
-			Role:            role,
-			ArtifactKey:     artifactKey,
-			DefaultDriver:   RuntimeDriverOciContainer,
-			AllowedDrivers:  []RuntimeDriver{RuntimeDriverOciContainer},
-			Capabilities:    capabilities,
-			OnePerHost:      false,
-			MinimumReplicas: minimumReplicas,
-		}
-	}
-	both := func(role AdmittedRole, artifactKey string, defaultDriver RuntimeDriver, onePerHost bool, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
-		return AdmittedRoleDescriptor{
-			Role:            role,
-			ArtifactKey:     artifactKey,
-			DefaultDriver:   defaultDriver,
-			AllowedDrivers:  []RuntimeDriver{RuntimeDriverNativeSystemd, RuntimeDriverOciContainer},
-			Capabilities:    capabilities,
-			OnePerHost:      onePerHost,
-			MinimumReplicas: minimumReplicas,
-		}
-	}
 	for _, descriptor := range []AdmittedRoleDescriptor{
-		oci(AdmittedRoleDashboard, "terrascale-dashboard", 1, RoleCapabilityPublicHttp),
-		oci(AdmittedRoleDatabaseAPI, "terrascale-database", 2, RoleCapabilityPublicHttp),
-		both(AdmittedRoleTerraBaseMember, "terrabase-server", RuntimeDriverNativeSystemd, true, 2, RoleCapabilityProductDatabase),
+		native(AdmittedRoleTerraBaseMember, "terrabase-server", true, 2, RoleCapabilityProductDatabase),
 		native(AdmittedRoleNats, "nats-server", true, 3, RoleCapabilityControlMessaging),
 		native(AdmittedRoleAutoscaler, "terrascale-orchestrator", true, 3, RoleCapabilityControlAuthority),
 		native(AdmittedRoleJournalWriter, "terrascale-orchestrator", true, 3, RoleCapabilityControlMessaging),

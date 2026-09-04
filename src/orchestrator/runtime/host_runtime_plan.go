@@ -186,17 +186,12 @@ func NewHostRuntimePlan(
 			Oci:            nil,
 		}, nil
 	case RuntimeDriverOciContainer:
-		return HostRuntimePlan{
-			SchemaVersion:  2,
-			Role:           role,
-			Driver:         driver,
-			AllocationId:   allocationId,
-			ArtifactDigest: digest,
-			Architecture:   architecture,
-			Resources:      resources,
-			Systemd:        nil,
-			Oci:            createOciExecutionPlan(descriptor, allocationId, digest, architecture, resources),
-		}, nil
+		// D-69: no containers in production or CI. The OCI driver is retired;
+		// no catalog role admits it. I-3 (ts-node/systemd delivery) replaces it.
+		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
+			Param:   "driver",
+			Message: "The OCI container driver is retired; use native systemd (I-3).",
+		}
 	default:
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "driver"}
 	}
@@ -255,34 +250,6 @@ func createSystemdExecutionPlan(
 			"IOWeight=" + strconv.Itoa(resources.IoWeight),
 			"Nice=" + strconv.Itoa(resources.Nice),
 		},
-	}
-}
-
-func createOciExecutionPlan(
-	descriptor AdmittedRoleDescriptor,
-	allocation RuntimeAllocationId,
-	digest ArtifactDigest,
-	architecture HostArchitecture,
-	resources RuntimeResourceLimits,
-) *OciExecutionPlan {
-	platform := "linux/amd64"
-	if architecture == HostArchitectureArm64 {
-		platform = "linux/arm64"
-	}
-	return &OciExecutionPlan{
-		ContainerId:    "terrascale-" + allocation.Value,
-		ImageReference: fmt.Sprintf("registry.terrascale.internal/terrascale/%s@sha256:%s", descriptor.ArtifactKey, digest),
-		Platform:       platform,
-		Security: OciSecurityPlan{
-			RunAsUser:              65532,
-			RunAsGroup:             65532,
-			NoNewPrivileges:        true,
-			ReadOnlyRootFileSystem: true,
-			DroppedCapabilities:    []string{"ALL"},
-			SeccompProfile:         PodmanSeccompProfileName,
-			CgroupParent:           "terrascale/" + allocation.Value,
-		},
-		Resources: resources,
 	}
 }
 
