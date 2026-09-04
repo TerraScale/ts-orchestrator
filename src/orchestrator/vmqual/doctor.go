@@ -1,36 +1,50 @@
 package vmqual
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 )
 
+// Check is one read-only host qualification check.
 type Check struct {
 	Name   string
 	OK     bool
 	Detail string
 	Repair string
 }
+
+// DoctorReport is the bounded, operator-readable result of vm-qualify doctor.
 type DoctorReport struct{ Checks []Check }
 
 func (r DoctorReport) OK() bool {
-	for _, c := range r.Checks {
-		if !c.OK {
+	if len(r.Checks) == 0 {
+		return false
+	}
+	for _, check := range r.Checks {
+		if !check.OK {
 			return false
 		}
 	}
-	return len(r.Checks) > 0
+	return true
 }
+
 func (r DoctorReport) Error() error {
 	if r.OK() {
 		return nil
@@ -39,20 +53,20 @@ func (r DoctorReport) Error() error {
 }
 
 func (r DoctorReport) Write(w io.Writer) {
-	for _, c := range r.Checks {
+	for _, check := range r.Checks {
 		state := "FAIL"
-		if c.OK {
+		if check.OK {
 			state = "OK"
 		}
-		_, _ = fmt.Fprintf(w, "%s %-18s %s\n", state, c.Name, c.Detail)
-		if !c.OK && c.Repair != "" {
-			_, _ = fmt.Fprintf(w, "      repair: %s\n", c.Repair)
+		_, _ = fmt.Fprintf(w, "%s %-18s %s\n", state, check.Name, check.Detail)
+		if !check.OK && check.Repair != "" {
+			_, _ = fmt.Fprintf(w, "      repair: %s\n", check.Repair)
 		}
 	}
 }
 
-// RunDoctor performs read-only checks. It does not create directories, invoke
-// ip/nft/tc, start Firecracker, or alter any host resource.
+// RunDoctor performs bounded, non-mutating checks. It invokes Firecracker only
+// with --version and never creates a VM, network device, cgroup, or cache.
 func RunDoctor(ctx context.Context, config Config) DoctorReport {
 	report := DoctorReport{}
 	add := func(name string, ok bool, detail, repair string) {
@@ -61,41 +75,83 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	add("platform", runtime.GOOS == "linux", HostPlatform(), "run on a native Linux host; software emulation is not supported")
+	add("platform", runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"), HostPlatform(), "run on native Linux amd64 or arm64; software emulation is not supported")
 	kvmOK, kvmDetail := writableKVM()
 	add("kvm", kvmOK, kvmDetail, "grant the qualification runner narrow writable access to /dev/kvm")
 	if err := config.Validate(); err != nil {
-		add("configuration", false, err.Error(), "set TS_VM_ROOT, TS_VM_PINS and the pinned image manifest")
+		add("configuration", false, err.Error(), "set TS_VM_ROOT and the checked-in architecture-specific manifests")
 	} else {
 		add("configuration", true, "paths and resource limits are valid", "")
 	}
+
 	pins, err := LoadPins(config.PinsPath)
 	if err != nil {
-		add("pins", false, err.Error(), "provide a checked-in, versioned pin manifest with SHA-256 digests")
+		add("pins", false, err.Error(), "provide the checked-in architecture-specific Firecracker pin manifest")
 	} else {
-		config = config.applyPins(pins)
-		add("pins", true, "host and guest artifacts are declared", "")
+		if string(pins.Architecture) != runtime.GOARCH {
+			add("pins", false, fmt.Sprintf("manifest architecture %s does not match native %s", pins.Architecture, runtime.GOARCH), "use the pin manifest for the qualification host architecture")
+		} else {
+			add("pins", true, "host and guest artifacts are declared", "")
+		}
+		config = config.ApplyPins(pins)
+		installer := vmimage.ToolchainInstaller{Root: config.Root}
+		location, locationErr := installer.Location(pins)
+		if locationErr != nil {
+			add("toolchain", false, locationErr.Error(), "use an absolute private qualification root")
+		} else if err := installer.Verify(location); err != nil {
+			add("toolchain", false, err.Error(), "materialize the exact pinned Firecracker release with vm-qualify image")
+		} else {
+			add("toolchain", true, location.Dir, "")
+		}
+		versionOK, versionDetail := verifyFirecrackerVersion(ctx, config.FirecrackerPath, pins.FirecrackerVersion)
+		add("fc-version", versionOK, versionDetail, "run make vm-image and remove any stale toolchain cache entry")
+		sdkOK, sdkDetail := verifySDKPin(repositoryRoot(), pins.SDKModule, pins.SDKVersion)
+		add("sdk", sdkOK, sdkDetail, "pin the official Firecracker Go SDK at the version declared by the native pin manifest")
+	}
+	image, imageErr := LoadImageManifest(config.ImageManifestPath)
+	if imageErr != nil {
+		add("image-manifest", false, imageErr.Error(), "restore the checked-in native Ubuntu image manifest")
+	} else {
+		imageOK := string(image.Architecture) == runtime.GOARCH && pinnedImageSources(image)
+		add("image-manifest", imageOK, fmt.Sprintf("Ubuntu %s for linux/%s", image.UbuntuRelease, image.Architecture), "select a native manifest with fixed immutable HTTPS sources")
 		for _, artifact := range []struct {
 			name string
-			pin  ArtifactPin
-		}{{"firecracker", pins.Firecracker}, {"jailer", pins.Jailer}, {"kernel", pins.Kernel}, {"rootfs", pins.RootFS}} {
-			name, pin := artifact.name, artifact.pin
-			ok, detail := verifyPinnedFile(pin, name)
-			add(name, ok, detail, "restore the exact versioned release asset whose published digest is pinned")
+			path string
+			pin  vmimage.ArtifactManifest
+		}{{"kernel", config.KernelPath, image.Kernel}, {"rootfs", config.RootFSPath, image.RootFS}} {
+			err := verifyArtifactFile(artifact.path, artifact.pin, artifact.name)
+			add(artifact.name, err == nil, pathOrError(artifact.path, err), "run make vm-image to build and verify the pinned native guest artifact")
 		}
-		add("sdk", strings.Contains(config.SDKModule, "firecracker") && config.SDKVersion == pins.SDKVersion, config.SDKModule+"@"+config.SDKVersion, "pin the official Firecracker Go SDK in go.mod")
 	}
-	for _, tool := range []string{"ip", "nft", "tc"} {
-		path, err := exec.LookPath(tool)
-		add(tool, err == nil, pathOrError(path, err), "install the host fault tool without using a container runtime")
+	for _, tool := range []struct {
+		name, repair, usage string
+	}{
+		{"ip", "install iproute2", "network namespaces, TAPs, bridges, and stable guest addresses"},
+		{"nft", "install nftables", "deterministic cross-Region partitions"},
+		{"tc", "install iproute2", "netem fault profiles"},
+		{"qemu-img", "install qemu-utils", "pinned QCOW2 conversion"},
+		{"cloud-localds", "install cloud-image-utils", "per-VM NoCloud seed drives"},
+		{"mkfs.ext4", "install e2fsprogs", "persistent guest data disks"},
+	} {
+		toolPath, lookErr := exec.LookPath(tool.name)
+		add(tool.name, lookErr == nil && filepath.IsAbs(toolPath), pathOrError(toolPath, lookErr)+" (required for "+tool.usage+")", tool.repair)
 	}
+	capabilityOK, capabilityDetail := netAdminCapability()
+	add("net-admin", capabilityOK, capabilityDetail, "run the isolated qualification job with CAP_NET_ADMIN or as a narrowly scoped privileged runner")
+	cgroupOK, cgroupDetail := cgroupV2Access()
+	add("cgroup-v2", cgroupOK, cgroupDetail, "provide a delegated writable cgroup v2 subtree for jailer")
+	portOK, portDetail := loopbackPort()
+	add("ports", portOK, portDetail, "allow loopback ports for bounded local provider endpoints")
+	resourceOK, resourceDetail := hostResourceBudget()
+	add("resources", resourceOK, resourceDetail, "provide at least 2 CPUs and 5 GiB available RAM for the six-VM gate")
 	if config.Root != "" {
-		diskPath := config.Root
-		if _, statErr := os.Stat(diskPath); statErr != nil {
-			diskPath = filepath.Dir(diskPath)
+		diskPath := existingParent(config.Root)
+		need := uint64(config.MaxDiskBytes)
+		if need == 0 {
+			need = 8 << 30
 		}
-		ok, detail := diskBudget(diskPath, 4<<30)
-		add("disk", ok, detail, "make at least 4 GiB available for the six-guest qualification stack")
+		ok, detail := diskBudget(diskPath, need)
+		add("disk", ok, detail, "make the configured disk budget available for the qualification stack")
 	}
 	return report
 }
@@ -106,53 +162,153 @@ func pathOrError(path string, err error) string {
 	}
 	return path
 }
+
 func writableKVM() (bool, string) {
 	if runtime.GOOS != "linux" {
 		return false, "/dev/kvm is Linux-only"
 	}
-	st, err := os.Stat("/dev/kvm")
+	stat, err := os.Stat("/dev/kvm")
 	if err != nil {
 		return false, err.Error()
 	}
-	if st.Mode()&os.ModeDevice == 0 {
+	if stat.Mode()&os.ModeDevice == 0 {
 		return false, "/dev/kvm is not a device"
 	}
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+	file, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
 	if err != nil {
 		return false, err.Error()
 	}
-	_ = f.Close()
+	_ = file.Close()
 	return true, "/dev/kvm is writable"
 }
-func verifyPinnedFile(pin ArtifactPin, name string) (bool, string) {
-	if pin.Path == "" || !filepath.IsAbs(pin.Path) {
-		return false, name + " path is not absolute"
+
+func verifyFirecrackerVersion(ctx context.Context, path, version string) (bool, string) {
+	if path == "" || !filepath.IsAbs(path) {
+		return false, "Firecracker path is unavailable"
 	}
-	f, err := os.Open(pin.Path)
-	if err != nil {
-		return false, err.Error()
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var output boundedBuffer
+	command := exec.CommandContext(checkCtx, path, "--version")
+	command.Stdout, command.Stderr = &output, &output
+	if err := command.Run(); err != nil {
+		return false, "cannot query Firecracker version: " + err.Error()
 	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return false, err.Error()
-	}
-	if st.IsDir() {
-		return false, "artifact is a directory"
-	}
-	if (name == "firecracker" || name == "jailer") && st.Mode()&0111 == 0 {
-		return false, "executable is not executable"
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return false, err.Error()
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if !strings.EqualFold(got, pin.SHA256) {
-		return false, "sha256 mismatch: got " + got
-	}
-	return true, pin.Path + " sha256=" + pin.SHA256
+	got := strings.Split(strings.TrimSpace(output.String()), "\n")[0]
+	want := "Firecracker v" + version
+	return got == want, fmt.Sprintf("%s (want %s)", got, want)
 }
+
+type boundedBuffer struct{ bytes.Buffer }
+
+func (buffer *boundedBuffer) Write(data []byte) (int, error) {
+	const limit = 4096
+	original := len(data)
+	if remaining := limit - buffer.Len(); remaining > 0 {
+		if len(data) > remaining {
+			data = data[:remaining]
+		}
+		_, _ = buffer.Buffer.Write(data)
+	}
+	return original, nil
+}
+
+func verifySDKPin(root, module, version string) (bool, string) {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return false, err.Error()
+	}
+	want := module + " " + version
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0]+" "+fields[1] == want {
+			return true, want
+		}
+	}
+	return false, want + " is not an exact go.mod requirement"
+}
+
+func pinnedImageSources(manifest vmimage.GuestImageManifest) bool {
+	for _, source := range []string{manifest.Kernel.Source, manifest.RootFS.Source} {
+		parsed, err := url.Parse(source)
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || strings.Contains(parsed.Path, "/current/") || strings.Contains(parsed.Path, "/release/") {
+			return false
+		}
+	}
+	return manifest.RootFS.Transform != nil
+}
+
+func netAdminCapability() (bool, string) {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return false, err.Error()
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "CapEff:") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, "CapEff:"))
+		mask, err := strconv.ParseUint(value, 16, 64)
+		if err != nil {
+			return false, err.Error()
+		}
+		const capNetAdmin = uint64(1 << 12)
+		return mask&capNetAdmin != 0, "effective capability mask 0x" + value
+	}
+	return false, "CapEff is absent from /proc/self/status"
+}
+
+func cgroupV2Access() (bool, string) {
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+		return false, "cgroup v2 is unavailable: " + err.Error()
+	}
+	if err := syscall.Access("/sys/fs/cgroup", 2); err != nil {
+		return false, "cgroup v2 root is not writable or delegated: " + err.Error()
+	}
+	return true, "cgroup v2 is mounted with writable delegation"
+}
+
+func loopbackPort() (bool, string) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return false, err.Error()
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		return false, err.Error()
+	}
+	return true, "loopback bind available at " + address
+}
+
+func hostResourceBudget() (bool, string) {
+	available := int64(0)
+	data, err := os.ReadFile("/proc/meminfo")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if _, scanErr := fmt.Sscanf(line, "MemAvailable: %d kB", &available); scanErr == nil {
+				available *= 1024
+				break
+			}
+		}
+	}
+	cpus := runtime.NumCPU()
+	return cpus >= 2 && available >= 5<<30, fmt.Sprintf("%d CPUs, %d bytes available RAM", cpus, available)
+}
+
+func existingParent(path string) string {
+	path = filepath.Clean(path)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return path
+		}
+		path = parent
+	}
+}
+
 func diskBudget(path string, need uint64) (bool, string) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
@@ -162,20 +318,62 @@ func diskBudget(path string, need uint64) (bool, string) {
 	return free >= need, fmt.Sprintf("%d bytes free (need %d)", free, need)
 }
 
-// VerifyPinnedFiles is useful to vm-image and tests that want the artifact
-// gate without emitting a host report.
+// VerifyPinnedFiles verifies already-materialized artifacts without creating
+// directories or downloading anything. It is retained for callers that want
+// the artifact gate without the host report.
 func VerifyPinnedFiles(config Config) error {
 	pins, err := LoadPins(config.PinsPath)
 	if err != nil {
 		return err
 	}
-	for _, artifact := range []struct {
-		name string
-		pin  ArtifactPin
-	}{{"firecracker", pins.Firecracker}, {"jailer", pins.Jailer}, {"kernel", pins.Kernel}, {"rootfs", pins.RootFS}} {
-		if ok, detail := verifyPinnedFile(artifact.pin, artifact.name); !ok {
-			return fmt.Errorf("%s: %s", artifact.name, detail)
-		}
+	config = config.ApplyPins(pins)
+	installer := vmimage.ToolchainInstaller{Root: config.Root}
+	location, err := installer.Location(pins)
+	if err != nil {
+		return err
+	}
+	if err := installer.Verify(location); err != nil {
+		return fmt.Errorf("toolchain: %w", err)
+	}
+	manifest, err := LoadImageManifest(config.ImageManifestPath)
+	if err != nil {
+		return err
+	}
+	if err := verifyArtifactFile(config.KernelPath, manifest.Kernel, "kernel"); err != nil {
+		return err
+	}
+	return verifyArtifactFile(config.RootFSPath, manifest.RootFS, "rootfs")
+}
+
+func verifyArtifactFile(path string, artifact vmimage.ArtifactManifest, name string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return fmt.Errorf("%s path is not absolute", name)
+	}
+	stat, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if !stat.Mode().IsRegular() || stat.Mode()&os.ModeSymlink != 0 || stat.Size() != artifact.Size {
+		return fmt.Errorf("%s metadata does not match its manifest", name)
+	}
+	if uint32(stat.Mode().Perm()) != artifact.Mode {
+		return fmt.Errorf("%s mode %04o does not match manifest %04o", name, stat.Mode().Perm(), artifact.Mode)
+	}
+	hash := sha256.New()
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return fmt.Errorf("%s: %w", name, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("%s: %w", name, closeErr)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != strings.ToLower(artifact.SHA256) {
+		return fmt.Errorf("%s sha256 mismatch", name)
 	}
 	return nil
 }

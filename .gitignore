@@ -6,4 +6,5 @@ artifacts/
 test-evidence/runs/
 orchestrator-tooling
 /ts-node
+/tmp/
 .codex-worktrees/

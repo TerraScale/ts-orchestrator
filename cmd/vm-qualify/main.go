@@ -41,19 +41,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		report.Write(out)
 		return report.Error()
 	case "image":
-		pins, err := vmqual.LoadPins(config.PinsPath)
+		artifacts, err := vmqual.MaterializeArtifacts(ctx, config)
 		if err != nil {
 			return err
 		}
-		config = config.ApplyPins(pins)
-		if err := vmqual.VerifyPinnedFiles(config); err != nil {
-			return err
-		}
-		result, err := vmqual.MaterializeImage(ctx, config)
-		if err != nil {
-			return err
-		}
-		return vmqual.WriteImageResult(out, result)
+		return vmqual.WriteImageResult(out, artifacts.Image)
 	case "smoke":
 		factory, network, err := realComponents(ctx, config, false)
 		if err != nil {
@@ -106,19 +98,12 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 }
 
 func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
-	pins, err := vmqual.LoadPins(config.PinsPath)
+	artifacts, err := vmqual.MaterializeArtifacts(ctx, config)
 	if err != nil {
 		return nil, nil, err
 	}
-	config = config.ApplyPins(pins)
-	if err := vmqual.VerifyPinnedFiles(config); err != nil {
-		return nil, nil, err
-	}
-	image, err := vmqual.MaterializeImage(ctx, config)
-	if err != nil {
-		return nil, nil, err
-	}
-	factory, err := vmqual.NewFirecrackerFactory(config, image)
+	config = artifacts.Config
+	factory, err := vmqual.NewFirecrackerFactory(config, artifacts.Image)
 	if err != nil {
 		return nil, nil, err
 	}

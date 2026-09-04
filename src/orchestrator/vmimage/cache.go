@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,8 +19,23 @@ import (
 // directory is made visible only after both files and manifest.json have been
 // fsynced and verified; an existing directory is never overwritten.
 type Cache struct {
-	Root   string
-	Client *http.Client
+	Root        string
+	Client      *http.Client
+	QEMUImgPath string
+	Runner      CommandRunner
+}
+
+// CommandRunner is the typed process boundary used only for qemu-img QCOW2
+// conversion. Implementations receive an executable and argv, never a shell
+// command string.
+type CommandRunner interface {
+	Run(context.Context, string, ...string) error
+}
+
+type execRunner struct{}
+
+func (execRunner) Run(ctx context.Context, executable string, args ...string) error {
+	return exec.CommandContext(ctx, executable, args...).Run()
 }
 
 // InstalledImage identifies one immutable cache entry.
@@ -101,6 +117,23 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if err := syncDir(stage); err != nil {
 		return InstalledImage{}, err
 	}
+	plan, err := NewBuildPlan(canonical, cache.Root)
+	if err != nil {
+		return InstalledImage{}, err
+	}
+	planBytes, err := plan.CanonicalJSON()
+	if err != nil {
+		return InstalledImage{}, err
+	}
+	if err := writePrivate(filepath.Join(stage, "build-plan.json"), planBytes); err != nil {
+		return InstalledImage{}, err
+	}
+	if err := syncFile(filepath.Join(stage, "build-plan.json")); err != nil {
+		return InstalledImage{}, err
+	}
+	if err := syncDir(stage); err != nil {
+		return InstalledImage{}, err
+	}
 	if err := os.Chmod(stage, 0o700); err != nil {
 		return InstalledImage{}, err
 	}
@@ -126,6 +159,16 @@ func Install(ctx context.Context, root string, manifest GuestImageManifest) (Ins
 		return InstalledImage{}, err
 	}
 	return cache.Install(ctx, manifest)
+}
+
+// Plan returns the exact deterministic work description without creating the
+// cache root or reading either artifact. It is useful for CI dry runs and for
+// showing what vm-image will verify before privileged qualification begins.
+func (cache *Cache) Plan(manifest GuestImageManifest) (BuildPlan, error) {
+	if cache == nil {
+		return BuildPlan{}, errors.New("vmimage: cache is nil")
+	}
+	return NewBuildPlan(manifest, cache.Root)
 }
 
 // VerifyInstalled checks every file and the on-disk manifest in one cache
@@ -158,6 +201,23 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if string(left) != string(right) {
 		return errors.New("vmimage: cached manifest differs from requested manifest")
 	}
+	if planData, planErr := os.ReadFile(filepath.Join(image.Dir, "build-plan.json")); planErr == nil {
+		plan, decodeErr := DecodeBuildPlan(planData)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		expectedPlan, planErr := NewBuildPlan(canonical, cache.Root)
+		if planErr != nil {
+			return planErr
+		}
+		expectedBytes, planErr := expectedPlan.CanonicalJSON()
+		cachedBytes, cachedPlanErr := plan.CanonicalJSON()
+		if planErr != nil || cachedPlanErr != nil || string(expectedBytes) != string(cachedBytes) {
+			return errors.New("vmimage: cached build plan differs from requested manifest")
+		}
+	} else if !errors.Is(planErr, os.ErrNotExist) {
+		return fmt.Errorf("vmimage: read cached build plan: %w", planErr)
+	}
 	if err := VerifyFile(filepath.Join(image.Dir, canonical.Kernel.Name), canonical.Kernel); err != nil {
 		return err
 	}
@@ -176,6 +236,13 @@ func (cache *Cache) existing(entry string, manifest GuestImageManifest) (Install
 }
 
 func (cache *Cache) fetch(ctx context.Context, artifact ArtifactManifest, target string) error {
+	if artifact.Transform != nil {
+		return cache.transform(ctx, artifact, target)
+	}
+	return cache.fetchDirect(ctx, artifact, target)
+}
+
+func (cache *Cache) fetchDirect(ctx context.Context, artifact ArtifactManifest, target string) error {
 	parsed, err := url.Parse(artifact.Source)
 	if err != nil {
 		return errors.New("source is not a valid URL or path")
@@ -215,6 +282,144 @@ func (cache *Cache) fetch(ctx context.Context, artifact ArtifactManifest, target
 		return errors.New("source content length does not match manifest")
 	}
 	return copyStream(ctx, response.Body, target, artifact)
+}
+
+func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, target string) error {
+	input := artifact
+	input.Name += ".input"
+	input.SHA256 = artifact.InputSHA256
+	input.Size = artifact.InputSize
+	input.Mode = 0o600
+	input.InputSHA256 = ""
+	input.InputSize = 0
+	input.Transform = nil
+	inputPath := target + ".input"
+	rawPath := target + ".raw"
+	defer os.Remove(inputPath)
+	defer os.Remove(rawPath)
+	if err := cache.fetchDirect(ctx, input, inputPath); err != nil {
+		return fmt.Errorf("fetch transformation input: %w", err)
+	}
+	if err := VerifyFile(inputPath, input); err != nil {
+		return fmt.Errorf("verify transformation input: %w", err)
+	}
+	qemuImg := cache.QEMUImgPath
+	if qemuImg == "" {
+		var err error
+		qemuImg, err = exec.LookPath("qemu-img")
+		if err != nil {
+			return errors.New("qemu-img is required to convert the pinned QCOW2 image")
+		}
+	}
+	if !filepath.IsAbs(qemuImg) {
+		return errors.New("qemu-img path must be absolute")
+	}
+	runner := cache.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	if err := runner.Run(ctx, qemuImg, "convert", "-f", "qcow2", "-O", "raw", inputPath, rawPath); err != nil {
+		return fmt.Errorf("convert pinned QCOW2 input: %w", err)
+	}
+	if err := verifyRegular(rawPath); err != nil {
+		return fmt.Errorf("verify converted raw disk: %w", err)
+	}
+	transform := artifact.Transform
+	if transform.StartSector > (1<<63-1)/transform.SectorSize {
+		return errors.New("root partition offset overflows")
+	}
+	offset := transform.StartSector * transform.SectorSize
+	if offset < 0 || offset > maxArtifactSize || offset > (1<<63-1)-artifact.Size {
+		return errors.New("root partition offset overflows")
+	}
+	if err := copySparseSection(ctx, rawPath, target, offset, artifact.Size, os.FileMode(artifact.expectedMode())); err != nil {
+		return fmt.Errorf("extract root partition: %w", err)
+	}
+	if err := VerifyFile(target, artifact); err != nil {
+		return fmt.Errorf("verify transformed rootfs: %w", err)
+	}
+	return nil
+}
+
+func verifyRegular(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("path is not a regular non-symlink file")
+	}
+	return nil
+}
+
+func copySparseSection(ctx context.Context, source, target string, offset, size int64, mode os.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	if offset < 0 || size <= 0 || offset > info.Size() || size > info.Size()-offset {
+		return errors.New("root partition lies outside converted raw disk")
+	}
+	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	ok := false
+	defer func() {
+		_ = output.Close()
+		if !ok {
+			_ = os.Remove(target)
+		}
+	}()
+	section := io.NewSectionReader(input, offset, size)
+	buffer := make([]byte, 1<<20)
+	var copied int64
+	for copied < size {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		want := int64(len(buffer))
+		if remaining := size - copied; remaining < want {
+			want = remaining
+		}
+		chunk := buffer[:int(want)]
+		if _, err := io.ReadFull(section, chunk); err != nil {
+			return err
+		}
+		if allZero(chunk) {
+			if _, err := output.Seek(want, io.SeekCurrent); err != nil {
+				return err
+			}
+		} else if _, err := output.Write(chunk); err != nil {
+			return err
+		}
+		copied += want
+	}
+	if err := output.Truncate(size); err != nil {
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		return err
+	}
+	if err := output.Close(); err != nil {
+		return err
+	}
+	ok = true
+	return nil
+}
+
+func allZero(data []byte) bool {
+	for _, value := range data {
+		if value != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func copyLocal(ctx context.Context, source, target string, artifact ArtifactManifest) error {

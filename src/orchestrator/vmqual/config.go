@@ -6,14 +6,16 @@
 package vmqual
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 )
 
 const (
@@ -24,25 +26,9 @@ const (
 	MaxIdleCPU        = 1.0
 )
 
-// ArtifactPin is an immutable, repository-declared host artifact.
-type ArtifactPin struct {
-	Path    string `json:"path"`
-	SHA256  string `json:"sha256"`
-	Version string `json:"version"`
-}
-
-// Pins is the small machine-readable pin set consumed by vm-doctor.  It is
-// intentionally separate from the guest image manifest: the former includes
-// host executables and the latter describes the kernel/rootfs boot pair.
-type Pins struct {
-	SchemaVersion int         `json:"schemaVersion"`
-	Firecracker   ArtifactPin `json:"firecracker"`
-	Jailer        ArtifactPin `json:"jailer"`
-	Kernel        ArtifactPin `json:"kernel"`
-	RootFS        ArtifactPin `json:"rootfs"`
-	SDKModule     string      `json:"sdkModule"`
-	SDKVersion    string      `json:"sdkVersion"`
-}
+// Pins is the architecture-specific, source-backed Firecracker toolchain
+// manifest. Keep the alias here for the command package's public API.
+type Pins = vmimage.ToolchainManifest
 
 // Config is shared by all qualification commands. Empty values are filled
 // from the documented TS_VM_* environment variables; no ambient production
@@ -70,22 +56,28 @@ type Config struct {
 	ReadinessTimeout          time.Duration
 	StopTimeout               time.Duration
 	MaxDiskBytes              int64
+	configurationError        string
 }
 
 // DefaultConfig resolves paths but does not create directories or inspect the
-// host.  Requiring an explicit pins file is what makes missing artifacts fail
-// closed instead of silently selecting a host installation.
+// host. The default artifact root is deliberately inside the checkout's
+// tmp/ directory: qualification never writes into a user's home directory or
+// a system path. TS_VM_ROOT may still select an isolated absolute root in CI.
 func DefaultConfig() Config {
+	repoRoot := repositoryRoot()
 	root := strings.TrimSpace(os.Getenv("TS_VM_ROOT"))
 	if root == "" {
-		root = filepath.Join(".terrascale", "vmqual")
+		root = filepath.Join(repoRoot, "tmp", "vmqual")
+	} else {
+		root = absolutePath(root, repoRoot)
 	}
+	architecture := runtime.GOARCH
 	c := Config{
 		Root:                      root,
 		StateRoot:                 filepath.Join(root, "state"),
 		JournalPath:               filepath.Join(root, "cleanup-journal.json"),
-		PinsPath:                  os.Getenv("TS_VM_PINS"),
-		ImageManifestPath:         os.Getenv("TS_VM_IMAGE_MANIFEST"),
+		PinsPath:                  absolutePath(defaultOrEnv("TS_VM_PINS", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "pins-"+architecture+".json")), repoRoot),
+		ImageManifestPath:         absolutePath(defaultOrEnv("TS_VM_IMAGE_MANIFEST", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "ubuntu-24.04.3-"+architecture+".json")), repoRoot),
 		ImageCacheRoot:            filepath.Join(root, "images"),
 		ReadinessRoot:             filepath.Join(root, "readiness"),
 		FirecrackerPath:           os.Getenv("TS_VM_FIRECRACKER"),
@@ -102,10 +94,15 @@ func DefaultConfig() Config {
 		MemoryMiB:                 DefaultMemoryMiB,
 		ReadinessTimeout:          2 * time.Minute,
 		StopTimeout:               30 * time.Second,
-		MaxDiskBytes:              4 << 30,
+		MaxDiskBytes:              8 << 30,
 	}
 	if v := os.Getenv("TS_VM_MEMORY_MIB"); v != "" {
-		_, _ = fmt.Sscan(v, &c.MemoryMiB)
+		memory, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			c.configurationError = "TS_VM_MEMORY_MIB must be a base-10 integer"
+		} else {
+			c.MemoryMiB = memory
+		}
 	}
 	if v := os.Getenv("TS_VM_IMAGE_CACHE"); v != "" {
 		c.ImageCacheRoot = v
@@ -119,10 +116,91 @@ func DefaultConfig() Config {
 	if v := os.Getenv("TS_VM_JOURNAL"); v != "" {
 		c.JournalPath = v
 	}
+	// Environment variables are accepted as convenient relative paths, but
+	// the command contract remains absolute and unambiguous.
+	c.StateRoot = absolutePath(c.StateRoot, repoRoot)
+	c.JournalPath = absolutePath(c.JournalPath, repoRoot)
+	c.ImageCacheRoot = absolutePath(c.ImageCacheRoot, repoRoot)
+	c.ReadinessRoot = absolutePath(c.ReadinessRoot, repoRoot)
+	c.FirecrackerPath = absoluteIfSet(c.FirecrackerPath, repoRoot)
+	c.JailerPath = absoluteIfSet(c.JailerPath, repoRoot)
+	c.KernelPath = absoluteIfSet(c.KernelPath, repoRoot)
+	c.RootFSPath = absoluteIfSet(c.RootFSPath, repoRoot)
 	return c
 }
 
+func defaultOrEnv(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func absolutePath(value, base string) string {
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	absolute, err := filepath.Abs(filepath.Join(base, value))
+	if err != nil {
+		return filepath.Clean(filepath.Join(base, value))
+	}
+	return absolute
+}
+
+func absoluteIfSet(value, base string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return absolutePath(value, base)
+}
+
+// repositoryRoot finds the checkout containing go.mod. It keeps defaults
+// stable when make is invoked from a subdirectory while retaining a useful
+// absolute fallback for an installed/test binary.
+func repositoryRoot() string {
+	working, err := os.Getwd()
+	if err != nil {
+		working = "."
+	}
+	if root := findGoModuleRoot(working); root != "" {
+		return root
+	}
+	if _, source, _, ok := runtime.Caller(0); ok {
+		if root := findGoModuleRoot(filepath.Dir(source)); root != "" {
+			return root
+		}
+	}
+	absolute, err := filepath.Abs(working)
+	if err != nil {
+		return filepath.Clean(working)
+	}
+	return absolute
+}
+
+func findGoModuleRoot(start string) string {
+	current, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	for {
+		if info, statErr := os.Stat(filepath.Join(current, "go.mod")); statErr == nil && !info.IsDir() {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+}
+
 func (c Config) Validate() error {
+	if c.configurationError != "" {
+		return errors.New("vmqual: " + c.configurationError)
+	}
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		return fmt.Errorf("vmqual: native architecture %s is unsupported by Firecracker qualification", runtime.GOARCH)
+	}
 	if c.Root == "" || !filepath.IsAbs(c.Root) {
 		return errors.New("vmqual: root must be an absolute path")
 	}
@@ -151,41 +229,24 @@ func LoadPins(path string) (Pins, error) {
 	if err != nil {
 		return Pins{}, fmt.Errorf("vmqual: read pins: %w", err)
 	}
-	var pins Pins
-	dec := json.NewDecoder(strings.NewReader(string(b)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&pins); err != nil {
+	pins, err := vmimage.DecodeToolchainManifest(b)
+	if err != nil {
 		return Pins{}, fmt.Errorf("vmqual: decode pins: %w", err)
-	}
-	if pins.SchemaVersion != 1 {
-		return Pins{}, fmt.Errorf("vmqual: unsupported pins schema %d", pins.SchemaVersion)
-	}
-	for name, pin := range map[string]ArtifactPin{"firecracker": pins.Firecracker, "jailer": pins.Jailer, "kernel": pins.Kernel, "rootfs": pins.RootFS} {
-		if pin.Path == "" || !filepath.IsAbs(pin.Path) || len(pin.SHA256) != 64 || strings.ToLower(pin.SHA256) != pin.SHA256 {
-			return Pins{}, fmt.Errorf("vmqual: invalid %s pin", name)
-		}
-	}
-	if pins.SDKModule == "" || pins.SDKVersion == "" {
-		return Pins{}, errors.New("vmqual: pinned Firecracker Go SDK module and version are required")
 	}
 	return pins, nil
 }
 
 func (c Config) applyPins(p Pins) Config {
+	installer := vmimage.ToolchainInstaller{Root: c.Root}
+	location, locationErr := installer.Location(p)
 	if c.FirecrackerPath == "" {
-		c.FirecrackerPath = p.Firecracker.Path
+		c.FirecrackerPath = location.Firecracker
 	}
 	if c.JailerPath == "" {
-		c.JailerPath = p.Jailer.Path
-	}
-	if c.KernelPath == "" {
-		c.KernelPath = p.Kernel.Path
-	}
-	if c.RootFSPath == "" {
-		c.RootFSPath = p.RootFS.Path
+		c.JailerPath = location.Jailer
 	}
 	if c.ExpectedVersion == "" {
-		c.ExpectedVersion = p.Firecracker.Version
+		c.ExpectedVersion = p.FirecrackerVersion
 	}
 	if c.ExpectedFirecrackerSHA256 == "" {
 		c.ExpectedFirecrackerSHA256 = p.Firecracker.SHA256
@@ -193,17 +254,30 @@ func (c Config) applyPins(p Pins) Config {
 	if c.ExpectedJailerSHA256 == "" {
 		c.ExpectedJailerSHA256 = p.Jailer.SHA256
 	}
-	if c.ExpectedKernelSHA256 == "" {
-		c.ExpectedKernelSHA256 = p.Kernel.SHA256
-	}
-	if c.ExpectedRootFSSHA256 == "" {
-		c.ExpectedRootFSSHA256 = p.RootFS.SHA256
-	}
 	if c.SDKModule == "" {
 		c.SDKModule = p.SDKModule
 	}
 	if c.SDKVersion == "" {
 		c.SDKVersion = p.SDKVersion
+	}
+	if locationErr != nil && c.configurationError == "" {
+		c.configurationError = locationErr.Error()
+	}
+	if manifest, err := LoadImageManifest(c.ImageManifestPath); err == nil {
+		if plan, err := vmimage.NewBuildPlan(manifest, c.ImageCacheRoot); err == nil {
+			if c.KernelPath == "" {
+				c.KernelPath = filepath.Join(plan.CacheEntry, manifest.Kernel.Name)
+			}
+			if c.RootFSPath == "" {
+				c.RootFSPath = filepath.Join(plan.CacheEntry, manifest.RootFS.Name)
+			}
+			if c.ExpectedKernelSHA256 == "" {
+				c.ExpectedKernelSHA256 = manifest.Kernel.SHA256
+			}
+			if c.ExpectedRootFSSHA256 == "" {
+				c.ExpectedRootFSSHA256 = manifest.RootFS.SHA256
+			}
+		}
 	}
 	return c
 }

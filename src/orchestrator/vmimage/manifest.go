@@ -60,11 +60,26 @@ type ArtifactManifest struct {
 	SHA256       string       `json:"sha256"`
 	Size         int64        `json:"size"`
 	Mode         uint32       `json:"mode"`
+	InputSHA256  string       `json:"inputSha256,omitempty"`
+	InputSize    int64        `json:"inputSize,omitempty"`
+	Transform    *Transform   `json:"transform,omitempty"`
 
 	// Sha256 is accepted as a Go spelling alias. It is excluded from JSON so
 	// that there remains exactly one wire representation.
 	Sha256 string `json:"-"`
 }
+
+// Transform defines the one reproducible conversion admitted for a guest
+// root filesystem. The source is a pinned QCOW2 disk. The output is the root
+// partition copied into a standalone sparse ext4 image for Firecracker.
+type Transform struct {
+	Type        string `json:"type"`
+	SectorSize  int64  `json:"sectorSize"`
+	StartSector int64  `json:"startSector"`
+	SectorCount int64  `json:"sectorCount"`
+}
+
+const TransformQCOW2RootPartition = "qcow2-root-partition"
 
 // GuestImageManifest is the complete boot pair. Kernel and RootFS must have
 // the same architecture and version; their bytes remain independently
@@ -189,7 +204,7 @@ func (artifact ArtifactManifest) validate(kind string, arch Architecture, versio
 		return fmt.Errorf("vmimage: %s source: %w", kind, err)
 	}
 	digest := artifact.digest()
-	if !sha256Pattern.MatchString(digest) {
+	if !validDigest(digest) {
 		return fmt.Errorf("vmimage: %s sha256 must be lowercase SHA-256 hex", kind)
 	}
 	if artifact.Size <= 0 || artifact.Size > maxArtifactSize {
@@ -199,7 +214,36 @@ func (artifact ArtifactManifest) validate(kind string, arch Architecture, versio
 	if mode&^uint32(0o777) != 0 || mode == 0 {
 		return fmt.Errorf("vmimage: %s mode must contain only non-zero Unix permission bits", kind)
 	}
+	if artifact.Transform == nil {
+		if artifact.InputSHA256 != "" || artifact.InputSize != 0 {
+			return fmt.Errorf("vmimage: %s input fields require a transform", kind)
+		}
+		return nil
+	}
+	if kind != "rootfs" && kind != "artifact" {
+		return fmt.Errorf("vmimage: %s cannot declare a root filesystem transform", kind)
+	}
+	if !validDigest(artifact.InputSHA256) {
+		return fmt.Errorf("vmimage: %s inputSha256 must be non-zero lowercase SHA-256 hex", kind)
+	}
+	if artifact.InputSize <= 0 || artifact.InputSize > maxArtifactSize {
+		return fmt.Errorf("vmimage: %s inputSize is outside the permitted range", kind)
+	}
+	transform := artifact.Transform
+	if transform.Type != TransformQCOW2RootPartition {
+		return fmt.Errorf("vmimage: %s transform type is not supported", kind)
+	}
+	if transform.SectorSize <= 0 || transform.SectorSize > 4096 || transform.SectorSize&(transform.SectorSize-1) != 0 ||
+		transform.StartSector <= 0 || transform.StartSector > (1<<63-1)/transform.SectorSize ||
+		transform.SectorCount <= 0 || transform.SectorCount > maxArtifactSize/transform.SectorSize ||
+		transform.SectorCount*transform.SectorSize != artifact.Size {
+		return fmt.Errorf("vmimage: %s root partition geometry is invalid", kind)
+	}
 	return nil
+}
+
+func validDigest(value string) bool {
+	return sha256Pattern.MatchString(value) && value != strings.Repeat("0", sha256.Size*2)
 }
 
 func (artifact ArtifactManifest) digest() string {
@@ -263,12 +307,21 @@ func validateSource(source string) error {
 
 func isZeroArtifact(artifact ArtifactManifest) bool {
 	return artifact.Name == "" && artifact.Architecture == "" && artifact.Version == "" &&
-		artifact.Source == "" && artifact.digest() == "" && artifact.Size == 0 && artifact.Mode == 0
+		artifact.Source == "" && artifact.digest() == "" && artifact.Size == 0 && artifact.Mode == 0 &&
+		artifact.InputSHA256 == "" && artifact.InputSize == 0 && artifact.Transform == nil
 }
 
 func artifactsEqual(left, right ArtifactManifest) bool {
 	return left.Name == right.Name && left.Architecture == right.Architecture && left.Version == right.Version &&
-		left.Source == right.Source && left.digest() == right.digest() && left.Size == right.Size && left.expectedMode() == right.expectedMode()
+		left.Source == right.Source && left.digest() == right.digest() && left.Size == right.Size && left.expectedMode() == right.expectedMode() &&
+		left.InputSHA256 == right.InputSHA256 && left.InputSize == right.InputSize && transformsEqual(left.Transform, right.Transform)
+}
+
+func transformsEqual(left, right *Transform) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 // MarshalJSON intentionally emits only canonical fields, even when a caller
