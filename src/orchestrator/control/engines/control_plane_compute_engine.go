@@ -1,4 +1,4 @@
-package control
+package engines
 
 import "sort"
 import "terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
@@ -655,7 +655,7 @@ func computeValid(value string, max int) bool {
 	runes := []rune(value)
 	for index := 0; index < len(runes); index++ {
 		character := runes[index]
-		if shared.IsSpaceRune(character) || isControlRune(character) {
+		if shared.IsSpaceRune(character) || IsControlRune(character) {
 			return false
 		}
 		if character >= 0xD800 && character <= 0xDFFF {

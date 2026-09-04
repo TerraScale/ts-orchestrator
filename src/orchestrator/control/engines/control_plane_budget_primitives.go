@@ -1,4 +1,4 @@
-package control
+package engines
 
 import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
@@ -27,7 +27,7 @@ func budgetIdentityRulesIsValid(value string, maximumLength int) bool {
 	runes := []rune(value)
 	for index := 0; index < len(runes); index++ {
 		character := runes[index]
-		if shared.IsSpaceRune(character) || isControlRune(character) {
+		if shared.IsSpaceRune(character) || IsControlRune(character) {
 			return false
 		}
 		if character >= 0xD800 && character <= 0xDBFF {
@@ -42,7 +42,7 @@ func budgetIdentityRulesIsValid(value string, maximumLength int) bool {
 	return true
 }
 
-func isControlRune(r rune) bool {
+func IsControlRune(r rune) bool {
 	return (r >= 0x00 && r <= 0x1F) || (r >= 0x7F && r <= 0x9F)
 }
 

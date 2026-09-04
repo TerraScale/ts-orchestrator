@@ -1,4 +1,4 @@
-package control
+package placement
 
 import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"

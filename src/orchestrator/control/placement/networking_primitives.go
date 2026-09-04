@@ -1,6 +1,7 @@
-package control
+package placement
 
 import (
+	"terrascale.tech/orchestrator/src/orchestrator/control/engines"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
@@ -11,7 +12,7 @@ func networkValueRulesValid(value string, maximum int) bool {
 	runes := []rune(value)
 	for i := 0; i < len(runes); i++ {
 		c := runes[i]
-		if shared.IsSpaceRune(c) || isControlRune(c) {
+		if shared.IsSpaceRune(c) || engines.IsControlRune(c) {
 			return false
 		}
 		if c >= 0xD800 && c <= 0xDBFF {
