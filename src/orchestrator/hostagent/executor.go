@@ -1,7 +1,7 @@
 // This file implements the node-side workload executor of the
-// rootless-hosting and autoscaling lane: it decodes serialized canonical
-// runtime plans, dispatches them by driver to the rootless execution
-// adapters, tracks the served allocations, and answers with the typed
+// systemd hosting lane: it decodes serialized canonical
+// runtime plans, dispatches them to the systemd execution
+// adapter, tracks the served allocations, and answers with the typed
 // receipts of contracts.go carrying the canonical plan fingerprint.
 package hostagent
 
@@ -32,31 +32,14 @@ type NativePlanAdapter interface {
 	Stop(ctx context.Context, plan runtime.HostRuntimePlan) error
 }
 
-// ContainerPlanAdapter is the execution seam of the OCI container driver. The
-// runtime package's PodmanRootlessHostRuntimeAdapter satisfies it; containers
-// are fenced by the terrascale.allocation and terrascale.fingerprint labels
-// inside the adapter itself.
-type ContainerPlanAdapter interface {
-	// Converge brings the allocation of one canonical OCI plan to running.
-	Converge(ctx context.Context, plan runtime.HostRuntimePlan) error
-	// Observe returns one fenced podman observation of the allocation.
-	Observe(ctx context.Context, plan runtime.HostRuntimePlan) (runtime.PodmanAllocationObservation, error)
-	// Stop stops the allocation of one canonical OCI plan.
-	Stop(ctx context.Context, plan runtime.HostRuntimePlan) error
-	// Delete removes the allocation of one canonical OCI plan.
-	Delete(ctx context.Context, plan runtime.HostRuntimePlan) error
-}
-
 // WorkloadExecutorConfig is the fully explicit executor configuration. The
-// caller wires both adapters; nothing is read from the environment here.
+// caller wires the systemd adapter; nothing is read from the environment here.
 type WorkloadExecutorConfig struct {
 	// NodeId identifies the node the executor serves; it appears in receipts.
 	NodeId NodeId
 	// Systemd executes native systemd plans and must be composed in
 	// user-manager mode, so units run under the unprivileged node account.
 	Systemd NativePlanAdapter
-	// Container executes OCI container plans through rootless podman.
-	Container ContainerPlanAdapter
 }
 
 // allocationRecord is the executor's tracked state of one served allocation.
@@ -80,13 +63,12 @@ type allocationReservation struct {
 	created      bool
 }
 
-// WorkloadExecutor executes workload commands against the node's rootless
-// adapters. Converge fails closed while the node is cordoned; Observe, Stop,
+// WorkloadExecutor executes workload commands against the node's systemd
+// adapter. Converge fails closed while the node is cordoned; Observe, Stop,
 // and Delete keep answering so a drain can finish.
 type WorkloadExecutor struct {
 	nodeId    NodeId
 	systemd   NativePlanAdapter
-	container ContainerPlanAdapter
 	cordoned  atomic.Bool
 	mutex     sync.Mutex
 	records   map[string]allocationRecord
@@ -108,16 +90,9 @@ func NewWorkloadExecutor(config WorkloadExecutorConfig) (*WorkloadExecutor, erro
 			Message: "A native systemd adapter wired in user-manager mode is required.",
 		}
 	}
-	if config.Container == nil {
-		return nil, &errs.Argument{
-			Param:   "Container",
-			Message: "A rootless OCI container adapter is required.",
-		}
-	}
 	return &WorkloadExecutor{
 		nodeId:                    nodeId,
 		systemd:                   config.Systemd,
-		container:                 config.Container,
 		records:                   make(map[string]allocationRecord),
 		maximumTrackedAllocations: hostAgentMaximumTrackedAllocations,
 	}, nil
@@ -158,13 +133,11 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
-	case runtime.RuntimeDriverOciContainer:
-		err = e.container.Converge(ctx, decoded.plan)
 	case runtime.RuntimeDriverNativeSystemd:
 		err = e.systemd.Converge(ctx, decoded.plan)
 	default:
 		err = &InvalidDataError{Message: fmt.Sprintf(
-			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
+			"The runtime driver %s is retired per D-69; only native systemd is executed (I-3).", decoded.plan.Driver)}
 	}
 	if err != nil {
 		if stateErr := e.recordState(decoded, "ConvergeFailed", false, false); stateErr != nil {
@@ -253,13 +226,11 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
-	case runtime.RuntimeDriverOciContainer:
-		err = e.container.Stop(ctx, decoded.plan)
 	case runtime.RuntimeDriverNativeSystemd:
 		err = e.systemd.Stop(ctx, decoded.plan)
 	default:
 		err = &InvalidDataError{Message: fmt.Sprintf(
-			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
+			"The runtime driver %s is retired per D-69; only native systemd is executed (I-3).", decoded.plan.Driver)}
 	}
 	if err != nil {
 		if stateErr := e.recordState(decoded, "StopFailed", false, false); stateErr != nil {
@@ -276,8 +247,7 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 
 // Delete decodes one serialized canonical plan and removes its allocation.
 // Native systemd plans are transient units created with --collect, so their
-// deletion is the stop itself followed by one confirming observation; OCI
-// plans are deleted through the container adapter, which stops them first.
+// deletion is the stop itself followed by one confirming observation.
 func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRequest) (DeleteReceipt, error) {
 	if ctx == nil {
 		return DeleteReceipt{}, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
@@ -302,14 +272,6 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
-	case runtime.RuntimeDriverOciContainer:
-		err = e.container.Delete(ctx, decoded.plan)
-		if err == nil {
-			e.forgetAllocation(decoded.plan.AllocationId.Value)
-			return deleteReply(command, true,
-				fmt.Sprintf("Allocation %s deleted.", decoded.plan.AllocationId.Value),
-				decoded.fingerprint, nil)
-		}
 	case runtime.RuntimeDriverNativeSystemd:
 		err = e.systemd.Stop(ctx, decoded.plan)
 		if err == nil {
@@ -333,7 +295,7 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 		}
 	default:
 		err = &InvalidDataError{Message: fmt.Sprintf(
-			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
+			"The runtime driver %s is retired per D-69; only native systemd is executed (I-3).", decoded.plan.Driver)}
 	}
 	if stateErr := e.recordState(decoded, "DeleteFailed", false, false); stateErr != nil {
 		err = errors.Join(err, stateErr)
@@ -494,12 +456,6 @@ func decodeWorkloadPlan(command WorkloadCommandRequest) (decodedWorkloadPlan, er
 // the driver-specific observation vocabulary.
 func (e *WorkloadExecutor) observeDecoded(ctx context.Context, decoded decodedWorkloadPlan) (normalizedObservation, error) {
 	switch decoded.plan.Driver {
-	case runtime.RuntimeDriverOciContainer:
-		observation, err := e.container.Observe(ctx, decoded.plan)
-		if err != nil {
-			return normalizedObservation{}, err
-		}
-		return normalizedObservation{state: observation.State.String(), running: observation.Running}, nil
 	case runtime.RuntimeDriverNativeSystemd:
 		observation, err := e.systemd.Observe(ctx, decoded.plan)
 		if err != nil {
@@ -511,7 +467,7 @@ func (e *WorkloadExecutor) observeDecoded(ctx context.Context, decoded decodedWo
 		}, nil
 	default:
 		return normalizedObservation{}, &InvalidDataError{Message: fmt.Sprintf(
-			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
+			"The runtime driver %s is retired per D-69; only native systemd is executed (I-3).", decoded.plan.Driver)}
 	}
 }
 
@@ -654,8 +610,7 @@ func (e *WorkloadExecutor) trackingCapacityError(allocationId string) error {
 }
 
 func observationIsAbsent(observation normalizedObservation) bool {
-	return observation.state == runtime.PodmanAllocationStateAbsent.String() ||
-		observation.state == runtime.SystemdAllocationStateAbsent.String()
+	return observation.state == runtime.SystemdAllocationStateAbsent.String()
 }
 
 // snapshotRecords copies the decoded plans of every tracked allocation.

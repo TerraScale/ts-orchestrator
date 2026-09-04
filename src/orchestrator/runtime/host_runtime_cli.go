@@ -126,10 +126,6 @@ func (hostRuntimeCli) ParsePlan(arguments []string) (HostRuntimePlan, error) {
 // ParseRole parses the closed role vocabulary.
 func (hostRuntimeCli) ParseRole(value string) (AdmittedRole, error) {
 	switch value {
-	case "dashboard":
-		return AdmittedRoleDashboard, nil
-	case "database-api":
-		return AdmittedRoleDatabaseAPI, nil
 	case "terrabase-member":
 		return AdmittedRoleTerraBaseMember, nil
 	case "nats":
@@ -149,11 +145,9 @@ func parseRuntimeDriver(value string) (RuntimeDriver, error) {
 	switch value {
 	case "systemd":
 		return RuntimeDriverNativeSystemd, nil
-	case "oci":
-		return RuntimeDriverOciContainer, nil
 	default:
 		return RuntimeDriverNativeSystemd, &errs.Argument{
-			Message: "Runtime driver must be 'systemd' or 'oci'.",
+			Message: "Runtime driver must be 'systemd' (OCI retired per D-69, see I-3).",
 		}
 	}
 }

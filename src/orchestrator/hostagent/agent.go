@@ -33,8 +33,6 @@ type HostAgentConfig struct {
 	// Systemd executes native systemd plans; wire it in user-manager mode so
 	// units run under the unprivileged node account.
 	Systemd NativePlanAdapter
-	// Container executes OCI container plans through rootless podman.
-	Container ContainerPlanAdapter
 	// Metrics samples the node metric dimensions for heartbeats.
 	Metrics MetricsSource
 	// HeartbeatInterval is the fixed heartbeat period.
@@ -97,12 +95,6 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 			Message: "A native systemd adapter wired in user-manager mode is required.",
 		}
 	}
-	if config.Container == nil {
-		return nil, &errs.Argument{
-			Param:   "Container",
-			Message: "A rootless OCI container adapter is required.",
-		}
-	}
 	if config.Metrics == nil {
 		return nil, &errs.Argument{
 			Param:   "Metrics",
@@ -122,9 +114,8 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		}
 	}
 	executor, err := NewWorkloadExecutor(WorkloadExecutorConfig{
-		NodeId:    nodeId,
-		Systemd:   config.Systemd,
-		Container: config.Container,
+		NodeId:  nodeId,
+		Systemd: config.Systemd,
 	})
 	if err != nil {
 		return nil, err

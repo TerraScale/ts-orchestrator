@@ -1,7 +1,6 @@
-// Command ts-node is the per-node host agent binary of the rootless-hosting
-// and autoscaling lane. It owns one NodeId, validates its rootless execution
-// context at startup, hosts workloads as rootless systemd user units and as
-// rootless podman containers through the workload executor, answers the
+// Command ts-node is the per-node host agent binary. It owns one NodeId,
+// validates its execution context at startup, hosts workloads as systemd
+// units through the workload executor, answers the
 // terrascale.node.v1.* request-reply subjects over the regional NATS, and
 // publishes periodic heartbeats until it receives SIGINT or SIGTERM.
 //
@@ -33,14 +32,10 @@ import (
 	hostruntime "terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
-// The defaults of the ts-node flags. The podman binary default follows the
-// assignment's lane convention; hosts that install podman elsewhere pass
-// --podman-binary explicitly.
+// The defaults of the ts-node flags.
 const (
-	tsNodeDefaultPodmanBinary     = "/usr/bin/podman"
 	tsNodeDefaultSystemctlBinary  = "/usr/bin/systemctl"
 	tsNodeDefaultSystemdRunBinary = "/usr/bin/systemd-run"
-	tsNodeDefaultSeccompProfile   = "/etc/terrascale/seccomp/terrascale-default-v1.json"
 	tsNodeDefaultHeartbeatPeriod  = 10 * time.Second
 	tsNodeDefaultConnectTimeout   = 5 * time.Second
 	tsNodeDefaultCpuQuotaPercent  = 10000
@@ -67,11 +62,8 @@ type tsNodeConfiguration struct {
 	NatsTlsCaFile        string
 	NatsTlsCertFile      string
 	NatsTlsKeyFile       string
-	PodmanBinaryPath     string
 	SystemctlBinaryPath  string
 	SystemdRunBinaryPath string
-	XdgRuntimeDir        string
-	SeccompProfilePath   string
 	RunAsUid             uint32
 	HeartbeatInterval    time.Duration
 	ConnectTimeout       time.Duration
@@ -114,9 +106,9 @@ func parseTsNodeArguments(
 	for name := range flags {
 		switch name {
 		case "--node-id", "--node-class", "--nats-url", "--nats-nkey-file", "--nats-tls-ca-file",
-			"--nats-tls-cert-file", "--nats-tls-key-file", "--podman-binary", "--systemctl-binary",
-			"--systemd-run-binary", "--xdg-runtime-dir",
-			"--seccomp-profile", "--run-as-uid", "--heartbeat-interval", "--connect-timeout",
+			"--nats-tls-cert-file", "--nats-tls-key-file", "--systemctl-binary",
+			"--systemd-run-binary",
+			"--run-as-uid", "--heartbeat-interval", "--connect-timeout",
 			"--cpu-quota-percent", "--tasks-max", "--logical-cpu-count":
 		default:
 			return tsNodeConfiguration{}, fmt.Errorf(
@@ -191,10 +183,6 @@ func parseTsNodeArguments(
 			"ts-node: --run-as-uid %d must equal the effective account uid %d", runAsUid, effectiveUid)
 	}
 
-	podmanBinary := tsNodeDefaultPodmanBinary
-	if value, present := flags["--podman-binary"]; present {
-		podmanBinary = value
-	}
 	systemctlBinary := tsNodeDefaultSystemctlBinary
 	if value, present := flags["--systemctl-binary"]; present {
 		systemctlBinary = value
@@ -202,19 +190,6 @@ func parseTsNodeArguments(
 	systemdRunBinary := tsNodeDefaultSystemdRunBinary
 	if value, present := flags["--systemd-run-binary"]; present {
 		systemdRunBinary = value
-	}
-	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", runAsUid)
-	if value, present := flags["--xdg-runtime-dir"]; present {
-		xdgRuntimeDir = value
-	}
-	seccompProfile := tsNodeDefaultSeccompProfile
-	if value, present := flags["--seccomp-profile"]; present {
-		seccompProfile = value
-	}
-	if len(seccompProfile) > 4096 || !strings.HasPrefix(seccompProfile, "/") ||
-		strings.Contains(seccompProfile, "/../") {
-		return tsNodeConfiguration{}, errors.New(
-			"ts-node: --seccomp-profile must be a bounded absolute path")
 	}
 
 	heartbeatInterval := tsNodeDefaultHeartbeatPeriod
@@ -272,11 +247,8 @@ func parseTsNodeArguments(
 		NatsTlsCaFile:        natsTlsCaFile,
 		NatsTlsCertFile:      natsTlsCertFile,
 		NatsTlsKeyFile:       natsTlsKeyFile,
-		PodmanBinaryPath:     podmanBinary,
 		SystemctlBinaryPath:  systemctlBinary,
 		SystemdRunBinaryPath: systemdRunBinary,
-		XdgRuntimeDir:        xdgRuntimeDir,
-		SeccompProfilePath:   seccompProfile,
 		RunAsUid:             runAsUid,
 		HeartbeatInterval:    heartbeatInterval,
 		ConnectTimeout:       connectTimeout,
@@ -341,16 +313,9 @@ func (r *tsNodePendingRelay) RunningAllocations() int {
 }
 
 // composeTsNodeAgent composes the node agent from one validated
-// configuration: the rootless podman context is revalidated through
-// NewRootlessPodmanContext (fail-closed on uid 0, relative paths, and a
-// missing seccomp profile path), the process podman client drives the
-// rootless podman adapter and loads the seccomp document named by the
-// context, the systemd adapter runs in user-manager mode so native plans
+// configuration: the systemd adapter runs in user-manager mode so native plans
 // become user units, and the system metrics source feeds the heartbeat from
-// /proc with the running-task gauge relayed from the executor. The stateful
-// volume mounts of the podman adapter are empty in this slice: the per-role
-// volume bindings of the stateful catalog are not carried on the wire plan
-// yet.
+// /proc with the running-task gauge relayed from the executor.
 func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent, error) {
 	var natsOptions []nats.Option
 	if strings.HasPrefix(configuration.NatsUrl, "tls://") {
@@ -373,39 +338,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		natsOptions = append(natsOptions, authentication.Options()...)
 		natsOptions = append(natsOptions, tlsFiles.Options()...)
 	}
-	rootless, err := hostruntime.NewRootlessPodmanContext(
-		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
-		configuration.SeccompProfilePath, configuration.RunAsUid)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
-	}
-	// The runtime directory is part of the rootless identity boundary.  An
-	// explicit path must still belong to the UID running this process; merely
-	// requiring an absolute path would allow a node agent to use another
-	// user's Podman socket and containers.
-	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", configuration.RunAsUid)
-	if configuration.XdgRuntimeDir != expectedRuntimeDir {
-		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
-	}
 	commandRunner := hostruntime.ProcessHostCommandRunner{}
-	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, commandRunner)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())
-	}
-	supervisedPodmanClient, err := hostruntime.NewSystemdUserPodmanClient(
-		podmanClient,
-		rootless,
-		configuration.SystemctlBinaryPath,
-		configuration.SystemdRunBinaryPath,
-		commandRunner,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the podman supervisor is unavailable: %s", err.Error())
-	}
-	containerAdapter, err := hostruntime.NewPodmanRootlessHostRuntimeAdapter(supervisedPodmanClient, nil)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the rootless podman adapter is unavailable: %s", err.Error())
-	}
 	systemdAdapter := hostruntime.NewSystemdHostRuntimeAdapter(commandRunner, true)
 	pending := &tsNodePendingRelay{}
 	metrics, err := hostagent.NewSystemMetricsSource(hostagent.SystemMetricsSourceConfig{
@@ -429,7 +362,6 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		NatsOptions:       natsOptions,
 		ConnectTimeout:    configuration.ConnectTimeout,
 		Systemd:           systemdAdapter,
-		Container:         containerAdapter,
 		Metrics:           metrics,
 		HeartbeatInterval: configuration.HeartbeatInterval,
 		Now:               time.Now,

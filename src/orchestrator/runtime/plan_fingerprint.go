@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"strconv"
-
-	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func requireCanonicalOciPlan(plan HostRuntimePlan) (*OciExecutionPlan, error) {
