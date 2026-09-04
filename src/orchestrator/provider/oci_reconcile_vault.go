@@ -12,9 +12,11 @@ import (
 // The vault reconciler creates and repairs the Region's default vault and
 // its keys (D-65/D-70): one software-protected DEFAULT vault — never a
 // Virtual Private Vault — holding one AES-256 key per declared purpose
-// (the Region KEK that wraps per-database DEKs). Vault and key creation
-// are asynchronous on OCI. Pending resources produce no duplicate create
-// action, but are not considered converged until they are usable.
+// (the Region KEK that wraps per-database DEKs). A declared-name key whose
+// observed shape is not software-protected AES-256 is refused, never
+// adopted. Vault and key creation are asynchronous on OCI. Pending
+// resources produce no duplicate create action, but are not considered
+// converged until they are usable.
 
 // DefaultVaultName derives the deterministic vault display name for a
 // Region code.
@@ -40,6 +42,17 @@ type ObservedKey struct {
 	ID             string
 	DisplayName    string
 	LifecycleState string
+	Algorithm      string
+	LengthBits     int
+	Protection     string
+}
+
+// matchesDeclaredKeyShape reports whether an observed key carries the
+// per-Region KEK shape the estate declares (D-70): AES-256, software
+// protected. Every key this reconciler creates has this shape, so a
+// declared-name key without it was never ours.
+func (k ObservedKey) matchesDeclaredKeyShape() bool {
+	return k.Algorithm == vaultKeyAlgorithmAES && k.LengthBits == vaultKeyLengthBits && k.Protection == vaultKeyProtectionSecret
 }
 
 type VaultObserved struct {
@@ -139,29 +152,36 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 	case vaultStateAbsent:
 		return OCIPlan{}, &InvalidDataError{Message: "observed vault is not usable"}
 	}
-	keys := make(map[string]vaultKeyState, len(observed.Keys))
+	keys := make(map[string]ObservedKey, len(observed.Keys))
 	for _, key := range observed.Keys {
-		state := observedKeyState(key.LifecycleState)
 		if _, exists := keys[key.DisplayName]; exists {
 			return OCIPlan{}, &InvalidDataError{Message: "multiple vault keys share the declared name"}
 		}
-		keys[key.DisplayName] = state
+		keys[key.DisplayName] = key
 	}
 	for _, declaredKey := range declared.VaultKeys {
-		switch keys[declaredKey.Name] {
-		case vaultKeyStateActive:
-			continue
-		case vaultKeyStatePending:
-			// An in-flight key is adopted by name. Creating another key while
-			// OCI is still processing this one is not idempotent.
-			continue
-		case vaultKeyStateFailed:
-			return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " failed and cannot be used"}
-		case vaultKeyStateUnknown:
-			return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " has an unusable lifecycle state"}
-		default:
-			plan.Actions = append(plan.Actions, CreateVaultKeyAction{VaultName: observed.Vault.DisplayName, KeyName: declaredKey.Name})
+		if observed, found := keys[declaredKey.Name]; found {
+			if !observed.matchesDeclaredKeyShape() {
+				// D-65/D-70: every declared key is software-protected
+				// AES-256. Adopting an HSM or foreign-shape key by name
+				// would put the Region on a paid tier it never declared,
+				// exactly like a Virtual Private Vault.
+				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " does not match the declared AES-256 software key shape"}
+			}
+			switch observedKeyState(observed.LifecycleState) {
+			case vaultKeyStateActive:
+				continue
+			case vaultKeyStatePending:
+				// An in-flight key is adopted by name. Creating another key while
+				// OCI is still processing this one is not idempotent.
+				continue
+			case vaultKeyStateFailed:
+				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " failed and cannot be used"}
+			case vaultKeyStateUnknown:
+				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " has an unusable lifecycle state"}
+			}
 		}
+		plan.Actions = append(plan.Actions, CreateVaultKeyAction{VaultName: observed.Vault.DisplayName, KeyName: declaredKey.Name})
 	}
 	return plan, nil
 }
@@ -243,7 +263,7 @@ func (r *VaultReconciler) bootstrapConverged(value, declaration any) (bool, erro
 		found := false
 		for _, key := range observed.Keys {
 			if key.DisplayName == declaredKey.Name {
-				found = observedKeyState(key.LifecycleState) == vaultKeyStateActive
+				found = observedKeyState(key.LifecycleState) == vaultKeyStateActive && key.matchesDeclaredKeyShape()
 				break
 			}
 		}
@@ -330,6 +350,11 @@ func observedVault(document ociVaultDocument) (ObservedVault, error) {
 	if !isOCID(document.ID, "vault") {
 		return ObservedVault{}, &InvalidDataError{Message: "OCI vault response is invalid"}
 	}
+	if document.VaultType != vaultTypeDefault && document.VaultType != vaultTypeVirtualPrivate {
+		// An unknown or missing vault type cannot be checked against the
+		// D-65 Virtual Private Vault prohibition.
+		return ObservedVault{}, &InvalidDataError{Message: "OCI vault response is invalid"}
+	}
 	return ObservedVault{ID: document.ID, DisplayName: document.DisplayName, VaultType: document.VaultType, LifecycleState: document.LifecycleState, ManagementEndpoint: document.ManagementEndpoint}, nil
 }
 
@@ -389,10 +414,29 @@ func (g *OCIVaultGateway) keyTransport(vault ObservedVault) (*OCIHTTPTransport, 
 	return NewOCIHTTPTransport(config, g.Management.Client, g.Management.Signer)
 }
 
+type ociKeyShapeDocument struct {
+	Algorithm  string `json:"algorithm"`
+	Length     int    `json:"length"`
+	Protection string `json:"protectionMode"`
+}
+
 type ociKeyDocument struct {
-	ID             string `json:"id"`
-	DisplayName    string `json:"displayName"`
-	LifecycleState string `json:"lifecycleState"`
+	ID             string              `json:"id"`
+	DisplayName    string              `json:"displayName"`
+	LifecycleState string              `json:"lifecycleState"`
+	KeyShape       ociKeyShapeDocument `json:"keyShape"`
+}
+
+func observedKey(document ociKeyDocument) (ObservedKey, error) {
+	if !isOCID(document.ID, "key") {
+		return ObservedKey{}, &InvalidDataError{Message: "OCI key response is invalid"}
+	}
+	if document.KeyShape.Algorithm == "" || document.KeyShape.Length <= 0 || document.KeyShape.Protection == "" {
+		// The shape is what makes a key the declared per-Region KEK
+		// (D-70); a response without it cannot be trusted.
+		return ObservedKey{}, &InvalidDataError{Message: "OCI key response is invalid"}
+	}
+	return ObservedKey{ID: document.ID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Algorithm: document.KeyShape.Algorithm, LengthBits: document.KeyShape.Length, Protection: document.KeyShape.Protection}, nil
 }
 
 func (g *OCIVaultGateway) ListKeys(ctx context.Context, vault ObservedVault) ([]ObservedKey, error) {
@@ -410,10 +454,11 @@ func (g *OCIVaultGateway) ListKeys(ctx context.Context, vault ObservedVault) ([]
 	}
 	keys := make([]ObservedKey, 0, len(list.Items))
 	for _, item := range list.Items {
-		if !isOCID(item.ID, "key") {
-			return nil, &InvalidDataError{Message: "OCI key response is invalid"}
+		key, err := observedKey(item)
+		if err != nil {
+			return nil, err
 		}
-		keys = append(keys, ObservedKey{ID: item.ID, DisplayName: item.DisplayName, LifecycleState: item.LifecycleState})
+		keys = append(keys, key)
 	}
 	return keys, nil
 }
@@ -428,23 +473,19 @@ func (g *OCIVaultGateway) CreateKey(ctx context.Context, vault ObservedVault, ke
 	}
 	var document ociKeyDocument
 	if err := doOCIJSON(ctx, transport, http.MethodPost, "/20180608/keys", struct {
-		CompartmentID string `json:"compartmentId"`
-		DisplayName   string `json:"displayName"`
-		KeyShape      struct {
-			Algorithm  string `json:"algorithm"`
-			Length     int    `json:"length"`
-			Protection string `json:"protectionMode"`
-		} `json:"keyShape"`
-		VaultID string `json:"vaultId"`
-	}{CompartmentID: g.CompartmentID, DisplayName: keyName, VaultID: vault.ID, KeyShape: struct {
-		Algorithm  string `json:"algorithm"`
-		Length     int    `json:"length"`
-		Protection string `json:"protectionMode"`
-	}{Algorithm: vaultKeyAlgorithmAES, Length: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret}}, map[string]string{"opc-retry-token": vault.ID + "/" + keyName}, &document); err != nil {
+		CompartmentID string              `json:"compartmentId"`
+		DisplayName   string              `json:"displayName"`
+		KeyShape      ociKeyShapeDocument `json:"keyShape"`
+		VaultID       string              `json:"vaultId"`
+	}{CompartmentID: g.CompartmentID, DisplayName: keyName, VaultID: vault.ID, KeyShape: ociKeyShapeDocument{Algorithm: vaultKeyAlgorithmAES, Length: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret}}, map[string]string{"opc-retry-token": vault.ID + "/" + keyName}, &document); err != nil {
 		return ObservedKey{}, err
 	}
-	if !isOCID(document.ID, "key") {
-		return ObservedKey{}, &InvalidDataError{Message: "OCI key create response is invalid"}
+	created, err := observedKey(document)
+	if err != nil {
+		return ObservedKey{}, err
 	}
-	return ObservedKey{ID: document.ID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState}, nil
+	if !created.matchesDeclaredKeyShape() {
+		return ObservedKey{}, &InvalidDataError{Message: "OCI created a vault key shape the estate never declares"}
+	}
+	return created, nil
 }

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -54,7 +55,7 @@ func (f *fakeVaultGateway) CreateKey(ctx context.Context, vault ObservedVault, k
 	if f.activate {
 		state = "ENABLED"
 	}
-	created := ObservedKey{ID: "ocid1.key.oc1.x." + keyName, DisplayName: keyName, LifecycleState: state}
+	created := ObservedKey{ID: "ocid1.key.oc1.x." + keyName, DisplayName: keyName, LifecycleState: state, Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret}
 	f.keys = append(f.keys, created)
 	return created, nil
 }
@@ -98,8 +99,8 @@ func TestVaultReconcilePlans(t *testing.T) {
 			observed: VaultObserved{
 				Vault: &ObservedVault{ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"},
 				Keys: []ObservedKey{
-					{ID: "ocid1.key.oc1.x.1", DisplayName: "region-kek", LifecycleState: "ENABLED"},
-					{ID: "ocid1.key.oc1.x.2", DisplayName: "capability-hmac", LifecycleState: "ENABLED"},
+					{ID: "ocid1.key.oc1.x.1", DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
+					{ID: "ocid1.key.oc1.x.2", DisplayName: "capability-hmac", LifecycleState: "ENABLED", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
 				},
 			},
 			wantKinds: nil,
@@ -180,8 +181,8 @@ func TestVaultPendingAndFailedStatesAreNotConverged(t *testing.T) {
 	declared := testVaultRegion()
 	reconciler := &VaultReconciler{Vault: &fakeVaultGateway{}}
 	pending := VaultObserved{Vault: &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"}, Keys: []ObservedKey{
-		{DisplayName: "region-kek", LifecycleState: "CREATING"},
-		{DisplayName: "capability-hmac", LifecycleState: "ENABLED"},
+		{DisplayName: "region-kek", LifecycleState: "CREATING", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
+		{DisplayName: "capability-hmac", LifecycleState: "ENABLED", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
 	}}
 	plan, err := reconciler.Reconcile(context.Background(), declared, pending)
 	if err != nil || !plan.Empty() {
@@ -201,10 +202,123 @@ func TestVaultPendingAndFailedStatesAreNotConverged(t *testing.T) {
 func TestVaultDuplicateKeyIsRefused(t *testing.T) {
 	declared := testVaultRegion()
 	observed := VaultObserved{Vault: &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"}, Keys: []ObservedKey{
-		{DisplayName: "region-kek", LifecycleState: "ENABLED"},
-		{DisplayName: "region-kek", LifecycleState: "ENABLED"},
+		{DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
+		{DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: vaultKeyAlgorithmAES, LengthBits: vaultKeyLengthBits, Protection: vaultKeyProtectionSecret},
 	}}
 	if _, err := (&VaultReconciler{Vault: &fakeVaultGateway{}}).Reconcile(context.Background(), declared, observed); err == nil {
 		t.Fatal("duplicate vault key accepted")
+	}
+}
+
+// A declared-name key with any other shape was never ours: adopting it
+// would put the Region on a paid tier (HSM) the estate never declares
+// (D-65/D-70), exactly like a Virtual Private Vault.
+func TestVaultForeignShapeKeyIsRefused(t *testing.T) {
+	declared := testVaultRegion()
+	reconciler := &VaultReconciler{Vault: &fakeVaultGateway{}}
+	shapes := []ObservedKey{
+		{DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: "AES", LengthBits: 256, Protection: "HSM"},
+		{DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: "RSA", LengthBits: 2048, Protection: "SOFTWARE"},
+		{DisplayName: "region-kek", LifecycleState: "ENABLED", Algorithm: "AES", LengthBits: 128, Protection: "SOFTWARE"},
+		{DisplayName: "region-kek", LifecycleState: "CREATING", Algorithm: "AES", LengthBits: 256, Protection: "HSM"},
+	}
+	for _, key := range shapes {
+		observed := VaultObserved{Vault: &ObservedVault{DisplayName: DefaultVaultName("gru"), VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"}, Keys: []ObservedKey{key}}
+		_, err := reconciler.Reconcile(context.Background(), declared, observed)
+		if err == nil {
+			t.Fatalf("key %+v adopted", key)
+		}
+		var invalid *InvalidDataError
+		if !errors.As(err, &invalid) {
+			t.Fatalf("Reconcile() = %v, want invalid data", err)
+		}
+		converged, err := reconciler.bootstrapConverged(observed, declared)
+		if err != nil || converged {
+			t.Fatalf("key %+v converged = %v, %v; want false", key, converged, err)
+		}
+	}
+}
+
+func vaultTestGateway(t *testing.T, roundTrip roundTripFunc) *OCIVaultGateway {
+	t.Helper()
+	management, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", "https://test-management.kms.sa-saopaulo-1.oraclecloud.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managementTransport, err := NewOCIHTTPTransport(management, &http.Client{Transport: roundTrip}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := NewOCIVaultGateway(
+		testOCITransport(t, OCIServiceVault, roundTrip),
+		managementTransport,
+		"sa-saopaulo-1", "ocid1.compartment.oc1.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gateway
+}
+
+func vaultTestVault() ObservedVault {
+	return ObservedVault{
+		ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "ACTIVE",
+		ManagementEndpoint: "https://test-management.kms.sa-saopaulo-1.oraclecloud.com",
+	}
+}
+
+func TestOCIVaultGatewayListKeysParsesShape(t *testing.T) {
+	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED",`+
+			`"keyShape":{"algorithm":"AES","length":256,"protectionMode":"SOFTWARE"}}]}`, nil), nil
+	})
+	keys, err := gateway.ListKeys(context.Background(), vaultTestVault())
+	if err != nil {
+		t.Fatalf("ListKeys() failed: %v", err)
+	}
+	if len(keys) != 1 || !keys[0].matchesDeclaredKeyShape() {
+		t.Fatalf("ListKeys() = %+v, want one AES-256 software key", keys)
+	}
+}
+
+func TestOCIVaultGatewayListKeysRequiresShape(t *testing.T) {
+	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED"}]}`, nil), nil
+	})
+	_, err := gateway.ListKeys(context.Background(), vaultTestVault())
+	if err == nil {
+		t.Fatal("key without shape accepted")
+	}
+	var invalid *InvalidDataError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("ListKeys() = %v, want invalid data", err)
+	}
+}
+
+func TestOCIVaultGatewayCreateKeyRefusesForeignShape(t *testing.T) {
+	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"CREATING",`+
+			`"keyShape":{"algorithm":"AES","length":256,"protectionMode":"HSM"}}`, nil), nil
+	})
+	_, err := gateway.CreateKey(context.Background(), vaultTestVault(), "database-kek")
+	if err == nil {
+		t.Fatal("HSM-shaped key accepted")
+	}
+	var invalid *InvalidDataError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("CreateKey() = %v, want invalid data", err)
+	}
+}
+
+func TestOCIVaultGatewayListVaultsRequiresKnownType(t *testing.T) {
+	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.vault.oc1.x","displayName":"terrascale-gru-vault","lifecycleState":"ACTIVE"}]}`, nil), nil
+	})
+	_, err := gateway.ListVaults(context.Background())
+	if err == nil {
+		t.Fatal("vault without a known type accepted")
+	}
+	var invalid *InvalidDataError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("ListVaults() = %v, want invalid data", err)
 	}
 }
