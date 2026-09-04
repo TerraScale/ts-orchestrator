@@ -27,7 +27,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 			t.Fatalf("metadata does not contain %q", expected)
 		}
 	}
-	for _, expected := range []string{"10.77.0.10/24", "via: 10.77.0.1", "addresses: [1.1.1.1, 9.9.9.9]"} {
+	for _, expected := range []string{"macaddress: '02:fc:00:00:00:01'", "10.77.0.10/24", "via: 10.77.0.1", "addresses: [1.1.1.1, 9.9.9.9]"} {
 		if !strings.Contains(string(first.NetworkConfig), expected) {
 			t.Fatalf("network config does not contain %q", expected)
 		}
@@ -95,6 +95,18 @@ func TestNoCloudSeedRejectsUnsafeOrInconsistentInput(t *testing.T) {
 		t.Fatalf("malformed SSH key accepted: %v", err)
 	}
 	candidate = base
+	candidate.SSHAuthorizedKey += "\n"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "SSH") {
+		t.Fatalf("SSH key with trailing data accepted: %v", err)
+	}
+	for _, mac := range []string{"", "00:11:22:33:44:55", "03:11:22:33:44:55", "02:11:22:33:44", " 02:11:22:33:44:55"} {
+		candidate = base
+		candidate.MACAddress = mac
+		if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "MAC") {
+			t.Fatalf("unadmitted MAC %q accepted: %v", mac, err)
+		}
+	}
+	candidate = base
 	candidate.DataDevice = "/dev/vda"
 	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "/dev/vdb") {
 		t.Fatalf("root drive accepted as data disk: %v", err)
@@ -157,7 +169,7 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 	}
 	return NoCloudSeedSpec{
 		InstanceID: "gru-member-1", Hostname: "gru-member-1", Region: "gru",
-		Address: "10.77.0.10", PrefixBits: 24, Gateway: "10.77.0.1",
+		Address: "10.77.0.10", PrefixBits: 24, Gateway: "10.77.0.1", MACAddress: "02:FC:00:00:00:01",
 		Nameservers:      []string{"9.9.9.9", "1.1.1.1", "9.9.9.9"},
 		SSHAuthorizedKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBB8hhavGePnkrgQT92jQZ3sm2CEuJtBQp8uYpOUwV4v vmqual",
 		DataDevice:       "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed,

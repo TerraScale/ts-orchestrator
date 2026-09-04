@@ -33,6 +33,7 @@ type NoCloudSeedSpec struct {
 	Address          string
 	PrefixBits       int
 	Gateway          string
+	MACAddress       string
 	Nameservers      []string
 	SSHAuthorizedKey string
 	DataDevice       string
@@ -74,11 +75,15 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if !prefix.Contains(gateway) || address == gateway || !usablePrefixAddress(address, prefix) || !usablePrefixAddress(gateway, prefix) {
 		return NoCloudSeed{}, errors.New("vmimage: NoCloud address and gateway must share the declared subnet")
 	}
-	authorizedKey, err := canonicalSSHPublicKey(strings.TrimSpace(spec.SSHAuthorizedKey))
+	authorizedKey, err := canonicalSSHPublicKey(spec.SSHAuthorizedKey)
 	if err != nil {
 		return NoCloudSeed{}, errors.New("vmimage: NoCloud SSH public key is not an admitted key")
 	}
 	spec.SSHAuthorizedKey = authorizedKey
+	guestMAC, err := canonicalGuestMAC(spec.MACAddress)
+	if err != nil {
+		return NoCloudSeed{}, err
+	}
 	dataDevice := strings.TrimSpace(spec.DataDevice)
 	if dataDevice == "" {
 		dataDevice = "/dev/vdb"
@@ -111,10 +116,6 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if err != nil {
 		return NoCloudSeed{}, err
 	}
-	guestMAC, err := MACForIPv4(address.String())
-	if err != nil {
-		return NoCloudSeed{}, err
-	}
 	return NoCloudSeed{
 		MetaData:      buildNoCloudMetaData(spec),
 		NetworkConfig: buildNoCloudNetwork(address, spec.PrefixBits, gateway, guestMAC, nameservers),
@@ -132,7 +133,7 @@ func usablePrefixAddress(address netip.Addr, prefix netip.Prefix) bool {
 }
 
 func canonicalSSHPublicKey(value string) (string, error) {
-	if len(value) == 0 || len(value) > 1024 {
+	if len(value) == 0 || len(value) > 1024 || value != strings.TrimSpace(value) {
 		return "", errors.New("SSH public key size is invalid")
 	}
 	for _, character := range []byte(value) {
@@ -150,6 +151,17 @@ func canonicalSSHPublicKey(value string) (string, error) {
 	default:
 		return "", errors.New("SSH public key algorithm is not admitted")
 	}
+}
+
+func canonicalGuestMAC(value string) (string, error) {
+	if value == "" || value != strings.TrimSpace(value) {
+		return "", errors.New("vmimage: NoCloud MAC address is missing or malformed")
+	}
+	parsed, err := net.ParseMAC(value)
+	if err != nil || len(parsed) != 6 || parsed[0]&0x01 != 0 || parsed[0]&0x02 == 0 {
+		return "", errors.New("vmimage: NoCloud MAC address must be a locally administered unicast MAC")
+	}
+	return parsed.String(), nil
 }
 
 func canonicalNameservers(input []string) ([]netip.Addr, error) {

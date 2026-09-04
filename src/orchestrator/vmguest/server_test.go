@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type executorCall struct {
@@ -165,6 +167,59 @@ func TestStorageRejectsWritableRootAndHandlesConcurrentParents(t *testing.T) {
 	info, err := os.Stat(filepath.Join(root, "component", "v1"))
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("storage directory mode = %v, %v", info, err)
+	}
+}
+
+func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
+	root := t.TempDir()
+	external := filepath.Join(t.TempDir(), "external")
+	if err := os.WriteFile(external, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(external, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := boundedRead(root, "linked", 32); err == nil {
+		t.Fatal("read admitted a file with another hard link")
+	}
+
+	directory := filepath.Join(root, "proof")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(directory, ".vmguest-write-0123456789abcdef0123456789abcdef")
+	if err := os.WriteFile(stale, []byte("abandoned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(root, "proof/value", []byte("published"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reserved stale temporary file remains: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(directory, "value")); err != nil || string(data) != "published" {
+		t.Fatalf("published file = %q, %v", data, err)
+	}
+}
+
+func TestStorageParentDescriptorIsCloseOnExec(t *testing.T) {
+	root := t.TempDir()
+	rootFD, err := openStorageRoot(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(rootFD)
+	parentFD, _, err := openStorageParent(rootFD, "value", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(parentFD)
+	flags, err := unix.FcntlInt(uintptr(parentFD), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.FD_CLOEXEC == 0 {
+		t.Fatal("storage parent descriptor can leak across exec")
 	}
 }
 

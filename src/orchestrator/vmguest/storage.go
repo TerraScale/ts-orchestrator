@@ -9,16 +9,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
 const directoryOpenFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
 
+var storageWriteMu sync.Mutex
+
 func atomicWrite(rootPath, relative string, data []byte, mode os.FileMode) error {
 	if !validRelativePath(relative) || len(data) == 0 || mode.Perm() != mode || mode&^0o777 != 0 {
 		return errors.New("vmguest: write parameters are invalid")
 	}
+	storageWriteMu.Lock()
+	defer storageWriteMu.Unlock()
 	rootFD, err := openStorageRoot(rootPath, true)
 	if err != nil {
 		return err
@@ -29,6 +34,9 @@ func atomicWrite(rootPath, relative string, data []byte, mode os.FileMode) error
 		return err
 	}
 	defer unix.Close(parentFD)
+	if err := cleanupStorageTemps(parentFD); err != nil {
+		return err
+	}
 	var target unix.Stat_t
 	if err := unix.Fstatat(parentFD, name, &target, unix.AT_SYMLINK_NOFOLLOW); err == nil {
 		if target.Mode&unix.S_IFMT != unix.S_IFREG {
@@ -85,7 +93,11 @@ func boundedRead(rootPath, relative string, limit int) ([]byte, error) {
 	}
 	defer unix.Close(parentFD)
 	var before unix.Stat_t
-	if err := unix.Fstatat(parentFD, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil || before.Mode&unix.S_IFMT != unix.S_IFREG {
+	var rootStat unix.Stat_t
+	if err := unix.Fstat(rootFD, &rootStat); err != nil {
+		return nil, errors.New("vmguest: inspect storage root")
+	}
+	if err := unix.Fstatat(parentFD, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil || before.Mode&unix.S_IFMT != unix.S_IFREG || int(before.Uid) != os.Geteuid() || before.Mode&0o077 != 0 || before.Nlink != 1 || before.Dev != rootStat.Dev {
 		return nil, errors.New("vmguest: read target is not a regular file")
 	}
 	if before.Size < 0 || before.Size > int64(limit) {
@@ -159,7 +171,7 @@ func openStorageRoot(path string, create bool) (int, error) {
 
 func openStorageParent(rootFD int, relative string, create bool) (int, string, error) {
 	parts := strings.Split(relative, string(filepath.Separator))
-	current, err := unix.Dup(rootFD)
+	current, err := unix.FcntlInt(uintptr(rootFD), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
 		return -1, "", errors.New("vmguest: duplicate storage root")
 	}
@@ -249,4 +261,55 @@ func createStorageTemp(parentFD int) (string, *os.File, error) {
 		}
 	}
 	return "", nil, errors.New("vmguest: allocate temporary file name")
+}
+
+func cleanupStorageTemps(parentFD int) error {
+	fd, err := unix.FcntlInt(uintptr(parentFD), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return errors.New("vmguest: duplicate storage directory for cleanup")
+	}
+	directory := os.NewFile(uintptr(fd), "vmguest-storage-directory")
+	if directory == nil {
+		_ = unix.Close(fd)
+		return errors.New("vmguest: wrap storage directory for cleanup")
+	}
+	defer directory.Close()
+	removed := false
+	for scanned := 0; scanned < 4096; {
+		names, readErr := directory.Readdirnames(64)
+		for _, name := range names {
+			scanned++
+			if !isStorageTemp(name) {
+				continue
+			}
+			if err := unix.Unlinkat(parentFD, name, 0); err != nil && !errors.Is(err, unix.ENOENT) {
+				return errors.New("vmguest: remove stale temporary file")
+			}
+			removed = true
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return errors.New("vmguest: scan stale temporary files")
+		}
+		if len(names) == 0 {
+			break
+		}
+	}
+	if removed {
+		if err := unix.Fsync(parentFD); err != nil {
+			return errors.New("vmguest: sync stale temporary cleanup")
+		}
+	}
+	return nil
+}
+
+func isStorageTemp(name string) bool {
+	const prefix = ".vmguest-write-"
+	if !strings.HasPrefix(name, prefix) || len(name) != len(prefix)+32 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(name, prefix))
+	return err == nil
 }

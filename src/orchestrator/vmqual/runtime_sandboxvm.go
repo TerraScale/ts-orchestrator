@@ -195,7 +195,7 @@ func (f *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest, cfg 
 	if err := os.MkdirAll(stateDir, 0700); err != nil {
 		return "", err
 	}
-	seed, err := vmimage.BuildNoCloudSeed(vmimage.NoCloudSeedSpec{InstanceID: guest.ID, Hostname: guest.ID, Region: strings.ToLower(string(guest.Region)), Address: network.Address, PrefixBits: 24, Gateway: network.Gateway, Nameservers: []string{"1.1.1.1"}, SSHAuthorizedKey: strings.TrimSpace(string(publicKey)), DataDevice: "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed, GuestControl: control})
+	seed, err := vmimage.BuildNoCloudSeed(vmimage.NoCloudSeedSpec{InstanceID: guest.ID, Hostname: guest.ID, Region: strings.ToLower(string(guest.Region)), Address: network.Address, PrefixBits: 24, Gateway: network.Gateway, MACAddress: network.MAC, Nameservers: []string{"1.1.1.1"}, SSHAuthorizedKey: strings.TrimSpace(string(publicKey)), DataDevice: "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed, GuestControl: control})
 	if err != nil {
 		return "", err
 	}
