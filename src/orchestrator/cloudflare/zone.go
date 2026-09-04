@@ -105,12 +105,14 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 		}
 	}
 
-	// Cache Rules (D-55): reactive snapshot and log paths cache-eligible.
-	// Edge TTL respects the origin because D-14 responses carry their own
-	// verdicts — immutable retention TTLs on data-bearing responses,
-	// no-store on long-poll timeouts.
+	// Cache Rules (D-55): exactly the snapshot-chunk and log leaves of the
+	// reactive surface are cache-eligible; attach POSTs and unknown paths
+	// stay ineligible. Edge TTL respects the origin because D-14 responses
+	// carry their own verdicts — immutable retention TTLs on data-bearing
+	// responses, no-store on long-poll timeouts.
 	z.CacheRules = []CacheRule{{
-		Ref: "sync-reactive", Hostname: "sync.api." + ZoneName, PathPrefix: reactivePathPrefix,
+		Ref: "sync-reactive", Hostname: "sync.api." + ZoneName,
+		PathPrefix: reactiveViewsPath, PathSuffix: reactiveLogLeaf, PathSegment: reactiveSnapshotPart,
 		Eligible: true, EdgeTTLMode: "respect_origin",
 	}}
 

@@ -5,6 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+)
+
+// The D-14 reactive surface below the reactive prefix (the ts-proxy design
+// §16 route contract): view attach is a POST served by members and never
+// cache-eligible; the cache-eligible leaves are exactly the delta log and
+// the immutable snapshot chunks.
+const (
+	reactiveViewsPath    = "/api/v1/reactive/views/"
+	reactiveLogLeaf      = "/log"
+	reactiveSnapshotPart = "/snapshot/"
 )
 
 // CacheRule declares one Cloudflare Cache Rule (D-55): the reactive snapshot
@@ -16,6 +27,8 @@ type CacheRule struct {
 	Ref         string
 	Hostname    string
 	PathPrefix  string
+	PathSuffix  string // optional leaf matched with ends_with (the /log leaf)
+	PathSegment string // optional segment matched with contains (the /snapshot/<n> chunks)
 	Eligible    bool
 	EdgeTTLMode string // "respect_origin" or "override_origin"
 }
@@ -25,8 +38,34 @@ func (r CacheRule) rule() Rule {
 		"cache":    r.Eligible,
 		"edge_ttl": map[string]any{"mode": r.EdgeTTLMode},
 	})
-	return Rule{Ref: r.Ref, Expression: hostPathExpression(r.Hostname, r.PathPrefix),
+	return Rule{Ref: r.Ref, Expression: r.expression(),
 		Action: "set_cache_settings", ActionParameters: params, Enabled: true}
+}
+
+// expression anchors the rule to the host and prefix and, when leaves are
+// declared, admits exactly them: everything else under the prefix — attach
+// POSTs, unknown paths — stays at Cloudflare's default (not eligible). The
+// capability header never enters the cache key (D-14) and the Snippet strips
+// it before the fetch (D-55), so path matching is the whole cache-key story.
+func (r CacheRule) expression() string {
+	conds := []string{
+		fmt.Sprintf("http.host eq %q", r.Hostname),
+		fmt.Sprintf("starts_with(http.request.uri.path, %q)", r.PathPrefix),
+	}
+	var leaves []string
+	if r.PathSuffix != "" {
+		leaves = append(leaves, fmt.Sprintf("ends_with(http.request.uri.path, %q)", r.PathSuffix))
+	}
+	if r.PathSegment != "" {
+		leaves = append(leaves, fmt.Sprintf("contains(http.request.uri.path, %q)", r.PathSegment))
+	}
+	switch len(leaves) {
+	case 1:
+		conds = append(conds, leaves[0])
+	case 2:
+		conds = append(conds, "("+strings.Join(leaves, " or ")+")")
+	}
+	return "(" + strings.Join(conds, " and ") + ")"
 }
 
 func hostPathExpression(host, prefix string) string {

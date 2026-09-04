@@ -92,3 +92,80 @@ func TestSnippetRulesReconcile(t *testing.T) {
 		})
 	}
 }
+
+// TestGateDeclarationGuards pins the D-55 fail-closed guards on the declared
+// zone: the reconcile pass refuses to run when a Worker route covers a gate
+// hostname, and a snippet may not be declared twice.
+func TestGateDeclarationGuards(t *testing.T) {
+	rejects := []struct {
+		name   string
+		routes []WorkerRoute
+		rules  func(*Zone)
+	}{
+		{
+			name:   "worker route exactly on the gate hostname",
+			routes: []WorkerRoute{{Pattern: "sync.api.terrascale.tech/*", Script: ProxyWorkerScript}},
+		},
+		{
+			name:   "wildcard worker route covers the gate hostname",
+			routes: []WorkerRoute{{Pattern: "*.terrascale.tech/*", Script: "stray"}},
+		},
+		{
+			name: "snippet declared twice",
+			rules: func(z *Zone) {
+				z.SnippetRules = append(z.SnippetRules, z.SnippetRules[0])
+			},
+		},
+	}
+	for _, tc := range rejects {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := testClient(func(call fakeCall) (int, string, http.Header) {
+				// The guard must fire before any API call.
+				return failEnvelope(http.StatusMethodNotAllowed, 0, "unexpected "+call.String())
+			})
+			z := snippetZone()
+			z.WorkerRoutes = tc.routes
+			if tc.rules != nil {
+				tc.rules(z)
+			}
+			if err := z.reconcileSnippets(context.Background(), c, &Plan{}); err == nil {
+				t.Fatal("declaration must fail the pass (D-55 fail closed)")
+			}
+		})
+	}
+
+	// The declared production zone passes: api./app. Worker routes never
+	// cover the gate hostname.
+	z, err := Production(Members{"gru": {"198.51.100.10"}}, testEgress())
+	if err != nil {
+		t.Fatalf("Production failed: %v", err)
+	}
+	if err := z.validateGateDeclaration(); err != nil {
+		t.Fatalf("declared production zone must pass the gate guards: %v", err)
+	}
+}
+
+func TestRouteCoversHost(t *testing.T) {
+	cases := []struct {
+		pattern string
+		want    bool
+	}{
+		{"sync.api.terrascale.tech/*", true},
+		{"sync.api.terrascale.tech", true},
+		{"sync.api.terrascale.tech/api/*", true},
+		{"*.terrascale.tech/*", true},
+		{"*api.terrascale.tech/*", true},
+		{"sync.*", true},
+		{"terrascale.tech/*", false}, // an exact host does not cover subdomains
+		{"api.terrascale.tech/*", false},
+		{"app.terrascale.tech/*", false},
+		{"gru.api.terrascale.tech/*", false},
+		{"app.*", false},
+		{"*", true},
+	}
+	for _, tc := range cases {
+		if got := routeCoversHost(tc.pattern, "sync.api.terrascale.tech"); got != tc.want {
+			t.Errorf("routeCoversHost(%q, sync.api.terrascale.tech) = %v, want %v", tc.pattern, got, tc.want)
+		}
+	}
+}

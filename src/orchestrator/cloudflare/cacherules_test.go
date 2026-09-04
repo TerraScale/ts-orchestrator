@@ -12,11 +12,16 @@ func cacheZone(tieredLive string) *Zone {
 	return &Zone{ZoneName: "terrascale.tech", SmartTieredCache: true,
 		CacheRules: []CacheRule{{
 			Ref: "sync-reactive", Hostname: "sync.api.terrascale.tech",
-			PathPrefix: "/api/v1/reactive/", Eligible: true, EdgeTTLMode: "respect_origin",
+			PathPrefix: reactiveViewsPath, PathSuffix: reactiveLogLeaf, PathSegment: reactiveSnapshotPart,
+			Eligible: true, EdgeTTLMode: "respect_origin",
 		}}}
 }
 
-const declaredCacheRule = `{"id":"c1","description":"terrascale:sync-reactive","expression":"(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/\"))","action":"set_cache_settings","action_parameters":{"cache":true,"edge_ttl":{"mode":"respect_origin"}},"enabled":true}`
+// The declared rule's expression with real quotes, as it appears in plan
+// details after the JSON round-trip.
+const declaredCacheExpression = `(http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/api/v1/reactive/views/") and (ends_with(http.request.uri.path, "/log") or contains(http.request.uri.path, "/snapshot/")))`
+
+const declaredCacheRule = `{"id":"c1","description":"terrascale:sync-reactive","expression":"(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/views/\") and (ends_with(http.request.uri.path, \"/log\") or contains(http.request.uri.path, \"/snapshot/\")))","action":"set_cache_settings","action_parameters":{"cache":true,"edge_ttl":{"mode":"respect_origin"}},"enabled":true}`
 
 func TestCacheRulesReconcile(t *testing.T) {
 	cases := []struct {
@@ -32,7 +37,7 @@ func TestCacheRulesReconcile(t *testing.T) {
 			phaseGet:   http.StatusNotFound,
 			phaseBody:  `{"code":10004,"message":"not found"}`,
 			tiered:     "on",
-			wantPlan:   []string{"create cache-rule " + `(http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/api/v1/reactive/"))`},
+			wantPlan:   []string{"create cache-rule " + declaredCacheExpression},
 			wantMethod: []string{http.MethodPut},
 		},
 		{
@@ -42,11 +47,19 @@ func TestCacheRulesReconcile(t *testing.T) {
 			tiered:    "on",
 		},
 		{
+			name:       "blanket reactive-prefix rule is drift and gets narrowed",
+			phaseGet:   http.StatusOK,
+			phaseBody:  `[{"id":"c1","description":"terrascale:sync-reactive","expression":"(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/\"))","action":"set_cache_settings","action_parameters":{"cache":true,"edge_ttl":{"mode":"respect_origin"}},"enabled":true}]`,
+			tiered:     "on",
+			wantPlan:   []string{"update cache-rule " + declaredCacheExpression},
+			wantMethod: []string{http.MethodPut},
+		},
+		{
 			name:       "drift on edge ttl mode is repaired",
 			phaseGet:   http.StatusOK,
-			phaseBody:  `[{"id":"c1","description":"terrascale:sync-reactive","expression":"(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/\"))","action":"set_cache_settings","action_parameters":{"cache":true,"edge_ttl":{"mode":"override_origin","default":60}},"enabled":true}]`,
+			phaseBody:  `[{"id":"c1","description":"terrascale:sync-reactive","expression":"(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/views/\") and (ends_with(http.request.uri.path, \"/log\") or contains(http.request.uri.path, \"/snapshot/\")))","action":"set_cache_settings","action_parameters":{"cache":true,"edge_ttl":{"mode":"override_origin","default":60}},"enabled":true}]`,
 			tiered:     "on",
-			wantPlan:   []string{"update cache-rule " + `(http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/api/v1/reactive/"))`},
+			wantPlan:   []string{"update cache-rule " + declaredCacheExpression},
 			wantMethod: []string{http.MethodPut},
 		},
 		{
@@ -130,13 +143,39 @@ func TestCacheRulePutSendsWholeDeclaredList(t *testing.T) {
 		t.Fatalf("apply failed: %v", err)
 	}
 	// Whole-list semantics: exactly the declared rules, description-carried
-	// identity, eligible, respect-origin.
-	for _, want := range []string{`"description":"terrascale:sync-reactive"`, `"cache":true`, `"edge_ttl":{"mode":"respect_origin"}`, `"action":"set_cache_settings"`} {
+	// identity, eligible, respect-origin, and the snapshot/log leaves as
+	// the only admitted paths.
+	for _, want := range []string{
+		`"description":"terrascale:sync-reactive"`, `"cache":true`,
+		`"edge_ttl":{"mode":"respect_origin"}`, `"action":"set_cache_settings"`,
+		`starts_with(http.request.uri.path, \"/api/v1/reactive/views/\")`,
+		`ends_with(http.request.uri.path, \"/log\")`,
+		`contains(http.request.uri.path, \"/snapshot/\")`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("PUT body missing %s: %s", want, body)
 		}
 	}
 	if strings.Contains(body, `"id"`) {
 		t.Fatalf("declared rules carry no live id: %s", body)
+	}
+}
+
+// TestProductionCacheRuleMarksExactlySnapshotAndLog pins the declared
+// eligibility to D-55's words: the snapshot-chunk and log leaves of the D-14
+// surface, on the sync hostname, with the origin owning the TTL.
+func TestProductionCacheRuleMarksExactlySnapshotAndLog(t *testing.T) {
+	z, err := Production(Members{"gru": {"198.51.100.10"}}, testEgress())
+	if err != nil {
+		t.Fatalf("Production failed: %v", err)
+	}
+	if len(z.CacheRules) != 1 {
+		t.Fatalf("want one cache rule, got %d", len(z.CacheRules))
+	}
+	if got := z.CacheRules[0].rule().Expression; got != declaredCacheExpression {
+		t.Fatalf("declared expression:\n %s\nwant:\n %s", got, declaredCacheExpression)
+	}
+	if !z.SmartTieredCache {
+		t.Error("Smart Tiered Cache must be declared on (D-55: tiers bound origin fills)")
 	}
 }

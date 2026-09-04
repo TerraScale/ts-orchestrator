@@ -2,8 +2,10 @@ package cloudflare
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // SnippetRule declares the RULE that runs the sync.api gate Snippet (D-55).
@@ -50,6 +52,9 @@ func (c *Client) PutSnippetRules(ctx context.Context, snippet string, rules []Sn
 }
 
 func (z *Zone) reconcileSnippets(ctx context.Context, c *Client, p *Plan) error {
+	if err := z.validateGateDeclaration(); err != nil {
+		return err
+	}
 	live, err := c.ListSnippets(ctx)
 	if err != nil {
 		return err
@@ -82,4 +87,49 @@ func (z *Zone) reconcileSnippets(ctx context.Context, c *Client, p *Plan) error 
 			apply:  func(ctx context.Context) error { return c.PutSnippetRules(ctx, snippet, rules) }})
 	}
 	return nil
+}
+
+// validateGateDeclaration enforces the D-55 gate invariants on the declared
+// zone before anything is planned (fail closed): no Worker route may cover a
+// hostname the gate Snippet serves — every Worker request is billed even on a
+// cache hit, which free fan-out cannot carry — and one snippet carries at
+// most one declared binding, because two rules PUT against the same snippet
+// would oscillate instead of converging.
+func (z *Zone) validateGateDeclaration() error {
+	seen := make(map[string]bool, len(z.SnippetRules))
+	for _, want := range z.SnippetRules {
+		if seen[want.SnippetName] {
+			return fmt.Errorf("cloudflare: snippet %q declared twice; one snippet carries one binding", want.SnippetName)
+		}
+		seen[want.SnippetName] = true
+		for _, route := range z.WorkerRoutes {
+			if routeCoversHost(route.Pattern, want.Hostname) {
+				return fmt.Errorf("cloudflare: worker route %q covers gate hostname %s; no Worker runs on the reactive path (D-55)",
+					route.Pattern, want.Hostname)
+			}
+		}
+	}
+	return nil
+}
+
+// routeCoversHost reports whether a Cloudflare Worker route pattern matches
+// requests for host. Patterns are "<host>", "<host>/*", or "<host>/*path";
+// a leading or trailing "*" on the host part is a wildcard ("*.zone" covers
+// every subdomain, "sync.*" covers every name with that prefix). An exact
+// host matches itself, not its subdomains.
+func routeCoversHost(pattern, host string) bool {
+	hostPart := pattern
+	if i := strings.Index(hostPart, "/"); i >= 0 {
+		hostPart = hostPart[:i]
+	}
+	switch {
+	case len(hostPart) >= 2 && strings.HasPrefix(hostPart, "*") && strings.HasSuffix(hostPart, "*"):
+		return strings.Contains(host, strings.Trim(hostPart, "*"))
+	case strings.HasPrefix(hostPart, "*"):
+		return strings.HasSuffix(host, strings.TrimPrefix(hostPart, "*"))
+	case strings.HasSuffix(hostPart, "*"):
+		return strings.HasPrefix(host, strings.TrimSuffix(hostPart, "*"))
+	default:
+		return hostPart == host
+	}
 }
