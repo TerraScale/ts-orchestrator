@@ -65,3 +65,51 @@ func TestNatsDriftSinkRejectsBadCellsAndNilPublishers(t *testing.T) {
 		t.Fatal("the reserved global scope must not name a drift subject")
 	}
 }
+
+// The message ID must key on the drift identity, not the timestamp: the same
+// drift on consecutive passes keeps one ID and deduplicates in JetStream,
+// while any change to the drift lands as a new event.
+func TestDriftMessageIDKeysOnIdentityNotTimestamp(t *testing.T) {
+	base := DriftEvent{
+		At:     "2026-09-04T00:00:00Z",
+		Ref:    estate.ResourceRef{Kind: estate.ResourceBucket, Region: "gru", Name: "backups"},
+		Action: ActionUpdate,
+		Changes: []Change{
+			{Name: "bucket.lifecycle-rule", Declared: "expire-history|delete|35", Observed: "expire-history|delete|7"},
+		},
+		Declared: "bucket.purpose=database-backup",
+	}
+	first, err := driftMessageID(base)
+	if err != nil {
+		t.Fatalf("message ID derivation failed: %v", err)
+	}
+	replayed := base
+	replayed.At = "2026-09-04T00:01:00Z"
+	second, err := driftMessageID(replayed)
+	if err != nil {
+		t.Fatalf("message ID derivation failed: %v", err)
+	}
+	if first != second {
+		t.Fatalf("unchanged drift changed message ID: %q vs %q", first, second)
+	}
+
+	changed := base
+	changed.Changes[0].Observed = "expire-history|delete|14"
+	third, err := driftMessageID(changed)
+	if err != nil {
+		t.Fatalf("message ID derivation failed: %v", err)
+	}
+	if third == first {
+		t.Fatal("changed drift kept the same message ID")
+	}
+
+	other := base
+	other.Ref.Name = "releases"
+	fourth, err := driftMessageID(other)
+	if err != nil {
+		t.Fatalf("message ID derivation failed: %v", err)
+	}
+	if fourth == first {
+		t.Fatal("a different resource kept the same message ID")
+	}
+}

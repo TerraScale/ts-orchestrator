@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -25,9 +26,10 @@ type JetStreamPublisher interface {
 
 // NatsDriftSink publishes the drift event stream to the v2 control bus: one
 // message per event, on the Region's estate-drift observation subject, into
-// the CELL_EVENTS stream. The message ID is the content digest, so identical
-// consecutive passes collapse inside the stream dedup window and a changed
-// plan always lands as a new event.
+// the CELL_EVENTS stream. The message ID is the digest of the drift identity
+// — every event field except the observation timestamp — so the same drift
+// reported on consecutive passes collapses inside the stream's dedup window
+// and a changed plan always lands as a new event.
 type NatsDriftSink struct {
 	subject string
 	publish JetStreamPublisher
@@ -54,8 +56,10 @@ func (s *NatsDriftSink) PublishDrift(ctx context.Context, events []DriftEvent) e
 		if err != nil {
 			return fmt.Errorf("reconcile: drift event encoding: %w", err)
 		}
-		digest := sha256.Sum256(payload)
-		messageID := "estate-drift-" + hex.EncodeToString(digest[:16])
+		messageID, err := driftMessageID(event)
+		if err != nil {
+			return fmt.Errorf("reconcile: drift event identity: %w", err)
+		}
 		_, err = s.publish.PublishMsg(
 			ctx,
 			&nats.Msg{Subject: s.subject, Data: payload},
@@ -67,4 +71,24 @@ func (s *NatsDriftSink) PublishDrift(ctx context.Context, events []DriftEvent) e
 		}
 	}
 	return nil
+}
+
+// driftMessageID derives the JetStream message ID from the drift identity:
+// every event field except the observation timestamp. Unchanged drift keeps
+// its ID across passes and deduplicates inside the stream's duplicate
+// window; any change to the ref, action, changes, or summaries lands as a
+// new event.
+func driftMessageID(event DriftEvent) (string, error) {
+	identity, err := json.Marshal(struct {
+		Ref      estate.ResourceRef `json:"ref"`
+		Action   ActionKind         `json:"action"`
+		Changes  []Change           `json:"changes,omitempty"`
+		Declared string             `json:"declared,omitempty"`
+		Observed string             `json:"observed,omitempty"`
+	}{event.Ref, event.Action, event.Changes, event.Declared, event.Observed})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(identity)
+	return "estate-drift-" + hex.EncodeToString(digest[:16]), nil
 }
