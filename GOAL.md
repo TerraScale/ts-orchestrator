@@ -859,7 +859,7 @@ progress claims in this goal.
   a separately installed NATS service.
 - Split packages before they reach 10,000 lines. Keep dependencies acyclic and
   keep provider implementations outside decision packages.
-- Delete v1 roles and NATS messages when v2 equivalents exist. Delete the
+- Delete superseded roles and NATS messages as the launch v1 path replaces them. Delete the
   container supervisor, image and registry types, Dashboard, Database API and
   other retired product roles, Infisical, C# residue, archived phase documents,
   and stale blue-green, Merkle, Project Queue, environment, or container text.

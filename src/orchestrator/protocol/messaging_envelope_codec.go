@@ -51,11 +51,11 @@ type messagingEnvelopeDocument struct {
 }
 
 // MarshalMessagingEnvelope serializes a non-command control message into the
-// only admitted v2 JSON wire shape. Signed commands retain their canonical
+// only admitted v1 JSON wire shape. Signed commands retain their canonical
 // command codec and are rejected here so the two formats cannot be confused.
 func MarshalMessagingEnvelope(envelope *MessagingEnvelope, payload any) ([]byte, error) {
 	if envelope == nil || envelope.Command != nil || envelope.SchemaVersion != MessagingSchemaVersionCurrent {
-		return nil, errors.New("messaging envelope is not an unsigned v2 payload")
+		return nil, errors.New("messaging envelope is not an unsigned v1 payload")
 	}
 	context := NewMessagingValidationContext(
 		map[int]struct{}{MessagingSchemaVersionCurrent.Major: {}},

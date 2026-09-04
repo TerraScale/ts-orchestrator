@@ -24,7 +24,7 @@ type JetStreamPublisher interface {
 	PublishMsg(ctx context.Context, message *nats.Msg, options ...jetstream.PublishOpt) (*jetstream.PubAck, error)
 }
 
-// NatsDriftSink publishes the drift event stream to the v2 control bus: one
+// NatsDriftSink publishes the drift event stream to the v1 control bus: one
 // message per event, on the Region's estate-drift observation subject, into
 // the CELL_EVENTS stream. The message ID is the digest of the drift identity
 // — every event field except the observation timestamp — so the same drift
@@ -47,7 +47,7 @@ func NewNatsDriftSink(cell string, publisher JetStreamPublisher) (*NatsDriftSink
 	return &NatsDriftSink{subject: subject, publish: publisher}, nil
 }
 
-// Subject is the v2 subject this sink publishes on.
+// Subject is the v1 subject this sink publishes on.
 func (s *NatsDriftSink) Subject() string { return s.subject }
 
 func (s *NatsDriftSink) PublishDrift(ctx context.Context, events []DriftEvent) error {

@@ -3,7 +3,7 @@
 // (a verified binary behind the
 // /opt/terrascale/ts-node/current symlink, exactly one unit, no arguments),
 // reads its own configuration from one JSON file, watches the local
-// manifest for desired components, serves the ts.orch.v2 host-agent subjects
+// manifest for desired components, serves the ts.orch.v1 host-agent subjects
 // of the hostagent package over the control NATS, and publishes host-fact
 // heartbeats until SIGINT or SIGTERM.
 //

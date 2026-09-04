@@ -2,10 +2,10 @@
 
 > Frozen messaging contract for the checked-in NATS adapter. The repository
 > [`GOAL.md`](../../GOAL.md) replaces the optional-NATS target with the
-> mandatory `ts.orch.v2` control network; the
-> subject tokens below name that v2 control root, which is the root served by
+> mandatory `ts.orch.v1` control network; the
+> subject tokens below name that v1 control root, which is the root served by
 > the checked-in adapter. It cannot
-> define v2 authority or permit database data, replication, reactive sync,
+> define v1 authority or permit database data, replication, reactive sync,
 > usage truth, or product correctness to depend on NATS.
 
 | | |
@@ -15,7 +15,7 @@
 | Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go` and `messaging_regional_autonomy.go` |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
-| Canonicality | Canonical for the checked-in `ts.orch.v2` implementation. The repository `GOAL.md` remains the authority for architecture beyond this adapter. |
+| Canonicality | Canonical for the checked-in `ts.orch.v1` implementation. The repository `GOAL.md` remains the authority for architecture beyond this adapter. |
 
 Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.
 
@@ -24,7 +24,7 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 | Capability | Disposition | Owner | Data class | Durability | Ordering | Security boundary | Failure mode | Observability | Landed evidence |
 | --- | --- | --- | --- | --- | --- |---|---|---|---|
 | `CorePubSub` | ACCEPT | RegionalControlRuntime | OperationalTelemetry | Ephemeral | Unordered | Control account subject permissions; publish only taxonomy subjects; no product-plane subjects. | Lost publications are safe: hints, heartbeats, and fanout are advisory and consumers reconcile from durable state. | Drop/latency counters per subject namespace; no alert may depend on a lossy hint. | `NatsRuntime` service endpoints; `RegionalRuntimeMembership` heartbeats via bounded `ORCH_RUNTIME` KV. |
-| `RequestReply` | ACCEPT | RegionalControlRuntime | OperatorQuery | Ephemeral | Unordered | Typed endpoints only; scoped subscribe + `_INBOX`; no-responder surfaces as an error, never silence. | Timeout/no-responder is caller-visible; retries reuse the idempotency key. | Request latency and no-responder rate per endpoint. | `NatsRuntime` health/status/members; directory service `ts.orch.v2.global.query.cells`. |
+| `RequestReply` | ACCEPT | RegionalControlRuntime | OperatorQuery | Ephemeral | Unordered | Typed endpoints only; scoped subscribe + `_INBOX`; no-responder surfaces as an error, never silence. | Timeout/no-responder is caller-visible; retries reuse the idempotency key. | Request latency and no-responder rate per endpoint. | `NatsRuntime` health/status/members; directory service `ts.orch.v1.global.query.cells`. |
 | `ServicesAndDiscovery` | ACCEPT | RegionalControlRuntime | OperatorQuery | Ephemeral | Unordered | `$SRV` subjects stay account-scoped; only declared endpoints registered; complements workload DNS/LB. | Missing service/endpoint metadata fails the caller closed (startup verifies discovery). | Endpoint presence, queue-group membership, per-endpoint latency/errors. | `terrascale_orchestrator_<cell>` service with `$SRV.INFO` readback verification. |
 | `QueueGroups` | ACCEPT | RegionalControlRuntime | ControlCommand | Ephemeral | Unordered | Distribute only equivalent-worker work; the single authoritative writer is always chosen by a KV CAS lease, never by a queue group. | Any member may answer; answers must be equivalent; authoritative writes are epoch-fenced. | Group size, member churn, duplicate-answer rejections. | `NatsTopology.ServiceQueueGroup`, `OperationJournalWriterQueueGroup`. |
 | `Headers` | ACCEPT | MessagingContracts | ControlCommand | Ephemeral | Unordered | Only contract-defined `TS-*` metadata; never secrets, credentials, or body. | Missing/malformed required headers fail closed at the wire codec. | Header validation rejections by name. | `TS-*` headers in `NativeGitOpsCellWireCodec`, `DirectDeliveryCommandWire`, startup verification. |
@@ -40,7 +40,7 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 | `Jwts` | DEFER | SecurityAndIdentity | — | — | — | — | — | — | Revisit trigger: operator/account/user JWT issuance and the JWT/NKey administration toolchain remain unselected; adopt only after the toolchain and rotating account-signing-key procedure are explicitly qualified. |
 | `NKeys` | ACCEPT | SecurityAndIdentity | CoordinationRecord | Ephemeral | Unordered | Controllers, writer, infrastructure, directory, and operator identities; every command rejects every NATS credential family it does not own before file resolution. | Anonymous connections denied (verified at startup); missing NKey fails closed. | Auth failures by identity family; anonymous-denial verification. | `OrchestratorOptions.NatsNKeyFile`, `VerifyAnonymousDeniedAsync`, `CiRunnerNatsCredentialIssuer`, `GlobalNatsAccessContract` identity separation. |
 | `Mtls` | ACCEPT | SecurityAndIdentity | CoordinationRecord | Ephemeral | Unordered | Proves machine/workload transport identity for clients, routes, gateways; never replaces NKey/JWT authorization; global endpoints require absolute `tls://` URLs. | TLS failure is a startup/connection failure; no plaintext fallback. | Certificate expiry freshness, handshake failures, per-endpoint TLS mode. | `NatsTlsOpts` Require mode; `NatsTlsFiles`; infrastructure mTLS required by `NatsOperationJournalProvisioner`. |
-| `ImportsAndExports` | ACCEPT | SecurityAndIdentity | OperatorQuery | Ephemeral | Unordered | Least-privilege service import/export across accounts within one cluster only (the directory query service). Cross-cluster/region stream or service import/export is **rejected** — the gateway mesh is the only cross-cluster path and no stream may span regions. | A missing import/export makes the cross-account call fail closed with no-responder. | Import/export presence per account pair; undeclared cross-account subjects are security alerts. | `GlobalNatsServiceImport`/`Export` for `ts.orch.v2.global.query.cells`; no cross-region stream exists. |
+| `ImportsAndExports` | ACCEPT | SecurityAndIdentity | OperatorQuery | Ephemeral | Unordered | Least-privilege service import/export across accounts within one cluster only (the directory query service). Cross-cluster/region stream or service import/export is **rejected** — the gateway mesh is the only cross-cluster path and no stream may span regions. | A missing import/export makes the cross-account call fail closed with no-responder. | Import/export presence per account pair; undeclared cross-account subjects are security alerts. | `GlobalNatsServiceImport`/`Export` for `ts.orch.v1.global.query.cells`; no cross-region stream exists. |
 | `Gateways` | ACCEPT | InfrastructureBootstrap | CoordinationRecord | Ephemeral | Unordered | Full mTLS control-network mesh inside one offline control-plane operator domain; customer data and replication never use it. | Control-network loss holds new global mutations while already admitted data-plane service continues. | Link state/latency and isolated-Region duration. | Gateway membership validated by `MessagingPolicyEngine` plane policies. |
 | `Advisories` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | Authenticated `$SYS` subjects only for remote status; advisories are read, never authority. | A missed advisory degrades monitoring only; control decisions never change. | Slow-consumer, quorum/leader-change, auth-failure advisories are alert inputs. | `NatsMonitoringInstrumentCatalog`; observability adapter status remains a qualification input. |
 | `SystemMonitoring` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | HTTP monitoring binds loopback/isolated management addresses only, scraped locally; remote status via authenticated `$SYS`; never internet- or workload-exposed. | Monitoring loss blinds operators without affecting control correctness. | Server/account/connection/consumer health and quorum state feed Grafana/alerts. | `NatsMonitoringRuntime`; adapter status remains a qualification input. |
@@ -53,13 +53,13 @@ Canonical definitions: `src/orchestrator/protocol/nats_subject_taxonomy.go`. Pro
 
 | Namespace | Root / pattern | Status | Notes |
 | --- | --- | --- | --- |
-| Global authority | `ts.orch.v2.global.>` (minus `ci.>`, `query.cells`, `audit.>`) | landed | GRU-owned global journals: `desired.gitops.<cell>` (GLOBAL_SPEC), release/CI ledger keys. |
-| Global directory | `ts.orch.v2.global.query.cells` | landed | Served by the GRU directory-service identity over the standalone snapshot. |
-| Regional control | `ts.orch.v2.<cell>.{query,command,observation,desired}.>` | landed | Controller services, journal mutation admission, startup observations, and accepted CellSpecs. |
-| Operations | `ts.orch.v2.<cell>.operation.>` | landed | Authoritative regional operation history. |
-| Continuous integration | `ts.orch.v2.global.release.ci.>` | landed | `forgejo` triggers, `runtime-proof` observations, `job.<zone>.<hash>` runner inboxes. |
-| Agent | `ts.orch.v2.<cell>.agent.>` | reserved | Host-agent channels; work-queue semantics when landed. |
-| Audit | `ts.orch.v2.<cell>.audit.>` and `ts.orch.v2.global.audit.>` | reserved | Audit history is authoritative and export-only. |
+| Global authority | `ts.orch.v1.global.>` (minus `ci.>`, `query.cells`, `audit.>`) | landed | GRU-owned global journals: `desired.gitops.<cell>` (GLOBAL_SPEC), release/CI ledger keys. |
+| Global directory | `ts.orch.v1.global.query.cells` | landed | Served by the GRU directory-service identity over the standalone snapshot. |
+| Regional control | `ts.orch.v1.<cell>.{query,command,observation,desired}.>` | landed | Controller services, journal mutation admission, startup observations, and accepted CellSpecs. |
+| Operations | `ts.orch.v1.<cell>.operation.>` | landed | Authoritative regional operation history. |
+| Continuous integration | `ts.orch.v1.global.release.ci.>` | landed | `forgejo` triggers, `runtime-proof` observations, `job.<zone>.<hash>` runner inboxes. |
+| Agent | `ts.orch.v1.<cell>.agent.>` | reserved | Host-agent channels; work-queue semantics when landed. |
+| Audit | `ts.orch.v1.<cell>.audit.>` and `ts.orch.v1.global.audit.>` | reserved | Audit history is authoritative and export-only. |
 | Product plane | `ts.product.…` | rejected from control | Separate trust plane and clusters; no control subject is ever defined under it. |
 
 Platform-reserved NATS roots (`$JS`, `$KV`, `$O`, `$SRV`, `$SYS`, `_INBOX`, `_R_`, `#`) are not control subjects; classification returns `PlatformReserved`, and unknown subjects fail closed.
@@ -79,17 +79,17 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 
 | Subject pattern | Class | Loss meaning |
 | --- | --- | --- |
-| `ts.orch.v2.global.query.cells` | Lossy | request/reply over the durable directory snapshot |
-| `ts.orch.v2.global.desired.gitops.>` | AuthoritativeJournal | GLOBAL_SPEC authority |
-| `ts.orch.v2.global.release.ci.forgejo` | WorkQueue | leader-only trigger decisions |
-| `ts.orch.v2.global.release.ci.job.>` | WorkQueue | fenced per-runner inbox (MaxAckPending 1) |
-| `ts.orch.v2.global.release.ci.runtime-proof` | Replayable | bounded durable observations |
-| `ts.orch.v2.*.query.>`, `ts.orch.v2.*.command.>` | Lossy | caller-visible retry; effects journaled separately |
-| `ts.orch.v2.*.observation.>` | Replayable | CELL_EVENTS bounded history |
-| `ts.orch.v2.*.desired.>` | AuthoritativeJournal | accepted CellSpec history (CELL_SPEC) |
-| `ts.orch.v2.*.operation.>` | AuthoritativeJournal | authoritative regional journals |
-| `ts.orch.v2.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
-| `ts.orch.v2.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
+| `ts.orch.v1.global.query.cells` | Lossy | request/reply over the durable directory snapshot |
+| `ts.orch.v1.global.desired.gitops.>` | AuthoritativeJournal | GLOBAL_SPEC authority |
+| `ts.orch.v1.global.release.ci.forgejo` | WorkQueue | leader-only trigger decisions |
+| `ts.orch.v1.global.release.ci.job.>` | WorkQueue | fenced per-runner inbox (MaxAckPending 1) |
+| `ts.orch.v1.global.release.ci.runtime-proof` | Replayable | bounded durable observations |
+| `ts.orch.v1.*.query.>`, `ts.orch.v1.*.command.>` | Lossy | caller-visible retry; effects journaled separately |
+| `ts.orch.v1.*.observation.>` | Replayable | CELL_EVENTS bounded history |
+| `ts.orch.v1.*.desired.>` | AuthoritativeJournal | accepted CellSpec history (CELL_SPEC) |
+| `ts.orch.v1.*.operation.>` | AuthoritativeJournal | authoritative regional journals |
+| `ts.orch.v1.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
+| `ts.orch.v1.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
 
 Store classes (`StoreRules`): authoritative journals — `ORCH_OPERATIONS`, `GLOBAL_RELEASES`; snapshots — `GLOBAL_CELLS`, `CELL_BUNDLES`, `GLOBAL_BUNDLES`, `CI_RUNNER_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`; coordination (lossy in the contract sense — CAS plus epochs carry correctness) — `ORCH_LEADERS`, `ORCH_RUNTIME`, `ORCH_DELIVERY`, `ORCH_OPERATION_PROOFS`, `CI_RUNNER_JOBS`. A drift test pins every landed bucket to a declared class.
 

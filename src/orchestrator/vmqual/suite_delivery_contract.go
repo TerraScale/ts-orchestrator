@@ -547,11 +547,11 @@ func newDeliveryContractRelease() (*deliveryContractRelease, error) {
 		digest, validateErr := ValidateDeliveryArchitectureManifest(manifest, artifacts, publicKey)
 		return manifest, artifacts, digest, validateErr
 	}
-	candidateManifest, candidates, candidateDigest, err := build("qualification-v2")
+	candidateManifest, candidates, candidateDigest, err := build("qualification-candidate")
 	if err != nil {
 		return nil, err
 	}
-	_, prior, priorDigest, err := build("qualification-v1")
+	_, prior, priorDigest, err := build("qualification-prior")
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +594,7 @@ func cloneDeliveryArtifacts(input map[string]DeliverySignedArtifact) map[string]
 
 func deliveryContractSystemdUnit(artifact DeliverySignedArtifact) (string, error) {
 	spec, err := hostagent.NewComponentSpec(hostagent.ComponentSpec{
-		Name: "terrabase", Version: "qualification-v2",
+		Name: "terrabase", Version: "qualification-candidate",
 		ArtifactURL: "https://forgejo.terrascale.invalid/releases/terrabase", SignatureURL: "https://forgejo.terrascale.invalid/releases/terrabase.sig",
 		Sha256: strings.TrimPrefix(artifact.Identity.Digest, "sha256:"), User: "terrabase", DataVolume: "/var/lib/terrascale/terrabase",
 		CPUWeight: 1000, MemoryMaxBytes: 8 << 30, IOWeight: 1000,

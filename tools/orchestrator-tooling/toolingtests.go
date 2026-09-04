@@ -424,7 +424,7 @@ func testCiResultManifest() {
 	defer os.RemoveAll(root)
 	trx := filepath.Join(root, "tests.trx")
 	invalid := filepath.Join(root, "invalid.trx")
-	output := filepath.Join(root, "terrascale-ci-result-v2.json")
+	output := filepath.Join(root, "terrascale-ci-result-v1.json")
 	if err := os.WriteFile(trx, []byte(testTrxContent("Passed", "NotExecuted", 0, 1)), 0o644); err != nil {
 		panic(err)
 	}

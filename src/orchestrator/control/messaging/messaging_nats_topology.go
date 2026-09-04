@@ -74,7 +74,7 @@ func (t *NatsTopology) StartupSubject() (string, error) {
 	return protocol.NatsSubjectTaxonomy.RuntimeStartupSubject(t.Cell, t.Instance)
 }
 
-func (t *NatsTopology) ProtocolObject() string { return "orchestrator-protocol-v2" }
+func (t *NatsTopology) ProtocolObject() string { return "orchestrator-protocol-v1" }
 
 func (t *NatsTopology) ServiceName() string { return "terrascale_orchestrator_" + t.Cell }
 

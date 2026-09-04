@@ -632,7 +632,7 @@ func (p *Publisher) removeStale(ctx context.Context, generation uint64, seen map
 			return deleted, err
 		}
 		digest := sha256.New()
-		_, _ = fmt.Fprintf(digest, "estate-delete-v2\x00%d\x00%s", generation, ref.ID)
+		_, _ = fmt.Fprintf(digest, "estate-delete-v1\x00%d\x00%s", generation, ref.ID)
 		options := WriteOptions{Generation: generation, FenceToken: p.fenceToken, IdempotencyKey: "estate-delete-" + hex.EncodeToString(digest.Sum(nil))}
 		if err := p.delete(ctx, ref.ID, options); err != nil {
 			return deleted, fmt.Errorf("delete stale %s: %w", estate.QualifiedName(ref.ID), redact(err))
@@ -760,7 +760,7 @@ func (p *Publisher) Close() error {
 
 func idempotencyKey(generation uint64, id string, sum [32]byte) string {
 	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "estate-document-v2\x00%d\x00%s\x00", generation, id)
+	_, _ = fmt.Fprintf(digest, "estate-document-v1\x00%d\x00%s\x00", generation, id)
 	_, _ = digest.Write(sum[:])
 	return "estate-" + hex.EncodeToString(digest.Sum(nil))
 }

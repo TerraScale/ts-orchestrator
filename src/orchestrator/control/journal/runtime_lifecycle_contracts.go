@@ -322,7 +322,7 @@ type RuntimeLifecycleCheckpoint struct {
 
 // RuntimeLifecycleCheckpointProposed creates the genesis checkpoint for a request.
 func RuntimeLifecycleCheckpointProposed(request RuntimeLifecycleOperationRequest) (RuntimeLifecycleCheckpoint, error) {
-	genesisDigest, err := NewRuntimeDigest(RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v2"))
+	genesisDigest, err := NewRuntimeDigest(RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v1"))
 	if err != nil {
 		return RuntimeLifecycleCheckpoint{}, err
 	}

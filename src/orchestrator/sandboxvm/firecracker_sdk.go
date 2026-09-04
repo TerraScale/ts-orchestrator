@@ -554,7 +554,7 @@ func (g *ownedCgroup) Attach(pid int) error {
 	}
 	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
 		if !fieldPresent(controllers, controller) {
-			return fmt.Errorf("sandboxvm: cgroup v2 controller %q is unavailable", controller)
+			return fmt.Errorf("sandboxvm: cgroup v1 controller %q is unavailable", controller)
 		}
 	}
 	rootCPUs, err := readCgroupFile(filepath.Join(g.root, "cpuset.cpus.effective"))
@@ -700,7 +700,7 @@ func (g *ownedCgroup) Validate(pid int) error {
 func enableCgroupControllers(path string) error {
 	const enabled = "+cpu +memory +pids +cpuset"
 	if err := writeCgroupFile(filepath.Join(path, "cgroup.subtree_control"), enabled); err != nil {
-		return fmt.Errorf("enable cgroup v2 controllers below %s: %w", path, err)
+		return fmt.Errorf("enable cgroup v1 controllers below %s: %w", path, err)
 	}
 	current, err := readCgroupFile(filepath.Join(path, "cgroup.subtree_control"))
 	if err != nil {
@@ -708,7 +708,7 @@ func enableCgroupControllers(path string) error {
 	}
 	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
 		if !fieldPresent(current, controller) {
-			return fmt.Errorf("sandboxvm: cgroup v2 controller %q was not enabled below %s", controller, path)
+			return fmt.Errorf("sandboxvm: cgroup v1 controller %q was not enabled below %s", controller, path)
 		}
 	}
 	return nil
@@ -721,7 +721,7 @@ func requireCgroupControllersEnabled(path string) error {
 	}
 	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
 		if !fieldPresent(current, controller) {
-			return fmt.Errorf("sandboxvm: cgroup v2 controller %q is not delegated below %s", controller, path)
+			return fmt.Errorf("sandboxvm: cgroup v1 controller %q is not delegated below %s", controller, path)
 		}
 	}
 	return nil

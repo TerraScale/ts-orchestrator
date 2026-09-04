@@ -1,7 +1,7 @@
 # NATS monitoring observability snapshot
 
 Status: adapter evidence for the Orchestrator messaging observability contract.
-Subject tokens name the mandatory `ts.orch.v2` control root selected by the
+Subject tokens name the mandatory `ts.orch.v1` control root selected by the
 repository `GOAL.md`; the checked-in adapter serves this root.
 Everything below is generated from the typed catalog
 (`NatsMonitoringInstrumentCatalog`, `NatsAlertCatalog`) — the single source of
@@ -144,7 +144,7 @@ an explicit recovery condition, and a runbook:
 ## Service endpoint statistics
 
 The regional control service exposes a read-only `stats` endpoint
-(`ts.orch.v2.<cell>.query.stats`) serving `NatsServiceStatsDocument`: service
+(`ts.orch.v1.<cell>.query.stats`) serving `NatsServiceStatsDocument`: service
 name, build version, status-contract schema generation, health, and per-endpoint
 request/error counts with p50/p95/p99/max latency over a bounded 256-sample
 reservoir per endpoint. Endpoint names are the closed enumeration

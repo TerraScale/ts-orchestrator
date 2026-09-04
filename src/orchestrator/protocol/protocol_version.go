@@ -9,4 +9,4 @@ var ProtocolVersion protocolVersionStatic
 type protocolVersionStatic struct{}
 
 // Current returns the admitted major version.
-func (protocolVersionStatic) Current() int { return 2 }
+func (protocolVersionStatic) Current() int { return 1 }

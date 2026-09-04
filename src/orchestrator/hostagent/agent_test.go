@@ -138,7 +138,7 @@ func requestAgentStatus(url, commandId string) error {
 		return err
 	}
 	message, err := connection.Request(
-		"ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain-status",
+		"ts.orch.v1.gru.agent.9a097238a730924911f02fcc.command.drain-status",
 		payload, 250*time.Millisecond)
 	if err != nil {
 		return err

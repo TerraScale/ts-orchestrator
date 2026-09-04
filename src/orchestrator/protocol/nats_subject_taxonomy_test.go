@@ -7,57 +7,57 @@ import (
 
 const testAgentIdentity = "host/gru/agent-07"
 
-func TestTheControlRootIsExactlyTheFreshV2ProtocolRoot(t *testing.T) {
-	if NatsSubjectTaxonomy.Root() != "ts.orch.v2" {
+func TestTheControlRootIsExactlyTheFreshV1ProtocolRoot(t *testing.T) {
+	if NatsSubjectTaxonomy.Root() != "ts.orch.v1" {
 		t.Fatal("root mismatch")
 	}
 
-	if NatsSubjectTaxonomy.GlobalRoot() != "ts.orch.v2.global" {
+	if NatsSubjectTaxonomy.GlobalRoot() != "ts.orch.v1.global" {
 		t.Fatal("global root mismatch")
 	}
 
-	if root, err := NatsSubjectTaxonomy.RegionalRoot("gru"); err != nil || root != "ts.orch.v2.gru" {
+	if root, err := NatsSubjectTaxonomy.RegionalRoot("gru"); err != nil || root != "ts.orch.v1.gru" {
 		t.Fatalf("regional root = %q, err = %v", root, err)
 	}
 
-	if root, err := NatsSubjectTaxonomy.RegionalRootForRegionCode("GRU"); err != nil || root != "ts.orch.v2.gru" {
+	if root, err := NatsSubjectTaxonomy.RegionalRootForRegionCode("GRU"); err != nil || root != "ts.orch.v1.gru" {
 		t.Fatalf("regional root for RegionCode = %q, err = %v", root, err)
 	}
 }
 
-func TestRehomedBridgeSubjectsLandInsideTheClosedV2Families(t *testing.T) {
+func TestRehomedBridgeSubjectsLandInsideTheClosedV1Families(t *testing.T) {
 	if subject, err := NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"); err != nil ||
-		subject != "ts.orch.v2.gru.command.journal.create" {
+		subject != "ts.orch.v1.gru.command.journal.create" {
 		t.Fatalf("create subject = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru"); err != nil ||
-		subject != "ts.orch.v2.gru.command.journal.update" {
+		subject != "ts.orch.v1.gru.command.journal.update" {
 		t.Fatalf("update subject = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.OperationJournalReplySubject("gru", "UABC", strings.Repeat("a", 32)); err != nil ||
-		subject != "ts.orch.v2.gru.command.journal.reply.UABC."+strings.Repeat("a", 32) {
+		subject != "ts.orch.v1.gru.command.journal.reply.UABC."+strings.Repeat("a", 32) {
 		t.Fatalf("reply subject = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.ControllerInboxPrefix("gru", "UABC"); err != nil ||
-		subject != "ts.orch.v2.gru.command.reply.UABC" {
+		subject != "ts.orch.v1.gru.command.reply.UABC" {
 		t.Fatalf("inbox prefix = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1"); err != nil ||
-		subject != "ts.orch.v2.gru.observation.runtime.started.controller-1" {
+		subject != "ts.orch.v1.gru.observation.runtime.started.controller-1" {
 		t.Fatalf("startup subject = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.EstateDriftSubject("gru"); err != nil ||
-		subject != "ts.orch.v2.gru.observation.estate.drift" {
+		subject != "ts.orch.v1.gru.observation.estate.drift" {
 		t.Fatalf("estate drift subject = %q, err = %v", subject, err)
 	}
 
 	if subject, err := NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"); err != nil ||
-		subject != "ts.orch.v2.gru.command.runtime-lifecycle.read" {
+		subject != "ts.orch.v1.gru.command.runtime-lifecycle.read" {
 		t.Fatalf("lifecycle subject = %q, err = %v", subject, err)
 	}
 
@@ -115,7 +115,7 @@ func TestHostAgentSubjectsUseTheFixedHashOfTheAdmittedIdentity(t *testing.T) {
 	}
 
 	root := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) })
-	if root != "ts.orch.v2.gru.agent."+token {
+	if root != "ts.orch.v1.gru.agent."+token {
 		t.Fatalf("agent root = %q", root)
 	}
 
@@ -196,7 +196,7 @@ func TestRegisteredRegionCodesAndSubjectTokensAreBijectiveAndExact(t *testing.T)
 
 	// Raw subject-token APIs preserve established NATS identifiers. They do not
 	// admit RegionCode values.
-	if root, err := NatsSubjectTaxonomy.RegionalRoot("us1"); err != nil || root != "ts.orch.v2.us1" {
+	if root, err := NatsSubjectTaxonomy.RegionalRoot("us1"); err != nil || root != "ts.orch.v1.us1" {
 		t.Fatalf("raw token root = %q, err = %v", root, err)
 	}
 
@@ -246,19 +246,19 @@ func TestClassificationSeparatesEveryNamespaceOfTheClosedTaxonomy(t *testing.T) 
 
 func TestClassificationFailsClosedOnUnknownShapes(t *testing.T) {
 	unknown := []string{
-		"ts.orch.v2.gru.unknown.channel",
-		"ts.orch.v2.gru.event.runtime.started.controller-1",
-		"ts.orch.v2.gru.internal.operation-journal.create",
-		"ts.orch.v2.global.ci.forgejo",
-		"ts.orch.v2.global.journal.ledger",
-		"ts.orch.v2.global",
+		"ts.orch.v1.gru.unknown.channel",
+		"ts.orch.v1.gru.event.runtime.started.controller-1",
+		"ts.orch.v1.gru.internal.operation-journal.create",
+		"ts.orch.v1.global.ci.forgejo",
+		"ts.orch.v1.global.journal.ledger",
+		"ts.orch.v1.global",
 		"ts.other.v1.gru.query.health",
 		"",
 	}
 
 	for _, subject := range unknown {
 		if NatsSubjectTaxonomy.Classify(subject) != NatsSubjectNamespaceUnknown {
-			t.Fatalf("subject %q must not classify into the v2 taxonomy", subject)
+			t.Fatalf("subject %q must not classify into the v1 taxonomy", subject)
 		}
 	}
 }
@@ -316,20 +316,20 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 		pattern string
 		want    NatsSubjectPermissionError
 	}{
-		{"ts.orch.v2.*.desired.>", NatsSubjectPermissionErrorWildcardInScopeToken},
-		{"ts.orch.v2.*.query.>", NatsSubjectPermissionErrorWildcardInScopeToken},
-		{"ts.orch.v2.>", NatsSubjectPermissionErrorWildcardInScopeToken},
-		{"ts.orch.v2.*.agent.>", NatsSubjectPermissionErrorWildcardInScopeToken},
-		{"ts.orch.v2.gru.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
-		{"ts.orch.v2.gru.*.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
-		{"ts.orch.v2.global.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
-		{"ts.orch.v2.gru.event.>", NatsSubjectPermissionErrorUnknownFamily},
-		{"ts.orch.v2.gru.internal.>", NatsSubjectPermissionErrorUnknownFamily},
-		{"ts.orch.v2.global.ci.>", NatsSubjectPermissionErrorUnknownFamily},
-		{"ts.orch.v2.GRU.desired.>", NatsSubjectPermissionErrorInvalidRegionToken},
-		{"ts.orch.v2.gru.agent.*.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
-		{"ts.orch.v2.gru.agent.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
-		{"ts.orch.v2.gru.agent.not-a-fixed-hash.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
+		{"ts.orch.v1.*.desired.>", NatsSubjectPermissionErrorWildcardInScopeToken},
+		{"ts.orch.v1.*.query.>", NatsSubjectPermissionErrorWildcardInScopeToken},
+		{"ts.orch.v1.>", NatsSubjectPermissionErrorWildcardInScopeToken},
+		{"ts.orch.v1.*.agent.>", NatsSubjectPermissionErrorWildcardInScopeToken},
+		{"ts.orch.v1.gru.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
+		{"ts.orch.v1.gru.*.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
+		{"ts.orch.v1.global.>", NatsSubjectPermissionErrorWildcardInFamilyToken},
+		{"ts.orch.v1.gru.event.>", NatsSubjectPermissionErrorUnknownFamily},
+		{"ts.orch.v1.gru.internal.>", NatsSubjectPermissionErrorUnknownFamily},
+		{"ts.orch.v1.global.ci.>", NatsSubjectPermissionErrorUnknownFamily},
+		{"ts.orch.v1.GRU.desired.>", NatsSubjectPermissionErrorInvalidRegionToken},
+		{"ts.orch.v1.gru.agent.*.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
+		{"ts.orch.v1.gru.agent.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
+		{"ts.orch.v1.gru.agent.not-a-fixed-hash.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
 		{"ts.orch.>", NatsSubjectPermissionErrorOutsideControlRoot},
 		{"$SYS.>", NatsSubjectPermissionErrorPlatformReserved},
 		{"ts.product.v1.>", NatsSubjectPermissionErrorOutsideControlRoot},
@@ -344,16 +344,16 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 
 	agentToken := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken(testAgentIdentity) })
 	for _, pattern := range []string{
-		"ts.orch.v2.gru.desired.>",
-		"ts.orch.v2.gru.command.>",
-		"ts.orch.v2.gru.observation.>",
-		"ts.orch.v2.gru.operation.>",
-		"ts.orch.v2.gru.query.>",
-		"ts.orch.v2.gru.audit.>",
-		"ts.orch.v2.gru.agent." + agentToken + ".command.>",
-		"ts.orch.v2.global.desired.>",
-		"ts.orch.v2.global.release.ci.job.>",
-		"ts.orch.v2.global.query.cells",
+		"ts.orch.v1.gru.desired.>",
+		"ts.orch.v1.gru.command.>",
+		"ts.orch.v1.gru.observation.>",
+		"ts.orch.v1.gru.operation.>",
+		"ts.orch.v1.gru.query.>",
+		"ts.orch.v1.gru.audit.>",
+		"ts.orch.v1.gru.agent." + agentToken + ".command.>",
+		"ts.orch.v1.global.desired.>",
+		"ts.orch.v1.global.release.ci.job.>",
+		"ts.orch.v1.global.query.cells",
 	} {
 		if ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(pattern); !ok || err != NatsSubjectPermissionErrorNone {
 			t.Fatalf("closed permission %q rejected: %v", pattern, err)
@@ -366,7 +366,7 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 			return NatsSubjectTaxonomy.RegionalFamilyPattern("gru", NatsSubjectTaxonomy.DesiredFamilySegment())
 		}),
 		NatsSubjectTaxonomy.GrammarLimits())
-	if pinned.Matches(testConcreteSubject("ts.orch.v2.sfo.desired.gitops", NatsSubjectTaxonomy.GrammarLimits())) {
+	if pinned.Matches(testConcreteSubject("ts.orch.v1.sfo.desired.gitops", NatsSubjectTaxonomy.GrammarLimits())) {
 		t.Fatal("pinned GRU permission must not match SFO subjects")
 	}
 
@@ -396,14 +396,14 @@ func TestCustomerProvidedTextNeverBecomesASubjectToken(t *testing.T) {
 		subject string
 		want    NatsSubjectAdmissionError
 	}{
-		{"ts.orch.v2.gru.desired.café", NatsSubjectAdmissionErrorCustomerTextInSubject},
-		{"ts.orch.v2.gru.query.user@example.com", NatsSubjectAdmissionErrorCustomerTextInSubject},
-		{"ts.orch.v2.gru.query.héllo", NatsSubjectAdmissionErrorCustomerTextInSubject},
-		{"ts.orch.v2.gru. query.health", NatsSubjectAdmissionErrorMalformedSubject},
-		{"ts.orch.v2.gru.agent.enroll", NatsSubjectAdmissionErrorInvalidAgentHashToken},
+		{"ts.orch.v1.gru.desired.café", NatsSubjectAdmissionErrorCustomerTextInSubject},
+		{"ts.orch.v1.gru.query.user@example.com", NatsSubjectAdmissionErrorCustomerTextInSubject},
+		{"ts.orch.v1.gru.query.héllo", NatsSubjectAdmissionErrorCustomerTextInSubject},
+		{"ts.orch.v1.gru. query.health", NatsSubjectAdmissionErrorMalformedSubject},
+		{"ts.orch.v1.gru.agent.enroll", NatsSubjectAdmissionErrorInvalidAgentHashToken},
 		{"ts.product.v1.queue.default", NatsSubjectAdmissionErrorOutsideControlRoot},
 		{"$JS.API.STREAM.INFO", NatsSubjectAdmissionErrorPlatformReserved},
-		{"ts.orch.v2.gru.unknown.channel", NatsSubjectAdmissionErrorUnknownNamespace},
+		{"ts.orch.v1.gru.unknown.channel", NatsSubjectAdmissionErrorUnknownNamespace},
 	}
 
 	for _, testCase := range rejected {

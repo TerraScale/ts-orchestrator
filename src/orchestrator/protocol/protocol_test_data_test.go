@@ -85,7 +85,7 @@ type validEnvelopeOption struct {
 
 func validEnvelope(overrides ...func(*validEnvelopeOption)) CommandEnvelope {
 	options := validEnvelopeOption{
-		protocol:    ptrOf(testProtocol(2)),
+		protocol:    ptrOf(testProtocol(1)),
 		cell:        ptrOf(testCell("gru")),
 		aggregate:   ptrOf(testAggregate("allocation/42")),
 		generation:  ptrOf(testGeneration(10)),
@@ -156,7 +156,7 @@ func validContext(overrides ...func(*validContextOption)) *CommandValidationCont
 		expectedAggregate: ptrOf(testAggregate("allocation/42")),
 		minimumGeneration: ptrOf(testGeneration(10)),
 		minimumEpoch:      ptrOf(testEpoch(7)),
-		acceptedProtocols: []ProtocolRevision{testProtocol(2)},
+		acceptedProtocols: []ProtocolRevision{testProtocol(1)},
 		skew:              ptrOf(2 * time.Minute),
 		digestVerifier:    &testDigestVerifier{matches: true},
 		signatureVerifier: &testSignatureVerifier{isValid: true},

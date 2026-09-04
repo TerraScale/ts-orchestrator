@@ -99,23 +99,23 @@ func TestInvalidContextIsClosedAndPrecedesEnvelopeValidation(t *testing.T) {
 	invalidContexts := []*CommandValidationContext{
 		nil,
 		mustContext(t, contracts.CellId{}, testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), contracts.AggregateId{}, testGeneration(10), testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), DesiredGeneration{}, testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), WriterEpoch{},
-			[]ProtocolRevision{testProtocol(2)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
 			[]ProtocolRevision{}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
 			[]ProtocolRevision{{}}, skew, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, -100, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, -100, &testDigestVerifier{matches: true}, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, skew, nil, &testSignatureVerifier{isValid: true}),
+			[]ProtocolRevision{testProtocol(1)}, skew, nil, &testSignatureVerifier{isValid: true}),
 		mustContext(t, testCell("gru"), testAggregate("allocation/42"), testGeneration(10), testEpoch(7),
-			[]ProtocolRevision{testProtocol(2)}, skew, &testDigestVerifier{matches: true}, nil),
+			[]ProtocolRevision{testProtocol(1)}, skew, &testDigestVerifier{matches: true}, nil),
 	}
 
 	for index, context := range invalidContexts {
@@ -147,7 +147,7 @@ func mustContext(
 }
 
 func TestAcceptedProtocolVersionsAreDefensivelyCopied(t *testing.T) {
-	accepted := []ProtocolRevision{testProtocol(2)}
+	accepted := []ProtocolRevision{testProtocol(1)}
 	context := validContext(func(o *validContextOption) { o.acceptedProtocols = accepted })
 	accepted[0] = testProtocol(3)
 

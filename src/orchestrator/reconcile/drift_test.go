@@ -33,8 +33,8 @@ func TestNatsDriftSinkPublishesOnTheV2ObservationSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("subject derivation failed: %v", err)
 	}
-	if sink.Subject() != wantSubject || wantSubject != "ts.orch.v2.gru.observation.estate.drift" {
-		t.Fatalf("drift subject = %q, want the v2 regional observation subject", sink.Subject())
+	if sink.Subject() != wantSubject || wantSubject != "ts.orch.v1.gru.observation.estate.drift" {
+		t.Fatalf("drift subject = %q, want the v1 regional observation subject", sink.Subject())
 	}
 	events := []DriftEvent{
 		{At: "2026-09-04T00:00:00Z", Ref: estate.ResourceRef{Kind: estate.ResourceBucket, Region: "gru", Name: "backups"}, Action: ActionCreate},

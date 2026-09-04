@@ -16,7 +16,7 @@ type MessagingSchemaVersion struct {
 }
 
 // MessagingSchemaVersionCurrent is the one admitted envelope schema.
-var MessagingSchemaVersionCurrent = MessagingSchemaVersion{Major: 2, Minor: 0}
+var MessagingSchemaVersionCurrent = MessagingSchemaVersion{Major: 1, Minor: 0}
 
 // IsWellFormed reports whether both components are valid (positive major,
 // nonnegative minor).
@@ -340,7 +340,7 @@ func (messagingEnvelopeValidator) Validate(
 	}
 
 	// Signed commands bind the source cell through their signed material. Other
-	// message classes bind it directly to the v2 target below.
+	// message classes bind it directly to the v1 target below.
 	if envelope.Command != nil && envelope.Source.Cell != envelope.Command.Cell.Value {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSourceCellMismatch, CommandValidationErrorUninitialized)
 	}
@@ -389,8 +389,8 @@ func (messagingEnvelopeValidator) Validate(
 
 // extractCellScope extracts the cell token of a cell-scoped subject: the
 // regional shape
-// (ts.orch.v2.<cell>..., token 4) and, as defense in depth, the canonical
-// global per-cell shape (ts.orch.v2.global.desired.gitops.<cell>). Any other
+// (ts.orch.v1.<cell>..., token 4) and, as defense in depth, the canonical
+// global per-cell shape (ts.orch.v1.global.desired.gitops.<cell>). Any other
 // global subject carries no cell scope.
 func extractCellScope(subject string) (string, bool) {
 	tokens := strings.Split(subject, ".")

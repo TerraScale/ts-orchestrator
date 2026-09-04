@@ -1,7 +1,7 @@
 # Controller membership and the global cell directory over NATS
 
 - Status: landed contract tranche (TerraScale.Orchestrator#21)
-- Subject root: `ts.orch.v2` per the repository `GOAL.md`; the checked-in
+- Subject root: `ts.orch.v1` per the repository `GOAL.md`; the checked-in
   adapter serves this root.
 - Source of truth: the Go contracts in `src/orchestrator/control/` and
   `src/orchestrator/protocol/`
@@ -154,7 +154,7 @@ which rejects advertisements that are malformed, unbound to their durable key,
 expired when a live one exists, older by epoch/revision/sequence, or identical
 in order but different in content. Expiry marks a projection stale; it never
 revokes regional authority. The NATS read-only query service
-(`ts.orch.v2.global.query.cells`, queue group `ts-orch-global-cell-directory`)
+(`ts.orch.v1.global.query.cells`, queue group `ts-orch-global-cell-directory`)
 serves the snapshot and holds no write permission on the bucket — service
 discovery complements, and never replaces, the durable membership truth.
 

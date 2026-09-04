@@ -9,7 +9,7 @@
 //
 // The agent speaks request-reply JSON (camelCase, unknown fields rejected)
 // on the embedded control NATS under the subject prefix
-// ts.orch.v2.<cell>.agent.<agent-hash>.<family>.<leaf>, authenticated like
+// ts.orch.v1.<cell>.agent.<agent-hash>.<family>.<leaf>, authenticated like
 // every other control subject (NKey + TLS per the account model). The raw
 // node identity is hashed before it enters a subject, so operator-controlled
 // identity text cannot become a NATS token. The cell is the first token of a
@@ -122,7 +122,7 @@ func (id NodeId) String() string { return id.Value }
 // publish-only.
 const (
 	// NatsSubjectNodePrefix is the versioned prefix of every host-agent leaf.
-	NatsSubjectNodePrefix = "ts.orch.v2"
+	NatsSubjectNodePrefix = "ts.orch.v1"
 	// NatsSubjectLeafDrain begins or releases a drain (request-reply).
 	NatsSubjectLeafDrain = "drain"
 	// NatsSubjectLeafDrainStatus reports state and the quiesce gate
@@ -155,7 +155,7 @@ func nodeCell(nodeId NodeId) (string, string, error) {
 	return cell, validated.Value, nil
 }
 
-// nodeCommandSubject builds one v2 command subject addressed to exactly one
+// nodeCommandSubject builds one v1 command subject addressed to exactly one
 // hashed host-agent identity.
 func nodeCommandSubject(nodeId NodeId, leaf string) (string, error) {
 	cell, identity, err := nodeCell(nodeId)
@@ -165,7 +165,7 @@ func nodeCommandSubject(nodeId NodeId, leaf string) (string, error) {
 	return protocol.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, identity, leaf)
 }
 
-// nodeObservationSubject builds one v2 observation subject published by one
+// nodeObservationSubject builds one v1 observation subject published by one
 // hashed host-agent identity.
 func nodeObservationSubject(nodeId NodeId, leaf string) (string, error) {
 	cell, identity, err := nodeCell(nodeId)

@@ -15,10 +15,10 @@ type DurableWorkDomain int
 const (
 	DurableWorkDomainUnspecified DurableWorkDomain = 0
 	// DurableWorkDomainRegionalCell: the owning regional cell's JetStream
-	// domain (subjects are cell-scoped under ts.orch.v2.<cell>).
+	// domain (subjects are cell-scoped under ts.orch.v1.<cell>).
 	DurableWorkDomainRegionalCell DurableWorkDomain = 1
 	// DurableWorkDomainGlobalControl: the single global control domain
-	// (subjects under ts.orch.v2.global).
+	// (subjects under ts.orch.v1.global).
 	DurableWorkDomainGlobalControl DurableWorkDomain = 2
 )
 

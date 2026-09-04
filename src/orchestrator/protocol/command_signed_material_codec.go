@@ -34,7 +34,7 @@ const (
 	maximumEncodedBytes         = 2 * 1024 * 1024
 )
 
-var commandSignedMaterialMagic = []byte("TS-COMMAND-SIGNED-V2\x00")
+var commandSignedMaterialMagic = []byte("TS-COMMAND-SIGNED-V1\x00")
 
 // Encode produces the canonical signing bytes for the given material.
 func (commandSignedMaterialCodec) Encode(material *CommandSignedMaterial) ([]byte, error) {

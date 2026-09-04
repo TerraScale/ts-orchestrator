@@ -35,7 +35,7 @@ type CreateNodeReconciliationProof struct {
 }
 
 func (p CreateNodeReconciliationProof) payload() []byte {
-	return []byte(canonical("create-node-provider-proof-v2", p.Algorithm, p.KeyId, p.Binding.Digest(), p.NodeId.Value, p.WorkRequestId.Value))
+	return []byte(canonical("create-node-provider-proof-v1", p.Algorithm, p.KeyId, p.Binding.Digest(), p.NodeId.Value, p.WorkRequestId.Value))
 }
 
 type CreateNodeProviderProofSigner struct {

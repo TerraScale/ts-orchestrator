@@ -10,7 +10,7 @@ import (
 	"unicode"
 )
 
-// NatsSubjectTaxonomy is the closed NATS subject taxonomy for the v2 control
+// NatsSubjectTaxonomy is the closed NATS subject taxonomy for the v1 control
 // messaging protocol. This is the
 // single canonical definition of every subject namespace root and every
 // concrete subject shape the production adapters may use; adapters compose
@@ -29,7 +29,7 @@ type natsSubjectTaxonomy struct{}
 
 // Root returns the one versioned control-plane
 // subject root. The product plane is NOT rooted here.
-func (natsSubjectTaxonomy) Root() string { return "ts.orch.v2" }
+func (natsSubjectTaxonomy) Root() string { return "ts.orch.v1" }
 
 // GlobalScopeToken is the reserved
 // scope token that names the global authority namespace.
@@ -177,7 +177,7 @@ var (
 )
 
 // RegionalRoot returns the regional control
-// namespace root for one Region (ts.orch.v2.<region>).
+// namespace root for one Region (ts.orch.v1.<region>).
 func (natsSubjectTaxonomy) RegionalRoot(cell string) (string, error) {
 	if cellTokenRuleIsValid(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
 		return NatsSubjectTaxonomy.Root() + "." + cell, nil
@@ -199,7 +199,7 @@ func (natsSubjectTaxonomy) RegionalRootForRegionCode(regionCode string) (string,
 }
 
 // CellSpecSubject returns the durable signed regional
-// CellSpec subject (ts.orch.v2.<region>.desired.gitops).
+// CellSpec subject (ts.orch.v1.<region>.desired.gitops).
 func (natsSubjectTaxonomy) CellSpecSubject(cell string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
 	if err != nil {
@@ -563,7 +563,7 @@ func (natsSubjectTaxonomy) Classify(subject string) NatsSubjectNamespace {
 		return NatsSubjectNamespaceUnknown
 	}
 
-	if tokens[1] != "orch" || tokens[2] != "v2" {
+	if tokens[1] != "orch" || tokens[2] != "v1" {
 		if tokens[1] == "product" {
 			return NatsSubjectNamespaceProductPlane
 		}
@@ -644,7 +644,7 @@ func (natsSubjectTaxonomy) IsControlNamespace(ns NatsSubjectNamespace) bool {
 }
 
 // TryValidatePermissionPattern
-// validates one permission pattern against the closed v2 family set. A
+// validates one permission pattern against the closed v1 family set. A
 // wildcard may never sit at — or span — the scope or family position, so no
 // permission can cross a Region boundary; superseded-root patterns are
 // rejected outright.
@@ -655,7 +655,7 @@ func (natsSubjectTaxonomy) TryValidatePermissionPattern(pattern string) (bool, N
 	}
 
 	tokens := strings.Split(pattern, ".")
-	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v2" {
+	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v1" {
 		if isPlatformReservedRoot(tokens[0]) {
 			return false, NatsSubjectPermissionErrorPlatformReserved
 		}
@@ -696,7 +696,7 @@ func (natsSubjectTaxonomy) TryValidatePermissionPattern(pattern string) (bool, N
 }
 
 // TryAdmitSubject validates one concrete subject
-// for admission into the closed v2 taxonomy: bounded grammar, control
+// for admission into the closed v1 taxonomy: bounded grammar, control
 // namespace, strict ASCII tokens (customer-provided text never becomes a
 // subject token), and a fixed agent-hash token inside the host-agent family.
 func (natsSubjectTaxonomy) TryAdmitSubject(subject string) (bool, NatsSubjectAdmissionError) {
@@ -705,7 +705,7 @@ func (natsSubjectTaxonomy) TryAdmitSubject(subject string) (bool, NatsSubjectAdm
 	}
 
 	tokens := strings.Split(subject, ".")
-	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v2" {
+	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v1" {
 		if isPlatformReservedRoot(tokens[0]) {
 			return false, NatsSubjectAdmissionErrorPlatformReserved
 		}
@@ -777,7 +777,7 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 
 	for _, family := range manifest.SubjectFamilies {
 		if !strings.HasPrefix(family.Pattern, NatsSubjectTaxonomy.Root()+".") {
-			violations = append(violations, "The manifest family '"+family.Pattern+"' does not live under the v2 root.")
+			violations = append(violations, "The manifest family '"+family.Pattern+"' does not live under the v1 root.")
 		}
 	}
 
@@ -1039,7 +1039,7 @@ func (ns NatsSubjectNamespace) String() string {
 }
 
 // NatsSubjectPermissionError classifies why
-// one permission pattern is not a closed v2 control-family permission.
+// one permission pattern is not a closed v1 control-family permission.
 type NatsSubjectPermissionError int
 
 const (
@@ -1080,7 +1080,7 @@ func (e NatsSubjectPermissionError) String() string {
 }
 
 // NatsSubjectAdmissionError classifies why
-// one concrete subject is not admissible into the closed v2 taxonomy.
+// one concrete subject is not admissible into the closed v1 taxonomy.
 type NatsSubjectAdmissionError int
 
 const (

@@ -115,7 +115,7 @@ func (runtimeLifecycleNatsProtocol) IsCheckpoint(checkpoint *RuntimeLifecycleChe
 }
 
 func (runtimeLifecycleNatsProtocol) IsGenesis(checkpoint RuntimeLifecycleCheckpoint) bool {
-	return checkpoint.PreviousEventDigest.Sha256 == RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v2") &&
+	return checkpoint.PreviousEventDigest.Sha256 == RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v1") &&
 		checkpoint.Phase == RuntimeLifecyclePhaseProposed
 }
 
@@ -130,7 +130,7 @@ func (runtimeLifecycleNatsProtocol) ProofBinding(action string, schemaVersion in
 	if checkpoint != nil {
 		checkpointText = *checkpoint
 	}
-	values := []string{"runtime-lifecycle-nats-proof-v2", action, strconv.Itoa(schemaVersion), cell, key,
+	values := []string{"runtime-lifecycle-nats-proof-v1", action, strconv.Itoa(schemaVersion), cell, key,
 		strconv.FormatUint(expectedRevision, 10), strconv.FormatUint(writerEpoch, 10), requestId, checkpointText}
 	return RuntimeLifecycleFingerprint.Hash(strings.Join(values, "|"))
 }

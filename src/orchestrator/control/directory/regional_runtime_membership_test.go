@@ -253,7 +253,7 @@ func TestRegionalRuntimeMembershipSnapshotDoesNotExposeCapabilityStorage(t *test
 	}
 }
 
-func TestRegionalRuntimeMembershipRejectsPreV2DiscoveryRecords(t *testing.T) {
+func TestRegionalRuntimeMembershipRejectsRetiredDiscoveryRecords(t *testing.T) {
 	membership := newRegionalRuntimeMembershipForHeartbeat(nil, nil)
 	document, err := membership.document(time.Now().UTC())
 	if err != nil {
@@ -265,6 +265,6 @@ func TestRegionalRuntimeMembershipRejectsPreV2DiscoveryRecords(t *testing.T) {
 
 	document.SchemaVersion = protocol.ProtocolVersion.Current() - 1
 	if document.IsValidFor("gru", time.Now().UTC()) {
-		t.Fatal("pre-v2 discovery record was accepted")
+		t.Fatal("retired discovery record was accepted")
 	}
 }

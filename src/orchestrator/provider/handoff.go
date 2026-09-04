@@ -35,7 +35,7 @@ type CreateNodeHandoffReceipt struct {
 }
 
 func (r CreateNodeHandoffReceipt) payload() []byte {
-	return []byte(canonical("terrascale-create-node-handoff-v2", r.Algorithm, r.KeyId, r.Binding.OperationId, "CreateNode", r.Binding.TenantId, r.Binding.NodeRequestId, r.Binding.IdempotencyKey, r.Binding.CreateKey, r.Binding.CellId, r.Binding.CompartmentId, r.Binding.Generation, r.Binding.Epoch, r.Binding.TemplateId, r.Binding.PlacementId, r.Binding.BootstrapEnvelopeDigest, r.Binding.AuthorizationSequence, r.Binding.AuthorizationDigest, r.Binding.ProviderContextFingerprint, r.IssuedAt.UTC().UnixNano(), r.ExpiresAt.UTC().UnixNano()))
+	return []byte(canonical("terrascale-create-node-handoff-v1", r.Algorithm, r.KeyId, r.Binding.OperationId, "CreateNode", r.Binding.TenantId, r.Binding.NodeRequestId, r.Binding.IdempotencyKey, r.Binding.CreateKey, r.Binding.CellId, r.Binding.CompartmentId, r.Binding.Generation, r.Binding.Epoch, r.Binding.TemplateId, r.Binding.PlacementId, r.Binding.BootstrapEnvelopeDigest, r.Binding.AuthorizationSequence, r.Binding.AuthorizationDigest, r.Binding.ProviderContextFingerprint, r.IssuedAt.UTC().UnixNano(), r.ExpiresAt.UTC().UnixNano()))
 }
 func canonical(values ...any) string {
 	var b strings.Builder
@@ -243,7 +243,7 @@ type CreateNodeTenantAuthorizationProof struct {
 }
 
 func (p CreateNodeTenantAuthorizationProof) payload() []byte {
-	return []byte(canonical("create-node-tenant-proof-v2", p.Algorithm, p.KeyId, p.Audience, p.TenantId, p.OperationId, p.Action, p.AuthorizationDigest, p.ExpiresAt.UTC().UnixNano()))
+	return []byte(canonical("create-node-tenant-proof-v1", p.Algorithm, p.KeyId, p.Audience, p.TenantId, p.OperationId, p.Action, p.AuthorizationDigest, p.ExpiresAt.UTC().UnixNano()))
 }
 
 type CreateNodeTenantAuthorizationSigner struct {

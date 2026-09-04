@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
+func TestMessagingEnvelopeCodecRoundTripsTheBoundV1Document(t *testing.T) {
 	subject, err := NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")
 	if err != nil {
 		t.Fatal(err)
@@ -47,9 +47,9 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(document, []byte(`"protocolRoot":"ts.orch.v2"`)) ||
-		!bytes.Contains(document, []byte(`"schemaVersion":{"major":2,"minor":0}`)) {
-		t.Fatalf("document is not bound to v2: %s", document)
+	if !bytes.Contains(document, []byte(`"protocolRoot":"ts.orch.v1"`)) ||
+		!bytes.Contains(document, []byte(`"schemaVersion":{"major":1,"minor":0}`)) {
+		t.Fatalf("document is not bound to v1: %s", document)
 	}
 
 	decoded, rawPayload, err := UnmarshalMessagingEnvelope(
@@ -124,7 +124,7 @@ func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.
 	if _, _, err := UnmarshalMessagingEnvelope(document, NatsSubjectTaxonomy.CiForgejoTriggerSubject(), permitted); err == nil {
 		t.Fatal("subject substitution was accepted")
 	}
-	foreignRoot := bytes.Replace(document, []byte(`"ts.orch.v2"`), []byte(`"ts.orch.old"`), 1)
+	foreignRoot := bytes.Replace(document, []byte(`"ts.orch.v1"`), []byte(`"ts.orch.old"`), 1)
 	if _, _, err := UnmarshalMessagingEnvelope(foreignRoot, subject, permitted); err == nil {
 		t.Fatal("foreign protocol root was accepted")
 	}
@@ -132,7 +132,7 @@ func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.
 	if _, _, err := UnmarshalMessagingEnvelope(unknownMember, subject, permitted); err == nil {
 		t.Fatal("unknown envelope member was accepted")
 	}
-	duplicateRoot := bytes.Replace(document, []byte(`{"protocolRoot":"ts.orch.v2",`), []byte(`{"protocolRoot":"ts.orch.old","protocolRoot":"ts.orch.v2",`), 1)
+	duplicateRoot := bytes.Replace(document, []byte(`{"protocolRoot":"ts.orch.v1",`), []byte(`{"protocolRoot":"ts.orch.old","protocolRoot":"ts.orch.v1",`), 1)
 	if _, _, err := UnmarshalMessagingEnvelope(duplicateRoot, subject, permitted); err == nil {
 		t.Fatal("duplicate protocol root was accepted")
 	}

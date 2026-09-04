@@ -112,7 +112,7 @@ func TestEveryStandingGrantIsAClosedPermissionOfItsOwnSurface(t *testing.T) {
 			}
 
 			if ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(pattern); !ok || err != NatsSubjectPermissionErrorNone {
-				t.Fatalf("account kind %v must only hold closed v2 permissions: %q (%v)", scope.Kind, pattern, err)
+				t.Fatalf("account kind %v must only hold closed v1 permissions: %q (%v)", scope.Kind, pattern, err)
 			}
 		}
 	}
@@ -123,30 +123,30 @@ func controlSubjectCorpus(t *testing.T) []string {
 	corpus := []string{}
 	for _, region := range testRegions {
 		corpus = append(corpus,
-			"ts.orch.v2."+region+".desired.gitops",
-			"ts.orch.v2."+region+".command.delivery",
-			"ts.orch.v2."+region+".command.journal.create",
-			"ts.orch.v2."+region+".query.health",
-			"ts.orch.v2."+region+".audit.event.7",
-			"ts.orch.v2."+region+".observation.runtime.started.controller-1")
+			"ts.orch.v1."+region+".desired.gitops",
+			"ts.orch.v1."+region+".command.delivery",
+			"ts.orch.v1."+region+".command.journal.create",
+			"ts.orch.v1."+region+".query.health",
+			"ts.orch.v1."+region+".audit.event.7",
+			"ts.orch.v1."+region+".observation.runtime.started.controller-1")
 
 		token := must(t, func() (string, error) {
 			return NatsSubjectTaxonomy.HostAgentSubjectToken("host/" + region + "/agent-07")
 		})
 		corpus = append(corpus,
-			"ts.orch.v2."+region+".agent."+token+".command.start",
-			"ts.orch.v2."+region+".agent."+token+".observation.heartbeat",
-			"ts.orch.v2."+region+".agent."+token+".ack.42")
+			"ts.orch.v1."+region+".agent."+token+".command.start",
+			"ts.orch.v1."+region+".agent."+token+".observation.heartbeat",
+			"ts.orch.v1."+region+".agent."+token+".ack.42")
 	}
 
 	runnerToken := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken("runner-7") })
 	return append(corpus,
-		"ts.orch.v2.global.desired.gitops.gru",
-		"ts.orch.v2.global.release.accepted.r7",
-		"ts.orch.v2.global.release.ci.forgejo",
-		"ts.orch.v2.global.release.ci.job.zone-1."+runnerToken[:NatsSubjectTaxonomy.AgentHashTokenLength()],
-		"ts.orch.v2.global.release.ci.runtime-proof.build-9",
-		"ts.orch.v2.global.query.cells",
+		"ts.orch.v1.global.desired.gitops.gru",
+		"ts.orch.v1.global.release.accepted.r7",
+		"ts.orch.v1.global.release.ci.forgejo",
+		"ts.orch.v1.global.release.ci.job.zone-1."+runnerToken[:NatsSubjectTaxonomy.AgentHashTokenLength()],
+		"ts.orch.v1.global.release.ci.runtime-proof.build-9",
+		"ts.orch.v1.global.query.cells",
 		"$SYS.REQ.SERVER.PING")
 }
 
@@ -203,14 +203,14 @@ func TestRegionalScopesArePinnedToExactlyOneRegion(t *testing.T) {
 
 	patterns := append(append([]string{}, gru.Publish...), gru.Subscribe...)
 	for _, pattern := range patterns {
-		pinned := strings.HasPrefix(pattern, "ts.orch.v2.gru.") || strings.HasPrefix(pattern, "ts.orch.v2.global.")
+		pinned := strings.HasPrefix(pattern, "ts.orch.v1.gru.") || strings.HasPrefix(pattern, "ts.orch.v1.global.")
 		if !pinned {
 			t.Fatalf("the GRU controller scope must stay pinned to GRU or the global scope: %q", pattern)
 		}
 	}
 
 	for _, subject := range controlSubjectCorpus(t) {
-		if !strings.HasPrefix(subject, "ts.orch.v2.sfo.") {
+		if !strings.HasPrefix(subject, "ts.orch.v1.sfo.") {
 			continue
 		}
 
@@ -222,7 +222,7 @@ func TestRegionalScopesArePinnedToExactlyOneRegion(t *testing.T) {
 	}
 
 	for _, pattern := range sfo.Publish {
-		if corpusMatches(pattern, "ts.orch.v2.sfo.desired.gitops") {
+		if corpusMatches(pattern, "ts.orch.v1.sfo.desired.gitops") {
 			return
 		}
 	}
@@ -250,22 +250,22 @@ func TestHostAgentScopesUseTheFixedAgentHashNeverTheRawIdentity(t *testing.T) {
 	}
 
 	if len(agent.Publish) != 2 ||
-		!slices.Contains(agent.Publish, "ts.orch.v2.gru.agent."+token+".observation.>") ||
-		!slices.Contains(agent.Publish, "ts.orch.v2.gru.agent."+token+".ack.>") {
+		!slices.Contains(agent.Publish, "ts.orch.v1.gru.agent."+token+".observation.>") ||
+		!slices.Contains(agent.Publish, "ts.orch.v1.gru.agent."+token+".ack.>") {
 		t.Fatalf("agent publish grants = %v", agent.Publish)
 	}
 
-	if len(agent.Subscribe) != 1 || agent.Subscribe[0] != "ts.orch.v2.gru.agent."+token+".command.>" {
+	if len(agent.Subscribe) != 1 || agent.Subscribe[0] != "ts.orch.v1.gru.agent."+token+".command.>" {
 		t.Fatalf("agent subscribe grants = %v", agent.Subscribe)
 	}
 
 	// The regional controller commands the agent; the agent answers on its own hashed branch.
 	controller := mustScope(t, NatsControlAccountKindRegionalController, "gru", gruAgent)
-	if !slices.Contains(controller.Publish, "ts.orch.v2.gru.agent."+token+".command.>") {
+	if !slices.Contains(controller.Publish, "ts.orch.v1.gru.agent."+token+".command.>") {
 		t.Fatalf("controller publish grants = %v", controller.Publish)
 	}
 
-	if !slices.Contains(controller.Subscribe, "ts.orch.v2.gru.agent."+token+".observation.>") {
+	if !slices.Contains(controller.Subscribe, "ts.orch.v1.gru.agent."+token+".observation.>") {
 		t.Fatalf("controller subscribe grants = %v", controller.Subscribe)
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const payloadType = "cellspec-v2"
+const payloadType = "cellspec-v1"
 
 func testToken(value string) MessageIdentityToken {
 	token, _ := MessageIdentityTokenTryCreate(value)
@@ -107,7 +107,7 @@ func TestAWellFormedEnvelopeOverAValidSignedCommandIsAccepted(t *testing.T) {
 }
 
 func TestAnUnknownMajorSchemaVersionFailsClosed(t *testing.T) {
-	for _, offered := range []int{0, 3, 99} {
+	for _, offered := range []int{0, 2, 3, 99} {
 		result := MessagingEnvelopeValidator.Validate(
 			messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.schema = MessagingSchemaVersion{Major: offered} }),
 			messagingContext())
@@ -162,7 +162,7 @@ func TestMessageIdentityBoundUsesV1UTF16CodeUnits(t *testing.T) {
 func TestAMalformedSubjectFailsClosed(t *testing.T) {
 	whitespace := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru. query.health", "")
+			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v1.gru. query.health", "")
 		}),
 		messagingContext())
 	if whitespace.Error != MessagingEnvelopeErrorMalformedSubject {
@@ -171,7 +171,7 @@ func TestAMalformedSubjectFailsClosed(t *testing.T) {
 
 	wildcard := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru.query.>", "")
+			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v1.gru.query.>", "")
 		}),
 		messagingContext())
 	if wildcard.Error != MessagingEnvelopeErrorMalformedSubject {
@@ -200,7 +200,7 @@ func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 
 	unknown := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru.unknown.channel", "")
+			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v1.gru.unknown.channel", "")
 		}),
 		messagingContext())
 	if unknown.Error != MessagingEnvelopeErrorSubjectOutsideClosedTaxonomy {
@@ -240,7 +240,7 @@ func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) 
 }
 
 func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
-	// Defense in depth: ts.orch.v2.global.desired.gitops.<cell> carries a cell
+	// Defense in depth: ts.orch.v1.global.desired.gitops.<cell> carries a cell
 	// scope even though it lives under the global root, so a target naming
 	// another cell fails closed.
 	mismatch := MessagingEnvelopeValidator.Validate(

@@ -19,7 +19,7 @@ systemd, and never carries customer data or serves the customer request path.
 | [`adr/0024-greenfield-bringup.md`](adr/0024-greenfield-bringup.md) | Greenfield bootstrap and residual-resource quarantine |
 | [`adr/0025-rollback-on-customer-gate-failure.md`](adr/0025-rollback-on-customer-gate-failure.md) | Release rollback safety boundary |
 | [`contracts/controller-membership.md`](contracts/controller-membership.md) | Controller identity, membership, and directory contracts |
-| [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v2` control streams and consumers |
+| [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v1` control streams and consumers |
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
 | [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Bounded monitoring instruments and fail-closed observation |
 | [`runbooks/nats-monitoring.md`](runbooks/nats-monitoring.md) | NATS alert interpretation and remediation |

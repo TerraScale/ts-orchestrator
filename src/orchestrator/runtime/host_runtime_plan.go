@@ -80,7 +80,7 @@ func isLowercaseHexDigest(value string) bool {
 	return true
 }
 
-// RuntimeResourceLimits is the closed systemd cgroup-v2 envelope
+// RuntimeResourceLimits is the closed systemd cgroup-v1 envelope
 // for REQ-O012 and INV-017.
 type RuntimeResourceLimits struct {
 	MemoryMaxBytes  int64

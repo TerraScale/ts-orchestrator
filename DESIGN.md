@@ -50,7 +50,7 @@ and symbol names carry the contract identity.
 ## Current compatibility-sensitive contracts
 
 - NATS subjects, stream names, consumer names, message JSON payloads, headers,
-  and the `ts.orch.v2` domain naming.
+  and the `ts.orch.v1` domain naming.
 - Journal/persistence file formats and digest rules (sha256, canonicalization).
 - Certificate/trust-bundle formats and validation rules; NKey/creds handling.
 - CLI commands, options, exit codes, output strings of `cmd/orchestrator` and

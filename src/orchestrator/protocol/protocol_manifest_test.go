@@ -8,26 +8,26 @@ import (
 )
 
 var goalFamilies = []string{
-	"ts.orch.v2.global.desired.>",
-	"ts.orch.v2.global.release.>",
-	"ts.orch.v2.global.query.>",
-	"ts.orch.v2.<region>.desired.>",
-	"ts.orch.v2.<region>.command.>",
-	"ts.orch.v2.<region>.observation.>",
-	"ts.orch.v2.<region>.operation.>",
-	"ts.orch.v2.<region>.query.>",
-	"ts.orch.v2.<region>.audit.>",
-	"ts.orch.v2.<region>.agent.<agent-hash>.>",
+	"ts.orch.v1.global.desired.>",
+	"ts.orch.v1.global.release.>",
+	"ts.orch.v1.global.query.>",
+	"ts.orch.v1.<region>.desired.>",
+	"ts.orch.v1.<region>.command.>",
+	"ts.orch.v1.<region>.observation.>",
+	"ts.orch.v1.<region>.operation.>",
+	"ts.orch.v1.<region>.query.>",
+	"ts.orch.v1.<region>.audit.>",
+	"ts.orch.v1.<region>.agent.<agent-hash>.>",
 }
 
-func TestTheManifestPinsExactlyTheFreshV2Root(t *testing.T) {
+func TestTheManifestPinsExactlyTheFreshV1Root(t *testing.T) {
 	manifest := ProtocolManifestLoaded()
 
-	if manifest.Root != "ts.orch.v2" || manifest.Root != NatsSubjectTaxonomy.Root() {
+	if manifest.Root != "ts.orch.v1" || manifest.Root != NatsSubjectTaxonomy.Root() {
 		t.Fatalf("manifest root = %q", manifest.Root)
 	}
 
-	if manifest.Version != "v2" {
+	if manifest.Version != "v1" {
 		t.Fatalf("manifest version = %q", manifest.Version)
 	}
 
@@ -110,14 +110,14 @@ func TestEveryGoalFamilyIsPresentAndTheSetIsClosed(t *testing.T) {
 
 	for _, family := range families {
 		if family.Scope == ProtocolSubjectFamilyScopeRegional {
-			if !strings.HasPrefix(family.Pattern, "ts.orch.v2.<region>.") {
+			if !strings.HasPrefix(family.Pattern, "ts.orch.v1.<region>.") {
 				t.Fatalf("regional family %q must carry the region placeholder", family.Family)
 			}
 		}
 	}
 }
 
-func TestEveryMaterializedManifestFamilyIsAClosedV2Permission(t *testing.T) {
+func TestEveryMaterializedManifestFamilyIsAClosedV1Permission(t *testing.T) {
 	agentHash, err := NatsSubjectTaxonomy.HostAgentSubjectToken("host/gru/agent-07")
 	if err != nil {
 		t.Fatalf("agent hash failed: %v", err)
@@ -130,7 +130,7 @@ func TestEveryMaterializedManifestFamilyIsAClosedV2Permission(t *testing.T) {
 
 		ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(pattern)
 		if !ok || err != NatsSubjectPermissionErrorNone {
-			t.Fatalf("materialized family pattern %q is not a closed v2 permission: %v", pattern, err)
+			t.Fatalf("materialized family pattern %q is not a closed v1 permission: %v", pattern, err)
 		}
 	}
 }

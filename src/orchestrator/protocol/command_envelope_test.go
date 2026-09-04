@@ -10,7 +10,7 @@ import (
 func TestEnvelopeCarriesEveryRequiredField(t *testing.T) {
 	envelope := validEnvelope()
 
-	if envelope.ProtocolVersion != testProtocol(2) {
+	if envelope.ProtocolVersion != testProtocol(1) {
 		t.Fatalf("ProtocolVersion = %v", envelope.ProtocolVersion)
 	}
 

@@ -561,13 +561,13 @@ func (d *LocalScenarioDriver) legacyReconcile(ctx context.Context) error {
 }
 
 func (d *LocalScenarioDriver) legacyDelivery(ctx context.Context) error {
-	artifact := []byte("ts-node-release-v2-signed-digest")
+	artifact := []byte("ts-node-release-candidate-signed-digest")
 	matched := 0
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
-		if err := d.object(ctx, region, "releases/ts-node-v2", artifact); err != nil {
+		if err := d.object(ctx, region, "releases/ts-node-candidate", artifact); err != nil {
 			return err
 		}
-		observed, err := d.readObject(ctx, region, "releases/ts-node-v2")
+		observed, err := d.readObject(ctx, region, "releases/ts-node-candidate")
 		if err != nil {
 			return err
 		}

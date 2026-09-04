@@ -22,7 +22,7 @@ import (
 
 const maxCleanupJournalBytes = 4 << 20
 
-// CleanJournal replays only resources claimed by one v2 vmqual run. It never
+// CleanJournal replays only resources claimed by one v1 vmqual run. It never
 // scans process tables, network interfaces, or a broad directory.
 func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 	if ctx == nil {

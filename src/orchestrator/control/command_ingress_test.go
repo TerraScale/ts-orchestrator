@@ -63,7 +63,7 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 	var dispatches atomic.Int32
 	now := time.Now().UTC()
 	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
-		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
+		Connection: connection, Subject: "ts.orch.v1.sfo.command.runtime", Boundary: boundary,
 		ExpectedCell: cell, ExpectedAggregateId: aggregate, MinimumDesiredGeneration: generation,
 		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
 		PayloadDigestVerifier: ingressDigestVerifier{}, Now: func() time.Time { return now },
@@ -137,7 +137,7 @@ func TestNatsCommandIngressRejectsMemoryReplayForMultiInstance(t *testing.T) {
 	epoch, _ := protocol.WriterEpochTryCreate(1)
 	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	if _, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
-		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
+		Connection: connection, Subject: "ts.orch.v1.sfo.command.runtime", Boundary: boundary,
 		Replay: replay, MultiInstance: true, ExpectedCell: cell, ExpectedAggregateId: aggregate,
 		MinimumDesiredGeneration: generation, MinimumWriterEpoch: epoch,
 		AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
@@ -164,7 +164,7 @@ func TestNatsCommandIngressStartsAndStopsExactSubscription(t *testing.T) {
 	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	started := make(chan struct{}, 1)
 	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
-		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
+		Connection: connection, Subject: "ts.orch.v1.sfo.command.runtime", Boundary: boundary,
 		ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation,
 		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
 		PayloadDigestVerifier: ingressDigestVerifier{}, Dispatch: func(context.Context, protocol.CommandEnvelope) error {

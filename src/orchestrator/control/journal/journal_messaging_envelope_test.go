@@ -37,7 +37,7 @@ func TestJournalEnvelopeRejectsRawPayloadAndSubjectSubstitution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !journalEnvelopeBindsProof(envelope, decoded.Authority) || decoded.SchemaVersion != protocol.ProtocolVersion.Current() {
-		t.Fatalf("decoded journal request is not bound to v2: %#v", decoded)
+		t.Fatalf("decoded journal request is not bound to v1: %#v", decoded)
 	}
 	envelope.Source.Instance = "other-controller"
 	if journalEnvelopeBindsProof(envelope, decoded.Authority) {
@@ -49,7 +49,7 @@ func TestJournalEnvelopeRejectsRawPayloadAndSubjectSubstitution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := unmarshalJournalEnvelope(raw, subject, journalPayloadOperationCreate, &decoded); err == nil {
-		t.Fatal("raw journal payload was accepted without a v2 envelope")
+		t.Fatal("raw journal payload was accepted without a v1 envelope")
 	}
 	updateSubject, err := topology.OperationJournalUpdateSubject()
 	if err != nil {
