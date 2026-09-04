@@ -54,7 +54,7 @@ time while preserving RF=2. It owns Worker and Snippet promotion as well.
 
 Every orchestrator behavior must pass locally without OCI or Cloudflare
 credentials on real Ubuntu LTS systemd guests under Firecracker on Linux/KVM.
-SmolVM, QEMU, containers, host processes, and fakes alone do not qualify the
+Another VMM, containers, host processes, and fakes alone do not qualify the
 host lifecycle.
 
 The test-only Go `SandboxVMProvider` uses the pinned official Firecracker Go

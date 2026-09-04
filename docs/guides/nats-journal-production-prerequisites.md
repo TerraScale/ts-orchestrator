@@ -1,7 +1,8 @@
 # Production CreateNode journal prerequisites
 
-> Current-adapter qualification only. This document does not select NATS as a
-> permanent architecture dependency and does not apply to TerraBase WAL,
+> Current-adapter qualification only. Embedded NATS JetStream is the selected
+> orchestrator control store, but this legacy CreateNode guide does not define
+> the launch cross-Region R3 composition. It never applies to TerraBase WAL,
 > replication, sync, or usage accounting.
 
 The Orchestrator can host a private NATS journal-writer substrate, but it does

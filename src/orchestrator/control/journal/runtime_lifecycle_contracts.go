@@ -479,7 +479,7 @@ func (runtimeLifecycleFingerprint) Plan(plan HostRuntimePlan) (RuntimeLifecycleP
 	if plan.SchemaVersion != 2 || !hostAdmittedRoleIsDefined(plan.Role) ||
 		plan.Driver != runtime.RuntimeDriverNativeSystemd ||
 		!(plan.Architecture == runtime.HostArchitectureArm64 || plan.Architecture == runtime.HostArchitectureX64) ||
-		plan.Systemd == nil || plan.Oci != nil {
+		plan.Systemd == nil {
 		return RuntimeLifecyclePlanFingerprint{}, shared.InvalidArgument("Host runtime plan is not a supported closed plan.")
 	}
 	fields := []string{"host-runtime-plan-v1", strconv.Itoa(plan.SchemaVersion), strconv.Itoa(int(plan.Role)),

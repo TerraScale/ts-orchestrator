@@ -267,11 +267,20 @@ func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error
 		}, false)
 	}
 
-	artifact, err := verifyArtifact(ctx, s.config.Fetcher, s.config.Trust(), request)
+	// Verification and mirroring establish the candidate needed for a
+	// terminal rollout receipt. If cancellation happened before this pipeline
+	// began, use a detached context for those read-only/preparation steps and
+	// preserve the original context for rollout, where it becomes the explicit
+	// rollout_cancelled result.
+	preflightContext := ctx
+	if ctx.Err() != nil {
+		preflightContext = context.Background()
+	}
+	artifact, err := verifyArtifact(preflightContext, s.config.Fetcher, s.config.Trust(), request)
 	if err != nil {
 		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
 	}
-	if err := s.config.Mirror.MirrorAll(ctx, artifact); err != nil {
+	if err := s.config.Mirror.MirrorAll(preflightContext, artifact); err != nil {
 		// D-71: the artifact mirrors into every Region before rollout starts;
 		// a partial mirror means the deploy never started, so nothing is
 		// stranded mid-way.

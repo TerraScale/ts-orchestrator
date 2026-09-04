@@ -8,6 +8,7 @@ package hostagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"os/user"
@@ -59,14 +60,49 @@ func NewSystemctlController(systemctlBinary string, timeout time.Duration) (*Sys
 	return &SystemctlController{SystemctlBinary: systemctlBinary, Timeout: timeout}, nil
 }
 
-func (c *SystemctlController) run(ctx context.Context, args ...string) error {
-	command := exec.CommandContext(ctx, c.SystemctlBinary, args...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("systemctl %s failed: %s: %s",
-			strings.Join(args, " "), err.Error(), strings.TrimSpace(string(output)))
+// invocationContext validates the controller and gives one systemctl
+// invocation its own deadline. A child context preserves cancellation of the
+// caller while also bounding a command that does not return on its own.
+func (c *SystemctlController) invocationContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	if c == nil {
+		return nil, nil, &InvalidOperationError{Message: "The systemctl controller is required."}
 	}
-	return nil
+	if c.Timeout <= 0 {
+		return nil, nil, &InvalidOperationError{Message: "The systemctl timeout must be positive."}
+	}
+	if ctx == nil {
+		return nil, nil, &InvalidOperationError{Message: "The systemctl context is required."}
+	}
+	operationContext, cancel := context.WithTimeout(ctx, c.Timeout)
+	return operationContext, cancel, nil
+}
+
+func (c *SystemctlController) runOutput(ctx context.Context, args ...string) ([]byte, error) {
+	operationContext, cancel, err := c.invocationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+
+	command := exec.CommandContext(operationContext, c.SystemctlBinary, args...)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return output, nil
+	}
+	// CommandContext kills the process when the context is canceled. Return the
+	// context error itself (wrapped for operation details), since the process
+	// exit error does not identify whether the caller canceled or our deadline
+	// fired.
+	if contextError := operationContext.Err(); contextError != nil {
+		return output, fmt.Errorf("systemctl %s failed: %w", strings.Join(args, " "), contextError)
+	}
+	return output, fmt.Errorf("systemctl %s failed: %w: %s",
+		strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+}
+
+func (c *SystemctlController) run(ctx context.Context, args ...string) error {
+	_, err := c.runOutput(ctx, args...)
+	return err
 }
 
 // DaemonReload reloads unit definitions.
@@ -101,18 +137,21 @@ func (c *SystemctlController) RestartUnit(ctx context.Context, unit string) erro
 
 // UnitActive reports whether one unit is active.
 func (c *SystemctlController) UnitActive(ctx context.Context, unit string) (bool, error) {
-	command := exec.CommandContext(ctx, c.SystemctlBinary, "is-active", "--quiet", unit)
-	err := command.Run()
+	_, err := c.runOutput(ctx, "is-active", "--quiet", unit)
 	if err == nil {
 		return true, nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false, err
 	}
 	// systemctl uses exit status 3 for a known inactive unit. That is a
 	// reliable negative answer; every other failure means the state could not
 	// be established and must not be treated as safely stopped.
-	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 3 {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() == 3 {
 		return false, nil
 	}
-	return false, fmt.Errorf("systemctl is-active %s failed: %w", unit, err)
+	return false, err
 }
 
 // detachedCommand builds one command that survives its caller: it runs in

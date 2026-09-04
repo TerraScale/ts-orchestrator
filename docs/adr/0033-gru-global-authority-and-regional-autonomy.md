@@ -1,12 +1,18 @@
 # GRU global authority and autonomous regional control
 
-- Status: Accepted
+> Superseded by workspace decisions D-65, D-67, D-69, and D-81. At launch,
+> one control replica is co-hosted in each of GRU, SFO, and FRA and those
+> replicas form one cross-Region JetStream R3 group. Delivery is a GRU canary
+> followed by a one-host-at-a-time rollout, not regional blue-green. Local
+> qualification uses Firecracker. The body remains historical evidence.
+
+- Status: Superseded
 - Date: 2026-08-29
 - Decision owner: TerraScale workspace owner
 - Scope: global and regional authority, NATS, disconnected operation,
   bootstrap, control-state ownership, regional release cutover, and production
   artifact boundary
-- Goal: [`../../GOAL.md`](../../GOAL.md)
+- Current goal: [`../../GOAL.md`](../../GOAL.md)
 
 ## Context
 

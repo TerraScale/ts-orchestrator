@@ -57,45 +57,7 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	}
 }
 
-func TestPersistedRoleValuesRemainCompatibleWithV1Checkpoints(t *testing.T) {
-	want := map[AdmittedRole]int{
-		AdmittedRoleDashboard:       0,
-		AdmittedRoleTerraBaseMember: 1,
-		AdmittedRoleAutoscaler:      2,
-		AdmittedRoleNats:            3,
-		AdmittedRoleJournalWriter:   16,
-		AdmittedRoleDatabaseAPI:     17,
-	}
-	for role, value := range want {
-		if int(role) != value {
-			t.Fatalf("%v persisted value = %d, want %d", role, role, value)
-		}
-	}
-
-	for value := 4; value <= 15; value++ {
-		if AdmittedRole(value).defined() {
-			t.Fatalf("retired v1 role value %d acquired a new meaning", value)
-		}
-	}
-}
-
 func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
-	// D-69: no containers. The OCI driver is retired for every role (I-3
-	// replaces it with native systemd delivery).
-	for _, role := range AllAdmittedRoles {
-		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverOciContainer); err == nil {
-			t.Fatalf("%v must not be admitted on OCI", role)
-		}
-	}
-	// Retired v1 container roles are refused on every driver.
-	for _, role := range []AdmittedRole{AdmittedRoleDashboard, AdmittedRoleDatabaseAPI} {
-		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverNativeSystemd); err == nil {
-			t.Fatalf("retired role %v was admitted on systemd", role)
-		}
-		if _, err := AdmittedRoleCatalog.Admit(role, RuntimeDriverOciContainer); err == nil {
-			t.Fatalf("retired role %v was admitted on OCI", role)
-		}
-	}
 	descriptor, err := AdmittedRoleCatalog.Admit(AdmittedRoleTerraBaseMember, RuntimeDriverNativeSystemd)
 	if err != nil {
 		t.Fatalf("TerraBaseMember on systemd: %v", err)
@@ -119,7 +81,6 @@ func TestRuntimeRoleParserAdmitsOnlyTheLaunchCatalog(t *testing.T) {
 		}
 	}
 	for _, removed := range []string{
-		"dashboard", "database-api",
 		"platform", "mcp", "grafana", "loki", "vpn-coordination-relay",
 		"control-nats-server", "product-nats-server", "ci-runner",
 	} {

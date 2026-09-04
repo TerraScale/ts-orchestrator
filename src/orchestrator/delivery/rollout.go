@@ -449,8 +449,6 @@ func componentRole(component string) (runtime.AdmittedRole, error) {
 	switch component {
 	case "terrabase":
 		return runtime.AdmittedRoleTerraBaseMember, nil
-	case "ts-dashboard":
-		return runtime.AdmittedRoleDashboard, nil
 	default:
 		return 0, fmt.Errorf("delivery: component %s has no admitted runtime role", component)
 	}

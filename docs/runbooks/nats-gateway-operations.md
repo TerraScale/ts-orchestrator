@@ -1,8 +1,10 @@
 # NATS gateway operations runbook
 
-> Applies only while the current optional Orchestrator NATS adapter is deployed.
-> It is not a TerraBase replication runbook and cannot be used to diagnose or
-> repair database convergence.
+> Legacy-adapter runbook only. NATS is mandatory orchestrator control state,
+> but the three autonomous regional clusters below are not the launch topology;
+> one replica in each of GRU, SFO, and FRA forms one R3 group. Do not use this
+> runbook to configure the launch estate. It is not a TerraBase replication
+> runbook and cannot diagnose or repair database convergence.
 
 Operator procedures for the regional control-NATS gateway supercluster generated
 from the typed gateway plan (`NatsGatewayPlaneTopology` →

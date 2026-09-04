@@ -95,6 +95,30 @@ func TestOCICompositionCoversAllDeclaredRegionsAndObservedState(t *testing.T) {
 	}
 }
 
+type unknownOCIAction struct{}
+
+func (unknownOCIAction) Kind() provider.OCIActionKind { return "unexpected-provider-action" }
+func (unknownOCIAction) Summary() string              { return "unexpected" }
+
+func TestFilterOCIPlanFailsClosedAtGenericOwnershipBoundary(t *testing.T) {
+	plan := provider.OCIPlan{Actions: []provider.OCIAction{
+		unknownOCIAction{},
+		provider.CreateVCNAction{Name: "vcn", CIDR: "10.0.0.0/16"},
+	}}
+	withoutOwner := filterOCIPlan(plan, reconcile.Plan{}, "gru")
+	if len(withoutOwner.Actions) != 0 {
+		t.Fatalf("provider actions escaped the generic ownership plan: %v", withoutOwner.Kinds())
+	}
+	owned := reconcile.Plan{Actions: []reconcile.Action{{
+		Kind: reconcile.ActionCreate,
+		Ref:  estate.ResourceRef{Kind: estate.ResourceNetwork, Region: "gru", Name: "vcn"},
+	}}}
+	filtered := filterOCIPlan(plan, owned, "gru")
+	if len(filtered.Actions) != 1 || filtered.Actions[0].Kind() != provider.OCIActionCreateVCN {
+		t.Fatalf("owned provider action was not retained: %v", filtered.Kinds())
+	}
+}
+
 type reconcileKVStoreFake struct{ health int }
 
 func (s *reconcileKVStoreFake) SetRegionHealth(context.Context, string, cloudflare.RegionHealth) error {

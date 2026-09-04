@@ -53,9 +53,6 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 	if plan.Systemd == nil {
 		t.Fatal("native plan must carry a systemd plan")
 	}
-	if plan.Oci != nil {
-		t.Fatal("native plan must not carry an OCI plan")
-	}
 	if plan.Systemd.UnitName != "terrascale-gru-terrabase-1.service" {
 		t.Fatalf("unexpected unit name %q", plan.Systemd.UnitName)
 	}
@@ -87,31 +84,6 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 	containsString(t, plan.Systemd.Properties, "CPUWeight=1000")
 	containsString(t, plan.Systemd.Properties, "IOWeight=1000")
 	containsString(t, plan.Systemd.Properties, "Nice=0")
-}
-
-func TestRuntimePlanRejectsRetiredRolesAndContainerDriversAtConstruction(t *testing.T) {
-	cases := []struct {
-		name   string
-		role   AdmittedRole
-		driver RuntimeDriver
-	}{
-		{name: "retired dashboard role", role: AdmittedRoleDashboard, driver: RuntimeDriverNativeSystemd},
-		{name: "retired database api role", role: AdmittedRoleDatabaseAPI, driver: RuntimeDriverNativeSystemd},
-		{name: "container driver", role: AdmittedRoleTerraBaseMember, driver: RuntimeDriverOciContainer},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if _, err := NewHostRuntimePlan(
-				testCase.role,
-				testCase.driver,
-				mustRuntimeAllocationId(t, "gru-retired-plan"),
-				mustArtifactDigest(t, hostRuntimePlanDigest),
-				HostArchitectureArm64,
-				nil); err == nil {
-				t.Fatal("retired role or container driver must be rejected at construction")
-			}
-		})
-	}
 }
 
 func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {

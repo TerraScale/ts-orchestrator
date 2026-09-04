@@ -14,6 +14,7 @@ current control topology, delivery strategy, or local test backend.
 | [`../GOAL.md`](../GOAL.md) | Current repository contract, including the required Firecracker qualification stack |
 | [`../../GOAL.md`](../../GOAL.md) | Sole product authority and cross-repository decisions, including D-81 |
 | [`guides/running-locally.md`](guides/running-locally.md) | Required Firecracker host, guest, topology, fault, command, and cleanup contracts |
+| [`guides/automated-bootstrap.md`](guides/automated-bootstrap.md) | Owner prerequisites and the automated OCI bootstrap contract |
 | [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | Superseded control-topology and delivery record |
 | [`architecture/orchestrator.md`](architecture/orchestrator.md) | Superseded architecture record |
 | [`../README.md`](../README.md) | Repository purpose, current implementation gap, validation, and current adapter commands |

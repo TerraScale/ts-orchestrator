@@ -116,33 +116,6 @@ func TestProductionProbeIsReadOnlyAndUsesTheFixedAdmissionPaths(t *testing.T) {
 	}
 }
 
-func TestOciPlansAndOciOnlyRolesAreRejectedBeforeExecutorConstruction(t *testing.T) {
-	runner := newRecordingHostRunner()
-	// D-69: the OCI driver is retired. No catalog role admits it, so even a
-	// structurally valid native plan for a retired container role cannot be
-	// admitted, and the retired driver is refused at the plan boundary (I-3).
-	if _, err := NewHostRuntimePlan(
-		AdmittedRoleDashboard,
-		RuntimeDriverOciContainer,
-		mustRuntimeAllocationId(t, "gru-dashboard-1"),
-		mustArtifactDigest(t, hostRuntimePlanDigest),
-		HostArchitectureArm64,
-		nil); err == nil {
-		t.Fatal("retired OCI dashboard plans must be refused at the plan boundary")
-	}
-	nativePlanWithOciOnlyRole := nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1")
-	nativePlanWithOciOnlyRole.Role = AdmittedRoleDashboard
-
-	var operationError *InvalidOperationError
-	_, err := NewNativeSystemdRuntimeAdmissionWithRunner(nativePlanWithOciOnlyRole, admittedHostProbe(), runner)
-	if !errors.As(err, &operationError) {
-		t.Fatalf("expected InvalidOperationError, got %v", err)
-	}
-	if len(runner.commands) != 0 {
-		t.Fatalf("no command may run before admission: %d", len(runner.commands))
-	}
-}
-
 func TestEveryCanonicalPlanTamperClassIsRejectedBeforeRunnerCall(t *testing.T) {
 	original := nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1")
 

@@ -25,12 +25,6 @@ func (e *InvalidDataError) Error() string { return e.Message }
 type AdmittedRole int
 
 const (
-	// Retired v1 container roles (D-69, no containers): Dashboard and
-	// DatabaseAPI keep their persisted values so old checkpoints are
-	// identified and refused, never admitted. Replaced by I-1 declared-estate
-	// types.
-	AdmittedRoleDashboard       AdmittedRole = 0
-	AdmittedRoleDatabaseAPI     AdmittedRole = 17
 	AdmittedRoleTerraBaseMember AdmittedRole = 1
 	AdmittedRoleNats            AdmittedRole = 3
 	AdmittedRoleAutoscaler      AdmittedRole = 2
@@ -49,10 +43,6 @@ func (r AdmittedRole) defined() bool {
 
 func (r AdmittedRole) String() string {
 	switch r {
-	case AdmittedRoleDashboard:
-		return "Dashboard"
-	case AdmittedRoleDatabaseAPI:
-		return "DatabaseAPI"
 	case AdmittedRoleTerraBaseMember:
 		return "TerraBaseMember"
 	case AdmittedRoleNats:
@@ -79,19 +69,16 @@ type RuntimeDriver int
 
 const (
 	RuntimeDriverNativeSystemd RuntimeDriver = iota
-	RuntimeDriverOciContainer
 )
 
 func (d RuntimeDriver) defined() bool {
-	return d == RuntimeDriverNativeSystemd || d == RuntimeDriverOciContainer
+	return d == RuntimeDriverNativeSystemd
 }
 
 func (d RuntimeDriver) String() string {
 	switch d {
 	case RuntimeDriverNativeSystemd:
 		return "NativeSystemd"
-	case RuntimeDriverOciContainer:
-		return "OciContainer"
 	default:
 		return fmt.Sprintf("RuntimeDriver(%d)", int(d))
 	}

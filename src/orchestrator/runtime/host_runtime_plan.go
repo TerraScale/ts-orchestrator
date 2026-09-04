@@ -107,30 +107,6 @@ type SystemdExecutionPlan struct {
 	Properties []string
 }
 
-// OciSecurityPlan is the retired OCI security envelope (D-69, no containers).
-// The struct is retained for wire decode and control-plane fingerprint
-// compatibility until I-1 replaces the declared-estate types.
-type OciSecurityPlan struct {
-	RunAsUser              uint32
-	RunAsGroup             uint32
-	NoNewPrivileges        bool
-	ReadOnlyRootFileSystem bool
-	DroppedCapabilities    []string
-	SeccompProfile         string
-	CgroupParent           string
-}
-
-// OciExecutionPlan is the retired OCI execution plan (D-69, no containers).
-// Retained for wire decode and control-plane fingerprint compatibility until
-// I-1 replaces the declared-estate types.
-type OciExecutionPlan struct {
-	ContainerId    string
-	ImageReference string
-	Platform       string
-	Security       OciSecurityPlan
-	Resources      RuntimeResourceLimits
-}
-
 // HostRuntimePlan is the canonical runtime plan of one allocation.
 type HostRuntimePlan struct {
 	SchemaVersion  int
@@ -141,7 +117,6 @@ type HostRuntimePlan struct {
 	Architecture   HostArchitecture
 	Resources      RuntimeResourceLimits
 	Systemd        *SystemdExecutionPlan
-	Oci            *OciExecutionPlan
 }
 
 // NewHostRuntimePlan admits the role/driver pair, applies the closed resource
@@ -167,9 +142,6 @@ func NewHostRuntimePlan(
 	if !architecture.defined() {
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "architecture"}
 	}
-	// Keep the construction boundary closed even if a future catalog edit
-	// accidentally adds a retired role or container driver. Nothing below may
-	// derive a plan for either retired execution path.
 	if !role.defined() {
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
 			Param:   "role",
@@ -179,7 +151,7 @@ func NewHostRuntimePlan(
 	if driver != RuntimeDriverNativeSystemd {
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
 			Param:   "driver",
-			Message: "Only native systemd execution is admitted; container execution is retired.",
+			Message: "Only native systemd execution is admitted.",
 		}
 	}
 
@@ -202,15 +174,7 @@ func NewHostRuntimePlan(
 			Architecture:   architecture,
 			Resources:      resources,
 			Systemd:        createSystemdExecutionPlan(descriptor, allocationId, digest, resources),
-			Oci:            nil,
 		}, nil
-	case RuntimeDriverOciContainer:
-		// D-69: no containers in production or CI. The OCI driver is retired;
-		// no catalog role admits it. I-3 (ts-node/systemd delivery) replaces it.
-		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
-			Param:   "driver",
-			Message: "The OCI container driver is retired; use native systemd (I-3).",
-		}
 	default:
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "driver"}
 	}
@@ -341,7 +305,7 @@ func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResou
 }
 
 // MarshalJSON emits the canonical camelCase plan shape: enums render as
-// camelCase strings and the optional execution plan preserves null.
+// camelCase strings and the systemd execution plan is always present.
 func (p HostRuntimePlan) MarshalJSON() ([]byte, error) {
 	var buffer bytes.Buffer
 	buffer.WriteString(`{"schemaVersion":`)
@@ -367,16 +331,6 @@ func (p HostRuntimePlan) MarshalJSON() ([]byte, error) {
 		buffer.WriteString("null")
 	} else {
 		encoded, err = json.Marshal(p.Systemd)
-		if err != nil {
-			return nil, err
-		}
-		buffer.Write(encoded)
-	}
-	buffer.WriteString(`,"oci":`)
-	if p.Oci == nil {
-		buffer.WriteString("null")
-	} else {
-		encoded, err = json.Marshal(p.Oci)
 		if err != nil {
 			return nil, err
 		}
@@ -420,56 +374,6 @@ func (p *SystemdExecutionPlan) MarshalJSON() ([]byte, error) {
 		Properties []string `json:"properties"`
 	}{p.UnitName, p.Executable, p.Arguments, p.Properties})
 	return encoded, err
-}
-
-// MarshalJSON mirrors the Web-defaults camelCase output of an OCI plan.
-func (p *OciExecutionPlan) MarshalJSON() ([]byte, error) {
-	security, err := json.Marshal(p.Security)
-	if err != nil {
-		return nil, err
-	}
-	resources, err := json.Marshal(p.Resources)
-	if err != nil {
-		return nil, err
-	}
-	var buffer bytes.Buffer
-	buffer.WriteString(`{"containerId":`)
-	writeJSONString(&buffer, p.ContainerId)
-	buffer.WriteString(`,"imageReference":`)
-	writeJSONString(&buffer, p.ImageReference)
-	buffer.WriteString(`,"platform":`)
-	writeJSONString(&buffer, p.Platform)
-	buffer.WriteString(`,"security":`)
-	buffer.Write(security)
-	buffer.WriteString(`,"resources":`)
-	buffer.Write(resources)
-	buffer.WriteString("}")
-	return buffer.Bytes(), nil
-}
-
-// MarshalJSON mirrors the Web-defaults camelCase output of an OCI security plan.
-func (p OciSecurityPlan) MarshalJSON() ([]byte, error) {
-	dropped, err := json.Marshal(p.DroppedCapabilities)
-	if err != nil {
-		return nil, err
-	}
-	var buffer bytes.Buffer
-	buffer.WriteString(`{"runAsUser":`)
-	buffer.WriteString(strconv.FormatUint(uint64(p.RunAsUser), 10))
-	buffer.WriteString(`,"runAsGroup":`)
-	buffer.WriteString(strconv.FormatUint(uint64(p.RunAsGroup), 10))
-	buffer.WriteString(`,"noNewPrivileges":`)
-	buffer.WriteString(strconv.FormatBool(p.NoNewPrivileges))
-	buffer.WriteString(`,"readOnlyRootFileSystem":`)
-	buffer.WriteString(strconv.FormatBool(p.ReadOnlyRootFileSystem))
-	buffer.WriteString(`,"droppedCapabilities":`)
-	buffer.Write(dropped)
-	buffer.WriteString(`,"seccompProfile":`)
-	writeJSONString(&buffer, p.SeccompProfile)
-	buffer.WriteString(`,"cgroupParent":`)
-	writeJSONString(&buffer, p.CgroupParent)
-	buffer.WriteString("}")
-	return buffer.Bytes(), nil
 }
 
 func writeJSONString(buffer *bytes.Buffer, value string) {

@@ -198,7 +198,7 @@ func requireCanonicalNativePlan(candidate HostRuntimePlan) (HostRuntimePlan, err
 			Message: "The host runtime plan architecture is not admitted.",
 		}
 	}
-	if candidate.Systemd == nil || candidate.Oci != nil {
+	if candidate.Systemd == nil {
 		return HostRuntimePlan{}, &InvalidOperationError{
 			Message: "The host runtime plan is incomplete.",
 		}

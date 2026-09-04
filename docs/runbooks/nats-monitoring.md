@@ -1,8 +1,9 @@
 # NATS monitoring runbook
 
-> Applies only to the current optional Orchestrator NATS control adapter. NATS
-> health is not database health. TerraBase causal lag, replication, repair,
-> reactive sync, and usage require engine-owned signals.
+> Current-adapter monitoring runbook only. Embedded NATS JetStream is mandatory
+> orchestrator control state, but health is not database health. TerraBase
+> causal lag, replication, repair, reactive sync, and usage require
+> engine-owned signals.
 
 Operator procedures for the NATS monitoring observability contract: the
 bounded instruments in `NatsMonitoringInstrumentCatalog`, the alert rules in

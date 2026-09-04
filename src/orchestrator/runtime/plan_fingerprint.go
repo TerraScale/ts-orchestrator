@@ -50,20 +50,6 @@ func (canonicalPlanFingerprint) Compute(plan HostRuntimePlan) (string, error) {
 	addFingerprintField(hash, strconv.Itoa(plan.Resources.CpuWeight))
 	addFingerprintField(hash, strconv.Itoa(plan.Resources.IoWeight))
 	addFingerprintField(hash, strconv.Itoa(plan.Resources.Nice))
-	if oci := plan.Oci; oci != nil {
-		addFingerprintField(hash, oci.ContainerId)
-		addFingerprintField(hash, oci.ImageReference)
-		addFingerprintField(hash, oci.Platform)
-		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsUser), 10))
-		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsGroup), 10))
-		addFingerprintField(hash, strconv.FormatBool(oci.Security.NoNewPrivileges))
-		addFingerprintField(hash, strconv.FormatBool(oci.Security.ReadOnlyRootFileSystem))
-		for _, capability := range oci.Security.DroppedCapabilities {
-			addFingerprintField(hash, capability)
-		}
-		addFingerprintField(hash, oci.Security.SeccompProfile)
-		addFingerprintField(hash, oci.Security.CgroupParent)
-	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 

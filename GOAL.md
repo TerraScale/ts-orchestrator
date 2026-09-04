@@ -3,11 +3,31 @@
 ## Authority
 
 The workspace [GOAL.md](../GOAL.md) remains the sole authority for TerraScale.
-This file collects every workspace requirement that governs `ts-orchestrator`
-and adds the repository's local test requirements. If the two files disagree,
-the workspace goal wins and this file must be corrected in the same change.
-This file contains decisions and acceptance criteria, never progress, dates,
-commit hashes, or review records.
+This file is its comprehensive, repository-specific projection for
+`ts-orchestrator`. It restates every applicable workspace decision and adds
+stricter local acceptance criteria. It may not contradict, narrow, or omit an
+applicable workspace requirement. If the two files diverge, the workspace goal
+wins and this file must be corrected in the same change. This file contains
+decisions and acceptance criteria, never progress, dates, commit hashes, or
+review records.
+
+## Workspace decision map
+
+This map is an index, not a substitute for the requirements below.
+
+| Workspace decisions | Requirement in this repository |
+| --- | --- |
+| D-01, D-03, D-06, D-33 | Implement the control plane, CLI, host agent, provider code, and test controller in Go, with embedded NATS JetStream and no Kubernetes-compatible API. |
+| D-02, D-34..D-38, D-45, D-46 | Use TBEP only for private placement, health, drain, administration, and test faults. Keep the orchestrator and NATS out of customer data, replication, query, and reactive paths. |
+| D-04, D-05, D-52, D-63, D-65..D-67 | Reconcile the OCI and Cloudflare launch estate, bootstrap GRU, expand to GRU/SFO/FRA, support 20 Regions, enforce placement, and keep OCI as the only durable production cloud. |
+| D-07, D-47, D-59, D-68, D-69, D-71 | Accept signed candidates from `ts-deploy`, mirror them, and own systemd, Worker, and Snippet activation, health gates, rollback, and release recovery. CI logic remains in `ts-deploy`. |
+| D-14, D-20, D-24, D-55, D-58, D-63 | Reconcile DNS, Cache Rules, Snippets, Workers KV, WAF, and capability keys without putting a Worker or the orchestrator on the reactive hot path. |
+| D-16, D-21, D-25, D-44, D-51, D-61, D-64, D-76 | Keep free dimensions unbilled within published guards, enforce infrastructure-side limits without inventing usage truth, preserve near-zero idle cost, and automate the Free database lifecycle. |
+| D-23, D-61, D-72, D-74, D-75, D-79 | Publish bounded estate state, metrics, logs, SLO burn, rollout state, drill results, and cost observations for the dashboard and status systems. Page only under the stated policy. |
+| D-29, D-35, D-37, D-40, D-45, D-52, D-60, D-70, D-71 | Coordinate placement, regional RF=2, backup, restore, export, branching, key lifecycle, and repair while leaving data correctness to TerraBase and never widening residency. |
+| D-10..D-12, D-32, D-41, D-47, D-62 | Work on `develop`, delete retired directions, keep `make check` portable and green, and use the workspace tracks and gates. This goal remains complete enough to direct repository work by itself. |
+| D-19, D-40, D-49, D-50, D-57, D-73, D-78, D-80 | Do not reintroduce containers, local customer distribution, removed product roles, or query ownership. Preserve the systemd and control contracts needed by current and post-launch product work. |
+| D-81 | Qualify the entire repository through the pinned low-resource Firecracker stack, with the CI cadence and evidence limits defined below. |
 
 ## Mission
 
@@ -64,12 +84,23 @@ reactive frames, or usage truth.
 ## Control-plane topology
 
 - GRU is the global authority.
-- At launch, one orchestrator control replica is co-hosted on a member host in
-  each of GRU, SFO, and FRA. The three replicas form one embedded JetStream R3
-  control group across the three Regions.
+- Greenfield bootstrap starts one co-hosted GRU control replica as a temporary
+  JetStream R1. R1 is allowed only before customers and only until SFO and FRA
+  are ready.
+- `add-region sfo` and `add-region fra` start synchronized candidate replicas.
+  After both have caught up and passed identity, storage, and health checks, one
+  fenced transition changes control storage from GRU R1 to GRU/SFO/FRA R3. The
+  accepted control epoch cannot regress, and the bootstrap authority is retired
+  only after the R3 quorum and a post-transition snapshot are verified.
+- Launch and production use one permanent global R3, with one replica co-hosted
+  in each of GRU, SFO, and FRA. They never downgrade to R1 after promotion.
 - There are no dedicated control hosts at launch.
-- A Region may move to its own autonomous three-replica regional control group
-  only after it has at least three hosts. This is post-launch capacity work.
+- Regions 4 through 20 start with two member hosts and no global control
+  replica. The GRU/SFO/FRA group manages them remotely.
+- A later Region may gain a separate three-replica regional control group only
+  after it has at least three eligible hosts. That group handles Region-scoped
+  control work; global mutations remain under the permanent global R3. This is
+  post-launch capacity work.
 - Existing Regions keep serving customer reads, eligible writes, replication,
   and reconnect recovery when the orchestrator or NATS is unavailable.
 - Loss of GRU or NATS may stop new global mutations. It must not enter the
@@ -92,13 +123,21 @@ reactive frames, or usage truth.
 - Placement refuses a Region with fewer than two admitted member hosts.
 - Hosts run Ubuntu LTS minimal. Production hosts contain no Docker, Podman,
   containerd, container runtime, production image, or image registry.
-- A host runs only `ts-node`, `terrabase`, an orchestrator control replica when
-  placed there, and the Grafana agent.
+- TerraScale-managed services on a host are only `ts-node`, `terrabase`, an
+  orchestrator control replica when placed there, and the Grafana agent. The
+  base OS still runs normal systemd, networking, time, storage, SSH, and update
+  services.
 - Every Region has its own object storage for Litestream, release artifacts,
   and control snapshots, with the declared lifecycle rules.
 - OCI is the durable source of truth for customer data. Cloudflare provides
   DNS, TLS, WAF, Workers, the reactive Snippet, KV, and authorized CDN copies.
   No other production cloud or PaaS is supported.
+- The Cloudflare zone uses Pro plus Workers Paid. The estate may not depend on
+  Enterprise, Data Localization Suite, Argo, or Regional Services features.
+  Provider prices, quotas, plan limits, and terms are planning assumptions that
+  must be reverified against current publications at G1 and G4.
+- Cloudflare never carries database replication, backups, or control traffic.
+  Those paths stay on OCI or direct member-to-member links.
 
 ## Declared estate and reconciliation
 
@@ -151,17 +190,20 @@ OCI API key. From an empty tenancy it must:
    back from A1 to E5 when required;
 4. install only `ts-node` through cloud-init;
 5. let `ts-node` fetch and verify the orchestrator and TerraBase artifacts;
-6. start the GRU control replica and admit the host identities;
+6. start the fenced, temporary pre-customer GRU R1 and admit the host identities;
 7. configure certificates, DNS, routes, KV, telemetry, and probes; and
 8. hand authority to the running control plane without leaving the bootstrap
    API key on a host.
 
 `terrascale-orchestrator add-region <code>` is one declared-estate entry plus a
 release. Starting from an empty OCI Region, one command creates storage,
-networking, two member hosts, the co-hosted control replica, Litestream targets,
-certificates, routes, health and placement KV entries, telemetry, and probes.
-It waits for members, control, backup targets, edge routing, and external probes
-to pass before the Region can serve. `--dry-run` is the generated runbook.
+networking, two member hosts, Litestream targets, certificates, routes, health
+and placement KV entries, telemetry, and probes. SFO and FRA also receive the
+synchronized candidates required for the global R1-to-R3 promotion. Regions 4
+through 20 use the global R3 remotely unless at least three eligible hosts and a
+separate declaration qualify them for a regional R3. The command waits for the
+applicable member, control, backup, edge-routing, and external-probe gates before
+the Region can serve. `--dry-run` is the generated runbook.
 
 Region removal is declarative and fail-closed. It fences new placement and
 routing, drains services, proves that placement locks, retention, backup, and
@@ -186,8 +228,11 @@ widens a database placement lock.
 
 ## Host agent and systemd runtime
 
-`ts-node` is a static Go host agent installed by cloud-init and the only
-component allowed to mutate a host. It must:
+`ts-node` is a static Go host agent installed by cloud-init. After cloud-init
+hands off, it is the only component allowed to mutate TerraScale runtime files,
+artifacts, units, and service state. It does not replace systemd, the package
+manager, kernel services, networking, time synchronization, or the normal base
+OS update path. It must:
 
 - download signed release artifacts into
   `/opt/terrascale/<component>/<version>/`;
@@ -359,8 +404,10 @@ that covers:
 - isolated Region networks, stable addresses, DNS, host port forwarding, and
   controlled cross-Region links;
 - network partition, latency, jitter, packet loss, bandwidth, and recovery;
-- disk fill, detach, reattach, expansion, read-only transition, and corruption
-  injection where the backend can do so safely;
+- guest-observable disk exhaustion, I/O failure, read-only behavior, missing disk
+  at boot, persistence, expansion, corruption while stopped, and snapshot
+  restore. The contract specifies the guest result, not an unsupported VMM
+  hotplug mechanism;
 - guest clock skew or an equivalent injected clock source;
 - snapshots or reusable base images for fast clean starts; and
 - idempotent teardown that removes every VM, disk, network, forwarding rule,
@@ -394,7 +441,8 @@ The Firecracker implementation must prove all of the following:
 - a guest boots with 1 vCPU and no more than 512 MiB configured RAM, with an
   additional 256 MiB control-only smoke profile where the guest supports it;
 - six persistent VMs run concurrently, two for each of GRU, SFO, and FRA, with
-  one control replica co-hosted in each Region;
+  the bootstrap R1 first and one control replica co-hosted in each Region after
+  the fenced R3 promotion;
 - the six-VM stack uses no more than 4 GiB of committed host RSS at idle and no
   more than one host CPU core on average while idle;
 - each VM has a persistent writable data disk and preserves it across restart;
@@ -427,9 +475,11 @@ The provider owns all host resources below Firecracker:
   DNS, and explicit cross-Region links;
 - `nftables` rules for deterministic partitions and `tc netem` rules for
   latency, jitter, loss, reordering, duplication, and bandwidth;
-- file-backed or safely mapped Firecracker drives for persistent data, disk
-  fill, expansion, read-only and I/O-error transitions, detach and reattach,
-  corruption injection, snapshot, and restore;
+- file-backed or safely mapped Firecracker drives that create the required
+  guest-visible outcomes: persistent data across restart, `ENOSPC`, explicit
+  I/O failure, a read-only filesystem, a missing disk on the next boot, capacity
+  expansion, byte corruption while stopped, and snapshot restore. Tests must
+  not depend on undefined or unsupported Firecracker hotplug behavior;
 - API sockets, process and jail directories, console logs, metrics, cloud-init
   seeds, temporary credentials, and ownership labels; and
 - a cleanup journal written before resource creation so an interrupted prior
@@ -439,13 +489,18 @@ No Docker daemon or container runtime runs inside or outside a guest as part of
 the suite. The Ubuntu disk is test infrastructure and never becomes a
 production delivery format. A machine without Linux, KVM, and the required
 host networking and block-device capabilities cannot produce a passing VM
-qualification; `make vm-doctor` must explain the missing capability. Native
-amd64 and arm64 Firecracker hosts qualify their matching release architecture,
-while every release still cross-builds and verifies manifests for both.
+qualification; `make vm-doctor` must explain the missing capability. The native
+runner architecture receives the full suite, while every release cross-builds
+and verifies manifests for both linux/amd64 and linux/arm64. Native arm64
+Firecracker qualification becomes mandatory when an arm64 KVM runner exists.
+Until then, the real OCI A1 gate qualifies arm64 behavior and local evidence
+must say that it covers amd64 only.
 
 ## Local test topology and provider fakes
 
-The full local topology contains six host VMs:
+The full local topology contains six host VMs. Bootstrap begins with the two GRU
+hosts and the temporary R1. SFO and FRA then join, synchronize their control
+candidates, and reach this permanent target:
 
 ```text
 GRU: gru-member-1 + gru-member-2, control replica on gru-member-1
@@ -481,35 +536,41 @@ make vm-clean     # removes only labelled TerraScale Firecracker test resources
 
 `make vm-test` must prove:
 
-1. bootstrap from an empty local provider to two healthy GRU members and a
-   running control replica;
+1. bootstrap from an empty local provider to two healthy GRU members and the
+   fenced temporary pre-customer R1;
 2. `add-region sfo` and `add-region fra` reach serving state through the real
    command without an unwired stage or manual mutation;
-3. the three control replicas form R3, survive one replica loss, and recover;
-4. reconciliation creates missing resources, corrects mutable drift, handles
+3. the SFO and FRA candidates synchronize before one atomic R1-to-R3 promotion;
+   the accepted epoch never regresses, bootstrap authority is retired, the R3
+   survives one replica loss, and production cannot downgrade to R1;
+4. a fourth two-host Region is managed remotely without a global replica, and
+   a separate regional R3 is refused below three eligible hosts;
+5. reconciliation creates missing resources, corrects mutable drift, handles
    eventual provider state, and refuses unowned deletion;
-5. `ts-node` installs signed artifacts for the native guest architecture,
+6. `ts-node` installs signed artifacts for the native guest architecture,
    rejects bad signatures and digests, writes the hardened units, persists
    data, and rolls back exactly; amd64 and arm64 manifests are both validated;
-6. delivery uses a GRU canary, then one host at a time, preserves RF=2, checks
+7. delivery uses a GRU canary, then one host at a time, preserves RF=2, checks
    drain, health, and catch-up, mirrors artifacts, and rolls back all touched
    hosts after an injected failure;
-7. Worker and Snippet candidates promote and roll back through the local edge
+8. Worker and Snippet candidates promote and roll back through the local edge
    API, with no Worker on the reactive hot path;
-8. KV health refresh, placement changes, stale-key removal, safe write order,
+9. KV health refresh, placement changes, stale-key removal, safe write order,
    and write-budget observation work at the required cadence;
-9. estate documents publish on change and every 10 seconds without secret or
+10. estate documents publish on change and every 10 seconds without secret or
    unbounded-label leakage;
-10. a dead host is replaced and caught up, a full disk is repaired, an expired
-    certificate rotates, A1 failure selects E5, and clock skew fences writes;
-11. a GRU or full control-plane outage leaves the admitted data plane serving;
-12. each cross-Region partition and heal preserves local service and converges
+11. a dead host is replaced and caught up; guest-visible `ENOSPC`, I/O failure,
+    read-only storage, missing-at-boot storage, expansion, and corruption take
+    the declared repair or fail-closed path; an expired certificate rotates, A1
+    failure selects E5, and clock skew fences writes;
+12. a GRU or full control-plane outage leaves the admitted data plane serving;
+13. each cross-Region partition and heal preserves local service and converges
     control state without unsafe duplicate mutation;
-13. daily restore-drill orchestration, control snapshot upload, and per-Region
+14. daily restore-drill orchestration, control snapshot upload, and per-Region
     artifact mirrors execute against persistent local object stores;
-14. placement locks survive bootstrap, repair, backup, restore, export, branch,
+15. placement locks survive bootstrap, repair, backup, restore, export, branch,
     and Region changes; and
-15. cancellation and failed assertions leave no running TerraScale VM or owned
+16. cancellation and failed assertions leave no running TerraScale VM or owned
     test resource after cleanup.
 
 The suite records boot time, ready time, peak and idle host RSS, idle CPU,
@@ -526,10 +587,13 @@ orchestrator depends; it is not evidence of OCI or Cloudflare availability.
 
 ## Production drills and acceptance
 
-Before G2, GRU must be bootstrapped in the real PAYG tenancy and the real
-Cloudflare zone must converge without console repair. Before G3, SFO and FRA
-must be created with `add-region`, placement-lock proofs must cover every byte
-at rest, and the fault matrix must pass.
+Before G2, the owner must supervise automated GRU bootstrap in the real PAYG
+tenancy. The temporary R1 and real Cloudflare zone must converge without manual
+estate mutation or console repair, and no customer may be admitted while the
+control store remains R1. Before G3, SFO and FRA must be created with
+`add-region`; the synchronized candidates must promote control storage to the
+permanent R3 without regressing the accepted epoch. Placement-lock proofs must
+cover every byte at rest, and the fault matrix must pass.
 
 Required production drills are:
 
@@ -569,26 +633,40 @@ workspace acceptance checklist.
 - Never log secret material.
 - Tests are the specification for wire formats, NATS subjects, persisted
   records, signatures, CLI output, exit codes, and environment variables.
-- `make check` is exactly the workspace verification set and CI runs the same
-  target.
+- `make check` is the portable workspace verification set and CI runs the same
+  target unchanged.
 
 ## Verification
 
+The portable gate runs on every development machine and CI job:
+
 ```bash
-gofmt -l .
-go vet ./...
-go build ./...
-go test -race ./...
+make check   # gofmt -l .; go vet ./...; go build ./...; go test -race ./...
+```
+
+`gofmt -l .` must print nothing. `make check` must not require KVM, privileged
+networking, block-device controls, OCI credentials, or Cloudflare credentials.
+A local change is incomplete until this gate passes.
+
+The privileged Firecracker gates run on Linux/KVM:
+
+```bash
 make vm-doctor
 make vm-smoke
 make vm-test
 ```
 
-`gofmt -l .` must print nothing. Production-facing changes are incomplete
-until `make check` passes, and `make check` includes the commands above on the
-Linux/KVM qualification runner. Documentation-only and isolated unit-test
-changes may use the focused Go verification set during development, but cannot
-declare a release qualified. VM architecture changes require `make vm-smoke`.
-Changes to bootstrap, Region lifecycle, host lifecycle, reconciliation,
-delivery, repair, networking, storage, identity, or degraded mode require the
-complete Firecracker-backed `make vm-test`.
+`make vm-smoke` is the focused feedback loop for guest-image, boot, Firecracker,
+network, disk, and test-controller changes. Documentation-only changes do not
+require local KVM. On every push to `develop`, including documentation-only
+pushes, CI must run the complete six-VM `make vm-test` after `make check` and
+before it builds, publishes, submits, or deploys a candidate. Changes to
+bootstrap, Region or host lifecycle, reconciliation, delivery, repair,
+networking, storage, identity, or degraded mode are not qualified until that
+full suite passes.
+
+The full suite qualifies the native runner architecture. CI cross-builds and
+validates manifests for linux/amd64 and linux/arm64 on every release. Native
+arm64 Firecracker qualification becomes required once an arm64 KVM runner is
+available. Until then, real OCI A1 qualification remains the arm64 gate and the
+Firecracker result must not claim arm64 coverage.

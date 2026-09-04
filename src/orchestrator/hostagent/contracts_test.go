@@ -14,11 +14,11 @@ func TestNodeSubjectsAreCanonical(t *testing.T) {
 		build func(NodeId) (string, error)
 		want  string
 	}{
-		{NodeDrainSubject, "terrascale.node.v1.gru-1.drain"},
-		{NodeDrainStatusSubject, "terrascale.node.v1.gru-1.drain-status"},
-		{NodeDeploySubject, "terrascale.node.v1.gru-1.deploy"},
-		{NodeRollbackSubject, "terrascale.node.v1.gru-1.rollback"},
-		{NodeHeartbeatSubject, "terrascale.node.v1.gru-1.heartbeat"},
+		{NodeDrainSubject, "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain"},
+		{NodeDrainStatusSubject, "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain-status"},
+		{NodeDeploySubject, "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.deploy"},
+		{NodeRollbackSubject, "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.rollback"},
+		{NodeHeartbeatSubject, "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.observation.heartbeat"},
 	}
 	for _, testCase := range cases {
 		subject, err := testCase.build(node)

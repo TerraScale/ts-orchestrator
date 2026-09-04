@@ -12,11 +12,7 @@ jobs:
     runs-on: terrascale-builder
     timeout-minutes: 30
     env:
-      TS_DEPLOY_RELEASE_SIGNING_KEY: ${{ secrets.TS_DEPLOY_RELEASE_SIGNING_KEY }}
-      TERRASCALE_RELEASE_MANIFEST: .terrascale-develop-release/manifest.json
-      TERRASCALE_DELIVERY_REQUEST: .terrascale-develop-release/request.json
-      TERRASCALE_ORCHESTRATOR_DELIVERY_URL: ${{ secrets.TERRASCALE_ORCHESTRATOR_DELIVERY_URL }}
-      TERRASCALE_ORCHESTRATOR_TOKEN: ${{ secrets.TERRASCALE_ORCHESTRATOR_TOKEN }}
+      TS_DEPLOY_VERSION: ${{ vars.TS_DEPLOY_VERSION }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -24,22 +20,19 @@ jobs:
           ref: ${{ forgejo.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Run ts-deploy CI
-        env:
-          TS_DEPLOY_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
-        run: |
-          set -euo pipefail
+      - run: |
+          set -eu
           case "$(uname -m)" in
             aarch64|arm64) asset=ts-deploy-linux-arm64 ;;
             x86_64|amd64) asset=ts-deploy-linux-amd64 ;;
             *) echo "unsupported runner architecture" >&2; exit 1 ;;
           esac
-          location=$(curl --proto '=https' --tlsv1.2 -fsSI -H "Authorization: token ${TS_DEPLOY_READ_TOKEN}" "https://git.terrascale.tech/TerraScale/ts-deploy/releases/latest" | tr -d '\r' | awk 'tolower($1) == "location:" { count++; location=$2 } END { if (count != 1) exit 1; print location }')
-          printf '%s\n' "${location}" | grep -Eq '^/TerraScale/ts-deploy/releases/tag/v0\.0\.0-dev\.([0-9a-f]{40}|[0-9a-f]{64})$'
-          tag=${location##*/}
-          release="https://git.terrascale.tech/TerraScale/ts-deploy/releases/download/${tag}"
-          curl -fsSL -H "Authorization: token ${TS_DEPLOY_READ_TOKEN}" -o SHA256SUMS "${release}/SHA256SUMS" -o ts-deploy "${release}/${asset}"
-          test "$(grep -Fc "  ${asset}" SHA256SUMS)" -eq 1
-          awk -v asset="${asset}" '$2 == asset { print $1 "  ts-deploy" }' SHA256SUMS | sha256sum -c -
+          release="${TS_DEPLOY_VERSION:-latest}"
+          case "${release}" in
+            latest|v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "invalid ts-deploy release" >&2; exit 1 ;;
+          esac
+          fj release view "${release}" --repo TerraScale/ts-deploy >/dev/null
+          fj release asset download "${release}" "${asset}" --repo TerraScale/ts-deploy --output ts-deploy
           chmod +x ts-deploy
-          ./ts-deploy ci --repo ts-orchestrator
+      - run: ./ts-deploy ci --repo ts-orchestrator

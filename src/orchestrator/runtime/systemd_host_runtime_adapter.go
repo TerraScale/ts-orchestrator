@@ -360,7 +360,7 @@ func (a *SystemdHostRuntimeAdapter) managerArguments(arguments ...string) []stri
 }
 
 func requireCanonicalSystemdPlan(plan HostRuntimePlan) (*SystemdExecutionPlan, error) {
-	if plan.Driver != RuntimeDriverNativeSystemd || plan.Systemd == nil || plan.Oci != nil {
+	if plan.Driver != RuntimeDriverNativeSystemd || plan.Systemd == nil {
 		return nil, &errs.Argument{
 			Param:   "plan",
 			Message: "The systemd adapter requires a native systemd plan.",

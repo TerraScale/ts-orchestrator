@@ -467,11 +467,32 @@ func filterOCIPlan(plan provider.OCIPlan, generic reconcile.Plan, region string)
 	var result provider.OCIPlan
 	for _, action := range plan.Actions {
 		ref, ok := ociActionRef(region, action)
-		if !ok || ref.Name == "" || genericHasRef(generic, ref) {
+		// The typed provider plan is subordinate to the generic ownership
+		// plan. Unknown action types and resources absent from that plan must
+		// never reach Apply, even if a provider implementation returns them.
+		if !ok {
+			continue
+		}
+		if ref.Name == "" {
+			if genericHasKindRegion(generic, ref.Kind, ref.Region) {
+				result.Actions = append(result.Actions, action)
+			}
+			continue
+		}
+		if genericHasRef(generic, ref) {
 			result.Actions = append(result.Actions, action)
 		}
 	}
 	return result
+}
+
+func genericHasKindRegion(plan reconcile.Plan, kind estate.ResourceKind, region string) bool {
+	for _, action := range plan.Actions {
+		if action.Ref.Kind == kind && action.Ref.Region == region {
+			return true
+		}
+	}
+	return false
 }
 
 func genericHasRef(plan reconcile.Plan, ref estate.ResourceRef) bool {

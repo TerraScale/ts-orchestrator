@@ -1,6 +1,8 @@
 # Offer stateless tenant compute with managed TerraBase
 
-Status: Accepted.
+Status: Superseded. General tenant compute is not part of the launch
+orchestrator. The first post-launch compute feature is the narrowly selected
+server-function runtime in workspace D-19; its runtime requires a new ADR.
 
 The tenant workload product admits stateless services and serverless compute. It does not expose general persistent volumes or arbitrary stateful services. Tenant applications use managed TerraBase for first-party durable state or explicitly reach an external service through allowed egress. Ephemeral scratch space may exist, but losing an allocation must not require data recovery.
 

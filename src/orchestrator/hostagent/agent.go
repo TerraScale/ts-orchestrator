@@ -45,7 +45,7 @@ type HostAgentConfig struct {
 }
 
 // HostAgent is the node-side composition: it reconciles the host toward the
-// manifest, answers the terrascale.node.v1.* subjects of contracts.go, and
+// manifest, answers the ts.orch.v2 host-agent subjects of contracts.go, and
 // publishes heartbeats until its context is cancelled or Close is called.
 type HostAgent struct {
 	nodeId            NodeId

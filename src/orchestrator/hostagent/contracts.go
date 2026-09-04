@@ -9,8 +9,11 @@
 //
 // The agent speaks request-reply JSON (camelCase, unknown fields rejected)
 // on the embedded control NATS under the subject prefix
-// terrascale.node.v1.<nodeId>.<leaf>, authenticated like every other
-// control subject (NKey + TLS per the account model). The leaves are:
+// ts.orch.v2.<cell>.agent.<agent-hash>.<family>.<leaf>, authenticated like
+// every other control subject (NKey + TLS per the account model). The raw
+// node identity is hashed before it enters a subject, so operator-controlled
+// identity text cannot become a NATS token. The cell is the first token of a
+// node identity (for example, gru in gru-1). The leaves are:
 //
 //	drain      DrainCommand     -> DrainReceipt       begin or release a drain
 //	drain-status NodeStatusRequest -> NodeStatusReport  state, quiesce gate, facts
@@ -30,6 +33,7 @@ import (
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 // InvalidOperationError reports an operation invalid for the current state.
@@ -116,8 +120,8 @@ func (id NodeId) String() string { return id.Value }
 // deploy, and rollback leaves are request-reply; the heartbeat leaf is
 // publish-only.
 const (
-	// NatsSubjectNodePrefix is the shared subject prefix of every node leaf.
-	NatsSubjectNodePrefix = "terrascale.node.v1"
+	// NatsSubjectNodePrefix is the versioned prefix of every host-agent leaf.
+	NatsSubjectNodePrefix = "ts.orch.v2"
 	// NatsSubjectLeafDrain begins or releases a drain (request-reply).
 	NatsSubjectLeafDrain = "drain"
 	// NatsSubjectLeafDrainStatus reports state and the quiesce gate
@@ -133,38 +137,64 @@ const (
 	NatsSubjectLeafHeartbeat = "heartbeat"
 )
 
-// nodeSubject builds one validated node subject leaf.
-func nodeSubject(nodeId NodeId, leaf string) (string, error) {
+// nodeCell derives the control-plane cell from the canonical node identity.
+// Node identities are provisioned as <cell>-<slot>; an identity without a
+// separator is accepted for local/test use and names its own cell.
+func nodeCell(nodeId NodeId) (string, string, error) {
 	validated, err := NewNodeId(nodeId.Value)
+	if err != nil {
+		return "", "", err
+	}
+	cell := validated.Value
+	if separator := strings.IndexByte(cell, '-'); separator > 0 {
+		cell = cell[:separator]
+	}
+	return cell, validated.Value, nil
+}
+
+// nodeCommandSubject builds one v2 command subject addressed to exactly one
+// hashed host-agent identity.
+func nodeCommandSubject(nodeId NodeId, leaf string) (string, error) {
+	cell, identity, err := nodeCell(nodeId)
 	if err != nil {
 		return "", err
 	}
-	return NatsSubjectNodePrefix + "." + validated.Value + "." + leaf, nil
+	return protocol.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, identity, leaf)
+}
+
+// nodeObservationSubject builds one v2 observation subject published by one
+// hashed host-agent identity.
+func nodeObservationSubject(nodeId NodeId, leaf string) (string, error) {
+	cell, identity, err := nodeCell(nodeId)
+	if err != nil {
+		return "", err
+	}
+	return protocol.NatsSubjectTaxonomy.HostAgentObservationSubject(cell, identity, leaf)
 }
 
 // NodeDrainSubject builds the request-reply drain subject of a node.
 func NodeDrainSubject(nodeId NodeId) (string, error) {
-	return nodeSubject(nodeId, NatsSubjectLeafDrain)
+	return nodeCommandSubject(nodeId, NatsSubjectLeafDrain)
 }
 
 // NodeDrainStatusSubject builds the request-reply drain-status subject.
 func NodeDrainStatusSubject(nodeId NodeId) (string, error) {
-	return nodeSubject(nodeId, NatsSubjectLeafDrainStatus)
+	return nodeCommandSubject(nodeId, NatsSubjectLeafDrainStatus)
 }
 
 // NodeDeploySubject builds the request-reply deploy subject.
 func NodeDeploySubject(nodeId NodeId) (string, error) {
-	return nodeSubject(nodeId, NatsSubjectLeafDeploy)
+	return nodeCommandSubject(nodeId, NatsSubjectLeafDeploy)
 }
 
 // NodeRollbackSubject builds the request-reply rollback subject.
 func NodeRollbackSubject(nodeId NodeId) (string, error) {
-	return nodeSubject(nodeId, NatsSubjectLeafRollback)
+	return nodeCommandSubject(nodeId, NatsSubjectLeafRollback)
 }
 
 // NodeHeartbeatSubject builds the publish-only heartbeat subject.
 func NodeHeartbeatSubject(nodeId NodeId) (string, error) {
-	return nodeSubject(nodeId, NatsSubjectLeafHeartbeat)
+	return nodeObservationSubject(nodeId, NatsSubjectLeafHeartbeat)
 }
 
 // DrainCommand is the payload of the drain subject: drain=true stops the

@@ -104,9 +104,6 @@ func TestUnmarshalJSONDecodesCamelCaseWireShape(t *testing.T) {
 	if len(decoded.Systemd.Arguments) != 2 {
 		t.Fatalf("arguments = %#v", decoded.Systemd.Arguments)
 	}
-	if decoded.Oci != nil {
-		t.Fatalf("oci plan = %#v", decoded.Oci)
-	}
 }
 
 func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
@@ -165,14 +162,6 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 			payload: replace(validNative, `"systemd":{`, `"systemd":{"evil":true,`),
 		},
 		{
-			name:    "retired oci driver enum",
-			payload: replace(validNative, `"driver":"nativeSystemd"`, `"driver":"ociContainer"`),
-		},
-		{
-			name:    "retired dashboard role enum",
-			payload: replace(validNative, `"role":"autoscaler"`, `"role":"dashboard"`),
-		},
-		{
 			// encoding/json rejects these shapes itself, before the custom
 			// decoder runs, so any non-nil error is the deterministic outcome.
 			name:        "trailing second document",
@@ -187,10 +176,6 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 		{
 			name:    "renamed systemd plan field",
 			payload: replace(validNative, `"systemd":`, `"ociPlan":`),
-		},
-		{
-			name:    "native driver carrying an oci plan",
-			payload: replace(validNative, `"oci":null`, `"oci":{"containerId":"c","imageReference":"i","platform":"linux/amd64","security":{},"resources":{}}`),
 		},
 		{
 			name:        "empty payload",

@@ -75,7 +75,7 @@ func (f *fakeNatsConnection) heartbeatPayloads(t *testing.T) []HostHeartbeat {
 	defer f.mutex.Unlock()
 	var heartbeats []HostHeartbeat
 	for _, publication := range f.published {
-		if publication.subject != "terrascale.node.v1.gru-1.heartbeat" {
+		if publication.subject != "ts.orch.v2.gru.agent.9a097238a730924911f02fcc.observation.heartbeat" {
 			continue
 		}
 		var heartbeat HostHeartbeat
@@ -160,7 +160,7 @@ func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
 	_, connection, _ := newTestTransport(t, harness)
 
 	// Drain through the RPC surface.
-	reply, err := connection.request("terrascale.node.v1.gru-1.drain",
+	reply, err := connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain",
 		mustJSON(t, DrainCommand{CommandId: "cmd-drain", Drain: true}))
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
 	}
 
 	// The drain-status gate reports the same state with facts.
-	reply, err = connection.request("terrascale.node.v1.gru-1.drain-status",
+	reply, err = connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain-status",
 		mustJSON(t, NodeStatusRequest{CommandId: "cmd-status"}))
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
 	}
 
 	// Deploy v2 under the drain.
-	reply, err = connection.request("terrascale.node.v1.gru-1.deploy",
+	reply, err = connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.deploy",
 		mustJSON(t, DeployCommand{CommandId: "cmd-deploy", Component: "terrabase", Version: "1.1.0"}))
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
 	}
 
 	// Release back to serving.
-	reply, err = connection.request("terrascale.node.v1.gru-1.drain",
+	reply, err = connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain",
 		mustJSON(t, DrainCommand{CommandId: "cmd-release"}))
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
 	}
 
 	// Rollback from serving: accepted, current back at 1.0.0.
-	reply, err = connection.request("terrascale.node.v1.gru-1.rollback",
+	reply, err = connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.rollback",
 		mustJSON(t, RollbackCommand{CommandId: "cmd-rollback", Component: "terrabase"}))
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func TestTransportRefusesDeployWithoutDrain(t *testing.T) {
 	v1 := harness.publish(t, "terrabase", "1.0.0")
 	harness.applyDesired(t, v1)
 	_, connection, _ := newTestTransport(t, harness)
-	reply, err := connection.request("terrascale.node.v1.gru-1.deploy",
+	reply, err := connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.deploy",
 		mustJSON(t, DeployCommand{CommandId: "cmd-deploy", Component: "terrabase", Version: "1.0.0"}))
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestTransportRejectsUnknownFields(t *testing.T) {
 	harness := newTestHarness(t)
 	harness.applyDesired(t, harness.publish(t, "terrabase", "1.0.0"))
 	_, connection, _ := newTestTransport(t, harness)
-	reply, err := connection.request("terrascale.node.v1.gru-1.drain",
+	reply, err := connection.request("ts.orch.v2.gru.agent.9a097238a730924911f02fcc.command.drain",
 		[]byte(`{"commandId":"cmd-bad","drain":true,"extra":1}`))
 	if err != nil {
 		t.Fatal(err)
