@@ -207,6 +207,9 @@ func DecodeGuestChannelSeed(data []byte) (GuestChannelSeed, error) {
 	if len(data) == 0 {
 		return GuestChannelSeed{}, errors.New("vmimage: guest seed is empty")
 	}
+	if err := validateGuestChannelSeedJSON(data); err != nil {
+		return GuestChannelSeed{}, fmt.Errorf("vmimage: decode guest seed: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var seed GuestChannelSeed
@@ -225,6 +228,168 @@ func DecodeGuestChannelSeed(data []byte) (GuestChannelSeed, error) {
 		return GuestChannelSeed{}, errors.New("vmimage: unsupported guest seed schema")
 	}
 	return canonical, nil
+}
+
+type seedJSONObjectSchema struct {
+	fields   map[string]seedJSONFieldSchema
+	required []string
+}
+
+type seedJSONFieldSchema struct {
+	object      *seedJSONObjectSchema
+	objectArray *seedJSONObjectSchema
+}
+
+func validateGuestChannelSeedJSON(data []byte) error {
+	transform := &seedJSONObjectSchema{
+		fields: map[string]seedJSONFieldSchema{
+			"type": {}, "sectorSize": {}, "startSector": {}, "sectorCount": {},
+		},
+		required: []string{"type", "sectorSize", "startSector", "sectorCount"},
+	}
+	manifestArtifact := &seedJSONObjectSchema{
+		fields: map[string]seedJSONFieldSchema{
+			"name": {}, "architecture": {}, "version": {}, "source": {},
+			"sha256": {}, "size": {}, "mode": {}, "inputSha256": {},
+			"inputSize": {}, "transform": {object: transform},
+		},
+		required: []string{"name", "architecture", "version", "source", "sha256", "size", "mode"},
+	}
+	image := &seedJSONObjectSchema{
+		fields: map[string]seedJSONFieldSchema{
+			"schemaVersion": {}, "ubuntuRelease": {}, "architecture": {},
+			"version": {}, "kernel": {object: manifestArtifact},
+			"rootfs": {object: manifestArtifact},
+		},
+		required: []string{"schemaVersion", "ubuntuRelease", "architecture", "version", "kernel", "rootfs"},
+	}
+	guestArtifact := &seedJSONObjectSchema{
+		fields: map[string]seedJSONFieldSchema{
+			"component": {}, "architecture": {}, "version": {}, "source": {},
+			"sha256": {}, "size": {}, "mode": {},
+		},
+		required: []string{"component", "architecture", "version", "source", "sha256", "size", "mode"},
+	}
+	seed := &seedJSONObjectSchema{
+		fields: map[string]seedJSONFieldSchema{
+			"schemaVersion": {}, "image": {object: image}, "hostname": {},
+			"instanceId": {}, "region": {}, "dataDiskPath": {},
+			"artifacts": {objectArray: guestArtifact},
+		},
+		required: []string{"schemaVersion", "image", "hostname", "instanceId", "region", "dataDiskPath", "artifacts"},
+	}
+	return validateSeedJSONObjectDocument(data, seed, "seed")
+}
+
+func validateSeedJSONObjectDocument(data []byte, schema *seedJSONObjectSchema, path string) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := validateSeedJSONObject(decoder, schema, path); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("%s has trailing data", path)
+	}
+	return nil
+}
+
+func validateSeedJSONObject(decoder *json.Decoder, schema *seedJSONObjectSchema, path string) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s must be a JSON object: %w", path, err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return fmt.Errorf("%s must be a non-null JSON object", path)
+	}
+	seen := make(map[string]bool, len(schema.fields))
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return fmt.Errorf("%s field name: %w", path, err)
+		}
+		name, ok := token.(string)
+		if !ok {
+			return fmt.Errorf("%s field name is invalid", path)
+		}
+		field, ok := schema.fields[name]
+		if !ok {
+			return fmt.Errorf("%s contains unknown field %q", path, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("%s contains duplicate field %q", path, name)
+		}
+		seen[name] = true
+
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("%s.%s: %w", path, name, err)
+		}
+		fieldPath := path + "." + name
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s must not be null", fieldPath)
+		}
+		if field.object != nil {
+			if err := validateSeedJSONObjectDocument(raw, field.object, fieldPath); err != nil {
+				return err
+			}
+		}
+		if field.objectArray != nil {
+			if err := validateSeedJSONObjectArrayDocument(raw, field.objectArray, fieldPath); err != nil {
+				return err
+			}
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s object is incomplete: %w", path, err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return fmt.Errorf("%s object is incomplete", path)
+	}
+	for _, name := range schema.required {
+		if !seen[name] {
+			return fmt.Errorf("%s is missing field %q", path, name)
+		}
+	}
+	return nil
+}
+
+func validateSeedJSONObjectArrayDocument(data []byte, item *seedJSONObjectSchema, path string) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s must be a JSON array: %w", path, err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
+		return fmt.Errorf("%s must be a non-null JSON array", path)
+	}
+	index := 0
+	for decoder.More() {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("%s[%d]: %w", path, index, err)
+		}
+		itemPath := fmt.Sprintf("%s[%d]", path, index)
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s must not be null", itemPath)
+		}
+		if err := validateSeedJSONObjectDocument(raw, item, itemPath); err != nil {
+			return err
+		}
+		index++
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s array is incomplete: %w", path, err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != ']' {
+		return fmt.Errorf("%s array is incomplete", path)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("%s has trailing data", path)
+	}
+	return nil
 }
 
 // ArtifactComponents returns the fixed service order used by a guest seed.
