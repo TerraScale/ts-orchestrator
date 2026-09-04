@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"errors"
@@ -10,16 +10,16 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// messagingGroupAny and messagingOtherAny are the group/other permission masks
+// MessagingGroupAny and MessagingOtherAny are the group/other permission masks
 // used by every owner-private file check.
 const (
-	messagingGroupAny = 0o070
-	messagingOtherAny = 0o007
+	MessagingGroupAny = 0o070
+	MessagingOtherAny = 0o007
 )
 
-// messagingUnixFileMode returns the Unix permission bits for the Linux-only
+// MessagingUnixFileMode returns the Unix permission bits for the Linux-only
 // NATS credential paths. A non-Linux platform fails closed.
-func messagingUnixFileMode(path string) (uint32, error) {
+func MessagingUnixFileMode(path string) (uint32, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return 0, err
@@ -86,12 +86,12 @@ func (natsCredentialFile) Resolve(value string, optionName string) (string, erro
 		return "", fmt.Errorf("%s must identify a bounded existing NKey seed file.", optionName)
 	}
 
-	mode, err := messagingUnixFileMode(path)
+	mode, err := MessagingUnixFileMode(path)
 	if err != nil {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 
-	if mode&(messagingGroupAny|messagingOtherAny) != 0 {
+	if mode&(MessagingGroupAny|MessagingOtherAny) != 0 {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 
@@ -125,7 +125,7 @@ func (natsCredentialFile) PublicKey(path string) (string, error) {
 // nkeysPublicKeyFromSeedFile reads the first non-blank line of the file and
 // returns the public key encoded by that NKey seed.
 func nkeysPublicKeyFromSeedFile(path string) (string, error) {
-	seed, err := nkeySeed(path)
+	seed, err := NkeySeed(path)
 	if err != nil {
 		return "", err
 	}
@@ -138,8 +138,8 @@ func nkeysPublicKeyFromSeedFile(path string) (string, error) {
 	return pair.PublicKey()
 }
 
-// nkeySeed returns the first non-whitespace line of the file.
-func nkeySeed(path string) (string, error) {
+// NkeySeed returns the first non-whitespace line of the file.
+func NkeySeed(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", errors.New("NKey seed file is empty.")

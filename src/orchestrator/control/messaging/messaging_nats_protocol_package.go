@@ -1,4 +1,4 @@
-package control
+package messaging
 
 // NatsProtocolPackageBytes mirrors NatsProtocolPackage.Bytes: the immutable
 // canonical protocol package the controller compares against the object-store

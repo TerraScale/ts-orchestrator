@@ -226,7 +226,7 @@ func connectJournalWriter(
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(natsJournalWriterReconnectWait),
-		natsNkeyOption(journal.NKeyFile),
+		NatsNkeyOption(journal.NKeyFile),
 	}, journal.Tls.Options()...)
 
 	result := make(chan journalWriterConnectResult, 1)

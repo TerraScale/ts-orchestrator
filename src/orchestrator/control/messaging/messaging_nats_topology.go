@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"time"

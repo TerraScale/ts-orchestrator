@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"crypto/sha256"

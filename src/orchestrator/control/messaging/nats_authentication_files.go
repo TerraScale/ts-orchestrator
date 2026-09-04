@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"errors"
@@ -122,17 +122,17 @@ func (a *NatsAuthenticationFiles) Options() []nats.Option {
 	}
 
 	if a.NKeyFile != nil {
-		return []nats.Option{natsNkeyOption(*a.NKeyFile)}
+		return []nats.Option{NatsNkeyOption(*a.NKeyFile)}
 	}
 
 	return nil
 }
 
-// natsNkeyOption builds the nats.Nkey option from a seed file: the connection
+// NatsNkeyOption builds the nats.Nkey option from a seed file: the connection
 // signs its server nonce with the seed's key pair.
-func natsNkeyOption(seedFile string) nats.Option {
+func NatsNkeyOption(seedFile string) nats.Option {
 	return func(o *nats.Options) error {
-		seed, err := nkeySeed(seedFile)
+		seed, err := NkeySeed(seedFile)
 		if err != nil {
 			return err
 		}
@@ -170,12 +170,12 @@ func natsAuthenticationResolvePrivateFile(value, optionName string) (string, err
 		return "", fmt.Errorf("%s must identify a bounded existing NATS credentials file.", optionName)
 	}
 
-	mode, err := messagingUnixFileMode(path)
+	mode, err := MessagingUnixFileMode(path)
 	if err != nil {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 
-	if mode&(messagingGroupAny|messagingOtherAny) != 0 {
+	if mode&(MessagingGroupAny|MessagingOtherAny) != 0 {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 

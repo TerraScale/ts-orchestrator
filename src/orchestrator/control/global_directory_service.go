@@ -82,7 +82,7 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 		},
 		Handler: func(ctx context.Context, message *nats.Msg) error {
 			observedAt := time.Now().UTC()
-			identity, messageId, err := newNatsMessageIdentity()
+			identity, messageId, err := NewNatsMessageIdentity()
 			if err != nil {
 				return err
 			}

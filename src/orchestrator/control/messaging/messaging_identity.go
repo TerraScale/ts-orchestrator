@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"crypto/rand"
@@ -8,7 +8,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-func newNatsMessageIdentity() (string, protocol.MessageIdentityToken, error) {
+func NewNatsMessageIdentity() (string, protocol.MessageIdentityToken, error) {
 	identityBytes := make([]byte, 16)
 	if _, err := rand.Read(identityBytes); err != nil {
 		return "", protocol.MessageIdentityToken{}, err

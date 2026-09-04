@@ -275,7 +275,7 @@ func natsJournalReadFile(value string, maximum int64, requirePrivate bool) (stri
 		initial.Size() < 1 || initial.Size() > maximum {
 		return "", nil, errors.New("invalid credential file")
 	}
-	if requirePrivate && uint32(initial.Mode().Perm())&(messagingGroupAny|messagingOtherAny) != 0 {
+	if requirePrivate && uint32(initial.Mode().Perm())&(MessagingGroupAny|MessagingOtherAny) != 0 {
 		return "", nil, errors.New("credential file is not owner-private")
 	}
 
@@ -291,7 +291,7 @@ func natsJournalReadFile(value string, maximum int64, requirePrivate bool) (stri
 		!natsJournalSameFileIdentity(initial, current) {
 		return "", nil, errors.New("credential file changed while opening")
 	}
-	if requirePrivate && uint32(current.Mode().Perm())&(messagingGroupAny|messagingOtherAny) != 0 {
+	if requirePrivate && uint32(current.Mode().Perm())&(MessagingGroupAny|MessagingOtherAny) != 0 {
 		return "", nil, errors.New("credential file is not owner-private")
 	}
 

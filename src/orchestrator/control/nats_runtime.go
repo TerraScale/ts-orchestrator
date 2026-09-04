@@ -256,7 +256,7 @@ func natsRuntimeConnect(options *OrchestratorOptions) (*nats.Conn, error) {
 		},
 	}
 	if options.NatsNKeyFile != nil {
-		connectionOptions = append(connectionOptions, natsNkeyOption(*options.NatsNKeyFile))
+		connectionOptions = append(connectionOptions, NatsNkeyOption(*options.NatsNKeyFile))
 	}
 	if options.NatsTls != nil {
 		connectionOptions = append(connectionOptions, options.NatsTls.Options()...)
@@ -571,7 +571,7 @@ func (r *NatsRuntime) startService() error {
 	}
 	replyEnvelope := func(subject, payloadType string, value any, message *nats.Msg) error {
 		observedAt := time.Now().UTC()
-		identity, messageId, err := newNatsMessageIdentity()
+		identity, messageId, err := NewNatsMessageIdentity()
 		if err != nil {
 			return err
 		}

@@ -89,7 +89,7 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 			"The NATS account signing credential must be a bounded owner-private NKey file. (Parameter 'path')")
 	}
 
-	seed, err := nkeySeed(fullPath)
+	seed, err := NkeySeed(fullPath)
 	if err != nil {
 		return nil, errors.New("The NATS account signing credential is empty. (Parameter 'path')")
 	}
@@ -239,7 +239,7 @@ func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string,
 		return "", errors.New("The CI runner credential directory must be owner-private. (Parameter 'path')")
 	}
 
-	parentMode, err := messagingUnixFileMode(parent)
+	parentMode, err := MessagingUnixFileMode(parent)
 	if err != nil || parentMode != 0o700 {
 		return "", errors.New("The CI runner credential directory must be owner-private. (Parameter 'path')")
 	}

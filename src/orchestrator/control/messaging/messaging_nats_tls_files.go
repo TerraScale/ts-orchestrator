@@ -1,4 +1,4 @@
-package control
+package messaging
 
 import (
 	"bytes"
@@ -131,12 +131,12 @@ func natsTlsResolvePrivate(value, optionName string) (string, error) {
 		return "", err
 	}
 
-	mode, err := messagingUnixFileMode(path)
+	mode, err := MessagingUnixFileMode(path)
 	if err != nil {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 
-	if mode&(messagingGroupAny|messagingOtherAny) != 0 {
+	if mode&(MessagingGroupAny|MessagingOtherAny) != 0 {
 		return "", fmt.Errorf("%s must be private to the current user.", optionName)
 	}
 

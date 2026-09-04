@@ -125,6 +125,15 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		}
 		return nil
 	}
+	if name == "bootstrap" {
+		// Greenfield OCI bootstrap (D-67): compartment, VCN, NSGs, vault,
+		// buckets, and the first two home-Region hosts. Fails loudly when
+		// the owner's OCI credentials are absent; the real run is I-7.
+		if err := provider.RunOCIBootstrapFromEnvironment(ctx, lookup, provider.BootstrapRequest{}, output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
 
 	options, err := parseOptions(args, control.EnvironmentLookup(lookup))
 	if err != nil {
@@ -200,7 +209,7 @@ func requestedCommand(args []string) (string, error) {
 		return "unsupported", errors.New("orchestrator: command accepts no arguments")
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "bootstrap":
 		return args[0], nil
 	default:
 		// Do not echo an arbitrary argument: command lines can contain secrets.
@@ -213,7 +222,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap":
 		return args[0]
 	default:
 		return "unsupported"

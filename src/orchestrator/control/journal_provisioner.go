@@ -52,7 +52,7 @@ func (natsOperationJournalProvisioner) provision(
 	connectionOptions := append([]nats.Option{
 		nats.Timeout(15 * time.Second),
 		nats.MaxReconnects(0),
-		natsNkeyOption(*options.InfrastructureNatsNKeyFile),
+		NatsNkeyOption(*options.InfrastructureNatsNKeyFile),
 	}, options.InfrastructureNatsTls.Options()...)
 	client, err := nats.Connect(options.NatsURL, connectionOptions...)
 	if err != nil {
