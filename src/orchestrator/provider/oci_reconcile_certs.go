@@ -23,6 +23,8 @@ import (
 // The reconciler only observes and converges certificate metadata — names,
 // subject alternative names, and expiry. Private keys and certificate
 // contents stay inside OCI; renewal versions are requested, never imported.
+// Renewal actions carry a reason (SAN drift, expiry window, expired) so plan
+// summaries and drills can tell an expiry repair from routine rotation.
 // Like the vault reconciler, a FAILED certificate needs an owner decision
 // and is refused loudly instead of retried into CA quota.
 
@@ -76,14 +78,35 @@ type CreateCertificateAction struct {
 func (a CreateCertificateAction) Kind() OCIActionKind { return OCIActionCreateCertificate }
 func (a CreateCertificateAction) Summary() string     { return "create certificate " + a.DisplayName }
 
+// RenewReason is why a renewal is planned. It is the repair signal: plan
+// summaries, bootstrap output, and drills (I-9: expire a certificate) key on
+// it to tell an expiry repair from routine rotation or SAN drift.
+type RenewReason string
+
+const (
+	// RenewReasonDrift: the observed SAN set no longer equals the
+	// declaration; the new version restores exact coverage.
+	RenewReasonDrift RenewReason = "san-drift"
+	// RenewReasonWindow: the current version expires inside the declared
+	// renewal window; rotation is routine.
+	RenewReasonWindow RenewReason = "expiry-window"
+	// RenewReasonExpired: the current version has already expired. The
+	// renewal is repair (GOAL self-healing: expired certificates rotate),
+	// and consumers keep serving on the prior version only until it lands.
+	RenewReasonExpired RenewReason = "expired"
+)
+
 type RenewCertificateAction struct {
 	CertID      string
 	DisplayName string
 	DNSNames    []string
+	Reason      RenewReason
 }
 
 func (a RenewCertificateAction) Kind() OCIActionKind { return OCIActionRenewCertificate }
-func (a RenewCertificateAction) Summary() string     { return "renew certificate " + a.DisplayName }
+func (a RenewCertificateAction) Summary() string {
+	return "renew certificate " + a.DisplayName + " (" + string(a.Reason) + ")"
+}
 
 // CertReconciler converges one Region's certificates toward the declaration.
 // Now is an optional clock for expiry tests; it defaults to time.Now.
@@ -145,12 +168,23 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 		byName[cert.DisplayName] = cert
 	}
 	plan := OCIPlan{}
+	// Region certificate coverage must be unambiguous: when two declared
+	// certificates cover the same hostname, consumers cannot tell which one
+	// serves it and independent renewals would flap. Exact hostnames only —
+	// wildcards are not declarable here.
+	coveredBy := make(map[string]string)
 	for _, declaredCert := range declared.Certificates {
 		if declaredCert.RenewBeforeHours == 0 || len(declaredCert.DNSNames) == 0 {
 			return OCIPlan{}, &errs.Argument{Message: "declared certificate " + declaredCert.Name + " has no renewal window or DNS names"}
 		}
 		if err := validateCertDNSNames(declaredCert.DNSNames); err != nil {
 			return OCIPlan{}, err
+		}
+		for _, name := range declaredCert.DNSNames {
+			if other, dup := coveredBy[name]; dup {
+				return OCIPlan{}, &errs.Argument{Message: "declared certificates " + other + " and " + declaredCert.Name + " both cover " + name + "; hostname coverage must be unambiguous"}
+			}
+			coveredBy[name] = declaredCert.Name
 		}
 		display := CertDisplayName(declared.Code, declaredCert.Name)
 		observedCert, exists := byName[display]
@@ -172,7 +206,7 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 			return OCIPlan{}, &InvalidDataError{Message: "observed certificate " + display + " lifecycle is unknown"}
 		}
 		if !sameCertDNSNames(observedCert.DNSNames, declaredCert.DNSNames) {
-			plan.Actions = append(plan.Actions, RenewCertificateAction{CertID: observedCert.ID, DisplayName: display, DNSNames: append([]string(nil), declaredCert.DNSNames...)})
+			plan.Actions = append(plan.Actions, RenewCertificateAction{CertID: observedCert.ID, DisplayName: display, DNSNames: append([]string(nil), declaredCert.DNSNames...), Reason: RenewReasonDrift})
 			continue
 		}
 		if observedCert.ExpiresAtUnix <= 0 {
@@ -181,7 +215,11 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 		windowSeconds := uint64(declaredCert.RenewBeforeHours) * 3600
 		remaining := observedCert.ExpiresAtUnix - r.now().Unix()
 		if remaining <= int64(windowSeconds) {
-			plan.Actions = append(plan.Actions, RenewCertificateAction{CertID: observedCert.ID, DisplayName: display, DNSNames: append([]string(nil), declaredCert.DNSNames...)})
+			reason := RenewReasonWindow
+			if remaining <= 0 {
+				reason = RenewReasonExpired
+			}
+			plan.Actions = append(plan.Actions, RenewCertificateAction{CertID: observedCert.ID, DisplayName: display, DNSNames: append([]string(nil), declaredCert.DNSNames...), Reason: reason})
 		}
 	}
 	return plan, nil
@@ -224,6 +262,11 @@ func (r *CertReconciler) Apply(ctx context.Context, declared estate.Region, obse
 			}
 			if !isOCID(a.CertID, "certificate") {
 				return &errs.Argument{Message: "certificate renew requires a certificate identity"}
+			}
+			switch a.Reason {
+			case RenewReasonDrift, RenewReasonWindow, RenewReasonExpired:
+			default:
+				return &InvalidOperationError{Message: "certificate renewal for " + a.DisplayName + " carries no reason; re-observe before applying"}
 			}
 			if err := validateCertDNSNames(a.DNSNames); err != nil {
 				return err

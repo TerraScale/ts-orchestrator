@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 // SSLSettings declares the zone TLS posture. Universal SSL covers
@@ -78,6 +80,41 @@ type TotalTLS struct {
 	CertificateAuthority string `json:"certificate_authority"`
 }
 
+// universalSSLCovers reports whether the zone's Universal SSL certificate
+// (zone apex plus the single-label wildcard) can serve the hostname. A
+// multi-label name such as gru.api.terrascale.tech or sync.api. needs Total
+// TLS on top of the Advanced Certificate Manager add-on (D-63); buying the
+// add-on is the owner's step O-4.
+func universalSSLCovers(hostname, zone string) bool {
+	if hostname == zone {
+		return true
+	}
+	suffix := "." + zone
+	if !strings.HasSuffix(hostname, suffix) {
+		return false
+	}
+	return !strings.Contains(strings.TrimSuffix(hostname, suffix), ".")
+}
+
+// certificateCoverageGap lists the declared hostnames Universal SSL cannot
+// cover, sorted, each once. These are exactly the hostnames that lose their
+// certificate (and with it TLS service) when Total TLS is off or
+// unavailable — at launch the reactive entry point and every region's
+// pinned API hostname.
+func (z *Zone) certificateCoverageGap() []string {
+	seen := make(map[string]bool, len(z.DNSRecords))
+	var gap []string
+	for _, record := range z.DNSRecords {
+		if seen[record.Name] || universalSSLCovers(record.Name, z.ZoneName) {
+			continue
+		}
+		seen[record.Name] = true
+		gap = append(gap, record.Name)
+	}
+	sort.Strings(gap)
+	return gap
+}
+
 // TotalTLSAPI manages Total TLS (all proxied hostnames get certificates,
 // including the multi-label ones).
 type TotalTLSAPI interface {
@@ -118,9 +155,15 @@ func (z *Zone) reconcileSSL(ctx context.Context, c *Client, p *Plan) error {
 		if errors.As(err, &apiErr) &&
 			(apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusPaymentRequired) {
 			// Advanced Certificate Manager not on the zone yet (owner step
-			// O-4): surface it, do not fail the whole pass.
-			p.Changes = append(p.Changes, Change{Action: Alert, Resource: "total-tls", Ref: "total-tls",
-				Detail: "certificate add-on unavailable; multi-label hostnames (sync.api., <region>.api.) cannot get certificates until it is enabled (O-4)"})
+			// O-4): surface it, do not fail the whole pass. The alert names
+			// every declared hostname that has no certificate coverage
+			// without it, so the missing add-on reads as a region coverage
+			// gap, not a zone toggle.
+			detail := "certificate add-on unavailable; multi-label hostnames (sync.api., <region>.api.) cannot get certificates until it is enabled (O-4)"
+			if gap := z.certificateCoverageGap(); len(gap) > 0 {
+				detail = fmt.Sprintf("certificate add-on unavailable (O-4); %d hostname(s) have no certificate coverage: %s", len(gap), strings.Join(gap, ", "))
+			}
+			p.Changes = append(p.Changes, Change{Action: Alert, Resource: "total-tls", Ref: "total-tls", Detail: detail})
 			return nil
 		}
 		return err
@@ -130,6 +173,15 @@ func (z *Zone) reconcileSSL(ctx context.Context, c *Client, p *Plan) error {
 		p.Changes = append(p.Changes, Change{Action: Update, Resource: "total-tls", Ref: "total-tls",
 			Detail: fmt.Sprintf("total tls enabled=%v", want),
 			apply:  func(ctx context.Context) error { return c.SetTotalTLS(ctx, want) }})
+	}
+	if !z.TotalTLS {
+		// A declaration that turns Total TLS off while serving multi-label
+		// hostnames strips their certificates by design; that is a coverage
+		// gap in the declaration itself, not drift.
+		if gap := z.certificateCoverageGap(); len(gap) > 0 {
+			p.Changes = append(p.Changes, Change{Action: Alert, Resource: "total-tls", Ref: "total-tls",
+				Detail: fmt.Sprintf("total tls is declared off; %d hostname(s) have no certificate coverage: %s", len(gap), strings.Join(gap, ", "))})
+		}
 	}
 	return nil
 }

@@ -76,10 +76,11 @@ func TestCertReconcilePlans(t *testing.T) {
 	declared := testCertRegion()
 	farExpiry := certTestNow.AddDate(0, 0, certificateValidityDays).Unix()
 	cases := []struct {
-		name      string
-		observed  CertsObserved
-		wantKinds []OCIActionKind
-		wantErr   bool
+		name        string
+		observed    CertsObserved
+		wantKinds   []OCIActionKind
+		wantReasons []RenewReason
+		wantErr     bool
 	}{
 		{
 			name:      "missing certificate plans creation",
@@ -115,7 +116,8 @@ func TestCertReconcilePlans(t *testing.T) {
 				ID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(), LifecycleState: "ACTIVE",
 				DNSNames: []string{"gru.api.terrascale.tech", "evil.terrascale.tech"}, ExpiresAtUnix: farExpiry,
 			}}},
-			wantKinds: []OCIActionKind{OCIActionRenewCertificate},
+			wantKinds:   []OCIActionKind{OCIActionRenewCertificate},
+			wantReasons: []RenewReason{RenewReasonDrift},
 		},
 		{
 			name: "narrowed SAN set plans renewal",
@@ -123,7 +125,8 @@ func TestCertReconcilePlans(t *testing.T) {
 				ID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(),
 				LifecycleState: "ACTIVE", ExpiresAtUnix: farExpiry,
 			}}},
-			wantKinds: []OCIActionKind{OCIActionRenewCertificate},
+			wantKinds:   []OCIActionKind{OCIActionRenewCertificate},
+			wantReasons: []RenewReason{RenewReasonDrift},
 		},
 		{
 			name: "expiry inside the renewal window plans renewal",
@@ -131,15 +134,17 @@ func TestCertReconcilePlans(t *testing.T) {
 				ID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(), LifecycleState: "ACTIVE",
 				DNSNames: []string{"gru.api.terrascale.tech"}, ExpiresAtUnix: certTestNow.Add(24 * time.Hour).Unix(),
 			}}},
-			wantKinds: []OCIActionKind{OCIActionRenewCertificate},
+			wantKinds:   []OCIActionKind{OCIActionRenewCertificate},
+			wantReasons: []RenewReason{RenewReasonWindow},
 		},
 		{
-			name: "expired certificate plans renewal",
+			name: "expired certificate plans expiry-repair renewal",
 			observed: CertsObserved{Certs: []ObservedCert{{
 				ID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(), LifecycleState: "ACTIVE",
 				DNSNames: []string{"gru.api.terrascale.tech"}, ExpiresAtUnix: certTestNow.Add(-time.Hour).Unix(),
 			}}},
-			wantKinds: []OCIActionKind{OCIActionRenewCertificate},
+			wantKinds:   []OCIActionKind{OCIActionRenewCertificate},
+			wantReasons: []RenewReason{RenewReasonExpired},
 		},
 		{
 			name: "failed issuance is refused",
@@ -194,6 +199,21 @@ func TestCertReconcilePlans(t *testing.T) {
 					t.Fatalf("Reconcile() kinds = %v, want %v", got, tc.wantKinds)
 				}
 			}
+			renews := 0
+			for _, action := range plan.Actions {
+				if renew, ok := action.(RenewCertificateAction); ok {
+					if tc.wantReasons == nil || renew.Reason != tc.wantReasons[renews] {
+						t.Fatalf("renewal reason = %q, want %v", renew.Reason, tc.wantReasons)
+					}
+					if !strings.Contains(renew.Summary(), string(renew.Reason)) {
+						t.Fatalf("summary %q does not carry the renewal reason", renew.Summary())
+					}
+					renews++
+				}
+			}
+			if renews != len(tc.wantReasons) {
+				t.Fatalf("renewals = %d, want %d", renews, len(tc.wantReasons))
+			}
 		})
 	}
 }
@@ -209,6 +229,19 @@ func TestCertReconcileRejectsDeclarationWithoutWindow(t *testing.T) {
 	declared.Certificates[0].DNSNames = []string{"not a hostname!!"}
 	if _, err := reconciler.Reconcile(context.Background(), declared, CertsObserved{}); err == nil {
 		t.Fatal("certificate with an invalid DNS name accepted")
+	}
+}
+
+func TestCertReconcileRejectsAmbiguousHostnameCoverage(t *testing.T) {
+	declared := testCertRegion()
+	declared.Certificates = append(declared.Certificates, estate.Certificate{
+		Name: "member-control-extra", Purpose: "member-control",
+		DNSNames:         []string{"gru.api.terrascale.tech", "alt.gru.internal"},
+		RenewBeforeHours: 720,
+	})
+	reconciler := certTestReconciler(&fakeCertGateway{now: certTestNow})
+	if _, err := reconciler.Reconcile(context.Background(), declared, CertsObserved{}); err == nil {
+		t.Fatal("two declared certificates covering one hostname accepted")
 	}
 }
 
@@ -297,6 +330,12 @@ func TestCertApplyRejectsForeignAndStalePlans(t *testing.T) {
 	renew := OCIPlan{Actions: []OCIAction{RenewCertificateAction{CertID: "ocid1.certificate.oc1.gone", DisplayName: certTestDisplay(), DNSNames: []string{"gru.api.terrascale.tech"}}}}
 	if err := reconciler.Apply(ctx, declared, CertsObserved{}, renew); err == nil {
 		t.Fatal("renew of a vanished certificate accepted")
+	}
+	unreasoned := OCIPlan{Actions: []OCIAction{RenewCertificateAction{CertID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(), DNSNames: []string{"gru.api.terrascale.tech"}}}}
+	if err := reconciler.Apply(ctx, declared, CertsObserved{Certs: []ObservedCert{{
+		ID: "ocid1.certificate.oc1.x", DisplayName: certTestDisplay(), LifecycleState: "ACTIVE",
+	}}}, unreasoned); err == nil {
+		t.Fatal("renewal without a reason accepted")
 	}
 }
 
