@@ -44,7 +44,7 @@ This map is an index, not a substitute for the requirements below.
 | D-19, D-40, D-49, D-50, D-57, D-73, D-78, D-80 | Do not reintroduce containers, local customer distribution, removed product roles, or query ownership. Preserve the systemd and control contracts needed by current and post-launch product work. |
 | D-81 | Qualify the entire repository through the pinned low-resource Firecracker stack, with the CI cadence and evidence limits defined below. |
 
-## Mission
+## Automation boundary
 
 `ts-orchestrator` is TerraScale's Go control plane and our Kubernetes
 alternative. It is the single automation authority for OCI and Cloudflare. It
@@ -849,6 +849,33 @@ qualification evidence block production acceptance.
 Implementation findings and unresolved inputs belong in the
 [production readiness guide](docs/guides/production-readiness.md), not as
 progress claims in this goal.
+
+## Cross-repository and v1 acceptance
+
+The workspace goal incorporates this repository's current operational topology.
+Keep both goals aligned. A 3-, 10-, or 20-Region estate has a minimum of 6, 20,
+or 40 member hosts respectively, with a local orchestrator on every host. The
+permanent global R3 stays in GRU/SFO/FRA; expansion does not implicitly widen
+customer placement or admit another master. Locations beyond launch are chosen
+through declared estate configuration, not assumed from illustrative diagrams.
+
+The launch control namespace is `ts.orch.v1`; shared public engine contracts
+use `/api/v1` and `terrascale.sync.v1` with MessagePack 1.0. Remove discarded
+pre-launch names and compatibility readers together with their callers.
+Published release artifacts, not ambient workspace state, identify the exact
+TBEP and engine contracts a controller uses.
+
+Prove the real production composition from durable membership/control records
+through region dispatch and same-host TBEP to the actual TerraBase binary.
+TerraBase decides readiness from replication and catch-up evidence. The host
+agent must install the exact artifact that `ts-deploy` builds and signs.
+Publication of routing/placement follows both infrastructure and engine gates.
+
+Estate publication uses public SDK/API operations against the control-plane
+database with an ordinary scoped credential. It neither depends on a private
+dashboard transport nor takes over usage, identity, payments, or query policy.
+Required operational adapters, including restoration and key distribution,
+are implemented and wired before production acceptance.
 
 ## Repository construction requirements
 
