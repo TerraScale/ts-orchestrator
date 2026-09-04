@@ -51,6 +51,11 @@ func TestRehomedBridgeSubjectsLandInsideTheClosedV2Families(t *testing.T) {
 		t.Fatalf("startup subject = %q, err = %v", subject, err)
 	}
 
+	if subject, err := NatsSubjectTaxonomy.EstateDriftSubject("gru"); err != nil ||
+		subject != "ts.orch.v2.gru.observation.estate.drift" {
+		t.Fatalf("estate drift subject = %q, err = %v", subject, err)
+	}
+
 	if subject, err := NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"); err != nil ||
 		subject != "ts.orch.v2.gru.command.runtime-lifecycle.read" {
 		t.Fatalf("lifecycle subject = %q, err = %v", subject, err)

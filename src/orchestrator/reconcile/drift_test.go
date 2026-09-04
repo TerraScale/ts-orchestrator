@@ -1,0 +1,67 @@
+package reconcile
+
+import (
+	"context"
+	"testing"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+)
+
+type capturePublisher struct {
+	messages []*nats.Msg
+	options  [][]jetstream.PublishOpt
+	err      error
+}
+
+func (p *capturePublisher) PublishMsg(_ context.Context, message *nats.Msg, options ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	p.messages = append(p.messages, message)
+	p.options = append(p.options, options)
+	return nil, p.err
+}
+
+func TestNatsDriftSinkPublishesOnTheV2ObservationSubject(t *testing.T) {
+	publisher := &capturePublisher{}
+	sink, err := NewNatsDriftSink("gru", publisher)
+	if err != nil {
+		t.Fatalf("sink creation failed: %v", err)
+	}
+	wantSubject, err := protocol.NatsSubjectTaxonomy.EstateDriftSubject("gru")
+	if err != nil {
+		t.Fatalf("subject derivation failed: %v", err)
+	}
+	if sink.Subject() != wantSubject || wantSubject != "ts.orch.v2.gru.observation.estate.drift" {
+		t.Fatalf("drift subject = %q, want the v2 regional observation subject", sink.Subject())
+	}
+	events := []DriftEvent{
+		{At: "2026-09-04T00:00:00Z", Ref: estate.ResourceRef{Kind: estate.ResourceBucket, Region: "gru", Name: "backups"}, Action: ActionCreate},
+		{At: "2026-09-04T00:00:00Z", Ref: estate.ResourceRef{Kind: estate.ResourceDNS, Name: "api.terrascale.tech"}, Action: ActionUpdate},
+	}
+	if err := sink.PublishDrift(context.Background(), events); err != nil {
+		t.Fatalf("drift publish failed: %v", err)
+	}
+	if len(publisher.messages) != len(events) {
+		t.Fatalf("published %d messages, want one per event", len(publisher.messages))
+	}
+	for i, message := range publisher.messages {
+		if message.Subject != wantSubject {
+			t.Fatalf("message %d subject = %q", i, message.Subject)
+		}
+		if len(message.Data) == 0 {
+			t.Fatalf("message %d has no payload", i)
+		}
+	}
+}
+
+func TestNatsDriftSinkRejectsBadCellsAndNilPublishers(t *testing.T) {
+	if _, err := NewNatsDriftSink("gru", nil); err == nil {
+		t.Fatal("nil publisher must be rejected")
+	}
+	// The reserved global scope token is not a Region cell.
+	if _, err := NewNatsDriftSink("global", &capturePublisher{}); err == nil {
+		t.Fatal("the reserved global scope must not name a drift subject")
+	}
+}

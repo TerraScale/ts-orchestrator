@@ -341,6 +341,13 @@ func (natsSubjectTaxonomy) RuntimeStartupPattern(cell string) (string, error) {
 	return withRegionalRoot(cell, ".observation.runtime.started.>")
 }
 
+// EstateDriftSubject returns the estate drift observation of the closed
+// observation family: the reconciler's structured drift events for one
+// Region's CELL_EVENTS history (replayable semantic class).
+func (natsSubjectTaxonomy) EstateDriftSubject(cell string) (string, error) {
+	return withRegionalRoot(cell, ".observation.estate.drift")
+}
+
 // RuntimeLifecycleJournalSubject returns the
 // private runtime-lifecycle journal RPC under the non-streamed command family.
 func (natsSubjectTaxonomy) RuntimeLifecycleJournalSubject(cell, operation string) (string, error) {
