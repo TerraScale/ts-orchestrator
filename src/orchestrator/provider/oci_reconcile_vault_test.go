@@ -1,0 +1,177 @@
+package provider
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/estate"
+)
+
+func testVaultRegion() estate.Region {
+	region := testNetworkRegion()
+	region.VaultKeys = []estate.VaultKey{
+		{Name: "region-kek", Purpose: "wrap-database-deks", RotationHours: 720},
+		{Name: "capability-hmac", Purpose: "reactive-capabilities", RotationHours: 24},
+	}
+	return region
+}
+
+// fakeVaultGateway models asynchronous vault and key creation.
+type fakeVaultGateway struct {
+	vault      *ObservedVault
+	keys       []ObservedKey
+	activate   bool // when true, creations land ACTIVE/ENABLED immediately
+	creates    []string
+	keyCreates []string
+}
+
+func (f *fakeVaultGateway) ListVaults(ctx context.Context) ([]ObservedVault, error) {
+	if f.vault == nil {
+		return nil, nil
+	}
+	return []ObservedVault{*f.vault}, nil
+}
+
+func (f *fakeVaultGateway) CreateVault(ctx context.Context, name string) (ObservedVault, error) {
+	f.creates = append(f.creates, name)
+	state := "CREATING"
+	if f.activate {
+		state = "ACTIVE"
+	}
+	created := ObservedVault{ID: "ocid1.vault.oc1.x", DisplayName: name, VaultType: vaultTypeDefault, LifecycleState: state, ManagementEndpoint: "https://abc123-management.kms.sa-saopaulo-1.oraclecloud.com"}
+	f.vault = &created
+	return created, nil
+}
+
+func (f *fakeVaultGateway) ListKeys(ctx context.Context, vault ObservedVault) ([]ObservedKey, error) {
+	return f.keys, nil
+}
+
+func (f *fakeVaultGateway) CreateKey(ctx context.Context, vault ObservedVault, keyName string) (ObservedKey, error) {
+	f.keyCreates = append(f.keyCreates, keyName)
+	state := "CREATING"
+	if f.activate {
+		state = "ENABLED"
+	}
+	created := ObservedKey{ID: "ocid1.key.oc1.x." + keyName, DisplayName: keyName, LifecycleState: state}
+	f.keys = append(f.keys, created)
+	return created, nil
+}
+
+func TestVaultReconcilePlans(t *testing.T) {
+	declared := testVaultRegion()
+	cases := []struct {
+		name      string
+		observed  VaultObserved
+		wantKinds []OCIActionKind
+		wantErr   bool
+	}{
+		{
+			name:      "no vault plans only the vault",
+			observed:  VaultObserved{},
+			wantKinds: []OCIActionKind{OCIActionCreateVault},
+		},
+		{
+			name: "creating vault plans nothing until active",
+			observed: VaultObserved{Vault: &ObservedVault{
+				ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "CREATING",
+			}},
+			wantKinds: nil,
+		},
+		{
+			name: "active vault with no keys plans both keys",
+			observed: VaultObserved{Vault: &ObservedVault{
+				ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "ACTIVE",
+			}},
+			wantKinds: []OCIActionKind{OCIActionCreateVaultKey, OCIActionCreateVaultKey},
+		},
+		{
+			name: "virtual private vault is refused",
+			observed: VaultObserved{Vault: &ObservedVault{
+				ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: "VIRTUAL_PRIVATE", LifecycleState: "ACTIVE",
+			}},
+			wantErr: true,
+		},
+		{
+			name: "converged vault plans nothing",
+			observed: VaultObserved{
+				Vault: &ObservedVault{ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "ACTIVE"},
+				Keys: []ObservedKey{
+					{ID: "ocid1.key.oc1.x.1", DisplayName: "region-kek", LifecycleState: "ENABLED"},
+					{ID: "ocid1.key.oc1.x.2", DisplayName: "capability-hmac", LifecycleState: "ENABLED"},
+				},
+			},
+			wantKinds: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reconciler := &VaultReconciler{Vault: &fakeVaultGateway{}}
+			plan, err := reconciler.Reconcile(context.Background(), declared, tc.observed)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Reconcile() = %v, want refusal", plan.Kinds())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Reconcile() failed: %v", err)
+			}
+			got := plan.Kinds()
+			if len(got) != len(tc.wantKinds) {
+				t.Fatalf("Reconcile() kinds = %v, want %v", got, tc.wantKinds)
+			}
+			for i := range got {
+				if got[i] != tc.wantKinds[i] {
+					t.Fatalf("Reconcile() kinds = %v, want %v", got, tc.wantKinds)
+				}
+			}
+		})
+	}
+}
+
+func TestVaultApplyConvergesAcrossAsyncCreation(t *testing.T) {
+	declared := testVaultRegion()
+	gateway := &fakeVaultGateway{activate: true}
+	reconciler := &VaultReconciler{Vault: gateway}
+	ctx := context.Background()
+	for pass := 0; pass < 3; pass++ {
+		observed, err := reconciler.Observe(ctx, declared)
+		if err != nil {
+			t.Fatalf("observe failed: %v", err)
+		}
+		plan, err := reconciler.Reconcile(ctx, declared, observed)
+		if err != nil {
+			t.Fatalf("reconcile failed: %v", err)
+		}
+		if plan.Empty() {
+			if len(gateway.creates) != 1 || len(gateway.keyCreates) != 2 {
+				t.Fatalf("vault creates = %v, key creates = %v, want one and two (idempotent)", gateway.creates, gateway.keyCreates)
+			}
+			for _, key := range gateway.keys {
+				if key.LifecycleState != "ENABLED" {
+					t.Fatalf("key %+v not enabled", key)
+				}
+			}
+			return
+		}
+		if err := reconciler.Apply(ctx, declared, observed, plan); err != nil {
+			t.Fatalf("apply failed: %v", err)
+		}
+	}
+	t.Fatal("vault did not converge in three passes")
+}
+
+func TestVaultApplyRefusesKeysWithoutActiveVault(t *testing.T) {
+	declared := testVaultRegion()
+	reconciler := &VaultReconciler{Vault: &fakeVaultGateway{}}
+	err := reconciler.Apply(context.Background(), declared, VaultObserved{}, OCIPlan{Actions: []OCIAction{CreateVaultKeyAction{VaultName: DefaultVaultName("gru"), KeyName: "region-kek"}}})
+	if err == nil {
+		t.Fatal("key create without a vault accepted")
+	}
+	var invalid *InvalidOperationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Apply() = %v, want invalid operation", err)
+	}
+}
