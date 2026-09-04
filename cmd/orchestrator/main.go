@@ -710,6 +710,7 @@ func writeCatalog(output io.Writer) error {
 		natsServerConfigEnvironment, natsServerReadinessEnvironment,
 		natsServerConfigAliasEnvironment, natsConfigAliasEnvironment, natsReadinessAliasEnvironment,
 		providerEnvironment, ociEstateFileEnvironment, ociKeyIDEnvironment, ociPrivateKeyFileEnvironment,
+		reconcileProgressEnvironment,
 	}
 	sort.Strings(environment)
 	document := catalogDocument{SchemaVersion: 1, Commands: commands, Environment: environment}

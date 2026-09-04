@@ -22,12 +22,42 @@ type Attribute struct {
 	Value string `json:"value"`
 }
 
+// ResourceStatus describes the provider's confidence in an observation. An
+// omitted status is treated as healthy for compatibility with providers that
+// predate lifecycle reporting. Indeterminate is deliberately different from
+// absent: an uncertain read must never turn into a create or delete.
+type ResourceStatus string
+
+const (
+	ResourceAbsent        ResourceStatus = "absent"
+	ResourceCreating      ResourceStatus = "creating"
+	ResourceHealthy       ResourceStatus = "healthy"
+	ResourceFailed        ResourceStatus = "failed"
+	ResourceIndeterminate ResourceStatus = "indeterminate"
+)
+
+// OwnershipProof is returned by a provider when it can prove that a resource
+// belongs to this estate and that this controller may remove it. Both flags
+// are required for destructive reconciliation; an empty proof fails closed.
+type OwnershipProof struct {
+	Owner           string `json:"owner,omitempty"`
+	Token           string `json:"token,omitempty"`
+	Verified        bool   `json:"verified"`
+	DeletionAllowed bool   `json:"deletionAllowed"`
+}
+
+func (p OwnershipProof) validForDelete() bool {
+	return p.Verified && p.DeletionAllowed && p.Owner != "" && p.Token != ""
+}
+
 // Resource is one observed or declared resource in provider-neutral form.
 // Attributes is a multiset: repeated names (rules, entries, DNS names) are
 // compared order-insensitively.
 type Resource struct {
 	Ref        estate.ResourceRef `json:"ref"`
 	Attributes []Attribute        `json:"attributes"`
+	Status     ResourceStatus     `json:"status,omitempty"`
+	Ownership  OwnershipProof     `json:"ownership,omitempty"`
 }
 
 // State is the observed or declared estate in provider-neutral form.
@@ -53,7 +83,8 @@ func (s State) ByRef() (map[string]Resource, error) {
 			indexed[key] = resource
 			continue
 		}
-		if !sameAttributes(previous.Attributes, resource.Attributes) {
+		if !sameAttributes(previous.Attributes, resource.Attributes) ||
+			previous.Status != resource.Status || previous.Ownership != resource.Ownership {
 			return nil, fmt.Errorf("conflicting observed resource %s", key)
 		}
 	}

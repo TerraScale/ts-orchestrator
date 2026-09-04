@@ -29,11 +29,23 @@ type DNSAPI interface {
 var _ DNSAPI = (*Client)(nil)
 
 func (c *Client) ListDNSRecords(ctx context.Context) ([]DNSRecord, error) {
-	// ponytail: one page of 100 — the whole zone declares ~15 records;
-	// paginate if the zone ever outgrows that.
-	var out []DNSRecord
-	err := c.do(ctx, "list dns records", http.MethodGet, c.zonePath("/dns_records?per_page=100"), nil, &out)
-	return out, err
+	var all []DNSRecord
+	for page := 1; ; page++ {
+		var records []DNSRecord
+		suffix := "/dns_records?per_page=100"
+		if page > 1 {
+			suffix = fmt.Sprintf("/dns_records?per_page=100&page=%d", page)
+		}
+		path := c.zonePath(suffix)
+		info, err := c.doPage(ctx, "list dns records", http.MethodGet, path, nil, &records)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, records...)
+		if info == nil || info.TotalPages <= page || info.TotalPages <= 0 {
+			return all, nil
+		}
+	}
 }
 
 func (c *Client) CreateDNSRecord(ctx context.Context, rec DNSRecord) error {

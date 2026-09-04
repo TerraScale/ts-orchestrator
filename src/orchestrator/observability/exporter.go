@@ -25,6 +25,7 @@ const (
 	defaultExporterMaxWait     = 30 * time.Second
 	defaultLogsPerSecond       = 100
 	maxLogsPerSecond           = 10_000
+	maxTrackedLogHosts         = 1024
 	// LogRetentionDays is the D-72 Grafana retention contract.  Retention is
 	// enforced by the Grafana tenant, while the exporter keeps the contract
 	// visible to composition roots and tests.
@@ -196,6 +197,15 @@ func exporterSinks(arguments []any) (ExporterSinks, error) {
 	}
 	var result ExporterSinks
 	for index, argument := range arguments {
+		// An optional page sink is commonly passed as an untyped nil by
+		// compositions that only want dashboard telemetry. Keep that form
+		// equivalent to omitting the sink entirely.
+		if argument == nil {
+			if index == 2 {
+				continue
+			}
+			return ExporterSinks{}, errors.New("nil batch sink is not permitted")
+		}
 		switch value := argument.(type) {
 		case BatchSender:
 			switch index {
@@ -492,9 +502,19 @@ func (e *Exporter) ExportLog(ctx context.Context, record LogRecord) error {
 }
 
 func (e *Exporter) admitLog(host string, timestamp time.Time) bool {
+	// Host names come from structured log attributes and must not be allowed
+	// to turn the sampler's bookkeeping map into an unbounded allocation. A
+	// bounded overflow bucket preserves the per-second cap for unexpected
+	// hosts while keeping the exporter memory bound independent of input.
+	if host == "" {
+		host = "unknown"
+	}
 	window := timestamp.UTC().Truncate(time.Second)
 	e.sampleMu.Lock()
 	defer e.sampleMu.Unlock()
+	if _, exists := e.samples[host]; !exists && len(e.samples) >= maxTrackedLogHosts-1 {
+		host = "__overflow__"
+	}
 	sample := e.samples[host]
 	if !sample.window.Equal(window) {
 		sample = logSample{window: window}

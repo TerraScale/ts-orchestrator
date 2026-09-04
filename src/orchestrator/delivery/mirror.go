@@ -217,6 +217,21 @@ func (m *ArtifactMirror) MirrorAll(ctx context.Context, artifact *ReleaseArtifac
 			Err:         errors.New("artifact bytes do not match the declared sha256 digest"),
 		}}}
 	}
+	if strings.TrimSpace(artifact.Service) == "" || len(artifact.Service) > maxText ||
+		strings.ContainsAny(artifact.Service, "/\\\x00") || strings.ContainsAny(artifact.Service, "\r\n\t") {
+		return &MirrorBatchError{Failures: []*MirrorError{{
+			Kind: MirrorFailureMismatch, Retryable: false,
+			Remediation: "Submit an artifact for the declared service using a safe immutable object name.",
+			Err:         errors.New("artifact service is not a safe object path component"),
+		}}}
+	}
+	if !sha256Pattern.MatchString(artifact.Digest) {
+		return &MirrorBatchError{Failures: []*MirrorError{{
+			Kind: MirrorFailureMismatch, Retryable: false,
+			Remediation: "Submit the exact artifact sha256 digest.",
+			Err:         errors.New("artifact digest is not a sha256 digest"),
+		}}}
+	}
 	object := MirrorObject(artifact.Service, artifact.Digest)
 	inspector, _ := m.Store.(RegionObjectStoreInspector)
 	results := make(chan *MirrorError, len(m.Spec.Regions))

@@ -63,9 +63,15 @@ var (
 	runAddRegionCertificates addRegionStageFunc = addRegionCertificatesFromEnvironment
 	runAddRegionEdge         addRegionStageFunc = addRegionEdgeFromEnvironment
 	runAddRegionProbes       addRegionStageFunc = addRegionProbesFromHost
-	waitAddRegionRetry                          = waitAddRegionRetryContext
-	newAddRegionCertificate                     = newAddRegionCertificateReconciler
-	newAddRegionCloudflare                      = newAddRegionCloudflareController
+	// Control topology is provider-neutral and is intentionally an optional
+	// composition seam. A deployment that has not yet supplied its control
+	// provider still gets the same fail-closed OCI/cert/edge/probe checks; a
+	// supplied implementation executes the fenced R1/candidate/R3 transition
+	// inside the durable OCI stage.
+	runAddRegionControl     addRegionStageFunc = addRegionControlFromEnvironment
+	waitAddRegionRetry                         = waitAddRegionRetryContext
+	newAddRegionCertificate                    = newAddRegionCertificateReconciler
+	newAddRegionCloudflare                     = newAddRegionCloudflareController
 )
 
 // ErrAddRegionMissingStage classifies a composition refusal for callers that
@@ -358,6 +364,14 @@ type addRegionMembers struct {
 type addRegionControl struct {
 	Mode     string `json:"mode"`
 	Replicas uint16 `json:"replicas"`
+	// Placement makes the D-65 topology explicit in the operator-facing
+	// runbook: launch control replicas share member hosts; they are not
+	// dedicated control instances.
+	Placement        string   `json:"placement"`
+	Topology         string   `json:"topology"`
+	CandidateRegions []string `json:"candidateRegions,omitempty"`
+	Promotion        string   `json:"promotion,omitempty"`
+	Authority        string   `json:"authority"`
 }
 
 type addRegionRoutes struct {
@@ -424,7 +438,15 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 		run  addRegionStageFunc
 	}{
 		{"oci", func(ctx context.Context, _ envLookup, _ estate.Spec, region estate.Region, output io.Writer) error {
-			return runAddRegionBootstrap(ctx, lookup, provider.BootstrapRequest{Region: region}, output)
+			if err := runAddRegionBootstrap(ctx, lookup, provider.BootstrapRequest{Region: region}, output); err != nil {
+				return err
+			}
+			if runAddRegionControl != nil {
+				if err := runAddRegionControl(ctx, lookup, spec, region, output); err != nil {
+					return err
+				}
+			}
+			return nil
 		}},
 		{"certificates", runAddRegionCertificates},
 		{"edge", runAddRegionEdge},
@@ -605,9 +627,50 @@ func checkAddRegionFloor(region estate.Region) error {
 	if region.Members.Count < provider.PlacementMinimumMemberHosts {
 		return fmt.Errorf("add-region %s refused: region has %d member hosts, placement requires %d", region.Code, region.Members.Count, provider.PlacementMinimumMemberHosts)
 	}
-	if region.Members.ControlReplicas != 1 {
+	// GRU/SFO/FRA are the permanent global control group at launch. A later
+	// region is deliberately remote-managed with no co-hosted replica until a
+	// separate regional declaration qualifies at least three hosts.
+	if launchControlRegion(region.Code) && region.Members.ControlReplicas != 1 {
 		return fmt.Errorf("add-region %s refused: region must co-host one launch control replica", region.Code)
 	}
+	if !launchControlRegion(region.Code) && region.Members.ControlReplicas > 0 && region.Members.Count < 3 {
+		return fmt.Errorf("add-region %s refused: regional R3 requires at least three eligible hosts", region.Code)
+	}
+	return nil
+}
+
+func launchControlRegion(code string) bool {
+	return code == "gru" || code == "sfo" || code == "fra"
+}
+
+func addRegionControlFor(region estate.Region) addRegionControl {
+	control := addRegionControl{Replicas: region.Members.ControlReplicas, Authority: "global-r3", Placement: "remote-managed", Topology: "remote-managed"}
+	switch {
+	case region.Code == "gru":
+		control.Mode = "temporary-r1"
+		control.Authority = "bootstrap"
+		control.Placement = "co-hosted-on-member-hosts"
+		control.Topology = "co-hosted"
+	case region.Code == "sfo" || region.Code == "fra":
+		control.Mode = "candidate-r1"
+		control.CandidateRegions = []string{"sfo", "fra"}
+		control.Promotion = "fenced-atomic-global-r3"
+		control.Placement = "co-hosted-on-member-hosts"
+		control.Topology = "co-hosted"
+	case region.Members.ControlReplicas == 0:
+		control.Mode = "remote-managed"
+		control.Replicas = 0
+	default:
+		control.Mode = "regional-r3"
+		control.Authority = "regional"
+	}
+	return control
+}
+
+// addRegionControlFromEnvironment is the default no-credential control
+// boundary. Real deployments replace this seam with a ControlStateMachine
+// adapter; the command never constructs provider clients or handles secrets.
+func addRegionControlFromEnvironment(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
 	return nil
 }
 
@@ -686,7 +749,7 @@ func buildAddRegionRunbook(spec estate.Spec, region estate.Region) (addRegionRun
 			BootVolumeGiB: region.Members.BootVolumeGiB,
 			DataVolumeGiB: region.Members.DataVolumeGiB,
 		},
-		Control:           addRegionControl{Mode: "co-hosted", Replicas: region.Members.ControlReplicas},
+		Control:           addRegionControlFor(region),
 		ObjectStorage:     append([]estate.Bucket(nil), region.Buckets...),
 		LitestreamTargets: litestream,
 		Routes:            addRegionRoutesFor(spec, region.Code),

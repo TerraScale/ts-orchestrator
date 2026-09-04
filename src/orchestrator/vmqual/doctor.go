@@ -65,8 +65,9 @@ func (r DoctorReport) Write(w io.Writer) {
 	}
 }
 
-// RunDoctor performs bounded, non-mutating checks. It invokes Firecracker only
-// with --version and never creates a VM, network device, cgroup, or cache.
+// RunDoctor performs bounded host checks. It invokes Firecracker only with
+// --version and creates/removes one bounded cgroup probe directory when the
+// current cgroup is delegated; it never creates a VM, network device, or cache.
 func RunDoctor(ctx context.Context, config Config) DoctorReport {
 	report := DoctorReport{}
 	add := func(name string, ok bool, detail, repair string) {
@@ -259,13 +260,109 @@ func netAdminCapability() (bool, string) {
 }
 
 func cgroupV2Access() (bool, string) {
-	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err != nil {
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return false, "cannot read cgroup mount information: " + err.Error()
+	}
+	mount, err := unifiedCgroupMount(string(mountInfo))
+	if err != nil {
 		return false, "cgroup v2 is unavailable: " + err.Error()
 	}
-	if err := syscall.Access("/sys/fs/cgroup", 2); err != nil {
-		return false, "cgroup v2 root is not writable or delegated: " + err.Error()
+	cgroupData, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return false, "cannot read current cgroup: " + err.Error()
 	}
-	return true, "cgroup v2 is mounted with writable delegation"
+	cgroup, err := unifiedCgroupPath(string(cgroupData))
+	if err != nil {
+		return false, "cannot resolve current cgroup: " + err.Error()
+	}
+	subtree, err := cgroupSubtree(mount, cgroup)
+	if err != nil {
+		return false, "cannot resolve current cgroup subtree: " + err.Error()
+	}
+	if _, err := os.Stat(filepath.Join(mount, "cgroup.controllers")); err != nil {
+		return false, "cgroup v2 is unavailable: " + err.Error()
+	}
+	if err := syscall.Access(subtree, 2); err != nil {
+		return false, fmt.Sprintf("current cgroup subtree %s is not writable or delegated: %v", cgroup, err)
+	}
+	probe, err := os.MkdirTemp(subtree, ".ts-vmqual-probe-")
+	if err != nil {
+		return false, fmt.Sprintf("current cgroup subtree %s cannot create a child: %v", cgroup, err)
+	}
+	if err := os.Remove(probe); err != nil {
+		return false, fmt.Sprintf("current cgroup subtree %s probe cleanup failed: %v", cgroup, err)
+	}
+	return true, fmt.Sprintf("cgroup v2 delegated at current subtree %s", cgroup)
+}
+
+// unifiedCgroupPath extracts and validates the process path in the unified
+// cgroup hierarchy. The kernel format is one hierarchy per line:
+// hierarchy-ID:controllers:path. Only the cgroup v2 line has an empty
+// controllers field.
+func unifiedCgroupPath(data string) (string, error) {
+	for _, line := range strings.Split(data, "\n") {
+		fields := strings.SplitN(strings.TrimSpace(line), ":", 3)
+		if len(fields) != 3 || fields[1] != "" {
+			continue
+		}
+		path := fields[2]
+		if path == "" || !strings.HasPrefix(path, "/") || strings.ContainsRune(path, 0) {
+			return "", errors.New("unified cgroup path is invalid")
+		}
+		clean := filepath.Clean(path)
+		if clean != path || strings.Contains(path, "//") || strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") {
+			return "", errors.New("unified cgroup path contains traversal")
+		}
+		return clean, nil
+	}
+	return "", errors.New("unified cgroup hierarchy is absent")
+}
+
+// unifiedCgroupMount finds the cgroup2 mountpoint from mountinfo rather than
+// assuming a distribution-specific mount path.
+func unifiedCgroupMount(data string) (string, error) {
+	for _, line := range strings.Split(data, "\n") {
+		parts := strings.SplitN(line, " - ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		post := strings.Fields(parts[1])
+		pre := strings.Fields(parts[0])
+		if len(post) < 1 || post[0] != "cgroup2" || len(pre) < 5 {
+			continue
+		}
+		mount := decodeMountInfoPath(pre[4])
+		if !filepath.IsAbs(mount) || strings.ContainsRune(mount, 0) {
+			return "", errors.New("cgroup v2 mountpoint is invalid")
+		}
+		return filepath.Clean(mount), nil
+	}
+	return "", errors.New("cgroup2 mount is absent")
+}
+
+func decodeMountInfoPath(value string) string {
+	value = strings.ReplaceAll(value, `\040`, " ")
+	value = strings.ReplaceAll(value, `\011`, "\t")
+	value = strings.ReplaceAll(value, `\012`, "\n")
+	return strings.ReplaceAll(value, `\134`, `\`)
+}
+
+// cgroupSubtree resolves a kernel-reported cgroup path beneath its discovered
+// mountpoint. It rejects traversal lexically before any filesystem operation.
+func cgroupSubtree(mount, cgroup string) (string, error) {
+	if !filepath.IsAbs(mount) || filepath.Clean(mount) != mount {
+		return "", errors.New("cgroup mountpoint is not a clean absolute path")
+	}
+	if !filepath.IsAbs(cgroup) || strings.Contains(cgroup, "..") {
+		return "", errors.New("cgroup path is not a safe absolute path")
+	}
+	subtree := filepath.Join(mount, strings.TrimPrefix(cgroup, string(filepath.Separator)))
+	rel, err := filepath.Rel(mount, subtree)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("cgroup path escapes mountpoint")
+	}
+	return subtree, nil
 }
 
 func loopbackPort() (bool, string) {

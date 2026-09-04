@@ -52,6 +52,10 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 		_ = network.Cleanup(context.Background())
 		return SmokeReport{}, err
 	}
+	if vm == nil {
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, errors.New("vm-smoke: factory returned a nil guest")
+	}
 	boot := time.Since(started)
 	if err := vm.StartReady(ctx); err != nil {
 		_ = vm.Delete(context.Background())
@@ -59,6 +63,37 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 		return SmokeReport{}, fmt.Errorf("vm-smoke: guest did not become ready: %w", err)
 	}
 	ready := time.Since(started)
+	observation, err := vm.Inspect(ctx)
+	if err != nil {
+		_ = vm.Stop(context.Background())
+		_ = vm.Delete(context.Background())
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness inspection failed: %w", err)
+	}
+	if !observation.Running || !observation.Ready {
+		_ = vm.Stop(context.Background())
+		_ = vm.Delete(context.Background())
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, errors.New("vm-smoke: guest reported not ready after StartReady")
+	}
+	if observation.ID != "" && observation.ID != guest.ID {
+		_ = vm.Stop(context.Background())
+		_ = vm.Delete(context.Background())
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness identity mismatch: %s", observation.ID)
+	}
+	if observation.Region != "" && observation.Region != guest.Region {
+		_ = vm.Stop(context.Background())
+		_ = vm.Delete(context.Background())
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness Region mismatch: %s", observation.Region)
+	}
+	if observation.MemoryMiB != 0 && observation.MemoryMiB != guest.MemoryMiB {
+		_ = vm.Stop(context.Background())
+		_ = vm.Delete(context.Background())
+		_ = network.Cleanup(context.Background())
+		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness memory mismatch: %d MiB", observation.MemoryMiB)
+	}
 	if executor, ok := vm.(guestExecutor); !ok {
 		_ = vm.Stop(context.Background())
 		_ = vm.Delete(context.Background())

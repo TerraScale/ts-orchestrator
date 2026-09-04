@@ -117,6 +117,9 @@ func validateEventName(name string) error {
 	if name == "" || len(name) > 128 || strings.ContainsAny(name, "\r\n") {
 		return errors.New("event name must be non-empty, bounded, and control-free")
 	}
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") || strings.Contains(name, "..") {
+		return fmt.Errorf("event name %q has an empty or malformed segment", name)
+	}
 	for index := range name {
 		character := name[index]
 		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-' {

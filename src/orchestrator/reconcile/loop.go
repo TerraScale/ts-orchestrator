@@ -2,6 +2,8 @@ package reconcile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +48,19 @@ type LoopConfig struct {
 	// unlimited. Burst defaults to 1.
 	Rate  float64
 	Burst int
+	// RetryMaxAttempts bounds provider retries. Zero means one attempt. The
+	// backoff is exponential and always interruptible by ctx.
+	RetryMaxAttempts    int
+	RetryInitialBackoff time.Duration
+	RetryMaxBackoff     time.Duration
+	// MaxAttempts and backoff aliases are retained for callers that configure
+	// a generic retry policy.
+	MaxAttempts    int
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+	// Progress durably records provider mutation outcomes. Nil uses an
+	// in-memory store, while production wiring should provide a durable store.
+	Progress ProgressStore
 	// Audit receives every transition. Defaults to a discard sink.
 	Audit AuditSink
 	// Drift receives the drift event stream. Defaults to a discard sink.
@@ -80,8 +95,19 @@ func NewLoop(config LoopConfig) (*Loop, error) {
 	owner := make(map[estate.ResourceKind]string)
 	var kinds []estate.ResourceKind
 	for _, provider := range config.Providers {
+		if provider == nil {
+			return nil, errors.New("reconcile: nil provider")
+		}
 		name := fmt.Sprintf("%T", provider)
+		seen := make(map[estate.ResourceKind]struct{})
 		for _, kind := range provider.Kinds() {
+			if kind == "" {
+				return nil, fmt.Errorf("reconcile: provider %s owns an empty resource kind", name)
+			}
+			if _, exists := seen[kind]; exists {
+				return nil, fmt.Errorf("reconcile: provider %s lists resource kind %s more than once", name, kind)
+			}
+			seen[kind] = struct{}{}
 			if previous, exists := owner[kind]; exists {
 				return nil, fmt.Errorf("reconcile: resource kind %s is owned by both %s and %s", kind, previous, name)
 			}
@@ -107,6 +133,9 @@ func NewLoop(config LoopConfig) (*Loop, error) {
 	}
 	if config.Drift == nil {
 		config.Drift = discardDriftSink{}
+	}
+	if config.Progress == nil {
+		config.Progress = NewMemoryProgressStore()
 	}
 	loop.config = config
 	return loop, nil
@@ -149,7 +178,13 @@ func (l *Loop) Pass(ctx context.Context) (Plan, error) {
 		return plan, planErr
 	}
 	driftErr := l.config.Drift.PublishDrift(ctx, driftEvents(l.now().UTC().Format(time.RFC3339Nano), plan))
-	applyErr := l.apply(ctx, plan)
+	var applyErr error
+	var unsafe *IndeterminateError
+	if errors.As(planErr, &unsafe) {
+		applyErr = errors.New("reconcile: apply withheld because provider state is indeterminate")
+	} else {
+		applyErr = l.apply(ctx, plan)
+	}
 	joined := errors.Join(planErr, driftErr, applyErr)
 	l.finishPass(start, plan, joined)
 	return plan, joined
@@ -210,13 +245,41 @@ func (l *Loop) apply(ctx context.Context, plan Plan) error {
 		if owned.Empty() {
 			continue
 		}
+		// Destructive actions require a proof from the observation and a
+		// provider-side authorization check immediately before mutation.
+		var safe Plan
+		for _, action := range owned.Actions {
+			if action.Kind != ActionDelete {
+				safe.Actions = append(safe.Actions, action)
+				continue
+			}
+			if !action.Ownership.validForDelete() {
+				_ = l.config.Audit.Append(ctx, AuditEntry{At: at, Ref: action.Ref, Action: action.Kind, Result: "skipped", Detail: "ownership or deletion authority is unproven"})
+				continue
+			}
+			if authorizer, ok := provider.(DeleteAuthorizer); ok {
+				if err := authorizer.AuthorizeDelete(ctx, action); err != nil {
+					_ = l.config.Audit.Append(ctx, AuditEntry{At: at, Ref: action.Ref, Action: action.Kind, Result: "skipped", Detail: "delete authorization failed: " + err.Error()})
+					failures = append(failures, fmt.Errorf("authorize delete %s: %w", RefKey(action.Ref), err))
+					continue
+				}
+			} else {
+				_ = l.config.Audit.Append(ctx, AuditEntry{At: at, Ref: action.Ref, Action: action.Kind, Result: "skipped", Detail: "provider has no delete authorization"})
+				continue
+			}
+			safe.Actions = append(safe.Actions, action)
+		}
+		owned = safe
+		if owned.Empty() {
+			continue
+		}
 		if l.limiter != nil {
 			if err := l.limiter.Wait(ctx); err != nil {
 				failures = append(failures, fmt.Errorf("rate limit: %w", err))
 				break
 			}
 		}
-		err := provider.Apply(ctx, owned)
+		err := l.applyWithRetry(ctx, provider, owned)
 		l.auditApplyResult(ctx, at, owned, err)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("apply %T: %w", provider, err))
@@ -236,6 +299,114 @@ func (l *Loop) apply(ctx context.Context, plan Plan) error {
 	l.status.InFlightApplies--
 	l.mu.Unlock()
 	return errors.Join(failures...)
+}
+
+func (l *Loop) applyWithRetry(ctx context.Context, provider Reconciler, plan Plan) error {
+	attempts := l.config.RetryMaxAttempts
+	if attempts == 0 {
+		attempts = l.config.MaxAttempts
+	}
+	if attempts <= 0 {
+		attempts = 1
+	}
+	initial := l.config.RetryInitialBackoff
+	if initial == 0 {
+		initial = l.config.InitialBackoff
+	}
+	if initial <= 0 {
+		initial = 100 * time.Millisecond
+	}
+	maxDelay := l.config.RetryMaxBackoff
+	if maxDelay == 0 {
+		maxDelay = l.config.MaxBackoff
+	}
+	if maxDelay <= 0 {
+		maxDelay = 5 * time.Second
+	}
+	key := planOperationKey(plan)
+	for _, action := range plan.Actions {
+		progressKey := OperationKey(action)
+		if previous, ok, err := l.config.Progress.Load(ctx, progressKey); err != nil {
+			return err
+		} else if ok && (previous.Outcome == "unknown" || previous.Outcome == "pending") {
+			return &UnknownOutcomeError{Err: fmt.Errorf("operation %s is unresolved with outcome %q", progressKey, previous.Outcome)}
+		}
+		if err := l.config.Progress.Save(ctx, Progress{Key: progressKey, Action: action.Kind, Ref: RefKey(action.Ref), Attempt: 1, Outcome: "pending", UpdatedAt: l.now().UTC()}); err != nil {
+			return err
+		}
+	}
+	var last error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if keyed, ok := provider.(ApplyWithKey); ok {
+			last = keyed.ApplyWithKey(ctx, key, plan)
+		} else {
+			last = provider.Apply(ctx, plan)
+		}
+		if last == nil {
+			for _, action := range plan.Actions {
+				if err := l.config.Progress.Save(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: "applied", UpdatedAt: l.now().UTC()}); err != nil {
+					// The provider returned success, but the durable outcome could
+					// not be recorded. Treat it as unknown: a later process must
+					// not replay a potentially destructive mutation.
+					return &UnknownOutcomeError{Err: fmt.Errorf("persist applied outcome for %s: %w", OperationKey(action), err)}
+				}
+			}
+			return nil
+		}
+		unknown := IsUnknownOutcome(last)
+		for _, action := range plan.Actions {
+			outcome := "failed"
+			if unknown {
+				outcome = "unknown"
+			}
+			if err := l.config.Progress.Save(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: outcome, Detail: last.Error(), UpdatedAt: l.now().UTC()}); err != nil {
+				// Even a provider error may follow a partial mutation. Losing
+				// its durable progress record therefore has the same safety
+				// posture as an indeterminate provider response.
+				return &UnknownOutcomeError{Err: fmt.Errorf("persist %s outcome for %s: %w", outcome, OperationKey(action), err)}
+			}
+		}
+		if unknown || errors.Is(last, context.Canceled) || errors.Is(last, context.DeadlineExceeded) {
+			return last
+		}
+		if classified, ok := last.(RetryableError); ok && !classified.Retryable() {
+			return last
+		}
+		if attempt == attempts {
+			return last
+		}
+		delay := initial
+		for n := 1; n < attempt; n++ {
+			if delay >= maxDelay/2 {
+				delay = maxDelay
+				break
+			}
+			delay *= 2
+		}
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return last
+}
+
+func planOperationKey(plan Plan) string {
+	var key string
+	for _, action := range plan.Actions {
+		key += OperationKey(action) + ";"
+	}
+	hash := sha256.Sum256([]byte(key))
+	return "reconcile-plan-" + hex.EncodeToString(hash[:16])
 }
 
 func (l *Loop) auditApplyResult(ctx context.Context, at string, owned Plan, err error) {

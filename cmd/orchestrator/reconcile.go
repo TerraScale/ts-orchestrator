@@ -29,6 +29,8 @@ const dryRunFlag = "--dry-run"
 // within minutes, never on the reactive path.
 const reconcileInterval = time.Minute
 
+const reconcileProgressEnvironment = "TS_ORCH_RECONCILE_PROGRESS_FILE"
+
 // runReconcile drives the observed estate to the declared estate (D-67).
 // With --dry-run it prints the plan derived from an empty observation — the
 // greenfield/bootstrap plan — and exits.
@@ -71,6 +73,7 @@ type productionReconcileDependencies struct {
 	KVWriter      *cloudflare.KVWriter
 	Observability observability.Config
 	Telemetry     *reconcileTelemetry
+	Progress      reconcile.ProgressStore
 }
 
 func newProductionReconcileLoop(lookup envLookup, output io.Writer) (*reconcile.Loop, error) {
@@ -87,7 +90,7 @@ func newProductionReconcileLoop(lookup envLookup, output io.Writer) (*reconcile.
 }
 
 func newReconcileLoop(dependencies *productionReconcileDependencies, output io.Writer) (*reconcile.Loop, error) {
-	if dependencies == nil || dependencies.OCI == nil || dependencies.Cloudflare == nil || dependencies.KVWriter == nil || dependencies.Telemetry == nil {
+	if dependencies == nil || dependencies.OCI == nil || dependencies.Cloudflare == nil || dependencies.KVWriter == nil || dependencies.Telemetry == nil || dependencies.Progress == nil {
 		return nil, errors.New("reconcile: production dependencies are incomplete")
 	}
 	if output == nil {
@@ -100,6 +103,7 @@ func newReconcileLoop(dependencies *productionReconcileDependencies, output io.W
 		AllowDeletes: true,
 		Audit:        &reconcileAuditSink{telemetry: dependencies.Telemetry, output: output},
 		Drift:        &reconcileDriftSink{telemetry: dependencies.Telemetry, output: output},
+		Progress:     dependencies.Progress,
 	})
 }
 
@@ -218,6 +222,14 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, err
 	}
+	progressPath, present := lookup(reconcileProgressEnvironment)
+	if !present || strings.TrimSpace(progressPath) == "" {
+		return nil, fmt.Errorf("reconcile: %s is required for durable mutation progress", reconcileProgressEnvironment)
+	}
+	progress, err := reconcile.NewFileProgressStore(progressPath)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: durable progress configuration is invalid: %w", err)
+	}
 	telemetry, err := observabilityConfigFromEnv(lookup)
 	if err != nil {
 		return nil, err
@@ -243,6 +255,7 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		KVWriter:      kvWriter,
 		Observability: telemetry,
 		Telemetry:     telemetrySink,
+		Progress:      progress,
 	}, nil
 }
 

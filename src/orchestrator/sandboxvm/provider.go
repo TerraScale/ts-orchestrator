@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -54,14 +55,22 @@ type Config struct {
 	KernelImage               string
 	RootDrive                 string
 	DataDrive                 string
+	SeedDrive                 string
 	StateRoot                 string
 	SocketPath                string
+	NetworkNamespace          string
+	TapName                   string
+	GuestMAC                  string
+	KernelArgs                string
+	LogPath                   string
+	MetricsPath               string
 	FirecrackerBinary         string
 	JailerBinary              string
 	ExpectedVersion           string
 	ExpectedKernelSHA256      string
 	ExpectedRootDriveSHA256   string
 	ExpectedDataDriveSHA256   string
+	ExpectedSeedDriveSHA256   string
 	ExpectedFirecrackerSHA256 string
 	ExpectedJailerSHA256      string
 	ReadinessTimeout          time.Duration
@@ -89,6 +98,29 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s path must be absolute", name)
 		}
 	}
+	if c.SeedDrive != "" && !filepath.IsAbs(c.SeedDrive) {
+		return errors.New("seed drive path must be absolute")
+	}
+	if c.NetworkNamespace != "" && !filepath.IsAbs(c.NetworkNamespace) {
+		return errors.New("network namespace path must be absolute")
+	}
+	if (c.TapName == "") != (c.GuestMAC == "") {
+		return errors.New("tap name and guest MAC must be declared together")
+	}
+	if c.TapName != "" {
+		if len(c.TapName) > 15 || !vmIDPattern.MatchString(c.TapName) {
+			return errors.New("tap name must be a safe Linux interface name")
+		}
+		mac, err := net.ParseMAC(c.GuestMAC)
+		if err != nil || len(mac) != 6 || mac[0]&1 != 0 || mac[0]&2 == 0 {
+			return errors.New("guest MAC must be a locally administered unicast address")
+		}
+	}
+	for name, path := range map[string]string{"log": c.LogPath, "metrics": c.MetricsPath} {
+		if path != "" && (!filepath.IsAbs(path) || !pathWithinRoot(c.StateRoot, path)) {
+			return fmt.Errorf("%s path must remain below state root", name)
+		}
+	}
 	if err := ValidateSocketPath(c.SocketPath); err != nil {
 		return err
 	}
@@ -105,6 +137,9 @@ func (c Config) Validate() error {
 		if !validSHA256(sum) {
 			return fmt.Errorf("%s checksum must be a SHA-256 hex digest", name)
 		}
+	}
+	if c.SeedDrive != "" && !validSHA256(c.ExpectedSeedDriveSHA256) {
+		return errors.New("seed drive checksum must be a SHA-256 hex digest")
 	}
 	for name, sum := range map[string]string{"firecracker": c.ExpectedFirecrackerSHA256, "jailer": c.ExpectedJailerSHA256} {
 		if !validSHA256(sum) {
@@ -125,6 +160,14 @@ func validSHA256(s string) bool {
 	}
 	_, err := hex.DecodeString(s)
 	return err == nil
+}
+
+func pathWithinRoot(root, candidate string) bool {
+	if !filepath.IsAbs(root) || !filepath.IsAbs(candidate) {
+		return false
+	}
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 // Version and checksum validation are hooks rather than policy hidden in the
@@ -152,6 +195,9 @@ func (h ValidationHooks) Validate(ctx context.Context, cfg Config) error {
 		{Kind: "kernel", Path: cfg.KernelImage, SHA256: cfg.ExpectedKernelSHA256},
 		{Kind: "root-drive", Path: cfg.RootDrive, SHA256: cfg.ExpectedRootDriveSHA256},
 		{Kind: "data-drive", Path: cfg.DataDrive, SHA256: cfg.ExpectedDataDriveSHA256},
+	}
+	if cfg.SeedDrive != "" {
+		artifacts = append(artifacts, Artifact{Kind: "seed-drive", Path: cfg.SeedDrive, SHA256: cfg.ExpectedSeedDriveSHA256})
 	}
 	if cfg.ExpectedFirecrackerSHA256 != "" {
 		artifacts = append(artifacts, Artifact{Kind: "firecracker", Path: cfg.FirecrackerBinary, SHA256: cfg.ExpectedFirecrackerSHA256})

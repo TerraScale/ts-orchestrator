@@ -208,3 +208,30 @@ func TestRedactLog(t *testing.T) {
 		t.Fatalf("redaction failed: %#v", record)
 	}
 }
+
+func TestRedactLogRejectsCustomerDimensions(t *testing.T) {
+	for _, key := range []string{"tenant_id", "database", "view_id", "request_id"} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := RedactLog(LogRecord{Attributes: map[string]string{key: "customer-value"}}); err == nil {
+				t.Fatalf("customer dimension %q was accepted", key)
+			}
+		})
+	}
+}
+
+func TestEventNameRejectsMalformedSegments(t *testing.T) {
+	allow := DefaultLabelAllowList.Clone()
+	dashboard := &recordingDashboard{}
+	page := &recordingPage{}
+	router, err := NewEventRouter(allow, dashboard, page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".leading", "trailing.", "double..dot"} {
+		t.Run(name, func(t *testing.T) {
+			if err := router.EmitObservation(context.Background(), DashboardObservation{Name: name, Labels: map[string]string{"region": "gru"}}); err == nil {
+				t.Fatalf("malformed event name %q was accepted", name)
+			}
+		})
+	}
+}

@@ -25,10 +25,11 @@ const (
 	// DefaultPauseAfter and DefaultDeleteAfter are the D-76 idle thresholds.
 	DefaultPauseAfter  = 30 * 24 * time.Hour
 	DefaultDeleteAfter = 90 * 24 * time.Hour
-	// The two reminders are sent at idle days 60 and 80. Both are strictly
-	// before deletion, including when a scan was delayed by an outage.
+	// The second lifecycle notice is sent at idle day 60. The final notice is
+	// sent at the deletion threshold (day 90 by default), immediately before
+	// destructive work starts.
 	DefaultFirstReminder  = 60 * 24 * time.Hour
-	DefaultSecondReminder = 80 * 24 * time.Hour
+	DefaultSecondReminder = 90 * 24 * time.Hour
 	DefaultPageSize       = 100
 )
 
@@ -167,9 +168,12 @@ const (
 
 // Entry is the durable reaper state for a database.
 type Entry struct {
-	DatabaseID     string               `json:"databaseId"`
-	Plan           Plan                 `json:"plan"`
-	Phase          Phase                `json:"phase"`
+	DatabaseID string `json:"databaseId"`
+	Plan       Plan   `json:"plan"`
+	Phase      Phase  `json:"phase"`
+	// Cycle increments after a reactivation. Side-effect operation keys include
+	// the cycle so a later pause cannot be mistaken for an old completed pause.
+	Cycle          uint64               `json:"cycle,omitempty"`
 	LastRequest    time.Time            `json:"lastRequest"`
 	PausedAt       time.Time            `json:"pausedAt,omitempty"`
 	FirstNoticeAt  time.Time            `json:"firstNoticeAt,omitempty"`
@@ -256,9 +260,24 @@ func NewReconciler(config Config) (*Reconciler, error) {
 	}
 	reminders := append([]time.Duration(nil), config.ReminderAt...)
 	if len(reminders) == 0 {
-		reminders = []time.Duration{DefaultFirstReminder, DefaultSecondReminder}
+		first, final := DefaultFirstReminder, DefaultSecondReminder
+		// Short test/operational windows should remain usable without requiring
+		// callers to duplicate the policy. Keep the normal 60/90-day values when
+		// they fit; otherwise place the second notice halfway through the window
+		// and the final notice at deletion.
+		if first <= pauseAfter || first >= deleteAfter {
+			first = pauseAfter + (deleteAfter-pauseAfter)/2
+		}
+		if final < first || final > deleteAfter {
+			final = deleteAfter
+		}
+		reminders = []time.Duration{first, final}
+	} else if len(reminders) == 1 {
+		// A single configured reminder means day 60 plus the final notice at
+		// deletion time.
+		reminders = append(reminders, deleteAfter)
 	}
-	if pauseAfter <= 0 || deleteAfter <= pauseAfter || len(reminders) != 2 || reminders[0] <= pauseAfter || reminders[1] <= reminders[0] || reminders[1] >= deleteAfter {
+	if pauseAfter <= 0 || deleteAfter <= pauseAfter || (len(reminders) != 1 && len(reminders) != 2) || reminders[0] <= pauseAfter || reminders[0] >= deleteAfter || (len(reminders) == 2 && (reminders[1] < reminders[0] || reminders[1] > deleteAfter)) {
 		return nil, errors.New("reaper: invalid pause, reminder, or deletion thresholds")
 	}
 	return &Reconciler{catalog: config.Catalog, executor: config.Executor, mailer: config.Mailer, audit: config.Audit, store: config.Store, clock: clock, pageSize: pageSize, pauseAfter: pauseAfter, deleteAfter: deleteAfter, reminderAt: reminders}, nil
@@ -375,8 +394,8 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		if entry.Audits == nil {
 			entry.Audits = make(map[string]bool)
 		}
-		// The catalog is the current authority. A newly observed request is the
-		// reactivation signal for a paused database.
+		// Keep the newest observation. Catalog pages can be retried or arrive out
+		// of order; an older page must never make an idle database look idle again.
 		if database.LastRequest.After(entry.LastRequest) {
 			entry.LastRequest = database.LastRequest
 		}
@@ -389,8 +408,8 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 	if database.Exemption.activeAt(now) {
 		return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "exempt", "eligibility/"+database.ID+"/exempt", now, "")
 	}
-	if database.LastRequest.IsZero() {
-		return "skipped", nil
+	if entry.LastRequest.IsZero() {
+		return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "unknown-last-request", "eligibility/"+database.ID+"/unknown-request", now, "")
 	}
 	if entry.Phase == PhaseDeleted {
 		return "skipped", r.auditOnce(ctx, state, database.ID, "delete", "completed", "delete/complete/"+database.ID, now, "")
@@ -411,9 +430,9 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		}
 		return "reactivated", nil
 	}
-	idle := now.Sub(database.LastRequest)
+	idle := now.Sub(entry.LastRequest)
 	if idle < r.pauseAfter {
-		return "skipped", nil
+		return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "active", fmt.Sprintf("eligibility/%s/active", database.ID), now, "")
 	}
 	if entry.Phase == PhaseActive {
 		if err := r.pauseLocked(ctx, state, database, now); err != nil {
@@ -425,7 +444,7 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		return "skipped", nil
 	}
 	if entry.Phase == PhasePaused {
-		pauseEmailKey := "notice/pause/" + database.ID
+		pauseEmailKey := r.operationName(state.Entries[database.ID], "notice/pause/"+database.ID)
 		if entry.Operations[pauseEmailKey].Status != operationDone {
 			if err := r.emailLocked(ctx, state, database, pauseEmailKey, "free-tier-paused", now); err != nil {
 				return "", err
@@ -433,32 +452,39 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 			return "notice", nil
 		}
 	}
-	// Send overdue notices independently. This means one failed reminder does
-	// not prevent retrying it on the next scan, nor hide a successful one.
-	for i, at := range r.reminderAt {
-		if idle < at {
-			continue
-		}
-		key := fmt.Sprintf("notice/%d/%s", i+1, database.ID)
-		if (i == 0 && !entry.FirstNoticeAt.IsZero()) || (i == 1 && !entry.SecondNoticeAt.IsZero()) {
-			continue
-		}
-		if err := r.emailLocked(ctx, state, database, key, fmt.Sprintf("free-tier-reminder-%d", i+1), now); err != nil {
+	// The second lifecycle email is sent once at the configured reminder
+	// threshold (day 60 by default). A delayed scan still sends it before any
+	// destructive work is considered.
+	if entry.FirstNoticeAt.IsZero() && idle >= r.reminderAt[0] {
+		key := r.operationName(state.Entries[database.ID], "notice/second/"+database.ID)
+		if err := r.emailLocked(ctx, state, database, key, "free-tier-reminder-1", now); err != nil {
 			return "", err
 		}
 		entry = state.Entries[database.ID]
-		if i == 0 {
-			entry.FirstNoticeAt = now
-		} else {
-			entry.SecondNoticeAt = now
-		}
+		entry.FirstNoticeAt = now
 		state.Entries[database.ID] = entry
 		if err := r.save(ctx, state); err != nil {
 			return "", err
 		}
 		return "notice", nil
 	}
-	if idle < r.deleteAfter || entry.FirstNoticeAt.IsZero() || entry.SecondNoticeAt.IsZero() {
+	// Permit an explicitly earlier final-notice threshold while retaining the
+	// day-90 deletion gate. This is useful for operators that want additional
+	// notice time, and keeps delayed scans deterministic.
+	if entry.SecondNoticeAt.IsZero() && idle >= r.reminderAt[1] && idle < r.deleteAfter {
+		key := r.operationName(state.Entries[database.ID], "notice/final/"+database.ID)
+		if err := r.emailLocked(ctx, state, database, key, "free-tier-final", now); err != nil {
+			return "", err
+		}
+		entry = state.Entries[database.ID]
+		entry.SecondNoticeAt = now
+		state.Entries[database.ID] = entry
+		if err := r.save(ctx, state); err != nil {
+			return "", err
+		}
+		return "notice", nil
+	}
+	if idle < r.deleteAfter || entry.FirstNoticeAt.IsZero() {
 		return "skipped", nil
 	}
 	if entry.Phase != PhasePaused && entry.Phase != PhaseDeleting {
@@ -481,25 +507,26 @@ func validateDatabase(database Database) error {
 }
 
 func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Database, now time.Time) error {
+	entry := state.Entries[database.ID]
 	for _, operation := range []struct {
 		name string
 		run  func(context.Context, string) error
 	}{
-		{"pause/snapshot", func(ctx context.Context, key string) error { return r.executor.EnsureSnapshot(ctx, database.ID, key) }},
-		{"pause/close", func(ctx context.Context, key string) error { return r.executor.CloseDatabase(ctx, database.ID, key) }},
-		{"pause/litestream", func(ctx context.Context, key string) error { return r.executor.StopLitestream(ctx, database.ID, key) }},
+		{r.operationName(entry, "pause/snapshot"), func(ctx context.Context, key string) error { return r.executor.EnsureSnapshot(ctx, database.ID, key) }},
+		{r.operationName(entry, "pause/close"), func(ctx context.Context, key string) error { return r.executor.CloseDatabase(ctx, database.ID, key) }},
+		{r.operationName(entry, "pause/litestream"), func(ctx context.Context, key string) error { return r.executor.StopLitestream(ctx, database.ID, key) }},
 	} {
 		if err := r.operationLocked(ctx, state, database.ID, operation.name, operation.run, now); err != nil {
 			return err
 		}
 	}
-	entry := state.Entries[database.ID]
+	entry = state.Entries[database.ID]
 	entry.Phase, entry.PausedAt = PhasePaused, now
 	state.Entries[database.ID] = entry
 	if err := r.save(ctx, state); err != nil {
 		return err
 	}
-	return r.emailLocked(ctx, state, database, "notice/pause/"+database.ID, "free-tier-paused", now)
+	return r.emailLocked(ctx, state, database, r.operationName(entry, "notice/pause/"+database.ID), "free-tier-paused", now)
 }
 
 func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Database, now time.Time) error {
@@ -508,6 +535,22 @@ func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Da
 	state.Entries[database.ID] = entry
 	if err := r.save(ctx, state); err != nil {
 		return err
+	}
+	// The final notice is part of the deletion transaction: it must be durably
+	// acknowledged before a DEK can be destroyed. If delivery or its audit
+	// checkpoint fails, the phase remains deleting and this exact operation key
+	// is retried on the next scan.
+	if entry.SecondNoticeAt.IsZero() {
+		key := r.operationName(entry, "notice/final/"+database.ID)
+		if err := r.emailLocked(ctx, state, database, key, "free-tier-final", now); err != nil {
+			return err
+		}
+		entry = state.Entries[database.ID]
+		entry.SecondNoticeAt = now
+		state.Entries[database.ID] = entry
+		if err := r.save(ctx, state); err != nil {
+			return err
+		}
 	}
 	// Purging first ensures an edge copy cannot outlive the DEK destruction.
 	for _, operation := range []struct {
@@ -570,6 +613,16 @@ func (r *Reconciler) operationLocked(ctx context.Context, state *State, database
 	return r.auditOnce(ctx, state, databaseID, name, "completed", name+"/completed/"+databaseID, now, "")
 }
 
+// operationName returns the durable name for a side effect in this lifecycle
+// cycle. Keeping cycle zero unsuffixed preserves the original on-disk format;
+// subsequent pauses use a new provider id after a reactivation.
+func (r *Reconciler) operationName(entry Entry, base string) string {
+	if entry.Cycle == 0 {
+		return base
+	}
+	return fmt.Sprintf("%s/cycle-%d", base, entry.Cycle)
+}
+
 func (r *Reconciler) emailLocked(ctx context.Context, state *State, database Database, key, template string, now time.Time) error {
 	if err := r.operationLocked(ctx, state, database.ID, key, func(ctx context.Context, opKey string) error {
 		if strings.TrimSpace(database.OwnerEmail) == "" {
@@ -614,6 +667,7 @@ func (r *Reconciler) reactivateLocked(ctx context.Context, state *State, databas
 		return err
 	}
 	entry = state.Entries[databaseID]
+	entry.Cycle++
 	entry.Phase, entry.PausedAt, entry.FirstNoticeAt, entry.SecondNoticeAt = PhaseActive, time.Time{}, time.Time{}, time.Time{}
 	entry.LastRequest = requestAt.UTC()
 	state.Entries[databaseID] = entry

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,27 @@ func TestProductionReconcileWiresNonEmptyProviders(t *testing.T) {
 	}
 	if len(oci.Kinds()) == 0 || len(cloud.Kinds()) == 0 {
 		t.Fatal("production provider wiring contains an empty resource owner")
+	}
+}
+
+func TestProductionReconcileRequiresDurableProgress(t *testing.T) {
+	dependencies := &productionReconcileDependencies{
+		Spec:       estate.Default(),
+		OCI:        &ociReconcileController{},
+		Cloudflare: &cloudflareReconcileController{},
+		KVWriter:   &cloudflare.KVWriter{},
+		Telemetry:  &reconcileTelemetry{},
+	}
+	if _, err := newReconcileLoop(dependencies, &bytes.Buffer{}); err == nil {
+		t.Fatal("production reconcile accepted without durable progress")
+	}
+	progress, err := reconcile.NewFileProgressStore(filepath.Join(t.TempDir(), "progress.json"))
+	if err != nil {
+		t.Fatalf("build durable progress: %v", err)
+	}
+	dependencies.Progress = progress
+	if _, err := newReconcileLoop(dependencies, &bytes.Buffer{}); err != nil {
+		t.Fatalf("production reconcile rejected configured progress: %v", err)
 	}
 }
 

@@ -145,7 +145,7 @@ Phase 4 cannot exit until crash/retry and leadership loss at every provider and 
 
 | Kind | Stable/proposed ID | Disposition in this ADR |
 |---|---|---|
-| Requirement | `REQ-O010` | Provides the regional actuator created by the Pulumi handoff. |
+| Requirement | `REQ-O010` | Provides the regional actuator created by the orchestrator/bootstrap handoff. |
 | Requirement | `REQ-O011` | Applies the fence to automatic node and storage mutations. |
 | Requirement | `REQ-O023` | Prevents old-estate discovery from becoming adoption or mutation authority. |
 | Invariant | `INV-004` | Exactly one fenced writer advances a provider operation. |

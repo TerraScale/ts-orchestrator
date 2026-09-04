@@ -9,6 +9,7 @@ package cloudflare
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,7 +141,42 @@ type envelope struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"errors"`
-	Result json.RawMessage `json:"result"`
+	Result     json.RawMessage `json:"result"`
+	ResultInfo *resultInfo     `json:"result_info,omitempty"`
+}
+
+type resultInfo struct {
+	Page       int `json:"page"`
+	TotalPages int `json:"total_pages"`
+}
+
+// doPage is the paginated counterpart of do. Cloudflare omits result_info
+// for some endpoints and local fakes, so callers stop when it is absent.
+func (c *Client) doPage(ctx context.Context, op, method, path string, body, out any) (*resultInfo, error) {
+	var payload []byte
+	if body != nil {
+		var err error
+		if payload, err = json.Marshal(body); err != nil {
+			return nil, fmt.Errorf("cloudflare %s: encode request: %w", op, err)
+		}
+	}
+	status, raw, err := c.roundtrip(ctx, op, method, path, payload)
+	if err != nil {
+		return nil, err
+	}
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, &APIError{Op: op, Status: status, Message: "malformed response envelope"}
+	}
+	if status < 200 || status >= 300 || !env.Success {
+		return nil, apiErrorFromEnvelope(op, status, raw)
+	}
+	if out != nil && len(env.Result) > 0 && string(env.Result) != "null" {
+		if err := json.Unmarshal(env.Result, out); err != nil {
+			return nil, fmt.Errorf("cloudflare %s: decode result: %w", op, err)
+		}
+	}
+	return env.ResultInfo, nil
 }
 
 func apiErrorFromEnvelope(op string, status int, raw []byte) *APIError {
@@ -173,11 +209,23 @@ func (c *Client) roundtrip(ctx context.Context, op, method, path string, payload
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 		req.Header.Set("Accept", "application/json")
+		// Cloudflare mutations may commit while their response is lost. A
+		// stable key lets the provider replay the exact operation when the
+		// transient response is retried, including destructive operations.
+		if method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions {
+			req.Header.Set("Idempotency-Key", mutationKey(method, path, payload))
+		}
 		if payload != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
 		resp, err := c.HTTP.RoundTrip(req)
 		if err != nil {
+			if attempt+1 < attempts {
+				if sleepErr := c.sleep(ctx, backoff("", attempt)); sleepErr != nil {
+					return 0, nil, fmt.Errorf("cloudflare %s: %w", op, sleepErr)
+				}
+				continue
+			}
 			return 0, nil, fmt.Errorf("cloudflare %s: transport: %w", op, err)
 		}
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
@@ -195,6 +243,16 @@ func (c *Client) roundtrip(ctx context.Context, op, method, path string, payload
 			return 0, nil, fmt.Errorf("cloudflare %s: %w", op, err)
 		}
 	}
+}
+
+func mutationKey(method, path string, payload []byte) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(method))
+	_, _ = h.Write([]byte{'\x00'})
+	_, _ = h.Write([]byte(path))
+	_, _ = h.Write([]byte{'\x00'})
+	_, _ = h.Write(payload)
+	return "terrascale-" + fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func retryable(status int) bool {

@@ -2,6 +2,7 @@ package observability
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -42,6 +43,9 @@ func RedactLog(record LogRecord) (LogRecord, error) {
 	for key, value := range record.Attributes {
 		if len(key) == 0 || len(key) > 63 || strings.ContainsAny(key, "\r\n\x00") {
 			return LogRecord{}, errors.New("log attribute key is invalid")
+		}
+		if isCustomerDimension(key) {
+			return LogRecord{}, fmt.Errorf("customer dimension %q is not permitted in logs", key)
 		}
 		if len(value) > maxLogValue {
 			return LogRecord{}, errors.New("log attribute value exceeds 512 bytes")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -105,6 +106,19 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 		run.Items = upsertItem(run.Items, item)
 		if ctx.Err() != nil {
 			break
+		}
+	}
+	if runErr == nil || d.config.Snapshotter != nil {
+		// A control-state snapshot is a separate durability proof. It is run
+		// even when a database item failed, so an item failure cannot suppress
+		// the daily JetStream snapshot obligation.
+		snapshot, mirrored, snapshotErr := d.snapshotControlState(ctx, run)
+		if snapshot.ID != "" {
+			run.Snapshot = snapshot
+			run.SnapshotRegions = mirrored
+		}
+		if snapshotErr != nil {
+			runErr = errors.Join(runErr, snapshotErr)
 		}
 	}
 
@@ -299,6 +313,120 @@ func (d *Drill) deleteScratch(branch ScratchBranch) error {
 	return d.branches.Delete(ctx, branch)
 }
 
+func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (ControlStateSnapshot, []string, error) {
+	if d.config.Snapshotter == nil {
+		return ControlStateSnapshot{}, nil, nil
+	}
+	epoch := uint64(0)
+	if d.config.ControlEpoch != nil {
+		epoch = d.config.ControlEpoch()
+	} else if d.config.RestoreEpoch != nil {
+		epoch = d.config.RestoreEpoch()
+	} else {
+		epoch = d.config.AcceptedControlEpoch
+	}
+	if epoch == 0 {
+		return ControlStateSnapshot{}, nil, fmt.Errorf("%w: control-state snapshot has zero restore epoch", ErrRestoreEpochFenced)
+	}
+	prefix := d.config.SnapshotPrefix
+	if prefix == "" {
+		prefix = "jetstream/control/"
+	}
+	prefix = strings.TrimSuffix(prefix, "/") + "/"
+	key := prefix + run.ID + ".snapshot"
+	request := SnapshotRequest{RunID: run.ID, ObjectKey: key, IdempotencyKey: run.ID, ControlEpoch: epoch, RestoreEpoch: epoch}
+	snapshot, err := d.config.Snapshotter.Snapshot(ctx, request)
+	if err != nil {
+		return ControlStateSnapshot{}, nil, err
+	}
+	if snapshot.ID == "" || snapshot.ObjectKey != key || snapshot.Checksum == "" || snapshot.Size < 0 || (snapshot.ControlEpoch == 0 && snapshot.RestoreEpoch == 0) {
+		return snapshot, nil, fmt.Errorf("%w: invalid JetStream snapshot identity", ErrInvalidConfig)
+	}
+	if snapshot.ControlEpoch != 0 && snapshot.ControlEpoch != epoch {
+		return snapshot, nil, ErrRestoreEpochFenced
+	}
+	if snapshot.RestoreEpoch != 0 && snapshot.RestoreEpoch != epoch {
+		return snapshot, nil, ErrRestoreEpochFenced
+	}
+	var mirrorErr error
+	mirrored := make([]string, 0, len(d.config.SnapshotRegions))
+	for _, region := range d.config.SnapshotRegions {
+		if err := d.config.SnapshotMirror.Mirror(ctx, snapshot, region); err != nil {
+			mirrorErr = errors.Join(mirrorErr, fmt.Errorf("snapshot mirror %s: %w", region, err))
+			continue
+		}
+		mirrored = append(mirrored, region)
+	}
+	return snapshot, mirrored, mirrorErr
+}
+
+// SuccessHistory reports the actual successful runs in the 14-day calendar
+// window ending at at. It reads each canonical daily run record, so a missing
+// record is a missing day and never a synthetic success. The method works
+// with every JournalPort implementation; no process-local history is used.
+func (d *Drill) SuccessHistory(ctx context.Context, at time.Time) (RestoreHistory, error) {
+	if d == nil || d.journal == nil {
+		return RestoreHistory{}, ErrInvalidConfig
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if at.IsZero() {
+		at = d.config.Now()
+	}
+	const required = 14
+	end := at.UTC().Truncate(24 * time.Hour)
+	history := RestoreHistory{RequiredDays: required, Days: make([]time.Time, 0, required)}
+	daySet := make(map[int64]struct{}, required)
+	for offset := 0; offset < required; offset++ {
+		day := end.AddDate(0, 0, -offset)
+		run, found, err := d.journal.LoadRun(ctx, runIDFor(day))
+		if err != nil {
+			return RestoreHistory{}, err
+		}
+		if !found || run.Status != RunSucceeded {
+			continue
+		}
+		// The ID is canonical, but also check the persisted date so a corrupt
+		// journal record cannot count for an unrelated day.
+		if !run.ScheduledAt.IsZero() && !sameUTCDate(run.ScheduledAt, day) {
+			continue
+		}
+		date := day.UTC()
+		history.Days = append(history.Days, date)
+		daySet[date.Unix()] = struct{}{}
+	}
+	sort.Slice(history.Days, func(i, j int) bool { return history.Days[i].Before(history.Days[j]) })
+	history.SuccessfulDays = len(history.Days)
+	// Find the longest actual consecutive streak in the observed window. This
+	// intentionally does not require the current day to have completed, which
+	// lets operators inspect yesterday's 14th proof without inventing today.
+	for _, date := range history.Days {
+		streak := 1
+		for next := date.AddDate(0, 0, 1); ; next = next.AddDate(0, 0, 1) {
+			if _, ok := daySet[next.Unix()]; !ok {
+				break
+			}
+			streak++
+		}
+		if streak > history.ConsecutiveDays {
+			history.ConsecutiveDays = streak
+		}
+	}
+	history.Ready = history.ConsecutiveDays >= required
+	return history, nil
+}
+
+// History is the concise alias used by status/reporting callers.
+func (d *Drill) History(ctx context.Context, at time.Time) (RestoreHistory, error) {
+	return d.SuccessHistory(ctx, at)
+}
+
+func sameUTCDate(a, b time.Time) bool {
+	a, b = a.UTC(), b.UTC()
+	return a.Year() == b.Year() && a.YearDay() == b.YearDay()
+}
+
 func durableContext(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
 }
@@ -320,5 +448,6 @@ func copyItem(item ItemRecord) ItemRecord { return item }
 func copyRun(run RunRecord) RunRecord {
 	run.DatabaseIDs = append([]string(nil), run.DatabaseIDs...)
 	run.Items = append([]ItemRecord(nil), run.Items...)
+	run.SnapshotRegions = append([]string(nil), run.SnapshotRegions...)
 	return run
 }

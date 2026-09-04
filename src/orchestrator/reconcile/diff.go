@@ -1,6 +1,7 @@
 package reconcile
 
 import (
+	"errors"
 	"sort"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -33,6 +34,11 @@ type Action struct {
 	Ref        estate.ResourceRef `json:"ref"`
 	Attributes []Attribute        `json:"attributes,omitempty"`
 	Changes    []Change           `json:"changes,omitempty"`
+	// Repair is set when a provider reported an existing resource as failed.
+	// It lets adapters run their self-healing path even when attributes already
+	// match the declaration.
+	Repair    bool           `json:"repair,omitempty"`
+	Ownership OwnershipProof `json:"ownership,omitempty"`
 }
 
 // Plan is the deterministic set of transitions derived from one observation.
@@ -94,12 +100,27 @@ func Diff(declared, observed State, kinds ...estate.ResourceKind) (Plan, error) 
 			continue
 		}
 		delete(indexed, key)
+		switch current.Status {
+		case ResourceIndeterminate:
+			// A provider work request or read whose outcome cannot be proved is
+			// not safe to mutate. Return the error after collecting deterministic
+			// drift for the other resources; callers must not apply this plan.
+			continue
+		case ResourceCreating:
+			// Do not submit a duplicate create while the provider is converging.
+			continue
+		}
+		if current.Status == ResourceFailed && sameAttributes(resource.Attributes, current.Attributes) {
+			plan.Actions = append(plan.Actions, Action{Kind: ActionUpdate, Ref: resource.Ref, Attributes: normalizeAttributes(resource.Attributes), Repair: true, Ownership: current.Ownership})
+			continue
+		}
 		if changes := attributeChanges(resource.Attributes, current.Attributes); len(changes) > 0 {
 			plan.Actions = append(plan.Actions, Action{
 				Kind:       ActionUpdate,
 				Ref:        resource.Ref,
 				Changes:    changes,
 				Attributes: normalizeAttributes(resource.Attributes),
+				Ownership:  current.Ownership,
 			})
 		}
 	}
@@ -112,16 +133,84 @@ func Diff(declared, observed State, kinds ...estate.ResourceKind) (Plan, error) 
 	}
 	sort.Slice(extras, func(i, j int) bool { return RefKey(extras[i].Ref) < RefKey(extras[j].Ref) })
 	for _, resource := range extras {
+		if resource.Status == ResourceIndeterminate {
+			continue
+		}
 		plan.Actions = append(plan.Actions, Action{
 			Kind:       ActionDelete,
 			Ref:        resource.Ref,
 			Attributes: normalizeAttributes(resource.Attributes),
+			Ownership:  resource.Ownership,
 		})
 	}
-	sort.SliceStable(plan.Actions, func(i, j int) bool {
-		return RefKey(plan.Actions[i].Ref) < RefKey(plan.Actions[j].Ref)
-	})
+	sort.SliceStable(plan.Actions, func(i, j int) bool { return actionLess(plan.Actions[i], plan.Actions[j]) })
+	var unsafe []error
+	for _, resource := range observed.Resources {
+		if !scope(resource.Ref.Kind) || resource.Status != ResourceIndeterminate {
+			continue
+		}
+		unsafe = append(unsafe, &IndeterminateError{Ref: resource.Ref})
+	}
+	if len(unsafe) > 0 {
+		return plan, errors.Join(unsafe...)
+	}
 	return plan, nil
+}
+
+// IndeterminateError marks a provider observation that must not be acted on.
+// It is exported so callers can distinguish an unsafe plan from a partial
+// provider outage and continue repairing healthy provider domains.
+type IndeterminateError struct{ Ref estate.ResourceRef }
+
+func (e *IndeterminateError) Error() string {
+	return "reconcile: indeterminate resource " + RefKey(e.Ref)
+}
+
+// actionLess gives dependency-aware, deterministic ordering. Deletes run in
+// reverse dependency order so references (routes, subnets, etc.) disappear
+// before their parents. Unknown kinds retain a stable lexical order.
+func actionLess(left, right Action) bool {
+	leftPhase, rightPhase := actionPhase(left.Kind), actionPhase(right.Kind)
+	if leftPhase != rightPhase {
+		return leftPhase < rightPhase
+	}
+	leftRank, rightRank := kindRank(left.Ref.Kind), kindRank(right.Ref.Kind)
+	if left.Kind == ActionDelete {
+		if leftRank != rightRank {
+			return leftRank > rightRank
+		}
+	} else if leftRank != rightRank {
+		return leftRank < rightRank
+	}
+	return RefKey(left.Ref) < RefKey(right.Ref)
+}
+
+func actionPhase(kind ActionKind) int {
+	switch kind {
+	case ActionCreate:
+		return 0
+	case ActionUpdate:
+		return 1
+	case ActionDelete:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func kindRank(kind estate.ResourceKind) int {
+	for i, candidate := range []estate.ResourceKind{
+		estate.ResourceNetwork, estate.ResourceSubnet, estate.ResourceNSG,
+		estate.ResourceBucket, estate.ResourceVaultKey, estate.ResourceCertificate,
+		estate.ResourceCompute, estate.ResourceDNS, estate.ResourceCacheRule,
+		estate.ResourceSnippetRule, estate.ResourceWorkerRoute, estate.ResourceKVMap,
+		estate.ResourceWAFRule, estate.ResourceRateRule, estate.ResourceCapabilityKey,
+	} {
+		if candidate == kind {
+			return i
+		}
+	}
+	return 1000
 }
 
 // attributeChanges compares two attribute multisets and returns every

@@ -60,6 +60,7 @@ type Zone struct {
 	SnippetRules     []SnippetRule
 	WorkerRoutes     []WorkerRoute
 	KVNamespaces     []KVNamespaceDecl
+	SecretStores     []SecretStoreDecl
 	FirewallRules    []FirewallRule
 	RateRules        []RateRule
 	SSL              SSLSettings

@@ -31,6 +31,7 @@ type HTTPTransport struct {
 	metricsEndpoint *url.URL
 	logsEndpoint    *url.URL
 	credentials     Credentials
+	maxEncodedBytes int
 	client          *http.Client
 	metricsEncoder  BatchEncoder
 	logsEncoder     BatchEncoder
@@ -66,6 +67,7 @@ func NewHTTPTransport(config Config, client *http.Client, metricsEncoder, logsEn
 		metricsEndpoint: metricsEndpoint,
 		logsEndpoint:    logsEndpoint,
 		credentials:     config.Credentials,
+		maxEncodedBytes: config.Batch.MaxBytes,
 		client:          client,
 		metricsEncoder:  metricsEncoder,
 		logsEncoder:     logsEncoder,
@@ -102,8 +104,8 @@ func (t *HTTPTransport) SendBatch(ctx context.Context, batch Batch) error {
 	if err != nil {
 		return fmt.Errorf("encode %s telemetry: %w", batch.Signal, err)
 	}
-	if len(encoded.Body) == 0 || len(encoded.Body) > 16*1024*1024 {
-		return errors.New("encoded telemetry batch must contain 1..16 MiB")
+	if len(encoded.Body) == 0 || len(encoded.Body) > t.maxEncodedBytes {
+		return fmt.Errorf("encoded telemetry batch must contain 1..%d bytes", t.maxEncodedBytes)
 	}
 	if !validContentType(encoded.ContentType) || !validContentEncoding(encoded.ContentEncoding) {
 		return errors.New("encoded telemetry batch has invalid content headers")

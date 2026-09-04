@@ -117,16 +117,12 @@ func TestLifecyclePauseNoticesAndDelete(t *testing.T) {
 	if result, err := reaper.Run(context.Background()); err != nil || result.Notices != 1 {
 		t.Fatalf("first reminder: result=%+v err=%v", result, err)
 	}
-	clock.Set(base.Add(80 * 24 * time.Hour))
-	if result, err := reaper.Run(context.Background()); err != nil || result.Notices != 1 {
-		t.Fatalf("second reminder: result=%+v err=%v", result, err)
-	}
 	clock.Set(base.Add(90 * 24 * time.Hour))
 	if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
 		t.Fatalf("delete: result=%+v err=%v", result, err)
 	}
 	state := store.Snapshot().Entries["db-1"]
-	if state.Phase != PhaseDeleted || len(mailer.emails) != 3 {
+	if state.Phase != PhaseDeleted || len(mailer.emails) != 3 || mailer.emails[2].Template != "free-tier-final" {
 		t.Fatalf("state=%+v emails=%d", state, len(mailer.emails))
 	}
 	if got := executor.calls; len(got) != 6 || got[3][:5] != "purge" || got[4][:5] != "shred" || got[5][:6] != "delete" {
@@ -208,6 +204,32 @@ func TestReactivationIsIdempotentAndConcurrentSafe(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("reactivation calls=%v", executor.calls)
+	}
+}
+
+func TestReactivationStartsFreshPauseOperationCycle(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: base.Add(30 * 24 * time.Hour)}
+	catalog := &testCatalog{databases: []Database{freeDatabase(base)}}
+	executor, mailer, audit, store := &testExecutor{}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(base.Add(31 * 24 * time.Hour))
+	if err := reaper.Reactivate(context.Background(), "db-1"); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(base.Add(61 * 24 * time.Hour))
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot().Entries["db-1"]
+	if state.Phase != PhasePaused || state.Cycle != 1 {
+		t.Fatalf("state=%+v", state)
+	}
+	if len(executor.calls) != 7 {
+		t.Fatalf("expected two complete pause cycles and one reactivation, calls=%v", executor.calls)
 	}
 }
 

@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/sandboxvm"
 	"terrascale.tech/orchestrator/src/orchestrator/vmdisk"
@@ -21,18 +23,67 @@ type sandboxVM struct {
 }
 
 func (v *sandboxVM) StartReady(ctx context.Context) error {
+	if v == nil || v.provider == nil {
+		return errors.New("vmqual: VM provider is not configured")
+	}
+	if ctx == nil {
+		return errors.New("vmqual: VM context is nil")
+	}
 	return v.provider.StartAndWaitReady(ctx, v.id)
 }
-func (v *sandboxVM) Stop(ctx context.Context) error { return v.provider.Stop(ctx, v.id) }
+func (v *sandboxVM) Stop(ctx context.Context) error {
+	if v == nil || v.provider == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return v.provider.Stop(ctx, v.id)
+}
 func (v *sandboxVM) Delete(ctx context.Context) error {
-	return errors.Join(v.provider.Delete(ctx, v.id), v.disks.Delete(ctx, v.id))
+	if v == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Cleanup is deliberately independent of the caller's deadline. A
+	// cancelled qualification must not strand a VMM jail or its drive.
+	cleanCtx := context.WithoutCancel(ctx)
+	var providerErr, diskErr error
+	if v.provider != nil {
+		providerErr = v.provider.Delete(cleanCtx, v.id)
+	}
+	if v.disks != nil {
+		diskErr = v.disks.Delete(cleanCtx, v.id)
+	}
+	return errors.Join(providerErr, diskErr)
 }
 func (v *sandboxVM) Inspect(ctx context.Context) (VMObservation, error) {
+	if v == nil || v.provider == nil {
+		return VMObservation{}, errors.New("vmqual: VM provider is not configured")
+	}
+	if ctx == nil {
+		return VMObservation{}, errors.New("vmqual: VM context is nil")
+	}
 	info, err := v.provider.Inspect(ctx, v.id)
 	if err != nil {
 		return VMObservation{}, err
 	}
 	return VMObservation{ID: v.id, Region: v.guest.Region, Running: info.State == sandboxvm.StateRunning, Ready: info.Ready, MemoryMiB: info.Config.MemoryMiB}, nil
+}
+
+// Execute is intentionally exposed only on the real VM adapter. It lets the
+// smoke path prove a guest systemd boundary without adding execution to the
+// narrow VM lifecycle contract used by unit-test fakes.
+func (v *sandboxVM) Execute(ctx context.Context, command sandboxvm.Command) error {
+	if v == nil || v.provider == nil {
+		return errors.New("vmqual: VM provider is not configured")
+	}
+	if ctx == nil {
+		return errors.New("vmqual: VM context is nil")
+	}
+	return v.provider.Execute(ctx, v.id, command)
 }
 
 type firecrackerFactory struct {
@@ -49,6 +100,9 @@ func NewFirecrackerFactory(config Config, image ImageResult) (VMFactory, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	if err := validateInstalledImage(image); err != nil {
+		return nil, err
+	}
 	if image.Installed.Dir == "" {
 		return nil, errors.New("vmqual: installed image is required")
 	}
@@ -63,6 +117,15 @@ func NewFirecrackerFactory(config Config, image ImageResult) (VMFactory, error) 
 	return &firecrackerFactory{provider: provider, image: image, disks: disks, config: config}, nil
 }
 func (f *firecrackerFactory) Create(ctx context.Context, guest Guest) (VM, error) {
+	if f == nil || f.provider == nil || f.disks == nil {
+		return nil, errors.New("vmqual: Firecracker factory is not configured")
+	}
+	if ctx == nil {
+		return nil, errors.New("vmqual: VM context is nil")
+	}
+	if guest.ID == "" || strings.ContainsAny(guest.ID, `/\\\x00`) || guest.Region == "" || guest.VCPU != 1 || guest.MemoryMiB < 256 || guest.MemoryMiB > MaxGuestMemoryMiB {
+		return nil, fmt.Errorf("vmqual: invalid guest %q", guest.ID)
+	}
 	drive, err := f.disks.Preallocate(ctx, guest.ID, 64<<20)
 	if err != nil {
 		return nil, err
@@ -81,6 +144,52 @@ func (f *firecrackerFactory) Create(ctx context.Context, guest Guest) (VM, error
 		return nil, err
 	}
 	return &sandboxVM{provider: f.provider, disks: f.disks, guest: guest, id: guest.ID}, nil
+}
+
+func validateInstalledImage(image ImageResult) error {
+	installed := image.Installed
+	if installed.Dir == "" || !filepath.IsAbs(installed.Dir) {
+		return errors.New("vmqual: installed image directory must be absolute")
+	}
+	if installed.Kernel == "" || installed.RootFS == "" || !filepath.IsAbs(installed.Kernel) || !filepath.IsAbs(installed.RootFS) {
+		return errors.New("vmqual: installed image kernel and rootfs are required")
+	}
+	if !pathWithin(installed.Dir, installed.Kernel) || !pathWithin(installed.Dir, installed.RootFS) {
+		return errors.New("vmqual: installed image artifacts must remain below its directory")
+	}
+	if installed.Kernel == installed.RootFS {
+		return errors.New("vmqual: kernel and rootfs must be distinct")
+	}
+	if err := regularImmutableFile(installed.Kernel); err != nil {
+		return fmt.Errorf("vmqual: installed kernel: %w", err)
+	}
+	if err := regularImmutableFile(installed.RootFS); err != nil {
+		return fmt.Errorf("vmqual: installed rootfs: %w", err)
+	}
+	// MaterializeImage already verifies the pair. Revalidate the immutable
+	// manifest here because callers can construct ImageResult directly.
+	if err := image.Manifest.Validate(); err != nil {
+		return fmt.Errorf("vmqual: installed image manifest: %w", err)
+	}
+	if installed.Manifest.SchemaVersion != 0 {
+		left, leftErr := installed.Manifest.CanonicalJSON()
+		right, rightErr := image.Manifest.CanonicalJSON()
+		if leftErr != nil || rightErr != nil || string(left) != string(right) {
+			return errors.New("vmqual: installed image manifest differs from image result")
+		}
+	}
+	return nil
+}
+
+func regularImmutableFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("artifact is not a regular non-symlink file")
+	}
+	return nil
 }
 
 func fileSHA256(path string) (string, error) {

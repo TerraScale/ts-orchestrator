@@ -76,6 +76,7 @@ func ReconcileZone(ctx context.Context, c *Client, z *Zone) (*Plan, error) {
 		{"snippet rules", z.reconcileSnippets}, // the sync.api gate rule
 		{"worker routes", z.reconcileWorkerRoutes},
 		{"kv namespaces", z.reconcileKVNamespaces},
+		{"secrets store", z.reconcileSecrets},
 		{"waf and rate rules", z.reconcileWAFAndRateRules},
 		{"ssl and certificates", z.reconcileSSL},
 	}

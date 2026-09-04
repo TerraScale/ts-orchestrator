@@ -132,8 +132,8 @@
     },
     {
       "id": 4,
-      "slug": "pulumi-provider-ownership",
-      "title": "Pulumi/provider ownership and exact resource tags/IAM",
+      "slug": "orchestrator-provider-ownership",
+      "title": "Orchestrator/provider ownership and exact resource tags/IAM",
       "status": "draft-ready",
       "ownerLane": "Cloud",
       "decisionAdrReferences": ["ADR-0004"], "sourceAnchors": ["docs/architecture/orchestrator.md:627-648"], "evidenceLocations": ["docs/architecture/orchestrator.md:627-648"],
@@ -146,7 +146,7 @@
       ],
       "missingEvidence": [
         "Exact OCI IAM policy and tag schema",
-        "Pulumi retain/unmanage primary-source spike",
+        "Retired provisioning-controller retain/unmanage primary-source spike",
         "Fresh-resource handoff and crash-recovery model evidence"
       ],
       "executableDependencies": [],
@@ -159,7 +159,7 @@
         "Reviewed exact ownership/tag/IAM schema",
         "L0 handoff model covering every crash checkpoint",
         "L3S fresh-resource handoff receipt and survival test",
-        "L4 proof Pulumi and regional actuator cannot concurrently own a transferred resource"
+        "L4 proof the retired provisioning controller and regional actuator cannot concurrently own a transferred resource"
       ]
     },
     {

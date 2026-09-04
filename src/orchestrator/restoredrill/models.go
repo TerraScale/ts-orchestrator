@@ -103,6 +103,72 @@ type PagerPort interface {
 	Page(context.Context, Page) error
 }
 
+// JetStreamSnapshotter creates one immutable snapshot of the orchestrator's
+// control state.  The snapshotter is deliberately a port: the drill package
+// must not know how a JetStream stream is encoded or how Object Storage is
+// reached. Implementations must treat IdempotencyKey as the identity of the
+// daily snapshot and must never silently replace a snapshot at another
+// control epoch.
+type JetStreamSnapshotter interface {
+	Snapshot(context.Context, SnapshotRequest) (ControlStateSnapshot, error)
+}
+
+// JetStreamSnapshotMirror copies a verified control-state snapshot to one
+// Region's Object Storage bucket. Mirror must be idempotent for the same
+// snapshot and Region. The Region is passed separately so implementations can
+// bind it to the declared per-Region bucket rather than accepting an arbitrary
+// destination from the caller.
+type JetStreamSnapshotMirror interface {
+	Mirror(context.Context, ControlStateSnapshot, string) error
+}
+
+// SnapshotterFunc and SnapshotMirrorFunc make the ports convenient to wire in
+// tests and in small provider adapters without introducing another type.
+type SnapshotterFunc func(context.Context, SnapshotRequest) (ControlStateSnapshot, error)
+
+func (f SnapshotterFunc) Snapshot(ctx context.Context, request SnapshotRequest) (ControlStateSnapshot, error) {
+	return f(ctx, request)
+}
+
+type SnapshotMirrorFunc func(context.Context, ControlStateSnapshot, string) error
+
+func (f SnapshotMirrorFunc) Mirror(ctx context.Context, snapshot ControlStateSnapshot, region string) error {
+	return f(ctx, snapshot, region)
+}
+
+// SnapshotRequest identifies the one daily control-state snapshot. ObjectKey
+// is deterministic and RestoreEpoch is a fence: a stale snapshot may be
+// retained for evidence but must not become the active control state.
+type SnapshotRequest struct {
+	RunID          string
+	ObjectKey      string
+	IdempotencyKey string
+	// ControlEpoch is the accepted JetStream control epoch. RestoreEpoch is
+	// retained as a spelling alias for adapters that use restore terminology.
+	ControlEpoch uint64
+	RestoreEpoch uint64
+}
+
+// ControlStateSnapshot is the verified identity of a JetStream snapshot.
+// Payload is intentionally absent; snapshot bytes remain in the provider's
+// Object Storage and never cross the restore-drill state journal.
+type ControlStateSnapshot struct {
+	ID           string
+	ObjectKey    string
+	Checksum     string
+	Size         int64
+	ControlEpoch uint64
+	RestoreEpoch uint64
+	CreatedAt    time.Time
+}
+
+// Aliases keep the port names useful to callers that think of this operation
+// as a generic control-state snapshot rather than a JetStream implementation.
+type SnapshotPort = JetStreamSnapshotter
+type SnapshotMirrorPort = JetStreamSnapshotMirror
+type JetStreamSnapshotPort = JetStreamSnapshotter
+type JetStreamSnapshotMirrorPort = JetStreamSnapshotMirror
+
 type Page struct {
 	RunID   string
 	Reason  string
@@ -151,6 +217,21 @@ type RunRecord struct {
 	DatabaseIDs []string
 	Items       []ItemRecord
 	Error       string
+	Snapshot    ControlStateSnapshot
+	// SnapshotRegions records the Regions that acknowledged this run's
+	// snapshot. A partial list makes an incomplete mirror visible after restart.
+	SnapshotRegions []string
+}
+
+// RestoreHistory is calculated solely from durable RunRecords. Missing days
+// are left missing; in particular, callers cannot manufacture a passing
+// 14-day soak by advancing a clock or by filling in synthetic records.
+type RestoreHistory struct {
+	RequiredDays    int
+	SuccessfulDays  int
+	ConsecutiveDays int
+	Ready           bool
+	Days            []time.Time
 }
 
 // Config controls one daily drill. SampleSize is the number of customer
@@ -163,6 +244,19 @@ type Config struct {
 	CleanupTimeout time.Duration
 	DailyInterval  time.Duration
 	Now            func() time.Time
+	// Snapshotter and SnapshotMirror are optional together. When configured,
+	// every run snapshots once and mirrors the resulting object to every Region
+	// in SnapshotRegions before the run can be marked successful.
+	Snapshotter     JetStreamSnapshotter
+	SnapshotMirror  JetStreamSnapshotMirror
+	SnapshotRegions []string
+	SnapshotPrefix  string
+	// AcceptedControlEpoch is a static alternative for controllers whose
+	// accepted epoch is already captured at composition time. A callback is
+	// preferred when fencing can advance while a run is in progress.
+	AcceptedControlEpoch uint64
+	ControlEpoch         func() uint64
+	RestoreEpoch         func() uint64
 }
 
 func (c Config) withDefaults() Config {
@@ -184,6 +278,24 @@ func (c Config) withDefaults() Config {
 func (c Config) validate() error {
 	if c.ControlPlaneID == "" || c.SampleSize < 0 || c.CleanupTimeout <= 0 || c.DailyInterval <= 0 || c.Now == nil {
 		return ErrInvalidConfig
+	}
+	if (c.Snapshotter == nil) != (c.SnapshotMirror == nil) {
+		return ErrInvalidConfig
+	}
+	if c.Snapshotter != nil {
+		if len(c.SnapshotRegions) == 0 || (c.ControlEpoch == nil && c.RestoreEpoch == nil && c.AcceptedControlEpoch == 0) {
+			return ErrInvalidConfig
+		}
+		seen := make(map[string]struct{}, len(c.SnapshotRegions))
+		for _, region := range c.SnapshotRegions {
+			if region == "" {
+				return ErrInvalidConfig
+			}
+			if _, ok := seen[region]; ok {
+				return ErrInvalidConfig
+			}
+			seen[region] = struct{}{}
+		}
 	}
 	return nil
 }

@@ -30,10 +30,22 @@ type KVAPI interface {
 var _ KVAPI = (*Client)(nil)
 
 func (c *Client) ListKVNamespaces(ctx context.Context) ([]KVNamespace, error) {
-	// ponytail: one page of 100 — this account declares two namespaces.
-	var out []KVNamespace
-	err := c.do(ctx, "list kv namespaces", http.MethodGet, c.accountPath("/storage/kv/namespaces?per_page=100"), nil, &out)
-	return out, err
+	var all []KVNamespace
+	for page := 1; ; page++ {
+		var namespaces []KVNamespace
+		suffix := "/storage/kv/namespaces?per_page=100"
+		if page > 1 {
+			suffix += fmt.Sprintf("&page=%d", page)
+		}
+		info, err := c.doPage(ctx, "list kv namespaces", http.MethodGet, c.accountPath(suffix), nil, &namespaces)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, namespaces...)
+		if info == nil || info.TotalPages <= page || info.TotalPages <= 0 {
+			return all, nil
+		}
+	}
 }
 
 func (c *Client) CreateKVNamespace(ctx context.Context, title string) error {

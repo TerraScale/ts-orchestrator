@@ -100,6 +100,7 @@ func NewStack(config StackConfig) (*Stack, error) {
 		return nil, fmt.Errorf("vmqual: stack requires six guests, got %d", len(config.Guests))
 	}
 	seen := map[string]bool{}
+	regions := map[vmnet.RegionCode]int{}
 	controls := map[vmnet.RegionCode]int{}
 	for _, guest := range config.Guests {
 		if guest.ID == "" || seen[guest.ID] {
@@ -112,8 +113,12 @@ func NewStack(config StackConfig) (*Stack, error) {
 		if guest.Control {
 			controls[guest.Region]++
 		}
+		regions[guest.Region]++
 	}
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
+		if regions[region] != 2 {
+			return nil, fmt.Errorf("vmqual: Region %s must have exactly two members", region)
+		}
 		if controls[region] != 1 {
 			return nil, fmt.Errorf("vmqual: Region %s must have one co-hosted control replica", region)
 		}
@@ -204,6 +209,15 @@ func (s *Stack) EnforceBudget(ctx context.Context) error {
 		}
 		if !observation.Running || !observation.Ready {
 			return fmt.Errorf("vmqual: %s is not ready", guest.ID)
+		}
+		if observation.ID != "" && observation.ID != guest.ID {
+			return fmt.Errorf("vmqual: %s readiness identity mismatch: %s", guest.ID, observation.ID)
+		}
+		if observation.Region != "" && observation.Region != guest.Region {
+			return fmt.Errorf("vmqual: %s readiness Region mismatch: %s", guest.ID, observation.Region)
+		}
+		if observation.MemoryMiB != 0 && observation.MemoryMiB != guest.MemoryMiB {
+			return fmt.Errorf("vmqual: %s readiness memory mismatch: %d MiB", guest.ID, observation.MemoryMiB)
 		}
 		rss += observation.RSSBytes
 		cpu += observation.IdleCPU

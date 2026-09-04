@@ -105,6 +105,107 @@ func TestJournalAdmissionIsCreateOnlyAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestJournalLeaseTakeoverFencesStaleOwner(t *testing.T) {
+	store := NewInMemoryStore()
+	journal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0).UTC()
+	journal.clock = func() time.Time { return now }
+	request := journalTestRequest("lease-fence")
+	ownerA := OperationLease{OwnerID: "owner-a", TTL: time.Minute}
+	operation, exists, err := journal.Begin(request, ownerA)
+	if err != nil || exists || operation.Generation != 1 {
+		t.Fatalf("begin lease = %+v exists=%v err=%v", operation, exists, err)
+	}
+	if _, err := journal.Takeover(request.OperationID, operation.RequestDigest, OperationLease{OwnerID: "owner-b", TTL: time.Minute}); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("live lease takeover = %v, want active lease", err)
+	}
+	now = now.Add(2 * time.Minute)
+	ownerB := OperationLease{OwnerID: "owner-b", TTL: time.Minute}
+	taken, err := journal.Takeover(request.OperationID, operation.RequestDigest, ownerB)
+	if err != nil || taken.Generation != 2 {
+		t.Fatalf("expired lease takeover = %+v err=%v", taken, err)
+	}
+	if err := journal.Renew(request.OperationID, operation.RequestDigest, ownerA, operation.Generation); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("stale owner renewal = %v, want active lease", err)
+	}
+	if err := journal.Finish(request.OperationID, operation.RequestDigest, journalTestReceipt(request.OperationID, StatusFailed), ownerA); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("stale owner finish = %v, want active lease", err)
+	}
+}
+
+func TestJournalRecoveryRejectsLiveLease(t *testing.T) {
+	store := NewInMemoryStore()
+	journal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(200, 0).UTC()
+	journal.clock = func() time.Time { return now }
+	request := journalTestRequest("live-recovery")
+	if _, _, err := journal.Begin(request, OperationLease{OwnerID: "owner", TTL: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.RecoverUnknown(request.OperationID); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("live recovery = %v, want active lease", err)
+	}
+	now = now.Add(2 * time.Minute)
+	receipt, err := journal.RecoverUnknown(request.OperationID)
+	if err != nil || receipt == nil || receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "operation_unknown" {
+		t.Fatalf("expired recovery = %+v err=%v", receipt, err)
+	}
+}
+
+func TestJournalRecoveryFencesExpiredOwnerGeneration(t *testing.T) {
+	store := NewInMemoryStore()
+	journal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(300, 0).UTC()
+	journal.clock = func() time.Time { return now }
+	request := journalTestRequest("recovery-generation")
+	owner := OperationLease{OwnerID: "owner-a", TTL: time.Minute}
+	operation, _, err := journal.Begin(request, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	receipt, err := journal.RecoverUnknown(request.OperationID)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if receipt == nil || receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "operation_unknown" {
+		t.Fatalf("recovery receipt = %+v", receipt)
+	}
+	current, found, err := journal.GetWithError(request.OperationID)
+	if err != nil || !found {
+		t.Fatalf("read recovered operation: found=%v err=%v", found, err)
+	}
+	if current.Generation != operation.Generation+1 || current.OwnerID == operation.OwnerID || !current.LeaseUntil.IsZero() {
+		t.Fatalf("recovery did not install a terminal fence: %+v", current)
+	}
+	if err := journal.Renew(request.OperationID, operation.RequestDigest, owner, operation.Generation); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("stale renew = %v, want lease fence", err)
+	}
+	if err := journal.Finish(request.OperationID, operation.RequestDigest, journalTestReceipt(request.OperationID, StatusFailed), owner); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("stale finish = %v, want lease fence", err)
+	}
+}
+
+func TestJournalRecoveryRejectsLegacyUnleasedOperation(t *testing.T) {
+	journal := NewJournal()
+	request := journalTestRequest("legacy-recovery")
+	if _, _, err := journal.Begin(request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.RecoverUnknown(request.OperationID); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("legacy recovery = %v, want lease fence", err)
+	}
+}
+
 func TestJournalFinishUsesCASAndAllowsOnlyExactReceiptReplay(t *testing.T) {
 	store := NewInMemoryStore()
 	journal, err := NewDurableJournal(store)

@@ -2,6 +2,7 @@ package vmimage
 
 import (
 	"bytes"
+	"debug/elf"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -14,7 +15,9 @@ import (
 
 const (
 	NoCloudVolumeLabel = "cidata"
+	GuestControlPath   = "/usr/local/libexec/terrascale-vmqual-control"
 	defaultDataMount   = "/var/lib/terrascale"
+	maxGuestControl    = 32 << 20
 )
 
 var sshPublicKeyPattern = regexp.MustCompile(`^(ssh-ed25519|ecdsa-sha2-nistp256|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/]+={0,2}(?: [^\r\n]{1,128})?$`)
@@ -34,6 +37,7 @@ type NoCloudSeedSpec struct {
 	DataDevice       string
 	DataMount        string
 	GuestSeed        []byte
+	GuestControl     []byte
 }
 
 // NoCloudSeed contains the three files consumed by cloud-init's NoCloud data
@@ -89,8 +93,12 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if len(spec.GuestSeed) == 0 || len(spec.GuestSeed) > 64<<10 {
 		return NoCloudSeed{}, errors.New("vmimage: NoCloud guest seed must contain 1-65536 bytes")
 	}
-	if _, err := DecodeGuestChannelSeed(spec.GuestSeed); err != nil {
+	guestSeed, err := DecodeGuestChannelSeed(spec.GuestSeed)
+	if err != nil {
 		return NoCloudSeed{}, fmt.Errorf("vmimage: NoCloud guest seed: %w", err)
+	}
+	if err := validateGuestControl(spec.GuestControl, guestSeed.Image.Architecture); err != nil {
+		return NoCloudSeed{}, err
 	}
 
 	nameservers, err := canonicalNameservers(spec.Nameservers)
@@ -170,7 +178,7 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	output.WriteString("  - name: root\n")
 	output.WriteString("    lock_passwd: true\n")
 	output.WriteString("    ssh_authorized_keys:\n")
-	fmt.Fprintf(&output, "      - %s\n", yamlScalar(strings.TrimSpace(spec.SSHAuthorizedKey)))
+	fmt.Fprintf(&output, "      - %s\n", yamlScalar(`restrict,command="`+GuestControlPath+`" `+strings.TrimSpace(spec.SSHAuthorizedKey)))
 	output.WriteString("fs_setup:\n")
 	output.WriteString("  - label: terrascale-data\n")
 	output.WriteString("    filesystem: ext4\n")
@@ -179,6 +187,11 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	output.WriteString("mounts:\n")
 	fmt.Fprintf(&output, "  - [%s, %s, ext4, 'defaults,nofail,nodev,nosuid', '0', '2']\n", yamlScalar(dataDevice), yamlScalar(dataMount))
 	output.WriteString("write_files:\n")
+	output.WriteString("  - path: " + GuestControlPath + "\n")
+	output.WriteString("    owner: root:root\n")
+	output.WriteString("    permissions: '0500'\n")
+	output.WriteString("    encoding: b64\n")
+	fmt.Fprintf(&output, "    content: %s\n", base64.StdEncoding.EncodeToString(spec.GuestControl))
 	output.WriteString("  - path: /run/terrascale/guest-seed.json\n")
 	output.WriteString("    owner: root:root\n")
 	output.WriteString("    permissions: '0600'\n")
@@ -186,8 +199,29 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	fmt.Fprintf(&output, "    content: %s\n", base64.StdEncoding.EncodeToString(spec.GuestSeed))
 	output.WriteString("runcmd:\n")
 	output.WriteString("  - [systemctl, daemon-reload]\n")
-	output.WriteString("  - [systemctl, is-system-running, --wait]\n")
 	return output.Bytes()
+}
+
+func validateGuestControl(data []byte, architecture Architecture) error {
+	if len(data) == 0 || len(data) > maxGuestControl {
+		return errors.New("vmimage: guest control binary size is invalid")
+	}
+	binary, err := elf.NewFile(bytes.NewReader(data))
+	if err != nil {
+		return errors.New("vmimage: guest control binary is not ELF")
+	}
+	defer binary.Close()
+	if binary.Class != elf.ELFCLASS64 || binary.Data != elf.ELFDATA2LSB || (binary.Type != elf.ET_EXEC && binary.Type != elf.ET_DYN) {
+		return errors.New("vmimage: guest control binary format is not admitted")
+	}
+	want := elf.EM_X86_64
+	if architecture == ArchitectureARM64 {
+		want = elf.EM_AARCH64
+	}
+	if binary.Machine != want {
+		return errors.New("vmimage: guest control binary architecture does not match guest")
+	}
+	return nil
 }
 
 // MACForIPv4 returns the locally administered Firecracker MAC spelling that

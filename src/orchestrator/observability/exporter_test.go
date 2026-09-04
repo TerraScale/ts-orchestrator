@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -266,5 +267,34 @@ func TestExporterMetricPayloadIsStructuredAndDefensive(t *testing.T) {
 	}
 	if metric.Labels["host"] != "host-a" || metric.Name != "nats.messages" {
 		t.Fatalf("metric was not defensively structured: %#v", metric)
+	}
+}
+
+func TestExporterLogSamplerHasBoundedHostBookkeeping(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	config := testExporterConfig(func() time.Time { return now })
+	config.Batch.MaxItems = 10_000
+	config.LogsPerSecond = 1
+	exporter, _, _ := newExporterForTest(t, config, nil)
+	for i := 0; i < maxTrackedLogHosts+100; i++ {
+		if err := exporter.EmitLog(context.Background(), LogRecord{Timestamp: now, Attributes: map[string]string{
+			"host": fmt.Sprintf("untrusted-host-%d", i),
+		}, Body: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exporter.sampleMu.Lock()
+	tracked := len(exporter.samples)
+	exporter.sampleMu.Unlock()
+	if tracked > maxTrackedLogHosts {
+		t.Fatalf("log sampler tracked %d hosts, max %d", tracked, maxTrackedLogHosts)
+	}
+}
+
+func TestNewExporterAcceptsOmittedOptionalPageSink(t *testing.T) {
+	config := testExporterConfig(time.Now)
+	metrics, logs := &exporterSender{}, &exporterSender{}
+	if _, err := NewExporter(config, metrics, logs, nil); err != nil {
+		t.Fatalf("untyped nil optional page sink rejected: %v", err)
 	}
 }

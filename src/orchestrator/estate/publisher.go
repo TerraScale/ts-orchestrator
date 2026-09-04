@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // EstateCollection is the control-plane database collection holding the six
@@ -146,6 +148,31 @@ type DocumentWriter interface {
 	PutDocument(ctx context.Context, collection, docID string, body any) error
 }
 
+// DocumentWriteOptions carries the controls used by the public SDK mutation
+// contract. IdempotencyKey is derived from the document revision and is safe
+// to reuse after a process restart. IfMatch is reserved for callers that have
+// an explicit optimistic-concurrency revision.
+type DocumentWriteOptions struct {
+	IdempotencyKey string
+	IfMatch        string
+}
+
+// DocumentWriteReceipt is the typed receipt returned by a public document
+// write. Revisions are opaque server values and must never be manufactured by
+// the publisher.
+type DocumentWriteReceipt struct {
+	Revision string
+	ETag     string
+}
+
+// PublicDocumentWriter is the typed public HTTP writer seam. Its raw JSON
+// value and options match the public SDK's document PUT operation. The
+// legacy DocumentWriter interface remains accepted for local providers.
+// @public
+type PublicDocumentWriter interface {
+	PutPublicDocument(ctx context.Context, collection, docID string, value json.RawMessage, options DocumentWriteOptions) (DocumentWriteReceipt, error)
+}
+
 // PublisherConfig is the fully explicit configuration of one estate
 // publisher. No ambient environment is read; a zero Interval selects the
 // 10s default.
@@ -160,6 +187,13 @@ type PublisherConfig struct {
 	// Interval between ticks. Zero selects DefaultPublisherInterval.
 	Interval time.Duration
 	Now      func() time.Time
+	// RetryMaxAttempts includes the first attempt. Zero selects three bounded
+	// attempts. Retry delays are capped so a failed control plane cannot create
+	// an unbounded backlog or block shutdown indefinitely.
+	RetryMaxAttempts  int
+	RetryInitialDelay time.Duration
+	RetryMaxDelay     time.Duration
+	Sleep             func(context.Context, time.Duration) error
 	// OnPublish observes every successful tick's write count. Writes are
 	// billed, so operators wire this to a budget alert. Never skips writes.
 	OnPublish func(writes int)
@@ -169,14 +203,19 @@ type PublisherConfig struct {
 // changed documents), Start ticks Publish until ctx is cancelled, and
 // NotifyChange triggers one immediate tick for on-change publishes.
 type Publisher struct {
-	writer     DocumentWriter
-	snapshot   func(ctx context.Context) (Snapshot, error)
-	collection string
-	interval   time.Duration
-	now        func() time.Time
-	onPublish  func(int)
+	writer            DocumentWriter
+	snapshot          func(ctx context.Context) (Snapshot, error)
+	collection        string
+	interval          time.Duration
+	now               func() time.Time
+	onPublish         func(int)
+	retryMaxAttempts  int
+	retryInitialDelay time.Duration
+	retryMaxDelay     time.Duration
+	sleep             func(context.Context, time.Duration) error
 
 	mutex      sync.Mutex
+	publishMu  sync.Mutex
 	last       map[string][32]byte
 	writeCount int
 	lastErr    error
@@ -188,6 +227,13 @@ type Publisher struct {
 	started    bool
 	closed     bool
 }
+
+const (
+	defaultPublisherAttempts = 3
+	defaultPublisherDelay    = 100 * time.Millisecond
+	maxPublisherAttempts     = 8
+	maxPublisherDelay        = 5 * time.Second
+)
 
 // NewPublisher validates the configuration and composes the loop. Nothing is
 // started here; Start does that.
@@ -217,20 +263,46 @@ func NewPublisher(config PublisherConfig) (*Publisher, error) {
 	if interval <= 0 {
 		return nil, errors.New("estate: publisher interval must be positive")
 	}
+	attempts := config.RetryMaxAttempts
+	if attempts == 0 {
+		attempts = defaultPublisherAttempts
+	}
+	if attempts < 1 || attempts > maxPublisherAttempts {
+		return nil, fmt.Errorf("estate: publisher retry attempts must be between 1 and %d", maxPublisherAttempts)
+	}
+	initialDelay := config.RetryInitialDelay
+	if initialDelay == 0 {
+		initialDelay = defaultPublisherDelay
+	}
+	maxDelay := config.RetryMaxDelay
+	if maxDelay == 0 {
+		maxDelay = maxPublisherDelay
+	}
+	if initialDelay < 0 || maxDelay < initialDelay || maxDelay > maxPublisherDelay {
+		return nil, errors.New("estate: publisher retry delays are invalid")
+	}
+	sleep := config.Sleep
+	if sleep == nil {
+		sleep = sleepPublisher
+	}
 	now := config.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Publisher{
-		writer:     config.Writer,
-		snapshot:   config.Snapshot,
-		collection: collection,
-		interval:   interval,
-		now:        now,
-		onPublish:  config.OnPublish,
-		last:       make(map[string][32]byte),
-		notify:     make(chan struct{}, 1),
-		completion: make(chan struct{}),
+		writer:            config.Writer,
+		snapshot:          config.Snapshot,
+		collection:        collection,
+		interval:          interval,
+		now:               now,
+		onPublish:         config.OnPublish,
+		retryMaxAttempts:  attempts,
+		retryInitialDelay: initialDelay,
+		retryMaxDelay:     maxDelay,
+		sleep:             sleep,
+		last:              make(map[string][32]byte),
+		notify:            make(chan struct{}, 1),
+		completion:        make(chan struct{}),
 	}, nil
 }
 
@@ -268,6 +340,8 @@ func (p *Publisher) Completion() <-chan struct{} {
 	if p == nil {
 		return nil
 	}
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	return p.completion
 }
 
@@ -296,8 +370,16 @@ func (p *Publisher) Publish(ctx context.Context) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	// A single in-flight observation gives each document one ordered revision
+	// and prevents concurrent callers from issuing duplicate PUTs.
+	p.publishMu.Lock()
+	defer p.publishMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	snapshot, err := p.snapshot(ctx)
 	if err != nil {
+		err = redactFailure(err)
 		p.recordErr(err)
 		return 0, err
 	}
@@ -309,6 +391,7 @@ func (p *Publisher) Publish(ctx context.Context) (int, error) {
 		}
 		raw, err := marshalCanonical(doc.Body)
 		if err != nil {
+			err = redactFailure(err)
 			p.recordErr(err)
 			return writes, err
 		}
@@ -316,7 +399,9 @@ func (p *Publisher) Publish(ctx context.Context) (int, error) {
 		if p.unchanged(doc.ID, sum) {
 			continue
 		}
-		if err := p.writer.PutDocument(ctx, p.collection, doc.ID, doc.Body); err != nil {
+		options := DocumentWriteOptions{IdempotencyKey: documentIdempotencyKey(p.collection, doc.ID, sum)}
+		if err := p.putWithRetry(ctx, doc.ID, doc.Body, raw, options); err != nil {
+			err = redactFailure(err)
 			p.recordErr(err)
 			return writes, err
 		}
@@ -327,12 +412,109 @@ func (p *Publisher) Publish(ctx context.Context) (int, error) {
 	p.writeCount += writes
 	hook := p.onPublish
 	p.mutex.Unlock()
-	_ = p.now()
 	if hook != nil {
+		// Hooks are observers only. A slow hook must not hold publisher state
+		// locks, but it is still part of the bounded publish backpressure.
 		hook(writes)
 	}
 	p.recordErr(nil)
 	return writes, nil
+}
+
+func (p *Publisher) putWithRetry(ctx context.Context, docID string, body any, raw []byte, options DocumentWriteOptions) error {
+	var lastErr error
+	for attempt := 0; attempt < p.retryMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if typed, ok := p.writer.(PublicDocumentWriter); ok {
+			_, lastErr = typed.PutPublicDocument(ctx, p.collection, docID, json.RawMessage(append([]byte(nil), raw...)), options)
+		} else {
+			lastErr = p.writer.PutDocument(ctx, p.collection, docID, body)
+		}
+		if lastErr == nil {
+			return nil
+		}
+		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+			return lastErr
+		}
+		if classified, ok := lastErr.(retryableWriteError); ok && !classified.Retryable() {
+			return lastErr
+		}
+		if attempt+1 == p.retryMaxAttempts {
+			break
+		}
+		delay := p.retryInitialDelay << attempt
+		if delay < 0 || delay > p.retryMaxDelay {
+			delay = p.retryMaxDelay
+		}
+		if err := p.sleep(ctx, delay); err != nil {
+			return err
+		}
+	}
+	return lastErr
+}
+
+func sleepPublisher(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func documentIdempotencyKey(collection, docID string, sum [32]byte) string {
+	// Keep the key deterministic across retries and process restarts while
+	// avoiding collection/document identifiers in a header's observable value.
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("estate-document-v1\x00" + collection + "\x00" + docID + "\x00"))
+	_, _ = digest.Write(sum[:])
+	return "estate-" + hex.EncodeToString(digest.Sum(nil))
+}
+
+type redactedFailure struct {
+	cause error
+	text  string
+}
+
+type retryableWriteError interface {
+	Retryable() bool
+}
+
+func (e *redactedFailure) Error() string { return e.text }
+func (e *redactedFailure) Unwrap() error { return e.cause }
+
+func redactFailure(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	message := err.Error()
+	for _, marker := range []string{"authorization", "access_token", "token", "api-key", "apikey", "secret", "password"} {
+		message = redactAfterMarker(message, marker)
+	}
+	return &redactedFailure{cause: err, text: message}
+}
+
+func redactAfterMarker(message, marker string) string {
+	for offset := 0; offset+len(marker) < len(message); offset++ {
+		if !strings.EqualFold(message[offset:offset+len(marker)], marker) {
+			continue
+		}
+		end := offset + len(marker)
+		for end < len(message) && (message[end] == ' ' || message[end] == '\t' || message[end] == ':' || message[end] == '=') {
+			end++
+		}
+		valueEnd := end
+		for valueEnd < len(message) && !strings.ContainsRune(" ,;)}]\\\"'\n\r", rune(message[valueEnd])) {
+			valueEnd++
+		}
+		message = message[:end] + "<redacted>" + message[valueEnd:]
+		offset = end + len("<redacted>")
+	}
+	return message
 }
 
 // Start ticks Publish every Interval until ctx is cancelled: one immediate
@@ -354,9 +536,17 @@ func (p *Publisher) Start(ctx context.Context) error {
 	p.started = true
 	ctx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
+	completion := make(chan struct{})
+	p.completion = completion
 	p.mutex.Unlock()
 	go func() {
-		defer close(p.completion)
+		defer func() {
+			p.mutex.Lock()
+			p.started = false
+			p.cancel = nil
+			p.mutex.Unlock()
+			close(completion)
+		}()
 		ticker := time.NewTicker(p.interval)
 		defer ticker.Stop()
 		for {
@@ -387,7 +577,11 @@ func (p *Publisher) Close() error {
 			p.completion = make(chan struct{})
 		}
 		if !started {
-			close(p.completion)
+			select {
+			case <-p.completion:
+			default:
+				close(p.completion)
+			}
 		}
 		p.mutex.Unlock()
 		if cancel != nil {
@@ -436,7 +630,7 @@ func validateDocName(value string) error {
 		return errors.New("name must be a bounded whitespace-free token")
 	}
 	for _, r := range value {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || r == 0x7f || unicode.IsSpace(r) {
 			return errors.New("name must not contain control characters")
 		}
 	}
@@ -530,38 +724,58 @@ func (c *ControlPlaneClient) PutDocument(ctx context.Context, collection, docID 
 	if c == nil {
 		return errors.New("estate: control-plane client is unavailable")
 	}
-	if ctx == nil {
-		return errors.New("estate: control-plane context is required")
-	}
-	if err := ctx.Err(); err != nil {
+	raw, err := marshalCanonical(body)
+	if err != nil {
 		return err
 	}
+	_, err = c.PutPublicDocument(ctx, collection, docID, raw, DocumentWriteOptions{})
+	return err
+}
+
+// PutPublicDocument writes one raw JSON value using the same route and
+// headers as the public SDK. The idempotency key is stable for one logical
+// document revision, making an uncertain response safe to replay.
+func (c *ControlPlaneClient) PutPublicDocument(ctx context.Context, collection, docID string, raw json.RawMessage, options DocumentWriteOptions) (DocumentWriteReceipt, error) {
+	if c == nil {
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane client is unavailable")
+	}
+	if ctx == nil {
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return DocumentWriteReceipt{}, err
+	}
 	if err := validateDocName(collection); err != nil {
-		return errors.New("estate: control-plane collection name is invalid")
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane collection name is invalid")
 	}
 	if err := validateDocName(docID); err != nil {
-		return errors.New("estate: control-plane document id is invalid")
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane document id is invalid")
 	}
 	token := ""
 	if c.token != nil {
 		token = strings.TrimSpace(c.token())
 	}
 	if token == "" {
-		return errors.New("estate: control-plane token is not configured")
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane token is not configured")
 	}
-	raw, err := marshalCanonical(body)
-	if err != nil {
-		return err
+	if !json.Valid(raw) {
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane document is not valid JSON")
 	}
 	if len(raw) > maxEstateDocumentLen {
-		return errors.New("estate: control-plane document exceeds the 1 MiB limit")
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane document exceeds the 1 MiB limit")
+	}
+	if options.IdempotencyKey != "" && (len(options.IdempotencyKey) > 128 || strings.ContainsAny(options.IdempotencyKey, "\r\n")) {
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane idempotency key is invalid")
+	}
+	if options.IfMatch != "" && strings.ContainsAny(options.IfMatch, "\r\n") {
+		return DocumentWriteReceipt{}, errors.New("estate: control-plane revision precondition is invalid")
 	}
 	path := "/api/v1/databases/" + url.PathEscape(c.database) +
 		"/collections/" + url.PathEscape(collection) +
 		"/documents/" + url.PathEscape(docID)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, bytes.NewReader(raw))
 	if err != nil {
-		return fmt.Errorf("estate: control-plane request: %w", err)
+		return DocumentWriteReceipt{}, fmt.Errorf("estate: control-plane request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
@@ -569,31 +783,57 @@ func (c *ControlPlaneClient) PutDocument(ctx context.Context, collection, docID 
 	if c.project != "" {
 		request.Header.Set("X-TerraScale-Project-ID", c.project)
 	}
+	if options.IdempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", options.IdempotencyKey)
+	}
+	if options.IfMatch != "" {
+		request.Header.Set("If-Match", options.IfMatch)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("estate: control-plane put %s failed: %w", QualifiedName(docID), err)
+		return DocumentWriteReceipt{}, fmt.Errorf("estate: control-plane put %s failed: %w", QualifiedName(docID), err)
 	}
 	defer response.Body.Close()
 	limited, err := io.ReadAll(io.LimitReader(response.Body, maxControlPlaneBody+1))
 	if err != nil {
-		return fmt.Errorf("estate: control-plane put %s failed: read response: %w", QualifiedName(docID), err)
+		return DocumentWriteReceipt{}, fmt.Errorf("estate: control-plane put %s failed: read response: %w", QualifiedName(docID), err)
 	}
 	if len(limited) > maxControlPlaneBody {
-		return fmt.Errorf("estate: control-plane put %s failed: response too large", QualifiedName(docID))
+		return DocumentWriteReceipt{}, fmt.Errorf("estate: control-plane put %s failed: response too large", QualifiedName(docID))
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return controlPlaneError(docID, response.StatusCode, limited)
+		return DocumentWriteReceipt{}, controlPlaneError(docID, response.StatusCode, limited)
 	}
-	return nil
+	receipt := DocumentWriteReceipt{ETag: response.Header.Get("ETag")}
+	if len(bytes.TrimSpace(limited)) != 0 {
+		var payload struct {
+			Revision string `json:"revision"`
+		}
+		if err := json.Unmarshal(limited, &payload); err != nil {
+			return DocumentWriteReceipt{}, fmt.Errorf("estate: control-plane put %s failed: invalid response", QualifiedName(docID))
+		}
+		receipt.Revision = payload.Revision
+	}
+	return receipt, nil
 }
 
 func controlPlaneError(docID string, status int, body []byte) error {
-	trimmed := strings.TrimSpace(string(body))
-	if len(trimmed) > 512 {
-		trimmed = trimmed[:512]
-	}
-	if trimmed != "" {
-		return fmt.Errorf("estate: control-plane put %s failed: status %d: %s", QualifiedName(docID), status, trimmed)
-	}
-	return fmt.Errorf("estate: control-plane put %s failed: status %d", QualifiedName(docID), status)
+	// Do not include provider response text: it is untrusted and frequently
+	// echoes authorization material or request payloads. Keep body referenced
+	// so callers can pass a bounded read without accidentally logging it.
+	_ = body
+	return controlPlaneWriteError{docID: docID, status: status}
+}
+
+type controlPlaneWriteError struct {
+	docID  string
+	status int
+}
+
+func (e controlPlaneWriteError) Error() string {
+	return fmt.Sprintf("estate: control-plane put %s failed: status %d", QualifiedName(e.docID), e.status)
+}
+
+func (e controlPlaneWriteError) Retryable() bool {
+	return e.status == http.StatusRequestTimeout || e.status == http.StatusTooManyRequests || e.status >= 500
 }

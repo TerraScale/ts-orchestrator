@@ -454,6 +454,15 @@ func validateReceipt(receipt *Receipt, request *Request) {
 	}
 	hasRollbackDigest := receipt.Rollback.TargetArtifactDigest != nil
 	hasRollbackManifestDigest := receipt.Rollback.TargetManifestDigest != nil
+	if receipt.Rollback.Status == RollbackNotRequired && receipt.Rollback.Attempted {
+		fail("receipt_rollback_invalid", "A receipt cannot mark rollback as not required after attempting recovery.", "Retry against a version-1 Orchestrator endpoint.")
+	}
+	if receipt.Rollback.Status == RollbackNotRequired && (hasRollbackDigest || hasRollbackManifestDigest) {
+		fail("receipt_rollback_invalid", "A receipt marked not_required cannot carry a rollback target.", "Retry against a version-1 Orchestrator endpoint.")
+	}
+	if receipt.Rollback.Status != RollbackNotRequired && !receipt.Rollback.Attempted {
+		fail("receipt_rollback_invalid", "A rollback result must record that recovery was attempted.", "Inspect the durable delivery journal before retrying.")
+	}
 	if hasRollbackDigest != hasRollbackManifestDigest {
 		fail("receipt_rollback_invalid", "The rollback receipt contains only one half of the target artifact identity.", "Inspect the durable delivery journal before retrying.")
 	}

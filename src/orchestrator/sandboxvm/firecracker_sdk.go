@@ -17,25 +17,47 @@ import (
 // and therefore cannot be pulled into a production binary.
 func NewSDKMachineFactory() MachineFactory {
 	return func(ctx context.Context, cfg Config) (Machine, error) {
-		root := true
-		readOnly := false
-		sdkCfg := firecracker.Config{
-			SocketPath:      cfg.SocketPath,
-			KernelImagePath: cfg.KernelImage,
-			KernelArgs:      "console=ttyS0 reboot=k panic=1 pci=off",
-			VMID:            cfg.ID,
-			MachineCfg:      models.MachineConfiguration{VcpuCount: &cfg.VCPU, MemSizeMib: &cfg.MemoryMiB},
-			Drives: []models.Drive{
-				{DriveID: firecracker.String("rootfs"), PathOnHost: &cfg.RootDrive, IsRootDevice: &root, IsReadOnly: &readOnly},
-				{DriveID: firecracker.String("data"), PathOnHost: &cfg.DataDrive, IsRootDevice: &readOnly, IsReadOnly: &readOnly},
-			},
-		}
+		sdkCfg := buildSDKConfig(cfg)
 		m, err := firecracker.NewMachine(ctx, sdkCfg, firecracker.WithProcessRunner(exec.Command(cfg.FirecrackerBinary, "--api-sock", cfg.SocketPath)))
 		if err != nil {
 			return nil, fmt.Errorf("new Firecracker machine: %w", err)
 		}
 		return &sdkMachine{machine: m}, nil
 	}
+}
+
+func buildSDKConfig(cfg Config) firecracker.Config {
+	root, writable, readOnly := true, false, true
+	kernelArgs := cfg.KernelArgs
+	if kernelArgs == "" {
+		kernelArgs = "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw"
+	}
+	drives := []models.Drive{
+		{DriveID: firecracker.String("rootfs"), PathOnHost: &cfg.RootDrive, IsRootDevice: &root, IsReadOnly: &writable},
+		{DriveID: firecracker.String("data"), PathOnHost: &cfg.DataDrive, IsRootDevice: &writable, IsReadOnly: &writable},
+	}
+	if cfg.SeedDrive != "" {
+		drives = append(drives, models.Drive{DriveID: firecracker.String("seed"), PathOnHost: &cfg.SeedDrive, IsRootDevice: &writable, IsReadOnly: &readOnly})
+	}
+	sdkConfig := firecracker.Config{
+		SocketPath:      cfg.SocketPath,
+		LogPath:         cfg.LogPath,
+		LogLevel:        "Warning",
+		MetricsPath:     cfg.MetricsPath,
+		KernelImagePath: cfg.KernelImage,
+		KernelArgs:      kernelArgs,
+		VMID:            cfg.ID,
+		NetNS:           cfg.NetworkNamespace,
+		MachineCfg:      models.MachineConfiguration{VcpuCount: &cfg.VCPU, MemSizeMib: &cfg.MemoryMiB},
+		Drives:          drives,
+	}
+	if cfg.TapName != "" {
+		sdkConfig.NetworkInterfaces = []firecracker.NetworkInterface{{StaticConfiguration: &firecracker.StaticNetworkConfiguration{
+			HostDevName: cfg.TapName,
+			MacAddress:  cfg.GuestMAC,
+		}}}
+	}
+	return sdkConfig
 }
 
 type sdkMachine struct{ machine *firecracker.Machine }

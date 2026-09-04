@@ -33,7 +33,7 @@ func NewTrustSet(keys map[string]ed25519.PublicKey) (*TrustSet, error) {
 		if len(key) != ed25519.PublicKeySize {
 			return nil, fmt.Errorf("delivery: signing key %s is not an ed25519 public key", id)
 		}
-		copied[id] = key
+		copied[id] = append(ed25519.PublicKey(nil), key...)
 	}
 	return &TrustSet{keys: copied}, nil
 }

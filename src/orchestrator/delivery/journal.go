@@ -1,11 +1,13 @@
 package delivery
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -29,6 +31,16 @@ var ErrStoreNotFound = errors.New("delivery: durable store entry not found")
 // ErrStoreConflict means that a create-only or compare-and-set operation lost
 // a race. It is not a persistence outage and may be safely re-read.
 var ErrStoreConflict = errors.New("delivery: durable store compare-and-set conflict")
+
+// ErrOperationConflict means that an operation ID is already bound to a
+// different request. It is deliberately distinct from a store outage: the
+// former is a client conflict while the latter must be surfaced as a retryable
+// journal failure.
+var ErrOperationConflict = errors.New("delivery: operation ID is bound to a different request")
+
+// ErrOperationLeaseActive means another durable owner still holds the
+// operation lease. Recovery and takeover must fail closed in this case.
+var ErrOperationLeaseActive = errors.New("delivery: operation lease is active")
 
 // StoreEntry is one versioned value in a DurableStore. Revisions are opaque
 // to Journal, but must increase for every successful write to a key and must
@@ -158,6 +170,27 @@ type Operation struct {
 	StartedAt     time.Time
 	FinishedAt    time.Time
 	UpdatedAt     time.Time
+	OwnerID       string
+	Generation    uint64
+	LeaseUntil    time.Time
+}
+
+// OperationLease identifies the process that is allowed to execute and
+// finish an operation. Generation fencing prevents stale owners from renewing
+// or finishing after a durable takeover.
+type OperationLease struct {
+	OwnerID    string
+	TTL        time.Duration
+	Generation uint64
+}
+
+const defaultOperationLeaseTTL = 30 * time.Second
+
+func leaseTTL(value time.Duration) time.Duration {
+	if value <= 0 {
+		return defaultOperationLeaseTTL
+	}
+	return value
 }
 
 // Journal is the delivery operation journal backing idempotency and receipt
@@ -199,12 +232,15 @@ func NewJournalWithStore(store DurableStore) (*Journal, error) {
 // returned with exists=true (idempotent replay); the same operation ID with a
 // different request is a conflict, never a restart. Store failures are
 // returned and never treated as an empty journal.
-func (j *Journal) Begin(request *Request) (operation *Operation, exists bool, err error) {
+func (j *Journal) Begin(request *Request, leases ...OperationLease) (operation *Operation, exists bool, err error) {
 	if j == nil || j.store == nil {
 		return nil, false, errors.New("delivery: journal is not configured")
 	}
 	if request == nil {
 		return nil, false, errors.New("delivery: journal requires a request")
+	}
+	if !operationIDPattern.MatchString(request.OperationID) {
+		return nil, false, errors.New("delivery: journal operation ID is invalid")
 	}
 	digest, err := requestDigest(request)
 	if err != nil {
@@ -218,6 +254,11 @@ func (j *Journal) Begin(request *Request) (operation *Operation, exists bool, er
 		State:         OperationRunning,
 		StartedAt:     now,
 		UpdatedAt:     now,
+	}
+	if len(leases) > 0 && leases[0].OwnerID != "" {
+		operation.OwnerID = leases[0].OwnerID
+		operation.Generation = 1
+		operation.LeaseUntil = now.Add(leaseTTL(leases[0].TTL))
 	}
 	key := operationKey(request.OperationID)
 	value, err := encodeOperation(operation)
@@ -238,6 +279,102 @@ func (j *Journal) Begin(request *Request) (operation *Operation, exists bool, er
 	return j.existingForBegin(key, request.OperationID, digest)
 }
 
+// Takeover acquires an expired running operation using a compare-and-set
+// generation fence. It never executes provider work itself.
+func (j *Journal) Takeover(operationID, requestDigest string, lease OperationLease) (*Operation, error) {
+	if j == nil || j.store == nil || lease.OwnerID == "" {
+		return nil, errors.New("delivery: operation takeover requires a configured journal and owner")
+	}
+	key := operationKey(operationID)
+	entry, err := j.store.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("delivery: operation takeover read failed: %w", err)
+	}
+	operation, err := decodeOperation(entry, operationID)
+	if err != nil {
+		return nil, err
+	}
+	if operation.RequestDigest != requestDigest {
+		return nil, ErrOperationConflict
+	}
+	if operation.State == OperationDone {
+		return operation, nil
+	}
+	if operation.State != OperationRunning {
+		return nil, fmt.Errorf("delivery: operation %s has invalid state %q", operationID, operation.State)
+	}
+	now := j.now()
+	// Legacy running records without a lease have no provable owner boundary;
+	// they remain fail-closed and require explicit operator recovery.
+	if operation.LeaseUntil.IsZero() {
+		return nil, ErrOperationLeaseActive
+	}
+	if !operation.LeaseUntil.IsZero() && now.Before(operation.LeaseUntil) {
+		return nil, ErrOperationLeaseActive
+	}
+	next := cloneOperation(operation)
+	next.OwnerID = lease.OwnerID
+	next.Generation++
+	if next.Generation == 0 {
+		return nil, errors.New("delivery: operation takeover generation overflow")
+	}
+	next.LeaseUntil = now.Add(leaseTTL(lease.TTL))
+	next.UpdatedAt = now
+	value, err := encodeOperation(next)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := j.store.Update(key, entry.Revision, value)
+	if err != nil {
+		if errors.Is(err, ErrStoreConflict) {
+			return nil, ErrOperationLeaseActive
+		}
+		return nil, fmt.Errorf("delivery: operation takeover persistence failed: %w", err)
+	}
+	return decodeOperation(updated, operationID)
+}
+
+// Renew extends an owner's lease only when both owner and generation still
+// match. A stale process can therefore never regain execution authority.
+func (j *Journal) Renew(operationID, requestDigest string, lease OperationLease, generation uint64) error {
+	if j == nil || j.store == nil || lease.OwnerID == "" || generation == 0 {
+		return errors.New("delivery: operation renewal requires a configured journal and owner")
+	}
+	key := operationKey(operationID)
+	entry, err := j.store.Get(key)
+	if err != nil {
+		return fmt.Errorf("delivery: operation renewal read failed: %w", err)
+	}
+	operation, err := decodeOperation(entry, operationID)
+	if err != nil {
+		return err
+	}
+	if operation.RequestDigest != requestDigest {
+		return ErrOperationConflict
+	}
+	if operation.State != OperationRunning || operation.OwnerID != lease.OwnerID || operation.Generation != generation {
+		return ErrOperationLeaseActive
+	}
+	now := j.now()
+	if !operation.LeaseUntil.IsZero() && !now.Before(operation.LeaseUntil) {
+		return ErrOperationLeaseActive
+	}
+	next := cloneOperation(operation)
+	next.LeaseUntil = now.Add(leaseTTL(lease.TTL))
+	next.UpdatedAt = now
+	value, err := encodeOperation(next)
+	if err != nil {
+		return err
+	}
+	if _, err := j.store.Update(key, entry.Revision, value); err != nil {
+		if errors.Is(err, ErrStoreConflict) {
+			return ErrOperationLeaseActive
+		}
+		return fmt.Errorf("delivery: operation renewal persistence failed: %w", err)
+	}
+	return nil
+}
+
 func (j *Journal) existingForBegin(key, operationID, digest string) (*Operation, bool, error) {
 	entry, err := j.store.Get(key)
 	if err != nil {
@@ -248,7 +385,7 @@ func (j *Journal) existingForBegin(key, operationID, digest string) (*Operation,
 		return nil, false, err
 	}
 	if operation.RequestDigest != digest {
-		return nil, false, fmt.Errorf("delivery: operation %s exists with a different request", operationID)
+		return nil, false, fmt.Errorf("%w: %s exists with a different request", ErrOperationConflict, operationID)
 	}
 	return operation, true, nil
 }
@@ -256,7 +393,7 @@ func (j *Journal) existingForBegin(key, operationID, digest string) (*Operation,
 // Finish records the terminal receipt of one operation using compare and set.
 // A terminal operation is immutable: replaying the exact same receipt is fine,
 // replacing it (even with the same status and different fields) is not.
-func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt) error {
+func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt, leases ...OperationLease) error {
 	if j == nil || j.store == nil || receipt == nil {
 		return errors.New("delivery: journal finish requires a configured journal and receipt")
 	}
@@ -275,6 +412,12 @@ func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt) er
 	if operation.RequestDigest != requestDigest {
 		return fmt.Errorf("delivery: operation %s digest changed", operationID)
 	}
+	if len(leases) > 0 && (operation.OwnerID != leases[0].OwnerID || operation.Generation != leases[0].Generation) {
+		return ErrOperationLeaseActive
+	}
+	if len(leases) > 0 && !operation.LeaseUntil.IsZero() && !j.now().Before(operation.LeaseUntil) {
+		return ErrOperationLeaseActive
+	}
 	if operation.State == OperationDone {
 		if sameReceipt(operation.Receipt, receipt) {
 			return nil
@@ -286,6 +429,11 @@ func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt) er
 	}
 	if err := validateJournalReceipt(receipt, operationID); err != nil {
 		return err
+	}
+	if ValidateRequest(operation.Request) == nil {
+		if err := ValidateReceipt(receipt, operation.Request); err != nil {
+			return fmt.Errorf("delivery: journal finish receipt is invalid: %w", err)
+		}
 	}
 	now := j.now()
 	if now.Before(operation.UpdatedAt) {
@@ -319,6 +467,106 @@ func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt) er
 		return nil
 	}
 	return fmt.Errorf("delivery: operation %s changed concurrently", operationID)
+}
+
+// RecoverUnknown closes an accepted running operation without executing any
+// provider work. It is an explicit crash-recovery fence: an operator may use
+// it only after establishing that the former owner is stopped. The receipt
+// records an indeterminate outcome so callers must choose a fresh operation ID
+// after investigating provider state.
+func (j *Journal) RecoverUnknown(operationID string) (*Receipt, error) {
+	if j == nil || j.store == nil {
+		return nil, errors.New("delivery: journal recovery requires a configured journal")
+	}
+	if operationID == "" || !operationIDPattern.MatchString(operationID) {
+		return nil, errors.New("delivery: journal recovery operation ID is invalid")
+	}
+	key := operationKey(operationID)
+	entry, err := j.store.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("delivery: journal recovery read failed: %w", err)
+	}
+	operation, err := decodeOperation(entry, operationID)
+	if err != nil {
+		return nil, err
+	}
+	if operation.State == OperationDone {
+		return operation.Receipt, nil
+	}
+	if operation.State != OperationRunning {
+		return nil, fmt.Errorf("delivery: operation %s has invalid state %q", operationID, operation.State)
+	}
+	// A record without a durable lease has no enforceable owner boundary. It
+	// may be an old record written before fencing was introduced, but treating
+	// it as recoverable would let recovery race an owner that is still alive.
+	if operation.OwnerID == "" || operation.Generation == 0 || operation.LeaseUntil.IsZero() {
+		return nil, ErrOperationLeaseActive
+	}
+	if j.now().Before(operation.LeaseUntil) {
+		return nil, ErrOperationLeaseActive
+	}
+	// Recovery itself takes a generation fence before publishing an unknown
+	// outcome. The compare-and-set below is the hand-off point: either this
+	// recovery wins, or a concurrent owner/takeover wins and this call must not
+	// claim a terminal result. The owner identity is deliberately unique to
+	// this recovery attempt so a stale process can never renew or finish it.
+	nextGeneration := operation.Generation + 1
+	if nextGeneration == 0 {
+		return nil, errors.New("delivery: operation recovery generation overflow")
+	}
+	recoveryOwner := fmt.Sprintf("recovery-%s-%d", operationID, nextGeneration)
+	receipt, err := buildReceipt(operation.Request, RolloutResult{
+		Status:    StatusFailed,
+		Checks:    []*HealthCheck{{Name: "recovery", Status: "failed"}},
+		Converged: false,
+		Rollback:  &Rollback{Attempted: true, Status: RollbackFailed},
+		Error: &Error{
+			Code:        ptr("operation_unknown"),
+			Message:     ptr("The prior delivery owner stopped before its outcome was recorded."),
+			Remediation: ptr("Inspect provider state and retry with a fresh operation ID."),
+		},
+	}, false)
+	if err != nil {
+		return nil, err
+	}
+	if ValidateRequest(operation.Request) == nil {
+		if err := ValidateReceipt(receipt, operation.Request); err != nil {
+			return nil, fmt.Errorf("delivery: journal recovery receipt is invalid: %w", err)
+		}
+	}
+	now := j.now()
+	if now.Before(operation.UpdatedAt) {
+		now = operation.UpdatedAt
+	}
+	next := cloneOperation(operation)
+	next.OwnerID = recoveryOwner
+	next.Generation = nextGeneration
+	next.LeaseUntil = time.Time{}
+	next.State = OperationDone
+	next.Receipt = cloneReceipt(receipt)
+	next.FinishedAt = now
+	next.UpdatedAt = now
+	value, err := encodeOperation(next)
+	if err != nil {
+		return nil, fmt.Errorf("delivery: journal recovery encoding failed: %w", err)
+	}
+	if _, err := j.store.Update(key, entry.Revision, value); err == nil {
+		return receipt, nil
+	} else if !errors.Is(err, ErrStoreConflict) {
+		return nil, fmt.Errorf("delivery: journal recovery persistence failed: %w", err)
+	}
+	latest, readErr := j.store.Get(key)
+	if readErr != nil {
+		return nil, fmt.Errorf("delivery: journal recovery conflict recovery failed: %w", readErr)
+	}
+	current, decodeErr := decodeOperation(latest, operationID)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	if current.State == OperationDone && current.Receipt != nil {
+		return current.Receipt, nil
+	}
+	return nil, fmt.Errorf("delivery: operation %s changed concurrently", operationID)
 }
 
 // Get returns a copy of one operation by ID. Persistence errors are reported
@@ -411,8 +659,17 @@ func decodeOperation(entry StoreEntry, operationID string) (*Operation, error) {
 		return nil, fmt.Errorf("delivery: durable operation %s has a mismatched key", operationID)
 	}
 	var operation Operation
-	if err := json.Unmarshal(entry.Value, &operation); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(entry.Value))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&operation); err != nil {
 		return nil, fmt.Errorf("delivery: durable operation %s is corrupt: %w", operationID, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("delivery: durable operation %s has trailing data", operationID)
+		}
+		return nil, fmt.Errorf("delivery: durable operation %s has trailing data: %w", operationID, err)
 	}
 	if operation.OperationID != operationID || operation.Request == nil || operation.RequestDigest == "" || operation.State == "" {
 		return nil, fmt.Errorf("delivery: durable operation %s is invalid", operationID)
@@ -420,6 +677,9 @@ func decodeOperation(entry StoreEntry, operationID string) (*Operation, error) {
 	digest, err := requestDigest(operation.Request)
 	if err != nil || digest != operation.RequestDigest {
 		return nil, fmt.Errorf("delivery: durable operation %s request digest is invalid", operationID)
+	}
+	if !operationIDPattern.MatchString(operation.OperationID) {
+		return nil, fmt.Errorf("delivery: durable operation %s has an invalid operation ID", operationID)
 	}
 	if operation.State == OperationRunning && operation.Receipt != nil {
 		return nil, fmt.Errorf("delivery: durable operation %s has a receipt while running", operationID)
@@ -431,9 +691,30 @@ func decodeOperation(entry StoreEntry, operationID string) (*Operation, error) {
 		if err := validateJournalReceipt(operation.Receipt, operationID); err != nil {
 			return nil, err
 		}
+		// The journal is also a receipt boundary. Legacy/unit-only records may
+		// contain deliberately skeletal requests, but any production-shaped
+		// request must have a receipt that satisfies the complete contract before
+		// it can be replayed after restart.
+		if ValidateRequest(operation.Request) == nil {
+			if err := ValidateReceipt(operation.Receipt, operation.Request); err != nil {
+				return nil, fmt.Errorf("delivery: durable operation %s receipt is invalid: %w", operationID, err)
+			}
+		}
 	}
 	if operation.State != OperationRunning && operation.State != OperationDone {
 		return nil, fmt.Errorf("delivery: durable operation %s has invalid state %q", operationID, operation.State)
+	}
+	if operation.StartedAt.IsZero() || operation.UpdatedAt.IsZero() {
+		return nil, fmt.Errorf("delivery: durable operation %s has invalid timestamps", operationID)
+	}
+	if !operation.FinishedAt.IsZero() && operation.FinishedAt.Before(operation.StartedAt) {
+		return nil, fmt.Errorf("delivery: durable operation %s has an invalid finish timestamp", operationID)
+	}
+	if operation.OwnerID == "" && (!operation.LeaseUntil.IsZero() || operation.Generation != 0) {
+		return nil, fmt.Errorf("delivery: durable operation %s has an invalid lease", operationID)
+	}
+	if operation.OwnerID != "" && operation.Generation == 0 {
+		return nil, fmt.Errorf("delivery: durable operation %s has an invalid lease generation", operationID)
 	}
 	return cloneOperation(&operation), nil
 }

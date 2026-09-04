@@ -79,3 +79,17 @@ func EgressPaceExceedsMonthlyBudget(hourlyBytes float64) (bool, error) {
 	}
 	return hourlyBytes > EgressHourlyPaceThresholdBytes, nil
 }
+
+// EgressExceedsMonthlyBudget reports whether a cumulative Region total has
+// crossed the dashboard warning line. This is intentionally a predicate,
+// not a page event: egress remains a cause condition and only SLO burn may
+// reach the paging sink.
+func EgressExceedsMonthlyBudget(bytesTotal float64) (bool, error) {
+	if math.IsNaN(bytesTotal) || math.IsInf(bytesTotal, 0) {
+		return false, errors.New("egress total must be finite")
+	}
+	if bytesTotal < 0 || bytesTotal > maxEgressBytesTotal {
+		return false, errors.New("egress total must be between 0 and 1 EiB")
+	}
+	return bytesTotal > EgressMonthlyBudgetBytes, nil
+}

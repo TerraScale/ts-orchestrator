@@ -88,6 +88,22 @@ type EdgePromoter interface {
 	PromoteSnippet(ctx context.Context, service, digest string) error
 }
 
+// WorkerGradualPromoter is an optional stronger edge seam. Implementations
+// use Cloudflare gradual deployments (with their provider-side health
+// controls) and only return after the requested digest is serving. The basic
+// EdgePromoter remains source-compatible for local and non-Cloudflare fakes.
+type WorkerGradualPromoter interface {
+	PromoteWorkerGradual(ctx context.Context, service, digest string) error
+}
+
+// SnippetZoneRuleCoordinator coordinates Snippet activation with the zone
+// rules that admit the sync gate. It is intentionally separate from Worker
+// promotion: Snippet code and its rule are one atomic orchestration unit, and
+// a rule failure must trigger edge rollback before a receipt is issued.
+type SnippetZoneRuleCoordinator interface {
+	CoordinateSnippetZoneRules(ctx context.Context, service, digest string) error
+}
+
 // NewRollout validates the configuration.
 func NewRollout(config RolloutConfig) (*Rollout, error) {
 	if err := config.Spec.Validate(); err != nil {
@@ -95,6 +111,11 @@ func NewRollout(config RolloutConfig) (*Rollout, error) {
 	}
 	if config.Hosts == nil {
 		return nil, errors.New("delivery: rollout requires a host inventory")
+	}
+	for _, gate := range config.Gates {
+		if gate == nil || strings.TrimSpace(gate.Name()) == "" {
+			return nil, errors.New("delivery: rollout gates require non-empty names")
+		}
 	}
 	if config.GateTimeout <= 0 {
 		config.GateTimeout = 10 * time.Minute
@@ -111,8 +132,16 @@ func NewRollout(config RolloutConfig) (*Rollout, error) {
 // Roll executes one delivery and reports the terminal result. It implements
 // Roller, so the delivery API drives it directly.
 func (r *Rollout) Roll(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if r == nil || request == nil || request.Target == nil || request.Artifact == nil || artifact == nil {
 		return RolloutResult{}, errors.New("delivery: rollout requires a request and artifact")
+	}
+	if artifact.Service != request.Target.Service || !SameDigest(artifact.Digest, request.Artifact.Digest) ||
+		len(artifact.Body) == 0 || !SameDigest(SHA256Digest(artifact.Body), artifact.Digest) ||
+		(artifact.Architecture != "" && artifact.Architecture != request.Artifact.Architecture) {
+		return r.failure("artifact_identity_mismatch", errors.New("verified rollout artifact does not match the requested candidate identity"))
 	}
 	regions, err := r.targetRegions(request)
 	if err != nil {
@@ -131,15 +160,32 @@ func (r *Rollout) Roll(ctx context.Context, request *Request, artifact *ReleaseA
 		if r.config.Edge == nil {
 			return r.failure("edge_promoter_missing", errors.New("no edge promoter is configured"))
 		}
-		return r.rollEdge(ctx, request, artifact, r.config.Edge.PromoteWorker, r.config.Edge.PromoteWorker)
+		return r.rollEdge(ctx, request, artifact, r.promoteWorker, r.promoteWorker)
 	case "package":
 		if r.config.Edge == nil {
 			return r.failure("edge_promoter_missing", errors.New("no edge promoter is configured"))
 		}
-		return r.rollEdge(ctx, request, artifact, r.config.Edge.PromoteSnippet, r.config.Edge.PromoteSnippet)
+		return r.rollEdge(ctx, request, artifact, r.promoteSnippet, r.promoteSnippet)
 	default:
 		return r.failure("artifact_kind_invalid", fmt.Errorf("artifact kind %s is not deployable", request.Artifact.Kind))
 	}
+}
+
+func (r *Rollout) promoteWorker(ctx context.Context, service, digest string) error {
+	if gradual, ok := r.config.Edge.(WorkerGradualPromoter); ok {
+		return gradual.PromoteWorkerGradual(ctx, service, digest)
+	}
+	return r.config.Edge.PromoteWorker(ctx, service, digest)
+}
+
+func (r *Rollout) promoteSnippet(ctx context.Context, service, digest string) error {
+	if err := r.config.Edge.PromoteSnippet(ctx, service, digest); err != nil {
+		return err
+	}
+	if coordinator, ok := r.config.Edge.(SnippetZoneRuleCoordinator); ok {
+		return coordinator.CoordinateSnippetZoneRules(ctx, service, digest)
+	}
+	return nil
 }
 
 // targetRegions resolves the request's Regions against the declared estate
@@ -195,10 +241,12 @@ func (r *Rollout) rollHosts(ctx context.Context, request *Request, artifact *Rel
 	}
 
 	for _, step := range steps {
-		hostChecks, err := r.step(ctx, step, artifact)
+		hostChecks, touchedHost, err := r.step(ctx, step, artifact)
 		checks = append(checks, hostChecks...)
 		if err != nil {
-			touched = append(touched, step.host)
+			if touchedHost {
+				touched = append(touched, step.host)
+			}
 			return fail(err)
 		}
 		touched = append(touched, step.host)
@@ -220,16 +268,36 @@ type hostStep struct {
 
 func (r *Rollout) hostSteps(ctx context.Context, regions []string, canaryRegion string) ([]hostStep, error) {
 	var steps []hostStep
-	seenCanary := false
+	seenHosts := make(map[string]struct{})
+	// Always schedule the canary Region first, even if a custom estate's
+	// declaration order places another Region ahead of the home Region.
+	orderedRegions := make([]string, 0, len(regions))
+	orderedRegions = append(orderedRegions, canaryRegion)
 	for _, region := range regions {
+		if region != canaryRegion {
+			orderedRegions = append(orderedRegions, region)
+		}
+	}
+	seenCanary := false
+	for _, region := range orderedRegions {
 		hosts, err := r.config.Hosts.Hosts(ctx, region)
 		if err != nil {
 			return nil, err
 		}
-		if len(hosts) == 0 {
-			return nil, fmt.Errorf("region %s reports no hosts", region)
+		// TerraBase launches with RF=2. A rolling activation must never drain
+		// the only member of a Region or silently continue with an inventory
+		// that cannot preserve that replication factor.
+		if len(hosts) < 2 {
+			return nil, fmt.Errorf("region %s reports %d hosts; at least two are required to preserve RF=2", region, len(hosts))
 		}
 		for index, host := range hosts {
+			if strings.TrimSpace(host) == "" {
+				return nil, fmt.Errorf("region %s reports an empty host", region)
+			}
+			if _, exists := seenHosts[host]; exists {
+				return nil, fmt.Errorf("host %s appears more than once in the rollout inventory", host)
+			}
+			seenHosts[host] = struct{}{}
 			canary := !seenCanary && region == canaryRegion && index == 0
 			if canary {
 				seenCanary = true
@@ -245,7 +313,7 @@ func (r *Rollout) hostSteps(ctx context.Context, regions []string, canaryRegion 
 
 // step runs one host: cordon, drain gate, converge (the ts-node symlink
 // flip and restart), the configured gates, uncordon.
-func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArtifact) ([]*HealthCheck, error) {
+func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArtifact) ([]*HealthCheck, bool, error) {
 	label := step.host
 	if step.canary {
 		label = step.host + " (canary)"
@@ -253,7 +321,8 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 	checks := []*HealthCheck{}
 
 	if err := r.config.Control.Cordon(ctx, step.host, true); err != nil {
-		return r.failStep(checks, "cordon:"+label, err)
+		failedChecks, failedErr := r.failStep(checks, "cordon:"+label, err)
+		return failedChecks, false, failedErr
 	}
 	if err := waitForGate(ctx, r.config.GateTimeout, r.now, r.wait, func() (bool, error) {
 		report, err := r.config.Control.DrainStatus(ctx, step.host)
@@ -262,27 +331,39 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 		}
 		return report.Cordoned && report.Drained, nil
 	}); err != nil {
-		return r.failStep(checks, "drain:"+label, err)
+		failedChecks, failedErr := r.failStep(checks, "drain:"+label, err)
+		return failedChecks, true, failedErr
 	}
 	checks = append(checks, &HealthCheck{Name: "drain:" + label, Status: "passed"})
 
-	plan, err := hostPlan(artifact.Service, artifact.Digest)
+	plan, err := hostPlanForArtifact(artifact)
 	if err != nil {
-		return r.failStep(checks, "converge:"+label, err)
+		failedChecks, failedErr := r.failStep(checks, "converge:"+label, err)
+		return failedChecks, true, failedErr
 	}
 	if err := r.config.Control.Converge(ctx, step.host, plan); err != nil {
-		return r.failStep(checks, "converge:"+label, err)
+		failedChecks, failedErr := r.failStep(checks, "converge:"+label, err)
+		return failedChecks, true, failedErr
 	}
 	for _, gate := range r.config.Gates {
-		if err := gate.Check(ctx, step.host, artifact.Digest); err != nil {
-			return r.failStep(checks, gate.Name()+":"+label, err)
+		if gate == nil {
+			failedChecks, failedErr := r.failStep(checks, "gate:"+label, errors.New("delivery: rollout contains a nil gate"))
+			return failedChecks, true, failedErr
+		}
+		if err := waitForGate(ctx, r.config.GateTimeout, r.now, r.wait, func() (bool, error) {
+			gateErr := gate.Check(ctx, step.host, artifact.Digest)
+			return gateErr == nil, gateErr
+		}); err != nil {
+			failedChecks, failedErr := r.failStep(checks, gate.Name()+":"+label, err)
+			return failedChecks, true, failedErr
 		}
 		checks = append(checks, &HealthCheck{Name: gate.Name() + ":" + label, Status: "passed"})
 	}
 	if err := r.config.Control.Cordon(ctx, step.host, false); err != nil {
-		return r.failStep(checks, "uncordon:"+label, err)
+		failedChecks, failedErr := r.failStep(checks, "uncordon:"+label, err)
+		return failedChecks, true, failedErr
 	}
-	return checks, nil
+	return checks, true, nil
 }
 
 func (r *Rollout) failStep(checks []*HealthCheck, name string, err error) ([]*HealthCheck, error) {
@@ -308,6 +389,21 @@ func (r *Rollout) rollbackTouched(ctx context.Context, request *Request, artifac
 			Status:    RollbackNotRequired,
 		},
 	}
+	// Rollback is recovery, not customer work. It must continue after the
+	// caller cancels the forward rollout, otherwise a canceled request can
+	// leave a partially activated host running the candidate indefinitely.
+	rollbackContext := ctx
+	if rollbackContext == nil {
+		rollbackContext = context.Background()
+	} else {
+		rollbackContext = context.WithoutCancel(rollbackContext)
+	}
+	rollbackContext, cancel := context.WithTimeout(rollbackContext, rolloutRecoveryTimeout)
+	defer cancel()
+	if len(touched) == 0 {
+		result.Error.Message = ptr(message + " No host mutation was recorded, so rollback was not required.")
+		return result, nil
+	}
 	if request.Rollback == nil {
 		result.Error.Message = ptr(message + " No rollback artifact was declared, so the failed host keeps its prior release.")
 		return result, nil
@@ -319,18 +415,18 @@ func (r *Rollout) rollbackTouched(ctx context.Context, request *Request, artifac
 
 	for i := len(touched) - 1; i >= 0; i-- {
 		host := touched[i]
-		plan, err := hostPlan(artifact.Service, request.Rollback.ArtifactDigest)
+		plan, err := hostPlanForArtifact(&ReleaseArtifact{Service: artifact.Service, Digest: request.Rollback.ArtifactDigest, Architecture: request.Rollback.Architecture})
 		if err != nil {
 			result.Rollback.Status = RollbackFailed
 			result.Error.Message = ptr("The rollback artifact identity is invalid: " + err.Error())
 			return result, nil
 		}
-		if err := r.config.Control.Converge(ctx, host, plan); err != nil {
+		if err := r.config.Control.Converge(rollbackContext, host, plan); err != nil {
 			result.Rollback.Status = RollbackFailed
 			result.Error.Message = ptr(fmt.Sprintf("The rollback of host %s failed: %s", host, err.Error()))
 			return result, nil
 		}
-		if err := r.config.Control.Cordon(ctx, host, false); err != nil {
+		if err := r.config.Control.Cordon(rollbackContext, host, false); err != nil {
 			result.Rollback.Status = RollbackFailed
 			result.Error.Message = ptr(fmt.Sprintf("The rollback uncordon of host %s failed: %s", host, err.Error()))
 			return result, nil
@@ -379,7 +475,15 @@ func (r *Rollout) rollbackEdge(ctx context.Context, request *Request, checks []*
 			Rollback: &Rollback{Attempted: true, TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest), TargetManifestDigest: ptr(request.Rollback.ManifestDigest), Status: RollbackFailed},
 		}, nil
 	}
-	if err := promote(ctx, request.Target.Service, request.Rollback.ArtifactDigest); err != nil {
+	rollbackContext := ctx
+	if rollbackContext == nil {
+		rollbackContext = context.Background()
+	} else {
+		rollbackContext = context.WithoutCancel(rollbackContext)
+	}
+	rollbackContext, cancel := context.WithTimeout(rollbackContext, rolloutRecoveryTimeout)
+	defer cancel()
+	if err := promote(rollbackContext, request.Target.Service, request.Rollback.ArtifactDigest); err != nil {
 		return RolloutResult{
 			Status:   StatusFailed,
 			Checks:   checks,
@@ -416,6 +520,14 @@ func (r *Rollout) failure(code string, cause error) (RolloutResult, error) {
 // the artifact digest is the version (D-69). Unknown components fail
 // closed.
 func hostPlan(component, digest string) ([]byte, error) {
+	return hostPlanForArtifact(&ReleaseArtifact{Service: component, Digest: digest})
+}
+
+func hostPlanForArtifact(artifact *ReleaseArtifact) ([]byte, error) {
+	if artifact == nil {
+		return nil, errors.New("delivery: host plan requires an artifact")
+	}
+	component, digest := artifact.Service, artifact.Digest
 	role, err := componentRole(component)
 	if err != nil {
 		return nil, err
@@ -429,12 +541,18 @@ func hostPlan(component, digest string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	architecture := runtime.HostArchitectureArm64
+	if artifact.Architecture == "linux/amd64" {
+		architecture = runtime.HostArchitectureX64
+	} else if artifact.Architecture != "" && artifact.Architecture != "linux/arm64" && artifact.Architecture != "multi" {
+		return nil, fmt.Errorf("delivery: unsupported host architecture %s", artifact.Architecture)
+	}
 	plan, err := runtime.NewHostRuntimePlan(
 		role,
 		runtime.RuntimeDriverNativeSystemd,
 		allocation,
 		artifactDigest,
-		runtime.HostArchitectureArm64,
+		architecture,
 		nil,
 	)
 	if err != nil {

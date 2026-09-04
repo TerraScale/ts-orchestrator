@@ -21,6 +21,7 @@ import (
 type ReleaseArtifact struct {
 	Service      string
 	Digest       string // "sha256:<hex>" as named by the request
+	Architecture string // linux/arm64 or linux/amd64; empty means legacy arm64
 	Body         []byte
 	SignatureKey string // the trust-set key ID that verified the signature
 }
@@ -91,6 +92,9 @@ func (f *ForgejoArtifactFetcher) Fetch(ctx context.Context, request *Request) ([
 	if f == nil || strings.TrimSpace(f.BaseURL) == "" {
 		return nil, "", errors.New("delivery: artifact fetcher is not configured")
 	}
+	if ctx == nil {
+		return nil, "", errors.New("delivery: artifact fetch requires a context")
+	}
 	if request == nil || request.Source == nil || request.Artifact == nil {
 		return nil, "", errors.New("delivery: artifact fetch requires source and artifact identity")
 	}
@@ -138,6 +142,9 @@ func (f *ForgejoArtifactFetcher) releaseForCommit(ctx context.Context, request *
 // releaseAssets picks the artifact asset by the ts-deploy naming convention
 // (<service>-linux-<arch>) plus its <name>.sig sidecar.
 func releaseAssets(release *forgejoRelease, request *Request) (forgejoAsset, forgejoAsset, error) {
+	if release == nil || request == nil || request.Artifact == nil || request.Target == nil {
+		return forgejoAsset{}, forgejoAsset{}, errors.New("delivery: release asset lookup requires a complete request")
+	}
 	arch := strings.TrimPrefix(request.Artifact.Architecture, "linux/")
 	if arch == "multi" {
 		arch = "arm64"
@@ -325,7 +332,10 @@ func SHA256Digest(body []byte) string {
 // that verifies under the active trust set. Any mismatch is a typed,
 // fail-closed rejection; the rollout never starts without this passing.
 func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSet, request *Request) (*ReleaseArtifact, error) {
-	if request.Artifact == nil {
+	if ctx == nil {
+		return nil, errors.New("delivery: artifact verification requires a context")
+	}
+	if fetcher == nil || trust == nil || request == nil || request.Artifact == nil || request.Target == nil {
 		return nil, errors.New("delivery: request carries no artifact identity")
 	}
 	body, signatureText, err := fetcher.Fetch(ctx, request)
@@ -350,7 +360,8 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	return &ReleaseArtifact{
 		Service:      request.Target.Service,
 		Digest:       computed,
-		Body:         body,
+		Architecture: request.Artifact.Architecture,
+		Body:         append([]byte(nil), body...),
 		SignatureKey: keyID,
 	}, nil
 }

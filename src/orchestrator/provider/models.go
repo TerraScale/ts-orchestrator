@@ -685,7 +685,11 @@ type HandoffInventoryItem struct {
 	Generation ProviderGeneration
 }
 type HandoffInventoryFingerprint struct{ Value string }
-type FreshBootstrapInventory struct{ Expected, Pulumi, Regional []HandoffInventoryItem }
+
+// FreshBootstrapInventory contains the expected inventory and the regional
+// provider observation used during authority handoff. A third infrastructure
+// projection is intentionally absent so the runtime has one ownership writer.
+type FreshBootstrapInventory struct{ Expected, Regional []HandoffInventoryItem }
 type HandoffScope struct {
 	CellId               ProviderCellId
 	CompartmentId        ProviderCompartmentId

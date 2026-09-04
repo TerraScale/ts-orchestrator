@@ -83,3 +83,26 @@ func TestEgressPaceMatchesMonthlyBudgetAlert(t *testing.T) {
 		})
 	}
 }
+
+func TestEgressMonthlyBudgetPredicateIsBoundedAndDashboardOnly(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value float64
+		want  bool
+	}{
+		{name: "below", value: EgressMonthlyBudgetBytes, want: false},
+		{name: "above", value: EgressMonthlyBudgetBytes + 1, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := EgressExceedsMonthlyBudget(test.value)
+			if err != nil || got != test.want {
+				t.Fatalf("monthly egress = %v, %v; want %v", got, err, test.want)
+			}
+		})
+	}
+	for _, value := range []float64{-1, nan(), inf(), maxEgressBytesTotal + 1<<10} {
+		if _, err := EgressExceedsMonthlyBudget(value); err == nil {
+			t.Fatalf("invalid monthly egress %v was accepted", value)
+		}
+	}
+}

@@ -612,8 +612,8 @@ func nextIntent(r ProviderAuthorizationRequest, creates map[string][]ProviderCre
 func NewHandoffScope(cell ProviderCellId, compartment ProviderCompartmentId, generation ProviderGeneration, operation ProviderOperationId, inventory FreshBootstrapInventory) HandoffScope {
 	return HandoffScope{cell, compartment, generation, operation, newFingerprint(inventory.Expected)}
 }
-func NewFreshBootstrapInventory(expected, pulumi, regional []HandoffInventoryItem) (FreshBootstrapInventory, error) {
-	for _, x := range [][]HandoffInventoryItem{expected, pulumi, regional} {
+func NewFreshBootstrapInventory(expected, regional []HandoffInventoryItem) (FreshBootstrapInventory, error) {
+	for _, x := range [][]HandoffInventoryItem{expected, regional} {
 		if len(x) > MaximumHandoffInventoryCount {
 			return FreshBootstrapInventory{}, &errs.Argument{Message: "handoff inventory exceeds its bound"}
 		}
@@ -623,10 +623,10 @@ func NewFreshBootstrapInventory(expected, pulumi, regional []HandoffInventoryIte
 			}
 		}
 	}
-	return FreshBootstrapInventory{append([]HandoffInventoryItem(nil), expected...), append([]HandoffInventoryItem(nil), pulumi...), append([]HandoffInventoryItem(nil), regional...)}, nil
+	return FreshBootstrapInventory{Expected: append([]HandoffInventoryItem(nil), expected...), Regional: append([]HandoffInventoryItem(nil), regional...)}, nil
 }
 func EvaluateHandoff(r HandoffRequest) HandoffDecision {
-	all := [][]HandoffInventoryItem{r.Inventory.Expected, r.Inventory.Pulumi, r.Inventory.Regional}
+	all := [][]HandoffInventoryItem{r.Inventory.Expected, r.Inventory.Regional}
 	inventoryValid := validHandoffInventory(r.Inventory)
 	dups := 0
 	for _, items := range all {
@@ -642,7 +642,7 @@ func EvaluateHandoff(r HandoffRequest) HandoffDecision {
 		}
 	}
 	expectedDigest := digestProjection(r.Inventory.Expected)
-	exact := inventoryValid && expectedDigest == digestProjection(r.Inventory.Pulumi) && expectedDigest == digestProjection(r.Inventory.Regional)
+	exact := inventoryValid && expectedDigest == digestProjection(r.Inventory.Regional)
 	scope := validHandoffScope(r.ExpectedScope) && r.ExpectedScope.InventoryFingerprint.Value == expectedDigest
 	notRollback := r.CurrentAcceptedBootstrapGeneration.Value > 0 && r.ExpectedScope.BootstrapGeneration.Value >= r.CurrentAcceptedBootstrapGeneration.Value
 	tr := []ProviderDecisionReason{passReject(DecisionHandoffInventoryUnique, inventoryValid && dups == 0, false, uint64(dups), 0), passReject(DecisionHandoffInventoryExact, exact, false, boolToU(exact), 1), passReject(DecisionHandoffScopeMatches, scope, false, boolToU(scope), 1), passReject(DecisionHandoffGenerationNotRollback, notRollback, false, r.ExpectedScope.BootstrapGeneration.Value, r.CurrentAcceptedBootstrapGeneration.Value)}
@@ -682,7 +682,7 @@ func validHandoffInventoryItem(item HandoffInventoryItem) bool {
 }
 
 func validHandoffInventory(inventory FreshBootstrapInventory) bool {
-	for _, items := range [][]HandoffInventoryItem{inventory.Expected, inventory.Pulumi, inventory.Regional} {
+	for _, items := range [][]HandoffInventoryItem{inventory.Expected, inventory.Regional} {
 		if len(items) > MaximumHandoffInventoryCount {
 			return false
 		}

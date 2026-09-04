@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,6 +20,7 @@ import (
 const (
 	OperationsPath   = "/delivery/v1/operations"
 	operationsPrefix = OperationsPath + "/"
+	recoverySuffix   = "/recover"
 )
 
 // Roller executes one verified delivery against the estate: the canary-to-
@@ -48,6 +52,11 @@ type RolloutResult struct {
 // ServerConfig is the fully explicit delivery API configuration. Every
 // dependency is required; none is defaulted.
 type ServerConfig struct {
+	// OwnerID identifies this process for durable operation fencing. Empty uses
+	// a process-unique ID; production may provide a stable instance identity.
+	OwnerID string
+	// LeaseTTL bounds how long another process must wait before safe recovery.
+	LeaseTTL time.Duration
 	// Token returns the delivery bearer token (the O-3 Forgejo Actions
 	// secret). Required: an unauthenticated delivery API is refused.
 	Token func() (string, error)
@@ -75,8 +84,17 @@ type Server struct {
 	inFlight sync.Map // operation ID -> struct{}
 }
 
+var serverOwnerSequence atomic.Uint64
+
 // NewServer validates the configuration and composes the API.
 func NewServer(config ServerConfig) (*Server, error) {
+	if strings.TrimSpace(config.OwnerID) == "" {
+		sequence := serverOwnerSequence.Add(1)
+		config.OwnerID = "delivery-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatUint(sequence, 10)
+	}
+	if config.LeaseTTL <= 0 {
+		config.LeaseTTL = defaultOperationLeaseTTL
+	}
 	if config.Token == nil {
 		return nil, errors.New("delivery: server requires a delivery token source")
 	}
@@ -112,23 +130,76 @@ func (s *Server) serveOperations(writer http.ResponseWriter, request *http.Reque
 	case http.MethodPost:
 		s.handleSubmit(writer, request)
 	case http.MethodGet:
-		s.writeJSON(writer, http.StatusOK, operationSummaries(s.config.Journal.Snapshot()))
+		if err := s.authorize(request); err != nil {
+			s.writeError(writer, http.StatusUnauthorized, "delivery_unauthorized", "The delivery token is missing or invalid.", "Send the orchestrator delivery token as a bearer token.")
+			return
+		}
+		operations, err := s.config.Journal.SnapshotWithError()
+		if err != nil {
+			s.writeError(writer, http.StatusInternalServerError, "delivery_internal", "The delivery journal is unavailable.", "Restore journal health and retry the same operation ID.")
+			return
+		}
+		s.writeJSON(writer, http.StatusOK, operationSummaries(operations))
 	default:
 		s.writeMethodNotAllowed(writer)
 	}
 }
 
 func (s *Server) serveOperation(writer http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.Path, operationsPrefix)
+	isRecovery := strings.HasSuffix(path, recoverySuffix)
+	if isRecovery {
+		if request.Method != http.MethodPost {
+			s.writeMethodNotAllowed(writer)
+			return
+		}
+		if err := s.authorize(request); err != nil {
+			s.writeError(writer, http.StatusUnauthorized, "delivery_unauthorized", "The delivery token is missing or invalid.", "Send the orchestrator delivery token as a bearer token.")
+			return
+		}
+		operationID := strings.TrimSuffix(path, recoverySuffix)
+		if operationID == "" || strings.Contains(operationID, "/") {
+			s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
+			return
+		}
+		if _, running := s.inFlight.Load(operationID); running {
+			s.writeError(writer, http.StatusConflict, "operation_in_progress", "The operation is still running.", "Wait for the terminal receipt or retry recovery after the owner lease expires.")
+			return
+		}
+		receipt, err := s.config.Journal.RecoverUnknown(operationID)
+		if err != nil {
+			if errors.Is(err, ErrOperationLeaseActive) {
+				s.writeError(writer, http.StatusConflict, "operation_in_progress", "The operation is still running.", "Wait for the terminal receipt or retry recovery after the owner lease expires.")
+				return
+			}
+			if errors.Is(err, ErrStoreNotFound) {
+				s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
+				return
+			}
+			s.writeError(writer, http.StatusInternalServerError, "delivery_internal", "The delivery journal is unavailable.", "Restore journal health and retry the recovery request.")
+			return
+		}
+		s.writeJSON(writer, http.StatusOK, receipt)
+		return
+	}
 	if request.Method != http.MethodGet {
 		s.writeMethodNotAllowed(writer)
 		return
 	}
-	operationID := strings.TrimPrefix(request.URL.Path, operationsPrefix)
+	if err := s.authorize(request); err != nil {
+		s.writeError(writer, http.StatusUnauthorized, "delivery_unauthorized", "The delivery token is missing or invalid.", "Send the orchestrator delivery token as a bearer token.")
+		return
+	}
+	operationID := path
 	if operationID == "" || strings.Contains(operationID, "/") {
 		s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
 		return
 	}
-	operation, ok := s.config.Journal.Get(operationID)
+	operation, ok, err := s.config.Journal.GetWithError(operationID)
+	if err != nil {
+		s.writeError(writer, http.StatusInternalServerError, "delivery_internal", "The delivery journal is unavailable.", "Restore journal health and retry the same operation ID.")
+		return
+	}
 	if !ok {
 		s.writeError(writer, http.StatusNotFound, "operation_not_found", "The operation does not exist.", "Poll the operation ID returned by the delivery request.")
 		return
@@ -217,22 +288,54 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 	if request == nil {
 		return nil, errors.New("delivery: request is required")
 	}
-	operation, exists, err := s.config.Journal.Begin(request)
+	// Own an immutable snapshot for the entire operation. Callers often reuse
+	// and mutate a request object while polling; allowing that alias into the
+	// fetch/rollout path would change the CAS digest mid-flight and strand the
+	// durable operation.
+	request = cloneRequest(request)
+	if request == nil {
+		return nil, errors.New("delivery: request could not be copied")
+	}
+	if err := ValidateRequest(request); err != nil {
+		return nil, err
+	}
+	if request.Artifact == nil {
+		return nil, errors.New("delivery: exact artifact identity is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	lease := OperationLease{OwnerID: s.config.OwnerID, TTL: s.config.LeaseTTL}
+	operation, exists, err := s.config.Journal.Begin(request, lease)
 	if err != nil {
-		return nil, &conflictError{operationID: request.OperationID}
+		if errors.Is(err, ErrOperationConflict) {
+			return nil, &conflictError{operationID: request.OperationID}
+		}
+		return nil, fmt.Errorf("delivery: journal admission failed: %w", err)
 	}
 	if exists {
 		if operation.State == OperationDone && operation.Receipt != nil {
 			return operation.Receipt, nil
 		}
-		return nil, &inProgressError{operationID: request.OperationID}
+		taken, takeoverErr := s.config.Journal.Takeover(request.OperationID, operation.RequestDigest, lease)
+		if takeoverErr != nil {
+			// A running record is a durable ownership fence until its lease
+			// expires. No second process may race provider mutations.
+			return nil, &inProgressError{operationID: request.OperationID}
+		}
+		operation = taken
 	}
 	if _, loaded := s.inFlight.LoadOrStore(request.OperationID, struct{}{}); loaded {
 		return nil, &inProgressError{operationID: request.OperationID}
 	}
 	defer s.inFlight.Delete(request.OperationID)
 
-	receipt, err := s.deliver(ctx, request)
+	operationContext, cancel := context.WithCancel(ctx)
+	heartbeatDone := make(chan struct{})
+	go s.renewOperationLease(operationContext, request, operation, heartbeatDone, cancel)
+	receipt, err := s.deliver(operationContext, request, operation)
+	cancel()
+	<-heartbeatDone
 	if err != nil {
 		return nil, err
 	}
@@ -248,17 +351,52 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 			return nil, fmt.Errorf("delivery: produced an invalid failure receipt for %s: %w", request.OperationID, err)
 		}
 	}
-	if err := s.config.Journal.Finish(request.OperationID, operation.RequestDigest, receipt); err != nil {
+	if err := s.config.Journal.Finish(request.OperationID, operation.RequestDigest, receipt, leaseFor(operation, s.config)); err != nil {
 		return nil, err
 	}
 	return receipt, nil
+}
+
+func leaseFor(operation *Operation, config ServerConfig) OperationLease {
+	return OperationLease{OwnerID: config.OwnerID, TTL: config.LeaseTTL, Generation: operation.Generation}
+}
+
+func (s *Server) renewOperationLease(ctx context.Context, request *Request, operation *Operation, done chan<- struct{}, cancel context.CancelFunc) {
+	defer close(done)
+	interval := s.config.LeaseTTL / 3
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	lease := leaseFor(operation, s.config)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.config.Journal.Renew(request.OperationID, operation.RequestDigest, lease, operation.Generation); err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // deliver is the verify → mirror → roll pipeline. Every failure produces a
 // terminal receipt (never a half-ack): verification and mirroring failures
 // mean the deploy never started; rollout errors, cancellation, and panics are
 // converted to a fixed failed result so the operation can be finished.
-func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error) {
+func (s *Server) deliver(ctx context.Context, request *Request, operation *Operation) (receipt *Receipt, err error) {
+	verified := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			// Provider and trust adapters are outside this package's authority
+			// boundary. A panic must still leave a terminal, redacted receipt in
+			// the durable journal rather than strand the accepted operation.
+			receipt, err = buildReceipt(request, rolloutFailureResult("delivery_panicked", nil), verified)
+		}
+	}()
 	failed := func(code, message, remediation string) (*Receipt, error) {
 		return buildReceipt(request, RolloutResult{
 			Status: StatusFailed,
@@ -278,19 +416,42 @@ func (s *Server) deliver(ctx context.Context, request *Request) (*Receipt, error
 	}
 	artifact, err := verifyArtifact(preflightContext, s.config.Fetcher, s.config.Trust(), request)
 	if err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return failed("rollout_cancelled", "The delivery was cancelled before rollout started.", "Retry with a fresh operation ID after the target is ready.")
+		}
 		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
 	}
+	verified = true
 	if err := s.config.Mirror.MirrorAll(preflightContext, artifact); err != nil {
 		// D-71: the artifact mirrors into every Region before rollout starts;
 		// a partial mirror means the deploy never started, so nothing is
 		// stranded mid-way.
+		if ctx != nil && ctx.Err() != nil {
+			return failed("rollout_cancelled", "The delivery was cancelled before rollout started.", "Retry with a fresh operation ID after the target is ready.")
+		}
 		return failed("mirror_incomplete", "The artifact could not be mirrored into every Region.", "Retry the same operation ID after the Region object stores are reachable.")
 	}
 	result, err := rollSafely(ctx, s.config.Rollout, request, artifact)
 	if err != nil {
-		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), recoverRollout(ctx, s.config.Rollout, request, artifact)), true)
+		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), s.recoverOwnedRollout(ctx, request, artifact, operation)), true)
 	}
 	return buildReceipt(request, result, true)
+}
+
+// recoverOwnedRollout fences rollback itself. A lease can expire while a
+// provider call is blocked; in that case a different process may have taken
+// over the generation and the stale owner must not issue compensating writes.
+// Renewing immediately before rollback also keeps the lease alive while the
+// heartbeat goroutine remains active during the bounded recovery call.
+func (s *Server) recoverOwnedRollout(ctx context.Context, request *Request, artifact *ReleaseArtifact, operation *Operation) *Rollback {
+	if operation == nil || s.config.Journal == nil {
+		return nil
+	}
+	lease := leaseFor(operation, s.config)
+	if err := s.config.Journal.Renew(request.OperationID, operation.RequestDigest, lease, operation.Generation); err != nil {
+		return nil
+	}
+	return recoverRollout(ctx, s.config.Rollout, request, artifact)
 }
 
 func rollSafely(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact) (result RolloutResult, err error) {
@@ -314,7 +475,11 @@ func rolloutFailureCode(ctx context.Context, err error) string {
 }
 
 func recoverRollout(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact) *Rollback {
-	rollback := &Rollback{Status: RollbackFailed}
+	// A terminal failure must say recovery was attempted. When a Roller does
+	// not expose a rollback operation, the orchestrator cannot claim recovery
+	// was unnecessary: the outcome is explicitly failed/unknown and remains
+	// visible to operators for remediation.
+	rollback := &Rollback{Attempted: true, Status: RollbackFailed}
 	if _, ok := roller.(RolloutRollbacker); !ok {
 		if _, ok := roller.(interface {
 			Rollback(context.Context, *Request, *ReleaseArtifact) (Rollback, error)
@@ -375,7 +540,11 @@ func recoverRollout(ctx context.Context, roller Roller, request *Request, artifa
 
 func rolloutFailureResult(code string, rollback *Rollback) RolloutResult {
 	if rollback == nil {
-		rollback = &Rollback{Status: RollbackFailed}
+		// This helper is used for interrupted/unknown rollouts, including
+		// panic recovery. Such a terminal failure must explicitly record that
+		// recovery was attempted; not having a rollback adapter is itself a
+		// failed recovery outcome, never "not required".
+		rollback = &Rollback{Attempted: true, Status: RollbackFailed}
 	}
 	message := "The rollout did not reach a terminal outcome."
 	remediation := "Retry with a fresh operation ID after reviewing the rollout logs."

@@ -271,3 +271,100 @@ func TestStartUsesDailyInterval(t *testing.T) {
 		t.Fatalf("scheduler interval=%s callback=%v", scheduler.interval, scheduler.callback != nil)
 	}
 }
+
+type fakeSnapshot struct {
+	mu       sync.Mutex
+	requests []SnapshotRequest
+	regions  []string
+	err      error
+}
+
+func (f *fakeSnapshot) Snapshot(_ context.Context, request SnapshotRequest) (ControlStateSnapshot, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, request)
+	f.mu.Unlock()
+	if f.err != nil {
+		return ControlStateSnapshot{}, f.err
+	}
+	return ControlStateSnapshot{ID: "snapshot-1", ObjectKey: request.ObjectKey, Checksum: "sha", Size: 12, RestoreEpoch: request.RestoreEpoch}, nil
+}
+
+func (f *fakeSnapshot) Mirror(_ context.Context, snapshot ControlStateSnapshot, region string) error {
+	if snapshot.ID == "" {
+		return errors.New("empty snapshot")
+	}
+	f.mu.Lock()
+	f.regions = append(f.regions, region)
+	f.mu.Unlock()
+	return nil
+}
+
+func TestSnapshotIsMirroredToEveryRegionWithStableIdentity(t *testing.T) {
+	drill, _, _, _, _ := drillFixture()
+	snapshot := &fakeSnapshot{}
+	drill.config.Snapshotter = snapshot
+	drill.config.SnapshotMirror = snapshot
+	drill.config.SnapshotRegions = []string{"gru", "sfo", "fra"}
+	drill.config.RestoreEpoch = func() uint64 { return 9 }
+	run, err := drill.Run(context.Background())
+	if err != nil || run.Status != RunSucceeded {
+		t.Fatalf("Run = status %s, err %v", run.Status, err)
+	}
+	if len(snapshot.requests) != 1 || snapshot.requests[0].IdempotencyKey != run.ID || snapshot.requests[0].RestoreEpoch != 9 {
+		t.Fatalf("snapshot requests = %+v", snapshot.requests)
+	}
+	if got := len(snapshot.regions); got != 3 {
+		t.Fatalf("mirrors = %d, want 3", got)
+	}
+	if run.Snapshot.ID == "" || len(run.SnapshotRegions) != 3 {
+		t.Fatalf("run snapshot state = %+v regions=%v", run.Snapshot, run.SnapshotRegions)
+	}
+}
+
+func TestSnapshotFailurePagesAndRetryUsesSameKey(t *testing.T) {
+	drill, _, _, journal, pager := drillFixture()
+	snapshot := &fakeSnapshot{err: errors.New("snapshot unavailable")}
+	drill.config.Snapshotter = snapshot
+	drill.config.SnapshotMirror = snapshot
+	drill.config.SnapshotRegions = []string{"gru"}
+	drill.config.RestoreEpoch = func() uint64 { return 2 }
+	first, err := drill.Run(context.Background())
+	if err == nil || first.Status != RunFailed || len(pager.pages) != 1 {
+		t.Fatalf("first = status %s, err %v, pages=%d", first.Status, err, len(pager.pages))
+	}
+	snapshot.err = nil
+	second, err := drill.Run(context.Background())
+	if err != nil || second.Status != RunSucceeded {
+		t.Fatalf("second = status %s, err %v", second.Status, err)
+	}
+	if len(snapshot.requests) != 2 || snapshot.requests[0].IdempotencyKey != snapshot.requests[1].IdempotencyKey {
+		t.Fatalf("snapshot retry keys = %+v", snapshot.requests)
+	}
+	if got, ok, _ := journal.LoadRun(context.Background(), first.ID); !ok || got.Status != RunSucceeded {
+		t.Fatalf("durable retry run = %+v, found=%v", got, ok)
+	}
+}
+
+func TestSuccessHistoryCountsOnlyActualConsecutiveDays(t *testing.T) {
+	drill, _, _, journal, _ := drillFixture()
+	end := time.Date(2026, 9, 14, 1, 0, 0, 0, time.UTC)
+	for offset := 0; offset < 14; offset++ {
+		day := end.AddDate(0, 0, -offset)
+		if offset == 5 { // a real missing day must break the streak
+			continue
+		}
+		if err := journal.SaveRun(context.Background(), RunRecord{ID: runIDFor(day), ScheduledAt: day, Status: RunSucceeded}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := drill.SuccessHistory(context.Background(), end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.Ready || history.SuccessfulDays != 13 || history.ConsecutiveDays != 8 {
+		t.Fatalf("history = %+v", history)
+	}
+	if len(history.Days) != 13 {
+		t.Fatalf("history days = %d", len(history.Days))
+	}
+}

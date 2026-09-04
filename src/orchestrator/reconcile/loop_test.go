@@ -273,6 +273,64 @@ func TestLoopRecordsApplyFailures(t *testing.T) {
 	}
 }
 
+type appliedOutcomeFailureProgress struct {
+	inner ProgressStore
+}
+
+func (s appliedOutcomeFailureProgress) Load(ctx context.Context, key string) (Progress, bool, error) {
+	return s.inner.Load(ctx, key)
+}
+
+func (s appliedOutcomeFailureProgress) Save(ctx context.Context, progress Progress) error {
+	if progress.Outcome == "applied" {
+		return errors.New("progress journal unavailable after provider success")
+	}
+	return s.inner.Save(ctx, progress)
+}
+
+func TestLoopFailsClosedWhenAppliedOutcomeCannotBePersisted(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceBucket)
+	config := testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{})
+	config.Progress = appliedOutcomeFailureProgress{inner: NewMemoryProgressStore()}
+	loop, err := NewLoop(config)
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	if _, err := loop.Pass(context.Background()); err == nil || !IsUnknownOutcome(err) {
+		t.Fatalf("progress persistence failure = %v, want unknown outcome", err)
+	}
+	provider.mu.Lock()
+	applies := provider.applies
+	provider.mu.Unlock()
+	if applies != 1 {
+		t.Fatalf("provider applies = %d, want one committed apply before the persistence failure", applies)
+	}
+}
+
+func TestLoopFailsClosedForPersistedPendingOutcome(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceBucket)
+	config := testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{})
+	progress := NewMemoryProgressStore()
+	action := Action{Kind: ActionCreate, Ref: estate.ResourceRef{Kind: estate.ResourceBucket, Region: "gru", Name: "backups"}}
+	if err := progress.Save(context.Background(), Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: 1, Outcome: "pending", UpdatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("seed pending progress: %v", err)
+	}
+	config.Progress = progress
+	loop, err := NewLoop(config)
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	if err := loop.applyWithRetry(context.Background(), provider, Plan{Actions: []Action{action}}); err == nil || !IsUnknownOutcome(err) {
+		t.Fatalf("pending outcome error = %v, want unknown outcome", err)
+	}
+	provider.mu.Lock()
+	applies := provider.applies
+	provider.mu.Unlock()
+	if applies != 0 {
+		t.Fatalf("pending outcome was replayed: applies=%d", applies)
+	}
+}
+
 func TestLoopRejectsOverlappingKindOwnership(t *testing.T) {
 	first := newFakeProvider(estate.ResourceBucket)
 	second := newFakeProvider(estate.ResourceBucket, estate.ResourceDNS)

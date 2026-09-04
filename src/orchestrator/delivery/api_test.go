@@ -50,6 +50,38 @@ type panicAfterMutationRoller struct {
 	rollbackResult *Rollback
 }
 
+type leaseLostRoller struct {
+	started   chan struct{}
+	gate      chan struct{}
+	mu        sync.Mutex
+	rollbacks int
+}
+
+func (r *leaseLostRoller) Roll(ctx context.Context, _ *Request, _ *ReleaseArtifact) (RolloutResult, error) {
+	close(r.started)
+	select {
+	case <-r.gate:
+		return RolloutResult{}, errors.New("rollout interrupted")
+	case <-ctx.Done():
+		// A provider may return an error after observing cancellation. The
+		// caller must still fence rollback against the durable generation.
+		return RolloutResult{}, errors.New("rollout interrupted")
+	}
+}
+
+func (r *leaseLostRoller) Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error) {
+	r.mu.Lock()
+	r.rollbacks++
+	r.mu.Unlock()
+	return &Rollback{Status: RollbackSucceeded}, nil
+}
+
+func (r *leaseLostRoller) rollbackCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rollbacks
+}
+
 func (r *panicAfterMutationRoller) Roll(context.Context, *Request, *ReleaseArtifact) (RolloutResult, error) {
 	r.mu.Lock()
 	r.mutated = true
@@ -168,6 +200,23 @@ func postDelivery(t *testing.T, server *httptest.Server, token string, request *
 	return response, nil
 }
 
+func getDelivery(t *testing.T, server *httptest.Server, token, path string) *http.Response {
+	t.Helper()
+	httpRequest, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
+	if err != nil {
+		t.Fatalf("build GET request: %v", err)
+	}
+	if token != "" {
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := server.Client().Do(httpRequest)
+	if err != nil {
+		t.Fatalf("GET delivery: %v", err)
+	}
+	t.Cleanup(func() { _ = response.Body.Close() })
+	return response
+}
+
 func readAll(t *testing.T, response *http.Response) string {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -217,7 +266,12 @@ func TestDeliveryAPIHappyPath(t *testing.T) {
 	}
 
 	// ts-deploy (or an operator) can poll the receipt by operation ID.
-	poll, err := httpServer.Client().Get(httpServer.URL + OperationsPath + "/" + request.OperationID)
+	pollRequest, err := http.NewRequest(http.MethodGet, httpServer.URL+OperationsPath+"/"+request.OperationID, nil)
+	if err != nil {
+		t.Fatalf("build poll request: %v", err)
+	}
+	pollRequest.Header.Set("Authorization", "Bearer delivery-token")
+	poll, err := httpServer.Client().Do(pollRequest)
 	if err != nil {
 		t.Fatalf("poll receipt: %v", err)
 	}
@@ -250,6 +304,82 @@ func TestDeliveryAPIAuthenticatesFailClosed(t *testing.T) {
 	}
 	if roller.callCount() != 0 || store.putCount != 0 {
 		t.Fatal("an unauthenticated request must never reach fetch, mirror, or rollout")
+	}
+}
+
+func TestDeliveryAPIAuthenticatesReadEndpoints(t *testing.T) {
+	server, httpServer := testServer(t, &fakeRoller{}, &fakeStore{})
+	request := testDeliveryRequest(t)
+	if _, err := server.Submit(context.Background(), request); err != nil {
+		t.Fatalf("seed operation: %v", err)
+	}
+	for _, path := range []string{OperationsPath, OperationsPath + "/" + request.OperationID} {
+		response := getDelivery(t, httpServer, "", path)
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("unauthorized GET %s status = %d", path, response.StatusCode)
+		}
+	}
+}
+
+func TestDeliveryAPIRecoveryClosesRunningOperationWithoutRerun(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, nil)
+	store := &fakeStore{}
+	mirror, err := NewArtifactMirror(estate.Default(), store)
+	if err != nil {
+		t.Fatalf("build mirror: %v", err)
+	}
+	durable := NewInMemoryStore()
+	journal, err := NewDurableJournal(durable)
+	if err != nil {
+		t.Fatalf("build journal: %v", err)
+	}
+	if _, exists, err := journal.Begin(request, OperationLease{OwnerID: "crashed-owner", TTL: time.Minute}); err != nil || exists {
+		t.Fatalf("admit operation: exists=%v err=%v", exists, err)
+	}
+	// Recovery is only valid after the durable lease has expired. This models
+	// a crashed owner while retaining an explicit owner/generation fence.
+	journal.clock = func() time.Time { return time.Now().UTC().Add(time.Hour) }
+	roller := &fakeRoller{}
+	server, err := NewServer(ServerConfig{Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: roller, Journal: journal})
+	if err != nil {
+		t.Fatalf("build server: %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+	recovery := getDelivery(t, httpServer, "delivery-token", OperationsPath+"/"+request.OperationID+recoverySuffix)
+	if recovery.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("recovery helper used GET: status = %d", recovery.StatusCode)
+	}
+	recovery.Body.Close()
+	recoveryRequest, err := http.NewRequest(http.MethodPost, httpServer.URL+OperationsPath+"/"+request.OperationID+recoverySuffix, nil)
+	if err != nil {
+		t.Fatalf("build recovery request: %v", err)
+	}
+	recoveryRequest.Header.Set("Authorization", "Bearer delivery-token")
+	response, err := httpServer.Client().Do(recoveryRequest)
+	if err != nil {
+		t.Fatalf("recover operation: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("recovery status = %d: %s", response.StatusCode, readAll(t, response))
+	}
+	receipt, err := ParseReceipt(readAll(t, response))
+	if err != nil {
+		t.Fatalf("parse recovery receipt: %v", err)
+	}
+	if receipt.Status != StatusFailed || receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "operation_unknown" {
+		t.Fatalf("recovery receipt = %+v", receipt)
+	}
+	if err := ValidateReceipt(receipt, request); err != nil {
+		t.Fatalf("recovery receipt is invalid: %v", err)
+	}
+	replay, err := server.Submit(context.Background(), request)
+	if err != nil || replay == nil || replay.Error == nil || replay.Error.Code == nil || *replay.Error.Code != "operation_unknown" {
+		t.Fatalf("recovered operation was not an immutable terminal replay: receipt=%+v err=%v", replay, err)
+	}
+	if roller.callCount() != 0 || store.putCount != 0 {
+		t.Fatalf("recovery reran provider work: rollouts=%d mirrors=%d", roller.callCount(), store.putCount)
 	}
 }
 
@@ -346,7 +476,12 @@ func TestDeliveryAPIRolloutErrorsBecomeTerminalReceipts(t *testing.T) {
 		t.Fatal("different payload must conflict after terminal failure")
 	}
 
-	poll, err := httpServer.Client().Get(httpServer.URL + OperationsPath + "/" + request.OperationID)
+	pollRequest, err := http.NewRequest(http.MethodGet, httpServer.URL+OperationsPath+"/"+request.OperationID, nil)
+	if err != nil {
+		t.Fatalf("build terminal poll request: %v", err)
+	}
+	pollRequest.Header.Set("Authorization", "Bearer delivery-token")
+	poll, err := httpServer.Client().Do(pollRequest)
 	if err != nil {
 		t.Fatalf("poll terminal rollout error: %v", err)
 	}
@@ -465,6 +600,108 @@ func TestDeliveryAPIRolloutErrorConcurrency(t *testing.T) {
 	}
 }
 
+func TestDeliveryAPIFailsClosedForDurableRunningOperation(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, nil)
+	objectStore := &fakeStore{}
+	mirror, err := NewArtifactMirror(estate.Default(), objectStore)
+	if err != nil {
+		t.Fatalf("build mirror: %v", err)
+	}
+	store := NewInMemoryStore()
+	firstJournal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatalf("build first journal: %v", err)
+	}
+	if _, exists, err := firstJournal.Begin(request); err != nil || exists {
+		t.Fatalf("admit running operation: exists=%v err=%v", exists, err)
+	}
+	roller := &fakeRoller{}
+	secondJournal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatalf("build second journal: %v", err)
+	}
+	second, err := NewServer(ServerConfig{
+		Token:   func() (string, error) { return "delivery-token", nil },
+		Fetcher: fetcher,
+		Trust:   func() *TrustSet { return trust },
+		Mirror:  mirror,
+		Rollout: roller,
+		Journal: secondJournal,
+	})
+	if err != nil {
+		t.Fatalf("build second server: %v", err)
+	}
+	if _, err := second.Submit(context.Background(), request); err == nil {
+		t.Fatal("a second server must not re-run a durable running operation")
+	} else {
+		var inProgress *inProgressError
+		if !errors.As(err, &inProgress) {
+			t.Fatalf("running operation error = %v, want in-progress", err)
+		}
+	}
+	if roller.callCount() != 0 || objectStore.putCount != 0 {
+		t.Fatalf("durable running operation was re-executed: rollouts=%d mirrors=%d", roller.callCount(), objectStore.putCount)
+	}
+}
+
+func TestDeliveryAPIStaleOwnerCannotRollbackAfterGenerationTakeover(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, nil)
+	objectStore := &fakeStore{}
+	mirror, err := NewArtifactMirror(estate.Default(), objectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewInMemoryStore()
+	journal, err := NewDurableJournal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Unix(500, 0).UTC()
+	journal.clock = func() time.Time { return clock }
+	roller := &leaseLostRoller{started: make(chan struct{}), gate: make(chan struct{})}
+	server, err := NewServer(ServerConfig{
+		OwnerID:  "owner-a",
+		LeaseTTL: time.Minute,
+		Token:    func() (string, error) { return "delivery-token", nil },
+		Fetcher:  fetcher,
+		Trust:    func() *TrustSet { return trust },
+		Mirror:   mirror,
+		Rollout:  roller,
+		Journal:  journal,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, submitErr := server.Submit(context.Background(), request)
+		result <- submitErr
+	}()
+	waitFor(t, func() bool {
+		select {
+		case <-roller.started:
+			return true
+		default:
+			return false
+		}
+	})
+	accepted, found, err := journal.GetWithError(request.OperationID)
+	if err != nil || !found {
+		t.Fatalf("accepted operation: found=%v err=%v", found, err)
+	}
+	clock = clock.Add(2 * time.Minute)
+	if _, err := journal.Takeover(request.OperationID, accepted.RequestDigest, OperationLease{OwnerID: "owner-b", TTL: time.Minute}); err != nil {
+		t.Fatalf("takeover: %v", err)
+	}
+	close(roller.gate)
+	if err := <-result; !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("stale submit error = %v, want lease fence", err)
+	}
+	if roller.rollbackCount() != 0 {
+		t.Fatal("stale owner performed rollback after generation takeover")
+	}
+}
+
 // TestDeliveryAPIInProgressConflict: a second POST while an operation is
 // running is a 409, and the receipt endpoint answers in-progress until the
 // terminal receipt exists.
@@ -490,10 +727,20 @@ func TestDeliveryAPIInProgressConflict(t *testing.T) {
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("in-flight replay status = %d", response.StatusCode)
 	}
-	poll, err := httpServer.Client().Get(httpServer.URL + OperationsPath + "/" + request.OperationID)
+	recoveryRequest, err := http.NewRequest(http.MethodPost, httpServer.URL+OperationsPath+"/"+request.OperationID+recoverySuffix, nil)
 	if err != nil {
-		t.Fatalf("poll: %v", err)
+		t.Fatalf("build live recovery request: %v", err)
 	}
+	recoveryRequest.Header.Set("Authorization", "Bearer delivery-token")
+	recoveryResponse, err := httpServer.Client().Do(recoveryRequest)
+	if err != nil {
+		t.Fatalf("live recovery: %v", err)
+	}
+	if recoveryResponse.StatusCode != http.StatusConflict {
+		t.Fatalf("live recovery status = %d", recoveryResponse.StatusCode)
+	}
+	recoveryResponse.Body.Close()
+	poll := getDelivery(t, httpServer, "delivery-token", OperationsPath+"/"+request.OperationID)
 	if poll.StatusCode != http.StatusNotFound {
 		t.Fatalf("in-flight poll status = %d", poll.StatusCode)
 	}
@@ -541,7 +788,17 @@ func TestJournalImmutability(t *testing.T) {
 	if err != nil || exists {
 		t.Fatalf("begin: %v exists=%v", err, exists)
 	}
-	receipt := &Receipt{SchemaVersion: ContractVersion, OperationID: request.OperationID, Status: StatusFailed}
+	// Terminal journal entries are subject to the same receipt contract as
+	// API responses. Keep this fixture complete so the immutability assertion
+	// tests CAS behavior rather than the (intentional) receipt validator.
+	receipt, err := buildReceipt(request, RolloutResult{
+		Status: StatusFailed,
+		Checks: []*HealthCheck{{Name: "fixture", Status: "failed"}},
+		Error:  &Error{Code: ptr("fixture_failed"), Message: ptr("fixture failure"), Remediation: ptr("inspect fixture")},
+	}, false)
+	if err != nil {
+		t.Fatalf("build receipt: %v", err)
+	}
 	if err := journal.Finish(request.OperationID, operation.RequestDigest, receipt); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
