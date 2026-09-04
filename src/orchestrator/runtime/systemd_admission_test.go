@@ -232,9 +232,13 @@ func TestAcceptedAdmissionUsesSystemManagerFixedPathsArgumentListsAndHardenedPro
 	}
 	for _, expected := range []string{
 		"--unit", plan.Systemd.UnitName, "--", plan.Systemd.Executable, "--config",
-		"Type=exec", "NoNewPrivileges=yes", "PrivateTmp=yes", "ProtectSystem=strict",
+		"Type=exec", "DynamicUser=yes", "NoNewPrivileges=yes", "PrivateTmp=yes",
+		"PrivateDevices=yes", "ProtectSystem=strict",
 		"ProtectHome=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes",
 		"ProtectControlGroups=yes", "RestrictSUIDSGID=yes", "LockPersonality=yes",
+		"MemoryDenyWriteExecute=yes", "CapabilityBoundingSet=",
+		"SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+		"ReadWritePaths=/var/lib/terrascale-gru-nats-1",
 		"MemorySwapMax=0",
 	} {
 		if !containsArgument(start.Arguments, expected) {

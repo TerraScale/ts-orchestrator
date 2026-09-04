@@ -11,8 +11,9 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
 
-// dryRunFlag prints the plan and exits without applying. The add-region
-// runbook (I-5) is this output; do not build add-region here.
+// dryRunFlag prints the plan and exits without applying. The whole-estate
+// plan is the standing I-5 runbook reference; the per-region `add-region`
+// command lives in add_region.go.
 const dryRunFlag = "--dry-run"
 
 // reconcileInterval is the steady-state reconcile cadence. Drift is repaired

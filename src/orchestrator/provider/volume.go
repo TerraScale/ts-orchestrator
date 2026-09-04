@@ -220,6 +220,7 @@ const (
 	OCIServiceObjectStorage   OCIService = "object-storage"
 	OCIServiceVault           OCIService = "vault"
 	OCIServiceVaultManagement OCIService = "vault-management"
+	OCIServiceCertificates    OCIService = "certificates"
 )
 
 func ociServiceHost(service OCIService, region string) (string, bool) {
@@ -232,6 +233,8 @@ func ociServiceHost(service OCIService, region string) (string, bool) {
 		return "objectstorage." + region + ".oraclecloud.com", true
 	case OCIServiceVault:
 		return "vaults." + region + ".oci.oraclecloud.com", true
+	case OCIServiceCertificates:
+		return "certificates." + region + ".oci.oraclecloud.com", true
 	case OCIServiceVaultManagement:
 		return "", true
 	default:

@@ -167,6 +167,21 @@ func NewHostRuntimePlan(
 	if !architecture.defined() {
 		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "architecture"}
 	}
+	// Keep the construction boundary closed even if a future catalog edit
+	// accidentally adds a retired role or container driver. Nothing below may
+	// derive a plan for either retired execution path.
+	if !role.defined() {
+		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
+			Param:   "role",
+			Message: "The workload role is retired or not admitted.",
+		}
+	}
+	if driver != RuntimeDriverNativeSystemd {
+		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{
+			Param:   "driver",
+			Message: "Only native systemd execution is admitted; container execution is retired.",
+		}
+	}
 
 	descriptor, err := AdmittedRoleCatalog.Admit(role, driver)
 	if err != nil {
@@ -232,8 +247,10 @@ func createSystemdExecutionPlan(
 			"Type=exec",
 			"Restart=always",
 			"RestartSec=5s",
+			"DynamicUser=yes",
 			"NoNewPrivileges=yes",
 			"PrivateTmp=yes",
+			"PrivateDevices=yes",
 			"ProtectSystem=strict",
 			"ProtectHome=yes",
 			"ProtectKernelTunables=yes",
@@ -241,8 +258,13 @@ func createSystemdExecutionPlan(
 			"ProtectControlGroups=yes",
 			"RestrictSUIDSGID=yes",
 			"LockPersonality=yes",
+			"MemoryDenyWriteExecute=yes",
+			"CapabilityBoundingSet=",
+			"SystemCallFilter=@system-service",
+			"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
 			"StateDirectory=terrascale-" + allocation.Value,
 			"RuntimeDirectory=terrascale-" + allocation.Value,
+			"ReadWritePaths=" + stateDirectory,
 			configurationProperty,
 			"LoadCredentialEncrypted=workload:" + stateDirectory + "/credentials/workload.cred",
 			"MemoryMax=" + strconv.FormatInt(resources.MemoryMaxBytes, 10),

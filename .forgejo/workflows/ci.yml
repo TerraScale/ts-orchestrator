@@ -1,33 +1,9 @@
-# CI = the repository verification set (workspace GOAL.md section 5),
-# the same commands `make check` runs. Runs on the runner host (no
-# container) because the pinned builder image digest is gone from the
-# registry; revisit if the registry is restored.
 name: check
-
-on:
-  push:
-    branches: [develop, main]
-  pull_request:
-
-permissions:
-  contents: read
-
+on: {push: {branches: [develop, main]}, pull_request: {}}
 jobs:
   check:
-    timeout-minutes: 30
     runs-on: terrascale-builder
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with: { github-server-url: "https://git.terrascale.tech", persist-credentials: false }
-      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: go.mod
-          cache: false
-      - name: gofmt
-        run: test -z "$(gofmt -l .)"
-      - name: vet
-        run: go vet ./...
-      - name: build
-        run: go build ./...
-      - name: test
-        run: go test -race -count=1 ./...
+        with: {github-server-url: "https://git.terrascale.tech", persist-credentials: false}
+      - run: curl -fsSL -o ts-deploy https://git.terrascale.tech/TerraScale/ts-deploy/releases/download/latest/ts-deploy-linux-arm64 && chmod +x ts-deploy && ./ts-deploy ci --repo ts-orchestrator

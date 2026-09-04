@@ -39,6 +39,8 @@ const (
 	OCIActionSetBucketLifecycle  OCIActionKind = "set-bucket-lifecycle"
 	OCIActionCreateVault         OCIActionKind = "create-vault"
 	OCIActionCreateVaultKey      OCIActionKind = "create-vault-key"
+	OCIActionCreateCertificate   OCIActionKind = "create-certificate"
+	OCIActionRenewCertificate    OCIActionKind = "renew-certificate"
 )
 
 // OCIAction is one planned step. Payloads are the concrete per-resource action

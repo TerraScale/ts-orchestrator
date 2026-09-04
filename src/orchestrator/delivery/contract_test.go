@@ -248,5 +248,3 @@ func TestValidateReceiptEnforcesTerminalContract(t *testing.T) {
 		t.Fatalf("rolled-back receipt must validate: %v", err)
 	}
 }
-
-func ptr[T any](value T) *T { return &value }

@@ -64,8 +64,20 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 		t.Fatalf("unexpected executable %q", plan.Systemd.Executable)
 	}
 	containsString(t, plan.Systemd.Properties, "NoNewPrivileges=yes")
+	containsString(t, plan.Systemd.Properties, "DynamicUser=yes")
+	containsString(t, plan.Systemd.Properties, "PrivateDevices=yes")
 	containsString(t, plan.Systemd.Properties, "ProtectSystem=strict")
+	containsString(t, plan.Systemd.Properties, "ProtectHome=yes")
+	containsString(t, plan.Systemd.Properties, "ProtectKernelTunables=yes")
+	containsString(t, plan.Systemd.Properties, "ProtectKernelModules=yes")
 	containsString(t, plan.Systemd.Properties, "ProtectControlGroups=yes")
+	containsString(t, plan.Systemd.Properties, "LockPersonality=yes")
+	containsString(t, plan.Systemd.Properties, "MemoryDenyWriteExecute=yes")
+	containsString(t, plan.Systemd.Properties, "RestrictSUIDSGID=yes")
+	containsString(t, plan.Systemd.Properties, "CapabilityBoundingSet=")
+	containsString(t, plan.Systemd.Properties, "SystemCallFilter=@system-service")
+	containsString(t, plan.Systemd.Properties, "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6")
+	containsString(t, plan.Systemd.Properties, "ReadWritePaths=/var/lib/terrascale-gru-terrabase-1")
 	containsString(t, plan.Systemd.Properties, "EnvironmentFile=-/var/lib/terrascale-gru-terrabase-1/environment")
 	containsString(t, plan.Systemd.Properties,
 		"LoadCredentialEncrypted=workload:/var/lib/terrascale-gru-terrabase-1/credentials/workload.cred")
@@ -75,6 +87,31 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 	containsString(t, plan.Systemd.Properties, "CPUWeight=1000")
 	containsString(t, plan.Systemd.Properties, "IOWeight=1000")
 	containsString(t, plan.Systemd.Properties, "Nice=0")
+}
+
+func TestRuntimePlanRejectsRetiredRolesAndContainerDriversAtConstruction(t *testing.T) {
+	cases := []struct {
+		name   string
+		role   AdmittedRole
+		driver RuntimeDriver
+	}{
+		{name: "retired dashboard role", role: AdmittedRoleDashboard, driver: RuntimeDriverNativeSystemd},
+		{name: "retired database api role", role: AdmittedRoleDatabaseAPI, driver: RuntimeDriverNativeSystemd},
+		{name: "container driver", role: AdmittedRoleTerraBaseMember, driver: RuntimeDriverOciContainer},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, err := NewHostRuntimePlan(
+				testCase.role,
+				testCase.driver,
+				mustRuntimeAllocationId(t, "gru-retired-plan"),
+				mustArtifactDigest(t, hostRuntimePlanDigest),
+				HostArchitectureArm64,
+				nil); err == nil {
+				t.Fatal("retired role or container driver must be rejected at construction")
+			}
+		})
+	}
 }
 
 func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {

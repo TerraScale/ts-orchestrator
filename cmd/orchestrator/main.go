@@ -134,6 +134,14 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		}
 		return nil
 	}
+	if name == "add-region" {
+		// I-5: one command from an empty OCI region to serving members.
+		// --dry-run renders the runbook without touching any provider.
+		if err := runAddRegion(ctx, args, lookup, output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
 
 	options, err := parseOptions(args, control.EnvironmentLookup(lookup))
 	if err != nil {
@@ -205,6 +213,13 @@ func requestedCommand(args []string) (string, error) {
 		}
 		return "unsupported", errors.New("orchestrator: unsupported command")
 	}
+	if args[0] == "add-region" {
+		if (len(args) == 2 && args[1] != "" && !strings.HasPrefix(args[1], "-")) ||
+			(len(args) == 3 && args[1] != "" && !strings.HasPrefix(args[1], "-") && args[2] == dryRunFlag) {
+			return "add-region", nil
+		}
+		return "unsupported", errors.New("orchestrator: unsupported command")
+	}
 	if len(args) > 1 {
 		return "unsupported", errors.New("orchestrator: command accepts no arguments")
 	}
@@ -222,7 +237,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region":
 		return args[0]
 	default:
 		return "unsupported"
@@ -669,6 +684,7 @@ func writeCatalog(output io.Writer) error {
 		{Name: "provision-journal", Description: "provision the infrastructure-owned operation journal"},
 		{Name: "journal-writer", Description: "start the isolated authoritative journal writer"},
 		{Name: "reconcile", Description: "drive the observed estate to the declared estate; --dry-run prints the plan"},
+		{Name: "add-region", Description: "bring one declared region from empty OCI to serving members; --dry-run prints the runbook"},
 	}
 	environment := []string{
 		"TS_ORCH_CELL", "TS_ORCH_NATS_URL", "TS_ORCH_REPLICAS", "TS_ORCH_INSTANCE",

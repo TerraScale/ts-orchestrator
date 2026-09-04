@@ -102,7 +102,17 @@ func (c *SystemctlController) RestartUnit(ctx context.Context, unit string) erro
 // UnitActive reports whether one unit is active.
 func (c *SystemctlController) UnitActive(ctx context.Context, unit string) (bool, error) {
 	command := exec.CommandContext(ctx, c.SystemctlBinary, "is-active", "--quiet", unit)
-	return command.Run() == nil, nil
+	err := command.Run()
+	if err == nil {
+		return true, nil
+	}
+	// systemctl uses exit status 3 for a known inactive unit. That is a
+	// reliable negative answer; every other failure means the state could not
+	// be established and must not be treated as safely stopped.
+	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 3 {
+		return false, nil
+	}
+	return false, fmt.Errorf("systemctl is-active %s failed: %w", unit, err)
 }
 
 // detachedCommand builds one command that survives its caller: it runs in

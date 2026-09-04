@@ -106,6 +106,7 @@ func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []ComponentSpec) e
 				"component %s did not converge: %w", validated.Name, err))
 		}
 	}
+	retained := append([]ComponentSpec(nil), desired...)
 	for _, spec := range l.desired {
 		if _, present := desiredNames[spec.Name]; present {
 			continue
@@ -113,9 +114,13 @@ func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []ComponentSpec) e
 		if err := l.retireComponentLocked(ctx, spec); err != nil {
 			failures = append(failures, fmt.Errorf(
 				"component %s did not retire: %w", spec.Name, err))
+			// Keep a failed retirement in desired state. The next manifest
+			// tick must retry the stop/disable/delete sequence; dropping it
+			// here would make the host forget that the old unit still exists.
+			retained = append(retained, spec)
 		}
 	}
-	l.desired = append([]ComponentSpec(nil), desired...)
+	l.desired = retained
 	return errors.Join(failures...)
 }
 
@@ -169,16 +174,25 @@ func (l *Lifecycle) retireComponentLocked(ctx context.Context, spec ComponentSpe
 		return &InvalidOperationError{Message: "ts-node cannot retire itself."}
 	}
 	unit := UnitName(spec.Name)
-	_ = l.systemd.StopUnit(ctx, unit)
+	var failures []error
+	if err := l.systemd.StopUnit(ctx, unit); err != nil {
+		failures = append(failures, fmt.Errorf("stop %s: %w", unit, err))
+	}
 	if l.enabledUnits[unit] {
-		_ = l.systemd.DisableUnit(ctx, unit)
-		delete(l.enabledUnits, unit)
+		if err := l.systemd.DisableUnit(ctx, unit); err != nil {
+			failures = append(failures, fmt.Errorf("disable %s: %w", unit, err))
+		} else {
+			delete(l.enabledUnits, unit)
+		}
 	}
 	if err := os.Remove(filepath.Join(l.unitDir, unit)); err != nil && !os.IsNotExist(err) {
-		return err
+		failures = append(failures, err)
 	}
 	if err := l.systemd.DaemonReload(ctx); err != nil {
-		return err
+		failures = append(failures, err)
 	}
-	return os.RemoveAll(strings.TrimSuffix(InstallDir(l.installRoot, spec.Name), "/"))
+	if err := os.RemoveAll(strings.TrimSuffix(InstallDir(l.installRoot, spec.Name), "/")); err != nil {
+		failures = append(failures, err)
+	}
+	return errors.Join(failures...)
 }

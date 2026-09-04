@@ -83,11 +83,40 @@ func BootstrapCredentialsFromEnv(lookup func(string) (string, bool)) (BootstrapC
 		Region:         values[OCIRegionEnvironment],
 	}
 	if !isOCID(credentials.TenancyOCID, "tenancy") || !isOCID(credentials.UserOCID, "user") ||
-		len(credentials.Fingerprint) != 32 || strings.ContainsAny(credentials.Fingerprint, ":") ||
-		strings.ToLower(credentials.Fingerprint) != credentials.Fingerprint {
+		!validOCIFingerprint(credentials.Fingerprint) {
 		return BootstrapCredentials{}, &errs.Argument{Message: "bootstrap OCI credentials are malformed"}
 	}
 	return credentials, nil
+}
+
+// validOCIFingerprint accepts both the colon-separated form emitted by the
+// OCI console (16 hexadecimal byte pairs) and the legacy unseparated form
+// accepted by older bootstrap environments. OCI fingerprints are hexadecimal
+// identifiers, not fixed-width lowercase tokens.
+func validOCIFingerprint(value string) bool {
+	if len(value) == 32 {
+		for _, char := range value {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) != 16 {
+		return false
+	}
+	for _, part := range parts {
+		if len(part) != 2 {
+			return false
+		}
+		for _, char := range part {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // DefaultBootstrapRegion returns the declared home Region from the default

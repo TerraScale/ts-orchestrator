@@ -326,6 +326,8 @@ func SameDigest(actual, expected string) bool {
 	return strings.EqualFold(actual, expected)
 }
 
+func ptr[T any](value T) *T { return &value }
+
 func strPtrValue(value *string) string {
 	if value == nil {
 		return ""
