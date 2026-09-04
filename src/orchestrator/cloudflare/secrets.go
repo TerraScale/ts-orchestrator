@@ -140,6 +140,17 @@ func (c *Client) RetireVersion(ctx context.Context, store, name string, version 
 	return c.RetireSecretVersion(ctx, store, name, version)
 }
 
+// Short method names used by provider composition code.
+func (c *Client) WriteSecret(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
+	return c.WriteSecretValue(ctx, store, name, value)
+}
+func (c *Client) ActivateSecret(ctx context.Context, store, name string, version int) error {
+	return c.ActivateSecretVersion(ctx, store, name, version)
+}
+func (c *Client) RetireSecret(ctx context.Context, store, name string, version int) error {
+	return c.RetireSecretVersion(ctx, store, name, version)
+}
+
 func validateSecretCoordinates(store, name string) error {
 	if strings.TrimSpace(store) == "" {
 		return errors.New("cloudflare: secrets store name is required")

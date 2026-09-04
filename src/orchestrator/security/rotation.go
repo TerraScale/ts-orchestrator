@@ -112,6 +112,21 @@ func (r CapabilityKeyRing) IDs() (current, previous string) {
 	return r.Current.ID, r.Previous.ID
 }
 
+// Validate rejects ambiguous rings before publication. Empty Previous is
+// valid for the first rotation; once present, IDs and references must differ.
+func (r CapabilityKeyRing) Validate() error {
+	if r.Current.ID == "" || r.Current.Reference == "" {
+		return errors.New("security: current capability key identity is required")
+	}
+	if r.Previous.ID == "" && r.Previous.Reference == "" {
+		return nil
+	}
+	if r.Previous.ID == "" || r.Previous.Reference == "" || r.Previous.ID == r.Current.ID || r.Previous.Reference == r.Current.Reference {
+		return errors.New("security: capability key ring is ambiguous")
+	}
+	return nil
+}
+
 // IdentityIssuer is the SPIFFE issuer/Vault certificate seam. Fetch permits a
 // restart to resume from a reference without persisting a certificate.
 type IdentityIssuer interface {
@@ -936,8 +951,19 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 		currentIdentity, currentCapability, currentCapabilityID, currentVersion, currentExpiry = previous.NewIdentityRef, previous.NewCapabilityRef, previous.NewCapabilityID, previous.NewVersion, previous.NewExpiry
 	}
 	identityExpiry := now.Add(CapabilityPeriod)
+	// A previous key is retained only for the edge overlap window. The
+	// provider material itself may have a longer not-after, but keeping it in
+	// the active ring longer than one bucket would violate D-70 and needlessly
+	// widen the replay window.
+	oldExpiry := currentExpiry
+	if !oldExpiry.IsZero() {
+		overlapExpiry := now.Add(CapabilityOverlap)
+		if overlapExpiry.Before(oldExpiry) {
+			oldExpiry = overlapExpiry
+		}
+	}
 	bucket := now.Unix() / int64(CapabilityPeriod/time.Second)
-	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: currentExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: now, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
+	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: now, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {
