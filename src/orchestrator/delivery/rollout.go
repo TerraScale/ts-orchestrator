@@ -38,6 +38,13 @@ type RolloutConfig struct {
 	// Edge promotes Workers and Snippets through the Cloudflare reconcilers.
 	// Required for site and package deliveries.
 	Edge EdgePromoter
+	// KV is the delivery run's KV publish ordering hook (D-67: the same run
+	// also publishes KV placement). When set it fires exactly once, after
+	// every gate has passed and the estate serves the release, so the
+	// ts-proxy Worker's Region-health and placement maps are republished in
+	// the delivery order (health before placement; D-58). Optional: nil
+	// skips publication and leaves freshness to the periodic KV writer.
+	KV KVPublisher
 	// GateTimeout bounds one gate's polling. Defaults to 10 minutes.
 	GateTimeout time.Duration
 	// Now overrides the clock for tests.
@@ -102,6 +109,17 @@ type WorkerGradualPromoter interface {
 // a rule failure must trigger edge rollback before a receipt is issued.
 type SnippetZoneRuleCoordinator interface {
 	CoordinateSnippetZoneRules(ctx context.Context, service, digest string) error
+}
+
+// KVPublisher is the KV publish ordering hook of the delivery run (D-67: the
+// same run also publishes KV placement). It fires exactly once, after every
+// gate has passed and the estate serves the release — never between hosts,
+// never after a failed or rolled-back step — because first-contact REST
+// routes from the KV maps (D-58) and a mid-rollout publish would race hosts
+// that are still cordoned. Implementations write Region health before
+// database placement; the periodic KV writer owns freshness during the walk.
+type KVPublisher interface {
+	PublishKV(ctx context.Context, service, digest string) error
 }
 
 // NewRollout validates the configuration.
@@ -183,6 +201,9 @@ func (r *Rollout) RollFenced(ctx context.Context, request *Request, artifact *Re
 	copy.config.Control = &fencedHostControl{inner: r.config.Control, fence: fence, check: check}
 	if r.config.Edge != nil {
 		copy.config.Edge = &fencedEdgePromoter{inner: r.config.Edge, fence: fence, check: check}
+	}
+	if r.config.KV != nil {
+		copy.config.KV = &fencedKVPublisher{inner: r.config.KV, fence: fence, check: check}
 	}
 	if err := check(fence); err != nil {
 		return RolloutResult{}, err
@@ -288,6 +309,22 @@ func (p *fencedEdgePromoter) CoordinateSnippetZoneRules(ctx context.Context, ser
 	return nil
 }
 
+type fencedKVPublisher struct {
+	inner KVPublisher
+	fence OperationFence
+	check FenceChecker
+}
+
+func (p *fencedKVPublisher) PublishKV(ctx context.Context, service, digest string) error {
+	if p == nil || p.inner == nil || p.check == nil {
+		return ErrOperationLeaseActive
+	}
+	if err := p.check(p.fence); err != nil {
+		return err
+	}
+	return p.inner.PublishKV(ctx, service, digest)
+}
+
 // targetRegions resolves the request's Regions against the declared estate
 // in declaration order.
 func (r *Rollout) targetRegions(request *Request) ([]string, error) {
@@ -350,6 +387,16 @@ func (r *Rollout) rollHosts(ctx context.Context, request *Request, artifact *Rel
 			return fail(err)
 		}
 		touched = append(touched, step.host)
+	}
+	// KV publish order (D-67): the run republishes the KV maps only after
+	// the estate serves the release. A gate failure above returns before
+	// this point, so a failed or rolled-back run never publishes.
+	published, err := r.publishKV(ctx, artifact)
+	if err != nil {
+		return r.kvPublishFailure(artifact, checks, err)
+	}
+	if published {
+		checks = append(checks, kvPublishCheck(artifact.Service, "passed"))
 	}
 	return RolloutResult{
 		Status:    StatusSucceeded,
@@ -471,6 +518,43 @@ func (r *Rollout) failStep(checks []*HealthCheck, name string, err error) ([]*He
 	return checks, err
 }
 
+// publishKV runs the KV publish ordering hook once, after the estate serves
+// the release. It reports whether a publisher is configured; a nil publisher
+// skips publication and freshness stays with the periodic KV writer.
+func (r *Rollout) publishKV(ctx context.Context, artifact *ReleaseArtifact) (bool, error) {
+	if r == nil || r.config.KV == nil {
+		return false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return true, r.config.KV.PublishKV(ctx, artifact.Service, artifact.Digest)
+}
+
+func kvPublishCheck(service, status string) *HealthCheck {
+	return &HealthCheck{Name: "kv-publish:" + service, Status: status}
+}
+
+// kvPublishFailure is the terminal result of a converged rollout whose KV
+// publication failed. The estate already serves the release and every gate
+// passed, so hosts are not rolled back; the periodic KV writer keeps
+// republishing Region health and the receipt makes the incomplete run
+// visible instead of claiming success.
+func (r *Rollout) kvPublishFailure(artifact *ReleaseArtifact, checks []*HealthCheck, err error) (RolloutResult, error) {
+	checks = append(checks, kvPublishCheck(artifact.Service, "failed"))
+	return RolloutResult{
+		Status:    StatusFailed,
+		Checks:    checks,
+		Converged: true,
+		Rollback:  &Rollback{Status: RollbackNotRequired},
+		Error: &Error{
+			Code:        ptr("kv_publish_failed"),
+			Message:     ptr("The rollout converged, but publishing the KV maps failed: " + err.Error()),
+			Remediation: ptr("The periodic KV writer republishes Region health every 10 s; inspect Cloudflare KV and retry with a fresh operation ID if placement stays stale."),
+		},
+	}, nil
+}
+
 // rollbackTouched converges every touched host back to the prior artifact
 // (the ts-node symlink flip), newest first, and reports the terminal
 // outcome: rolled_back when every host returned, failed when the rollback
@@ -551,6 +635,18 @@ func (r *Rollout) rollEdge(ctx context.Context, request *Request, artifact *Rele
 		return r.rollbackEdge(ctx, request, append(checks, &HealthCheck{Name: name, Status: "failed"}), err, rollback)
 	}
 	checks = append(checks, &HealthCheck{Name: name, Status: "passed"})
+	// The ts-proxy Worker routes first contact from the KV maps, so a Worker
+	// promotion ends its run by republishing them (D-67). Snippet deliveries
+	// never publish: the sync gate reads no KV (D-58).
+	if request.Artifact.Kind != "package" {
+		published, err := r.publishKV(ctx, artifact)
+		if err != nil {
+			return r.kvPublishFailure(artifact, checks, err)
+		}
+		if published {
+			checks = append(checks, kvPublishCheck(artifact.Service, "passed"))
+		}
+	}
 	return RolloutResult{Status: StatusSucceeded, Checks: checks, Converged: true, Rollback: &Rollback{Status: RollbackNotRequired}}, nil
 }
 
