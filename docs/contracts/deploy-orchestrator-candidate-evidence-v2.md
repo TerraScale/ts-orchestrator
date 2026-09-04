@@ -4,7 +4,7 @@ Status: verifier and evidence consumer implemented. This contract is candidate a
 
 ## Version boundary
 
-Deploy handoff mapping v1 stays byte-for-byte frozen. V2 uses a separate namespace, schema, media type, signing domain, corpus, verifier, and consumer. No v2 field is accepted by the v1 mapper, and the v2 consumer does not reinterpret a v1 document.
+The v1 deploy-handoff mapping is deleted; v2 is the only handoff contract. V2 uses its own namespace, schema, media type, signing domain, corpus, verifier, and consumer, and a v2 consumer never reinterprets a v1 document.
 
 | Identity | Value |
 | --- | --- |
@@ -55,7 +55,7 @@ The verifier requires all of these exact values:
 
 The admission policy supplies current time and explicit freshness limits, the expected operation identity, handoff signing identity, CLI and artifact observations, exact dependency-lock set, configuration, target, lease, rollback, receipt digest, first-party schema, resolved status, scope, private-component coverage and three evidence digests, approval digest set, and required test set. Missing expectations make the policy invalid. A trusted startup catalog selects policy by the exact pair of `operationId` and artifact digest. Duplicate keys, unknown fields, mixed-case fields, and ambiguous documents fail startup. The handoff never supplies or widens its own expected values.
 
-`TS_ORCH_CANDIDATE_HANDOFF_V2_POLICY_FILE` names the bounded startup catalog for `run` and `check`. The catalog has schema version 1 and a `policies` array. Each entry contains the expected fields above, a `firstPartyLicense` expectation, and literal freshness limits in seconds including `maximumFirstPartyLicenseAgeSeconds`. Composition loads the file once. An absent catalog leaves v2 admission closed while preserving v1 behavior.
+`TS_ORCH_CANDIDATE_HANDOFF_V2_POLICY_FILE` names the bounded startup catalog for `run` and `check`. The catalog has schema version 1 and a `policies` array. Each entry contains the expected fields above, a `firstPartyLicense` expectation, and literal freshness limits in seconds including `maximumFirstPartyLicenseAgeSeconds`. Composition loads the file once. An absent catalog leaves v2 admission closed.
 
 ## Authority separation
 

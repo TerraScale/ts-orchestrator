@@ -13,7 +13,7 @@
 | --- | --- |
 | Contract version | 1 (frozen) |
 | Ratified by | `TerraScale.Orchestrator` contract review |
-| Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go`, `messaging_regional_autonomy.go`, `messaging_compatibility.go` |
+| Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go` and `messaging_regional_autonomy.go` |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
 | Canonicality | Canonical for the checked-in `ts.orch.v2` implementation. The repository `GOAL.md` and ADR 0033 remain the authority for architecture beyond this adapter. |
@@ -117,11 +117,7 @@ Queue groups distribute only equivalent-worker work; authoritative work requires
 - Globally isolated — pre-authorized regional work and observation continue; new global generations, policy, releases, and global authority claims are frozen.
 - Regional quorum lost — all mutations held (running workloads continue on last committed allocations); observation continues.
 
-## 9. N/N-1 compatibility rules
-
-`src/orchestrator/protocol/messaging_compatibility.go` — closed negotiation (`MessagingSchemaNegotiation`): accept exact, migrate registered older minors forward, reject unknown majors, reject newer versions (an N-1 node never guesses), reject unmigratable older versions. Matches the landed journal discipline (forward-only stepwise migration; unknown JSON members fail closed). Rule areas: clients, servers, streams, consumers, KV values, Object Store metadata, rolling upgrades (forward+rollback artifacts required; quorum floors never broken; rollback never upgrades data).
-
-## 10. Unresolved production measurements (deferred)
+## 9. Unresolved production measurements (deferred)
 
 - `$SYS`/advisory consumption and HTTP-monitoring scrape wiring (adapters belong to the observability lane).
 - Production gateway deployment and gateway-mesh latency/isolation measurement (pure plane policies landed; no production-shape gateway measurement exists yet).

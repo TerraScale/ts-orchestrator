@@ -72,7 +72,7 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 		return nil, SubjectGrammarErrorEmpty
 	}
 
-	if v1UTF16CodeUnitCount(value) > limits.MaximumSubjectLength {
+	if utf16CodeUnitCount(value) > limits.MaximumSubjectLength {
 		return nil, SubjectGrammarErrorSubjectTooLong
 	}
 

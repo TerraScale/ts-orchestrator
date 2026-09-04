@@ -468,3 +468,20 @@ func TestNonCommandEnvelopeStringDoesNotPanic(t *testing.T) {
 		t.Fatalf("string = %q", got)
 	}
 }
+
+func TestUTF16CodeUnitCount(t *testing.T) {
+	tests := []struct {
+		value string
+		want  int
+	}{
+		{value: "ascii", want: 5},
+		{value: "caf\u00e9", want: 4},
+		{value: "\U0001F680", want: 2},
+		{value: "a\U0001F680z", want: 4},
+	}
+	for _, test := range tests {
+		if got := utf16CodeUnitCount(test.value); got != test.want {
+			t.Fatalf("utf16CodeUnitCount(%q) = %d, want %d", test.value, got, test.want)
+		}
+	}
+}

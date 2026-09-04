@@ -147,7 +147,7 @@ func (w *bigEndianWriter) writeString(value string) error {
 		return invalidData("A command signing identity is not valid UTF-8.")
 	}
 
-	if v1UTF16CodeUnitCount(value) > maximumIdentifierCharacters {
+	if utf16CodeUnitCount(value) > maximumIdentifierCharacters {
 		return invalidData("A command signing identity exceeded its bound.")
 	}
 

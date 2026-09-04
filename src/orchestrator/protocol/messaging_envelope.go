@@ -37,7 +37,7 @@ type MessageIdentityToken struct {
 // IsValid reports whether the token is nonempty, valid UTF-8, at most 128 v1
 // UTF-16 code units, and free of NUL and control characters.
 func (t MessageIdentityToken) IsValid() bool {
-	if t.Value == "" || !utf8.ValidString(t.Value) || v1UTF16CodeUnitCount(t.Value) > 128 {
+	if t.Value == "" || !utf8.ValidString(t.Value) || utf16CodeUnitCount(t.Value) > 128 {
 		return false
 	}
 
@@ -60,7 +60,7 @@ func MessageIdentityTokenTryCreate(value string) (MessageIdentityToken, bool) {
 		return MessageIdentityToken{Value: value}, true
 	}
 
-	if !utf8.ValidString(value) || v1UTF16CodeUnitCount(value) > 128 ||
+	if !utf8.ValidString(value) || utf16CodeUnitCount(value) > 128 ||
 		strings.ContainsRune(value, '\x00') || hasControlRune(value) {
 		return MessageIdentityToken{}, false
 	}
@@ -406,4 +406,18 @@ func extractCellScope(subject string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// utf16CodeUnitCount counts UTF-16 code units: protocol length bounds are
+// specified in code units, so scalar values outside the basic multilingual
+// plane occupy two.
+func utf16CodeUnitCount(value string) int {
+	count := 0
+	for _, character := range value {
+		count++
+		if character > 0xFFFF {
+			count++
+		}
+	}
+	return count
 }
