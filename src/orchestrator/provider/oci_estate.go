@@ -24,9 +24,11 @@ func validObjectPart(value string, max int, slash bool) bool {
 	return slash || !strings.Contains(value, "/")
 }
 
-// OCIEstateSpec is the reviewed, one-time OCI estate consumed by regional
+// OCIEstateSpec is the reviewed OCI estate consumed by regional
 // controllers. Startup reads every identity and refuses malformed scope or
-// lifecycle bindings. The orchestrator never creates these resources.
+// lifecycle bindings. Creation and repair moved to the OCI reconcilers
+// (oci_reconcile_*.go): this file remains the read-only verification seam
+// the running estate is checked against.
 type OCIEstateSpec struct {
 	Region                  string            `json:"region"`
 	TenancyID               string            `json:"tenancyId"`
