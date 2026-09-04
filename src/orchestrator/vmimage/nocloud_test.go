@@ -32,7 +32,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 			t.Fatalf("network config does not contain %q", expected)
 		}
 	}
-	for _, expected := range []string{"#cloud-config", "ssh_pwauth: false", "lock_passwd: true", `restrict,command="/usr/local/libexec/terrascale-vmqual-control"`, "guest-seed.json", "terrascale-data", "/var/lib/terrascale", "f0VMRgIBAQA"} {
+	for _, expected := range []string{"#cloud-config", "ssh_pwauth: false", "lock_passwd: true", `restrict,command="/usr/local/libexec/terrascale-vmqual-control"`, GuestSeedPath, "terrascale-data", "/var/lib/terrascale", "f0VMRgIBAQA"} {
 		if !strings.Contains(string(first.UserData), expected) {
 			t.Fatalf("user data does not contain %q", expected)
 		}
@@ -55,7 +55,8 @@ func TestNoCloudSeedRejectsInvalidGuestControl(t *testing.T) {
 	}{
 		{name: "missing", want: "size"},
 		{name: "malformed", control: []byte("not-elf"), want: "not ELF"},
-		{name: "wrong architecture", control: minimalELF64(elf.EM_X86_64), want: "architecture"},
+		{name: "header only", control: elfHeader64(elf.EM_AARCH64), want: "entry segment"},
+		{name: "wrong architecture", control: runnableELF64(elf.EM_X86_64), want: "architecture"},
 	}
 	for _, test := range tests {
 		test := test
@@ -72,24 +73,55 @@ func TestNoCloudSeedRejectsInvalidGuestControl(t *testing.T) {
 
 func TestNoCloudSeedRejectsUnsafeOrInconsistentInput(t *testing.T) {
 	t.Parallel()
-	base := NoCloudSeedSpec{
-		InstanceID: "gru-member-1", Hostname: "gru-member-1", Region: "gru",
-		Address: "10.77.0.10", PrefixBits: 24, Gateway: "10.77.0.1",
-		SSHAuthorizedKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBB8hhavGePnkrgQT92jQZ3sm2CEuJtBQp8uYpOUwV4v vmqual",
-		GuestSeed:        []byte("not-json"),
-	}
-	if _, err := BuildNoCloudSeed(base); err == nil || !strings.Contains(err.Error(), "guest seed") {
+	base := validNoCloudSpec(t)
+	candidate := base
+	candidate.GuestSeed = []byte("not-json")
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "guest seed") {
 		t.Fatalf("invalid guest seed accepted: %v", err)
 	}
-	base.GuestSeed = []byte(`{}`)
-	base.Gateway = "10.78.0.1"
-	if _, err := BuildNoCloudSeed(base); err == nil || !strings.Contains(err.Error(), "share") {
+	candidate = base
+	candidate.Gateway = "10.78.0.1"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "share") {
 		t.Fatalf("off-subnet gateway accepted: %v", err)
 	}
-	base.Gateway = "10.77.0.1"
-	base.SSHAuthorizedKey = "ssh-rsa AAAA legacy"
-	if _, err := BuildNoCloudSeed(base); err == nil || !strings.Contains(err.Error(), "SSH") {
+	candidate = base
+	candidate.SSHAuthorizedKey = "ssh-rsa AAAA legacy"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "SSH") {
 		t.Fatalf("unadmitted SSH key accepted: %v", err)
+	}
+	candidate = base
+	candidate.SSHAuthorizedKey = "ssh-ed25519 AAAA"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "SSH") {
+		t.Fatalf("malformed SSH key accepted: %v", err)
+	}
+	candidate = base
+	candidate.DataDevice = "/dev/vda"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "/dev/vdb") {
+		t.Fatalf("root drive accepted as data disk: %v", err)
+	}
+	candidate = base
+	candidate.DataMount = "/srv/data"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "/var/lib/terrascale") {
+		t.Fatalf("unexpected data mount accepted: %v", err)
+	}
+	candidate = base
+	candidate.Hostname = "gru-member-2"
+	if _, err := BuildNoCloudSeed(candidate); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched seed identity accepted: %v", err)
+	}
+	for _, address := range []string{"127.0.0.2", "10.77.0.0", "10.77.0.255"} {
+		candidate = base
+		candidate.Address = address
+		if _, err := BuildNoCloudSeed(candidate); err == nil {
+			t.Fatalf("unusable guest address %q accepted", address)
+		}
+	}
+	for _, gateway := range []string{"127.0.0.1", "10.77.0.0", "10.77.0.255"} {
+		candidate = base
+		candidate.Gateway = gateway
+		if _, err := BuildNoCloudSeed(candidate); err == nil {
+			t.Fatalf("unusable gateway %q accepted", gateway)
+		}
 	}
 }
 
@@ -129,11 +161,11 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 		Nameservers:      []string{"9.9.9.9", "1.1.1.1", "9.9.9.9"},
 		SSHAuthorizedKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBB8hhavGePnkrgQT92jQZ3sm2CEuJtBQp8uYpOUwV4v vmqual",
 		DataDevice:       "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed,
-		GuestControl: minimalELF64(elf.EM_AARCH64),
+		GuestControl: runnableELF64(elf.EM_AARCH64),
 	}
 }
 
-func minimalELF64(machine elf.Machine) []byte {
+func elfHeader64(machine elf.Machine) []byte {
 	data := make([]byte, 64)
 	copy(data, []byte{0x7f, 'E', 'L', 'F'})
 	data[4] = byte(elf.ELFCLASS64)
@@ -145,5 +177,31 @@ func minimalELF64(machine elf.Machine) []byte {
 	binary.LittleEndian.PutUint16(data[52:54], 64)
 	binary.LittleEndian.PutUint16(data[54:56], 56)
 	binary.LittleEndian.PutUint16(data[58:60], 64)
+	return data
+}
+
+func runnableELF64(machine elf.Machine) []byte {
+	data := append(elfHeader64(machine), make([]byte, 60)...)
+	const (
+		programOffset  = 64
+		segmentOffset  = 120
+		virtualAddress = 0x400078
+	)
+	binary.LittleEndian.PutUint64(data[24:32], virtualAddress)
+	binary.LittleEndian.PutUint64(data[32:40], programOffset)
+	binary.LittleEndian.PutUint16(data[56:58], 1)
+	binary.LittleEndian.PutUint32(data[programOffset:programOffset+4], uint32(elf.PT_LOAD))
+	binary.LittleEndian.PutUint32(data[programOffset+4:programOffset+8], uint32(elf.PF_R|elf.PF_X))
+	binary.LittleEndian.PutUint64(data[programOffset+8:programOffset+16], segmentOffset)
+	binary.LittleEndian.PutUint64(data[programOffset+16:programOffset+24], virtualAddress)
+	binary.LittleEndian.PutUint64(data[programOffset+24:programOffset+32], virtualAddress)
+	binary.LittleEndian.PutUint64(data[programOffset+32:programOffset+40], 4)
+	binary.LittleEndian.PutUint64(data[programOffset+40:programOffset+48], 4)
+	binary.LittleEndian.PutUint64(data[programOffset+48:programOffset+56], 1)
+	if machine == elf.EM_AARCH64 {
+		binary.LittleEndian.PutUint32(data[segmentOffset:], 0xd65f03c0)
+	} else {
+		data[segmentOffset] = 0xc3
+	}
 	return data
 }

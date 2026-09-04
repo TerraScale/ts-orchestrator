@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // DNSRecord is the declared record (ID empty) and the observed one. TTL 1 is
@@ -16,7 +17,12 @@ type DNSRecord struct {
 	Content string `json:"content"`
 	TTL     int    `json:"ttl"`
 	Proxied bool   `json:"proxied"`
+	// Tags is Cloudflare's native ownership marker.  A deterministic name is
+	// not ownership evidence: records without DNSOwnershipTag are foreign.
+	Tags []string `json:"tags,omitempty"`
 }
+
+const DNSOwnershipTag = "terrascale-managed"
 
 // DNSAPI is the Cloudflare surface the DNS reconciler needs.
 type DNSAPI interface {
@@ -59,6 +65,9 @@ func (c *Client) UpdateDNSRecord(ctx context.Context, rec DNSRecord) error {
 }
 
 func (c *Client) DeleteDNSRecord(ctx context.Context, id string) error {
+	if !validCloudflareResourceID(id) {
+		return fmt.Errorf("cloudflare: dns record identity is invalid")
+	}
 	path := c.zonePath("/dns_records/" + url.PathEscape(id))
 	return c.do(ctx, "delete dns record", http.MethodDelete, path, nil, nil)
 }
@@ -69,20 +78,43 @@ func (z *Zone) reconcileDNS(ctx context.Context, c *Client, p *Plan) error {
 	if err != nil {
 		return err
 	}
-	// Cloudflare-managed NS/SOA records are never ours to reconcile.
+	// Cloudflare-managed NS/SOA records are never ours to reconcile.  Every
+	// other untagged record is also foreign: an accidental matching name must
+	// not grant deletion authority.
 	managed := make([]DNSRecord, 0, len(live))
+	foreignKeys := make(map[string]bool)
 	for _, rec := range live {
 		if rec.Type == "NS" || rec.Type == "SOA" {
 			continue
 		}
-		managed = append(managed, rec)
+		if dnsRecordOwned(rec, z.ZoneName) {
+			managed = append(managed, rec)
+		} else {
+			foreignKeys[rec.Name+"\x00"+rec.Type+"\x00"+rec.Content] = true
+			foreign := rec
+			p.Changes = append(p.Changes, Change{Action: Alert, Resource: "dns-record",
+				Ref:    foreign.Type + " " + foreign.Name,
+				Detail: fmt.Sprintf("preserving unowned DNS record %s %s -> %s", foreign.Type, foreign.Name, foreign.Content)})
+		}
 	}
 	// Identity is (name, type, content): multi-A record sets for sync.api
 	// and the region hostnames are keyed per address, so a replaced member
 	// is one delete plus one create.
 	key := func(r DNSRecord) string { return r.Name + "\x00" + r.Type + "\x00" + r.Content }
 	eq := func(a, b DNSRecord) bool { return a.TTL == b.TTL && a.Proxied == b.Proxied }
-	creates, deletes, updates := diff(managed, z.DNSRecords, key, eq)
+	want := make([]DNSRecord, 0, len(z.DNSRecords))
+	for _, rec := range z.DNSRecords {
+		rec.Tags = appendOwnershipTag(rec.Tags)
+		want = append(want, rec)
+	}
+	creates, deletes, updates := diff(managed, want, key, eq)
+	filteredCreates := creates[:0]
+	for _, rec := range creates {
+		if !foreignKeys[key(rec)] {
+			filteredCreates = append(filteredCreates, rec)
+		}
+	}
+	creates = filteredCreates
 	for _, rec := range creates {
 		rec := rec
 		p.Changes = append(p.Changes, Change{Action: Create, Resource: "dns-record",
@@ -100,10 +132,82 @@ func (z *Zone) reconcileDNS(ctx context.Context, c *Client, p *Plan) error {
 	}
 	for _, rec := range deletes {
 		id := rec.ID
+		expected := rec
 		p.Changes = append(p.Changes, Change{Action: Delete, Resource: "dns-record",
 			Ref:    rec.Type + " " + rec.Name,
 			Detail: fmt.Sprintf("%s %s -> %s", rec.Type, rec.Name, rec.Content),
-			apply:  func(ctx context.Context) error { return api.DeleteDNSRecord(ctx, id) }})
+			apply: func(ctx context.Context) error {
+				// The plan is only an observation.  Re-read before deletion so a
+				// replaced record cannot be deleted through a stale ID.
+				current, err := api.ListDNSRecords(ctx)
+				if err != nil {
+					return err
+				}
+				for _, candidate := range current {
+					if candidate.ID != id {
+						continue
+					}
+					if !dnsRecordOwned(candidate, z.ZoneName) || !sameDNSRecord(candidate, expected) {
+						return fmt.Errorf("cloudflare: refusing stale or unowned DNS deletion for %s", id)
+					}
+					return api.DeleteDNSRecord(ctx, id)
+				}
+				return nil // already absent is a safe idempotent outcome
+			}})
 	}
 	return nil
+}
+
+func appendOwnershipTag(tags []string) []string {
+	for _, tag := range tags {
+		if tag == DNSOwnershipTag {
+			return append([]string(nil), tags...)
+		}
+	}
+	return append(append([]string(nil), tags...), DNSOwnershipTag)
+}
+
+func dnsRecordOwned(record DNSRecord, zone string) bool {
+	if !validDNSName(record.Name, zone) || !validCloudflareResourceID(record.ID) {
+		return false
+	}
+	for _, tag := range record.Tags {
+		if tag == DNSOwnershipTag {
+			return true
+		}
+	}
+	return false
+}
+
+func validDNSName(name, zone string) bool {
+	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+	zone = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(zone)), ".")
+	if name == "" || zone == "" || strings.ContainsAny(name+zone, "\r\n/\\?") {
+		return false
+	}
+	return name == zone || strings.HasSuffix(name, "."+zone)
+}
+
+func validCloudflareResourceID(id string) bool {
+	if len(id) == 0 || len(id) > 128 || strings.ContainsAny(id, "\r\n/\\?#") {
+		return false
+	}
+	return true
+}
+
+func sameDNSRecord(a, b DNSRecord) bool {
+	return a.ID == b.ID && a.Type == b.Type && a.Name == b.Name && a.Content == b.Content &&
+		a.TTL == b.TTL && a.Proxied == b.Proxied && sameStrings(a.Tags, b.Tags)
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

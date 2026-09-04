@@ -7,6 +7,7 @@ package hostagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,10 +48,10 @@ type Lifecycle struct {
 // NewLifecycle validates the configuration and composes the lifecycle in
 // the serving state with an empty desired manifest.
 func NewLifecycle(config LifecycleConfig) (*Lifecycle, error) {
-	if config.InstallRoot == "" || config.InstallRoot[0] != '/' {
+	if !safeAbsolutePath(config.InstallRoot) {
 		return nil, &InvalidOperationError{Message: "The install root must be an absolute path."}
 	}
-	if config.UnitDir == "" || config.UnitDir[0] != '/' {
+	if !safeAbsolutePath(config.UnitDir) {
 		return nil, &InvalidOperationError{Message: "The unit directory must be an absolute path."}
 	}
 	if config.Installer == nil {
@@ -126,7 +127,10 @@ func (l *Lifecycle) startUnitsLocked(ctx context.Context) error {
 			continue
 		}
 		active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name))
-		if err == nil && active {
+		if err != nil {
+			return err
+		}
+		if active {
 			continue
 		}
 		if err := l.systemd.StartUnit(ctx, UnitName(spec.Name)); err != nil {
@@ -184,15 +188,44 @@ func (l *Lifecycle) Deploy(ctx context.Context, component, version string) error
 	if component == TsNodeComponentName {
 		return l.selfDeployLocked(ctx, version)
 	}
-	if err := FlipCurrent(l.installRoot, component, version); err != nil {
-		return err
-	}
 	deployed := spec
 	deployed.Version = version
-	if err := l.writeUnitLocked(ctx, deployed); err != nil {
+	rendered, err := RenderSystemdUnit(l.installRoot, deployed)
+	if err != nil {
 		return err
 	}
-	return l.systemd.StartUnit(ctx, UnitName(component))
+	if err := ValidateSystemdUnit(l.installRoot, deployed, rendered); err != nil {
+		return err
+	}
+	links, err := captureSymlinkState(l.installRoot, component)
+	if err != nil {
+		return err
+	}
+	unit, unitPresent, err := readUnitState(l.unitDir, component)
+	if err != nil {
+		return err
+	}
+	staged, err := stageUnitFile(l.unitDir, UnitName(component), []byte(rendered))
+	if err != nil {
+		return err
+	}
+	rollback := func(cause error) error {
+		_ = os.Remove(staged)
+		return errors.Join(cause, restoreSymlinkState(l.installRoot, component, links), restoreUnitState(l.unitDir, component, unit, unitPresent), l.systemd.DaemonReload(ctx))
+	}
+	if err := FlipCurrent(l.installRoot, component, version); err != nil {
+		return rollback(err)
+	}
+	if err := commitUnitFile(staged, filepath.Join(l.unitDir, UnitName(component))); err != nil {
+		return rollback(err)
+	}
+	if err := l.systemd.DaemonReload(ctx); err != nil {
+		return rollback(err)
+	}
+	if err := l.systemd.RestartUnit(ctx, UnitName(component)); err != nil {
+		return rollback(err)
+	}
+	return nil
 }
 
 // selfDeployLocked flips the agent's own current symlink and schedules a
@@ -201,12 +234,16 @@ func (l *Lifecycle) Deploy(ctx context.Context, component, version string) error
 // waited on. The new binary boots, reconciles from the manifest, and the
 // orchestrator's health gate watches the heartbeat return.
 func (l *Lifecycle) selfDeployLocked(ctx context.Context, version string) error {
+	links, err := captureSymlinkState(l.installRoot, TsNodeComponentName)
+	if err != nil {
+		return err
+	}
 	if err := FlipCurrent(l.installRoot, TsNodeComponentName, version); err != nil {
 		return err
 	}
 	command := detachedCommand(context.Background(), "systemctl", "restart", UnitName(TsNodeComponentName))
 	if err := command.Start(); err != nil {
-		return fmt.Errorf("the ts-node self-restart could not be scheduled: %w", err)
+		return errors.Join(fmt.Errorf("the ts-node self-restart could not be scheduled: %w", err), restoreSymlinkState(l.installRoot, TsNodeComponentName, links))
 	}
 	go func() { _ = command.Wait() }()
 	return nil
@@ -235,17 +272,52 @@ func (l *Lifecycle) Rollback(ctx context.Context, component string) error {
 		}
 		return l.selfDeployLocked(ctx, previous)
 	}
-	if err := RollbackCurrent(l.installRoot, component); err != nil {
+	links, err := captureSymlinkState(l.installRoot, component)
+	if err != nil {
 		return err
 	}
-	if current, err := CurrentVersion(l.installRoot, component); err == nil {
-		spec, _ := l.specLocked(component)
-		spec.Version = current
-		if err := l.writeUnitLocked(ctx, spec); err != nil {
-			return err
-		}
+	unit, unitPresent, err := readUnitState(l.unitDir, component)
+	if err != nil {
+		return err
 	}
-	return l.systemd.RestartUnit(ctx, UnitName(component))
+	previous, err := PreviousVersion(l.installRoot, component)
+	if err != nil {
+		return err
+	}
+	if previous == "" {
+		return &InvalidOperationError{Message: fmt.Sprintf("Component %s has no previous version to roll back to.", component)}
+	}
+	spec, _ := l.specLocked(component)
+	spec.Version = previous
+	rendered, err := RenderSystemdUnit(l.installRoot, spec)
+	if err != nil {
+		return err
+	}
+	if err := ValidateSystemdUnit(l.installRoot, spec, rendered); err != nil {
+		return err
+	}
+	staged, err := stageUnitFile(l.unitDir, UnitName(component), []byte(rendered))
+	if err != nil {
+		return err
+	}
+	rollback := func(cause error) error {
+		_ = os.Remove(staged)
+		return errors.Join(cause, restoreSymlinkState(l.installRoot, component, links), restoreUnitState(l.unitDir, component, unit, unitPresent), l.systemd.DaemonReload(ctx))
+	}
+	if err := RollbackCurrent(l.installRoot, component); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	if err := commitUnitFile(staged, filepath.Join(l.unitDir, UnitName(component))); err != nil {
+		return rollback(err)
+	}
+	if err := l.systemd.DaemonReload(ctx); err != nil {
+		return rollback(err)
+	}
+	if err := l.systemd.RestartUnit(ctx, UnitName(component)); err != nil {
+		return rollback(err)
+	}
+	return nil
 }
 
 // writeUnitLocked renders the D-69 unit file of one spec and writes it when
@@ -255,19 +327,99 @@ func (l *Lifecycle) writeUnitLocked(ctx context.Context, spec ComponentSpec) err
 	if err != nil {
 		return err
 	}
+	if err := ValidateSystemdUnit(l.installRoot, spec, rendered); err != nil {
+		return err
+	}
 	path := filepath.Join(l.unitDir, UnitName(spec.Name))
-	existing, readErr := os.ReadFile(path)
-	if readErr == nil && string(existing) == rendered {
+	existing, present, readErr := readUnitState(l.unitDir, spec.Name)
+	if readErr != nil {
+		return readErr
+	}
+	if present && string(existing) == rendered {
 		return nil
 	}
-	staged := path + ".ts-node-staging"
-	if err := os.WriteFile(staged, []byte(rendered), 0o644); err != nil {
+	staged, err := stageUnitFile(l.unitDir, UnitName(spec.Name), []byte(rendered))
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(staged, path); err != nil {
+	if err := commitUnitFile(staged, path); err != nil {
 		return err
 	}
-	return l.systemd.DaemonReload(ctx)
+	if err := l.systemd.DaemonReload(ctx); err != nil {
+		return errors.Join(err, restoreUnitState(l.unitDir, spec.Name, existing, present), l.systemd.DaemonReload(ctx))
+	}
+	return nil
+}
+
+func stageUnitFile(dir, unit string, contents []byte) (string, error) {
+	if err := ensureDirectory(dir, 0o755); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(dir, "."+unit+".staging-")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	cleanup := func(cause error) (string, error) { _ = file.Close(); _ = os.Remove(path); return "", cause }
+	if err := file.Chmod(0o644); err != nil {
+		return cleanup(err)
+	}
+	if _, err := file.Write(contents); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func commitUnitFile(staged, destination string) error {
+	if err := os.Rename(staged, destination); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	return syncDir(filepath.Dir(destination))
+}
+
+func readUnitState(dir, component string) ([]byte, bool, error) {
+	path := filepath.Join(dir, UnitName(component))
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, false, &InvalidOperationError{Message: "The systemd unit path must be a regular file."}
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
+func restoreUnitState(dir, component string, data []byte, present bool) error {
+	path := filepath.Join(dir, UnitName(component))
+	if !present {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return syncDir(dir)
+	}
+	staged, err := stageUnitFile(dir, UnitName(component), data)
+	if err != nil {
+		return err
+	}
+	return commitUnitFile(staged, path)
 }
 
 // specLocked returns the desired spec of one component.

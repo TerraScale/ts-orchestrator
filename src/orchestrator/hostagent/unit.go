@@ -44,6 +44,9 @@ func ExecStartPath(installRoot, component string) string {
 // switch exists for a future rtnetlink consumer; granting it to every unit
 // would widen the sandbox of components that never need it.
 func RenderSystemdUnit(installRoot string, spec ComponentSpec) (string, error) {
+	if !safeAbsolutePath(installRoot) {
+		return "", &InvalidOperationError{Message: "The install root must be an absolute safe path."}
+	}
 	if _, err := NewComponentSpec(spec); err != nil {
 		return "", err
 	}
@@ -78,4 +81,18 @@ func RenderSystemdUnit(installRoot string, spec ComponentSpec) (string, error) {
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=multi-user.target\n")
 	return b.String(), nil
+}
+
+// ValidateSystemdUnit checks that a rendered unit is exactly the hardened
+// unit for its validated spec. Keeping this separate makes callers validate
+// staged bytes before committing a symlink or unit-file transition.
+func ValidateSystemdUnit(installRoot string, spec ComponentSpec, rendered string) error {
+	expected, err := RenderSystemdUnit(installRoot, spec)
+	if err != nil {
+		return err
+	}
+	if rendered != expected {
+		return &InvalidDataError{Message: "The rendered systemd unit is not the canonical hardened unit."}
+	}
+	return nil
 }

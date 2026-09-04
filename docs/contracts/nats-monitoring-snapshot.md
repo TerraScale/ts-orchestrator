@@ -133,7 +133,8 @@ an explicit recovery condition, and a runbook:
 - `nats.consumer.redelivery.storm` (warning): redelivery deltas dominate deliveries.
 - `nats.flowcontrol.pressure` (warning): waiting > 0 for 5 minutes.
 - `nats.storage.pressure` (warning): storage > 80% of the declared limit.
-- `nats.server.memory.pressure` (warning): memory > 80% of the container limit.
+- `nats.server.memory.pressure` (warning): memory > 80% of the declared host
+  service limit.
 - `nats.certificate.expiry.risk` (critical): remaining days < 30.
 - `nats.advisory.slow.consumer` (warning): slow-consumer advisories increasing.
 - `nats.advisory.leader.change` (critical): leader change plus degraded mesh.

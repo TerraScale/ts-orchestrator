@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
+	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
 const (
@@ -41,6 +42,8 @@ type Config struct {
 	ImageManifestPath         string
 	ImageCacheRoot            string
 	ReadinessRoot             string
+	GuestControlPath          string
+	NetworkPlan               vmnet.NetworkPlan
 	FirecrackerPath           string
 	JailerPath                string
 	KernelPath                string
@@ -80,6 +83,7 @@ func DefaultConfig() Config {
 		ImageManifestPath:         absolutePath(defaultOrEnv("TS_VM_IMAGE_MANIFEST", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "ubuntu-24.04.3-"+architecture+".json")), repoRoot),
 		ImageCacheRoot:            filepath.Join(root, "images"),
 		ReadinessRoot:             filepath.Join(root, "readiness"),
+		GuestControlPath:          filepath.Join(root, "bin", "vm-guest-control"),
 		FirecrackerPath:           os.Getenv("TS_VM_FIRECRACKER"),
 		JailerPath:                os.Getenv("TS_VM_JAILER"),
 		KernelPath:                os.Getenv("TS_VM_KERNEL"),
@@ -122,6 +126,7 @@ func DefaultConfig() Config {
 	c.JournalPath = absolutePath(c.JournalPath, repoRoot)
 	c.ImageCacheRoot = absolutePath(c.ImageCacheRoot, repoRoot)
 	c.ReadinessRoot = absolutePath(c.ReadinessRoot, repoRoot)
+	c.GuestControlPath = absoluteIfSet(c.GuestControlPath, repoRoot)
 	c.FirecrackerPath = absoluteIfSet(c.FirecrackerPath, repoRoot)
 	c.JailerPath = absoluteIfSet(c.JailerPath, repoRoot)
 	c.KernelPath = absoluteIfSet(c.KernelPath, repoRoot)
@@ -204,7 +209,7 @@ func (c Config) Validate() error {
 	if c.Root == "" || !filepath.IsAbs(c.Root) {
 		return errors.New("vmqual: root must be an absolute path")
 	}
-	for name, value := range map[string]string{"state root": c.StateRoot, "journal": c.JournalPath, "pins": c.PinsPath, "image manifest": c.ImageManifestPath, "image cache": c.ImageCacheRoot, "readiness root": c.ReadinessRoot} {
+	for name, value := range map[string]string{"state root": c.StateRoot, "journal": c.JournalPath, "pins": c.PinsPath, "image manifest": c.ImageManifestPath, "image cache": c.ImageCacheRoot, "readiness root": c.ReadinessRoot, "guest control": c.GuestControlPath} {
 		if value == "" || !filepath.IsAbs(value) {
 			return fmt.Errorf("vmqual: %s must be an absolute path", name)
 		}

@@ -2,6 +2,8 @@ package vmqual
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
@@ -14,6 +16,24 @@ func (v scenarioTestVM) Stop(context.Context) error       { return nil }
 func (v scenarioTestVM) Delete(context.Context) error     { return nil }
 func (v scenarioTestVM) Inspect(context.Context) (VMObservation, error) {
 	return VMObservation{ID: v.guest.ID, Region: v.guest.Region, Running: true, Ready: true, MemoryMiB: v.guest.MemoryMiB}, nil
+}
+
+func TestHTTPScenarioDriverRejectsUnstructuredSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	if err := (HTTPScenarioDriver{BaseURL: server.URL}).Run(context.Background(), ScenarioBootstrap); err == nil {
+		t.Fatal("accepted an unstructured 204 as qualification proof")
+	}
+}
+
+func TestHTTPScenarioDriverRequiresMatchingEvidence(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"scenario":"bootstrap","passed":true,"evidence":[]}`))
+	}))
+	defer server.Close()
+	if err := (HTTPScenarioDriver{BaseURL: server.URL}).Run(context.Background(), ScenarioBootstrap); err == nil {
+		t.Fatal("accepted a proof without substantive evidence")
+	}
 }
 
 type scenarioTestFactory struct{}

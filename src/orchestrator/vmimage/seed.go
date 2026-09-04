@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 )
@@ -211,6 +212,10 @@ func DecodeGuestChannelSeed(data []byte) (GuestChannelSeed, error) {
 	var seed GuestChannelSeed
 	if err := decoder.Decode(&seed); err != nil {
 		return GuestChannelSeed{}, fmt.Errorf("vmimage: decode guest seed: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return GuestChannelSeed{}, errors.New("vmimage: guest seed has trailing data")
 	}
 	canonical, err := newGuestChannelSeed(GuestSeedSpec{Image: seed.Image, Hostname: seed.Hostname, InstanceID: seed.InstanceID, Region: seed.Region, DataDiskPath: seed.DataDiskPath, Artifacts: seed.Artifacts})
 	if err != nil {

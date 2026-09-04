@@ -34,6 +34,10 @@ func (s *fakeStore) Put(_ context.Context, region, bucket, object string, _ []by
 	return nil
 }
 
+func (s *fakeStore) PutFenced(ctx context.Context, region, bucket, object string, body []byte, _ OperationFence) error {
+	return s.Put(ctx, region, bucket, object, body)
+}
+
 type fakeRoller struct {
 	mu     sync.Mutex
 	calls  int
@@ -69,6 +73,14 @@ func (r *leaseLostRoller) Roll(ctx context.Context, _ *Request, _ *ReleaseArtifa
 	}
 }
 
+func (r *leaseLostRoller) RollFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, _ OperationFence, check FenceChecker) (RolloutResult, error) {
+	if check != nil {
+		// The API performs the authoritative check immediately before dispatch;
+		// this adapter keeps the test provider fence-aware as well.
+	}
+	return r.Roll(ctx, request, artifact)
+}
+
 func (r *leaseLostRoller) Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error) {
 	r.mu.Lock()
 	r.rollbacks++
@@ -87,6 +99,10 @@ func (r *panicAfterMutationRoller) Roll(context.Context, *Request, *ReleaseArtif
 	r.mutated = true
 	r.mu.Unlock()
 	panic("host mutation completed before rollout panic")
+}
+
+func (r *panicAfterMutationRoller) RollFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, _ OperationFence, check FenceChecker) (RolloutResult, error) {
+	return r.Roll(ctx, request, artifact)
 }
 
 func (r *panicAfterMutationRoller) Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error) {
@@ -136,6 +152,13 @@ func (r *fakeRoller) Roll(ctx context.Context, request *Request, artifact *Relea
 		result.Converged = true
 	}
 	return result, nil
+}
+
+func (r *fakeRoller) RollFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, _ OperationFence, check FenceChecker) (RolloutResult, error) {
+	if check == nil {
+		return RolloutResult{}, ErrOperationLeaseActive
+	}
+	return r.Roll(ctx, request, artifact)
 }
 
 func (r *fakeRoller) callCount() int {
@@ -304,6 +327,37 @@ func TestDeliveryAPIAuthenticatesFailClosed(t *testing.T) {
 	}
 	if roller.callCount() != 0 || store.putCount != 0 {
 		t.Fatal("an unauthenticated request must never reach fetch, mirror, or rollout")
+	}
+}
+
+func TestNewServerRejectsUnsafeLeaseTTL(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, nil)
+	_ = request
+	store := &fakeStore{}
+	mirror, err := NewArtifactMirror(estate.Default(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewServer(ServerConfig{
+		LeaseTTL: time.Millisecond,
+		Token:    func() (string, error) { return "delivery-token", nil },
+		Fetcher:  fetcher,
+		Trust:    func() *TrustSet { return trust },
+		Mirror:   mirror,
+		Rollout:  &fakeRoller{},
+		Journal:  NewJournal(),
+	})
+	if err == nil {
+		t.Fatal("unsafe lease TTL was accepted")
+	}
+}
+
+func TestOperationLeaseRenewIntervalAlwaysFitsTTL(t *testing.T) {
+	for _, ttl := range []time.Duration{time.Second, 2 * time.Second, time.Minute} {
+		interval := operationLeaseRenewInterval(ttl)
+		if interval <= 0 || interval >= ttl {
+			t.Fatalf("renew interval %s does not fit TTL %s", interval, ttl)
+		}
 	}
 }
 

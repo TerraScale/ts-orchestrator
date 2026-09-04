@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,11 @@ const dryRunFlag = "--dry-run"
 const reconcileInterval = time.Minute
 
 const reconcileProgressEnvironment = "TS_ORCH_RECONCILE_PROGRESS_FILE"
+
+const (
+	reconcileEstateFileEnvironment    = "TS_ORCH_ESTATE_FILE"
+	reconcilePlacementFileEnvironment = "TS_ORCH_PLACEMENT_FILE"
+)
 
 // runReconcile drives the observed estate to the declared estate (D-67).
 // With --dry-run it prints the plan derived from an empty observation — the
@@ -213,7 +219,10 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if strings.TrimSpace(providerName) != "oci" {
 		return nil, errors.New("reconcile: production reconciliation requires the OCI provider")
 	}
-	spec := estate.Default()
+	spec, err := loadReconcileEstate(lookup)
+	if err != nil {
+		return nil, err
+	}
 	ociController, err := newOCIReconcileController(spec, lookup)
 	if err != nil {
 		return nil, err
@@ -238,10 +247,22 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: observability transport is invalid: %w", err)
 	}
+	placementPath, present := lookup(reconcilePlacementFileEnvironment)
+	if !present || strings.TrimSpace(placementPath) == "" {
+		return nil, fmt.Errorf("reconcile: %s is required for durable placement state", reconcilePlacementFileEnvironment)
+	}
+	registeredRegions := make([]string, 0, len(spec.Regions))
+	for _, region := range spec.Regions {
+		registeredRegions = append(registeredRegions, region.Code)
+	}
+	placement, err := newFileKVPlacementSource(placementPath, registeredRegions)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile: placement state configuration is invalid: %w", err)
+	}
 	kvWriter, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{
 		Store:          cloudflareController.Client,
 		Health:         &declaredKVHealthSource{spec: spec, members: cloudflareController.Members},
-		Placement:      declaredKVPlacementSource{},
+		Placement:      placement,
 		HealthInterval: cloudflare.DefaultKVWriterHealthInterval,
 	})
 	if err != nil {
@@ -277,6 +298,9 @@ func (s *declaredKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[s
 	return result, nil
 }
 
+// declaredKVPlacementSource is retained only as a local test fixture. The
+// production composition root uses fileKVPlacementSource above; an empty
+// observation is never wired into a running reconciler.
 type declaredKVPlacementSource struct{}
 
 func (declaredKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[string]cloudflare.DBPlacement, error) {
@@ -284,6 +308,98 @@ func (declaredKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[st
 		return nil, err
 	}
 	return map[string]cloudflare.DBPlacement{}, nil
+}
+
+// fileKVPlacementSource is the repository-owned durable placement projection.
+// The reconciler reads it on every tick; a missing, malformed, or lockless
+// document fails closed rather than turning absence into an empty map.
+type fileKVPlacementSource struct {
+	path       string
+	registered map[string]struct{}
+}
+
+func newFileKVPlacementSource(path string, registered ...[]string) (*fileKVPlacementSource, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsAny(path, "\r\n\x00") {
+		return nil, errors.New("placement state path must be absolute and canonical")
+	}
+	source := &fileKVPlacementSource{path: path}
+	if len(registered) > 0 {
+		source.registered = make(map[string]struct{}, len(registered[0]))
+		for _, region := range registered[0] {
+			source.registered[region] = struct{}{}
+		}
+	}
+	return source, nil
+}
+
+func (s *fileKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[string]cloudflare.DBPlacement, error) {
+	if s == nil || s.path == "" {
+		return nil, errors.New("placement state source is unavailable")
+	}
+	if ctx == nil {
+		return nil, errors.New("placement state context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(s.path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 16<<20 {
+		return nil, errors.New("placement state file is unavailable")
+	}
+	body, err := os.ReadFile(s.path)
+	if err != nil {
+		return nil, errors.New("placement state file is unavailable")
+	}
+	result := map[string]cloudflare.DBPlacement{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, errors.New("placement state file is malformed")
+	}
+	for database, entry := range result {
+		if database == "" || entry.PlacementLock == "" || entry.Generation == 0 || len(entry.Regions) == 0 {
+			return nil, errors.New("placement state contains an incomplete immutable lock")
+		}
+		entry.Database = database
+		if len(s.registered) > 0 {
+			for _, region := range entry.Regions {
+				if _, ok := s.registered[region]; !ok {
+					return nil, errors.New("placement state names an unregistered Region")
+				}
+			}
+		}
+		result[database] = entry
+	}
+	return result, nil
+}
+
+// loadReconcileEstate reads an explicitly supplied declaration. When no file
+// is configured, estate.Default remains the repository-owned launch
+// declaration (and is obtained through this single seam, not in the loop).
+func loadReconcileEstate(lookup envLookup) (estate.Spec, error) {
+	path, ok := lookup(reconcileEstateFileEnvironment)
+	if !ok || strings.TrimSpace(path) == "" {
+		return estate.Default(), nil
+	}
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsAny(path, "\r\n\x00") {
+		return estate.Spec{}, errors.New("reconcile: estate declaration path is invalid")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 16<<20 {
+		return estate.Spec{}, errors.New("reconcile: estate declaration is unavailable")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return estate.Spec{}, errors.New("reconcile: estate declaration is unavailable")
+	}
+	var spec estate.Spec
+	if err := json.Unmarshal(body, &spec); err != nil {
+		return estate.Spec{}, errors.New("reconcile: estate declaration is malformed")
+	}
+	if err := spec.Validate(); err != nil {
+		return estate.Spec{}, fmt.Errorf("reconcile: estate declaration is invalid: %w", err)
+	}
+	return spec, nil
 }
 
 // ociReconcileController adapts one typed OCI reconciler set per declared

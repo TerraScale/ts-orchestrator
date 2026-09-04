@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 type executorCall struct {
@@ -107,6 +110,94 @@ func TestStorageRejectsSymlinkEscapeAndOversizeRead(t *testing.T) {
 	}
 	if _, err := boundedRead(root, "alias", 32); err == nil {
 		t.Fatal("read followed a symlink")
+	}
+	referent := filepath.Join(external, "referent")
+	if err := os.WriteFile(referent, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(referent, filepath.Join(root, "write-alias")); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(root, "write-alias", []byte("replacement"), 0o600); err == nil {
+		t.Fatal("write replaced a symlink target")
+	}
+	outside, err := os.ReadFile(referent)
+	if err != nil || string(outside) != "outside" {
+		t.Fatalf("outside referent changed: %q, %v", outside, err)
+	}
+	exact, err := boundedRead(root, "large", 17)
+	if err != nil || len(exact) != 17 {
+		t.Fatalf("exact-limit read failed: bytes=%d err=%v", len(exact), err)
+	}
+}
+
+func TestStorageRejectsWritableRootAndHandlesConcurrentParents(t *testing.T) {
+	base := t.TempDir()
+	unsafe := filepath.Join(base, "unsafe")
+	if err := os.Mkdir(unsafe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unsafe, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(unsafe, "file", []byte("value"), 0o600); err == nil {
+		t.Fatal("write admitted a group/world-writable root")
+	}
+
+	root := filepath.Join(base, "safe")
+	var group sync.WaitGroup
+	errorsSeen := make(chan error, 12)
+	for index := range 12 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			name := filepath.Join("component", "v1", fmt.Sprintf("artifact-%d", index))
+			errorsSeen <- atomicWrite(root, name, []byte("value"), 0o600)
+		}()
+	}
+	group.Wait()
+	close(errorsSeen)
+	for err := range errorsSeen {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	info, err := os.Stat(filepath.Join(root, "component", "v1"))
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("storage directory mode = %v, %v", info, err)
+	}
+}
+
+func TestServeForcedCancelsStalledInput(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	config := testConfig(t, &fakeExecutor{})
+	go func() {
+		done <- ServeForced(ctx, reader, io.Discard, "", config)
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("stalled session returned %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stalled session did not observe cancellation")
+	}
+}
+
+func TestConfigRejectsOverlappingStorageAndSeedPaths(t *testing.T) {
+	config := testConfig(t, &fakeExecutor{})
+	config.DataRoot = filepath.Join(config.InboxRoot, "data")
+	if _, err := config.validate(); err == nil {
+		t.Fatal("overlapping storage roots were accepted")
+	}
+	config = testConfig(t, &fakeExecutor{})
+	config.SeedPath = filepath.Join(config.DataRoot, "seed.json")
+	if _, err := config.validate(); err == nil {
+		t.Fatal("seed inside writable storage was accepted")
 	}
 }
 

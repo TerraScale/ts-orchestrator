@@ -294,6 +294,29 @@ func TestRolloutCanaryRejection(t *testing.T) {
 	}
 }
 
+func TestRolloutFencedRejectsBeforeHostMutation(t *testing.T) {
+	rollout, control, _ := rolloutTestBed(t)
+	request := testDeliveryRequest(t)
+	artifact := rolloutArtifact()
+	called := 0
+	err := errors.New("fence lost")
+	result, rollErr := rollout.RollFenced(context.Background(), request, artifact, OperationFence{
+		OperationID:   "op",
+		RequestDigest: "digest",
+		OwnerID:       "owner",
+		Generation:    1,
+	}, func(OperationFence) error {
+		called++
+		return err
+	})
+	if !errors.Is(rollErr, err) || result.Status != "" {
+		t.Fatalf("fenced rollout = %+v err=%v", result, rollErr)
+	}
+	if called != 1 || len(control.converges) != 0 || len(control.cordonSeq) != 0 {
+		t.Fatalf("fence was not checked before mutation: checks=%d cordons=%v converges=%v", called, control.cordonSeq, control.converges)
+	}
+}
+
 // TestRolloutWithoutRollbackArtifactFailsClosed: no declared prior artifact
 // means the failure is reported failed, not rolled_back.
 func TestRolloutWithoutRollbackArtifactFailsClosed(t *testing.T) {

@@ -74,10 +74,6 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		<-waitCtx.Done()
 		return stack.Cleanup(context.Background())
 	case "test":
-		endpoint := os.Getenv("TS_VM_SCENARIO_ENDPOINT")
-		if endpoint == "" {
-			return errors.New("TS_VM_SCENARIO_ENDPOINT is required; vm-test never substitutes an in-memory scenario fake")
-		}
 		factory, network, err := realComponents(ctx, config, true)
 		if err != nil {
 			return err
@@ -86,7 +82,13 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		report, err := vmqual.RunSuite(ctx, stack, vmqual.HTTPScenarioDriver{BaseURL: endpoint})
+		providers, driver, err := vmqual.NewLocalScenarioDriverFromConfig(vmqual.LocalProviderConfig{StateRoot: config.StateRoot})
+		if err != nil {
+			_ = stack.Cleanup(context.Background())
+			return err
+		}
+		report, err := vmqual.RunSuite(ctx, stack, driver)
+		_ = providers.Close()
 		_ = vmqual.WriteSuiteReport(out, report)
 		return err
 	case "clean":
@@ -101,20 +103,25 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 }
 
 func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
+	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
+	if full {
+		networkConfig = vmnet.DefaultConfig()
+	}
+	runner, err := vmnet.DiscoverHostRunner()
+	if err != nil {
+		return nil, nil, err
+	}
+	plan, err := vmnet.Plan(networkConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	config.NetworkPlan = plan
 	artifacts, err := vmqual.MaterializeArtifacts(ctx, config)
 	if err != nil {
 		return nil, nil, err
 	}
 	config = artifacts.Config
 	factory, err := vmqual.NewFirecrackerFactory(config, artifacts.Image)
-	if err != nil {
-		return nil, nil, err
-	}
-	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
-	if full {
-		networkConfig = vmnet.DefaultConfig()
-	}
-	runner, err := vmnet.DiscoverHostRunner()
 	if err != nil {
 		return nil, nil, err
 	}

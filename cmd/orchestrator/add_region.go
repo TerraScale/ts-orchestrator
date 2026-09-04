@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
@@ -73,6 +74,11 @@ var (
 	newAddRegionCertificate                    = newAddRegionCertificateReconciler
 	newAddRegionCloudflare                     = newAddRegionCloudflareController
 )
+
+// A control machine is supplied by the repository-owned control-plane
+// composition root. Keeping this nil by default is deliberate: a missing
+// provider must fail closed and can never be reported as a successful stage.
+var addRegionControlMachineFactory func(envLookup, string) (*bootstrap.ControlStateMachine, error)
 
 // ErrAddRegionMissingStage classifies a composition refusal for callers that
 // prefer errors.Is; AddRegionMissingStageError carries the exact stage.
@@ -150,6 +156,8 @@ const (
 	addRegionKeyIDEnvironment      = "TS_ORCH_OCI_KEY_ID"
 	addRegionKeyFileEnvironment    = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
 	addRegionAuthorityEnvironment  = "TS_ORCH_OCI_CERTIFICATE_AUTHORITY_ID"
+	addRegionControlJournalEnv     = "TS_ORCH_CONTROL_JOURNAL_FILE"
+	addRegionEstateEnvironment     = "TS_ORCH_ESTATE_FILE"
 	addRegionCFTokenEnvironment    = "CLOUDFLARE_API_TOKEN"
 	addRegionCFZoneEnvironment     = "TS_ORCH_CLOUDFLARE_ZONE_ID"
 	addRegionCFAccountEnvironment  = "TS_ORCH_CLOUDFLARE_ACCOUNT_ID"
@@ -348,6 +356,7 @@ type addRegionRunbook struct {
 	Routes            addRegionRoutes    `json:"routes"`
 	Probes            addRegionProbes    `json:"probes"`
 	Admission         addRegionAdmission `json:"admission"`
+	Placement         addRegionPlacement `json:"placement"`
 	Actions           []reconcile.Action `json:"actions"`
 }
 
@@ -397,6 +406,12 @@ type addRegionAdmission struct {
 	MinimumMemberHosts int    `json:"minimumMemberHosts"`
 }
 
+type addRegionPlacement struct {
+	Lock       string   `json:"lock"`
+	Regions    []string `json:"regions"`
+	Generation uint64   `json:"generation"`
+}
+
 // runAddRegion provisions one declared region from an empty OCI region to
 // serving members. Dry runs render the runbook; real runs delegate to the
 // OCI bootstrap stages after the same estate validation.
@@ -411,6 +426,24 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 	spec, region, err := lookupAddRegionRegion(code)
 	if err != nil {
 		return err
+	}
+	if lookup != nil {
+		if path, ok := lookup(addRegionEstateEnvironment); ok && strings.TrimSpace(path) != "" {
+			spec, err = loadReconcileEstate(lookup)
+			if err != nil {
+				return err
+			}
+			found := false
+			for _, candidate := range spec.Regions {
+				if candidate.Code == code {
+					region, found = candidate, true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("add-region: unknown region %s: declare it in the estate first", code)
+			}
+		}
 	}
 	if err := checkAddRegionFloor(region); err != nil {
 		return err
@@ -441,7 +474,10 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 			if err := runAddRegionBootstrap(ctx, lookup, provider.BootstrapRequest{Region: region}, output); err != nil {
 				return err
 			}
-			if runAddRegionControl != nil {
+			// A test/provider may inject a control stage. The default stage is
+			// required only for the real OCI bootstrap; a fake bootstrap cannot
+			// accidentally turn the absent control provider into a false success.
+			if runAddRegionControl != nil && (sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) || !sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment)) {
 				if err := runAddRegionControl(ctx, lookup, spec, region, output); err != nil {
 					return err
 				}
@@ -492,6 +528,15 @@ func validateAddRegionStages(lookup envLookup, spec estate.Spec, region estate.R
 	if runAddRegionBootstrap == nil {
 		return &AddRegionMissingStageError{Stage: "oci"}
 	}
+	if sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
+		path, present := lookup(addRegionControlJournalEnv)
+		if !present || strings.TrimSpace(path) == "" {
+			return addRegionMissingStage("control", errors.New("durable control journal is required"))
+		}
+		if addRegionControlMachineFactory == nil {
+			return addRegionMissingStage("control", errors.New("authoritative control provider is not configured"))
+		}
+	}
 	for _, stage := range []struct {
 		name string
 		run  addRegionStageFunc
@@ -522,6 +567,13 @@ func validateAddRegionStages(lookup envLookup, spec estate.Spec, region estate.R
 }
 
 func sameAddRegionStage(left, right addRegionStageFunc) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return reflect.ValueOf(left).Pointer() == reflect.ValueOf(right).Pointer()
+}
+
+func sameBootstrapStage(left, right func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
@@ -667,10 +719,39 @@ func addRegionControlFor(region estate.Region) addRegionControl {
 	return control
 }
 
-// addRegionControlFromEnvironment is the default no-credential control
-// boundary. Real deployments replace this seam with a ControlStateMachine
-// adapter; the command never constructs provider clients or handles secrets.
-func addRegionControlFromEnvironment(context.Context, envLookup, estate.Spec, estate.Region, io.Writer) error {
+// addRegionControlFromEnvironment is the durable, fenced control boundary.
+// It intentionally has no provider fallback: callers must compose a real
+// ControlStateMachine backed by the authoritative journal and provider.
+func addRegionControlFromEnvironment(ctx context.Context, lookup envLookup, spec estate.Spec, region estate.Region, _ io.Writer) error {
+	if lookup == nil {
+		return errors.New("add-region control: environment lookup is nil")
+	}
+	path, ok := lookup(addRegionControlJournalEnv)
+	if !ok || strings.TrimSpace(path) == "" {
+		return errors.New("add-region control: durable control journal is required")
+	}
+	if addRegionControlMachineFactory == nil {
+		return errors.New("add-region control: authoritative control provider is not configured")
+	}
+	machine, err := addRegionControlMachineFactory(lookup, strings.TrimSpace(path))
+	if err != nil {
+		return fmt.Errorf("add-region control: %w", err)
+	}
+	if machine == nil {
+		return errors.New("add-region control: control machine is unavailable")
+	}
+	request := bootstrap.ControlTransitionRequest{Operation: bootstrap.ControlOperationAddRegion,
+		Region: region.Code, MemberHosts: int(region.Members.Count), EligibleHosts: int(region.Members.Count),
+		RegionalControl: region.Members.ControlReplicas > 0}
+	if region.Code == "sfo" || region.Code == "fra" {
+		request.RegionalControl = false
+	}
+	// The state is loaded by the machine's journal. No candidate evidence is
+	// fabricated here; the provider must return it during VerifyCandidate.
+	_, err = machine.Execute(ctx, bootstrap.ControlPlaneState{}, request)
+	if err != nil {
+		return fmt.Errorf("add-region control %s: %w", region.Code, err)
+	}
 	return nil
 }
 
@@ -759,7 +840,8 @@ func buildAddRegionRunbook(spec estate.Spec, region estate.Region) (addRegionRun
 			MemberHosts:        int(region.Members.Count),
 			MinimumMemberHosts: provider.PlacementMinimumMemberHosts,
 		},
-		Actions: actions,
+		Placement: addRegionPlacement{Lock: "explicit", Regions: []string{region.Code}, Generation: 1},
+		Actions:   actions,
 	}
 	return book, nil
 }

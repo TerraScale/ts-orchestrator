@@ -122,8 +122,8 @@ type FileProgressStore struct {
 }
 
 func NewFileProgressStore(path string) (*FileProgressStore, error) {
-	if path == "" {
-		return nil, errors.New("reconcile: progress path is empty")
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, errors.New("reconcile: progress path must be an absolute clean path")
 	}
 	return &FileProgressStore{path: path}, nil
 }
@@ -140,7 +140,7 @@ func (s *FileProgressStore) Load(ctx context.Context, key string) (Progress, boo
 	var result Progress
 	var found bool
 	err := s.withLock(ctx, false, func() error {
-		b, err := os.ReadFile(s.path)
+		b, err := readProgressFile(s.path)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
@@ -236,14 +236,23 @@ func (s *FileProgressStore) withLock(ctx context.Context, exclusive bool, operat
 		return err
 	}
 	directory := filepath.Dir(s.path)
+	if err := validateProgressDirectory(directory); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return fmt.Errorf("reconcile: create progress directory: %w", err)
 	}
-	lock, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err := validateProgressDirectory(directory); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
 	if err != nil {
 		return fmt.Errorf("reconcile: open progress lock: %w", err)
 	}
 	defer lock.Close()
+	if err := validateOwnedRegular(lock); err != nil {
+		return fmt.Errorf("reconcile: unsafe progress lock: %w", err)
+	}
 	mode := syscall.LOCK_SH
 	if exclusive {
 		mode = syscall.LOCK_EX
@@ -256,7 +265,7 @@ func (s *FileProgressStore) withLock(ctx context.Context, exclusive bool, operat
 }
 
 func (s *FileProgressStore) readRecords() (map[string]Progress, error) {
-	b, err := os.ReadFile(s.path)
+	b, err := readProgressFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return make(map[string]Progress), nil
 	}
@@ -275,12 +284,19 @@ func (s *FileProgressStore) writeRecords(records map[string]Progress) error {
 		return fmt.Errorf("reconcile: encode progress: %w", err)
 	}
 	directory := filepath.Dir(s.path)
+	if err := validateProgressDirectory(directory); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(directory, ".reconcile-progress-")
 	if err != nil {
 		return fmt.Errorf("reconcile: create progress temporary: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
+	if err := validateOwnedRegular(tmp); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("reconcile: unsafe progress temporary: %w", err)
+	}
 	if err := tmp.Chmod(0600); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("reconcile: chmod progress temporary: %w", err)
@@ -295,6 +311,11 @@ func (s *FileProgressStore) writeRecords(records map[string]Progress) error {
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("reconcile: close progress temporary: %w", err)
+	}
+	if info, err := os.Lstat(s.path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("reconcile: progress path is a symlink")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("reconcile: inspect progress path: %w", err)
 	}
 	if err := os.Rename(tmpName, s.path); err != nil {
 		return fmt.Errorf("reconcile: commit progress: %w", err)
@@ -316,6 +337,63 @@ func syncProgressDirectory(directory string) error {
 		return fmt.Errorf("reconcile: close progress directory: %w", closeErr)
 	}
 	return nil
+}
+
+func readProgressFile(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if err := validateOwnedRegular(file); err != nil {
+		return nil, fmt.Errorf("reconcile: unsafe progress file: %w", err)
+	}
+	return io.ReadAll(file)
+}
+
+func validateOwnedRegular(file *os.File) error {
+	if file == nil {
+		return errors.New("file is nil")
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("not a regular file")
+	}
+	if info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("permissions %04o are not private", info.Mode().Perm())
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && uint32(stat.Uid) != uint32(os.Getuid()) && uint32(stat.Uid) != 0 {
+		return errors.New("file is not owned by the orchestrator")
+	}
+	return nil
+}
+
+func validateProgressDirectory(directory string) error {
+	if directory == "" || !filepath.IsAbs(directory) {
+		return errors.New("reconcile: progress directory must be absolute")
+	}
+	for current := directory; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return fmt.Errorf("unsafe progress directory component %s", current)
+			}
+			if info.Mode().Perm()&0022 != 0 {
+				return fmt.Errorf("progress directory %s is group/world writable", current)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect progress directory %s: %w", current, err)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return nil
+		}
+	}
 }
 
 func sameProgress(left, right Progress) bool {

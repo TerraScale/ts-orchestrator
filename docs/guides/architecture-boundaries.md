@@ -110,6 +110,3 @@ The orchestrator publishes bounded `estate.*` documents into the control-plane
 database on change and at least every ten seconds. The dashboard reads them
 through the public SDK. Infrastructure actions remain in the orchestrator CLI;
 the dashboard does not gain a private control transport.
-
-Historical ADRs and contract documents may describe implemented legacy
-adapters. They remain evidence, not authority for new work.

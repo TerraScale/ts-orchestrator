@@ -18,6 +18,11 @@ const (
 	// DefaultExpirySafety leaves enough time to distribute and activate a
 	// generation. A generation close to expiry is never activated.
 	DefaultExpirySafety = 5 * time.Minute
+	// CapabilityBucket is the edge capability/origin-proof bucket width. The
+	// key itself lives for CapabilityPeriod; readers accept the current and
+	// immediately previous bucket while a long poll crosses a boundary.
+	CapabilityBucket  = 10 * time.Minute
+	CapabilityOverlap = CapabilityBucket
 )
 
 // Phase is the durable rotation state machine phase.
@@ -73,12 +78,38 @@ type CapabilityRequest struct {
 // CapabilityMaterial is transient provider material. Key is never persisted,
 // logged, audited, or included in a coordinator error.
 type CapabilityMaterial struct {
+	// ID is a non-secret provider key identifier. It is safe to persist and
+	// include in receipts; Key is transient material and is always wiped.
+	ID        string
 	Reference string
 	Version   uint64
 	Bucket    int64
 	NotBefore time.Time
 	ExpiresAt time.Time
 	Key       []byte
+}
+
+// CapabilityKeyState is the persisted, secret-free half of a key-ring entry.
+// The corresponding bytes are fetched only for a provider call.
+type CapabilityKeyState struct {
+	ID        string
+	Reference string
+	Version   uint64
+	Bucket    int64
+	NotBefore time.Time
+	ExpiresAt time.Time
+}
+
+// CapabilityKeyRing is the explicit current+previous contract shared by
+// members and the edge. Previous is retained until its expiry (one
+// ten-minute bucket overlap at the edge boundary).
+type CapabilityKeyRing struct {
+	Current  CapabilityKeyState
+	Previous CapabilityKeyState
+}
+
+func (r CapabilityKeyRing) IDs() (current, previous string) {
+	return r.Current.ID, r.Previous.ID
 }
 
 // IdentityIssuer is the SPIFFE issuer/Vault certificate seam. Fetch permits a
@@ -105,8 +136,9 @@ type Vault = CapabilityVault
 // CredentialSet is passed to a member or edge provider in memory. Providers
 // must treat it as borrowed and must not persist or log it.
 type CredentialSet struct {
-	Identity   IdentityMaterial
-	Capability CapabilityMaterial
+	Identity           IdentityMaterial
+	Capability         CapabilityMaterial
+	PreviousCapability CapabilityMaterial
 }
 
 // ConsumerObservation is the provider's signed/attested answer that a
@@ -144,6 +176,26 @@ type SecretsStore interface {
 	Retire(ctx context.Context, generation uint64, idempotencyKey string) error
 	Rollback(ctx context.Context, generation uint64, idempotencyKey string) error
 	Fence(ctx context.Context, idempotencyKey string) error
+}
+
+// PublicationReceipt is the bounded acknowledgement returned by providers
+// that can atomically publish a member key ring and the Snippet key ring. It
+// deliberately contains identifiers and digests only, never values.
+type PublicationReceipt struct {
+	OperationID   string
+	Generation    uint64
+	ReceiptID     string
+	CurrentKeyID  string
+	PreviousKeyID string
+	Committed     bool
+}
+
+// AtomicPublisher is an optional stronger publication seam. Implementations
+// must make member and Snippet publication one provider transaction (or leave
+// both sides unchanged), and must retain the receipt for idempotent retry.
+type AtomicPublisher interface {
+	Publish(ctx context.Context, operationID string, generation uint64, credentials CredentialSet, idempotencyKey string) (PublicationReceipt, error)
+	RollbackPublication(ctx context.Context, receipt PublicationReceipt, idempotencyKey string) error
 }
 
 // CloudflareSecretsStore documents the concrete provider represented by the
@@ -196,14 +248,18 @@ type PersistedState struct {
 	Regions              []string
 	OldIdentityRef       string
 	OldCapabilityRef     string
+	OldCapabilityID      string
 	OldVersion           uint64
 	OldExpiry            time.Time
 	CurrentIdentityRef   string
 	CurrentCapabilityRef string
+	CurrentCapabilityID  string
+	PreviousCapabilityID string
 	CurrentVersion       uint64
 	CurrentExpiry        time.Time
 	NewIdentityRef       string
 	NewCapabilityRef     string
+	NewCapabilityID      string
 	NewVersion           uint64
 	NewBucket            int64
 	NewNotBefore         time.Time
@@ -216,28 +272,36 @@ type PersistedState struct {
 	EdgeDistributed      bool
 	EdgeVerified         bool
 	EdgeActivated        bool
+	PublicationReceipt   PublicationReceipt
+	PublicationCommitted bool
 	FailureCode          string
 }
 
 // RotationResult is a redacted view returned to callers.
 type RotationResult struct {
-	OperationID string
-	Generation  uint64
-	Phase       Phase
-	Regions     []string
-	OldVersion  uint64
-	NewVersion  uint64
-	NewBucket   int64
-	NewExpiry   time.Time
+	OperationID   string
+	Generation    uint64
+	Phase         Phase
+	Regions       []string
+	OldVersion    uint64
+	NewVersion    uint64
+	NewBucket     int64
+	NewExpiry     time.Time
+	CurrentKeyID  string
+	PreviousKeyID string
 }
 
 // Config supplies all external effects. All fields are required except Clock,
 // Audit, and ExpirySafety. A clock is injected to make expiry tests hermetic.
 type Config struct {
-	Issuer       IdentityIssuer
-	Vault        CapabilityVault
-	Members      MemberGateway
-	Secrets      SecretsStore
+	Issuer  IdentityIssuer
+	Vault   CapabilityVault
+	Members MemberGateway
+	Secrets SecretsStore
+	// Publisher, when supplied, is the atomic member+Snippet publication
+	// adapter. The legacy stage adapters remain available for deployments that
+	// compose those operations separately.
+	Publisher    AtomicPublisher
 	Reloader     Reloader
 	State        StateStore
 	Audit        AuditSink
@@ -249,17 +313,18 @@ type Config struct {
 // Coordinator performs one serialized rotation at a time. Provider calls are
 // made without exposing secret material outside the injected interfaces.
 type Coordinator struct {
-	issuer   IdentityIssuer
-	vault    CapabilityVault
-	members  MemberGateway
-	secrets  SecretsStore
-	reloader Reloader
-	state    StateStore
-	audit    AuditSink
-	regions  []string
-	clock    func() time.Time
-	safety   time.Duration
-	mu       sync.Mutex
+	issuer    IdentityIssuer
+	vault     CapabilityVault
+	members   MemberGateway
+	secrets   SecretsStore
+	publisher AtomicPublisher
+	reloader  Reloader
+	state     StateStore
+	audit     AuditSink
+	regions   []string
+	clock     func() time.Time
+	safety    time.Duration
+	mu        sync.Mutex
 }
 
 // RotationCoordinator is the explicit name used by integrations.
@@ -295,7 +360,7 @@ func NewCoordinator(config Config) (*Coordinator, error) {
 	if safety >= CapabilityPeriod {
 		return nil, &RotationError{Code: "expiry_safety_invalid"}
 	}
-	return &Coordinator{issuer: config.Issuer, vault: config.Vault, members: config.Members, secrets: config.Secrets, reloader: config.Reloader, state: config.State, audit: config.Audit, regions: regions, clock: clock, safety: safety}, nil
+	return &Coordinator{issuer: config.Issuer, vault: config.Vault, members: config.Members, secrets: config.Secrets, publisher: config.Publisher, reloader: config.Reloader, state: config.State, audit: config.Audit, regions: regions, clock: clock, safety: safety}, nil
 }
 
 // NewRotationCoordinator is an explicit constructor alias.
@@ -409,12 +474,23 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 	defer wipe(identity.ControlTLS)
 	defer wipe(identity.TrustBundle)
 	defer wipe(capability.Key)
+	previousCapability, err := c.previousCapability(ctx, state, now)
+	if err != nil {
+		// Legacy stage adapters predate the current+previous key-ring
+		// contract and may not retain material across a process restart. The
+		// atomic publisher is the production contract and must fail closed.
+		if c.publisher != nil {
+			return RotationResult{}, c.failClosed(ctx, state, "previous_material_unavailable")
+		}
+		previousCapability = CapabilityMaterial{}
+	}
+	defer wipe(previousCapability.Key)
 	if now.After(state.NewExpiry) || state.NewExpiry.Sub(now) <= c.safety {
 		return RotationResult{}, c.failClosed(ctx, state, "generation_expired")
 	}
-	credentials := CredentialSet{Identity: identity, Capability: capability}
+	credentials := CredentialSet{Identity: identity, Capability: capability, PreviousCapability: previousCapability}
 	if state.Phase == PhaseDistribute {
-		if err := c.distribute(ctx, state, credentials); err != nil {
+		if err := c.distribute(ctx, &state, credentials); err != nil {
 			return RotationResult{}, c.transitionFailure(ctx, state, "distribution_failed")
 		}
 		state.Phase = PhaseVerify
@@ -423,7 +499,7 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 		}
 	}
 	if state.Phase == PhaseVerify {
-		if err := c.verify(ctx, state, now); err != nil {
+		if err := c.verify(ctx, &state, now); err != nil {
 			return RotationResult{}, c.transitionFailure(ctx, state, "verification_failed")
 		}
 		state.Phase = PhaseActivate
@@ -432,11 +508,13 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 		}
 	}
 	if state.Phase == PhaseActivate {
-		if err := c.activate(ctx, state, credentials); err != nil {
+		if err := c.activate(ctx, &state, credentials); err != nil {
 			return RotationResult{}, c.transitionFailure(ctx, state, "activation_failed")
 		}
 		state.Phase = PhaseActive
 		state.CurrentIdentityRef, state.CurrentCapabilityRef = state.NewIdentityRef, state.NewCapabilityRef
+		state.CurrentCapabilityID = state.NewCapabilityID
+		state.PreviousCapabilityID = state.OldCapabilityID
 		state.CurrentVersion, state.CurrentExpiry = state.NewVersion, state.NewExpiry
 		state.LastAt = now
 		if err := c.save(ctx, state); err != nil {
@@ -450,7 +528,8 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 		if err := c.retireOld(ctx, state); err != nil {
 			return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
 		}
-		state.OldIdentityRef, state.OldCapabilityRef, state.OldVersion = "", "", 0
+		state.OldIdentityRef, state.OldCapabilityRef, state.OldCapabilityID, state.OldVersion = "", "", "", 0
+		state.PreviousCapabilityID = ""
 		state.OldExpiry = time.Time{}
 		state.Phase = PhaseActive
 		if err := c.save(ctx, state); err != nil {
@@ -475,7 +554,8 @@ func (c *Coordinator) retireAt(ctx context.Context, state *PersistedState) error
 	if err := c.retireOld(ctx, *state); err != nil {
 		return err
 	}
-	state.OldIdentityRef, state.OldCapabilityRef, state.OldVersion = "", "", 0
+	state.OldIdentityRef, state.OldCapabilityRef, state.OldCapabilityID, state.OldVersion = "", "", "", 0
+	state.PreviousCapabilityID = ""
 	state.OldExpiry = time.Time{}
 	state.Phase = PhaseActive
 	return c.save(ctx, *state)
@@ -522,12 +602,62 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 		}
 		return errors.New("provider returned invalid material")
 	}
-	state.NewIdentityRef, state.NewCapabilityRef = identity.Reference, capability.Reference
+	if capability.ID == "" {
+		// Providers should return an ID. Keep a deterministic fallback for old
+		// adapters while ensuring the durable journal still carries no secret.
+		capability.ID = fmt.Sprintf("generation-%d", state.NewVersion)
+	}
+	state.NewIdentityRef, state.NewCapabilityRef, state.NewCapabilityID = identity.Reference, capability.Reference, capability.ID
 	state.Phase = PhaseDistribute
 	return c.save(ctx, *state)
 }
 
-func (c *Coordinator) distribute(ctx context.Context, state PersistedState, credentials CredentialSet) error {
+func (c *Coordinator) distribute(ctx context.Context, state *PersistedState, credentials CredentialSet) error {
+	if c.publisher != nil {
+		// Resolve and journal the complete member set before handing it to the
+		// atomic adapter. A receipt can then be replayed or rolled back after a
+		// process restart without rediscovering a different membership set.
+		for _, region := range state.Regions {
+			if len(state.Members[region]) != 0 {
+				continue
+			}
+			members, err := c.members.Members(ctx, region)
+			if err != nil {
+				return err
+			}
+			if len(members) == 0 {
+				return errors.New("no members")
+			}
+			state.Members[region] = append([]string(nil), members...)
+			if err := c.save(ctx, *state); err != nil {
+				return err
+			}
+		}
+		if !state.PublicationCommitted {
+			receipt, err := c.publisher.Publish(ctx, state.OperationID, state.NewVersion, credentials, key(*state, "publish", "", ""))
+			if err != nil {
+				return err
+			}
+			if receipt.Generation != state.NewVersion || receipt.OperationID != state.OperationID || receipt.ReceiptID == "" || !receipt.Committed {
+				return errors.New("invalid publication receipt")
+			}
+			state.PublicationReceipt = receipt
+			state.PublicationCommitted = true
+			state.EdgeDistributed = true
+			for _, region := range state.Regions {
+				state.Distributed[region] = true
+			}
+			if err := c.save(ctx, *state); err != nil {
+				return err
+			}
+		}
+		for _, region := range state.Regions {
+			if err := c.reloader.Reload(ctx, region, credentials, key(*state, "reload", region, "")); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	for _, region := range state.Regions {
 		if state.Distributed[region] {
 			continue
@@ -540,30 +670,32 @@ func (c *Coordinator) distribute(ctx context.Context, state PersistedState, cred
 			return errors.New("no members")
 		}
 		state.Members[region] = append([]string(nil), members...)
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 		for i, member := range members {
-			if err := c.members.Distribute(ctx, member, credentials, key(state, "distribute", region, fmt.Sprint(i))); err != nil {
+			if err := c.members.Distribute(ctx, member, credentials, key(*state, "distribute", region, fmt.Sprint(i))); err != nil {
 				return err
 			}
 		}
-		if err := c.reloader.Reload(ctx, region, credentials, key(state, "reload", region, "")); err != nil {
+		if err := c.reloader.Reload(ctx, region, credentials, key(*state, "reload", region, "")); err != nil {
 			return err
 		}
 		state.Members[region] = append([]string(nil), members...)
 		state.Distributed[region] = true
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 	}
 	if !state.EdgeDistributed {
-		if err := c.secrets.Distribute(ctx, credentials, key(state, "edge-distribute", "", "")); err != nil {
-			return err
-		}
-		state.EdgeDistributed = true
-		if err := c.save(ctx, state); err != nil {
-			return err
+		if c.publisher == nil {
+			if err := c.secrets.Distribute(ctx, credentials, key(*state, "edge-distribute", "", "")); err != nil {
+				return err
+			}
+			state.EdgeDistributed = true
+			if err := c.save(ctx, *state); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -578,6 +710,13 @@ func (c *Coordinator) transitionFailure(ctx context.Context, state PersistedStat
 
 func (c *Coordinator) rollback(ctx context.Context, state PersistedState) error {
 	var first error
+	if c.publisher != nil && state.PublicationReceipt.ReceiptID != "" {
+		if err := c.publisher.RollbackPublication(ctx, state.PublicationReceipt, key(state, "publish-rollback", "", "")); err != nil {
+			// Continue fencing/legacy cleanup below so a partial provider
+			// rollback cannot leave an accepting edge or member.
+			first = err
+		}
+	}
 	for _, region := range state.Regions {
 		for i, member := range state.Members[region] {
 			if err := c.members.Rollback(ctx, member, state.NewVersion, key(state, "rollback", region, fmt.Sprint(i))); err != nil && first == nil {
@@ -588,13 +727,15 @@ func (c *Coordinator) rollback(ctx context.Context, state PersistedState) error 
 			first = err
 		}
 	}
-	if err := c.secrets.Rollback(ctx, state.NewVersion, key(state, "edge-rollback", "", "")); err != nil && first == nil {
-		first = err
+	if c.publisher == nil {
+		if err := c.secrets.Rollback(ctx, state.NewVersion, key(state, "edge-rollback", "", "")); err != nil && first == nil {
+			first = err
+		}
 	}
 	return first
 }
 
-func (c *Coordinator) verify(ctx context.Context, state PersistedState, now time.Time) error {
+func (c *Coordinator) verify(ctx context.Context, state *PersistedState, now time.Time) error {
 	for _, region := range state.Regions {
 		if state.Verified[region] {
 			continue
@@ -613,7 +754,7 @@ func (c *Coordinator) verify(ctx context.Context, state PersistedState, now time
 			return errors.New("reloader verification failed")
 		}
 		state.Verified[region] = true
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 	}
@@ -623,37 +764,37 @@ func (c *Coordinator) verify(ctx context.Context, state PersistedState, now time
 			return errors.New("edge verification failed")
 		}
 		state.EdgeVerified = true
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Coordinator) activate(ctx context.Context, state PersistedState, credentials CredentialSet) error {
+func (c *Coordinator) activate(ctx context.Context, state *PersistedState, credentials CredentialSet) error {
 	for _, region := range state.Regions {
 		if state.Activated[region] {
 			continue
 		}
 		for i, member := range state.Members[region] {
-			if err := c.members.Activate(ctx, member, state.NewVersion, key(state, "activate", region, fmt.Sprint(i))); err != nil {
+			if err := c.members.Activate(ctx, member, state.NewVersion, key(*state, "activate", region, fmt.Sprint(i))); err != nil {
 				return err
 			}
 		}
-		if err := c.reloader.Reload(ctx, region, credentials, key(state, "reload-activate", region, "")); err != nil {
+		if err := c.reloader.Reload(ctx, region, credentials, key(*state, "reload-activate", region, "")); err != nil {
 			return err
 		}
 		state.Activated[region] = true
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 	}
 	if !state.EdgeActivated {
-		if err := c.secrets.Activate(ctx, state.NewVersion, key(state, "edge-activate", "", "")); err != nil {
+		if err := c.secrets.Activate(ctx, state.NewVersion, key(*state, "edge-activate", "", "")); err != nil {
 			return err
 		}
 		state.EdgeActivated = true
-		if err := c.save(ctx, state); err != nil {
+		if err := c.save(ctx, *state); err != nil {
 			return err
 		}
 	}
@@ -699,7 +840,36 @@ func (c *Coordinator) material(ctx context.Context, state PersistedState) (Ident
 		wipe(capability.Key)
 		return IdentityMaterial{}, CapabilityMaterial{}, errors.New("material version mismatch")
 	}
+	if state.NewCapabilityID != "" && capability.ID != "" && capability.ID != state.NewCapabilityID {
+		wipe(identity.WorkloadTLS)
+		wipe(identity.ControlTLS)
+		wipe(identity.TrustBundle)
+		wipe(capability.Key)
+		return IdentityMaterial{}, CapabilityMaterial{}, errors.New("material key identity mismatch")
+	}
 	return identity, capability, nil
+}
+
+func (c *Coordinator) previousCapability(ctx context.Context, state PersistedState, now time.Time) (CapabilityMaterial, error) {
+	if state.OldCapabilityRef == "" || state.OldVersion == 0 {
+		return CapabilityMaterial{}, nil
+	}
+	material, err := c.vault.Fetch(ctx, state.OldCapabilityRef)
+	if err != nil {
+		return CapabilityMaterial{}, err
+	}
+	// The previous key may be inside its overlap window, but accepting an
+	// already expired provider result would make a partial rotation appear
+	// healthy. No bytes or provider details escape this boundary.
+	if material.Version != state.OldVersion || material.ExpiresAt.Before(state.OldExpiry) || !now.Before(material.ExpiresAt) {
+		wipe(material.Key)
+		return CapabilityMaterial{}, errors.New("previous capability version mismatch")
+	}
+	if state.OldCapabilityID != "" && material.ID != "" && material.ID != state.OldCapabilityID {
+		wipe(material.Key)
+		return CapabilityMaterial{}, errors.New("previous capability key identity mismatch")
+	}
+	return material, nil
 }
 
 func (c *Coordinator) failClosed(ctx context.Context, state PersistedState, code string) error {
@@ -759,15 +929,15 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 		base = previous.CurrentVersion
 	}
 	version := base + 1
-	currentIdentity, currentCapability := previous.CurrentIdentityRef, previous.CurrentCapabilityRef
+	currentIdentity, currentCapability, currentCapabilityID := previous.CurrentIdentityRef, previous.CurrentCapabilityRef, previous.CurrentCapabilityID
 	currentVersion, currentExpiry := previous.CurrentVersion, previous.CurrentExpiry
 	if currentVersion == 0 && previous.Phase == PhaseActive {
 		// Compatibility with state written before Current* was introduced.
-		currentIdentity, currentCapability, currentVersion, currentExpiry = previous.NewIdentityRef, previous.NewCapabilityRef, previous.NewVersion, previous.NewExpiry
+		currentIdentity, currentCapability, currentCapabilityID, currentVersion, currentExpiry = previous.NewIdentityRef, previous.NewCapabilityRef, previous.NewCapabilityID, previous.NewVersion, previous.NewExpiry
 	}
 	identityExpiry := now.Add(CapabilityPeriod)
 	bucket := now.Unix() / int64(CapabilityPeriod/time.Second)
-	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldVersion: currentVersion, OldExpiry: currentExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: now, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
+	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: currentExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: now, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {
@@ -775,7 +945,7 @@ func (c *Coordinator) result(state PersistedState) RotationResult {
 	if state.CurrentVersion != 0 {
 		version, expiry = state.CurrentVersion, state.CurrentExpiry
 	}
-	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: version, NewBucket: state.NewBucket, NewExpiry: expiry}
+	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: version, NewBucket: state.NewBucket, NewExpiry: expiry, CurrentKeyID: state.CurrentCapabilityID, PreviousKeyID: state.PreviousCapabilityID}
 }
 
 func emptyState(regions []string) PersistedState {

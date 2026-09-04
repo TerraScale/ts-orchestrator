@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,6 +29,10 @@ type SecretMetadata struct {
 	Name      string `json:"name"`
 	Version   int    `json:"version,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
+	// ID and Active are provider metadata only. Values are intentionally not
+	// represented by this type.
+	ID     string `json:"id,omitempty"`
+	Active bool   `json:"active,omitempty"`
 }
 
 type SecretsStoreAPI interface {
@@ -36,7 +41,20 @@ type SecretsStoreAPI interface {
 	ListSecretMetadata(context.Context, string) ([]SecretMetadata, error)
 }
 
+// SecretValueAPI is the write/activation/retirement boundary for a Secrets
+// Store. Every method accepts the value only transiently and returns metadata;
+// values are never decoded from responses, logged, or put in plans.
+type SecretValueAPI interface {
+	WriteSecretValue(context.Context, string, string, []byte) (SecretMetadata, error)
+	ActivateSecretVersion(context.Context, string, string, int) error
+	RetireSecretVersion(context.Context, string, string, int) error
+}
+
+// SecretsStoreValuesAPI is the descriptive alias used by rotation wiring.
+type SecretsStoreValuesAPI = SecretValueAPI
+
 var _ SecretsStoreAPI = (*Client)(nil)
+var _ SecretValueAPI = (*Client)(nil)
 
 func (c *Client) ListSecretStores(ctx context.Context) ([]SecretStore, error) {
 	var out []SecretStore
@@ -56,6 +74,80 @@ func (c *Client) ListSecretMetadata(ctx context.Context, store string) ([]Secret
 	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets")
 	err := c.do(ctx, "list secrets metadata", http.MethodGet, path, nil, &out)
 	return out, err
+}
+
+// WriteSecretValue creates a new provider version. Base64 keeps arbitrary key
+// bytes out of JSON string escaping and the API response is metadata-only.
+func (c *Client) WriteSecretValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
+	if err := validateSecretCoordinates(store, name); err != nil {
+		return SecretMetadata{}, err
+	}
+	payload := map[string]string{
+		"value_base64": base64.StdEncoding.EncodeToString(value),
+	}
+	var out SecretMetadata
+	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions")
+	if err := c.do(ctx, "write secret value", http.MethodPost, path, payload, &out); err != nil {
+		return SecretMetadata{}, err
+	}
+	// Some Cloudflare responses omit the logical name; retaining the caller's
+	// non-secret identifier makes the receipt useful without exposing bytes.
+	if out.Name == "" {
+		out.Name = name
+	}
+	return out, nil
+}
+
+// PutSecretValue is a compatibility spelling for WriteSecretValue.
+func (c *Client) PutSecretValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
+	return c.WriteSecretValue(ctx, store, name, value)
+}
+
+// ActivateSecretVersion selects a staged version for Snippet reads. The
+// version number is the only value carried in the request.
+func (c *Client) ActivateSecretVersion(ctx context.Context, store, name string, version int) error {
+	if err := validateSecretCoordinates(store, name); err != nil {
+		return err
+	}
+	if version <= 0 {
+		return errors.New("cloudflare: secret version is required")
+	}
+	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions/" + fmt.Sprint(version) + "/activate")
+	return c.do(ctx, "activate secret version", http.MethodPost, path, nil, nil)
+}
+
+// RetireSecretVersion removes a no-longer-accepted version after overlap.
+func (c *Client) RetireSecretVersion(ctx context.Context, store, name string, version int) error {
+	if err := validateSecretCoordinates(store, name); err != nil {
+		return err
+	}
+	if version <= 0 {
+		return errors.New("cloudflare: secret version is required")
+	}
+	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions/" + fmt.Sprint(version))
+	return c.do(ctx, "retire secret version", http.MethodDelete, path, nil, nil)
+}
+
+// WriteValue, ActivateVersion, and RetireVersion keep provider adapters terse
+// while preserving the explicit SecretValueAPI contract.
+func (c *Client) WriteValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
+	return c.WriteSecretValue(ctx, store, name, value)
+}
+func (c *Client) ActivateVersion(ctx context.Context, store, name string, version int) error {
+	return c.ActivateSecretVersion(ctx, store, name, version)
+}
+func (c *Client) RetireVersion(ctx context.Context, store, name string, version int) error {
+	return c.RetireSecretVersion(ctx, store, name, version)
+}
+
+func validateSecretCoordinates(store, name string) error {
+	if strings.TrimSpace(store) == "" {
+		return errors.New("cloudflare: secrets store name is required")
+	}
+	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "/\\\r\n\x00") {
+		return errors.New("cloudflare: secret name is required")
+	}
+	return nil
 }
 
 func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {

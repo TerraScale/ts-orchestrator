@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,12 +76,13 @@ type KVWriter struct {
 	onBudgetExceeded func(int)
 	now              func() time.Time
 
-	stepMutex     sync.Mutex
-	mutex         sync.Mutex
-	lastPlacement map[string]string
-	lastHealth    map[string]struct{}
-	writeCount    int
-	lastErr       error
+	stepMutex          sync.Mutex
+	mutex              sync.Mutex
+	lastPlacement      map[string]string
+	lastPlacementState map[string]DBPlacement
+	lastHealth         map[string]struct{}
+	writeCount         int
+	lastErr            error
 
 	cancel     context.CancelFunc
 	completion chan struct{}
@@ -116,16 +118,17 @@ func NewKVWriter(config KVWriterConfig) (*KVWriter, error) {
 		now = time.Now
 	}
 	return &KVWriter{
-		store:            config.Store,
-		health:           config.Health,
-		placement:        config.Placement,
-		interval:         interval,
-		maxWritesPerTick: config.MaxWritesPerTick,
-		onBudgetExceeded: config.OnBudgetExceeded,
-		now:              now,
-		lastPlacement:    make(map[string]string),
-		lastHealth:       make(map[string]struct{}),
-		completion:       make(chan struct{}),
+		store:              config.Store,
+		health:             config.Health,
+		placement:          config.Placement,
+		interval:           interval,
+		maxWritesPerTick:   config.MaxWritesPerTick,
+		onBudgetExceeded:   config.OnBudgetExceeded,
+		now:                now,
+		lastPlacement:      make(map[string]string),
+		lastPlacementState: make(map[string]DBPlacement),
+		lastHealth:         make(map[string]struct{}),
+		completion:         make(chan struct{}),
 	}, nil
 }
 
@@ -206,6 +209,9 @@ func (w *KVWriter) writeBatch(ctx context.Context, health map[string]RegionHealt
 	placementKeys := make([]string, 0, len(placement))
 	for database := range placement {
 		if err := validateKVWriterKey(database); err != nil {
+			return 0, err
+		}
+		if err := w.validatePlacement(database, placement[database]); err != nil {
 			return 0, err
 		}
 		placementKeys = append(placementKeys, database)
@@ -429,7 +435,7 @@ func (w *KVWriter) filterChangedPlacement(placement map[string]DBPlacement) map[
 	for database, entry := range placement {
 		regions := append([]string(nil), entry.Regions...)
 		sort.Strings(regions)
-		fingerprint := strings.Join(regions, "\n")
+		fingerprint := placementFingerprint(entry, regions)
 		previous, ok := w.lastPlacement[database]
 		if !ok || previous != fingerprint {
 			changed[database] = entry
@@ -444,7 +450,8 @@ func (w *KVWriter) recordChangedPlacement(changed map[string]DBPlacement) {
 	for database, entry := range changed {
 		regions := append([]string(nil), entry.Regions...)
 		sort.Strings(regions)
-		w.lastPlacement[database] = strings.Join(regions, "\n")
+		w.lastPlacement[database] = placementFingerprint(entry, regions)
+		w.lastPlacementState[database] = entry
 	}
 }
 
@@ -482,7 +489,71 @@ func (w *KVWriter) removeStalePlacement(databases []string) {
 	defer w.mutex.Unlock()
 	for _, database := range databases {
 		delete(w.lastPlacement, database)
+		delete(w.lastPlacementState, database)
 	}
+}
+
+func placementFingerprint(entry DBPlacement, regions []string) string {
+	return strings.Join(regions, "\n") + "\x00" + entry.PlacementLock + "\x00" + strconv.FormatUint(entry.Generation, 10)
+}
+
+// validatePlacement rejects malformed lock metadata and widening before the
+// tick writes even one health key. This is the atomic-safety boundary: a bad
+// placement can never be partially published after a successful observation.
+func (w *KVWriter) validatePlacement(database string, entry DBPlacement) error {
+	if entry.PlacementLock == "" && entry.Generation != 0 {
+		return errors.New("cloudflare: placement generation requires an immutable lock")
+	}
+	if entry.PlacementLock != "" {
+		if entry.PlacementLock != "eu-only" && entry.PlacementLock != "br-only" && entry.PlacementLock != "explicit" {
+			return errors.New("cloudflare: placement lock policy is invalid")
+		}
+		if entry.Generation == 0 {
+			return errors.New("cloudflare: placement lock generation must be positive")
+		}
+	}
+	w.mutex.Lock()
+	prior, exists := w.lastPlacementState[database]
+	w.mutex.Unlock()
+	if !exists {
+		return nil
+	}
+	if prior.PlacementLock != entry.PlacementLock {
+		return errors.New("cloudflare: placement lock policy cannot be changed")
+	}
+	if prior.Generation > 0 && entry.Generation < prior.Generation {
+		return errors.New("cloudflare: placement lock generation cannot regress")
+	}
+	if prior.PlacementLock == "explicit" {
+		allowed := map[string]struct{}{}
+		for _, region := range prior.Regions {
+			allowed[region] = struct{}{}
+		}
+		for _, region := range entry.Regions {
+			if _, ok := allowed[region]; !ok {
+				return errors.New("cloudflare: placement lock cannot be widened")
+			}
+		}
+		if !sameStringSet(prior.Regions, entry.Regions) && entry.Generation <= prior.Generation {
+			return errors.New("cloudflare: placement lock generation must advance")
+		}
+	}
+	return nil
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := append([]string(nil), a...), append([]string(nil), b...)
+	sort.Strings(x)
+	sort.Strings(y)
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (w *KVWriter) recordTickWrites(writes int) {

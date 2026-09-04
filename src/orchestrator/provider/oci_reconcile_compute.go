@@ -45,6 +45,8 @@ type ObservedMember struct {
 	Shape              string
 	LifecycleState     string
 	AvailabilityDomain string
+	CompartmentID      string
+	FreeformTags       map[string]string
 }
 
 // MemberLaunchSpec is one member launch request. FallbackShape is tried
@@ -223,6 +225,18 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
 	for _, member := range observed.Members {
+		owned := memberOwnedInRegion(member, declared.Region.Code)
+		if !owned && (member.Index < 1 || member.Index > int(pool.Count)) {
+			// Unknown/unmarked instances are drift evidence, never termination
+			// authority. They remain untouched even when they resemble a member.
+			continue
+		}
+		if member.Index < 1 || member.Index > 1024 || member.DisplayName != MemberDisplayName(declared.Region.Code, member.Index) {
+			if !owned {
+				continue
+			}
+			return OCIPlan{}, &InvalidDataError{Message: "owned member is outside the declared member namespace"}
+		}
 		state := observedMemberState(member.LifecycleState)
 		if state == memberStateFailed {
 			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
@@ -266,12 +280,17 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			continue
 		}
 		if member.Shape != pool.PrimaryShape && member.Shape != pool.FallbackShape {
+			if !memberOwnedInRegion(member, declared.Region.Code) {
+				continue
+			}
 			plan.Actions = append(plan.Actions, TerminateMemberAction{InstanceID: member.ID})
 			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed))
 			continue
 		}
 		if member.LifecycleState == "STOPPED" {
-			plan.Actions = append(plan.Actions, StartMemberAction{InstanceID: member.ID})
+			if memberOwnedInRegion(member, declared.Region.Code) {
+				plan.Actions = append(plan.Actions, StartMemberAction{InstanceID: member.ID})
+			}
 		}
 	}
 	return plan, nil
@@ -386,7 +405,7 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 				return err
 			}
 		case TerminateMemberAction:
-			if err := r.Compute.TerminateMember(ctx, a.InstanceID); err != nil {
+			if err := r.terminateOwnedMember(ctx, declared.Region.Code, observed, a.InstanceID); err != nil {
 				return err
 			}
 		default:
@@ -394,6 +413,57 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 		}
 	}
 	return nil
+}
+
+func memberOwnedInRegion(member ObservedMember, region string) bool {
+	return isOCID(member.ID, "instance") && positiveOCIOwnership(member.FreeformTags, ManagedMemberTagValue, region) &&
+		member.DisplayName == MemberDisplayName(region, member.Index)
+}
+
+func sameObservedMember(a, b ObservedMember) bool {
+	return a.ID == b.ID && a.DisplayName == b.DisplayName && a.Index == b.Index && a.Shape == b.Shape &&
+		a.LifecycleState == b.LifecycleState && a.AvailabilityDomain == b.AvailabilityDomain &&
+		a.CompartmentID == b.CompartmentID && sameStringMap(a.FreeformTags, b.FreeformTags)
+}
+
+func sameStringMap(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region string, observed ComputeObserved, id string) error {
+	var expected ObservedMember
+	found := false
+	for _, member := range observed.Members {
+		if member.ID == id {
+			expected, found = member, true
+			break
+		}
+	}
+	if !found || !memberOwnedInRegion(expected, region) {
+		return &InvalidOperationError{Message: "member termination requires positively owned observed instance"}
+	}
+	current, err := r.Compute.ListMembers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, member := range current {
+		if member.ID != id {
+			continue
+		}
+		if !memberOwnedInRegion(member, region) || !sameObservedMember(member, expected) {
+			return &InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
+		}
+		return r.Compute.TerminateMember(ctx, id)
+	}
+	return nil // already terminated/absent
 }
 
 // launchWithFallback implements the D-69 capacity rule: an out-of-capacity
@@ -633,6 +703,7 @@ var _ ComputeGateway = (*ociMemberGateway)(nil)
 
 type ociMemberDocument struct {
 	ID                 string            `json:"id"`
+	CompartmentID      string            `json:"compartmentId"`
 	DisplayName        string            `json:"displayName"`
 	LifecycleState     string            `json:"lifecycleState"`
 	Shape              string            `json:"shape"`
@@ -672,14 +743,18 @@ func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, e
 	}
 	members := make([]ObservedMember, 0, len(list.Items))
 	for _, item := range list.Items {
-		if item.FreeformTags["terrascale-managed"] != ManagedMemberTagValue || !isOCID(item.ID, "instance") {
-			continue
+		if !isOCID(item.ID, "instance") {
+			return nil, &InvalidDataError{Message: "OCI member instance response has an invalid identity"}
 		}
-		index, err := strconv.Atoi(item.FreeformTags[MemberIndexTag])
-		if err != nil || index < 1 || index > 1024 {
-			return nil, &InvalidDataError{Message: "OCI member instance has an invalid member index"}
+		index := 0
+		if item.FreeformTags[OCIManagedTag] == ManagedMemberTagValue {
+			parsed, err := strconv.Atoi(item.FreeformTags[MemberIndexTag])
+			if err != nil || parsed < 1 || parsed > 1024 {
+				return nil, &InvalidDataError{Message: "OCI member instance has an invalid member index"}
+			}
+			index = parsed
 		}
-		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Shape: item.Shape, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain})
+		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Shape: item.Shape, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
 	}
 	return members, nil
 }
@@ -744,7 +819,7 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 			ImageID    string `json:"imageId"`
 		}{SourceType: "image", ImageID: imageID},
 		Metadata:     map[string]string{"user_data": spec.CloudInitBase64},
-		FreeformTags: map[string]string{"terrascale-managed": ManagedMemberTagValue, MemberIndexTag: strconv.Itoa(spec.Index)},
+		FreeformTags: map[string]string{OCIManagedTag: ManagedMemberTagValue, OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)},
 	}
 	var document ociMemberDocument
 	retryToken := spec.DisplayName

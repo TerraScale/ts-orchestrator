@@ -5,8 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -16,6 +19,39 @@ import (
 type memoryDownloader struct {
 	files    map[string][]byte
 	failUrls map[string]error
+}
+
+func TestDownloadClientRejectsRedirectOutsideHTTPSAllowlist(t *testing.T) {
+	var attackerHits int
+	attacker := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { attackerHits++ }))
+	defer attacker.Close()
+	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	client := redirect.Client()
+	originalRedirect := func(*http.Request, []*http.Request) error { return nil }
+	client.CheckRedirect = originalRedirect
+	target := filepath.Join(t.TempDir(), "artifact")
+	err := (DownloadClient{Client: client, AllowedHosts: []string{redirect.Listener.Addr().String()}}).Download(
+		redirect.URL+"/artifact", target, 1024)
+	if err == nil {
+		t.Fatal("cross-host redirect accepted")
+	}
+	if attackerHits != 0 {
+		t.Fatalf("redirect target contacted %d times", attackerHits)
+	}
+	if reflect.ValueOf(client.CheckRedirect).Pointer() != reflect.ValueOf(originalRedirect).Pointer() {
+		t.Fatal("caller redirect policy was mutated")
+	}
+}
+
+func TestDownloadClientRejectsUnsafeTargetPath(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("x")) }))
+	defer server.Close()
+	if err := (DownloadClient{Client: server.Client()}).Download(server.URL, "relative/../artifact", 32); err == nil {
+		t.Fatal("relative traversal target accepted")
+	}
 }
 
 func (m memoryDownloader) Download(url string, target string, limitBytes int64) error {

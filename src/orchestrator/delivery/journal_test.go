@@ -206,6 +206,37 @@ func TestJournalRecoveryRejectsLegacyUnleasedOperation(t *testing.T) {
 	}
 }
 
+func TestJournalLeasedOperationCannotFinishWithoutFence(t *testing.T) {
+	journal := NewJournal()
+	request := journalTestRequest("finish-requires-fence")
+	operation, _, err := journal.Begin(request, OperationLease{OwnerID: "owner-a", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Finish(request.OperationID, operation.RequestDigest, journalTestReceipt(request.OperationID, StatusFailed)); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("lease-less finish = %v, want fence error", err)
+	}
+}
+
+func TestJournalVerifyFenceRejectsStaleGeneration(t *testing.T) {
+	journal := NewJournal()
+	now := time.Unix(400, 0).UTC()
+	journal.clock = func() time.Time { return now }
+	request := journalTestRequest("verify-fence")
+	operation, _, err := journal.Begin(request, OperationLease{OwnerID: "owner-a", TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence := OperationFence{OperationID: request.OperationID, RequestDigest: operation.RequestDigest, OwnerID: operation.OwnerID, Generation: operation.Generation}
+	if err := journal.VerifyFence(fence); err != nil {
+		t.Fatalf("valid fence = %v", err)
+	}
+	now = now.Add(2 * time.Minute)
+	if err := journal.VerifyFence(fence); !errors.Is(err, ErrOperationLeaseActive) {
+		t.Fatalf("expired fence = %v, want active error", err)
+	}
+}
+
 func TestJournalFinishUsesCASAndAllowsOnlyExactReceiptReplay(t *testing.T) {
 	store := NewInMemoryStore()
 	journal, err := NewDurableJournal(store)

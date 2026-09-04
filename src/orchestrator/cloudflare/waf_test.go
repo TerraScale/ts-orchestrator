@@ -21,7 +21,11 @@ func wafZone() *Zone {
 	}
 }
 
-const adminRule = `{"id":"f1","description":"terrascale:admin-tailscale-only","expression":"((http.host eq \"app.terrascale.tech\" and starts_with(http.request.uri.path, \"/admin\")) and not ip.src in {100.64.0.0/10})","action":"block","enabled":true}`
+// The declared /admin rule: exactly the admin route tree (D-79), never
+// sibling paths like "/administrator".
+const declaredAdminExpression = `((http.host eq "app.terrascale.tech" and (http.request.uri.path eq "/admin" or starts_with(http.request.uri.path, "/admin/"))) and not ip.src in {100.64.0.0/10})`
+
+const adminRule = `{"id":"f1","description":"terrascale:admin-tailscale-only","expression":"((http.host eq \"app.terrascale.tech\" and (http.request.uri.path eq \"/admin\" or starts_with(http.request.uri.path, \"/admin/\"))) and not ip.src in {100.64.0.0/10})","action":"block","enabled":true}`
 
 const apiRateRule = `{"id":"f2","description":"terrascale:api-per-ip","expression":"(http.host eq \"api.terrascale.tech\" and starts_with(http.request.uri.path, \"/\"))","action":"block","action_parameters":{"characteristics":["ip.src"],"requests_per_period":1200,"period":60,"mitigation_timeout":600},"enabled":true}`
 
@@ -71,7 +75,7 @@ func TestWAFAndRateRulesReconcile(t *testing.T) {
 			firewallSt: http.StatusNotFound,
 			rateSt:     http.StatusNotFound,
 			wantPlan: []string{
-				"create waf-rule ((http.host eq \"app.terrascale.tech\" and starts_with(http.request.uri.path, \"/admin\")) and not ip.src in {100.64.0.0/10})",
+				"create waf-rule " + declaredAdminExpression,
 				"create rate-rule (http.host eq \"api.terrascale.tech\" and starts_with(http.request.uri.path, \"/\"))",
 			},
 			wantPuts: 2,
@@ -83,10 +87,19 @@ func TestWAFAndRateRulesReconcile(t *testing.T) {
 		},
 		{
 			name:     "drift on the egress set is repaired",
-			firewall: `{"id":"f1","description":"terrascale:admin-tailscale-only","expression":"((http.host eq \"app.terrascale.tech\" and starts_with(http.request.uri.path, \"/admin\")) and not ip.src in {0.0.0.0/0})","action":"block","enabled":true}`,
+			firewall: `{"id":"f1","description":"terrascale:admin-tailscale-only","expression":"((http.host eq \"app.terrascale.tech\" and (http.request.uri.path eq \"/admin\" or starts_with(http.request.uri.path, \"/admin/\"))) and not ip.src in {0.0.0.0/0})","action":"block","enabled":true}`,
 			rate:     apiRateRule,
 			wantPlan: []string{
-				"update waf-rule ((http.host eq \"app.terrascale.tech\" and starts_with(http.request.uri.path, \"/admin\")) and not ip.src in {100.64.0.0/10})",
+				"update waf-rule " + declaredAdminExpression,
+			},
+			wantPuts: 1,
+		},
+		{
+			name:     "a broad prefix rule is narrowed to the admin route tree",
+			firewall: `{"id":"f1","description":"terrascale:admin-tailscale-only","expression":"((http.host eq \"app.terrascale.tech\" and starts_with(http.request.uri.path, \"/admin\")) and not ip.src in {100.64.0.0/10})","action":"block","enabled":true}`,
+			rate:     apiRateRule,
+			wantPlan: []string{
+				"update waf-rule " + declaredAdminExpression,
 			},
 			wantPuts: 1,
 		},
@@ -100,22 +113,20 @@ func TestWAFAndRateRulesReconcile(t *testing.T) {
 			wantPuts: 1,
 		},
 		{
-			name:     "orphan console-clicked rules are deleted",
+			name:     "unowned console-clicked rules are preserved with an alert",
 			firewall: adminRule + `,{"id":"fx","expression":"http.request.uri.path eq \"/wp-login.php\"","action":"block","enabled":true}`,
 			rate:     apiRateRule,
 			wantPlan: []string{
-				"delete waf-rule http.request.uri.path eq \"/wp-login.php\"",
+				"alert waf-rule preserving unowned Cloudflare rule fx",
 			},
-			wantPuts: 1,
 		},
 		{
-			name:     "a foreign rule blocking sync.api is deleted",
+			name:     "an unowned rule blocking sync.api is preserved with an alert",
 			firewall: adminRule + `,{"id":"fs","expression":"http.host eq \"sync.api.terrascale.tech\"","action":"block","enabled":true}`,
 			rate:     apiRateRule,
 			wantPlan: []string{
-				"delete waf-rule http.host eq \"sync.api.terrascale.tech\"",
+				"alert waf-rule preserving unowned Cloudflare rule fs",
 			},
-			wantPuts: 1,
 		},
 	}
 	for _, tc := range cases {
@@ -141,6 +152,70 @@ func TestWAFAndRateRulesReconcile(t *testing.T) {
 			}
 			if len(*methods) != tc.wantPuts {
 				t.Fatalf("PUTs = %v, want %d", *methods, tc.wantPuts)
+			}
+		})
+	}
+}
+
+// TestWAFAndRateRulesRefuseInvalidDeclarations pins the fail-closed side of
+// the seam: a declaration that cannot express the D-79 restriction or a
+// meaningful rate limit errors before any provider call or planned change.
+func TestWAFAndRateRulesRefuseInvalidDeclarations(t *testing.T) {
+	admin := FirewallRule{Ref: "admin-tailscale-only", Hostname: "app.terrascale.tech",
+		PathPrefix: "/admin", AllowCIDRs: []string{"100.64.0.0/10"}, Action: "block"}
+	rate := RateRule{Ref: "api-per-ip", Hostname: "api.terrascale.tech",
+		RequestsPerPeriod: 1200, PeriodSeconds: 60, MitigationSeconds: 600}
+	firewallZone := func(mutate func(*FirewallRule)) *Zone {
+		r := admin
+		if mutate != nil {
+			mutate(&r)
+		}
+		return &Zone{ZoneName: "terrascale.tech", FirewallRules: []FirewallRule{r}, RateRules: []RateRule{rate}}
+	}
+	rateZone := func(mutate func(*RateRule)) *Zone {
+		r := rate
+		if mutate != nil {
+			mutate(&r)
+		}
+		return &Zone{ZoneName: "terrascale.tech", FirewallRules: []FirewallRule{admin}, RateRules: []RateRule{r}}
+	}
+	cases := []struct {
+		name    string
+		zone    *Zone
+		wantErr string
+	}{
+		{"firewall rule without a ref", firewallZone(func(r *FirewallRule) { r.Ref = "" }), "need a ref"},
+		{"firewall rule without a hostname", firewallZone(func(r *FirewallRule) { r.Hostname = "" }), "needs a hostname"},
+		{"firewall rule with a relative path prefix", firewallZone(func(r *FirewallRule) { r.PathPrefix = "admin" }), "must start with /"},
+		{"firewall rule with an empty allowlist", firewallZone(func(r *FirewallRule) { r.AllowCIDRs = nil }), "at least one allowed CIDR"},
+		{"firewall rule with a malformed CIDR", firewallZone(func(r *FirewallRule) { r.AllowCIDRs = []string{"100.64.0.0/10", "not-a-cidr"} }), "malformed CIDR"},
+		{"firewall rule with a non-blocking action", firewallZone(func(r *FirewallRule) { r.Action = "log" }), `want block`},
+		{"rate rule without a ref", rateZone(func(r *RateRule) { r.Ref = "" }), "need a ref"},
+		{"rate rule without a threshold", rateZone(func(r *RateRule) { r.RequestsPerPeriod = 0 }), "must be positive"},
+		{"rate rule with a zero period", rateZone(func(r *RateRule) { r.PeriodSeconds = 0 }), "outside 1..3600"},
+		{"rate rule beyond the period limit", rateZone(func(r *RateRule) { r.PeriodSeconds = 3601 }), "outside 1..3600"},
+		{"rate rule without a mitigation timeout", rateZone(func(r *RateRule) { r.MitigationSeconds = 0 }), "must be positive"},
+		{"two firewall rules sharing a ref", &Zone{ZoneName: "terrascale.tech",
+			FirewallRules: []FirewallRule{admin, admin}, RateRules: []RateRule{rate}}, "duplicate declared ref"},
+		{"two rate rules sharing a ref", &Zone{ZoneName: "terrascale.tech",
+			FirewallRules: []FirewallRule{admin}, RateRules: []RateRule{rate, rate}}, "duplicate declared ref"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ft := testClient(func(call fakeCall) (int, string, http.Header) {
+				t.Errorf("invalid declaration must not reach the provider: %v", call)
+				return failEnvelope(http.StatusTeapot, 0, "unexpected")
+			})
+			p := &Plan{}
+			err := tc.zone.reconcileWAFAndRateRules(context.Background(), c, p)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want it to contain %q", err, tc.wantErr)
+			}
+			if len(p.Changes) != 0 {
+				t.Fatalf("a refused declaration must plan nothing: %v", summarize(p))
+			}
+			if calls := ft.recorded(); len(calls) != 0 {
+				t.Fatalf("a refused declaration must make no provider calls: %v", calls)
 			}
 		})
 	}

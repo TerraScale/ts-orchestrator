@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -49,6 +50,8 @@ type ObservedVolume struct {
 	// replacement needs.  They are intentionally observations, never guesses.
 	BackupVerified bool
 	ReplicaCount   uint8
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 type ObservedAttachment struct {
@@ -56,6 +59,11 @@ type ObservedAttachment struct {
 	InstanceID     string
 	VolumeID       string
 	LifecycleState string
+	// OCI volume attachments have no freeform tag surface. Managed is set only
+	// by an attach response or a trusted observation adapter; an ID alone is
+	// never sufficient authority to detach.
+	Managed       bool
+	CompartmentID string
 }
 
 type BlockStorageObserved struct {
@@ -431,6 +439,9 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 		plan.Actions = append(plan.Actions, AttachVolumeAction{InstanceID: member.ID, VolumeID: volume.ID})
 	}
 	for _, attachment := range observed.Attachments {
+		if !attachmentOwned(attachment, observed, declared.Code) {
+			continue
+		}
 		state := observedAttachmentState(attachment.LifecycleState)
 		if state != attachmentStateActive {
 			continue
@@ -652,7 +663,7 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				return blockMutationError(ctx, err)
 			}
 		case DetachAttachmentAction:
-			if err := r.Block.DetachAttachment(ctx, a.AttachmentID); err != nil {
+			if err := r.detachOwnedAttachment(ctx, declared.Code, observed, a.AttachmentID); err != nil {
 				return blockMutationError(ctx, err)
 			}
 		case ReplaceVolumeAction:
@@ -701,13 +712,80 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				return blockMutationError(ctx, err)
 			}
 			if a.OldAttachmentID != "" {
-				if err := r.Block.DetachAttachment(ctx, a.OldAttachmentID); err != nil {
+				if err := r.detachOwnedAttachment(ctx, declared.Code, observed, a.OldAttachmentID); err != nil {
 					return blockMutationError(ctx, err)
 				}
 			}
 		default:
 			return &InvalidOperationError{Message: "block storage reconciler received a foreign action"}
 		}
+	}
+	return nil
+}
+
+func volumeOwnedInRegion(volume ObservedVolume, region string) bool {
+	return isOCID(volume.ID, "volume") && positiveOCIOwnership(volume.FreeformTags, "volume", region) &&
+		volume.DisplayName == DataVolumeName(region, volumeSlot(volume.DisplayName))
+}
+
+func volumeSlot(name string) int {
+	const suffix = "-data"
+	if len(name) <= len(suffix) || name[len(name)-len(suffix):] != suffix {
+		return 0
+	}
+	part := name[:len(name)-len(suffix)]
+	for i := len(part) - 1; i >= 0; i-- {
+		if part[i] == '-' {
+			v, err := strconv.Atoi(part[i+1:])
+			if err == nil {
+				return v
+			}
+			break
+		}
+	}
+	return 0
+}
+
+func attachmentOwned(attachment ObservedAttachment, observed BlockStorageObserved, region string) bool {
+	if !isOCID(attachment.ID, "volumeattachment") || !isOCID(attachment.InstanceID, "instance") || !isOCID(attachment.VolumeID, "volume") {
+		return false
+	}
+	if attachment.Managed {
+		return true
+	}
+	// Attachments have no OCI tag API. A future trusted adapter may set
+	// Managed after proving both parent resources; absent that proof preserve.
+	return false
+}
+
+func sameObservedAttachment(a, b ObservedAttachment) bool {
+	return a.ID == b.ID && a.InstanceID == b.InstanceID && a.VolumeID == b.VolumeID && a.LifecycleState == b.LifecycleState && a.Managed == b.Managed && a.CompartmentID == b.CompartmentID
+}
+
+func (r *BlockStorageReconciler) detachOwnedAttachment(ctx context.Context, region string, observed BlockStorageObserved, id string) error {
+	var expected ObservedAttachment
+	found := false
+	for _, attachment := range observed.Attachments {
+		if attachment.ID == id {
+			expected, found = attachment, true
+			break
+		}
+	}
+	if !found || !attachmentOwned(expected, observed, region) {
+		return &InvalidOperationError{Message: "attachment detach requires positively owned observed attachment"}
+	}
+	current, err := r.Block.ListAttachments(ctx)
+	if err != nil {
+		return err
+	}
+	for _, attachment := range current {
+		if attachment.ID != id {
+			continue
+		}
+		if !attachmentOwned(attachment, observed, region) || !sameObservedAttachment(attachment, expected) {
+			return &InvalidOperationError{Message: "refusing stale or ownership-changed attachment detach"}
+		}
+		return r.Block.DetachAttachment(ctx, id)
 	}
 	return nil
 }
@@ -750,17 +828,19 @@ func NewOCIBlockStorageGateway(core *OCIHTTPTransport, compartmentID string) (*O
 }
 
 type ociVolumeDocument struct {
-	ID                 string `json:"id"`
-	DisplayName        string `json:"displayName"`
-	SizeInGBs          uint64 `json:"sizeInGBs"`
-	VPUsPerGB          uint64 `json:"vpusPerGB"`
-	LifecycleState     string `json:"lifecycleState"`
-	AvailabilityDomain string `json:"availabilityDomain"`
-	KMSKeyID           string `json:"kmsKeyId"`
-	UtilizationPercent uint8  `json:"utilizationPercent"`
-	HealthState        string `json:"healthState"`
-	BackupVerified     bool   `json:"backupVerified"`
-	ReplicaCount       uint8  `json:"replicaCount"`
+	ID                 string            `json:"id"`
+	CompartmentID      string            `json:"compartmentId"`
+	DisplayName        string            `json:"displayName"`
+	SizeInGBs          uint64            `json:"sizeInGBs"`
+	VPUsPerGB          uint64            `json:"vpusPerGB"`
+	LifecycleState     string            `json:"lifecycleState"`
+	AvailabilityDomain string            `json:"availabilityDomain"`
+	KMSKeyID           string            `json:"kmsKeyId"`
+	UtilizationPercent uint8             `json:"utilizationPercent"`
+	HealthState        string            `json:"healthState"`
+	BackupVerified     bool              `json:"backupVerified"`
+	ReplicaCount       uint8             `json:"replicaCount"`
+	FreeformTags       map[string]string `json:"freeformTags"`
 }
 
 func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, error) {
@@ -777,7 +857,7 @@ func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVol
 		if !isOCID(item.ID, "volume") {
 			return nil, &InvalidDataError{Message: "OCI volume response is invalid"}
 		}
-		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, KMSKeyID: item.KMSKeyID, UtilizationPercent: item.UtilizationPercent, HealthState: item.HealthState, BackupVerified: item.BackupVerified, ReplicaCount: item.ReplicaCount})
+		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, KMSKeyID: item.KMSKeyID, UtilizationPercent: item.UtilizationPercent, HealthState: item.HealthState, BackupVerified: item.BackupVerified, ReplicaCount: item.ReplicaCount, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
 	}
 	return volumes, nil
 }
@@ -794,19 +874,20 @@ func (g *OCIBlockStorageGateway) CreateVolume(ctx context.Context, spec VolumeSp
 		retryToken = spec.DisplayName
 	}
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/volumes", struct {
-		CompartmentID      string `json:"compartmentId"`
-		AvailabilityDomain string `json:"availabilityDomain"`
-		DisplayName        string `json:"displayName"`
-		SizeInGBs          uint64 `json:"sizeInGBs"`
-		VPUsPerGB          uint64 `json:"vpusPerGB"`
-		KMSKeyID           string `json:"kmsKeyId,omitempty"`
-	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB, KMSKeyID: spec.KMSKeyID}, map[string]string{"opc-retry-token": retryToken}, &document); err != nil {
+		CompartmentID      string            `json:"compartmentId"`
+		AvailabilityDomain string            `json:"availabilityDomain"`
+		DisplayName        string            `json:"displayName"`
+		SizeInGBs          uint64            `json:"sizeInGBs"`
+		VPUsPerGB          uint64            `json:"vpusPerGB"`
+		KMSKeyID           string            `json:"kmsKeyId,omitempty"`
+		FreeformTags       map[string]string `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB, KMSKeyID: spec.KMSKeyID, FreeformTags: volumeOwnershipTags(spec.DisplayName)}, map[string]string{"opc-retry-token": retryToken}, &document); err != nil {
 		return ObservedVolume{}, err
 	}
 	if !isOCID(document.ID, "volume") {
 		return ObservedVolume{}, &InvalidDataError{Message: "OCI volume create response is invalid"}
 	}
-	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain, KMSKeyID: document.KMSKeyID, UtilizationPercent: document.UtilizationPercent, HealthState: document.HealthState, BackupVerified: document.BackupVerified, ReplicaCount: document.ReplicaCount}, nil
+	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain, KMSKeyID: document.KMSKeyID, UtilizationPercent: document.UtilizationPercent, HealthState: document.HealthState, BackupVerified: document.BackupVerified, ReplicaCount: document.ReplicaCount, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCIBlockStorageGateway) ExpandVolume(ctx context.Context, volumeID string, sizeGiB uint64) error {
@@ -839,7 +920,7 @@ func (g *OCIBlockStorageGateway) ListAttachments(ctx context.Context) ([]Observe
 		if !isOCID(item.ID, "volumeattachment") || !isOCID(item.InstanceID, "instance") || !isOCID(item.VolumeID, "volume") {
 			return nil, &InvalidDataError{Message: "OCI volume attachment response is invalid"}
 		}
-		attachments = append(attachments, ObservedAttachment{ID: item.ID, InstanceID: item.InstanceID, VolumeID: item.VolumeID, LifecycleState: item.LifecycleState})
+		attachments = append(attachments, ObservedAttachment{ID: item.ID, InstanceID: item.InstanceID, VolumeID: item.VolumeID, LifecycleState: item.LifecycleState, CompartmentID: g.CompartmentID})
 	}
 	return attachments, nil
 }
@@ -865,7 +946,7 @@ func (g *OCIBlockStorageGateway) AttachVolume(ctx context.Context, instanceID, v
 	if !isOCID(document.ID, "volumeattachment") {
 		return ObservedAttachment{}, &InvalidDataError{Message: "OCI volume attach response is invalid"}
 	}
-	return ObservedAttachment{ID: document.ID, InstanceID: document.InstanceID, VolumeID: document.VolumeID, LifecycleState: document.LifecycleState}, nil
+	return ObservedAttachment{ID: document.ID, InstanceID: document.InstanceID, VolumeID: document.VolumeID, LifecycleState: document.LifecycleState, Managed: true, CompartmentID: g.CompartmentID}, nil
 }
 
 func (g *OCIBlockStorageGateway) DetachAttachment(ctx context.Context, attachmentID string) error {
@@ -880,4 +961,13 @@ func shortOCID(id string) string {
 		return id[len(id)-24:]
 	}
 	return id
+}
+
+func volumeOwnershipTags(name string) map[string]string {
+	region := strings.TrimPrefix(name, "terrascale-")
+	region = strings.TrimSuffix(region, "-data")
+	if i := strings.LastIndexByte(region, '-'); i >= 0 {
+		region = region[:i]
+	}
+	return map[string]string{OCIManagedTag: "volume", OCIScopeTag: region}
 }

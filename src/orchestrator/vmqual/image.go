@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -52,7 +53,40 @@ func MaterializeArtifacts(ctx context.Context, config Config) (ArtifactResult, e
 	config.RootFSPath = image.Installed.RootFS
 	config.ExpectedKernelSHA256 = image.Manifest.Kernel.SHA256
 	config.ExpectedRootFSSHA256 = image.Manifest.RootFS.SHA256
+	if err := materializeGuestControl(ctx, config); err != nil {
+		return ArtifactResult{}, err
+	}
 	return ArtifactResult{Config: config, Pins: pins, Toolchain: toolchain, Image: image}, nil
+}
+
+// materializeGuestControl builds the tiny, test-only forced SSH command from
+// this checkout. It is deliberately built into the private qualification
+// root, never installed on the host or copied from an unpinned URL.
+func materializeGuestControl(ctx context.Context, config Config) error {
+	if config.GuestControlPath == "" || !filepath.IsAbs(config.GuestControlPath) {
+		return errors.New("vmqual: guest control path must be absolute")
+	}
+	if err := os.MkdirAll(filepath.Dir(config.GuestControlPath), 0700); err != nil {
+		return fmt.Errorf("vmqual: create guest control directory: %w", err)
+	}
+	tmp := config.GuestControlPath + ".tmp"
+	_ = os.Remove(tmp)
+	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", tmp, "./cmd/vm-guest-control")
+	command.Dir = repositoryRoot()
+	command.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if output, err := command.CombinedOutput(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("vmqual: build guest control: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if err := os.Chmod(tmp, 0500); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, config.GuestControlPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("vmqual: install guest control: %w", err)
+	}
+	return nil
 }
 
 // MaterializeImage verifies and atomically installs the pinned kernel/rootfs

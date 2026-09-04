@@ -1,30 +1,34 @@
-# ADR 0024: Greenfield bring-up remains gated by incomplete OCI residual evidence
+# ADR 0024: Greenfield bring-up and residual-resource quarantine
 
-- Status: Accepted greenfield boundary; residual inventory evidence pending
-- Date: 2026-08-05
+- Status: Accepted greenfield boundary; production qualification remains a gate
 - Decision owner: Cloud
-- Readiness entry: `24 / greenfield-bringup`
-
-## Context
-
-The intended deployment is greenfield: it adopts no prior cloud, data, identity, DNS, or control-plane resource. That policy does not establish that the legacy cloud estate is empty. The current P0-02 inventory is an incomplete, host-preflight-only record: OCI configuration material was detected without reading it, but the OCI CLI was unavailable, so no authenticated scoped discovery ran ([OCI residual inventory](../evidence/phase0/oci-residual-inventory.yaml)).
-
-Consequently, compute, storage, backups, buckets, load balancers, public IPs, IAM, Vault/KMS, certificates, workloads, NATS, networking, and seven-day cost remain `not-queried`. OKE and node-pool absence remains explicitly unproven. No resource has an ownership classification or cleanup disposition.
 
 ## Decision
 
-1. Preserve the greenfield policy: the new platform must not adopt a historical resource.
-2. Treat the OCI residual estate as unknown until a scoped read-only inventory positively observes and classifies resources.
-3. Do not infer a clean estate, deleted OKE/node pools, or zero residual cost from unavailable tooling, unread credentials, missing authorization, or unqueried APIs.
-4. Allow cleanup only after positive observation, ownership evidence, and a named accountable owner assigns a disposition. Unknown resources remain outside the new ownership graph and are not mutated.
-5. This ADR and its evidence authorize no OCI or other cloud-account mutation.
+The first TerraScale estate is created from an empty OCI tenancy. The
+orchestrator must not adopt an existing resource, identity, route, bucket,
+volume, host, or control store merely because a provider can discover it.
 
-## Consequences and required evidence
+Unknown provider state is held until a scoped read-only observation, positive
+TerraScale ownership evidence, and an accountable owner establish what the
+resource is and whether a disposition is allowed. Missing credentials,
+unavailable tooling, stale observations, and unqueried APIs never imply that
+an estate is clean or that deletion is safe.
 
-Before first-production qualification or any residual cleanup proposal, the Cloud lane needs an approved read-only OCI client, a scoped read-only identity, inventory coverage for every P0-02 category, a positive OKE/node-pool query, sanitized seven-day cost evidence, and named owner dispositions for positively identified remnants. The evidence must be revalidated immediately before any ownership disposition or mutation proposal.
+`bootstrap` creates and verifies the declared GRU estate, installs only the
+signed Go binaries through `ts-node`, and hands authority to the running
+control plane. `add-region` applies the same declaration, ownership, and
+fail-closed rules to SFO and FRA. Neither command authorizes an unscoped
+provider mutation.
 
-Until then, the residual-estate risk is unresolved: a legacy resource, cost, credential path, network route, or OKE resource may exist but has not been verified. The greenfield architecture remains a no-adoption rule, not a clean-account assertion.
+## Consequences and verification
 
-## Rollback
+Provider reconciliation must distinguish absent, creating, healthy, failed,
+and indeterminate resources and must never repeat an uncertain destructive
+operation. D-67 qualification covers deterministic plan, ownership, and
+rollback behavior; D-81 covers the local Firecracker/systemd lifecycle. Real
+OCI and Cloudflare qualification must still verify account, identity, quota,
+eventual-consistency, and production-performance behavior before launch.
 
-This record changes no runtime or cloud state. Its rollback is a Git revert of this ADR and the linked evidence record; it does not reverse or imply any cloud action.
+This ADR changes no runtime or cloud state. Its rollback is a Git revert, not
+a cloud operation.

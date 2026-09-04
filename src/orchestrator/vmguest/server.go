@@ -9,13 +9,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const (
-	DefaultInboxRoot = "/run/terrascale/vmqual-inbox"
-	DefaultDataRoot  = "/var/lib/terrascale/vmqual"
-	DefaultSeedPath  = "/run/terrascale/guest-seed.json"
+	DefaultInboxRoot = "/var/lib/terrascale/vmqual-inbox"
+	DefaultDataRoot  = "/var/lib/terrascale/vmqual-data"
+	DefaultSeedPath  = "/etc/terrascale/vmqual-guest-seed.json"
 )
 
 type Executor interface {
@@ -29,6 +30,7 @@ func (ProcessExecutor) Run(ctx context.Context, path string, args []string, stdo
 	command.Env = []string{"HOME=/root", "LANG=C", "LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 	command.Stdout = stdout
 	command.Stderr = stderr
+	command.WaitDelay = 2 * time.Second
 	return command.Run()
 }
 
@@ -38,10 +40,11 @@ type Config struct {
 	SeedPath       string
 	Executor       Executor
 	CommandTimeout time.Duration
+	SessionTimeout time.Duration
 }
 
 func DefaultConfig() Config {
-	return Config{InboxRoot: DefaultInboxRoot, DataRoot: DefaultDataRoot, SeedPath: DefaultSeedPath, Executor: ProcessExecutor{}, CommandTimeout: 30 * time.Second}
+	return Config{InboxRoot: DefaultInboxRoot, DataRoot: DefaultDataRoot, SeedPath: DefaultSeedPath, Executor: ProcessExecutor{}, CommandTimeout: 30 * time.Second, SessionTimeout: 2 * time.Minute}
 }
 
 func (config Config) validate() (Config, error) {
@@ -60,12 +63,15 @@ func (config Config) validate() (Config, error) {
 	if config.CommandTimeout == 0 {
 		config.CommandTimeout = 30 * time.Second
 	}
+	if config.SessionTimeout == 0 {
+		config.SessionTimeout = 2 * time.Minute
+	}
 	for name, path := range map[string]string{"inbox": config.InboxRoot, "data": config.DataRoot, "seed": config.SeedPath} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == string(filepath.Separator) {
 			return Config{}, fmt.Errorf("vmguest: %s path must be clean and absolute", name)
 		}
 	}
-	if config.InboxRoot == config.DataRoot || config.CommandTimeout < time.Second || config.CommandTimeout > 2*time.Minute {
+	if pathsOverlap(config.InboxRoot, config.DataRoot) || pathsOverlap(config.InboxRoot, config.SeedPath) || pathsOverlap(config.DataRoot, config.SeedPath) || config.CommandTimeout < time.Second || config.CommandTimeout > 2*time.Minute || config.SessionTimeout < time.Second || config.SessionTimeout > 5*time.Minute {
 		return Config{}, errors.New("vmguest: control configuration is invalid")
 	}
 	return config, nil
@@ -81,23 +87,41 @@ func ServeForced(ctx context.Context, input io.Reader, output io.Writer, origina
 	if output == nil {
 		return errors.New("vmguest: response writer is nil")
 	}
+	validated, err := config.validate()
+	if err != nil {
+		return err
+	}
+	sessionContext, cancel := context.WithTimeout(ctx, validated.SessionTimeout)
+	defer cancel()
 	response := Response{SchemaVersion: SchemaVersion}
 	if originalCommand != "" {
 		response.Error = "vmguest: SSH original command is not admitted"
-		return encodeResponse(output, response)
+		return encodeResponse(sessionContext, output, response)
 	}
-	validated, err := config.validate()
+	request, err := decodeRequest(sessionContext, input)
 	if err != nil {
+		if sessionContext.Err() != nil {
+			return sessionContext.Err()
+		}
 		response.Error = err.Error()
-		return encodeResponse(output, response)
+		return encodeResponse(sessionContext, output, response)
 	}
-	request, err := DecodeRequest(input)
+	response, err = handleRequestContext(sessionContext, validated, request)
 	if err != nil {
-		response.Error = err.Error()
-		return encodeResponse(output, response)
+		return err
 	}
-	response = handleRequest(ctx, validated, request)
-	return encodeResponse(output, response)
+	return encodeResponse(sessionContext, output, response)
+}
+
+func handleRequestContext(ctx context.Context, config Config, request Request) (Response, error) {
+	done := make(chan Response, 1)
+	go func() { done <- handleRequest(ctx, config, request) }()
+	select {
+	case response := <-done:
+		return response, nil
+	case <-ctx.Done():
+		return Response{}, ctx.Err()
+	}
 }
 
 func handleRequest(ctx context.Context, config Config, request Request) Response {
@@ -162,18 +186,62 @@ func runCommand(ctx context.Context, config Config, path string, args []string) 
 		return result
 	}
 	result.ExitCode = -1
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		result.ExitCode = exitError.ExitCode()
-	} else if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
+	if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
 		result.ExitCode = 124
+	} else {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			result.ExitCode = exitError.ExitCode()
+		}
 	}
 	result.Error = err.Error()
 	return result
 }
 
-func encodeResponse(writer io.Writer, response Response) error {
-	return json.NewEncoder(writer).Encode(response)
+func decodeRequest(ctx context.Context, reader io.Reader) (Request, error) {
+	type result struct {
+		request Request
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		request, err := DecodeRequest(reader)
+		done <- result{request: request, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.request, result.err
+	case <-ctx.Done():
+		closeIO(reader)
+		return Request{}, ctx.Err()
+	}
+}
+
+func encodeResponse(ctx context.Context, writer io.Writer, response Response) error {
+	done := make(chan error, 1)
+	go func() { done <- json.NewEncoder(writer).Encode(response) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		closeIO(writer)
+		return ctx.Err()
+	}
+}
+
+func closeIO(value any) {
+	if closer, ok := value.(io.Closer); ok {
+		_ = closer.Close()
+	}
+}
+
+func pathsOverlap(first, second string) bool {
+	return pathInside(first, second) || pathInside(second, first)
+}
+
+func pathInside(root, candidate string) bool {
+	relative, err := filepath.Rel(root, candidate)
+	return err == nil && (relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))))
 }
 
 type boundedWriter struct {

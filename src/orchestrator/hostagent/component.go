@@ -126,7 +126,7 @@ func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
 			Message: "Component user must be a dedicated account, never root or ts-node.",
 		}
 	}
-	if !strings.HasPrefix(spec.DataVolume, "/") || strings.Contains(spec.DataVolume, "..") ||
+	if !safeAbsolutePath(spec.DataVolume) || strings.ContainsAny(spec.DataVolume, " \t\n\r\x00\\") ||
 		len(spec.DataVolume) > 4096 {
 		return ComponentSpec{}, &errs.Argument{
 			Param:   "dataVolume",
@@ -182,7 +182,8 @@ func requireHttpsArtifactURL(value, param string) error {
 		}
 	}
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.Fragment != "" || parsed.Hostname() == "" || strings.ContainsAny(parsed.Path, "\r\n\x00") {
 		return &errs.Argument{
 			Param:   param,
 			Message: "The release URL must be a plain https URL without credentials.",

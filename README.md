@@ -6,9 +6,8 @@ runs signed TerraScale binaries under systemd, places TerraBase members, and
 repairs drift and host failures. It is never on the customer data path.
 
 The workspace [`GOAL.md`](../GOAL.md) is the sole product authority. The
-repository [`GOAL.md`](GOAL.md) collects the decisions that apply here and adds
-the Firecracker qualification contract. Historical ADRs and implementation
-records explain old code; they do not override either goal.
+repository [`GOAL.md`](GOAL.md) applies those decisions here and adds the
+Firecracker qualification contract (D-81).
 
 ## Boundary
 
@@ -46,9 +45,10 @@ It verifies signed binaries, writes hardened systemd units, and performs
 orchestrator-coordinated drain, activation, and rollback. Ampere A1 arm64 is
 the default host shape and E5 amd64 is the automatic capacity fallback.
 
-`ts-deploy` builds, signs, publishes, and submits a candidate. The orchestrator
-mirrors it into every Region, deploys one GRU canary, then rolls one host at a
-time while preserving RF=2. It owns Worker and Snippet promotion as well.
+`ts-deploy` builds, signs, publishes, and submits a binary candidate (D-68).
+The orchestrator mirrors it into every Region, deploys one GRU canary, then
+rolls one host at a time while preserving RF=2 (D-67). It owns Worker and
+Snippet promotion as well.
 
 ## Firecracker qualification
 
@@ -87,10 +87,10 @@ Go tests does not qualify production-facing orchestration behavior.
 
 ## Current implementation
 
-The checked-in code still contains earlier control contracts and migration
-debt. Current commands describe that code only. New work must move toward the
-goals, delete retired roles and topology in the same series, and preserve
-durable control history and fail-closed behavior during cutover.
+The checked-in code is organized around the Go control plane and its native
+systemd host agent. New work deletes retired roles and topology in the same
+series and preserves durable control history and fail-closed behavior during
+cutover.
 
 Focused Go validation is:
 
@@ -113,8 +113,3 @@ Linux/KVM runner.
 - [Firecracker local qualification](docs/guides/running-locally.md)
 - [Current package map](DESIGN.md)
 - [Current terminology](CONTEXT.md)
-- [Superseded architecture record](docs/architecture/orchestrator.md)
-
-Historical ADRs, phase records, and evidence remain records of what was once
-implemented or decided. Their bodies must not be cited as current authority
-when they conflict with the workspace or repository goal.

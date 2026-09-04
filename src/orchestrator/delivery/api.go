@@ -31,6 +31,14 @@ type Roller interface {
 	Roll(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error)
 }
 
+// FencedRoller is the side-effecting rollout contract. Implementations must
+// pass the fence to each host/edge provider and invoke the checker immediately
+// before every mutation. Roller remains source-compatible for old test-only
+// adapters; NewServer refuses to wire one into an authoritative server.
+type FencedRoller interface {
+	RollFenced(context.Context, *Request, *ReleaseArtifact, OperationFence, FenceChecker) (RolloutResult, error)
+}
+
 // RolloutRollbacker is an optional recovery surface for a Roller. A Roller
 // that can mutate hosts should retain its touched-host progress and expose
 // rollback here; the API invokes it when Roll returns an error or panics.
@@ -38,6 +46,10 @@ type Roller interface {
 // interrupted rollout cannot safely claim that rollback was unnecessary.
 type RolloutRollbacker interface {
 	Rollback(context.Context, *Request, *ReleaseArtifact) (*Rollback, error)
+}
+
+type FencedRollbacker interface {
+	RollbackFenced(context.Context, *Request, *ReleaseArtifact, OperationFence, FenceChecker) (*Rollback, error)
 }
 
 // RolloutResult is the terminal outcome of one rollout.
@@ -95,6 +107,9 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if config.LeaseTTL <= 0 {
 		config.LeaseTTL = defaultOperationLeaseTTL
 	}
+	if config.LeaseTTL < minimumOperationLeaseTTL {
+		return nil, fmt.Errorf("delivery: operation lease TTL must be at least %s", minimumOperationLeaseTTL)
+	}
 	if config.Token == nil {
 		return nil, errors.New("delivery: server requires a delivery token source")
 	}
@@ -107,8 +122,17 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if config.Mirror == nil {
 		return nil, errors.New("delivery: server requires an artifact mirror")
 	}
+	if config.Mirror.Store == nil {
+		return nil, errors.New("delivery: server requires a configured artifact mirror store")
+	}
+	if _, ok := config.Mirror.Store.(FencedRegionObjectStore); !ok {
+		return nil, errors.New("delivery: server requires a fenced artifact mirror store")
+	}
 	if config.Rollout == nil {
 		return nil, errors.New("delivery: server requires a rollout")
+	}
+	if _, ok := config.Rollout.(FencedRoller); !ok {
+		return nil, errors.New("delivery: server requires a fenced rollout")
 	}
 	if config.Journal == nil {
 		return nil, errors.New("delivery: server requires a journal")
@@ -363,10 +387,7 @@ func leaseFor(operation *Operation, config ServerConfig) OperationLease {
 
 func (s *Server) renewOperationLease(ctx context.Context, request *Request, operation *Operation, done chan<- struct{}, cancel context.CancelFunc) {
 	defer close(done)
-	interval := s.config.LeaseTTL / 3
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
+	interval := operationLeaseRenewInterval(s.config.LeaseTTL)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	lease := leaseFor(operation, s.config)
@@ -381,6 +402,20 @@ func (s *Server) renewOperationLease(ctx context.Context, request *Request, oper
 			}
 		}
 	}
+}
+
+func operationLeaseRenewInterval(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		ttl = defaultOperationLeaseTTL
+	}
+	interval := ttl / 3
+	if interval <= 0 || interval >= ttl {
+		interval = ttl / 2
+	}
+	if interval <= 0 {
+		interval = time.Nanosecond
+	}
+	return interval
 }
 
 // deliver is the verify → mirror → roll pipeline. Every failure produces a
@@ -422,7 +457,8 @@ func (s *Server) deliver(ctx context.Context, request *Request, operation *Opera
 		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
 	}
 	verified = true
-	if err := s.config.Mirror.MirrorAll(preflightContext, artifact); err != nil {
+	fence := fenceFor(operation)
+	if err := s.config.Mirror.MirrorAllFenced(preflightContext, artifact, fence, s.config.Journal.VerifyFence); err != nil {
 		// D-71: the artifact mirrors into every Region before rollout starts;
 		// a partial mirror means the deploy never started, so nothing is
 		// stranded mid-way.
@@ -431,7 +467,7 @@ func (s *Server) deliver(ctx context.Context, request *Request, operation *Opera
 		}
 		return failed("mirror_incomplete", "The artifact could not be mirrored into every Region.", "Retry the same operation ID after the Region object stores are reachable.")
 	}
-	result, err := rollSafely(ctx, s.config.Rollout, request, artifact)
+	result, err := rollSafely(ctx, s.config.Rollout, request, artifact, fence, s.config.Journal.VerifyFence)
 	if err != nil {
 		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), s.recoverOwnedRollout(ctx, request, artifact, operation)), true)
 	}
@@ -451,17 +487,43 @@ func (s *Server) recoverOwnedRollout(ctx context.Context, request *Request, arti
 	if err := s.config.Journal.Renew(request.OperationID, operation.RequestDigest, lease, operation.Generation); err != nil {
 		return nil
 	}
+	if fenced, ok := s.config.Rollout.(FencedRollbacker); ok {
+		return recoverFencedRollout(ctx, fenced, request, artifact, fenceFor(operation), s.config.Journal.VerifyFence)
+	}
 	return recoverRollout(ctx, s.config.Rollout, request, artifact)
 }
 
-func rollSafely(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact) (result RolloutResult, err error) {
+func fenceFor(operation *Operation) OperationFence {
+	if operation == nil {
+		return OperationFence{}
+	}
+	return OperationFence{OperationID: operation.OperationID, RequestDigest: operation.RequestDigest, OwnerID: operation.OwnerID, Generation: operation.Generation}
+}
+
+func rollSafely(ctx context.Context, roller Roller, request *Request, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) (result RolloutResult, err error) {
 	defer func() {
 		if recover() != nil {
 			result = RolloutResult{}
 			err = errRolloutPanicked
 		}
 	}()
-	return roller.Roll(ctx, request, artifact)
+	if fenced, ok := roller.(FencedRoller); ok {
+		return fenced.RollFenced(ctx, request, artifact, fence, check)
+	}
+	return RolloutResult{}, ErrOperationLeaseActive
+}
+
+func recoverFencedRollout(ctx context.Context, roller FencedRollbacker, request *Request, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) (rollback *Rollback) {
+	defer func() {
+		if recover() != nil {
+			rollback = nil
+		}
+	}()
+	rollback, err := roller.RollbackFenced(ctx, request, artifact, fence, check)
+	if err != nil {
+		return nil
+	}
+	return rollback
 }
 
 func rolloutFailureCode(ctx context.Context, err error) string {

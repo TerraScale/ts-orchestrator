@@ -34,6 +34,8 @@ func TestDecodeRequestRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 	tests := []string{
 		``,
 		`{"schemaVersion":1,"operation":"probe","unknown":true}`,
+		`{"SchemaVersion":1,"operation":"probe"}`,
+		`{"schemaVersion":1,"operation":"probe","operation":"probe"}`,
 		`{"schemaVersion":1,"operation":"probe"}{}`,
 		`{"schemaVersion":2,"operation":"probe"}`,
 		`{"schemaVersion":1,"operation":"execute","path":"/bin/sh","args":["-c","id"]}`,

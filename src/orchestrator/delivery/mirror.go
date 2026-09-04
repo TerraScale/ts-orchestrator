@@ -20,6 +20,14 @@ type RegionObjectStore interface {
 	Put(ctx context.Context, region, bucket, object string, body []byte) error
 }
 
+// FencedRegionObjectStore receives the durable operation fence at the actual
+// provider dispatch. Adapters must validate it immediately before issuing
+// their network mutation; this prevents a context-only fence check from being
+// bypassed by a delayed provider call.
+type FencedRegionObjectStore interface {
+	PutFenced(context.Context, string, string, string, []byte, OperationFence) error
+}
+
 // ObjectIdentity is the read-after-write identity returned by an object
 // store. Digest and Size are required for verification. Version, ETag, and
 // Metadata are optional because their availability differs between object
@@ -51,6 +59,10 @@ type RegionObjectStoreReader = RegionObjectStoreInspector
 // as well as the artifact digest and size.
 type RegionObjectStoreIdentityWriter interface {
 	PutWithIdentity(ctx context.Context, region, bucket, object string, body []byte) (identity ObjectIdentity, err error)
+}
+
+type FencedRegionObjectStoreIdentityWriter interface {
+	PutWithIdentityFenced(context.Context, string, string, string, []byte, OperationFence) (ObjectIdentity, error)
 }
 
 // MirrorFailureKind identifies the safe action for a failed Region mirror.
@@ -195,6 +207,26 @@ func MirrorObject(service, digest string) string {
 // later delivery targeting any Region finds its artifact locally. Every
 // Region must succeed before the rollout may start.
 func (m *ArtifactMirror) MirrorAll(ctx context.Context, artifact *ReleaseArtifact) error {
+	return m.mirrorAll(ctx, artifact, OperationFence{}, nil)
+}
+
+// MirrorAllFenced is the authoritative delivery path. The checker is called
+// immediately before each Region's object-store write, so an expired or
+// superseded owner cannot continue mirroring after takeover.
+func (m *ArtifactMirror) MirrorAllFenced(ctx context.Context, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) error {
+	if check == nil {
+		return errors.New("delivery: artifact mirror fence checker is required")
+	}
+	if m == nil || m.Store == nil {
+		return errors.New("delivery: artifact mirror is not configured")
+	}
+	if _, ok := m.Store.(FencedRegionObjectStore); !ok {
+		return errors.New("delivery: artifact mirror requires a fenced object store")
+	}
+	return m.mirrorAll(ctx, artifact, fence, check)
+}
+
+func (m *ArtifactMirror) mirrorAll(ctx context.Context, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) error {
 	if m == nil || artifact == nil {
 		return errors.New("delivery: artifact mirror is not configured")
 	}
@@ -252,7 +284,7 @@ func (m *ArtifactMirror) MirrorAll(ctx context.Context, artifact *ReleaseArtifac
 				results <- &MirrorError{Region: region.Code, Kind: MirrorFailureMismatch, Err: fmt.Errorf("region declares no %s bucket", ReleaseBucketPurpose), Remediation: "Declare exactly one release-artifact bucket in the Region estate."}
 				return
 			}
-			results <- m.mirrorRegion(ctx, inspector, region.Code, bucket, object, artifact)
+			results <- m.mirrorRegion(ctx, inspector, region.Code, bucket, object, artifact, fence, check)
 		}()
 	}
 	var failures []*MirrorError
@@ -268,12 +300,17 @@ func (m *ArtifactMirror) MirrorAll(ctx context.Context, artifact *ReleaseArtifac
 	return nil
 }
 
-func (m *ArtifactMirror) mirrorRegion(ctx context.Context, inspector RegionObjectStoreInspector, region, bucket, object string, artifact *ReleaseArtifact) *MirrorError {
+func (m *ArtifactMirror) mirrorRegion(ctx context.Context, inspector RegionObjectStoreInspector, region, bucket, object string, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) *MirrorError {
 	expected := ObjectIdentity{Digest: artifact.Digest, Size: int64(len(artifact.Body))}
 	if err := ctx.Err(); err != nil {
 		return &MirrorError{Region: region, Bucket: bucket, Object: object, Kind: MirrorFailureCanceled, Retryable: true, Expected: expected, Remediation: "Retry the same operation ID after the delivery context is available.", Err: err}
 	}
-	putIdentity, writeErr, hasPutIdentity := m.put(ctx, region, bucket, object, artifact.Body)
+	if check != nil {
+		if err := check(fence); err != nil {
+			return &MirrorError{Region: region, Bucket: bucket, Object: object, Kind: MirrorFailureCanceled, Retryable: true, Expected: expected, Remediation: "The delivery owner no longer holds the operation fence; wait for recovery or retry with a fresh operation ID.", Err: err}
+		}
+	}
+	putIdentity, writeErr, hasPutIdentity := m.put(ctx, region, bucket, object, artifact.Body, fence, check != nil)
 	if inspector == nil {
 		// Keep the original Put-only seam source-compatible. A production
 		// object-store adapter should implement Head; without it there is no
@@ -305,7 +342,18 @@ func (m *ArtifactMirror) mirrorRegion(ctx context.Context, inspector RegionObjec
 	return &MirrorError{Region: region, Bucket: bucket, Object: object, Kind: MirrorFailureMismatch, Expected: expected, Observed: identity, Retryable: false, Remediation: "Do not roll out; inspect the Region object and retry with the same operation ID only after it is corrected.", Err: errors.New("read-after-write object identity does not match")}
 }
 
-func (m *ArtifactMirror) put(ctx context.Context, region, bucket, object string, body []byte) (ObjectIdentity, error, bool) {
+func (m *ArtifactMirror) put(ctx context.Context, region, bucket, object string, body []byte, fence OperationFence, fenced bool) (ObjectIdentity, error, bool) {
+	if fenced {
+		if writer, ok := m.Store.(FencedRegionObjectStoreIdentityWriter); ok {
+			identity, err := writer.PutWithIdentityFenced(ctx, region, bucket, object, body, fence)
+			return identity, err, true
+		}
+		writer, ok := m.Store.(FencedRegionObjectStore)
+		if !ok {
+			return ObjectIdentity{}, errors.New("delivery: object store fence dispatch is unavailable"), false
+		}
+		return ObjectIdentity{}, writer.PutFenced(ctx, region, bucket, object, body, fence), false
+	}
 	if writer, ok := m.Store.(RegionObjectStoreIdentityWriter); ok {
 		identity, err := writer.PutWithIdentity(ctx, region, bucket, object, body)
 		return identity, err, true

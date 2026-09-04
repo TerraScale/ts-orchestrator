@@ -80,27 +80,81 @@ func DecodeRequest(reader io.Reader) (Request, error) {
 	if reader == nil {
 		return Request{}, errors.New("vmguest: request reader is nil")
 	}
-	data, err := io.ReadAll(io.LimitReader(reader, MaxRequestBytes+1))
-	if err != nil {
-		return Request{}, errors.New("vmguest: read request")
+	limited := &io.LimitedReader{R: reader, N: int64(MaxRequestBytes) + 1}
+	decoder := json.NewDecoder(limited)
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		if limited.N == 0 {
+			return Request{}, errors.New("vmguest: request size is invalid")
+		}
+		return Request{}, errors.New("vmguest: request JSON is invalid")
 	}
-	if len(data) == 0 || len(data) > MaxRequestBytes {
-		return Request{}, errors.New("vmguest: request size is invalid")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var request Request
-	if err := decoder.Decode(&request); err != nil {
+	seen := make(map[string]bool, 6)
+	for decoder.More() {
+		token, err := decoder.Token()
+		field, ok := token.(string)
+		if err != nil || !ok || seen[field] {
+			return Request{}, errors.New("vmguest: request fields are invalid")
+		}
+		seen[field] = true
+		switch field {
+		case "schemaVersion":
+			err = decodeNonNull(decoder, &request.SchemaVersion)
+		case "operation":
+			err = decodeNonNull(decoder, &request.Operation)
+		case "path":
+			err = decodeNonNull(decoder, &request.Path)
+		case "args":
+			err = decodeNonNull(decoder, &request.Args)
+		case "data":
+			err = decodeNonNull(decoder, &request.Data)
+		case "mode":
+			err = decodeNonNull(decoder, &request.Mode)
+		default:
+			return Request{}, errors.New("vmguest: request contains an unknown field")
+		}
+		if err != nil {
+			if limited.N == 0 {
+				return Request{}, errors.New("vmguest: request size is invalid")
+			}
+			return Request{}, errors.New("vmguest: request JSON is invalid")
+		}
+	}
+	if token, err = decoder.Token(); err != nil || token != json.Delim('}') {
 		return Request{}, errors.New("vmguest: request JSON is invalid")
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return Request{}, errors.New("vmguest: request has trailing data")
 	}
+	if limited.N == 0 {
+		return Request{}, errors.New("vmguest: request size is invalid")
+	}
 	if err := request.Validate(); err != nil {
 		return Request{}, err
 	}
 	return request, nil
+}
+
+type nonNull[T any] struct {
+	value T
+}
+
+func (value *nonNull[T]) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, []byte("null")) {
+		return errors.New("null is not admitted")
+	}
+	return json.Unmarshal(data, &value.value)
+}
+
+func decodeNonNull[T any](decoder *json.Decoder, target *T) error {
+	var value nonNull[T]
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	*target = value.value
+	return nil
 }
 
 func (request Request) Validate() error {
@@ -188,7 +242,7 @@ func admittedUnit(value string) bool {
 }
 
 func admittedDigestPath(value string) bool {
-	if value == "/run/terrascale/guest-seed.json" || value == "/usr/local/libexec/terrascale-vmqual-control" {
+	if value == DefaultSeedPath || value == "/usr/local/libexec/terrascale-vmqual-control" {
 		return true
 	}
 	const root = "/opt/terrascale/"

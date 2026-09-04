@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,6 +42,21 @@ var ErrOperationConflict = errors.New("delivery: operation ID is bound to a diff
 // ErrOperationLeaseActive means another durable owner still holds the
 // operation lease. Recovery and takeover must fail closed in this case.
 var ErrOperationLeaseActive = errors.New("delivery: operation lease is active")
+
+// OperationFence is the authoritative capability passed to every delivery
+// side-effect. The digest binds it to the exact admitted request while owner
+// and generation fence stale processes after takeover.
+type OperationFence struct {
+	OperationID   string
+	RequestDigest string
+	OwnerID       string
+	Generation    uint64
+}
+
+// FenceChecker verifies a fence immediately before a provider mutation.
+type FenceChecker func(OperationFence) error
+
+const minimumOperationLeaseTTL = time.Second
 
 // StoreEntry is one versioned value in a DurableStore. Revisions are opaque
 // to Journal, but must increase for every successful write to a key and must
@@ -193,6 +209,16 @@ func leaseTTL(value time.Duration) time.Duration {
 	return value
 }
 
+func validateLease(lease OperationLease) error {
+	if strings.TrimSpace(lease.OwnerID) == "" || lease.OwnerID != strings.TrimSpace(lease.OwnerID) || len(lease.OwnerID) > 128 {
+		return errors.New("delivery: operation lease owner is required")
+	}
+	if lease.TTL > 0 && lease.TTL < minimumOperationLeaseTTL {
+		return fmt.Errorf("delivery: operation lease TTL must be at least %s", minimumOperationLeaseTTL)
+	}
+	return nil
+}
+
 // Journal is the delivery operation journal backing idempotency and receipt
 // polling. All accepted and terminal state is read from and written to the
 // supplied DurableStore; no process-local operation map is authoritative.
@@ -239,6 +265,11 @@ func (j *Journal) Begin(request *Request, leases ...OperationLease) (operation *
 	if request == nil {
 		return nil, false, errors.New("delivery: journal requires a request")
 	}
+	if len(leases) > 0 {
+		if err := validateLease(leases[0]); err != nil {
+			return nil, false, err
+		}
+	}
 	if !operationIDPattern.MatchString(request.OperationID) {
 		return nil, false, errors.New("delivery: journal operation ID is invalid")
 	}
@@ -284,6 +315,9 @@ func (j *Journal) Begin(request *Request, leases ...OperationLease) (operation *
 func (j *Journal) Takeover(operationID, requestDigest string, lease OperationLease) (*Operation, error) {
 	if j == nil || j.store == nil || lease.OwnerID == "" {
 		return nil, errors.New("delivery: operation takeover requires a configured journal and owner")
+	}
+	if err := validateLease(lease); err != nil {
+		return nil, err
 	}
 	key := operationKey(operationID)
 	entry, err := j.store.Get(key)
@@ -339,6 +373,9 @@ func (j *Journal) Takeover(operationID, requestDigest string, lease OperationLea
 func (j *Journal) Renew(operationID, requestDigest string, lease OperationLease, generation uint64) error {
 	if j == nil || j.store == nil || lease.OwnerID == "" || generation == 0 {
 		return errors.New("delivery: operation renewal requires a configured journal and owner")
+	}
+	if err := validateLease(lease); err != nil {
+		return err
 	}
 	key := operationKey(operationID)
 	entry, err := j.store.Get(key)
@@ -412,6 +449,9 @@ func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt, le
 	if operation.RequestDigest != requestDigest {
 		return fmt.Errorf("delivery: operation %s digest changed", operationID)
 	}
+	if operation.OwnerID != "" && len(leases) == 0 {
+		return ErrOperationLeaseActive
+	}
 	if len(leases) > 0 && (operation.OwnerID != leases[0].OwnerID || operation.Generation != leases[0].Generation) {
 		return ErrOperationLeaseActive
 	}
@@ -467,6 +507,27 @@ func (j *Journal) Finish(operationID, requestDigest string, receipt *Receipt, le
 		return nil
 	}
 	return fmt.Errorf("delivery: operation %s changed concurrently", operationID)
+}
+
+// VerifyFence checks the durable owner, generation, request digest, and lease
+// expiry. It is intentionally a fresh store read so callers invoke it at the
+// provider boundary rather than relying on a context value captured earlier.
+func (j *Journal) VerifyFence(fence OperationFence) error {
+	if j == nil || j.store == nil || fence.OperationID == "" || fence.RequestDigest == "" || fence.OwnerID == "" || fence.Generation == 0 {
+		return ErrOperationLeaseActive
+	}
+	entry, err := j.store.Get(operationKey(fence.OperationID))
+	if err != nil {
+		return fmt.Errorf("delivery: operation fence read failed: %w", err)
+	}
+	operation, err := decodeOperation(entry, fence.OperationID)
+	if err != nil {
+		return err
+	}
+	if operation.State != OperationRunning || operation.RequestDigest != fence.RequestDigest || operation.OwnerID != fence.OwnerID || operation.Generation != fence.Generation || operation.LeaseUntil.IsZero() || !j.now().Before(operation.LeaseUntil) {
+		return ErrOperationLeaseActive
+	}
+	return nil
 }
 
 // RecoverUnknown closes an accepted running operation without executing any

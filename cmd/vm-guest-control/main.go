@@ -12,6 +12,9 @@ import (
 )
 
 func main() {
+	if os.Geteuid() != 0 {
+		os.Exit(1)
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	original := os.Getenv("SSH_ORIGINAL_COMMAND")

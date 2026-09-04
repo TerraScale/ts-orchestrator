@@ -6,7 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
+	"os"
+	"path/filepath"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -18,7 +19,7 @@ import (
 func NewSDKMachineFactory() MachineFactory {
 	return func(ctx context.Context, cfg Config) (Machine, error) {
 		sdkCfg := buildSDKConfig(cfg)
-		m, err := firecracker.NewMachine(ctx, sdkCfg, firecracker.WithProcessRunner(exec.Command(cfg.FirecrackerBinary, "--api-sock", cfg.SocketPath)))
+		m, err := firecracker.NewMachine(ctx, sdkCfg)
 		if err != nil {
 			return nil, fmt.Errorf("new Firecracker machine: %w", err)
 		}
@@ -39,8 +40,11 @@ func buildSDKConfig(cfg Config) firecracker.Config {
 	if cfg.SeedDrive != "" {
 		drives = append(drives, models.Drive{DriveID: firecracker.String("seed"), PathOnHost: &cfg.SeedDrive, IsRootDevice: &writable, IsReadOnly: &readOnly})
 	}
+	// Jailer interprets the socket as a name relative to its chroot. The
+	// public sandbox Config retains the absolute jail path for OpenAPI calls.
+	socketPath := filepath.Base(cfg.SocketPath)
 	sdkConfig := firecracker.Config{
-		SocketPath:      cfg.SocketPath,
+		SocketPath:      socketPath,
 		LogPath:         cfg.LogPath,
 		LogLevel:        "Warning",
 		MetricsPath:     cfg.MetricsPath,
@@ -51,6 +55,8 @@ func buildSDKConfig(cfg Config) firecracker.Config {
 		MachineCfg:      models.MachineConfiguration{VcpuCount: &cfg.VCPU, MemSizeMib: &cfg.MemoryMiB},
 		Drives:          drives,
 	}
+	uid, gid, numa := os.Getuid(), os.Getgid(), 0
+	sdkConfig.JailerCfg = &firecracker.JailerConfig{ID: cfg.ID, UID: &uid, GID: &gid, NumaNode: &numa, ExecFile: cfg.FirecrackerBinary, JailerBinary: cfg.JailerBinary, ChrootBaseDir: filepath.Join(cfg.StateRoot, cfg.ID, "jailer"), CgroupVersion: "2", ChrootStrategy: firecracker.NewNaiveChrootStrategy(cfg.KernelImage)}
 	if cfg.TapName != "" {
 		sdkConfig.NetworkInterfaces = []firecracker.NetworkInterface{{StaticConfiguration: &firecracker.StaticNetworkConfiguration{
 			HostDevName: cfg.TapName,

@@ -58,10 +58,10 @@ shows the cell. Recovery: links reconnect and mesh state returns healthy or stal
    census aggregates every responding cluster; a cell that stops answering
    GATEWAYZ reports disconnected from its peers' side).
 2. Check the isolated region's local control is still serving — it should be;
-   regional autonomy is the designed behavior during a gateway fault. Do not
-   restart control components to fix the metric.
-3. Inspect the gateway network path for the isolated cell (host/network level);
-   follow `runbooks/nats-gateway-operations.md` for link-level remediation.
+   already admitted data-plane service is the designed behavior during a
+   control-network fault. Do not restart control components to fix the metric.
+3. Inspect the control-network path for the affected Region at the host/network
+   level and apply the declared systemd/network repair procedure.
 4. After links return, `recovery.duration` reports how long the partition
    lasted; if it exceeds 30 s after connectivity returned, that is
    `nats.gateway.recovery.slow` — investigate reconnect backoff before assuming

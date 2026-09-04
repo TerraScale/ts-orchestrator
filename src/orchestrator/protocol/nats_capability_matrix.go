@@ -557,7 +557,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Launch topology is a full mTLS gateway mesh (not hub-and-spoke) inside one offline control-plane operator domain; local streams and actions stay regional; explicit known clusters with constrained account traffic.",
 			"Gateway loss isolates regions; regional control stays autonomous and pre-authorized regional work continues.",
 			"Gateway link state, latency, and isolated-region duration; expansion beyond the mesh envelope requires a new owner decision.",
-			"Gateway membership validated by MessagingPolicyEngine plane policies (docs/architecture/orchestrator.md launch-control topology); no production gateway adapter is deployed yet."),
+			"Gateway membership is validated by MessagingPolicyEngine plane policies for the launch control-network mesh; customer data and replication never use the gateway path."),
 		acceptedNatsCapability(
 			NatsCapabilityAdvisories,
 			NatsCapabilityOwnerObservability,
@@ -567,7 +567,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Authenticated $SYS subjects only for remote status; advisories are read, never acted on as authority.",
 			"A missed advisory degrades monitoring only; it never changes control decisions.",
 			"Slow-consumer, quorum/leader-change, and auth-failure advisories are alert inputs.",
-			"docs/architecture/orchestrator.md system-account monitoring contract; observability adapters consume advisories (design-binding; see unresolved measurements)."),
+			"NatsMonitoringPermissions and NatsMonitoringRuntime consume authenticated advisories through the read-only system-monitor identity; advisory loss changes observability state only."),
 		acceptedNatsCapability(
 			NatsCapabilitySystemMonitoring,
 			NatsCapabilityOwnerObservability,
@@ -577,7 +577,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"HTTP monitoring binds to loopback or an isolated host-management address only, scraped locally; remote status goes through authenticated $SYS subjects; the monitoring port has no application auth boundary and is never internet- or workload-exposed.",
 			"Monitoring loss blinds operators without affecting control correctness.",
 			"Server/account/connection/consumer health and quorum state feed Grafana and alerts.",
-			"docs/architecture/orchestrator.md NATS monitoring rules; dev-lab and production monitoring adapters tracked as an unresolved measurement."),
+			"NatsMonitoringRuntime binds the loopback/management monitoring surface and publishes the bounded NatsMonitoringInstrumentCatalog; monitoring loss cannot affect control."),
 		acceptedNatsCapability(
 			NatsCapabilitySnapshots,
 			NatsCapabilityOwnerStorageAndSnapshots,

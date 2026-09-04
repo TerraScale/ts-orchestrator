@@ -34,6 +34,8 @@ type ObservedVCN struct {
 	DisplayName    string
 	CIDR           string
 	LifecycleState string
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 type ObservedSubnet struct {
@@ -43,6 +45,8 @@ type ObservedSubnet struct {
 	CIDR           string
 	LifecycleState string
 	RouteTableID   string
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 type ObservedNSG struct {
@@ -50,6 +54,8 @@ type ObservedNSG struct {
 	VCNID          string
 	DisplayName    string
 	LifecycleState string
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 type ObservedNATGateway struct {
@@ -57,6 +63,8 @@ type ObservedNATGateway struct {
 	VCNID          string
 	DisplayName    string
 	LifecycleState string
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 // ObservedRouteRule is one route table rule as OCI reports it. TargetType is
@@ -74,6 +82,8 @@ type ObservedRouteTable struct {
 	DisplayName    string
 	LifecycleState string
 	Routes         []ObservedRouteRule
+	CompartmentID  string
+	FreeformTags   map[string]string
 }
 
 // ObservedSecurityRule is one NSG rule as OCI reports it. Protocol is the
@@ -86,6 +96,7 @@ type ObservedSecurityRule struct {
 	Peer      string
 	PortMin   uint16
 	PortMax   uint16
+	Managed   bool
 }
 
 type NetworkObserved struct {
@@ -295,6 +306,9 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	}
 	subnets := make(map[string]ObservedSubnet, len(observed.Subnets))
 	for _, subnet := range observed.Subnets {
+		if networkSubnetOwned(subnet, declared.Code) && observed.VCN != nil && subnet.VCNID != observed.VCN.ID {
+			return OCIPlan{}, &InvalidDataError{Message: "owned subnet is outside the declared VCN"}
+		}
 		switch observedNetworkState(subnet.LifecycleState) {
 		case networkStateAbsent:
 			continue
@@ -319,6 +333,9 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	}
 	groups := make(map[string]ObservedNSG, len(observed.NSGs))
 	for _, group := range observed.NSGs {
+		if networkNSGOwned(group, declared.Code) && observed.VCN != nil && group.VCNID != observed.VCN.ID {
+			return OCIPlan{}, &InvalidDataError{Message: "owned network security group is outside the declared VCN"}
+		}
 		switch observedNetworkState(group.LifecycleState) {
 		case networkStateAbsent:
 			continue
@@ -365,6 +382,9 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 		}
 		routeTables := make(map[string]ObservedRouteTable, len(observed.RouteTables))
 		for _, table := range observed.RouteTables {
+			if networkRouteTableOwned(table, declared.Code) && observed.VCN != nil && table.VCNID != observed.VCN.ID {
+				return OCIPlan{}, &InvalidDataError{Message: "owned route table is outside the declared VCN"}
+			}
 			switch observedNetworkState(table.LifecycleState) {
 			case networkStateAbsent:
 				continue
@@ -409,6 +429,9 @@ func resolveDeclaredNAT(declared estate.Region, observed NetworkObserved) (natID
 	natName := NATGatewayName(declared.Code)
 	seen := false
 	for _, gateway := range observed.NATGateways {
+		if networkNATOwned(gateway, declared.Code) && observed.VCN != nil && gateway.VCNID != observed.VCN.ID {
+			return "", false, &InvalidDataError{Message: "owned NAT gateway is outside the declared VCN"}
+		}
 		switch observedNetworkState(gateway.LifecycleState) {
 		case networkStateAbsent:
 			continue
@@ -626,7 +649,7 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 				return &InvalidOperationError{Message: "security rule replacement requires a live network security group"}
 			}
 			if len(a.RemoveIDs) > 0 {
-				if err := r.Gateway.RemoveNSGRules(ctx, nsgID, a.RemoveIDs); err != nil {
+				if err := r.removeOwnedNSGRules(ctx, declared, observed, a.Name, nsgID, a.RemoveIDs); err != nil {
 					return err
 				}
 			}
@@ -682,6 +705,71 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 		}
 	}
 	return nil
+}
+
+func networkVCNOwned(v ObservedVCN, region string) bool {
+	return isOCID(v.ID, "vcn") && v.DisplayName == VCNName(region) && positiveOCIOwnership(v.FreeformTags, "vcn", region)
+}
+
+func networkSubnetOwned(v ObservedSubnet, region string) bool {
+	return isOCID(v.ID, "subnet") && positiveOCIOwnership(v.FreeformTags, "subnet", region)
+}
+
+func networkNSGOwned(v ObservedNSG, region string) bool {
+	return isOCID(v.ID, "networksecuritygroup") && positiveOCIOwnership(v.FreeformTags, "networksecuritygroup", region)
+}
+
+func networkNATOwned(v ObservedNATGateway, region string) bool {
+	return isOCID(v.ID, "natgateway") && v.DisplayName == NATGatewayName(region) && positiveOCIOwnership(v.FreeformTags, "natgateway", region)
+}
+
+func networkRouteTableOwned(v ObservedRouteTable, region string) bool {
+	return isOCID(v.ID, "routetable") && positiveOCIOwnership(v.FreeformTags, "routetable", region)
+}
+
+func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared estate.Region, observed NetworkObserved, name, nsgID string, ids []string) error {
+	if observed.VCN == nil || !networkVCNOwned(*observed.VCN, declared.Code) {
+		return &InvalidOperationError{Message: "security rule removal requires an owned VCN"}
+	}
+	var expected ObservedNSG
+	for _, group := range observed.NSGs {
+		if group.DisplayName == name && group.ID == nsgID {
+			expected = group
+			break
+		}
+	}
+	if !networkNSGOwned(expected, declared.Code) || expected.VCNID != observed.VCN.ID {
+		return &InvalidOperationError{Message: "security rule removal requires an owned NSG in the declared VCN"}
+	}
+	groups, err := r.Gateway.ListNSGs(ctx, observed.VCN.ID)
+	if err != nil {
+		return err
+	}
+	currentOwned := false
+	for _, group := range groups {
+		if group.ID == nsgID && group.DisplayName == name && networkNSGOwned(group, declared.Code) && group.VCNID == observed.VCN.ID {
+			currentOwned = true
+			break
+		}
+	}
+	if !currentOwned {
+		return &InvalidOperationError{Message: "refusing stale or ownership-changed NSG rule removal"}
+	}
+	current, err := r.Gateway.ListNSGRules(ctx, nsgID)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]ObservedSecurityRule, len(current))
+	for _, rule := range current {
+		byID[rule.ID] = rule
+	}
+	for _, id := range ids {
+		rule, ok := byID[id]
+		if !ok || !rule.Managed || !isOCID(id, "securityrule") {
+			return &InvalidOperationError{Message: "refusing unowned or stale security rule removal"}
+		}
+	}
+	return r.Gateway.RemoveNSGRules(ctx, nsgID, ids)
 }
 
 // SecurityRuleSpecs converts one declared security group into provider rule
@@ -762,7 +850,7 @@ func diffSecurityRules(declared []estate.NetworkSecurityRule, observed []Observe
 		}
 	}
 	for _, candidate := range unmatched {
-		if candidate.ID != "" {
+		if candidate.ID != "" && candidate.Managed {
 			removeIDs = append(removeIDs, candidate.ID)
 		}
 	}
@@ -793,6 +881,7 @@ func ingressDirection(declared string) string {
 type OCINetworkGateway struct {
 	Core          *OCIHTTPTransport
 	CompartmentID string
+	Scope         string
 }
 
 var _ NetworkGateway = (*OCINetworkGateway)(nil)
@@ -807,28 +896,41 @@ func networkRetryToken(kind string, value any) string {
 }
 
 // NewOCINetworkGateway validates the compartment scope and service authority.
-func NewOCINetworkGateway(core *OCIHTTPTransport, compartmentID string) (*OCINetworkGateway, error) {
+func NewOCINetworkGateway(core *OCIHTTPTransport, compartmentID string, scope ...string) (*OCINetworkGateway, error) {
 	if core == nil || core.Config.Service != OCIServiceCore {
 		return nil, &errs.Argument{Message: "network gateway requires the OCI core transport"}
 	}
 	if !isOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "network gateway requires a compartment identity"}
 	}
-	return &OCINetworkGateway{Core: core, CompartmentID: compartmentID}, nil
+	region := ""
+	if len(scope) > 0 {
+		region = scope[0]
+	}
+	return &OCINetworkGateway{Core: core, CompartmentID: compartmentID, Scope: region}, nil
+}
+
+func networkOwnershipTags(region, kind string) map[string]string {
+	if region == "" {
+		return map[string]string{OCIManagedTag: kind}
+	}
+	return map[string]string{OCIManagedTag: kind, OCIScopeTag: region}
 }
 
 type ociVCNDocument struct {
-	ID             string   `json:"id"`
-	DisplayName    string   `json:"displayName"`
-	CIDRBlocks     []string `json:"cidrBlocks"`
-	LifecycleState string   `json:"lifecycleState"`
+	ID             string            `json:"id"`
+	CompartmentID  string            `json:"compartmentId"`
+	DisplayName    string            `json:"displayName"`
+	CIDRBlocks     []string          `json:"cidrBlocks"`
+	LifecycleState string            `json:"lifecycleState"`
+	FreeformTags   map[string]string `json:"freeformTags"`
 }
 
 func ociVCNObserved(document ociVCNDocument) (ObservedVCN, error) {
 	if !isOCID(document.ID, "vcn") || len(document.CIDRBlocks) == 0 {
 		return ObservedVCN{}, &InvalidDataError{Message: "OCI VCN response is invalid"}
 	}
-	return ObservedVCN{ID: document.ID, DisplayName: document.DisplayName, CIDR: document.CIDRBlocks[0], LifecycleState: document.LifecycleState}, nil
+	return ObservedVCN{ID: document.ID, DisplayName: document.DisplayName, CIDR: document.CIDRBlocks[0], LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListVCNs(ctx context.Context, name string) ([]ObservedVCN, error) {
@@ -858,23 +960,26 @@ func (g *OCINetworkGateway) CreateVCN(ctx context.Context, name, cidr string) (O
 	}
 	var document ociVCNDocument
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/vcns", struct {
-		CompartmentID string   `json:"compartmentId"`
-		DisplayName   string   `json:"displayName"`
-		CIDRBlocks    []string `json:"cidrBlocks"`
-	}{CompartmentID: g.CompartmentID, DisplayName: name, CIDRBlocks: []string{cidr}}, map[string]string{"opc-retry-token": networkRetryToken("vcn", struct{ Compartment, Name, CIDR string }{g.CompartmentID, name, cidr})}, &document); err != nil {
+		CompartmentID string            `json:"compartmentId"`
+		DisplayName   string            `json:"displayName"`
+		CIDRBlocks    []string          `json:"cidrBlocks"`
+		FreeformTags  map[string]string `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, DisplayName: name, CIDRBlocks: []string{cidr}, FreeformTags: networkOwnershipTags(g.Scope, "vcn")}, map[string]string{"opc-retry-token": networkRetryToken("vcn", struct{ Compartment, Name, CIDR string }{g.CompartmentID, name, cidr})}, &document); err != nil {
 		return ObservedVCN{}, err
 	}
 	return ociVCNObserved(document)
 }
 
 type ociSubnetDocument struct {
-	ID                     string `json:"id"`
-	VCNID                  string `json:"vcnId"`
-	DisplayName            string `json:"displayName"`
-	CIDRBlock              string `json:"cidrBlock"`
-	LifecycleState         string `json:"lifecycleState"`
-	ProhibitPublicIPOnVNIC bool   `json:"prohibitPublicIpOnVnic"`
-	RouteTableID           string `json:"routeTableId"`
+	ID                     string            `json:"id"`
+	CompartmentID          string            `json:"compartmentId"`
+	VCNID                  string            `json:"vcnId"`
+	DisplayName            string            `json:"displayName"`
+	CIDRBlock              string            `json:"cidrBlock"`
+	LifecycleState         string            `json:"lifecycleState"`
+	ProhibitPublicIPOnVNIC bool              `json:"prohibitPublicIpOnVnic"`
+	RouteTableID           string            `json:"routeTableId"`
+	FreeformTags           map[string]string `json:"freeformTags"`
 }
 
 func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]ObservedSubnet, error) {
@@ -895,7 +1000,7 @@ func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]Ob
 		if !isOCID(item.ID, "subnet") {
 			return nil, &InvalidDataError{Message: "OCI subnet response is invalid"}
 		}
-		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState, RouteTableID: item.RouteTableID})
+		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState, RouteTableID: item.RouteTableID, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
 	}
 	return subnets, nil
 }
@@ -906,25 +1011,28 @@ func (g *OCINetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr 
 	}
 	var document ociSubnetDocument
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/subnets", struct {
-		CompartmentID          string `json:"compartmentId"`
-		VCNID                  string `json:"vcnId"`
-		DisplayName            string `json:"displayName"`
-		CIDRBlock              string `json:"cidrBlock"`
-		ProhibitPublicIPOnVNIC bool   `json:"prohibitPublicIpOnVnic"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, CIDRBlock: cidr, ProhibitPublicIPOnVNIC: true}, map[string]string{"opc-retry-token": networkRetryToken("subnet", struct{ VCN, Name, CIDR string }{vcnID, name, cidr})}, &document); err != nil {
+		CompartmentID          string            `json:"compartmentId"`
+		VCNID                  string            `json:"vcnId"`
+		DisplayName            string            `json:"displayName"`
+		CIDRBlock              string            `json:"cidrBlock"`
+		ProhibitPublicIPOnVNIC bool              `json:"prohibitPublicIpOnVnic"`
+		FreeformTags           map[string]string `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, CIDRBlock: cidr, ProhibitPublicIPOnVNIC: true, FreeformTags: networkOwnershipTags(g.Scope, "subnet")}, map[string]string{"opc-retry-token": networkRetryToken("subnet", struct{ VCN, Name, CIDR string }{vcnID, name, cidr})}, &document); err != nil {
 		return ObservedSubnet{}, err
 	}
 	if !isOCID(document.ID, "subnet") {
 		return ObservedSubnet{}, &InvalidDataError{Message: "OCI subnet create response is invalid"}
 	}
-	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState, RouteTableID: document.RouteTableID}, nil
+	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState, RouteTableID: document.RouteTableID, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 type ociNSGDocument struct {
-	ID             string `json:"id"`
-	VCNID          string `json:"vcnId"`
-	DisplayName    string `json:"displayName"`
-	LifecycleState string `json:"lifecycleState"`
+	ID             string            `json:"id"`
+	CompartmentID  string            `json:"compartmentId"`
+	VCNID          string            `json:"vcnId"`
+	DisplayName    string            `json:"displayName"`
+	LifecycleState string            `json:"lifecycleState"`
+	FreeformTags   map[string]string `json:"freeformTags"`
 }
 
 func (g *OCINetworkGateway) ListNSGs(ctx context.Context, vcnID string) ([]ObservedNSG, error) {
@@ -945,7 +1053,7 @@ func (g *OCINetworkGateway) ListNSGs(ctx context.Context, vcnID string) ([]Obser
 		if !isOCID(item.ID, "networksecuritygroup") {
 			return nil, &InvalidDataError{Message: "OCI network security group response is invalid"}
 		}
-		groups = append(groups, ObservedNSG{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, LifecycleState: item.LifecycleState})
+		groups = append(groups, ObservedNSG{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, LifecycleState: item.LifecycleState, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
 	}
 	return groups, nil
 }
@@ -956,16 +1064,17 @@ func (g *OCINetworkGateway) CreateNSG(ctx context.Context, vcnID, name string) (
 	}
 	var document ociNSGDocument
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/networkSecurityGroups", struct {
-		CompartmentID string `json:"compartmentId"`
-		VCNID         string `json:"vcnId"`
-		DisplayName   string `json:"displayName"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name}, map[string]string{"opc-retry-token": networkRetryToken("nsg", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
+		CompartmentID string            `json:"compartmentId"`
+		VCNID         string            `json:"vcnId"`
+		DisplayName   string            `json:"displayName"`
+		FreeformTags  map[string]string `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, FreeformTags: networkOwnershipTags(g.Scope, "networksecuritygroup")}, map[string]string{"opc-retry-token": networkRetryToken("nsg", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
 		return ObservedNSG{}, err
 	}
 	if !isOCID(document.ID, "networksecuritygroup") {
 		return ObservedNSG{}, &InvalidDataError{Message: "OCI network security group create response is invalid"}
 	}
-	return ObservedNSG{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState}, nil
+	return ObservedNSG{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 type ociPortRange struct {
@@ -1128,17 +1237,19 @@ func (g *OCINetworkGateway) RemoveNSGRules(ctx context.Context, nsgID string, ru
 }
 
 type ociNATGatewayDocument struct {
-	ID             string `json:"id"`
-	VCNID          string `json:"vcnId"`
-	DisplayName    string `json:"displayName"`
-	LifecycleState string `json:"lifecycleState"`
+	ID             string            `json:"id"`
+	CompartmentID  string            `json:"compartmentId"`
+	VCNID          string            `json:"vcnId"`
+	DisplayName    string            `json:"displayName"`
+	LifecycleState string            `json:"lifecycleState"`
+	FreeformTags   map[string]string `json:"freeformTags"`
 }
 
 func ociNATGatewayObserved(document ociNATGatewayDocument) (ObservedNATGateway, error) {
 	if !isOCID(document.ID, "natgateway") {
 		return ObservedNATGateway{}, &InvalidDataError{Message: "OCI NAT gateway response is invalid"}
 	}
-	return ObservedNATGateway{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState}, nil
+	return ObservedNATGateway{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListNATGateways(ctx context.Context, vcnID string) ([]ObservedNATGateway, error) {
@@ -1171,10 +1282,11 @@ func (g *OCINetworkGateway) CreateNATGateway(ctx context.Context, vcnID, name st
 	}
 	var document ociNATGatewayDocument
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/natGateways", struct {
-		CompartmentID string `json:"compartmentId"`
-		VCNID         string `json:"vcnId"`
-		DisplayName   string `json:"displayName"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name}, map[string]string{"opc-retry-token": networkRetryToken("nat-gateway", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
+		CompartmentID string            `json:"compartmentId"`
+		VCNID         string            `json:"vcnId"`
+		DisplayName   string            `json:"displayName"`
+		FreeformTags  map[string]string `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, FreeformTags: networkOwnershipTags(g.Scope, "natgateway")}, map[string]string{"opc-retry-token": networkRetryToken("nat-gateway", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
 		return ObservedNATGateway{}, err
 	}
 	return ociNATGatewayObserved(document)
@@ -1188,10 +1300,12 @@ type ociRouteRuleDocument struct {
 
 type ociRouteTableDocument struct {
 	ID             string                 `json:"id"`
+	CompartmentID  string                 `json:"compartmentId"`
 	VCNID          string                 `json:"vcnId"`
 	DisplayName    string                 `json:"displayName"`
 	LifecycleState string                 `json:"lifecycleState"`
 	RouteRules     []ociRouteRuleDocument `json:"routeRules"`
+	FreeformTags   map[string]string      `json:"freeformTags"`
 }
 
 // networkEntityType derives the OCI entity kind from a target OCID
@@ -1237,7 +1351,7 @@ func ociRouteTableObserved(document ociRouteTableDocument) (ObservedRouteTable, 
 		}
 		rules = append(rules, rule)
 	}
-	return ObservedRouteTable{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Routes: rules}, nil
+	return ObservedRouteTable{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Routes: rules, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListRouteTables(ctx context.Context, vcnID string) ([]ObservedRouteTable, error) {
@@ -1306,7 +1420,8 @@ func (g *OCINetworkGateway) CreateRouteTable(ctx context.Context, vcnID, name st
 		VCNID         string                 `json:"vcnId"`
 		DisplayName   string                 `json:"displayName"`
 		RouteRules    []ociRouteRuleDocument `json:"routeRules"`
-	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, RouteRules: wire}, map[string]string{"opc-retry-token": networkRetryToken("route-table", struct {
+		FreeformTags  map[string]string      `json:"freeformTags"`
+	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, RouteRules: wire, FreeformTags: networkOwnershipTags(g.Scope, "routetable")}, map[string]string{"opc-retry-token": networkRetryToken("route-table", struct {
 		VCN   string
 		Name  string
 		Rules []RouteRuleSpec

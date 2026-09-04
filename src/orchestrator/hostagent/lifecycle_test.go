@@ -231,3 +231,32 @@ func TestDrainIsIdempotentAndReleasable(t *testing.T) {
 		t.Fatal("not quiesced after second drain")
 	}
 }
+
+func TestDeployStartFailureRestoresLinksAndUnit(t *testing.T) {
+	harness := newTestHarness(t)
+	ctx := context.Background()
+	v1 := harness.publish(t, "terrabase", "1.0.0")
+	v2 := harness.publish(t, "terrabase", "1.1.0")
+	harness.applyDesired(t, v1)
+	if err := FlipCurrent(harness.root, "terrabase", v1.Version); err != nil {
+		t.Fatal(err)
+	}
+	harness.applyDesired(t, v2)
+	if err := harness.lifecycle.BeginDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	harness.systemd.failOn["restart"] = UnitName("terrabase")
+	if err := harness.lifecycle.Deploy(ctx, "terrabase", v2.Version); err == nil {
+		t.Fatal("deploy start failure was accepted")
+	}
+	if current, err := CurrentVersion(harness.root, "terrabase"); err != nil || current != v1.Version {
+		t.Fatalf("current link was not restored: %q (%v)", current, err)
+	}
+	if previous, err := PreviousVersion(harness.root, "terrabase"); err != nil || previous != "" {
+		t.Fatalf("previous link was not restored: %q (%v)", previous, err)
+	}
+	unit, err := os.ReadFile(filepath.Join(harness.unitDir, UnitName("terrabase")))
+	if err != nil || !strings.Contains(string(unit), "Description=TerraScale terrabase 1.1.0") {
+		t.Fatalf("unit was not restored: %v %q", err, unit)
+	}
+}

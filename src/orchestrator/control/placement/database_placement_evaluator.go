@@ -27,6 +27,44 @@ func (databasePlacementEvaluator) Evaluate(request *DatabasePlacementRequest, ca
 		return databasePlacementFinish(errors, facts)
 	}
 
+	// A missing lock is treated as the documented default: one explicit lock
+	// over the requested active Regions at generation one. This keeps older
+	// callers source compatible while ensuring every accepted decision has an
+	// immutable lock in its effective state.
+	lock := request.Lock
+	if lock == nil {
+		lock = request.PlacementLock
+	}
+	if request.Lock != nil && request.PlacementLock != nil &&
+		(request.Lock.Kind != request.PlacementLock.Kind || !sameRegionSet(request.Lock.Regions, request.PlacementLock.Regions) || effectivePlacementGeneration(request.Lock) != effectivePlacementGeneration(request.PlacementLock)) {
+		errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePlacementLockWidened})
+	}
+	if lock == nil {
+		generation := request.Generation
+		if generation == 0 {
+			generation = request.PlacementGeneration
+		}
+		if generation == 0 {
+			generation = 1
+		}
+		lock, _ = NewPlacementLock(PlacementLockKindExplicit, request.ActiveRegions, generation)
+	}
+	if lock == nil || effectivePlacementGeneration(lock) == 0 {
+		errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePlacementLockGenerationInvalid})
+	} else {
+		resolved, err := ResolvePlacementLock(lock, effectiveCatalog)
+		if err != nil {
+			errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePlacementLockRegionUnregistered})
+		} else {
+			lock = resolved
+		}
+	}
+	if request.PreviousLock != nil && lock != nil {
+		if err := CheckPlacementLockWidening(request.PreviousLock, lock); err != nil {
+			errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePlacementLockWidened})
+		}
+	}
+
 	catalogEntries := effectiveCatalog.Regions
 	catalogByKey := map[string]RegionCatalogEntry{}
 	hasCatalogGaps := false
@@ -139,6 +177,25 @@ func (databasePlacementEvaluator) Evaluate(request *DatabasePlacementRequest, ca
 			errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeResidencyDenied,
 				Region: &region})
 			catalogQualified = false
+		}
+		if entry.MemberHosts < DatabasePlacementPolicyMinimumMemberHosts {
+			errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeRegionMemberHostFloor,
+				Region: &region})
+			catalogQualified = false
+		}
+		if lock != nil {
+			inLock := false
+			for _, allowed := range lock.Regions {
+				if allowed.Value() == region.Value() {
+					inLock = true
+					break
+				}
+			}
+			if !inLock {
+				errors = append(errors, DatabasePlacementError{Code: DatabasePlacementErrorCodePlacementLockRegionOutside,
+					Region: &region})
+				catalogQualified = false
+			}
 		}
 	}
 	for _, err := range errors {
@@ -275,10 +332,33 @@ func (databasePlacementEvaluator) Evaluate(request *DatabasePlacementRequest, ca
 		}
 	}
 
-	backupQualified := databasePlacementEvaluateBackup(request.Backup, activeKeys, &errors)
+	lockKeys := []string(nil)
+	if lock != nil {
+		lockKeys = make([]string, 0, len(lock.Regions))
+		for _, region := range lock.Regions {
+			lockKeys = append(lockKeys, databasePlacementKey(region.Value()))
+		}
+	}
+	backupQualified := databasePlacementEvaluateBackup(request.Backup, activeKeys, lockKeys, &errors)
 	databasePlacementAddFacts(&facts, true, activeRegionCountValid, uniqueRegions, catalogQualified,
 		partitionsPresent, regionsComplete, replicasExact, domainsIndependent, backupQualified)
-	return databasePlacementFinish(errors, facts)
+	decision := databasePlacementFinish(errors, facts)
+	if lock != nil {
+		copyLock := *lock
+		copyLock.Regions = append([]RegionCode(nil), lock.Regions...)
+		decision.EffectiveLock, decision.Generation = &copyLock, effectivePlacementGeneration(lock)
+	}
+	return decision
+}
+
+func effectivePlacementGeneration(lock *PlacementLock) uint64 {
+	if lock == nil {
+		return 0
+	}
+	if lock.Generation != 0 {
+		return lock.Generation
+	}
+	return lock.PlacementGeneration
 }
 
 func databasePlacementOrderedRegions(regions []RegionCode) []RegionCode {
@@ -383,7 +463,7 @@ func databasePlacementEvaluateSeats(placement *PartitionRegionPlacement, partiti
 	}
 }
 
-func databasePlacementEvaluateBackup(backup *BackupPlacement, activeKeys []string,
+func databasePlacementEvaluateBackup(backup *BackupPlacement, activeKeys, lockKeys []string,
 	errors *[]DatabasePlacementError) bool {
 	if backup == nil {
 		return true
@@ -396,6 +476,19 @@ func databasePlacementEvaluateBackup(backup *BackupPlacement, activeKeys []strin
 	if shared.IsNullOrWhiteSpace(backup.Region.Value()) {
 		*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeBackupRegionMissing})
 		qualified = false
+	}
+	if len(lockKeys) > 0 {
+		inside := false
+		for _, key := range lockKeys {
+			if key == databasePlacementKey(backup.Region.Value()) {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			*errors = append(*errors, DatabasePlacementError{Code: DatabasePlacementErrorCodeBackupOutsidePlacementLock,
+				Region: &backup.Region})
+		}
 	}
 	for _, key := range activeKeys {
 		if key == databasePlacementKey(backup.Region.Value()) {

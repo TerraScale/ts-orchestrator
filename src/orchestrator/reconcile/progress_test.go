@@ -197,3 +197,68 @@ func TestValidateProgressRejectsInvalidSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestNewFileProgressStoreRequiresAbsolutePath(t *testing.T) {
+	for _, path := range []string{"progress.json", "./progress.json", ""} {
+		if _, err := NewFileProgressStore(path); err == nil {
+			t.Fatalf("path %q was accepted", path)
+		}
+	}
+}
+
+func TestFileProgressStoreRejectsSymlinkAndUnsafeModes(t *testing.T) {
+	root := t.TempDir()
+	secure := filepath.Join(root, "secure")
+	if err := os.Mkdir(secure, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(secure, "target.json")
+	if err := os.WriteFile(target, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	unsafe := filepath.Join(secure, "unsafe.json")
+	if err := os.WriteFile(unsafe, []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	unsafeStore, _ := NewFileProgressStore(unsafe)
+	if _, _, err := unsafeStore.Load(context.Background(), "x"); err == nil {
+		t.Fatal("world-readable progress file was accepted")
+	}
+
+	link := filepath.Join(secure, "link.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	linkStore, _ := NewFileProgressStore(link)
+	if _, _, err := linkStore.Load(context.Background(), "x"); err == nil {
+		t.Fatal("progress symlink was followed")
+	}
+	if err := linkStore.Save(context.Background(), testProgress("x")); err == nil {
+		t.Fatal("progress symlink was overwritten")
+	}
+
+	linkDir := filepath.Join(root, "redirect")
+	if err := os.Symlink(secure, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	dirStore, _ := NewFileProgressStore(filepath.Join(linkDir, "progress.json"))
+	if err := dirStore.Save(context.Background(), testProgress("x")); err == nil {
+		t.Fatal("symlinked progress directory was followed")
+	}
+}
+
+func TestFileProgressStoreRejectsSymlinkLock(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "progress.json")
+	redirect := filepath.Join(root, "redirect.lock")
+	if err := os.WriteFile(redirect, []byte("lock"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(redirect, path+".lock"); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := NewFileProgressStore(path)
+	if err := store.Save(context.Background(), testProgress("lock-symlink")); err == nil {
+		t.Fatal("symlinked lock was followed")
+	}
+}

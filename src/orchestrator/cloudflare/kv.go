@@ -3,9 +3,11 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"time"
 )
 
@@ -98,9 +100,11 @@ type RegionHealth struct {
 }
 
 type DBPlacement struct {
-	Database  string    `json:"database"`
-	Regions   []string  `json:"regions"` // hosting Regions, sorted
-	UpdatedAt time.Time `json:"updated_at"`
+	Database      string    `json:"database"`
+	Regions       []string  `json:"regions"`                  // hosting Regions, sorted
+	PlacementLock string    `json:"placement_lock,omitempty"` // eu-only, br-only, or explicit
+	Generation    uint64    `json:"generation,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // SetRegionHealth writes one region's health entry.
@@ -123,8 +127,39 @@ func (c *Client) DeleteRegionHealth(ctx context.Context, region string) error {
 
 // SetDBPlacement writes one database's placement map entry.
 func (c *Client) SetDBPlacement(ctx context.Context, database string, pl DBPlacement) error {
+	if err := validateDBPlacementDocument(pl); err != nil {
+		return err
+	}
 	pl.Database = database
+	pl.Regions = append([]string(nil), pl.Regions...)
+	sort.Strings(pl.Regions)
 	return putKVJSON(ctx, c, DBPlacementNamespace, database, pl)
+}
+
+func validateDBPlacementDocument(pl DBPlacement) error {
+	if len(pl.Regions) == 0 || len(pl.Regions) > 20 {
+		return fmt.Errorf("cloudflare: placement needs between 1 and 20 hosting regions")
+	}
+	seen := map[string]struct{}{}
+	for _, region := range pl.Regions {
+		if err := validateKVWriterKey(region); err != nil {
+			return fmt.Errorf("cloudflare: placement region: %w", err)
+		}
+		if _, exists := seen[region]; exists {
+			return errors.New("cloudflare: placement contains duplicate hosting regions")
+		}
+		seen[region] = struct{}{}
+	}
+	if pl.PlacementLock == "" && pl.Generation != 0 {
+		return errors.New("cloudflare: placement generation requires an immutable lock")
+	}
+	if pl.PlacementLock != "" && pl.PlacementLock != "eu-only" && pl.PlacementLock != "br-only" && pl.PlacementLock != "explicit" {
+		return errors.New("cloudflare: placement lock policy is invalid")
+	}
+	if pl.PlacementLock != "" && pl.Generation == 0 {
+		return errors.New("cloudflare: placement lock generation must be positive")
+	}
+	return nil
 }
 
 // DBPlacement reads one database's placement entry.

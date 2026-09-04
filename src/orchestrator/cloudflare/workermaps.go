@@ -80,7 +80,11 @@ type WorkerPlacement struct {
 	V   int             `json:"v"`
 	R   []string        `json:"r"`
 	Res WorkerResidency `json:"res"`
-	U   int64           `json:"u"` // unix seconds, writer clock
+	G   uint64          `json:"g"` // immutable placement-lock generation
+	// Generation is accepted as a descriptive API alias; G is the compact
+	// wire field used by the Worker contract.
+	Generation uint64 `json:"-"`
+	U          int64  `json:"u"` // unix seconds, writer clock
 }
 
 // WorkerResidency is the placement lock as it appears on the wire: a named
@@ -325,8 +329,23 @@ func (p WorkerPlacement) normalized() (WorkerPlacement, error) {
 		seen[code] = struct{}{}
 		regions = append(regions, code)
 	}
+	if residency.Codes != nil {
+		allowed := make(map[string]struct{}, len(residency.Codes))
+		for _, code := range residency.Codes {
+			allowed[code] = struct{}{}
+		}
+		for _, code := range regions {
+			if _, ok := allowed[code]; !ok {
+				return WorkerPlacement{}, fmt.Errorf("cloudflare: placement region %s is outside the immutable residency lock", code)
+			}
+		}
+	}
 	sort.Strings(regions) // deterministic bytes: one write shape, no drift churn
-	return WorkerPlacement{V: workerMapVersion, R: regions, Res: residency, U: p.U}, nil
+	generation := p.G
+	if generation == 0 {
+		generation = p.Generation
+	}
+	return WorkerPlacement{V: workerMapVersion, R: regions, Res: residency, G: generation, Generation: generation, U: p.U}, nil
 }
 
 func (r WorkerResidency) normalized() (WorkerResidency, error) {

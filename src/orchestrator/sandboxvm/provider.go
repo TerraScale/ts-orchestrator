@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,7 @@ type Config struct {
 	NetworkNamespace          string
 	TapName                   string
 	GuestMAC                  string
+	GuestAddress              string
 	KernelArgs                string
 	LogPath                   string
 	MetricsPath               string
@@ -281,6 +283,8 @@ type Inspection struct {
 	PID         int
 	SocketReady bool
 	Version     string
+	RSSBytes    uint64
+	IdleCPU     float64
 }
 
 type Command struct {
@@ -299,10 +303,12 @@ type CommandRunner interface {
 }
 
 type VMInfo struct {
-	Config Config
-	State  State
-	Ready  bool
-	Paths  Paths
+	Config   Config
+	State    State
+	Ready    bool
+	Paths    Paths
+	RSSBytes uint64
+	IdleCPU  float64
 }
 
 type Paths struct{ StateDir, Socket, RootDrive, DataDrive string }
@@ -325,6 +331,8 @@ type instance struct {
 	state    State
 	ready    bool
 	stopDone chan struct{}
+	lastCPU  uint64
+	lastAt   time.Time
 }
 
 type Provider struct {
@@ -361,6 +369,18 @@ func New(opts Options) (*Provider, error) {
 		opts.Now = time.Now
 	}
 	return &Provider{instances: make(map[string]*instance), factory: opts.MachineFactory, apiFactory: opts.OpenAPIFactory, probe: opts.Probe, hooks: opts.Validation, runner: opts.CommandRunner, now: opts.Now}, nil
+}
+
+// RegisterGuest supplies the test-only guest channel endpoint to a readiness
+// probe. Keeping this registration on the provider ensures the probe observes
+// the exact config used to launch the VM, rather than guessing from an ID.
+func (p *Provider) RegisterGuest(cfg Config, seedDigest string) {
+	if p == nil {
+		return
+	}
+	if probe, ok := p.probe.(interface{ Register(Config, string) }); ok {
+		probe.Register(cfg, seedDigest)
+	}
 }
 
 func pathsFor(c Config) Paths {
@@ -603,7 +623,66 @@ func (p *Provider) Inspect(ctx context.Context, id string) (VMInfo, error) {
 		return VMInfo{}, err
 	}
 	info.State = i.state
-	return VMInfo{Config: i.cfg, State: i.state, Ready: i.ready && info.SocketReady, Paths: i.paths}, nil
+	if info.PID > 0 {
+		info.RSSBytes, info.IdleCPU = i.measureProcess(info.PID, p.now())
+	}
+	return VMInfo{Config: i.cfg, State: i.state, Ready: i.ready && info.SocketReady, Paths: i.paths, RSSBytes: info.RSSBytes, IdleCPU: info.IdleCPU}, nil
+}
+
+func (i *instance) measureProcess(pid int, now time.Time) (uint64, float64) {
+	cpu, rss, err := processUsage(pid)
+	if err != nil {
+		return 0, 0
+	}
+	occupied := 0.0
+	if !i.lastAt.IsZero() && now.After(i.lastAt) && cpu >= i.lastCPU {
+		occupied = float64(cpu-i.lastCPU) / (float64(now.Sub(i.lastAt)) / float64(time.Second) * 100)
+		if occupied < 0 {
+			occupied = 0
+		}
+		if occupied > 1 {
+			occupied = 1
+		}
+	}
+	i.lastCPU, i.lastAt = cpu, now
+	return rss, occupied
+}
+
+func processUsage(pid int) (uint64, uint64, error) {
+	stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0, 0, err
+	}
+	text := string(stat)
+	closeParen := strings.LastIndexByte(text, ')')
+	if closeParen < 0 || closeParen+2 >= len(text) {
+		return 0, 0, errors.New("invalid process stat")
+	}
+	fields := strings.Fields(text[closeParen+2:])
+	if len(fields) < 13 {
+		return 0, 0, errors.New("incomplete process stat")
+	}
+	user, err := strconv.ParseUint(fields[11], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	system, err := strconv.ParseUint(fields[12], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	statm, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "statm"))
+	if err != nil {
+		return 0, 0, err
+	}
+	mem := strings.Fields(string(statm))
+	if len(mem) < 2 {
+		return 0, 0, errors.New("incomplete process memory")
+	}
+	pages, err := strconv.ParseUint(mem[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return user + system, pages * uint64(os.Getpagesize()), nil
 }
 
 // ValidateProcess verifies both halves of the host boundary. A process PID

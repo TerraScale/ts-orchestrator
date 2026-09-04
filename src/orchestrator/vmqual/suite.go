@@ -63,6 +63,12 @@ type ScenarioCleanupHook interface {
 	Close() error
 }
 
+// StackParticipant binds scenario proof to the guests that RunSuite started;
+// provider HTTP success alone cannot qualify an unrelated stack.
+type StackParticipant interface {
+	AttachStack(*Stack) error
+}
+
 // LocalProviderConfig bounds the in-process provider endpoints used by
 // vm-test. It intentionally contains no credentials or external URLs.
 type LocalProviderConfig struct {
@@ -210,6 +216,7 @@ type LocalScenarioDriver struct {
 	mu        sync.Mutex
 	completed []Scenario
 	evidence  []Evidence
+	stack     *Stack
 }
 
 // Evidence is a bounded, non-secret proof record included in qualification
@@ -254,6 +261,19 @@ func (d *LocalScenarioDriver) Evidence() []Evidence {
 	return append([]Evidence(nil), d.evidence...)
 }
 
+func (d *LocalScenarioDriver) AttachStack(stack *Stack) error {
+	if d == nil || stack == nil {
+		return errors.New("vmqual: local scenario stack is missing")
+	}
+	if len(stack.Guests()) != 6 {
+		return errors.New("vmqual: local scenario requires six started guests")
+	}
+	d.mu.Lock()
+	d.stack = stack
+	d.mu.Unlock()
+	return nil
+}
+
 // Close releases all provider listeners and durable local stores owned by the
 // driver. It is idempotent and lets RunSuite recover cleanup after failure.
 func (d *LocalScenarioDriver) Close() error {
@@ -276,6 +296,15 @@ func (d *LocalScenarioDriver) verifyEvidence(ctx context.Context, scenario Scena
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	d.mu.Lock()
+	stack := d.stack
+	d.mu.Unlock()
+	if stack == nil {
+		return errors.New("vmqual: scenario has no participating VM stack")
+	}
+	if err := stack.EnforceBudget(ctx); err != nil {
+		return fmt.Errorf("VM stack participation check: %w", err)
 	}
 	response, err := d.request(ctx, http.MethodGet, d.Endpoints.OCIURL+"/20160918/availabilityDomains", nil, http.StatusOK)
 	if response != nil {
@@ -366,6 +395,9 @@ func (d *LocalScenarioDriver) bootstrap(ctx context.Context) error {
 			return fmt.Errorf("%s bucket: %w", region, err)
 		}
 	}
+	if got := d.Endpoints.OCI.Stats().Resources; got < 2 {
+		return fmt.Errorf("bootstrap provider retained only %d instances", got)
+	}
 	d.record(ScenarioBootstrap, "gru-r1-readiness", "two GRU members and temporary R1 substrate admitted")
 	return nil
 }
@@ -384,6 +416,9 @@ func (d *LocalScenarioDriver) addRegions(ctx context.Context) error {
 	}
 	if err != nil {
 		return err
+	}
+	if got := d.Endpoints.OCI.Stats().Resources; got < 6 {
+		return fmt.Errorf("add-region provider retained only %d instances", got)
 	}
 	d.record(ScenarioAddRegion, "regional-readiness", "SFO and FRA each have two admitted members")
 	return nil
@@ -413,13 +448,18 @@ func (d *LocalScenarioDriver) promoteR3(ctx context.Context) error {
 func (d *LocalScenarioDriver) reconcile(ctx context.Context) error {
 	response, err := d.request(ctx, http.MethodPost, d.Endpoints.CloudflareURL+"/zones/"+d.Endpoints.ZoneID+"/dns_records", strings.NewReader(`{"type":"A","name":"sync.terrascale.tech","content":"10.77.0.10","ttl":60,"proxied":true}`), http.StatusOK)
 	if response != nil {
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 		response.Body.Close()
+		if readErr != nil || !bytes.Contains(body, []byte(`"success":true`)) || !bytes.Contains(body, []byte(`"result"`)) {
+			return errors.New("reconcile provider did not retain the declared DNS record")
+		}
 	}
 	if err != nil {
 		return err
 	}
 	response, err = d.request(ctx, http.MethodGet, d.Endpoints.CloudflareURL+"/zones/"+d.Endpoints.ZoneID+"/dns_records", nil, http.StatusOK)
 	if response != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 		response.Body.Close()
 	}
 	if err != nil {
@@ -686,9 +726,34 @@ func (d HTTPScenarioDriver) Run(c context.Context, s Scenario) error {
 		return e
 	}
 	defer r.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(r.Body, 64<<10))
+	body, readErr := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if readErr != nil || len(body) > 64<<10 {
+		return fmt.Errorf("scenario %s returned an invalid proof body", s)
+	}
 	if r.StatusCode < 200 || r.StatusCode > 299 {
 		return fmt.Errorf("scenario %s returned %s", s, r.Status)
+	}
+	var proof struct {
+		Scenario Scenario   `json:"scenario"`
+		Passed   bool       `json:"passed"`
+		Evidence []Evidence `json:"evidence"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&proof); err != nil {
+		return fmt.Errorf("scenario %s did not return substantive repository proof", s)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("scenario %s returned ambiguous proof", s)
+	}
+	if proof.Scenario != s || !proof.Passed || len(proof.Evidence) == 0 {
+		return fmt.Errorf("scenario %s did not return substantive repository proof", s)
+	}
+	for _, evidence := range proof.Evidence {
+		if evidence.Scenario != s || !evidence.Passed || evidence.Check == "" {
+			return fmt.Errorf("scenario %s returned invalid evidence", s)
+		}
 	}
 	return nil
 }
@@ -723,9 +788,6 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 		return r, errors.New("vmqual: stack and provider-contract driver are required")
 	}
 	r.StartedAt = time.Now().UTC()
-	if e = s.Start(c); e != nil {
-		return r, e
-	}
 	defer func() {
 		r.FinishedAt = time.Now().UTC()
 		e = errors.Join(e, s.Cleanup(context.Background()))
@@ -733,6 +795,15 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 			e = errors.Join(e, cleanup.Close())
 		}
 	}()
+	if e = s.Start(c); e != nil {
+		return r, e
+	}
+	if participant, ok := d.(StackParticipant); ok {
+		if e = participant.AttachStack(s); e != nil {
+			_ = s.Cleanup(context.Background())
+			return r, e
+		}
+	}
 	for _, x := range RequiredScenarios {
 		st := time.Now()
 		z := ScenarioResult{Scenario: x}

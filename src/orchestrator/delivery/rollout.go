@@ -171,6 +171,25 @@ func (r *Rollout) Roll(ctx context.Context, request *Request, artifact *ReleaseA
 	}
 }
 
+// RollFenced is the authoritative rollout entry point. Provider-facing
+// controls are wrapped so the durable fence is checked immediately before
+// every mutating call, rather than relying on a context value captured at
+// admission time.
+func (r *Rollout) RollFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) (RolloutResult, error) {
+	if r == nil || check == nil {
+		return RolloutResult{}, ErrOperationLeaseActive
+	}
+	copy := *r
+	copy.config.Control = &fencedHostControl{inner: r.config.Control, fence: fence, check: check}
+	if r.config.Edge != nil {
+		copy.config.Edge = &fencedEdgePromoter{inner: r.config.Edge, fence: fence, check: check}
+	}
+	if err := check(fence); err != nil {
+		return RolloutResult{}, err
+	}
+	return copy.Roll(ctx, request, artifact)
+}
+
 func (r *Rollout) promoteWorker(ctx context.Context, service, digest string) error {
 	if gradual, ok := r.config.Edge.(WorkerGradualPromoter); ok {
 		return gradual.PromoteWorkerGradual(ctx, service, digest)
@@ -183,6 +202,87 @@ func (r *Rollout) promoteSnippet(ctx context.Context, service, digest string) er
 		return err
 	}
 	if coordinator, ok := r.config.Edge.(SnippetZoneRuleCoordinator); ok {
+		return coordinator.CoordinateSnippetZoneRules(ctx, service, digest)
+	}
+	return nil
+}
+
+type fencedHostControl struct {
+	inner HostControl
+	fence OperationFence
+	check FenceChecker
+}
+
+func (c *fencedHostControl) before() error {
+	if c == nil || c.inner == nil || c.check == nil {
+		return ErrOperationLeaseActive
+	}
+	return c.check(c.fence)
+}
+
+func (c *fencedHostControl) Cordon(ctx context.Context, host string, cordoned bool) error {
+	if err := c.before(); err != nil {
+		return err
+	}
+	return c.inner.Cordon(ctx, host, cordoned)
+}
+
+func (c *fencedHostControl) DrainStatus(ctx context.Context, host string) (DrainReport, error) {
+	if err := c.before(); err != nil {
+		return DrainReport{}, err
+	}
+	return c.inner.DrainStatus(ctx, host)
+}
+
+func (c *fencedHostControl) Converge(ctx context.Context, host string, plan []byte) error {
+	if err := c.before(); err != nil {
+		return err
+	}
+	return c.inner.Converge(ctx, host, plan)
+}
+
+type fencedEdgePromoter struct {
+	inner EdgePromoter
+	fence OperationFence
+	check FenceChecker
+}
+
+func (p *fencedEdgePromoter) before() error {
+	if p == nil || p.inner == nil || p.check == nil {
+		return ErrOperationLeaseActive
+	}
+	return p.check(p.fence)
+}
+
+func (p *fencedEdgePromoter) PromoteWorker(ctx context.Context, service, digest string) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	return p.inner.PromoteWorker(ctx, service, digest)
+}
+
+func (p *fencedEdgePromoter) PromoteWorkerGradual(ctx context.Context, service, digest string) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	if gradual, ok := p.inner.(WorkerGradualPromoter); ok {
+		return gradual.PromoteWorkerGradual(ctx, service, digest)
+	}
+	return p.inner.PromoteWorker(ctx, service, digest)
+}
+
+func (p *fencedEdgePromoter) PromoteSnippet(ctx context.Context, service, digest string) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	return p.inner.PromoteSnippet(ctx, service, digest)
+}
+
+func (p *fencedEdgePromoter) CoordinateSnippetZoneRules(ctx context.Context, service, digest string) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	if coordinator, ok := p.inner.(SnippetZoneRuleCoordinator); ok {
 		return coordinator.CoordinateSnippetZoneRules(ctx, service, digest)
 	}
 	return nil

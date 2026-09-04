@@ -57,10 +57,9 @@ which the development cluster renderer can express today.
 Recorded follow-ups owned outside this contract: wiring the eligibility
 classification into the runtime mutation gates (composition scope; today the
 gates consult the authority snapshot only), documenting
-`TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS` in the steward-owned `docs/architecture/orchestrator.md`
-environment-variable reference, persisting a per-instance identity key file in
-composition, and the live OTel export path for the conflicting gauge
-(observability scope).
+`TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS` in the repository bootstrap configuration,
+persisting a per-instance identity key file in composition, and the live OTel
+export path for the conflicting gauge (observability scope).
 
 ## The reader taxonomy
 
@@ -173,35 +172,16 @@ peer, or remote-cell labels exist.
 
 ## Evidence lanes
 
-- Pure, virtual-clock: `RegionalRuntimeMembershipTests`,
-  `RegionalRuntimeMembershipReaderTests` (including the canonical-material
-  exhaustiveness proof), `RegionalRuntimeMembershipMutationTests`,
-  `ControllerEligibilityTests`, `GlobalCellDirectoryTests`,
-  `GlobalCellDirectoryLifecycleTests`, and the
-  `GlobalDirectoryEndpointsConfigurationTests` composition-seam tests.
-- Real R3 component lane (one region, three members):
-  `NatsControlR3MembershipTests` — multi-instance discovery, one-member loss,
-  renewal continuity, and the dead-member leftover-record heal: the live lease
-  is held, the lapsed slot heals through the KV compare-and-swap update, and
-  two racing healers produce exactly one winner with the loser refused by the
-  typed active-lease error. Membership staleness detection, recovery, and the
-  current-conflict storm also run inside `NatsCreateNodeOperationJournalTests`
-  against real JetStream.
-- RF1 gateway lane (GRU/SFO/FRA, one server per region):
-  `NatsGatewayR1DirectoryTests` — publisher loss marks the cell stale within the
-  semantic lease while the mesh keeps querying the stale projection; a restarted
-  publisher recovers the same cell without cross-cell KV access or authority
-  loss, and the queue-grouped directory service instances stay horizontally
-  distributable. The gateway-loss phase then severs SFO's links and proves
-  regional continuity plus cross-mesh failure and heal.
-
-Known RF1 fixture limitation (outside this tranche's write scope): the T-20
-gateway fixture's single-server clusters solicit a self-route bound to
-`0.0.0.0`, and the route certificate's SANs cover only the loopback and
-gateway-network addresses. When the sever/heal network churn drops the
-self-route TCP connection, the server's redial fails TLS verification
-(`certificate is valid for 127.0.0.1, <gateway-address>, not 0.0.0.0`), which
-leaves that region's single-node JetStream meta layer wedged for the remaining
-window — core NATS and `$SYS` keep answering. The RF1 directory scenario is
-therefore ordered so that no JetStream-dependent assertion runs after a heal;
-the fixture's route certificate SAN fix belongs to the gateway-fixture owner.
+- Go control and protocol tests cover virtual-clock membership classification,
+  canonical signed identity material, compare-and-swap healing, authority
+  eligibility, global-directory lifecycle, and endpoint configuration.
+- The real JetStream lane covers multi-instance discovery, one-member loss,
+  renewal continuity, stale leases, and dead-member healing. A lapsed slot is
+  healed through a compare-and-swap update; competing healers produce exactly
+  one winner and the loser receives a typed active-lease error.
+- Cross-Region control-network lane: the directory and membership tests cover
+  publisher loss, stale leases, restart recovery, control-network partition and
+  heal, and queue-grouped service distribution. They prove that loss of control
+  observations never grants authority, deletes a live record, or interrupts an
+  already admitted data-plane operation. The D-81 Firecracker suite supplies
+  the systemd guest and network-fault qualification for this lane.

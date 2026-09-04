@@ -8,6 +8,32 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
+// OCIManagedTag and OCIScopeTag are required on every resource that a
+// reconciler may mutate destructively. Names and provider IDs are lookup
+// hints only; they are not ownership evidence.
+const (
+	OCIManagedTag = "terrascale-managed"
+	OCIScopeTag   = "terrascale-region"
+)
+
+// positiveOCIOwnership proves the minimum local ownership boundary available
+// at a provider observation. The caller must additionally validate the
+// resource kind, exact declared name, parent OCID, and current generation.
+func positiveOCIOwnership(tags map[string]string, kind, region string) bool {
+	return tags != nil && tags[OCIManagedTag] == kind && tags[OCIScopeTag] == region
+}
+
+func copyOCITags(tags map[string]string) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(tags))
+	for key, value := range tags {
+		out[key] = value
+	}
+	return out
+}
+
 func definedResourceKind(v ProviderResourceKind) bool {
 	return v >= ResourceNode && v <= ResourceBackend
 }
