@@ -19,13 +19,14 @@ import (
 // toward the plan (creates and updates; deletes configurable), with optional
 // error injection and apply-latency recording.
 type fakeProvider struct {
-	mu       sync.Mutex
-	kinds    []estate.ResourceKind
-	state    map[string]Resource
-	applyErr error
-	applies  int
-	delay    time.Duration
-	onApply  func()
+	mu         sync.Mutex
+	kinds      []estate.ResourceKind
+	state      map[string]Resource
+	observeErr error
+	applyErr   error
+	applies    int
+	delay      time.Duration
+	onApply    func()
 }
 
 func newFakeProvider(kinds ...estate.ResourceKind) *fakeProvider {
@@ -37,6 +38,9 @@ func (p *fakeProvider) Kinds() []estate.ResourceKind { return p.kinds }
 func (p *fakeProvider) Observe(_ context.Context) (State, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.observeErr != nil {
+		return State{}, p.observeErr
+	}
 	state := State{}
 	for _, resource := range p.state {
 		state.Resources = append(state.Resources, resource)
@@ -274,6 +278,82 @@ func TestLoopRejectsOverlappingKindOwnership(t *testing.T) {
 	second := newFakeProvider(estate.ResourceBucket, estate.ResourceDNS)
 	if _, err := NewLoop(testConfig([]Reconciler{first, second}, &captureAudit{}, &captureDrift{})); err == nil {
 		t.Fatal("overlapping kind ownership must be rejected")
+	}
+}
+
+// One provider's outage must not stop the other's self-healing (D-67): the
+// healthy provider still plans, applies, and reports drift, the blind
+// provider's kinds are excluded (a missing observation must not read as
+// drift to create), and the pass surfaces the partial failure.
+func TestLoopRepairsHealthyProvidersWhenOneObservationFails(t *testing.T) {
+	oci := newFakeProvider(estate.ResourceBucket)
+	oci.observeErr = errors.New("oci is down")
+	cloud := newFakeProvider(estate.ResourceDNS)
+	audit := &captureAudit{}
+	drift := &captureDrift{}
+	loop, err := NewLoop(testConfig([]Reconciler{oci, cloud}, audit, drift))
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	plan, err := loop.Pass(context.Background())
+	if err == nil {
+		t.Fatal("a partial observation failure must surface as a pass error")
+	}
+	if plan.Empty() {
+		t.Fatal("the healthy provider's drift was not planned")
+	}
+	for _, action := range plan.Actions {
+		if action.Ref.Kind == estate.ResourceBucket {
+			t.Fatalf("planned %s from a failed observation; blind kinds must be excluded", RefKey(action.Ref))
+		}
+	}
+	cloud.mu.Lock()
+	applied := len(cloud.state)
+	cloud.mu.Unlock()
+	if applied == 0 {
+		t.Fatal("the healthy provider's plan was not applied")
+	}
+	oci.mu.Lock()
+	ociApplies := oci.applies
+	oci.mu.Unlock()
+	if ociApplies != 0 {
+		t.Fatal("the blind provider was applied")
+	}
+	if status := loop.Status(); status.Converged {
+		t.Fatal("a pass with a blind provider must not report converged")
+	} else if status.LastPassError == "" {
+		t.Fatal("the observation failure was not recorded in the status")
+	}
+}
+
+func TestLoopPassFailsWhenEveryObservationFails(t *testing.T) {
+	first := newFakeProvider(estate.ResourceBucket)
+	first.observeErr = errors.New("oci is down")
+	second := newFakeProvider(estate.ResourceDNS)
+	second.observeErr = errors.New("cloudflare is down")
+	audit := &captureAudit{}
+	drift := &captureDrift{}
+	loop, err := NewLoop(testConfig([]Reconciler{first, second}, audit, drift))
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	plan, err := loop.Pass(context.Background())
+	if err == nil {
+		t.Fatal("a pass with no usable observation must fail")
+	}
+	if !plan.Empty() {
+		t.Fatalf("blind pass planned %+v", plan.Actions)
+	}
+	if len(drift.events) != 0 {
+		t.Fatalf("a blind pass published %d drift events", len(drift.events))
+	}
+	for _, provider := range []*fakeProvider{first, second} {
+		provider.mu.Lock()
+		applies := provider.applies
+		provider.mu.Unlock()
+		if applies != 0 {
+			t.Fatal("a blind pass must not apply")
+		}
 	}
 }
 

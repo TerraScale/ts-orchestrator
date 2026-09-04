@@ -134,38 +134,53 @@ func (l *Loop) Run(ctx context.Context) error {
 	}
 }
 
-// Pass executes one observe → diff → plan → apply → re-observe pass and
-// returns the plan it derived. A pass with a failing observation is an error;
-// apply failures are recorded and returned after the pass completes.
+// Pass executes one observe → diff → plan → drift → apply pass and returns
+// the plan it derived; convergence is confirmed by the next pass's
+// observation. A provider whose observation fails is excluded for the pass
+// but does not stop the healthy providers from repairing. Apply failures are
+// recorded and returned after the pass completes.
 func (l *Loop) Pass(ctx context.Context) (Plan, error) {
 	start := l.now()
-	plan, observeErr := l.observeAndPlan(ctx)
-	if observeErr != nil {
-		l.finishPass(start, plan, observeErr)
-		return plan, observeErr
-	}
+	plan, planErr := l.observeAndPlan(ctx)
 	if plan.Empty() {
-		l.finishPass(start, plan, nil)
-		return plan, nil
+		// Nothing to apply: either converged, or no usable observation to
+		// repair from. Partial observation failures still surface.
+		l.finishPass(start, plan, planErr)
+		return plan, planErr
 	}
 	driftErr := l.config.Drift.PublishDrift(ctx, driftEvents(l.now().UTC().Format(time.RFC3339Nano), plan))
 	applyErr := l.apply(ctx, plan)
-	joined := errors.Join(driftErr, applyErr)
+	joined := errors.Join(planErr, driftErr, applyErr)
 	l.finishPass(start, plan, joined)
 	return plan, joined
 }
 
 // observeAndPlan collects every provider observation and derives the plan.
+// A provider whose observation fails is excluded from the pass: its kinds are
+// neither planned nor applied, so a missing observation never reads as drift
+// to create, and one cloud's outage never stops the other's self-healing
+// (D-67). The pass fails outright only when nothing could be observed.
 func (l *Loop) observeAndPlan(ctx context.Context) (Plan, error) {
 	observed := State{}
+	var healthy []estate.ResourceKind
+	var failures []error
 	for _, provider := range l.config.Providers {
 		state, err := provider.Observe(ctx)
 		if err != nil {
-			return Plan{}, fmt.Errorf("observe %T: %w", provider, err)
+			failures = append(failures, fmt.Errorf("observe %T: %w", provider, err))
+			continue
 		}
 		observed.Resources = append(observed.Resources, state.Resources...)
+		healthy = append(healthy, provider.Kinds()...)
 	}
-	return Diff(l.declared, observed, l.kinds...)
+	if len(healthy) == 0 {
+		return Plan{}, errors.Join(failures...)
+	}
+	plan, err := Diff(l.declared, observed, healthy...)
+	if err != nil {
+		failures = append(failures, err)
+	}
+	return plan, errors.Join(failures...)
 }
 
 // apply submits the plan to its owners, rate-limited, auditing every
