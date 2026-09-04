@@ -1,4 +1,4 @@
-package control
+package journal
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 func newTestAccountJwtSigner(t *testing.T) *NatsAccountJwtSigner {
@@ -115,7 +116,7 @@ func TestOpenedAccountSignerIssuesVerifiableRunnerJwt(t *testing.T) {
 		t.Fatal("user account override was accepted")
 	}
 
-	topology, err := NewGlobalNatsTopology(3)
+	topology, err := messaging.NewGlobalNatsTopology(3)
 	if err != nil {
 		t.Fatal(err)
 	}

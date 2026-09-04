@@ -1,14 +1,15 @@
-package control
+package journal
 
 import (
 	"encoding/json"
 	"testing"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 func TestJournalEnvelopeRejectsRawPayloadAndSubjectSubstitution(t *testing.T) {
-	topology := NewNatsTopology("gru", 3, "controller-1")
+	topology := messaging.NewNatsTopology("gru", 3, "controller-1")
 	subject, err := topology.OperationJournalCreateSubject()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func TestJournalEnvelopeRejectsRawPayloadAndSubjectSubstitution(t *testing.T) {
 }
 
 func TestJournalEnvelopeRejectsUnknownPayloadMembers(t *testing.T) {
-	topology := NewNatsTopology("sfo", 3, "controller-2")
+	topology := messaging.NewNatsTopology("sfo", 3, "controller-2")
 	subject, err := topology.OperationJournalCreateSubject()
 	if err != nil {
 		t.Fatal(err)

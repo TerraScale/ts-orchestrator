@@ -38,17 +38,6 @@ func isAccountPublicKey(value string) bool {
 	return shared.NatsRequireAccountPublicKey(strings.TrimSpace(value), "") == nil
 }
 
-// String intentionally omits both the private path and public identity. The
-// latter is not secret, but keeping the complete identity out of diagnostics
-// makes accidental credential disclosure less likely and keeps this type's
-// redaction contract stable.
-func (c *CiRunnerNatsIdentityConfiguration) String() string {
-	if c == nil {
-		return "<nil>"
-	}
-	return "<ci-runner-nats-identity>"
-}
-
 // String provides a bounded, credential-free diagnostic projection. In
 // particular, it does not delegate to fmt's struct formatting, which would
 // expose configured paths and make adding a secret field unsafe by default.

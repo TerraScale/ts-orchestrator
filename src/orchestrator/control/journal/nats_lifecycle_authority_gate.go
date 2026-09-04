@@ -1,7 +1,8 @@
-package control
+package journal
 
 import (
 	"context"
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 )
 
@@ -9,11 +10,11 @@ import (
 // to the lifecycle gate without exposing authority internals.
 type NatsRuntimeLifecycleAuthorityGate struct {
 	cell      RuntimeLifecycleCellId
-	authority *RegionalAuthorityCoordinator
+	authority *authority.RegionalAuthorityCoordinator
 }
 
 func NewNatsRuntimeLifecycleAuthorityGate(cell RuntimeLifecycleCellId,
-	authority *RegionalAuthorityCoordinator) (*NatsRuntimeLifecycleAuthorityGate, error) {
+	authority *authority.RegionalAuthorityCoordinator) (*NatsRuntimeLifecycleAuthorityGate, error) {
 	if authority == nil {
 		return nil, shared.ArgumentNil("authority")
 	}
@@ -42,7 +43,7 @@ func (g *NatsRuntimeLifecycleAuthorityGate) ReadAsync(ctx context.Context,
 }
 
 // NatsRuntimeLifecycleAuthorityGateMap ports the internal static Map helper.
-func NatsRuntimeLifecycleAuthorityGateMap(snapshot RegionalAuthoritySnapshot) (RuntimeLifecycleAuthority, error) {
+func NatsRuntimeLifecycleAuthorityGateMap(snapshot authority.RegionalAuthoritySnapshot) (RuntimeLifecycleAuthority, error) {
 	epochValue := uint64(1)
 	if snapshot.Epoch > 0 {
 		epochValue = uint64(snapshot.Epoch)

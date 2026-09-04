@@ -1,4 +1,4 @@
-package control
+package journal
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -39,7 +40,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 	writer *nats.Conn,
 	store jetstream.KeyValue,
 	proofConsumptions jetstream.KeyValue,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 	authority *NatsOperationJournalMutationAuthorityVerifier,
 	controllerIdentities map[string]struct{},
 	replies *NatsOperationJournalMutationReplySigner,
@@ -327,7 +328,7 @@ func natsOperationJournalReadRuntimeLifecycle(
 	ctx context.Context,
 	message *nats.Msg,
 	writer *nats.Conn,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 	authority *NatsOperationJournalMutationAuthorityVerifier,
 	controllerIdentities map[string]struct{},
 	replies *NatsOperationJournalMutationReplySigner,
@@ -406,7 +407,7 @@ func natsOperationJournalWriteRuntimeLifecycle(
 	ctx context.Context,
 	message *nats.Msg,
 	writer *nats.Conn,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 	authority *NatsOperationJournalMutationAuthorityVerifier,
 	controllerIdentities map[string]struct{},
 	replies *NatsOperationJournalMutationReplySigner,
@@ -565,7 +566,7 @@ type natsRuntimeLifecycleJournalStores struct {
 func natsOperationJournalOpenRuntimeLifecycleStores(
 	ctx context.Context,
 	writer *nats.Conn,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 ) (*natsRuntimeLifecycleJournalStores, error) {
 	js, err := jetstream.New(writer)
 	if err != nil {
@@ -662,7 +663,7 @@ func NatsOperationJournalMutationProofConsumptionKey(
 // NatsOperationJournalMutationClient calls the private mutation service.
 type NatsOperationJournalMutationClient struct {
 	client    *nats.Conn
-	topology  *NatsTopology
+	topology  *messaging.NatsTopology
 	authority *NatsOperationJournalMutationAuthoritySigner
 	replies   *NatsOperationJournalMutationReplyVerifier
 }
@@ -670,7 +671,7 @@ type NatsOperationJournalMutationClient struct {
 // NewNatsOperationJournalMutationClient creates a mutation client.
 func NewNatsOperationJournalMutationClient(
 	client *nats.Conn,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 	authority *NatsOperationJournalMutationAuthoritySigner,
 	replies *NatsOperationJournalMutationReplyVerifier,
 ) *NatsOperationJournalMutationClient {
@@ -1373,4 +1374,20 @@ func (v *NatsOperationJournalMutationReplyVerifier) verifySignature(digest []byt
 
 func natsJournalIsP256(key *ecdsa.PublicKey) bool {
 	return key != nil && key.Curve != nil && key.Curve.Params().Name == elliptic.P256().Params().Name
+}
+
+// NewNatsOperationJournalMutationReplySignerForKey binds an in-memory reply
+// signing key; hosts load keys from files, tests generate them.
+func NewNatsOperationJournalMutationReplySignerForKey(key *ecdsa.PrivateKey) *NatsOperationJournalMutationReplySigner {
+	return &NatsOperationJournalMutationReplySigner{key: key}
+}
+
+// NewNatsOperationJournalMutationService composes the mutation service from
+// its service server, reply signer, and lifetime cancel function.
+func NewNatsOperationJournalMutationService(
+	service *shared.NatsSvcServer,
+	replies *NatsOperationJournalMutationReplySigner,
+	lifetime context.CancelFunc,
+) *NatsOperationJournalMutationService {
+	return &NatsOperationJournalMutationService{service: service, replies: replies, lifetime: lifetime}
 }

@@ -82,14 +82,10 @@ func TestNatsJournalWriterRuntimeCloseIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	replies := &NatsOperationJournalMutationReplySigner{key: key}
+	replies := NewNatsOperationJournalMutationReplySignerForKey(key)
 	lifetimeCtx, lifetime := context.WithCancel(context.Background())
 	service := shared.NewNatsSvcServer(client, shared.NatsSvcConfig{Name: "test-journal-writer"})
-	mutations := &NatsOperationJournalMutationService{
-		service:  service,
-		replies:  replies,
-		lifetime: lifetime,
-	}
+	mutations := NewNatsOperationJournalMutationService(service, replies, lifetime)
 	runtime := &NatsJournalWriterRuntime{
 		client:     client,
 		mutations:  mutations,

@@ -1,4 +1,4 @@
-package control
+package journal
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 // CiRunnerNatsIdentityConfiguration holds the issuer signing key file and an
@@ -83,13 +84,13 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 		return nil, errors.New("The NATS account signing credential path is required. (Parameter 'path')")
 	}
 
-	fullPath, err := NatsCredentialFile.Resolve(path, "path")
+	fullPath, err := messaging.NatsCredentialFile.Resolve(path, "path")
 	if err != nil {
 		return nil, errors.New(
 			"The NATS account signing credential must be a bounded owner-private NKey file. (Parameter 'path')")
 	}
 
-	seed, err := NkeySeed(fullPath)
+	seed, err := messaging.NkeySeed(fullPath)
 	if err != nil {
 		return nil, errors.New("The NATS account signing credential is empty. (Parameter 'path')")
 	}
@@ -239,7 +240,7 @@ func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string,
 		return "", errors.New("The CI runner credential directory must be owner-private. (Parameter 'path')")
 	}
 
-	parentMode, err := MessagingUnixFileMode(parent)
+	parentMode, err := messaging.MessagingUnixFileMode(parent)
 	if err != nil || parentMode != 0o700 {
 		return "", errors.New("The CI runner credential directory must be owner-private. (Parameter 'path')")
 	}
@@ -316,12 +317,12 @@ const (
 // CiRunnerNatsCredentialIssuer issues a short-lived NATS user only after its
 // exact consumer was reconciled.
 type CiRunnerNatsCredentialIssuer struct {
-	topology *GlobalNatsTopology
+	topology *messaging.GlobalNatsTopology
 	signer   INatsAccountJwtSigner
 }
 
 func NewCiRunnerNatsCredentialIssuer(
-	topology *GlobalNatsTopology,
+	topology *messaging.GlobalNatsTopology,
 	signer INatsAccountJwtSigner,
 ) (*CiRunnerNatsCredentialIssuer, error) {
 	if topology == nil {
@@ -399,7 +400,7 @@ func (i *CiRunnerNatsCredentialIssuer) IssueAsync(
 		return nil, err
 	}
 
-	plan, err := CiRunnerNatsPermissions.Create(i.topology, registration.Zone, runner)
+	plan, err := messaging.CiRunnerNatsPermissions.Create(i.topology, registration.Zone, runner)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +441,7 @@ func NatsUserJwtCodecEncodeAsync(
 	signer INatsAccountJwtSigner,
 	userPublicKey string,
 	name string,
-	permissions *CiRunnerNatsPermissionPlan,
+	permissions *messaging.CiRunnerNatsPermissionPlan,
 	issuedAt int64,
 	expiresAt int64,
 ) (*NatsUserJwtCodecToken, error) {
@@ -540,4 +541,15 @@ func natsUserJwtBase32(value []byte) string {
 	}
 
 	return encoded.String()
+}
+
+// String intentionally omits both the private path and public identity. The
+// latter is not secret, but keeping the complete identity out of diagnostics
+// makes accidental credential disclosure less likely and keeps this type's
+// redaction contract stable.
+func (c *CiRunnerNatsIdentityConfiguration) String() string {
+	if c == nil {
+		return "<nil>"
+	}
+	return "<ci-runner-nats-identity>"
 }

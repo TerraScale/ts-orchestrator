@@ -1,4 +1,4 @@
-package control
+package journal
 
 import (
 	"bytes"
@@ -16,13 +16,14 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 // NatsAuthoritativeJournalConfiguration carries the separate credentials and
 // trust root required to host the private authoritative journal writer.
 type NatsAuthoritativeJournalConfiguration struct {
 	NKeyFile                     string
-	Tls                          *NatsTlsFiles
+	Tls                          *messaging.NatsTlsFiles
 	AuthorityPublicKey           []byte
 	ReplySigningKeyFile          string
 	ReplySigningPublicKey        []byte
@@ -59,7 +60,7 @@ func NatsAuthoritativeJournalConfigurationResolve(
 				"controller identities together.")
 	}
 
-	resolvedNkey, err := NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_JOURNAL_NATS_NKEY_FILE")
+	resolvedNkey, err := messaging.NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_JOURNAL_NATS_NKEY_FILE")
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +69,7 @@ func NatsAuthoritativeJournalConfigurationResolve(
 		return nil, errors.New("TS_ORCH_JOURNAL_NATS_NKEY_FILE is missing.")
 	}
 
-	tls, err := NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_JOURNAL_NATS_TLS")
+	tls, err := messaging.NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_JOURNAL_NATS_TLS")
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +142,7 @@ func NatsAuthoritativeJournalConfigurationResolve(
 		return nil, err
 	}
 
-	writerPublicKey, err := NatsCredentialFile.PublicKey(resolvedNkey)
+	writerPublicKey, err := messaging.NatsCredentialFile.PublicKey(resolvedNkey)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +276,7 @@ func natsJournalReadFile(value string, maximum int64, requirePrivate bool) (stri
 		initial.Size() < 1 || initial.Size() > maximum {
 		return "", nil, errors.New("invalid credential file")
 	}
-	if requirePrivate && uint32(initial.Mode().Perm())&(MessagingGroupAny|MessagingOtherAny) != 0 {
+	if requirePrivate && uint32(initial.Mode().Perm())&(messaging.MessagingGroupAny|messaging.MessagingOtherAny) != 0 {
 		return "", nil, errors.New("credential file is not owner-private")
 	}
 
@@ -291,7 +292,7 @@ func natsJournalReadFile(value string, maximum int64, requirePrivate bool) (stri
 		!natsJournalSameFileIdentity(initial, current) {
 		return "", nil, errors.New("credential file changed while opening")
 	}
-	if requirePrivate && uint32(current.Mode().Perm())&(MessagingGroupAny|MessagingOtherAny) != 0 {
+	if requirePrivate && uint32(current.Mode().Perm())&(messaging.MessagingGroupAny|messaging.MessagingOtherAny) != 0 {
 		return "", nil, errors.New("credential file is not owner-private")
 	}
 

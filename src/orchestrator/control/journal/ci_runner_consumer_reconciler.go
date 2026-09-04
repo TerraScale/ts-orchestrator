@@ -1,4 +1,4 @@
-package control
+package journal
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 // CiRunnerConsumerRegistration identifies one reconciled CI runner consumer.
@@ -23,10 +24,10 @@ func NewCiRunnerConsumerRegistration(zone, consumer, subject string) CiRunnerCon
 // before any runner identity can be issued.
 type CiRunnerConsumerReconciler struct {
 	jetStream jetstream.JetStream
-	topology  *GlobalNatsTopology
+	topology  *messaging.GlobalNatsTopology
 }
 
-func NewCiRunnerConsumerReconciler(js jetstream.JetStream, topology *GlobalNatsTopology) (*CiRunnerConsumerReconciler, error) {
+func NewCiRunnerConsumerReconciler(js jetstream.JetStream, topology *messaging.GlobalNatsTopology) (*CiRunnerConsumerReconciler, error) {
 	if js == nil {
 		return nil, errors.New("(Parameter 'jetStream')")
 	}
@@ -58,7 +59,7 @@ func (r *CiRunnerConsumerReconciler) ReconcileAsync(
 			"NATS returned a CI runner consumer without a filter subject.")
 	}
 
-	stream, err := r.jetStream.Stream(ctx, GlobalNatsTopologyCiStream)
+	stream, err := r.jetStream.Stream(ctx, messaging.GlobalNatsTopologyCiStream)
 	if err != nil {
 		return CiRunnerConsumerRegistration{}, err
 	}
@@ -73,7 +74,7 @@ func (r *CiRunnerConsumerReconciler) ReconcileAsync(
 		return CiRunnerConsumerRegistration{}, err
 	}
 
-	if !CiRunnerConsumerReconcilerMatches(info, expected, GlobalNatsTopologyCiStream) {
+	if !CiRunnerConsumerReconcilerMatches(info, expected, messaging.GlobalNatsTopologyCiStream) {
 		return CiRunnerConsumerRegistration{}, errors.New(
 			"NATS returned an unsafe CI runner consumer configuration for " + expected.Name + ".")
 	}

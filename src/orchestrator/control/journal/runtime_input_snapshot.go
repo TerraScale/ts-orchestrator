@@ -1,4 +1,4 @@
-package control
+package journal
 
 // RuntimeTechnicalLimits ports the public technical denial-of-service safety
 // limits; these are not lifecycle, health, or rollout policy.
