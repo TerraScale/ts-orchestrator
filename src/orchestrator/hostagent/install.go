@@ -207,24 +207,27 @@ func (i *Installer) Install(spec ComponentSpec) (string, error) {
 }
 
 // decodeEd25519Signature accepts the detached signature as raw 64 bytes or
-// as 128 lowercase/uppercase hex characters.
+// as 128 hex characters with optional trailing whitespace. The raw spelling
+// is length-checked before any trimming: a raw signature byte may itself be
+// 0x0a.
 func decodeEd25519Signature(signatureFile []byte) ([]byte, error) {
-	trimmed := signatureFile
-	if len(trimmed) > 0 && trimmed[len(trimmed)-1] == '\n' {
-		trimmed = trimmed[:len(trimmed)-1]
-	}
-	switch len(trimmed) {
+	switch len(signatureFile) {
 	case ed25519.SignatureSize:
-		return trimmed, nil
+		return signatureFile, nil
+	case 2*ed25519.SignatureSize + 1:
+		if signatureFile[len(signatureFile)-1] != '\n' {
+			break
+		}
+		signatureFile = signatureFile[:len(signatureFile)-1]
+		fallthrough
 	case 2 * ed25519.SignatureSize:
-		decoded, err := hex.DecodeString(string(trimmed))
+		decoded, err := hex.DecodeString(string(signatureFile))
 		if err != nil || len(decoded) != ed25519.SignatureSize {
 			return nil, &InvalidDataError{Message: "The release signature is not canonical hex."}
 		}
 		return decoded, nil
-	default:
-		return nil, &InvalidDataError{Message: "The release signature is not 64 raw or hex-encoded bytes."}
 	}
+	return nil, &InvalidDataError{Message: "The release signature is not 64 raw or hex-encoded bytes."}
 }
 
 // InstalledVersion reports whether one component version directory exists on
