@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -33,6 +34,12 @@ func RedactLog(record LogRecord) (LogRecord, error) {
 	if len(record.Body) > maxLogBody {
 		return LogRecord{}, errors.New("log body exceeds 16 KiB")
 	}
+	if !utf8.ValidString(record.Body) {
+		return LogRecord{}, errors.New("log body must contain valid UTF-8")
+	}
+	if containsLogControl(record.Body) {
+		return LogRecord{}, errors.New("log body must be control-free")
+	}
 	if len(record.Attributes) > maxLogAttributes {
 		return LogRecord{}, errors.New("log attributes exceed 32 fields")
 	}
@@ -41,7 +48,7 @@ func RedactLog(record LogRecord) (LogRecord, error) {
 		result.Attributes = make(map[string]string, len(record.Attributes))
 	}
 	for key, value := range record.Attributes {
-		if len(key) == 0 || len(key) > 63 || strings.ContainsAny(key, "\r\n\x00") {
+		if err := validateLabelKey(key); err != nil {
 			return LogRecord{}, errors.New("log attribute key is invalid")
 		}
 		if isCustomerDimension(key) {
@@ -50,6 +57,9 @@ func RedactLog(record LogRecord) (LogRecord, error) {
 		if len(value) > maxLogValue {
 			return LogRecord{}, errors.New("log attribute value exceeds 512 bytes")
 		}
+		if !utf8.ValidString(value) || containsLogControl(value) {
+			return LogRecord{}, errors.New("log attribute value must be valid UTF-8 and control-free")
+		}
 		if sensitiveKey(key) {
 			result.Attributes[key] = "[redacted]"
 		} else {
@@ -57,6 +67,15 @@ func RedactLog(record LogRecord) (LogRecord, error) {
 		}
 	}
 	return result, nil
+}
+
+func containsLogControl(value string) bool {
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f || (character >= 0x80 && character <= 0x9f) {
+			return true
+		}
+	}
+	return false
 }
 
 // RedactText removes common bearer/basic credentials and secret-bearing

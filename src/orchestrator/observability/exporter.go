@@ -24,8 +24,11 @@ const (
 	defaultExporterInitialWait = time.Second
 	defaultExporterMaxWait     = 30 * time.Second
 	defaultLogsPerSecond       = 100
-	maxLogsPerSecond           = 10_000
-	maxTrackedLogHosts         = 1024
+	// The D-72 contract is a hard per-host cap, rather than a tuning range:
+	// info logs above 100 lines/s are sampled out before they enter a batch.
+	maxLogsPerSecond   = 100
+	maxTrackedLogHosts = 1024
+	maxCounterValue    = 1 << 60
 	// LogRetentionDays is the D-72 Grafana retention contract.  Retention is
 	// enforced by the Grafana tenant, while the exporter keeps the contract
 	// visible to composition roots and tests.
@@ -105,7 +108,7 @@ func NewExporter(configuration any, arguments ...any) (*Exporter, error) {
 		return nil, err
 	}
 	if config.LogsPerSecond < 1 || config.LogsPerSecond > maxLogsPerSecond {
-		return nil, errors.New("LogsPerSecond must be between 1 and 10000")
+		return nil, errors.New("LogsPerSecond must be between 1 and 100")
 	}
 	if config.Now == nil {
 		return nil, errors.New("exporter clock is required")
@@ -286,6 +289,11 @@ func (e *Exporter) EmitMetric(ctx context.Context, metric Metric) error {
 	if e == nil {
 		return errors.New("observability exporter is unavailable")
 	}
+	e.closeMu.Lock()
+	defer e.closeMu.Unlock()
+	if e.closed {
+		return errors.New("observability exporter is closed")
+	}
 	if ctx == nil {
 		return errors.New("metric context must not be nil")
 	}
@@ -312,6 +320,9 @@ func (e *Exporter) EmitMetric(ctx context.Context, metric Metric) error {
 // agent.  The caller chooses a stable metric name; no customer identifier is
 // accepted in the dimensions.
 func (e *Exporter) RecordCounter(ctx context.Context, name, host, region, subsystem string, value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > maxCounterValue {
+		return errors.New("counter value must be between 0 and 1 EiB")
+	}
 	return e.EmitMetric(ctx, Metric{Name: name, Labels: map[string]string{
 		"host": host, "region": region, "subsystem": subsystem,
 	}, Value: value})
@@ -375,10 +386,15 @@ func (e *Exporter) RecordClock(ctx context.Context, host, region string, sample 
 	if err != nil {
 		return err
 	}
-	for _, observation := range observations {
-		if err := e.RecordCounter(ctx, observation.Name, host, region, "hostagent", observation.Value); err != nil {
-			return err
-		}
+	// Offset is a signed gauge; only the unhealthy marker uses the
+	// non-negative counter path.
+	if err := e.EmitMetric(ctx, Metric{Name: observations[0].Name, Labels: map[string]string{
+		"host": host, "region": region, "subsystem": "hostagent",
+	}, Value: observations[0].Value}); err != nil {
+		return err
+	}
+	if err := e.RecordCounter(ctx, observations[1].Name, host, region, "hostagent", observations[1].Value); err != nil {
+		return err
 	}
 	return nil
 }
@@ -438,6 +454,11 @@ func (e *Exporter) EmitPage(ctx context.Context, event SLOBurnRatePageEvent) err
 	if e == nil || e.page == nil {
 		return errors.New("SLO burn page sink is unavailable")
 	}
+	e.closeMu.Lock()
+	defer e.closeMu.Unlock()
+	if e.closed {
+		return errors.New("observability exporter is closed")
+	}
 	router, err := NewEventRouter(e.labels, discardDashboardSink{}, e.page)
 	if err != nil {
 		return err
@@ -455,6 +476,11 @@ func (discardDashboardSink) Observe(context.Context, DashboardObservation) error
 func (e *Exporter) EmitLog(ctx context.Context, record LogRecord) error {
 	if e == nil || e.logs == nil {
 		return errors.New("observability exporter is unavailable")
+	}
+	e.closeMu.Lock()
+	defer e.closeMu.Unlock()
+	if e.closed {
+		return errors.New("observability exporter is closed")
 	}
 	if ctx == nil {
 		return errors.New("log context must not be nil")
@@ -501,7 +527,7 @@ func (e *Exporter) ExportLog(ctx context.Context, record LogRecord) error {
 	return e.EmitLog(ctx, record)
 }
 
-func (e *Exporter) admitLog(host string, timestamp time.Time) bool {
+func (e *Exporter) admitLog(host string, _ time.Time) bool {
 	// Host names come from structured log attributes and must not be allowed
 	// to turn the sampler's bookkeeping map into an unbounded allocation. A
 	// bounded overflow bucket preserves the per-second cap for unexpected
@@ -509,16 +535,20 @@ func (e *Exporter) admitLog(host string, timestamp time.Time) bool {
 	if host == "" {
 		host = "unknown"
 	}
-	window := timestamp.UTC().Truncate(time.Second)
+	// Caller timestamps are retained for correlation but cannot reset a host's
+	// budget by moving backwards or creating arbitrary future windows.
+	window := e.now().UTC().Truncate(time.Second)
 	e.sampleMu.Lock()
 	defer e.sampleMu.Unlock()
 	if _, exists := e.samples[host]; !exists && len(e.samples) >= maxTrackedLogHosts-1 {
 		host = "__overflow__"
 	}
 	sample := e.samples[host]
-	if !sample.window.Equal(window) {
+	if sample.window.IsZero() || window.After(sample.window) {
 		sample = logSample{window: window}
 	}
+	// A backwards wall-clock step leaves sample.window unchanged and therefore
+	// cannot reopen a spent budget until the trusted clock catches up again.
 	if sample.count >= e.limit {
 		e.samples[host] = sample
 		return false
@@ -532,6 +562,11 @@ func (e *Exporter) admitLog(host string, timestamp time.Time) bool {
 func (e *Exporter) Flush(ctx context.Context) error {
 	if e == nil {
 		return errors.New("observability exporter is unavailable")
+	}
+	e.closeMu.Lock()
+	defer e.closeMu.Unlock()
+	if e.closed {
+		return errors.New("observability exporter is closed")
 	}
 	if err := e.metrics.Flush(ctx); err != nil {
 		return err

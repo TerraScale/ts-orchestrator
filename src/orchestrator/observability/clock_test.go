@@ -106,6 +106,10 @@ func TestClockObservationsWireOffsetAndHealth(t *testing.T) {
 			ClockSample{OffsetMillis: maxClockOffsetMillis + 1, Measured: true, Unhealthy: true}, now); err == nil {
 			t.Fatal("over-bound offset was accepted")
 		}
+		if _, err := ClockObservations(allow, "gru", "host-1",
+			ClockSample{OffsetMillis: ClockWriteRefusalOffsetMillis + 1, Measured: true, Unhealthy: false}, now); err == nil {
+			t.Fatal("contradictory clock health was accepted")
+		}
 	})
 }
 

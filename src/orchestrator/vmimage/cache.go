@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // Cache stores complete image pairs under digest-derived directories. A
@@ -21,8 +19,14 @@ import (
 type Cache struct {
 	Root        string
 	Client      *http.Client
+	Downloader  Downloader
 	QEMUImgPath string
 	Runner      CommandRunner
+
+	RootFSPreparer RootFSPreparer
+	DebugFSPath    string
+	E2FSCKPath     string
+	OutputRunner   OutputCommandRunner
 }
 
 // CommandRunner is the typed process boundary used only for qemu-img QCOW2
@@ -44,6 +48,7 @@ type InstalledImage struct {
 	Dir      string
 	Kernel   string
 	RootFS   string
+	Receipt  string
 }
 
 // NewCache creates a cache handle. It does not create or mutate the root;
@@ -65,7 +70,7 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if ctx == nil {
 		return InstalledImage{}, errors.New("vmimage: context is nil")
 	}
-	canonical, err := NewManifest(manifest)
+	canonical, err := NewPinnedManifest(manifest)
 	if err != nil {
 		return InstalledImage{}, err
 	}
@@ -77,11 +82,8 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if installed, ok := cache.existing(entry, canonical); ok {
 		return installed, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
+	if err := ensurePrivateTree(cache.Root, filepath.Dir(entry)); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: create cache: %w", err)
-	}
-	if err := chmodDirectory(cache.Root, 0o700); err != nil {
-		return InstalledImage{}, err
 	}
 	stage, err := createStaging(filepath.Dir(entry))
 	if err != nil {
@@ -91,17 +93,39 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 
 	kernelPath := filepath.Join(stage, canonical.Kernel.Name)
 	rootfsPath := filepath.Join(stage, canonical.RootFS.Name)
-	if err := cache.fetch(ctx, canonical.Kernel, kernelPath); err != nil {
+	if err := cache.fetch(ctx, canonical.Kernel, kernelPath, canonical.UbuntuRelease); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: cache kernel: %w", err)
 	}
-	if err := cache.fetch(ctx, canonical.RootFS, rootfsPath); err != nil {
+	if err := cache.fetch(ctx, canonical.RootFS, rootfsPath, canonical.UbuntuRelease); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: cache rootfs: %w", err)
+	}
+	preparer := cache.RootFSPreparer
+	if preparer == nil {
+		preparer = Ext4Preparer{DebugFSPath: cache.DebugFSPath, E2FSCKPath: cache.E2FSCKPath, Runner: cache.OutputRunner}
+	}
+	inspection, err := preparer.Prepare(ctx, rootfsPath, canonical.UbuntuRelease)
+	if err != nil {
+		return InstalledImage{}, fmt.Errorf("vmimage: prepare extracted Ubuntu rootfs: %w", err)
 	}
 	if err := VerifyFile(kernelPath, canonical.Kernel); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: cached kernel: %w", err)
 	}
 	if err := VerifyFile(rootfsPath, canonical.RootFS); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: cached rootfs: %w", err)
+	}
+	receipt, err := NewPreparationReceipt(canonical, inspection)
+	if err != nil {
+		return InstalledImage{}, err
+	}
+	receiptBytes, err := receipt.CanonicalJSON(canonical)
+	if err != nil {
+		return InstalledImage{}, err
+	}
+	if err := writePrivate(filepath.Join(stage, "image-receipt.json"), receiptBytes); err != nil {
+		return InstalledImage{}, err
+	}
+	if err := syncFile(filepath.Join(stage, "image-receipt.json")); err != nil {
+		return InstalledImage{}, err
 	}
 	manifestPath := filepath.Join(stage, "manifest.json")
 	manifestBytes, err := canonical.CanonicalJSON()
@@ -137,7 +161,10 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if err := os.Chmod(stage, 0o700); err != nil {
 		return InstalledImage{}, err
 	}
-	if err := os.Rename(stage, entry); err != nil {
+	if err := ctx.Err(); err != nil {
+		return InstalledImage{}, err
+	}
+	if err := publishDirectory(stage, entry); err != nil {
 		// Another installer may have won the compare-and-create race. Only
 		// accept it when the immutable entry verifies completely.
 		if installed, ok := cache.existing(entry, canonical); ok {
@@ -148,7 +175,7 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if err := syncDir(filepath.Dir(entry)); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: sync cache parent: %w", err)
 	}
-	return InstalledImage{Manifest: canonical, Dir: entry, Kernel: filepath.Join(entry, canonical.Kernel.Name), RootFS: filepath.Join(entry, canonical.RootFS.Name)}, nil
+	return InstalledImage{Manifest: canonical, Dir: entry, Kernel: filepath.Join(entry, canonical.Kernel.Name), RootFS: filepath.Join(entry, canonical.RootFS.Name), Receipt: filepath.Join(entry, "image-receipt.json")}, nil
 }
 
 // Install is a package-level convenience for callers that do not need a
@@ -178,17 +205,30 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if cache == nil {
 		return errors.New("vmimage: cache is nil")
 	}
-	canonical, err := NewManifest(image.Manifest)
+	canonical, err := NewPinnedManifest(image.Manifest)
 	if err != nil {
 		return err
 	}
-	if image.Dir == "" || !pathWithin(cache.Root, image.Dir) {
-		return errors.New("vmimage: installed image directory is outside cache")
+	plan, err := NewBuildPlan(canonical, cache.Root)
+	if err != nil {
+		return err
+	}
+	expectedKernel := filepath.Join(plan.CacheEntry, canonical.Kernel.Name)
+	expectedRootFS := filepath.Join(plan.CacheEntry, canonical.RootFS.Name)
+	expectedReceipt := filepath.Join(plan.CacheEntry, "image-receipt.json")
+	if image.Dir != plan.CacheEntry || image.Kernel != expectedKernel || image.RootFS != expectedRootFS || image.Receipt != expectedReceipt {
+		return errors.New("vmimage: installed image paths do not match their derived cache location")
+	}
+	if err := rejectSymlinkAncestors(image.Dir); err != nil {
+		return err
 	}
 	if err := verifyDirectory(image.Dir); err != nil {
 		return err
 	}
-	data, err := os.ReadFile(filepath.Join(image.Dir, "manifest.json"))
+	if err := verifyExactDirectoryEntries(image.Dir, canonical.Kernel.Name, canonical.RootFS.Name, "manifest.json", "build-plan.json", "image-receipt.json"); err != nil {
+		return err
+	}
+	data, err := readRegularFile(filepath.Join(image.Dir, "manifest.json"), 0o600, maxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("vmimage: read cached manifest: %w", err)
 	}
@@ -201,90 +241,63 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if string(left) != string(right) {
 		return errors.New("vmimage: cached manifest differs from requested manifest")
 	}
-	if planData, planErr := os.ReadFile(filepath.Join(image.Dir, "build-plan.json")); planErr == nil {
-		plan, decodeErr := DecodeBuildPlan(planData)
-		if decodeErr != nil {
-			return decodeErr
-		}
-		expectedPlan, planErr := NewBuildPlan(canonical, cache.Root)
-		if planErr != nil {
-			return planErr
-		}
-		expectedBytes, planErr := expectedPlan.CanonicalJSON()
-		cachedBytes, cachedPlanErr := plan.CanonicalJSON()
-		if planErr != nil || cachedPlanErr != nil || string(expectedBytes) != string(cachedBytes) {
-			return errors.New("vmimage: cached build plan differs from requested manifest")
-		}
-	} else if !errors.Is(planErr, os.ErrNotExist) {
-		return fmt.Errorf("vmimage: read cached build plan: %w", planErr)
+	planData, err := readRegularFile(filepath.Join(image.Dir, "build-plan.json"), 0o600, maxBuildPlanBytes)
+	if err != nil {
+		return fmt.Errorf("vmimage: read cached build plan: %w", err)
+	}
+	cachedPlan, err := DecodeBuildPlan(planData)
+	if err != nil {
+		return err
+	}
+	expectedBytes, err := plan.CanonicalJSON()
+	if err != nil {
+		return err
+	}
+	cachedBytes, err := cachedPlan.CanonicalJSON()
+	if err != nil || string(expectedBytes) != string(cachedBytes) {
+		return errors.New("vmimage: cached build plan differs from requested manifest")
 	}
 	if err := VerifyFile(filepath.Join(image.Dir, canonical.Kernel.Name), canonical.Kernel); err != nil {
 		return err
 	}
-	return VerifyFile(filepath.Join(image.Dir, canonical.RootFS.Name), canonical.RootFS)
+	if err := VerifyFile(filepath.Join(image.Dir, canonical.RootFS.Name), canonical.RootFS); err != nil {
+		return err
+	}
+	receiptData, err := readRegularFile(expectedReceipt, 0o600, maxPreparationReceiptBytes)
+	if err != nil {
+		return fmt.Errorf("vmimage: read preparation receipt: %w", err)
+	}
+	_, err = DecodePreparationReceipt(receiptData, canonical)
+	return err
 }
 
 func (cache *Cache) existing(entry string, manifest GuestImageManifest) (InstalledImage, bool) {
 	if _, err := os.Stat(entry); err != nil {
 		return InstalledImage{}, false
 	}
-	image := InstalledImage{Manifest: manifest, Dir: entry, Kernel: filepath.Join(entry, manifest.Kernel.Name), RootFS: filepath.Join(entry, manifest.RootFS.Name)}
+	image := InstalledImage{Manifest: manifest, Dir: entry, Kernel: filepath.Join(entry, manifest.Kernel.Name), RootFS: filepath.Join(entry, manifest.RootFS.Name), Receipt: filepath.Join(entry, "image-receipt.json")}
 	if err := cache.VerifyInstalled(image); err != nil {
 		return InstalledImage{}, false
 	}
 	return image, true
 }
 
-func (cache *Cache) fetch(ctx context.Context, artifact ArtifactManifest, target string) error {
+func (cache *Cache) fetch(ctx context.Context, artifact ArtifactManifest, target, ubuntuRelease string) error {
 	if artifact.Transform != nil {
-		return cache.transform(ctx, artifact, target)
+		return cache.transform(ctx, artifact, target, ubuntuRelease)
 	}
 	return cache.fetchDirect(ctx, artifact, target)
 }
 
 func (cache *Cache) fetchDirect(ctx context.Context, artifact ArtifactManifest, target string) error {
-	parsed, err := url.Parse(artifact.Source)
-	if err != nil {
-		return errors.New("source is not a valid URL or path")
+	downloader := cache.Downloader
+	if downloader == nil {
+		downloader = httpDownloader{client: cache.Client}
 	}
-	if parsed.Scheme == "" {
-		return copyLocal(ctx, artifact.Source, target, artifact)
-	}
-	if parsed.Scheme == "file" {
-		return copyLocal(ctx, parsed.Path, target, artifact)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return errors.New("source URL scheme is not supported")
-	}
-	client := cache.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
-	} else {
-		clone := *client
-		client = &clone
-	}
-	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return errors.New("source redirects are not allowed")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.Source, nil)
-	if err != nil {
-		return err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("source answered HTTP %d", response.StatusCode)
-	}
-	if response.ContentLength >= 0 && response.ContentLength != artifact.Size {
-		return errors.New("source content length does not match manifest")
-	}
-	return copyStream(ctx, response.Body, target, artifact)
+	return downloadPinned(ctx, downloader, artifact.Source, target, artifact.digest(), artifact.Size, os.FileMode(artifact.expectedMode()))
 }
 
-func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, target string) error {
+func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, target, ubuntuRelease string) error {
 	input := artifact
 	input.Name += ".input"
 	input.SHA256 = artifact.InputSHA256
@@ -303,16 +316,9 @@ func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, ta
 	if err := VerifyFile(inputPath, input); err != nil {
 		return fmt.Errorf("verify transformation input: %w", err)
 	}
-	qemuImg := cache.QEMUImgPath
-	if qemuImg == "" {
-		var err error
-		qemuImg, err = exec.LookPath("qemu-img")
-		if err != nil {
-			return errors.New("qemu-img is required to convert the pinned QCOW2 image")
-		}
-	}
-	if !filepath.IsAbs(qemuImg) {
-		return errors.New("qemu-img path must be absolute")
+	qemuImg, err := resolveExecutable(cache.QEMUImgPath, "qemu-img")
+	if err != nil {
+		return err
 	}
 	runner := cache.Runner
 	if runner == nil {
@@ -324,6 +330,12 @@ func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, ta
 	if err := verifyRegular(rawPath); err != nil {
 		return fmt.Errorf("verify converted raw disk: %w", err)
 	}
+	if err := os.Chmod(rawPath, 0o600); err != nil {
+		return fmt.Errorf("secure converted raw disk: %w", err)
+	}
+	if err := VerifyFile(inputPath, input); err != nil {
+		return fmt.Errorf("reverify transformation input: %w", err)
+	}
 	transform := artifact.Transform
 	if transform.StartSector > (1<<63-1)/transform.SectorSize {
 		return errors.New("root partition offset overflows")
@@ -334,9 +346,6 @@ func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, ta
 	}
 	if err := copySparseSection(ctx, rawPath, target, offset, artifact.Size, os.FileMode(artifact.expectedMode())); err != nil {
 		return fmt.Errorf("extract root partition: %w", err)
-	}
-	if err := VerifyFile(target, artifact); err != nil {
-		return fmt.Errorf("verify transformed rootfs: %w", err)
 	}
 	return nil
 }
@@ -376,6 +385,9 @@ func copySparseSection(ctx context.Context, source, target string, offset, size 
 			_ = os.Remove(target)
 		}
 	}()
+	if err := output.Chmod(mode.Perm()); err != nil {
+		return err
+	}
 	section := io.NewSectionReader(input, offset, size)
 	buffer := make([]byte, 1<<20)
 	var copied int64
@@ -422,61 +434,6 @@ func allZero(data []byte) bool {
 	return true
 }
 
-func copyLocal(ctx context.Context, source, target string, artifact ArtifactManifest) error {
-	if source == "" {
-		return errors.New("local source path is empty")
-	}
-	info, err := os.Lstat(source)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("local source must be a regular non-symlink file")
-	}
-	if uint32(info.Mode().Perm()) != artifact.expectedMode() {
-		return fmt.Errorf("local source mode %04o does not match manifest mode %04o", info.Mode().Perm(), artifact.expectedMode())
-	}
-	file, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	return copyStream(ctx, file, target, artifact)
-}
-
-func copyStream(ctx context.Context, reader io.Reader, target string, artifact ArtifactManifest) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, os.FileMode(artifact.expectedMode()))
-	if err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		_ = file.Close()
-		if !ok {
-			_ = os.Remove(target)
-		}
-	}()
-	limited := io.LimitReader(reader, artifact.Size+1)
-	written, err := io.Copy(file, contextReader{ctx: ctx, reader: limited})
-	if err != nil {
-		return err
-	}
-	if written != artifact.Size {
-		return fmt.Errorf("source size %d does not match manifest size %d", written, artifact.Size)
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	ok = true
-	return nil
-}
-
 type contextReader struct {
 	ctx    context.Context
 	reader io.Reader
@@ -501,12 +458,21 @@ func createStaging(parent string) (string, error) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		return "", err
 	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
 	return path, nil
 }
 
 func writePrivate(path string, content []byte) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
 		return err
 	}
 	if _, err := file.Write(content); err != nil {
@@ -540,13 +506,6 @@ func syncDir(path string) error {
 		return err
 	}
 	return closeErr
-}
-
-func chmodDirectory(path string, mode os.FileMode) error {
-	if err := os.Chmod(path, mode); err != nil {
-		return fmt.Errorf("vmimage: chmod cache: %w", err)
-	}
-	return nil
 }
 
 func verifyDirectory(path string) error {

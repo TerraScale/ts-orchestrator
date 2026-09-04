@@ -196,6 +196,33 @@ func TestExporterRedactsAndSamplesLogsPerHost(t *testing.T) {
 	}
 }
 
+func TestExporterLogLimitCannotExceedD72Cap(t *testing.T) {
+	config := testExporterConfig(time.Now)
+	config.LogsPerSecond = maxLogsPerSecond + 1
+	metrics, logs := &exporterSender{}, &exporterSender{}
+	if _, err := NewExporter(config, ExporterSinks{Metrics: metrics, Logs: logs}); err == nil {
+		t.Fatal("log limit above 100 lines/s was accepted")
+	}
+}
+
+func TestExporterSamplerDoesNotReopenBudgetOnClockStepBack(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	config := testExporterConfig(func() time.Time { return now })
+	config.LogsPerSecond = 1
+	exporter, _, logs := newExporterForTest(t, config, nil)
+	for _, timestamp := range []time.Time{now, now.Add(24 * time.Hour), now.Add(-24 * time.Hour)} {
+		if err := exporter.EmitLog(context.Background(), LogRecord{Timestamp: timestamp, Attributes: map[string]string{"host": "host-a"}, Body: "bounded"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := exporter.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(logs.batches) != 1 || len(logs.batches[0].Records) != 1 {
+		t.Fatalf("clock step reopened sampling budget: %#v", logs.batches)
+	}
+}
+
 func TestExporterRetriesWithBoundAndHonorsCancellationBackpressure(t *testing.T) {
 	config := testExporterConfig(time.Now)
 	config.Batch.MaxItems = 1
@@ -296,5 +323,29 @@ func TestNewExporterAcceptsOmittedOptionalPageSink(t *testing.T) {
 	metrics, logs := &exporterSender{}, &exporterSender{}
 	if _, err := NewExporter(config, metrics, logs, nil); err != nil {
 		t.Fatalf("untyped nil optional page sink rejected: %v", err)
+	}
+}
+
+func TestExporterCloseRejectsConcurrentWrites(t *testing.T) {
+	config := testExporterConfig(time.Now)
+	config.Batch.MaxItems = 1
+	exporter, _, _ := newExporterForTest(t, config, nil)
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_ = exporter.RecordCounter(context.Background(), "host.health", "host-a", "gru", "hostagent", 1)
+		}()
+	}
+	close(start)
+	if err := exporter.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	workers.Wait()
+	if err := exporter.Flush(context.Background()); err == nil {
+		t.Fatal("closed exporter allowed flush")
 	}
 }

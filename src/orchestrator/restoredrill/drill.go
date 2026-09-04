@@ -25,7 +25,7 @@ type Drill struct {
 }
 
 func New(backup BackupPort, branches BranchPort, journal JournalPort, scheduler SchedulerPort, pager PagerPort, config Config) (*Drill, error) {
-	if backup == nil || branches == nil || journal == nil || scheduler == nil || pager == nil {
+	if isNil(backup) || isNil(branches) || isNil(journal) || isNil(scheduler) || isNil(pager) {
 		return nil, ErrInvalidConfig
 	}
 	c := config.withDefaults()
@@ -39,6 +39,12 @@ func New(backup BackupPort, branches BranchPort, journal JournalPort, scheduler 
 // so a retry or controller restart cannot select a different sample for a
 // date whose run was already durably started.
 func (d *Drill) Start(ctx context.Context) error {
+	if d == nil || isNil(d.scheduler) {
+		return ErrInvalidConfig
+	}
+	if ctx == nil {
+		return errors.New("restore drill: context is required")
+	}
 	return d.scheduler.Every(ctx, d.config.DailyInterval, func(runCtx context.Context, scheduledAt time.Time) error {
 		_, err := d.RunAt(runCtx, scheduledAt)
 		return err
@@ -47,12 +53,18 @@ func (d *Drill) Start(ctx context.Context) error {
 
 // Run executes today's drill according to the injected clock.
 func (d *Drill) Run(ctx context.Context) (RunRecord, error) {
+	if d == nil || isNil(d.journal) {
+		return RunRecord{}, ErrInvalidConfig
+	}
 	return d.RunAt(ctx, d.config.Now())
 }
 
 // RunAt executes the deterministic run identified by the UTC calendar date
 // of scheduledAt. Existing durable records are resumed, not recreated.
 func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, error) {
+	if d == nil || isNil(d.journal) {
+		return RunRecord{}, ErrInvalidConfig
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -65,7 +77,7 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	runID := runIDFor(scheduledAt)
 	run, found, err := d.journal.LoadRun(ctx, runID)
 	if err != nil {
-		return RunRecord{ID: runID, Status: RunFailed}, err
+		return RunRecord{ID: runID, Status: RunFailed}, sanitizeError(err)
 	}
 	if found && run.Status == RunSucceeded {
 		return copyRun(run), nil
@@ -73,16 +85,17 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	if !found {
 		ids, selectionErr := d.selectDatabases(ctx, scheduledAt)
 		if selectionErr != nil {
+			selectionErr = sanitizeError(selectionErr)
 			run = RunRecord{ID: runID, ScheduledAt: scheduledAt.UTC(), StartedAt: d.config.Now().UTC(), CompletedAt: d.config.Now().UTC(), Status: RunFailed, Error: selectionErr.Error()}
 			durableCtx := durableContext(ctx)
 			persistErr := d.journal.SaveRun(durableCtx, copyRun(run))
 			pageErr := d.pager.Page(durableCtx, Page{RunID: runID, Reason: selectionErr.Error(), Outcome: copyRun(run)})
-			return run, errors.Join(selectionErr, persistErr, pageErr)
+			return run, sanitizeError(errors.Join(selectionErr, persistErr, pageErr))
 		}
 		now := d.config.Now().UTC()
 		run = RunRecord{ID: runID, ScheduledAt: scheduledAt.UTC(), StartedAt: now, Status: RunRunning, DatabaseIDs: ids}
 		if err := d.journal.SaveRun(durableContext(ctx), copyRun(run)); err != nil {
-			return run, err
+			return run, sanitizeError(err)
 		}
 	} else {
 		// An interrupted run is resumed with its original sample. Do not erase
@@ -93,7 +106,7 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 			run.StartedAt = d.config.Now().UTC()
 		}
 		if err := d.journal.SaveRun(durableContext(ctx), copyRun(run)); err != nil {
-			return run, err
+			return run, sanitizeError(err)
 		}
 	}
 
@@ -108,7 +121,7 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 			break
 		}
 	}
-	if runErr == nil || d.config.Snapshotter != nil {
+	if runErr == nil || !isNil(d.config.Snapshotter) {
 		// A control-state snapshot is a separate durability proof. It is run
 		// even when a database item failed, so an item failure cannot suppress
 		// the daily JetStream snapshot obligation.
@@ -140,12 +153,12 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	run.CompletedAt = d.config.Now().UTC()
 	storeErr := d.journal.SaveRun(durableContext(ctx), copyRun(run))
 	if storeErr != nil {
-		runErr = errors.Join(runErr, storeErr)
+		runErr = sanitizeError(errors.Join(runErr, storeErr))
 	}
 	if run.Status != RunSucceeded {
 		pageErr := d.pager.Page(durableContext(ctx), Page{RunID: run.ID, Reason: run.Error, Outcome: copyRun(run)})
 		if pageErr != nil {
-			runErr = errors.Join(runErr, pageErr)
+			runErr = sanitizeError(errors.Join(runErr, pageErr))
 		}
 	}
 	return copyRun(run), runErr
@@ -197,6 +210,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	key := run.ID + "/" + databaseID
 	item, found, err := d.journal.LoadItem(ctx, key)
 	if err != nil {
+		err = sanitizeError(err)
 		return ItemRecord{Key: key, RunID: run.ID, DatabaseID: databaseID, Status: ItemFailed, Error: err.Error()}, err
 	}
 	if found && item.Status == ItemSucceeded {
@@ -222,7 +236,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	}
 	item.RestoreEpoch = epoch
 	if err := d.journal.SaveItem(durableCtx, copyItem(item)); err != nil {
-		return item, err
+		return item, sanitizeError(err)
 	}
 	branch, err := d.branches.CreateScratch(itemCtx, ScratchBranchRequest{
 		SourceDatabaseID: databaseID,
@@ -290,6 +304,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 }
 
 func (d *Drill) finishItem(ctx context.Context, item ItemRecord, operationErr error) (ItemRecord, error) {
+	operationErr = sanitizeError(operationErr)
 	if operationErr == nil {
 		item.Status = ItemSucceeded
 	} else if errors.Is(operationErr, context.Canceled) || errors.Is(operationErr, context.DeadlineExceeded) {
@@ -302,7 +317,7 @@ func (d *Drill) finishItem(ctx context.Context, item ItemRecord, operationErr er
 	}
 	item.CompletedAt = d.config.Now().UTC()
 	if err := d.journal.SaveItem(ctx, copyItem(item)); err != nil {
-		return item, errors.Join(operationErr, err)
+		return item, sanitizeError(errors.Join(operationErr, err))
 	}
 	return item, operationErr
 }
@@ -314,13 +329,13 @@ func (d *Drill) deleteScratch(branch ScratchBranch) error {
 }
 
 func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (ControlStateSnapshot, []string, error) {
-	if d.config.Snapshotter == nil {
+	if isNil(d.config.Snapshotter) {
 		return ControlStateSnapshot{}, nil, nil
 	}
 	epoch := uint64(0)
-	if d.config.ControlEpoch != nil {
+	if !isNil(d.config.ControlEpoch) {
 		epoch = d.config.ControlEpoch()
-	} else if d.config.RestoreEpoch != nil {
+	} else if !isNil(d.config.RestoreEpoch) {
 		epoch = d.config.RestoreEpoch()
 	} else {
 		epoch = d.config.AcceptedControlEpoch
@@ -337,7 +352,7 @@ func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (Contro
 	request := SnapshotRequest{RunID: run.ID, ObjectKey: key, IdempotencyKey: run.ID, ControlEpoch: epoch, RestoreEpoch: epoch}
 	snapshot, err := d.config.Snapshotter.Snapshot(ctx, request)
 	if err != nil {
-		return ControlStateSnapshot{}, nil, err
+		return ControlStateSnapshot{}, nil, sanitizeError(err)
 	}
 	if snapshot.ID == "" || snapshot.ObjectKey != key || snapshot.Checksum == "" || snapshot.Size < 0 || (snapshot.ControlEpoch == 0 && snapshot.RestoreEpoch == 0) {
 		return snapshot, nil, fmt.Errorf("%w: invalid JetStream snapshot identity", ErrInvalidConfig)
@@ -352,7 +367,7 @@ func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (Contro
 	mirrored := make([]string, 0, len(d.config.SnapshotRegions))
 	for _, region := range d.config.SnapshotRegions {
 		if err := d.config.SnapshotMirror.Mirror(ctx, snapshot, region); err != nil {
-			mirrorErr = errors.Join(mirrorErr, fmt.Errorf("snapshot mirror %s: %w", region, err))
+			mirrorErr = errors.Join(mirrorErr, fmt.Errorf("snapshot mirror %s: %w", region, sanitizeError(err)))
 			continue
 		}
 		mirrored = append(mirrored, region)
@@ -382,7 +397,7 @@ func (d *Drill) SuccessHistory(ctx context.Context, at time.Time) (RestoreHistor
 		day := end.AddDate(0, 0, -offset)
 		run, found, err := d.journal.LoadRun(ctx, runIDFor(day))
 		if err != nil {
-			return RestoreHistory{}, err
+			return RestoreHistory{}, sanitizeError(err)
 		}
 		if !found || run.Status != RunSucceeded {
 			continue
@@ -429,6 +444,21 @@ func sameUTCDate(a, b time.Time) bool {
 
 func durableContext(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
+}
+
+// sanitizedError preserves errors.Is for callers while preventing provider
+// response bodies, URLs, and credentials from entering the durable run record
+// or the pager payload.
+type sanitizedError struct{ cause error }
+
+func (e sanitizedError) Error() string { return "restore drill: operation failed" }
+func (e sanitizedError) Unwrap() error { return e.cause }
+
+func sanitizeError(err error) error {
+	if err == nil || err == context.Canceled || err == context.DeadlineExceeded || err == ErrRestoreEpochFenced || err == ErrChecksumMismatch || err == ErrRowCountMismatch {
+		return err
+	}
+	return sanitizedError{cause: err}
 }
 
 func runIDFor(at time.Time) string { return "restore-drill-" + at.UTC().Format("2006-01-02") }

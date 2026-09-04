@@ -121,6 +121,13 @@ type ComputeReconciler struct {
 	Network NetworkGateway
 }
 
+func computeScopeCompartment(gateway ComputeGateway) string {
+	if concrete, ok := gateway.(*ociMemberGateway); ok && concrete != nil {
+		return concrete.CompartmentID
+	}
+	return ""
+}
+
 var _ OCIReconciler[ComputeDeclared, ComputeObserved] = (*ComputeReconciler)(nil)
 
 func memberIsLive(state string) bool {
@@ -185,7 +192,7 @@ func (r *ComputeReconciler) memberSubnetAndNSGs(declared estate.Region, observed
 	declaredSubnet := declared.Network.Subnets[0].Name
 	var subnetID string
 	for _, subnet := range observed.Subnets {
-		if subnet.DisplayName == declaredSubnet && memberIsLive(subnet.LifecycleState) {
+		if subnet.DisplayName == declaredSubnet && networkSubnetOwned(subnet, declared.Code) && memberIsLive(subnet.LifecycleState) {
 			subnetID = subnet.ID
 			break
 		}
@@ -196,7 +203,7 @@ func (r *ComputeReconciler) memberSubnetAndNSGs(declared estate.Region, observed
 	nsgIDs := make([]string, 0, len(observed.NSGs))
 	for _, declaredGroup := range declared.Network.SecurityGroups {
 		for _, group := range observed.NSGs {
-			if group.DisplayName == declaredGroup.Name && memberIsLive(group.LifecycleState) && isOCID(group.ID, "networksecuritygroup") {
+			if group.DisplayName == declaredGroup.Name && networkNSGOwned(group, declared.Code) && memberIsLive(group.LifecycleState) && isOCID(group.ID, "networksecuritygroup") {
 				nsgIDs = append(nsgIDs, group.ID)
 			}
 		}
@@ -225,10 +232,12 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
 	for _, member := range observed.Members {
-		owned := memberOwnedInRegion(member, declared.Region.Code)
-		if !owned && (member.Index < 1 || member.Index > int(pool.Count)) {
+		owned := memberOwnedInRegion(member, declared.Region.Code) && (computeScopeCompartment(r.Compute) == "" || member.CompartmentID == computeScopeCompartment(r.Compute))
+		if !owned {
 			// Unknown/unmarked instances are drift evidence, never termination
-			// authority. They remain untouched even when they resemble a member.
+			// authority. They remain untouched even when they resemble a member;
+			// in particular, a foreign instance cannot be adopted into a declared
+			// slot merely because its display name happens to match.
 			continue
 		}
 		if member.Index < 1 || member.Index > 1024 || member.DisplayName != MemberDisplayName(declared.Region.Code, member.Index) {
@@ -280,7 +289,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			continue
 		}
 		if member.Shape != pool.PrimaryShape && member.Shape != pool.FallbackShape {
-			if !memberOwnedInRegion(member, declared.Region.Code) {
+			if !memberOwnedInRegion(member, declared.Region.Code) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) {
 				continue
 			}
 			plan.Actions = append(plan.Actions, TerminateMemberAction{InstanceID: member.ID})
@@ -288,7 +297,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			continue
 		}
 		if member.LifecycleState == "STOPPED" {
-			if memberOwnedInRegion(member, declared.Region.Code) {
+			if memberOwnedInRegion(member, declared.Region.Code) && (computeScopeCompartment(r.Compute) == "" || member.CompartmentID == computeScopeCompartment(r.Compute)) {
 				plan.Actions = append(plan.Actions, StartMemberAction{InstanceID: member.ID})
 			}
 		}
@@ -335,6 +344,9 @@ func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, er
 	}
 	slots := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
+		if !memberOwnedInRegion(member, declared.Region.Code) {
+			continue
+		}
 		switch observedMemberState(member.LifecycleState) {
 		case memberStateFailed:
 			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
@@ -447,7 +459,7 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 			break
 		}
 	}
-	if !found || !memberOwnedInRegion(expected, region) {
+	if !found || !memberOwnedInRegion(expected, region) || (computeScopeCompartment(r.Compute) != "" && expected.CompartmentID != computeScopeCompartment(r.Compute)) {
 		return &InvalidOperationError{Message: "member termination requires positively owned observed instance"}
 	}
 	current, err := r.Compute.ListMembers(ctx)
@@ -458,7 +470,7 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 		if member.ID != id {
 			continue
 		}
-		if !memberOwnedInRegion(member, region) || !sameObservedMember(member, expected) {
+		if !memberOwnedInRegion(member, region) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) || !sameObservedMember(member, expected) {
 			return &InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
 		}
 		return r.Compute.TerminateMember(ctx, id)

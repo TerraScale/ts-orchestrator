@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,13 +69,13 @@ func TestCacheInstallIsDigestKeyedAndIdempotent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	kernel, rootfs := []byte("kernel"), []byte("rootfs")
-	kernelPath := writeTestFile(t, dir, "kernel", kernel)
-	rootfsPath := writeTestFile(t, dir, "rootfs", rootfs)
-	manifest := testManifest(kernelPath, rootfsPath, kernel, rootfs)
+	manifest := pinnedTestManifest(kernel, rootfs)
 	cache, err := NewCache(filepath.Join(dir, "cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	cache.Downloader = memoryDownloader(map[string][]byte{manifest.Kernel.Source: kernel, manifest.RootFS.Source: rootfs})
+	cache.RootFSPreparer = testRootFSPreparer()
 	first, err := cache.Install(context.Background(), manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -100,25 +102,22 @@ func TestCacheInstallIsDigestKeyedAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestCacheHTTPSourceUsesBoundedLocalServer(t *testing.T) {
+func TestCacheHTTPSDownloadIsBoundedAndVerified(t *testing.T) {
 	t.Parallel()
 	kernel, rootfs := []byte("kernel over http"), []byte("rootfs over http")
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/kernel":
-			_, _ = writer.Write(kernel)
-		case "/rootfs":
-			_, _ = writer.Write(rootfs)
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-	manifest := testManifest(server.URL+"/kernel", server.URL+"/rootfs", kernel, rootfs)
+	manifest := pinnedTestManifest(kernel, rootfs)
 	cache, err := NewCache(filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	cache.Client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		content, ok := map[string][]byte{manifest.Kernel.Source: kernel, manifest.RootFS.Source: rootfs}[request.URL.String()]
+		if !ok {
+			return nil, fmt.Errorf("unexpected source %s", request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, ContentLength: int64(len(content)), Body: io.NopCloser(strings.NewReader(string(content))), Header: make(http.Header)}, nil
+	})}
+	cache.RootFSPreparer = testRootFSPreparer()
 	if _, err := cache.Install(context.Background(), manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +202,42 @@ func testManifest(kernelPath, rootfsPath string, kernel, rootfs []byte) GuestIma
 		Kernel: ArtifactManifest{Name: "vmlinuz", Architecture: ArchitectureARM64, Version: "24.04.3", Source: kernelPath, SHA256: digest(kernel), Size: int64(len(kernel)), Mode: 0o644},
 		RootFS: ArtifactManifest{Name: "rootfs.raw", Architecture: ArchitectureARM64, Version: "24.04.3", Source: rootfsPath, SHA256: digest(rootfs), Size: int64(len(rootfs)), Mode: 0o644},
 	}
+}
+
+func pinnedTestManifest(kernel, rootfs []byte) GuestImageManifest {
+	const version = "24.04.3-fc1.15.1"
+	return GuestImageManifest{
+		SchemaVersion: ManifestSchemaVersion, UbuntuRelease: "24.04.3", Architecture: ArchitectureARM64, Version: version,
+		Kernel: ArtifactManifest{Name: "vmlinux-6.1.155", Architecture: ArchitectureARM64, Version: version, Source: "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/aarch64/vmlinux-6.1.155", SHA256: digest(kernel), Size: int64(len(kernel)), Mode: 0o644},
+		RootFS: ArtifactManifest{Name: "ubuntu-24.04.3-minimal-rootfs.ext4", Architecture: ArchitectureARM64, Version: version, Source: "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20260101/ubuntu-24.04-minimal-cloudimg-arm64.img", SHA256: digest(rootfs), Size: int64(len(rootfs)), Mode: 0o644},
+	}
+}
+
+func memoryDownloader(files map[string][]byte) Downloader {
+	return DownloaderFunc(func(ctx context.Context, source string, destination io.Writer, maxBytes int64) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		content, ok := files[source]
+		if !ok {
+			return fmt.Errorf("unexpected source %s", source)
+		}
+		if int64(len(content)) > maxBytes {
+			return errors.New("test download exceeds limit")
+		}
+		_, err := destination.Write(content)
+		return err
+	})
+}
+
+func testRootFSPreparer() RootFSPreparer {
+	return RootFSPreparerFunc(func(ctx context.Context, _ string, release string) (RootFSInspection, error) {
+		if err := ctx.Err(); err != nil {
+			return RootFSInspection{}, err
+		}
+		series := release[:5]
+		return RootFSInspection{OSID: "ubuntu", OSVersionID: series, OSVersion: release + " LTS (Noble Numbat)", SanitizedMounts: []string{"/boot", "/boot/efi"}, FilesystemCheck: "e2fsck -fn"}, nil
+	})
 }
 
 func guestArtifact(component, version, source string, data []byte) GuestArtifact {

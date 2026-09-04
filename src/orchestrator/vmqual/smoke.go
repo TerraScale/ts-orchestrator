@@ -1,129 +1,493 @@
 package vmqual
 
 import (
+	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"math"
+	"net/netip"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/sandboxvm"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
+const (
+	smokeControlMemoryMiB = int64(256)
+	smokeOutputLimit      = 64 << 10
+	smokeUsagePoll        = 25 * time.Millisecond
+	maxSmokeUsageWait     = 2 * time.Second
+)
+
 type guestExecutor interface {
 	Execute(context.Context, sandboxvm.Command) error
 }
+
+// smokePersistentGuest is the typed data-disk part of the test-only guest
+// channel. It cannot install or activate a service.
+type smokePersistentGuest interface {
+	WritePersistent(context.Context, string, []byte) error
+	ReadPersistent(context.Context, string) ([]byte, error)
+}
+
+// smokeHostDiskObserver reports allocated host bytes for all file-backed
+// drives owned by one VM. Guest filesystem output is not host resource proof.
+type smokeHostDiskObserver interface {
+	HostDiskUsageBytes(context.Context) (uint64, error)
+}
+
+// smokeOwnedResourceVerifier checks an owner's exact journalled resources. It
+// must not discover resources by process name or a broad filesystem search.
+type smokeOwnedResourceVerifier interface {
+	VerifyNoOwnedResources(context.Context) error
+}
+
+// smokeProfileSupport lets an image explicitly decline the optional 256 MiB
+// profile. The service profile is mandatory and cannot be declined.
+type smokeProfileSupport interface {
+	SupportsSmokeProfile(context.Context, SmokeProfile) (bool, error)
+}
+
+type SmokeProfile struct {
+	Name  string
+	Guest Guest
+}
+
+type SmokeProfileReport struct {
+	Name           string
+	MemoryMiB      int64
+	Supported      bool
+	BootToReady    time.Duration
+	RestartToReady time.Duration
+	RSSBytes       uint64
+	IdleCPU        float64
+	HostDiskBytes  uint64
+}
+
 type SmokeReport struct {
+	// Boot is the sum of initial boot-to-ready intervals for supported profiles.
+	// Ready covers the full guest proof, excluding cleanup.
 	Boot    time.Duration
 	Ready   time.Duration
 	Cleanup time.Duration
+
+	Profiles      []SmokeProfileReport
+	PeakRSSBytes  uint64
+	PeakIdleCPU   float64
+	HostDiskBytes uint64
 }
 
-// RunSmoke proves the minimum real guest path. The factory supplied by the
-// command is always NewFirecrackerFactory; a unit test may inject a narrow VM
-// fake, but it cannot be used by vm-smoke itself.
-func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController, timeout time.Duration) (SmokeReport, error) {
+// RunSmoke proves the minimum real guest path. The command supplies a
+// Firecracker factory. Unit tests may inject a narrow VM fake, but vm-smoke has
+// no fallback backend.
+func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController, timeout time.Duration) (report SmokeReport, resultErr error) {
 	if ctx == nil {
-		return SmokeReport{}, errors.New("vmqual: smoke context is nil")
+		return report, errors.New("vmqual: smoke context is nil")
 	}
 	if factory == nil || network == nil {
-		return SmokeReport{}, errors.New("vmqual: smoke factory and network are required")
+		return report, errors.New("vmqual: smoke factory and network are required")
 	}
 	if timeout <= 0 {
 		timeout = 2 * time.Minute
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	factoryVerifier, ok := factory.(smokeOwnedResourceVerifier)
+	if !ok {
+		return report, errors.New("vm-smoke: factory cannot verify owned-resource cleanup")
+	}
+	networkVerifier, ok := network.(smokeOwnedResourceVerifier)
+	if !ok {
+		return report, errors.New("vm-smoke: network cannot verify owned-resource cleanup")
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	started := time.Now()
-	if err := network.Apply(ctx); err != nil {
-		return SmokeReport{}, err
-	}
-	networkApplied := true
-	defer func() {
-		if networkApplied {
-			_ = network.Cleanup(context.Background())
+	networkAttempted := false
+	var active VM
+	cleanup := func() error {
+		started := time.Now()
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		defer cleanupCancel()
+		var cleanupErr error
+		if active != nil {
+			cleanupErr = errors.Join(cleanupErr, active.Stop(cleanupCtx), active.Delete(cleanupCtx), verifyGuestCleanup(cleanupCtx, active))
+			active = nil
 		}
+		if networkAttempted {
+			cleanupErr = errors.Join(cleanupErr, network.Cleanup(cleanupCtx))
+			networkAttempted = false
+		}
+		cleanupErr = errors.Join(cleanupErr, factoryVerifier.VerifyNoOwnedResources(cleanupCtx), networkVerifier.VerifyNoOwnedResources(cleanupCtx))
+		report.Cleanup += time.Since(started)
+		return cleanupErr
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, cleanup())
 	}()
-	guest := LaunchGuests(DefaultMemoryMiB)[0]
-	vm, err := factory.Create(ctx, guest)
+
+	// Apply may fail after creating only part of the network. Mark the attempt
+	// first so the cleanup plan always gets a chance to remove that partial set.
+	networkAttempted = true
+	if err := network.Apply(runCtx); err != nil {
+		return report, fmt.Errorf("vm-smoke: apply network: %w", err)
+	}
+
+	for _, profile := range smokeProfiles() {
+		supported, err := supportsSmokeProfile(runCtx, factory, profile)
+		if err != nil {
+			return report, err
+		}
+		profileReport := SmokeProfileReport{Name: profile.Name, MemoryMiB: profile.Guest.MemoryMiB, Supported: supported}
+		if !supported {
+			if profile.Name == "service" {
+				return report, errors.New("vm-smoke: the mandatory service profile is unsupported")
+			}
+			report.Profiles = append(report.Profiles, profileReport)
+			continue
+		}
+
+		vm, err := factory.Create(runCtx, profile.Guest)
+		if err != nil {
+			return report, fmt.Errorf("vm-smoke: create %s profile: %w", profile.Name, err)
+		}
+		if vm == nil {
+			return report, fmt.Errorf("vm-smoke: %s profile factory returned a nil guest", profile.Name)
+		}
+		active = vm
+		profileStarted := time.Now()
+		profileReport, err = proveSmokeProfile(runCtx, vm, profile, profileReport)
+		report.Ready += time.Since(profileStarted)
+		report.Profiles = append(report.Profiles, profileReport)
+		report.Boot += profileReport.BootToReady
+		if profileReport.RSSBytes > report.PeakRSSBytes {
+			report.PeakRSSBytes = profileReport.RSSBytes
+		}
+		if profileReport.IdleCPU > report.PeakIdleCPU {
+			report.PeakIdleCPU = profileReport.IdleCPU
+		}
+		if profileReport.HostDiskBytes > report.HostDiskBytes {
+			report.HostDiskBytes = profileReport.HostDiskBytes
+		}
+		if err != nil {
+			return report, fmt.Errorf("vm-smoke: %s profile: %w", profile.Name, err)
+		}
+
+		cleanupStarted := time.Now()
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		stopErr := active.Stop(cleanupCtx)
+		deleteErr := active.Delete(cleanupCtx)
+		verifyErr := verifyGuestCleanup(cleanupCtx, active)
+		cleanupCancel()
+		report.Cleanup += time.Since(cleanupStarted)
+		if err := errors.Join(stopErr, deleteErr, verifyErr); err != nil {
+			return report, fmt.Errorf("vm-smoke: clean %s profile: %w", profile.Name, err)
+		}
+		active = nil
+	}
+	return report, nil
+}
+
+func smokeProfiles() []SmokeProfile {
+	serviceMemory := DefaultMemoryMiB
+	if serviceMemory > MaxGuestMemoryMiB {
+		serviceMemory = MaxGuestMemoryMiB
+	}
+	return []SmokeProfile{
+		{Name: "control-only", Guest: Guest{ID: "gru-member-1", Region: vmnet.GRU, VCPU: 1, MemoryMiB: smokeControlMemoryMiB, Control: true}},
+		{Name: "service", Guest: Guest{ID: "gru-member-1", Region: vmnet.GRU, VCPU: 1, MemoryMiB: serviceMemory, Control: true, Service: true}},
+	}
+}
+
+func supportsSmokeProfile(ctx context.Context, factory VMFactory, profile SmokeProfile) (bool, error) {
+	if profile.Guest.VCPU != 1 || profile.Guest.MemoryMiB < smokeControlMemoryMiB || profile.Guest.MemoryMiB > MaxGuestMemoryMiB {
+		return false, fmt.Errorf("vm-smoke: profile %s exceeds the 1 vCPU/512 MiB limit", profile.Name)
+	}
+	capabilities, ok := factory.(smokeProfileSupport)
+	if !ok {
+		return true, nil
+	}
+	supported, err := capabilities.SupportsSmokeProfile(ctx, profile)
 	if err != nil {
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, err
+		return false, fmt.Errorf("vm-smoke: inspect %s profile support: %w", profile.Name, err)
 	}
-	if vm == nil {
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, errors.New("vm-smoke: factory returned a nil guest")
+	return supported, nil
+}
+
+func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report SmokeProfileReport) (SmokeProfileReport, error) {
+	executor, ok := vm.(guestExecutor)
+	if !ok {
+		return report, errors.New("guest execution channel is not configured")
 	}
-	boot := time.Since(started)
+	persistent, ok := vm.(smokePersistentGuest)
+	if !ok {
+		return report, errors.New("guest persistent-data channel is not configured")
+	}
+	diskObserver, ok := vm.(smokeHostDiskObserver)
+	if !ok {
+		return report, errors.New("guest cannot report host disk usage")
+	}
+	if _, ok := vm.(smokeOwnedResourceVerifier); !ok {
+		return report, errors.New("guest cannot verify owned-resource cleanup")
+	}
+
+	started := time.Now()
 	if err := vm.StartReady(ctx); err != nil {
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: guest did not become ready: %w", err)
+		return report, fmt.Errorf("guest did not become ready: %w", err)
 	}
-	ready := time.Since(started)
-	observation, err := vm.Inspect(ctx)
+	report.BootToReady = time.Since(started)
+	initial, err := vm.Inspect(ctx)
 	if err != nil {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness inspection failed: %w", err)
+		return report, fmt.Errorf("inspect initial guest readiness: %w", err)
 	}
+	if err := validateObservationIdentity(initial, profile.Guest); err != nil {
+		return report, fmt.Errorf("initial guest readiness: %w", err)
+	}
+	if err := proveGuestRuntime(ctx, executor); err != nil {
+		return report, err
+	}
+
+	payload := make([]byte, 4096)
+	if _, err := cryptorand.Read(payload); err != nil {
+		return report, fmt.Errorf("create persistence proof: %w", err)
+	}
+	const persistencePath = "smoke/persistence.bin"
+	if err := persistent.WritePersistent(ctx, persistencePath, payload); err != nil {
+		return report, fmt.Errorf("write persistent data: %w", err)
+	}
+	if err := vm.Stop(ctx); err != nil {
+		return report, fmt.Errorf("stop for persistence proof: %w", err)
+	}
+	restarted := time.Now()
+	if err := vm.StartReady(ctx); err != nil {
+		return report, fmt.Errorf("restart for persistence proof: %w", err)
+	}
+	report.RestartToReady = time.Since(restarted)
+	if err := proveGuestRuntime(ctx, executor); err != nil {
+		return report, fmt.Errorf("runtime after restart: %w", err)
+	}
+	persisted, err := persistent.ReadPersistent(ctx, persistencePath)
+	if err != nil {
+		return report, fmt.Errorf("read persistent data after restart: %w", err)
+	}
+	if !bytes.Equal(persisted, payload) {
+		return report, errors.New("data disk did not preserve bytes across stop/start")
+	}
+
+	report.HostDiskBytes, err = diskObserver.HostDiskUsageBytes(ctx)
+	if err != nil {
+		return report, fmt.Errorf("observe host disk usage: %w", err)
+	}
+	if report.HostDiskBytes == 0 {
+		return report, errors.New("host disk usage observation is zero")
+	}
+	observation, err := observeNonzeroUsage(ctx, vm, profile.Guest)
+	if err != nil {
+		return report, err
+	}
+	report.RSSBytes, report.IdleCPU = observation.RSSBytes, observation.IdleCPU
+	return report, nil
+}
+
+func proveGuestRuntime(ctx context.Context, executor guestExecutor) error {
+	pid1, _, err := executeGuest(ctx, executor, "/usr/bin/readlink", "/proc/1/exe")
+	if err != nil {
+		return fmt.Errorf("inspect PID 1: %w", err)
+	}
+	pid1Path := strings.TrimSpace(string(pid1))
+	if !filepath.IsAbs(pid1Path) || filepath.Base(pid1Path) != "systemd" {
+		return fmt.Errorf("PID 1 is %q, not systemd", pid1Path)
+	}
+	state, _, err := executeGuest(ctx, executor, "/usr/bin/systemctl", "is-system-running", "--wait")
+	if err != nil {
+		return fmt.Errorf("systemd is not running: %w", err)
+	}
+	if systemState := strings.TrimSpace(string(state)); systemState != "running" {
+		return fmt.Errorf("systemd is not running: state is %q", systemState)
+	}
+	cgroup, _, err := executeGuest(ctx, executor, "/usr/bin/stat", "-fc", "%T", "/sys/fs/cgroup")
+	if err != nil {
+		return fmt.Errorf("inspect cgroup filesystem: %w", err)
+	}
+	if strings.TrimSpace(string(cgroup)) != "cgroup2fs" {
+		return fmt.Errorf("guest cgroup filesystem is %q, not cgroup v2", strings.TrimSpace(string(cgroup)))
+	}
+	mount, _, err := executeGuest(ctx, executor, "/usr/bin/findmnt", "-no", "SOURCE,FSTYPE,TARGET", "/var/lib/terrascale")
+	if err != nil {
+		return fmt.Errorf("inspect data mount: %w", err)
+	}
+	mountFields := strings.Fields(string(mount))
+	if len(mountFields) != 3 || mountFields[0] != "/dev/vdb" || mountFields[1] != "ext4" || mountFields[2] != "/var/lib/terrascale" {
+		return fmt.Errorf("data disk mount is invalid: %q", strings.TrimSpace(string(mount)))
+	}
+	network, _, err := executeGuest(ctx, executor, "/usr/bin/networkctl", "status", "eth0", "--no-pager")
+	if err != nil {
+		return fmt.Errorf("inspect guest network: %w", err)
+	}
+	if err := validateGuestNetwork(network); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateGuestNetwork(output []byte) error {
+	text := string(output)
+	routable := false
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.EqualFold(strings.TrimSuffix(fields[0], ":"), "state") && strings.EqualFold(fields[1], "routable") {
+			routable = true
+			break
+		}
+	}
+	if !routable {
+		return errors.New("guest eth0 is not routable")
+	}
+	for _, token := range strings.Fields(text) {
+		value := strings.Trim(token, "[](),")
+		if address, err := netip.ParseAddr(value); err == nil && address.Is4() && address.IsGlobalUnicast() {
+			return nil
+		}
+		if prefix, err := netip.ParsePrefix(value); err == nil && prefix.Addr().Is4() && prefix.Addr().IsGlobalUnicast() {
+			return nil
+		}
+	}
+	return errors.New("guest eth0 has no usable IPv4 address")
+}
+
+func observeNonzeroUsage(ctx context.Context, vm VM, guest Guest) (VMObservation, error) {
+	deadline := time.Now().Add(maxSmokeUsageWait)
+	var last VMObservation
+	for {
+		observation, err := vm.Inspect(ctx)
+		if err != nil {
+			return VMObservation{}, fmt.Errorf("inspect guest resources: %w", err)
+		}
+		last = observation
+		if err := validateObservationIdentity(observation, guest); err != nil {
+			return VMObservation{}, err
+		}
+		if observation.RSSBytes > 0 && observation.IdleCPU > 0 && !math.IsNaN(observation.IdleCPU) && !math.IsInf(observation.IdleCPU, 0) {
+			return observation, nil
+		}
+		if time.Now().After(deadline) {
+			return VMObservation{}, fmt.Errorf("host resource observation remained zero: rss=%d cpu=%g", last.RSSBytes, last.IdleCPU)
+		}
+		timer := time.NewTimer(smokeUsagePoll)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return VMObservation{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func validateObservationIdentity(observation VMObservation, guest Guest) error {
 	if !observation.Running || !observation.Ready {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, errors.New("vm-smoke: guest reported not ready after StartReady")
+		return errors.New("guest reported not ready after StartReady")
 	}
-	if observation.ID != "" && observation.ID != guest.ID {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness identity mismatch: %s", observation.ID)
+	if observation.ID != guest.ID {
+		return fmt.Errorf("readiness identity mismatch: %q", observation.ID)
 	}
-	if observation.Region != "" && observation.Region != guest.Region {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness Region mismatch: %s", observation.Region)
+	if observation.Region != guest.Region {
+		return fmt.Errorf("readiness Region mismatch: %q", observation.Region)
 	}
-	if observation.MemoryMiB != 0 && observation.MemoryMiB != guest.MemoryMiB {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: readiness memory mismatch: %d MiB", observation.MemoryMiB)
+	if observation.MemoryMiB != guest.MemoryMiB {
+		return fmt.Errorf("readiness memory mismatch: %d MiB", observation.MemoryMiB)
 	}
-	if executor, ok := vm.(guestExecutor); !ok {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, errors.New("vm-smoke: guest execution channel is not configured")
-	} else if err := executor.Execute(ctx, sandboxvm.Command{Path: "/usr/bin/systemctl", Args: []string{"is-system-running"}}); err != nil {
-		_ = vm.Stop(context.Background())
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, fmt.Errorf("vm-smoke: systemd check failed: %w", err)
+	return nil
+}
+
+func verifyGuestCleanup(ctx context.Context, vm VM) error {
+	verifier, ok := vm.(smokeOwnedResourceVerifier)
+	if !ok {
+		return errors.New("vm-smoke: guest cannot verify owned-resource cleanup")
 	}
-	if err := vm.Stop(context.Background()); err != nil {
-		_ = vm.Delete(context.Background())
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, err
+	return verifier.VerifyNoOwnedResources(ctx)
+}
+
+func executeGuest(ctx context.Context, executor guestExecutor, path string, args ...string) ([]byte, []byte, error) {
+	budget := &smokeOutputBudget{}
+	stdout := smokeOutput{budget: budget}
+	stderr := smokeOutput{budget: budget}
+	err := executor.Execute(ctx, sandboxvm.Command{Path: path, Args: append([]string(nil), args...), Stdout: &stdout, Stderr: &stderr})
+	if stdout.exceeded() || stderr.exceeded() {
+		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("guest command %s exceeded the %d-byte output limit", path, smokeOutputLimit)
 	}
-	if err := vm.Delete(context.Background()); err != nil {
-		_ = network.Cleanup(context.Background())
-		return SmokeReport{}, err
+	if err != nil {
+		detail := strings.TrimSpace(string(stderr.Bytes()))
+		if detail == "" {
+			return stdout.Bytes(), stderr.Bytes(), err
+		}
+		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("%w: %s", err, detail)
 	}
-	cleanStarted := time.Now()
-	if err := network.Cleanup(context.Background()); err != nil {
-		return SmokeReport{}, err
+	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+type smokeOutput struct {
+	mu       sync.Mutex
+	buffer   bytes.Buffer
+	overflow bool
+	budget   *smokeOutputBudget
+}
+
+func (b *smokeOutput) Write(value []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	written := len(value)
+	stored := written
+	if b.budget != nil {
+		stored = b.budget.reserve(written)
+	} else if remaining := smokeOutputLimit - b.buffer.Len(); stored > remaining {
+		stored = remaining
 	}
-	networkApplied = false
-	return SmokeReport{Boot: boot, Ready: ready, Cleanup: time.Since(cleanStarted)}, nil
+	if stored > 0 {
+		_, _ = b.buffer.Write(value[:stored])
+	}
+	if stored < written {
+		b.overflow = true
+	}
+	return written, nil
+}
+
+func (b *smokeOutput) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.buffer.Bytes()...)
+}
+
+func (b *smokeOutput) exceeded() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.overflow
+}
+
+type smokeOutputBudget struct {
+	mu   sync.Mutex
+	used int
+}
+
+func (b *smokeOutputBudget) reserve(requested int) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	remaining := smokeOutputLimit - b.used
+	if remaining <= 0 {
+		return 0
+	}
+	if requested > remaining {
+		requested = remaining
+	}
+	b.used += requested
+	return requested
 }
 
 func SingleGuestNetwork() (NetworkController, error) {
-	return NewNetworkController(vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, CIDR: vmnet.StableCIDR(vmnet.GRU), Guests: []vmnet.GuestSpec{{ID: "member-1"}}}}}, commandRunnerNetwork{}, "")
+	return NewNetworkController(vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, CIDR: vmnet.StableCIDR(vmnet.GRU), Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}, commandRunnerNetwork{}, "")
 }
 
 type commandRunnerNetwork struct{}

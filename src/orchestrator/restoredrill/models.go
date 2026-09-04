@@ -8,6 +8,8 @@ package restoredrill
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"time"
 )
 
@@ -269,26 +271,26 @@ func (c Config) withDefaults() Config {
 	if c.DailyInterval == 0 {
 		c.DailyInterval = 24 * time.Hour
 	}
-	if c.Now == nil {
+	if isNil(c.Now) {
 		c.Now = time.Now
 	}
 	return c
 }
 
 func (c Config) validate() error {
-	if c.ControlPlaneID == "" || c.SampleSize < 0 || c.CleanupTimeout <= 0 || c.DailyInterval <= 0 || c.Now == nil {
+	if c.ControlPlaneID == "" || c.SampleSize < 0 || c.CleanupTimeout <= 0 || c.DailyInterval <= 0 || isNil(c.Now) {
 		return ErrInvalidConfig
 	}
-	if (c.Snapshotter == nil) != (c.SnapshotMirror == nil) {
+	if isNil(c.Snapshotter) != isNil(c.SnapshotMirror) {
 		return ErrInvalidConfig
 	}
-	if c.Snapshotter != nil {
-		if len(c.SnapshotRegions) == 0 || (c.ControlEpoch == nil && c.RestoreEpoch == nil && c.AcceptedControlEpoch == 0) {
+	if !isNil(c.Snapshotter) {
+		if len(c.SnapshotRegions) == 0 || (isNil(c.ControlEpoch) && isNil(c.RestoreEpoch) && c.AcceptedControlEpoch == 0) {
 			return ErrInvalidConfig
 		}
 		seen := make(map[string]struct{}, len(c.SnapshotRegions))
 		for _, region := range c.SnapshotRegions {
-			if region == "" {
+			if strings.TrimSpace(region) != region || region == "" || len(region) > 64 {
 				return ErrInvalidConfig
 			}
 			if _, ok := seen[region]; ok {
@@ -298,4 +300,17 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
+}
+
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }

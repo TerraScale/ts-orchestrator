@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func (f *fakeComputeGateway) LaunchMember(ctx context.Context, spec MemberLaunch
 		return ObservedMember{}, &OCIShapeCapacityError{Shape: spec.Shape}
 	}
 	f.nextSuffix++
-	launched := ObservedMember{ID: "ocid1.instance.oc1.x." + string(rune('a'+f.nextSuffix)), DisplayName: spec.DisplayName, Index: spec.Index, Shape: spec.Shape, LifecycleState: "RUNNING", AvailabilityDomain: spec.AvailabilityDomain}
+	launched := ObservedMember{ID: "ocid1.instance.oc1.x." + string(rune('a'+f.nextSuffix)), DisplayName: spec.DisplayName, Index: spec.Index, Shape: spec.Shape, LifecycleState: "RUNNING", AvailabilityDomain: spec.AvailabilityDomain, FreeformTags: testMemberOwnershipTags("gru")}
 	f.members = append(f.members, launched)
 	return launched, nil
 }
@@ -95,15 +96,27 @@ func (f *fakeComputeGateway) TerminateMember(ctx context.Context, instanceID str
 }
 
 func (f *fakeComputeGateway) addMember(id string, index int, shape, state string) {
-	f.members = append(f.members, ObservedMember{ID: id, DisplayName: MemberDisplayName("gru", index), Index: index, Shape: shape, LifecycleState: state, AvailabilityDomain: "AD-1"})
+	f.members = append(f.members, ObservedMember{ID: id, DisplayName: MemberDisplayName("gru", index), Index: index, Shape: shape, LifecycleState: state, AvailabilityDomain: "AD-1", FreeformTags: testMemberOwnershipTags("gru")})
+}
+
+func testMemberOwnershipTags(region string) map[string]string {
+	return map[string]string{OCIManagedTag: ManagedMemberTagValue, OCIScopeTag: region}
+}
+
+func testOwnedMember(region string, index int, shape, state, availabilityDomain string) ObservedMember {
+	return ObservedMember{
+		ID: "ocid1.instance.oc1.x." + strconv.Itoa(index), DisplayName: MemberDisplayName(region, index),
+		Index: index, Shape: shape, LifecycleState: state, AvailabilityDomain: availabilityDomain,
+		FreeformTags: testMemberOwnershipTags(region),
+	}
 }
 
 func testComputeObserved() ComputeObserved {
-	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: "terrascale-gru", CIDR: "10.0.0.0/16", LifecycleState: "AVAILABLE"}
+	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: "terrascale-gru", CIDR: "10.0.0.0/16", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")}
 	return ComputeObserved{
 		AvailabilityDomains: []string{"AD-1", "AD-2"},
-		Subnets:             []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"}},
-		NSGs:                []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE"}},
+		Subnets:             []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "subnet")}},
+		NSGs:                []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}},
 	}
 }
 
@@ -124,8 +137,8 @@ func TestComputeReconcilePlans(t *testing.T) {
 			observed: func() ComputeObserved {
 				observed := testComputeObserved()
 				observed.Members = []ObservedMember{
-					{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING"},
-					{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: "VM.Standard.E5.Flex", LifecycleState: "RUNNING"},
+					testOwnedMember("gru", 1, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
+					testOwnedMember("gru", 2, "VM.Standard.E5.Flex", "RUNNING", "AD-2"),
 				}
 				return observed
 			}(),
@@ -136,8 +149,8 @@ func TestComputeReconcilePlans(t *testing.T) {
 			observed: func() ComputeObserved {
 				observed := testComputeObserved()
 				observed.Members = []ObservedMember{
-					{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING"},
-					{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: "VM.Standard.A1.Flex", LifecycleState: "STOPPED"},
+					testOwnedMember("gru", 1, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
+					testOwnedMember("gru", 2, "VM.Standard.A1.Flex", "STOPPED", "AD-2"),
 				}
 				return observed
 			}(),
@@ -148,8 +161,8 @@ func TestComputeReconcilePlans(t *testing.T) {
 			observed: func() ComputeObserved {
 				observed := testComputeObserved()
 				observed.Members = []ObservedMember{
-					{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: "VM.Standard.E5.Flex", LifecycleState: "RUNNING"},
-					{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: "VM.Standard.X9.Flex", LifecycleState: "RUNNING"},
+					testOwnedMember("gru", 1, "VM.Standard.E5.Flex", "RUNNING", "AD-1"),
+					testOwnedMember("gru", 2, "VM.Standard.X9.Flex", "RUNNING", "AD-2"),
 				}
 				return observed
 			}(),
@@ -160,9 +173,9 @@ func TestComputeReconcilePlans(t *testing.T) {
 			observed: func() ComputeObserved {
 				observed := testComputeObserved()
 				observed.Members = []ObservedMember{
-					{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING"},
-					{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING"},
-					{ID: "ocid1.instance.oc1.x.3", Index: 3, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING"},
+					testOwnedMember("gru", 1, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
+					testOwnedMember("gru", 2, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
+					testOwnedMember("gru", 3, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
 				}
 				return observed
 			}(),
@@ -186,6 +199,33 @@ func TestComputeReconcilePlans(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestComputeApplyPreservesUnownedAndStaleMembers(t *testing.T) {
+	declared := testComputeDeclared(t)
+	owned := testOwnedMember("gru", 3, declared.Region.Members.PrimaryShape, "RUNNING", "AD-1")
+	foreign := owned
+	foreign.FreeformTags = nil
+	foreign.Shape = "VM.Standard.X9.Flex"
+	gateway := &fakeComputeGateway{members: []ObservedMember{foreign}}
+	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
+	reconcilePlan, err := reconciler.Reconcile(context.Background(), declared, ComputeObserved{Members: []ObservedMember{foreign}, Subnets: testComputeObserved().Subnets, NSGs: testComputeObserved().NSGs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range reconcilePlan.Actions {
+		if action.Kind() == OCIActionTerminateMember {
+			t.Fatalf("unowned member produced termination action: %v", reconcilePlan.Kinds())
+		}
+	}
+	plan := OCIPlan{Actions: []OCIAction{TerminateMemberAction{InstanceID: owned.ID}}}
+	err = reconciler.Apply(context.Background(), declared, ComputeObserved{Members: []ObservedMember{owned}}, plan)
+	if err == nil {
+		t.Fatal("stale/unowned member termination was accepted")
+	}
+	if len(gateway.terminations) != 0 {
+		t.Fatalf("termination calls = %v, want none", gateway.terminations)
 	}
 }
 
@@ -376,8 +416,8 @@ func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
 	reconciler := &ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}
 	observed := testComputeObserved()
 	observed.Members = []ObservedMember{
-		{ID: "ocid1.instance.oc1.x.1", DisplayName: MemberDisplayName("gru", 1), Index: 1, Shape: declared.Region.Members.PrimaryShape, LifecycleState: "PROVISIONING"},
-		{ID: "ocid1.instance.oc1.x.2", DisplayName: MemberDisplayName("gru", 2), Index: 2, Shape: declared.Region.Members.PrimaryShape, LifecycleState: "RUNNING"},
+		testOwnedMember("gru", 1, declared.Region.Members.PrimaryShape, "PROVISIONING", "AD-1"),
+		testOwnedMember("gru", 2, declared.Region.Members.PrimaryShape, "RUNNING", "AD-2"),
 	}
 	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
 	if err != nil || !plan.Empty() {

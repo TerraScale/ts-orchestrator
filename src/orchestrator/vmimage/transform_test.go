@@ -2,15 +2,18 @@ package vmimage
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 type recordingQEMUImg struct {
 	raw        []byte
+	err        error
 	executable string
 	args       []string
 }
@@ -18,6 +21,9 @@ type recordingQEMUImg struct {
 func (runner *recordingQEMUImg) Run(_ context.Context, executable string, args ...string) error {
 	runner.executable = executable
 	runner.args = append([]string(nil), args...)
+	if runner.err != nil {
+		return runner.err
+	}
 	return os.WriteFile(args[len(args)-1], runner.raw, 0o600)
 }
 
@@ -26,57 +32,64 @@ func TestCacheTransformsPinnedQCOW2RootPartition(t *testing.T) {
 	dir := t.TempDir()
 	kernel := []byte("kernel")
 	qcow2 := []byte("pinned qcow2 input")
-	rootfs := []byte{1, 2, 0, 0, 3, 4, 0, 5}
-	raw := append([]byte{9, 9}, rootfs...)
-	raw = append(raw, 8, 8)
-	kernelPath := writeTestFile(t, dir, "kernel-source", kernel)
-	qcow2Path := filepath.Join(dir, "root-source.qcow2")
-	if err := os.WriteFile(qcow2Path, qcow2, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	const version = "24.04.3-fc1.15.1"
 	manifest := GuestImageManifest{
 		SchemaVersion: ManifestSchemaVersion,
 		UbuntuRelease: "24.04.3",
 		Architecture:  ArchitectureAMD64,
-		Version:       "24.04.3-fc1.15.1",
+		Version:       version,
 		Kernel: ArtifactManifest{
-			Name: "vmlinux-6.1.155", Architecture: ArchitectureAMD64, Version: "24.04.3-fc1.15.1",
-			Source: kernelPath, SHA256: digest(kernel), Size: int64(len(kernel)), Mode: 0o644,
+			Name: "vmlinux-6.1.155", Architecture: ArchitectureAMD64, Version: version,
+			Source: "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.15/x86_64/vmlinux-6.1.155", SHA256: digest(kernel), Size: int64(len(kernel)), Mode: 0o644,
 		},
 		RootFS: ArtifactManifest{
-			Name: "ubuntu-24.04.3-rootfs.ext4", Architecture: ArchitectureAMD64, Version: "24.04.3-fc1.15.1",
-			Source: qcow2Path, SHA256: digest(rootfs), Size: int64(len(rootfs)), Mode: 0o644,
+			Name: "ubuntu-24.04.3-rootfs.ext4", Architecture: ArchitectureAMD64, Version: version,
+			Source: "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20260101/ubuntu-24.04-minimal-cloudimg-amd64.img", SHA256: strings.Repeat("1", 64), Size: UbuntuRootFSSize, Mode: 0o644,
 			InputSHA256: digest(qcow2), InputSize: int64(len(qcow2)),
-			Transform: &Transform{Type: TransformQCOW2RootPartition, SectorSize: 1, StartSector: 2, SectorCount: int64(len(rootfs))},
+			Transform: &Transform{Type: TransformQCOW2RootPartition, SectorSize: UbuntuRootSectorSize, StartSector: UbuntuRootStartSector, SectorCount: UbuntuRootSectorCount},
 		},
 	}
-	runner := &recordingQEMUImg{raw: raw}
+	wantErr := errors.New("stop after typed invocation")
+	runner := &recordingQEMUImg{err: wantErr}
 	cache, err := NewCache(filepath.Join(dir, "cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache.QEMUImgPath = "/usr/bin/qemu-img"
+	cache.QEMUImgPath = filepath.Join(dir, "qemu-img")
+	if err := os.WriteFile(cache.QEMUImgPath, []byte("fake"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cache.Runner = runner
-	installed, err := cache.Install(context.Background(), manifest)
-	if err != nil {
-		t.Fatal(err)
+	cache.Downloader = memoryDownloader(map[string][]byte{manifest.Kernel.Source: kernel, manifest.RootFS.Source: qcow2})
+	if _, err := cache.Install(context.Background(), manifest); !errors.Is(err, wantErr) {
+		t.Fatalf("install error = %v, want runner error", err)
 	}
-	got, err := os.ReadFile(installed.RootFS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got, rootfs) {
-		t.Fatalf("rootfs = %v, want %v", got, rootfs)
-	}
-	if runner.executable != cache.QEMUImgPath || !reflect.DeepEqual(runner.args[:5], []string{"convert", "-f", "qcow2", "-O", "raw"}) {
+	if runner.executable != cache.QEMUImgPath || len(runner.args) != 7 || !reflect.DeepEqual(runner.args[:5], []string{"convert", "-f", "qcow2", "-O", "raw"}) ||
+		!strings.HasSuffix(runner.args[5], ".input") || !strings.HasSuffix(runner.args[6], ".raw") {
 		t.Fatalf("qemu-img invocation = %q %#v", runner.executable, runner.args)
 	}
-	entries, err := os.ReadDir(installed.Dir)
-	if err != nil {
+	if entries, err := os.ReadDir(filepath.Join(dir, "cache", "amd64", version)); err != nil || len(entries) != 0 {
+		t.Fatalf("failed transform left staging state: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestCopySparseSectionExtractsExactBytes(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	rootfs := []byte{1, 2, 0, 0, 3, 4, 0, 5}
+	raw := append([]byte{9, 9}, rootfs...)
+	raw = append(raw, 8, 8)
+	source := filepath.Join(directory, "disk.raw")
+	target := filepath.Join(directory, "root.ext4")
+	if err := os.WriteFile(source, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 4 {
-		t.Fatalf("cache entry contains %d files, want kernel, rootfs, manifest, and plan", len(entries))
+	if err := copySparseSection(context.Background(), source, target, 2, int64(len(rootfs)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || !reflect.DeepEqual(got, rootfs) {
+		t.Fatalf("rootfs = %v, err = %v", got, err)
 	}
 }
 
@@ -107,10 +120,51 @@ func TestCheckedInGuestManifestsAreNativeBuildPlans(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(plan.Steps) != 5 || plan.Steps[2].Name != "convert-qcow2-to-raw" || plan.Steps[3].Name != "extract-root-partition" {
+			if len(plan.Steps) != 10 || plan.Steps[2].Name != "convert-qcow2-to-raw" || plan.Steps[3].Name != "extract-root-partition" || plan.Steps[7].Name != "verify-rootfs-output" {
 				t.Fatalf("build plan steps = %#v", plan.Steps)
 			}
 		})
+	}
+}
+
+func TestBuildPlanCanonicalJSONDoesNotContainHostPaths(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile("ubuntu-24.04.3-amd64.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodeManifest(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := NewBuildPlan(manifest, "/var/cache/terrascale/vmimage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := NewBuildPlan(manifest, filepath.Join(t.TempDir(), "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leftJSON, err := left.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightJSON, err := right.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(leftJSON, rightJSON) {
+		t.Fatalf("build plan bytes depend on cache root:\n%s\n%s", leftJSON, rightJSON)
+	}
+	if bytes := string(leftJSON); strings.Contains(bytes, left.CacheEntry) || strings.Contains(bytes, right.CacheEntry) {
+		t.Fatalf("build plan leaked a host-local cache path: %s", bytes)
+	}
+	decoded, err := DecodeBuildPlan(leftJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CacheEntry != "" || decoded.CacheKey != left.CacheKey || !strings.HasSuffix(filepath.ToSlash(left.CacheEntry), "/"+left.CacheKey) {
+		t.Fatalf("portable cache identity = key %q, decoded path %q, local path %q", decoded.CacheKey, decoded.CacheEntry, left.CacheEntry)
 	}
 }
 

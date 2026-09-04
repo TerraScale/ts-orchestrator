@@ -30,12 +30,21 @@ type ArtifactResult struct {
 // MaterializeArtifacts installs the architecture-specific Firecracker tools
 // and guest boot pair from their checked-in immutable source manifests.
 func MaterializeArtifacts(ctx context.Context, config Config) (ArtifactResult, error) {
+	if ctx == nil {
+		return ArtifactResult{}, errors.New("vmqual: artifact context is nil")
+	}
+	if err := config.Validate(); err != nil {
+		return ArtifactResult{}, err
+	}
 	pins, err := LoadPins(config.PinsPath)
 	if err != nil {
 		return ArtifactResult{}, err
 	}
 	if string(pins.Architecture) != runtime.GOARCH {
 		return ArtifactResult{}, fmt.Errorf("vmqual: toolchain architecture %s does not match native %s", pins.Architecture, runtime.GOARCH)
+	}
+	if err := validateToolchainOverrides(config, pins); err != nil {
+		return ArtifactResult{}, err
 	}
 	config = config.ApplyPins(pins)
 	installer := vmimage.ToolchainInstaller{Root: config.Root}
@@ -59,34 +68,98 @@ func MaterializeArtifacts(ctx context.Context, config Config) (ArtifactResult, e
 	return ArtifactResult{Config: config, Pins: pins, Toolchain: toolchain, Image: image}, nil
 }
 
+func validateToolchainOverrides(config Config, pins Pins) error {
+	for name, configured := range map[string]string{
+		"Firecracker version": config.ExpectedVersion,
+		"Firecracker checksum": config.ExpectedFirecrackerSHA256,
+		"jailer checksum":      config.ExpectedJailerSHA256,
+		"SDK module":           config.SDKModule,
+		"SDK version":          config.SDKVersion,
+	} {
+		if configured == "" {
+			continue
+		}
+		var pinned string
+		switch name {
+		case "Firecracker version":
+			pinned = pins.FirecrackerVersion
+		case "Firecracker checksum":
+			pinned = pins.Firecracker.SHA256
+		case "jailer checksum":
+			pinned = pins.Jailer.SHA256
+		case "SDK module":
+			pinned = pins.SDKModule
+		case "SDK version":
+			pinned = pins.SDKVersion
+		}
+		if configured != pinned {
+			return fmt.Errorf("vmqual: configured %s differs from the committed native pin", name)
+		}
+	}
+	return nil
+}
+
 // materializeGuestControl builds the tiny, test-only forced SSH command from
 // this checkout. It is deliberately built into the private qualification
 // root, never installed on the host or copied from an unpinned URL.
 func materializeGuestControl(ctx context.Context, config Config) error {
+	if ctx == nil {
+		return errors.New("vmqual: guest control context is nil")
+	}
 	if config.GuestControlPath == "" || !filepath.IsAbs(config.GuestControlPath) {
 		return errors.New("vmqual: guest control path must be absolute")
 	}
-	if err := os.MkdirAll(filepath.Dir(config.GuestControlPath), 0700); err != nil {
+	directory := filepath.Dir(config.GuestControlPath)
+	if err := os.MkdirAll(directory, 0700); err != nil {
 		return fmt.Errorf("vmqual: create guest control directory: %w", err)
 	}
-	tmp := config.GuestControlPath + ".tmp"
-	_ = os.Remove(tmp)
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("vmqual: guest control directory must be a non-symlink directory")
+	}
+	if err := os.Chmod(directory, 0700); err != nil {
+		return fmt.Errorf("vmqual: secure guest control directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".vm-guest-control-*")
+	if err != nil {
+		return fmt.Errorf("vmqual: create guest control staging file: %w", err)
+	}
+	tmp := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("vmqual: close guest control staging file: %w", err)
+	}
+	defer os.Remove(tmp)
 	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", tmp, "./cmd/vm-guest-control")
 	command.Dir = repositoryRoot()
-	command.Env = append(os.Environ(), "CGO_ENABLED=0")
+	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
 	if output, err := command.CombinedOutput(); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("vmqual: build guest control: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	info, err = os.Lstat(tmp)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("vmqual: built guest control is not a regular file")
+	}
 	if err := os.Chmod(tmp, 0500); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
+	if err := syncPath(tmp); err != nil {
+		return fmt.Errorf("vmqual: sync guest control: %w", err)
+	}
 	if err := os.Rename(tmp, config.GuestControlPath); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("vmqual: install guest control: %w", err)
 	}
-	return nil
+	return syncPath(directory)
+}
+
+func syncPath(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	return errors.Join(syncErr, closeErr)
 }
 
 // MaterializeImage verifies and atomically installs the pinned kernel/rootfs

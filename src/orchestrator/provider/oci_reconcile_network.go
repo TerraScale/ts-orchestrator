@@ -236,6 +236,9 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 	}
 	for i := range vcns {
 		if vcns[i].LifecycleState != "TERMINATED" && vcns[i].LifecycleState != "TERMINATING" {
+			if !networkVCNOwned(vcns[i], declared.Code) {
+				return NetworkObserved{}, &InvalidDataError{Message: "a VCN with the declared name is not positively owned"}
+			}
 			if observed.VCN != nil {
 				return NetworkObserved{}, &InvalidDataError{Message: "multiple VCNs share the declared name"}
 			}
@@ -292,6 +295,9 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 		// mutations against an ID that does not exist in the observation yet.
 		return plan, nil
 	} else {
+		if !networkVCNOwned(*observed.VCN, declared.Code) {
+			return OCIPlan{}, &InvalidDataError{Message: "observed VCN is not positively owned"}
+		}
 		switch observedNetworkState(observed.VCN.LifecycleState) {
 		case networkStatePending:
 			// Do not create dependent resources until the VCN is usable.
@@ -306,6 +312,11 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	}
 	subnets := make(map[string]ObservedSubnet, len(observed.Subnets))
 	for _, subnet := range observed.Subnets {
+		for _, declaredSubnet := range declared.Network.Subnets {
+			if subnet.DisplayName == declaredSubnet.Name && !networkSubnetOwned(subnet, declared.Code) {
+				return OCIPlan{}, &InvalidDataError{Message: "declared subnet " + subnet.DisplayName + " is not positively owned"}
+			}
+		}
 		if networkSubnetOwned(subnet, declared.Code) && observed.VCN != nil && subnet.VCNID != observed.VCN.ID {
 			return OCIPlan{}, &InvalidDataError{Message: "owned subnet is outside the declared VCN"}
 		}
@@ -333,6 +344,11 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	}
 	groups := make(map[string]ObservedNSG, len(observed.NSGs))
 	for _, group := range observed.NSGs {
+		for _, declaredGroup := range declared.Network.SecurityGroups {
+			if group.DisplayName == declaredGroup.Name && !networkNSGOwned(group, declared.Code) {
+				return OCIPlan{}, &InvalidDataError{Message: "declared network security group " + group.DisplayName + " is not positively owned"}
+			}
+		}
 		if networkNSGOwned(group, declared.Code) && observed.VCN != nil && group.VCNID != observed.VCN.ID {
 			return OCIPlan{}, &InvalidDataError{Message: "owned network security group is outside the declared VCN"}
 		}
@@ -406,6 +422,9 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 				// planned after the next observation confirms it is usable.
 				continue
 			}
+			if !networkRouteTableOwned(existing, declared.Code) {
+				return OCIPlan{}, &InvalidDataError{Message: "declared route table " + existing.DisplayName + " is not positively owned"}
+			}
 			if observedNetworkState(existing.LifecycleState) != networkStateActive {
 				continue
 			}
@@ -442,6 +461,9 @@ func resolveDeclaredNAT(declared estate.Region, observed NetworkObserved) (natID
 		}
 		if gateway.DisplayName != natName {
 			continue
+		}
+		if !networkNATOwned(gateway, declared.Code) {
+			return "", false, &InvalidDataError{Message: "declared NAT gateway is not positively owned"}
 		}
 		if seen {
 			return "", false, &InvalidDataError{Message: "multiple NAT gateways share the declared name " + natName}
@@ -491,11 +513,19 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 	if observed.VCN == nil {
 		return false, nil
 	}
+	if !networkVCNOwned(*observed.VCN, declared.Code) {
+		return false, nil
+	}
 	if observedNetworkState(observed.VCN.LifecycleState) != networkStateActive || observed.VCN.CIDR != declared.Network.CIDR {
 		return false, nil
 	}
 	subnets := make(map[string]ObservedSubnet, len(observed.Subnets))
 	for _, subnet := range observed.Subnets {
+		for _, want := range declared.Network.Subnets {
+			if subnet.DisplayName == want.Name && !networkSubnetOwned(subnet, declared.Code) {
+				return false, nil
+			}
+		}
 		switch observedNetworkState(subnet.LifecycleState) {
 		case networkStateAbsent:
 			continue
@@ -507,6 +537,9 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 		if _, duplicate := subnets[subnet.DisplayName]; duplicate {
 			return false, &InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
 		}
+		if networkSubnetOwned(subnet, declared.Code) && subnet.VCNID != observed.VCN.ID {
+			return false, &InvalidDataError{Message: "owned subnet is outside the declared VCN"}
+		}
 		subnets[subnet.DisplayName] = subnet
 	}
 	for _, want := range declared.Network.Subnets {
@@ -517,6 +550,11 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 	}
 	groups := make(map[string]ObservedNSG, len(observed.NSGs))
 	for _, group := range observed.NSGs {
+		for _, want := range declared.Network.SecurityGroups {
+			if group.DisplayName == want.Name && !networkNSGOwned(group, declared.Code) {
+				return false, nil
+			}
+		}
 		switch observedNetworkState(group.LifecycleState) {
 		case networkStateAbsent:
 			continue
@@ -527,6 +565,9 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 		}
 		if _, duplicate := groups[group.DisplayName]; duplicate {
 			return false, &InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
+		}
+		if networkNSGOwned(group, declared.Code) && group.VCNID != observed.VCN.ID {
+			return false, &InvalidDataError{Message: "owned network security group is outside the declared VCN"}
 		}
 		groups[group.DisplayName] = group
 	}
@@ -550,6 +591,14 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 		}
 		routeTables := make(map[string]ObservedRouteTable, len(observed.RouteTables))
 		for _, table := range observed.RouteTables {
+			for _, want := range declared.Network.RouteTables {
+				if table.DisplayName == want.Name && !networkRouteTableOwned(table, declared.Code) {
+					return false, nil
+				}
+			}
+			if networkRouteTableOwned(table, declared.Code) && table.VCNID != observed.VCN.ID {
+				return false, &InvalidDataError{Message: "owned route table is outside the declared VCN"}
+			}
 			switch observedNetworkState(table.LifecycleState) {
 			case networkStateAbsent:
 				continue
@@ -648,6 +697,9 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			if !isOCID(nsgID, "networksecuritygroup") {
 				return &InvalidOperationError{Message: "security rule replacement requires a live network security group"}
 			}
+			if err := r.verifyOwnedNSG(ctx, declared, observed, a.Name, nsgID); err != nil {
+				return err
+			}
 			if len(a.RemoveIDs) > 0 {
 				if err := r.removeOwnedNSGRules(ctx, declared, observed, a.Name, nsgID, a.RemoveIDs); err != nil {
 					return err
@@ -727,9 +779,62 @@ func networkRouteTableOwned(v ObservedRouteTable, region string) bool {
 	return isOCID(v.ID, "routetable") && positiveOCIOwnership(v.FreeformTags, "routetable", region)
 }
 
-func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared estate.Region, observed NetworkObserved, name, nsgID string, ids []string) error {
+func sameObservedVCN(a, b ObservedVCN) bool {
+	return a.ID == b.ID && a.DisplayName == b.DisplayName && a.CIDR == b.CIDR && a.LifecycleState == b.LifecycleState && a.CompartmentID == b.CompartmentID && sameStringMap(a.FreeformTags, b.FreeformTags)
+}
+
+func sameObservedNSG(a, b ObservedNSG) bool {
+	return a.ID == b.ID && a.VCNID == b.VCNID && a.DisplayName == b.DisplayName && a.LifecycleState == b.LifecycleState && a.CompartmentID == b.CompartmentID && sameStringMap(a.FreeformTags, b.FreeformTags)
+}
+
+// verifyOwnedNSG re-reads the complete parent and NSG identity immediately
+// before a rule mutation. An earlier observation is a plan input, not current
+// authorization; ownership or parent identity changes must stop the plan.
+func (r *NetworkReconciler) verifyOwnedNSG(ctx context.Context, declared estate.Region, observed NetworkObserved, name, id string) error {
 	if observed.VCN == nil || !networkVCNOwned(*observed.VCN, declared.Code) {
-		return &InvalidOperationError{Message: "security rule removal requires an owned VCN"}
+		return &InvalidOperationError{Message: "security rule mutation requires an owned VCN"}
+	}
+	vcns, err := r.Gateway.ListVCNs(ctx, VCNName(declared.Code))
+	if err != nil {
+		return err
+	}
+	var currentVCN *ObservedVCN
+	for index := range vcns {
+		if vcns[index].ID == observed.VCN.ID {
+			currentVCN = &vcns[index]
+			break
+		}
+	}
+	if currentVCN == nil || !networkVCNOwned(*currentVCN, declared.Code) || !sameObservedVCN(*currentVCN, *observed.VCN) {
+		return &InvalidOperationError{Message: "refusing stale or ownership-changed VCN rule mutation"}
+	}
+	groups, err := r.Gateway.ListNSGs(ctx, observed.VCN.ID)
+	if err != nil {
+		return err
+	}
+	var currentNSG *ObservedNSG
+	for index := range groups {
+		if groups[index].ID == id && groups[index].DisplayName == name {
+			currentNSG = &groups[index]
+			break
+		}
+	}
+	var expected ObservedNSG
+	for _, group := range observed.NSGs {
+		if group.ID == id && group.DisplayName == name {
+			expected = group
+			break
+		}
+	}
+	if currentNSG == nil || !networkNSGOwned(*currentNSG, declared.Code) || currentNSG.VCNID != observed.VCN.ID || !sameObservedNSG(*currentNSG, expected) {
+		return &InvalidOperationError{Message: "refusing stale or ownership-changed NSG rule mutation"}
+	}
+	return nil
+}
+
+func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared estate.Region, observed NetworkObserved, name, nsgID string, ids []string) error {
+	if err := r.verifyOwnedNSG(ctx, declared, observed, name, nsgID); err != nil {
+		return err
 	}
 	var expected ObservedNSG
 	for _, group := range observed.NSGs {
@@ -741,20 +846,6 @@ func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared es
 	if !networkNSGOwned(expected, declared.Code) || expected.VCNID != observed.VCN.ID {
 		return &InvalidOperationError{Message: "security rule removal requires an owned NSG in the declared VCN"}
 	}
-	groups, err := r.Gateway.ListNSGs(ctx, observed.VCN.ID)
-	if err != nil {
-		return err
-	}
-	currentOwned := false
-	for _, group := range groups {
-		if group.ID == nsgID && group.DisplayName == name && networkNSGOwned(group, declared.Code) && group.VCNID == observed.VCN.ID {
-			currentOwned = true
-			break
-		}
-	}
-	if !currentOwned {
-		return &InvalidOperationError{Message: "refusing stale or ownership-changed NSG rule removal"}
-	}
 	current, err := r.Gateway.ListNSGRules(ctx, nsgID)
 	if err != nil {
 		return err
@@ -763,13 +854,22 @@ func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared es
 	for _, rule := range current {
 		byID[rule.ID] = rule
 	}
+	expectedRules := make(map[string]ObservedSecurityRule, len(observed.Rules[name]))
+	for _, rule := range observed.Rules[name] {
+		expectedRules[rule.ID] = rule
+	}
 	for _, id := range ids {
 		rule, ok := byID[id]
-		if !ok || !rule.Managed || !isOCID(id, "securityrule") {
+		expected, expectedOK := expectedRules[id]
+		if !ok || !expectedOK || !rule.Managed || !isOCID(id, "securityrule") || !sameObservedSecurityRule(rule, expected) {
 			return &InvalidOperationError{Message: "refusing unowned or stale security rule removal"}
 		}
 	}
 	return r.Gateway.RemoveNSGRules(ctx, nsgID, ids)
+}
+
+func sameObservedSecurityRule(a, b ObservedSecurityRule) bool {
+	return a.ID == b.ID && a.Direction == b.Direction && a.Protocol == b.Protocol && a.Peer == b.Peer && a.PortMin == b.PortMin && a.PortMax == b.PortMax && a.Managed == b.Managed
 }
 
 // SecurityRuleSpecs converts one declared security group into provider rule

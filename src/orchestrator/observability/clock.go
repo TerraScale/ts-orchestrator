@@ -77,6 +77,16 @@ func (s ClockSample) Validate() error {
 	if !s.Measured && s.OffsetMillis != 0 {
 		return errors.New("an unreadable clock must carry a zero offset")
 	}
+	if s.Measured {
+		magnitude := s.OffsetMillis
+		if magnitude < 0 {
+			magnitude = -magnitude
+		}
+		expectedUnhealthy := magnitude > ClockWriteRefusalOffsetMillis
+		if s.Unhealthy != expectedUnhealthy {
+			return errors.New("clock unhealthy flag does not match measured offset")
+		}
+	}
 	return nil
 }
 

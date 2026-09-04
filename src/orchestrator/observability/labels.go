@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // LabelAllowList is a closed map of label keys to permitted values. An empty
@@ -17,7 +18,7 @@ type LabelAllowList map[string][]string
 // telemetry. Hosts and cells must be explicitly added by the regional
 // composition root, keeping the cardinality decision visible in config.
 var DefaultLabelAllowList = LabelAllowList{
-	"plane":       {"control", "data", "storage", "observability"},
+	"plane":       {"control", "data", "storage", "observability", "product"},
 	"region":      {"gru", "sfo", "fra", "unknown"},
 	"subsystem":   {"hostagent", "nats", "orchestrator", "observability", "provider", "storage"},
 	"result":      {"success", "error", "rejected", "unknown"},
@@ -26,6 +27,29 @@ var DefaultLabelAllowList = LabelAllowList{
 	"signal":      {"metrics", "logs"},
 	"severity":    {"info", "warning", "critical"},
 	"environment": {"production", "staging", "development", "unknown"},
+}
+
+// closedLabelValueDomains is the vocabulary for semantic dimensions. A
+// composition root may select a subset, but cannot add values dashboards and
+// alerts cannot classify. Deployment-scoped host, cell, and service values
+// remain explicit finite configuration.
+var closedLabelValueDomains = map[string][]string{
+	"plane":             {"control", "data", "storage", "observability", "product"},
+	"region":            {"gru", "sfo", "fra", "unknown"},
+	"cluster_role":      {"regional", "global-authority", "unknown"},
+	"stream_class":      {"cellspec", "celloperations", "cellevents", "globalspec", "globalci", "keyvalue", "objectstore", "unknown"},
+	"consumer_class":    {"startupevent", "cellspec", "globalci", "ephemeralwatch", "unknown"},
+	"store_class":       {"keyvalue", "objectstore", "unknown"},
+	"certificate_class": {"serverlistener", "gatewaylink", "monitoringclient", "unknown"},
+	"result":            {"success", "error", "rejected", "delivered", "redelivered", "duplicate", "unknown"},
+	"state":             {"available", "degraded", "unavailable", "healthy", "stale", "missing", "conflicting", "connected", "disconnected", "unknown"},
+	"condition":         {"available", "degraded", "unavailable", "healthy", "stale", "missing", "conflicting", "connected", "disconnected", "unknown"},
+	"outcome":           {"success", "failure", "timeout", "unknown"},
+	"signal":            {"metrics", "logs"},
+	"severity":          {"info", "warning", "critical"},
+	"environment":       {"production", "staging", "development", "unknown"},
+	"subsystem":         {"hostagent", "nats", "orchestrator", "observability", "provider", "storage"},
+	"endpoint":          {"health", "instance_health", "status", "members", "stats", "direct_delivery"},
 }
 
 // fixedLabelKeys is the repository-wide vocabulary. A configured allow-list
@@ -47,17 +71,28 @@ const (
 // NewLabelAllowList returns a defensive copy of the supplied policy.
 func NewLabelAllowList(values map[string][]string) (LabelAllowList, error) {
 	result := make(LabelAllowList, len(values))
+	totalValues := 0
 	for key, allowed := range values {
 		if err := validateLabelKey(key); err != nil {
 			return nil, err
 		}
-		if len(allowed) == 0 {
-			return nil, fmt.Errorf("label %q must have at least one allowed value", key)
+		if _, known := fixedLabelKeys[key]; !known {
+			return nil, fmt.Errorf("label key %q is not in the fixed vocabulary", key)
+		}
+		if len(allowed) == 0 || len(allowed) > maxAllowedValuesPerLabel {
+			return nil, fmt.Errorf("label %q must have between 1 and %d allowed values", key, maxAllowedValuesPerLabel)
+		}
+		totalValues += len(allowed)
+		if totalValues > maxAllowedLabelValues {
+			return nil, errors.New("label allow-list contains too many values")
 		}
 		seen := make(map[string]struct{}, len(allowed))
 		for _, value := range allowed {
 			if err := validateLabelValue(value); err != nil {
 				return nil, fmt.Errorf("label %q: %w", key, err)
+			}
+			if err := validateClosedLabelValue(key, value); err != nil {
+				return nil, err
 			}
 			if _, exists := seen[value]; exists {
 				return nil, fmt.Errorf("label %q repeats value %q", key, value)
@@ -104,6 +139,9 @@ func (a LabelAllowList) Validate() error {
 		for _, value := range values {
 			if err := validateLabelValue(value); err != nil {
 				return fmt.Errorf("label %q: %w", key, err)
+			}
+			if err := validateClosedLabelValue(key, value); err != nil {
+				return err
 			}
 			if _, exists := seen[value]; exists {
 				return fmt.Errorf("label %q repeats value %q", key, value)
@@ -171,15 +209,33 @@ func validateLabelKey(value string) error {
 }
 
 func validateLabelValue(value string) error {
-	if value == "" || len(value) > 63 || strings.ContainsAny(value, "\r\n\x00") {
+	if value == "" || len(value) > 63 || !utf8.ValidString(value) || strings.ContainsAny(value, "\r\n\x00") {
 		return errors.New("label values must be non-empty, bounded, and control-free")
 	}
 	return nil
 }
 
+func validateClosedLabelValue(key, value string) error {
+	domain, closed := closedLabelValueDomains[key]
+	if !closed {
+		return nil
+	}
+	for _, candidate := range domain {
+		if value == candidate {
+			return nil
+		}
+	}
+	return fmt.Errorf("value %q is outside the closed domain for label %q", value, key)
+}
+
 func isCustomerDimension(key string) bool {
-	switch strings.ToLower(key) {
-	case "tenant", "tenant_id", "database", "database_id", "view", "view_id", "document", "document_id", "request_id", "user", "user_id":
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), ".", "_"))
+	switch normalized {
+	case "tenant", "tenant_id", "database", "database_id", "db", "db_id",
+		"view", "view_id", "document", "document_id", "doc", "doc_id",
+		"collection", "collection_id", "query", "query_id", "request", "request_id",
+		"operation", "operation_id", "message", "message_id", "session", "session_id",
+		"instance", "instance_id", "subject", "subject_id", "user", "user_id":
 		return true
 	default:
 		return false

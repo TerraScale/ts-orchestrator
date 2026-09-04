@@ -3,12 +3,15 @@ package vmguest
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +30,39 @@ type fakeExecutor struct {
 	stdout []byte
 	stderr []byte
 	err    error
+}
+
+type fixedNetworkDialer struct {
+	connection net.Conn
+	err        error
+	network    string
+	endpoint   string
+}
+
+func (dialer *fixedNetworkDialer) DialContext(_ context.Context, network, endpoint string) (net.Conn, error) {
+	dialer.network = network
+	dialer.endpoint = endpoint
+	return dialer.connection, dialer.err
+}
+
+type chunkedConn struct {
+	net.Conn
+	readLimit  int
+	writeLimit int
+}
+
+func (connection *chunkedConn) Read(data []byte) (int, error) {
+	if connection.readLimit > 0 && len(data) > connection.readLimit {
+		data = data[:connection.readLimit]
+	}
+	return connection.Conn.Read(data)
+}
+
+func (connection *chunkedConn) Write(data []byte) (int, error) {
+	if connection.writeLimit > 0 && len(data) > connection.writeLimit {
+		data = data[:connection.writeLimit]
+	}
+	return connection.Conn.Write(data)
 }
 
 func (executor *fakeExecutor) Run(_ context.Context, path string, args []string, stdout, stderr io.Writer) error {
@@ -66,6 +102,132 @@ func TestServeForcedReturnsBoundedProbeFacts(t *testing.T) {
 	}
 }
 
+func TestNetworkExchangeHandlesPartialIOAndReturnsExactFrame(t *testing.T) {
+	client, peer := net.Pipe()
+	dialer := &fixedNetworkDialer{connection: &chunkedConn{Conn: client, readLimit: 1, writeLimit: 2}}
+	challenge := []byte("random-controller-challenge")
+	reply := []byte("exact-peer-response")
+	peerDone := serveNetworkExchangePeer(peer, challenge, uint32(len(reply)), reply, nil)
+	config := Config{NetworkDialer: dialer, CommandTimeout: time.Second}
+	response, err := networkExchange(context.Background(), config, "10.77.0.1:4100", challenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(response, reply) {
+		t.Fatalf("network response = %q, want %q", response, reply)
+	}
+	if dialer.network != "tcp4" || dialer.endpoint != "10.77.0.1:4100" {
+		t.Fatalf("dial = %q %q", dialer.network, dialer.endpoint)
+	}
+	if err := <-peerDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNetworkExchangeRejectsOversizedTruncatedAndTrailingFrames(t *testing.T) {
+	tests := []struct {
+		name     string
+		length   uint32
+		response []byte
+		trailing []byte
+	}{
+		{name: "oversized", length: MaxNetworkBytes + 1},
+		{name: "empty", length: 0},
+		{name: "truncated", length: 8, response: []byte("short")},
+		{name: "trailing", length: 2, response: []byte("ok"), trailing: []byte("x")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, peer := net.Pipe()
+			challenge := []byte("challenge")
+			peerDone := serveNetworkExchangePeer(peer, challenge, test.length, test.response, test.trailing)
+			config := Config{NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: time.Second}
+			if response, err := networkExchange(context.Background(), config, "192.168.10.1:9876", challenge); err == nil || response != nil {
+				t.Fatalf("invalid frame returned response %q, error %v", response, err)
+			}
+			if err := <-peerDone; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestNetworkExchangeDeadlineClosesStalledConnection(t *testing.T) {
+	client, peer := net.Pipe()
+	challenge := []byte("challenge")
+	requestRead := make(chan error, 1)
+	peerClosed := make(chan error, 1)
+	go func() {
+		defer peer.Close()
+		requestRead <- readNetworkChallenge(peer, challenge)
+		var data [1]byte
+		_, err := peer.Read(data[:])
+		peerClosed <- err
+	}()
+	config := Config{NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: 20 * time.Millisecond}
+	response, err := networkExchange(context.Background(), config, "172.16.20.1:1234", challenge)
+	if !errors.Is(err, context.DeadlineExceeded) || response != nil {
+		t.Fatalf("stalled exchange returned response %q, error %v", response, err)
+	}
+	if err := <-requestRead; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-peerClosed:
+		if err == nil {
+			t.Fatal("peer read succeeded after the exchange deadline")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("deadline did not close the network connection")
+	}
+}
+
+func serveNetworkExchangePeer(connection net.Conn, challenge []byte, responseLength uint32, response, trailing []byte) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		defer connection.Close()
+		if err := readNetworkChallenge(connection, challenge); err != nil {
+			done <- err
+			return
+		}
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], responseLength)
+		if err := writeNetworkBytes(context.Background(), connection, header[:]); err != nil {
+			done <- err
+			return
+		}
+		if err := writeNetworkBytes(context.Background(), connection, response); err != nil {
+			done <- err
+			return
+		}
+		if err := writeNetworkBytes(context.Background(), connection, trailing); err != nil {
+			done <- err
+			return
+		}
+		done <- nil
+	}()
+	return done
+}
+
+func readNetworkChallenge(connection net.Conn, expected []byte) error {
+	var header [4]byte
+	if _, err := io.ReadFull(connection, header[:]); err != nil {
+		return err
+	}
+	length := binary.BigEndian.Uint32(header[:])
+	if length != uint32(len(expected)) {
+		return fmt.Errorf("challenge length = %d, want %d", length, len(expected))
+	}
+	challenge := make([]byte, int(length))
+	if _, err := io.ReadFull(connection, challenge); err != nil {
+		return err
+	}
+	if !bytes.Equal(challenge, expected) {
+		return fmt.Errorf("challenge = %q, want %q", challenge, expected)
+	}
+	return nil
+}
+
 func TestServeForcedPersistsAndReadsOnlyOwnedFiles(t *testing.T) {
 	config := testConfig(t, &fakeExecutor{})
 	payload := []byte("survives reboot")
@@ -98,19 +260,19 @@ func TestStorageRejectsSymlinkEscapeAndOversizeRead(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(root, "link/file", []byte("escape"), 0o600); err == nil {
+	if err := atomicWrite(context.Background(), root, "link/file", []byte("escape"), 0o600); err == nil {
 		t.Fatal("write followed a symlink directory")
 	}
 	if err := os.WriteFile(filepath.Join(root, "large"), bytes.Repeat([]byte("x"), 17), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boundedRead(root, "large", 16); err == nil {
+	if _, err := boundedRead(context.Background(), root, "large", 16); err == nil {
 		t.Fatal("oversized file was read")
 	}
 	if err := os.Symlink(filepath.Join(root, "large"), filepath.Join(root, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boundedRead(root, "alias", 32); err == nil {
+	if _, err := boundedRead(context.Background(), root, "alias", 32); err == nil {
 		t.Fatal("read followed a symlink")
 	}
 	referent := filepath.Join(external, "referent")
@@ -120,14 +282,14 @@ func TestStorageRejectsSymlinkEscapeAndOversizeRead(t *testing.T) {
 	if err := os.Symlink(referent, filepath.Join(root, "write-alias")); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(root, "write-alias", []byte("replacement"), 0o600); err == nil {
+	if err := atomicWrite(context.Background(), root, "write-alias", []byte("replacement"), 0o600); err == nil {
 		t.Fatal("write replaced a symlink target")
 	}
 	outside, err := os.ReadFile(referent)
 	if err != nil || string(outside) != "outside" {
 		t.Fatalf("outside referent changed: %q, %v", outside, err)
 	}
-	exact, err := boundedRead(root, "large", 17)
+	exact, err := boundedRead(context.Background(), root, "large", 17)
 	if err != nil || len(exact) != 17 {
 		t.Fatalf("exact-limit read failed: bytes=%d err=%v", len(exact), err)
 	}
@@ -142,7 +304,7 @@ func TestStorageRejectsWritableRootAndHandlesConcurrentParents(t *testing.T) {
 	if err := os.Chmod(unsafe, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(unsafe, "file", []byte("value"), 0o600); err == nil {
+	if err := atomicWrite(context.Background(), unsafe, "file", []byte("value"), 0o600); err == nil {
 		t.Fatal("write admitted a group/world-writable root")
 	}
 
@@ -154,7 +316,7 @@ func TestStorageRejectsWritableRootAndHandlesConcurrentParents(t *testing.T) {
 		go func() {
 			defer group.Done()
 			name := filepath.Join("component", "v1", fmt.Sprintf("artifact-%d", index))
-			errorsSeen <- atomicWrite(root, name, []byte("value"), 0o600)
+			errorsSeen <- atomicWrite(context.Background(), root, name, []byte("value"), 0o600)
 		}()
 	}
 	group.Wait()
@@ -179,8 +341,25 @@ func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
 	if err := os.Link(external, filepath.Join(root, "linked")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boundedRead(root, "linked", 32); err == nil {
+	if _, err := boundedRead(context.Background(), root, "linked", 32); err == nil {
 		t.Fatal("read admitted a file with another hard link")
+	}
+	if err := atomicWrite(context.Background(), root, "linked", []byte("replacement"), 0o600); err == nil {
+		t.Fatal("write replaced a file with another hard link")
+	}
+	if data, err := os.ReadFile(external); err != nil || string(data) != "private" {
+		t.Fatalf("hard-linked referent changed: %q, %v", data, err)
+	}
+
+	unsafeMode := filepath.Join(root, "unsafe-mode")
+	if err := os.WriteFile(unsafeMode, []byte("private"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := boundedRead(context.Background(), root, "unsafe-mode", 32); err == nil {
+		t.Fatal("read admitted a group/world-readable file")
+	}
+	if err := atomicWrite(context.Background(), root, "unsafe-mode", []byte("replacement"), 0o600); err == nil {
+		t.Fatal("write replaced a file with an unexpected mode")
 	}
 
 	directory := filepath.Join(root, "proof")
@@ -191,7 +370,7 @@ func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
 	if err := os.WriteFile(stale, []byte("abandoned"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(root, "proof/value", []byte("published"), 0o600); err != nil {
+	if err := atomicWrite(context.Background(), root, "proof/value", []byte("published"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
@@ -202,14 +381,226 @@ func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
 	}
 }
 
-func TestStorageParentDescriptorIsCloseOnExec(t *testing.T) {
+func TestStorageDetectsInPlaceSameSizeMutation(t *testing.T) {
 	root := t.TempDir()
-	rootFD, err := openStorageRoot(root, false)
+	path := filepath.Join(root, "changing")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("a"), MaxPersistentBytes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	started := make(chan struct{})
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		value := byte('b')
+		for {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			if _, err := file.WriteAt([]byte{value}, 0); err != nil {
+				done <- err
+				return
+			}
+			if value == 'b' {
+				value = 'c'
+			} else {
+				value = 'b'
+			}
+			runtime.Gosched()
+		}
+	}()
+	<-started
+	detected := false
+	for range 20 {
+		if _, err := boundedRead(context.Background(), root, "changing", MaxPersistentBytes); err != nil {
+			detected = true
+			break
+		}
+	}
+	close(stop)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !detected {
+		t.Fatal("same-size in-place mutation escaped metadata validation")
+	}
+}
+
+func TestStorageStartupCleanupWalksEveryOwnedDirectory(t *testing.T) {
+	root := t.TempDir()
+	deep := filepath.Join(root, "one", "two", "three")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	temps := []string{
+		filepath.Join(root, ".vmguest-write-0123456789abcdef0123456789abcdef"),
+		filepath.Join(root, "one", ".vmguest-write-1123456789abcdef0123456789abcdef"),
+		filepath.Join(deep, ".vmguest-write-2123456789abcdef0123456789abcdef"),
+	}
+	for _, path := range temps {
+		if err := os.WriteFile(path, []byte("abandoned"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept := filepath.Join(deep, "artifact")
+	if err := os.WriteFile(kept, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupStorageRoot(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range temps {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale temporary file remains at %s: %v", path, err)
+		}
+	}
+	if data, err := os.ReadFile(kept); err != nil || string(data) != "keep" {
+		t.Fatalf("ordinary storage file changed: %q, %v", data, err)
+	}
+}
+
+func TestStorageCleanupScansPastLargeAndUnrelatedDeepState(t *testing.T) {
+	root := t.TempDir()
+	for index := 0; index <= 4096; index++ {
+		path := filepath.Join(root, fmt.Sprintf("entry-%04d", index))
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := filepath.Join(root, ".vmguest-write-3123456789abcdef0123456789abcdef")
+	if err := os.WriteFile(stale, []byte("abandoned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupStorageRoot(context.Background(), root); err != nil {
+		t.Fatalf("large storage cleanup failed: %v", err)
+	}
+	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup stopped before removing a stale file: %v", err)
+	}
+
+	root = t.TempDir()
+	tooDeep := filepath.Join(root, "one", "two", "three", "four")
+	if err := os.MkdirAll(tooDeep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	validDepthTemp := filepath.Join(root, "one", "two", "three", ".vmguest-write-4123456789abcdef0123456789abcdef")
+	if err := os.WriteFile(validDepthTemp, []byte("abandoned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupStorageRoot(context.Background(), root); err != nil {
+		t.Fatalf("unrelated deep directory denied cleanup: %v", err)
+	}
+	if _, err := os.Lstat(validDepthTemp); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("valid-depth stale file remains: %v", err)
+	}
+	if info, err := os.Stat(tooDeep); err != nil || !info.IsDir() {
+		t.Fatalf("unrelated deep directory changed: %v, %v", info, err)
+	}
+}
+
+func TestStorageRejectsNestedMountTraversal(t *testing.T) {
+	root := t.TempDir()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "value"), []byte("mounted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mountpoint := filepath.Join(root, "nested")
+	if err := os.Mkdir(mountpoint, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount(source, mountpoint, "", unix.MS_BIND, ""); err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip("bind mounts are not permitted for this test user")
+		}
+		t.Fatal(err)
+	}
+	defer unix.Unmount(mountpoint, unix.MNT_DETACH)
+	if err := atomicWrite(context.Background(), root, "nested/new", []byte("value"), 0o600); err == nil {
+		t.Fatal("write crossed a nested mount")
+	}
+	if _, err := boundedRead(context.Background(), root, "nested/value", 32); err == nil {
+		t.Fatal("read crossed a nested mount")
+	}
+}
+
+func TestStorageMountIDDistinguishesFilesystems(t *testing.T) {
+	root := t.TempDir()
+	rootFD, err := unix.Open(root, directoryOpenFlags, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unix.Close(rootFD)
-	parentFD, _, err := openStorageParent(rootFD, "value", false)
+	rootMount, err := descriptorMountID(rootFD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathMount, err := pathMountID(unix.AT_FDCWD, root, unix.AT_SYMLINK_NOFOLLOW)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootMount != pathMount {
+		t.Fatalf("descriptor mount %d differs from path mount %d", rootMount, pathMount)
+	}
+
+	other, err := os.MkdirTemp("/dev/shm", "vmguest-mount-")
+	if err != nil {
+		t.Skipf("cannot create an owned directory on /dev/shm: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(other) })
+	otherFD, err := unix.Open(other, directoryOpenFlags, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(otherFD)
+	otherMount, err := descriptorMountID(otherFD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootMount == otherMount {
+		t.Skip("temporary directory and /dev/shm are on the same mount")
+	}
+	if err := validateOwnedDirectory(otherFD, rootMount); err == nil {
+		t.Fatal("owned directory from another mount was accepted")
+	}
+}
+
+func TestStorageHonorsCancellationBeforeMutationAndWhileQueued(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "storage")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := atomicWrite(ctx, root, "value", []byte("data"), 0o600); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled write returned %v", err)
+	}
+	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canceled write created its storage root: %v", err)
+	}
+
+	storageWriteGate <- struct{}{}
+	queuedContext, queuedCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer queuedCancel()
+	err := atomicWrite(queuedContext, root, "value", []byte("data"), 0o600)
+	<-storageWriteGate
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued write ignored its deadline: %v", err)
+	}
+}
+
+func TestStorageParentDescriptorIsCloseOnExec(t *testing.T) {
+	root := t.TempDir()
+	rootFD, err := openStorageRoot(context.Background(), root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(rootFD)
+	parentFD, _, err := openStorageParent(context.Background(), rootFD, "value", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +615,11 @@ func TestStorageParentDescriptorIsCloseOnExec(t *testing.T) {
 }
 
 func TestServeForcedCancelsStalledInput(t *testing.T) {
-	reader, writer := io.Pipe()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
 	defer writer.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -243,6 +638,77 @@ func TestServeForcedCancelsStalledInput(t *testing.T) {
 	}
 }
 
+type controlledReader struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (reader *controlledReader) Read(_ []byte) (int, error) {
+	reader.once.Do(func() { close(reader.started) })
+	<-reader.release
+	return 0, io.EOF
+}
+
+type controlledWriter struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (writer *controlledWriter) Write(data []byte) (int, error) {
+	writer.once.Do(func() { close(writer.started) })
+	<-writer.release
+	return len(data), nil
+}
+
+func TestServeForcedDoesNotDetachNonClosableIO(t *testing.T) {
+	reader := &controlledReader{started: make(chan struct{}), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	config := testConfig(t, &fakeExecutor{})
+	go func() { done <- ServeForced(ctx, reader, io.Discard, "", config) }()
+	<-reader.started
+	cancel()
+	select {
+	case err := <-done:
+		t.Fatalf("ServeForced detached its blocked request reader: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(reader.release)
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("released request reader returned %v", err)
+	}
+
+	writer := &controlledWriter{started: make(chan struct{}), release: make(chan struct{})}
+	ctx, cancel = context.WithCancel(context.Background())
+	done = make(chan error, 1)
+	request := `{"schemaVersion":1,"operation":"probe"}`
+	config = testConfig(t, &fakeExecutor{})
+	go func() {
+		done <- ServeForced(ctx, strings.NewReader(request), writer, "rejected", config)
+	}()
+	<-writer.started
+	cancel()
+	select {
+	case err := <-done:
+		t.Fatalf("ServeForced detached its blocked response writer: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(writer.release)
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("released response writer returned %v", err)
+	}
+}
+
+func TestDefaultConfigUsesRuntimeGuestSeedPath(t *testing.T) {
+	const expected = "/run/terrascale/guest-seed.json"
+	config := DefaultConfig()
+	if DefaultSeedPath != expected || config.SeedPath != expected {
+		t.Fatalf("default seed path = %q, config seed path = %q", DefaultSeedPath, config.SeedPath)
+	}
+}
+
 func TestConfigRejectsOverlappingStorageAndSeedPaths(t *testing.T) {
 	config := testConfig(t, &fakeExecutor{})
 	config.DataRoot = filepath.Join(config.InboxRoot, "data")
@@ -253,6 +719,27 @@ func TestConfigRejectsOverlappingStorageAndSeedPaths(t *testing.T) {
 	config.SeedPath = filepath.Join(config.DataRoot, "seed.json")
 	if _, err := config.validate(); err == nil {
 		t.Fatal("seed inside writable storage was accepted")
+	}
+	config = testConfig(t, &fakeExecutor{})
+	config.DataRoot = filepath.Join(config.SeedPath, "data")
+	if _, err := config.validate(); err == nil {
+		t.Fatal("writable storage inside the seed path was accepted")
+	}
+
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, "storage"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Fatal(err)
+	}
+	config = testConfig(t, &fakeExecutor{})
+	config.InboxRoot = filepath.Join(real, "storage")
+	config.DataRoot = filepath.Join(alias, "storage")
+	if _, err := config.validate(); err == nil {
+		t.Fatal("storage roots aliased through a symlink were accepted")
 	}
 }
 
@@ -279,6 +766,22 @@ func TestRunCommandRecordsExecutorFailure(t *testing.T) {
 	result := runCommand(context.Background(), config, "/usr/bin/systemctl", []string{"is-system-running"})
 	if result.ExitCode != -1 || result.Error == "" || string(result.Stderr) != "failed" {
 		t.Fatalf("command result = %+v", result)
+	}
+}
+
+type deadlineExecutor struct{}
+
+func (deadlineExecutor) Run(ctx context.Context, _ string, _ []string, _, _ io.Writer) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestRunCommandReportsDeadlineAsExit124(t *testing.T) {
+	config := testConfig(t, deadlineExecutor{})
+	config.CommandTimeout = 10 * time.Millisecond
+	result := runCommand(context.Background(), config, "/usr/bin/systemctl", []string{"is-system-running"})
+	if result.ExitCode != 124 || !strings.Contains(result.Error, context.DeadlineExceeded.Error()) {
+		t.Fatalf("deadline result = %+v", result)
 	}
 }
 

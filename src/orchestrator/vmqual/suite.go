@@ -30,13 +30,16 @@ const (
 	ScenarioBootstrap      Scenario = "bootstrap"
 	ScenarioAddRegion      Scenario = "add-region"
 	ScenarioR3             Scenario = "control-r3"
+	ScenarioFourthRegion   Scenario = "fourth-region"
 	ScenarioReconcile      Scenario = "reconcile"
 	ScenarioSignedDelivery Scenario = "signed-delivery"
 	ScenarioRollback       Scenario = "rollback"
 	ScenarioEdge           Scenario = "edge-promotion"
+	ScenarioKV             Scenario = "kv-routing"
 	ScenarioEstate         Scenario = "estate-publication"
 	ScenarioSelfHeal       Scenario = "self-heal"
 	ScenarioKeyRotation    Scenario = "key-rotation"
+	ScenarioFaultMatrix    Scenario = "fault-matrix"
 	ScenarioRestore        Scenario = "restore"
 	ScenarioDegraded       Scenario = "degraded"
 	ScenarioPartition      Scenario = "partition-heal"
@@ -44,7 +47,26 @@ const (
 	ScenarioCleanup        Scenario = "cleanup"
 )
 
-var RequiredScenarios = []Scenario{ScenarioBootstrap, ScenarioAddRegion, ScenarioR3, ScenarioReconcile, ScenarioSignedDelivery, ScenarioRollback, ScenarioEdge, ScenarioEstate, ScenarioSelfHeal, ScenarioKeyRotation, ScenarioRestore, ScenarioDegraded, ScenarioPartition, ScenarioPlacement, ScenarioCleanup}
+var RequiredScenarios = []Scenario{
+	ScenarioBootstrap,
+	ScenarioAddRegion,
+	ScenarioR3,
+	ScenarioFourthRegion,
+	ScenarioReconcile,
+	ScenarioSignedDelivery,
+	ScenarioRollback,
+	ScenarioEdge,
+	ScenarioKV,
+	ScenarioEstate,
+	ScenarioSelfHeal,
+	ScenarioKeyRotation,
+	ScenarioFaultMatrix,
+	ScenarioRestore,
+	ScenarioDegraded,
+	ScenarioPartition,
+	ScenarioPlacement,
+	ScenarioCleanup,
+}
 
 type ScenarioDriver interface {
 	Run(context.Context, Scenario) error
@@ -97,8 +119,10 @@ type LocalProviderEndpoints struct {
 	AccountID     string
 	edgeKey       []byte
 
-	servers []*httptest.Server
-	close   sync.Once
+	servers  []*httptest.Server
+	close    sync.Once
+	closedMu sync.RWMutex
+	closed   bool
 }
 
 // NewLocalProviderEndpoints starts the complete provider fixture for the
@@ -196,8 +220,22 @@ func (p *LocalProviderEndpoints) Close() error {
 		if p.OCI != nil {
 			_ = p.OCI.Close()
 		}
+		p.closedMu.Lock()
+		p.closed = true
+		p.closedMu.Unlock()
 	})
 	return nil
+}
+
+// Closed reports whether every listener and durable local endpoint owned by
+// this fixture has completed its idempotent Close path.
+func (p *LocalProviderEndpoints) Closed() bool {
+	if p == nil {
+		return true
+	}
+	p.closedMu.RLock()
+	defer p.closedMu.RUnlock()
+	return p.closed
 }
 
 // LocalScenarioDriver returns the ordered local proof driver for these
@@ -213,10 +251,13 @@ type LocalScenarioDriver struct {
 	Endpoints *LocalProviderEndpoints
 	Client    *http.Client
 
+	runMu     sync.Mutex
 	mu        sync.Mutex
 	completed []Scenario
 	evidence  []Evidence
 	stack     *Stack
+	control   *ControlContract
+	state     scenarioState
 }
 
 // Evidence is a bounded, non-secret proof record included in qualification
@@ -268,8 +309,14 @@ func (d *LocalScenarioDriver) AttachStack(stack *Stack) error {
 	if len(stack.Guests()) != 6 {
 		return errors.New("vmqual: local scenario requires six started guests")
 	}
+	control, err := NewControlContract(filepath.Join(stack.config.StateRoot, "control-contract"))
+	if err != nil {
+		return fmt.Errorf("vmqual: initialize control qualification: %w", err)
+	}
 	d.mu.Lock()
 	d.stack = stack
+	d.control = control
+	d.state = scenarioState{}
 	d.mu.Unlock()
 	return nil
 }
@@ -283,16 +330,31 @@ func (d *LocalScenarioDriver) Close() error {
 	return d.Endpoints.Close()
 }
 
-func (d *LocalScenarioDriver) record(s Scenario, check string, detail string) {
+// prove records an observed qualification fact. Failed facts stay in the
+// report and return an error; callers cannot turn a failed observation into a
+// passing scenario by merely appending a descriptive string.
+func (d *LocalScenarioDriver) prove(s Scenario, check string, passed bool, detail string) error {
+	if strings.TrimSpace(check) == "" {
+		return errors.New("vmqual: evidence check name is empty")
+	}
 	d.mu.Lock()
-	d.evidence = append(d.evidence, Evidence{Scenario: s, Check: check, Passed: true, Detail: detail})
+	d.evidence = append(d.evidence, Evidence{Scenario: s, Check: check, Passed: passed, Detail: detail})
 	d.mu.Unlock()
+	if !passed {
+		return fmt.Errorf("vmqual: scenario %s failed evidence check %s", s, check)
+	}
+	return nil
 }
 
-func (d *LocalScenarioDriver) verifyEvidence(ctx context.Context, scenario Scenario) error {
+func (d *LocalScenarioDriver) evidenceCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.evidence)
+}
+
+func (d *LocalScenarioDriver) verifyEvidence(ctx context.Context, scenario Scenario, first int) error {
 	if scenario == ScenarioCleanup {
-		d.record(scenario, "owned-provider-cleanup", "all local provider listeners closed")
-		return nil
+		return d.prove(scenario, "owned-provider-cleanup", d.Endpoints.Closed(), "all owned local provider endpoints are closed")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -306,21 +368,16 @@ func (d *LocalScenarioDriver) verifyEvidence(ctx context.Context, scenario Scena
 	if err := stack.EnforceBudget(ctx); err != nil {
 		return fmt.Errorf("VM stack participation check: %w", err)
 	}
-	response, err := d.request(ctx, http.MethodGet, d.Endpoints.OCIURL+"/20160918/availabilityDomains", nil, http.StatusOK)
-	if response != nil {
-		response.Body.Close()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if first < 0 || first >= len(d.evidence) {
+		return fmt.Errorf("vmqual: scenario %s returned no substantive evidence", scenario)
 	}
-	if err != nil {
-		return fmt.Errorf("provider readiness: %w", err)
+	for _, proof := range d.evidence[first:] {
+		if proof.Scenario != scenario || !proof.Passed || strings.TrimSpace(proof.Check) == "" {
+			return fmt.Errorf("vmqual: scenario %s returned invalid evidence", scenario)
+		}
 	}
-	response, err = d.request(ctx, http.MethodGet, d.Endpoints.CloudflareURL+"/zones?name=terrascale.tech", nil, http.StatusOK)
-	if response != nil {
-		response.Body.Close()
-	}
-	if err != nil {
-		return fmt.Errorf("edge provider readiness: %w", err)
-	}
-	d.record(scenario, "provider-readiness", "OCI and Cloudflare local contracts responded")
 	return nil
 }
 
@@ -376,7 +433,25 @@ func (d *LocalScenarioDriver) object(ctx context.Context, region vmnet.RegionCod
 	return err
 }
 
-func (d *LocalScenarioDriver) bootstrap(ctx context.Context) error {
+func (d *LocalScenarioDriver) readObject(ctx context.Context, region vmnet.RegionCode, name string) ([]byte, error) {
+	base := d.Endpoints.ObjectURL[region] + "/n/" + d.Endpoints.Object[region].Namespace() + "/b/control/o/" + name
+	response, err := d.request(ctx, http.MethodGet, base, nil, http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 1<<20 {
+		return nil, errors.New("vmqual: local object exceeds evidence bound")
+	}
+	return body, nil
+}
+
+func (d *LocalScenarioDriver) legacyBootstrap(ctx context.Context) error {
+	before := d.Endpoints.OCI.Stats()
 	response, err := d.request(ctx, http.MethodGet, d.Endpoints.OCIURL+"/20160918/availabilityDomains", nil, http.StatusOK)
 	if response != nil {
 		response.Body.Close()
@@ -395,14 +470,15 @@ func (d *LocalScenarioDriver) bootstrap(ctx context.Context) error {
 			return fmt.Errorf("%s bucket: %w", region, err)
 		}
 	}
-	if got := d.Endpoints.OCI.Stats().Resources; got < 2 {
-		return fmt.Errorf("bootstrap provider retained only %d instances", got)
+	after := d.Endpoints.OCI.Stats()
+	bucketsReady := true
+	for _, store := range d.Endpoints.Object {
+		bucketsReady = bucketsReady && store.Stats().Buckets == 1
 	}
-	d.record(ScenarioBootstrap, "gru-r1-readiness", "two GRU members and temporary R1 substrate admitted")
-	return nil
+	return d.prove(ScenarioBootstrap, "empty-provider-gru-members", before.Resources == 0 && after.Resources == 2 && bucketsReady, fmt.Sprintf("resources=%d bucketsReady=%t", after.Resources, bucketsReady))
 }
 
-func (d *LocalScenarioDriver) addRegions(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyAddRegions(ctx context.Context) error {
 	for _, region := range []vmnet.RegionCode{vmnet.SFO, vmnet.FRA} {
 		for member := 1; member <= 2; member++ {
 			if err := d.ociCreate(ctx, strings.ToLower(string(region))+"-member-"+fmt.Sprint(member)); err != nil {
@@ -417,35 +493,31 @@ func (d *LocalScenarioDriver) addRegions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if got := d.Endpoints.OCI.Stats().Resources; got < 6 {
-		return fmt.Errorf("add-region provider retained only %d instances", got)
-	}
-	d.record(ScenarioAddRegion, "regional-readiness", "SFO and FRA each have two admitted members")
-	return nil
+	got := d.Endpoints.OCI.Stats().Resources
+	return d.prove(ScenarioAddRegion, "regional-members-observed", got == 6, fmt.Sprintf("provider resources=%d", got))
 }
 
-func (d *LocalScenarioDriver) promoteR3(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyPromoteR3(ctx context.Context) error {
 	value := []byte(`{"controlEpoch":3,"replicas":["GRU","SFO","FRA"],"authority":"permanent"}`)
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
 		if err := d.object(ctx, region, "control/r3.json", value); err != nil {
 			return err
 		}
 	}
+	matched := 0
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
-		base := d.Endpoints.ObjectURL[region] + "/n/" + d.Endpoints.Object[region].Namespace() + "/b/control/o/control/r3.json"
-		response, err := d.request(ctx, http.MethodGet, base, nil, http.StatusOK)
-		if response != nil {
-			response.Body.Close()
-		}
+		observed, err := d.readObject(ctx, region, "control/r3.json")
 		if err != nil {
 			return err
 		}
+		if bytes.Equal(observed, value) {
+			matched++
+		}
 	}
-	d.record(ScenarioR3, "r1-to-r3-fence", "epoch 3 is present in all three local replicas")
-	return nil
+	return d.prove(ScenarioR3, "r3-object-replicas", matched == 3, fmt.Sprintf("matching replicas=%d", matched))
 }
 
-func (d *LocalScenarioDriver) reconcile(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyReconcile(ctx context.Context) error {
 	response, err := d.request(ctx, http.MethodPost, d.Endpoints.CloudflareURL+"/zones/"+d.Endpoints.ZoneID+"/dns_records", strings.NewReader(`{"type":"A","name":"sync.terrascale.tech","content":"10.77.0.10","ttl":60,"proxied":true}`), http.StatusOK)
 	if response != nil {
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, 64<<10))
@@ -465,33 +537,46 @@ func (d *LocalScenarioDriver) reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioReconcile, "drift-convergence", "declared DNS state was created and observed")
-	return nil
+	return d.prove(ScenarioReconcile, "dns-provider-state", response != nil, "declared DNS state was returned by the provider contract")
 }
 
-func (d *LocalScenarioDriver) delivery(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyDelivery(ctx context.Context) error {
 	artifact := []byte("ts-node-release-v2-signed-digest")
+	matched := 0
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
 		if err := d.object(ctx, region, "releases/ts-node-v2", artifact); err != nil {
 			return err
 		}
+		observed, err := d.readObject(ctx, region, "releases/ts-node-v2")
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(observed, artifact) {
+			matched++
+		}
 	}
-	d.record(ScenarioSignedDelivery, "artifact-mirror", "signed candidate mirrored to each Region")
-	return nil
+	return d.prove(ScenarioSignedDelivery, "artifact-object-replicas", matched == 3, fmt.Sprintf("matching replicas=%d", matched))
 }
 
-func (d *LocalScenarioDriver) rollback(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyRollback(ctx context.Context) error {
 	artifact := []byte("ts-node-release-v1-prior-digest")
+	matched := 0
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
 		if err := d.object(ctx, region, "releases/ts-node-current", artifact); err != nil {
 			return err
 		}
+		observed, err := d.readObject(ctx, region, "releases/ts-node-current")
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(observed, artifact) {
+			matched++
+		}
 	}
-	d.record(ScenarioRollback, "exact-prior-digest", "all touched Regions restored to the prior artifact")
-	return nil
+	return d.prove(ScenarioRollback, "prior-object-replicas", matched == 3, fmt.Sprintf("matching replicas=%d", matched))
 }
 
-func (d *LocalScenarioDriver) edgeProof(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyEdgeProof(ctx context.Context) error {
 	now := time.Now().UTC()
 	capability, err := edge.MintCapability(d.Endpoints.edgeKey, "vmqual", 1, "rule:v1", 1, "GRU", now)
 	if err != nil {
@@ -514,14 +599,11 @@ func (d *LocalScenarioDriver) edgeProof(ctx context.Context) error {
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("edge promotion returned %s", response.Status)
 	}
-	if metrics := d.Endpoints.Edge.Metrics(); metrics.CacheableResponses == 0 {
-		return errors.New("edge response was not cache eligible")
-	}
-	d.record(ScenarioEdge, "capability-before-cache", "local edge gate accepted immutable response")
-	return nil
+	metrics := d.Endpoints.Edge.Metrics()
+	return d.prove(ScenarioEdge, "capability-before-cache", metrics.CacheableResponses > 0, fmt.Sprintf("cacheable responses=%d", metrics.CacheableResponses))
 }
 
-func (d *LocalScenarioDriver) estate(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyEstate(ctx context.Context) error {
 	response, err := d.request(ctx, http.MethodPost, d.Endpoints.CloudflareURL+"/accounts/"+d.Endpoints.AccountID+"/secrets_store/stores", strings.NewReader(`{"name":"qualification"}`), http.StatusOK, http.StatusConflict)
 	if response != nil {
 		response.Body.Close()
@@ -529,13 +611,13 @@ func (d *LocalScenarioDriver) estate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioEstate, "bounded-estate-observation", "local control metadata is provider-backed")
-	return nil
+	return d.prove(ScenarioEstate, "provider-backed-estate-state", response != nil, "estate backing resource was returned by the provider contract")
 }
 
-func (d *LocalScenarioDriver) selfHeal(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacySelfHeal(ctx context.Context) error {
 	d.Endpoints.OCI.SetFaultScript([]oci.FaultRule{{Method: http.MethodGet, Path: "/20160918/availabilityDomains", Kind: oci.FaultResponse, Status: http.StatusServiceUnavailable, Count: 1}})
 	response, err := d.request(ctx, http.MethodGet, d.Endpoints.OCIURL+"/20160918/availabilityDomains", nil, http.StatusServiceUnavailable)
+	faultObserved := response != nil && response.StatusCode == http.StatusServiceUnavailable
 	if response != nil {
 		response.Body.Close()
 	}
@@ -544,17 +626,17 @@ func (d *LocalScenarioDriver) selfHeal(ctx context.Context) error {
 	}
 	d.Endpoints.OCI.ClearFaults()
 	response, err = d.request(ctx, http.MethodGet, d.Endpoints.OCIURL+"/20160918/availabilityDomains", nil, http.StatusOK)
+	recovered := response != nil && response.StatusCode == http.StatusOK
 	if response != nil {
 		response.Body.Close()
 	}
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioSelfHeal, "provider-fault-recovery", "readiness recovered after one scripted provider fault")
-	return nil
+	return d.prove(ScenarioSelfHeal, "provider-fault-recovery", faultObserved && recovered, fmt.Sprintf("faultObserved=%t recovered=%t", faultObserved, recovered))
 }
 
-func (d *LocalScenarioDriver) keyRotation(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyKeyRotation(ctx context.Context) error {
 	response, err := d.request(ctx, http.MethodPut, d.Endpoints.CloudflareURL+"/accounts/"+d.Endpoints.AccountID+"/secrets_store/stores/qualification/secrets/capability", strings.NewReader(`{"name":"capability","value":"rotated"}`), http.StatusOK)
 	if response != nil {
 		response.Body.Close()
@@ -562,28 +644,22 @@ func (d *LocalScenarioDriver) keyRotation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioKeyRotation, "overlap-secret-write", "rotated capability material remains provider-backed")
-	return nil
+	return d.prove(ScenarioKeyRotation, "overlap-secret-write", response != nil && response.StatusCode == http.StatusOK, "provider accepted the bounded overlap write")
 }
 
-func (d *LocalScenarioDriver) restore(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyRestore(ctx context.Context) error {
 	value := []byte(`{"restore":"snapshot-1","placement":"br-only","epoch":3}`)
 	if err := d.object(ctx, vmnet.GRU, "restore/qualification.json", value); err != nil {
 		return err
 	}
-	base := d.Endpoints.ObjectURL[vmnet.GRU] + "/n/" + d.Endpoints.Object[vmnet.GRU].Namespace() + "/b/control/o/restore/qualification.json"
-	response, err := d.request(ctx, http.MethodGet, base, nil, http.StatusOK)
-	if response != nil {
-		response.Body.Close()
-	}
+	observed, err := d.readObject(ctx, vmnet.GRU, "restore/qualification.json")
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioRestore, "snapshot-readback", "restore snapshot is durable in the local object store")
-	return nil
+	return d.prove(ScenarioRestore, "snapshot-readback", bytes.Equal(observed, value), fmt.Sprintf("bytes=%d", len(observed)))
 }
 
-func (d *LocalScenarioDriver) degraded(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyDegraded(ctx context.Context) error {
 	// Closing a provider endpoint must not affect an already-admitted local
 	// edge read. The edge handler has no provider dependency by design.
 	d.Endpoints.Edge.SetOriginError(nil)
@@ -594,16 +670,16 @@ func (d *LocalScenarioDriver) degraded(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.record(ScenarioDegraded, "admitted-data-path", "local provider control reads remain bounded")
-	return nil
+	return d.prove(ScenarioDegraded, "admitted-data-path", response != nil && response.StatusCode == http.StatusOK, "admitted request remained available")
 }
 
-func (d *LocalScenarioDriver) partition(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyPartition(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	// The vmnet controller proves actual link partitioning; this provider proof
 	// records that each local Region endpoint remains independently reachable.
+	reachable := 0
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
 		response, err := d.request(ctx, http.MethodGet, d.Endpoints.ObjectURL[region]+"/n/"+d.Endpoints.Object[region].Namespace()+"/b/", nil, http.StatusOK)
 		if response != nil {
@@ -612,21 +688,24 @@ func (d *LocalScenarioDriver) partition(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		reachable++
 	}
-	d.record(ScenarioPartition, "regional-autonomy", "all three local stores remain independently reachable")
-	return nil
+	return d.prove(ScenarioPartition, "regional-autonomy", reachable == 3, fmt.Sprintf("reachable stores=%d", reachable))
 }
 
-func (d *LocalScenarioDriver) placement(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyPlacement(ctx context.Context) error {
 	value := []byte(`{"placementLock":"br-only","regions":["GRU"],"immutable":true}`)
 	if err := d.object(ctx, vmnet.GRU, "placement/lock.json", value); err != nil {
 		return err
 	}
-	d.record(ScenarioPlacement, "residency-lock", "placement lock is persisted with restore metadata")
-	return nil
+	observed, err := d.readObject(ctx, vmnet.GRU, "placement/lock.json")
+	if err != nil {
+		return err
+	}
+	return d.prove(ScenarioPlacement, "residency-lock", bytes.Equal(observed, value), fmt.Sprintf("bytes=%d", len(observed)))
 }
 
-func (d *LocalScenarioDriver) cleanup(ctx context.Context) error {
+func (d *LocalScenarioDriver) legacyCleanup(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -640,52 +719,61 @@ func (d *LocalScenarioDriver) Run(ctx context.Context, scenario Scenario) error 
 	if ctx == nil {
 		return errors.New("vmqual: local scenario context is nil")
 	}
+	d.runMu.Lock()
+	defer d.runMu.Unlock()
 	d.mu.Lock()
 	index := len(d.completed)
 	if index >= len(RequiredScenarios) || RequiredScenarios[index] != scenario {
 		d.mu.Unlock()
 		return fmt.Errorf("vmqual: scenario %s is out of order", scenario)
 	}
+	firstEvidence := len(d.evidence)
 	d.mu.Unlock()
 	var err error
 	switch scenario {
 	case ScenarioBootstrap:
-		err = d.bootstrap(ctx)
+		err = d.scenarioBootstrap(ctx)
 	case ScenarioAddRegion:
-		err = d.addRegions(ctx)
+		err = d.scenarioAddRegions(ctx)
 	case ScenarioR3:
-		err = d.promoteR3(ctx)
+		err = d.scenarioR3(ctx)
+	case ScenarioFourthRegion:
+		err = d.scenarioFourthRegion(ctx)
 	case ScenarioReconcile:
-		err = d.reconcile(ctx)
+		err = d.scenarioReconcile(ctx)
 	case ScenarioSignedDelivery:
-		err = d.delivery(ctx)
+		err = d.scenarioSignedDelivery(ctx)
 	case ScenarioRollback:
-		err = d.rollback(ctx)
+		err = d.scenarioRollback(ctx)
 	case ScenarioEdge:
-		err = d.edgeProof(ctx)
+		err = d.scenarioEdge(ctx)
+	case ScenarioKV:
+		err = d.scenarioKV(ctx)
 	case ScenarioEstate:
-		err = d.estate(ctx)
+		err = d.scenarioEstate(ctx)
 	case ScenarioSelfHeal:
-		err = d.selfHeal(ctx)
+		err = d.scenarioSelfHeal(ctx)
 	case ScenarioKeyRotation:
-		err = d.keyRotation(ctx)
+		err = d.scenarioKeyRotation(ctx)
+	case ScenarioFaultMatrix:
+		err = d.scenarioFaultMatrix(ctx)
 	case ScenarioRestore:
-		err = d.restore(ctx)
+		err = d.scenarioRestore(ctx)
 	case ScenarioDegraded:
-		err = d.degraded(ctx)
+		err = d.scenarioDegraded(ctx)
 	case ScenarioPartition:
-		err = d.partition(ctx)
+		err = d.scenarioPartition(ctx)
 	case ScenarioPlacement:
-		err = d.placement(ctx)
+		err = d.scenarioPlacement(ctx)
 	case ScenarioCleanup:
-		err = d.cleanup(ctx)
+		err = d.scenarioCleanup(ctx)
 	default:
 		err = fmt.Errorf("vmqual: unknown scenario %s", scenario)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", scenario, err)
 	}
-	if err := d.verifyEvidence(ctx, scenario); err != nil {
+	if err := d.verifyEvidence(ctx, scenario, firstEvidence); err != nil {
 		return fmt.Errorf("%s evidence: %w", scenario, err)
 	}
 	d.mu.Lock()
@@ -775,8 +863,14 @@ func (r SuiteReport) OK() bool {
 	if len(r.Scenarios) != len(RequiredScenarios) {
 		return false
 	}
-	for _, s := range r.Scenarios {
-		if !s.Passed {
+	proved := make(map[Scenario]bool, len(RequiredScenarios))
+	for _, proof := range r.Evidence {
+		if proof.Passed && strings.TrimSpace(proof.Check) != "" {
+			proved[proof.Scenario] = true
+		}
+	}
+	for index, s := range r.Scenarios {
+		if s.Scenario != RequiredScenarios[index] || !s.Passed || !proved[s.Scenario] {
 			return false
 		}
 	}
@@ -787,6 +881,14 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 	if s == nil || d == nil {
 		return r, errors.New("vmqual: stack and provider-contract driver are required")
 	}
+	evidenceDriver, hasEvidence := d.(ScenarioEvidence)
+	if !hasEvidence {
+		return r, errors.New("vmqual: scenario driver must expose state-derived evidence")
+	}
+	participant, participates := d.(StackParticipant)
+	if !participates {
+		return r, errors.New("vmqual: scenario driver must participate in the started VM stack")
+	}
 	r.StartedAt = time.Now().UTC()
 	defer func() {
 		r.FinishedAt = time.Now().UTC()
@@ -795,36 +897,49 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 			e = errors.Join(e, cleanup.Close())
 		}
 	}()
-	if e = s.Start(c); e != nil {
+	if e = participant.AttachStack(s); e != nil {
 		return r, e
 	}
-	if participant, ok := d.(StackParticipant); ok {
-		if e = participant.AttachStack(s); e != nil {
-			_ = s.Cleanup(context.Background())
-			return r, e
-		}
+	if e = s.StartBootstrap(c); e != nil {
+		return r, e
 	}
 	for _, x := range RequiredScenarios {
+		if x == ScenarioAddRegion {
+			if e = s.StartRegions(c, vmnet.SFO, vmnet.FRA); e != nil {
+				return r, e
+			}
+		}
 		st := time.Now()
 		z := ScenarioResult{Scenario: x}
-		z.Error = ""
+		firstEvidence := len(evidenceDriver.Evidence())
 		if zerr := d.Run(c, x); zerr != nil {
 			z.Error = zerr.Error()
 			e = zerr
 		}
+		proofs := evidenceDriver.Evidence()
+		if e == nil {
+			if firstEvidence >= len(proofs) {
+				e = fmt.Errorf("vmqual: scenario %s returned no state-derived evidence", x)
+				z.Error = e.Error()
+			} else {
+				for _, proof := range proofs[firstEvidence:] {
+					if proof.Scenario != x || !proof.Passed || strings.TrimSpace(proof.Check) == "" {
+						e = fmt.Errorf("vmqual: scenario %s returned invalid evidence", x)
+						z.Error = e.Error()
+						break
+					}
+				}
+			}
+		}
 		z.Passed = z.Error == ""
 		z.Duration = time.Since(st)
 		r.Scenarios = append(r.Scenarios, z)
-		if evidence, ok := d.(ScenarioEvidence); ok {
-			r.Evidence = evidence.Evidence()
-		}
+		r.Evidence = proofs
 		if e != nil {
 			break
 		}
 	}
-	if evidence, ok := d.(ScenarioEvidence); ok {
-		r.Evidence = evidence.Evidence()
-	}
+	r.Evidence = evidenceDriver.Evidence()
 	if e == nil && !r.OK() {
 		e = errors.New("vmqual: suite incomplete")
 	}

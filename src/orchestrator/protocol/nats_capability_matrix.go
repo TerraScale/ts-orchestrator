@@ -516,7 +516,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 		deferredNatsCapability(
 			NatsCapabilityJwts,
 			NatsCapabilityOwnerSecurityAndIdentity,
-			"Operator/account/user JWT issuance and the JWT/NKey administration toolchain are unselected (phase1-nats-l0c-foundation outcome); adopt only after the L0C lane pins the toolchain and rotating account-signing-key procedure."),
+			"Operator/account/user JWT issuance and the JWT/NKey administration toolchain remain unselected; adopt only after the toolchain and rotating account-signing-key procedure are explicitly qualified."),
 		acceptedNatsCapability(
 			NatsCapabilityNKeys,
 			NatsCapabilityOwnerSecurityAndIdentity,

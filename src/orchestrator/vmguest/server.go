@@ -2,10 +2,12 @@ package vmguest
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,11 +18,15 @@ import (
 const (
 	DefaultInboxRoot = "/var/lib/terrascale/vmqual-inbox"
 	DefaultDataRoot  = "/var/lib/terrascale/vmqual-data"
-	DefaultSeedPath  = "/etc/terrascale/vmqual-guest-seed.json"
+	DefaultSeedPath  = "/run/terrascale/guest-seed.json"
 )
 
 type Executor interface {
 	Run(context.Context, string, []string, io.Writer, io.Writer) error
+}
+
+type NetworkDialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
 }
 
 type ProcessExecutor struct{}
@@ -39,6 +45,7 @@ type Config struct {
 	DataRoot       string
 	SeedPath       string
 	Executor       Executor
+	NetworkDialer  NetworkDialer
 	CommandTimeout time.Duration
 	SessionTimeout time.Duration
 }
@@ -60,18 +67,36 @@ func (config Config) validate() (Config, error) {
 	if config.Executor == nil {
 		config.Executor = ProcessExecutor{}
 	}
+	if config.NetworkDialer == nil {
+		config.NetworkDialer = &net.Dialer{}
+	}
 	if config.CommandTimeout == 0 {
 		config.CommandTimeout = 30 * time.Second
 	}
 	if config.SessionTimeout == 0 {
 		config.SessionTimeout = 2 * time.Minute
 	}
-	for name, path := range map[string]string{"inbox": config.InboxRoot, "data": config.DataRoot, "seed": config.SeedPath} {
+	paths := []struct {
+		name string
+		path string
+	}{
+		{name: "inbox", path: config.InboxRoot},
+		{name: "data", path: config.DataRoot},
+		{name: "seed", path: config.SeedPath},
+	}
+	resolved := make([]string, 0, len(paths))
+	for _, candidate := range paths {
+		name, path := candidate.name, candidate.path
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == string(filepath.Separator) {
 			return Config{}, fmt.Errorf("vmguest: %s path must be clean and absolute", name)
 		}
+		physical, err := resolveExistingPath(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("vmguest: resolve %s path: %w", name, err)
+		}
+		resolved = append(resolved, physical)
 	}
-	if pathsOverlap(config.InboxRoot, config.DataRoot) || pathsOverlap(config.InboxRoot, config.SeedPath) || pathsOverlap(config.DataRoot, config.SeedPath) || config.CommandTimeout < time.Second || config.CommandTimeout > 2*time.Minute || config.SessionTimeout < time.Second || config.SessionTimeout > 5*time.Minute {
+	if pathsOverlap(resolved[0], resolved[1]) || pathsOverlap(resolved[0], resolved[2]) || pathsOverlap(resolved[1], resolved[2]) || config.CommandTimeout < time.Second || config.CommandTimeout > 2*time.Minute || config.SessionTimeout < time.Second || config.SessionTimeout > 5*time.Minute {
 		return Config{}, errors.New("vmguest: control configuration is invalid")
 	}
 	return config, nil
@@ -93,10 +118,23 @@ func ServeForced(ctx context.Context, input io.Reader, output io.Writer, origina
 	}
 	sessionContext, cancel := context.WithTimeout(ctx, validated.SessionTimeout)
 	defer cancel()
+	stopReadCancellation := armReadCancellation(sessionContext, input)
+	defer stopReadCancellation()
+	stopWriteCancellation := armWriteCancellation(sessionContext, output)
+	defer stopWriteCancellation()
 	response := Response{SchemaVersion: SchemaVersion}
 	if originalCommand != "" {
 		response.Error = "vmguest: SSH original command is not admitted"
 		return encodeResponse(sessionContext, output, response)
+	}
+	for _, root := range []string{validated.InboxRoot, validated.DataRoot} {
+		if err := cleanupStorageRoot(sessionContext, root); err != nil {
+			if sessionContext.Err() != nil {
+				return sessionContext.Err()
+			}
+			response.Error = err.Error()
+			return encodeResponse(sessionContext, output, response)
+		}
 	}
 	request, err := decodeRequest(sessionContext, input)
 	if err != nil {
@@ -106,22 +144,11 @@ func ServeForced(ctx context.Context, input io.Reader, output io.Writer, origina
 		response.Error = err.Error()
 		return encodeResponse(sessionContext, output, response)
 	}
-	response, err = handleRequestContext(sessionContext, validated, request)
-	if err != nil {
-		return err
+	response = handleRequest(sessionContext, validated, request)
+	if sessionContext.Err() != nil {
+		return sessionContext.Err()
 	}
 	return encodeResponse(sessionContext, output, response)
-}
-
-func handleRequestContext(ctx context.Context, config Config, request Request) (Response, error) {
-	done := make(chan Response, 1)
-	go func() { done <- handleRequest(ctx, config, request) }()
-	select {
-	case response := <-done:
-		return response, nil
-	case <-ctx.Done():
-		return Response{}, ctx.Err()
-	}
 }
 
 func handleRequest(ctx context.Context, config Config, request Request) Response {
@@ -134,15 +161,22 @@ func handleRequest(ctx context.Context, config Config, request Request) Response
 		result := runCommand(ctx, config, request.Path, request.Args)
 		response.Command = &result
 	case OperationPut:
-		if err := atomicWrite(config.InboxRoot, request.Path, request.Data, os.FileMode(request.Mode)); err != nil {
+		if err := atomicWriteWithinQuota(ctx, config.InboxRoot, request.Path, request.Data, os.FileMode(request.Mode), inboxStorageQuota); err != nil {
 			response.Error = err.Error()
 		}
 	case OperationDataWrite:
-		if err := atomicWrite(config.DataRoot, request.Path, request.Data, 0o600); err != nil {
+		if err := atomicWriteWithinQuota(ctx, config.DataRoot, request.Path, request.Data, 0o600, persistentStorageQuota); err != nil {
 			response.Error = err.Error()
 		}
 	case OperationDataRead:
-		data, err := boundedRead(config.DataRoot, request.Path, MaxPersistentBytes)
+		data, err := boundedRead(ctx, config.DataRoot, request.Path, MaxPersistentBytes)
+		if err != nil {
+			response.Error = err.Error()
+		} else {
+			response.Data = data
+		}
+	case OperationNetwork:
+		data, err := networkExchange(ctx, config, request.Path, request.Data)
 		if err != nil {
 			response.Error = err.Error()
 		} else {
@@ -154,12 +188,113 @@ func handleRequest(ctx context.Context, config Config, request Request) Response
 	return response
 }
 
+func networkExchange(ctx context.Context, config Config, endpoint string, challenge []byte) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !validNetworkEndpoint(endpoint) || len(challenge) == 0 || len(challenge) > MaxNetworkBytes {
+		return nil, errors.New("vmguest: network exchange parameters are invalid")
+	}
+	timeout := config.CommandTimeout
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	exchangeContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	dialer := config.NetworkDialer
+	if dialer == nil {
+		dialer = &net.Dialer{}
+	}
+	connection, err := dialer.DialContext(exchangeContext, "tcp4", endpoint)
+	if err != nil {
+		if exchangeContext.Err() != nil {
+			return nil, exchangeContext.Err()
+		}
+		return nil, errors.New("vmguest: connect network exchange")
+	}
+	stopClose := context.AfterFunc(exchangeContext, func() { _ = connection.Close() })
+	defer func() {
+		stopClose()
+		_ = connection.Close()
+	}()
+	if deadline, present := exchangeContext.Deadline(); present {
+		if err := connection.SetDeadline(deadline); err != nil {
+			return nil, errors.New("vmguest: set network exchange deadline")
+		}
+	}
+
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(challenge)))
+	if err := writeNetworkBytes(exchangeContext, connection, header[:]); err != nil {
+		return nil, networkExchangeError(exchangeContext, "write challenge", err)
+	}
+	if err := writeNetworkBytes(exchangeContext, connection, challenge); err != nil {
+		return nil, networkExchangeError(exchangeContext, "write challenge", err)
+	}
+	if _, err := io.ReadFull(connection, header[:]); err != nil {
+		return nil, networkExchangeError(exchangeContext, "read response frame", err)
+	}
+	length := binary.BigEndian.Uint32(header[:])
+	if length == 0 || length > MaxNetworkBytes {
+		return nil, errors.New("vmguest: network response size is invalid")
+	}
+	response := make([]byte, int(length))
+	if _, err := io.ReadFull(connection, response); err != nil {
+		return nil, networkExchangeError(exchangeContext, "read response", err)
+	}
+	var trailing [1]byte
+	n, err := connection.Read(trailing[:])
+	if n != 0 || err == nil {
+		return nil, errors.New("vmguest: network response has trailing data")
+	}
+	if !errors.Is(err, io.EOF) {
+		return nil, networkExchangeError(exchangeContext, "finish response", err)
+	}
+	if err := exchangeContext.Err(); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func writeNetworkBytes(ctx context.Context, writer io.Writer, data []byte) error {
+	for len(data) != 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		written, err := writer.Write(data)
+		if written < 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		if written > 0 {
+			data = data[written:]
+		}
+		if err != nil {
+			return err
+		}
+		if written == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return ctx.Err()
+}
+
+func networkExchangeError(ctx context.Context, action string, cause error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var networkError net.Error
+	if errors.Is(cause, os.ErrDeadlineExceeded) || errors.As(cause, &networkError) && networkError.Timeout() {
+		return context.DeadlineExceeded
+	}
+	return fmt.Errorf("vmguest: %s", action)
+}
+
 func collectProbe(ctx context.Context, config Config) ProbeResult {
 	return ProbeResult{
 		Systemd:    runCommand(ctx, config, "/usr/bin/systemctl", []string{"is-system-running"}),
 		PID1:       runCommand(ctx, config, "/usr/bin/readlink", []string{"/proc/1/exe"}),
 		CgroupV2:   runCommand(ctx, config, "/usr/bin/stat", []string{"-fc", "%T", "/sys/fs/cgroup"}),
-		DataMount:  runCommand(ctx, config, "/usr/bin/findmnt", []string{"-n", "-o", "SOURCE,FSTYPE,TARGET", "/var/lib/terrascale"}),
+		DataMount:  runCommand(ctx, config, "/usr/bin/findmnt", []string{"-no", "SOURCE,FSTYPE,TARGET", "/var/lib/terrascale"}),
 		Network:    runCommand(ctx, config, "/usr/bin/networkctl", []string{"status", "eth0", "--no-pager"}),
 		Time:       runCommand(ctx, config, "/usr/bin/timedatectl", []string{"show", "--property=NTPSynchronized", "--value"}),
 		SeedDigest: runCommand(ctx, config, "/usr/bin/sha256sum", []string{config.SeedPath}),
@@ -199,39 +334,114 @@ func runCommand(ctx context.Context, config Config, path string, args []string) 
 }
 
 func decodeRequest(ctx context.Context, reader io.Reader) (Request, error) {
-	type result struct {
-		request Request
-		err     error
+	if reader == nil {
+		return Request{}, errors.New("vmguest: request reader is nil")
 	}
-	done := make(chan result, 1)
-	go func() {
-		request, err := DecodeRequest(reader)
-		done <- result{request: request, err: err}
-	}()
-	select {
-	case result := <-done:
-		return result.request, result.err
-	case <-ctx.Done():
-		closeIO(reader)
-		return Request{}, ctx.Err()
-	}
+	return DecodeRequest(contextReader{ctx: ctx, reader: reader})
 }
 
 func encodeResponse(ctx context.Context, writer io.Writer, response Response) error {
-	done := make(chan error, 1)
-	go func() { done <- json.NewEncoder(writer).Encode(response) }()
-	select {
-	case err := <-done:
+	if err := ctx.Err(); err != nil {
 		return err
-	case <-ctx.Done():
-		closeIO(writer)
-		return ctx.Err()
+	}
+	return json.NewEncoder(contextWriter{ctx: ctx, writer: writer}).Encode(response)
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(data []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := reader.reader.Read(data)
+	if contextErr := reader.ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
+}
+
+type contextWriter struct {
+	ctx    context.Context
+	writer io.Writer
+}
+
+func (writer contextWriter) Write(data []byte) (int, error) {
+	if err := writer.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := writer.writer.Write(data)
+	if contextErr := writer.ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
+
+}
+
+type readDeadlineSetter interface {
+	SetReadDeadline(time.Time) error
+}
+
+type writeDeadlineSetter interface {
+	SetWriteDeadline(time.Time) error
+}
+
+func armReadCancellation(ctx context.Context, value any) func() {
+	setter, ok := value.(readDeadlineSetter)
+	if !ok {
+		return func() {}
+	}
+	if deadline, present := ctx.Deadline(); present {
+		_ = setter.SetReadDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = setter.SetReadDeadline(time.Now()) })
+	return func() {
+		if stop() {
+			_ = setter.SetReadDeadline(time.Time{})
+		}
 	}
 }
 
-func closeIO(value any) {
-	if closer, ok := value.(io.Closer); ok {
-		_ = closer.Close()
+func armWriteCancellation(ctx context.Context, value any) func() {
+	setter, ok := value.(writeDeadlineSetter)
+	if !ok {
+		return func() {}
+	}
+	if deadline, present := ctx.Deadline(); present {
+		_ = setter.SetWriteDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = setter.SetWriteDeadline(time.Now()) })
+	return func() {
+		if stop() {
+			_ = setter.SetWriteDeadline(time.Time{})
+		}
+	}
+}
+
+func resolveExistingPath(path string) (string, error) {
+	current := path
+	var missing []string
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", err
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", errors.New("vmguest: path has no existing ancestor")
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
 	}
 }
 

@@ -30,8 +30,8 @@ type UnixSocketOpenAPI struct {
 }
 
 func NewUnixSocketOpenAPI(socketPath string) (*UnixSocketOpenAPI, error) {
-	if socketPath == "" || !strings.HasPrefix(socketPath, "/") {
-		return nil, errors.New("Firecracker API socket must be an absolute path")
+	if err := validateSocketName(socketPath); err != nil {
+		return nil, err
 	}
 	return &UnixSocketOpenAPI{SocketPath: socketPath, MaxResponseBytes: 1 << 20}, nil
 }
@@ -124,7 +124,7 @@ func (c *UnixSocketOpenAPI) PatchVM(ctx context.Context, state string) error {
 // SocketReady performs the minimal host-side socket validation used before a
 // direct API call. It does not imply guest readiness.
 func SocketReady(path string) bool {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
@@ -133,8 +133,8 @@ func SocketReady(path string) bool {
 // to a different VMM; cleanup can only remove a socket after ownership has
 // been established by the VM state marker.
 func ValidateSocketPath(path string) error {
-	if path == "" || !strings.HasPrefix(path, "/") {
-		return errors.New("Firecracker API socket must be an absolute path")
+	if err := validateSocketName(path); err != nil {
+		return err
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket != 0 {
@@ -143,6 +143,16 @@ func ValidateSocketPath(path string) error {
 		return fmt.Errorf("Firecracker API socket path exists and is not a socket: %s", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect Firecracker API socket: %w", err)
+	}
+	return nil
+}
+
+func validateSocketName(path string) error {
+	if path == "" || !strings.HasPrefix(path, "/") || strings.IndexByte(path, 0) >= 0 {
+		return errors.New("Firecracker API socket must be an absolute pathname socket")
+	}
+	if len(path) > maxUnixSocketPathBytes {
+		return fmt.Errorf("Firecracker API socket path is %d bytes; Linux permits at most %d", len(path), maxUnixSocketPathBytes)
 	}
 	return nil
 }

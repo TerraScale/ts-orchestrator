@@ -28,7 +28,7 @@ func (f *fakeBlockGateway) CreateVolume(ctx context.Context, spec VolumeSpec) (O
 		return ObservedVolume{}, f.createErr
 	}
 	f.nextID++
-	created := ObservedVolume{ID: "ocid1.volume.oc1.x." + string(rune('a'+f.nextID)), DisplayName: spec.DisplayName, SizeGiB: spec.SizeGiB, VPUsPerGiB: spec.VPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: spec.AvailabilityDomain, KMSKeyID: spec.KMSKeyID}
+	created := ObservedVolume{ID: "ocid1.volume.oc1.x." + string(rune('a'+f.nextID)), DisplayName: spec.DisplayName, SizeGiB: spec.SizeGiB, VPUsPerGiB: spec.VPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: spec.AvailabilityDomain, KMSKeyID: spec.KMSKeyID, FreeformTags: volumeOwnershipTags(spec.DisplayName)}
 	f.volumes = append(f.volumes, created)
 	return created, nil
 }
@@ -56,7 +56,7 @@ func (f *fakeBlockGateway) AttachVolume(ctx context.Context, instanceID, volumeI
 		return ObservedAttachment{}, f.attachErr
 	}
 	f.nextID++
-	created := ObservedAttachment{ID: "ocid1.volumeattachment.oc1.x." + string(rune('a'+f.nextID)), InstanceID: instanceID, VolumeID: volumeID, LifecycleState: "ATTACHED"}
+	created := ObservedAttachment{ID: "ocid1.volumeattachment.oc1.x." + string(rune('a'+f.nextID)), InstanceID: instanceID, VolumeID: volumeID, LifecycleState: "ATTACHED", Managed: true}
 	f.attachments = append(f.attachments, created)
 	return created, nil
 }
@@ -80,10 +80,22 @@ func testBlockObserved(members ...ObservedMember) BlockStorageObserved {
 	return BlockStorageObserved{Members: members}
 }
 
+func testOwnedVolume(region string, index int, id string, size uint64, state, availabilityDomain string) ObservedVolume {
+	return ObservedVolume{
+		ID: id, DisplayName: DataVolumeName(region, index), SizeGiB: size,
+		VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: state,
+		AvailabilityDomain: availabilityDomain, FreeformTags: volumeOwnershipTags(DataVolumeName(region, index)),
+	}
+}
+
+func testOwnedAttachment(id, instanceID, volumeID, state string) ObservedAttachment {
+	return ObservedAttachment{ID: id, InstanceID: instanceID, VolumeID: volumeID, LifecycleState: state, Managed: true}
+}
+
 func TestBlockStorageReconcilePlans(t *testing.T) {
 	declared := testComputeRegion()
-	member1 := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
-	member2 := ObservedMember{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: "VM.Standard.A1.Flex", LifecycleState: "RUNNING", AvailabilityDomain: "AD-2"}
+	member1 := testOwnedMember("gru", 1, "VM.Standard.A1.Flex", "RUNNING", "AD-1")
+	member2 := testOwnedMember("gru", 2, "VM.Standard.A1.Flex", "RUNNING", "AD-2")
 	cases := []struct {
 		name      string
 		observed  BlockStorageObserved
@@ -100,12 +112,12 @@ func TestBlockStorageReconcilePlans(t *testing.T) {
 			observed: func() BlockStorageObserved {
 				observed := testBlockObserved(member1, member2)
 				observed.Volumes = []ObservedVolume{
-					{ID: "ocid1.volume.oc1.x.1", DisplayName: "terrascale-gru-1-data", SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE"},
-					{ID: "ocid1.volume.oc1.x.2", DisplayName: "terrascale-gru-2-data", SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE"},
+					testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 200, "AVAILABLE", "AD-1"),
+					testOwnedVolume("gru", 2, "ocid1.volume.oc1.x.2", 200, "AVAILABLE", "AD-2"),
 				}
 				observed.Attachments = []ObservedAttachment{
-					{ID: "ocid1.volumeattachment.oc1.x.1", InstanceID: member1.ID, VolumeID: "ocid1.volume.oc1.x.1", LifecycleState: "ATTACHED"},
-					{ID: "ocid1.volumeattachment.oc1.x.2", InstanceID: member2.ID, VolumeID: "ocid1.volume.oc1.x.2", LifecycleState: "ATTACHED"},
+					testOwnedAttachment("ocid1.volumeattachment.oc1.x.1", member1.ID, "ocid1.volume.oc1.x.1", "ATTACHED"),
+					testOwnedAttachment("ocid1.volumeattachment.oc1.x.2", member2.ID, "ocid1.volume.oc1.x.2", "ATTACHED"),
 				}
 				return observed
 			}(),
@@ -116,7 +128,7 @@ func TestBlockStorageReconcilePlans(t *testing.T) {
 			observed: func() BlockStorageObserved {
 				observed := testBlockObserved(member1, member2)
 				observed.Volumes = []ObservedVolume{
-					{ID: "ocid1.volume.oc1.x.1", DisplayName: "terrascale-gru-1-data", SizeGiB: 50, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE"},
+					testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 50, "AVAILABLE", "AD-1"),
 				}
 				return observed
 			}(),
@@ -127,7 +139,7 @@ func TestBlockStorageReconcilePlans(t *testing.T) {
 			observed: func() BlockStorageObserved {
 				observed := testBlockObserved(member1, member2)
 				observed.Volumes = []ObservedVolume{
-					{ID: "ocid1.volume.oc1.x.1", DisplayName: "terrascale-gru-1-data", SizeGiB: 500, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE"},
+					testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 500, "AVAILABLE", "AD-1"),
 				}
 				return observed
 			}(),
@@ -138,8 +150,9 @@ func TestBlockStorageReconcilePlans(t *testing.T) {
 			observed: func() BlockStorageObserved {
 				observed := testBlockObserved(member1, member2)
 				observed.Volumes = []ObservedVolume{
-					{ID: "ocid1.volume.oc1.x.1", DisplayName: "terrascale-gru-1-data", SizeGiB: 200, VPUsPerGiB: 20, LifecycleState: "AVAILABLE"},
+					testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 200, "AVAILABLE", "AD-1"),
 				}
+				observed.Volumes[0].VPUsPerGiB = 20
 				return observed
 			}(),
 			wantErr: true,
@@ -149,10 +162,10 @@ func TestBlockStorageReconcilePlans(t *testing.T) {
 			observed: func() BlockStorageObserved {
 				observed := testBlockObserved(member1, member2)
 				observed.Volumes = []ObservedVolume{
-					{ID: "ocid1.volume.oc1.x.1", DisplayName: "terrascale-gru-1-data", SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE"},
+					testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 200, "AVAILABLE", "AD-1"),
 				}
 				observed.Attachments = []ObservedAttachment{
-					{ID: "ocid1.volumeattachment.oc1.x.1", InstanceID: member2.ID, VolumeID: "ocid1.volume.oc1.x.1", LifecycleState: "ATTACHED"},
+					testOwnedAttachment("ocid1.volumeattachment.oc1.x.1", member2.ID, "ocid1.volume.oc1.x.1", "ATTACHED"),
 				}
 				return observed
 			}(),
@@ -227,13 +240,13 @@ func TestBlockStorageApplyConvergesIdempotently(t *testing.T) {
 
 func TestBlockStoragePendingFailedAndDuplicateResources(t *testing.T) {
 	declared := testComputeRegion()
-	member1 := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
-	member2 := ObservedMember{ID: "ocid1.instance.oc1.x.2", Index: 2, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-2"}
+	member1 := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
+	member2 := testOwnedMember("gru", 2, declared.Members.PrimaryShape, "RUNNING", "AD-2")
 	reconciler := &BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}}
 	observed := testBlockObserved(member1, member2)
 	observed.Volumes = []ObservedVolume{
-		{ID: "ocid1.volume.oc1.x.1", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "CREATING"},
-		{ID: "ocid1.volume.oc1.x.2", DisplayName: DataVolumeName("gru", 2), SizeGiB: 200, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "CREATING"},
+		testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 200, "CREATING", "AD-1"),
+		testOwnedVolume("gru", 2, "ocid1.volume.oc1.x.2", 200, "CREATING", "AD-2"),
 	}
 	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
 	if err != nil || !plan.Empty() {
@@ -257,12 +270,10 @@ func TestBlockStoragePendingFailedAndDuplicateResources(t *testing.T) {
 
 func TestBlockStorageFullVolumePlansBoundedExpansion(t *testing.T) {
 	declared := testComputeRegion()
-	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	member := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
 	observed := testBlockObserved(member)
-	observed.Volumes = []ObservedVolume{{
-		ID: "ocid1.volume.oc1.x.full", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200,
-		VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: "AD-1", UtilizationPercent: 99,
-	}}
+	observed.Volumes = []ObservedVolume{testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.full", 200, "AVAILABLE", "AD-1")}
+	observed.Volumes[0].UtilizationPercent = 99
 	plan, err := (&BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}}).Reconcile(context.Background(), declared, observed)
 	if err != nil {
 		t.Fatalf("full volume reconcile failed: %v", err)
@@ -282,14 +293,16 @@ func TestBlockStorageFullVolumePlansBoundedExpansion(t *testing.T) {
 
 func TestBlockStorageUnhealthyVolumeRequiresProvenReplacement(t *testing.T) {
 	declared := testComputeRegion()
-	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	member := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
 	observed := testBlockObserved(member)
-	observed.Volumes = []ObservedVolume{{
-		ID: "ocid1.volume.oc1.x.bad", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200,
-		VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "ERROR", AvailabilityDomain: "AD-1", KMSKeyID: "ocid1.key.oc1.x.key", BackupVerified: true, ReplicaCount: 2,
-	}}
-	observed.Attachments = []ObservedAttachment{{ID: "ocid1.volumeattachment.oc1.x.old", InstanceID: member.ID, VolumeID: observed.Volumes[0].ID, LifecycleState: "ATTACHED"}}
-	reconciler := &BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}, Policy: BlockStoragePolicy{AllowReplacement: true}}
+	observed.Volumes = []ObservedVolume{testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.bad", 200, "ERROR", "AD-1")}
+	observed.Volumes[0].KMSKeyID = "ocid1.key.oc1.x.key"
+	observed.Volumes[0].BackupVerified = true
+	observed.Volumes[0].ReplicaCount = 2
+	observed.Attachments = []ObservedAttachment{testOwnedAttachment("ocid1.volumeattachment.oc1.x.old", member.ID, observed.Volumes[0].ID, "ATTACHED")}
+	block := &fakeBlockGateway{volumes: observed.Volumes, attachments: observed.Attachments}
+	compute := &fakeComputeGateway{members: []ObservedMember{member}}
+	reconciler := &BlockStorageReconciler{Block: block, Compute: compute, Policy: BlockStoragePolicy{AllowReplacement: true}}
 	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
 	if err != nil {
 		t.Fatalf("replacement reconcile failed: %v", err)
@@ -304,16 +317,52 @@ func TestBlockStorageUnhealthyVolumeRequiresProvenReplacement(t *testing.T) {
 	if err := reconciler.Apply(context.Background(), declared, observed, plan); err != nil {
 		t.Fatalf("replacement apply failed: %v", err)
 	}
-	block := reconciler.Block.(*fakeBlockGateway)
+	block = reconciler.Block.(*fakeBlockGateway)
 	if got, want := block.calls, []string{"create", "attach", "detach"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("replacement calls = %v, want create/attach/detach", got)
 	}
 }
 
+func TestBlockStorageApplyPreservesUnownedAndStaleAttachments(t *testing.T) {
+	declared := testComputeRegion()
+	member := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
+	volume := testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 200, "AVAILABLE", "AD-1")
+	expected := testOwnedAttachment("ocid1.volumeattachment.oc1.x.old", member.ID, volume.ID, "ATTACHED")
+	foreign := expected
+	foreign.Managed = false
+	block := &fakeBlockGateway{volumes: []ObservedVolume{volume}, attachments: []ObservedAttachment{foreign}}
+	compute := &fakeComputeGateway{members: []ObservedMember{member}}
+	reconciler := &BlockStorageReconciler{Block: block, Compute: compute}
+	plan := OCIPlan{Actions: []OCIAction{DetachAttachmentAction{AttachmentID: expected.ID}}}
+	err := reconciler.Apply(context.Background(), declared, BlockStorageObserved{
+		Members: []ObservedMember{member}, Volumes: []ObservedVolume{volume}, Attachments: []ObservedAttachment{expected},
+	}, plan)
+	if err == nil {
+		t.Fatal("unowned attachment detach was accepted")
+	}
+	if len(block.calls) != 0 {
+		t.Fatalf("unowned detach calls = %v, want none", block.calls)
+	}
+
+	block.calls = nil
+	block.attachments = []ObservedAttachment{expected}
+	stale := expected
+	stale.LifecycleState = "DETACHED"
+	err = reconciler.Apply(context.Background(), declared, BlockStorageObserved{
+		Members: []ObservedMember{member}, Volumes: []ObservedVolume{volume}, Attachments: []ObservedAttachment{stale},
+	}, plan)
+	if err == nil {
+		t.Fatal("stale attachment detach was accepted")
+	}
+	if len(block.calls) != 0 {
+		t.Fatalf("stale detach calls = %v, want none", block.calls)
+	}
+}
+
 func TestBlockStorageUnknownMutationOutcomeStopsPlan(t *testing.T) {
 	declared := testComputeRegion()
-	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
-	volume := ObservedVolume{ID: "ocid1.volume.oc1.x.1", DisplayName: DataVolumeName("gru", 1), SizeGiB: 50, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: "AD-1"}
+	member := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
+	volume := testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 50, "AVAILABLE", "AD-1")
 	block := &fakeBlockGateway{expandErr: &ProviderOutcomeUnknownError{Message: "accepted by OCI"}}
 	reconciler := &BlockStorageReconciler{Block: block, Compute: &fakeComputeGateway{}}
 	plan, err := reconciler.Reconcile(context.Background(), declared, testBlockObserved(member))
@@ -323,7 +372,9 @@ func TestBlockStorageUnknownMutationOutcomeStopsPlan(t *testing.T) {
 	// Use a plan containing a mutating operation followed by attach: Apply must
 	// stop at the indeterminate operation and never risk a second mutation.
 	plan.Actions = []OCIAction{ExpandVolumeAction{VolumeID: volume.ID, NewSizeGiB: 200}, AttachVolumeAction{InstanceID: member.ID, VolumeID: volume.ID}}
-	err = reconciler.Apply(context.Background(), declared, testBlockObserved(member), plan)
+	observed := testBlockObserved(member)
+	observed.Volumes = []ObservedVolume{volume}
+	err = reconciler.Apply(context.Background(), declared, observed, plan)
 	var unknown *ProviderOutcomeUnknownError
 	if !errors.As(err, &unknown) {
 		t.Fatalf("unknown mutation error = %v, want ProviderOutcomeUnknownError", err)

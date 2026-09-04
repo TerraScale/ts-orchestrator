@@ -62,7 +62,7 @@ func (f *fakeNetworkGateway) ListVCNs(ctx context.Context, name string) ([]Obser
 
 func (f *fakeNetworkGateway) CreateVCN(ctx context.Context, name, cidr string) (ObservedVCN, error) {
 	f.nextID++
-	created := ObservedVCN{ID: "ocid1.vcn.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), DisplayName: name, CIDR: cidr, LifecycleState: "AVAILABLE"}
+	created := ObservedVCN{ID: "ocid1.vcn.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), DisplayName: name, CIDR: cidr, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")}
 	f.vcns = append(f.vcns, created)
 	f.createCalls = append(f.createCalls, "vcn:"+name)
 	return created, nil
@@ -80,7 +80,7 @@ func (f *fakeNetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]O
 
 func (f *fakeNetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr string) (ObservedSubnet, error) {
 	f.nextID++
-	created := ObservedSubnet{ID: "ocid1.subnet.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, CIDR: cidr, LifecycleState: "AVAILABLE"}
+	created := ObservedSubnet{ID: "ocid1.subnet.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, CIDR: cidr, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "subnet")}
 	f.subnets = append(f.subnets, created)
 	f.createCalls = append(f.createCalls, "subnet:"+name)
 	return created, nil
@@ -98,7 +98,7 @@ func (f *fakeNetworkGateway) ListNSGs(ctx context.Context, vcnID string) ([]Obse
 
 func (f *fakeNetworkGateway) CreateNSG(ctx context.Context, vcnID, name string) (ObservedNSG, error) {
 	f.nextID++
-	created := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE"}
+	created := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}
 	f.nsgs = append(f.nsgs, created)
 	f.createCalls = append(f.createCalls, "nsg:"+name)
 	return created, nil
@@ -111,7 +111,7 @@ func (f *fakeNetworkGateway) ListNSGRules(ctx context.Context, nsgID string) ([]
 func (f *fakeNetworkGateway) AddNSGRules(ctx context.Context, nsgID string, rules []SecurityRuleSpec) error {
 	for _, spec := range rules {
 		f.nextID++
-		rule := ObservedSecurityRule{ID: "ocid1.securityrule.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), Direction: ingressDirection(spec.Direction), Protocol: securityProtocolNumbers[spec.Protocol], Peer: spec.Peer, PortMin: spec.PortMin, PortMax: spec.PortMax}
+		rule := ObservedSecurityRule{ID: "ocid1.securityrule.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), Direction: ingressDirection(spec.Direction), Protocol: securityProtocolNumbers[spec.Protocol], Peer: spec.Peer, PortMin: spec.PortMin, PortMax: spec.PortMax, Managed: true}
 		f.rules[nsgID] = append(f.rules[nsgID], rule)
 	}
 	f.createCalls = append(f.createCalls, "rules-add:"+nsgID)
@@ -149,7 +149,7 @@ func (f *fakeNetworkGateway) ListNATGateways(ctx context.Context, vcnID string) 
 
 func (f *fakeNetworkGateway) CreateNATGateway(ctx context.Context, vcnID, name string) (ObservedNATGateway, error) {
 	f.nextID++
-	created := ObservedNATGateway{ID: "ocid1.natgateway.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE"}
+	created := ObservedNATGateway{ID: "ocid1.natgateway.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "natgateway")}
 	f.natGateways = append(f.natGateways, created)
 	f.createCalls = append(f.createCalls, "nat:"+name)
 	return created, nil
@@ -167,7 +167,7 @@ func (f *fakeNetworkGateway) ListRouteTables(ctx context.Context, vcnID string) 
 
 func (f *fakeNetworkGateway) CreateRouteTable(ctx context.Context, vcnID, name string, rules []RouteRuleSpec) (ObservedRouteTable, error) {
 	f.nextID++
-	created := ObservedRouteTable{ID: "ocid1.routetable.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE", Routes: observedRouteRules(rules)}
+	created := ObservedRouteTable{ID: "ocid1.routetable.oc1.sa-saopaulo-1.aaaa" + string(rune('a'+f.nextID)), VCNID: vcnID, DisplayName: name, LifecycleState: "AVAILABLE", Routes: observedRouteRules(rules), FreeformTags: networkOwnershipTags("gru", "routetable")}
 	f.routeTables = append(f.routeTables, created)
 	f.createCalls = append(f.createCalls, "route-table:"+name)
 	return created, nil
@@ -202,14 +202,18 @@ func observedRouteRules(rules []RouteRuleSpec) []ObservedRouteRule {
 	return observed
 }
 
+func testOwnedRule(id, direction, protocol, peer string, portMin, portMax uint16) ObservedSecurityRule {
+	return ObservedSecurityRule{ID: id, Direction: direction, Protocol: protocol, Peer: peer, PortMin: portMin, PortMax: portMax, Managed: true}
+}
+
 func TestNetworkReconcilePlans(t *testing.T) {
 	declared := testNetworkRegion()
-	vcn := ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: "terrascale-gru", CIDR: "10.0.0.0/16", LifecycleState: "AVAILABLE"}
-	nat := ObservedNATGateway{ID: "ocid1.natgateway.oc1.x", VCNID: vcn.ID, DisplayName: NATGatewayName("gru"), LifecycleState: "AVAILABLE"}
+	vcn := ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: "terrascale-gru", CIDR: "10.0.0.0/16", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")}
+	nat := ObservedNATGateway{ID: "ocid1.natgateway.oc1.x", VCNID: vcn.ID, DisplayName: NATGatewayName("gru"), LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "natgateway")}
 	routes := []ObservedRouteRule{{Destination: "0.0.0.0/0", TargetID: nat.ID, TargetType: "natgateway"}}
-	table := ObservedRouteTable{ID: "ocid1.routetable.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", Routes: routes}
-	subnet := ObservedSubnet{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", RouteTableID: table.ID}
-	nsg := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE"}
+	table := ObservedRouteTable{ID: "ocid1.routetable.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", Routes: routes, FreeformTags: networkOwnershipTags("gru", "routetable")}
+	subnet := ObservedSubnet{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", RouteTableID: table.ID, FreeformTags: networkOwnershipTags("gru", "subnet")}
+	nsg := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}
 	cases := []struct {
 		name      string
 		observed  NetworkObserved
@@ -231,9 +235,9 @@ func TestNetworkReconcilePlans(t *testing.T) {
 				RouteTables: []ObservedRouteTable{table},
 				Rules: map[string][]ObservedSecurityRule{
 					nsg.DisplayName: {
-						{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
-						{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
-						{ID: "ocid1.securityrule.oc1.x.3", Direction: "EGRESS", Protocol: "1", Peer: "0.0.0.0/0"},
+						testOwnedRule("ocid1.securityrule.oc1.x.1", "INGRESS", "6", "0.0.0.0/0", 443, 443),
+						testOwnedRule("ocid1.securityrule.oc1.x.2", "INGRESS", "17", "10.0.0.0/16", 6000, 65535),
+						testOwnedRule("ocid1.securityrule.oc1.x.3", "EGRESS", "1", "0.0.0.0/0", 0, 0),
 					},
 				},
 			},
@@ -246,7 +250,7 @@ func TestNetworkReconcilePlans(t *testing.T) {
 				NSGs: []ObservedNSG{nsg},
 				Rules: map[string][]ObservedSecurityRule{
 					nsg.DisplayName: {
-						{ID: "ocid1.securityrule.oc1.x.9", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 22, PortMax: 22},
+						testOwnedRule("ocid1.securityrule.oc1.x.9", "INGRESS", "6", "0.0.0.0/0", 22, 22),
 					},
 				},
 			},
@@ -261,9 +265,9 @@ func TestNetworkReconcilePlans(t *testing.T) {
 				NATGateways: []ObservedNATGateway{nat},
 				Rules: map[string][]ObservedSecurityRule{
 					nsg.DisplayName: {
-						{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
-						{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
-						{ID: "ocid1.securityrule.oc1.x.3", Direction: "EGRESS", Protocol: "1", Peer: "0.0.0.0/0"},
+						testOwnedRule("ocid1.securityrule.oc1.x.1", "INGRESS", "6", "0.0.0.0/0", 443, 443),
+						testOwnedRule("ocid1.securityrule.oc1.x.2", "INGRESS", "17", "10.0.0.0/16", 6000, 65535),
+						testOwnedRule("ocid1.securityrule.oc1.x.3", "EGRESS", "1", "0.0.0.0/0", 0, 0),
 					},
 				},
 			},
@@ -275,12 +279,12 @@ func TestNetworkReconcilePlans(t *testing.T) {
 				VCN:         &vcn,
 				Subnets:     []ObservedSubnet{subnet},
 				NSGs:        []ObservedNSG{nsg},
-				NATGateways: []ObservedNATGateway{{ID: "ocid1.natgateway.oc1.x", VCNID: vcn.ID, DisplayName: NATGatewayName("gru"), LifecycleState: "PROVISIONING"}},
+				NATGateways: []ObservedNATGateway{{ID: "ocid1.natgateway.oc1.x", VCNID: vcn.ID, DisplayName: NATGatewayName("gru"), LifecycleState: "PROVISIONING", FreeformTags: networkOwnershipTags("gru", "natgateway")}},
 				Rules: map[string][]ObservedSecurityRule{
 					nsg.DisplayName: {
-						{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
-						{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
-						{ID: "ocid1.securityrule.oc1.x.3", Direction: "EGRESS", Protocol: "1", Peer: "0.0.0.0/0"},
+						testOwnedRule("ocid1.securityrule.oc1.x.1", "INGRESS", "6", "0.0.0.0/0", 443, 443),
+						testOwnedRule("ocid1.securityrule.oc1.x.2", "INGRESS", "17", "10.0.0.0/16", 6000, 65535),
+						testOwnedRule("ocid1.securityrule.oc1.x.3", "EGRESS", "1", "0.0.0.0/0", 0, 0),
 					},
 				},
 			},
@@ -290,18 +294,18 @@ func TestNetworkReconcilePlans(t *testing.T) {
 			name: "drifted routes and subnet attachment plan repair",
 			observed: NetworkObserved{
 				VCN:         &vcn,
-				Subnets:     []ObservedSubnet{{ID: subnet.ID, VCNID: vcn.ID, DisplayName: subnet.DisplayName, CIDR: subnet.CIDR, LifecycleState: "AVAILABLE"}},
+				Subnets:     []ObservedSubnet{{ID: subnet.ID, VCNID: vcn.ID, DisplayName: subnet.DisplayName, CIDR: subnet.CIDR, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "subnet")}},
 				NSGs:        []ObservedNSG{nsg},
 				NATGateways: []ObservedNATGateway{nat},
-				RouteTables: []ObservedRouteTable{{ID: table.ID, VCNID: vcn.ID, DisplayName: table.DisplayName, LifecycleState: "AVAILABLE", Routes: []ObservedRouteRule{
+				RouteTables: []ObservedRouteTable{{ID: table.ID, VCNID: vcn.ID, DisplayName: table.DisplayName, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "routetable"), Routes: []ObservedRouteRule{
 					{Destination: "0.0.0.0/0", TargetID: "ocid1.natgateway.oc1.foreign", TargetType: "natgateway"},
 					{Destination: "10.9.0.0/16", TargetID: nat.ID, TargetType: "natgateway"},
 				}}},
 				Rules: map[string][]ObservedSecurityRule{
 					nsg.DisplayName: {
-						{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
-						{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
-						{ID: "ocid1.securityrule.oc1.x.3", Direction: "EGRESS", Protocol: "1", Peer: "0.0.0.0/0"},
+						testOwnedRule("ocid1.securityrule.oc1.x.1", "INGRESS", "6", "0.0.0.0/0", 443, 443),
+						testOwnedRule("ocid1.securityrule.oc1.x.2", "INGRESS", "17", "10.0.0.0/16", 6000, 65535),
+						testOwnedRule("ocid1.securityrule.oc1.x.3", "EGRESS", "1", "0.0.0.0/0", 0, 0),
 					},
 				},
 			},
@@ -403,34 +407,34 @@ func TestNetworkReconcileRejectsDuplicateActiveNames(t *testing.T) {
 
 func TestNetworkBootstrapConvergenceWaitsForPendingResources(t *testing.T) {
 	declared := testNetworkRegion()
-	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", CIDR: declared.Network.CIDR, LifecycleState: "CREATING"}
+	vcn := &ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: VCNName("gru"), CIDR: declared.Network.CIDR, LifecycleState: "CREATING", FreeformTags: networkOwnershipTags("gru", "vcn")}
 	reconciler := &NetworkReconciler{Gateway: &fakeNetworkGateway{}}
 	converged, err := reconciler.bootstrapConverged(NetworkObserved{VCN: vcn}, declared)
 	if err != nil || converged {
 		t.Fatalf("pending VCN convergence = %v, %v; want false, nil", converged, err)
 	}
 	converged, err = reconciler.bootstrapConverged(NetworkObserved{
-		VCN:     &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
-		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "CREATING"}},
+		VCN:     &ObservedVCN{ID: vcn.ID, DisplayName: VCNName("gru"), CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")},
+		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "CREATING", FreeformTags: networkOwnershipTags("gru", "subnet")}},
 	}, declared)
 	if err != nil || converged {
 		t.Fatalf("pending subnet convergence = %v, %v; want false, nil", converged, err)
 	}
 	_, err = reconciler.bootstrapConverged(NetworkObserved{
-		VCN:     &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
-		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE"}},
-		NSGs:    []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "FAILED"}},
+		VCN:     &ObservedVCN{ID: vcn.ID, DisplayName: VCNName("gru"), CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")},
+		Subnets: []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "subnet")}},
+		NSGs:    []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "FAILED", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}},
 	}, declared)
 	if err == nil {
 		t.Fatal("failed NSG convergence was accepted")
 	}
 	natID := "ocid1.natgateway.oc1.x"
 	ready := NetworkObserved{
-		VCN:         &ObservedVCN{ID: vcn.ID, CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE"},
-		Subnets:     []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", RouteTableID: "ocid1.routetable.oc1.x"}},
-		NSGs:        []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "AVAILABLE"}},
-		NATGateways: []ObservedNATGateway{{ID: natID, DisplayName: NATGatewayName("gru"), LifecycleState: "AVAILABLE"}},
-		RouteTables: []ObservedRouteTable{{ID: "ocid1.routetable.oc1.x", DisplayName: "gru-members", LifecycleState: "AVAILABLE", Routes: []ObservedRouteRule{{Destination: "0.0.0.0/0", TargetID: natID, TargetType: "natgateway"}}}},
+		VCN:         &ObservedVCN{ID: vcn.ID, DisplayName: VCNName("gru"), CIDR: declared.Network.CIDR, LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")},
+		Subnets:     []ObservedSubnet{{ID: "ocid1.subnet.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", CIDR: "10.0.1.0/24", LifecycleState: "AVAILABLE", RouteTableID: "ocid1.routetable.oc1.x", FreeformTags: networkOwnershipTags("gru", "subnet")}},
+		NSGs:        []ObservedNSG{{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}},
+		NATGateways: []ObservedNATGateway{{ID: natID, VCNID: vcn.ID, DisplayName: NATGatewayName("gru"), LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "natgateway")}},
+		RouteTables: []ObservedRouteTable{{ID: "ocid1.routetable.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "routetable"), Routes: []ObservedRouteRule{{Destination: "0.0.0.0/0", TargetID: natID, TargetType: "natgateway"}}}},
 		Rules: map[string][]ObservedSecurityRule{"gru-members": {
 			{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 443, PortMax: 443},
 			{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "17", Peer: "10.0.0.0/16", PortMin: 6000, PortMax: 65535},
@@ -558,6 +562,89 @@ func TestNetworkApplyDriftRepair(t *testing.T) {
 	}
 	if rules := gateway.rules[group.ID]; len(rules) != 3 {
 		t.Fatalf("repaired rules = %d, want 3", len(rules))
+	}
+}
+
+func TestNetworkApplyPreservesUnownedDriftRule(t *testing.T) {
+	declared := testNetworkRegion()
+	gateway := &fakeNetworkGateway{rules: map[string][]ObservedSecurityRule{}}
+	reconciler := &NetworkReconciler{Gateway: gateway}
+	ctx := context.Background()
+	if _, err := gateway.CreateVCN(ctx, VCNName(declared.Code), declared.Network.CIDR); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.CreateNSG(ctx, gateway.vcns[0].ID, "gru-members"); err != nil {
+		t.Fatal(err)
+	}
+	group := gateway.nsgs[0]
+	gateway.rules[group.ID] = []ObservedSecurityRule{{
+		ID: "ocid1.securityrule.oc1.sa-saopaulo-1.foreign", Direction: "INGRESS", Protocol: "6",
+		Peer: "0.0.0.0/0", PortMin: 22, PortMax: 22,
+	}}
+	observed, err := reconciler.Observe(ctx, declared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := reconciler.Reconcile(ctx, declared, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replacement ReplaceNSGRulesAction
+	found := false
+	for _, action := range plan.Actions {
+		if candidate, ok := action.(ReplaceNSGRulesAction); ok {
+			replacement, found = candidate, true
+		}
+	}
+	if !found || len(replacement.RemoveIDs) != 0 {
+		t.Fatalf("unowned rule repair = %+v, want no removals", replacement)
+	}
+	if err := reconciler.Apply(ctx, declared, observed, plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range gateway.createCalls {
+		if len(call) >= len("rules-remove:") && call[:len("rules-remove:")] == "rules-remove:" {
+			t.Fatalf("unowned rule was removed: calls = %v", gateway.createCalls)
+		}
+	}
+	if got := len(gateway.rules[group.ID]); got != 4 {
+		t.Fatalf("rules after preserving foreign rule = %d, want 4", got)
+	}
+}
+
+func TestNetworkApplyRefusesStaleOwnedRuleObservation(t *testing.T) {
+	declared := testNetworkRegion()
+	gateway := &fakeNetworkGateway{rules: map[string][]ObservedSecurityRule{}}
+	reconciler := &NetworkReconciler{Gateway: gateway}
+	ctx := context.Background()
+	if _, err := gateway.CreateVCN(ctx, VCNName(declared.Code), declared.Network.CIDR); err != nil {
+		t.Fatal(err)
+	}
+	group, err := gateway.CreateNSG(ctx, gateway.vcns[0].ID, "gru-members")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gateway.AddNSGRules(ctx, group.ID, []SecurityRuleSpec{{Direction: "ingress", Protocol: "tcp", Peer: "0.0.0.0/0", PortMin: 22, PortMax: 22}}); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := reconciler.Observe(ctx, declared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := reconciler.Reconcile(ctx, declared, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range gateway.vcns {
+		gateway.vcns[i].FreeformTags = nil
+	}
+	if err := reconciler.Apply(ctx, declared, observed, plan); err == nil {
+		t.Fatal("stale VCN rule observation was accepted")
+	}
+	for _, call := range gateway.createCalls {
+		if len(call) >= len("rules-remove:") && call[:len("rules-remove:")] == "rules-remove:" {
+			t.Fatalf("stale rule was removed: calls = %v", gateway.createCalls)
+		}
 	}
 }
 

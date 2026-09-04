@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -14,7 +15,7 @@ import (
 // contract changes. A plan contains no timestamps, host paths, or credentials,
 // so its canonical bytes can be checked into CI evidence and compared across
 // machines.
-const BuildPlanSchemaVersion = 1
+const BuildPlanSchemaVersion = 2
 
 const maxBuildPlanBytes = 64 << 10
 
@@ -37,14 +38,18 @@ type BuildPlan struct {
 	Version        string             `json:"version"`
 	Manifest       GuestImageManifest `json:"manifest"`
 	ManifestDigest string             `json:"manifestDigest"`
-	CacheEntry     string             `json:"cacheEntry"`
+	CacheKey       string             `json:"cacheKey"`
 	Steps          []BuildStep        `json:"steps"`
+
+	// CacheEntry is the host-local resolution of CacheKey. It is deliberately
+	// absent from JSON so the same plan has identical bytes on every runner.
+	CacheEntry string `json:"-"`
 }
 
 // NewBuildPlan returns the deterministic preparation plan and the exact
 // digest-keyed cache destination for a manifest.
 func NewBuildPlan(manifest GuestImageManifest, cacheRoot string) (BuildPlan, error) {
-	canonical, err := NewManifest(manifest)
+	canonical, err := NewPinnedManifest(manifest)
 	if err != nil {
 		return BuildPlan{}, err
 	}
@@ -55,9 +60,10 @@ func NewBuildPlan(manifest GuestImageManifest, cacheRoot string) (BuildPlan, err
 	if err != nil {
 		return BuildPlan{}, err
 	}
-	entry := filepath.Join(filepath.Clean(cacheRoot), string(canonical.Architecture), canonical.Version, digest)
+	cacheKey := imageCacheKey(canonical, digest)
+	entry := filepath.Join(filepath.Clean(cacheRoot), filepath.FromSlash(cacheKey))
 	steps := expectedBuildSteps(canonical, digest)
-	return BuildPlan{SchemaVersion: BuildPlanSchemaVersion, UbuntuRelease: canonical.UbuntuRelease, Architecture: canonical.Architecture, Version: canonical.Version, Manifest: canonical, ManifestDigest: digest, CacheEntry: entry, Steps: steps}, nil
+	return BuildPlan{SchemaVersion: BuildPlanSchemaVersion, UbuntuRelease: canonical.UbuntuRelease, Architecture: canonical.Architecture, Version: canonical.Version, Manifest: canonical, ManifestDigest: digest, CacheKey: cacheKey, CacheEntry: entry, Steps: steps}, nil
 }
 
 // Validate checks the plan's digest and immutable cache destination. It is
@@ -66,7 +72,7 @@ func (plan BuildPlan) Validate() error {
 	if plan.SchemaVersion != BuildPlanSchemaVersion {
 		return fmt.Errorf("vmimage: unsupported build plan schema %d", plan.SchemaVersion)
 	}
-	canonical, err := NewManifest(plan.Manifest)
+	canonical, err := NewPinnedManifest(plan.Manifest)
 	if err != nil {
 		return err
 	}
@@ -77,8 +83,12 @@ func (plan BuildPlan) Validate() error {
 	if plan.ManifestDigest != digest || plan.UbuntuRelease != canonical.UbuntuRelease || plan.Architecture != canonical.Architecture || plan.Version != canonical.Version {
 		return errors.New("vmimage: build plan manifest digest or identity is inconsistent")
 	}
-	if plan.CacheEntry == "" || !filepath.IsAbs(plan.CacheEntry) {
-		return errors.New("vmimage: build plan cache entry must be absolute")
+	if plan.CacheKey != imageCacheKey(canonical, digest) {
+		return errors.New("vmimage: build plan cache key is inconsistent")
+	}
+	if plan.CacheEntry != "" && (!filepath.IsAbs(plan.CacheEntry) || filepath.Clean(plan.CacheEntry) != plan.CacheEntry ||
+		!strings.HasSuffix(filepath.ToSlash(plan.CacheEntry), "/"+plan.CacheKey)) {
+		return errors.New("vmimage: build plan cache entry does not resolve its portable key")
 	}
 	expected := expectedBuildSteps(canonical, digest)
 	if !buildStepsEqual(plan.Steps, expected) {
@@ -87,21 +97,32 @@ func (plan BuildPlan) Validate() error {
 	return nil
 }
 
+func imageCacheKey(manifest GuestImageManifest, digest string) string {
+	return path.Join(string(manifest.Architecture), manifest.Version, digest)
+}
+
 func expectedBuildSteps(manifest GuestImageManifest, digest string) []BuildStep {
 	steps := []BuildStep{
 		{Name: "verify-kernel", Inputs: []string{manifest.Kernel.Source, manifest.Kernel.SHA256, fmt.Sprintf("%d", manifest.Kernel.Size)}, Output: manifest.Kernel.Name},
 	}
 	if manifest.RootFS.Transform == nil {
-		steps = append(steps, BuildStep{Name: "verify-rootfs", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name})
+		steps = append(steps, BuildStep{Name: "fetch-rootfs", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name})
 	} else {
 		transform := manifest.RootFS.Transform
 		steps = append(steps,
 			BuildStep{Name: "verify-rootfs-input", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.InputSHA256, fmt.Sprintf("%d", manifest.RootFS.InputSize)}, Output: manifest.RootFS.Name + ".input"},
 			BuildStep{Name: "convert-qcow2-to-raw", Inputs: []string{manifest.RootFS.Name + ".input", "qcow2"}, Output: manifest.RootFS.Name + ".raw"},
-			BuildStep{Name: "extract-root-partition", Inputs: []string{fmt.Sprintf("%d", transform.SectorSize), fmt.Sprintf("%d", transform.StartSector), fmt.Sprintf("%d", transform.SectorCount), manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name},
+			BuildStep{Name: "extract-root-partition", Inputs: []string{fmt.Sprintf("%d", transform.SectorSize), fmt.Sprintf("%d", transform.StartSector), fmt.Sprintf("%d", transform.SectorCount)}, Output: manifest.RootFS.Name},
 		)
 	}
-	return append(steps, BuildStep{Name: "publish-manifest", Inputs: []string{digest}, Output: "manifest.json"})
+	return append(steps,
+		BuildStep{Name: "inspect-ubuntu-identity", Inputs: []string{"/usr/lib/os-release", manifest.UbuntuRelease}, Output: "image-receipt.json"},
+		BuildStep{Name: "sanitize-firecracker-fstab", Inputs: []string{"LABEL=BOOT /boot", "LABEL=UEFI /boot/efi"}, Output: manifest.RootFS.Name},
+		BuildStep{Name: "check-ext4", Inputs: []string{"e2fsck", "-f", "-n"}, Output: manifest.RootFS.Name},
+		BuildStep{Name: "verify-rootfs-output", Inputs: []string{manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name},
+		BuildStep{Name: "publish-image-receipt", Inputs: []string{digest, manifest.RootFS.SHA256}, Output: "image-receipt.json"},
+		BuildStep{Name: "publish-manifest", Inputs: []string{digest}, Output: "manifest.json"},
+	)
 }
 
 func buildStepsEqual(left, right []BuildStep) bool {

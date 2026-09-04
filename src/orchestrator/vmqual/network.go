@@ -7,15 +7,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
 type networkController struct {
+	mu          sync.Mutex
 	plan        vmnet.NetworkPlan
 	runner      vmnet.Runner
 	journalPath string
+}
+
+// DynamicNetworkController is the live fault surface implemented by the real
+// qualification network. The base Stack interface remains lifecycle-only.
+type DynamicNetworkController interface {
+	NetworkController
+	Partition(context.Context, vmnet.RegionCode, vmnet.RegionCode) error
+	Heal(context.Context, vmnet.RegionCode, vmnet.RegionCode) error
+	SetNetem(context.Context, vmnet.FaultSpec) error
+	ClearNetem(context.Context, vmnet.RegionCode, vmnet.RegionCode) error
 }
 
 func NewNetworkController(config vmnet.Config, runner vmnet.Runner, journalPath string) (NetworkController, error) {
@@ -38,6 +49,8 @@ func (n *networkController) Apply(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("vmqual: network context is nil")
 	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	if n.journalPath != "" {
 		return n.plan.ApplyWithJournal(ctx, n.runner, networkJournalWriter{path: n.journalPath})
 	}
@@ -50,7 +63,45 @@ func (n *networkController) Cleanup(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	return n.plan.CleanupPlan().Run(context.WithoutCancel(ctx), n.runner)
+}
+
+func (n *networkController) Partition(ctx context.Context, from, to vmnet.RegionCode) error {
+	if n == nil {
+		return errors.New("vmqual: nil network controller")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.plan.Partition(ctx, n.runner, from, to)
+}
+
+func (n *networkController) Heal(ctx context.Context, from, to vmnet.RegionCode) error {
+	if n == nil {
+		return errors.New("vmqual: nil network controller")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.plan.Heal(ctx, n.runner, from, to)
+}
+
+func (n *networkController) SetNetem(ctx context.Context, fault vmnet.FaultSpec) error {
+	if n == nil {
+		return errors.New("vmqual: nil network controller")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.plan.SetNetem(ctx, n.runner, fault)
+}
+
+func (n *networkController) ClearNetem(ctx context.Context, from, to vmnet.RegionCode) error {
+	if n == nil {
+		return errors.New("vmqual: nil network controller")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.plan.ClearNetem(ctx, n.runner, from, to)
 }
 func (n *networkController) writeJournal() error {
 	if n == nil {
@@ -129,89 +180,13 @@ func writeNetworkJournal(path string, journal vmnet.Journal) error {
 }
 
 // validateNetworkJournal rejects hand-edited cleanup records before they reach
-// a privileged runner. vmnet emits only ip argv; names must carry the
-// qualification prefix and launch-Region marker, so an unrelated host object
-// cannot be selected by a stale journal.
+// a privileged runner. vmnet binds every namespace deletion to the journal's
+// full run identity, prefix, fingerprint, and absolute tool paths.
 func validateNetworkJournal(journal vmnet.Journal) error {
-	if journal.Version != 1 || journal.Fingerprint == "" || journal.Cleanup.Version != 1 || journal.Cleanup.Fingerprint != journal.Fingerprint {
-		return errors.New("vmqual: invalid network journal")
-	}
-	for _, command := range journal.Cleanup.Commands {
-		if err := validateNetworkCleanupCommand(command); err != nil {
-			return err
-		}
+	if err := journal.Validate(); err != nil {
+		return fmt.Errorf("vmqual: invalid network journal: %w", err)
 	}
 	return nil
 }
 
-func validateNetworkCleanupCommand(command vmnet.Command) error {
-	if command.Executable != "ip" {
-		return fmt.Errorf("vmqual: network cleanup executable %q is not admitted", command.Executable)
-	}
-	for _, arg := range command.Args {
-		if arg == "" || strings.ContainsAny(arg, ";|&$`\n\r\x00") {
-			return errors.New("vmqual: network cleanup contains unsafe argv")
-		}
-	}
-	args := command.Args
-	if len(args) >= 3 && args[0] == "netns" && args[1] == "del" {
-		if len(args) != 3 || !networkName(args[2], "-n-") {
-			return errors.New("vmqual: network cleanup namespace is not TerraScale-owned")
-		}
-		return nil
-	}
-	if len(args) >= 5 && args[0] == "-n" && args[2] == "link" && args[3] == "del" {
-		if len(args) != 5 || !networkName(args[1], "-n-") || !networkName(args[4], "-v-") {
-			return errors.New("vmqual: network cleanup veth is not TerraScale-owned")
-		}
-		return nil
-	}
-	if len(args) >= 8 && args[0] == "netns" && args[1] == "exec" && args[3] == "nft" && args[4] == "delete" && args[5] == "table" {
-		if len(args) != 8 || !networkName(args[2], "-n-") || args[6] != "inet" || !networkTable(args[7]) {
-			return errors.New("vmqual: network cleanup nft table is not TerraScale-owned")
-		}
-		return nil
-	}
-	return fmt.Errorf("vmqual: network cleanup argv is not admitted: %v", args)
-}
-
-func networkName(value, kind string) bool {
-	parts := strings.Split(value, kind)
-	if len(parts) != 2 || len(parts[0]) < 1 || len(parts[0]) > 5 {
-		return false
-	}
-	if kind == "-n-" {
-		if parts[1] != "gru" && parts[1] != "sfo" && parts[1] != "fra" {
-			return false
-		}
-	} else if kind == "-v-" {
-		regions := strings.Split(parts[1], "-")
-		if len(regions) != 2 || regions[0] == regions[1] {
-			return false
-		}
-		for _, region := range regions {
-			if region != "gru" && region != "sfo" && region != "fra" {
-				return false
-			}
-		}
-	}
-	for _, r := range value {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-			return false
-		}
-	}
-	return true
-}
-
-func networkTable(value string) bool {
-	prefix, ok := strings.CutSuffix(value, "_vmnet")
-	if !ok || len(prefix) < 1 || len(prefix) > 5 {
-		return false
-	}
-	for _, r := range prefix {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
-			return false
-		}
-	}
-	return true
-}
+var _ DynamicNetworkController = (*networkController)(nil)

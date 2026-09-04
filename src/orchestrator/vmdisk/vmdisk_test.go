@@ -84,7 +84,7 @@ func TestFaultPlanIsSafeAndUsesInjectedRunner(t *testing.T) {
 				t.Fatalf("runner path escaped root: %s", action.Path)
 			}
 			actions = append(actions, action)
-			return nil
+			return fileFaultRunner{}.Apply(ctx, action)
 		}),
 	})
 	if err != nil {
@@ -95,16 +95,20 @@ func TestFaultPlanIsSafeAndUsesInjectedRunner(t *testing.T) {
 	}
 	if err := store.ApplyFaultPlan(ctx, "disk", FaultPlan{
 		FillBytes: 8,
-		ReadOnly:  true,
-		Detach:    true,
 		Corruptions: []Corruption{{
 			Offset: 2, Length: 3, Pattern: 0xee,
 		}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(actions) != 4 || actions[0].Kind != FaultFill || actions[1].Kind != FaultCorruption || actions[2].Kind != FaultReadOnly || actions[3].Kind != FaultDetach {
+	if len(actions) != 1 || actions[0].Kind != FaultCorruption {
 		t.Fatalf("actions = %+v", actions)
+	}
+	if err := store.SetReadOnly(ctx, "disk"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Detach(ctx, "disk"); err != nil {
+		t.Fatal(err)
 	}
 	state, err := store.Get(ctx, "disk")
 	if err != nil {
@@ -147,7 +151,7 @@ func TestDefaultFaultRunnerCorruptsAndFillsOnlyFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, b := range data {
-		want := byte(0xa5)
+		want := byte(0)
 		if i == 2 || i == 3 {
 			want = 0x7f
 		}
@@ -155,7 +159,14 @@ func TestDefaultFaultRunnerCorruptsAndFillsOnlyFiles(t *testing.T) {
 			t.Fatalf("byte %d = %#x, want %#x", i, b, want)
 		}
 	}
-	if mode, err := os.Stat(store.Root() + "/drives/disk/drive.img"); err != nil || mode.Mode()&os.ModeDevice != 0 {
+	state, err := store.Get(ctx, "disk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.FillToENOSPC {
+		t.Fatal("fill-all did not produce a guest ENOSPC intent")
+	}
+	if mode, err := os.Stat(state.Path); err != nil || mode.Mode()&os.ModeDevice != 0 {
 		t.Fatalf("drive is not a regular file: mode=%v err=%v", mode, err)
 	}
 }

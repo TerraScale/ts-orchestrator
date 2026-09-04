@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -17,7 +15,6 @@ type FaultController struct {
 	mu      sync.Mutex
 	plan    NetworkPlan
 	runner  Runner
-	netem   map[string]bool
 	regions map[RegionCode]RegionNetwork
 }
 
@@ -27,8 +24,15 @@ func NewFaultController(plan NetworkPlan, runner Runner) (*FaultController, erro
 	if runner == nil {
 		return nil, errors.New("vmnet: fault runner is required")
 	}
-	if plan.Version != 1 || plan.Prefix == "" || plan.Fingerprint == "" || len(plan.Regions) < 2 {
+	plan = plan.copy()
+	if err := plan.Validate(); err != nil {
+		return nil, err
+	}
+	if len(plan.Regions) < 2 {
 		return nil, errors.New("vmnet: an applied multi-Region plan is required")
+	}
+	if err := validateRunnerTools(runner, plan.Tools); err != nil {
+		return nil, err
 	}
 	regions := make(map[RegionCode]RegionNetwork, len(plan.Regions))
 	for _, region := range plan.Regions {
@@ -37,13 +41,44 @@ func NewFaultController(plan NetworkPlan, runner Runner) (*FaultController, erro
 		}
 		regions[region.Code] = region
 	}
-	netem := make(map[string]bool)
-	for _, fault := range plan.Faults {
-		if fault.Latency != 0 || fault.Jitter != 0 || fault.LossPercent != 0 || fault.BandwidthKbit != 0 {
-			netem[string(fault.From)+"\x00"+string(fault.To)] = true
-		}
+	return &FaultController{plan: plan, runner: runner, regions: regions}, nil
+}
+
+// Partition is a convenience wrapper for one operation against this plan.
+func (p NetworkPlan) Partition(ctx context.Context, runner Runner, a, b RegionCode) error {
+	controller, err := NewFaultController(p, runner)
+	if err != nil {
+		return err
 	}
-	return &FaultController{plan: plan, runner: runner, netem: netem, regions: regions}, nil
+	return controller.Partition(ctx, a, b)
+}
+
+// Heal is a convenience wrapper for one operation against this plan.
+func (p NetworkPlan) Heal(ctx context.Context, runner Runner, a, b RegionCode) error {
+	controller, err := NewFaultController(p, runner)
+	if err != nil {
+		return err
+	}
+	return controller.Heal(ctx, a, b)
+}
+
+// SetNetem is a convenience wrapper for one directional impairment.
+func (p NetworkPlan) SetNetem(ctx context.Context, runner Runner, fault FaultSpec) error {
+	controller, err := NewFaultController(p, runner)
+	if err != nil {
+		return err
+	}
+	return controller.SetNetem(ctx, fault)
+}
+
+// ClearNetem is a convenience wrapper that restores the pre-created no-op
+// netem qdisc, so it is idempotent across controller restarts.
+func (p NetworkPlan) ClearNetem(ctx context.Context, runner Runner, from, to RegionCode) error {
+	controller, err := NewFaultController(p, runner)
+	if err != nil {
+		return err
+	}
+	return controller.ClearNetem(ctx, from, to)
 }
 
 // Partition drops forwarded guest traffic in both directions between a pair
@@ -55,6 +90,9 @@ func (c *FaultController) Partition(ctx context.Context, a, b RegionCode) error 
 	if ctx == nil {
 		return errors.New("vmnet: nil partition context")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -65,8 +103,11 @@ func (c *FaultController) Partition(ctx context.Context, a, b RegionCode) error 
 	if err := runCommands(ctx, c.runner, commands); err != nil {
 		rollback, _ := c.partitionCommands(a, b, false)
 		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		_ = runCommands(rollbackContext, c.runner, rollback)
+		rollbackErr := runCommandsBestEffort(rollbackContext, c.runner, rollback)
 		cancel()
+		if rollbackErr != nil {
+			err = errors.Join(err, fmt.Errorf("rollback heal: %w", rollbackErr))
+		}
 		return fmt.Errorf("vmnet: partition %s/%s: %w", a, b, err)
 	}
 	return nil
@@ -81,13 +122,16 @@ func (c *FaultController) Heal(ctx context.Context, a, b RegionCode) error {
 	if ctx == nil {
 		return errors.New("vmnet: nil heal context")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	commands, err := c.partitionCommands(a, b, false)
 	if err != nil {
 		return err
 	}
-	if err := runCommands(ctx, c.runner, commands); err != nil {
+	if err := runCommandsBestEffort(ctx, c.runner, commands); err != nil {
 		return fmt.Errorf("vmnet: heal %s/%s: %w", a, b, err)
 	}
 	return nil
@@ -101,24 +145,26 @@ func (c *FaultController) SetNetem(ctx context.Context, fault FaultSpec) error {
 	if ctx == nil {
 		return errors.New("vmnet: nil netem context")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if fault.Partition {
 		return errors.New("vmnet: use Partition for bidirectional link cuts")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	command, key, err := c.netemCommand(fault)
+	command, _, err := c.netemCommand(fault)
 	if err != nil {
 		return err
 	}
 	if err := c.runner.Run(ctx, command.Executable, append([]string(nil), command.Args...)); err != nil {
-		return fmt.Errorf("vmnet: set netem %s: %w", key, err)
+		return fmt.Errorf("vmnet: set netem %s/%s: %w", fault.From, fault.To, err)
 	}
-	c.netem[key] = true
 	return nil
 }
 
-// ClearNetem deletes the directional root qdisc. Repeating it is a no-op in
-// one controller lifetime, which avoids turning an absent qdisc into failure.
+// ClearNetem restores the no-op qdisc created with the link. Repeating this
+// operation remains safe after a controller restart.
 func (c *FaultController) ClearNetem(ctx context.Context, from, to RegionCode) error {
 	if c == nil {
 		return errors.New("vmnet: nil fault controller")
@@ -126,21 +172,19 @@ func (c *FaultController) ClearNetem(ctx context.Context, from, to RegionCode) e
 	if ctx == nil {
 		return errors.New("vmnet: nil netem context")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	fromRegion, _, veth, err := c.link(from, to)
 	if err != nil {
 		return err
 	}
-	key := string(from) + "\x00" + string(to)
-	if !c.netem[key] {
-		return nil
-	}
-	cmd := command("ip", "netns", "exec", fromRegion.Namespace, "tc", "qdisc", "del", "dev", veth, "root")
+	cmd := command(c.plan.Tools.IP, "netns", "exec", fromRegion.Namespace, c.plan.Tools.TC, "qdisc", "replace", "dev", veth, "root", "netem")
 	if err := c.runner.Run(ctx, cmd.Executable, append([]string(nil), cmd.Args...)); err != nil {
 		return fmt.Errorf("vmnet: clear netem %s/%s: %w", from, to, err)
 	}
-	delete(c.netem, key)
 	return nil
 }
 
@@ -150,13 +194,13 @@ func (c *FaultController) partitionCommands(a, b RegionCode, blocked bool) ([]Co
 		return nil, err
 	}
 	commands := []Command{
-		command("ip", "netns", "exec", aRegion.Namespace, "nft", "flush", "chain", "inet", c.plan.Prefix+"_vmnet", faultChain(c.plan.Prefix, a, b)),
-		command("ip", "netns", "exec", bRegion.Namespace, "nft", "flush", "chain", "inet", c.plan.Prefix+"_vmnet", faultChain(c.plan.Prefix, b, a)),
+		command(c.plan.Tools.IP, "netns", "exec", aRegion.Namespace, c.plan.Tools.NFT, "flush", "chain", "inet", networkTable(c.plan.Prefix, c.plan.RunID), faultChain(a, b)),
+		command(c.plan.Tools.IP, "netns", "exec", bRegion.Namespace, c.plan.Tools.NFT, "flush", "chain", "inet", networkTable(c.plan.Prefix, c.plan.RunID), faultChain(b, a)),
 	}
 	if blocked {
 		commands = append(commands,
-			command("ip", "netns", "exec", aRegion.Namespace, "nft", "add", "rule", "inet", c.plan.Prefix+"_vmnet", faultChain(c.plan.Prefix, a, b), "drop"),
-			command("ip", "netns", "exec", bRegion.Namespace, "nft", "add", "rule", "inet", c.plan.Prefix+"_vmnet", faultChain(c.plan.Prefix, b, a), "drop"),
+			command(c.plan.Tools.IP, "netns", "exec", aRegion.Namespace, c.plan.Tools.NFT, "add", "rule", "inet", networkTable(c.plan.Prefix, c.plan.RunID), faultChain(a, b), "drop"),
+			command(c.plan.Tools.IP, "netns", "exec", bRegion.Namespace, c.plan.Tools.NFT, "add", "rule", "inet", networkTable(c.plan.Prefix, c.plan.RunID), faultChain(b, a), "drop"),
 		)
 	}
 	return commands, nil
@@ -167,10 +211,10 @@ func (c *FaultController) netemCommand(fault FaultSpec) (Command, string, error)
 	if err != nil {
 		return Command{}, "", err
 	}
-	if fault.Latency < 0 || fault.Jitter < 0 || math.IsNaN(fault.LossPercent) || math.IsInf(fault.LossPercent, 0) || fault.LossPercent < 0 || fault.LossPercent > 100 || (fault.BandwidthKbit == 0 && fault.Latency == 0 && fault.Jitter == 0 && fault.LossPercent == 0) {
-		return Command{}, "", fmt.Errorf("vmnet: invalid netem values for %s -> %s", fault.From, fault.To)
+	if err := validateFault(fault, false); err != nil {
+		return Command{}, "", err
 	}
-	args := []string{"netns", "exec", from.Namespace, "tc", "qdisc", "replace", "dev", veth, "root", "netem"}
+	args := []string{"netns", "exec", from.Namespace, c.plan.Tools.TC, "qdisc", "replace", "dev", veth, "root", "netem"}
 	if fault.Latency != 0 || fault.Jitter != 0 {
 		args = append(args, "delay", netemDuration(fault.Latency))
 		if fault.Jitter != 0 {
@@ -180,10 +224,16 @@ func (c *FaultController) netemCommand(fault FaultSpec) (Command, string, error)
 	if fault.LossPercent != 0 {
 		args = append(args, "loss", strconv.FormatFloat(fault.LossPercent, 'f', -1, 64)+"%")
 	}
+	if fault.ReorderPercent != 0 {
+		args = append(args, "reorder", strconv.FormatFloat(fault.ReorderPercent, 'f', -1, 64)+"%")
+	}
+	if fault.DuplicatePercent != 0 {
+		args = append(args, "duplicate", strconv.FormatFloat(fault.DuplicatePercent, 'f', -1, 64)+"%")
+	}
 	if fault.BandwidthKbit != 0 {
 		args = append(args, "rate", strconv.FormatUint(fault.BandwidthKbit, 10)+"kbit")
 	}
-	return command("ip", args...), string(fault.From) + "\x00" + string(fault.To), nil
+	return command(c.plan.Tools.IP, args...), string(fault.From) + "\x00" + string(fault.To), nil
 }
 
 func (c *FaultController) link(from, to RegionCode) (RegionNetwork, RegionNetwork, string, error) {
@@ -198,7 +248,7 @@ func (c *FaultController) link(from, to RegionCode) (RegionNetwork, RegionNetwor
 	if !fromOK || !toOK {
 		return RegionNetwork{}, RegionNetwork{}, "", errors.New("vmnet: fault link references undeclared Region")
 	}
-	veth := fmt.Sprintf("%s-v-%s-%s", c.plan.Prefix, strings.ToLower(string(from)), strings.ToLower(string(to)))
+	veth := linkDevice(c.plan.Prefix, c.plan.RunID, from, to)
 	return fromRegion, toRegion, veth, nil
 }
 
@@ -212,4 +262,14 @@ func runCommands(ctx context.Context, runner Runner, commands []Command) error {
 		}
 	}
 	return nil
+}
+
+func runCommandsBestEffort(ctx context.Context, runner Runner, commands []Command) error {
+	errs := make([]error, 0, len(commands))
+	for index, command := range commands {
+		if err := runner.Run(ctx, command.Executable, append([]string(nil), command.Args...)); err != nil {
+			errs = append(errs, fmt.Errorf("command %d: %w", index, err))
+		}
+	}
+	return errors.Join(errs...)
 }

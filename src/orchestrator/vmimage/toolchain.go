@@ -12,18 +12,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const (
 	ToolchainSchemaVersion = 1
 	maxToolchainBytes      = 64 << 10
 	maxArchiveEntries      = 1024
+	maxArchiveExpandedSize = int64(1 << 30)
 )
 
 // RemoteArtifact identifies one immutable HTTPS response.
@@ -87,9 +86,8 @@ func (manifest ToolchainManifest) Validate() error {
 }
 
 func (artifact RemoteArtifact) validate(expectedURL string) error {
-	parsed, err := url.Parse(artifact.URL)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
-		return errors.New("source must be an HTTPS URL without credentials or a fragment")
+	if err := validateRemoteURL(artifact.URL); err != nil {
+		return err
 	}
 	if artifact.URL != expectedURL {
 		return errors.New("source is not the fixed versioned release URL")
@@ -124,7 +122,7 @@ func validToolchainDigest(value string) bool {
 }
 
 func safeArchivePath(value string) bool {
-	return value != "" && !strings.ContainsRune(value, 0) && !strings.HasPrefix(value, "/") && path.Clean(value) == value && value != "." && value != ".." && !strings.HasPrefix(value, "../")
+	return value != "" && !strings.ContainsRune(value, 0) && !strings.Contains(value, "\\") && !strings.HasPrefix(value, "/") && path.Clean(value) == value && value != "." && value != ".." && !strings.HasPrefix(value, "../")
 }
 
 func (manifest ToolchainManifest) CanonicalJSON() ([]byte, error) {
@@ -171,8 +169,9 @@ type InstalledToolchain struct {
 }
 
 type ToolchainInstaller struct {
-	Root   string
-	Client *http.Client
+	Root       string
+	Client     *http.Client
+	Downloader Downloader
 }
 
 // Location returns the immutable destination without reading or writing it.
@@ -208,7 +207,7 @@ func (installer *ToolchainInstaller) Install(ctx context.Context, manifest Toolc
 	if installer.verify(installed) == nil {
 		return installed, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
+	if err := ensurePrivateTree(installer.Root, filepath.Dir(entry)); err != nil {
 		return InstalledToolchain{}, fmt.Errorf("vmimage: create toolchain cache: %w", err)
 	}
 	stage, err := createStaging(filepath.Dir(entry))
@@ -241,7 +240,10 @@ func (installer *ToolchainInstaller) Install(ctx context.Context, manifest Toolc
 	if err := syncDir(stage); err != nil {
 		return InstalledToolchain{}, err
 	}
-	if err := os.Rename(stage, entry); err != nil {
+	if err := ctx.Err(); err != nil {
+		return InstalledToolchain{}, err
+	}
+	if err := publishDirectory(stage, entry); err != nil {
 		if installer.verify(installed) == nil {
 			return installed, nil
 		}
@@ -257,61 +259,11 @@ func (installer *ToolchainInstaller) Install(ctx context.Context, manifest Toolc
 }
 
 func (installer *ToolchainInstaller) fetch(ctx context.Context, artifact RemoteArtifact, target string) error {
-	client := installer.Client
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
-	} else {
-		clone := *client
-		client = &clone
+	downloader := installer.Downloader
+	if downloader == nil {
+		downloader = httpDownloader{client: installer.Client, allowGitHubReleaseRedirect: true}
 	}
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if len(via) > 2 || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Hostname() != "release-assets.githubusercontent.com" {
-			return errors.New("Firecracker release redirect is not allowed")
-		}
-		return nil
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
-	if err != nil {
-		return err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("source answered HTTP %d", response.StatusCode)
-	}
-	if response.ContentLength >= 0 && response.ContentLength != artifact.Size {
-		return errors.New("source content length does not match manifest")
-	}
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		_ = file.Close()
-		if !ok {
-			_ = os.Remove(target)
-		}
-	}()
-	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(file, hash), contextReader{ctx: ctx, reader: io.LimitReader(response.Body, artifact.Size+1)})
-	if err != nil {
-		return err
-	}
-	if written != artifact.Size || hex.EncodeToString(hash.Sum(nil)) != artifact.SHA256 {
-		return errors.New("source bytes do not match pinned size and sha256")
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	ok = true
-	return nil
+	return downloadPinned(ctx, downloader, artifact.URL, target, artifact.SHA256, artifact.Size, 0o600)
 }
 
 func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest) error {
@@ -328,6 +280,7 @@ func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest)
 	reader := tar.NewReader(compressed)
 	wanted := map[string]ArchiveMember{manifest.Firecracker.ArchivePath: manifest.Firecracker, manifest.Jailer.ArchivePath: manifest.Jailer}
 	found := make(map[string]bool, len(wanted))
+	var expandedSize int64
 	for count := 0; ; count++ {
 		if count >= maxArchiveEntries {
 			return errors.New("vmimage: Firecracker archive has too many entries")
@@ -342,6 +295,10 @@ func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest)
 		if !safeArchivePath(header.Name) {
 			return errors.New("vmimage: Firecracker archive contains an unsafe path")
 		}
+		if header.Size < 0 || expandedSize > maxArchiveExpandedSize-header.Size {
+			return errors.New("vmimage: Firecracker archive exceeds the expanded-size limit")
+		}
+		expandedSize += header.Size
 		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA && header.Typeflag != tar.TypeDir {
 			return errors.New("vmimage: Firecracker archive contains a link or unsupported entry")
 		}
@@ -352,7 +309,7 @@ func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest)
 		if found[header.Name] {
 			return fmt.Errorf("vmimage: Firecracker archive repeats %s", header.Name)
 		}
-		if header.Typeflag == tar.TypeDir || header.Size != member.Size {
+		if header.Typeflag == tar.TypeDir || header.Size != member.Size || uint32(header.FileInfo().Mode().Perm()) != member.Mode {
 			return fmt.Errorf("vmimage: Firecracker archive member %s has the wrong type or size", header.Name)
 		}
 		if err := extractMember(reader, filepath.Join(targetDir, member.Name), member); err != nil {
@@ -380,6 +337,9 @@ func extractMember(reader io.Reader, target string, member ArchiveMember) error 
 			_ = os.Remove(target)
 		}
 	}()
+	if err := file.Chmod(os.FileMode(member.Mode)); err != nil {
+		return err
+	}
 	hash := sha256.New()
 	written, err := io.Copy(io.MultiWriter(file, hash), io.LimitReader(reader, member.Size+1))
 	if err != nil {
@@ -399,13 +359,26 @@ func extractMember(reader io.Reader, target string, member ArchiveMember) error 
 }
 
 func (installer *ToolchainInstaller) verify(installed InstalledToolchain) error {
-	if installed.Dir == "" || !pathWithin(filepath.Clean(installer.Root), installed.Dir) {
-		return errors.New("vmimage: installed toolchain lies outside its root")
+	if installer == nil {
+		return errors.New("vmimage: toolchain installer is nil")
+	}
+	expected, err := installer.Location(installed.Manifest)
+	if err != nil {
+		return err
+	}
+	if installed.Dir != expected.Dir || installed.Firecracker != expected.Firecracker || installed.Jailer != expected.Jailer {
+		return errors.New("vmimage: installed toolchain paths do not match their derived location")
+	}
+	if err := rejectSymlinkAncestors(installed.Dir); err != nil {
+		return err
 	}
 	if err := verifyDirectory(installed.Dir); err != nil {
 		return err
 	}
-	data, err := os.ReadFile(filepath.Join(installed.Dir, "manifest.json"))
+	if err := verifyExactDirectoryEntries(installed.Dir, installed.Manifest.Firecracker.Name, installed.Manifest.Jailer.Name, "manifest.json"); err != nil {
+		return err
+	}
+	data, err := readRegularFile(filepath.Join(installed.Dir, "manifest.json"), 0o600, maxToolchainBytes)
 	if err != nil {
 		return err
 	}

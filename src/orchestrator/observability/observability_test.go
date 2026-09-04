@@ -60,6 +60,9 @@ func TestLabelAllowListRejectsCustomerDimensions(t *testing.T) {
 	if err := labels.ValidateLabels(map[string]string{"region": "gru", "subsystem": "nats"}); err != nil {
 		t.Fatalf("valid labels rejected: %v", err)
 	}
+	if err := labels.ValidateLabels(map[string]string{"region": string([]byte{0xff})}); err == nil {
+		t.Fatal("invalid UTF-8 label value was accepted")
+	}
 }
 
 type recordingSender struct {
@@ -214,6 +217,22 @@ func TestRedactLogRejectsCustomerDimensions(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			if _, err := RedactLog(LogRecord{Attributes: map[string]string{key: "customer-value"}}); err == nil {
 				t.Fatalf("customer dimension %q was accepted", key)
+			}
+		})
+	}
+}
+
+func TestRedactLogRejectsInvalidUTF8AndControls(t *testing.T) {
+	for name, record := range map[string]LogRecord{
+		"invalid body UTF-8":      {Body: string([]byte{0xff})},
+		"body newline":            {Body: "line\nlog"},
+		"body control":            {Body: "line\x01log"},
+		"invalid attribute UTF-8": {Attributes: map[string]string{"line": string([]byte{0xff})}},
+		"attribute newline":       {Attributes: map[string]string{"line": "line\nlog"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := RedactLog(record); err == nil {
+				t.Fatal("unsafe structured field was accepted")
 			}
 		})
 	}

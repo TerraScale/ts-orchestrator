@@ -14,8 +14,10 @@ import (
 	"io"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +41,14 @@ const (
 	maxSourceLength       = 4096
 	maxArtifactSize       = int64(16 << 30)
 	maxManifestBytes      = int64(64 << 10)
+
+	// The pinned Firecracker kernels do not include CONFIG_EFI_PARTITION, so
+	// the Ubuntu GPT image is deterministically reduced to its root ext4
+	// partition before it can be attached as /dev/vda.
+	UbuntuRootSectorSize  = int64(512)
+	UbuntuRootStartSector = int64(2099200)
+	UbuntuRootSectorCount = int64(5240799)
+	UbuntuRootFSSize      = UbuntuRootSectorSize * UbuntuRootSectorCount
 )
 
 var (
@@ -46,6 +56,11 @@ var (
 	namePattern    = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
 	versionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 	ubuntuPattern  = regexp.MustCompile(`^([0-9]{2})\.04(?:\.[0-9]+)?$`)
+	versionSegment = regexp.MustCompile(`^(?:v[0-9]+(?:\.[0-9]+){1,2}|release-[0-9]{8})$`)
+	amd64Source    = regexp.MustCompile(`(?:^|[/._-])(?:amd64|x86_64)(?:$|[/._-])`)
+	arm64Source    = regexp.MustCompile(`(?:^|[/._-])(?:arm64|aarch64)(?:$|[/._-])`)
+	kernelSource   = regexp.MustCompile(`^/spec\.ccfc\.min/firecracker-ci/v[0-9]+\.[0-9]+/(?:x86_64|aarch64)/vmlinux-[0-9][0-9._-]*$`)
+	ubuntuSource   = regexp.MustCompile(`^/minimal/releases/[a-z0-9-]+/release-[0-9]{8}/ubuntu-[0-9]{2}\.04-minimal-cloudimg-(?:amd64|arm64)\.img$`)
 )
 
 // ArtifactManifest identifies one immutable byte stream. Mode is the exact
@@ -142,8 +157,39 @@ func (manifest GuestImageManifest) Validate() error {
 	return nil
 }
 
-// ValidateManifest is the function form of GuestImageManifest.Validate.
-func ValidateManifest(manifest GuestImageManifest) error { return manifest.Validate() }
+// ValidateManifest applies the complete supply-chain policy used by image
+// preparation. Guest-only metadata that needs structural validation can use
+// GuestImageManifest.Validate or NewManifest directly.
+func ValidateManifest(manifest GuestImageManifest) error {
+	_, err := NewPinnedManifest(manifest)
+	return err
+}
+
+// NewPinnedManifest returns an immutable manifest snapshot after applying the
+// stricter boot-artifact policy: versioned HTTPS sources, native source paths,
+// fixed 0644 output modes, and the pinned Ubuntu root-partition transform.
+func NewPinnedManifest(manifest GuestImageManifest) (GuestImageManifest, error) {
+	canonical, err := NewManifest(manifest)
+	if err != nil {
+		return GuestImageManifest{}, err
+	}
+	if canonical.Kernel.expectedMode() != 0o644 || canonical.RootFS.expectedMode() != 0o644 {
+		return GuestImageManifest{}, errors.New("vmimage: kernel and rootfs modes must be 0644")
+	}
+	if err := validateImmutableImageSource("kernel", canonical.Kernel.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
+		return GuestImageManifest{}, err
+	}
+	if err := validateImmutableImageSource("rootfs", canonical.RootFS.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
+		return GuestImageManifest{}, err
+	}
+	transform := canonical.RootFS.Transform
+	if transform == nil || transform.Type != TransformQCOW2RootPartition ||
+		transform.SectorSize != UbuntuRootSectorSize || transform.StartSector != UbuntuRootStartSector ||
+		transform.SectorCount != UbuntuRootSectorCount || canonical.RootFS.Size != UbuntuRootFSSize {
+		return GuestImageManifest{}, errors.New("vmimage: rootfs must use the pinned Ubuntu root-partition transform")
+	}
+	return canonical, nil
+}
 
 // Validate checks an artifact independently of an image pair. It is useful
 // when a guest-channel binary is verified before the image manifest arrives.
@@ -267,6 +313,10 @@ func canonicalArtifact(artifact ArtifactManifest) ArtifactManifest {
 	artifact.SHA256 = artifact.digest()
 	artifact.Sha256 = ""
 	artifact.Mode = artifact.expectedMode()
+	if artifact.Transform != nil {
+		transform := *artifact.Transform
+		artifact.Transform = &transform
+	}
 	return artifact
 }
 
@@ -281,7 +331,8 @@ func isUbuntuLTS(value string) bool {
 	}
 	// Ubuntu .04 releases in even-numbered years are LTS releases. This keeps
 	// the check future-proof while refusing rolling/development images.
-	return (match[1][0]-'0')%2 == 0
+	year, err := strconv.Atoi(match[1])
+	return err == nil && year%2 == 0
 }
 
 func validateSource(source string) error {
@@ -301,6 +352,58 @@ func validateSource(source string) error {
 	}
 	if parsed.Scheme == "file" && parsed.Host != "" {
 		return errors.New("file source must not contain a host")
+	}
+	return nil
+}
+
+// validateImmutableImageSource is deliberately stricter than validateSource.
+// Guest service provenance can name a local test fixture, but the boot pair is
+// supply-chain input and may only come from a canonical, versioned HTTPS URL.
+func validateImmutableImageSource(kind, source string, architecture Architecture, ubuntuRelease, imageVersion string) error {
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.Hostname() == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" {
+		return fmt.Errorf("vmimage: %s source must be a canonical versioned HTTPS URL", kind)
+	}
+	if parsed.Host != parsed.Hostname() || parsed.Host != strings.ToLower(parsed.Host) ||
+		parsed.Path == "" || parsed.Path != pathpkg.Clean(parsed.Path) || strings.Contains(parsed.Path, "\\") {
+		return fmt.Errorf("vmimage: %s source must not contain a port, escaped path, or traversal", kind)
+	}
+	versioned := false
+	for _, segment := range strings.Split(strings.Trim(parsed.Path, "/"), "/") {
+		if versionSegment.MatchString(segment) {
+			versioned = true
+			break
+		}
+	}
+	if !versioned {
+		return fmt.Errorf("vmimage: %s source path is not pinned to a version or immutable release", kind)
+	}
+	if (kind == "kernel" && (parsed.Host != "s3.amazonaws.com" || !kernelSource.MatchString(parsed.Path))) ||
+		(kind == "rootfs" && (parsed.Host != "cloud-images.ubuntu.com" || !ubuntuSource.MatchString(parsed.Path))) {
+		return fmt.Errorf("vmimage: %s source is not the fixed upstream artifact path", kind)
+	}
+	if kind == "rootfs" {
+		series := strings.Join(strings.Split(ubuntuRelease, ".")[:2], ".")
+		if !strings.HasPrefix(pathpkg.Base(parsed.Path), "ubuntu-"+series+"-minimal-cloudimg-") {
+			return errors.New("vmimage: rootfs source Ubuntu series does not match image")
+		}
+	}
+	if kind == "kernel" {
+		marker := strings.LastIndex(imageVersion, "-fc")
+		if marker < 0 {
+			return errors.New("vmimage: image version does not identify its Firecracker release")
+		}
+		components := strings.Split(imageVersion[marker+3:], ".")
+		if len(components) != 3 || !strings.Contains(parsed.Path, "/v"+components[0]+"."+components[1]+"/") {
+			return errors.New("vmimage: kernel source Firecracker release does not match image")
+		}
+	}
+	pathValue := strings.ToLower(parsed.Path)
+	hasAMD64 := amd64Source.MatchString(pathValue)
+	hasARM64 := arm64Source.MatchString(pathValue)
+	if hasAMD64 == hasARM64 || (architecture == ArchitectureAMD64 && !hasAMD64) || (architecture == ArchitectureARM64 && !hasARM64) {
+		return fmt.Errorf("vmimage: %s source architecture does not match image", kind)
 	}
 	return nil
 }
@@ -368,7 +471,7 @@ func DecodeManifest(data []byte) (GuestImageManifest, error) {
 	if decoder.Decode(&extra) != io.EOF {
 		return GuestImageManifest{}, errors.New("vmimage: manifest contains trailing data")
 	}
-	return NewManifest(manifest)
+	return NewPinnedManifest(manifest)
 }
 
 // Decode is a concise alias for DecodeManifest.

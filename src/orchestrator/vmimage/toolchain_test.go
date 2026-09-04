@@ -24,7 +24,7 @@ func TestToolchainInstallerExtractsOnlyPinnedExecutables(t *testing.T) {
 	jailer := []byte("jailer executable")
 	manifest, archive := testToolchain(t, firecracker, jailer, nil)
 	installer := &ToolchainInstaller{
-		Root: t.TempDir(),
+		Root: privateTempDir(t),
 		Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 			if request.URL.String() != manifest.Archive.URL {
 				t.Fatalf("requested %q", request.URL)
@@ -93,7 +93,7 @@ func TestToolchainRejectsArchiveTraversalBeforeExtraction(t *testing.T) {
 	manifest.Archive.SHA256 = archiveDigest
 	manifest.Archive.Size = int64(len(archive))
 	installer := &ToolchainInstaller{
-		Root: t.TempDir(),
+		Root: privateTempDir(t),
 		Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, ContentLength: int64(len(archive)), Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		})},
@@ -104,6 +104,15 @@ func TestToolchainRejectsArchiveTraversalBeforeExtraction(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(installer.Root, "escape")); !os.IsNotExist(err) {
 		t.Fatalf("unsafe archive path was created: %v", err)
 	}
+}
+
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func testToolchain(t *testing.T, firecracker, jailer []byte, extra *tar.Header) (ToolchainManifest, []byte) {

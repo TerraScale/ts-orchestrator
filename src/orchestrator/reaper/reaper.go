@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -236,7 +237,10 @@ type Reconciler struct {
 }
 
 func NewReconciler(config Config) (*Reconciler, error) {
-	if config.Catalog == nil || config.Executor == nil || config.Mailer == nil || config.Audit == nil || config.Store == nil {
+	if isNil(config.Catalog) || isNil(config.Executor) || isNil(config.Mailer) || isNil(config.Audit) || isNil(config.Store) {
+		return nil, ErrMissingDependency
+	}
+	if config.Clock != nil && isNil(config.Clock) {
 		return nil, ErrMissingDependency
 	}
 	clock := config.Clock
@@ -286,6 +290,12 @@ func NewReconciler(config Config) (*Reconciler, error) {
 // Run scans all catalog pages. A page cursor is not advanced if any database
 // fails; completed operations in that page are safe to retry by key.
 func (r *Reconciler) Run(ctx context.Context) (Result, error) {
+	if r == nil || isNil(r.catalog) {
+		return Result{}, ErrMissingDependency
+	}
+	if ctx == nil {
+		return Result{}, errors.New("reaper: context is required")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -293,7 +303,7 @@ func (r *Reconciler) Run(ctx context.Context) (Result, error) {
 	}
 	state, err := r.load(ctx)
 	if err != nil {
-		return Result{}, err
+		return Result{}, redactError(err)
 	}
 	var result Result
 	for {
@@ -304,11 +314,19 @@ func (r *Reconciler) Run(ctx context.Context) (Result, error) {
 		page, err := r.catalog.List(ctx, state.Cursor, r.pageSize)
 		if err != nil {
 			result.Cursor = state.Cursor
-			return result, err
+			return result, redactError(err)
 		}
 		if page.NextCursor != "" && page.NextCursor == state.Cursor {
 			result.Cursor = state.Cursor
 			return result, ErrInvalidCursor
+		}
+		seenPage := make(map[string]struct{}, len(page.Databases))
+		for _, database := range page.Databases {
+			if _, duplicate := seenPage[database.ID]; duplicate {
+				result.Cursor = state.Cursor
+				return result, fmt.Errorf("%w: duplicate database in catalog page", ErrInvalidDatabase)
+			}
+			seenPage[database.ID] = struct{}{}
 		}
 		sort.Slice(page.Databases, func(i, j int) bool { return page.Databases[i].ID < page.Databases[j].ID })
 		for _, database := range page.Databases {
@@ -334,7 +352,7 @@ func (r *Reconciler) Run(ctx context.Context) (Result, error) {
 		state.Cursor = page.NextCursor
 		if err := r.save(ctx, &state); err != nil {
 			result.Cursor = state.Cursor
-			return result, err
+			return result, redactError(err)
 		}
 		result.Cursor = state.Cursor
 		if state.Cursor == "" {
@@ -347,6 +365,12 @@ func (r *Reconciler) Run(ctx context.Context) (Result, error) {
 // It is useful to wire an immediate control-plane change notification while
 // the periodic Run loop remains the recovery mechanism.
 func (r *Reconciler) Reconcile(ctx context.Context, database Database) error {
+	if r == nil || isNil(r.catalog) {
+		return ErrMissingDependency
+	}
+	if ctx == nil {
+		return errors.New("reaper: context is required")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -354,19 +378,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, database Database) error {
 	}
 	state, err := r.load(ctx)
 	if err != nil {
-		return err
+		return redactError(err)
 	}
 	_, err = r.reconcileLocked(ctx, &state, database)
 	if err != nil {
-		return err
+		return redactError(err)
 	}
-	return r.save(ctx, &state)
+	return redactError(r.save(ctx, &state))
 }
 
 func (r *Reconciler) load(ctx context.Context) (State, error) {
 	state, err := r.store.Load(ctx)
 	if err != nil {
-		return State{}, err
+		return State{}, redactError(err)
 	}
 	if state.Entries == nil {
 		state.Entries = make(map[string]Entry)
@@ -376,7 +400,7 @@ func (r *Reconciler) load(ctx context.Context) (State, error) {
 
 func (r *Reconciler) save(ctx context.Context, state *State) error {
 	state.Version++
-	return r.store.Save(ctx, *state)
+	return redactError(r.store.Save(ctx, *state))
 }
 
 func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database Database) (string, error) {
@@ -497,13 +521,38 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 }
 
 func validateDatabase(database Database) error {
-	if strings.TrimSpace(database.ID) == "" || database.Plan == "" {
+	if !validDatabaseID(database.ID) || database.Plan == "" {
 		return ErrInvalidDatabase
 	}
 	if database.Plan != PlanFree && database.Plan != PlanPaid {
 		return ErrInvalidDatabase
 	}
 	return nil
+}
+
+func validDatabaseID(id string) bool {
+	if strings.TrimSpace(id) != id || id == "" || len(id) > 255 {
+		return false
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune("/\\", r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Database, now time.Time) error {
@@ -524,7 +573,7 @@ func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Dat
 	entry.Phase, entry.PausedAt = PhasePaused, now
 	state.Entries[database.ID] = entry
 	if err := r.save(ctx, state); err != nil {
-		return err
+		return redactError(err)
 	}
 	return r.emailLocked(ctx, state, database, r.operationName(entry, "notice/pause/"+database.ID), "free-tier-paused", now)
 }
@@ -584,7 +633,7 @@ func (r *Reconciler) operationLocked(ctx context.Context, state *State, database
 	entry.Operations[name] = op
 	state.Entries[databaseID] = entry
 	if err := r.save(ctx, state); err != nil {
-		return err
+		return redactError(err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -598,9 +647,9 @@ func (r *Reconciler) operationLocked(ctx context.Context, state *State, database
 		_ = r.save(context.WithoutCancel(ctx), state)
 		auditErr := r.auditOnce(context.WithoutCancel(ctx), state, databaseID, name, "failed", name+"/failed/"+databaseID, now, safeError(err))
 		if auditErr != nil {
-			return errors.Join(err, auditErr)
+			return redactError(errors.Join(err, auditErr))
 		}
-		return err
+		return redactError(err)
 	}
 	op = state.Entries[databaseID].Operations[name]
 	op.Status, op.CompletedAt, op.LastError = operationDone, r.clock.Now().UTC(), ""
@@ -608,7 +657,7 @@ func (r *Reconciler) operationLocked(ctx context.Context, state *State, database
 	entry.Operations[name] = op
 	state.Entries[databaseID] = entry
 	if err := r.save(ctx, state); err != nil {
-		return err
+		return redactError(err)
 	}
 	return r.auditOnce(ctx, state, databaseID, name, "completed", name+"/completed/"+databaseID, now, "")
 }
@@ -644,7 +693,7 @@ func (r *Reconciler) auditOnce(ctx context.Context, state *State, databaseID, ac
 		return nil
 	}
 	if err := r.audit.Record(ctx, AuditEvent{ID: key, DatabaseID: databaseID, Action: action, Outcome: outcome, OperationKey: key, At: now, Error: eventError}); err != nil {
-		return err
+		return redactError(err)
 	}
 	entry.Audits[key] = true
 	state.Entries[databaseID] = entry
@@ -707,4 +756,19 @@ func safeError(err error) string {
 	// bodies. Keep the durable journal/audit record useful for classification
 	// without copying untrusted error text into a long-lived control store.
 	return fmt.Sprintf("%T", err)
+}
+
+// redactedError preserves errors.Is for callers while keeping provider
+// response bodies, URLs, and credentials out of command output. Durable
+// state/audit already use safeError; this also protects the synchronous hook.
+type redactedError struct{ cause error }
+
+func (e redactedError) Error() string { return "reaper: infrastructure operation failed" }
+func (e redactedError) Unwrap() error { return e.cause }
+
+func redactError(err error) error {
+	if err == nil || err == context.Canceled || err == context.DeadlineExceeded {
+		return err
+	}
+	return redactedError{cause: err}
 }

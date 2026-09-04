@@ -6,6 +6,8 @@
 package vmqual
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +33,15 @@ const (
 // manifest. Keep the alias here for the command package's public API.
 type Pins = vmimage.ToolchainManifest
 
+// ProductionArtifactInput names one exact signed binary used by the real
+// guest bootstrap. Versions are explicit so qualification cannot relabel an
+// arbitrary local build as a release.
+type ProductionArtifactInput struct {
+	Path          string
+	SignaturePath string
+	Version       string
+}
+
 // Config is shared by all qualification commands. Empty values are filled
 // from the documented TS_VM_* environment variables; no ambient production
 // credentials are read.
@@ -43,6 +54,10 @@ type Config struct {
 	ImageCacheRoot            string
 	ReadinessRoot             string
 	GuestControlPath          string
+	ReleasePublicKeyPath      string
+	TSNode                    ProductionArtifactInput
+	Orchestrator              ProductionArtifactInput
+	TerraBase                 ProductionArtifactInput
 	NetworkPlan               vmnet.NetworkPlan
 	FirecrackerPath           string
 	JailerPath                string
@@ -59,6 +74,7 @@ type Config struct {
 	ReadinessTimeout          time.Duration
 	StopTimeout               time.Duration
 	MaxDiskBytes              int64
+	RequiredPorts             []int
 	configurationError        string
 }
 
@@ -67,6 +83,10 @@ type Config struct {
 // tmp/ directory: qualification never writes into a user's home directory or
 // a system path. TS_VM_ROOT may still select an isolated absolute root in CI.
 func DefaultConfig() Config {
+	return defaultConfigForArchitecture(runtime.GOARCH)
+}
+
+func defaultConfigForArchitecture(architecture string) Config {
 	repoRoot := repositoryRoot()
 	root := strings.TrimSpace(os.Getenv("TS_VM_ROOT"))
 	if root == "" {
@@ -74,7 +94,6 @@ func DefaultConfig() Config {
 	} else {
 		root = absolutePath(root, repoRoot)
 	}
-	architecture := runtime.GOARCH
 	c := Config{
 		Root:                      root,
 		StateRoot:                 filepath.Join(root, "state"),
@@ -84,6 +103,10 @@ func DefaultConfig() Config {
 		ImageCacheRoot:            filepath.Join(root, "images"),
 		ReadinessRoot:             filepath.Join(root, "readiness"),
 		GuestControlPath:          filepath.Join(root, "bin", "vm-guest-control"),
+		ReleasePublicKeyPath:      os.Getenv("TS_VM_RELEASE_PUBLIC_KEY"),
+		TSNode:                    productionArtifactFromEnvironment("TS_VM_TS_NODE"),
+		Orchestrator:              productionArtifactFromEnvironment("TS_VM_ORCHESTRATOR"),
+		TerraBase:                 productionArtifactFromEnvironment("TS_VM_TERRABASE"),
 		FirecrackerPath:           os.Getenv("TS_VM_FIRECRACKER"),
 		JailerPath:                os.Getenv("TS_VM_JAILER"),
 		KernelPath:                os.Getenv("TS_VM_KERNEL"),
@@ -100,12 +123,23 @@ func DefaultConfig() Config {
 		StopTimeout:               30 * time.Second,
 		MaxDiskBytes:              8 << 30,
 	}
+	if architecture != string(vmimage.ArchitectureAMD64) && architecture != string(vmimage.ArchitectureARM64) {
+		c.setConfigurationError("native architecture " + architecture + " is unsupported by Firecracker qualification")
+	}
 	if v := os.Getenv("TS_VM_MEMORY_MIB"); v != "" {
-		memory, err := strconv.ParseInt(v, 10, 64)
+		memory, err := parseStrictDecimal(v, 64)
 		if err != nil {
-			c.configurationError = "TS_VM_MEMORY_MIB must be a base-10 integer"
+			c.setConfigurationError("TS_VM_MEMORY_MIB must be an unsigned base-10 integer")
 		} else {
 			c.MemoryMiB = memory
+		}
+	}
+	if v := os.Getenv("TS_VM_REQUIRED_PORTS"); v != "" {
+		ports, err := parseRequiredPorts(v)
+		if err != nil {
+			c.setConfigurationError("TS_VM_REQUIRED_PORTS " + err.Error())
+		} else {
+			c.RequiredPorts = ports
 		}
 	}
 	if v := os.Getenv("TS_VM_IMAGE_CACHE"); v != "" {
@@ -127,11 +161,67 @@ func DefaultConfig() Config {
 	c.ImageCacheRoot = absolutePath(c.ImageCacheRoot, repoRoot)
 	c.ReadinessRoot = absolutePath(c.ReadinessRoot, repoRoot)
 	c.GuestControlPath = absoluteIfSet(c.GuestControlPath, repoRoot)
+	c.ReleasePublicKeyPath = absoluteIfSet(c.ReleasePublicKeyPath, repoRoot)
+	c.TSNode = absoluteProductionArtifact(c.TSNode, repoRoot)
+	c.Orchestrator = absoluteProductionArtifact(c.Orchestrator, repoRoot)
+	c.TerraBase = absoluteProductionArtifact(c.TerraBase, repoRoot)
 	c.FirecrackerPath = absoluteIfSet(c.FirecrackerPath, repoRoot)
 	c.JailerPath = absoluteIfSet(c.JailerPath, repoRoot)
 	c.KernelPath = absoluteIfSet(c.KernelPath, repoRoot)
 	c.RootFSPath = absoluteIfSet(c.RootFSPath, repoRoot)
 	return c
+}
+
+func productionArtifactFromEnvironment(prefix string) ProductionArtifactInput {
+	return ProductionArtifactInput{
+		Path:          os.Getenv(prefix),
+		SignaturePath: os.Getenv(prefix + "_SIGNATURE"),
+		Version:       os.Getenv(prefix + "_VERSION"),
+	}
+}
+
+func absoluteProductionArtifact(input ProductionArtifactInput, base string) ProductionArtifactInput {
+	input.Path = absoluteIfSet(input.Path, base)
+	input.SignaturePath = absoluteIfSet(input.SignaturePath, base)
+	input.Version = strings.TrimSpace(input.Version)
+	return input
+}
+
+func (c *Config) setConfigurationError(message string) {
+	if c.configurationError == "" {
+		c.configurationError = message
+	}
+}
+
+func parseStrictDecimal(value string, bitSize int) (int64, error) {
+	if value == "" {
+		return 0, errors.New("value is empty")
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return 0, errors.New("value contains a non-decimal character")
+		}
+	}
+	return strconv.ParseInt(value, 10, bitSize)
+}
+
+func parseRequiredPorts(value string) ([]int, error) {
+	parts := strings.Split(value, ",")
+	ports := make([]int, 0, len(parts))
+	seen := make(map[int]struct{}, len(parts))
+	for _, part := range parts {
+		parsed, err := parseStrictDecimal(part, 32)
+		if err != nil || parsed == 0 || parsed > 65535 {
+			return nil, errors.New("must be a comma-separated list of unique ports in the range 1-65535 without whitespace")
+		}
+		port := int(parsed)
+		if _, duplicate := seen[port]; duplicate {
+			return nil, fmt.Errorf("contains duplicate port %d", port)
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	return ports, nil
 }
 
 func defaultOrEnv(name, fallback string) string {
@@ -209,9 +299,45 @@ func (c Config) Validate() error {
 	if c.Root == "" || !filepath.IsAbs(c.Root) {
 		return errors.New("vmqual: root must be an absolute path")
 	}
-	for name, value := range map[string]string{"state root": c.StateRoot, "journal": c.JournalPath, "pins": c.PinsPath, "image manifest": c.ImageManifestPath, "image cache": c.ImageCacheRoot, "readiness root": c.ReadinessRoot, "guest control": c.GuestControlPath} {
+	for _, required := range []struct{ name, value string }{
+		{"state root", c.StateRoot},
+		{"journal", c.JournalPath},
+		{"pins", c.PinsPath},
+		{"image manifest", c.ImageManifestPath},
+		{"image cache", c.ImageCacheRoot},
+		{"readiness root", c.ReadinessRoot},
+		{"guest control", c.GuestControlPath},
+	} {
+		name, value := required.name, required.value
 		if value == "" || !filepath.IsAbs(value) {
 			return fmt.Errorf("vmqual: %s must be an absolute path", name)
+		}
+	}
+	for _, optional := range []struct{ name, value string }{
+		{"Firecracker", c.FirecrackerPath},
+		{"jailer", c.JailerPath},
+		{"kernel", c.KernelPath},
+		{"rootfs", c.RootFSPath},
+		{"release public key", c.ReleasePublicKeyPath},
+		{"ts-node artifact", c.TSNode.Path},
+		{"ts-node signature", c.TSNode.SignaturePath},
+		{"orchestrator artifact", c.Orchestrator.Path},
+		{"orchestrator signature", c.Orchestrator.SignaturePath},
+		{"TerraBase artifact", c.TerraBase.Path},
+		{"TerraBase signature", c.TerraBase.SignaturePath},
+	} {
+		if optional.value != "" && !filepath.IsAbs(optional.value) {
+			return fmt.Errorf("vmqual: %s path must be absolute when configured", optional.name)
+		}
+	}
+	for _, digest := range []struct{ name, value string }{
+		{"kernel", c.ExpectedKernelSHA256},
+		{"rootfs", c.ExpectedRootFSSHA256},
+		{"Firecracker", c.ExpectedFirecrackerSHA256},
+		{"jailer", c.ExpectedJailerSHA256},
+	} {
+		if digest.value != "" && !validPinnedSHA256(digest.value) {
+			return fmt.Errorf("vmqual: %s checksum must be a non-zero lowercase SHA-256 digest", digest.name)
 		}
 	}
 	if c.MemoryMiB < 256 || c.MemoryMiB > MaxGuestMemoryMiB {
@@ -222,6 +348,31 @@ func (c Config) Validate() error {
 	}
 	if c.MaxDiskBytes <= 0 {
 		return errors.New("vmqual: disk budget must be positive")
+	}
+	if err := validateRequiredPorts(c.RequiredPorts); err != nil {
+		return fmt.Errorf("vmqual: required ports: %w", err)
+	}
+	return nil
+}
+
+func validPinnedSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) || value == strings.Repeat("0", sha256.Size*2) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
+}
+
+func validateRequiredPorts(ports []int) error {
+	seen := make(map[int]struct{}, len(ports))
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("port %d is outside 1-65535", port)
+		}
+		if _, duplicate := seen[port]; duplicate {
+			return fmt.Errorf("port %d is duplicated", port)
+		}
+		seen[port] = struct{}{}
 	}
 	return nil
 }

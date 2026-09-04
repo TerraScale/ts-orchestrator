@@ -1,6 +1,7 @@
 package vmnet
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,14 +22,14 @@ func TestHostRunnerResolvesOnlyAdmittedTools(t *testing.T) {
 		want []string
 	}{
 		{name: "ip", args: []string{"netns", "add", "ts-n-gru"}, want: []string{"netns", "add", "ts-n-gru"}},
-		{name: "nft", args: []string{"netns", "exec", "ts-n-gru", "nft", "list", "ruleset"}, want: []string{"netns", "exec", "ts-n-gru", tools.NFT, "list", "ruleset"}},
-		{name: "tc", args: []string{"netns", "exec", "ts-n-gru", "tc", "qdisc", "show"}, want: []string{"netns", "exec", "ts-n-gru", tools.TC, "qdisc", "show"}},
-		{name: "sysctl", args: []string{"netns", "exec", "ts-n-gru", "sysctl", "-q", "-w", "net.ipv4.ip_forward=1"}, want: []string{"netns", "exec", "ts-n-gru", tools.Sysctl, "-q", "-w", "net.ipv4.ip_forward=1"}},
+		{name: "nft", args: []string{"netns", "exec", "ts-n-gru", tools.NFT, "list", "ruleset"}, want: []string{"netns", "exec", "ts-n-gru", tools.NFT, "list", "ruleset"}},
+		{name: "tc", args: []string{"netns", "exec", "ts-n-gru", tools.TC, "qdisc", "show"}, want: []string{"netns", "exec", "ts-n-gru", tools.TC, "qdisc", "show"}},
+		{name: "sysctl", args: []string{"netns", "exec", "ts-n-gru", tools.Sysctl, "-q", "-w", "net.ipv4.ip_forward=1"}, want: []string{"netns", "exec", "ts-n-gru", tools.Sysctl, "-q", "-w", "net.ipv4.ip_forward=1"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			original := append([]string(nil), test.args...)
-			path, got, err := runner.resolve("ip", test.args)
+			path, got, err := runner.resolve(tools.IP, test.args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,7 +44,8 @@ func TestHostRunnerResolvesOnlyAdmittedTools(t *testing.T) {
 }
 
 func TestHostRunnerRejectsUnadmittedCommands(t *testing.T) {
-	runner, err := NewHostRunner(testHostTools(t))
+	tools := testHostTools(t)
+	runner, err := NewHostRunner(tools)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,16 +53,19 @@ func TestHostRunnerRejectsUnadmittedCommands(t *testing.T) {
 		executable string
 		args       []string
 	}{
-		{executable: "/usr/bin/ip", args: []string{"link", "show"}},
+		{executable: "ip", args: []string{"link", "show"}},
 		{executable: "sh", args: []string{"-c", "true"}},
-		{executable: "ip", args: []string{"netns", "exec", "ts-n-gru"}},
-		{executable: "ip", args: []string{"netns", "exec", "ts-n-gru", "sh"}},
+		{executable: tools.NFT, args: []string{"list", "ruleset"}},
+		{executable: tools.IP, args: []string{"netns", "exec", "ts-n-gru"}},
+		{executable: tools.IP, args: []string{"netns", "exec", "ts-n-gru", "nft"}},
+		{executable: tools.IP, args: []string{"netns", "exec", "ts-n-gru", "/different/bin/nft"}},
+		{executable: tools.IP, args: []string{"netns", "exec", "ts-n-gru", "sh"}},
 	} {
 		if _, _, err := runner.resolve(test.executable, test.args); err == nil {
 			t.Fatalf("accepted executable=%q args=%v", test.executable, test.args)
 		}
 	}
-	if err := runner.Run(nil, "ip", []string{"link", "show"}); err == nil {
+	if err := runner.Run(nil, tools.IP, []string{"link", "show"}); err == nil {
 		t.Fatal("accepted nil context")
 	}
 	if _, _, err := (*HostRunner)(nil).resolve("ip", nil); err == nil {
@@ -69,29 +74,34 @@ func TestHostRunnerRejectsUnadmittedCommands(t *testing.T) {
 }
 
 func TestCleanupAdmissionIsRestrictedToOwnedResources(t *testing.T) {
-	for _, test := range []struct {
-		args []string
-		want bool
-	}{
-		{args: []string{"netns", "del", "ts-n-gru"}, want: true},
-		{args: []string{"-n", "ts-n-gru", "link", "del", "ts-v-gru-sfo"}, want: true},
-		{args: []string{"netns", "exec", "ts-n-fra", "nft", "delete", "table", "inet", "ts_vmnet"}, want: true},
-		{args: []string{"netns", "del", "default"}},
-		{args: []string{"-n", "ts-n-gru", "link", "del", "eth0"}},
-		{args: []string{"-n", "ts-n-gru", "link", "del", "ts-v-sfo-fra"}},
-		{args: []string{"netns", "exec", "ts-n-fra", "nft", "delete", "table", "inet", "other_vmnet"}},
-	} {
-		if got := admittedCleanup("ip", test.args); got != test.want {
-			t.Fatalf("admittedCleanup(%v) = %v, want %v", test.args, got, test.want)
+	tools := testHostTools(t)
+	runner, err := NewHostRunner(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := DefaultConfig()
+	config.RunID = testRunID
+	config.Tools = tools
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range plan.Cleanup.Commands {
+		if !runner.admittedCleanup(command.Executable, command.Args) {
+			t.Fatalf("rejected planned cleanup command: %+v", command)
 		}
 	}
-	if admittedCleanup("sh", []string{"netns", "del", "ts-n-gru"}) {
+	if runner.admittedCleanup("sh", []string{"netns", "del", plan.Regions[0].Namespace}) {
 		t.Fatal("accepted a non-ip cleanup executable")
 	}
-	if !missingCleanup([]string{"netns", "del", "ts-n-gru"}, "Cannot remove namespace file: No such file or directory") {
+	if runner.admittedCleanup(tools.IP, []string{"netns", "del", "default"}) {
+		t.Fatal("accepted an unowned namespace")
+	}
+	cleanupArgs := []string{"netns", "del", plan.Regions[0].Namespace}
+	if !runner.missingCleanup(cleanupArgs, "Cannot remove namespace file: No such file or directory") {
 		t.Fatal("did not normalize explicit missing namespace output")
 	}
-	if missingCleanup([]string{"netns", "del", "ts-n-gru"}, "Operation not permitted") {
+	if runner.missingCleanup(cleanupArgs, "Operation not permitted") {
 		t.Fatal("normalized a permission error")
 	}
 }
@@ -115,6 +125,59 @@ func TestNewHostRunnerValidatesToolPaths(t *testing.T) {
 	}
 	if _, err := NewHostRunner(HostTools{IP: nonExecutable, NFT: tools.NFT, TC: tools.TC, Sysctl: tools.Sysctl}); err == nil || !strings.Contains(err.Error(), "executable regular file") {
 		t.Fatalf("non-executable path error = %v", err)
+	}
+}
+
+func TestNewHostRunnerRejectsReplaceableOrSymlinkedTools(t *testing.T) {
+	tools := testHostTools(t)
+
+	if err := os.Chmod(tools.IP, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHostRunner(tools); err == nil {
+		t.Fatal("accepted a group/world-writable ip executable")
+	}
+	if err := os.Chmod(tools.IP, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	symlinkDirectory := t.TempDir()
+	symlink := filepath.Join(symlinkDirectory, "ip")
+	if err := os.Symlink(tools.IP, symlink); err != nil {
+		t.Fatal(err)
+	}
+	symlinked := tools
+	symlinked.IP = symlink
+	if _, err := NewHostRunner(symlinked); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("symlink error = %v", err)
+	}
+
+	writableDirectory := t.TempDir()
+	writableIP := filepath.Join(writableDirectory, "ip")
+	if err := os.WriteFile(writableIP, []byte("test executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(writableDirectory, 0777); err != nil {
+		t.Fatal(err)
+	}
+	writableParent := tools
+	writableParent.IP = writableIP
+	if _, err := NewHostRunner(writableParent); err == nil || !strings.Contains(err.Error(), "parent directory") {
+		t.Fatalf("writable-parent error = %v", err)
+	}
+}
+
+func TestHostRunnerRevalidatesExecutableImmediatelyBeforeRun(t *testing.T) {
+	tools := testHostTools(t)
+	runner, err := NewHostRunner(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tools.IP, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Run(context.Background(), tools.IP, []string{"link", "show"}); err == nil || !strings.Contains(err.Error(), "executable regular file") {
+		t.Fatalf("run did not reject executable changed after runner construction: %v", err)
 	}
 }
 

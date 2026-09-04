@@ -263,6 +263,11 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	}
 	members := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
+		if !memberOwnedInRegion(member, declared.Code) {
+			// A foreign instance may have a matching slot or display name. It
+			// cannot become an attachment target without positive ownership.
+			continue
+		}
 		switch observedMemberState(member.LifecycleState) {
 		case memberStateAbsent:
 			continue
@@ -284,6 +289,9 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	for _, volume := range observed.Volumes {
 		if !declaredVolumeNames[volume.DisplayName] {
 			continue
+		}
+		if !volumeOwnedInRegion(volume, declared.Code) {
+			return OCIPlan{}, &InvalidDataError{Message: "declared volume " + volume.DisplayName + " is not positively owned"}
 		}
 		state := observedVolumeState(volume.LifecycleState)
 		if state == volumeStateAbsent {
@@ -331,6 +339,9 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			return OCIPlan{}, &InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
 		}
 		if !declaredVolumeNames[volumeName] {
+			continue
+		}
+		if !attachmentOwned(attachment, observed, declared.Code) {
 			continue
 		}
 		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
@@ -469,6 +480,24 @@ func volumeNameByID(observed BlockStorageObserved, volumeID string) string {
 	return ""
 }
 
+func ownedMemberID(observed BlockStorageObserved, id, region string) bool {
+	for _, member := range observed.Members {
+		if member.ID == id {
+			return memberOwnedInRegion(member, region)
+		}
+	}
+	return false
+}
+
+func ownedVolumeID(observed BlockStorageObserved, id, region string) bool {
+	for _, volume := range observed.Volumes {
+		if volume.ID == id {
+			return volumeOwnedInRegion(volume, region)
+		}
+	}
+	return false
+}
+
 func volumeHealthIsKnown(state string) bool {
 	switch state {
 	case "HEALTHY", "AVAILABLE", "ONLINE", "OK", "GOOD", "DEGRADED", "UNHEALTHY", "FAILED", "ERROR", "FAULTED", "INACCESSIBLE", "IO_ERROR":
@@ -544,6 +573,9 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 	}
 	members := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
+		if !memberOwnedInRegion(member, declared.Code) {
+			continue
+		}
 		switch observedMemberState(member.LifecycleState) {
 		case memberStateFailed:
 			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
@@ -560,6 +592,9 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 	volumes := make(map[string]ObservedVolume, len(observed.Volumes))
 	for _, volume := range observed.Volumes {
 		if !declaredVolumeName(declared, volume.DisplayName) {
+			continue
+		}
+		if !volumeOwnedInRegion(volume, declared.Code) {
 			continue
 		}
 		switch observedVolumeState(volume.LifecycleState) {
@@ -594,6 +629,9 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 			if state == attachmentStatePending {
 				return false, nil
 			}
+			continue
+		}
+		if !attachmentOwned(attachment, observed, declared.Code) {
 			continue
 		}
 		switch state {
@@ -651,14 +689,23 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 	for _, action := range plan.Actions {
 		switch a := action.(type) {
 		case CreateVolumeAction:
+			if !declaredVolumeName(declared, a.Spec.DisplayName) {
+				return &InvalidOperationError{Message: "volume create action is outside the declared volume namespace"}
+			}
 			if _, err := r.Block.CreateVolume(ctx, a.Spec); err != nil {
 				return blockMutationError(ctx, err)
 			}
 		case ExpandVolumeAction:
+			if !ownedVolumeID(observed, a.VolumeID, declared.Code) {
+				return &InvalidOperationError{Message: "volume expansion requires positively owned observed volume"}
+			}
 			if err := r.Block.ExpandVolume(ctx, a.VolumeID, a.NewSizeGiB); err != nil {
 				return blockMutationError(ctx, err)
 			}
 		case AttachVolumeAction:
+			if !ownedMemberID(observed, a.InstanceID, declared.Code) || !ownedVolumeID(observed, a.VolumeID, declared.Code) {
+				return &InvalidOperationError{Message: "volume attachment requires positively owned member and volume"}
+			}
 			if _, err := r.Block.AttachVolume(ctx, a.InstanceID, a.VolumeID, ""); err != nil {
 				return blockMutationError(ctx, err)
 			}
@@ -672,13 +719,16 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 			}
 			var oldVolume bool
 			for _, volume := range observed.Volumes {
-				if volume.ID == a.OldVolumeID && volume.DisplayName == a.Spec.DisplayName {
+				if volume.ID == a.OldVolumeID && volume.DisplayName == a.Spec.DisplayName && volumeOwnedInRegion(volume, declared.Code) {
 					oldVolume = true
 					break
 				}
 			}
 			if !oldVolume {
 				return &InvalidOperationError{Message: "volume replacement action is stale"}
+			}
+			if !ownedMemberID(observed, a.InstanceID, declared.Code) {
+				return &InvalidOperationError{Message: "volume replacement requires a positively owned member"}
 			}
 			if a.OldAttachmentID != "" {
 				found := false
@@ -753,9 +803,23 @@ func attachmentOwned(attachment ObservedAttachment, observed BlockStorageObserve
 	if attachment.Managed {
 		return true
 	}
-	// Attachments have no OCI tag API. A future trusted adapter may set
-	// Managed after proving both parent resources; absent that proof preserve.
-	return false
+	// OCI volume attachments have no freeform tag API. Derive ownership only
+	// when both immutable parents carry positive TerraScale ownership evidence
+	// in this exact Region; an attachment ID by itself is never sufficient.
+	volumeOwned, memberOwned := false, false
+	for _, volume := range observed.Volumes {
+		if volume.ID == attachment.VolumeID && volumeOwnedInRegion(volume, region) {
+			volumeOwned = true
+			break
+		}
+	}
+	for _, member := range observed.Members {
+		if member.ID == attachment.InstanceID && memberOwnedInRegion(member, region) {
+			memberOwned = true
+			break
+		}
+	}
+	return volumeOwned && memberOwned
 }
 
 func sameObservedAttachment(a, b ObservedAttachment) bool {
@@ -774,20 +838,74 @@ func (r *BlockStorageReconciler) detachOwnedAttachment(ctx context.Context, regi
 	if !found || !attachmentOwned(expected, observed, region) {
 		return &InvalidOperationError{Message: "attachment detach requires positively owned observed attachment"}
 	}
+	if gateway, ok := r.Block.(*OCIBlockStorageGateway); ok && gateway != nil && expected.CompartmentID != gateway.CompartmentID {
+		return &InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
+	}
 	current, err := r.Block.ListAttachments(ctx)
 	if err != nil {
 		return err
 	}
+	volumes, err := r.Block.ListVolumes(ctx)
+	if err != nil {
+		return err
+	}
+	members, err := r.Compute.ListMembers(ctx)
+	if err != nil {
+		return err
+	}
+	currentParents := BlockStorageObserved{Volumes: volumes, Members: members}
 	for _, attachment := range current {
 		if attachment.ID != id {
 			continue
 		}
-		if !attachmentOwned(attachment, observed, region) || !sameObservedAttachment(attachment, expected) {
+		if !attachmentOwned(attachment, currentParents, region) || !sameObservedAttachment(attachment, expected) || !parentsUnchanged(expected, observed, currentParents, region) {
 			return &InvalidOperationError{Message: "refusing stale or ownership-changed attachment detach"}
+		}
+		if gateway, ok := r.Block.(*OCIBlockStorageGateway); ok && gateway != nil && attachment.CompartmentID != gateway.CompartmentID {
+			return &InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
 		}
 		return r.Block.DetachAttachment(ctx, id)
 	}
 	return nil
+}
+
+func parentsUnchanged(attachment ObservedAttachment, observed, current BlockStorageObserved, region string) bool {
+	var oldVolume, newVolume ObservedVolume
+	var oldMember, newMember ObservedMember
+	var oldVolumeOK, newVolumeOK, oldMemberOK, newMemberOK bool
+	for _, volume := range observed.Volumes {
+		if volume.ID == attachment.VolumeID {
+			oldVolume, oldVolumeOK = volume, true
+		}
+	}
+	for _, volume := range current.Volumes {
+		if volume.ID == attachment.VolumeID {
+			newVolume, newVolumeOK = volume, true
+		}
+	}
+	for _, member := range observed.Members {
+		if member.ID == attachment.InstanceID {
+			oldMember, oldMemberOK = member, true
+		}
+	}
+	for _, member := range current.Members {
+		if member.ID == attachment.InstanceID {
+			newMember, newMemberOK = member, true
+		}
+	}
+	if !oldVolumeOK || !newVolumeOK || !oldMemberOK || !newMemberOK ||
+		!volumeOwnedInRegion(oldVolume, region) || !volumeOwnedInRegion(newVolume, region) ||
+		!memberOwnedInRegion(oldMember, region) || !memberOwnedInRegion(newMember, region) {
+		return false
+	}
+	return sameObservedVolume(oldVolume, newVolume) && sameObservedMember(oldMember, newMember)
+}
+
+func sameObservedVolume(a, b ObservedVolume) bool {
+	return a.ID == b.ID && a.DisplayName == b.DisplayName && a.SizeGiB == b.SizeGiB && a.VPUsPerGiB == b.VPUsPerGiB &&
+		a.LifecycleState == b.LifecycleState && a.AvailabilityDomain == b.AvailabilityDomain && a.UtilizationPercent == b.UtilizationPercent &&
+		a.HealthState == b.HealthState && a.KMSKeyID == b.KMSKeyID && a.BackupVerified == b.BackupVerified && a.ReplicaCount == b.ReplicaCount &&
+		a.CompartmentID == b.CompartmentID && sameStringMap(a.FreeformTags, b.FreeformTags)
 }
 
 // blockMutationError turns transport failures after a request may have been
