@@ -70,7 +70,7 @@ func MaterializeArtifacts(ctx context.Context, config Config) (ArtifactResult, e
 
 func validateToolchainOverrides(config Config, pins Pins) error {
 	for name, configured := range map[string]string{
-		"Firecracker version": config.ExpectedVersion,
+		"Firecracker version":  config.ExpectedVersion,
 		"Firecracker checksum": config.ExpectedFirecrackerSHA256,
 		"jailer checksum":      config.ExpectedJailerSHA256,
 		"SDK module":           config.SDKModule,

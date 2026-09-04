@@ -9,11 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var instanceIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+const GuestChannelSeedSchemaVersion = 2
 
 // GuestArtifact is an exact production binary that the qualification guest
 // receives through cloud-init or the test-only guest channel. Source is kept
@@ -40,25 +45,27 @@ type BinaryArtifact = GuestArtifact
 // components are rejected so a test cannot accidentally qualify a different
 // production composition.
 type GuestSeedSpec struct {
-	Image        GuestImageManifest `json:"image"`
-	Hostname     string             `json:"hostname"`
-	InstanceID   string             `json:"instanceId"`
-	Region       string             `json:"region"`
-	DataDiskPath string             `json:"dataDiskPath"`
-	Artifacts    []GuestArtifact    `json:"artifacts"`
+	Image                   GuestImageManifest `json:"image"`
+	Hostname                string             `json:"hostname"`
+	InstanceID              string             `json:"instanceId"`
+	Region                  string             `json:"region"`
+	DataDiskPath            string             `json:"dataDiskPath"`
+	NetworkExchangeEndpoint string             `json:"networkExchangeEndpoint"`
+	Artifacts               []GuestArtifact    `json:"artifacts"`
 }
 
 // GuestChannelSeed is the canonical, opaque payload sent over the test-only
 // guest control channel after systemd has booted. It contains no credentials
 // and cannot authorize host mutations on its own.
 type GuestChannelSeed struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	Image         GuestImageManifest `json:"image"`
-	Hostname      string             `json:"hostname"`
-	InstanceID    string             `json:"instanceId"`
-	Region        string             `json:"region"`
-	DataDiskPath  string             `json:"dataDiskPath"`
-	Artifacts     []GuestArtifact    `json:"artifacts"`
+	SchemaVersion           int                `json:"schemaVersion"`
+	Image                   GuestImageManifest `json:"image"`
+	Hostname                string             `json:"hostname"`
+	InstanceID              string             `json:"instanceId"`
+	Region                  string             `json:"region"`
+	DataDiskPath            string             `json:"dataDiskPath"`
+	NetworkExchangeEndpoint string             `json:"networkExchangeEndpoint"`
+	Artifacts               []GuestArtifact    `json:"artifacts"`
 }
 
 // BuildGuestChannelSeed produces stable JSON (including fixed artifact order)
@@ -109,7 +116,7 @@ func BuildCloudInit(spec GuestSeedSpec) ([]byte, error) {
 	output.WriteString("\n")
 	output.WriteString("manage_etc_hosts: true\n")
 	output.WriteString("write_files:\n")
-	output.WriteString("  - path: /run/terrascale/guest-seed.json\n")
+	output.WriteString("  - path: " + GuestSeedPath + "\n")
 	output.WriteString("    owner: root:root\n")
 	output.WriteString("    permissions: '0600'\n")
 	output.WriteString("    encoding: b64\n")
@@ -141,11 +148,15 @@ func newGuestChannelSeed(spec GuestSeedSpec) (GuestChannelSeed, error) {
 	if !validDataDiskPath(spec.DataDiskPath) {
 		return GuestChannelSeed{}, errors.New("vmimage: dataDiskPath must be an absolute device or file path")
 	}
+	endpoint, err := canonicalPrivateEndpoint(spec.NetworkExchangeEndpoint)
+	if err != nil {
+		return GuestChannelSeed{}, fmt.Errorf("vmimage: networkExchangeEndpoint: %w", err)
+	}
 	artifacts, err := canonicalGuestArtifacts(spec.Artifacts, image.Architecture)
 	if err != nil {
 		return GuestChannelSeed{}, err
 	}
-	return GuestChannelSeed{SchemaVersion: ManifestSchemaVersion, Image: image, Hostname: spec.Hostname, InstanceID: spec.InstanceID, Region: spec.Region, DataDiskPath: spec.DataDiskPath, Artifacts: artifacts}, nil
+	return GuestChannelSeed{SchemaVersion: GuestChannelSeedSchemaVersion, Image: image, Hostname: spec.Hostname, InstanceID: spec.InstanceID, Region: spec.Region, DataDiskPath: spec.DataDiskPath, NetworkExchangeEndpoint: endpoint, Artifacts: artifacts}, nil
 }
 
 func canonicalGuestArtifacts(input []GuestArtifact, architecture Architecture) ([]GuestArtifact, error) {
@@ -162,6 +173,9 @@ func canonicalGuestArtifacts(input []GuestArtifact, architecture Architecture) (
 		}
 		if artifact.Architecture != architecture {
 			return nil, fmt.Errorf("vmimage: %s architecture does not match image", artifact.Component)
+		}
+		if reservedReleaseVersion(artifact.Version) {
+			return nil, fmt.Errorf("vmimage: %s artifact version collides with a reserved install entry", artifact.Component)
 		}
 		manifest := ArtifactManifest{Name: artifact.Component, Architecture: artifact.Architecture, Version: artifact.Version, Source: artifact.Source, SHA256: artifact.SHA256, Sha256: artifact.Sha256, Size: artifact.Size, Mode: artifact.Mode}
 		if err := manifest.validate(artifact.Component, architecture, artifact.Version); err != nil {
@@ -188,6 +202,20 @@ func validDataDiskPath(path string) bool {
 		return false
 	}
 	return true
+}
+
+func canonicalPrivateEndpoint(value string) (string, error) {
+	if value == "" || value != strings.TrimSpace(value) || strings.ContainsRune(value, 0) {
+		return "", errors.New("must be canonical private IPv4:port")
+	}
+	host, portText, err := net.SplitHostPort(value)
+	address, addressErr := netip.ParseAddr(host)
+	port, portErr := strconv.Atoi(portText)
+	if err != nil || addressErr != nil || portErr != nil || !address.Is4() || !address.IsPrivate() ||
+		port != 18080 || strconv.Itoa(port) != portText || value != address.String()+":"+portText {
+		return "", errors.New("must be canonical private IPv4:port")
+	}
+	return value, nil
 }
 
 func yamlScalar(value string) string {
@@ -220,11 +248,11 @@ func DecodeGuestChannelSeed(data []byte) (GuestChannelSeed, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return GuestChannelSeed{}, errors.New("vmimage: guest seed has trailing data")
 	}
-	canonical, err := newGuestChannelSeed(GuestSeedSpec{Image: seed.Image, Hostname: seed.Hostname, InstanceID: seed.InstanceID, Region: seed.Region, DataDiskPath: seed.DataDiskPath, Artifacts: seed.Artifacts})
+	canonical, err := newGuestChannelSeed(GuestSeedSpec{Image: seed.Image, Hostname: seed.Hostname, InstanceID: seed.InstanceID, Region: seed.Region, DataDiskPath: seed.DataDiskPath, NetworkExchangeEndpoint: seed.NetworkExchangeEndpoint, Artifacts: seed.Artifacts})
 	if err != nil {
 		return GuestChannelSeed{}, err
 	}
-	if seed.SchemaVersion != ManifestSchemaVersion {
+	if seed.SchemaVersion != GuestChannelSeedSchemaVersion {
 		return GuestChannelSeed{}, errors.New("vmimage: unsupported guest seed schema")
 	}
 	return canonical, nil
@@ -274,9 +302,10 @@ func validateGuestChannelSeedJSON(data []byte) error {
 		fields: map[string]seedJSONFieldSchema{
 			"schemaVersion": {}, "image": {object: image}, "hostname": {},
 			"instanceId": {}, "region": {}, "dataDiskPath": {},
-			"artifacts": {objectArray: guestArtifact},
+			"networkExchangeEndpoint": {},
+			"artifacts":               {objectArray: guestArtifact},
 		},
-		required: []string{"schemaVersion", "image", "hostname", "instanceId", "region", "dataDiskPath", "artifacts"},
+		required: []string{"schemaVersion", "image", "hostname", "instanceId", "region", "dataDiskPath", "networkExchangeEndpoint", "artifacts"},
 	}
 	return validateSeedJSONObjectDocument(data, seed, "seed")
 }

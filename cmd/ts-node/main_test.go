@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
 func writeConfig(t *testing.T, contents string) string {
@@ -29,6 +32,9 @@ func TestParseTsNodeArguments(t *testing.T) {
 	}
 	if _, err := parseTsNodeArguments([]string{"--config"}); err == nil {
 		t.Fatal("missing value accepted")
+	}
+	if _, err := parseTsNodeArguments([]string{"--config", "relative.json"}); err == nil {
+		t.Fatal("relative configuration path accepted")
 	}
 }
 
@@ -60,6 +66,10 @@ func TestLoadTsNodeConfigurationRejectsInvalidDocuments(t *testing.T) {
 		"missing public key":  strings.Replace(minimalConfig, `"releasePublicKey": "0000000000000000000000000000000000000000000000000000000000000000"`, `"releasePublicKey": ""`, 1),
 		"wrong nats scheme":   strings.Replace(minimalConfig, "nats://", "http://", 1),
 		"relative path":       strings.Replace(minimalConfig, `"natsUrl"`, `"manifestPath":"relative","natsUrl"`, 1),
+		"unclean path":        strings.Replace(minimalConfig, `"natsUrl"`, `"manifestPath":"/etc//manifest.json","natsUrl"`, 1),
+		"alternate install":   strings.Replace(minimalConfig, `"natsUrl"`, `"installRoot":"/srv/terrascale","natsUrl"`, 1),
+		"alternate unit dir":  strings.Replace(minimalConfig, `"natsUrl"`, `"unitDir":"/tmp/systemd","natsUrl"`, 1),
+		"outside data root":   strings.Replace(minimalConfig, `"natsUrl"`, `"dataVolumeRoot":"/srv/terrascale","natsUrl"`, 1),
 		"unknown field":       strings.Replace(minimalConfig, "{\n", `{"ambient":true`+"\n", 1),
 		"credentials on nats": strings.Replace(minimalConfig, `"natsUrl"`, `"natsNkeyFile":"/etc/nk","natsUrl"`, 1),
 	}
@@ -70,6 +80,52 @@ func TestLoadTsNodeConfigurationRejectsInvalidDocuments(t *testing.T) {
 				t.Fatal("invalid configuration accepted")
 			}
 		})
+	}
+}
+
+func TestLoadTsNodeConfigurationRejectsNonCanonicalJSON(t *testing.T) {
+	cases := map[string]string{
+		"top-level null":      `null`,
+		"duplicate field":     strings.Replace(minimalConfig, `"nodeId": "gru-1"`, `"nodeId": "gru-2", "nodeId": "gru-1"`, 1),
+		"case-variant field":  strings.Replace(minimalConfig, `"nodeId"`, `"NodeId"`, 1),
+		"unknown field":       strings.Replace(minimalConfig, `{`, `{"unknown":true,`, 1),
+		"null optional field": strings.Replace(minimalConfig, `{`, `{"manifestPath":null,`, 1),
+		"trailing document":   minimalConfig + `{}`,
+	}
+	for name, document := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadTsNodeConfiguration(writeConfig(t, document)); err == nil {
+				t.Fatal("non-canonical configuration accepted")
+			}
+		})
+	}
+}
+
+func TestLoadTsNodeConfigurationUsesBoundedRegularFile(t *testing.T) {
+	oversized := strings.Repeat(" ", tsNodeMaximumConfigBytes+1)
+	if _, err := loadTsNodeConfiguration(writeConfig(t, oversized)); err == nil {
+		t.Fatal("oversized configuration accepted")
+	}
+	realPath := writeConfig(t, minimalConfig)
+	symlink := filepath.Join(t.TempDir(), "ts-node.json")
+	if err := os.Symlink(realPath, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadTsNodeConfiguration(symlink); err == nil {
+		t.Fatal("symlinked configuration accepted")
+	}
+}
+
+func TestProductionDefaultsMatchSharedBootstrapContract(t *testing.T) {
+	production := tsnodebootstrap.ProductionConfig()
+	if tsNodeDefaultInstallRoot != production.InstallRoot ||
+		tsNodeDefaultUnitDir != production.UnitDirectory ||
+		tsNodeDefaultDataVolumeRoot != production.DataVolumeRoot {
+		t.Fatalf("ts-node defaults drifted from bootstrap: %+v", production)
+	}
+	if hostagent.UnitName(hostagent.TsNodeComponentName) != tsnodebootstrap.UnitName {
+		t.Fatalf("self unit = %q, bootstrap unit = %q",
+			hostagent.UnitName(hostagent.TsNodeComponentName), tsnodebootstrap.UnitName)
 	}
 }
 

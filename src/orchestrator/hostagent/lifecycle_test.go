@@ -51,11 +51,12 @@ func newTestHarness(t *testing.T) *testHarness {
 		t.Fatal(err)
 	}
 	harness.lifecycle, err = NewLifecycle(LifecycleConfig{
-		InstallRoot: root,
-		UnitDir:     unitDir,
-		Installer:   installer,
-		Systemd:     harness.systemd,
-		Users:       harness.users,
+		InstallRoot:    root,
+		UnitDir:        unitDir,
+		DataVolumeRoot: harness.dataVolume,
+		Installer:      installer,
+		Systemd:        harness.systemd,
+		Users:          harness.users,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +195,8 @@ func TestRollbackWorksWithoutDrain(t *testing.T) {
 	ctx := context.Background()
 	v1 := harness.publish(t, "terrabase", "1.0.0")
 	v2 := harness.publish(t, "terrabase", "1.1.0")
-	harness.applyDesired(t, v1, v2)
+	harness.applyDesired(t, v1)
+	harness.applyDesired(t, v2)
 	if err := FlipCurrent(harness.root, "terrabase", "1.0.0"); err != nil {
 		t.Fatal(err)
 	}

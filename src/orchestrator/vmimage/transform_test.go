@@ -44,7 +44,7 @@ func TestCacheTransformsPinnedQCOW2RootPartition(t *testing.T) {
 		},
 		RootFS: ArtifactManifest{
 			Name: "ubuntu-24.04.3-rootfs.ext4", Architecture: ArchitectureAMD64, Version: version,
-			Source: "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20260101/ubuntu-24.04-minimal-cloudimg-amd64.img", SHA256: strings.Repeat("1", 64), Size: UbuntuRootFSSize, Mode: 0o644,
+			Source: "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20251001/ubuntu-24.04-minimal-cloudimg-amd64.img", SHA256: strings.Repeat("1", 64), Size: UbuntuRootFSSize, Mode: 0o644,
 			InputSHA256: digest(qcow2), InputSize: int64(len(qcow2)),
 			Transform: &Transform{Type: TransformQCOW2RootPartition, SectorSize: UbuntuRootSectorSize, StartSector: UbuntuRootStartSector, SectorCount: UbuntuRootSectorCount},
 		},
@@ -95,10 +95,9 @@ func TestCopySparseSectionExtractsExactBytes(t *testing.T) {
 
 func TestCheckedInGuestManifestsAreNativeBuildPlans(t *testing.T) {
 	t.Parallel()
+	manifests := make(map[Architecture]GuestImageManifest, 2)
 	for _, architecture := range []Architecture{ArchitectureAMD64, ArchitectureARM64} {
-		architecture := architecture
 		t.Run(string(architecture), func(t *testing.T) {
-			t.Parallel()
 			data, err := os.ReadFile("ubuntu-24.04.3-" + string(architecture) + ".json")
 			if err != nil {
 				t.Fatal(err)
@@ -110,6 +109,7 @@ func TestCheckedInGuestManifestsAreNativeBuildPlans(t *testing.T) {
 			if manifest.Architecture != architecture || manifest.RootFS.Transform == nil {
 				t.Fatalf("manifest architecture/transform = %q %#v", manifest.Architecture, manifest.RootFS.Transform)
 			}
+			manifests[architecture] = manifest
 			for _, source := range []string{manifest.Kernel.Source, manifest.RootFS.Source} {
 				parsed, err := url.Parse(source)
 				if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -124,6 +124,13 @@ func TestCheckedInGuestManifestsAreNativeBuildPlans(t *testing.T) {
 				t.Fatalf("build plan steps = %#v", plan.Steps)
 			}
 		})
+	}
+	amd64, arm64 := manifests[ArchitectureAMD64], manifests[ArchitectureARM64]
+	if amd64.UbuntuRelease != arm64.UbuntuRelease || amd64.Version != arm64.Version ||
+		amd64.Kernel.Name != arm64.Kernel.Name || amd64.RootFS.Name != arm64.RootFS.Name ||
+		amd64.RootFS.Size != arm64.RootFS.Size || amd64.RootFS.Mode != arm64.RootFS.Mode ||
+		amd64.RootFS.Transform == nil || arm64.RootFS.Transform == nil || *amd64.RootFS.Transform != *arm64.RootFS.Transform {
+		t.Fatalf("architecture-neutral image pins diverge: amd64=%#v arm64=%#v", amd64, arm64)
 	}
 }
 

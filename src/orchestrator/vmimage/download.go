@@ -2,6 +2,7 @@ package vmimage
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -125,20 +126,16 @@ func downloadPinned(ctx context.Context, downloader Downloader, source, target, 
 		return fmt.Errorf("vmimage: inspect download target: %w", err)
 	}
 
-	temporary, err := createDownloadStaging(target, mode)
+	temporary, file, err := createDownloadStaging(target, mode)
 	if err != nil {
 		return err
 	}
 	removeTemporary := true
 	defer func() {
 		if removeTemporary {
-			_ = os.Remove(temporary)
+			_ = removeFileEntry(temporary)
 		}
 	}()
-	file, err := os.OpenFile(temporary, os.O_WRONLY, 0)
-	if err != nil {
-		return fmt.Errorf("vmimage: open download staging file: %w", err)
-	}
 	hash := sha256.New()
 	limited := &boundedWriter{ctx: ctx, destination: io.MultiWriter(file, hash), remaining: wantSize}
 	if err := downloader.Download(ctx, source, limited, wantSize); err != nil {
@@ -171,48 +168,36 @@ func downloadPinned(ctx context.Context, downloader Downloader, source, target, 
 		// The target was created by this invocation, so it is safe to remove it
 		// if the containing directory could not be made durable. The file was
 		// fully checked before publication and can never be partial.
-		_ = os.Remove(target)
+		_ = removeFileEntry(target)
 		return fmt.Errorf("vmimage: sync download parent: %w", err)
 	}
 	return nil
 }
 
-func createDownloadStaging(target string, mode os.FileMode) (string, error) {
+func createDownloadStaging(target string, mode os.FileMode) (string, *os.File, error) {
 	parent := filepath.Dir(target)
 	base := filepath.Base(target)
 	for attempt := 0; attempt < 8; attempt++ {
-		file, err := os.CreateTemp(parent, "."+base+".download-*")
-		if err != nil {
-			return "", fmt.Errorf("vmimage: create download staging file: %w", err)
+		var token [8]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return "", nil, err
 		}
-		path := file.Name()
+		path := filepath.Join(parent, fmt.Sprintf(".%s.download-%x", base, token))
+		file, _, err := secureOpenPath(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("vmimage: create download staging file: %w", err)
+		}
 		if err := file.Chmod(mode.Perm()); err != nil {
 			_ = file.Close()
-			_ = os.Remove(path)
-			return "", fmt.Errorf("vmimage: set download staging mode: %w", err)
+			_ = removeFileEntry(path)
+			return "", nil, fmt.Errorf("vmimage: set download staging mode: %w", err)
 		}
-		if err := file.Close(); err != nil {
-			_ = os.Remove(path)
-			return "", fmt.Errorf("vmimage: close download staging file: %w", err)
-		}
-		return path, nil
+		return path, file, nil
 	}
-	return "", errors.New("vmimage: create download staging file: too many collisions")
-}
-
-// publishDownload links the fully synced staging inode into place. A hard
-// link is an atomic no-replace operation on the same filesystem and, unlike
-// os.Rename, cannot overwrite a concurrently installed artifact.
-func publishDownload(staging, target string) error {
-	if err := os.Link(staging, target); err != nil {
-		return err
-	}
-	if err := os.Remove(staging); err != nil {
-		// The target is still complete. Keep it visible rather than risking a
-		// replacement or reporting a partial artifact.
-		return fmt.Errorf("remove download staging file: %w", err)
-	}
-	return nil
+	return "", nil, errors.New("vmimage: create download staging file: too many collisions")
 }
 
 type redactedDownloadError struct {

@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -367,5 +370,40 @@ func TestCatalogListsAddRegion(t *testing.T) {
 	}
 	if !strings.Contains(catalog.String(), "add-region") {
 		t.Fatalf("catalog does not list add-region:\n%s", catalog.String())
+	}
+}
+
+func TestAddRegionLoadsFourthRegionFromDeclaredEstate(t *testing.T) {
+	spec := estate.Default()
+	region := spec.Regions[2]
+	region.Code, region.OCIName = "ord", "us-ashburn-1"
+	region.Members.ControlReplicas = 0
+	region.Network.Subnets = append([]estate.Subnet(nil), region.Network.Subnets...)
+	for i := range region.Network.Subnets {
+		region.Network.Subnets[i].RegionCode = region.Code
+	}
+	spec.Regions = append(spec.Regions, region)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "estate.json")
+	if err := os.WriteFile(path, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(name string) (string, bool) { return path, name == addRegionEstateEnvironment }
+	var output bytes.Buffer
+	if err := runAddRegion(context.Background(), []string{"add-region", "ord", dryRunFlag}, lookup, &output); err != nil {
+		t.Fatal(err)
+	}
+	var book addRegionRunbook
+	if err := json.Unmarshal(output.Bytes(), &book); err != nil {
+		t.Fatal(err)
+	}
+	if book.Region != "ord" || book.Control.Replicas != 0 || book.Control.Authority != "global-r3" || book.Members.Count != 2 {
+		t.Fatalf("fourth region runbook: %+v", book)
 	}
 }

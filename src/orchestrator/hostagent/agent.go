@@ -13,6 +13,11 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
+const (
+	hostAgentReconnectWait = 250 * time.Millisecond
+	hostAgentMaxReconnects = 480
+)
+
 // HostAgentConfig is the fully explicit configuration of one host agent.
 // Either Connection or NatsURL must be set, never both: the caller wires an
 // in-process or pre-dialed connection, or lets the agent dial one explicit
@@ -64,6 +69,8 @@ type HostAgent struct {
 	watcher           *ManifestWatcher
 	completion        chan struct{}
 	completionOnce    sync.Once
+	runCancel         context.CancelFunc
+	watcherDone       chan struct{}
 	mutex             sync.Mutex
 	closeOnce         sync.Once
 	closeErr          error
@@ -158,11 +165,19 @@ func (a *HostAgent) Start(ctx context.Context) error {
 		return &InvalidOperationError{Message: "The agent was already started."}
 	}
 	connection := a.connection
+	connectionClosed := make(chan struct{}, 1)
 	if connection == nil {
 		options := []nats.Option{
 			nats.Timeout(a.connectTimeout),
-			nats.MaxReconnects(0),
+			nats.MaxReconnects(hostAgentMaxReconnects),
+			nats.ReconnectWait(hostAgentReconnectWait),
 			nats.RetryOnFailedConnect(false),
+			nats.ClosedHandler(func(*nats.Conn) {
+				select {
+				case connectionClosed <- struct{}{}:
+				default:
+				}
+			}),
 		}
 		options = append(options, a.natsOptions...)
 		dialed, err := nats.Connect(a.natsURL, options...)
@@ -195,21 +210,52 @@ func (a *HostAgent) Start(ctx context.Context) error {
 		a.releaseDialed(connection)
 		return err
 	}
-	if err := transport.Start(ctx); err != nil {
+	runContext, runCancel := context.WithCancel(ctx)
+	// Load the real desired set before command-journal recovery. A pending
+	// drain or release must never be completed against a fresh empty lifecycle.
+	if err := transport.prepareLifecycleForStartup(); err != nil {
+		runCancel()
+		ticker.Stop()
+		a.releaseDialed(connection)
+		return err
+	}
+	if err := a.watcher.HydrateOnce(); err != nil {
+		runCancel()
+		ticker.Stop()
+		a.releaseDialed(connection)
+		return err
+	}
+	if err := transport.Start(runContext); err != nil {
+		runCancel()
 		ticker.Stop()
 		_ = transport.Close()
 		return err
 	}
 	a.transport = transport
-	go a.watcher.Run(ctx)
+	a.runCancel = runCancel
+	watcherDone := make(chan struct{})
+	a.watcherDone = watcherDone
 	go func() {
-		<-ctx.Done()
+		defer close(watcherDone)
+		a.watcher.Run(runContext)
+	}()
+	go func() {
+		<-runContext.Done()
 		// Context cancellation is the agent's lifecycle signal. Drain the
 		// transport as part of that shutdown; merely closing Completion
 		// would leave the NATS subscriptions serving commands after the
 		// caller has observed the agent stop.
 		_ = a.Close()
 	}()
+	if a.ownsConnection {
+		go func() {
+			select {
+			case <-connectionClosed:
+				_ = a.Close()
+			case <-runContext.Done():
+			}
+		}()
+	}
 	return nil
 }
 
@@ -219,10 +265,17 @@ func (a *HostAgent) Start(ctx context.Context) error {
 func (a *HostAgent) Close() error {
 	a.closeOnce.Do(func() {
 		a.mutex.Lock()
-		defer a.mutex.Unlock()
 		a.closed = true
+		if a.runCancel != nil {
+			a.runCancel()
+		}
 		if a.transport != nil {
 			a.closeErr = a.transport.Close()
+		}
+		watcherDone := a.watcherDone
+		a.mutex.Unlock()
+		if watcherDone != nil {
+			<-watcherDone
 		}
 		a.complete()
 	})

@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 )
 
 // FaultController changes one already-applied NetworkPlan. It owns only the
 // dedicated per-link nft chains and root qdiscs created by that plan.
 type FaultController struct {
-	mu      sync.Mutex
 	plan    NetworkPlan
 	runner  Runner
 	regions map[RegionCode]RegionNetwork
@@ -32,6 +30,9 @@ func NewFaultController(plan NetworkPlan, runner Runner) (*FaultController, erro
 		return nil, errors.New("vmnet: an applied multi-Region plan is required")
 	}
 	if err := validateRunnerTools(runner, plan.Tools); err != nil {
+		return nil, err
+	}
+	if err := validateRunnerCoordinationRoot(runner, plan.CoordinationRoot); err != nil {
 		return nil, err
 	}
 	regions := make(map[RegionCode]RegionNetwork, len(plan.Regions))
@@ -93,23 +94,31 @@ func (c *FaultController) Partition(ctx context.Context, a, b RegionCode) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	coordinator, unlock := lockRunCoordinator(c.plan.RunID)
+	defer unlock()
+	if err := coordinator.bind(c.plan.Fingerprint); err != nil {
+		return err
+	}
+	if !coordinator.applied || coordinator.hostLease == nil {
+		return errors.New("vmnet: fault operation requires a journaled applied network")
+	}
 
 	commands, err := c.partitionCommands(a, b, true)
 	if err != nil {
 		return err
 	}
 	if err := runCommands(ctx, c.runner, commands); err != nil {
-		rollback, _ := c.partitionCommands(a, b, false)
+		wasPartitioned := coordinator.partitions[regionPairKey(a, b)]
+		rollback, _ := c.partitionCommands(a, b, wasPartitioned)
 		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		rollbackErr := runCommandsBestEffort(rollbackContext, c.runner, rollback)
 		cancel()
 		if rollbackErr != nil {
-			err = errors.Join(err, fmt.Errorf("rollback heal: %w", rollbackErr))
+			err = errors.Join(err, fmt.Errorf("rollback heal (prior partition state): %w", rollbackErr))
 		}
 		return fmt.Errorf("vmnet: partition %s/%s: %w", a, b, err)
 	}
+	coordinator.partitions[regionPairKey(a, b)] = true
 	return nil
 }
 
@@ -125,15 +134,30 @@ func (c *FaultController) Heal(ctx context.Context, a, b RegionCode) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	coordinator, unlock := lockRunCoordinator(c.plan.RunID)
+	defer unlock()
+	if err := coordinator.bind(c.plan.Fingerprint); err != nil {
+		return err
+	}
+	if !coordinator.applied || coordinator.hostLease == nil {
+		return errors.New("vmnet: fault operation requires a journaled applied network")
+	}
 	commands, err := c.partitionCommands(a, b, false)
 	if err != nil {
 		return err
 	}
+	wasPartitioned := coordinator.partitions[regionPairKey(a, b)]
 	if err := runCommandsBestEffort(ctx, c.runner, commands); err != nil {
+		rollback, _ := c.partitionCommands(a, b, wasPartitioned)
+		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		rollbackErr := runCommandsBestEffort(rollbackContext, c.runner, rollback)
+		cancel()
+		if rollbackErr != nil {
+			err = errors.Join(err, fmt.Errorf("rollback prior partition state: %w", rollbackErr))
+		}
 		return fmt.Errorf("vmnet: heal %s/%s: %w", a, b, err)
 	}
+	coordinator.partitions[regionPairKey(a, b)] = false
 	return nil
 }
 
@@ -151,8 +175,14 @@ func (c *FaultController) SetNetem(ctx context.Context, fault FaultSpec) error {
 	if fault.Partition {
 		return errors.New("vmnet: use Partition for bidirectional link cuts")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	coordinator, unlock := lockRunCoordinator(c.plan.RunID)
+	defer unlock()
+	if err := coordinator.bind(c.plan.Fingerprint); err != nil {
+		return err
+	}
+	if !coordinator.applied || coordinator.hostLease == nil {
+		return errors.New("vmnet: fault operation requires a journaled applied network")
+	}
 	command, _, err := c.netemCommand(fault)
 	if err != nil {
 		return err
@@ -175,8 +205,14 @@ func (c *FaultController) ClearNetem(ctx context.Context, from, to RegionCode) e
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	coordinator, unlock := lockRunCoordinator(c.plan.RunID)
+	defer unlock()
+	if err := coordinator.bind(c.plan.Fingerprint); err != nil {
+		return err
+	}
+	if !coordinator.applied || coordinator.hostLease == nil {
+		return errors.New("vmnet: fault operation requires a journaled applied network")
+	}
 	fromRegion, _, veth, err := c.link(from, to)
 	if err != nil {
 		return err

@@ -370,7 +370,7 @@ func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (Contro
 		prefix = "jetstream/control/"
 	}
 	prefix = strings.TrimSuffix(prefix, "/") + "/"
-	key := prefix + run.ID + ".snapshot"
+	key := fmt.Sprintf("%s%s.epoch-%d.snapshot", prefix, run.ID, epoch)
 	request := SnapshotRequest{RunID: run.ID, ObjectKey: key, IdempotencyKey: run.ID, ControlEpoch: epoch, RestoreEpoch: epoch}
 	snapshot, err := d.config.Snapshotter.Snapshot(ctx, request)
 	if err != nil {

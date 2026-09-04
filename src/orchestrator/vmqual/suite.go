@@ -257,6 +257,7 @@ type LocalScenarioDriver struct {
 	evidence  []Evidence
 	stack     *Stack
 	control   *ControlContract
+	cleanup   *ProviderCleanupObservation
 	state     scenarioState
 }
 
@@ -318,6 +319,13 @@ func (d *LocalScenarioDriver) AttachStack(stack *Stack) error {
 	d.control = control
 	d.state = scenarioState{}
 	d.mu.Unlock()
+	if binder, ok := stack.config.VMFactory.(interface {
+		BindLocalProviderEndpoints(*LocalProviderEndpoints) error
+	}); ok {
+		if err := binder.BindLocalProviderEndpoints(d.Endpoints); err != nil {
+			return fmt.Errorf("vmqual: bind local provider endpoints: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -327,7 +335,14 @@ func (d *LocalScenarioDriver) Close() error {
 	if d == nil || d.Endpoints == nil {
 		return nil
 	}
-	return d.Endpoints.Close()
+	d.mu.Lock()
+	bound := d.stack != nil && d.control != nil
+	d.mu.Unlock()
+	if !bound {
+		return d.Endpoints.Close()
+	}
+	_, err := d.CleanupAndObserveProviderState(context.Background())
+	return err
 }
 
 // prove records an observed qualification fact. Failed facts stay in the
@@ -354,7 +369,12 @@ func (d *LocalScenarioDriver) evidenceCount() int {
 
 func (d *LocalScenarioDriver) verifyEvidence(ctx context.Context, scenario Scenario, first int) error {
 	if scenario == ScenarioCleanup {
-		return d.prove(scenario, "owned-provider-cleanup", d.Endpoints.Closed(), "all owned local provider endpoints are closed")
+		observation, ok := d.ProviderCleanupEvidence()
+		if !ok {
+			return d.prove(scenario, "owned-provider-cleanup", false, "provider cleanup has no post-cleanup observation")
+		}
+		err := observation.Validate()
+		return d.prove(scenario, "owned-provider-cleanup", err == nil, fmt.Sprintf("paths=%d listeners=%d", len(observation.Paths), len(observation.Listeners)))
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -853,10 +873,15 @@ type ScenarioResult struct {
 	Duration time.Duration `json:"duration"`
 }
 type SuiteReport struct {
-	StartedAt  time.Time        `json:"startedAt"`
-	FinishedAt time.Time        `json:"finishedAt"`
-	Scenarios  []ScenarioResult `json:"scenarios"`
-	Evidence   []Evidence       `json:"evidence,omitempty"`
+	StartedAt       time.Time                   `json:"startedAt"`
+	FinishedAt      time.Time                   `json:"finishedAt"`
+	CleanupDuration time.Duration               `json:"cleanupDuration"`
+	Resources       StackResourceReport         `json:"resources"`
+	Sampling        ResourceSamplingReport      `json:"sampling"`
+	Diagnostics     []FailureDiagnostic         `json:"diagnostics,omitempty"`
+	ProviderCleanup *ProviderCleanupObservation `json:"providerCleanup,omitempty"`
+	Scenarios       []ScenarioResult            `json:"scenarios"`
+	Evidence        []Evidence                  `json:"evidence,omitempty"`
 }
 
 func (r SuiteReport) OK() bool {
@@ -890,14 +915,45 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 		return r, errors.New("vmqual: scenario driver must participate in the started VM stack")
 	}
 	r.StartedAt = time.Now().UTC()
+	var sampler *stackResourceSampler
 	defer func() {
-		r.FinishedAt = time.Now().UTC()
+		if sampler != nil {
+			samplingErr := sampler.Stop()
+			r.Sampling = sampler.Report()
+			_, productionFactory := s.config.VMFactory.(*firecrackerFactory)
+			if e == nil && samplingErr == nil && productionFactory {
+				samplingErr = r.Sampling.Validate(s.Guests())
+			}
+			e = errors.Join(e, samplingErr)
+		}
+		if e != nil {
+			diagnosticCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			diagnostics, diagnosticErr := s.CollectFailureDiagnostics(diagnosticCtx)
+			cancel()
+			r.Diagnostics = diagnostics
+			e = errors.Join(e, diagnosticErr)
+		}
+		cleanupStarted := time.Now()
 		e = errors.Join(e, s.Cleanup(context.Background()))
 		if cleanup, ok := d.(ScenarioCleanupHook); ok {
 			e = errors.Join(e, cleanup.Close())
 		}
+		if cleanup, ok := d.(interface {
+			ProviderCleanupEvidence() (ProviderCleanupObservation, bool)
+		}); ok {
+			if observation, exists := cleanup.ProviderCleanupEvidence(); exists {
+				r.ProviderCleanup = &observation
+			}
+		}
+		r.CleanupDuration = time.Since(cleanupStarted)
+		r.Resources = s.ResourceReport()
+		r.FinishedAt = time.Now().UTC()
 	}()
 	if e = participant.AttachStack(s); e != nil {
+		return r, e
+	}
+	sampler, e = startStackResourceSampler(c, s)
+	if e != nil {
 		return r, e
 	}
 	if e = s.StartBootstrap(c); e != nil {
@@ -913,19 +969,19 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 		z := ScenarioResult{Scenario: x}
 		firstEvidence := len(evidenceDriver.Evidence())
 		if zerr := d.Run(c, x); zerr != nil {
-			z.Error = zerr.Error()
+			z.Error = boundedSuiteDiagnostic(zerr)
 			e = zerr
 		}
 		proofs := evidenceDriver.Evidence()
 		if e == nil {
 			if firstEvidence >= len(proofs) {
 				e = fmt.Errorf("vmqual: scenario %s returned no state-derived evidence", x)
-				z.Error = e.Error()
+				z.Error = boundedSuiteDiagnostic(e)
 			} else {
 				for _, proof := range proofs[firstEvidence:] {
 					if proof.Scenario != x || !proof.Passed || strings.TrimSpace(proof.Check) == "" {
 						e = fmt.Errorf("vmqual: scenario %s returned invalid evidence", x)
-						z.Error = e.Error()
+						z.Error = boundedSuiteDiagnostic(e)
 						break
 					}
 				}
@@ -944,4 +1000,16 @@ func RunSuite(c context.Context, s *Stack, d ScenarioDriver) (r SuiteReport, e e
 		e = errors.New("vmqual: suite incomplete")
 	}
 	return r, e
+}
+
+func boundedSuiteDiagnostic(err error) string {
+	if err == nil {
+		return ""
+	}
+	const maximum = 4096
+	diagnostic := err.Error()
+	if len(diagnostic) <= maximum {
+		return diagnostic
+	}
+	return diagnostic[:maximum-len("...[truncated]")] + "...[truncated]"
 }

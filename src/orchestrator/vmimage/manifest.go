@@ -154,6 +154,9 @@ func (manifest GuestImageManifest) Validate() error {
 	if kernel.Name == rootfs.Name {
 		return errors.New("vmimage: kernel and rootfs names must differ")
 	}
+	if err := validateArtifactNames(kernel.Name, rootfs.Name); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -176,10 +179,27 @@ func NewPinnedManifest(manifest GuestImageManifest) (GuestImageManifest, error) 
 	if canonical.Kernel.expectedMode() != 0o644 || canonical.RootFS.expectedMode() != 0o644 {
 		return GuestImageManifest{}, errors.New("vmimage: kernel and rootfs modes must be 0644")
 	}
-	if err := validateImmutableImageSource("kernel", canonical.Kernel.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
+	versionPrefix := canonical.UbuntuRelease + "-fc"
+	if !strings.HasPrefix(canonical.Version, versionPrefix) {
+		return GuestImageManifest{}, errors.New("vmimage: image version must bind the Ubuntu and Firecracker releases")
+	}
+	firecrackerVersion := strings.TrimPrefix(canonical.Version, versionPrefix)
+	components := strings.Split(firecrackerVersion, ".")
+	if len(components) != 3 {
+		return GuestImageManifest{}, errors.New("vmimage: image version must contain a complete Firecracker release")
+	}
+	for _, component := range components {
+		if component == "" || strings.Trim(component, "0123456789") != "" {
+			return GuestImageManifest{}, errors.New("vmimage: image version must contain a complete Firecracker release")
+		}
+	}
+	if canonical.UbuntuRelease != "24.04.3" || firecrackerVersion != "1.15.1" {
+		return GuestImageManifest{}, errors.New("vmimage: image version is not the pinned Ubuntu and Firecracker release pair")
+	}
+	if err := validateImmutableImageSource("kernel", canonical.Kernel.Name, canonical.Kernel.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
 		return GuestImageManifest{}, err
 	}
-	if err := validateImmutableImageSource("rootfs", canonical.RootFS.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
+	if err := validateImmutableImageSource("rootfs", canonical.RootFS.Name, canonical.RootFS.Source, canonical.Architecture, canonical.UbuntuRelease, canonical.Version); err != nil {
 		return GuestImageManifest{}, err
 	}
 	transform := canonical.RootFS.Transform
@@ -359,7 +379,7 @@ func validateSource(source string) error {
 // validateImmutableImageSource is deliberately stricter than validateSource.
 // Guest service provenance can name a local test fixture, but the boot pair is
 // supply-chain input and may only come from a canonical, versioned HTTPS URL.
-func validateImmutableImageSource(kind, source string, architecture Architecture, ubuntuRelease, imageVersion string) error {
+func validateImmutableImageSource(kind, artifactName, source string, architecture Architecture, ubuntuRelease, imageVersion string) error {
 	parsed, err := url.Parse(source)
 	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.Hostname() == "" ||
 		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" {
@@ -384,9 +404,12 @@ func validateImmutableImageSource(kind, source string, architecture Architecture
 		return fmt.Errorf("vmimage: %s source is not the fixed upstream artifact path", kind)
 	}
 	if kind == "rootfs" {
-		series := strings.Join(strings.Split(ubuntuRelease, ".")[:2], ".")
-		if !strings.HasPrefix(pathpkg.Base(parsed.Path), "ubuntu-"+series+"-minimal-cloudimg-") {
-			return errors.New("vmimage: rootfs source Ubuntu series does not match image")
+		releaseArch := map[Architecture]string{ArchitectureAMD64: "amd64", ArchitectureARM64: "arm64"}[architecture]
+		expectedPath := map[string]string{
+			"24.04.3": "/minimal/releases/noble/release-20251001/ubuntu-24.04-minimal-cloudimg-" + releaseArch + ".img",
+		}[ubuntuRelease]
+		if expectedPath == "" || parsed.Path != expectedPath {
+			return errors.New("vmimage: rootfs source is not the pinned Ubuntu release for this image")
 		}
 	}
 	if kind == "kernel" {
@@ -398,12 +421,32 @@ func validateImmutableImageSource(kind, source string, architecture Architecture
 		if len(components) != 3 || !strings.Contains(parsed.Path, "/v"+components[0]+"."+components[1]+"/") {
 			return errors.New("vmimage: kernel source Firecracker release does not match image")
 		}
+		if pathpkg.Base(parsed.Path) != artifactName {
+			return errors.New("vmimage: kernel source basename does not match the manifest kernel name")
+		}
 	}
 	pathValue := strings.ToLower(parsed.Path)
 	hasAMD64 := amd64Source.MatchString(pathValue)
 	hasARM64 := arm64Source.MatchString(pathValue)
 	if hasAMD64 == hasARM64 || (architecture == ArchitectureAMD64 && !hasAMD64) || (architecture == ArchitectureARM64 && !hasARM64) {
 		return fmt.Errorf("vmimage: %s source architecture does not match image", kind)
+	}
+	return nil
+}
+
+func validateArtifactNames(kernelName, rootfsName string) error {
+	reserved := map[string]struct{}{
+		"manifest.json":       {},
+		"build-plan.json":     {},
+		"image-receipt.json":  {},
+		rootfsName + ".input": {},
+		rootfsName + ".raw":   {},
+	}
+	if _, exists := reserved[kernelName]; exists {
+		return errors.New("vmimage: kernel name collides with a reserved cache entry")
+	}
+	if _, exists := reserved[rootfsName]; exists {
+		return errors.New("vmimage: rootfs name collides with a reserved cache entry")
 	}
 	return nil
 }
@@ -461,6 +504,9 @@ func DecodeManifest(data []byte) (GuestImageManifest, error) {
 	if len(data) == 0 || int64(len(data)) > maxManifestBytes {
 		return GuestImageManifest{}, errors.New("vmimage: manifest size is outside the permitted range")
 	}
+	if err := validateSeedJSONObjectDocument(data, manifestJSONSchema(), "manifest"); err != nil {
+		return GuestImageManifest{}, fmt.Errorf("vmimage: decode manifest: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var manifest GuestImageManifest
@@ -486,32 +532,15 @@ func VerifyFile(path string, artifact ArtifactManifest) error {
 	if err := artifact.validate("artifact", artifact.Architecture, artifact.Version); err != nil {
 		return err
 	}
-	info, err := os.Lstat(path)
+	directory, directoryMetadata, err := secureOpenPath(filepath.Dir(filepath.Clean(path)), os.O_RDONLY, 0)
 	if err != nil {
-		return fmt.Errorf("vmimage: stat artifact: %w", err)
+		return fmt.Errorf("vmimage: open artifact directory: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("vmimage: artifact must be a regular file, not a symlink")
+	defer directory.Close()
+	if !directoryMetadata.directory {
+		return errors.New("vmimage: artifact parent is not a directory")
 	}
-	if uint32(info.Mode().Perm()) != artifact.expectedMode() {
-		return fmt.Errorf("vmimage: artifact mode %04o does not match manifest mode %04o", info.Mode().Perm(), artifact.expectedMode())
-	}
-	if info.Size() != artifact.Size {
-		return fmt.Errorf("vmimage: artifact size %d does not match manifest size %d", info.Size(), artifact.Size)
-	}
-	file, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return fmt.Errorf("vmimage: open artifact: %w", err)
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.CopyN(hash, file, artifact.Size+1); err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("vmimage: hash artifact: %w", err)
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != artifact.digest() {
-		return errors.New("vmimage: artifact sha256 does not match manifest")
-	}
-	return nil
+	return verifyArtifactAt(directory, directoryMetadata, filepath.Base(path), artifact)
 }
 
 // VerifyArtifact is a descriptive alias for VerifyFile.

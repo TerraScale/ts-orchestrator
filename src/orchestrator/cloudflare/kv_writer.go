@@ -86,6 +86,7 @@ type KVWriter struct {
 
 	cancel     context.CancelFunc
 	completion chan struct{}
+	notify     chan struct{}
 	closeOnce  sync.Once
 	started    bool
 	closed     bool
@@ -129,6 +130,7 @@ func NewKVWriter(config KVWriterConfig) (*KVWriter, error) {
 		lastPlacementState: make(map[string]DBPlacement),
 		lastHealth:         make(map[string]struct{}),
 		completion:         make(chan struct{}),
+		notify:             make(chan struct{}, 1),
 	}, nil
 }
 
@@ -167,6 +169,20 @@ func (w *KVWriter) Completion() <-chan struct{} {
 		return nil
 	}
 	return w.completion
+}
+
+// NotifyChange requests an immediate observation pass. It is the production
+// placement-change path: the periodic ticker still refreshes Region health,
+// while a durable placement update need not wait up to one health interval.
+// Bursts coalesce into one pass and never block the caller.
+func (w *KVWriter) NotifyChange() {
+	if w == nil {
+		return
+	}
+	select {
+	case w.notify <- struct{}{}:
+	default:
+	}
 }
 
 // WriteBatch writes one tick in bulk order: every health entry first, then
@@ -377,16 +393,15 @@ func (w *KVWriter) Start(ctx context.Context) error {
 		defer close(w.completion)
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
+		_, _ = w.Step(ctx)
 		for {
-			if err := ctx.Err(); err != nil {
-				return
-			}
-			_, _ = w.Step(ctx)
 			select {
 			case <-ctx.Done():
 				return
+			case <-w.notify:
 			case <-ticker.C:
 			}
+			_, _ = w.Step(ctx)
 		}
 	}()
 	return nil

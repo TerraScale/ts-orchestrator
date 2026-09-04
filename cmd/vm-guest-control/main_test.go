@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 	"terrascale.tech/orchestrator/src/orchestrator/vmguest"
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 )
 
 const (
@@ -106,6 +107,108 @@ func TestGuestControlMemoryLimitLeavesRoomForTheGuest(t *testing.T) {
 	}
 }
 
+func TestConfigFromGuestSeedAuthorizesExactNetworkEndpoint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guest-seed.json")
+	seed := testGuestSeed(t, "10.77.0.1:18080")
+	if err := os.WriteFile(path, seed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := configFromGuestSeed(vmguest.Config{SeedPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.SeedPath != path || config.NetworkExchangeEndpoint != "10.77.0.1:18080" || config.DataDevice != "/dev/vdb" {
+		t.Fatalf("guest seed config = %+v", config)
+	}
+}
+
+func TestConfigFromGuestSeedRejectsUnsafeOrInvalidSeed(t *testing.T) {
+	root := t.TempDir()
+	valid := filepath.Join(root, "valid")
+	if err := os.WriteFile(valid, testGuestSeed(t, "10.77.0.1:18080"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	permissive := filepath.Join(root, "permissive")
+	if err := os.WriteFile(permissive, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	symlink := filepath.Join(root, "symlink")
+	if err := os.Symlink(valid, symlink); err != nil {
+		t.Fatal(err)
+	}
+	hardlink := filepath.Join(root, "hardlink")
+	if err := os.Link(valid, hardlink); err != nil {
+		t.Fatal(err)
+	}
+	oversized := filepath.Join(root, "oversized")
+	if err := os.WriteFile(oversized, make([]byte, guestSeedMaxBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(root, "invalid")
+	if err := os.WriteFile(invalid, []byte(`{"schemaVersion":2,"networkExchangeEndpoint":"10.77.0.1:18080"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	realDirectory := filepath.Join(root, "real-directory")
+	if err := os.Mkdir(realDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDirectory, "seed"), testGuestSeed(t, "10.77.0.1:18080"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedDirectory := filepath.Join(root, "linked-directory")
+	if err := os.Symlink(realDirectory, linkedDirectory); err != nil {
+		t.Fatal(err)
+	}
+	writableDirectory := filepath.Join(root, "writable-directory")
+	if err := os.Mkdir(writableDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(writableDirectory, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(writableDirectory, "seed"), testGuestSeed(t, "10.77.0.1:18080"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{permissive, symlink, hardlink, oversized, invalid, filepath.Join(linkedDirectory, "seed"), filepath.Join(writableDirectory, "seed")} {
+		if _, err := configFromGuestSeed(vmguest.Config{SeedPath: path}); err == nil {
+			t.Fatalf("unsafe or invalid guest seed %q was accepted", path)
+		}
+	}
+}
+
+func testGuestSeed(t *testing.T, endpoint string) []byte {
+	t.Helper()
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	image := vmimage.GuestImageManifest{
+		SchemaVersion: vmimage.ManifestSchemaVersion,
+		UbuntuRelease: "24.04.3",
+		Architecture:  vmimage.ArchitectureARM64,
+		Version:       "24.04.3",
+		Kernel: vmimage.ArtifactManifest{
+			Name: "vmlinuz", Architecture: vmimage.ArchitectureARM64, Version: "24.04.3",
+			Source: "/fixtures/vmlinuz", SHA256: digest, Size: 1, Mode: 0o644,
+		},
+		RootFS: vmimage.ArtifactManifest{
+			Name: "rootfs.raw", Architecture: vmimage.ArchitectureARM64, Version: "24.04.3",
+			Source: "/fixtures/rootfs.raw", SHA256: digest, Size: 1, Mode: 0o644,
+		},
+	}
+	artifacts := make([]vmimage.GuestArtifact, 0, 3)
+	for _, component := range []string{"ts-node", "orchestrator", "terrabase"} {
+		artifacts = append(artifacts, vmimage.GuestArtifact{Component: component, Architecture: vmimage.ArchitectureARM64, Version: "3.0.0", Source: "/fixtures/" + component, SHA256: digest, Size: 1, Mode: 0o644})
+	}
+	seed, err := vmimage.BuildGuestChannelSeed(vmimage.GuestSeedSpec{
+		Image: image, Hostname: "vm-001", InstanceID: "vm-001", Region: "gru", DataDiskPath: "/dev/vdb",
+		NetworkExchangeEndpoint: endpoint, Artifacts: artifacts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seed
+}
+
 func TestServeSessionCancelsInheritedBlockingInput(t *testing.T) {
 	input, heldInput, err := os.Pipe()
 	if err != nil {
@@ -133,19 +236,12 @@ func TestServeSessionCancelsInheritedBlockingOutput(t *testing.T) {
 	if _, err := unix.FcntlInt(filledOutput.Fd(), unix.F_SETPIPE_SZ, 4<<10); err != nil && !errors.Is(err, unix.EPERM) {
 		t.Fatal(err)
 	}
-	if err := unix.SetNonblock(int(filledOutput.Fd()), true); err != nil {
+	capacity, err := unix.FcntlInt(filledOutput.Fd(), unix.F_GETPIPE_SZ, 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	fill := make([]byte, 4<<10)
-	for {
-		if _, err := unix.Write(int(filledOutput.Fd()), fill); errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
-			break
-		} else if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := unix.SetNonblock(int(filledOutput.Fd()), false); err != nil {
-		t.Fatal(err)
+	if written, err := unix.Write(int(filledOutput.Fd()), make([]byte, capacity)); err != nil || written != capacity {
+		t.Fatalf("fill output pipe: wrote %d of %d bytes: %v", written, capacity, err)
 	}
 	command, lockPath, ready := blockingFDCommand(t, "rejected")
 	command.Stdin = strings.NewReader("")

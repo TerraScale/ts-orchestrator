@@ -94,6 +94,52 @@ func TestConfigRejectsPlaceholderAndMalformedExpectedDigests(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeIdentityUsesOnlyExplicitNonRootPair(t *testing.T) {
+	clearVMManifestEnvironment(t)
+	t.Setenv("SUDO_UID", "1234")
+	t.Setenv("SUDO_GID", "2345")
+	config, err := ResolveRuntimeIdentity(defaultConfigForArchitecture(runtime.GOARCH))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.JailerUID != 1234 || config.JailerGID != 2345 {
+		t.Fatalf("resolved identity = %d:%d", config.JailerUID, config.JailerGID)
+	}
+
+	config.JailerUID, config.JailerGID = 3456, 4567
+	t.Setenv("SUDO_UID", "9999")
+	t.Setenv("SUDO_GID", "9999")
+	config, err = ResolveRuntimeIdentity(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.JailerUID != 3456 || config.JailerGID != 4567 {
+		t.Fatalf("explicit identity was replaced: %d:%d", config.JailerUID, config.JailerGID)
+	}
+}
+
+func TestResolveRuntimeIdentityRejectsIncompleteOrRootFallback(t *testing.T) {
+	for _, test := range []struct {
+		uid string
+		gid string
+	}{
+		{uid: "", gid: "1000"},
+		{uid: "1000", gid: ""},
+		{uid: "0", gid: "1000"},
+		{uid: "1000", gid: "0"},
+		{uid: "+1000", gid: "1000"},
+	} {
+		t.Run(test.uid+":"+test.gid, func(t *testing.T) {
+			clearVMManifestEnvironment(t)
+			t.Setenv("SUDO_UID", test.uid)
+			t.Setenv("SUDO_GID", test.gid)
+			if _, err := ResolveRuntimeIdentity(defaultConfigForArchitecture(runtime.GOARCH)); err == nil {
+				t.Fatal("ResolveRuntimeIdentity accepted an invalid fallback pair")
+			}
+		})
+	}
+}
+
 func TestLoadPinsRejectsAllZeroPlaceholderDigest(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "vmimage", "pins-amd64.json"))
 	if err != nil {
@@ -140,7 +186,27 @@ func clearVMManifestEnvironment(t *testing.T) {
 		"TS_VM_JAILER_SHA256",
 		"TS_VM_SDK_MODULE",
 		"TS_VM_SDK_VERSION",
+		"TS_VM_JAILER_UID",
+		"TS_VM_JAILER_GID",
+		"TS_VM_RELEASE_PUBLIC_KEY",
+		"TS_VM_TS_NODE",
+		"TS_VM_TS_NODE_SIGNATURE",
+		"TS_VM_TS_NODE_VERSION",
+		"TS_VM_ORCHESTRATOR",
+		"TS_VM_ORCHESTRATOR_SIGNATURE",
+		"TS_VM_ORCHESTRATOR_VERSION",
+		"TS_VM_TERRABASE",
+		"TS_VM_TERRABASE_SIGNATURE",
+		"TS_VM_TERRABASE_VERSION",
+		"SUDO_UID",
+		"SUDO_GID",
 	} {
+		// t.Setenv records the ambient value for restoration. Unset after
+		// recording it because LookupEnv deliberately distinguishes a missing
+		// identity from an explicitly empty (and invalid) identity.
 		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
 	}
 }

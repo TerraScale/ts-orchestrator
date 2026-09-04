@@ -7,8 +7,10 @@
 package hostagent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -20,6 +22,11 @@ import (
 // a member never mints HLC timestamps from its local clock, so ts-node marks
 // the host unhealthy for writes.
 const ClockWriteRefusalThreshold = 500 * time.Millisecond
+
+const (
+	chronyMaximumOutputBytes = 64 << 10
+	chronyMaximumOffset      = 24 * time.Hour
+)
 
 // ClockOffsetSample is one measured clock fact.
 type ClockOffsetSample struct {
@@ -52,18 +59,60 @@ type ChronyTrackingSource struct {
 
 // Offset runs chronyc tracking and parses the system-time offset.
 func (s ChronyTrackingSource) Offset(ctx context.Context) (time.Duration, error) {
-	command := exec.CommandContext(ctx, s.ChronycBinary, "tracking")
-	output, err := command.Output()
+	if ctx == nil {
+		return 0, &InvalidOperationError{Message: "The chrony context is required."}
+	}
+	if !safeAbsolutePath(s.ChronycBinary) {
+		return 0, &InvalidOperationError{Message: "The chronyc binary must be an absolute safe path."}
+	}
+	if s.Timeout <= 0 {
+		return 0, &InvalidOperationError{Message: "The chronyc timeout must be positive."}
+	}
+	commandContext, cancel := context.WithTimeout(ctx, s.Timeout)
+	defer cancel()
+	command := exec.CommandContext(commandContext, s.ChronycBinary, "tracking")
+	command.WaitDelay = s.Timeout
+	output := &boundedCommandOutput{maximum: chronyMaximumOutputBytes}
+	command.Stdout = output
+	command.Stderr = &boundedCommandOutput{maximum: 4096}
+	err := command.Run()
 	if err != nil {
+		if contextErr := commandContext.Err(); contextErr != nil {
+			return 0, fmt.Errorf("chronyc tracking failed: %w", contextErr)
+		}
 		return 0, fmt.Errorf("chronyc tracking failed: %w", err)
 	}
-	return ParseChronySystemTime(string(output))
+	if output.exceeded {
+		return 0, &InvalidDataError{Message: "The chrony tracking report exceeds its size bound."}
+	}
+	return ParseChronySystemTime(output.buffer.String())
+}
+
+type boundedCommandOutput struct {
+	buffer   bytes.Buffer
+	maximum  int
+	exceeded bool
+}
+
+func (w *boundedCommandOutput) Write(data []byte) (int, error) {
+	remaining := w.maximum - w.buffer.Len()
+	if remaining > 0 {
+		written := len(data)
+		if written > remaining {
+			written = remaining
+		}
+		_, _ = w.buffer.Write(data[:written])
+	}
+	if len(data) > remaining {
+		w.exceeded = true
+	}
+	return len(data), nil
 }
 
 // chronySystemTimePattern matches the stable tracking line
 // "System time     : 0.000012345 seconds fast of NTP time".
 var chronySystemTimePattern = regexp.MustCompile(
-	`^System time\s*:\s*(-?[0-9]+(?:\.[0-9]+)?) seconds (fast|slow) of NTP time$`)
+	`^System time\s*:\s*([0-9]+(?:\.[0-9]+)?) seconds (fast|slow) of NTP time$`)
 
 // ParseChronySystemTime extracts the signed system-time offset from one
 // chronyc tracking report: fast of NTP time is a positive offset, slow is
@@ -75,7 +124,8 @@ func ParseChronySystemTime(tracking string) (time.Duration, error) {
 			continue
 		}
 		seconds, err := strconv.ParseFloat(match[1], 64)
-		if err != nil {
+		if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) ||
+			seconds < 0 || seconds > chronyMaximumOffset.Seconds() {
 			break
 		}
 		offset := time.Duration(seconds * float64(time.Second))

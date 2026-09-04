@@ -80,16 +80,33 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	}
 	entry := filepath.Join(cache.Root, string(canonical.Architecture), canonical.Version, pairDigest)
 	if installed, ok := cache.existing(entry, canonical); ok {
+		if err := syncDir(filepath.Dir(entry)); err != nil {
+			return InstalledImage{}, fmt.Errorf("vmimage: sync existing cache parent: %w", err)
+		}
 		return installed, nil
 	}
 	if err := ensurePrivateTree(cache.Root, filepath.Dir(entry)); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: create cache: %w", err)
 	}
+	lock, err := acquireCacheLock(cache.Root)
+	if err != nil {
+		return InstalledImage{}, err
+	}
+	defer releaseCacheLock(lock)
+	if err := recoverStaging(filepath.Dir(entry)); err != nil {
+		return InstalledImage{}, fmt.Errorf("vmimage: recover cache staging: %w", err)
+	}
+	if installed, ok := cache.existing(entry, canonical); ok {
+		if err := syncDir(filepath.Dir(entry)); err != nil {
+			return InstalledImage{}, fmt.Errorf("vmimage: sync existing cache parent: %w", err)
+		}
+		return installed, nil
+	}
 	stage, err := createStaging(filepath.Dir(entry))
 	if err != nil {
 		return InstalledImage{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = recoverStaging(filepath.Dir(entry)) }()
 
 	kernelPath := filepath.Join(stage, canonical.Kernel.Name)
 	rootfsPath := filepath.Join(stage, canonical.RootFS.Name)
@@ -158,15 +175,15 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if err := syncDir(stage); err != nil {
 		return InstalledImage{}, err
 	}
-	if err := os.Chmod(stage, 0o700); err != nil {
-		return InstalledImage{}, err
-	}
 	if err := ctx.Err(); err != nil {
 		return InstalledImage{}, err
 	}
 	if err := publishDirectory(stage, entry); err != nil {
 		// Another installer may have won the compare-and-create race. Only
 		// accept it when the immutable entry verifies completely.
+		if syncErr := syncDir(filepath.Dir(entry)); syncErr != nil {
+			return InstalledImage{}, fmt.Errorf("vmimage: sync cache parent after publication race: %w", syncErr)
+		}
 		if installed, ok := cache.existing(entry, canonical); ok {
 			return installed, nil
 		}
@@ -175,7 +192,11 @@ func (cache *Cache) Install(ctx context.Context, manifest GuestImageManifest) (I
 	if err := syncDir(filepath.Dir(entry)); err != nil {
 		return InstalledImage{}, fmt.Errorf("vmimage: sync cache parent: %w", err)
 	}
-	return InstalledImage{Manifest: canonical, Dir: entry, Kernel: filepath.Join(entry, canonical.Kernel.Name), RootFS: filepath.Join(entry, canonical.RootFS.Name), Receipt: filepath.Join(entry, "image-receipt.json")}, nil
+	installed := InstalledImage{Manifest: canonical, Dir: entry, Kernel: filepath.Join(entry, canonical.Kernel.Name), RootFS: filepath.Join(entry, canonical.RootFS.Name), Receipt: filepath.Join(entry, "image-receipt.json")}
+	if err := cache.VerifyInstalled(installed); err != nil {
+		return InstalledImage{}, fmt.Errorf("vmimage: verify published cache entry: %w", err)
+	}
+	return installed, nil
 }
 
 // Install is a package-level convenience for callers that do not need a
@@ -219,16 +240,15 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if image.Dir != plan.CacheEntry || image.Kernel != expectedKernel || image.RootFS != expectedRootFS || image.Receipt != expectedReceipt {
 		return errors.New("vmimage: installed image paths do not match their derived cache location")
 	}
-	if err := rejectSymlinkAncestors(image.Dir); err != nil {
+	directory, directoryMetadata, err := openVerifiedDirectory(image.Dir)
+	if err != nil {
 		return err
 	}
-	if err := verifyDirectory(image.Dir); err != nil {
+	defer directory.Close()
+	if err := verifyExactDirectoryEntriesAt(directory, canonical.Kernel.Name, canonical.RootFS.Name, "manifest.json", "build-plan.json", "image-receipt.json"); err != nil {
 		return err
 	}
-	if err := verifyExactDirectoryEntries(image.Dir, canonical.Kernel.Name, canonical.RootFS.Name, "manifest.json", "build-plan.json", "image-receipt.json"); err != nil {
-		return err
-	}
-	data, err := readRegularFile(filepath.Join(image.Dir, "manifest.json"), 0o600, maxManifestBytes)
+	data, err := readRegularFileAt(directory, directoryMetadata, "manifest.json", 0o600, maxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("vmimage: read cached manifest: %w", err)
 	}
@@ -241,7 +261,7 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if string(left) != string(right) {
 		return errors.New("vmimage: cached manifest differs from requested manifest")
 	}
-	planData, err := readRegularFile(filepath.Join(image.Dir, "build-plan.json"), 0o600, maxBuildPlanBytes)
+	planData, err := readRegularFileAt(directory, directoryMetadata, "build-plan.json", 0o600, maxBuildPlanBytes)
 	if err != nil {
 		return fmt.Errorf("vmimage: read cached build plan: %w", err)
 	}
@@ -257,13 +277,13 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 	if err != nil || string(expectedBytes) != string(cachedBytes) {
 		return errors.New("vmimage: cached build plan differs from requested manifest")
 	}
-	if err := VerifyFile(filepath.Join(image.Dir, canonical.Kernel.Name), canonical.Kernel); err != nil {
+	if err := verifyArtifactAt(directory, directoryMetadata, canonical.Kernel.Name, canonical.Kernel); err != nil {
 		return err
 	}
-	if err := VerifyFile(filepath.Join(image.Dir, canonical.RootFS.Name), canonical.RootFS); err != nil {
+	if err := verifyArtifactAt(directory, directoryMetadata, canonical.RootFS.Name, canonical.RootFS); err != nil {
 		return err
 	}
-	receiptData, err := readRegularFile(expectedReceipt, 0o600, maxPreparationReceiptBytes)
+	receiptData, err := readRegularFileAt(directory, directoryMetadata, "image-receipt.json", 0o600, maxPreparationReceiptBytes)
 	if err != nil {
 		return fmt.Errorf("vmimage: read preparation receipt: %w", err)
 	}
@@ -272,9 +292,6 @@ func (cache *Cache) VerifyInstalled(image InstalledImage) error {
 }
 
 func (cache *Cache) existing(entry string, manifest GuestImageManifest) (InstalledImage, bool) {
-	if _, err := os.Stat(entry); err != nil {
-		return InstalledImage{}, false
-	}
 	image := InstalledImage{Manifest: manifest, Dir: entry, Kernel: filepath.Join(entry, manifest.Kernel.Name), RootFS: filepath.Join(entry, manifest.RootFS.Name), Receipt: filepath.Join(entry, "image-receipt.json")}
 	if err := cache.VerifyInstalled(image); err != nil {
 		return InstalledImage{}, false
@@ -308,8 +325,8 @@ func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, ta
 	input.Transform = nil
 	inputPath := target + ".input"
 	rawPath := target + ".raw"
-	defer os.Remove(inputPath)
-	defer os.Remove(rawPath)
+	defer func() { _ = removeFileEntry(inputPath) }()
+	defer func() { _ = removeFileEntry(rawPath) }()
 	if err := cache.fetchDirect(ctx, input, inputPath); err != nil {
 		return fmt.Errorf("fetch transformation input: %w", err)
 	}
@@ -351,30 +368,28 @@ func (cache *Cache) transform(ctx context.Context, artifact ArtifactManifest, ta
 }
 
 func verifyRegular(path string) error {
-	info, err := os.Lstat(path)
+	file, metadata, err := secureOpenPath(path, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	defer file.Close()
+	if !metadata.regular || metadata.special || metadata.uid != uint32(os.Geteuid()) || metadata.links != 1 {
 		return errors.New("path is not a regular non-symlink file")
 	}
 	return nil
 }
 
 func copySparseSection(ctx context.Context, source, target string, offset, size int64, mode os.FileMode) error {
-	input, err := os.Open(source)
+	input, sourceMetadata, err := secureOpenPath(source, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
-	info, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if offset < 0 || size <= 0 || offset > info.Size() || size > info.Size()-offset {
+	if !sourceMetadata.regular || sourceMetadata.special || sourceMetadata.links != 1 ||
+		offset < 0 || size <= 0 || offset > sourceMetadata.size || size > sourceMetadata.size-offset {
 		return errors.New("root partition lies outside converted raw disk")
 	}
-	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	output, _, err := secureOpenPath(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
@@ -382,7 +397,7 @@ func copySparseSection(ctx context.Context, source, target string, offset, size 
 	defer func() {
 		_ = output.Close()
 		if !ok {
-			_ = os.Remove(target)
+			_ = removeFileEntry(target)
 		}
 	}()
 	if err := output.Chmod(mode.Perm()); err != nil {
@@ -449,30 +464,58 @@ func (reader contextReader) Read(p []byte) (int, error) {
 }
 
 func createStaging(parent string) (string, error) {
-	var random [8]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	directory, directoryMetadata, err := openVerifiedDirectory(parent)
+	if err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf(".staging-%x", random)
-	path := filepath.Join(parent, name)
-	if err := os.Mkdir(path, 0o700); err != nil {
-		return "", err
+	defer directory.Close()
+	for attempt := 0; attempt < 8; attempt++ {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			return "", err
+		}
+		name := fmt.Sprintf(".staging-%x", random)
+		if err := makeDirectoryChild(directory, name, 0o700); errors.Is(err, os.ErrExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		staging, metadata, err := secureOpenAt(directory, name, os.O_RDONLY, 0)
+		if err != nil {
+			return "", err
+		}
+		if err := staging.Chmod(0o700); err != nil {
+			_ = staging.Close()
+			return "", err
+		}
+		metadata, err = secureMetadata(staging)
+		if err != nil || !metadata.directory || metadata.special || metadata.permissions != 0o700 || metadata.uid != uint32(os.Geteuid()) || metadata.device != directoryMetadata.device {
+			_ = staging.Close()
+			return "", errors.New("vmimage: new staging directory metadata is unsafe")
+		}
+		if err := staging.Sync(); err != nil {
+			_ = staging.Close()
+			return "", err
+		}
+		if err := staging.Close(); err != nil {
+			return "", err
+		}
+		if err := directory.Sync(); err != nil {
+			return "", err
+		}
+		return filepath.Join(parent, name), nil
 	}
-	if err := os.Chmod(path, 0o700); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	return path, nil
+	return "", errors.New("vmimage: create staging directory: too many collisions")
 }
 
 func writePrivate(path string, content []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, _, err := secureOpenPath(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	if err := file.Chmod(0o600); err != nil {
 		_ = file.Close()
-		_ = os.Remove(path)
+		_ = removeFileEntry(path)
 		return err
 	}
 	if _, err := file.Write(content); err != nil {
@@ -483,7 +526,7 @@ func writePrivate(path string, content []byte) error {
 }
 
 func syncFile(path string) error {
-	file, err := os.Open(path)
+	file, _, err := secureOpenPath(path, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
@@ -496,9 +539,13 @@ func syncFile(path string) error {
 }
 
 func syncDir(path string) error {
-	file, err := os.Open(path)
+	file, metadata, err := secureOpenPath(path, os.O_RDONLY, 0)
 	if err != nil {
 		return err
+	}
+	if !metadata.directory {
+		_ = file.Close()
+		return errors.New("vmimage: sync target is not a directory")
 	}
 	err = file.Sync()
 	closeErr := file.Close()
@@ -509,17 +556,11 @@ func syncDir(path string) error {
 }
 
 func verifyDirectory(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
+	file, _, err := openVerifiedDirectory(path)
+	if file != nil {
+		_ = file.Close()
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("vmimage: cache entry must be a non-symlink directory")
-	}
-	if info.Mode().Perm() != 0o700 {
-		return errors.New("vmimage: cache entry directory has unsafe mode")
-	}
-	return nil
+	return err
 }
 
 func pathWithin(root, path string) bool {

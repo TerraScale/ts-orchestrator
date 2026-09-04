@@ -30,6 +30,89 @@ type Runner interface {
 	Run(context.Context, string, []string) error
 }
 
+// RecordingCall is one mutation request captured by RecordingRunner without
+// executing it.
+type RecordingCall struct {
+	Command     Command
+	Cleanup     bool
+	Canceled    bool
+	HasDeadline bool
+	Deadline    time.Time
+}
+
+// RecordingRunner is a non-host test runner. It only stores defensive copies
+// of commands and journals and is the public runner allowed to use a custom
+// CoordinationRoot.
+type RecordingRunner struct {
+	mu       sync.Mutex
+	calls    []RecordingCall
+	journals []Journal
+}
+
+func (r *RecordingRunner) Run(ctx context.Context, executable string, args []string) error {
+	return r.record(ctx, false, executable, args)
+}
+
+func (r *RecordingRunner) RunCleanup(ctx context.Context, executable string, args []string) error {
+	return r.record(ctx, true, executable, args)
+}
+
+func (r *RecordingRunner) record(ctx context.Context, cleanup bool, executable string, args []string) error {
+	if r == nil {
+		return errors.New("vmnet: nil recording runner")
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	r.mu.Lock()
+	r.calls = append(r.calls, RecordingCall{
+		Command: Command{Executable: executable, Args: append([]string(nil), args...)},
+		Cleanup: cleanup, Canceled: ctx.Err() != nil,
+		HasDeadline: hasDeadline, Deadline: deadline,
+	})
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *RecordingRunner) WriteJournal(_ context.Context, journal Journal) error {
+	if r == nil {
+		return errors.New("vmnet: nil recording runner")
+	}
+	r.mu.Lock()
+	r.journals = append(r.journals, journal.copy())
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *RecordingRunner) Calls() []RecordingCall {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := append([]RecordingCall(nil), r.calls...)
+	for index := range result {
+		result[index].Command = result[index].Command.copy()
+	}
+	return result
+}
+
+func (r *RecordingRunner) Journals() []Journal {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := append([]Journal(nil), r.journals...)
+	for index := range result {
+		result[index] = result[index].copy()
+	}
+	return result
+}
+
+type internalNonHostRunner interface {
+	Runner
+	vmnetNonHostRunner()
+}
+
 // CleanupRunner may normalize an absent owned resource while replaying a
 // cleanup journal. Other failures, including permission errors, remain fatal.
 type CleanupRunner interface {
@@ -73,6 +156,8 @@ const (
 var launchRegions = []RegionCode{GRU, SFO, FRA}
 
 var transitPrefix = netip.MustParsePrefix("10.78.255.0/24")
+
+const networkPlanVersion = 4
 
 // StableCIDR returns the deterministic qualification subnet for a launch
 // Region.
@@ -138,6 +223,74 @@ type RegionSpec struct {
 	Guests []GuestSpec `json:"guests"`
 }
 
+// TransportProtocol is the closed set of protocols admitted for host
+// endpoint forwarding. Qualification endpoints are TCP listeners; DNS names
+// are installed in guest configuration rather than exposed as a UDP proxy.
+type TransportProtocol string
+
+const TCP TransportProtocol = "tcp"
+
+// EndpointSpec declares one bounded guest-to-host listener mapping. Addresses
+// are assigned by Plan so callers cannot forward traffic to an ambient host.
+type EndpointSpec struct {
+	Name      string            `json:"name"`
+	Region    RegionCode        `json:"region"`
+	Protocol  TransportProtocol `json:"protocol"`
+	GuestPort uint16            `json:"guest_port"`
+	HostPort  uint16            `json:"host_port"`
+	DNSNames  []string          `json:"dns_names,omitempty"`
+}
+
+// EndpointForward is a fully resolved guest-to-host mapping. Only this exact
+// address and port tuple receives DNAT, SNAT, and forwarding rules.
+type EndpointForward struct {
+	Name         string            `json:"name"`
+	Region       RegionCode        `json:"region"`
+	Protocol     TransportProtocol `json:"protocol"`
+	GuestAddress string            `json:"guest_address"`
+	GuestPort    uint16            `json:"guest_port"`
+	HostAddress  string            `json:"host_address"`
+	HostPort     uint16            `json:"host_port"`
+	DNSNames     []string          `json:"dns_names,omitempty"`
+}
+
+// EndpointListener is one root-namespace listener required by the resolved
+// forwards. Several Regions may share the same listener.
+type EndpointListener struct {
+	Name     string            `json:"name"`
+	Protocol TransportProtocol `json:"protocol"`
+	Address  string            `json:"address"`
+	Port     uint16            `json:"port"`
+}
+
+// DNSRecord is one guest configuration record. The network package declares
+// records but does not run an open DNS proxy; vmqual can render these as
+// /etc/hosts entries in the named Region.
+type DNSRecordType string
+
+const DNSA DNSRecordType = "A"
+
+type DNSRecord struct {
+	Region  RegionCode    `json:"region"`
+	Name    string        `json:"name"`
+	Type    DNSRecordType `json:"type"`
+	Address string        `json:"address"`
+}
+
+// RegionUplink is the run-owned veth pair joining a Region namespace to the
+// root namespace. Deleting RegionNamespace deletes both ends atomically.
+type RegionUplink struct {
+	Region             RegionCode `json:"region"`
+	RegionNamespace    string     `json:"region_namespace"`
+	RegionDevice       string     `json:"region_device"`
+	RootDevice         string     `json:"root_device"`
+	CIDR               string     `json:"cidr"`
+	RegionAddress      string     `json:"region_address"`
+	RootAddress        string     `json:"root_address"`
+	HostServiceAddress string     `json:"host_service_address"`
+	OwnsServiceAddress bool       `json:"owns_service_address"`
+}
+
 // FaultSpec declares a directional cross-Region impairment. Latency, loss,
 // jitter, and bandwidth affect From→To; Partition cuts both directions.
 type FaultSpec struct {
@@ -159,11 +312,17 @@ type Config struct {
 	Prefix  string       `json:"prefix,omitempty"`
 	Regions []RegionSpec `json:"regions"`
 	Faults  []FaultSpec  `json:"faults,omitempty"`
-	TAPUID  uint32       `json:"tap_uid,omitempty"`
-	TAPGID  uint32       `json:"tap_gid,omitempty"`
+	// Endpoints nil selects the three qualification listeners for every
+	// declared Region. A non-nil slice declares the complete allowed set.
+	Endpoints []EndpointSpec `json:"endpoints,omitempty"`
+	TAPUID    uint32         `json:"tap_uid,omitempty"`
+	TAPGID    uint32         `json:"tap_gid,omitempty"`
 	// RunID is a 128-bit lowercase hexadecimal ownership identity. Empty uses
 	// one cryptographically random identity shared by this controller process.
 	RunID string `json:"run_id,omitempty"`
+	// CoordinationRoot is the private host directory shared by every vmnet
+	// controller in one lock domain. Empty uses /run/terrascale/vmnet.
+	CoordinationRoot string `json:"coordination_root,omitempty"`
 	// Tools contains the exact absolute executables serialized into every
 	// setup, fault, and cleanup command. Empty discovers the host toolchain.
 	Tools ToolPaths `json:"tools,omitempty"`
@@ -189,6 +348,7 @@ type RegionNetwork struct {
 	NamespacePath string         `json:"namespace_path"`
 	Bridge        string         `json:"bridge"`
 	Gateway       string         `json:"gateway"`
+	Uplink        RegionUplink   `json:"uplink"`
 	Guests        []GuestNetwork `json:"guests"`
 }
 
@@ -203,17 +363,26 @@ type GuestNetwork struct {
 // CleanupPlan is safe to replay. A CleanupRunner normalizes only an explicitly
 // absent owned namespace, making privileged cleanup idempotent after a crash.
 type CleanupPlan struct {
-	Version     int          `json:"version"`
-	Prefix      string       `json:"prefix"`
-	RunID       string       `json:"run_id"`
-	Tools       ToolPaths    `json:"tools"`
-	Fingerprint string       `json:"fingerprint"`
-	Regions     []RegionCode `json:"regions"`
-	Commands    []Command    `json:"commands"`
+	Version          int                `json:"version"`
+	Prefix           string             `json:"prefix"`
+	RunID            string             `json:"run_id"`
+	CoordinationRoot string             `json:"coordination_root"`
+	Tools            ToolPaths          `json:"tools"`
+	Fingerprint      string             `json:"fingerprint"`
+	Regions          []RegionCode       `json:"regions"`
+	Uplinks          []RegionUplink     `json:"uplinks"`
+	Forwards         []EndpointForward  `json:"forwards,omitempty"`
+	Listeners        []EndpointListener `json:"listeners,omitempty"`
+	DNSRecords       []DNSRecord        `json:"dns_records,omitempty"`
+	Commands         []Command          `json:"commands"`
 }
 
 func (p CleanupPlan) copy() CleanupPlan {
 	p.Regions = append([]RegionCode(nil), p.Regions...)
+	p.Uplinks = append([]RegionUplink(nil), p.Uplinks...)
+	p.Forwards = copyForwards(p.Forwards)
+	p.Listeners = append([]EndpointListener(nil), p.Listeners...)
+	p.DNSRecords = append([]DNSRecord(nil), p.DNSRecords...)
 	p.Commands = append([]Command(nil), p.Commands...)
 	for i := range p.Commands {
 		p.Commands[i] = p.Commands[i].copy()
@@ -225,8 +394,11 @@ func (p CleanupPlan) copy() CleanupPlan {
 // plan deliberately admits namespace deletion only; all subordinate network
 // resources are created inside those namespaces.
 func (p CleanupPlan) Validate() error {
-	if p.Version != 2 || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
+	if p.Version != networkPlanVersion || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
 		return errors.New("vmnet: invalid cleanup plan metadata")
+	}
+	if err := validateHostCoordinationRoot(p.CoordinationRoot); err != nil {
+		return err
 	}
 	// Namespace deletion uses only ip. The other paths remain bound into the
 	// journal but their binaries need not survive until crash recovery.
@@ -236,7 +408,7 @@ func (p CleanupPlan) Validate() error {
 	if err := validateHostTool("ip", p.Tools.IP); err != nil {
 		return err
 	}
-	if len(p.Regions) == 0 || len(p.Regions) > len(launchRegions) || len(p.Commands) != len(p.Regions) {
+	if len(p.Regions) == 0 || len(p.Regions) > len(launchRegions) || len(p.Commands) != len(p.Regions) || len(p.Uplinks) != len(p.Regions) {
 		return errors.New("vmnet: cleanup plan must contain one command per declared Region")
 	}
 	seen := make(map[RegionCode]bool, len(p.Commands))
@@ -256,16 +428,19 @@ func (p CleanupPlan) Validate() error {
 			return errors.New("vmnet: cleanup Regions are not canonical")
 		}
 	}
+	if err := validateResolvedEndpoints(p.Prefix, p.RunID, p.Regions, p.Uplinks, p.Forwards, p.Listeners, p.DNSRecords); err != nil {
+		return fmt.Errorf("vmnet: invalid cleanup endpoint manifest: %w", err)
+	}
 	return nil
 }
 
 // Validate checks the complete crash-recovery record before any privileged
 // cleanup command executes.
 func (j Journal) Validate() error {
-	if j.Version != 2 || j.Prefix == "" || j.RunID == "" || j.Fingerprint == "" {
+	if j.Version != networkPlanVersion || j.Prefix == "" || j.RunID == "" || j.Fingerprint == "" {
 		return errors.New("vmnet: invalid network journal metadata")
 	}
-	if j.Prefix != j.Cleanup.Prefix || j.RunID != j.Cleanup.RunID || j.Tools != j.Cleanup.Tools || j.Fingerprint != j.Cleanup.Fingerprint {
+	if j.Prefix != j.Cleanup.Prefix || j.RunID != j.Cleanup.RunID || j.CoordinationRoot != j.Cleanup.CoordinationRoot || j.Tools != j.Cleanup.Tools || j.Fingerprint != j.Cleanup.Fingerprint {
 		return errors.New("vmnet: network journal and cleanup ownership differ")
 	}
 	return j.Cleanup.Validate()
@@ -302,6 +477,40 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 	if err := validateRunnerTools(runner, p.Tools); err != nil {
 		return err
 	}
+	if err := validateRunnerCoordinationRoot(runner, p.CoordinationRoot); err != nil {
+		return err
+	}
+	coordinator, unlock := lockRunCoordinator(p.RunID)
+	defer unlock()
+	if err := coordinator.bind(p.Fingerprint); err != nil {
+		return err
+	}
+	if coordinator.hostLease == nil {
+		lease, _, err := acquireHostLease(p.CoordinationRoot, p.RunID, p.Fingerprint, p.Uplinks)
+		if err != nil {
+			return err
+		}
+		coordinator.hostLease = lease
+	}
+	coordinator.applied = false
+	coordinator.cleanupRequired = true
+	coordinator.resetFaults(nil)
+	if err := coordinator.hostLease.publish(); err != nil {
+		return fmt.Errorf("vmnet: publish host allocation for cleanup: %w", err)
+	}
+	err := p.runLocked(ctx, runner)
+	if err != nil {
+		return err
+	}
+	if err := coordinator.hostLease.complete(); err != nil {
+		return fmt.Errorf("vmnet: release host allocation: %w", err)
+	}
+	coordinator.hostLease = nil
+	coordinator.cleanupRequired = false
+	return nil
+}
+
+func (p CleanupPlan) runLocked(ctx context.Context, runner Runner) error {
 	// Cleanup is a safety operation. It must still run when the controller's
 	// request was cancelled, but no individual host command may hang forever.
 	baseContext := context.WithoutCancel(ctx)
@@ -328,12 +537,13 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 // before calling Apply. It contains only provider-owned identifiers and the
 // exact cleanup argv, never credentials.
 type Journal struct {
-	Version     int         `json:"version"`
-	Prefix      string      `json:"prefix"`
-	RunID       string      `json:"run_id"`
-	Tools       ToolPaths   `json:"tools"`
-	Fingerprint string      `json:"fingerprint"`
-	Cleanup     CleanupPlan `json:"cleanup"`
+	Version          int         `json:"version"`
+	Prefix           string      `json:"prefix"`
+	RunID            string      `json:"run_id"`
+	CoordinationRoot string      `json:"coordination_root"`
+	Tools            ToolPaths   `json:"tools"`
+	Fingerprint      string      `json:"fingerprint"`
+	Cleanup          CleanupPlan `json:"cleanup"`
 }
 
 // JournalWriter persists the cleanup record in the controller's durable
@@ -344,21 +554,29 @@ type JournalWriter interface {
 
 // NetworkPlan is a deterministic setup and cleanup plan.
 type NetworkPlan struct {
-	Version     int             `json:"version"`
-	Prefix      string          `json:"prefix"`
-	RunID       string          `json:"run_id"`
-	Tools       ToolPaths       `json:"tools"`
-	Fingerprint string          `json:"fingerprint"`
-	Regions     []RegionNetwork `json:"regions"`
-	Faults      []FaultSpec     `json:"faults,omitempty"`
-	Commands    []Command       `json:"commands"`
-	Cleanup     CleanupPlan     `json:"cleanup"`
-	Journal     Journal         `json:"journal"`
+	Version          int                `json:"version"`
+	Prefix           string             `json:"prefix"`
+	RunID            string             `json:"run_id"`
+	CoordinationRoot string             `json:"coordination_root"`
+	Tools            ToolPaths          `json:"tools"`
+	Fingerprint      string             `json:"fingerprint"`
+	Regions          []RegionNetwork    `json:"regions"`
+	Uplinks          []RegionUplink     `json:"uplinks,omitempty"`
+	Faults           []FaultSpec        `json:"faults,omitempty"`
+	Forwards         []EndpointForward  `json:"forwards,omitempty"`
+	Listeners        []EndpointListener `json:"listeners,omitempty"`
+	DNSRecords       []DNSRecord        `json:"dns_records,omitempty"`
+	Commands         []Command          `json:"commands"`
+	Cleanup          CleanupPlan        `json:"cleanup"`
+	Journal          Journal            `json:"journal"`
 }
 
 const (
-	maxPlanCommands = 512
+	maxPlanCommands = 640
 	maxPlanGuests   = 96
+	maxPlanForwards = 48
+	maxDNSRecords   = 96
+	maxEndpointDNS  = 8
 )
 
 // Validate reconstructs the only canonical plan that could own these
@@ -366,11 +584,14 @@ const (
 // must not be able to turn a recovered or hand-edited value into arbitrary ip
 // commands by recalculating only its fingerprint.
 func (p NetworkPlan) Validate() error {
-	if p.Version != 2 || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
+	if p.Version != networkPlanVersion || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
 		return errors.New("vmnet: invalid network plan metadata")
 	}
 	if len(p.Regions) == 0 || len(p.Regions) > len(launchRegions) || len(p.Commands) == 0 || len(p.Commands) > maxPlanCommands {
 		return errors.New("vmnet: network plan exceeds topology bounds")
+	}
+	if err := validateHostCoordinationRoot(p.CoordinationRoot); err != nil {
+		return err
 	}
 	if err := p.Tools.Validate(); err != nil {
 		return err
@@ -395,13 +616,15 @@ func (p NetworkPlan) canonicalConfig() (Config, error) {
 		return Config{}, err
 	}
 	config := Config{
-		Prefix:  p.Prefix,
-		RunID:   p.RunID,
-		Tools:   p.Tools,
-		Faults:  append([]FaultSpec(nil), p.Faults...),
-		TAPUID:  uid,
-		TAPGID:  gid,
-		Regions: make([]RegionSpec, 0, len(p.Regions)),
+		Prefix:           p.Prefix,
+		RunID:            p.RunID,
+		CoordinationRoot: p.CoordinationRoot,
+		Tools:            p.Tools,
+		Faults:           append([]FaultSpec(nil), p.Faults...),
+		Endpoints:        make([]EndpointSpec, 0, len(p.Forwards)),
+		TAPUID:           uid,
+		TAPGID:           gid,
+		Regions:          make([]RegionSpec, 0, len(p.Regions)),
 	}
 	totalGuests := 0
 	for _, region := range p.Regions {
@@ -414,6 +637,13 @@ func (p NetworkPlan) canonicalConfig() (Config, error) {
 			spec.Guests = append(spec.Guests, GuestSpec{ID: guest.ID, TAP: guest.TAP, Address: guest.Address})
 		}
 		config.Regions = append(config.Regions, spec)
+	}
+	for _, forward := range p.Forwards {
+		config.Endpoints = append(config.Endpoints, EndpointSpec{
+			Name: forward.Name, Region: forward.Region, Protocol: forward.Protocol,
+			GuestPort: forward.GuestPort, HostPort: forward.HostPort,
+			DNSNames: append([]string(nil), forward.DNSNames...),
+		})
 	}
 	return config, nil
 }
@@ -503,12 +733,29 @@ func validateRunnerTools(runner Runner, expected ToolPaths) error {
 	return nil
 }
 
+func validateRunnerCoordinationRoot(runner Runner, root string) error {
+	if root == defaultHostCoordinationDir {
+		return nil
+	}
+	if _, ok := runner.(*RecordingRunner); ok {
+		return nil
+	}
+	if _, ok := runner.(internalNonHostRunner); !ok {
+		return errors.New("vmnet: custom coordination root requires the non-host recording runner")
+	}
+	return nil
+}
+
 func (p NetworkPlan) copy() NetworkPlan {
 	p.Regions = append([]RegionNetwork(nil), p.Regions...)
 	for i := range p.Regions {
 		p.Regions[i].Guests = append([]GuestNetwork(nil), p.Regions[i].Guests...)
 	}
+	p.Uplinks = append([]RegionUplink(nil), p.Uplinks...)
 	p.Faults = append([]FaultSpec(nil), p.Faults...)
+	p.Forwards = copyForwards(p.Forwards)
+	p.Listeners = append([]EndpointListener(nil), p.Listeners...)
+	p.DNSRecords = append([]DNSRecord(nil), p.DNSRecords...)
 	p.Commands = append([]Command(nil), p.Commands...)
 	for i := range p.Commands {
 		p.Commands[i] = p.Commands[i].copy()
@@ -518,37 +765,67 @@ func (p NetworkPlan) copy() NetworkPlan {
 	return p
 }
 
+func copyForwards(forwards []EndpointForward) []EndpointForward {
+	result := append([]EndpointForward(nil), forwards...)
+	for i := range result {
+		result[i].DNSNames = append([]string(nil), result[i].DNSNames...)
+	}
+	return result
+}
+
+// Endpoint returns a defensive copy of a resolved Region mapping.
+func (p NetworkPlan) Endpoint(region RegionCode, name string) (EndpointForward, bool) {
+	if p.Validate() != nil {
+		return EndpointForward{}, false
+	}
+	for _, endpoint := range p.Forwards {
+		if endpoint.Region == region && endpoint.Name == name {
+			endpoint.DNSNames = append([]string(nil), endpoint.DNSNames...)
+			return endpoint, true
+		}
+	}
+	return EndpointForward{}, false
+}
+
+// Listener returns the shared root listener for an endpoint name.
+func (p NetworkPlan) Listener(name string) (EndpointListener, bool) {
+	if p.Validate() != nil {
+		return EndpointListener{}, false
+	}
+	for _, listener := range p.Listeners {
+		if listener.Name == name {
+			return listener, true
+		}
+	}
+	return EndpointListener{}, false
+}
+
+// RegionDNSRecords returns defensive copies of the guest records for region.
+func (p NetworkPlan) RegionDNSRecords(region RegionCode) []DNSRecord {
+	if p.Validate() != nil {
+		return nil
+	}
+	var records []DNSRecord
+	for _, record := range p.DNSRecords {
+		if record.Region == region {
+			records = append(records, record)
+		}
+	}
+	return records
+}
+
 // CleanupPlan returns a defensive copy of the crash-safe cleanup record.
 func (p NetworkPlan) CleanupPlan() CleanupPlan { return p.Cleanup.copy() }
 
-// Apply executes setup in order. Any setup failure, including cancellation,
-// triggers cleanup with context.WithoutCancel so a cancelled controller does
-// not leave TAPs or namespaces behind.
+// Apply accepts only a runner that also durably writes Journal. Callers with a
+// separate journal implementation should use ApplyWithJournal. This keeps the
+// journal-before-mutation rule mandatory at the vmnet boundary.
 func (p NetworkPlan) Apply(ctx context.Context, runner Runner) error {
-	if runner == nil {
-		return errors.New("vmnet: nil runner")
+	writer, ok := runner.(JournalWriter)
+	if !ok {
+		return errors.New("vmnet: durable journal writer is required before apply")
 	}
-	if ctx == nil {
-		return errors.New("vmnet: nil context")
-	}
-	p = p.copy()
-	if err := p.Validate(); err != nil {
-		return err
-	}
-	if err := validateRunnerTools(runner, p.Tools); err != nil {
-		return err
-	}
-	for i, c := range p.Commands {
-		if err := ctx.Err(); err != nil {
-			cleanupErr := p.Cleanup.Run(ctx, runner)
-			return applyError(i, err, cleanupErr)
-		}
-		if err := runner.Run(ctx, c.Executable, append([]string(nil), c.Args...)); err != nil {
-			cleanupErr := p.Cleanup.Run(ctx, runner)
-			return applyError(i, err, cleanupErr)
-		}
-	}
-	return nil
+	return p.ApplyWithJournal(ctx, runner, writer)
 }
 
 // ApplyWithJournal durably records cleanup before applying setup. A journal
@@ -570,10 +847,62 @@ func (p NetworkPlan) ApplyWithJournal(ctx context.Context, runner Runner, writer
 	if err := validateRunnerTools(runner, p.Tools); err != nil {
 		return err
 	}
+	if err := validateRunnerCoordinationRoot(runner, p.CoordinationRoot); err != nil {
+		return err
+	}
+	coordinator, unlock := lockRunCoordinator(p.RunID)
+	defer unlock()
+	if err := coordinator.bind(p.Fingerprint); err != nil {
+		return err
+	}
+	if coordinator.applied {
+		return nil
+	}
+	if coordinator.cleanupRequired {
+		return errors.New("vmnet: incomplete cleanup must be replayed before apply")
+	}
+	if coordinator.hostLease == nil {
+		lease, recovered, err := acquireHostLease(p.CoordinationRoot, p.RunID, p.Fingerprint, p.Uplinks)
+		if err != nil {
+			return err
+		}
+		coordinator.hostLease = lease
+		if recovered {
+			coordinator.cleanupRequired = true
+			return errors.New("vmnet: recovered host allocation requires cleanup before apply")
+		}
+	}
 	if err := writer.WriteJournal(ctx, p.Journal.copy()); err != nil {
+		coordinator.hostLease.unlock()
+		coordinator.hostLease = nil
+		coordinator.fingerprint = ""
 		return fmt.Errorf("vmnet: write cleanup journal: %w", err)
 	}
-	return p.Apply(ctx, runner)
+	coordinator.cleanupRequired = true
+	if err := coordinator.hostLease.publish(); err != nil {
+		return fmt.Errorf("vmnet: publish host allocation: %w", err)
+	}
+	if err := p.applyLocked(ctx, runner); err != nil {
+		return err
+	}
+	coordinator.applied = true
+	coordinator.cleanupRequired = false
+	coordinator.resetFaults(p.Faults)
+	return nil
+}
+
+func (p NetworkPlan) applyLocked(ctx context.Context, runner Runner) error {
+	for i, c := range p.Commands {
+		if err := ctx.Err(); err != nil {
+			cleanupErr := p.Cleanup.runLocked(ctx, runner)
+			return applyError(i, err, cleanupErr)
+		}
+		if err := runner.Run(ctx, c.Executable, append([]string(nil), c.Args...)); err != nil {
+			cleanupErr := p.Cleanup.runLocked(ctx, runner)
+			return applyError(i, err, cleanupErr)
+		}
+	}
+	return nil
 }
 
 func applyError(index int, applyErr, cleanupErr error) error {
@@ -589,13 +918,81 @@ func (p NetworkPlan) Rollback(ctx context.Context, runner Runner) error {
 }
 
 var (
-	identifierPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
-	runIDPattern      = regexp.MustCompile(`^[a-f0-9]{32}$`)
-	runTokenPattern   = regexp.MustCompile(`^[a-f0-9]{32}$`)
-	defaultRunIDOnce  sync.Once
-	defaultRunIDValue string
-	defaultRunIDError error
+	identifierPattern      = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
+	dnsNamePattern         = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
+	runIDPattern           = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	runTokenPattern        = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	defaultRunIDOnce       sync.Once
+	defaultRunIDValue      string
+	defaultRunIDError      error
+	runCoordinatorRegistry = struct {
+		sync.Mutex
+		entries map[string]*runCoordinatorEntry
+	}{entries: make(map[string]*runCoordinatorEntry)}
 )
+
+type runCoordinator struct {
+	fingerprint     string
+	applied         bool
+	cleanupRequired bool
+	partitions      map[string]bool
+	hostLease       *hostLease
+}
+
+type runCoordinatorEntry struct {
+	mu          sync.Mutex
+	coordinator runCoordinator
+	references  int
+}
+
+func lockRunCoordinator(runID string) (*runCoordinator, func()) {
+	runCoordinatorRegistry.Lock()
+	entry := runCoordinatorRegistry.entries[runID]
+	if entry == nil {
+		entry = &runCoordinatorEntry{coordinator: runCoordinator{partitions: make(map[string]bool)}}
+		runCoordinatorRegistry.entries[runID] = entry
+	}
+	entry.references++
+	runCoordinatorRegistry.Unlock()
+
+	entry.mu.Lock()
+	return &entry.coordinator, func() {
+		// The entry mutex is still held here, so the registry can inspect state
+		// without racing another operation. An inactive entry is retired only
+		// after this package has completed cleanup successfully.
+		runCoordinatorRegistry.Lock()
+		entry.references--
+		if entry.references == 0 && !entry.coordinator.applied && !entry.coordinator.cleanupRequired && entry.coordinator.hostLease == nil && runCoordinatorRegistry.entries[runID] == entry {
+			delete(runCoordinatorRegistry.entries, runID)
+		}
+		runCoordinatorRegistry.Unlock()
+		entry.mu.Unlock()
+	}
+}
+
+func (c *runCoordinator) bind(fingerprint string) error {
+	if (c.applied || c.cleanupRequired) && c.fingerprint != fingerprint {
+		return errors.New("vmnet: run identity is already bound to a different network plan")
+	}
+	c.fingerprint = fingerprint
+	return nil
+}
+
+func (c *runCoordinator) resetFaults(faults []FaultSpec) {
+	c.partitions = make(map[string]bool)
+	for _, fault := range faults {
+		if fault.Partition {
+			c.partitions[regionPairKey(fault.From, fault.To)] = true
+		}
+	}
+}
+
+func regionPairKey(a, b RegionCode) string {
+	if regionIndex(a) > regionIndex(b) {
+		a, b = b, a
+	}
+	return string(a) + "\x00" + string(b)
+}
 
 // DefaultRunID returns the per-process network ownership identity. Repeated
 // Plan calls in one qualification process must resolve the same namespace
@@ -696,6 +1093,147 @@ func linkDevice(prefix, runID string, from, to RegionCode) string {
 	return prefix + "v" + interfaceToken(runID) + strings.ToLower(string(from[:1])) + strings.ToLower(string(to[:1]))
 }
 
+func uplinkDevice(prefix, runID string, region RegionCode, root bool) string {
+	side := "u"
+	if root {
+		side = "h"
+	}
+	return prefix + side + runToken(runID)[:8] + strings.ToLower(string(region[:1]))
+}
+
+func hostServiceAddress(runID string) netip.Addr {
+	digest := sha256.Sum256([]byte("vmnet-service\x00" + runID))
+	// 198.18.0.0/15 is reserved for benchmark and test networks. A /32 keeps
+	// the listener unreachable until a declared Region route and nft mapping
+	// have both been installed.
+	offset := binary.BigEndian.Uint32(digest[:4]) & ((1 << 17) - 1)
+	address, _ := addIPv4(netip.AddrFrom4([4]byte{198, 18, 0, 0}), offset)
+	return address
+}
+
+func regionUplink(prefix, runID string, region RegionCode, ownsService bool) RegionUplink {
+	digest := sha256.Sum256([]byte("vmnet-uplink\x00" + runID))
+	// 100.64.0.0/10 is shared address space. Each Region gets a deterministic
+	// /30 with no route outside the qualification host.
+	slot := (binary.BigEndian.Uint32(digest[:4]) + uint32(regionIndex(region))) & ((1 << 18) - 1)
+	base, _ := addIPv4(netip.AddrFrom4([4]byte{100, 64, 0, 0}), slot*4)
+	rootAddress, _ := addIPv4(base, 1)
+	regionAddress, _ := addIPv4(base, 2)
+	return RegionUplink{
+		Region: region, RegionNamespace: regionNetworkName(prefix, runID, region),
+		RegionDevice: uplinkDevice(prefix, runID, region, false),
+		RootDevice:   uplinkDevice(prefix, runID, region, true),
+		CIDR:         netip.PrefixFrom(base, 30).String(), RegionAddress: regionAddress.String(),
+		RootAddress: rootAddress.String(), HostServiceAddress: hostServiceAddress(runID).String(),
+		OwnsServiceAddress: ownsService,
+	}
+}
+
+func defaultEndpointSpecs(regions []RegionNetwork) []EndpointSpec {
+	endpoints := make([]EndpointSpec, 0, len(regions)*3)
+	for _, region := range regions {
+		endpoints = append(endpoints,
+			EndpointSpec{Name: "nats", Region: region.Code, Protocol: TCP, GuestPort: 4222, HostPort: 4222},
+			EndpointSpec{Name: "artifacts", Region: region.Code, Protocol: TCP, GuestPort: 8443, HostPort: 8443, DNSNames: []string{"releases.terrascale.tech"}},
+			EndpointSpec{Name: "smoke", Region: region.Code, Protocol: TCP, GuestPort: 18080, HostPort: 18080},
+		)
+	}
+	return endpoints
+}
+
+func validDNSName(name string) bool {
+	return len(name) <= 253 && dnsNamePattern.MatchString(name)
+}
+
+func validateResolvedEndpoints(prefix, runID string, regions []RegionCode, uplinks []RegionUplink, forwards []EndpointForward, listeners []EndpointListener, records []DNSRecord) error {
+	if len(uplinks) != len(regions) || len(forwards) > maxPlanForwards || len(records) > maxDNSRecords {
+		return errors.New("endpoint manifest exceeds topology bounds")
+	}
+	declared := make(map[RegionCode]bool, len(regions))
+	serviceAddress := hostServiceAddress(runID).String()
+	for index, region := range regions {
+		declared[region] = true
+		expected := regionUplink(prefix, runID, region, index == 0)
+		if uplinks[index] != expected {
+			return fmt.Errorf("Region %s uplink is not run-owned", region)
+		}
+	}
+
+	type listenerKey struct {
+		protocol TransportProtocol
+		port     uint16
+	}
+	wantedListeners := make(map[string]listenerKey)
+	wantedListenerNamesByPort := make(map[uint16]string)
+	wantedRecords := make([]DNSRecord, 0)
+	seenForwards := make(map[string]bool, len(forwards))
+	seenGuestPorts := make(map[string]bool, len(forwards))
+	lastRegion, lastName := RegionCode(""), ""
+	for index, forward := range forwards {
+		if !declared[forward.Region] || validIdentifier(forward.Name, "endpoint name", 32) != nil || forward.Protocol != TCP || forward.GuestPort == 0 || forward.HostPort == 0 || forward.HostAddress != serviceAddress || len(forward.DNSNames) > maxEndpointDNS {
+			return errors.New("invalid endpoint forward")
+		}
+		guestAddress, err := netip.ParseAddr(forward.GuestAddress)
+		if err != nil || !guestAddress.Is4() || !guestAddress.IsPrivate() {
+			return errors.New("endpoint guest address is not private IPv4")
+		}
+		key := string(forward.Region) + "\x00" + forward.Name
+		if seenForwards[key] {
+			return errors.New("duplicate endpoint forward")
+		}
+		seenForwards[key] = true
+		guestPortKey := string(forward.Region) + "\x00" + string(forward.Protocol) + "\x00" + strconv.FormatUint(uint64(forward.GuestPort), 10)
+		if seenGuestPorts[guestPortKey] {
+			return errors.New("duplicate guest endpoint port")
+		}
+		seenGuestPorts[guestPortKey] = true
+		if index > 0 && (regionIndex(lastRegion) > regionIndex(forward.Region) || lastRegion == forward.Region && lastName >= forward.Name) {
+			return errors.New("endpoint forwards are not canonical")
+		}
+		lastRegion, lastName = forward.Region, forward.Name
+		listener := listenerKey{protocol: forward.Protocol, port: forward.HostPort}
+		if prior, ok := wantedListeners[forward.Name]; ok && prior != listener {
+			return errors.New("shared endpoint listener differs between Regions")
+		}
+		if priorName, ok := wantedListenerNamesByPort[forward.HostPort]; ok && priorName != forward.Name {
+			return errors.New("distinct endpoint listeners share one host port")
+		}
+		wantedListeners[forward.Name] = listener
+		wantedListenerNamesByPort[forward.HostPort] = forward.Name
+		for dnsIndex, name := range forward.DNSNames {
+			if !validDNSName(name) || dnsIndex > 0 && forward.DNSNames[dnsIndex-1] >= name {
+				return errors.New("invalid or noncanonical endpoint DNS name")
+			}
+			wantedRecords = append(wantedRecords, DNSRecord{Region: forward.Region, Name: name, Type: DNSA, Address: forward.GuestAddress})
+		}
+	}
+
+	wantedListenerSlice := make([]EndpointListener, 0, len(wantedListeners))
+	for name, listener := range wantedListeners {
+		wantedListenerSlice = append(wantedListenerSlice, EndpointListener{Name: name, Protocol: listener.protocol, Address: serviceAddress, Port: listener.port})
+	}
+	sort.Slice(wantedListenerSlice, func(i, j int) bool { return wantedListenerSlice[i].Name < wantedListenerSlice[j].Name })
+	sort.Slice(wantedRecords, func(i, j int) bool {
+		if wantedRecords[i].Region != wantedRecords[j].Region {
+			return regionIndex(wantedRecords[i].Region) < regionIndex(wantedRecords[j].Region)
+		}
+		return wantedRecords[i].Name < wantedRecords[j].Name
+	})
+	for index := 1; index < len(wantedRecords); index++ {
+		if wantedRecords[index-1].Region == wantedRecords[index].Region && wantedRecords[index-1].Name == wantedRecords[index].Name {
+			return errors.New("duplicate endpoint DNS record")
+		}
+	}
+	if len(wantedListenerSlice) == 0 {
+		wantedListenerSlice = nil
+		wantedRecords = nil
+	}
+	if !reflect.DeepEqual(listeners, wantedListenerSlice) || !reflect.DeepEqual(records, wantedRecords) {
+		return errors.New("listener or DNS manifest does not match endpoint forwards")
+	}
+	return nil
+}
+
 func validatePercentage(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 100
 }
@@ -763,6 +1301,13 @@ func Plan(config Config) (NetworkPlan, error) {
 	if !runIDPattern.MatchString(runID) {
 		return NetworkPlan{}, errors.New("vmnet: run ID must be 32 lowercase hexadecimal characters")
 	}
+	coordinationRoot := config.CoordinationRoot
+	if coordinationRoot == "" {
+		coordinationRoot = defaultHostCoordinationDir
+	}
+	if err := validateHostCoordinationRoot(coordinationRoot); err != nil {
+		return NetworkPlan{}, err
+	}
 	tools := config.Tools
 	if tools == (ToolPaths{}) {
 		var err error
@@ -774,8 +1319,8 @@ func Plan(config Config) (NetworkPlan, error) {
 	if err := tools.Validate(); err != nil {
 		return NetworkPlan{}, err
 	}
-	if len(config.Regions) == 0 {
-		return NetworkPlan{}, errors.New("vmnet: at least one Region is required")
+	if len(config.Regions) == 0 || len(config.Regions) > len(launchRegions) {
+		return NetworkPlan{}, errors.New("vmnet: 1-3 Regions are required")
 	}
 	regions := append([]RegionSpec(nil), config.Regions...)
 	sort.Slice(regions, func(i, j int) bool { return regionIndex(regions[i].Code) < regionIndex(regions[j].Code) })
@@ -859,11 +1404,127 @@ func Plan(config Config) (NetworkPlan, error) {
 		namespace := regionNetworkName(prefix, runID, spec.Code)
 		resolved = append(resolved, RegionNetwork{Code: spec.Code, CIDR: prefixCIDR.String(), Namespace: namespace, NamespacePath: "/run/netns/" + namespace, Bridge: regionBridgeName(prefix, runID, spec.Code), Gateway: gateway.String(), Guests: resolvedGuests})
 	}
+	for index := range resolved {
+		resolved[index].Uplink = regionUplink(prefix, runID, resolved[index].Code, index == 0)
+	}
+
+	endpointSpecs := config.Endpoints
+	if endpointSpecs == nil {
+		endpointSpecs = defaultEndpointSpecs(resolved)
+	} else {
+		if len(endpointSpecs) > maxPlanForwards {
+			return NetworkPlan{}, errors.New("vmnet: endpoint declarations exceed topology bounds")
+		}
+		endpointSpecs = append([]EndpointSpec(nil), endpointSpecs...)
+		for index := range endpointSpecs {
+			if len(endpointSpecs[index].DNSNames) > maxEndpointDNS {
+				return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q has too many DNS names", endpointSpecs[index].Name)
+			}
+			endpointSpecs[index].DNSNames = append([]string(nil), endpointSpecs[index].DNSNames...)
+		}
+	}
+	if len(endpointSpecs) > maxPlanForwards {
+		return NetworkPlan{}, errors.New("vmnet: endpoint declarations exceed topology bounds")
+	}
+	sort.Slice(endpointSpecs, func(i, j int) bool {
+		if endpointSpecs[i].Region != endpointSpecs[j].Region {
+			return regionIndex(endpointSpecs[i].Region) < regionIndex(endpointSpecs[j].Region)
+		}
+		return endpointSpecs[i].Name < endpointSpecs[j].Name
+	})
+	regionByCode := make(map[RegionCode]RegionNetwork, len(resolved))
+	for _, region := range resolved {
+		regionByCode[region.Code] = region
+	}
+	forwards := make([]EndpointForward, 0, len(endpointSpecs))
+	listenersByName := make(map[string]EndpointListener)
+	listenerNamesByPort := make(map[uint16]string)
+	dnsRecords := make([]DNSRecord, 0)
+	seenEndpoints := make(map[string]bool, len(endpointSpecs))
+	seenGuestPorts := make(map[string]bool, len(endpointSpecs))
+	seenDNS := make(map[string]bool)
+	for _, spec := range endpointSpecs {
+		region, ok := regionByCode[spec.Region]
+		if !ok {
+			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q references undeclared Region %s", spec.Name, spec.Region)
+		}
+		if err := validIdentifier(spec.Name, "endpoint name", 32); err != nil {
+			return NetworkPlan{}, err
+		}
+		if spec.Protocol != TCP || spec.GuestPort == 0 || spec.HostPort == 0 {
+			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q must declare nonzero TCP ports", spec.Name)
+		}
+		key := string(spec.Region) + "\x00" + spec.Name
+		if seenEndpoints[key] {
+			return NetworkPlan{}, fmt.Errorf("vmnet: duplicate endpoint %q in %s", spec.Name, spec.Region)
+		}
+		seenEndpoints[key] = true
+		guestPortKey := string(spec.Region) + "\x00" + string(spec.Protocol) + "\x00" + strconv.FormatUint(uint64(spec.GuestPort), 10)
+		if seenGuestPorts[guestPortKey] {
+			return NetworkPlan{}, fmt.Errorf("vmnet: duplicate guest endpoint port %d in %s", spec.GuestPort, spec.Region)
+		}
+		seenGuestPorts[guestPortKey] = true
+		dnsNames := append([]string(nil), spec.DNSNames...)
+		sort.Strings(dnsNames)
+		for dnsIndex, name := range dnsNames {
+			if !validDNSName(name) {
+				return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q has invalid DNS name %q", spec.Name, name)
+			}
+			dnsKey := string(spec.Region) + "\x00" + name
+			if dnsIndex > 0 && dnsNames[dnsIndex-1] == name || seenDNS[dnsKey] {
+				return NetworkPlan{}, fmt.Errorf("vmnet: duplicate DNS name %q in %s", name, spec.Region)
+			}
+			seenDNS[dnsKey] = true
+			dnsRecords = append(dnsRecords, DNSRecord{Region: spec.Region, Name: name, Type: DNSA, Address: region.Gateway})
+		}
+		forward := EndpointForward{
+			Name: spec.Name, Region: spec.Region, Protocol: spec.Protocol,
+			GuestAddress: region.Gateway, GuestPort: spec.GuestPort,
+			HostAddress: hostServiceAddress(runID).String(), HostPort: spec.HostPort,
+			DNSNames: dnsNames,
+		}
+		forwards = append(forwards, forward)
+		listener := EndpointListener{Name: spec.Name, Protocol: spec.Protocol, Address: forward.HostAddress, Port: spec.HostPort}
+		if prior, exists := listenersByName[spec.Name]; exists && prior != listener {
+			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q listener differs between Regions", spec.Name)
+		}
+		if priorName, exists := listenerNamesByPort[spec.HostPort]; exists && priorName != spec.Name {
+			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q shares host port %d with %q", spec.Name, spec.HostPort, priorName)
+		}
+		listenersByName[spec.Name] = listener
+		listenerNamesByPort[spec.HostPort] = spec.Name
+	}
+	listeners := make([]EndpointListener, 0, len(listenersByName))
+	for _, listener := range listenersByName {
+		listeners = append(listeners, listener)
+	}
+	sort.Slice(listeners, func(i, j int) bool { return listeners[i].Name < listeners[j].Name })
+	sort.Slice(dnsRecords, func(i, j int) bool {
+		if dnsRecords[i].Region != dnsRecords[j].Region {
+			return regionIndex(dnsRecords[i].Region) < regionIndex(dnsRecords[j].Region)
+		}
+		return dnsRecords[i].Name < dnsRecords[j].Name
+	})
+	if len(forwards) == 0 {
+		forwards = nil
+		listeners = nil
+		dnsRecords = nil
+	}
+	manifestRegions := make([]RegionCode, 0, len(resolved))
+	uplinks := make([]RegionUplink, 0, len(resolved))
+	for _, region := range resolved {
+		manifestRegions = append(manifestRegions, region.Code)
+		uplinks = append(uplinks, region.Uplink)
+	}
+	if err := validateResolvedEndpoints(prefix, runID, manifestRegions, uplinks, forwards, listeners, dnsRecords); err != nil {
+		return NetworkPlan{}, fmt.Errorf("vmnet: resolve endpoint manifest: %w", err)
+	}
 
 	commands := make([]Command, 0)
 	cleanup := make([]Command, 0)
 	table := networkTable(prefix, runID)
 	for _, region := range resolved {
+		uplinkPrefix := netip.MustParsePrefix(region.Uplink.CIDR)
 		commands = append(commands,
 			command(tools.IP, "netns", "add", region.Namespace),
 			command(tools.IP, "-n", region.Namespace, "link", "set", "lo", "up"),
@@ -872,6 +1533,17 @@ func Plan(config Config) (NetworkPlan, error) {
 			command(tools.IP, "-n", region.Namespace, "link", "set", region.Bridge, "up"),
 			command(tools.IP, "-n", region.Namespace, "addr", "add", region.Gateway+"/"+strconv.Itoa(netip.MustParsePrefix(region.CIDR).Bits()), "dev", region.Bridge),
 			command(tools.IP, "netns", "exec", region.Namespace, tools.Sysctl, "-q", "-w", "net.ipv4.ip_forward=1"),
+			command(tools.IP, "-n", region.Namespace, "link", "add", region.Uplink.RegionDevice, "type", "veth", "peer", "name", region.Uplink.RootDevice, "netns", "1"),
+			command(tools.IP, "-n", region.Namespace, "addr", "add", region.Uplink.RegionAddress+"/"+strconv.Itoa(uplinkPrefix.Bits()), "dev", region.Uplink.RegionDevice),
+			command(tools.IP, "-n", region.Namespace, "link", "set", region.Uplink.RegionDevice, "up"),
+			command(tools.IP, "addr", "add", region.Uplink.RootAddress+"/"+strconv.Itoa(uplinkPrefix.Bits()), "dev", region.Uplink.RootDevice),
+		)
+		if region.Uplink.OwnsServiceAddress {
+			commands = append(commands, command(tools.IP, "addr", "add", region.Uplink.HostServiceAddress+"/32", "dev", region.Uplink.RootDevice))
+		}
+		commands = append(commands,
+			command(tools.IP, "link", "set", region.Uplink.RootDevice, "up"),
+			command(tools.IP, "-n", region.Namespace, "route", "add", region.Uplink.HostServiceAddress+"/32", "via", region.Uplink.RootAddress, "dev", region.Uplink.RegionDevice),
 		)
 		for _, guest := range region.Guests {
 			tuntap := []string{"-n", region.Namespace, "tuntap", "add", "dev", guest.TAP, "mode", "tap"}
@@ -891,7 +1563,21 @@ func Plan(config Config) (NetworkPlan, error) {
 			command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "table", "inet", table),
 			command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "chain", "inet", table, "forward", "{ type filter hook forward priority 0; policy drop; }"),
 			command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "rule", "inet", table, "forward", "ct", "state", "established,related", "accept"),
+			command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "chain", "inet", table, "prerouting", "{ type nat hook prerouting priority dstnat; policy accept; }"),
+			command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "chain", "inet", table, "postrouting", "{ type nat hook postrouting priority srcnat; policy accept; }"),
 		)
+		for _, forward := range forwards {
+			if forward.Region != region.Code {
+				continue
+			}
+			guestPort := strconv.FormatUint(uint64(forward.GuestPort), 10)
+			hostPort := strconv.FormatUint(uint64(forward.HostPort), 10)
+			commands = append(commands,
+				command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "rule", "inet", table, "prerouting", "iifname", region.Bridge, "ip", "saddr", region.CIDR, "ip", "daddr", forward.GuestAddress, string(forward.Protocol), "dport", guestPort, "dnat", "ip", "to", forward.HostAddress+":"+hostPort),
+				command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "rule", "inet", table, "postrouting", "oifname", region.Uplink.RegionDevice, "ip", "saddr", region.CIDR, "ip", "daddr", forward.HostAddress, string(forward.Protocol), "dport", hostPort, "snat", "ip", "to", region.Uplink.RegionAddress),
+				command(tools.IP, "netns", "exec", region.Namespace, tools.NFT, "add", "rule", "inet", table, "forward", "iifname", region.Bridge, "oifname", region.Uplink.RegionDevice, "ip", "saddr", region.CIDR, "ip", "daddr", forward.HostAddress, string(forward.Protocol), "dport", hostPort, "accept"),
+			)
+		}
 	}
 
 	// Link pairs are sorted by Region code and are created after all namespace
@@ -1008,27 +1694,46 @@ func Plan(config Config) (NetworkPlan, error) {
 			commands = append(commands, command(tools.IP, args...))
 		}
 	}
-
-	// Every bridge, TAP, nft chain, qdisc, route, and veth lives inside one
-	// run-scoped namespace. Deleting only those namespaces gives cleanup one
-	// small, replay-safe ownership boundary and avoids partial inner teardown.
+	if len(commands) > maxPlanCommands {
+		return NetworkPlan{}, fmt.Errorf("vmnet: generated command count %d exceeds %d", len(commands), maxPlanCommands)
+	}
+	// Every bridge, TAP, nft chain, qdisc, route, and Region-side veth lives in a
+	// run-scoped namespace. Each root uplink is the peer of one of those veths,
+	// so namespace deletion also removes its root addresses and interface.
 	for i := len(resolved) - 1; i >= 0; i-- {
 		region := resolved[i]
 		cleanup = append(cleanup, command(tools.IP, "netns", "del", region.Namespace))
 	}
 	fingerprintInput, _ := json.Marshal(struct {
-		RunID    string
-		Tools    ToolPaths
-		Regions  []RegionNetwork
-		Commands []Command
-	}{runID, tools, resolved, commands})
+		RunID            string
+		CoordinationRoot string
+		Tools            ToolPaths
+		Regions          []RegionNetwork
+		Uplinks          []RegionUplink
+		Forwards         []EndpointForward
+		Listeners        []EndpointListener
+		DNSRecords       []DNSRecord
+		Commands         []Command
+	}{runID, coordinationRoot, tools, resolved, uplinks, forwards, listeners, dnsRecords, commands})
 	hash := sha256.Sum256(fingerprintInput)
 	fingerprint := hex.EncodeToString(hash[:])
 	cleanupRegions := make([]RegionCode, 0, len(resolved))
 	for _, region := range resolved {
 		cleanupRegions = append(cleanupRegions, region.Code)
 	}
-	cleanupPlan := CleanupPlan{Version: 2, Prefix: prefix, RunID: runID, Tools: tools, Fingerprint: fingerprint, Regions: cleanupRegions, Commands: cleanup}
-	journal := Journal{Version: 2, Prefix: prefix, RunID: runID, Tools: tools, Fingerprint: fingerprint, Cleanup: cleanupPlan.copy()}
-	return NetworkPlan{Version: 2, Prefix: prefix, RunID: runID, Tools: tools, Fingerprint: fingerprint, Regions: resolved, Faults: append([]FaultSpec(nil), faults...), Commands: commands, Cleanup: cleanupPlan, Journal: journal}, nil
+	cleanupPlan := CleanupPlan{
+		Version: networkPlanVersion, Prefix: prefix, RunID: runID, CoordinationRoot: coordinationRoot, Tools: tools, Fingerprint: fingerprint,
+		Regions: cleanupRegions, Uplinks: append([]RegionUplink(nil), uplinks...),
+		Forwards: copyForwards(forwards), Listeners: append([]EndpointListener(nil), listeners...),
+		DNSRecords: append([]DNSRecord(nil), dnsRecords...), Commands: cleanup,
+	}
+	journal := Journal{Version: networkPlanVersion, Prefix: prefix, RunID: runID, CoordinationRoot: coordinationRoot, Tools: tools, Fingerprint: fingerprint, Cleanup: cleanupPlan.copy()}
+	plan := NetworkPlan{
+		Version: networkPlanVersion, Prefix: prefix, RunID: runID, CoordinationRoot: coordinationRoot, Tools: tools, Fingerprint: fingerprint,
+		Regions: resolved, Uplinks: append([]RegionUplink(nil), uplinks...),
+		Faults: append([]FaultSpec(nil), faults...), Forwards: copyForwards(forwards),
+		Listeners: append([]EndpointListener(nil), listeners...), DNSRecords: append([]DNSRecord(nil), dnsRecords...),
+		Commands: commands, Cleanup: cleanupPlan, Journal: journal,
+	}
+	return plan, nil
 }

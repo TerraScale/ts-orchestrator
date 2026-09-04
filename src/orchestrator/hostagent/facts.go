@@ -53,6 +53,9 @@ type HostFacts struct {
 	Disk DiskFacts `json:"disk"`
 	// TsNodeVersion is the running agent's own release version.
 	TsNodeVersion string `json:"tsNodeVersion"`
+	// ManifestSha256 is the digest of the currently hydrated canonical
+	// desired manifest.
+	ManifestSha256 string `json:"manifestSha256"`
 	// Components are the facts of every manifest component, ordered by name.
 	Components []ComponentFact `json:"components"`
 }
@@ -93,6 +96,9 @@ type HostFactsSourceConfig struct {
 	Systemd SystemdController
 	// InstallRoot is /opt/terrascale.
 	InstallRoot string
+	// Installer authenticates desired release slots before Installed is
+	// advertised to rollout gates.
+	Installer *Installer
 }
 
 // HostFactsSource samples every heartbeat dimension on demand.
@@ -102,6 +108,7 @@ type HostFactsSource struct {
 	dataVolumeRoot string
 	systemd        SystemdController
 	installRoot    string
+	installer      *Installer
 }
 
 // NewHostFactsSource validates the configuration and composes the source.
@@ -112,14 +119,17 @@ func NewHostFactsSource(config HostFactsSourceConfig) (*HostFactsSource, error) 
 	if config.Statfs == nil {
 		return nil, &InvalidOperationError{Message: "A statfs function is required."}
 	}
-	if config.DataVolumeRoot == "" || config.DataVolumeRoot[0] != '/' {
-		return nil, &InvalidOperationError{Message: "The data volume root must be an absolute path."}
+	if !safeAbsolutePath(config.DataVolumeRoot) {
+		return nil, &InvalidOperationError{Message: "The data volume root must be an absolute safe path."}
 	}
 	if config.Systemd == nil {
 		return nil, &InvalidOperationError{Message: "A systemd controller is required."}
 	}
-	if config.InstallRoot == "" || config.InstallRoot[0] != '/' {
-		return nil, &InvalidOperationError{Message: "The install root must be an absolute path."}
+	if !safeAbsolutePath(config.InstallRoot) {
+		return nil, &InvalidOperationError{Message: "The install root must be an absolute safe path."}
+	}
+	if config.Installer == nil {
+		return nil, &InvalidOperationError{Message: "An installer is required for authenticated host facts."}
 	}
 	return &HostFactsSource{
 		clock:          config.Clock,
@@ -127,6 +137,7 @@ func NewHostFactsSource(config HostFactsSourceConfig) (*HostFactsSource, error) 
 		dataVolumeRoot: config.DataVolumeRoot,
 		systemd:        config.Systemd,
 		installRoot:    config.InstallRoot,
+		installer:      config.Installer,
 	}, nil
 }
 
@@ -149,8 +160,13 @@ func (s *HostFactsSource) Sample(
 		disk.TotalBytes, disk.AvailableBytes = total, available
 	}
 	components := make([]ComponentFact, 0, len(desired))
+	manifestSha256, err := HostManifestSha256(HostManifest{Components: desired})
+	if err != nil {
+		return HostFacts{}, err
+	}
 	for _, spec := range desired {
 		current, _ := CurrentVersion(s.installRoot, spec.Name)
+		installed := s.installer.withVerifiedTransition(ctx, spec.Name, spec.Version, spec.Sha256, func() error { return nil }) == nil
 		active := false
 		if unitProbe, err := s.systemd.UnitActive(ctx, UnitName(spec.Name)); err == nil {
 			active = unitProbe
@@ -159,7 +175,7 @@ func (s *HostFactsSource) Sample(
 			Name:       spec.Name,
 			Version:    current,
 			Desired:    spec.Version,
-			Installed:  InstalledVersion(s.installRoot, spec.Name, spec.Version),
+			Installed:  installed,
 			UnitActive: active,
 		})
 	}
@@ -170,6 +186,7 @@ func (s *HostFactsSource) Sample(
 		ClockUnhealthy:    clock.Unhealthy,
 		Disk:              disk,
 		TsNodeVersion:     TsNodeVersion,
+		ManifestSha256:    manifestSha256,
 		Components:        components,
 	}, nil
 }

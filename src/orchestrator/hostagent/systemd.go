@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -51,8 +52,8 @@ type SystemctlController struct {
 
 // NewSystemctlController validates the controller configuration.
 func NewSystemctlController(systemctlBinary string, timeout time.Duration) (*SystemctlController, error) {
-	if !strings.HasPrefix(systemctlBinary, "/") {
-		return nil, &InvalidOperationError{Message: "The systemctl binary path must be absolute."}
+	if !safeAbsolutePath(systemctlBinary) {
+		return nil, &InvalidOperationError{Message: "The systemctl binary path must be absolute and safe."}
 	}
 	if timeout <= 0 {
 		return nil, &InvalidOperationError{Message: "The systemctl timeout must be positive."}
@@ -191,15 +192,27 @@ func (p UseraddProvisioner) EnsureUser(ctx context.Context, user string) error {
 		"The component user must be a canonical token."); err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, p.UseraddBinary,
+	if user == hostAgentReservedSystemGroupName || user == TsNodeComponentName {
+		return &InvalidOperationError{Message: "The component account must be dedicated and unprivileged."}
+	}
+	operationContext, cancel, err := p.invocationContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	command := exec.CommandContext(operationContext, p.UseraddBinary,
 		"--system", "--no-create-home", "--home-dir", "/nonexistent",
-		"--shell", "/usr/sbin/nologin", "--user-group", user)
+		"--shell", "/usr/sbin/nologin", "--user-group", "--no-log-init", user)
 	output, err := command.CombinedOutput()
 	if err != nil {
+		if contextError := operationContext.Err(); contextError != nil {
+			return fmt.Errorf("useradd %s failed: %w", user, contextError)
+		}
 		// useradd exit code 9 is "username already in use", the idempotent
-		// success path of this provisioner.
+		// path only when the existing account is the same dedicated system
+		// identity this provisioner would have created.
 		if command.ProcessState != nil && command.ProcessState.ExitCode() == 9 {
-			return nil
+			return validateExistingComponentUser(user)
 		}
 		return fmt.Errorf("useradd %s failed: %s: %s",
 			user, err.Error(), strings.TrimSpace(string(output)))
@@ -209,6 +222,30 @@ func (p UseraddProvisioner) EnsureUser(ctx context.Context, user string) error {
 
 // OwnDirectory chowns one directory to the account.
 func (p UseraddProvisioner) OwnDirectory(ctx context.Context, name, path string) error {
+	operationContext, cancel, err := p.invocationContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	if err := operationContext.Err(); err != nil {
+		return err
+	}
+	if !safeAbsolutePath(path) {
+		return &InvalidOperationError{Message: "The owned directory must be an absolute safe path."}
+	}
+	if _, err := requireHostAgentName(name, "name", "The component user must be a canonical token."); err != nil {
+		return err
+	}
+	if name == hostAgentReservedSystemGroupName || name == TsNodeComponentName {
+		return &InvalidOperationError{Message: "The component account must be dedicated and unprivileged."}
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return &InvalidOperationError{Message: "The owned path must be a real directory."}
+	}
 	account, err := user.Lookup(name)
 	if err != nil {
 		return fmt.Errorf("the account %s cannot be resolved: %w", name, err)
@@ -222,4 +259,55 @@ func (p UseraddProvisioner) OwnDirectory(ctx context.Context, name, path string)
 		return err
 	}
 	return unix.Chown(path, uid, gid)
+}
+
+func validateExistingComponentUser(name string) error {
+	account, err := user.Lookup(name)
+	if err != nil {
+		return fmt.Errorf("the existing account %s cannot be resolved: %w", name, err)
+	}
+	group, err := user.LookupGroup(name)
+	if err != nil {
+		return fmt.Errorf("the existing group %s cannot be resolved: %w", name, err)
+	}
+	uid, uidErr := strconv.Atoi(account.Uid)
+	gid, gidErr := strconv.Atoi(account.Gid)
+	groupGid, groupErr := strconv.Atoi(group.Gid)
+	if uidErr != nil || gidErr != nil || groupErr != nil || uid == 0 || gid == 0 || gid != groupGid || account.HomeDir != "/nonexistent" {
+		return &InvalidOperationError{Message: fmt.Sprintf("The existing account %s is not the dedicated system identity ts-node requires.", name)}
+	}
+	passwd, err := readRegularFileBounded("/etc/passwd", 4<<20)
+	if err != nil {
+		return fmt.Errorf("the local account database cannot be read: %w", err)
+	}
+	matches := 0
+	for _, line := range strings.Split(string(passwd), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) != 7 || fields[0] != name {
+			continue
+		}
+		matches++
+		if fields[2] != account.Uid || fields[3] != account.Gid ||
+			fields[5] != "/nonexistent" || fields[6] != "/usr/sbin/nologin" {
+			return &InvalidOperationError{Message: fmt.Sprintf("The existing account %s is not the dedicated system identity ts-node requires.", name)}
+		}
+	}
+	if matches != 1 {
+		return &InvalidOperationError{Message: fmt.Sprintf("The existing account %s must be one local nologin identity.", name)}
+	}
+	return nil
+}
+
+func (p UseraddProvisioner) invocationContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	if ctx == nil {
+		return nil, nil, &InvalidOperationError{Message: "The user provisioner context is required."}
+	}
+	if !safeAbsolutePath(p.UseraddBinary) {
+		return nil, nil, &InvalidOperationError{Message: "The useradd binary path must be absolute and safe."}
+	}
+	if p.Timeout <= 0 {
+		return nil, nil, &InvalidOperationError{Message: "The useradd timeout must be positive."}
+	}
+	operationContext, cancel := context.WithTimeout(ctx, p.Timeout)
+	return operationContext, cancel, nil
 }

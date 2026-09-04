@@ -12,11 +12,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
+)
+
+const (
+	commandKindDrain             = "drain"
+	commandKindStatus            = "status"
+	commandKindDeploy            = "deploy"
+	commandKindRollback          = "rollback"
+	commandKindManifest          = "apply-manifest"
+	hostAgentMaximumCommandBytes = 64 << 10
 )
 
 // NatsConnection is the injectable NATS connection seam of the node
@@ -103,19 +115,141 @@ func (t *IntervalHeartbeatTicker) C() <-chan time.Time { return t.ticker.C }
 // Stop stops the ticker.
 func (t *IntervalHeartbeatTicker) Stop() { t.ticker.Stop() }
 
-// decodeStrictJSON decodes one canonical JSON document, rejecting unknown
-// fields and trailing data so the transport wire vocabulary stays closed.
-func decodeStrictJSON(data []byte, target any) error {
+// decodeCommandObject admits one bounded flat object with the exact key set
+// of a command. It rejects duplicates, case variants, null values, unknown
+// keys, missing keys, and trailing data before a typed constructor runs.
+func decodeCommandObject(data []byte, required ...string) (map[string]json.RawMessage, error) {
+	return decodeCommandObjectBounded(data, hostAgentMaximumCommandBytes, required...)
+}
+
+func decodeCommandObjectBounded(data []byte, maximum int, required ...string) (map[string]json.RawMessage, error) {
+	if len(data) == 0 || len(data) > maximum {
+		return nil, &InvalidDataError{Message: "The command payload exceeds its size bound."}
+	}
+	allowed := make(map[string]struct{}, len(required))
+	for _, field := range required {
+		allowed[field] = struct{}{}
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return &InvalidDataError{Message: fmt.Sprintf(
-			"The payload is not the canonical JSON shape: %s.", err.Error())}
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, &InvalidDataError{Message: "The command payload is not a JSON object."}
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '{' {
+		return nil, &InvalidDataError{Message: "The command payload must be a JSON object."}
+	}
+	fields := make(map[string]json.RawMessage, len(required))
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, &InvalidDataError{Message: "The command payload contains an invalid field name."}
+		}
+		field, ok := token.(string)
+		if !ok {
+			return nil, &InvalidDataError{Message: "The command payload contains an invalid field name."}
+		}
+		if _, known := allowed[field]; !known {
+			return nil, &InvalidDataError{Message: fmt.Sprintf("The command payload contains unknown field %q.", field)}
+		}
+		if _, duplicate := fields[field]; duplicate {
+			return nil, &InvalidDataError{Message: fmt.Sprintf("The command payload contains duplicate field %q.", field)}
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, &InvalidDataError{Message: fmt.Sprintf("The command field %q is invalid.", field)}
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return nil, &InvalidDataError{Message: fmt.Sprintf("The command field %q must not be null.", field)}
+		}
+		fields[field] = raw
+	}
+	if token, err = decoder.Token(); err != nil || token != json.Delim('}') {
+		return nil, &InvalidDataError{Message: "The command payload is not a complete JSON object."}
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return &InvalidDataError{Message: "The payload must be exactly one JSON document."}
+		return nil, &InvalidDataError{Message: "The command payload must be exactly one JSON document."}
 	}
-	return nil
+	for _, field := range required {
+		if _, present := fields[field]; !present {
+			return nil, &InvalidDataError{Message: fmt.Sprintf("The command payload is missing field %q.", field)}
+		}
+	}
+	return fields, nil
+}
+
+func decodeApplyManifestCommand(data []byte) (ApplyManifestCommand, error) {
+	fields, err := decodeCommandObjectBounded(data, hostAgentMaximumManifestBytes+4096,
+		"commandId", "expectedManifestSha256", "manifest")
+	if err != nil {
+		return ApplyManifestCommand{}, err
+	}
+	var commandId, expected string
+	if json.Unmarshal(fields["commandId"], &commandId) != nil ||
+		json.Unmarshal(fields["expectedManifestSha256"], &expected) != nil {
+		return ApplyManifestCommand{}, &InvalidDataError{Message: "The apply-manifest command has invalid field types."}
+	}
+	manifest, err := ParseHostManifest(fields["manifest"])
+	if err != nil {
+		return ApplyManifestCommand{}, err
+	}
+	canonical, err := CanonicalHostManifestJSON(manifest)
+	if err != nil || !bytes.Equal(canonical, fields["manifest"]) {
+		return ApplyManifestCommand{}, &InvalidDataError{Message: "The embedded manifest must use canonical compact JSON."}
+	}
+	return NewApplyManifestCommand(commandId, expected, manifest)
+}
+
+func decodeDrainCommand(data []byte) (DrainCommand, error) {
+	fields, err := decodeCommandObject(data, "commandId", "drain")
+	if err != nil {
+		return DrainCommand{}, err
+	}
+	var commandId string
+	var drain bool
+	if json.Unmarshal(fields["commandId"], &commandId) != nil || json.Unmarshal(fields["drain"], &drain) != nil {
+		return DrainCommand{}, &InvalidDataError{Message: "The drain command has invalid field types."}
+	}
+	return NewDrainCommand(commandId, drain)
+}
+
+func decodeStatusCommand(data []byte) (NodeStatusRequest, error) {
+	fields, err := decodeCommandObject(data, "commandId")
+	if err != nil {
+		return NodeStatusRequest{}, err
+	}
+	var commandId string
+	if json.Unmarshal(fields["commandId"], &commandId) != nil {
+		return NodeStatusRequest{}, &InvalidDataError{Message: "The status command has an invalid commandId."}
+	}
+	return NewNodeStatusRequest(commandId)
+}
+
+func decodeDeployCommand(data []byte) (DeployCommand, error) {
+	fields, err := decodeCommandObject(data, "commandId", "component", "version")
+	if err != nil {
+		return DeployCommand{}, err
+	}
+	var commandId, component, version string
+	if json.Unmarshal(fields["commandId"], &commandId) != nil ||
+		json.Unmarshal(fields["component"], &component) != nil ||
+		json.Unmarshal(fields["version"], &version) != nil {
+		return DeployCommand{}, &InvalidDataError{Message: "The deploy command has invalid field types."}
+	}
+	return NewDeployCommand(commandId, component, version)
+}
+
+func decodeRollbackCommand(data []byte) (RollbackCommand, error) {
+	fields, err := decodeCommandObject(data, "commandId", "component")
+	if err != nil {
+		return RollbackCommand{}, err
+	}
+	var commandId, component string
+	if json.Unmarshal(fields["commandId"], &commandId) != nil ||
+		json.Unmarshal(fields["component"], &component) != nil {
+		return RollbackCommand{}, &InvalidDataError{Message: "The rollback command has invalid field types."}
+	}
+	return NewRollbackCommand(commandId, component)
 }
 
 // NatsTransportConfig is the fully explicit transport configuration.
@@ -135,6 +269,12 @@ type NatsTransportConfig struct {
 	// CloseConnection closes the connection in Close; the caller sets it
 	// when the transport owns the connection.
 	CloseConnection bool
+	// CommandJournalDir stores durable idempotency intent and receipts. Empty
+	// derives the canonical ts-node directory under the lifecycle data root.
+	CommandJournalDir string
+	// ManifestPath is the root-owned durable desired manifest. Empty derives
+	// the canonical path under the reserved ts-node state root.
+	ManifestPath string
 }
 
 // NatsTransport serves the node subjects of contracts.go: it answers the
@@ -148,16 +288,20 @@ type NatsTransport struct {
 	ticker          HeartbeatTicker
 	now             func() time.Time
 	closeConnection bool
+	journal         *commandJournal
+	manifestPath    string
 
-	commandContext context.Context
-	subscriptions  []*nats.Subscription
-	closing        chan struct{}
-	heartbeatDone  chan struct{}
-	mutex          sync.Mutex
-	closeOnce      sync.Once
-	closeErr       error
-	started        bool
-	closed         bool
+	commandContext      context.Context
+	commandContextMutex sync.RWMutex
+	commandMutex        sync.Mutex
+	subscriptions       []*nats.Subscription
+	closing             chan struct{}
+	heartbeatDone       chan struct{}
+	mutex               sync.Mutex
+	closeOnce           sync.Once
+	closeErr            error
+	started             bool
+	closed              bool
 }
 
 // NewNatsTransport validates the configuration and composes the transport.
@@ -181,6 +325,26 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 	if config.Now == nil {
 		return nil, &errs.Argument{Param: "Now", Message: "A heartbeat clock is required."}
 	}
+	journalDir := config.CommandJournalDir
+	canonicalJournalDir := filepath.Join(config.Lifecycle.dataRoot, TsNodeComponentName, "command-journal")
+	if journalDir == "" {
+		journalDir = canonicalJournalDir
+	}
+	if journalDir != canonicalJournalDir {
+		return nil, &InvalidOperationError{Message: "The command journal must use the reserved ts-node state directory."}
+	}
+	manifestPath := config.ManifestPath
+	canonicalManifestPath := filepath.Join(config.Lifecycle.dataRoot, TsNodeComponentName, "manifest.json")
+	if manifestPath == "" {
+		manifestPath = canonicalManifestPath
+	}
+	if manifestPath != canonicalManifestPath {
+		return nil, &InvalidOperationError{Message: "The desired manifest must use the reserved ts-node state directory."}
+	}
+	journal, err := newCommandJournal(journalDir)
+	if err != nil {
+		return nil, err
+	}
 	return &NatsTransport{
 		nodeId:          nodeId,
 		connection:      config.Connection,
@@ -189,6 +353,8 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		ticker:          config.Ticker,
 		now:             config.Now,
 		closeConnection: config.CloseConnection,
+		journal:         journal,
+		manifestPath:    manifestPath,
 		closing:         make(chan struct{}),
 		heartbeatDone:   make(chan struct{}),
 	}, nil
@@ -215,6 +381,21 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	t.commandContextMutex.Lock()
+	t.commandContext = ctx
+	t.commandContextMutex.Unlock()
+	if err := t.journal.initialize(); err != nil {
+		return err
+	}
+	if err := t.prepareLifecycleForStartup(); err != nil {
+		return err
+	}
+	if err := t.restoreDurableDrain(ctx); err != nil {
+		return err
+	}
+	if err := t.recoverPending(ctx); err != nil {
+		return err
+	}
 	subscriptions := []struct {
 		subject func(NodeId) (string, error)
 		handler func(*nats.Msg)
@@ -223,6 +404,7 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 		{NodeDrainStatusSubject, t.handleDrainStatus},
 		{NodeDeploySubject, t.handleDeploy},
 		{NodeRollbackSubject, t.handleRollback},
+		{NodeApplyManifestSubject, t.handleApplyManifest},
 	}
 	for _, entry := range subscriptions {
 		subject, err := entry.subject(t.nodeId)
@@ -245,7 +427,6 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 		t.unsubscribeAll()
 		return err
 	}
-	t.commandContext = ctx
 	if err := t.HeartbeatOnce(ctx); err != nil {
 		t.unsubscribeAll()
 		return err
@@ -294,10 +475,10 @@ func (t *NatsTransport) Close() error {
 				_ = subscription.Drain()
 			}
 		}
-		if err := t.connection.Drain(); err != nil {
-			t.closeErr = err
-		}
 		if t.closeConnection {
+			if err := t.connection.Drain(); err != nil {
+				t.closeErr = err
+			}
 			t.connection.Close()
 		}
 	})
@@ -333,90 +514,412 @@ func (t *NatsTransport) heartbeatLoop(ctx context.Context) {
 }
 
 func (t *NatsTransport) handleDrain(message *nats.Msg) {
-	var command DrainCommand
-	if err := decodeStrictJSON(message.Data, &command); err != nil {
-		t.replyEnvelopeError(message, err)
-		return
-	}
-	var cause error
-	detail := "drain released"
-	if command.Drain {
-		detail = "drain begun"
-		cause = t.lifecycle.BeginDrain(t.context())
-	} else {
-		cause = t.lifecycle.ReleaseDrain(t.context())
-	}
-	receipt, err := NewDrainReceipt(command.CommandId, t.nodeId.Value,
-		t.lifecycle.State() == NodeStateDraining,
-		t.lifecycle.Quiesced(t.context()),
-		detailOf(cause, detail))
+	command, err := decodeDrainCommand(message.Data)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.replyJSON(message, receipt)
+	t.handleRecordedCommand(message, commandKindDrain, command.CommandId, command, nil)
 }
 
 func (t *NatsTransport) handleDrainStatus(message *nats.Msg) {
-	var request NodeStatusRequest
-	if err := decodeStrictJSON(message.Data, &request); err != nil {
-		t.replyEnvelopeError(message, err)
-		return
-	}
-	facts, err := t.facts.Sample(t.context(), t.lifecycle.State(), t.lifecycle.Desired())
+	request, err := decodeStatusCommand(message.Data)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	report, err := NewNodeStatusReport(request.CommandId, t.nodeId.Value,
-		t.lifecycle.State(), t.lifecycle.Quiesced(t.context()), facts)
+	canonical, err := json.Marshal(request)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.replyJSON(message, report)
+	t.commandMutex.Lock()
+	defer t.commandMutex.Unlock()
+	record, found, err := t.journal.find(commandKindStatus, request.CommandId, canonical)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	if found {
+		if record.State == commandJournalDone {
+			t.respond(message, record.Response)
+			return
+		}
+		t.finishJournalRecord(message, record)
+		return
+	}
+	response, err := t.statusResponse(request)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.respond(message, response)
 }
 
 func (t *NatsTransport) handleDeploy(message *nats.Msg) {
-	var command DeployCommand
-	if err := decodeStrictJSON(message.Data, &command); err != nil {
-		t.replyEnvelopeError(message, err)
-		return
-	}
-	cause := t.lifecycle.Deploy(t.context(), command.Component, command.Version)
-	current, _ := CurrentVersion(t.lifecycle.installRoot, command.Component)
-	receipt, err := NewDeployReceipt(command.CommandId, t.nodeId.Value,
-		cause == nil, current, detailOf(cause, "deployed"))
+	command, err := decodeDeployCommand(message.Data)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.replyJSON(message, receipt)
+	t.handleTransitionCommand(message, commandKindDeploy, command.CommandId, command, func(ctx context.Context) (transitionPlan, error) {
+		return t.lifecycle.prepareDeploy(ctx, command.Component, command.Version)
+	})
 }
 
 func (t *NatsTransport) handleRollback(message *nats.Msg) {
-	var command RollbackCommand
-	if err := decodeStrictJSON(message.Data, &command); err != nil {
-		t.replyEnvelopeError(message, err)
-		return
-	}
-	cause := t.lifecycle.Rollback(t.context(), command.Component)
-	current, _ := CurrentVersion(t.lifecycle.installRoot, command.Component)
-	receipt, err := NewDeployReceipt(command.CommandId, t.nodeId.Value,
-		cause == nil, current, detailOf(cause, "rolled back"))
+	command, err := decodeRollbackCommand(message.Data)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.replyJSON(message, receipt)
+	t.handleTransitionCommand(message, commandKindRollback, command.CommandId, command, func(context.Context) (transitionPlan, error) {
+		return t.lifecycle.prepareRollback(command.Component)
+	})
 }
 
-// context returns the context commands run under; before Start it is the
-// background context so handlers never see a nil context.
-func (t *NatsTransport) context() context.Context {
-	if t.commandContext == nil {
-		return context.Background()
+func (t *NatsTransport) handleApplyManifest(message *nats.Msg) {
+	command, err := decodeApplyManifestCommand(message.Data)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
 	}
+	t.handleRecordedCommand(message, commandKindManifest, command.CommandId, command, nil)
+}
+
+func (t *NatsTransport) handleRecordedCommand(message *nats.Msg, kind, commandId string, command any, plan *transitionPlan) {
+	request, err := json.Marshal(command)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.commandMutex.Lock()
+	defer t.commandMutex.Unlock()
+	record, found, err := t.journal.find(kind, commandId, request)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	if found && record.State == commandJournalDone {
+		t.respond(message, record.Response)
+		return
+	}
+	if !found {
+		record, err = t.journal.begin(kind, commandId, request, plan)
+		if err != nil {
+			t.replyEnvelopeError(message, err)
+			return
+		}
+	}
+	response, err := t.executeJournalRecord(record)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	if err := t.journal.complete(record, response); err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.respond(message, response)
+}
+
+func (t *NatsTransport) handleTransitionCommand(message *nats.Msg, kind, commandId string, command any, prepare func(context.Context) (transitionPlan, error)) {
+	request, err := json.Marshal(command)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.commandMutex.Lock()
+	defer t.commandMutex.Unlock()
+	record, found, err := t.journal.find(kind, commandId, request)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	if found {
+		if record.State == commandJournalDone {
+			t.respond(message, record.Response)
+			return
+		}
+		t.finishJournalRecord(message, record)
+		return
+	}
+	ctx := t.context()
+	if ctx == nil {
+		t.replyEnvelopeError(message, &InvalidOperationError{Message: "The transport is not serving commands."})
+		return
+	}
+	plan, cause := prepare(ctx)
+	if cause != nil {
+		response, responseErr := t.transitionResponse(kind, commandId, transitionCommandComponent(command), cause)
+		if responseErr != nil {
+			t.replyEnvelopeError(message, responseErr)
+			return
+		}
+		record, err := t.journal.storeDone(kind, commandId, request, response)
+		if err != nil {
+			t.replyEnvelopeError(message, err)
+			return
+		}
+		t.respond(message, record.Response)
+		return
+	}
+	record, err = t.journal.begin(kind, commandId, request, &plan)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.finishJournalRecord(message, record)
+}
+
+func (t *NatsTransport) finishJournalRecord(message *nats.Msg, record commandJournalRecord) {
+	response, err := t.executeJournalRecord(record)
+	if err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	if err := t.journal.complete(record, response); err != nil {
+		t.replyEnvelopeError(message, err)
+		return
+	}
+	t.respond(message, response)
+}
+
+func (t *NatsTransport) executeJournalRecord(record commandJournalRecord) ([]byte, error) {
+	ctx := t.context()
+	if ctx == nil {
+		return nil, &InvalidOperationError{Message: "The transport is not serving commands."}
+	}
+	switch record.Kind {
+	case commandKindDrain:
+		var command DrainCommand
+		if err := json.Unmarshal(record.Request, &command); err != nil {
+			return nil, err
+		}
+		var cause error
+		detail := "drain released"
+		if command.Drain {
+			detail = "drain begun"
+			cause = t.lifecycle.BeginDrain(ctx)
+		} else {
+			cause = t.lifecycle.ReleaseDrain(ctx)
+		}
+		receipt, err := NewDrainReceipt(command.CommandId, t.nodeId.Value,
+			t.lifecycle.State() == NodeStateDraining, t.lifecycle.Quiesced(ctx), detailOf(cause, detail))
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(receipt)
+	case commandKindStatus:
+		var request NodeStatusRequest
+		if err := json.Unmarshal(record.Request, &request); err != nil {
+			return nil, err
+		}
+		return t.statusResponse(request)
+	case commandKindDeploy, commandKindRollback:
+		if record.Plan == nil {
+			return nil, &InvalidDataError{Message: "The transition command has no durable plan."}
+		}
+		cause := t.lifecycle.applyTransition(ctx, *record.Plan)
+		return t.transitionResponse(record.Kind, record.CommandId, record.Plan.Spec.Name, cause)
+	case commandKindManifest:
+		var command ApplyManifestCommand
+		if err := json.Unmarshal(record.Request, &command); err != nil {
+			return nil, err
+		}
+		return t.applyManifest(ctx, command)
+	default:
+		return nil, &InvalidDataError{Message: "The command journal contains an unknown command kind."}
+	}
+}
+
+func (t *NatsTransport) statusResponse(request NodeStatusRequest) ([]byte, error) {
+	ctx := t.context()
+	if ctx == nil {
+		return nil, &InvalidOperationError{Message: "The transport is not serving commands."}
+	}
+	facts, err := t.facts.Sample(ctx, t.lifecycle.State(), t.lifecycle.Desired())
+	if err != nil {
+		return nil, err
+	}
+	report, err := NewNodeStatusReport(request.CommandId, t.nodeId.Value,
+		t.lifecycle.State(), t.lifecycle.Quiesced(ctx), facts)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(report)
+}
+
+func transitionCommandComponent(command any) string {
+	switch typed := command.(type) {
+	case DeployCommand:
+		return typed.Component
+	case RollbackCommand:
+		return typed.Component
+	}
+	return ""
+}
+
+func (t *NatsTransport) transitionResponse(kind, commandId, component string, cause error) ([]byte, error) {
+	if component == "" {
+		return nil, &InvalidDataError{Message: "The transition component is missing."}
+	}
+	current, _ := CurrentVersion(t.lifecycle.installRoot, component)
+	detail := "deployed"
+	if kind == commandKindRollback {
+		detail = "rolled back"
+	}
+	receipt, err := NewDeployReceipt(commandId, t.nodeId.Value, cause == nil, current, detailOf(cause, detail))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
+}
+
+func (t *NatsTransport) applyManifest(ctx context.Context, command ApplyManifestCommand) ([]byte, error) {
+	canonical, err := CanonicalHostManifestJSON(command.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	wantedSha256, err := HostManifestSha256(command.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	current, err := readRegularFileBounded(t.manifestPath, hostAgentMaximumManifestBytes)
+	if err != nil {
+		return nil, err
+	}
+	currentManifest, err := ParseHostManifest(current)
+	if err != nil {
+		return nil, err
+	}
+	currentCanonical, err := CanonicalHostManifestJSON(currentManifest)
+	if err != nil || !bytes.Equal(current, currentCanonical) {
+		return nil, &InvalidDataError{Message: "The durable host manifest is not canonical."}
+	}
+	currentSha256, err := HostManifestSha256(currentManifest)
+	if err != nil {
+		return nil, err
+	}
+	accepted := true
+	detail := "manifest committed"
+	if currentSha256 != wantedSha256 {
+		if currentSha256 != command.ExpectedManifestSha256 {
+			accepted = false
+			detail = "manifest compare-and-swap rejected"
+		} else if err := writeDurableManifest(t.manifestPath, canonical); err != nil {
+			return nil, err
+		}
+	}
+	if accepted {
+		if convergeErr := t.lifecycle.ApplyDesired(ctx, command.Manifest.Components); convergeErr != nil {
+			detail = "manifest committed; convergence pending: " + convergeErr.Error()
+		}
+		currentSha256 = wantedSha256
+	}
+	receipt, err := NewManifestReceipt(command.CommandId, t.nodeId.Value, accepted, currentSha256, boundedReceiptDetail(detail))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
+}
+
+func writeDurableManifest(path string, data []byte) error {
+	if len(data) == 0 || len(data) > hostAgentMaximumManifestBytes {
+		return &InvalidDataError{Message: "The durable host manifest exceeds its size bound."}
+	}
+	dir := filepath.Dir(path)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if err := requireOwnedDirectory(info, "ts-node state directory"); err != nil {
+		return err
+	}
+	staged := filepath.Join(dir, ".manifest.staging")
+	if stageInfo, statErr := os.Lstat(staged); statErr == nil {
+		if err := requireOwnedRegular(stageInfo, false, "manifest stage"); err != nil {
+			return err
+		}
+		if err := os.Remove(staged); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	file, err := os.OpenFile(staged, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	cleanup := func(cause error) error {
+		_ = file.Close()
+		_ = os.Remove(staged)
+		return cause
+	}
+	if _, err := file.Write(data); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	if err := os.Rename(staged, path); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	return syncDir(dir)
+}
+
+func (t *NatsTransport) recoverPending(ctx context.Context) error {
+	records, err := t.journal.pending()
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		response, err := t.executeJournalRecord(record)
+		if err != nil {
+			return err
+		}
+		if err := t.journal.complete(record, response); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// prepareLifecycleForStartup restores the durable mode flag before manifest
+// reconciliation. This prevents a fresh Lifecycle from starting units while
+// the last accepted command still says the node is drained.
+func (t *NatsTransport) prepareLifecycleForStartup() error {
+	command, found, err := t.journal.latestDrain()
+	if err != nil {
+		return err
+	}
+	if found {
+		t.lifecycle.restoreDrainMode(command.Drain)
+	}
+	return nil
+}
+
+func (t *NatsTransport) restoreDurableDrain(ctx context.Context) error {
+	command, found, err := t.journal.latestDrain()
+	if err != nil || !found {
+		return err
+	}
+	if command.Drain {
+		return t.lifecycle.BeginDrain(ctx)
+	}
+	return t.lifecycle.ReleaseDrain(ctx)
+}
+
+// context returns the context commands run under. Handlers are not exposed
+// until Start has stored it, so there is no background-context fallback.
+func (t *NatsTransport) context() context.Context {
+	t.commandContextMutex.RLock()
+	defer t.commandContextMutex.RUnlock()
 	return t.commandContext
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -16,9 +17,17 @@ import (
 	"github.com/containerd/fifo"
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
+	"golang.org/x/sys/unix"
 )
 
 const captureMetricsHandlerName = "terrascale.CaptureMetrics"
+
+const (
+	attachCgroupHandlerName = "terrascale.AttachOwnedCgroup"
+	cgroupPeriodMicros      = int64(100000)
+	cgroupPIDsMax           = int64(64)
+	cgroupMemoryOverheadMiB = int64(128)
+)
 
 // NewSDKMachineFactory binds the lifecycle boundary to the pinned official
 // Firecracker Go SDK. It is available only to the explicit qualification build
@@ -42,7 +51,9 @@ func NewSDKMachineFactory() MachineFactory {
 			diagnostics.Close()
 			return nil, fmt.Errorf("new jailed Firecracker machine: %w", err)
 		}
-		return &sdkMachine{machine: machine, diagnostics: diagnostics, lifecycleCtx: lifecycleCtx, cancel: cancel, expectedExecutable: cfg.FirecrackerBinary}, nil
+		executable := filepath.Join(sdkCfg.JailerCfg.ChrootBaseDir, filepath.Base(sdkCfg.JailerCfg.ExecFile), sdkCfg.VMID, "root", filepath.Base(sdkCfg.JailerCfg.ExecFile))
+		strategy := sdkCfg.JailerCfg.ChrootStrategy.(*jailerChrootStrategy)
+		return &sdkMachine{machine: machine, diagnostics: diagnostics, cgroup: strategy.cgroup, lifecycleCtx: lifecycleCtx, cancel: cancel, expectedExecutable: executable, expectedSHA256: cfg.ExpectedFirecrackerSHA256}, nil
 	}
 }
 
@@ -62,9 +73,10 @@ func newSDKConfig(cfg Config) (firecracker.Config, *diagnosticCapture, error) {
 	if kernelArgs == "" {
 		kernelArgs = "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw"
 	}
-	drives := []models.Drive{
-		{DriveID: firecracker.String("rootfs"), PathOnHost: &cfg.RootDrive, IsRootDevice: &root, IsReadOnly: &writable},
-		{DriveID: firecracker.String("data"), PathOnHost: &cfg.DataDrive, IsRootDevice: &writable, IsReadOnly: &writable},
+	drives := []models.Drive{{DriveID: firecracker.String("rootfs"), PathOnHost: &cfg.RootDrive, IsRootDevice: &root, IsReadOnly: &writable}}
+	if cfg.DataDrive != "" {
+		dataReadOnly := cfg.DataDriveReadOnly
+		drives = append(drives, models.Drive{DriveID: firecracker.String("data"), PathOnHost: &cfg.DataDrive, IsRootDevice: &writable, IsReadOnly: &dataReadOnly})
 	}
 	if cfg.SeedDrive != "" {
 		drives = append(drives, models.Drive{DriveID: firecracker.String("seed"), PathOnHost: &cfg.SeedDrive, IsRootDevice: &writable, IsReadOnly: &readOnly})
@@ -76,9 +88,12 @@ func newSDKConfig(cfg Config) (firecracker.Config, *diagnosticCapture, error) {
 	logFIFO := filepath.Join(paths.StateDir, "firecracker-log.fifo")
 	metricsFIFO := filepath.Join(paths.StateDir, "firecracker-metrics.fifo")
 	strategy := &jailerChrootStrategy{
-		base:        firecracker.NewNaiveChrootStrategy(cfg.KernelImage),
+		kernelImage: cfg.KernelImage,
 		metricsFIFO: metricsFIFO,
 		diagnostics: diagnostics,
+		cgroup:      newOwnedCgroup(cfg.CgroupRoot, cfg),
+		dataBlock:   cfg.dataDriveBlock,
+		blockOps:    realBlockNodeOperations(),
 	}
 	sdkConfig := firecracker.Config{
 		// This path is interpreted from inside the jail. NewMachine rewrites its
@@ -120,22 +135,35 @@ func newSDKConfig(cfg Config) (firecracker.Config, *diagnosticCapture, error) {
 	return sdkConfig, diagnostics, nil
 }
 
-// jailerChrootStrategy delegates kernel and drive staging to the SDK and adds
-// the metrics reader that its built-in strategy omits. Both FIFOs are linked
-// into the jail by NewNaiveChrootStrategy before Firecracker receives them.
+// jailerChrootStrategy stages ordinary artifacts with hard links and maps a
+// fault adapter's device-mapper target to a private block node in the jail.
+// It also adds the metrics reader that the SDK's built-in strategy omits.
 type jailerChrootStrategy struct {
-	base        firecracker.HandlersAdapter
+	kernelImage string
 	metricsFIFO string
 	diagnostics *diagnosticCapture
+	cgroup      *ownedCgroup
+	dataBlock   *blockDeviceIdentity
+	blockOps    blockNodeOperations
 }
 
 func (s *jailerChrootStrategy) AdaptHandlers(handlers *firecracker.Handlers) error {
-	if s == nil || s.base == nil || s.diagnostics == nil {
+	if s == nil || s.kernelImage == "" || s.diagnostics == nil || s.cgroup == nil || !s.blockOps.valid() {
 		return errors.New("sandboxvm: incomplete jailer chroot strategy")
 	}
-	if err := s.base.AdaptHandlers(handlers); err != nil {
-		return err
+	if !handlers.FcInit.Has(firecracker.CreateLogFilesHandlerName) {
+		return firecracker.ErrRequiredHandlerMissing
 	}
+	linkHandler := firecracker.Handler{Name: firecracker.LinkFilesToRootFSHandlerName, Fn: s.stageJailFiles}
+	handlers.FcInit = handlers.FcInit.AppendAfter(firecracker.CreateLogFilesHandlerName, linkHandler)
+	attach := firecracker.Handler{Name: attachCgroupHandlerName, Fn: func(_ context.Context, machine *firecracker.Machine) error {
+		pid, err := machine.PID()
+		if err != nil {
+			return fmt.Errorf("read Firecracker PID for cgroup attachment: %w", err)
+		}
+		return s.cgroup.Attach(pid)
+	}}
+	handlers.FcInit = handlers.FcInit.AppendAfter(firecracker.StartVMMHandlerName, attach)
 	handler := firecracker.Handler{Name: captureMetricsHandlerName, Fn: func(ctx context.Context, _ *firecracker.Machine) error {
 		info, err := os.Lstat(s.metricsFIFO)
 		if err != nil {
@@ -156,6 +184,189 @@ func (s *jailerChrootStrategy) AdaptHandlers(handlers *firecracker.Handlers) err
 		return nil
 	}}
 	handlers.FcInit = handlers.FcInit.AppendAfter(firecracker.LinkFilesToRootFSHandlerName, handler)
+	return nil
+}
+
+type blockNodeOperations struct {
+	mknod   func(string, uint32, int) error
+	chown   func(string, int, int) error
+	chmod   func(string, os.FileMode) error
+	inspect func(string, int, int) (blockDeviceIdentity, error)
+	remove  func(string) error
+}
+
+func realBlockNodeOperations() blockNodeOperations {
+	return blockNodeOperations{
+		mknod:   unix.Mknod,
+		chown:   os.Chown,
+		chmod:   os.Chmod,
+		inspect: inspectPrivateBlockDevice,
+		remove:  os.Remove,
+	}
+}
+
+func (ops blockNodeOperations) valid() bool {
+	return ops.mknod != nil && ops.chown != nil && ops.chmod != nil && ops.inspect != nil && ops.remove != nil
+}
+
+func (s *jailerChrootStrategy) stageJailFiles(_ context.Context, machine *firecracker.Machine) (err error) {
+	if machine == nil || machine.Cfg.JailerCfg == nil || machine.Cfg.JailerCfg.UID == nil || machine.Cfg.JailerCfg.GID == nil {
+		return firecracker.ErrMissingJailerConfig
+	}
+	root := filepath.Join(
+		machine.Cfg.JailerCfg.ChrootBaseDir,
+		filepath.Base(machine.Cfg.JailerCfg.ExecFile),
+		machine.Cfg.JailerCfg.ID,
+		"root",
+	)
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sandboxvm: jail root is not a real directory")
+	}
+	uid, gid := *machine.Cfg.JailerCfg.UID, *machine.Cfg.JailerCfg.GID
+	created := make([]string, 0, 3+len(machine.Cfg.Drives))
+	defer func() {
+		if err == nil {
+			return
+		}
+		for index := len(created) - 1; index >= 0; index-- {
+			_ = os.Remove(created[index])
+		}
+	}()
+
+	kernelInfo, err := os.Lstat(machine.Cfg.KernelImagePath)
+	if err != nil || !kernelInfo.Mode().IsRegular() || kernelInfo.Mode()&os.ModeSymlink != 0 {
+		return errors.Join(errors.New("sandboxvm: kernel image changed before jail staging"), err)
+	}
+	kernelName := filepath.Base(s.kernelImage)
+	kernelDestination := filepath.Join(root, kernelName)
+	if err = linkExactFile(machine.Cfg.KernelImagePath, kernelDestination, kernelInfo); err != nil {
+		return err
+	}
+	created = append(created, kernelDestination)
+	machine.Cfg.KernelImagePath = kernelName
+
+	if machine.Cfg.InitrdPath != "" {
+		initrdInfo, statErr := os.Lstat(machine.Cfg.InitrdPath)
+		if statErr != nil || !initrdInfo.Mode().IsRegular() || initrdInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.Join(errors.New("sandboxvm: initrd changed before jail staging"), statErr)
+		}
+		initrdName := filepath.Base(machine.Cfg.InitrdPath)
+		initrdDestination := filepath.Join(root, initrdName)
+		if err = linkExactFile(machine.Cfg.InitrdPath, initrdDestination, initrdInfo); err != nil {
+			return err
+		}
+		created = append(created, initrdDestination)
+		machine.Cfg.InitrdPath = initrdName
+	}
+
+	foundBlockData := false
+	for index := range machine.Cfg.Drives {
+		drive := &machine.Cfg.Drives[index]
+		hostPath := firecracker.StringValue(drive.PathOnHost)
+		if hostPath == "" {
+			return errors.New("sandboxvm: drive has an empty host path")
+		}
+		driveID := firecracker.StringValue(drive.DriveID)
+		if s.dataBlock != nil && driveID == "data" {
+			if foundBlockData || filepath.Clean(hostPath) != s.dataBlock.Path {
+				return errors.New("sandboxvm: fault data-drive identity is inconsistent")
+			}
+			current, resolveErr := resolvePrivateBlockDevice(hostPath, uid, gid)
+			if resolveErr != nil || !s.dataBlock.matches(current) {
+				return errors.Join(errors.New("sandboxvm: fault block device changed before jail staging"), resolveErr)
+			}
+			destination := filepath.Join(root, faultDataDriveJailName)
+			if err = createJailBlockDevice(destination, uid, gid, current, s.blockOps); err != nil {
+				return err
+			}
+			created = append(created, destination)
+			drive.PathOnHost = firecracker.String(faultDataDriveJailName)
+			foundBlockData = true
+			continue
+		}
+		driveInfo, validateErr := validatePrivateJailerFile(hostPath, uid, gid)
+		if validateErr != nil {
+			return fmt.Errorf("validate drive before jail staging: %w", validateErr)
+		}
+		driveName := filepath.Base(hostPath)
+		destination := filepath.Join(root, driveName)
+		if err = linkExactFile(hostPath, destination, driveInfo); err != nil {
+			return err
+		}
+		created = append(created, destination)
+		drive.PathOnHost = firecracker.String(driveName)
+	}
+	if s.dataBlock != nil && !foundBlockData {
+		return errors.New("sandboxvm: fault block device has no data drive")
+	}
+
+	for _, fifoPath := range []*string{&machine.Cfg.LogFifo, &machine.Cfg.MetricsFifo} {
+		if fifoPath == nil || *fifoPath == "" {
+			continue
+		}
+		fifoInfo, statErr := os.Lstat(*fifoPath)
+		if statErr != nil || fifoInfo.Mode()&os.ModeNamedPipe == 0 || fifoInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.Join(errors.New("sandboxvm: diagnostic FIFO changed before jail staging"), statErr)
+		}
+		fileName := filepath.Base(*fifoPath)
+		destination := filepath.Join(root, fileName)
+		if err = linkExactFile(*fifoPath, destination, fifoInfo); err != nil {
+			return err
+		}
+		created = append(created, destination)
+		if err = os.Chown(destination, uid, gid); err != nil {
+			return err
+		}
+		*fifoPath = fileName
+	}
+	return nil
+}
+
+func linkExactFile(source, destination string, expected os.FileInfo) error {
+	if expected == nil || expected.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sandboxvm: invalid jail hard-link source")
+	}
+	if err := os.Link(source, destination); err != nil {
+		return err
+	}
+	destinationInfo, err := os.Lstat(destination)
+	if err != nil || destinationInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(expected, destinationInfo) {
+		_ = os.Remove(destination)
+		return errors.Join(errors.New("sandboxvm: jail hard link did not preserve source identity"), err)
+	}
+	return nil
+}
+
+func createJailBlockDevice(path string, uid, gid int, source blockDeviceIdentity, ops blockNodeOperations) (err error) {
+	if !ops.valid() || !filepath.IsAbs(path) || filepath.Base(path) != faultDataDriveJailName {
+		return errors.New("sandboxvm: invalid jail block-device request")
+	}
+	device := int(source.Rdev)
+	if uint64(device) != source.Rdev {
+		return errors.New("sandboxvm: block-device number exceeds host integer width")
+	}
+	if err := ops.mknod(path, uint32(unix.S_IFBLK|0600), device); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = ops.remove(path)
+		}
+	}()
+	if err = ops.chown(path, uid, gid); err != nil {
+		return err
+	}
+	if err = ops.chmod(path, 0600); err != nil {
+		return err
+	}
+	created, inspectErr := ops.inspect(path, uid, gid)
+	if inspectErr != nil || created.Rdev != source.Rdev {
+		return errors.Join(errors.New("sandboxvm: jailed block-device identity is incorrect"), inspectErr)
+	}
 	return nil
 }
 
@@ -287,6 +498,388 @@ type diagnosticCapture struct {
 	once    sync.Once
 }
 
+var cgroupSetupMu sync.Mutex
+
+type ownedCgroup struct {
+	mu           sync.Mutex
+	root         string
+	parent       string
+	path         string
+	jailerParent string
+	jailerPath   string
+	cpus         string
+	mems         string
+	numaNode     int
+	cpuMax       string
+	memoryMax    string
+	pidsMax      string
+	attachedPID  int
+	setupStarted bool
+}
+
+func newOwnedCgroup(root string, cfg Config) *ownedCgroup {
+	parent := filepath.Join(root, cgroupParentName)
+	return &ownedCgroup{
+		root:         root,
+		parent:       parent,
+		path:         filepath.Join(parent, cfg.ID),
+		jailerParent: filepath.Join(root, filepath.Base(cfg.FirecrackerBinary)),
+		jailerPath:   filepath.Join(root, filepath.Base(cfg.FirecrackerBinary), cfg.ID),
+		numaNode:     *cfg.JailerNumaNode,
+		cpuMax:       fmt.Sprintf("%d %d", cfg.VCPU*cgroupPeriodMicros, cgroupPeriodMicros),
+		memoryMax:    strconv.FormatInt((cfg.MemoryMiB+cgroupMemoryOverheadMiB)<<20, 10),
+		pidsMax:      strconv.FormatInt(cgroupPIDsMax, 10),
+	}
+}
+
+func (g *ownedCgroup) Attach(pid int) error {
+	if g == nil || pid <= 0 || validateCgroup2Mount(g.root) != nil || !pathWithinRoot(g.root, g.path) || !pathWithinRoot(g.root, g.jailerPath) {
+		return errors.New("sandboxvm: invalid owned cgroup configuration")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	cgroupSetupMu.Lock()
+	defer cgroupSetupMu.Unlock()
+	g.setupStarted = true
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(g.root, &fs); err != nil {
+		return err
+	}
+	if uint64(fs.Type) != uint64(0x63677270) {
+		return errors.New("sandboxvm: host cgroup root is not cgroup v2")
+	}
+	controllers, err := readCgroupFile(filepath.Join(g.root, "cgroup.controllers"))
+	if err != nil {
+		return err
+	}
+	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
+		if !fieldPresent(controllers, controller) {
+			return fmt.Errorf("sandboxvm: cgroup v2 controller %q is unavailable", controller)
+		}
+	}
+	rootCPUs, err := readCgroupFile(filepath.Join(g.root, "cpuset.cpus.effective"))
+	if err != nil || rootCPUs == "" {
+		return errors.Join(errors.New("sandboxvm: cgroup v2 effective CPU set is unavailable"), err)
+	}
+	rootMems, err := readCgroupFile(filepath.Join(g.root, "cpuset.mems.effective"))
+	if err != nil || rootMems == "" {
+		return errors.Join(errors.New("sandboxvm: cgroup v2 effective memory-node set is unavailable"), err)
+	}
+	g.cpus, err = readSmallFile(fmt.Sprintf("/sys/devices/system/node/node%d/cpulist", g.numaNode))
+	if err != nil || g.cpus == "" {
+		return errors.Join(fmt.Errorf("sandboxvm: NUMA node %d CPU list is unavailable", g.numaNode), err)
+	}
+	g.mems = strconv.Itoa(g.numaNode)
+	if !cpuSetContains(rootCPUs, g.cpus) || !cpuSetContains(rootMems, g.mems) {
+		return fmt.Errorf("sandboxvm: NUMA node %d is outside the effective cgroup cpuset", g.numaNode)
+	}
+	if err := requireCgroupControllersEnabled(g.root); err != nil {
+		return err
+	}
+	if err := mkdirCgroup(g.parent, true); err != nil {
+		return err
+	}
+	if err := writeCgroupFile(filepath.Join(g.parent, "cpuset.cpus"), rootCPUs); err != nil {
+		return err
+	}
+	if err := writeCgroupFile(filepath.Join(g.parent, "cpuset.mems"), rootMems); err != nil {
+		return err
+	}
+	if err := enableCgroupControllers(g.parent); err != nil {
+		return err
+	}
+	if err := mkdirCgroup(g.path, false); err != nil {
+		return err
+	}
+	settings := map[string]string{
+		"cpuset.cpus":     g.cpus,
+		"cpuset.mems":     g.mems,
+		"cpu.max":         g.cpuMax,
+		"memory.max":      g.memoryMax,
+		"memory.swap.max": "0",
+		"pids.max":        g.pidsMax,
+	}
+	for name, value := range settings {
+		if err := writeCgroupFile(filepath.Join(g.path, name), value); err != nil {
+			return fmt.Errorf("configure cgroup %s: %w", name, err)
+		}
+	}
+	if err := writeCgroupFile(filepath.Join(g.path, "cgroup.procs"), strconv.Itoa(pid)); err != nil {
+		return fmt.Errorf("attach Firecracker to owned cgroup: %w", err)
+	}
+	for name, value := range settings {
+		got, err := readCgroupFile(filepath.Join(g.path, name))
+		if err != nil || got != value {
+			return fmt.Errorf("verify cgroup %s: got %q, want %q: %w", name, got, value, err)
+		}
+	}
+	membership, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cgroup"))
+	if err != nil {
+		return err
+	}
+	wantMembership := "0::" + strings.TrimPrefix(g.path, g.root)
+	if !fieldLinePresent(string(membership), wantMembership) {
+		return fmt.Errorf("sandboxvm: Firecracker PID %d is not in owned cgroup %s", pid, g.path)
+	}
+	g.attachedPID = pid
+	if err := removeEmptyCgroup(g.jailerPath, false); err != nil {
+		return fmt.Errorf("remove empty jailer cgroup: %w", err)
+	}
+	if err := removeEmptyCgroup(g.jailerParent, true); err != nil {
+		return fmt.Errorf("remove empty jailer cgroup parent: %w", err)
+	}
+	return nil
+}
+
+func (g *ownedCgroup) Cleanup() error {
+	if g == nil {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	cgroupSetupMu.Lock()
+	defer cgroupSetupMu.Unlock()
+	if g.setupStarted {
+		if err := removeEmptyCgroup(g.path, false); err != nil {
+			return err
+		}
+	}
+	// The jailer creates its own cgroup before the post-start attachment
+	// handler runs. A startup failure can therefore leave this leaf behind even
+	// when setupStarted is false.
+	if err := removeEmptyCgroup(g.jailerPath, false); err != nil {
+		return err
+	}
+	if err := removeEmptyCgroup(g.jailerParent, true); err != nil {
+		return err
+	}
+	if g.setupStarted {
+		if err := removeEmptyCgroup(g.parent, true); err != nil {
+			return err
+		}
+	}
+	g.setupStarted = false
+	g.attachedPID = 0
+	return nil
+}
+
+func (g *ownedCgroup) Validate(pid int) error {
+	if g == nil || pid <= 0 {
+		return errors.New("sandboxvm: invalid cgroup validation request")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.setupStarted || g.attachedPID != pid {
+		return errors.New("sandboxvm: Firecracker cgroup was not attached by this machine")
+	}
+	settings := map[string]string{
+		"cpuset.cpus":     g.cpus,
+		"cpuset.mems":     g.mems,
+		"cpu.max":         g.cpuMax,
+		"memory.max":      g.memoryMax,
+		"memory.swap.max": "0",
+		"pids.max":        g.pidsMax,
+	}
+	for name, value := range settings {
+		got, err := readCgroupFile(filepath.Join(g.path, name))
+		if err != nil || got != value {
+			return fmt.Errorf("verify cgroup %s: got %q, want %q: %w", name, got, value, err)
+		}
+	}
+	membership, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cgroup"))
+	if err != nil {
+		return err
+	}
+	wantMembership := "0::" + strings.TrimPrefix(g.path, g.root)
+	if !fieldLinePresent(string(membership), wantMembership) {
+		return fmt.Errorf("sandboxvm: Firecracker PID %d left owned cgroup %s", pid, g.path)
+	}
+	return nil
+}
+
+func enableCgroupControllers(path string) error {
+	const enabled = "+cpu +memory +pids +cpuset"
+	if err := writeCgroupFile(filepath.Join(path, "cgroup.subtree_control"), enabled); err != nil {
+		return fmt.Errorf("enable cgroup v2 controllers below %s: %w", path, err)
+	}
+	current, err := readCgroupFile(filepath.Join(path, "cgroup.subtree_control"))
+	if err != nil {
+		return err
+	}
+	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
+		if !fieldPresent(current, controller) {
+			return fmt.Errorf("sandboxvm: cgroup v2 controller %q was not enabled below %s", controller, path)
+		}
+	}
+	return nil
+}
+
+func requireCgroupControllersEnabled(path string) error {
+	current, err := readCgroupFile(filepath.Join(path, "cgroup.subtree_control"))
+	if err != nil {
+		return err
+	}
+	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
+		if !fieldPresent(current, controller) {
+			return fmt.Errorf("sandboxvm: cgroup v2 controller %q is not delegated below %s", controller, path)
+		}
+	}
+	return nil
+}
+
+func mkdirCgroup(path string, allowExisting bool) error {
+	err := os.Mkdir(path, 0755)
+	if err == nil {
+		return nil
+	}
+	if !allowExisting || !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		return statErr
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("sandboxvm: existing cgroup parent is unsafe")
+	}
+	return nil
+}
+
+func readCgroupFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 64<<10 {
+		return "", fmt.Errorf("sandboxvm: unsafe cgroup control file %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 64<<10 {
+		return "", fmt.Errorf("sandboxvm: oversized cgroup control file %s", path)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func readSmallFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 64<<10 {
+		return "", fmt.Errorf("sandboxvm: unsafe host topology file %s", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func cpuSetContains(outer, inner string) bool {
+	outerSet, ok := parseCPUSet(outer)
+	if !ok {
+		return false
+	}
+	innerSet, ok := parseCPUSet(inner)
+	if !ok || len(innerSet) == 0 {
+		return false
+	}
+	for value := range innerSet {
+		if _, exists := outerSet[value]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func parseCPUSet(value string) (map[int]struct{}, bool) {
+	result := make(map[int]struct{})
+	for _, part := range strings.Split(value, ",") {
+		bounds := strings.Split(part, "-")
+		if len(bounds) < 1 || len(bounds) > 2 {
+			return nil, false
+		}
+		first, err := strconv.Atoi(bounds[0])
+		if err != nil || first < 0 {
+			return nil, false
+		}
+		last := first
+		if len(bounds) == 2 {
+			last, err = strconv.Atoi(bounds[1])
+			if err != nil || last < first || last-first > 1<<20 {
+				return nil, false
+			}
+		}
+		for current := first; current <= last; current++ {
+			result[current] = struct{}{}
+		}
+	}
+	return result, true
+}
+
+func writeCgroupFile(path, value string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("sandboxvm: unsafe cgroup control file %s", path)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, writeErr := io.WriteString(file, value)
+	closeErr := file.Close()
+	return errors.Join(writeErr, closeErr)
+}
+
+func removeEmptyCgroup(path string, shared bool) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("sandboxvm: refusing unsafe cgroup path %s", path)
+	}
+	processes, err := readCgroupFile(filepath.Join(path, "cgroup.procs"))
+	if err != nil {
+		return err
+	}
+	if processes != "" {
+		return fmt.Errorf("sandboxvm: refusing to remove populated cgroup %s", path)
+	}
+	err = os.Remove(path)
+	if shared && (errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EBUSY)) {
+		return nil
+	}
+	return err
+}
+
+func fieldPresent(value, field string) bool {
+	for _, candidate := range strings.Fields(value) {
+		if candidate == field {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldLinePresent(value, line string) bool {
+	for _, candidate := range strings.Split(strings.TrimSpace(value), "\n") {
+		if strings.TrimSpace(candidate) == line {
+			return true
+		}
+	}
+	return false
+}
+
 func newDiagnosticCapture(paths Paths) (*diagnosticCapture, error) {
 	logWriter, err := newBoundedDiagnosticWriter(paths.Log, DiagnosticLimitBytes)
 	if err != nil {
@@ -332,9 +925,12 @@ type sdkMachine struct {
 	mu                 sync.Mutex
 	machine            *firecracker.Machine
 	diagnostics        *diagnosticCapture
+	cgroup             *ownedCgroup
 	lifecycleCtx       context.Context
 	cancel             context.CancelFunc
 	expectedExecutable string
+	expectedSHA256     string
+	executableInfo     os.FileInfo
 	pid                int
 	processStartTime   uint64
 }
@@ -351,42 +947,49 @@ func (m *sdkMachine) Start(ctx context.Context) error {
 		case <-startupDone:
 		}
 	}()
-	err := m.machine.Start(m.lifecycleCtx)
+	startErr := m.machine.Start(m.lifecycleCtx)
 	close(startupDone)
-	if err != nil {
-		m.cancel()
-		m.diagnostics.Close()
-		return err
+	identityErr := m.captureProcessIdentity()
+	if startErr != nil {
+		return errors.Join(startErr, identityErr)
 	}
 	if err := ctx.Err(); err != nil {
-		_ = m.machine.StopVMM()
-		m.cancel()
-		return err
+		return errors.Join(err, identityErr)
 	}
+	return identityErr
+}
+
+func (m *sdkMachine) captureProcessIdentity() error {
 	pid, err := m.machine.PID()
 	if err != nil {
-		_ = m.machine.StopVMM()
 		return err
 	}
 	process, err := observeProcess(pid)
-	if err != nil || !process.Alive || process.StartTime == 0 {
-		_ = m.machine.StopVMM()
-		if err == nil {
-			err = errors.New("Firecracker process is not alive")
-		}
-		return fmt.Errorf("record Firecracker process identity: %w", err)
-	}
-	matched, err := sameExecutable(m.expectedExecutable, process.Executable)
-	if err != nil || !matched {
-		_ = m.machine.StopVMM()
-		m.cancel()
-		if err == nil {
-			err = fmt.Errorf("running executable is %q, want %q", process.Executable, m.expectedExecutable)
-		}
-		return fmt.Errorf("record Firecracker executable identity: %w", err)
+	if err != nil {
+		return fmt.Errorf("observe Firecracker process identity: %w", err)
 	}
 	m.mu.Lock()
 	m.pid, m.processStartTime = pid, process.StartTime
+	m.mu.Unlock()
+	if !process.Alive || process.StartTime == 0 {
+		return errors.New("Firecracker process is not alive")
+	}
+	matched, err := sameProcessExecutable(m.expectedExecutable, pid, process.Executable)
+	if err != nil {
+		return fmt.Errorf("verify jailed Firecracker executable identity: %w", err)
+	}
+	if !matched {
+		return fmt.Errorf("running executable is %q, want jail copy %q", process.Executable, m.expectedExecutable)
+	}
+	if err := validateArtifact(Artifact{Kind: "firecracker", Path: m.expectedExecutable, SHA256: m.expectedSHA256}); err != nil {
+		return fmt.Errorf("verify jailed Firecracker executable digest: %w", err)
+	}
+	info, err := os.Stat(m.expectedExecutable)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.executableInfo = info
 	m.mu.Unlock()
 	return nil
 }
@@ -414,6 +1017,45 @@ func (m *sdkMachine) Wait(ctx context.Context) error {
 	return err
 }
 
+func (m *sdkMachine) ExitConfirmed() (bool, error) {
+	m.mu.Lock()
+	pid, start := m.pid, m.processStartTime
+	m.mu.Unlock()
+	if pid <= 0 {
+		var err error
+		pid, err = m.machine.PID()
+		if err != nil {
+			if cleanupErr := m.cgroup.Cleanup(); cleanupErr != nil {
+				return false, cleanupErr
+			}
+			return true, nil
+		}
+	}
+	process, err := observeProcess(pid)
+	if errors.Is(err, os.ErrNotExist) {
+		if cleanupErr := m.cgroup.Cleanup(); cleanupErr != nil {
+			return false, cleanupErr
+		}
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if start == 0 {
+		m.mu.Lock()
+		m.pid, m.processStartTime = pid, process.StartTime
+		m.mu.Unlock()
+		return !process.Alive, nil
+	}
+	exited := !process.Alive || process.StartTime != start
+	if exited {
+		if cleanupErr := m.cgroup.Cleanup(); cleanupErr != nil {
+			return false, cleanupErr
+		}
+	}
+	return exited, nil
+}
+
 func (m *sdkMachine) Close() {
 	m.cancel()
 	m.diagnostics.Close()
@@ -432,7 +1074,7 @@ func (m *sdkMachine) Version(ctx context.Context) (string, error) {
 
 func (m *sdkMachine) Inspect(ctx context.Context) (Inspection, error) {
 	m.mu.Lock()
-	pid, start := m.pid, m.processStartTime
+	pid, start, executableInfo := m.pid, m.processStartTime, m.executableInfo
 	m.mu.Unlock()
 	inspection := Inspection{PID: pid, ProcessStartTime: start, Diagnostics: m.diagnostics.observation()}
 	if pid <= 0 || start == 0 {
@@ -446,13 +1088,25 @@ func (m *sdkMachine) Inspect(ctx context.Context) (Inspection, error) {
 		}
 		return inspection, err
 	}
-	executableMatches, _ := sameExecutable(m.expectedExecutable, process.Executable)
+	executableMatches, _ := sameProcessExecutable(m.expectedExecutable, pid, process.Executable)
+	if executableMatches && executableInfo != nil {
+		currentInfo, statErr := os.Stat(m.expectedExecutable)
+		executableMatches = statErr == nil && os.SameFile(executableInfo, currentInfo)
+	} else {
+		executableMatches = false
+	}
 	inspection.Executable = process.Executable
-	inspection.ProcessAlive = process.Alive && process.StartTime == start && executableMatches
+	inspection.ExecutableValid = executableMatches
+	inspection.CgroupValid = m.cgroup.Validate(pid) == nil
+	inspection.ProcessAlive = process.Alive && process.StartTime == start
 	inspection.RSSBytes = process.RSSBytes
 	inspection.SocketReady = SocketReady(m.machine.Cfg.SocketPath)
-	if !inspection.ProcessAlive || !inspection.SocketReady {
+	if !inspection.ProcessAlive {
 		inspection.State = StateStopped
+		return inspection, nil
+	}
+	if !inspection.ExecutableValid || !inspection.CgroupValid || !inspection.SocketReady {
+		inspection.State = StateStarting
 		return inspection, nil
 	}
 	info, err := m.machine.DescribeInstanceInfo(ctx)

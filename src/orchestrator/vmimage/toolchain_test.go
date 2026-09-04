@@ -63,6 +63,13 @@ func TestToolchainInstallerExtractsOnlyPinnedExecutables(t *testing.T) {
 	if len(entries) != 3 {
 		t.Fatalf("installed %d files, want two executables and a manifest", len(entries))
 	}
+	extraLink := filepath.Join(installer.Root, "firecracker-extra-link")
+	if err := os.Link(first.Firecracker, extraLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.Verify(first); err == nil {
+		t.Fatal("hard-linked toolchain executable was accepted")
+	}
 }
 
 func TestCheckedInToolchainPinsAreValidAndArchitectureSpecific(t *testing.T) {

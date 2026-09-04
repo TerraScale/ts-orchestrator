@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
 const (
@@ -40,6 +41,7 @@ type NoCloudSeedSpec struct {
 	DataMount        string
 	GuestSeed        []byte
 	GuestControl     []byte
+	TSNode           TSNodeBootstrap
 }
 
 // NoCloudSeed contains the three files consumed by cloud-init's NoCloud data
@@ -111,6 +113,13 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if err := validateGuestControl(spec.GuestControl, guestSeed.Image.Architecture); err != nil {
 		return NoCloudSeed{}, err
 	}
+	tsNode, err := canonicalTSNodeBootstrap(spec.TSNode, guestSeed.Image.Architecture)
+	if err != nil {
+		return NoCloudSeed{}, err
+	}
+	if err := validateNoCloudBindings(spec, guestSeed, gateway, tsNode); err != nil {
+		return NoCloudSeed{}, err
+	}
 
 	nameservers, err := canonicalNameservers(spec.Nameservers)
 	if err != nil {
@@ -119,8 +128,40 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	return NoCloudSeed{
 		MetaData:      buildNoCloudMetaData(spec),
 		NetworkConfig: buildNoCloudNetwork(address, spec.PrefixBits, gateway, guestMAC, nameservers),
-		UserData:      buildNoCloudUserData(spec, dataDevice, dataMount),
+		UserData:      buildNoCloudUserData(spec, dataDevice, dataMount, tsNode),
 	}, nil
+}
+
+func validateNoCloudBindings(spec NoCloudSeedSpec, guestSeed GuestChannelSeed, gateway netip.Addr, tsNode tsNodeBootstrapMaterial) error {
+	if spec.TSNode.Config.NodeID != guestSeed.InstanceID {
+		return errors.New("vmimage: ts-node node id does not match the NoCloud instance id")
+	}
+	wantGateway := gateway.String()
+	if spec.TSNode.Config.NATSURL != "nats://"+wantGateway+":4222" {
+		return errors.New("vmimage: ts-node NATS endpoint does not match the NoCloud gateway")
+	}
+	if tsNode.hostAddress != wantGateway {
+		return errors.New("vmimage: artifact host address does not match the NoCloud gateway")
+	}
+	if guestSeed.NetworkExchangeEndpoint != wantGateway+":18080" {
+		return errors.New("vmimage: guest network exchange endpoint does not match the NoCloud gateway")
+	}
+
+	artifacts := make(map[string]GuestArtifact, len(guestSeed.Artifacts))
+	for _, artifact := range guestSeed.Artifacts {
+		artifacts[artifact.Component] = artifact
+	}
+	bootstrapArtifact := artifacts["ts-node"]
+	if tsNode.version != bootstrapArtifact.Version || tsNode.digest != bootstrapArtifact.SHA256 || int64(len(tsNode.binary)) != bootstrapArtifact.Size {
+		return errors.New("vmimage: ts-node bootstrap does not match the guest seed artifact")
+	}
+	for _, component := range tsNode.desired.Components {
+		artifact := artifacts[component.Name]
+		if component.Version != artifact.Version || component.Sha256 != artifact.SHA256 {
+			return fmt.Errorf("vmimage: desired %s component does not match the guest seed artifact", component.Name)
+		}
+	}
+	return nil
 }
 
 func usablePrefixAddress(address netip.Addr, prefix netip.Prefix) bool {
@@ -218,7 +259,7 @@ func buildNoCloudNetwork(address netip.Addr, prefixBits int, gateway netip.Addr,
 	return output.Bytes()
 }
 
-func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []byte {
+func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string, tsNode tsNodeBootstrapMaterial) []byte {
 	var output bytes.Buffer
 	output.WriteString("#cloud-config\n")
 	output.WriteString("preserve_hostname: false\n")
@@ -226,6 +267,9 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	output.WriteString("manage_etc_hosts: true\n")
 	output.WriteString("disable_root: false\n")
 	output.WriteString("ssh_pwauth: false\n")
+	output.WriteString("bootcmd:\n")
+	output.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, '0700', " + tsNodeBootstrapDirectory + "]\n")
+	output.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, '0755', /etc/terrascale]\n")
 	output.WriteString("users:\n")
 	output.WriteString("  - name: root\n")
 	output.WriteString("    lock_passwd: true\n")
@@ -239,6 +283,23 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	output.WriteString("mounts:\n")
 	fmt.Fprintf(&output, "  - [%s, %s, ext4, 'defaults,nofail,nodev,nosuid', '0', '2']\n", yamlScalar(dataDevice), yamlScalar(dataMount))
 	output.WriteString("write_files:\n")
+	writeNoCloudFile(&output, tsNodeBootstrapBinaryPath, "root:root", "0600", tsNode.binary)
+	writeNoCloudFile(&output, tsNodeBootstrapSigPath, "root:root", "0600", tsNode.signature)
+	writeNoCloudFile(&output, tsNodeBootstrapKeyPath, "root:root", "0600", tsNode.publicKeyPEM)
+	writeNoCloudFile(&output, tsNodeBootstrapDigestPath, "root:root", "0600", []byte(tsNode.digest+"  "+tsNodeBootstrapBinaryPath+"\n"))
+	writeNoCloudFile(&output, tsNodeConfigPath, "root:root", "0600", tsNode.config)
+	writeNoCloudFile(&output, tsNodeBootstrapManifestPath, "root:root", "0600", tsNode.manifest)
+	writeNoCloudLiteralFile(&output, "/etc/systemd/system/"+tsnodebootstrap.UnitName, "root:root", "0644", tsNode.unit)
+	writeNoCloudLiteralFile(&output, tsNodeBootstrapScriptPath, "root:root", "0500", buildTSNodeBootstrapScript(tsNode))
+	output.WriteString("  - path: " + cloudHostsTemplatePath + "\n")
+	output.WriteString("    owner: root:root\n")
+	output.WriteString("    permissions: '0644'\n")
+	output.WriteString("    append: true\n")
+	output.WriteString("    content: |\n")
+	output.WriteString("      " + tsNode.hostAddress + " " + artifactReleaseHost + "\n")
+	if len(tsNode.ca) != 0 {
+		writeNoCloudFile(&output, artifactCAPath, "root:root", "0644", tsNode.ca)
+	}
 	output.WriteString("  - path: " + GuestControlPath + "\n")
 	output.WriteString("    owner: root:root\n")
 	output.WriteString("    permissions: '0500'\n")
@@ -250,32 +311,57 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string) []
 	output.WriteString("    encoding: b64\n")
 	fmt.Fprintf(&output, "    content: %s\n", base64.StdEncoding.EncodeToString(spec.GuestSeed))
 	output.WriteString("runcmd:\n")
-	output.WriteString("  - [systemctl, daemon-reload]\n")
+	output.WriteString("  - [/bin/sh, " + tsNodeBootstrapScriptPath + "]\n")
 	return output.Bytes()
+}
+
+func writeNoCloudFile(output *bytes.Buffer, path, owner, permissions string, content []byte) {
+	output.WriteString("  - path: " + path + "\n")
+	output.WriteString("    owner: " + owner + "\n")
+	output.WriteString("    permissions: '" + permissions + "'\n")
+	output.WriteString("    encoding: b64\n")
+	output.WriteString("    content: " + base64.StdEncoding.EncodeToString(content) + "\n")
+}
+
+func writeNoCloudLiteralFile(output *bytes.Buffer, path, owner, permissions, content string) {
+	output.WriteString("  - path: " + path + "\n")
+	output.WriteString("    owner: " + owner + "\n")
+	output.WriteString("    permissions: '" + permissions + "'\n")
+	output.WriteString("    content: |\n")
+	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+		output.WriteString("      " + line + "\n")
+	}
 }
 
 func validateGuestControl(data []byte, architecture Architecture) error {
 	if len(data) == 0 || len(data) > maxGuestControl {
 		return errors.New("vmimage: guest control binary size is invalid")
 	}
+	if err := validateStaticELF(data, architecture); err != nil {
+		return fmt.Errorf("vmimage: guest control binary %w", err)
+	}
+	return nil
+}
+
+func validateStaticELF(data []byte, architecture Architecture) error {
 	file, err := elf.NewFile(bytes.NewReader(data))
 	if err != nil {
-		return errors.New("vmimage: guest control binary is not ELF")
+		return errors.New("is not ELF")
 	}
 	defer file.Close()
 	if file.Class != elf.ELFCLASS64 || file.Data != elf.ELFDATA2LSB || file.Type != elf.ET_EXEC || (file.OSABI != elf.ELFOSABI_NONE && file.OSABI != elf.ELFOSABI_LINUX) {
-		return errors.New("vmimage: guest control binary format is not admitted")
+		return errors.New("format is not admitted")
 	}
 	want := elf.EM_X86_64
 	if architecture == ArchitectureARM64 {
 		want = elf.EM_AARCH64
 	}
 	if file.Machine != want {
-		return errors.New("vmimage: guest control binary architecture does not match guest")
+		return errors.New("architecture does not match guest")
 	}
 	for _, program := range file.Progs {
 		if program.Type == elf.PT_INTERP {
-			return errors.New("vmimage: guest control binary requires a dynamic interpreter")
+			return errors.New("requires a dynamic interpreter")
 		}
 	}
 	for _, program := range file.Progs {
@@ -286,7 +372,7 @@ func validateGuestControl(data []byte, architecture Architecture) error {
 			return nil
 		}
 	}
-	return errors.New("vmimage: guest control binary has no executable entry segment")
+	return errors.New("has no executable entry segment")
 }
 
 // MACForIPv4 returns the locally administered Firecracker MAC spelling that

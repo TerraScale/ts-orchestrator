@@ -103,6 +103,10 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 }
 
 func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
+	config, err := vmqual.ResolveRuntimeIdentity(config)
+	if err != nil {
+		return nil, nil, err
+	}
 	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
 	if full {
 		networkConfig = vmnet.DefaultConfig()
@@ -111,6 +115,8 @@ func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqua
 	if err != nil {
 		return nil, nil, err
 	}
+	networkConfig.TAPUID = uint32(config.JailerUID)
+	networkConfig.TAPGID = uint32(config.JailerGID)
 	plan, err := vmnet.Plan(networkConfig)
 	if err != nil {
 		return nil, nil, err
@@ -121,11 +127,8 @@ func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqua
 		return nil, nil, err
 	}
 	config = artifacts.Config
-	factory, err := vmqual.NewFirecrackerFactory(config, artifacts.Image)
-	if err != nil {
-		return nil, nil, err
-	}
-	network, err := vmqual.NewNetworkController(networkConfig, runner, "")
+	networkJournalPath := filepath.Join(config.Root, "network-cleanup-journal.json")
+	factory, network, err := vmqual.NewProductionComponents(config, artifacts.Image, networkConfig, runner, networkJournalPath)
 	if err != nil {
 		return nil, nil, err
 	}

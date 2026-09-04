@@ -303,7 +303,11 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 		{name: "external-health", guest: config.Guest, tracker: tracker},
 		{name: deliveryContractFailureGate, guest: config.Guest, tracker: tracker},
 	}
-	edgePromoter := newDeliveryContractEdgePromoter()
+	edgeArtifacts := newDeliveryProviderArtifactSource()
+	edgePromoter, edgeClient, err := newDeliveryProviderEdge(ctx, config.Endpoints, client, edgeArtifacts)
+	if err != nil {
+		return result, err
+	}
 	rollout, err := delivery.NewRollout(delivery.RolloutConfig{
 		Spec:        estate.Default(),
 		Hosts:       deliveryContractInventory{},
@@ -418,6 +422,11 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 
 	workerPrior := release.edgeArtifact("ts-dashboard-prior")
 	workerCandidate := release.edgeArtifact("ts-dashboard-candidate")
+	edgeArtifacts.put("ts-dashboard", workerPrior.Identity.Digest, workerPrior.Body)
+	edgeArtifacts.put("ts-dashboard", workerCandidate.Identity.Digest, workerCandidate.Body)
+	if err := edgePromoter.PromoteWorkerGradual(ctx, "ts-dashboard", workerPrior.Identity.Digest); err != nil {
+		return result, fmt.Errorf("vmqual: seed prior Worker release: %w", err)
+	}
 	workerRequest := deliveryContractRequest("vmqual-worker-rollback", "ts-dashboard", "site", "multi", workerCandidate.Identity.Digest, release.edgeManifestDigest("ts-dashboard-candidate"), &delivery.RollbackArtifact{
 		ArtifactDigest: workerPrior.Identity.Digest,
 		ManifestDigest: release.edgeManifestDigest("ts-dashboard-prior"),
@@ -425,8 +434,7 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 		Architecture:   "multi",
 	})
 	fetcher.put(workerRequest.OperationID, workerCandidate)
-	edgePromoter.setWorkerPrior(workerPrior.Identity.Digest)
-	edgePromoter.failNextWorker(workerCandidate.Identity.Digest)
+	injectDeliveryWorkerFailure(config.Endpoints, "ts-dashboard")
 	workerReceipt, err := submitDeliveryContract(ctx, server, workerRequest)
 	if err != nil {
 		return result, err
@@ -438,6 +446,14 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 
 	snippetPrior := release.edgeArtifact("ts-proxy-snippet-prior")
 	snippetCandidate := release.edgeArtifact("ts-proxy-snippet-candidate")
+	edgeArtifacts.put("ts-proxy-snippet", snippetPrior.Identity.Digest, snippetPrior.Body)
+	edgeArtifacts.put("ts-proxy-snippet", snippetCandidate.Identity.Digest, snippetCandidate.Body)
+	if err := edgePromoter.PromoteSnippet(ctx, "ts-proxy-snippet", snippetPrior.Identity.Digest); err != nil {
+		return result, fmt.Errorf("vmqual: seed prior Snippet release: %w", err)
+	}
+	if err := edgePromoter.CoordinateSnippetZoneRules(ctx, "ts-proxy-snippet", snippetPrior.Identity.Digest); err != nil {
+		return result, fmt.Errorf("vmqual: seed prior Snippet rules: %w", err)
+	}
 	snippetRequest := deliveryContractRequest("vmqual-snippet-rollback", "ts-proxy-snippet", "package", "multi", snippetCandidate.Identity.Digest, release.edgeManifestDigest("ts-proxy-snippet-candidate"), &delivery.RollbackArtifact{
 		ArtifactDigest: snippetPrior.Identity.Digest,
 		ManifestDigest: release.edgeManifestDigest("ts-proxy-snippet-prior"),
@@ -445,8 +461,7 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 		Architecture:   "multi",
 	})
 	fetcher.put(snippetRequest.OperationID, snippetCandidate)
-	edgePromoter.setSnippetPrior(snippetPrior.Identity.Digest)
-	edgePromoter.failNextSnippetRule(snippetCandidate.Identity.Digest)
+	injectDeliverySnippetCodeFailure(config.Endpoints, "ts-gate")
 	snippetReceipt, err := submitDeliveryContract(ctx, server, snippetRequest)
 	if err != nil {
 		return result, err
@@ -456,7 +471,10 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 	}
 	result.SnippetReceipt = snippetReceipt
 
-	edgeState := edgePromoter.snapshot()
+	edgeState, err := observeDeliveryProviderEdge(ctx, edgeClient, edgePromoter, workerPrior.Identity.Digest, workerCandidate.Identity.Digest, snippetPrior.Identity.Digest, snippetCandidate.Identity.Digest)
+	if err != nil {
+		return result, err
+	}
 	if edgeState.workerDigest != workerPrior.Identity.Digest || edgeState.snippetDigest != snippetPrior.Identity.Digest || edgeState.snippetRuleDigest != snippetPrior.Identity.Digest {
 		return result, errors.New("vmqual: edge rollback did not restore exact prior versions")
 	}
@@ -466,7 +484,7 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 	if !hasEdgePromotionAndRollback(edgeState.snippetEvents, snippetCandidate.Identity.Digest, snippetPrior.Identity.Digest) {
 		return result, errors.New("vmqual: Snippet code and rule did not promote and roll back together")
 	}
-	reactive, err := probeDeliveryReactivePath(ctx, config.Endpoints, client)
+	reactive, err := probeProviderReactivePath(ctx, config.Endpoints, edgeClient, client)
 	if err != nil {
 		return result, err
 	}
@@ -997,99 +1015,6 @@ type deliveryContractEdgeState struct {
 	snippetRuleDigest string
 }
 
-type deliveryContractEdgePromoter struct {
-	mu sync.Mutex
-	deliveryContractEdgeState
-	failWorkerDigest      string
-	failWorker            bool
-	failSnippetRuleDigest string
-	failSnippetRule       bool
-}
-
-func newDeliveryContractEdgePromoter() *deliveryContractEdgePromoter {
-	return &deliveryContractEdgePromoter{}
-}
-
-func (p *deliveryContractEdgePromoter) setWorkerPrior(digest string) {
-	p.mu.Lock()
-	p.workerDigest = digest
-	p.mu.Unlock()
-}
-
-func (p *deliveryContractEdgePromoter) failNextWorker(digest string) {
-	p.mu.Lock()
-	p.failWorkerDigest, p.failWorker = digest, true
-	p.mu.Unlock()
-}
-
-func (p *deliveryContractEdgePromoter) setSnippetPrior(digest string) {
-	p.mu.Lock()
-	p.snippetDigest, p.snippetRuleDigest = digest, digest
-	p.mu.Unlock()
-}
-
-func (p *deliveryContractEdgePromoter) failNextSnippetRule(digest string) {
-	p.mu.Lock()
-	p.failSnippetRuleDigest, p.failSnippetRule = digest, true
-	p.mu.Unlock()
-}
-
-func (p *deliveryContractEdgePromoter) PromoteWorker(ctx context.Context, service, digest string) error {
-	return p.PromoteWorkerGradual(ctx, service, digest)
-}
-
-func (p *deliveryContractEdgePromoter) PromoteWorkerGradual(ctx context.Context, service, digest string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.workerDigest = digest
-	p.workerEvents = append(p.workerEvents, "gradual:"+service+":"+digest)
-	if p.failWorker && delivery.SameDigest(p.failWorkerDigest, digest) {
-		p.failWorker = false
-		return errors.New("vmqual: injected Worker promotion gate failure")
-	}
-	return nil
-}
-
-func (p *deliveryContractEdgePromoter) PromoteSnippet(ctx context.Context, service, digest string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.snippetDigest = digest
-	p.snippetEvents = append(p.snippetEvents, "code:"+service+":"+digest)
-	return nil
-}
-
-func (p *deliveryContractEdgePromoter) CoordinateSnippetZoneRules(ctx context.Context, service, digest string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	event := "rule:" + service + ":" + digest
-	if p.failSnippetRule && delivery.SameDigest(p.failSnippetRuleDigest, digest) {
-		p.failSnippetRule = false
-		p.snippetEvents = append(p.snippetEvents, event+":failed")
-		return errors.New("vmqual: injected Snippet rule gate failure")
-	}
-	p.snippetRuleDigest = digest
-	p.snippetEvents = append(p.snippetEvents, event)
-	return nil
-}
-
-func (p *deliveryContractEdgePromoter) snapshot() deliveryContractEdgeState {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	state := p.deliveryContractEdgeState
-	state.workerEvents = append([]string(nil), state.workerEvents...)
-	state.snippetEvents = append([]string(nil), state.snippetEvents...)
-	return state
-}
-
 func hasEdgePromotionAndRollback(events []string, candidate, prior string) bool {
 	candidateIndex, priorIndex := -1, -1
 	for index, event := range events {
@@ -1126,13 +1051,16 @@ func probeDeliveryReactivePath(ctx context.Context, endpoints *LocalProviderEndp
 		return result, errors.New("vmqual: the reactive hot path has no Snippet capability rule")
 	}
 	now := time.Now().UTC()
-	capability, err := edge.MintCapability(endpoints.edgeKey, "delivery-contract", 1, "rule:v1", 1, "GRU", now)
+	// Each probe must observe a fresh cache fill followed by a hit, even
+	// when another scenario has already exercised this provider instance.
+	viewID := "delivery-contract-" + rand.Text()
+	capability, err := edge.MintCapability(endpoints.edgeKey, viewID, 1, "rule:v1", 1, "GRU", now)
 	if err != nil {
 		return result, err
 	}
 	before := endpoints.Edge.Metrics()
 	for attempt := 0; attempt < 2; attempt++ {
-		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoints.EdgeURL+"/api/v1/reactive/views/delivery-contract/1/log?offset=0", nil)
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoints.EdgeURL+"/api/v1/reactive/views/"+viewID+"/1/log?offset=0", nil)
 		if requestErr != nil {
 			return result, requestErr
 		}
@@ -1385,7 +1313,4 @@ func (s *deliveryContractObjectStore) verifyPersistent(ctx context.Context, stat
 var (
 	_ delivery.FencedRegionObjectStoreIdentityWriter = (*deliveryContractObjectStore)(nil)
 	_ delivery.RegionObjectStoreInspector            = (*deliveryContractObjectStore)(nil)
-	_ delivery.WorkerGradualPromoter                 = (*deliveryContractEdgePromoter)(nil)
-	_ delivery.SnippetZoneRuleCoordinator            = (*deliveryContractEdgePromoter)(nil)
-	_ delivery.EdgePromoter                          = (*deliveryContractEdgePromoter)(nil)
 )

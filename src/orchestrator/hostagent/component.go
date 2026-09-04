@@ -5,9 +5,14 @@
 package hostagent
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -15,8 +20,8 @@ import (
 )
 
 // TsNodeComponentName is the reserved component name of ts-node itself. Its
-// unit is installed once by cloud-init (provider.TSNodeCloudInit) and is never
-// rewritten by the agent; only the current symlink flips under it.
+// unit follows the shared tsnodebootstrap contract and is never rewritten by
+// the agent; only the current symlink flips under it.
 const TsNodeComponentName = "ts-node"
 
 // hostAgentNamePattern admits the canonical lowercase token with dot and dash
@@ -36,6 +41,8 @@ const (
 	hostAgentMaximumNameLength       = 63
 	hostAgentMaximumUrlLength        = 2048
 	hostAgentMaximumArtifactBytes    = 256 << 20
+	hostAgentMaximumManifestBytes    = 1 << 20
+	hostAgentMaximumManifestEntries  = 1024
 	hostAgentMinimumCpuWeight        = 1
 	hostAgentMaximumCpuWeight        = 10000
 	hostAgentMinimumIoWeight         = 1
@@ -200,33 +207,229 @@ type HostManifest struct {
 	Components []ComponentSpec `json:"components"`
 }
 
+// CanonicalHostManifestJSON validates and returns the one compact JSON
+// spelling used for durable publication and digest comparison.
+func CanonicalHostManifestJSON(manifest HostManifest) ([]byte, error) {
+	components, err := validateComponentSet(manifest.Components)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(HostManifest{Components: components})
+}
+
+// HostManifestSha256 returns the lowercase digest of canonical manifest JSON.
+func HostManifestSha256(manifest HostManifest) (string, error) {
+	canonical, err := CanonicalHostManifestJSON(manifest)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 // ParseHostManifest decodes and validates one manifest document, rejecting
 // unknown fields, duplicate component names, and any invalid spec. The
 // reserved ts-node self-component is admitted: its artifact is installed and
 // its current symlink flipped like any other, but its unit is never written.
 func ParseHostManifest(data []byte) (HostManifest, error) {
+	if len(data) > hostAgentMaximumManifestBytes {
+		return HostManifest{}, &InvalidDataError{Message: "The manifest exceeds its size bound."}
+	}
+	if err := validateHostManifestJSON(data); err != nil {
+		return HostManifest{}, &InvalidDataError{Message: fmt.Sprintf(
+			"The manifest is not the canonical JSON shape: %s.", err.Error())}
+	}
 	var wire struct {
 		Components []ComponentSpec `json:"components"`
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&wire); err != nil {
 		return HostManifest{}, &InvalidDataError{Message: fmt.Sprintf(
 			"The manifest is not the canonical JSON shape: %s.", err.Error())}
 	}
-	seen := make(map[string]struct{}, len(wire.Components))
-	components := make([]ComponentSpec, 0, len(wire.Components))
-	for _, spec := range wire.Components {
-		validated, err := NewComponentSpec(spec)
-		if err != nil {
-			return HostManifest{}, err
-		}
-		if _, duplicate := seen[validated.Name]; duplicate {
-			return HostManifest{}, &InvalidDataError{Message: fmt.Sprintf(
-				"The manifest names component %q twice.", validated.Name)}
-		}
-		seen[validated.Name] = struct{}{}
-		components = append(components, validated)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return HostManifest{}, &InvalidDataError{Message: "The manifest must be exactly one JSON document."}
+	}
+	if len(wire.Components) > hostAgentMaximumManifestEntries {
+		return HostManifest{}, &InvalidDataError{Message: "The manifest contains too many components."}
+	}
+	components, err := validateComponentSet(wire.Components)
+	if err != nil {
+		return HostManifest{}, err
 	}
 	return HostManifest{Components: components}, nil
+}
+
+// validateComponentSet enforces the invariants that only exist across a
+// whole manifest. Every component owns a distinct account and a disjoint
+// writable tree.
+func validateComponentSet(specs []ComponentSpec) ([]ComponentSpec, error) {
+	if len(specs) > hostAgentMaximumManifestEntries {
+		return nil, &InvalidDataError{Message: "The manifest contains too many components."}
+	}
+	names := make(map[string]struct{}, len(specs))
+	users := make(map[string]string, len(specs))
+	validated := make([]ComponentSpec, 0, len(specs))
+	for _, spec := range specs {
+		component, err := NewComponentSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := names[component.Name]; duplicate {
+			return nil, &InvalidDataError{Message: fmt.Sprintf(
+				"The manifest names component %q twice.", component.Name)}
+		}
+		if owner, duplicate := users[component.User]; duplicate {
+			return nil, &InvalidDataError{Message: fmt.Sprintf(
+				"Components %q and %q cannot share dedicated user %q.", owner, component.Name, component.User)}
+		}
+		for _, existing := range validated {
+			if pathsOverlap(existing.DataVolume, component.DataVolume) {
+				return nil, &InvalidDataError{Message: fmt.Sprintf(
+					"Component data volumes %q and %q overlap.", existing.DataVolume, component.DataVolume)}
+			}
+		}
+		names[component.Name] = struct{}{}
+		users[component.User] = component.Name
+		validated = append(validated, component)
+	}
+	return validated, nil
+}
+
+func pathsOverlap(first, second string) bool {
+	first = filepath.Clean(first)
+	second = filepath.Clean(second)
+	if first == second {
+		return true
+	}
+	separator := string(filepath.Separator)
+	return strings.HasPrefix(first, second+separator) || strings.HasPrefix(second, first+separator)
+}
+
+type hostManifestJSONField struct {
+	objectArray bool
+}
+
+func validateHostManifestJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := validateHostManifestObject(decoder, "manifest", map[string]hostManifestJSONField{
+		"components": {objectArray: true},
+	}, []string{"components"}); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("manifest contains trailing data")
+	}
+	return nil
+}
+
+func validateHostManifestObject(decoder *json.Decoder, path string, fields map[string]hostManifestJSONField, required []string) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s must be an object: %w", path, err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return fmt.Errorf("%s must be a non-null object", path)
+	}
+	seen := make(map[string]bool, len(fields))
+	for decoder.More() {
+		nameToken, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("%s field name: %w", path, err)
+		}
+		name, ok := nameToken.(string)
+		if !ok {
+			return fmt.Errorf("%s field name is invalid", path)
+		}
+		field, known := fields[name]
+		if !known {
+			return fmt.Errorf("%s contains unknown field %q", path, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("%s contains duplicate field %q", path, name)
+		}
+		seen[name] = true
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("%s.%s: %w", path, name, err)
+		}
+		fieldPath := path + "." + name
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s must not be null", fieldPath)
+		}
+		if field.objectArray {
+			if err := validateHostManifestComponents(raw, fieldPath); err != nil {
+				return err
+			}
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s object is incomplete: %w", path, err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return fmt.Errorf("%s object is incomplete", path)
+	}
+	for _, name := range required {
+		if !seen[name] {
+			return fmt.Errorf("%s is missing field %q", path, name)
+		}
+	}
+	return nil
+}
+
+func validateHostManifestComponents(data []byte, path string) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s must be an array: %w", path, err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
+		return fmt.Errorf("%s must be a non-null array", path)
+	}
+	fields := map[string]hostManifestJSONField{
+		"name": {}, "version": {}, "artifactUrl": {}, "signatureUrl": {},
+		"sha256": {}, "user": {}, "dataVolume": {}, "cpuWeight": {},
+		"memoryMaxBytes": {}, "ioWeight": {}, "needsNetlink": {},
+	}
+	required := []string{
+		"name", "version", "artifactUrl", "signatureUrl", "sha256", "user",
+		"dataVolume", "cpuWeight", "memoryMaxBytes", "ioWeight", "needsNetlink",
+	}
+	index := 0
+	for decoder.More() {
+		if index >= hostAgentMaximumManifestEntries {
+			return fmt.Errorf("%s contains too many components", path)
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("%s[%d]: %w", path, index, err)
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s[%d] must not be null", path, index)
+		}
+		itemDecoder := json.NewDecoder(bytes.NewReader(raw))
+		if err := validateHostManifestObject(itemDecoder, fmt.Sprintf("%s[%d]", path, index), fields, required); err != nil {
+			return err
+		}
+		var trailing any
+		if err := itemDecoder.Decode(&trailing); err != io.EOF {
+			return fmt.Errorf("%s[%d] contains trailing data", path, index)
+		}
+		index++
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("%s array is incomplete: %w", path, err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != ']' {
+		return fmt.Errorf("%s array is incomplete", path)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("%s contains trailing data", path)
+	}
+	return nil
 }

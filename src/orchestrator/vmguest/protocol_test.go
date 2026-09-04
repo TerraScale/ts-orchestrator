@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ func TestDecodeRequestAcceptsOnlyBoundedTypedOperations(t *testing.T) {
 		{SchemaVersion: SchemaVersion, Operation: OperationDataWrite, Path: "persistence/check", Data: []byte("value")},
 		{SchemaVersion: SchemaVersion, Operation: OperationDataRead, Path: "persistence/check"},
 		{SchemaVersion: SchemaVersion, Operation: OperationNetwork, Path: "10.77.0.1:4100", Data: []byte("challenge")},
+		{SchemaVersion: SchemaVersion, Operation: OperationStorage, Action: StorageActionObserve},
 	}
 	for _, request := range tests {
 		data, err := json.Marshal(request)
@@ -67,6 +69,7 @@ func TestDecodeRequestRejectsNullForEveryField(t *testing.T) {
 		`{"schemaVersion":1,"operation":"probe","args":null}`,
 		`{"schemaVersion":1,"operation":"probe","data":null}`,
 		`{"schemaVersion":1,"operation":"probe","mode":null}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":null}`,
 		`{"schemaVersion":1,"operation":"execute","path":"/usr/bin/systemctl","args":[null]}`,
 	}
 	for _, input := range tests {
@@ -84,6 +87,7 @@ func TestDecodeRequestRequiresExactUniqueFieldNames(t *testing.T) {
 		`{"schemaVersion":1,"operation":"probe","Args":[]}`,
 		`{"schemaVersion":1,"operation":"probe","Data":""}`,
 		`{"schemaVersion":1,"operation":"probe","Mode":0}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","Action":"observe"}`,
 	}
 	for _, input := range caseVariants {
 		if _, err := DecodeRequest(strings.NewReader(input)); !errors.Is(err, errRequestUnknown) {
@@ -98,6 +102,8 @@ func TestDecodeRequestRequiresExactUniqueFieldNames(t *testing.T) {
 		`{"schemaVersion":1,"operation":"probe","args":[],"args":[]}`,
 		`{"schemaVersion":1,"operation":"probe","data":"","data":""}`,
 		`{"schemaVersion":1,"operation":"probe","mode":0,"mode":0}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","action":"observe"}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","acti\u006fn":"observe"}`,
 		`{"schemaVersion":1,"operation":"probe","oper\u0061tion":"probe"}`,
 	}
 	for _, input := range duplicates {
@@ -135,6 +141,7 @@ func TestDecodeRequestCapsScalarsAndListsBeforeReadingTheirTails(t *testing.T) {
 		"argument":   `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/systemctl","args":["` + strings.Repeat("x", maxArgumentBytes+1),
 		"arguments":  `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/findmnt","args":["a","b","c",`,
 		"integer":    `{"schemaVersion":` + strings.Repeat("1", maxIntegerBytes+1),
+		"action":     `{"schemaVersion":1,"operation":"storage-diagnostic","action":"` + strings.Repeat("x", maxActionBytes+1),
 	}
 	for name, prefix := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -156,6 +163,7 @@ func TestDecodeRequestRejectsNestedValuesWithoutReadingTheirTails(t *testing.T) 
 		"nested argument":  `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/systemctl","args":[[`,
 		"data object":      `{"schemaVersion":1,"operation":"put","path":"artifact","data":{"nested":`,
 		"mode array":       `{"schemaVersion":1,"operation":"put","path":"artifact","data":"YQ==","mode":[`,
+		"action object":    `{"schemaVersion":1,"operation":"storage-diagnostic","action":{"nested":`,
 		"unknown field":    `{"schemaVersion":1,"operation":"probe","unknown"`,
 	}
 	for name, prefix := range tests {
@@ -182,10 +190,71 @@ func TestDecodeRequestRejectsExplicitUnrelatedAndMissingFields(t *testing.T) {
 		`{"schemaVersion":1,"operation":"data-write","path":"proof","data":"YQ==","mode":0}`,
 		`{"schemaVersion":1,"operation":"data-read","path":"proof","args":[]}`,
 		`{"schemaVersion":1,"operation":"network-exchange","path":"10.77.0.1:4100","data":"YQ==","mode":0}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic"}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","path":""}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","args":[]}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","data":""}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"observe","mode":0}`,
 	}
 	for _, input := range tests {
 		if _, err := DecodeRequest(strings.NewReader(input)); err == nil {
 			t.Fatalf("accepted non-canonical request %q", input)
+		}
+	}
+}
+
+func TestDecodeRequestAcceptsEveryStorageDiagnosticAction(t *testing.T) {
+	actions := []StorageAction{
+		StorageActionObserve,
+		StorageActionProbeWrite,
+		StorageActionFillENOSPC,
+		StorageActionClearFill,
+		StorageActionFSCKRepair,
+		StorageActionFSCKCheck,
+		StorageActionGrow,
+	}
+	for _, action := range actions {
+		t.Run(string(action), func(t *testing.T) {
+			input := fmt.Sprintf(`{"schemaVersion":1,"operation":"storage-diagnostic","action":%q}`, action)
+			request, err := DecodeRequest(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("decode storage action: %v", err)
+			}
+			if request.Operation != OperationStorage || request.Action != action {
+				t.Fatalf("decoded request = %+v", request)
+			}
+		})
+	}
+}
+
+func TestDecodeRequestRejectsInvalidStorageDiagnosticActions(t *testing.T) {
+	tests := []string{
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":""}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"Observe"}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":"unknown"}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":1}`,
+		`{"schemaVersion":1,"operation":"storage-diagnostic","action":[]}`,
+	}
+	for _, input := range tests {
+		if _, err := DecodeRequest(strings.NewReader(input)); err == nil {
+			t.Fatalf("accepted invalid storage action %q", input)
+		}
+	}
+}
+
+func TestOtherOperationsRejectProgrammaticStorageAction(t *testing.T) {
+	requests := []Request{
+		{SchemaVersion: SchemaVersion, Operation: OperationProbe},
+		{SchemaVersion: SchemaVersion, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"is-system-running"}},
+		{SchemaVersion: SchemaVersion, Operation: OperationPut, Path: "artifact", Data: []byte("value"), Mode: 0o600},
+		{SchemaVersion: SchemaVersion, Operation: OperationDataWrite, Path: "proof", Data: []byte("value")},
+		{SchemaVersion: SchemaVersion, Operation: OperationDataRead, Path: "proof"},
+		{SchemaVersion: SchemaVersion, Operation: OperationNetwork, Path: "10.77.0.1:4100", Data: []byte("value")},
+	}
+	for _, request := range requests {
+		request.Action = StorageActionObserve
+		if err := request.Validate(); err == nil {
+			t.Fatalf("%s accepted a storage action", request.Operation)
 		}
 	}
 }

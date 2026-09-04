@@ -61,9 +61,29 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 		dependencies.close()
 		return err
 	}
+	// A production reconcile process carries the admin projection and all
+	// out-of-band durability automation in the same fenced lifetime. The
+	// composition is admitted before the first reconcile pass so a partially
+	// wired control plane cannot mutate providers while its publication,
+	// rotation, reaper, or restore obligations are absent.
+	production, err := startProductionRuntime(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("reconcile: production runtime composition: %w", err)
+	}
+	if production == nil {
+		return errors.New("reconcile: production runtime composition returned nil")
+	}
+	if err := production.Start(ctx); err != nil {
+		_ = production.Close()
+		return fmt.Errorf("reconcile: production runtime startup: %w", err)
+	}
+	dependencies.OCI.onChange = production.NotifyChange
+	dependencies.Cloudflare.onChange = production.NotifyChange
 	if err := dependencies.KVWriter.Start(ctx); err != nil {
+		_ = production.Close()
 		return err
 	}
+	defer production.Close()
 	return loop.Run(ctx)
 }
 
@@ -407,7 +427,8 @@ func loadReconcileEstate(lookup envLookup) (estate.Spec, error) {
 // typed observations; only normalized, provider-neutral attributes cross the
 // generic loop boundary.
 type ociReconcileController struct {
-	regions map[string]*ociRegionController
+	regions  map[string]*ociRegionController
+	onChange func()
 }
 
 type ociRegionController struct {
@@ -495,6 +516,7 @@ func (c *ociReconcileController) Apply(ctx context.Context, plan reconcile.Plan)
 	if c == nil || len(c.regions) == 0 {
 		return errors.New("reconcile: OCI controller is unavailable")
 	}
+	changed := false
 	for _, code := range sortedOCIRegionCodes(c.regions) {
 		regionPlan := planForRegion(plan, code)
 		if regionPlan.Empty() {
@@ -503,6 +525,10 @@ func (c *ociReconcileController) Apply(ctx context.Context, plan reconcile.Plan)
 		if err := c.regions[code].apply(ctx, regionPlan); err != nil {
 			return fmt.Errorf("region %s: %w", code, err)
 		}
+		changed = true
+	}
+	if changed && c.onChange != nil {
+		c.onChange()
 	}
 	return nil
 }
@@ -802,6 +828,7 @@ type cloudflareReconcileController struct {
 	Zone     *cloudflare.Zone
 	Members  cloudflare.Members
 	Declared reconcile.State
+	onChange func()
 }
 
 func (c *cloudflareReconcileController) Kinds() []estate.ResourceKind {
@@ -843,7 +870,13 @@ func (c *cloudflareReconcileController) Apply(ctx context.Context, _ reconcile.P
 	if err != nil {
 		return err
 	}
-	return cloudflare.Apply(ctx, plan)
+	if err := cloudflare.Apply(ctx, plan); err != nil {
+		return err
+	}
+	if len(plan.Changes) > 0 && c.onChange != nil {
+		c.onChange()
+	}
+	return nil
 }
 
 func cloudflareResourceKind(resource string) (estate.ResourceKind, bool) {

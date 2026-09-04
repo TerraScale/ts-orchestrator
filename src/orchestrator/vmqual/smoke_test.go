@@ -106,6 +106,10 @@ func (network *smokeFakeNetwork) VerifyNoOwnedResources(context.Context) error {
 	return nil
 }
 
+func (network *smokeFakeNetwork) ProveGuestExchange(ctx context.Context, _ VM) error {
+	return ctx.Err()
+}
+
 type smokeCommandCall struct {
 	path string
 	args []string
@@ -201,7 +205,7 @@ func (vm *smokeFakeVM) Inspect(context.Context) (VMObservation, error) {
 	if vm.inspectErr != nil {
 		return VMObservation{}, vm.inspectErr
 	}
-	return VMObservation{ID: vm.guest.ID, Region: vm.guest.Region, Running: vm.running, Ready: vm.ready, MemoryMiB: vm.guest.MemoryMiB, RSSBytes: vm.rssBytes, IdleCPU: vm.idleCPU}, nil
+	return VMObservation{ID: vm.guest.ID, Region: vm.guest.Region, Running: vm.running, Ready: vm.ready, MemoryMiB: vm.guest.MemoryMiB, RSSBytes: vm.rssBytes, IdleCPU: vm.idleCPU, CPUSampled: true}, nil
 }
 
 func (vm *smokeFakeVM) Execute(_ context.Context, command sandboxvm.Command) error {
@@ -262,7 +266,7 @@ func (vm *smokeFakeVM) Execute(_ context.Context, command sandboxvm.Command) err
 	return nil
 }
 
-func (vm *smokeFakeVM) WritePersistent(_ context.Context, path string, data []byte) error {
+func (vm *smokeFakeVM) DataWrite(_ context.Context, path string, data []byte) error {
 	if path != "smoke/persistence.bin" {
 		return fmt.Errorf("unexpected persistent path %q", path)
 	}
@@ -275,7 +279,7 @@ func (vm *smokeFakeVM) WritePersistent(_ context.Context, path string, data []by
 	return nil
 }
 
-func (vm *smokeFakeVM) ReadPersistent(_ context.Context, path string) ([]byte, error) {
+func (vm *smokeFakeVM) DataRead(_ context.Context, path string) ([]byte, error) {
 	if path != "smoke/persistence.bin" {
 		return nil, fmt.Errorf("unexpected persistent path %q", path)
 	}
@@ -517,7 +521,7 @@ func (vm *smokeIncompleteVM) Delete(context.Context) error {
 	return nil
 }
 func (vm *smokeIncompleteVM) Inspect(context.Context) (VMObservation, error) {
-	return VMObservation{ID: vm.guest.ID, Region: vm.guest.Region, Running: true, Ready: true, MemoryMiB: vm.guest.MemoryMiB, RSSBytes: 1, IdleCPU: 0.01}, nil
+	return VMObservation{ID: vm.guest.ID, Region: vm.guest.Region, Running: true, Ready: true, MemoryMiB: vm.guest.MemoryMiB, RSSBytes: 1, IdleCPU: 0.01, CPUSampled: true}, nil
 }
 func (vm *smokeIncompleteVM) Execute(context.Context, sandboxvm.Command) error { return nil }
 func (vm *smokeIncompleteVM) VerifyNoOwnedResources(context.Context) error {
@@ -525,18 +529,4 @@ func (vm *smokeIncompleteVM) VerifyNoOwnedResources(context.Context) error {
 		return errors.New("incomplete VM remains")
 	}
 	return nil
-}
-
-func TestSingleGuestNetworkUsesCanonicalGRUIdentity(t *testing.T) {
-	network, err := SingleGuestNetwork()
-	if err != nil {
-		t.Fatal(err)
-	}
-	controller, ok := network.(*networkController)
-	if !ok || len(controller.plan.Regions) != 1 || len(controller.plan.Regions[0].Guests) != 1 {
-		t.Fatalf("network = %#v", network)
-	}
-	if got := controller.plan.Regions[0].Guests[0].ID; got != "gru-member-1" {
-		t.Fatalf("guest id = %q", got)
-	}
 }

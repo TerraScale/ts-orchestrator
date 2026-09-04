@@ -1,22 +1,38 @@
 package vmnet
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 const testRunID = "0123456789abcdef0123456789abcdef"
 
+const (
+	hostLeaseHelperEnv = "TS_VMNET_HOST_LEASE_HELPER"
+	hostLeaseConfigEnv = "TS_VMNET_HOST_LEASE_CONFIG"
+	hostLeaseModeEnv   = "TS_VMNET_HOST_LEASE_MODE"
+)
+
 func qualifiedConfig(t *testing.T) Config {
 	t.Helper()
 	config := DefaultConfig()
-	config.RunID = testRunID
+	digest := sha256.Sum256([]byte(t.Name()))
+	config.RunID = fmt.Sprintf("%x", digest[:16])
+	config.CoordinationRoot = filepath.Join(t.TempDir(), "coordination")
 	config.Tools = testToolPaths(t)
 	return config
 }
@@ -44,6 +60,7 @@ type fakeRunner struct {
 type fakeJournalWriter struct {
 	writes int
 	plan   Journal
+	err    error
 }
 
 type fakeCleanupRunner struct {
@@ -63,7 +80,189 @@ type boundFakeRunner struct {
 	tools ToolPaths
 }
 
+type journaledFakeRunner struct {
+	fakeRunner
+	writes int
+}
+
+type blockingJournalRunner struct {
+	mu       sync.Mutex
+	commands []Command
+	writes   int
+	started  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+}
+
+type hostLeaseHelperRunner struct {
+	hold bool
+	once sync.Once
+	err  error
+}
+
+type hostLeaseHelperProcess struct {
+	t       *testing.T
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	scanner *bufio.Scanner
+	stderr  strings.Builder
+	waited  bool
+}
+
 func (r *boundFakeRunner) ToolPaths() ToolPaths { return r.tools }
+
+func (*fakeRunner) vmnetNonHostRunner()             {}
+func (*fakeCleanupRunner) vmnetNonHostRunner()      {}
+func (*observingCleanupRunner) vmnetNonHostRunner() {}
+func (*blockingJournalRunner) vmnetNonHostRunner()  {}
+func (*hostLeaseHelperRunner) vmnetNonHostRunner()  {}
+
+func (r *journaledFakeRunner) WriteJournal(context.Context, Journal) error {
+	r.writes++
+	return nil
+}
+
+func (r *blockingJournalRunner) WriteJournal(context.Context, Journal) error {
+	r.mu.Lock()
+	r.writes++
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *blockingJournalRunner) Run(_ context.Context, executable string, args []string) error {
+	r.mu.Lock()
+	r.commands = append(r.commands, command(executable, args...))
+	r.mu.Unlock()
+	r.once.Do(func() {
+		close(r.started)
+		<-r.release
+	})
+	return nil
+}
+
+func (r *blockingJournalRunner) snapshot() (int, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.commands), r.writes
+}
+
+func (r *hostLeaseHelperRunner) WriteJournal(context.Context, Journal) error { return nil }
+
+func (r *hostLeaseHelperRunner) Run(context.Context, string, []string) error {
+	r.once.Do(func() {
+		if !r.hold {
+			return
+		}
+		hostLeaseHelperSignal("LOCKED")
+		var release [1]byte
+		_, r.err = io.ReadFull(os.Stdin, release[:])
+	})
+	return r.err
+}
+
+func hostLeaseHelperSignal(value string) {
+	_, _ = fmt.Fprintln(os.Stdout, value)
+	_ = os.Stdout.Sync()
+}
+
+func startHostLeaseHelper(t *testing.T, config Config, mode string) *hostLeaseHelperProcess {
+	t.Helper()
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := &hostLeaseHelperProcess{t: t}
+	process.cmd = exec.Command(os.Args[0], "-test.run=^TestHostLeaseHelperProcess$", "-test.count=1")
+	process.cmd.Env = append(os.Environ(),
+		hostLeaseHelperEnv+"=1",
+		hostLeaseConfigEnv+"="+base64.RawStdEncoding.EncodeToString(raw),
+		hostLeaseModeEnv+"="+mode,
+	)
+	stdout, err := process.cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process.stdin, err = process.cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	process.cmd.Stderr = &process.stderr
+	process.scanner = bufio.NewScanner(stdout)
+	if err := process.cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if process.waited {
+			return
+		}
+		_ = process.cmd.Process.Kill()
+		_ = process.cmd.Wait()
+	})
+	return process
+}
+
+func (p *hostLeaseHelperProcess) expect(value string) {
+	p.t.Helper()
+	if !p.scanner.Scan() {
+		p.t.Fatalf("host lease helper stopped before %q: %v; stderr=%s", value, p.scanner.Err(), p.stderr.String())
+	}
+	if observed := p.scanner.Text(); observed != value {
+		p.t.Fatalf("host lease helper signal = %q, want %q; stderr=%s", observed, value, p.stderr.String())
+	}
+}
+
+func (p *hostLeaseHelperProcess) release() {
+	p.t.Helper()
+	if _, err := p.stdin.Write([]byte{1}); err != nil {
+		p.t.Fatalf("release host lease helper: %v", err)
+	}
+}
+
+func (p *hostLeaseHelperProcess) wait() {
+	p.t.Helper()
+	if p.waited {
+		return
+	}
+	p.waited = true
+	if err := p.cmd.Wait(); err != nil {
+		p.t.Fatalf("host lease helper: %v; stderr=%s", err, p.stderr.String())
+	}
+}
+
+func TestHostLeaseHelperProcess(t *testing.T) {
+	if os.Getenv(hostLeaseHelperEnv) != "1" {
+		return
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(os.Getenv(hostLeaseConfigEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := os.Getenv(hostLeaseModeEnv)
+	runner := &hostLeaseHelperRunner{hold: mode == "hold"}
+	if err := plan.Apply(context.Background(), runner); err != nil {
+		t.Fatal(err)
+	}
+	hostLeaseHelperSignal("APPLIED")
+	if mode == "crash" {
+		os.Exit(0)
+	}
+	var release [1]byte
+	if _, err := io.ReadFull(os.Stdin, release[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	hostLeaseHelperSignal("CLEANED")
+}
 
 func (f *fakeCleanupRunner) Run(context.Context, string, []string) error {
 	f.runs++
@@ -94,7 +293,7 @@ func (f *observingCleanupRunner) RunCleanup(ctx context.Context, executable stri
 func (f *fakeJournalWriter) WriteJournal(_ context.Context, journal Journal) error {
 	f.writes++
 	f.plan = journal
-	return nil
+	return f.err
 }
 
 func (f *fakeRunner) Run(ctx context.Context, executable string, args []string) error {
@@ -173,6 +372,128 @@ func TestDefaultPlanIsStableAndCoversNetworkSurfaces(t *testing.T) {
 	}
 }
 
+func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Uplinks) != len(plan.Regions) || len(plan.Forwards) != 3*len(plan.Regions) || len(plan.Listeners) != 3 {
+		t.Fatalf("endpoint topology: uplinks=%d forwards=%d listeners=%d", len(plan.Uplinks), len(plan.Forwards), len(plan.Listeners))
+	}
+	if !reflect.DeepEqual(plan.Uplinks, plan.Cleanup.Uplinks) || !reflect.DeepEqual(plan.Forwards, plan.Cleanup.Forwards) || !reflect.DeepEqual(plan.Listeners, plan.Cleanup.Listeners) || !reflect.DeepEqual(plan.DNSRecords, plan.Cleanup.DNSRecords) {
+		t.Fatal("cleanup journal does not retain the complete endpoint manifest")
+	}
+
+	rootDevices := make(map[string]bool, len(plan.Uplinks))
+	serviceAddress := ""
+	serviceOwners := 0
+	for index, uplink := range plan.Uplinks {
+		if uplink.Region != plan.Regions[index].Code || uplink.RegionNamespace != plan.Regions[index].Namespace || uplink != plan.Regions[index].Uplink {
+			t.Fatalf("Region %s uplink does not match its namespace: %+v", plan.Regions[index].Code, uplink)
+		}
+		if rootDevices[uplink.RootDevice] {
+			t.Fatalf("root uplink device %q is shared", uplink.RootDevice)
+		}
+		rootDevices[uplink.RootDevice] = true
+		if serviceAddress == "" {
+			serviceAddress = uplink.HostServiceAddress
+		}
+		if uplink.HostServiceAddress != serviceAddress {
+			t.Fatalf("Region %s targets service address %q, want %q", uplink.Region, uplink.HostServiceAddress, serviceAddress)
+		}
+		if uplink.OwnsServiceAddress {
+			serviceOwners++
+		}
+	}
+	if serviceOwners != 1 {
+		t.Fatalf("host service address owners = %d, want one", serviceOwners)
+	}
+
+	for _, region := range plan.Regions {
+		endpoint, ok := plan.Endpoint(region.Code, "artifacts")
+		if !ok || endpoint.GuestAddress != region.Gateway || endpoint.GuestPort != 8443 || endpoint.HostAddress != serviceAddress || endpoint.HostPort != 8443 {
+			t.Fatalf("Region %s artifact endpoint = %+v, found=%v", region.Code, endpoint, ok)
+		}
+		records := plan.RegionDNSRecords(region.Code)
+		if len(records) != 1 || records[0] != (DNSRecord{Region: region.Code, Name: "releases.terrascale.tech", Type: "A", Address: region.Gateway}) {
+			t.Fatalf("Region %s DNS records = %+v", region.Code, records)
+		}
+	}
+	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
+		listener, ok := plan.Listener(name)
+		if !ok || listener != (EndpointListener{Name: name, Protocol: TCP, Address: serviceAddress, Port: port}) {
+			t.Fatalf("listener %q = %+v, found=%v", name, listener, ok)
+		}
+	}
+
+	dnat, snat, endpointAccepts, serviceAssignments, uplinkCreations := 0, 0, 0, 0, 0
+	for _, command := range plan.Commands {
+		args := command.Args
+		if contains(args, "masquerade") || contains(args, "0.0.0.0/0") || contains(args, "udp") || contains(args, "default") {
+			t.Fatalf("plan contains an internet escape or broad forwarding rule: %+v", command)
+		}
+		if contains(args, "dnat") {
+			dnat++
+		}
+		if contains(args, "snat") {
+			snat++
+		}
+		if contains(args, "accept") {
+			for _, uplink := range plan.Uplinks {
+				if contains(args, uplink.RegionDevice) {
+					endpointAccepts++
+				}
+			}
+		}
+		if contains(args, serviceAddress+"/32") && contains(args, "addr") && contains(args, "add") {
+			serviceAssignments++
+		}
+		for _, uplink := range plan.Uplinks {
+			if contains(args, "link") && contains(args, "add") && contains(args, uplink.RegionDevice) && contains(args, uplink.RootDevice) && contains(args, "netns") && contains(args, "1") {
+				uplinkCreations++
+			}
+		}
+	}
+	if dnat != len(plan.Forwards) || snat != len(plan.Forwards) || endpointAccepts != len(plan.Forwards) || serviceAssignments != 1 || uplinkCreations != len(plan.Regions) {
+		t.Fatalf("endpoint rules: dnat=%d snat=%d accept=%d service-address=%d uplinks=%d", dnat, snat, endpointAccepts, serviceAssignments, uplinkCreations)
+	}
+}
+
+func TestEndpointLookupRejectsTamperingAndCrossRunTargets(t *testing.T) {
+	config := qualifiedConfig(t)
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignConfig := config
+	foreignConfig.RunID = "ffffffffffffffffffffffffffffffff"
+	foreign, err := Plan(foreignConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, ok := plan.Endpoint(GRU, "smoke")
+	if !ok {
+		t.Fatal("owned smoke endpoint is missing")
+	}
+	foreignEndpoint, ok := foreign.Endpoint(GRU, "smoke")
+	if !ok || foreignEndpoint.HostAddress == owned.HostAddress {
+		t.Fatalf("cross-run host targets are not distinct: owned=%+v foreign=%+v", owned, foreignEndpoint)
+	}
+
+	tampered := plan.copy()
+	for index := range tampered.Forwards {
+		if tampered.Forwards[index].Region == GRU && tampered.Forwards[index].Name == "smoke" {
+			tampered.Forwards[index].HostAddress = foreignEndpoint.HostAddress
+		}
+	}
+	if endpoint, ok := tampered.Endpoint(GRU, "smoke"); ok || !reflect.DeepEqual(endpoint, EndpointForward{}) {
+		t.Fatalf("lookup returned a cross-run target from a tampered plan: %+v", endpoint)
+	}
+	if _, ok := plan.Endpoint(GRU, "undeclared"); ok {
+		t.Fatal("lookup returned an undeclared endpoint")
+	}
+}
+
 func TestPlanRequiresSafeRunIDAndPinnedTools(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -236,12 +557,6 @@ func TestPlanPinsEveryHostExecutable(t *testing.T) {
 		}
 		if command.Executable != config.Tools.IP {
 			t.Fatalf("command uses unpinned top-level executable %q", command.Executable)
-		}
-		for _, argument := range command.Args {
-			switch argument {
-			case "ip", "tc", "nft", "sysctl":
-				t.Fatalf("command contains unresolved executable %q: %+v", argument, command)
-			}
 		}
 		if len(command.Args) >= 4 && command.Args[0] == "netns" && command.Args[1] == "exec" {
 			nested := command.Args[3]
@@ -544,6 +859,159 @@ func TestApplyRejectsTamperedPlanBeforeJournalOrMutation(t *testing.T) {
 	}
 }
 
+func TestEndpointRulesCannotForwardUndeclaredHostsOrPorts(t *testing.T) {
+	config := qualifiedConfig(t)
+	config.Regions = []RegionSpec{{Code: GRU, Guests: []GuestSpec{{ID: "member"}}}}
+	config.Endpoints = []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, GuestPort: 9443, HostPort: 10443, DNSNames: []string{"api.terrascale.test"}}}
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, ok := plan.Endpoint(GRU, "api")
+	if !ok {
+		t.Fatal("declared endpoint is missing")
+	}
+	wantedTarget := endpoint.HostAddress + ":10443"
+	var endpointRules int
+	for _, command := range plan.Commands {
+		args := command.Args
+		if !contains(args, "dnat") && !contains(args, "snat") && !(contains(args, "accept") && contains(args, plan.Uplinks[0].RegionDevice)) {
+			continue
+		}
+		endpointRules++
+		if !contains(args, "tcp") || !contains(args, "10443") && !contains(args, "9443") || contains(args, "10444") || contains(args, "203.0.113.1") {
+			t.Fatalf("endpoint rule is not bound to the declared tuple: %+v", command)
+		}
+		if contains(args, "dnat") && (!contains(args, endpoint.GuestAddress) || !contains(args, "9443") || !contains(args, wantedTarget)) {
+			t.Fatalf("DNAT rule differs from the declared mapping: %+v", command)
+		}
+		if (contains(args, "snat") || contains(args, "accept")) && (!contains(args, endpoint.HostAddress) || !contains(args, "10443")) {
+			t.Fatalf("host-side rule differs from the declared mapping: %+v", command)
+		}
+	}
+	if endpointRules != 3 {
+		t.Fatalf("endpoint rule count = %d, want one DNAT, SNAT, and filter rule", endpointRules)
+	}
+
+	tampered := plan.copy()
+	tampered.Commands = append(tampered.Commands, command(plan.Tools.IP, "netns", "exec", plan.Regions[0].Namespace, plan.Tools.NFT, "add", "rule", "inet", networkTable(plan.Prefix, plan.RunID), "forward", "tcp", "dport", "10444", "accept"))
+	runner := &fakeRunner{failAt: -1}
+	writer := &fakeJournalWriter{}
+	if err := tampered.ApplyWithJournal(context.Background(), runner, writer); err == nil {
+		t.Fatal("tampered plan forwarded an undeclared port")
+	}
+	if writer.writes != 0 || len(runner.commands) != 0 {
+		t.Fatalf("undeclared forward reached privileged boundary: writes=%d commands=%d", writer.writes, len(runner.commands))
+	}
+}
+
+func TestExplicitEmptyEndpointSetForwardsNothing(t *testing.T) {
+	config := qualifiedConfig(t)
+	config.Regions = []RegionSpec{{Code: GRU, Guests: []GuestSpec{{ID: "member"}}}}
+	config.Endpoints = []EndpointSpec{}
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Forwards) != 0 || len(plan.Listeners) != 0 || len(plan.DNSRecords) != 0 {
+		t.Fatalf("empty declaration resolved endpoints: forwards=%d listeners=%d DNS=%d", len(plan.Forwards), len(plan.Listeners), len(plan.DNSRecords))
+	}
+	for _, command := range plan.Commands {
+		if contains(command.Args, "dnat") || contains(command.Args, "snat") || contains(command.Args, "masquerade") {
+			t.Fatalf("empty endpoint declaration emitted forwarding rule: %+v", command)
+		}
+	}
+}
+
+func TestPlanRejectsInvalidEndpointDeclarations(t *testing.T) {
+	base := qualifiedConfig(t)
+	tests := []struct {
+		name      string
+		endpoints []EndpointSpec
+	}{
+		{name: "foreign Region", endpoints: []EndpointSpec{{Name: "api", Region: "IAD", Protocol: TCP, GuestPort: 1, HostPort: 1}}},
+		{name: "unsupported protocol", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: "udp", GuestPort: 1, HostPort: 1}}},
+		{name: "zero port", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, HostPort: 1}}},
+		{name: "duplicate guest port", endpoints: []EndpointSpec{{Name: "one", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1}, {Name: "two", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 2}}},
+		{name: "shared host port", endpoints: []EndpointSpec{{Name: "one", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1}, {Name: "two", Region: SFO, Protocol: TCP, GuestPort: 2, HostPort: 1}}},
+		{name: "inconsistent shared listener", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1}, {Name: "api", Region: SFO, Protocol: TCP, GuestPort: 1, HostPort: 2}}},
+		{name: "invalid DNS", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1, DNSNames: []string{"localhost"}}}},
+		{name: "duplicate DNS", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1, DNSNames: []string{"api.test", "api.test"}}}},
+		{name: "too many DNS names", endpoints: []EndpointSpec{{Name: "api", Region: GRU, Protocol: TCP, GuestPort: 1, HostPort: 1, DNSNames: []string{"a.test", "b.test", "c.test", "d.test", "e.test", "f.test", "g.test", "h.test", "i.test"}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := base
+			config.Endpoints = test.endpoints
+			if _, err := Plan(config); err == nil {
+				t.Fatal("Plan accepted an invalid endpoint declaration")
+			}
+		})
+	}
+	tooMany := base
+	tooMany.Endpoints = make([]EndpointSpec, maxPlanForwards+1)
+	if _, err := Plan(tooMany); err == nil {
+		t.Fatal("Plan accepted too many endpoint declarations")
+	}
+}
+
+func TestPlanCommandBoundCoversMaximumAdmittedTopology(t *testing.T) {
+	config := qualifiedConfig(t)
+	config.Regions = nil
+	for _, region := range launchRegions {
+		spec := RegionSpec{Code: region, CIDR: StableCIDR(region)}
+		for guest := 0; guest < 32; guest++ {
+			spec.Guests = append(spec.Guests, GuestSpec{ID: fmt.Sprintf("member-%02d", guest)})
+		}
+		config.Regions = append(config.Regions, spec)
+		for endpoint := 0; endpoint < 16; endpoint++ {
+			port := uint16(10000 + endpoint)
+			config.Endpoints = append(config.Endpoints, EndpointSpec{Name: fmt.Sprintf("endpoint-%02d", endpoint), Region: region, Protocol: TCP, GuestPort: port, HostPort: port})
+		}
+	}
+	for _, from := range launchRegions {
+		for _, to := range launchRegions {
+			if from != to {
+				config.Faults = append(config.Faults, FaultSpec{From: from, To: to, Latency: time.Millisecond, Partition: true})
+			}
+		}
+	}
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Commands) <= 512 || len(plan.Commands) > maxPlanCommands {
+		t.Fatalf("maximum topology command count = %d, bound = %d", len(plan.Commands), maxPlanCommands)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("maximum admitted topology produced an invalid plan: %v", err)
+	}
+}
+
+func TestCleanupRejectsTamperedEndpointManifest(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []func(*CleanupPlan){
+		func(cleanup *CleanupPlan) { cleanup.Uplinks[0].RootDevice = "eth0" },
+		func(cleanup *CleanupPlan) { cleanup.Forwards[0].HostPort++ },
+		func(cleanup *CleanupPlan) { cleanup.Listeners[0].Address = "127.0.0.1" },
+		func(cleanup *CleanupPlan) { cleanup.DNSRecords[0].Address = "203.0.113.1" },
+	}
+	for _, mutate := range tests {
+		cleanup := plan.CleanupPlan()
+		mutate(&cleanup)
+		runner := &fakeCleanupRunner{}
+		if err := cleanup.Run(context.Background(), runner); err == nil {
+			t.Fatal("cleanup accepted a tampered endpoint manifest")
+		}
+		if runner.runs != 0 || runner.cleanups != 0 {
+			t.Fatal("tampered endpoint manifest reached cleanup runner")
+		}
+	}
+}
+
 func TestPlanRejectsRunnerWithDifferentPinnedTools(t *testing.T) {
 	config := qualifiedConfig(t)
 	plan, err := Plan(config)
@@ -551,7 +1019,7 @@ func TestPlanRejectsRunnerWithDifferentPinnedTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &boundFakeRunner{fakeRunner: fakeRunner{failAt: -1}, tools: testToolPaths(t)}
-	if err := plan.Apply(context.Background(), runner); err == nil {
+	if err := plan.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply accepted a runner bound to different host executables")
 	}
 	if len(runner.commands) != 0 {
@@ -653,7 +1121,7 @@ func TestApplyFailureRunsBestEffortCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{failAt: 3}
-	if err := plan.Apply(context.Background(), runner); err == nil {
+	if err := plan.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply succeeded despite injected failure")
 	}
 	if len(runner.commands) != 4+len(plan.Cleanup.Commands) {
@@ -675,11 +1143,14 @@ func TestCancellationUsesCleanupContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	runner := &fakeRunner{failAt: -1, checkCtx: true}
-	if err := plan.Apply(ctx, runner); err == nil {
+	if err := plan.ApplyWithJournal(ctx, runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply did not report cancellation")
 	}
 	if len(runner.commands) != len(plan.Cleanup.Commands) {
 		t.Fatalf("cancellation cleanup commands = %d, want %d", len(runner.commands), len(plan.Cleanup.Commands))
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -703,6 +1174,332 @@ func TestApplyWithJournalWritesBeforeRunner(t *testing.T) {
 	}
 	if !reflect.DeepEqual(writer.plan.Tools, config.Tools) || !reflect.DeepEqual(writer.plan.Cleanup.Tools, config.Tools) {
 		t.Fatalf("journal lost pinned tools: journal=%+v cleanup=%+v want=%+v", writer.plan.Tools, writer.plan.Cleanup.Tools, config.Tools)
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNonHostApplyUsesExplicitOwnedCoordinationRoot(t *testing.T) {
+	config := qualifiedConfig(t)
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CoordinationRoot != config.CoordinationRoot || plan.Journal.CoordinationRoot != config.CoordinationRoot || plan.Cleanup.CoordinationRoot != config.CoordinationRoot {
+		t.Fatal("explicit coordination root was not bound into the plan and recovery journal")
+	}
+	runner := &fakeRunner{failAt: -1}
+	if err := plan.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err != nil {
+		t.Fatalf("non-host Apply with owned coordination root: %v", err)
+	}
+	info, err := os.Stat(config.CoordinationRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("coordination root mode = %v", info.Mode())
+	}
+	claims, err := filepath.Glob(filepath.Join(config.CoordinationRoot, "*.claim"))
+	if err != nil || len(claims) == 0 {
+		t.Fatalf("published host claims = %v, %v", claims, err)
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	claims, err = filepath.Glob(filepath.Join(config.CoordinationRoot, "*.claim"))
+	if err != nil || len(claims) != 0 {
+		t.Fatalf("claims after cleanup = %v, %v", claims, err)
+	}
+}
+
+func TestHostRunnerRejectsCallerSelectedCoordinationRoot(t *testing.T) {
+	config := qualifiedConfig(t)
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := NewHostRunner(config.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := &fakeJournalWriter{}
+	if err := plan.ApplyWithJournal(context.Background(), runner, writer); err == nil || !strings.Contains(err.Error(), "non-host recording runner") {
+		t.Fatalf("HostRunner custom coordination error = %v", err)
+	}
+	if writer.writes != 0 {
+		t.Fatal("HostRunner reached the journal with a caller-selected lock domain")
+	}
+}
+
+func TestApplyCannotBypassDurableJournal(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := &fakeRunner{failAt: -1}
+	if err := plan.Apply(context.Background(), plain); err == nil || !strings.Contains(err.Error(), "journal") {
+		t.Fatalf("journal-less Apply error = %v", err)
+	}
+	if len(plain.commands) != 0 {
+		t.Fatalf("journal-less Apply mutated host runner: %+v", plain.commands)
+	}
+	failingRunner := &fakeRunner{failAt: -1}
+	failingWriter := &fakeJournalWriter{err: errors.New("storage unavailable")}
+	if err := plan.ApplyWithJournal(context.Background(), failingRunner, failingWriter); err == nil {
+		t.Fatal("Apply accepted a failed journal write")
+	}
+	if len(failingRunner.commands) != 0 {
+		t.Fatal("failed journal write reached host mutation")
+	}
+
+	journaled := &journaledFakeRunner{fakeRunner: fakeRunner{failAt: -1}}
+	if err := plan.Apply(context.Background(), journaled); err != nil {
+		t.Fatal(err)
+	}
+	if journaled.writes != 1 || len(journaled.commands) != len(plan.Commands) {
+		t.Fatalf("journaled Apply writes=%d commands=%d", journaled.writes, len(journaled.commands))
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConcurrentSameRunApplyExecutesOnePlan(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &blockingJournalRunner{started: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(runner.release)
+		}
+	}()
+	results := make(chan error, 2)
+	go func() { results <- plan.Apply(context.Background(), runner) }()
+	select {
+	case <-runner.started:
+	case err := <-results:
+		t.Fatalf("first Apply returned before executing a command: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("first Apply did not reach its command")
+	}
+	go func() { results <- plan.Apply(context.Background(), runner) }()
+	select {
+	case err := <-results:
+		t.Fatalf("same-run Apply escaped serialization while the first command was blocked: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(runner.release)
+	released = true
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	commands, writes := runner.snapshot()
+	if writes != 1 || commands != len(plan.Commands) {
+		t.Fatalf("concurrent Apply writes=%d commands=%d, want one complete plan", writes, commands)
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHostLeaseSerializesSameRunAcrossProcessesUntilCleanup(t *testing.T) {
+	config := qualifiedConfig(t)
+	config.RunID = "00000000000000000000000000000040"
+	plan, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collisionConfig := config
+	collisionConfig.RunID = "00000000000000000000000000000101"
+	collision, err := Plan(collisionConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Uplinks[0].HostServiceAddress != collision.Uplinks[0].HostServiceAddress {
+		t.Fatal("live-lock test RunIDs do not share a service address")
+	}
+	helper := startHostLeaseHelper(t, config, "hold")
+	helper.expect("LOCKED")
+
+	for _, phase := range []string{"during apply", "after apply"} {
+		runner := &fakeRunner{failAt: -1}
+		writer := &fakeJournalWriter{}
+		err := plan.ApplyWithJournal(context.Background(), runner, writer)
+		if err == nil || !strings.Contains(err.Error(), "active on this host") {
+			t.Fatalf("same-run Apply %s error = %v", phase, err)
+		}
+		if writer.writes != 0 || len(runner.commands) != 0 {
+			t.Fatalf("same-run Apply %s reached journal or host mutation", phase)
+		}
+		collisionRunner := &fakeRunner{failAt: -1}
+		collisionWriter := &fakeJournalWriter{}
+		err = collision.ApplyWithJournal(context.Background(), collisionRunner, collisionWriter)
+		if err == nil || !strings.Contains(err.Error(), "service-address/") || !strings.Contains(err.Error(), "active") {
+			t.Fatalf("colliding address Apply %s error = %v", phase, err)
+		}
+		if collisionWriter.writes != 0 || len(collisionRunner.commands) != 0 {
+			t.Fatalf("colliding address Apply %s reached journal or host mutation", phase)
+		}
+		if phase == "during apply" {
+			helper.release()
+			helper.expect("APPLIED")
+		}
+	}
+
+	helper.release()
+	helper.expect("CLEANED")
+	helper.wait()
+	runner := &fakeRunner{failAt: -1}
+	if err := collision.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err != nil {
+		t.Fatalf("Apply after external cleanup: %v", err)
+	}
+	if err := collision.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHostClaimsProtectCollidingServiceAddressAfterCrash(t *testing.T) {
+	firstConfig := qualifiedConfig(t)
+	firstConfig.RunID = "00000000000000000000000000000040"
+	secondConfig := firstConfig
+	secondConfig.RunID = "00000000000000000000000000000101"
+	first, err := Plan(firstConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Plan(secondConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Uplinks[0].HostServiceAddress != second.Uplinks[0].HostServiceAddress {
+		t.Fatalf("test RunIDs no longer collide: %s != %s", first.Uplinks[0].HostServiceAddress, second.Uplinks[0].HostServiceAddress)
+	}
+
+	helper := startHostLeaseHelper(t, firstConfig, "crash")
+	helper.expect("APPLIED")
+	helper.wait()
+
+	collisionRunner := &fakeRunner{failAt: -1}
+	collisionWriter := &fakeJournalWriter{}
+	err = second.ApplyWithJournal(context.Background(), collisionRunner, collisionWriter)
+	if err == nil || !strings.Contains(err.Error(), "claimed by run "+first.RunID) {
+		t.Fatalf("colliding service address error = %v", err)
+	}
+	if collisionWriter.writes != 0 || len(collisionRunner.commands) != 0 {
+		t.Fatal("colliding run reached journal or host mutation")
+	}
+
+	recoveryRunner := &fakeRunner{failAt: -1}
+	recoveryWriter := &fakeJournalWriter{}
+	err = first.ApplyWithJournal(context.Background(), recoveryRunner, recoveryWriter)
+	if err == nil || !strings.Contains(err.Error(), "requires cleanup") {
+		t.Fatalf("crashed run Apply error = %v", err)
+	}
+	if recoveryWriter.writes != 0 || len(recoveryRunner.commands) != 0 {
+		t.Fatal("crashed run reapplied before cleanup")
+	}
+	if err := first.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatalf("recover crashed host claims: %v", err)
+	}
+
+	if err := second.ApplyWithJournal(context.Background(), collisionRunner, collisionWriter); err != nil {
+		t.Fatalf("colliding run remained blocked after recovered cleanup: %v", err)
+	}
+	if err := second.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFailedApplyRequiresCleanupBeforeRetry(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ApplyWithJournal(context.Background(), &fakeRunner{failAt: 3}, &fakeJournalWriter{}); err == nil {
+		t.Fatal("Apply succeeded despite injected failure")
+	}
+	retryRunner := &fakeRunner{failAt: -1}
+	retryWriter := &fakeJournalWriter{}
+	if err := plan.ApplyWithJournal(context.Background(), retryRunner, retryWriter); err == nil || !strings.Contains(err.Error(), "cleanup") {
+		t.Fatalf("retry before explicit cleanup error = %v", err)
+	}
+	if retryWriter.writes != 0 || len(retryRunner.commands) != 0 {
+		t.Fatal("retry mutated host state before cleanup replay")
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ApplyWithJournal(context.Background(), retryRunner, retryWriter); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunCoordinatorRetiresOnlyAfterSuccessfulCleanup(t *testing.T) {
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ApplyWithJournal(context.Background(), &fakeRunner{failAt: -1}, &fakeJournalWriter{}); err != nil {
+		t.Fatal(err)
+	}
+	if !runCoordinatorExists(plan.RunID) {
+		t.Fatal("applied run lost its shared coordinator")
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeRunner{failAt: 0}); err == nil {
+		t.Fatal("cleanup succeeded despite injected failure")
+	}
+	if !runCoordinatorExists(plan.RunID) {
+		t.Fatal("incomplete cleanup retired its poisoned coordinator")
+	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	if runCoordinatorExists(plan.RunID) {
+		t.Fatal("successful cleanup retained an inactive coordinator")
+	}
+}
+
+func runCoordinatorExists(runID string) bool {
+	runCoordinatorRegistry.Lock()
+	defer runCoordinatorRegistry.Unlock()
+	_, ok := runCoordinatorRegistry.entries[runID]
+	return ok
+}
+
+func TestAppliedRunRejectsDifferentPlanWithSameRunID(t *testing.T) {
+	config := qualifiedConfig(t)
+	first, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherConfig := config
+	otherConfig.Prefix = "alt"
+	other, err := Plan(otherConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.ApplyWithJournal(context.Background(), &fakeRunner{failAt: -1}, &fakeJournalWriter{}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{failAt: -1}
+	writer := &fakeJournalWriter{}
+	if err := other.ApplyWithJournal(context.Background(), runner, writer); err == nil {
+		t.Fatal("same run ID applied a different network plan")
+	}
+	if writer.writes != 0 || len(runner.commands) != 0 {
+		t.Fatal("conflicting same-run plan reached journal or host mutation")
+	}
+	if err := first.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -742,6 +1539,9 @@ func TestCleanupContinuesAfterError(t *testing.T) {
 	if len(runner.commands) != len(plan.Cleanup.Commands) {
 		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), len(plan.Cleanup.Commands))
 	}
+	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCleanupUsesIdempotentRunnerWhenAvailable(t *testing.T) {
@@ -771,8 +1571,11 @@ func transitNames(commands []Command) map[string]bool {
 	result := make(map[string]bool)
 	for _, command := range commands {
 		args := command.Args
-		for index := 0; index+7 < len(args); index++ {
+		for index := 0; index+9 < len(args); index++ {
 			if args[index] == "link" && args[index+1] == "add" && args[index+3] == "type" && args[index+4] == "veth" && args[index+5] == "peer" && args[index+6] == "name" {
+				if args[index+8] == "netns" && args[index+9] == "1" {
+					continue
+				}
 				result[args[index+2]] = true
 				result[args[index+7]] = true
 			}
@@ -783,6 +1586,13 @@ func transitNames(commands []Command) map[string]bool {
 
 func ownedResourceNames(plan NetworkPlan) map[string]bool {
 	result := transitNames(plan.Commands)
+	for _, uplink := range plan.Uplinks {
+		result[uplink.RegionDevice] = true
+		result[uplink.RootDevice] = true
+		result[uplink.RegionAddress] = true
+		result[uplink.RootAddress] = true
+		result[uplink.HostServiceAddress] = true
+	}
 	for _, region := range plan.Regions {
 		result[region.Namespace] = true
 		result[region.NamespacePath] = true

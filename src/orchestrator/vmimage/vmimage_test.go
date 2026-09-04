@@ -28,6 +28,12 @@ func TestManifestPairAndStrictFileVerification(t *testing.T) {
 	if err := os.WriteFile(rootfsPath, rootfs, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(kernelPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(rootfsPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	manifest := testManifest(kernelPath, rootfsPath, kernel, rootfs)
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
@@ -65,7 +71,7 @@ func TestManifestPairAndStrictFileVerification(t *testing.T) {
 	}
 }
 
-func TestCacheInstallIsDigestKeyedAndIdempotent(t *testing.T) {
+func TestCacheRejectsUnpinnedRootFS(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	kernel, rootfs := []byte("kernel"), []byte("rootfs")
@@ -76,33 +82,12 @@ func TestCacheInstallIsDigestKeyedAndIdempotent(t *testing.T) {
 	}
 	cache.Downloader = memoryDownloader(map[string][]byte{manifest.Kernel.Source: kernel, manifest.RootFS.Source: rootfs})
 	cache.RootFSPreparer = testRootFSPreparer()
-	first, err := cache.Install(context.Background(), manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := cache.Install(context.Background(), manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Dir != second.Dir || first.Kernel != second.Kernel || first.RootFS != second.RootFS {
-		t.Fatal("idempotent install changed immutable cache entry")
-	}
-	if err := cache.VerifyInstalled(first); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(filepath.Dir(first.Dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("cache contains %d entries, want one", len(entries))
-	}
-	if info, err := os.Lstat(first.Dir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
-		t.Fatalf("cache entry is not a private directory: %v, %v", info, err)
+	if _, err := cache.Install(context.Background(), manifest); err == nil {
+		t.Fatal("cache accepted an unpinned root filesystem")
 	}
 }
 
-func TestCacheHTTPSDownloadIsBoundedAndVerified(t *testing.T) {
+func TestCacheRejectsUnpinnedHTTPSRootFS(t *testing.T) {
 	t.Parallel()
 	kernel, rootfs := []byte("kernel over http"), []byte("rootfs over http")
 	manifest := pinnedTestManifest(kernel, rootfs)
@@ -118,8 +103,8 @@ func TestCacheHTTPSDownloadIsBoundedAndVerified(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, ContentLength: int64(len(content)), Body: io.NopCloser(strings.NewReader(string(content))), Header: make(http.Header)}, nil
 	})}
 	cache.RootFSPreparer = testRootFSPreparer()
-	if _, err := cache.Install(context.Background(), manifest); err != nil {
-		t.Fatal(err)
+	if _, err := cache.Install(context.Background(), manifest); err == nil {
+		t.Fatal("cache accepted an unpinned HTTPS root filesystem")
 	}
 }
 
@@ -129,7 +114,7 @@ func TestSeedIsDeterministicAndRestrictsProductionArtifacts(t *testing.T) {
 	kernel, rootfs := []byte("kernel"), []byte("rootfs")
 	manifest := testManifest(writeTestFile(t, dir, "kernel", kernel), writeTestFile(t, dir, "rootfs", rootfs), kernel, rootfs)
 	spec := GuestSeedSpec{
-		Image: manifest, Hostname: "gru-member-1", InstanceID: "vm-001", Region: "gru", DataDiskPath: "/dev/vdb",
+		Image: manifest, Hostname: "gru-member-1", InstanceID: "vm-001", Region: "gru", DataDiskPath: "/dev/vdb", NetworkExchangeEndpoint: "10.77.0.1:18080",
 		Artifacts: []GuestArtifact{
 			guestArtifact("terrabase", "3.0.0", "/fixtures/terrabase", []byte("tb")),
 			guestArtifact("ts-node", "3.0.0", "/fixtures/ts-node", []byte("node")),
@@ -158,7 +143,7 @@ func TestSeedIsDeterministicAndRestrictsProductionArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{"#cloud-config", "guest-seed.json", "ts-node", "orchestrator", "terrabase", GuestChannelSeedDigest(first)} {
+	for _, value := range []string{"#cloud-config", "path: " + GuestSeedPath, "ts-node", "orchestrator", "terrabase", GuestChannelSeedDigest(first)} {
 		if !strings.Contains(string(cloudInit), value) {
 			t.Fatalf("cloud-init does not carry %q", value)
 		}
@@ -168,6 +153,13 @@ func TestSeedIsDeterministicAndRestrictsProductionArtifacts(t *testing.T) {
 	bad.Artifacts[0].Component = "docker"
 	if _, err := BuildGuestChannelSeed(bad); err == nil {
 		t.Fatal("unadmitted production component accepted")
+	}
+	for _, endpoint := range []string{"", "8.8.8.8:18080", "10.77.0.1:018080", "10.77.0.1", "10.77.0.1:18081", "10.77.0.1:65536"} {
+		bad = spec
+		bad.NetworkExchangeEndpoint = endpoint
+		if _, err := BuildGuestChannelSeed(bad); err == nil {
+			t.Fatalf("unadmitted network exchange endpoint %q accepted", endpoint)
+		}
 	}
 }
 
@@ -248,6 +240,9 @@ func writeTestFile(t *testing.T, dir, name string, data []byte) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,8 +31,8 @@ type guestExecutor interface {
 // smokePersistentGuest is the typed data-disk part of the test-only guest
 // channel. It cannot install or activate a service.
 type smokePersistentGuest interface {
-	WritePersistent(context.Context, string, []byte) error
-	ReadPersistent(context.Context, string) ([]byte, error)
+	DataWrite(context.Context, string, []byte) error
+	DataRead(context.Context, string) ([]byte, error)
 }
 
 // smokeHostDiskObserver reports allocated host bytes for all file-backed
@@ -52,6 +51,10 @@ type smokeOwnedResourceVerifier interface {
 // profile. The service profile is mandatory and cannot be declined.
 type smokeProfileSupport interface {
 	SupportsSmokeProfile(context.Context, SmokeProfile) (bool, error)
+}
+
+type smokeNetworkExchange interface {
+	ProveGuestExchange(context.Context, VM) error
 }
 
 type SmokeProfile struct {
@@ -160,7 +163,7 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 		}
 		active = vm
 		profileStarted := time.Now()
-		profileReport, err = proveSmokeProfile(runCtx, vm, profile, profileReport)
+		profileReport, err = proveSmokeProfile(runCtx, vm, network, profile, profileReport)
 		report.Ready += time.Since(profileStarted)
 		report.Profiles = append(report.Profiles, profileReport)
 		report.Boot += profileReport.BootToReady
@@ -218,7 +221,7 @@ func supportsSmokeProfile(ctx context.Context, factory VMFactory, profile SmokeP
 	return supported, nil
 }
 
-func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report SmokeProfileReport) (SmokeProfileReport, error) {
+func proveSmokeProfile(ctx context.Context, vm VM, network NetworkController, profile SmokeProfile, report SmokeProfileReport) (SmokeProfileReport, error) {
 	executor, ok := vm.(guestExecutor)
 	if !ok {
 		return report, errors.New("guest execution channel is not configured")
@@ -233,6 +236,10 @@ func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report 
 	}
 	if _, ok := vm.(smokeOwnedResourceVerifier); !ok {
 		return report, errors.New("guest cannot verify owned-resource cleanup")
+	}
+	exchange, ok := network.(smokeNetworkExchange)
+	if !ok {
+		return report, errors.New("qualification network cannot prove a guest exchange")
 	}
 
 	started := time.Now()
@@ -250,13 +257,16 @@ func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report 
 	if err := proveGuestRuntime(ctx, executor); err != nil {
 		return report, err
 	}
+	if err := exchange.ProveGuestExchange(ctx, vm); err != nil {
+		return report, fmt.Errorf("guest network exchange: %w", err)
+	}
 
 	payload := make([]byte, 4096)
 	if _, err := cryptorand.Read(payload); err != nil {
 		return report, fmt.Errorf("create persistence proof: %w", err)
 	}
 	const persistencePath = "smoke/persistence.bin"
-	if err := persistent.WritePersistent(ctx, persistencePath, payload); err != nil {
+	if err := persistent.DataWrite(ctx, persistencePath, payload); err != nil {
 		return report, fmt.Errorf("write persistent data: %w", err)
 	}
 	if err := vm.Stop(ctx); err != nil {
@@ -270,7 +280,7 @@ func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report 
 	if err := proveGuestRuntime(ctx, executor); err != nil {
 		return report, fmt.Errorf("runtime after restart: %w", err)
 	}
-	persisted, err := persistent.ReadPersistent(ctx, persistencePath)
+	persisted, err := persistent.DataRead(ctx, persistencePath)
 	if err != nil {
 		return report, fmt.Errorf("read persistent data after restart: %w", err)
 	}
@@ -285,7 +295,7 @@ func proveSmokeProfile(ctx context.Context, vm VM, profile SmokeProfile, report 
 	if report.HostDiskBytes == 0 {
 		return report, errors.New("host disk usage observation is zero")
 	}
-	observation, err := observeNonzeroUsage(ctx, vm, profile.Guest)
+	observation, err := observeMeasuredUsage(ctx, vm, profile.Guest)
 	if err != nil {
 		return report, err
 	}
@@ -328,13 +338,15 @@ func proveGuestRuntime(ctx context.Context, executor guestExecutor) error {
 	if err != nil {
 		return fmt.Errorf("inspect guest network: %w", err)
 	}
-	if err := validateGuestNetwork(network); err != nil {
+	if err := validateGuestNetworkConfiguration(network); err != nil {
 		return err
 	}
 	return nil
 }
 
-func validateGuestNetwork(output []byte) error {
+// validateGuestNetworkConfiguration checks only the configured interface.
+// The separate smokeNetworkExchange is the connectivity proof.
+func validateGuestNetworkConfiguration(output []byte) error {
 	text := string(output)
 	routable := false
 	for _, line := range strings.Split(text, "\n") {
@@ -359,7 +371,7 @@ func validateGuestNetwork(output []byte) error {
 	return errors.New("guest eth0 has no usable IPv4 address")
 }
 
-func observeNonzeroUsage(ctx context.Context, vm VM, guest Guest) (VMObservation, error) {
+func observeMeasuredUsage(ctx context.Context, vm VM, guest Guest) (VMObservation, error) {
 	deadline := time.Now().Add(maxSmokeUsageWait)
 	var last VMObservation
 	for {
@@ -371,11 +383,11 @@ func observeNonzeroUsage(ctx context.Context, vm VM, guest Guest) (VMObservation
 		if err := validateObservationIdentity(observation, guest); err != nil {
 			return VMObservation{}, err
 		}
-		if observation.RSSBytes > 0 && observation.IdleCPU > 0 && !math.IsNaN(observation.IdleCPU) && !math.IsInf(observation.IdleCPU, 0) {
+		if observation.RSSBytes > 0 && observation.CPUSampled && observation.IdleCPU >= 0 && !math.IsNaN(observation.IdleCPU) && !math.IsInf(observation.IdleCPU, 0) {
 			return observation, nil
 		}
 		if time.Now().After(deadline) {
-			return VMObservation{}, fmt.Errorf("host resource observation remained zero: rss=%d cpu=%g", last.RSSBytes, last.IdleCPU)
+			return VMObservation{}, fmt.Errorf("host resource observation was incomplete: rss=%d cpu=%g sampled=%t", last.RSSBytes, last.IdleCPU, last.CPUSampled)
 		}
 		timer := time.NewTimer(smokeUsagePoll)
 		select {
@@ -484,17 +496,4 @@ func (b *smokeOutputBudget) reserve(requested int) int {
 	}
 	b.used += requested
 	return requested
-}
-
-func SingleGuestNetwork() (NetworkController, error) {
-	return NewNetworkController(vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, CIDR: vmnet.StableCIDR(vmnet.GRU), Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}, commandRunnerNetwork{}, "")
-}
-
-type commandRunnerNetwork struct{}
-
-func (commandRunnerNetwork) Run(ctx context.Context, executable string, args []string) error {
-	if !filepath.IsAbs(executable) {
-		return errors.New("vmqual: network executable must be absolute")
-	}
-	return exec.CommandContext(ctx, executable, args...).Run()
 }

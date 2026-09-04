@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +83,91 @@ func TestDownloadPinnedRejectsShortInputWithoutPartialFile(t *testing.T) {
 		t.Fatalf("short-input error = %v", err)
 	}
 	assertNoDownloadedFile(t, target)
+}
+
+func TestDownloadPinnedRejectsDigestMismatchWithoutPartialFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	target := filepath.Join(root, "rootfs")
+	data := []byte("complete rootfs")
+	err := downloadPinned(context.Background(), memoryDownloader(map[string][]byte{"https://images.example.test/rootfs": data}),
+		"https://images.example.test/rootfs", target, downloadDigest([]byte("different bytes")), int64(len(data)), 0o644)
+	if err == nil || !strings.Contains(err.Error(), "do not match pinned size and sha256") {
+		t.Fatalf("digest mismatch error = %v", err)
+	}
+	assertNoDownloadedFile(t, target)
+}
+
+func TestHTTPDownloaderContentLengthContract(t *testing.T) {
+	t.Parallel()
+	data := []byte("artifact")
+	for _, test := range []struct {
+		name          string
+		contentLength int64
+		wantError     bool
+	}{
+		{name: "known exact", contentLength: int64(len(data))},
+		{name: "unknown", contentLength: -1},
+		{name: "known mismatch", contentLength: int64(len(data) + 1), wantError: true},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			downloader := httpDownloader{client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, ContentLength: test.contentLength, Body: io.NopCloser(bytes.NewReader(data)), Header: make(http.Header)}, nil
+			})}}
+			var output bytes.Buffer
+			err := downloader.Download(context.Background(), "https://images.example.test/artifact", &output, int64(len(data)))
+			if (err != nil) != test.wantError {
+				t.Fatalf("Download error = %v, wantError=%v", err, test.wantError)
+			}
+			if !test.wantError && !bytes.Equal(output.Bytes(), data) {
+				t.Fatalf("downloaded bytes = %q", output.Bytes())
+			}
+		})
+	}
+}
+
+func TestHTTPDownloaderRedirectPolicies(t *testing.T) {
+	t.Parallel()
+	const source = "https://github.com/firecracker-microvm/firecracker/releases/download/v1.15.1/firecracker-v1.15.1-x86_64.tgz"
+	request := mustHTTPRedirectRequest(t, "https://release-assets.githubusercontent.com/asset?sig=pinned", http.MethodGet)
+	via := []*http.Request{mustHTTPRedirectRequest(t, source, http.MethodGet)}
+	if err := (httpDownloader{}).redirectPolicy(source)(request, via); err == nil {
+		t.Fatal("image downloader accepted a redirect")
+	}
+	policy := (httpDownloader{allowGitHubReleaseRedirect: true}).redirectPolicy(source)
+	if err := policy(request, via); err != nil {
+		t.Fatalf("exact GitHub release redirect rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		target string
+		method string
+		via    []*http.Request
+	}{
+		{name: "downgrade", target: "http://release-assets.githubusercontent.com/asset", method: http.MethodGet, via: via},
+		{name: "port", target: "https://release-assets.githubusercontent.com:443/asset", method: http.MethodGet, via: via},
+		{name: "userinfo", target: "https://user@release-assets.githubusercontent.com/asset", method: http.MethodGet, via: via},
+		{name: "fragment", target: "https://release-assets.githubusercontent.com/asset#fragment", method: http.MethodGet, via: via},
+		{name: "suffix host", target: "https://release-assets.githubusercontent.com.evil.test/asset", method: http.MethodGet, via: via},
+		{name: "wrong method", target: "https://release-assets.githubusercontent.com/asset", method: http.MethodPost, via: via},
+		{name: "extra hop", target: "https://release-assets.githubusercontent.com/asset", method: http.MethodGet, via: append(append([]*http.Request(nil), via...), request)},
+		{name: "wrong origin", target: "https://release-assets.githubusercontent.com/asset", method: http.MethodGet, via: []*http.Request{mustHTTPRedirectRequest(t, "https://github.com/other", http.MethodGet)}},
+	}
+	for _, test := range tests {
+		if err := policy(mustHTTPRedirectRequest(t, test.target, test.method), test.via); err == nil {
+			t.Fatalf("%s redirect was accepted", test.name)
+		}
+	}
+}
+
+func mustHTTPRedirectRequest(t *testing.T, value, method string) *http.Request {
+	t.Helper()
+	parsed, err := url.Parse(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Request{Method: method, URL: parsed}
 }
 
 func TestDownloadPinnedCancellationRemovesStaging(t *testing.T) {

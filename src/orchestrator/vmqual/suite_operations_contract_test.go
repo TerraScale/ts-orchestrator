@@ -99,7 +99,7 @@ func TestLocalOperationsContractQualifiesRestoreAndRegionalMirrors(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.DailyInterval != 24*time.Hour || result.RunID != "restore-drill-2026-09-04" {
+	if result.DailyInterval != 24*time.Hour || !result.SchedulerCallbackRan || result.RunID != "restore-drill-2026-09-04" {
 		t.Fatalf("daily drill result = %+v", result)
 	}
 	if !equalStrings(result.RestoredDatabases, []string{"control", "qualification"}) || !result.ScratchBranchesClean {
@@ -135,7 +135,7 @@ func TestLocalOperationsContractQualifiesRestoreAndRegionalMirrors(t *testing.T)
 }
 
 func TestLocalOperationsContractQualifiesPlacementLockTransitions(t *testing.T) {
-	_, contract := newOperationsContractForTest(t)
+	endpoints, contract := newOperationsContractForTest(t)
 	result, err := contract.QualifyPlacementLocks(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,44 @@ func TestLocalOperationsContractQualifiesPlacementLockTransitions(t *testing.T) 
 	if result.Kind != "explicit" || result.Generation != 1 || !equalStrings(result.Regions, []string{"FRA", "GRU"}) {
 		t.Fatalf("placement lock = %+v", result)
 	}
-	if !equalStrings(result.Transitions, placementTransitions) || !result.WideningRejected || !result.Persistent {
+	if result.mutationCount() != 7 || !result.WideningRejected || !result.Persistent {
 		t.Fatalf("placement transitions = %+v", result)
+	}
+	receipts := []struct {
+		name   string
+		region string
+		object string
+	}{
+		{name: "bootstrap", region: result.Bootstrap.Region.Value(), object: result.Bootstrap.ObjectKey},
+		{name: "repair", region: result.Repair.Region.Value(), object: result.Repair.ObjectKey},
+		{name: "backup", region: result.Backup.Region.Value(), object: result.Backup.ObjectKey},
+		{name: "restore", region: result.Restore.Region.Value(), object: result.Restore.ObjectKey},
+		{name: "export", region: result.Export.Region.Value(), object: result.Export.ObjectKey},
+		{name: "branch", region: result.Branch.Region.Value(), object: result.Branch.ObjectKey},
+		{name: "region change", region: result.RegionChange.Region.Value(), object: result.RegionChange.ObjectKey},
+	}
+	seen := map[string]struct{}{}
+	for _, receipt := range receipts {
+		if receipt.object == "" || receipt.region == "" {
+			t.Fatalf("%s has no provider identity: %+v", receipt.name, receipt)
+		}
+		key := receipt.region + "/" + receipt.object
+		if _, duplicate := seen[key]; duplicate {
+			t.Fatalf("%s reused another mutation's object %s", receipt.name, key)
+		}
+		seen[key] = struct{}{}
+	}
+
+	reloaded, err := NewLocalOperationsContract(endpoints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded.now = contract.now
+	second, err := reloaded.QualifyPlacementLocks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.mutationCount() != 7 || second.Generation != result.Generation || !equalStrings(second.Regions, result.Regions) {
+		t.Fatalf("reloaded placement result = %+v", second)
 	}
 }

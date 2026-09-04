@@ -12,9 +12,10 @@ import (
 )
 
 type scenarioState struct {
-	operations *LocalOperationsContract
-	delivery   *DeliveryContractResult
-	recovery   *RecoveryFaultResult
+	operations  *LocalOperationsContract
+	providerOps *ProviderOperationsContract
+	delivery    *DeliveryContractResult
+	recovery    *RecoveryFaultResult
 }
 
 func (d *LocalScenarioDriver) attachedContracts() (*Stack, *ControlContract, error) {
@@ -91,14 +92,14 @@ func (d *LocalScenarioDriver) scenarioAddRegions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := d.prove(ScenarioAddRegion, "sfo-synchronized-before-promotion", sfo.SynchronizedBeforePromotion && !sfo.Promoted && len(sfo.JournalPaths) == 2, fmt.Sprintf("synchronized=%t promoted=%t", sfo.SynchronizedBeforePromotion, sfo.Promoted)); err != nil {
+	if err := d.prove(ScenarioAddRegion, "sfo-synchronized-before-promotion", sfo.SynchronizedBeforePromotion && !sfo.Promoted && len(sfo.JournalPaths) == 1, fmt.Sprintf("synchronized=%t promoted=%t", sfo.SynchronizedBeforePromotion, sfo.Promoted)); err != nil {
 		return err
 	}
 	fra, err := control.AddLaunchCandidate(ctx, "fra")
 	if err != nil {
 		return err
 	}
-	return d.prove(ScenarioAddRegion, "fra-synchronized-atomic-promotion", fra.SynchronizedBeforePromotion && fra.Promoted && fra.PromotionEpoch == 2 && len(fra.JournalPaths) == 2, fmt.Sprintf("synchronized=%t promoted=%t epoch=%d", fra.SynchronizedBeforePromotion, fra.Promoted, fra.PromotionEpoch))
+	return d.prove(ScenarioAddRegion, "fra-synchronized-atomic-promotion", fra.SynchronizedBeforePromotion && fra.Promoted && fra.PromotionEpoch == 2 && len(fra.JournalPaths) == 1, fmt.Sprintf("synchronized=%t promoted=%t epoch=%d", fra.SynchronizedBeforePromotion, fra.Promoted, fra.PromotionEpoch))
 }
 
 func (d *LocalScenarioDriver) scenarioR3(ctx context.Context) error {
@@ -234,7 +235,7 @@ func (d *LocalScenarioDriver) operationsContract() (*LocalOperationsContract, er
 }
 
 func (d *LocalScenarioDriver) scenarioKV(ctx context.Context) error {
-	contract, err := d.operationsContract()
+	contract, err := d.providerOperationsContract()
 	if err != nil {
 		return err
 	}
@@ -249,7 +250,7 @@ func (d *LocalScenarioDriver) scenarioKV(ctx context.Context) error {
 }
 
 func (d *LocalScenarioDriver) scenarioEstate(ctx context.Context) error {
-	contract, err := d.operationsContract()
+	contract, err := d.providerOperationsContract()
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func (d *LocalScenarioDriver) scenarioRestore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return d.prove(ScenarioRestore, "daily-restore-snapshot-and-regional-mirrors", result.DailyInterval == 24*time.Hour && result.RunID != "" && len(result.RestoredDatabases) == 2 && result.ScratchBranchesClean && len(result.SnapshotRegions) == 3 && len(result.ArtifactRegions) == 3 && result.PersistentReadback, fmt.Sprintf("databases=%d snapshotRegions=%d artifactRegions=%d", len(result.RestoredDatabases), len(result.SnapshotRegions), len(result.ArtifactRegions)))
+	return d.prove(ScenarioRestore, "daily-restore-snapshot-and-regional-mirrors", result.DailyInterval == 24*time.Hour && result.SchedulerCallbackRan && result.RunID != "" && len(result.RestoredDatabases) == 2 && result.ScratchBranchesClean && len(result.SnapshotRegions) == 3 && len(result.ArtifactRegions) == 3 && result.PersistentReadback, fmt.Sprintf("scheduled=%t databases=%d snapshotRegions=%d artifactRegions=%d", result.SchedulerCallbackRan, len(result.RestoredDatabases), len(result.SnapshotRegions), len(result.ArtifactRegions)))
 }
 
 func (d *LocalScenarioDriver) scenarioDegraded(ctx context.Context) error {
@@ -350,7 +351,7 @@ func (d *LocalScenarioDriver) scenarioPlacement(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return d.prove(ScenarioPlacement, "placement-lock-survives-all-byte-transitions", result.Persistent && result.WideningRejected && len(result.Transitions) == 7 && len(result.Regions) == 2, fmt.Sprintf("transitions=%d regions=%d generation=%d", len(result.Transitions), len(result.Regions), result.Generation))
+	return d.prove(ScenarioPlacement, "placement-lock-survives-all-byte-transitions", result.Persistent && result.WideningRejected && result.mutationCount() == 7 && len(result.Regions) == 2, fmt.Sprintf("mutations=%d regions=%d generation=%d", result.mutationCount(), len(result.Regions), result.Generation))
 }
 
 func (d *LocalScenarioDriver) scenarioCleanup(ctx context.Context) error {
@@ -364,5 +365,6 @@ func (d *LocalScenarioDriver) scenarioCleanup(ctx context.Context) error {
 	if err := d.prove(ScenarioCleanup, "cancellation-and-assertion-cleanup-inspected", len(result.Exercises) == 2 && len(result.Observations) == 2, fmt.Sprintf("exercises=%d observations=%d", len(result.Exercises), len(result.Observations))); err != nil {
 		return err
 	}
-	return d.Endpoints.Close()
+	_, err = d.CleanupAndObserveProviderState(ctx)
+	return err
 }

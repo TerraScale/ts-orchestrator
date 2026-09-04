@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/vmdisk"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
@@ -49,6 +50,13 @@ func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 		return err
 	}
 	cleanCtx := context.WithoutCancel(ctx)
+	var diskIdentity vmdisk.StoreIdentity
+	if journal.DiskStore != nil {
+		diskIdentity, err = journalDiskStoreIdentity(journal)
+		if err != nil {
+			return err
+		}
+	}
 	for index := len(journal.VMs) - 1; index >= 0; index-- {
 		if journal.VMs[index].Cleaned || journal.VMs[index].Phase == vmPhaseCleaned {
 			continue
@@ -58,13 +66,18 @@ func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 		if err := persistJournalUpdate(path, &journal); err != nil {
 			return err
 		}
-		if err := cleanupJournalVMResource(journal.VMs[index], journal.CreatedAt); err != nil {
+		if err := cleanupJournalVMResource(cleanCtx, journal.VMs[index], journal.CreatedAt, diskIdentity); err != nil {
 			return fmt.Errorf("vmqual: cleanup VM %s: %w", journal.VMs[index].ID, err)
 		}
 		journal.VMs[index].Phase = vmPhaseCleaned
 		journal.VMs[index].Cleaned = true
 		if err := persistJournalUpdate(path, &journal); err != nil {
 			return err
+		}
+	}
+	if journal.DiskStore != nil {
+		if err := vmdisk.RemoveStore(cleanCtx, diskIdentity); err != nil {
+			return fmt.Errorf("vmqual: remove disk store: %w", err)
 		}
 	}
 	if !journal.NetworkCleaned && journal.NetworkPhase != networkPhaseCleaned {
@@ -97,7 +110,7 @@ func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 	return removeRunMarker(journal.StateRoot, journal.RunID, path)
 }
 
-func (s *Stack) cleanupJournalVM(id string) error {
+func (s *Stack) cleanupJournalVM(ctx context.Context, id string) error {
 	if s == nil || s.config.JournalPath == "" {
 		return nil
 	}
@@ -108,7 +121,11 @@ func (s *Stack) cleanupJournalVM(id string) error {
 	if resource.Cleaned || resource.Phase == vmPhaseCleaned {
 		return nil
 	}
-	if err := cleanupJournalVMResource(resource, s.journalCreatedAt()); err != nil {
+	diskIdentity, err := s.diskStoreIdentity()
+	if err != nil && resource.DriveDir != "" {
+		return err
+	}
+	if err := cleanupJournalVMResource(ctx, resource, s.journalCreatedAt(), diskIdentity); err != nil {
 		return err
 	}
 	return s.setVMPhase(id, vmPhaseCleaned)
@@ -146,7 +163,7 @@ func (s *Stack) cleanupJournalVMsWithoutHandles() error {
 			errs = append(errs, err)
 			continue
 		}
-		if err := s.cleanupJournalVM(resource.ID); err != nil {
+		if err := s.cleanupJournalVM(context.Background(), resource.ID); err != nil {
 			errs = append(errs, fmt.Errorf("cleanup %s: %w", resource.ID, err))
 		}
 	}
@@ -213,7 +230,7 @@ func initializeJournalFiles(path string, journal Journal, marker runOwnership) (
 
 func preflightResourcePaths(journal Journal) error {
 	for _, resource := range journal.VMs {
-		for _, path := range []string{resource.StateDir, resource.DriveDir, resource.SeedDir} {
+		for _, path := range []string{resource.StateDir, resource.DriveDir, resource.SeedDir, resource.CgroupPath, resource.JailerCgroupPath} {
 			if path == "" {
 				continue
 			}
@@ -246,6 +263,15 @@ func validateJournal(journal Journal) error {
 	if journal.ResourceRoot != "" && (!canonicalAbsolute(journal.ResourceRoot) || filepath.Clean(journal.ResourceRoot) == string(filepath.Separator)) {
 		return errors.New("vmqual: cleanup resource root is invalid")
 	}
+	if journal.DiskStore != nil {
+		identity, err := journalDiskStoreIdentity(journal)
+		if err != nil {
+			return err
+		}
+		if journal.ResourceRoot == "" || identity.Root != filepath.Join(journal.ResourceRoot, "drives") {
+			return errors.New("vmqual: disk store is outside the cleanup resource root")
+		}
+	}
 	wantRunMarker := filepath.Join(journal.StateRoot, ".vmqual-runs", journal.RunID+".json")
 	if journal.RunMarkerPath != wantRunMarker {
 		return errors.New("vmqual: cleanup run marker path is invalid")
@@ -267,6 +293,7 @@ func validateJournal(journal Journal) error {
 	}
 	seenIDs := make(map[string]struct{}, len(journal.VMs))
 	seenPaths := make(map[string]string)
+	drivePlanned := false
 	for _, resource := range journal.VMs {
 		if resource.RunID != journal.RunID || !validGuestID(resource.ID) || !validRegion(resource.Region) {
 			return fmt.Errorf("vmqual: cleanup resource %q has invalid identity", resource.ID)
@@ -285,6 +312,7 @@ func validateJournal(journal Journal) error {
 		if err := validateResourcePaths(journal, resource); err != nil {
 			return err
 		}
+		drivePlanned = drivePlanned || resource.DriveDir != ""
 		for _, path := range resourcePaths(resource) {
 			if path == "" {
 				continue
@@ -300,11 +328,29 @@ func validateJournal(journal Journal) error {
 			}
 		}
 	}
+	if drivePlanned != (journal.DiskStore != nil) {
+		return errors.New("vmqual: disk resources and disk store identity are inconsistent")
+	}
 	return nil
 }
 
+func journalDiskStoreIdentity(journal Journal) (vmdisk.StoreIdentity, error) {
+	if journal.DiskStore == nil {
+		return vmdisk.StoreIdentity{}, errors.New("vmqual: cleanup journal has no disk store identity")
+	}
+	stored := journal.DiskStore
+	planned, err := vmdisk.PlanStoreIdentity(stored.Root, stored.RunID, vmdisk.Ownership{UID: stored.JailerUID, GID: stored.JailerGID})
+	if err != nil {
+		return vmdisk.StoreIdentity{}, fmt.Errorf("vmqual: invalid disk store identity: %w", err)
+	}
+	if stored.RunID != journal.RunID || planned.Root != stored.Root || planned.RunID != stored.RunID || planned.Ownership.UID != stored.JailerUID || planned.Ownership.GID != stored.JailerGID || planned.Tombstone != stored.Tombstone {
+		return vmdisk.StoreIdentity{}, errors.New("vmqual: disk store identity differs from its deterministic plan")
+	}
+	return planned, nil
+}
+
 func validateResourcePaths(journal Journal, resource JournalVM) error {
-	stateFields := []string{resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath}
+	stateFields := []string{resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.CgroupRoot, resource.CgroupPath, resource.JailerCgroupPath, resource.FirecrackerPath}
 	stateEmpty := resource.StateDir == ""
 	for _, path := range stateFields {
 		if (path == "") != stateEmpty || path != "" && !canonicalAbsolute(path) {
@@ -312,6 +358,7 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 		}
 	}
 	if !stateEmpty {
+		firecrackerName := filepath.Base(filepath.Dir(resource.StateDir))
 		if !pathWithin(journal.StateRoot, resource.StateDir) || filepath.Base(resource.StateDir) != resource.ID ||
 			resource.SandboxOwnershipPath != filepath.Join(resource.StateDir, "ownership.json") ||
 			resource.RunMarkerPath != filepath.Join(resource.StateDir, runMarkerName) ||
@@ -319,11 +366,15 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 			resource.JailRoot != filepath.Join(resource.StateDir, "root") ||
 			resource.SocketPath != filepath.Join(resource.JailRoot, "api.sock") ||
 			resource.LogPath != filepath.Join(resource.StateDir, "firecracker.log") ||
-			resource.MetricsPath != filepath.Join(resource.StateDir, "firecracker.metrics") {
+			resource.MetricsPath != filepath.Join(resource.StateDir, "firecracker.metrics") ||
+			!canonicalAbsolute(resource.CgroupRoot) || filepath.Clean(resource.CgroupRoot) == string(filepath.Separator) ||
+			resource.CgroupPath != filepath.Join(resource.CgroupRoot, "terrascale-sandboxvm", resource.ID) ||
+			resource.JailerCgroupPath != filepath.Join(resource.CgroupRoot, firecrackerName, resource.ID) ||
+			resource.FirecrackerPath != filepath.Join(resource.JailRoot, firecrackerName) {
 			return fmt.Errorf("vmqual: cleanup resource %q has invalid sandbox paths", resource.ID)
 		}
 	}
-	driveFields := []string{resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath}
+	driveFields := []string{resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.DriveOwnershipPath}
 	driveEmpty := resource.DriveDir == ""
 	for _, path := range driveFields {
 		if (path == "") != driveEmpty || path != "" && !canonicalAbsolute(path) {
@@ -332,7 +383,7 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 	}
 	if !driveEmpty {
 		wantDir := filepath.Join(journal.ResourceRoot, "drives", "drives", resource.ID)
-		if journal.ResourceRoot == "" || resource.DriveDir != wantDir || resource.DrivePath != filepath.Join(resource.DriveDir, "drive.img") || resource.DriveMetadataPath != filepath.Join(resource.DriveDir, "metadata.json") {
+		if journal.ResourceRoot == "" || resource.DriveDir != wantDir || resource.DrivePath != filepath.Join(resource.DriveDir, "artifact-00000000000000000001.img") || resource.DriveMetadataPath != filepath.Join(resource.DriveDir, "metadata.json") || resource.DriveOwnershipPath != filepath.Join(resource.DriveDir, ".owner.json") {
 			return fmt.Errorf("vmqual: cleanup resource %q has invalid drive paths", resource.ID)
 		}
 	}
@@ -425,11 +476,6 @@ func validateExistingResource(journal Journal, resource JournalVM) error {
 			}
 		}
 	}
-	if resource.DriveDir != "" {
-		if err := validateDriveOwnership(resource, journal.CreatedAt); err != nil {
-			return err
-		}
-	}
 	if resource.SeedDir != "" {
 		exists, err := existingOwnedDirectory(resource.SeedDir)
 		if err != nil {
@@ -460,35 +506,29 @@ func validateSandboxOwnership(resource JournalVM, createdAt time.Time) error {
 	if err := readStrictJSONFile(resource.SandboxOwnershipPath, &marker); err != nil {
 		return fmt.Errorf("vmqual: read sandbox ownership %s: %w", resource.ID, err)
 	}
-	if marker.Marker != "terrascale-sandboxvm-v1" || marker.ID != resource.ID || marker.Region != resource.Region || marker.JailRoot != resource.JailRoot || marker.SocketPath != resource.SocketPath || marker.LogPath != resource.LogPath || marker.MetricsPath != resource.MetricsPath || marker.RuntimeState != resource.RuntimePath || marker.CreatedAt.IsZero() || marker.CreatedAt.Before(createdAt) {
+	if marker.Marker != "terrascale-sandboxvm-v1" || marker.ID != resource.ID || marker.Region != resource.Region || marker.JailRoot != resource.JailRoot || marker.SocketPath != resource.SocketPath || marker.LogPath != resource.LogPath || marker.MetricsPath != resource.MetricsPath || marker.RuntimeState != resource.RuntimePath || marker.CgroupRoot != resource.CgroupRoot || marker.CgroupPath != resource.CgroupPath || marker.JailerCgroupPath != resource.JailerCgroupPath || marker.CreatedAt.IsZero() || marker.CreatedAt.Before(createdAt) {
 		return fmt.Errorf("vmqual: refusing unowned sandbox resource %s", resource.ID)
 	}
 	return nil
 }
 
-func validateDriveOwnership(resource JournalVM, createdAt time.Time) error {
+func validateDriveOwnership(resource JournalVM, createdAt time.Time, identity vmdisk.StoreIdentity) error {
 	exists, err := existingOwnedDirectory(resource.DriveDir)
 	if err != nil || !exists {
 		return err
 	}
-	var metadata driveMetadata
-	if err := readStrictJSONFile(resource.DriveMetadataPath, &metadata); err != nil {
-		return fmt.Errorf("vmqual: read drive metadata %s: %w", resource.ID, err)
-	}
-	if metadata.Version != 1 || metadata.ID != resource.ID || metadata.UpdatedAt.IsZero() || metadata.UpdatedAt.Before(createdAt) {
-		return fmt.Errorf("vmqual: refusing unowned drive resource %s", resource.ID)
-	}
-	image, err := os.Lstat(resource.DrivePath)
+	_ = createdAt
+	paths, err := vmdisk.VerifyDriveOwned(identity, resource.ID)
 	if err != nil {
-		return fmt.Errorf("vmqual: read drive image %s: %w", resource.ID, err)
+		return fmt.Errorf("vmqual: verify drive ownership %s: %w", resource.ID, err)
 	}
-	if !image.Mode().IsRegular() || image.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("vmqual: drive image %s is not a regular file", resource.ID)
+	if paths.DriveDir != resource.DriveDir || paths.Metadata != resource.DriveMetadataPath || paths.Ownership != resource.DriveOwnershipPath || !pathWithin(resource.DriveDir, paths.Artifact) {
+		return fmt.Errorf("vmqual: refusing unowned drive resource %s", resource.ID)
 	}
 	return nil
 }
 
-func cleanupJournalVMResource(resource JournalVM, createdAt time.Time) error {
+func cleanupJournalVMResource(ctx context.Context, resource JournalVM, createdAt time.Time, diskIdentity vmdisk.StoreIdentity) error {
 	if resource.StateDir == "" && resource.DriveDir == "" && resource.SeedDir == "" {
 		return nil
 	}
@@ -509,16 +549,21 @@ func cleanupJournalVMResource(resource JournalVM, createdAt time.Time) error {
 			}
 		}
 	}
+	for _, cgroup := range []string{resource.CgroupPath, resource.JailerCgroupPath} {
+		if err := removeEmptyOwnedCgroup(cgroup); err != nil {
+			return err
+		}
+	}
 	if resource.DriveDir != "" {
 		exists, err := existingOwnedDirectory(resource.DriveDir)
 		if err != nil {
 			return err
 		}
 		if exists {
-			if err := validateDriveOwnership(resource, createdAt); err != nil {
+			if err := validateDriveOwnership(resource, createdAt, diskIdentity); err != nil {
 				return err
 			}
-			if err := removeTreeAndSync(resource.DriveDir); err != nil {
+			if err := vmdisk.RemoveDriveOwned(ctx, diskIdentity, resource.ID); err != nil {
 				return err
 			}
 		}
@@ -544,28 +589,100 @@ func cleanupJournalVMResource(resource JournalVM, createdAt time.Time) error {
 	return nil
 }
 
+func (s *Stack) diskStoreIdentity() (vmdisk.StoreIdentity, error) {
+	if s == nil || s.config.JournalPath == "" {
+		return vmdisk.StoreIdentity{}, nil
+	}
+	s.journalMu.Lock()
+	if s.journal == nil {
+		s.journalMu.Unlock()
+		return vmdisk.StoreIdentity{}, nil
+	}
+	journal := *s.journal
+	if s.journal.DiskStore != nil {
+		stored := *s.journal.DiskStore
+		journal.DiskStore = &stored
+	}
+	s.journalMu.Unlock()
+	if journal.DiskStore == nil {
+		return vmdisk.StoreIdentity{}, nil
+	}
+	return journalDiskStoreIdentity(journal)
+}
+
+func (s *Stack) cleanupJournalDiskStore(ctx context.Context) error {
+	identity, err := s.diskStoreIdentity()
+	if err != nil || identity.Root == "" {
+		return err
+	}
+	if finalizer, ok := s.config.VMFactory.(diskStoreFinalizer); ok {
+		return finalizer.FinalizeDiskStore(ctx, identity)
+	}
+	return vmdisk.RemoveStore(ctx, identity)
+}
+
+func removeEmptyOwnedCgroup(path string) error {
+	if path == "" {
+		return nil
+	}
+	if !canonicalAbsolute(path) || filepath.Clean(path) == string(filepath.Separator) {
+		return errors.New("vmqual: cgroup cleanup path is invalid")
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("vmqual: owned cgroup path is not a directory")
+	}
+	processes, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(processes)) != "" {
+		return errors.New("vmqual: refusing to remove a cgroup with live processes")
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func stopJournaledProcess(resource JournalVM) error {
 	runtime, runtimeErr := readRuntimeRecord(resource.RuntimePath)
 	if runtimeErr != nil && !errors.Is(runtimeErr, os.ErrNotExist) {
 		return runtimeErr
 	}
+	var process *VMProcessIdentity
+	if resource.Process != nil {
+		identity := *resource.Process
+		process = &identity
+	}
 	if runtimeErr == nil {
 		if runtime.ID != resource.ID || runtime.SocketPath != resource.SocketPath || runtime.PID <= 0 || runtime.ProcessStartTime == 0 {
 			return errors.New("vmqual: runtime process identity does not match cleanup journal")
 		}
-		if resource.Process == nil || runtime.PID != resource.Process.PID || runtime.ProcessStartTime != resource.Process.StartTimeTicks {
-			if runtime.State == "running" {
-				return errors.New("vmqual: running process is not bound to the cleanup journal")
+		if process != nil && (runtime.PID != process.PID || runtime.ProcessStartTime != process.StartTimeTicks) && runtime.State == "running" {
+			return errors.New("vmqual: running process differs from the cleanup journal")
+		}
+		if process == nil && runtime.State == "running" {
+			identity := VMProcessIdentity{PID: runtime.PID, StartTimeTicks: runtime.ProcessStartTime, Executable: resource.FirecrackerPath}
+			if err := validateProcessIdentity(identity); err != nil {
+				return errors.New("vmqual: running process cannot be recovered from the runtime record")
 			}
+			process = &identity
 		}
 	}
-	if resource.Process == nil {
+	if process == nil {
 		if socketActive(resource.SocketPath) || runtimeErr == nil && runtime.State == "running" {
 			return errors.New("vmqual: active VM has no process identity")
 		}
 		return nil
 	}
-	matched, err := processIdentityMatches(*resource.Process)
+	matched, err := processIdentityMatches(*process)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if socketActive(resource.SocketPath) {
@@ -578,13 +695,16 @@ func stopJournaledProcess(resource JournalVM) error {
 	if !matched {
 		return errors.New("vmqual: process identity mismatch; refusing to signal reused PID")
 	}
-	if err := syscall.Kill(resource.Process.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := verifyProcessCgroupOwnership(resource, process.PID); err != nil {
 		return err
 	}
-	if waitForProcessExit(*resource.Process, time.Second) {
+	if err := syscall.Kill(process.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	if waitForProcessExit(*process, time.Second) {
 		return nil
 	}
-	matched, err = processIdentityMatches(*resource.Process)
+	matched, err = processIdentityMatches(*process)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -594,13 +714,45 @@ func stopJournaledProcess(resource JournalVM) error {
 	if !matched {
 		return errors.New("vmqual: process identity changed before forced stop")
 	}
-	if err := syscall.Kill(resource.Process.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := verifyProcessCgroupOwnership(resource, process.PID); err != nil {
 		return err
 	}
-	if !waitForProcessExit(*resource.Process, time.Second) {
+	if err := syscall.Kill(process.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	if !waitForProcessExit(*process, time.Second) {
 		return errors.New("vmqual: VM process did not stop")
 	}
 	return nil
+}
+
+func verifyProcessCgroupOwnership(resource JournalVM, pid int) error {
+	for _, path := range []string{resource.CgroupPath, resource.JailerCgroupPath} {
+		file, err := os.Open(filepath.Join(path, "cgroup.procs"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, 4097))
+		closeErr := file.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return err
+		}
+		if len(data) > 4096 {
+			return errors.New("vmqual: owned cgroup process list exceeds its bound")
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 1 || fields[0] != strconv.Itoa(pid) {
+			return errors.New("vmqual: owned cgroup contains an unexpected process")
+		}
+		return nil
+	}
+	return errors.New("vmqual: running process is absent from its owned cgroups")
 }
 
 func processIdentityMatches(identity VMProcessIdentity) (bool, error) {
@@ -671,11 +823,11 @@ func zeroProcessIdentity(process VMProcessIdentity) bool {
 }
 
 func sameResourcePaths(expected JournalVM, observed VMResourceIdentity, runID string) bool {
-	return observed.RunID == runID && expected.StateDir == observed.StateDir && expected.SandboxOwnershipPath == observed.SandboxOwnershipPath && expected.RunMarkerPath == observed.RunMarkerPath && expected.RuntimePath == observed.RuntimePath && expected.JailRoot == observed.JailRoot && expected.SocketPath == observed.SocketPath && expected.LogPath == observed.LogPath && expected.MetricsPath == observed.MetricsPath && expected.DriveDir == observed.DriveDir && expected.DrivePath == observed.DrivePath && expected.DriveMetadataPath == observed.DriveMetadataPath && expected.SeedDir == observed.SeedDir && expected.SeedDrivePath == observed.SeedDrivePath
+	return observed.RunID == runID && expected.StateDir == observed.StateDir && expected.SandboxOwnershipPath == observed.SandboxOwnershipPath && expected.RunMarkerPath == observed.RunMarkerPath && expected.RuntimePath == observed.RuntimePath && expected.JailRoot == observed.JailRoot && expected.SocketPath == observed.SocketPath && expected.LogPath == observed.LogPath && expected.MetricsPath == observed.MetricsPath && expected.CgroupRoot == observed.CgroupRoot && expected.CgroupPath == observed.CgroupPath && expected.JailerCgroupPath == observed.JailerCgroupPath && expected.FirecrackerPath == observed.FirecrackerPath && expected.DriveDir == observed.DriveDir && expected.DrivePath == observed.DrivePath && expected.DriveMetadataPath == observed.DriveMetadataPath && expected.DriveOwnershipPath == observed.DriveOwnershipPath && expected.SeedDir == observed.SeedDir && expected.SeedDrivePath == observed.SeedDrivePath
 }
 
 func claimForResource(resource JournalVM, createdAt time.Time) vmResourceClaim {
-	return vmResourceClaim{Version: runMarkerVersion, Marker: runClaimMarker, RunID: resource.RunID, ID: resource.ID, Region: resource.Region, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RuntimePath: resource.RuntimePath, DriveDir: resource.DriveDir, DriveMetadataPath: resource.DriveMetadataPath, SeedDir: resource.SeedDir, SeedDrivePath: resource.SeedDrivePath, CreatedAt: createdAt}
+	return vmResourceClaim{Version: runMarkerVersion, Marker: runClaimMarker, RunID: resource.RunID, ID: resource.ID, Region: resource.Region, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RuntimePath: resource.RuntimePath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir, SeedDrivePath: resource.SeedDrivePath, CreatedAt: createdAt}
 }
 
 func readJournal(path string) (Journal, error) {
@@ -708,15 +860,18 @@ func readResourceClaim(path string) (vmResourceClaim, error) {
 }
 
 type sandboxOwnership struct {
-	Marker       string    `json:"marker"`
-	ID           string    `json:"id"`
-	Region       string    `json:"region"`
-	JailRoot     string    `json:"jailRoot"`
-	SocketPath   string    `json:"socketPath"`
-	LogPath      string    `json:"logPath"`
-	MetricsPath  string    `json:"metricsPath"`
-	RuntimeState string    `json:"runtimeState"`
-	CreatedAt    time.Time `json:"createdAt"`
+	Marker           string    `json:"marker"`
+	ID               string    `json:"id"`
+	Region           string    `json:"region"`
+	JailRoot         string    `json:"jailRoot"`
+	SocketPath       string    `json:"socketPath"`
+	LogPath          string    `json:"logPath"`
+	MetricsPath      string    `json:"metricsPath"`
+	RuntimeState     string    `json:"runtimeState"`
+	CgroupRoot       string    `json:"cgroupRoot"`
+	CgroupPath       string    `json:"cgroupPath"`
+	JailerCgroupPath string    `json:"jailerCgroupPath"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type runtimeRecord struct {
@@ -741,25 +896,13 @@ func readRuntimeRecord(path string) (runtimeRecord, error) {
 }
 
 func validateRuntimeRecord(record runtimeRecord, resource JournalVM, createdAt time.Time) error {
-	if record.Version != 1 || record.Marker != "terrascale-sandboxvm-v1" || record.ID != resource.ID || !oneOf(record.State, "running", "stopped") || record.PID <= 0 || record.ProcessStartTime == 0 || record.Firecracker == "" || record.SocketPath != resource.SocketPath || record.LogPath != resource.LogPath || record.MetricsPath != resource.MetricsPath || record.ObservedAt.IsZero() || record.ObservedAt.Before(createdAt) {
+	if record.Version != 1 || record.Marker != "terrascale-sandboxvm-v1" || record.ID != resource.ID || !oneOf(record.State, "running", "stopped") || record.PID <= 0 || record.ProcessStartTime == 0 || record.SocketPath != resource.SocketPath || record.LogPath != resource.LogPath || record.MetricsPath != resource.MetricsPath || record.ObservedAt.IsZero() || record.ObservedAt.Before(createdAt) {
 		return fmt.Errorf("vmqual: runtime record %s does not match cleanup journal", resource.ID)
 	}
 	if resource.Process != nil && (record.PID != resource.Process.PID || record.ProcessStartTime != resource.Process.StartTimeTicks) {
 		return fmt.Errorf("vmqual: runtime process %s does not match cleanup journal", resource.ID)
 	}
 	return nil
-}
-
-type driveMetadata struct {
-	Version     int       `json:"version"`
-	ID          string    `json:"id"`
-	Size        int64     `json:"size"`
-	Attached    bool      `json:"attached"`
-	ReadOnly    bool      `json:"read_only"`
-	IOFailure   bool      `json:"io_failure"`
-	FilledBytes int64     `json:"filled_bytes"`
-	Generation  uint64    `json:"generation"`
-	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func readStrictJSONFile(path string, value any) error {
@@ -1116,7 +1259,7 @@ func oneOf(value string, admitted ...string) bool {
 }
 
 func resourcePaths(resource JournalVM) []string {
-	return []string{resource.ClaimPath, resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.SeedDir, resource.SeedDrivePath}
+	return []string{resource.ClaimPath, resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.CgroupPath, resource.JailerCgroupPath, resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.DriveOwnershipPath, resource.SeedDir, resource.SeedDrivePath}
 }
 
 func sameJournalPlan(existing, proposed Journal) bool {
@@ -1136,6 +1279,10 @@ func sameJournalPlan(existing, proposed Journal) bool {
 }
 
 func cloneJournal(journal Journal) Journal {
+	if journal.DiskStore != nil {
+		identity := *journal.DiskStore
+		journal.DiskStore = &identity
+	}
 	journal.VMs = append([]JournalVM(nil), journal.VMs...)
 	for index := range journal.VMs {
 		if journal.VMs[index].Process != nil {

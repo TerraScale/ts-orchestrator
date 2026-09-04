@@ -23,6 +23,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/observability"
+	"terrascale.tech/orchestrator/src/orchestrator/residency"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -477,6 +478,7 @@ func validateOperationsEstateValue(value any, depth int, count *int) error {
 // RestoreOperationsResult is state-derived proof of GOAL criterion 14.
 type RestoreOperationsResult struct {
 	DailyInterval        time.Duration `json:"dailyInterval"`
+	SchedulerCallbackRan bool          `json:"schedulerCallbackRan"`
 	RunID                string        `json:"runID"`
 	RestoredDatabases    []string      `json:"restoredDatabases"`
 	ScratchBranchesClean bool          `json:"scratchBranchesClean"`
@@ -522,31 +524,42 @@ func (c *LocalOperationsContract) QualifyRestoreAndMirrors(ctx context.Context) 
 	}
 	branches := &localScratchBranches{objects: c.objects}
 	backup := &localRestoreBackup{objects: c.objects, facts: facts}
-	scheduler := &localDailyScheduler{}
+	scheduler := &localDailyScheduler{at: c.now().UTC()}
 	pager := &localRestorePager{}
-	snapshots := &localControlSnapshots{objects: c.objects, now: c.now}
-	drill, err := restoredrill.New(backup, branches, journal, scheduler, pager, restoredrill.Config{
-		ControlPlaneID:       "control",
-		SampleSize:           1,
-		Seed:                 71,
-		Now:                  c.now,
-		Snapshotter:          snapshots,
-		SnapshotMirror:       snapshots,
-		SnapshotRegions:      append([]string(nil), operationsRegions...),
-		AcceptedControlEpoch: 3,
+	snapshotter, controlJetStream, err := newLocalControlJetStreamSnapshotter(ctx, c.objects, c.now)
+	if err != nil {
+		return result, err
+	}
+	defer controlJetStream.Close()
+	snapshots := &localControlSnapshots{objects: c.objects}
+	mirror, err := delivery.NewArtifactMirror(estate.Default(), c.objects)
+	if err != nil {
+		return result, err
+	}
+	composition, err := restoredrill.NewProductionComposition(restoredrill.ProductionConfig{
+		Backup: backup, Branches: branches, Journal: journal, Scheduler: scheduler, Pager: pager,
+		Drill: restoredrill.Config{
+			ControlPlaneID: "control", SampleSize: 1, Seed: 71, Now: c.now, AcceptedControlEpoch: 3,
+		},
+		Snapshotter: snapshotter, SnapshotMirror: snapshots,
+		SnapshotRegions: append([]string(nil), operationsRegions...), ArtifactMirror: mirror,
 	})
 	if err != nil {
 		return result, err
 	}
-	if err := drill.Start(ctx); err != nil {
+	if err := composition.Drill.Start(ctx); err != nil {
 		return result, err
 	}
 	result.DailyInterval = scheduler.interval
+	result.SchedulerCallbackRan = scheduler.callbackRan
 	if result.DailyInterval != 24*time.Hour {
 		return result, fmt.Errorf("vmqual: restore drill cadence is %s, want 24h", result.DailyInterval)
 	}
-	run, err := drill.RunAt(ctx, c.now().UTC())
-	if err != nil || run.Status != restoredrill.RunSucceeded {
+	if !result.SchedulerCallbackRan {
+		return result, errors.New("vmqual: daily restore scheduler did not invoke its callback")
+	}
+	run, found, err := journal.LoadRun(ctx, "restore-drill-"+c.now().UTC().Format("2006-01-02"))
+	if err != nil || !found || run.Status != restoredrill.RunSucceeded {
 		return result, fmt.Errorf("vmqual: restore drill status %s: %w", run.Status, err)
 	}
 	if pager.count() != 0 || len(run.DatabaseIDs) != 2 || run.DatabaseIDs[0] != "control" {
@@ -594,11 +607,7 @@ func (c *LocalOperationsContract) QualifyRestoreAndMirrors(ctx context.Context) 
 		Service: "terrabase", Digest: delivery.SHA256Digest(artifactBody), Architecture: "linux/amd64",
 		Body: artifactBody, SignatureKey: "vmqual-release-key",
 	}
-	mirror, err := delivery.NewArtifactMirror(estate.Default(), c.objects)
-	if err != nil {
-		return result, err
-	}
-	if err := mirror.MirrorAll(ctx, artifact); err != nil {
+	if err := composition.ArtifactMirror.MirrorAll(ctx, artifact); err != nil {
 		return result, err
 	}
 	result.ArtifactObject = delivery.MirrorObject(artifact.Service, artifact.Digest)
@@ -615,15 +624,18 @@ func (c *LocalOperationsContract) QualifyRestoreAndMirrors(ctx context.Context) 
 }
 
 type localDailyScheduler struct {
-	interval time.Duration
+	interval    time.Duration
+	callbackRan bool
+	at          time.Time
 }
 
-func (s *localDailyScheduler) Every(_ context.Context, interval time.Duration, callback func(context.Context, time.Time) error) error {
+func (s *localDailyScheduler) Every(ctx context.Context, interval time.Duration, callback func(context.Context, time.Time) error) error {
 	if interval <= 0 || callback == nil {
 		return restoredrill.ErrInvalidConfig
 	}
 	s.interval = interval
-	return nil
+	s.callbackRan = true
+	return callback(ctx, s.at)
 }
 
 type localRestorePager struct {
@@ -859,28 +871,6 @@ func copyOperationsRun(run restoredrill.RunRecord) restoredrill.RunRecord {
 
 type localControlSnapshots struct {
 	objects *localOperationsObjectStore
-	now     func() time.Time
-}
-
-func (s *localControlSnapshots) Snapshot(ctx context.Context, request restoredrill.SnapshotRequest) (restoredrill.ControlStateSnapshot, error) {
-	if request.RunID == "" || request.ObjectKey == "" || request.IdempotencyKey != request.RunID || request.ControlEpoch == 0 || request.RestoreEpoch != request.ControlEpoch {
-		return restoredrill.ControlStateSnapshot{}, errors.New("vmqual: control snapshot request is incomplete or unfenced")
-	}
-	body, err := json.Marshal(map[string]any{
-		"stream": "terrascale-control", "runID": request.RunID, "controlEpoch": request.ControlEpoch,
-	})
-	if err != nil {
-		return restoredrill.ControlStateSnapshot{}, err
-	}
-	if err := s.objects.put(ctx, operationsControlRegion, operationsControlBucket, request.ObjectKey, body); err != nil {
-		return restoredrill.ControlStateSnapshot{}, err
-	}
-	digest := delivery.SHA256Digest(body)
-	return restoredrill.ControlStateSnapshot{
-		ID: "snapshot-" + strings.TrimPrefix(digest, "sha256:")[:16], ObjectKey: request.ObjectKey,
-		Checksum: digest, Size: int64(len(body)), ControlEpoch: request.ControlEpoch,
-		RestoreEpoch: request.RestoreEpoch, CreatedAt: s.now().UTC(),
-	}, nil
 }
 
 func (s *localControlSnapshots) Mirror(ctx context.Context, snapshot restoredrill.ControlStateSnapshot, region string) error {
@@ -896,15 +886,19 @@ func (s *localControlSnapshots) Mirror(ctx context.Context, snapshot restoredril
 
 // PlacementOperationsResult is state-derived proof of GOAL criterion 15.
 type PlacementOperationsResult struct {
-	Kind             string   `json:"kind"`
-	Regions          []string `json:"regions"`
-	Generation       uint64   `json:"generation"`
-	Transitions      []string `json:"transitions"`
-	WideningRejected bool     `json:"wideningRejected"`
-	Persistent       bool     `json:"persistent"`
+	Kind             string                    `json:"kind"`
+	Regions          []string                  `json:"regions"`
+	Generation       uint64                    `json:"generation"`
+	Bootstrap        residency.MutationReceipt `json:"bootstrap"`
+	Repair           residency.MutationReceipt `json:"repair"`
+	Backup           residency.MutationReceipt `json:"backup"`
+	Restore          residency.MutationReceipt `json:"restore"`
+	Export           residency.MutationReceipt `json:"export"`
+	Branch           residency.MutationReceipt `json:"branch"`
+	RegionChange     residency.MutationReceipt `json:"regionChange"`
+	WideningRejected bool                      `json:"wideningRejected"`
+	Persistent       bool                      `json:"persistent"`
 }
-
-var placementTransitions = []string{"bootstrap", "repair", "backup", "restore", "export", "branch", "region-change"}
 
 type persistedPlacementLock struct {
 	Kind       string   `json:"kind"`
@@ -912,93 +906,10 @@ type persistedPlacementLock struct {
 	Generation uint64   `json:"generation"`
 }
 
-// QualifyPlacementLocks persists and reloads one production-admitted lock at
-// every named byte-at-rest transition, and proves that a Region addition
-// cannot widen it.
+// QualifyPlacementLocks runs every typed byte-at-rest mutation through the
+// production residency coordinator.
 func (c *LocalOperationsContract) QualifyPlacementLocks(ctx context.Context) (PlacementOperationsResult, error) {
-	var result PlacementOperationsResult
-	if err := c.ready(ctx); err != nil {
-		return result, err
-	}
-	if err := c.ensureDeclaredBuckets(ctx); err != nil {
-		return result, err
-	}
-	lock, err := placement.NewExplicitPlacementLock([]placement.RegionCode{placement.RegionCodeGru, placement.RegionCodeFra}, 1)
-	if err != nil {
-		return result, err
-	}
-	resolved, err := placement.ResolvePlacementLock(lock, operationsPlacementCatalog())
-	if err != nil {
-		return result, err
-	}
-	decision := placement.DatabasePlacementEvaluator.Evaluate(operationsPlacementRequest(resolved), operationsPlacementCatalog())
-	if !decision.Accepted() || decision.EffectiveLock == nil {
-		return result, fmt.Errorf("vmqual: production placement contract rejected qualification intent: %+v", decision.Errors)
-	}
-	lock = decision.EffectiveLock
-	encoded, err := encodePlacementLock(lock)
-	if err != nil {
-		return result, err
-	}
-	const currentKey = "vmqual/placement/qualification/current.json"
-	if err := c.objects.put(ctx, "gru", operationsControlBucket, currentKey, encoded); err != nil {
-		return result, err
-	}
-	targets := map[string]string{
-		"bootstrap": "gru", "repair": "fra", "backup": "fra", "restore": "gru",
-		"export": "fra", "branch": "gru", "region-change": "fra",
-	}
-	for _, operation := range placementTransitions {
-		raw, found, err := c.objects.get(ctx, "gru", operationsControlBucket, currentKey)
-		if err != nil || !found {
-			return result, fmt.Errorf("vmqual: placement lock disappeared before %s: %w", operation, err)
-		}
-		persisted, err := decodePlacementLock(raw)
-		if err != nil {
-			return result, err
-		}
-		if err := placement.CheckPlacementLockWidening(lock, persisted); err != nil || !samePlacementLock(lock, persisted) {
-			return result, fmt.Errorf("vmqual: placement lock changed at %s: %w", operation, err)
-		}
-		target := targets[operation]
-		if !placementLockContains(persisted, strings.ToUpper(target)) {
-			return result, fmt.Errorf("vmqual: placement transition %s escaped its lock", operation)
-		}
-		body, _ := json.Marshal(map[string]any{"database": "qualification", "operation": operation, "placementLock": json.RawMessage(raw)})
-		object := "vmqual/placement/qualification/operations/" + operation + ".json"
-		if err := c.objects.put(ctx, target, operationsBackupBucket, object, body); err != nil {
-			return result, err
-		}
-		readback, found, err := c.objects.get(ctx, target, operationsBackupBucket, object)
-		if err != nil || !found || !bytes.Equal(readback, body) {
-			return result, fmt.Errorf("vmqual: placement transition %s was not persisted: %w", operation, err)
-		}
-		_, escaped, err := c.objects.head(ctx, "sfo", operationsBackupBucket, object)
-		if err != nil || escaped {
-			return result, fmt.Errorf("vmqual: placement transition %s wrote outside its lock: %w", operation, err)
-		}
-		result.Transitions = append(result.Transitions, operation)
-	}
-	widened, err := placement.NewExplicitPlacementLock([]placement.RegionCode{placement.RegionCodeGru, placement.RegionCodeFra, placement.RegionCodeSfo}, 2)
-	if err != nil {
-		return result, err
-	}
-	result.WideningRejected = placement.CheckPlacementLockWidening(lock, widened) != nil
-	if !result.WideningRejected {
-		return result, errors.New("vmqual: placement lock widening was accepted")
-	}
-	_, escaped, err := c.objects.head(ctx, "sfo", operationsControlBucket, currentKey)
-	if err != nil || escaped {
-		return result, fmt.Errorf("vmqual: placement lock itself escaped residency: %w", err)
-	}
-	result.Kind = string(lock.Kind)
-	result.Generation = lock.Generation
-	for _, region := range lock.Regions {
-		result.Regions = append(result.Regions, region.Value())
-	}
-	sort.Strings(result.Regions)
-	result.Persistent = true
-	return result, nil
+	return c.qualifyPlacementMutations(ctx)
 }
 
 func operationsPlacementCatalog() *placement.RegionCatalog {
@@ -1044,6 +955,9 @@ func decodePlacementLock(raw []byte) (*placement.PlacementLock, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {
 		return nil, errors.New("vmqual: persisted placement lock is malformed")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, errors.New("vmqual: persisted placement lock has trailing data")
 	}
 	regions := make([]placement.RegionCode, 0, len(value.Regions))
 	for _, rawRegion := range value.Regions {
@@ -1105,6 +1019,10 @@ func (c *LocalOperationsContract) ensureDeclaredBuckets(ctx context.Context) err
 type localOperationsObjectStore struct {
 	endpoints *LocalProviderEndpoints
 	client    *http.Client
+}
+
+func (s *localOperationsObjectStore) GetSnapshot(ctx context.Context, region, bucket, object string) ([]byte, bool, error) {
+	return s.get(ctx, region, bucket, object)
 }
 
 func (s *localOperationsObjectStore) Put(ctx context.Context, region, bucket, object string, body []byte) error {

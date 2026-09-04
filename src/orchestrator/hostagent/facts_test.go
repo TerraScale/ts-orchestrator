@@ -31,6 +31,7 @@ func newTestFactsSource(t *testing.T, clock ClockSource, systemd SystemdControll
 		DataVolumeRoot: "/var/lib/terrascale",
 		Systemd:        systemd,
 		InstallRoot:    t.TempDir(),
+		Installer:      &Installer{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,10 +43,10 @@ func newTestFactsSource(t *testing.T, clock ClockSource, systemd SystemdControll
 // clock offset and health, disk figures, agent version, and per-component
 // desired/current/installed/active state.
 func TestHeartbeatPayloadCarriesHostFacts(t *testing.T) {
-	root := t.TempDir()
-	installFakeVersion(t, root, "terrabase", "1.0.0")
-	installFakeVersion(t, root, "terrabase", "1.2.3")
-	if err := FlipCurrent(root, "terrabase", "1.2.3"); err != nil {
+	harness := newTestHarness(t)
+	spec := harness.publish(t, "terrabase", "1.2.3")
+	harness.applyDesired(t, spec)
+	if err := FlipCurrent(harness.root, "terrabase", "1.2.3"); err != nil {
 		t.Fatal(err)
 	}
 	systemd := newFakeSystemd(UnitName("terrabase"))
@@ -54,13 +55,12 @@ func TestHeartbeatPayloadCarriesHostFacts(t *testing.T) {
 		Statfs:         fakeStatfs(1000<<30, 400<<30),
 		DataVolumeRoot: "/var/lib/terrascale",
 		Systemd:        systemd,
-		InstallRoot:    root,
+		InstallRoot:    harness.root,
+		Installer:      harness.lifecycle.installer,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := testComponentSpec()
-
 	facts, err := source.Sample(context.Background(), NodeStateServing, []ComponentSpec{spec})
 	if err != nil {
 		t.Fatalf("sample failed: %v", err)

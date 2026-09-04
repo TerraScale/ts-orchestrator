@@ -2,13 +2,20 @@ package vmqual
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/vmguest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
@@ -17,6 +24,7 @@ type networkController struct {
 	plan        vmnet.NetworkPlan
 	runner      vmnet.Runner
 	journalPath string
+	services    qualificationServices
 }
 
 // DynamicNetworkController is the live fault surface implemented by the real
@@ -51,10 +59,24 @@ func (n *networkController) Apply(ctx context.Context) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	var err error
 	if n.journalPath != "" {
-		return n.plan.ApplyWithJournal(ctx, n.runner, networkJournalWriter{path: n.journalPath})
+		err = n.plan.ApplyWithJournal(ctx, n.runner, networkJournalWriter{path: n.journalPath})
+	} else {
+		err = n.plan.Apply(ctx, n.runner)
 	}
-	return n.plan.Apply(ctx, n.runner)
+	if err != nil {
+		return err
+	}
+	if n.services == nil {
+		return nil
+	}
+	if err := n.services.Start(ctx); err != nil {
+		serviceErr := n.services.Close(context.WithoutCancel(ctx))
+		cleanupErr := n.plan.CleanupPlan().Run(context.WithoutCancel(ctx), n.runner)
+		return errors.Join(fmt.Errorf("vmqual: start qualification services: %w", err), serviceErr, cleanupErr)
+	}
+	return nil
 }
 func (n *networkController) Cleanup(ctx context.Context) error {
 	if n == nil {
@@ -65,7 +87,17 @@ func (n *networkController) Cleanup(ctx context.Context) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.plan.CleanupPlan().Run(context.WithoutCancel(ctx), n.runner)
+	cleanCtx := context.WithoutCancel(ctx)
+	var serviceErr error
+	if n.services != nil {
+		serviceErr = n.services.Close(cleanCtx)
+	}
+	planErr := n.plan.CleanupPlan().Run(cleanCtx, n.runner)
+	var journalErr error
+	if serviceErr == nil && planErr == nil && n.journalPath != "" {
+		journalErr = removeFileAndSync(n.journalPath)
+	}
+	return errors.Join(serviceErr, planErr, journalErr)
 }
 
 func (n *networkController) Partition(ctx context.Context, from, to vmnet.RegionCode) error {
@@ -120,6 +152,197 @@ func (n *networkController) Journal() vmnet.Journal {
 		return vmnet.Journal{}
 	}
 	return n.plan.Journal
+}
+
+// ProveGuestExchange sends one random frame through the exact planned smoke
+// forward. The host peer binds only the run-owned listener, accepts one
+// connection, and closes after returning the same bytes.
+func (n *networkController) ProveGuestExchange(ctx context.Context, vm VM) error {
+	if n == nil || vm == nil {
+		return errors.New("vmqual: network exchange requires a controller and VM")
+	}
+	if ctx == nil {
+		return errors.New("vmqual: network exchange context is nil")
+	}
+	requester, ok := vm.(interface {
+		NetworkExchange(context.Context, string, []byte) ([]byte, error)
+	})
+	if !ok {
+		return errors.New("vmqual: guest network-exchange channel is not configured")
+	}
+	observation, err := vm.Inspect(ctx)
+	if err != nil {
+		return fmt.Errorf("vmqual: inspect network-exchange guest: %w", err)
+	}
+	if !observation.Running || !observation.Ready || observation.Region == "" {
+		return errors.New("vmqual: network-exchange guest is not ready")
+	}
+
+	n.mu.Lock()
+	plan := n.plan
+	n.mu.Unlock()
+	listenerPlan, ok := plan.Listener("smoke")
+	if !ok || listenerPlan.Protocol != vmnet.TCP || listenerPlan.Port == 0 {
+		return errors.New("vmqual: smoke listener is absent from the network plan")
+	}
+	endpoint, ok := plan.Endpoint(observation.Region, "smoke")
+	if !ok || endpoint.Protocol != vmnet.TCP || endpoint.GuestPort == 0 ||
+		endpoint.HostAddress != listenerPlan.Address || endpoint.HostPort != listenerPlan.Port {
+		return errors.New("vmqual: smoke endpoint differs from its planned listener")
+	}
+	expectedSource := ""
+	for _, region := range plan.Regions {
+		if region.Code == observation.Region {
+			expectedSource = region.Uplink.RegionAddress
+			break
+		}
+	}
+	if expectedSource == "" {
+		return errors.New("vmqual: smoke endpoint Region is absent from the network plan")
+	}
+
+	exchangeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	hostAddress := net.JoinHostPort(listenerPlan.Address, strconv.Itoa(int(listenerPlan.Port)))
+	listener, err := (&net.ListenConfig{}).Listen(exchangeCtx, "tcp4", hostAddress)
+	if err != nil {
+		return fmt.Errorf("vmqual: bind planned smoke listener: %w", err)
+	}
+	defer listener.Close()
+	stopListener := context.AfterFunc(exchangeCtx, func() { _ = listener.Close() })
+	defer stopListener()
+
+	challenge := make([]byte, 32)
+	if _, err := rand.Read(challenge); err != nil {
+		return fmt.Errorf("vmqual: create network challenge: %w", err)
+	}
+	defer zeroBytes(challenge)
+	peerResult := make(chan error, 1)
+	go func() {
+		peerResult <- serveSmokeExchange(exchangeCtx, listener, expectedSource, challenge)
+	}()
+	guestAddress := net.JoinHostPort(endpoint.GuestAddress, strconv.Itoa(int(endpoint.GuestPort)))
+	response, requestErr := requester.NetworkExchange(exchangeCtx, guestAddress, challenge)
+	if requestErr != nil {
+		_ = listener.Close()
+	}
+	peerErr := <-peerResult
+	if requestErr != nil || peerErr != nil {
+		return errors.Join(requestErr, peerErr)
+	}
+	if !equalNetworkBytes(response, challenge) {
+		return errors.New("vmqual: guest network exchange changed the challenge")
+	}
+	return nil
+}
+
+func serveSmokeExchange(ctx context.Context, listener net.Listener, expectedSource string, challenge []byte) error {
+	connection, err := listener.Accept()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("vmqual: accept smoke exchange: %w", err)
+	}
+	_ = listener.Close()
+	defer connection.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := connection.SetDeadline(deadline); err != nil {
+			return err
+		}
+	}
+	host, _, err := net.SplitHostPort(connection.RemoteAddr().String())
+	if err != nil || host != expectedSource {
+		return errors.New("vmqual: smoke exchange arrived outside the planned Region uplink")
+	}
+	var header [4]byte
+	if _, err := io.ReadFull(connection, header[:]); err != nil {
+		return fmt.Errorf("vmqual: read smoke challenge frame: %w", err)
+	}
+	length := binary.BigEndian.Uint32(header[:])
+	if length == 0 || length > vmguest.MaxNetworkBytes || int(length) != len(challenge) {
+		return errors.New("vmqual: smoke challenge frame length is invalid")
+	}
+	payload := make([]byte, int(length))
+	defer zeroBytes(payload)
+	if _, err := io.ReadFull(connection, payload); err != nil {
+		return fmt.Errorf("vmqual: read smoke challenge: %w", err)
+	}
+	if !equalNetworkBytes(payload, challenge) {
+		return errors.New("vmqual: smoke peer received the wrong challenge")
+	}
+	binary.BigEndian.PutUint32(header[:], uint32(len(challenge)))
+	if err := writeNetworkFrame(connection, header[:]); err != nil {
+		return fmt.Errorf("vmqual: write smoke response frame: %w", err)
+	}
+	if err := writeNetworkFrame(connection, challenge); err != nil {
+		return fmt.Errorf("vmqual: write smoke response: %w", err)
+	}
+	return nil
+}
+
+func writeNetworkFrame(writer io.Writer, data []byte) error {
+	for len(data) != 0 {
+		written, err := writer.Write(data)
+		if written < 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		data = data[written:]
+		if err != nil {
+			return err
+		}
+		if written == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return nil
+}
+
+func equalNetworkBytes(left, right []byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	var difference byte
+	for index := range left {
+		difference |= left[index] ^ right[index]
+	}
+	return difference == 0
+}
+
+func (n *networkController) VerifyNoOwnedResources(ctx context.Context) error {
+	if n == nil {
+		return nil
+	}
+	if ctx == nil {
+		return errors.New("vmqual: network verification context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	plan, services, journalPath := n.plan, n.services, n.journalPath
+	n.mu.Unlock()
+	var errs []error
+	if services != nil {
+		errs = append(errs, services.VerifyStopped())
+	}
+	for _, region := range plan.Regions {
+		for _, path := range []string{region.NamespacePath, filepath.Join("/sys/class/net", region.Uplink.RootDevice)} {
+			if _, err := os.Lstat(path); err == nil {
+				errs = append(errs, fmt.Errorf("vmqual: owned network resource remains: %s", path))
+			} else if !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if journalPath != "" {
+		if _, err := os.Lstat(journalPath); err == nil {
+			errs = append(errs, errors.New("vmqual: network cleanup journal remains"))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type networkJournalWriter struct{ path string }

@@ -108,7 +108,7 @@ func TestNetworkExchangeHandlesPartialIOAndReturnsExactFrame(t *testing.T) {
 	challenge := []byte("random-controller-challenge")
 	reply := []byte("exact-peer-response")
 	peerDone := serveNetworkExchangePeer(peer, challenge, uint32(len(reply)), reply, nil)
-	config := Config{NetworkDialer: dialer, CommandTimeout: time.Second}
+	config := Config{NetworkExchangeEndpoint: "10.77.0.1:4100", NetworkDialer: dialer, CommandTimeout: time.Second}
 	response, err := networkExchange(context.Background(), config, "10.77.0.1:4100", challenge)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestNetworkExchangeRejectsOversizedTruncatedAndTrailingFrames(t *testing.T)
 			client, peer := net.Pipe()
 			challenge := []byte("challenge")
 			peerDone := serveNetworkExchangePeer(peer, challenge, test.length, test.response, test.trailing)
-			config := Config{NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: time.Second}
+			config := Config{NetworkExchangeEndpoint: "192.168.10.1:9876", NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: time.Second}
 			if response, err := networkExchange(context.Background(), config, "192.168.10.1:9876", challenge); err == nil || response != nil {
 				t.Fatalf("invalid frame returned response %q, error %v", response, err)
 			}
@@ -164,7 +164,7 @@ func TestNetworkExchangeDeadlineClosesStalledConnection(t *testing.T) {
 		_, err := peer.Read(data[:])
 		peerClosed <- err
 	}()
-	config := Config{NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: 20 * time.Millisecond}
+	config := Config{NetworkExchangeEndpoint: "172.16.20.1:1234", NetworkDialer: &fixedNetworkDialer{connection: client}, CommandTimeout: 20 * time.Millisecond}
 	response, err := networkExchange(context.Background(), config, "172.16.20.1:1234", challenge)
 	if !errors.Is(err, context.DeadlineExceeded) || response != nil {
 		t.Fatalf("stalled exchange returned response %q, error %v", response, err)
@@ -179,6 +179,33 @@ func TestNetworkExchangeDeadlineClosesStalledConnection(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("deadline did not close the network connection")
+	}
+}
+
+func TestNetworkExchangeRequiresExactTrustedEndpoint(t *testing.T) {
+	dialer := &fixedNetworkDialer{}
+	config := Config{NetworkExchangeEndpoint: "10.77.0.1:4100", NetworkDialer: dialer, CommandTimeout: time.Second}
+	for _, endpoint := range []string{"10.77.0.2:4100", "10.77.0.1:4101"} {
+		response, err := networkExchange(context.Background(), config, endpoint, []byte("challenge"))
+		if err == nil || response != nil || dialer.endpoint != "" {
+			t.Fatalf("unauthorized endpoint %q returned response %q, error %v, dialed %q", endpoint, response, err, dialer.endpoint)
+		}
+	}
+	config.NetworkExchangeEndpoint = ""
+	if _, err := networkExchange(context.Background(), config, "10.77.0.1:4100", []byte("challenge")); err == nil || dialer.endpoint != "" {
+		t.Fatalf("network exchange without trusted endpoint returned %v and dialed %q", err, dialer.endpoint)
+	}
+	invalidConfig := testConfig(t, &fakeExecutor{})
+	invalidConfig.NetworkExchangeEndpoint = "1.1.1.1:4100"
+	if _, err := invalidConfig.validate(); err == nil {
+		t.Fatal("configuration accepted a public network exchange endpoint")
+	}
+	serveConfig := testConfig(t, &fakeExecutor{})
+	serveConfig.NetworkExchangeEndpoint = "10.77.0.1:4100"
+	serveConfig.NetworkDialer = dialer
+	response := serveRequest(t, serveConfig, Request{SchemaVersion: SchemaVersion, Operation: OperationNetwork, Path: "10.77.0.2:4100", Data: []byte("challenge")}, "")
+	if response.Error == "" || len(response.Data) != 0 || dialer.endpoint != "" {
+		t.Fatalf("forced-command relay response = %+v, dialed %q", response, dialer.endpoint)
 	}
 }
 
@@ -387,6 +414,9 @@ func TestStorageRejectsHardLinksAndCleansReservedTemps(t *testing.T) {
 	}
 	if data, err := os.ReadFile(external); err != nil || string(data) != "private" {
 		t.Fatalf("hard-linked referent changed: %q, %v", data, err)
+	}
+	if err := os.Remove(filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
 	}
 
 	unsafeMode := filepath.Join(root, "unsafe-mode")
@@ -694,6 +724,20 @@ type controlledWriter struct {
 	once    sync.Once
 }
 
+type rejectedDeadlineReader struct{}
+
+func (rejectedDeadlineReader) Read([]byte) (int, error) { panic("unexpected read") }
+func (rejectedDeadlineReader) SetReadDeadline(time.Time) error {
+	return os.ErrNoDeadline
+}
+
+type rejectedDeadlineWriter struct{}
+
+func (rejectedDeadlineWriter) Write([]byte) (int, error) { panic("unexpected write") }
+func (rejectedDeadlineWriter) SetWriteDeadline(time.Time) error {
+	return os.ErrNoDeadline
+}
+
 func (writer *controlledWriter) Write(data []byte) (int, error) {
 	writer.once.Do(func() { close(writer.started) })
 	<-writer.release
@@ -739,8 +783,18 @@ func TestServeForcedDoesNotDetachNonClosableIO(t *testing.T) {
 	}
 }
 
+func TestServeForcedRejectsUncancellableDeadlineIO(t *testing.T) {
+	config := testConfig(t, &fakeExecutor{})
+	if err := ServeForced(context.Background(), rejectedDeadlineReader{}, io.Discard, "", config); err == nil || !strings.Contains(err.Error(), "reader does not support cancellation") {
+		t.Fatalf("uncancellable request reader returned %v", err)
+	}
+	if err := ServeForced(context.Background(), strings.NewReader(`{"schemaVersion":1,"operation":"probe"}`), rejectedDeadlineWriter{}, "", config); err == nil || !strings.Contains(err.Error(), "writer does not support cancellation") {
+		t.Fatalf("uncancellable response writer returned %v", err)
+	}
+}
+
 func TestDefaultConfigUsesRuntimeGuestSeedPath(t *testing.T) {
-	const expected = "/run/terrascale/guest-seed.json"
+	const expected = "/etc/terrascale/vmqual-guest-seed.json"
 	config := DefaultConfig()
 	if DefaultSeedPath != expected || config.SeedPath != expected {
 		t.Fatalf("default seed path = %q, config seed path = %q", DefaultSeedPath, config.SeedPath)

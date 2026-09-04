@@ -22,7 +22,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -56,8 +59,10 @@ type Config struct {
 	KernelImage               string
 	RootDrive                 string
 	DataDrive                 string
+	DataDriveReadOnly         bool
 	SeedDrive                 string
 	StateRoot                 string
+	CgroupRoot                string
 	JailerChrootBaseDir       string
 	JailerUID                 *int
 	JailerGID                 *int
@@ -81,6 +86,8 @@ type Config struct {
 	ExpectedJailerSHA256      string
 	ReadinessTimeout          time.Duration
 	StopTimeout               time.Duration
+	dataDriveBlock            *blockDeviceIdentity
+	jailerFiles               map[string]os.FileInfo
 }
 
 func (c Config) Validate() error {
@@ -95,8 +102,8 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Region) == "" {
 		return errors.New("region is required")
 	}
-	if c.VCPU < 1 {
-		return errors.New("vCPU must be at least one")
+	if c.VCPU < 1 || c.VCPU > 32 {
+		return errors.New("vCPU must be between one and 32")
 	}
 	if c.MemoryMiB < 256 || c.MemoryMiB > 512 {
 		return fmt.Errorf("memory must be between 256 and 512 MiB: %d", c.MemoryMiB)
@@ -118,6 +125,9 @@ func (c Config) Validate() error {
 			continue
 		}
 		base := filepath.Base(path)
+		if base == faultDataDriveJailName {
+			return fmt.Errorf("%s uses reserved jail basename %q", kind, base)
+		}
 		if prior, exists := basenames[base]; exists {
 			return fmt.Errorf("%s and %s have the same jail basename %q", prior, kind, base)
 		}
@@ -201,6 +211,8 @@ const (
 	// Linux limit and fail before starting a privileged process.
 	maxUnixSocketPathBytes = 107
 	jailerSocketPath       = "/api.sock"
+	cgroupParentName       = "terrascale-sandboxvm"
+	faultDataDriveJailName = "terrascale-data-fault.blk"
 	DiagnosticLimitBytes   = int64(1 << 20)
 	runtimeRecordVersion   = 1
 	linuxProcClockTicks    = 100
@@ -212,6 +224,9 @@ const (
 type Paths struct {
 	StateDir     string
 	JailRoot     string
+	Executable   string
+	Cgroup       string
+	JailerCgroup string
 	Socket       string
 	RootDrive    string
 	DataDrive    string
@@ -229,6 +244,15 @@ func normalizeConfig(c Config) (Config, Paths, error) {
 	}
 	if c.JailerChrootBaseDir == "" {
 		c.JailerChrootBaseDir = c.StateRoot
+	}
+	if c.CgroupRoot == "" {
+		var err error
+		c.CgroupRoot, err = discoverCgroup2Mount()
+		if err != nil {
+			return Config{}, Paths{}, err
+		}
+	} else if err := validateCgroup2Mount(c.CgroupRoot); err != nil {
+		return Config{}, Paths{}, err
 	}
 	if !filepath.IsAbs(c.JailerChrootBaseDir) || !pathAtOrWithinRoot(c.StateRoot, c.JailerChrootBaseDir) {
 		return Config{}, Paths{}, errors.New("jailer chroot base must remain at or below state root")
@@ -255,6 +279,9 @@ func normalizeConfig(c Config) (Config, Paths, error) {
 		Metrics:      filepath.Join(stateDir, "firecracker.metrics"),
 		RuntimeState: filepath.Join(stateDir, "runtime.json"),
 	}
+	paths.Executable = filepath.Join(paths.JailRoot, filepath.Base(c.FirecrackerBinary))
+	paths.Cgroup = filepath.Join(c.CgroupRoot, cgroupParentName, c.ID)
+	paths.JailerCgroup = filepath.Join(c.CgroupRoot, filepath.Base(c.FirecrackerBinary), c.ID)
 	paths.Socket = filepath.Join(paths.JailRoot, strings.TrimPrefix(jailerSocketPath, "/"))
 	if c.SocketPath != "" && filepath.Clean(c.SocketPath) != paths.Socket {
 		return Config{}, Paths{}, fmt.Errorf("socket path must match jailed Firecracker path %s", paths.Socket)
@@ -317,6 +344,56 @@ func pathAtOrWithinRoot(root, candidate string) bool {
 	return pathWithinRoot(root, candidate)
 }
 
+func discoverCgroup2Mount() (string, error) {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return "", fmt.Errorf("read cgroup mount table: %w", err)
+	}
+	if len(data) > 1<<20 {
+		return "", errors.New("cgroup mount table is oversized")
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		separator := -1
+		for index, field := range fields {
+			if field == "-" {
+				separator = index
+				break
+			}
+		}
+		if separator < 6 || separator+1 >= len(fields) || fields[separator+1] != "cgroup2" {
+			continue
+		}
+		mount := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`).Replace(fields[4])
+		if err := validateCgroup2Mount(mount); err != nil {
+			return "", err
+		}
+		return filepath.Clean(mount), nil
+	}
+	return "", errors.New("unified cgroup v2 mount was not found")
+}
+
+func validateCgroup2Mount(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return errors.New("cgroup v2 mount must be a canonical absolute path")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("cgroup v2 mount must be a non-symlink directory")
+	}
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(path, &fs); err != nil {
+		return err
+	}
+	if uint64(fs.Type) != uint64(0x63677270) {
+		return errors.New("configured cgroup mount is not cgroup v2")
+	}
+	return nil
+}
+
 // Version and checksum validation are hooks rather than policy hidden in the
 // SDK adapter. This lets the qualification suite test bad artifacts without
 // touching the host, while production release policy remains elsewhere.
@@ -376,7 +453,14 @@ func (h ValidationHooks) ValidateRestart(ctx context.Context, cfg Config) error 
 			return fmt.Errorf("validate Firecracker version: %w", err)
 		}
 	}
-	for name, path := range map[string]string{"root drive": cfg.RootDrive, "data drive": cfg.DataDrive} {
+	mutableDrives := map[string]string{"root drive": cfg.RootDrive}
+	if cfg.dataDriveBlock == nil {
+		mutableDrives["data drive"] = cfg.DataDrive
+	}
+	for name, path := range mutableDrives {
+		if path == "" {
+			continue
+		}
 		if err := validateMutableDrive(path); err != nil {
 			return fmt.Errorf("validate %s: %w", name, err)
 		}
@@ -409,6 +493,124 @@ func validateMutableDrive(path string) error {
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("drive must be a regular non-symlink file")
+	}
+	return nil
+}
+
+// validateJailerInputs binds the disposable per-VM drives to the exact account
+// Firecracker uses after the jailer drops privilege. The SDK hard-links these
+// files into the jail, so a shared or root-only source would either mutate
+// another owner's inode or leave the VMM unable to open its drives.
+func validateJailerInputs(cfg Config) (map[string]os.FileInfo, error) {
+	uid, gid := *cfg.JailerUID, *cfg.JailerGID
+	drives := map[string]string{"root drive": cfg.RootDrive, "data drive": cfg.DataDrive}
+	if cfg.SeedDrive != "" {
+		drives["seed drive"] = cfg.SeedDrive
+	}
+	identities := make(map[string]os.FileInfo, len(drives))
+	for name, path := range drives {
+		info, err := validatePrivateJailerFile(path, uid, gid)
+		if err != nil {
+			return nil, fmt.Errorf("validate %s jail ownership: %w", name, err)
+		}
+		identities[path] = info
+	}
+	if err := validateJailerReadable(cfg.KernelImage, uid, gid); err != nil {
+		return nil, fmt.Errorf("validate kernel jail readability: %w", err)
+	}
+	return identities, nil
+}
+
+func validatePrivateJailerFile(path string, uid, gid int) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("file must be regular and must not be a symlink")
+	}
+	if info.Mode().Perm() != 0600 {
+		return nil, fmt.Errorf("file mode is %04o, want 0600", info.Mode().Perm())
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, errors.New("file has no Linux inode identity")
+	}
+	if uint64(stat.Uid) != uint64(uid) || uint64(stat.Gid) != uint64(gid) {
+		return nil, fmt.Errorf("file owner is %d:%d, want %d:%d", stat.Uid, stat.Gid, uid, gid)
+	}
+	if stat.Nlink != 1 {
+		return nil, fmt.Errorf("file link count is %d, want 1", stat.Nlink)
+	}
+	return info, nil
+}
+
+func validateJailerReadable(path string, uid, gid int) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("file must be regular and must not be a symlink")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("file has no Linux ownership")
+	}
+	mode := info.Mode().Perm()
+	readable := uint64(stat.Uid) == uint64(uid) && mode&0400 != 0 || uint64(stat.Gid) == uint64(gid) && mode&0040 != 0 || mode&0004 != 0
+	if !readable {
+		return fmt.Errorf("file mode %04o and owner %d:%d are not readable by jail account %d:%d", mode, stat.Uid, stat.Gid, uid, gid)
+	}
+	return nil
+}
+
+func validateJailerInputIdentity(cfg Config, expected map[string]os.FileInfo) error {
+	uid, gid := *cfg.JailerUID, *cfg.JailerGID
+	for path, prior := range expected {
+		current, err := validatePrivateJailerFile(path, uid, gid)
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(prior, current) {
+			return fmt.Errorf("jailer drive inode changed: %s", path)
+		}
+	}
+	return validateJailerReadable(cfg.KernelImage, uid, gid)
+}
+
+func validateJailLinkDevices(cfg Config, stateDir string) error {
+	paths := []string{cfg.KernelImage, cfg.RootDrive}
+	if cfg.DataDrive != "" && cfg.dataDriveBlock == nil {
+		paths = append(paths, cfg.DataDrive)
+	}
+	if cfg.SeedDrive != "" {
+		paths = append(paths, cfg.SeedDrive)
+	}
+	for _, path := range paths {
+		if err := validateSameDevice(path, stateDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSameDevice(path, stateDir string) error {
+	stateInfo, err := os.Stat(stateDir)
+	if err != nil {
+		return err
+	}
+	stateStat, ok := stateInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("state directory has no Linux device identity")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Dev != stateStat.Dev {
+		return fmt.Errorf("jailer cannot hard-link cross-device artifact %s into %s", path, stateDir)
 	}
 	return nil
 }
@@ -453,6 +655,7 @@ type Machine interface {
 	Shutdown(context.Context) error
 	StopVMM() error
 	Wait(context.Context) error
+	ExitConfirmed() (bool, error)
 	Version(context.Context) (string, error)
 	Inspect(context.Context) (Inspection, error)
 }
@@ -482,6 +685,8 @@ type Inspection struct {
 	PID              int
 	ProcessStartTime uint64
 	Executable       string
+	ExecutableValid  bool
+	CgroupValid      bool
 	ProcessAlive     bool
 	SocketReady      bool
 	Version          string
@@ -542,13 +747,17 @@ type ownedState struct {
 	LogPath      string    `json:"logPath"`
 	MetricsPath  string    `json:"metricsPath"`
 	RuntimeState string    `json:"runtimeState"`
+	CgroupRoot   string    `json:"cgroupRoot"`
+	CgroupPath   string    `json:"cgroupPath"`
+	JailerCgroup string    `json:"jailerCgroupPath"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // RuntimeRecord is persisted after the SDK has started the non-daemonized
-// jailer process, observed the Firecracker API, and verified the pinned
-// version. PID alone is never sufficient to recover a process because Linux
-// can reuse it; StartTimeTicks is field 22 from /proc/<pid>/stat.
+// jailer process. FirecrackerVersion is empty for a live process captured from
+// a failed SDK startup before the API could report its version. PID alone is
+// never sufficient to recover a process because Linux can reuse it;
+// StartTimeTicks is field 22 from /proc/<pid>/stat.
 type RuntimeRecord struct {
 	Version          int        `json:"version"`
 	Marker           string     `json:"marker"`
@@ -578,19 +787,28 @@ type instance struct {
 	runtime          RuntimeRecord
 	stopDone         chan struct{}
 	stopResult       error
+	deleting         bool
+	deleteDone       chan struct{}
+	deleteResult     error
 	lastCPU          uint64
 	lastAt           time.Time
+	driveFiles       map[string]os.FileInfo
+	dataDriveSource  string
+	dataGeneration   uint64
+	dataFault        DataDriveFaultAttachment
 }
 
 type Provider struct {
-	mu         sync.Mutex
-	instances  map[string]*instance
-	factory    MachineFactory
-	apiFactory func(Config) (OpenAPI, error)
-	probe      GuestProbe
-	hooks      ValidationHooks
-	runner     CommandRunner
-	now        func() time.Time
+	mu               sync.Mutex
+	instances        map[string]*instance
+	factory          MachineFactory
+	apiFactory       func(Config) (OpenAPI, error)
+	probe            GuestProbe
+	hooks            ValidationHooks
+	runner           CommandRunner
+	dataFault        DataDriveFaultAdapter
+	resolveDataFault func(string, int, int) (blockDeviceIdentity, error)
+	now              func() time.Time
 }
 
 type Options struct {
@@ -599,7 +817,98 @@ type Options struct {
 	Probe          GuestProbe
 	Validation     ValidationHooks
 	CommandRunner  CommandRunner
+	DataDriveFault DataDriveFaultAdapter
 	Now            func() time.Time
+}
+
+type DataDrivePlan struct {
+	DriveID    string
+	Generation uint64
+	Attached   bool
+	Path       string
+	Size       int64
+	SHA256     string
+	ReadOnly   bool
+	IOFailure  bool
+}
+
+type DataDriveFaultAttachment interface {
+	Path() string
+	Cleanup(context.Context) error
+}
+
+// DataDriveFaultActivator is implemented by fault attachments that boot with
+// a healthy mapping and atomically switch it to the requested failure after
+// the guest has mounted the drive.
+type DataDriveFaultActivator interface {
+	Activate(context.Context) error
+}
+
+type DataDriveFaultRequest struct {
+	VMID       string
+	Generation uint64
+	SourcePath string
+	StateDir   string
+	UID        int
+	GID        int
+}
+
+type DataDriveFaultAdapter interface {
+	Prepare(context.Context, DataDriveFaultRequest) (DataDriveFaultAttachment, error)
+}
+
+type blockDeviceIdentity struct {
+	Path   string
+	Device uint64
+	Inode  uint64
+	Rdev   uint64
+}
+
+func resolvePrivateBlockDevice(path string, uid, gid int) (blockDeviceIdentity, error) {
+	if !filepath.IsAbs(path) {
+		return blockDeviceIdentity{}, errors.New("block-device path must be absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return blockDeviceIdentity{}, err
+	}
+	resolved = filepath.Clean(resolved)
+	if !pathAtOrWithinRoot("/dev", resolved) {
+		return blockDeviceIdentity{}, fmt.Errorf("resolved block device must remain below /dev: %s", resolved)
+	}
+	return inspectPrivateBlockDevice(resolved, uid, gid)
+}
+
+func inspectPrivateBlockDevice(path string, uid, gid int) (blockDeviceIdentity, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return blockDeviceIdentity{}, errors.New("block-device path must be clean and absolute")
+	}
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return blockDeviceIdentity{}, err
+	}
+	defer unix.Close(fd)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return blockDeviceIdentity{}, err
+	}
+	if stat.Mode&unix.S_IFMT != unix.S_IFBLK {
+		return blockDeviceIdentity{}, errors.New("fault adapter path must resolve to a block device")
+	}
+	if stat.Mode&0777 != 0600 {
+		return blockDeviceIdentity{}, fmt.Errorf("block-device mode is %04o, want 0600", stat.Mode&0777)
+	}
+	if uint64(stat.Uid) != uint64(uid) || uint64(stat.Gid) != uint64(gid) {
+		return blockDeviceIdentity{}, fmt.Errorf("block-device owner is %d:%d, want %d:%d", stat.Uid, stat.Gid, uid, gid)
+	}
+	if stat.Nlink != 1 {
+		return blockDeviceIdentity{}, fmt.Errorf("block-device link count is %d, want 1", stat.Nlink)
+	}
+	return blockDeviceIdentity{Path: path, Device: uint64(stat.Dev), Inode: stat.Ino, Rdev: uint64(stat.Rdev)}, nil
+}
+
+func (identity blockDeviceIdentity) matches(other blockDeviceIdentity) bool {
+	return identity.Path == other.Path && identity.Device == other.Device && identity.Inode == other.Inode && identity.Rdev == other.Rdev
 }
 
 func New(opts Options) (*Provider, error) {
@@ -615,7 +924,7 @@ func New(opts Options) (*Provider, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Provider{instances: make(map[string]*instance), factory: opts.MachineFactory, apiFactory: opts.OpenAPIFactory, probe: opts.Probe, hooks: opts.Validation, runner: opts.CommandRunner, now: opts.Now}, nil
+	return &Provider{instances: make(map[string]*instance), factory: opts.MachineFactory, apiFactory: opts.OpenAPIFactory, probe: opts.Probe, hooks: opts.Validation, runner: opts.CommandRunner, dataFault: opts.DataDriveFault, resolveDataFault: resolvePrivateBlockDevice, now: opts.Now}, nil
 }
 
 // RegisterGuest supplies the test-only guest channel endpoint to a readiness
@@ -651,7 +960,15 @@ func (p *Provider) Create(ctx context.Context, cfg Config) (VMInfo, error) {
 	if err := p.hooks.Validate(ctx, cfg); err != nil {
 		return VMInfo{}, err
 	}
+	driveFiles, err := validateJailerInputs(cfg)
+	if err != nil {
+		return VMInfo{}, err
+	}
 	if err := prepareOwnedState(paths.StateDir, cfg, p.now()); err != nil {
+		return VMInfo{}, err
+	}
+	if err := validateJailLinkDevices(cfg, paths.StateDir); err != nil {
+		_ = removeOwnedState(paths.StateDir, cfg.ID)
 		return VMInfo{}, err
 	}
 	machine, err := p.factory(ctx, cfg)
@@ -674,7 +991,7 @@ func (p *Provider) Create(ctx context.Context, cfg Config) (VMInfo, error) {
 		_ = removeOwnedState(paths.StateDir, cfg.ID)
 		return VMInfo{}, errors.New("OpenAPI factory returned nil adapter")
 	}
-	i := &instance{cfg: cfg, paths: paths, machine: machine, api: api, state: StateCreated}
+	i := &instance{cfg: cfg, paths: paths, machine: machine, api: api, state: StateCreated, driveFiles: driveFiles, dataDriveSource: cfg.DataDrive}
 	p.mu.Lock()
 	if _, exists := p.instances[cfg.ID]; exists {
 		p.mu.Unlock()
@@ -711,7 +1028,7 @@ func (p *Provider) Start(ctx context.Context, id string) error {
 		i.mu.Unlock()
 		return p.ValidateProcess(ctx, id)
 	}
-	if i.state == StateDeleted || i.state == StateStarting || i.state == StateStopping {
+	if i.deleting || i.state == StateDeleted || i.state == StateStarting || i.state == StateStopping {
 		i.mu.Unlock()
 		return ErrNotRunning
 	}
@@ -723,50 +1040,26 @@ func (p *Provider) Start(ctx context.Context, id string) error {
 	}
 	i.state = StateStarting
 	if err := i.machine.Start(ctx); err != nil {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("start %s: %w", id, err), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("start %s: %w", id, err))
 	}
 	version, err := i.machine.Version(ctx)
 	if err != nil {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("verify running Firecracker version for %s: %w", id, err), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("verify running Firecracker version for %s: %w", id, err))
 	}
 	if version != i.cfg.ExpectedVersion {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("Firecracker version mismatch: got %q, want %q", version, i.cfg.ExpectedVersion), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("Firecracker version mismatch: got %q, want %q", version, i.cfg.ExpectedVersion))
 	}
 	inspection, err := i.machine.Inspect(ctx)
 	if err != nil {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("inspect started Firecracker process for %s: %w", id, err), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("inspect started Firecracker process for %s: %w", id, err))
 	}
 	inspection.Version = version
 	if err := validateRunningInspection(i.cfg, inspection); err != nil {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("verify started Firecracker process for %s: %w", id, err), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("verify started Firecracker process for %s: %w", id, err))
 	}
 	record := runtimeRecord(i.cfg, i.paths, inspection, p.now())
 	if err := writeRuntimeRecord(i.paths.RuntimeState, record); err != nil {
-		i.state = StateStopped
-		abortErr := abortMachine(i.machine, i.cfg.StopTimeout)
-		closeMachine(i.machine)
-		i.mu.Unlock()
-		return errors.Join(fmt.Errorf("record started Firecracker process for %s: %w", id, err), abortErr)
+		return p.failStartLocked(ctx, i, id, fmt.Errorf("record started Firecracker process for %s: %w", id, err))
 	}
 	i.runtime = record
 	i.versionValidated = true
@@ -776,15 +1069,80 @@ func (p *Provider) Start(ctx context.Context, id string) error {
 	return nil
 }
 
+// failStartLocked records any child that survived a failed SDK startup before
+// it attempts to stop that child. The record remains running if direct process
+// observation cannot prove exit, which prevents restart and deletion from
+// removing a live jail after the SDK closes its exit channel prematurely.
+func (p *Provider) failStartLocked(ctx context.Context, i *instance, id string, startErr error) error {
+	_, recordErr := p.persistLiveRuntimeLocked(ctx, i)
+	abortErr := abortMachine(context.WithoutCancel(ctx), i.machine, i.cfg.StopTimeout)
+	if abortErr == nil {
+		i.state = StateStopped
+		i.ready = false
+		i.versionValidated = false
+		if i.runtime.PID > 0 {
+			now := p.now().UTC()
+			record := i.runtime
+			record.State = StateStopped
+			record.ObservedAt = now
+			record.StoppedAt = &now
+			i.runtime = record
+			if err := writeRuntimeRecord(i.paths.RuntimeState, record); err != nil {
+				recordErr = errors.Join(recordErr, fmt.Errorf("record stopped Firecracker process for %s: %w", id, err))
+			}
+		}
+		closeMachine(i.machine)
+	} else {
+		i.state = StateRunning
+		i.ready = false
+		i.versionValidated = false
+		if i.runtime.PID == 0 {
+			_, retryErr := p.persistLiveRuntimeLocked(ctx, i)
+			recordErr = errors.Join(recordErr, retryErr)
+		}
+	}
+	i.mu.Unlock()
+	return errors.Join(startErr, recordErr, abortErr)
+}
+
+func (p *Provider) persistLiveRuntimeLocked(ctx context.Context, i *instance) (bool, error) {
+	inspectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), i.cfg.StopTimeout)
+	defer cancel()
+	inspection, inspectErr := i.machine.Inspect(inspectCtx)
+	if !inspection.ProcessAlive || inspection.PID <= 0 || inspection.ProcessStartTime == 0 {
+		confirmed, confirmErr := i.machine.ExitConfirmed()
+		if confirmed {
+			return false, inspectErr
+		}
+		return false, errors.Join(errors.New("live Firecracker process identity could not be persisted"), inspectErr, confirmErr)
+	}
+	inspection.State = StateRunning
+	record := runtimeRecord(i.cfg, i.paths, inspection, p.now())
+	if err := writeRuntimeRecord(i.paths.RuntimeState, record); err != nil {
+		return false, errors.Join(fmt.Errorf("persist live Firecracker process identity: %w", err), inspectErr)
+	}
+	i.runtime = record
+	i.state = StateRunning
+	i.ready = false
+	i.versionValidated = false
+	return true, inspectErr
+}
+
 // prepareRestartLocked replaces the SDK Machine because the official SDK
 // permits one Start call per Machine. The persistent host drives and bounded
 // diagnostic files stay in place; only ownership-verified jail artifacts from
 // the stopped VMM are removed.
 func (p *Provider) prepareRestartLocked(ctx context.Context, i *instance) error {
+	if err := resetOwnedJail(i.paths.StateDir, i.cfg.ID); err != nil {
+		return err
+	}
 	if err := p.hooks.ValidateRestart(ctx, i.cfg); err != nil {
 		return err
 	}
-	if err := resetOwnedJail(i.paths.StateDir, i.cfg.ID); err != nil {
+	if err := validateJailerInputIdentity(i.cfg, i.driveFiles); err != nil {
+		return err
+	}
+	if err := validateJailLinkDevices(i.cfg, i.paths.StateDir); err != nil {
 		return err
 	}
 	closeMachine(i.machine)
@@ -820,29 +1178,18 @@ func closeMachine(machine Machine) {
 	}
 }
 
-func abortMachine(machine Machine, timeout time.Duration) error {
-	stopErr := machine.StopVMM()
-	wait := func() error {
-		waitCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		return machine.Wait(waitCtx)
-	}
-	waitErr := wait()
-	if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) {
-		stopErr = errors.Join(stopErr, machine.StopVMM())
-		waitErr = wait()
-	}
-	if errors.Is(stopErr, os.ErrProcessDone) {
-		stopErr = nil
-	}
-	if waitErr != nil && !errors.Is(waitErr, context.Canceled) && !errors.Is(waitErr, context.DeadlineExceeded) {
-		// A process exit status still proves the SDK child is gone.
-		waitErr = nil
-	}
-	if waitErr == nil {
+func abortMachine(ctx context.Context, machine Machine, timeout time.Duration) error {
+	firstStopErr := machine.StopVMM()
+	confirmed, firstWaitErr := waitForConfirmedExit(ctx, machine, timeout)
+	if confirmed {
 		return nil
 	}
-	return fmt.Errorf("abort Firecracker after failed start: %w", errors.Join(stopErr, waitErr))
+	secondStopErr := machine.StopVMM()
+	confirmed, secondWaitErr := waitForConfirmedExit(ctx, machine, timeout)
+	if confirmed {
+		return nil
+	}
+	return fmt.Errorf("abort Firecracker after failed start: %w", errors.Join(errors.New("Firecracker process exit was not confirmed"), firstStopErr, firstWaitErr, secondStopErr, secondWaitErr))
 }
 
 // StartAndWaitReady makes cancellation cleanup explicit: a VM started by this
@@ -852,8 +1199,16 @@ func (p *Provider) StartAndWaitReady(ctx context.Context, id string) error {
 		return err
 	}
 	if err := p.WaitReady(ctx, id); err != nil {
-		_ = p.Stop(context.Background(), id)
-		return err
+		i, getErr := p.get(id)
+		if getErr != nil {
+			return errors.Join(err, getErr)
+		}
+		i.mu.Lock()
+		stopTimeout := i.cfg.StopTimeout
+		i.mu.Unlock()
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*stopTimeout)
+		defer cancel()
+		return errors.Join(err, p.Stop(cleanupCtx, id))
 	}
 	return nil
 }
@@ -907,11 +1262,15 @@ func (p *Provider) Stop(ctx context.Context, id string) error {
 	}
 	i.mu.Lock()
 	if i.state == StateStopped || i.state == StateCreated {
-		i.state = StateStopped
-		i.ready = false
-		i.versionValidated = false
-		i.mu.Unlock()
-		return nil
+		confirmed, confirmErr := i.machine.ExitConfirmed()
+		if confirmErr == nil && confirmed {
+			i.state = StateStopped
+			i.ready = false
+			i.versionValidated = false
+			i.mu.Unlock()
+			return nil
+		}
+		i.state = StateRunning
 	}
 	if i.state == StateDeleted {
 		i.mu.Unlock()
@@ -940,15 +1299,12 @@ func (p *Provider) Stop(ctx context.Context, id string) error {
 	i.mu.Unlock()
 	stopErr := stopAndConfirm(ctx, machine, timeout)
 	i.mu.Lock()
-	if stopErr == nil {
-		i.state = StateStopped
-		i.versionValidated = false
-	} else {
+	if stopErr != nil {
 		// A timed-out stop is indeterminate. Keep the instance retryable and do
 		// not let Delete remove its jail while the recorded process may live.
 		i.state = StateRunning
-		i.versionValidated = false
 	}
+	i.versionValidated = false
 	record := i.runtime
 	if stopErr == nil && record.PID > 0 {
 		now := p.now().UTC()
@@ -957,7 +1313,6 @@ func (p *Provider) Stop(ctx context.Context, id string) error {
 		record.ObservedAt = now
 		i.runtime = record
 	}
-	i.stopResult = stopErr
 	i.mu.Unlock()
 	var recordErr error
 	if stopErr == nil && record.PID > 0 {
@@ -965,13 +1320,164 @@ func (p *Provider) Stop(ctx context.Context, id string) error {
 	}
 	if recordErr != nil {
 		stopErr = fmt.Errorf("record stopped Firecracker process for %s: %w", id, recordErr)
-		i.mu.Lock()
-		i.stopResult = stopErr
-		i.mu.Unlock()
 	}
+	i.mu.Lock()
+	if stopErr == nil || recordErr != nil {
+		// A runtime write failure does not make a confirmed-dead process live.
+		// Publish Stopped only after the write attempt so Start cannot race an
+		// old runtime record onto disk behind a replacement process.
+		i.state = StateStopped
+	}
+	i.stopResult = stopErr
+	i.mu.Unlock()
 	close(done)
 	if stopErr != nil {
 		return fmt.Errorf("stop %s: %w", id, stopErr)
+	}
+	return nil
+}
+
+// ApplyDataDrivePlan installs one vmdisk next-boot outcome without importing
+// the vmdisk package into this host boundary. Callers must translate an
+// attached or detached BootPlan and retain its monotonically increasing
+// generation. The method never changes a running machine.
+func (p *Provider) ApplyDataDrivePlan(ctx context.Context, id string, plan DataDrivePlan) error {
+	i, err := p.get(id)
+	if err != nil {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != StateStopped || i.deleting {
+		return ErrNotRunning
+	}
+	exited, err := i.machine.ExitConfirmed()
+	if err != nil || !exited {
+		return errors.Join(errors.New("Firecracker exit is not confirmed for data-drive transition"), err)
+	}
+	if plan.DriveID != id || plan.Generation == 0 || plan.Generation <= i.dataGeneration {
+		return errors.New("data-drive plan identity or generation is invalid")
+	}
+	if plan.Attached {
+		if !filepath.IsAbs(plan.Path) || plan.Size <= 0 || !validSHA256(plan.SHA256) {
+			return errors.New("attached data-drive plan is incomplete")
+		}
+	} else if plan.Path != "" || plan.SHA256 != "" || plan.ReadOnly || plan.IOFailure {
+		return errors.New("detached data-drive plan must omit path, digest, read-only, and fault state")
+	}
+	if plan.IOFailure && p.dataFault == nil {
+		return errors.New("data-drive I/O failure requires a real runtime fault adapter")
+	}
+	// The stopped jail still hard-links its prior regular drives. Remove those
+	// links before enforcing the single-link invariant so a new generation may
+	// legitimately reuse the same source inode with different fault flags.
+	if err := resetOwnedJail(i.paths.StateDir, id); err != nil {
+		return err
+	}
+	uid, gid := *i.cfg.JailerUID, *i.cfg.JailerGID
+	var sourceInfo os.FileInfo
+	if plan.Attached {
+		sourceInfo, err = validatePrivateJailerFile(plan.Path, uid, gid)
+		if err != nil {
+			return fmt.Errorf("validate planned data drive: %w", err)
+		}
+		if sourceInfo.Size() != plan.Size {
+			return fmt.Errorf("planned data drive size is %d, want %d", sourceInfo.Size(), plan.Size)
+		}
+		if err := validateArtifact(Artifact{Kind: "data-drive", Path: plan.Path, SHA256: plan.SHA256}); err != nil {
+			return fmt.Errorf("validate planned data drive digest: %w", err)
+		}
+		currentInfo, currentErr := validatePrivateJailerFile(plan.Path, uid, gid)
+		if currentErr != nil || !os.SameFile(sourceInfo, currentInfo) {
+			return errors.Join(errors.New("planned data drive changed during validation"), currentErr)
+		}
+		if !plan.IOFailure {
+			if err := validateSameDevice(plan.Path, i.paths.StateDir); err != nil {
+				return err
+			}
+		}
+	}
+	var nextFault DataDriveFaultAttachment
+	runtimePath := plan.Path
+	var blockIdentity *blockDeviceIdentity
+	if plan.Attached && plan.IOFailure {
+		nextFault, err = p.dataFault.Prepare(ctx, DataDriveFaultRequest{VMID: id, Generation: plan.Generation, SourcePath: plan.Path, StateDir: i.paths.StateDir, UID: uid, GID: gid})
+		if err != nil {
+			if nextFault != nil {
+				_ = nextFault.Cleanup(context.WithoutCancel(ctx))
+			}
+			return fmt.Errorf("prepare data-drive I/O failure: %w", err)
+		}
+		if nextFault == nil {
+			return errors.New("runtime fault adapter returned no attachment")
+		}
+		faultPath := nextFault.Path()
+		if !filepath.IsAbs(faultPath) || filepath.Clean(faultPath) == filepath.Clean(plan.Path) {
+			_ = nextFault.Cleanup(context.WithoutCancel(ctx))
+			return errors.New("runtime fault adapter returned an invalid backing path")
+		}
+		identity, identityErr := p.resolveDataFault(faultPath, uid, gid)
+		if identityErr != nil {
+			_ = nextFault.Cleanup(context.WithoutCancel(ctx))
+			return fmt.Errorf("validate runtime fault block device: %w", identityErr)
+		}
+		blockIdentity = &identity
+		runtimePath = identity.Path
+	}
+	if i.dataFault != nil {
+		if err := i.dataFault.Cleanup(context.WithoutCancel(ctx)); err != nil {
+			if nextFault != nil {
+				_ = nextFault.Cleanup(context.WithoutCancel(ctx))
+			}
+			return fmt.Errorf("cleanup previous data-drive fault adapter: %w", err)
+		}
+	}
+	nextFiles := make(map[string]os.FileInfo, len(i.driveFiles)+1)
+	for path, info := range i.driveFiles {
+		if path != i.dataDriveSource {
+			nextFiles[path] = info
+		}
+	}
+	if plan.Attached {
+		nextFiles[plan.Path] = sourceInfo
+	}
+	i.cfg.DataDrive = runtimePath
+	i.cfg.DataDriveReadOnly = plan.ReadOnly
+	i.cfg.ExpectedDataDriveSHA256 = plan.SHA256
+	i.cfg.dataDriveBlock = blockIdentity
+	i.driveFiles = nextFiles
+	i.dataDriveSource = plan.Path
+	i.paths.DataDrive = plan.Path
+	i.dataGeneration = plan.Generation
+	i.dataFault = nextFault
+	return nil
+}
+
+// ActivateDataDriveFault switches the current generation's prepared mapping
+// while its VM is running. Holding the lifecycle lock prevents Stop, Delete,
+// or another data-drive plan from cleaning the attachment during activation.
+func (p *Provider) ActivateDataDriveFault(ctx context.Context, id string, generation uint64) error {
+	i, err := p.get(id)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != StateRunning || !i.versionValidated {
+		return ErrNotRunning
+	}
+	if generation == 0 || generation != i.dataGeneration || i.dataFault == nil {
+		return errors.New("data-drive fault generation is not active")
+	}
+	activator, ok := i.dataFault.(DataDriveFaultActivator)
+	if !ok {
+		return errors.New("data-drive fault attachment cannot be activated")
+	}
+	if err := activator.Activate(ctx); err != nil {
+		return fmt.Errorf("activate data-drive fault generation %d: %w", generation, err)
 	}
 	return nil
 }
@@ -986,30 +1492,51 @@ func stopAndConfirm(ctx context.Context, machine Machine, timeout time.Duration)
 		return errors.New("machine is not configured")
 	}
 	forced := false
+	shutdownErr := machine.Shutdown(ctx)
 	var forceErr error
-	if err := machine.Shutdown(ctx); err != nil {
+	if shutdownErr != nil {
 		forced = true
 		forceErr = machine.StopVMM()
 	}
-	wait := func() error {
-		waitCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		return machine.Wait(waitCtx)
+	confirmed, firstWaitErr := waitForConfirmedExit(ctx, machine, timeout)
+	if confirmed {
+		return nil
 	}
-	waitErr := wait()
-	if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) {
-		if !forced {
-			forced = true
-			forceErr = machine.StopVMM()
+	if !forced {
+		forced = true
+		forceErr = machine.StopVMM()
+	}
+	confirmed, secondWaitErr := waitForConfirmedExit(context.WithoutCancel(ctx), machine, timeout)
+	if confirmed {
+		return nil
+	}
+	return errors.Join(errors.New("Firecracker process exit was not confirmed"), shutdownErr, forceErr, firstWaitErr, secondWaitErr)
+}
+
+// waitForConfirmedExit treats Machine.Wait as a wake-up hint only. The SDK can
+// close its exit channel after an API-socket startup failure while the child is
+// still alive, so only a direct process-identity check confirms termination.
+func waitForConfirmedExit(ctx context.Context, machine Machine, timeout time.Duration) (bool, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	waitErr := machine.Wait(waitCtx)
+	var confirmErr error
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		confirmed, err := machine.ExitConfirmed()
+		if confirmed {
+			return true, nil
 		}
-		waitErr = wait()
+		if err != nil {
+			confirmErr = err
+		}
+		select {
+		case <-waitCtx.Done():
+			return false, errors.Join(waitErr, confirmErr, waitCtx.Err())
+		case <-ticker.C:
+		}
 	}
-	if errors.Is(waitErr, context.Canceled) || errors.Is(waitErr, context.DeadlineExceeded) {
-		return errors.Join(errors.New("Firecracker process exit was not confirmed"), forceErr, waitErr)
-	}
-	// Once Wait observes the closed SDK exit channel, a non-nil value is the
-	// child's exit status. A signal exit is expected after the forced path.
-	return nil
 }
 
 // ValidateVersion asks the VMM for its reported version after its API socket
@@ -1060,10 +1587,17 @@ func (p *Provider) Inspect(ctx context.Context, id string) (VMInfo, error) {
 	if info.PID > 0 {
 		info.RSSBytes, info.IdleCPU, info.CPUSampled = i.measureProcess(info.PID, p.now())
 	}
-	executableMatches, _ := sameExecutable(i.cfg.FirecrackerBinary, info.Executable)
-	identityMatches := i.runtime.PID > 0 && info.PID == i.runtime.PID && i.runtime.ProcessStartTime > 0 && info.ProcessStartTime == i.runtime.ProcessStartTime && executableMatches
-	if !info.ProcessAlive || !info.SocketReady || !identityMatches {
+	executableMatches := executablePathMatches(i.paths.Executable, info.Executable)
+	identityMatches := i.runtime.PID > 0 && info.PID == i.runtime.PID && i.runtime.ProcessStartTime > 0 && info.ProcessStartTime == i.runtime.ProcessStartTime && info.ExecutableValid && info.CgroupValid && executableMatches
+	if !info.ProcessAlive {
 		info.State = StateStopped
+		i.versionValidated = false
+	} else if !info.SocketReady || !identityMatches {
+		// A live process with a lost socket or changed inspection identity is
+		// indeterminate, not stopped. Keep Stop available to signal and reap the
+		// SDK-owned child.
+		info.State = StateRunning
+		i.ready = false
 		i.versionValidated = false
 	}
 	i.state = info.State
@@ -1079,21 +1613,20 @@ func (i *instance) measureProcess(pid int, now time.Time) (uint64, float64, bool
 	if err != nil {
 		return 0, 0, false
 	}
-	occupied := 0.0
-	sampled := false
-	if !i.lastAt.IsZero() && now.After(i.lastAt) && cpu >= i.lastCPU {
-		sampled = true
-		// Linux /proc reports utime and stime in USER_HZ ticks. Linux exposes
-		// USER_HZ as 100 for these accounting fields on the supported runner
-		// architectures. The quotient is CPU core equivalents, so a multi-vCPU
-		// VMM may correctly report a value above one.
-		occupied = float64(cpu-i.lastCPU) / (float64(now.Sub(i.lastAt)) / float64(time.Second) * linuxProcClockTicks)
-		if occupied < 0 {
-			occupied = 0
-		}
-	}
+	occupied, sampled := cpuCoreUsage(i.lastCPU, cpu, i.lastAt, now)
 	i.lastCPU, i.lastAt = cpu, now
 	return rss, occupied, sampled
+}
+
+func cpuCoreUsage(previous, current uint64, previousAt, now time.Time) (float64, bool) {
+	if previousAt.IsZero() || !now.After(previousAt) || current < previous {
+		return 0, false
+	}
+	// Linux /proc reports utime and stime in USER_HZ ticks. Linux exposes
+	// USER_HZ as 100 for these accounting fields on the supported runner
+	// architectures. The quotient is CPU core equivalents, so a multi-vCPU
+	// VMM may correctly report a value above one.
+	return float64(current-previous) / (float64(now.Sub(previousAt)) / float64(time.Second) * linuxProcClockTicks), true
 }
 
 type processObservation struct {
@@ -1183,7 +1716,6 @@ func (p *Provider) ValidateProcess(ctx context.Context, id string) error {
 		return err
 	}
 	if inspection.PID <= 0 {
-		i.state = StateStopped
 		i.ready = false
 		i.versionValidated = false
 		return errors.New("Firecracker process has no valid PID")
@@ -1196,23 +1728,23 @@ func (p *Provider) ValidateProcess(ctx context.Context, id string) error {
 	}
 	expectedPID := i.runtime.PID
 	expectedStart := i.runtime.ProcessStartTime
-	expectedExecutable := i.cfg.FirecrackerBinary
+	expectedExecutable := i.paths.Executable
 	expectedVersion := i.cfg.ExpectedVersion
 	versionValidated := i.versionValidated
 	if expectedPID <= 0 || inspection.PID != expectedPID || expectedStart == 0 || inspection.ProcessStartTime != expectedStart {
-		i.state = StateStopped
 		i.ready = false
 		i.versionValidated = false
 		return errors.New("Firecracker PID start identity changed")
 	}
-	if matched, matchErr := sameExecutable(expectedExecutable, inspection.Executable); matchErr != nil || !matched {
-		i.state = StateStopped
+	if !inspection.ExecutableValid || !executablePathMatches(expectedExecutable, inspection.Executable) {
 		i.ready = false
 		i.versionValidated = false
-		if matchErr != nil {
-			return fmt.Errorf("verify Firecracker executable: %w", matchErr)
-		}
 		return errors.New("Firecracker process executable changed")
+	}
+	if !inspection.CgroupValid {
+		i.ready = false
+		i.versionValidated = false
+		return errors.New("Firecracker cgroup resource fence changed")
 	}
 	if !inspection.SocketReady {
 		i.ready = false
@@ -1305,7 +1837,7 @@ func (i *instance) info() VMInfo {
 }
 
 func (i *instance) infoLocked() VMInfo {
-	return VMInfo{Config: i.cfg, State: i.state, Ready: i.ready, Paths: i.paths, PID: i.runtime.PID, ProcessStartTime: i.runtime.ProcessStartTime, Executable: i.cfg.FirecrackerBinary, Version: i.runtime.Firecracker}
+	return VMInfo{Config: i.cfg, State: i.state, Ready: i.ready, Paths: i.paths, PID: i.runtime.PID, ProcessStartTime: i.runtime.ProcessStartTime, Executable: i.paths.Executable, Version: i.runtime.Firecracker}
 }
 
 func (p *Provider) Delete(ctx context.Context, id string) error {
@@ -1316,21 +1848,65 @@ func (p *Provider) Delete(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	if err := p.Stop(ctx, id); err != nil {
-		return err
+	i.mu.Lock()
+	if i.state == StateDeleted {
+		i.mu.Unlock()
+		return nil
+	}
+	if i.deleting {
+		done := i.deleteDone
+		i.mu.Unlock()
+		select {
+		case <-done:
+			i.mu.Lock()
+			result := i.deleteResult
+			i.mu.Unlock()
+			return result
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	i.deleting = true
+	i.deleteDone = make(chan struct{})
+	i.deleteResult = nil
+	done := i.deleteDone
+	i.mu.Unlock()
+	deleteErr := p.Stop(ctx, id)
+	var machine Machine
+	if deleteErr == nil {
+		i.mu.Lock()
+		machine = i.machine
+		fault := i.dataFault
+		i.mu.Unlock()
+		if fault != nil {
+			deleteErr = fault.Cleanup(context.WithoutCancel(ctx))
+		}
+	}
+	if deleteErr == nil {
+		i.mu.Lock()
+		i.dataFault = nil
+		i.mu.Unlock()
+		closeMachine(machine)
+		deleteErr = removeOwnedState(i.paths.StateDir, id)
 	}
 	i.mu.Lock()
-	i.state = StateDeleted
-	machine := i.machine
-	i.mu.Unlock()
-	closeMachine(machine)
-	if err := removeOwnedState(i.paths.StateDir, id); err != nil {
-		return err
+	if deleteErr == nil {
+		i.state = StateDeleted
+	} else if i.state != StateRunning {
+		i.state = StateStopped
 	}
-	p.mu.Lock()
-	delete(p.instances, id)
-	p.mu.Unlock()
-	return nil
+	i.deleting = false
+	i.deleteResult = deleteErr
+	i.mu.Unlock()
+	if deleteErr == nil {
+		p.mu.Lock()
+		if p.instances[id] == i {
+			delete(p.instances, id)
+		}
+		p.mu.Unlock()
+	}
+	close(done)
+	return deleteErr
 }
 
 func (p *Provider) Close(ctx context.Context) error {
@@ -1372,12 +1948,12 @@ func validateRunningInspection(cfg Config, inspection Inspection) error {
 	if inspection.PID <= 0 || inspection.ProcessStartTime == 0 || !inspection.ProcessAlive {
 		return errors.New("VMM process identity is incomplete")
 	}
-	matched, err := sameExecutable(cfg.FirecrackerBinary, inspection.Executable)
-	if err != nil {
-		return fmt.Errorf("verify VMM executable: %w", err)
+	expectedExecutable := filepath.Join(cfg.JailerChrootBaseDir, filepath.Base(cfg.FirecrackerBinary), cfg.ID, "root", filepath.Base(cfg.FirecrackerBinary))
+	if !inspection.ExecutableValid || !executablePathMatches(expectedExecutable, inspection.Executable) {
+		return fmt.Errorf("VMM executable is %q, want verified jail copy %q", inspection.Executable, expectedExecutable)
 	}
-	if !matched {
-		return fmt.Errorf("VMM executable is %q, want %q", inspection.Executable, cfg.FirecrackerBinary)
+	if !inspection.CgroupValid {
+		return errors.New("VMM cgroup resource fence is not verified")
 	}
 	if !inspection.SocketReady {
 		return errors.New("VMM API socket is unavailable")
@@ -1388,9 +1964,16 @@ func validateRunningInspection(cfg Config, inspection Inspection) error {
 	return nil
 }
 
-func sameExecutable(expected, observed string) (bool, error) {
+func executablePathMatches(expected, observed string) bool {
 	if !filepath.IsAbs(expected) || !filepath.IsAbs(observed) || strings.HasSuffix(observed, " (deleted)") {
-		return false, errors.New("process executable paths must be live absolute paths")
+		return false
+	}
+	return filepath.Clean(expected) == filepath.Clean(observed)
+}
+
+func sameProcessExecutable(expected string, pid int, observed string) (bool, error) {
+	if pid <= 0 || !executablePathMatches(expected, observed) {
+		return false, errors.New("process executable path does not match the jail copy")
 	}
 	expectedPath, err := filepath.EvalSymlinks(expected)
 	if err != nil {
@@ -1404,7 +1987,7 @@ func sameExecutable(expected, observed string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	observedInfo, err := os.Stat(observedPath)
+	observedInfo, err := os.Stat(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
 	if err != nil {
 		return false, err
 	}
@@ -1457,7 +2040,7 @@ func (r RuntimeRecord) validate(stateDir string) error {
 	if r.Version != runtimeRecordVersion || r.Marker != ownershipMarker || !validID(r.ID) {
 		return errors.New("invalid Firecracker runtime record identity")
 	}
-	if r.PID <= 0 || r.ProcessStartTime == 0 || r.Firecracker == "" || r.ObservedAt.IsZero() {
+	if r.PID <= 0 || r.ProcessStartTime == 0 || r.ObservedAt.IsZero() {
 		return errors.New("incomplete Firecracker runtime record")
 	}
 	expected := map[string]struct{ got, want string }{
@@ -1475,6 +2058,9 @@ func (r RuntimeRecord) validate(stateDir string) error {
 	}
 	if r.State == StateRunning && r.StoppedAt != nil || r.State == StateStopped && r.StoppedAt == nil {
 		return errors.New("Firecracker runtime stop timestamp does not match state")
+	}
+	if r.StoppedAt != nil && r.StoppedAt.Before(r.ObservedAt) {
+		return errors.New("Firecracker runtime stop timestamp predates its observation")
 	}
 	return nil
 }
@@ -1511,18 +2097,16 @@ func ReadRuntimeRecord(stateDir, id string) (RuntimeRecord, error) {
 	if err := record.validate(stateDir); err != nil {
 		return RuntimeRecord{}, err
 	}
+	if record.ObservedAt.Before(marker.CreatedAt) {
+		return RuntimeRecord{}, errors.New("Firecracker runtime record predates its ownership marker")
+	}
 	return record, nil
 }
 
 // VerifyRunningProcess rejects PID reuse, a dead process, a changed executable,
 // or a missing API socket. Version 1 of the shared runtime record predates its
-// executable field, so crash recovery supplies the pinned executable path as
-// an argument. The argument is optional only for readers of the old API; code
-// that may signal a process must supply it.
-func (r RuntimeRecord) VerifyRunningProcess(expectedExecutable ...string) error {
-	if len(expectedExecutable) > 1 {
-		return errors.New("at most one expected executable may be supplied")
-	}
+// executable field, so crash recovery must supply the pinned executable path.
+func (r RuntimeRecord) VerifyRunningProcess(expectedExecutable string) error {
 	if r.State != StateRunning {
 		return ErrNotRunning
 	}
@@ -1533,14 +2117,12 @@ func (r RuntimeRecord) VerifyRunningProcess(expectedExecutable ...string) error 
 	if !observation.Alive || observation.StartTime != r.ProcessStartTime {
 		return errors.New("Firecracker process identity no longer matches runtime record")
 	}
-	if len(expectedExecutable) == 1 {
-		matched, matchErr := sameExecutable(expectedExecutable[0], observation.Executable)
-		if matchErr != nil {
-			return fmt.Errorf("verify Firecracker executable: %w", matchErr)
-		}
-		if !matched {
-			return errors.New("Firecracker process executable no longer matches runtime owner")
-		}
+	matched, matchErr := sameProcessExecutable(expectedExecutable, r.PID, observation.Executable)
+	if matchErr != nil {
+		return fmt.Errorf("verify Firecracker executable: %w", matchErr)
+	}
+	if !matched {
+		return errors.New("Firecracker process executable no longer matches runtime owner")
 	}
 	if !SocketReady(r.SocketPath) {
 		return errors.New("Firecracker API socket is unavailable")
@@ -1592,7 +2174,10 @@ func readOwnedState(dir, id string) (ownedState, error) {
 		return ownedState{}, ErrUnowned
 	}
 	expectedJailRoot := filepath.Join(dir, "root")
-	if marker.Marker != ownershipMarker || marker.ID != id || strings.TrimSpace(marker.Region) == "" || marker.JailRoot != expectedJailRoot || marker.SocketPath != filepath.Join(expectedJailRoot, strings.TrimPrefix(jailerSocketPath, "/")) || marker.LogPath != filepath.Join(dir, "firecracker.log") || marker.MetricsPath != filepath.Join(dir, "firecracker.metrics") || marker.RuntimeState != filepath.Join(dir, "runtime.json") || marker.CreatedAt.IsZero() {
+	if err := validateCgroup2Mount(marker.CgroupRoot); err != nil {
+		return ownedState{}, ErrUnowned
+	}
+	if marker.Marker != ownershipMarker || marker.ID != id || strings.TrimSpace(marker.Region) == "" || marker.JailRoot != expectedJailRoot || marker.SocketPath != filepath.Join(expectedJailRoot, strings.TrimPrefix(jailerSocketPath, "/")) || marker.LogPath != filepath.Join(dir, "firecracker.log") || marker.MetricsPath != filepath.Join(dir, "firecracker.metrics") || marker.RuntimeState != filepath.Join(dir, "runtime.json") || marker.CgroupPath != filepath.Join(marker.CgroupRoot, cgroupParentName, id) || marker.JailerCgroup != filepath.Join(marker.CgroupRoot, filepath.Base(filepath.Dir(dir)), id) || marker.CreatedAt.IsZero() {
 		return ownedState{}, ErrUnowned
 	}
 	return marker, nil
@@ -1642,6 +2227,13 @@ func resetOwnedJail(stateDir, id string) error {
 	}
 	if active || socketAccepting(marker.SocketPath) {
 		return errors.New("refusing to reset an active Firecracker jail")
+	}
+	for _, path := range []string{marker.CgroupPath, marker.JailerCgroup} {
+		if _, err := os.Lstat(path); err == nil {
+			return fmt.Errorf("refusing to reset while owned cgroup remains: %s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	for _, name := range []string{"firecracker-log.fifo", "firecracker-metrics.fifo"} {
 		path := filepath.Join(stateDir, name)
@@ -1708,7 +2300,7 @@ func prepareOwnedState(dir string, cfg Config, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	marker := ownedState{Marker: ownershipMarker, ID: cfg.ID, Region: cfg.Region, JailRoot: paths.JailRoot, SocketPath: paths.Socket, LogPath: paths.Log, MetricsPath: paths.Metrics, RuntimeState: paths.RuntimeState, CreatedAt: now.UTC()}
+	marker := ownedState{Marker: ownershipMarker, ID: cfg.ID, Region: cfg.Region, JailRoot: paths.JailRoot, SocketPath: paths.Socket, LogPath: paths.Log, MetricsPath: paths.Metrics, RuntimeState: paths.RuntimeState, CgroupRoot: cfg.CgroupRoot, CgroupPath: paths.Cgroup, JailerCgroup: paths.JailerCgroup, CreatedAt: now.UTC()}
 	b, err := json.Marshal(marker)
 	if err != nil {
 		return err
@@ -1739,7 +2331,7 @@ func prepareOwnedState(dir string, cfg Config, now time.Time) error {
 }
 
 func removeOwnedState(dir, id string) error {
-	_, err := readOwnedState(dir, id)
+	marker, err := readOwnedState(dir, id)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -1752,6 +2344,13 @@ func removeOwnedState(dir, id string) error {
 	}
 	if active {
 		return errors.New("refusing to remove state for a live Firecracker process")
+	}
+	for _, path := range []string{marker.CgroupPath, marker.JailerCgroup} {
+		if _, err := os.Lstat(path); err == nil {
+			return fmt.Errorf("refusing to remove state while owned cgroup remains: %s", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return err

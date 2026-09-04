@@ -105,6 +105,9 @@ func DecodePreparationReceipt(data []byte, manifest GuestImageManifest) (Prepara
 	if len(data) == 0 || len(data) > maxPreparationReceiptBytes {
 		return PreparationReceipt{}, errors.New("vmimage: preparation receipt size is outside the permitted range")
 	}
+	if err := validateSeedJSONObjectDocument(data, preparationReceiptJSONSchema(), "preparation receipt"); err != nil {
+		return PreparationReceipt{}, fmt.Errorf("vmimage: decode preparation receipt: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var receipt PreparationReceipt

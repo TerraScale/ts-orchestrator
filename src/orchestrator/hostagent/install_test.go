@@ -1,16 +1,20 @@
 package hostagent
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -19,6 +23,23 @@ import (
 type memoryDownloader struct {
 	files    map[string][]byte
 	failUrls map[string]error
+}
+
+type countingDownloader struct {
+	files map[string][]byte
+	calls atomic.Int64
+}
+
+func (d *countingDownloader) Download(_ context.Context, url string, target string, limitBytes int64) error {
+	d.calls.Add(1)
+	body, present := d.files[url]
+	if !present {
+		return &InvalidDataError{Message: "no such release file"}
+	}
+	if int64(len(body)) > limitBytes {
+		return &InvalidDataError{Message: "release file exceeds limit"}
+	}
+	return os.WriteFile(target, body, 0o600)
 }
 
 func TestDownloadClientRejectsRedirectOutsideHTTPSAllowlist(t *testing.T) {
@@ -34,7 +55,7 @@ func TestDownloadClientRejectsRedirectOutsideHTTPSAllowlist(t *testing.T) {
 	client.CheckRedirect = originalRedirect
 	target := filepath.Join(t.TempDir(), "artifact")
 	err := (DownloadClient{Client: client, AllowedHosts: []string{redirect.Listener.Addr().String()}}).Download(
-		redirect.URL+"/artifact", target, 1024)
+		context.Background(), redirect.URL+"/artifact", target, 1024)
 	if err == nil {
 		t.Fatal("cross-host redirect accepted")
 	}
@@ -49,12 +70,12 @@ func TestDownloadClientRejectsRedirectOutsideHTTPSAllowlist(t *testing.T) {
 func TestDownloadClientRejectsUnsafeTargetPath(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("x")) }))
 	defer server.Close()
-	if err := (DownloadClient{Client: server.Client()}).Download(server.URL, "relative/../artifact", 32); err == nil {
+	if err := (DownloadClient{Client: server.Client()}).Download(context.Background(), server.URL, "relative/../artifact", 32); err == nil {
 		t.Fatal("relative traversal target accepted")
 	}
 }
 
-func (m memoryDownloader) Download(url string, target string, limitBytes int64) error {
+func (m memoryDownloader) Download(_ context.Context, url string, target string, limitBytes int64) error {
 	if err, present := m.failUrls[url]; present {
 		return err
 	}
@@ -125,8 +146,162 @@ func TestInstallVerifiedRelease(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("installed binary not executable: %v %v", err, info)
 	}
+	info, err = os.Stat(versionDir)
+	if err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("installed directory is not traversable by the service user: %v %v", err, info)
+	}
 	if !InstalledVersion(root, "terrabase", "1.2.3") {
 		t.Fatal("InstalledVersion does not see the release")
+	}
+}
+
+func TestInstallExistingVersionRequiresExactIdentityAndIsNeverRemoved(t *testing.T) {
+	root := t.TempDir()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, signature, sha256Hex := signedRelease(t, "1.2.3", privateKey)
+	artifactURL, signatureURL := installTestURLs("1.2.3")
+	installer := newTestInstaller(t, root, privateKey, map[string][]byte{
+		artifactURL: artifact, signatureURL: []byte(signature),
+	}, nil)
+	spec := testComponentSpec()
+	spec.Sha256 = sha256Hex
+	versionDir := VersionDir(root, spec.Name, spec.Version)
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("possibly serving immutable bytes")
+	if err := os.WriteFile(filepath.Join(versionDir, spec.Name), original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(spec.Version, filepath.Join(InstallDir(root, spec.Name), "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := installer.Install(spec); err == nil {
+		t.Fatal("different artifact in an existing version slot was accepted")
+	}
+	got, err := os.ReadFile(filepath.Join(versionDir, spec.Name))
+	if err != nil || string(got) != string(original) {
+		t.Fatalf("existing possibly serving version was changed: %v %q", err, got)
+	}
+	if current, err := CurrentVersion(root, spec.Name); err != nil || current != spec.Version {
+		t.Fatalf("serving link changed: %q (%v)", current, err)
+	}
+}
+
+func TestInstallExactExistingVersionIsIdempotentWithoutDownload(t *testing.T) {
+	root := t.TempDir()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, signature, sha256Hex := signedRelease(t, "1.2.3", privateKey)
+	artifactURL, signatureURL := installTestURLs("1.2.3")
+	spec := testComponentSpec()
+	spec.Sha256 = sha256Hex
+	first := newTestInstaller(t, root, privateKey, map[string][]byte{
+		artifactURL: artifact, signatureURL: []byte(signature),
+	}, nil)
+	if _, err := first.Install(spec); err != nil {
+		t.Fatal(err)
+	}
+	second := newTestInstaller(t, root, privateKey, nil, map[string]error{
+		artifactURL:  errors.New("unexpected artifact download"),
+		signatureURL: errors.New("unexpected signature download"),
+	})
+	if _, err := second.Install(spec); err != nil {
+		t.Fatalf("exact existing version was not idempotent: %v", err)
+	}
+}
+
+func TestInstallCleansOnlyAbandonedStagesAfterCrash(t *testing.T) {
+	root := t.TempDir()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, signature, sha256Hex := signedRelease(t, "1.2.3", privateKey)
+	artifactURL, signatureURL := installTestURLs("1.2.3")
+	installer := newTestInstaller(t, root, privateKey, map[string][]byte{
+		artifactURL: artifact, signatureURL: []byte(signature),
+	}, nil)
+	spec := testComponentSpec()
+	spec.Sha256 = sha256Hex
+	versionDir, err := installer.Install(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	componentDir := InstallDir(root, spec.Name)
+	abandoned := filepath.Join(componentDir, ".staging-"+spec.Version+"-crashed")
+	if err := os.Mkdir(abandoned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(componentDir, ".staging-symlink")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installer.Install(spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(abandoned); !os.IsNotExist(err) {
+		t.Fatalf("abandoned stage remains: %v", err)
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "keep" {
+		t.Fatalf("stage cleanup followed a symlink: %v %q", err, data)
+	}
+	if data, err := os.ReadFile(filepath.Join(versionDir, spec.Name)); err != nil || string(data) != string(artifact) {
+		t.Fatalf("installed version changed during cleanup: %v %q", err, data)
+	}
+}
+
+func TestConcurrentInstallersSerializeSameVersion(t *testing.T) {
+	root := t.TempDir()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, signature, sha256Hex := signedRelease(t, "1.2.3", privateKey)
+	artifactURL, signatureURL := installTestURLs("1.2.3")
+	downloader := &countingDownloader{files: map[string][]byte{
+		artifactURL: artifact, signatureURL: []byte(signature),
+	}}
+	newInstaller := func() *Installer {
+		installer, err := NewInstaller(InstallerConfig{
+			InstallRoot: root, PublicKeyHex: hex.EncodeToString(publicKey), Downloader: downloader,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return installer
+	}
+	spec := testComponentSpec()
+	spec.Sha256 = sha256Hex
+	installers := []*Installer{newInstaller(), newInstaller()}
+	errorsFound := make(chan error, len(installers))
+	var group sync.WaitGroup
+	for _, installer := range installers {
+		group.Add(1)
+		go func(installer *Installer) {
+			defer group.Done()
+			_, err := installer.Install(spec)
+			errorsFound <- err
+		}(installer)
+	}
+	group.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		if err != nil {
+			t.Fatalf("concurrent install failed: %v", err)
+		}
+	}
+	if calls := downloader.calls.Load(); calls != 2 {
+		t.Fatalf("downloads = %d, want one artifact/signature pair", calls)
 	}
 }
 
@@ -230,5 +405,8 @@ func TestDecodeEd25519Signature(t *testing.T) {
 	}
 	if _, err := decodeEd25519Signature([]byte("junk")); err == nil {
 		t.Fatal("junk signature accepted")
+	}
+	if _, err := decodeEd25519Signature([]byte(strings.ToUpper(hex.EncodeToString(signature)))); err == nil {
+		t.Fatal("non-canonical uppercase signature accepted")
 	}
 }

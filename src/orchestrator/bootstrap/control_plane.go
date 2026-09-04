@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,7 +28,6 @@ const (
 	ControlTopologyEmpty       ControlTopology = "empty"
 	ControlTopologyTemporaryR1 ControlTopology = "temporary-r1"
 	ControlTopologyGlobalR3    ControlTopology = "global-r3"
-	ControlTopologyRemote      ControlTopology = "remote-managed"
 	ControlTopologyRegionalR3  ControlTopology = "regional-r3"
 )
 
@@ -38,7 +38,6 @@ const (
 	ControlPhaseR1         ControlPhase = "r1"
 	ControlPhasePromoting  ControlPhase = "promoting"
 	ControlPhaseR3         ControlPhase = "r3"
-	ControlPhaseRemote     ControlPhase = "remote"
 	ControlPhaseRegionalR3 ControlPhase = "regional-r3"
 )
 
@@ -119,7 +118,7 @@ func (s ControlPlaneState) Validate() error {
 		}
 		seen[candidate.Region] = true
 	}
-	if s.Topology == ControlTopologyGlobalR3 && (s.Phase != ControlPhaseR3 || len(s.ControlRegions) != 3 || s.Epoch == 0) {
+	if s.Topology == ControlTopologyGlobalR3 && (s.Phase != ControlPhaseR3 || len(s.ControlRegions) != 3 || strings.Join(s.ControlRegions, ",") != "fra,gru,sfo" || s.Epoch == 0) {
 		return ErrControlInvalid
 	}
 	if s.Topology == ControlTopologyTemporaryR1 && s.Phase != ControlPhaseR1 {
@@ -297,7 +296,11 @@ func PlanControlTransition(state ControlPlaneState, request ControlTransitionReq
 			break
 		}
 		if request.Region != "sfo" && request.Region != "fra" {
-			to.Topology, to.Phase = ControlTopologyRemote, ControlPhaseRemote
+			if request.Region == "gru" || state.Topology != ControlTopologyGlobalR3 || state.BootstrapAuthorized {
+				return ControlPlan{}, ErrControlQuorumNotVerified
+			}
+			// Admission changes regional authority, never the permanent global store.
+			to = state
 			add(ControlActionRemoteManage, request.Region, state.Epoch)
 			break
 		}
@@ -348,7 +351,10 @@ func PlanControlTransition(state ControlPlaneState, request ControlTransitionReq
 		if request.Region == "" || request.MemberHosts < 2 {
 			return ControlPlan{}, ErrControlMembersBelowFloor
 		}
-		to.Topology, to.Phase = ControlTopologyRemote, ControlPhaseRemote
+		if request.Region == "gru" || request.Region == "sfo" || request.Region == "fra" || state.Topology != ControlTopologyGlobalR3 || state.BootstrapAuthorized {
+			return ControlPlan{}, ErrControlQuorumNotVerified
+		}
+		to = state
 		add(ControlActionRemoteManage, request.Region, state.Epoch)
 
 	default:
@@ -435,6 +441,7 @@ type ControlJournal interface {
 }
 
 type ControlStateMachine struct {
+	mu       sync.Mutex
 	Provider ControlPlaneProvider
 	Journal  ControlJournal
 	Retry    RetryPolicy
@@ -466,31 +473,155 @@ func (m *ControlStateMachine) Execute(ctx context.Context, state ControlPlaneSta
 	if err := state.Validate(); err != nil {
 		return result, err
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	prior, err := m.Journal.Load(ctx)
 	if err != nil {
 		return result, err
 	}
-	if prior.PlanFingerprint != "" && prior.State.Epoch > state.Epoch {
-		state = prior.State
+	if err := validateControlJournalRecord(prior); err != nil {
+		return result, ErrControlJournalUnavailable
+	}
+	if prior.PlanFingerprint != "" || prior.State.AlreadyBootstrapped() {
+		if state.Epoch > prior.State.Epoch {
+			return result, ErrControlEpochRegression
+		}
+		state = prior.State.normalize()
 		result.State = state
 	}
-	plan, err := PlanControlTransition(state, request)
+
+	// An active journal entry always wins over a new request. The caller must
+	// repeat the command that created the intent; a different command cannot
+	// abandon a provider mutation whose outcome may already exist.
+	if prior.PlanFingerprint != "" {
+		pending := executionControlRequest(state, request)
+		if controlPromotionReady(state) {
+			pending = ControlTransitionRequest{Operation: ControlOperationPromoteR3}
+		}
+		plan, planErr := PlanControlTransition(state, pending)
+		if planErr != nil || plan.Fingerprint != prior.PlanFingerprint {
+			return result, ErrControlInvalid
+		}
+		resumed, runErr := m.executeControlPlan(ctx, plan, prior)
+		mergeControlExecutionResult(&result, resumed)
+		if runErr != nil {
+			return result, runErr
+		}
+		state = resumed.State
+		prior = ControlJournalRecord{State: state}
+		if controlPromotionReady(state) {
+			promoted, promoteErr := m.executeNewControlPlan(ctx, state, ControlTransitionRequest{Operation: ControlOperationPromoteR3})
+			mergeControlExecutionResult(&result, promoted)
+			return result, promoteErr
+		}
+		return result, nil
+	}
+
+	// A candidate whose provider evidence was committed before a crash is
+	// promoted before any later command. This makes evidence and promotion two
+	// immutable, replayable journal stages.
+	if controlPromotionReady(state) {
+		promoted, promoteErr := m.executeNewControlPlan(ctx, state, ControlTransitionRequest{Operation: ControlOperationPromoteR3})
+		mergeControlExecutionResult(&result, promoted)
+		if promoteErr != nil {
+			return result, promoteErr
+		}
+		state = promoted.State
+	}
+	request = executionControlRequest(state, request)
+	if controlRequestAlreadyApplied(state, request) {
+		result.State = state
+		return result, nil
+	}
+	executed, err := m.executeNewControlPlan(ctx, state, request)
+	mergeControlExecutionResult(&result, executed)
 	if err != nil {
 		return result, err
 	}
-	if prior.PlanFingerprint != "" && prior.PlanFingerprint != plan.Fingerprint {
+	if controlPromotionReady(executed.State) {
+		promoted, promoteErr := m.executeNewControlPlan(ctx, executed.State, ControlTransitionRequest{Operation: ControlOperationPromoteR3})
+		mergeControlExecutionResult(&result, promoted)
+		return result, promoteErr
+	}
+	return result, nil
+}
+
+func executionControlRequest(state ControlPlaneState, request ControlTransitionRequest) ControlTransitionRequest {
+	// Candidate evidence is an observation made by the provider after start and
+	// sync. Callers cannot manufacture it to unlock promotion.
+	if request.Operation == ControlOperationAddRegion && (request.Region == "sfo" || request.Region == "fra") && !request.RegionalControl {
+		request.Candidate = CandidateEvidence{Region: request.Region}
+	}
+	return request
+}
+
+func controlPromotionReady(state ControlPlaneState) bool {
+	ready := readyCandidateRegions(state.Candidates)
+	return state.Phase == ControlPhaseR1 && state.BootstrapAuthorized && ready["sfo"] && ready["fra"]
+}
+
+func controlRequestAlreadyApplied(state ControlPlaneState, request ControlTransitionRequest) bool {
+	switch request.Operation {
+	case ControlOperationBootstrap:
+		return state.AlreadyBootstrapped()
+	case ControlOperationAddRegion:
+		if request.Region != "sfo" && request.Region != "fra" {
+			return false
+		}
+		for _, candidate := range state.Candidates {
+			if candidate.Region == request.Region && candidate.Ready() {
+				return true
+			}
+		}
+		return false
+	case ControlOperationPromoteR3:
+		return state.Topology == ControlTopologyGlobalR3 && state.Phase == ControlPhaseR3
+	default:
+		return false
+	}
+}
+
+func mergeControlExecutionResult(result *ControlExecutionResult, next ControlExecutionResult) {
+	result.State = next.State
+	result.Completed = append(result.Completed, next.Completed...)
+	result.Skipped = append(result.Skipped, next.Skipped...)
+}
+
+func (m *ControlStateMachine) executeNewControlPlan(ctx context.Context, state ControlPlaneState, request ControlTransitionRequest) (ControlExecutionResult, error) {
+	plan, err := PlanControlTransition(state, request)
+	if err != nil {
+		return ControlExecutionResult{State: state}, err
+	}
+	intent := ControlJournalRecord{PlanFingerprint: plan.Fingerprint, State: plan.From}
+	// The immutable intent reaches durable storage before the first provider
+	// effect. A failed Save therefore guarantees that no provider was called.
+	if err := m.Journal.Save(ctx, intent); err != nil {
+		return ControlExecutionResult{State: state}, err
+	}
+	return m.executeControlPlan(ctx, plan, intent)
+}
+
+func (m *ControlStateMachine) executeControlPlan(ctx context.Context, plan ControlPlan, record ControlJournalRecord) (ControlExecutionResult, error) {
+	result := ControlExecutionResult{State: plan.From}
+	if err := plan.Validate(); err != nil || record.PlanFingerprint != plan.Fingerprint || !sameControlState(record.State, plan.From) {
 		return result, ErrControlInvalid
 	}
-	completed := map[string]bool{}
-	for _, id := range prior.Completed {
-		completed[id] = true
+	completed, err := controlCompletedActions(plan, record.Completed)
+	if err != nil {
+		return result, err
 	}
-	if len(completed) == len(plan.Actions) {
-		result.State = plan.To
-		result.Skipped = sortedKeys(completed)
-		return result, nil
-	}
+	// Older journals could record VerifyCandidate without its returned value.
+	// Re-observe with the same idempotency key instead of accepting an
+	// evidence-free candidate or abandoning the transition.
 	for _, action := range plan.Actions {
+		if action.Kind == ControlActionVerifyCandidate && completed[action.ID] {
+			delete(completed, action.ID)
+		}
+	}
+
+	accepted := plan.To
+	for index, action := range plan.Actions {
 		if completed[action.ID] {
 			result.Skipped = append(result.Skipped, action.ID)
 			continue
@@ -498,9 +629,19 @@ func (m *ControlStateMachine) Execute(ctx context.Context, state ControlPlaneSta
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
+		var observed CandidateEvidence
 		var callErr error
 		for attempt := 1; attempt <= m.Retry.MaxAttempts; attempt++ {
-			callErr = m.call(ctx, action, plan)
+			observed, callErr = m.call(ctx, action, plan)
+			if callErr == nil && action.Kind == ControlActionVerifyCandidate {
+				ready, evidenceErr := validateObservedCandidate(action.Region, observed)
+				if evidenceErr != nil {
+					return result, evidenceErr
+				}
+				if !ready {
+					callErr = ErrControlPromotionNotReady
+				}
+			}
 			if callErr == nil || !retryable(callErr) || attempt == m.Retry.MaxAttempts {
 				break
 			}
@@ -514,24 +655,113 @@ func (m *ControlStateMachine) Execute(ctx context.Context, state ControlPlaneSta
 			return result, callErr
 		}
 		completed[action.ID] = true
-		// Keep the pre-transition state until every action is recorded. A
-		// restart can therefore reconstruct the exact same plan and reuse
-		// each provider idempotency key.
-		prior = ControlJournalRecord{PlanFingerprint: plan.Fingerprint, State: plan.From, Completed: sortedKeys(completed)}
-		if err := m.Journal.Save(ctx, prior); err != nil {
+		result.Completed = append(result.Completed, action.ID)
+		if action.Kind == ControlActionVerifyCandidate {
+			accepted.Candidates = mergeCandidate(accepted.Candidates, observed)
+			accepted = accepted.normalize()
+		}
+		// The last action and its resulting state are committed together. If
+		// this Save fails, replay calls the provider again with the same key.
+		if index+1 == len(plan.Actions) {
+			continue
+		}
+		progress := ControlJournalRecord{PlanFingerprint: plan.Fingerprint, State: plan.From, Completed: controlCompletedIDs(plan, completed)}
+		if err := m.Journal.Save(ctx, progress); err != nil {
 			return result, err
 		}
-		result.Completed = append(result.Completed, action.ID)
 	}
-	prior = ControlJournalRecord{PlanFingerprint: plan.Fingerprint, State: plan.To, Completed: sortedKeys(completed)}
-	if err := m.Journal.Save(ctx, prior); err != nil {
+	if err := accepted.Validate(); err != nil {
+		return result, ErrControlInvalid
+	}
+	// A settled record is only authoritative state. Clearing the active
+	// fingerprint and completion set permits the next ordered transition.
+	if err := m.Journal.Save(ctx, ControlJournalRecord{State: accepted}); err != nil {
 		return result, err
 	}
-	result.State = plan.To
+	result.State = accepted
 	return result, nil
 }
 
-func (m *ControlStateMachine) call(ctx context.Context, action ControlAction, plan ControlPlan) error {
+func controlCompletedActions(plan ControlPlan, ids []string) (map[string]bool, error) {
+	if len(ids) > len(plan.Actions) {
+		return nil, ErrControlInvalid
+	}
+	completed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || completed[id] {
+			return nil, ErrControlInvalid
+		}
+		completed[id] = true
+	}
+	for index, action := range plan.Actions {
+		if completed[action.ID] != (index < len(ids)) {
+			return nil, ErrControlInvalid
+		}
+	}
+	return completed, nil
+}
+
+func controlCompletedIDs(plan ControlPlan, completed map[string]bool) []string {
+	ids := make([]string, 0, len(completed))
+	for _, action := range plan.Actions {
+		if completed[action.ID] {
+			ids = append(ids, action.ID)
+		}
+	}
+	return ids
+}
+
+func validateObservedCandidate(region string, candidate CandidateEvidence) (bool, error) {
+	if candidate.Region != region || !validControlRegion(candidate.Region) {
+		return false, ErrControlInvalid
+	}
+	for _, digest := range []string{candidate.IdentityDigest, candidate.StorageDigest, candidate.HealthDigest} {
+		if digest != "" && !canonicalControlDigest(digest) {
+			return false, ErrControlInvalid
+		}
+	}
+	return candidate.Ready(), nil
+}
+
+func canonicalControlDigest(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func validateControlJournalRecord(record ControlJournalRecord) error {
+	if err := record.State.Validate(); err != nil {
+		return err
+	}
+	if record.PlanFingerprint == "" {
+		if len(record.Completed) != 0 {
+			return ErrControlInvalid
+		}
+		return nil
+	}
+	if !canonicalControlDigest(record.PlanFingerprint) || len(record.Completed) > 16 {
+		return ErrControlInvalid
+	}
+	seen := make(map[string]bool, len(record.Completed))
+	for _, id := range record.Completed {
+		if id == "" || len(id) > 128 || strings.ContainsAny(id, "\r\n\x00") || seen[id] {
+			return ErrControlInvalid
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+func sameControlState(left, right ControlPlaneState) bool {
+	left, right = left.normalize(), right.normalize()
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
+}
+
+func (m *ControlStateMachine) call(ctx context.Context, action ControlAction, plan ControlPlan) (CandidateEvidence, error) {
 	req := ControlActionRequest{Action: action, State: plan.From, PlanFingerprint: plan.Fingerprint}
 	var err error
 	switch action.Kind {
@@ -544,7 +774,7 @@ func (m *ControlStateMachine) call(ctx context.Context, action ControlAction, pl
 	case ControlActionSyncCandidate:
 		_, err = m.Provider.SyncCandidate(ctx, req)
 	case ControlActionVerifyCandidate:
-		_, err = m.Provider.VerifyCandidate(ctx, req)
+		return m.Provider.VerifyCandidate(ctx, req)
 	case ControlActionPromoteR3:
 		_, err = m.Provider.PromoteGlobalR3(ctx, req)
 	case ControlActionVerifyQuorum:
@@ -556,9 +786,9 @@ func (m *ControlStateMachine) call(ctx context.Context, action ControlAction, pl
 	case ControlActionStartRegionalR3:
 		_, err = m.Provider.StartRegionalR3(ctx, req)
 	default:
-		return ErrControlInvalid
+		return CandidateEvidence{}, ErrControlInvalid
 	}
-	return err
+	return CandidateEvidence{}, err
 }
 
 func sortedKeys(values map[string]bool) []string {
@@ -589,7 +819,7 @@ func (j *MemoryControlJournal) Load(ctx context.Context) (ControlJournalRecord, 
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.Record, nil
+	return cloneControlJournalRecord(j.Record), nil
 }
 func (j *MemoryControlJournal) Save(ctx context.Context, record ControlJournalRecord) error {
 	if ctx == nil {
@@ -600,7 +830,7 @@ func (j *MemoryControlJournal) Save(ctx context.Context, record ControlJournalRe
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.Record = record
+	j.Record = cloneControlJournalRecord(record)
 	return nil
 }
 
@@ -616,7 +846,9 @@ func NewFileControlJournal(path string) (*FileControlJournal, error) {
 	}
 	j := &FileControlJournal{path: path}
 	if raw, err := os.ReadFile(path); err == nil {
-		if json.Unmarshal(raw, &j.record) != nil {
+		decoder := json.NewDecoder(strings.NewReader(string(raw)))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&j.record) != nil || decoder.Decode(&struct{}{}) != io.EOF || validateControlJournalRecord(j.record) != nil {
 			return nil, ErrControlJournalUnavailable
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -634,7 +866,7 @@ func (j *FileControlJournal) Load(ctx context.Context) (ControlJournalRecord, er
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.record, nil
+	return cloneControlJournalRecord(j.record), nil
 }
 func (j *FileControlJournal) Save(ctx context.Context, record ControlJournalRecord) error {
 	if ctx == nil {
@@ -677,6 +909,21 @@ func (j *FileControlJournal) Save(ctx context.Context, record ControlJournalReco
 	if err := os.Rename(name, j.path); err != nil {
 		return ErrControlJournalUnavailable
 	}
-	j.record = record
+	j.record = cloneControlJournalRecord(record)
+	directory, err := os.Open(dir)
+	if err != nil {
+		return ErrControlJournalUnavailable
+	}
+	syncErr := directory.Sync()
+	closeErr := directory.Close()
+	if syncErr != nil || closeErr != nil {
+		return ErrControlJournalUnavailable
+	}
 	return nil
+}
+
+func cloneControlJournalRecord(record ControlJournalRecord) ControlJournalRecord {
+	record.State = record.State.normalize()
+	record.Completed = append([]string(nil), record.Completed...)
+	return record
 }

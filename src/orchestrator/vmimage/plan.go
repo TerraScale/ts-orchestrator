@@ -102,22 +102,16 @@ func imageCacheKey(manifest GuestImageManifest, digest string) string {
 }
 
 func expectedBuildSteps(manifest GuestImageManifest, digest string) []BuildStep {
+	transform := manifest.RootFS.Transform
 	steps := []BuildStep{
 		{Name: "verify-kernel", Inputs: []string{manifest.Kernel.Source, manifest.Kernel.SHA256, fmt.Sprintf("%d", manifest.Kernel.Size)}, Output: manifest.Kernel.Name},
-	}
-	if manifest.RootFS.Transform == nil {
-		steps = append(steps, BuildStep{Name: "fetch-rootfs", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name})
-	} else {
-		transform := manifest.RootFS.Transform
-		steps = append(steps,
-			BuildStep{Name: "verify-rootfs-input", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.InputSHA256, fmt.Sprintf("%d", manifest.RootFS.InputSize)}, Output: manifest.RootFS.Name + ".input"},
-			BuildStep{Name: "convert-qcow2-to-raw", Inputs: []string{manifest.RootFS.Name + ".input", "qcow2"}, Output: manifest.RootFS.Name + ".raw"},
-			BuildStep{Name: "extract-root-partition", Inputs: []string{fmt.Sprintf("%d", transform.SectorSize), fmt.Sprintf("%d", transform.StartSector), fmt.Sprintf("%d", transform.SectorCount)}, Output: manifest.RootFS.Name},
-		)
+		{Name: "verify-rootfs-input", Inputs: []string{manifest.RootFS.Source, manifest.RootFS.InputSHA256, fmt.Sprintf("%d", manifest.RootFS.InputSize)}, Output: manifest.RootFS.Name + ".input"},
+		{Name: "convert-qcow2-to-raw", Inputs: []string{manifest.RootFS.Name + ".input", "qcow2"}, Output: manifest.RootFS.Name + ".raw"},
+		{Name: "extract-root-partition", Inputs: []string{fmt.Sprintf("%d", transform.SectorSize), fmt.Sprintf("%d", transform.StartSector), fmt.Sprintf("%d", transform.SectorCount)}, Output: manifest.RootFS.Name},
 	}
 	return append(steps,
 		BuildStep{Name: "inspect-ubuntu-identity", Inputs: []string{"/usr/lib/os-release", manifest.UbuntuRelease}, Output: "image-receipt.json"},
-		BuildStep{Name: "sanitize-firecracker-fstab", Inputs: []string{"LABEL=BOOT /boot", "LABEL=UEFI /boot/efi"}, Output: manifest.RootFS.Name},
+		BuildStep{Name: "sanitize-firecracker-fstab", Inputs: []string{ubuntuRootFSTabRecord, ubuntuBootFSTabRecord, ubuntuUEFIFSTabRecord}, Output: manifest.RootFS.Name},
 		BuildStep{Name: "check-ext4", Inputs: []string{"e2fsck", "-f", "-n"}, Output: manifest.RootFS.Name},
 		BuildStep{Name: "verify-rootfs-output", Inputs: []string{manifest.RootFS.SHA256, fmt.Sprintf("%d", manifest.RootFS.Size)}, Output: manifest.RootFS.Name},
 		BuildStep{Name: "publish-image-receipt", Inputs: []string{digest, manifest.RootFS.SHA256}, Output: "image-receipt.json"},
@@ -155,6 +149,9 @@ func (plan BuildPlan) CanonicalJSON() ([]byte, error) {
 func DecodeBuildPlan(data []byte) (BuildPlan, error) {
 	if len(data) == 0 || len(data) > maxBuildPlanBytes {
 		return BuildPlan{}, errors.New("vmimage: build plan size is outside the permitted range")
+	}
+	if err := validateSeedJSONObjectDocument(data, buildPlanJSONSchema(), "build plan"); err != nil {
+		return BuildPlan{}, fmt.Errorf("vmimage: decode build plan: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

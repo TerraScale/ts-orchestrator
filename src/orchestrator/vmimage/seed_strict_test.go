@@ -45,7 +45,7 @@ func TestDecodeGuestChannelSeedRejectsNonExactJSON(t *testing.T) {
 		{name: "top-level case variant", data: mutateSeedJSON(t, valid, func(root map[string]any) {
 			renameSeedJSONField(t, root, "schemaVersion", "SchemaVersion")
 		})},
-		{name: "top-level duplicate", data: replaceSeedJSONOnce(t, valid, []byte(`{"schemaVersion":1,"image":`), []byte(`{"schemaVersion":1,"schemaVersion":1,"image":`))},
+		{name: "top-level duplicate", data: replaceSeedJSONOnce(t, valid, []byte(`{"schemaVersion":2,"image":`), []byte(`{"schemaVersion":2,"schemaVersion":2,"image":`))},
 		{name: "top-level unknown", data: mutateSeedJSON(t, valid, func(root map[string]any) { root["unknown"] = true })},
 		{name: "top-level null", data: mutateSeedJSON(t, valid, func(root map[string]any) { root["hostname"] = nil })},
 		{name: "top-level missing", data: mutateSeedJSON(t, valid, func(root map[string]any) { delete(root, "hostname") })},
@@ -134,7 +134,7 @@ func strictGuestSeedFixture(t *testing.T) []byte {
 	manifest.RootFS.InputSize = int64(len("source-qcow2"))
 	manifest.RootFS.Transform = &Transform{Type: TransformQCOW2RootPartition, SectorSize: 1, StartSector: 1, SectorCount: int64(len(rootfs))}
 	seed, err := BuildGuestChannelSeed(GuestSeedSpec{
-		Image: manifest, Hostname: "gru-member-1", InstanceID: "vm-001", Region: "gru", DataDiskPath: "/dev/vdb",
+		Image: manifest, Hostname: "gru-member-1", InstanceID: "vm-001", Region: "gru", DataDiskPath: "/dev/vdb", NetworkExchangeEndpoint: "10.77.0.1:18080",
 		Artifacts: []GuestArtifact{
 			guestArtifact("terrabase", "3.0.0", "/fixtures/terrabase", []byte("tb")),
 			guestArtifact("ts-node", "3.0.0", "/fixtures/ts-node", []byte("node")),

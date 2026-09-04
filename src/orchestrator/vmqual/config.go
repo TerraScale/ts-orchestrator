@@ -70,6 +70,8 @@ type Config struct {
 	ExpectedJailerSHA256      string
 	SDKModule                 string
 	SDKVersion                string
+	JailerUID                 int
+	JailerGID                 int
 	MemoryMiB                 int64
 	ReadinessTimeout          time.Duration
 	StopTimeout               time.Duration
@@ -122,6 +124,19 @@ func defaultConfigForArchitecture(architecture string) Config {
 		ReadinessTimeout:          2 * time.Minute,
 		StopTimeout:               30 * time.Second,
 		MaxDiskBytes:              8 << 30,
+	}
+	uidText, uidSet := os.LookupEnv("TS_VM_JAILER_UID")
+	gidText, gidSet := os.LookupEnv("TS_VM_JAILER_GID")
+	if uidSet != gidSet {
+		c.setConfigurationError("TS_VM_JAILER_UID and TS_VM_JAILER_GID must be configured together")
+	} else if uidSet {
+		uid, uidErr := parseStrictDecimal(uidText, 32)
+		gid, gidErr := parseStrictDecimal(gidText, 32)
+		if uidErr != nil || gidErr != nil || uid <= 0 || gid <= 0 {
+			c.setConfigurationError("TS_VM_JAILER_UID and TS_VM_JAILER_GID must be nonzero unsigned base-10 integers")
+		} else {
+			c.JailerUID, c.JailerGID = int(uid), int(gid)
+		}
 	}
 	if architecture != string(vmimage.ArchitectureAMD64) && architecture != string(vmimage.ArchitectureARM64) {
 		c.setConfigurationError("native architecture " + architecture + " is unsupported by Firecracker qualification")
@@ -349,10 +364,41 @@ func (c Config) Validate() error {
 	if c.MaxDiskBytes <= 0 {
 		return errors.New("vmqual: disk budget must be positive")
 	}
+	if (c.JailerUID == 0) != (c.JailerGID == 0) || c.JailerUID < 0 || c.JailerGID < 0 || uint64(c.JailerUID) > 1<<32-1 || uint64(c.JailerGID) > 1<<32-1 {
+		return errors.New("vmqual: jailer UID and GID must be configured together as nonnegative uint32 values")
+	}
 	if err := validateRequiredPorts(c.RequiredPorts); err != nil {
 		return fmt.Errorf("vmqual: required ports: %w", err)
 	}
 	return nil
+}
+
+// ResolveRuntimeIdentity binds the jailer and every planned TAP to one
+// explicit non-root operating-system identity. A sudo invocation may supply
+// the same pair through SUDO_UID and SUDO_GID.
+func ResolveRuntimeIdentity(config Config) (Config, error) {
+	uid, gid := config.JailerUID, config.JailerGID
+	if uid == 0 && gid == 0 {
+		uidText, uidSet := os.LookupEnv("SUDO_UID")
+		gidText, gidSet := os.LookupEnv("SUDO_GID")
+		if !uidSet || !gidSet {
+			return Config{}, errors.New("vmqual: a nonzero jailer UID/GID is required through TS_VM_JAILER_UID/TS_VM_JAILER_GID or SUDO_UID/SUDO_GID")
+		}
+		parsedUID, uidErr := parseStrictDecimal(uidText, 32)
+		parsedGID, gidErr := parseStrictDecimal(gidText, 32)
+		if uidErr != nil || gidErr != nil || parsedUID <= 0 || parsedGID <= 0 {
+			return Config{}, errors.New("vmqual: SUDO_UID and SUDO_GID must be nonzero unsigned base-10 integers")
+		}
+		uid, gid = int(parsedUID), int(parsedGID)
+	}
+	if uid <= 0 || gid <= 0 || uint64(uid) > 1<<32-1 || uint64(gid) > 1<<32-1 {
+		return Config{}, errors.New("vmqual: jailer UID and GID must be nonzero uint32 values")
+	}
+	config.JailerUID, config.JailerGID = uid, gid
+	if err := config.Validate(); err != nil {
+		return Config{}, err
+	}
+	return config, nil
 }
 
 func validPinnedSHA256(value string) bool {

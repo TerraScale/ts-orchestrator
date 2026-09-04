@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -86,19 +85,20 @@ type ControlRemoteRegionProof struct {
 	Calls                        []ControlContractCall
 }
 
-// ControlContract drives the public bootstrap control state machine against a
-// deterministic, stateful provider. Each transition has its own durable file
-// journal, matching the state machine's one-plan journal contract.
+// ControlContract is portable unit-test support for the public bootstrap
+// state machine. Tagged Firecracker qualification uses the production control
+// provider instead of this deterministic provider.
 type ControlContract struct {
 	mu          sync.Mutex
 	journalRoot string
-	transition  int
+	journalPath string
+	journal     *bootstrap.FileControlJournal
+	journalUsed bool
 	state       bootstrap.ControlPlaneState
 	provider    *controlContractProvider
 	launchReady map[string]bool
 	r3Checked   bool
 	remote      map[string]bool
-	journals    []string
 }
 
 // NewControlContract creates a staged control proof. journalRoot may be
@@ -111,8 +111,15 @@ func NewControlContract(journalRoot string) (*ControlContract, error) {
 	if err != nil || absolute == string(filepath.Separator) {
 		return nil, ErrControlContractInvalid
 	}
+	journalPath := filepath.Join(absolute, "control.json")
+	journal, err := bootstrap.NewFileControlJournal(journalPath)
+	if err != nil {
+		return nil, ErrControlContractInvalid
+	}
 	return &ControlContract{
 		journalRoot: absolute,
+		journalPath: journalPath,
+		journal:     journal,
 		provider:    newControlContractProvider(),
 		launchReady: make(map[string]bool),
 		remote:      make(map[string]bool),
@@ -129,14 +136,17 @@ func (c *ControlContract) State() bootstrap.ControlPlaneState {
 	return cloneControlState(c.state)
 }
 
-// JournalPaths returns the durable transition journals created so far.
+// JournalPaths returns the one authoritative journal after its first use.
 func (c *ControlContract) JournalPaths() []string {
 	if c == nil {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]string(nil), c.journals...)
+	if !c.journalUsed {
+		return nil
+	}
+	return []string{c.journalPath}
 }
 
 // Bootstrap proves the empty-to-fenced-temporary-R1 control transition.
@@ -146,7 +156,7 @@ func (c *ControlContract) Bootstrap(ctx context.Context) (ControlBootstrapProof,
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.transition != 0 || c.state.Epoch != 0 {
+	if c.state.Epoch != 0 {
 		return ControlBootstrapProof{}, ErrControlContractOrder
 	}
 	callStart := c.provider.callCount()
@@ -179,8 +189,9 @@ func (c *ControlContract) Bootstrap(ctx context.Context) (ControlBootstrapProof,
 	}, nil
 }
 
-// AddLaunchCandidate starts and synchronizes SFO or FRA, observes readiness at
-// the provider boundary, then submits that observation to the state machine.
+// AddLaunchCandidate starts and synchronizes SFO or FRA. The state machine
+// consumes the provider's observation directly and promotes after both
+// candidates are durably ready.
 func (c *ControlContract) AddLaunchCandidate(ctx context.Context, region string) (ControlCandidateProof, error) {
 	if c == nil || ctx == nil {
 		return ControlCandidateProof{}, ErrControlContractInvalid
@@ -199,46 +210,29 @@ func (c *ControlContract) AddLaunchCandidate(ctx context.Context, region string)
 	}
 
 	callStart := c.provider.callCount()
-	prepare, prepareJournal, err := c.execute(ctx, "prepare-"+region+"-candidate", c.state, bootstrap.ControlTransitionRequest{
+	result, journalPath, err := c.execute(ctx, "add-"+region+"-candidate", c.state, bootstrap.ControlTransitionRequest{
 		Operation:   bootstrap.ControlOperationAddRegion,
 		Region:      region,
 		MemberHosts: 2,
-		Candidate:   bootstrap.CandidateEvidence{Region: region},
-	})
-	if err != nil {
-		return ControlCandidateProof{}, err
-	}
-	if prepare.State.Topology != bootstrap.ControlTopologyTemporaryR1 || prepare.State.Epoch != c.state.Epoch {
-		return ControlCandidateProof{}, ErrControlContractInvalid
-	}
-	observed, err := c.provider.observeCandidate(region)
-	if err != nil || !observed.Ready() {
-		return ControlCandidateProof{}, fmt.Errorf("%w: %s candidate was not ready after synchronization", ErrControlContractInvalid, region)
-	}
-
-	accepted, acceptedJournal, err := c.execute(ctx, "accept-"+region+"-candidate", prepare.State, bootstrap.ControlTransitionRequest{
-		Operation:   bootstrap.ControlOperationAddRegion,
-		Region:      region,
-		MemberHosts: 2,
-		Candidate:   observed,
 	})
 	if err != nil {
 		return ControlCandidateProof{}, err
 	}
 	snapshot := c.provider.snapshot()
 	candidateState := snapshot.candidates[region]
+	observed := candidateState.evidence()
 	beforePromotion := candidateState.syncSequence > 0 &&
 		(snapshot.promotionSequence == 0 || candidateState.syncSequence < snapshot.promotionSequence)
-	if !beforePromotion || !controlCandidateEqual(observed, candidateState.evidence()) {
+	if !beforePromotion || !observed.Ready() {
 		return ControlCandidateProof{}, ErrControlContractInvalid
 	}
-	promoted := accepted.State.Topology == bootstrap.ControlTopologyGlobalR3
+	promoted := result.State.Topology == bootstrap.ControlTopologyGlobalR3
 	if region == "sfo" && promoted {
 		return ControlCandidateProof{}, ErrControlContractInvalid
 	}
 	if region == "fra" {
-		if !promoted || accepted.State.Phase != bootstrap.ControlPhaseR3 || accepted.State.Epoch != 2 ||
-			accepted.State.BootstrapAuthorized || !snapshot.quorumVerified || snapshot.bootstrapAuthorized {
+		if !promoted || result.State.Phase != bootstrap.ControlPhaseR3 || result.State.Epoch != 2 ||
+			result.State.BootstrapAuthorized || !snapshot.quorumVerified || snapshot.bootstrapAuthorized {
 			return ControlCandidateProof{}, ErrControlContractInvalid
 		}
 		for _, launchRegion := range []string{"sfo", "fra"} {
@@ -249,15 +243,15 @@ func (c *ControlContract) AddLaunchCandidate(ctx context.Context, region string)
 		}
 	}
 	c.launchReady[region] = true
-	c.state = cloneControlState(accepted.State)
+	c.state = cloneControlState(result.State)
 	return ControlCandidateProof{
 		Region:                      region,
 		Candidate:                   observed,
-		State:                       cloneControlState(accepted.State),
+		State:                       cloneControlState(result.State),
 		SynchronizedBeforePromotion: beforePromotion,
 		Promoted:                    promoted,
 		PromotionEpoch:              snapshot.acceptedEpoch,
-		JournalPaths:                []string{prepareJournal, acceptedJournal},
+		JournalPaths:                []string{journalPath},
 		Calls:                       c.provider.callsFrom(callStart),
 	}, nil
 }
@@ -304,7 +298,7 @@ func (c *ControlContract) VerifyPermanentR3(ctx context.Context) (ControlR3Proof
 	}
 	_, regressionErr := staleMachine.Execute(ctx, staleState, bootstrap.ControlTransitionRequest{
 		Operation:   bootstrap.ControlOperationAddRegion,
-		Region:      "lhr",
+		Region:      "sfo",
 		MemberHosts: 2,
 	})
 	regressionDenied := errors.Is(regressionErr, bootstrap.ErrControlEpochRegression)
@@ -377,7 +371,7 @@ func (c *ControlContract) VerifyRemoteRegion(ctx context.Context, region string)
 	snapshot := c.provider.snapshot()
 	memberHosts, remoteManaged := snapshot.remoteRegions[region]
 	hasGlobalReplica := snapshot.replicas[region]
-	if result.State.Topology != bootstrap.ControlTopologyRemote || result.State.Phase != bootstrap.ControlPhaseRemote ||
+	if result.State.Topology != bootstrap.ControlTopologyGlobalR3 || result.State.Phase != bootstrap.ControlPhaseR3 ||
 		result.State.Epoch != c.state.Epoch || memberHosts != 2 || !remoteManaged || hasGlobalReplica ||
 		!sameStrings(result.State.ControlRegions, c.state.ControlRegions) || !snapshot.globalR3 {
 		return ControlRemoteRegionProof{}, ErrControlContractInvalid
@@ -401,26 +395,24 @@ func (c *ControlContract) execute(ctx context.Context, label string, state boots
 	if err := ctx.Err(); err != nil {
 		return bootstrap.ControlExecutionResult{}, "", err
 	}
-	path := filepath.Join(c.journalRoot, fmt.Sprintf("%02d-%s.json", c.transition+1, label))
-	journal, err := bootstrap.NewFileControlJournal(path)
-	if err != nil {
-		return bootstrap.ControlExecutionResult{}, "", err
+	_ = label
+	if c.journal == nil || c.journalPath == "" {
+		return bootstrap.ControlExecutionResult{}, "", ErrControlContractInvalid
 	}
-	machine, err := bootstrap.NewControlStateMachine(c.provider, journal, bootstrap.RetryPolicy{MaxAttempts: 1})
+	machine, err := bootstrap.NewControlStateMachine(c.provider, c.journal, bootstrap.RetryPolicy{MaxAttempts: 1})
 	if err != nil {
 		return bootstrap.ControlExecutionResult{}, "", err
 	}
 	result, err := machine.Execute(ctx, state, request)
 	if err != nil {
-		return result, path, err
+		return result, c.journalPath, err
 	}
-	record, err := journal.Load(ctx)
-	if err != nil || record.PlanFingerprint == "" || len(record.Completed) == 0 || !reflect.DeepEqual(record.State, result.State) {
-		return result, path, ErrControlContractInvalid
+	record, err := c.journal.Load(ctx)
+	if err != nil || record.PlanFingerprint != "" || len(record.Completed) != 0 || !reflect.DeepEqual(record.State, result.State) {
+		return result, c.journalPath, ErrControlContractInvalid
 	}
-	c.transition++
-	c.journals = append(c.journals, path)
-	return result, path, nil
+	c.journalUsed = true
+	return result, c.journalPath, nil
 }
 
 type controlContractCandidate struct {
@@ -626,15 +618,15 @@ func (p *controlContractProvider) mutate(ctx context.Context, request bootstrap.
 	if err := validateControlCall(ctx, request, kind); err != nil {
 		return bootstrap.ControlReceipt{}, err
 	}
+	if request.Action.TargetEpoch < p.acceptedEpoch {
+		return bootstrap.ControlReceipt{}, bootstrap.ErrControlEpochRegression
+	}
 	if prior, ok := p.receipts[request.Action.IdempotencyKey]; ok {
 		if !sameControlCall(prior, request.Action) {
 			return bootstrap.ControlReceipt{}, ErrControlContractInvalid
 		}
 		p.appendCall(request.Action, false)
 		return bootstrap.ControlReceipt{ID: request.Action.IdempotencyKey}, nil
-	}
-	if request.Action.TargetEpoch < p.acceptedEpoch {
-		return bootstrap.ControlReceipt{}, bootstrap.ErrControlEpochRegression
 	}
 	if err := change(); err != nil {
 		return bootstrap.ControlReceipt{}, err

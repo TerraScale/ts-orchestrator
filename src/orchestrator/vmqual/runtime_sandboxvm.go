@@ -33,8 +33,8 @@ import (
 
 var (
 	ErrGuestHostKeyChanged = errors.New("vmqual: guest SSH host key changed")
-	artifactVersionToken  = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
-	transportRegistry     = struct {
+	artifactVersionToken   = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
+	transportRegistry      = struct {
 		sync.RWMutex
 		byStateRoot map[string]*guestTransport
 	}{byStateRoot: make(map[string]*guestTransport)}
@@ -56,6 +56,10 @@ func newSandboxVMProvider(config Config) (*sandboxvm.Provider, error) {
 		return nil, err
 	}
 	transportRegistry.Lock()
+	if transportRegistry.byStateRoot[filepath.Clean(config.StateRoot)] != nil {
+		transportRegistry.Unlock()
+		return nil, errors.New("vmqual: guest transport is already registered for state root")
+	}
 	transportRegistry.byStateRoot[filepath.Clean(config.StateRoot)] = transport
 	transportRegistry.Unlock()
 	probe := &sshGuestProbe{transport: transport, seedDigests: make(map[string]string), configs: make(map[string]sandboxvm.Config)}
@@ -70,9 +74,9 @@ func newSandboxVMProvider(config Config) (*sandboxvm.Provider, error) {
 
 type guestArtifactInput struct {
 	manifest      vmimage.GuestArtifact
-	path          string
-	signaturePath string
 	signature     []byte
+	binary        []byte
+	signatureFile []byte
 }
 
 type guestCredential struct {
@@ -112,6 +116,33 @@ func guestTransportFor(stateRoot string) *guestTransport {
 	transport := transportRegistry.byStateRoot[filepath.Clean(stateRoot)]
 	transportRegistry.RUnlock()
 	return transport
+}
+
+func releaseGuestTransport(stateRoot string) error {
+	key := filepath.Clean(stateRoot)
+	transportRegistry.Lock()
+	transport := transportRegistry.byStateRoot[key]
+	delete(transportRegistry.byStateRoot, key)
+	transportRegistry.Unlock()
+	if transport == nil {
+		return nil
+	}
+	transport.mu.Lock()
+	credentials := transport.credentials
+	transport.credentials = make(map[string]*guestCredential)
+	transport.mu.Unlock()
+	for _, credential := range credentials {
+		credential.mu.Lock()
+		zeroBytes(credential.private)
+		zeroBytes(credential.hostKey)
+		credential.private, credential.signer, credential.publicKey = nil, nil, ""
+		credential.deleted = true
+		credential.mu.Unlock()
+	}
+	if len(credentials) != 0 {
+		return fmt.Errorf("vmqual: guest transport retained %d credentials after cleanup", len(credentials))
+	}
+	return nil
 }
 
 func (transport *guestTransport) addGuest(id, address string, control, service bool) (string, error) {
@@ -327,6 +358,10 @@ func validateGuestResponse(request vmguest.Request, response vmguest.Response) e
 		if response.Command != nil || response.Probe != nil || len(response.Data) > vmguest.MaxPersistentBytes {
 			return errors.New("vmqual: guest read response shape is invalid")
 		}
+	case vmguest.OperationNetwork:
+		if response.Command != nil || response.Probe != nil || len(response.Data) == 0 || len(response.Data) > vmguest.MaxNetworkBytes {
+			return errors.New("vmqual: guest network-exchange response shape is invalid")
+		}
 	default:
 		return errors.New("vmqual: guest response operation is not admitted")
 	}
@@ -391,7 +426,7 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Rea
 		DataDiskMounted: validDataMount(facts.DataMount),
 		Network:         validNetworkFact(facts.Network, config.GuestAddress),
 	}
-	readiness.Systemd = readiness.Systemd && exactCommandOutput(facts.PID1, "/usr/lib/systemd/systemd") && exactCommandOutput(facts.CgroupV2, "cgroup2fs") && exactCommandOutput(facts.Time, "yes") && validSeedDigest(facts.SeedDigest, seedDigest)
+	readiness.Systemd = readiness.Systemd && validSystemdExecutable(facts.PID1) && exactCommandOutput(facts.CgroupV2, "cgroup2fs") && exactCommandOutput(facts.Time, "yes") && validSeedDigest(facts.SeedDigest, seedDigest)
 	readiness.TSNodeHealthy, err = probe.unitActive(ctx, id, config.GuestAddress, "terrascale-ts-node.service")
 	if err != nil {
 		return sandboxvm.Readiness{}, err
@@ -427,6 +462,14 @@ func (probe *sshGuestProbe) unitActive(ctx context.Context, id, address, unit st
 
 func exactCommandOutput(result vmguest.CommandResult, expected string) bool {
 	return result.ExitCode == 0 && result.Error == "" && !result.StdoutTruncated && !result.StderrTruncated && len(result.Stderr) == 0 && strings.TrimSpace(string(result.Stdout)) == expected
+}
+
+func validSystemdExecutable(result vmguest.CommandResult) bool {
+	if result.ExitCode != 0 || result.Error != "" || result.StdoutTruncated || result.StderrTruncated || len(result.Stderr) != 0 {
+		return false
+	}
+	executable := strings.TrimSpace(string(result.Stdout))
+	return filepath.IsAbs(executable) && filepath.Base(executable) == "systemd"
 }
 
 func validDataMount(result vmguest.CommandResult) bool {
@@ -572,20 +615,22 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 	if len(control) == 0 || len(control) > vmguest.MaxTransferBytes {
 		return "", errors.New("vmqual: guest control binary exceeds the transfer limit")
 	}
-	artifacts, releasePublicKey, err := loadProductionArtifacts(factory.config, vmimage.Architecture(factory.image.Manifest.Architecture))
-	if err != nil {
-		return "", err
-	}
-	defer zeroBytes(releasePublicKey)
-	defer func() {
-		for index := range artifacts {
-			zeroBytes(artifacts[index].signature)
-		}
-	}()
 	network, err := guestNetwork(factory.config.NetworkPlan, guest)
 	if err != nil {
 		return "", err
 	}
+	if factory.services == nil {
+		return "", errors.New("vmqual: qualification services are not configured")
+	}
+	tsNode, seedArtifacts, err := factory.services.Bootstrap(guest)
+	if err != nil {
+		return "", err
+	}
+	smokeEndpoint, ok := factory.config.NetworkPlan.Endpoint(guest.Region, "smoke")
+	if !ok {
+		return "", errors.New("vmqual: guest smoke endpoint is absent from the network plan")
+	}
+	networkExchangeEndpoint := net.JoinHostPort(smokeEndpoint.GuestAddress, fmt.Sprint(smokeEndpoint.GuestPort))
 	transport := guestTransportFor(factory.config.StateRoot)
 	if transport == nil {
 		return "", errors.New("vmqual: guest transport is not registered")
@@ -600,15 +645,11 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 			transport.removeGuest(guest.ID)
 		}
 	}()
-	seedArtifacts := make([]vmimage.GuestArtifact, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		seedArtifacts = append(seedArtifacts, artifact.manifest)
-	}
-	guestSeed, err := vmimage.BuildGuestChannelSeed(vmimage.GuestSeedSpec{Image: factory.image.Manifest, Hostname: guest.ID, InstanceID: guest.ID, Region: strings.ToLower(string(guest.Region)), DataDiskPath: "/dev/vdb", Artifacts: seedArtifacts})
+	guestSeed, err := vmimage.BuildGuestChannelSeed(vmimage.GuestSeedSpec{Image: factory.image.Manifest, Hostname: guest.ID, InstanceID: guest.ID, Region: strings.ToLower(string(guest.Region)), DataDiskPath: "/dev/vdb", NetworkExchangeEndpoint: networkExchangeEndpoint, Artifacts: seedArtifacts})
 	if err != nil {
 		return "", err
 	}
-	seed, err := vmimage.BuildNoCloudSeed(vmimage.NoCloudSeedSpec{InstanceID: guest.ID, Hostname: guest.ID, Region: strings.ToLower(string(guest.Region)), Address: network.Address, PrefixBits: 24, Gateway: network.Gateway, MACAddress: network.MAC, Nameservers: []string{"1.1.1.1"}, SSHAuthorizedKey: publicKey, DataDevice: "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed, GuestControl: control})
+	seed, err := vmimage.BuildNoCloudSeed(vmimage.NoCloudSeedSpec{InstanceID: guest.ID, Hostname: guest.ID, Region: strings.ToLower(string(guest.Region)), Address: network.Address, PrefixBits: 24, Gateway: network.Gateway, MACAddress: network.MAC, Nameservers: []string{"1.1.1.1"}, SSHAuthorizedKey: publicKey, DataDevice: "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed, GuestControl: control, TSNode: tsNode})
 	if err != nil {
 		return "", err
 	}
@@ -643,6 +684,32 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 	config.NetworkNamespace, config.TapName, config.GuestMAC, config.GuestAddress = network.NamespacePath, network.TAP, network.MAC, network.Address
 	credentialOwned = false
 	return vmimage.GuestChannelSeedDigest(guestSeed), nil
+}
+
+type resolvedGuestNetwork struct {
+	NamespacePath string
+	TAP           string
+	MAC           string
+	Address       string
+	Gateway       string
+}
+
+func guestNetwork(plan vmnet.NetworkPlan, guest Guest) (resolvedGuestNetwork, error) {
+	if err := plan.Validate(); err != nil {
+		return resolvedGuestNetwork{}, fmt.Errorf("vmqual: invalid network plan: %w", err)
+	}
+	for _, region := range plan.Regions {
+		if region.Code != guest.Region {
+			continue
+		}
+		for _, candidate := range region.Guests {
+			if candidate.ID == guest.ID {
+				return resolvedGuestNetwork{NamespacePath: region.NamespacePath, TAP: candidate.TAP, MAC: candidate.MAC, Address: candidate.Address, Gateway: region.Gateway}, nil
+			}
+		}
+		return resolvedGuestNetwork{}, fmt.Errorf("vmqual: guest %s is absent from the %s network plan", guest.ID, guest.Region)
+	}
+	return resolvedGuestNetwork{}, fmt.Errorf("vmqual: Region %s is absent from the network plan", guest.Region)
 }
 
 func writeNewStateFile(path string, data []byte) error {
@@ -750,17 +817,16 @@ func loadProductionArtifacts(config Config, architecture vmimage.Architecture) (
 			return nil, nil, fmt.Errorf("vmqual: %s_SIGNATURE: %w", component.environment, err)
 		}
 		signature, err := decodeDetachedSignature(signatureData)
-		zeroBytes(signatureData)
 		if err != nil || !ed25519.Verify(publicKey, data, signature) {
 			zeroBytes(data)
+			zeroBytes(signatureData)
 			zeroBytes(signature)
 			zeroArtifactInputs(artifacts)
 			zeroBytes(publicKey)
 			return nil, nil, fmt.Errorf("vmqual: %s detached Ed25519 signature is invalid", component.component)
 		}
-		zeroBytes(data)
 		artifact := vmimage.GuestArtifact{Component: component.component, Architecture: architecture, Version: version, Source: path, SHA256: digest, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
-		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, path: path, signaturePath: component.input.SignaturePath, signature: signature}), append(infos, info)
+		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, signature: signature, binary: data, signatureFile: signatureData}), append(infos, info)
 	}
 	return artifacts, publicKey, nil
 }
@@ -828,6 +894,8 @@ func decodeDetachedSignature(input []byte) ([]byte, error) {
 func zeroArtifactInputs(artifacts []guestArtifactInput) {
 	for index := range artifacts {
 		zeroBytes(artifacts[index].signature)
+		zeroBytes(artifacts[index].binary)
+		zeroBytes(artifacts[index].signatureFile)
 	}
 }
 
@@ -853,29 +921,4 @@ func validateStaticELF(path string, architecture vmimage.Architecture) error {
 		}
 	}
 	return nil
-}
-
-func readVerifiedArtifact(artifact guestArtifactInput) ([]byte, error) {
-	data, info, err := readSecureInput(artifact.path, vmguest.MaxTransferBytes, true)
-	if err != nil || info.Size() != artifact.manifest.Size || uint32(info.Mode().Perm()) != artifact.manifest.Mode {
-		return nil, fmt.Errorf("vmqual: %s artifact changed before upload", artifact.manifest.Component)
-	}
-	signatureData, _, err := readSecureInput(artifact.signaturePath, 256, false)
-	if err != nil {
-		zeroBytes(data)
-		return nil, err
-	}
-	signature, err := decodeDetachedSignature(signatureData)
-	zeroBytes(signatureData)
-	if err != nil || !bytes.Equal(signature, artifact.signature) {
-		zeroBytes(data)
-		zeroBytes(signature)
-		return nil, fmt.Errorf("vmqual: %s artifact signature changed before use", artifact.manifest.Component)
-	}
-	zeroBytes(signature)
-	if vmimage.GuestChannelSeedDigest(data) != artifact.manifest.SHA256 {
-		zeroBytes(data)
-		return nil, fmt.Errorf("vmqual: %s artifact digest changed before upload", artifact.manifest.Component)
-	}
-	return data, nil
 }

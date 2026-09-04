@@ -145,6 +145,9 @@ func DecodeToolchainManifest(data []byte) (ToolchainManifest, error) {
 	if len(data) == 0 || len(data) > maxToolchainBytes {
 		return ToolchainManifest{}, errors.New("vmimage: toolchain manifest size is outside the permitted range")
 	}
+	if err := validateSeedJSONObjectDocument(data, toolchainJSONSchema(), "toolchain manifest"); err != nil {
+		return ToolchainManifest{}, fmt.Errorf("vmimage: decode toolchain manifest: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var manifest ToolchainManifest
@@ -205,16 +208,33 @@ func (installer *ToolchainInstaller) Install(ctx context.Context, manifest Toolc
 	}
 	entry := installed.Dir
 	if installer.verify(installed) == nil {
+		if err := syncDir(filepath.Dir(entry)); err != nil {
+			return InstalledToolchain{}, fmt.Errorf("vmimage: sync existing toolchain parent: %w", err)
+		}
 		return installed, nil
 	}
 	if err := ensurePrivateTree(installer.Root, filepath.Dir(entry)); err != nil {
 		return InstalledToolchain{}, fmt.Errorf("vmimage: create toolchain cache: %w", err)
 	}
+	lock, err := acquireCacheLock(installer.Root)
+	if err != nil {
+		return InstalledToolchain{}, err
+	}
+	defer releaseCacheLock(lock)
+	if err := recoverStaging(filepath.Dir(entry)); err != nil {
+		return InstalledToolchain{}, fmt.Errorf("vmimage: recover toolchain staging: %w", err)
+	}
+	if installer.verify(installed) == nil {
+		if err := syncDir(filepath.Dir(entry)); err != nil {
+			return InstalledToolchain{}, fmt.Errorf("vmimage: sync existing toolchain parent: %w", err)
+		}
+		return installed, nil
+	}
 	stage, err := createStaging(filepath.Dir(entry))
 	if err != nil {
 		return InstalledToolchain{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = recoverStaging(filepath.Dir(entry)) }()
 	archivePath := filepath.Join(stage, "firecracker.tgz")
 	if err := installer.fetch(ctx, manifest.Archive, archivePath); err != nil {
 		return InstalledToolchain{}, fmt.Errorf("vmimage: fetch Firecracker archive: %w", err)
@@ -244,6 +264,9 @@ func (installer *ToolchainInstaller) Install(ctx context.Context, manifest Toolc
 		return InstalledToolchain{}, err
 	}
 	if err := publishDirectory(stage, entry); err != nil {
+		if syncErr := syncDir(filepath.Dir(entry)); syncErr != nil {
+			return InstalledToolchain{}, fmt.Errorf("vmimage: sync toolchain parent after publication race: %w", syncErr)
+		}
 		if installer.verify(installed) == nil {
 			return installed, nil
 		}
@@ -267,11 +290,14 @@ func (installer *ToolchainInstaller) fetch(ctx context.Context, artifact RemoteA
 }
 
 func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest) error {
-	file, err := os.Open(archivePath)
+	file, metadata, err := secureOpenPath(archivePath, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
+	if !metadata.regular || metadata.special || metadata.uid != uint32(os.Geteuid()) || metadata.links != 1 {
+		return errors.New("vmimage: Firecracker archive metadata is unsafe")
+	}
 	compressed, err := gzip.NewReader(file)
 	if err != nil {
 		return fmt.Errorf("vmimage: open Firecracker archive: %w", err)
@@ -326,7 +352,7 @@ func extractToolchain(archivePath, targetDir string, manifest ToolchainManifest)
 }
 
 func extractMember(reader io.Reader, target string, member ArchiveMember) error {
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, os.FileMode(member.Mode))
+	file, _, err := secureOpenPath(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, os.FileMode(member.Mode))
 	if err != nil {
 		return err
 	}
@@ -334,7 +360,7 @@ func extractMember(reader io.Reader, target string, member ArchiveMember) error 
 	defer func() {
 		_ = file.Close()
 		if !ok {
-			_ = os.Remove(target)
+			_ = removeFileEntry(target)
 		}
 	}()
 	if err := file.Chmod(os.FileMode(member.Mode)); err != nil {
@@ -369,16 +395,15 @@ func (installer *ToolchainInstaller) verify(installed InstalledToolchain) error 
 	if installed.Dir != expected.Dir || installed.Firecracker != expected.Firecracker || installed.Jailer != expected.Jailer {
 		return errors.New("vmimage: installed toolchain paths do not match their derived location")
 	}
-	if err := rejectSymlinkAncestors(installed.Dir); err != nil {
+	directory, directoryMetadata, err := openVerifiedDirectory(installed.Dir)
+	if err != nil {
 		return err
 	}
-	if err := verifyDirectory(installed.Dir); err != nil {
+	defer directory.Close()
+	if err := verifyExactDirectoryEntriesAt(directory, installed.Manifest.Firecracker.Name, installed.Manifest.Jailer.Name, "manifest.json"); err != nil {
 		return err
 	}
-	if err := verifyExactDirectoryEntries(installed.Dir, installed.Manifest.Firecracker.Name, installed.Manifest.Jailer.Name, "manifest.json"); err != nil {
-		return err
-	}
-	data, err := readRegularFile(filepath.Join(installed.Dir, "manifest.json"), 0o600, maxToolchainBytes)
+	data, err := readRegularFileAt(directory, directoryMetadata, "manifest.json", 0o600, maxToolchainBytes)
 	if err != nil {
 		return err
 	}
@@ -392,28 +417,29 @@ func (installer *ToolchainInstaller) verify(installed InstalledToolchain) error 
 		return errors.New("vmimage: cached toolchain manifest differs from requested manifest")
 	}
 	for _, item := range []struct {
-		path   string
+		name   string
 		member ArchiveMember
-	}{{installed.Firecracker, installed.Manifest.Firecracker}, {installed.Jailer, installed.Manifest.Jailer}} {
-		info, err := os.Lstat(item.path)
+	}{{installed.Manifest.Firecracker.Name, installed.Manifest.Firecracker}, {installed.Manifest.Jailer.Name, installed.Manifest.Jailer}} {
+		file, metadata, err := secureOpenAt(directory, item.name, os.O_RDONLY, 0)
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != item.member.Size || uint32(info.Mode().Perm()) != item.member.Mode {
-			return errors.New("vmimage: cached toolchain executable metadata differs from manifest")
-		}
-		file, err := os.Open(item.path)
-		if err != nil {
+		if err := validateCacheFileMetadata(metadata, directoryMetadata, os.FileMode(item.member.Mode), item.member.Size, item.member.Size); err != nil {
+			_ = file.Close()
 			return err
 		}
 		hash := sha256.New()
 		_, copyErr := io.Copy(hash, file)
+		after, statErr := secureMetadata(file)
 		closeErr := file.Close()
 		if copyErr != nil {
 			return copyErr
 		}
 		if closeErr != nil {
 			return closeErr
+		}
+		if statErr != nil || after != metadata {
+			return errors.New("vmimage: cached toolchain executable changed while it was verified")
 		}
 		if hex.EncodeToString(hash.Sum(nil)) != item.member.SHA256 {
 			return errors.New("vmimage: cached toolchain executable digest differs from manifest")

@@ -2,6 +2,8 @@ package vmqual
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,42 +14,9 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
-type networkTestCall struct {
-	command     vmnet.Command
-	cleanup     bool
-	canceled    bool
-	hasDeadline bool
-	deadline    time.Time
-}
-
-type networkTestRunner struct {
-	calls []networkTestCall
-}
-
-func (r *networkTestRunner) Run(ctx context.Context, executable string, args []string) error {
-	r.record(ctx, false, executable, args)
-	return nil
-}
-
-func (r *networkTestRunner) RunCleanup(ctx context.Context, executable string, args []string) error {
-	r.record(ctx, true, executable, args)
-	return nil
-}
-
-func (r *networkTestRunner) record(ctx context.Context, cleanup bool, executable string, args []string) {
-	deadline, hasDeadline := ctx.Deadline()
-	r.calls = append(r.calls, networkTestCall{
-		command:     vmnet.Command{Executable: executable, Args: append([]string(nil), args...)},
-		cleanup:     cleanup,
-		canceled:    ctx.Err() != nil,
-		hasDeadline: hasDeadline,
-		deadline:    deadline,
-	})
-}
-
 func TestNewNetworkControllerUsesPinnedToolsAndWritesValidJournal(t *testing.T) {
 	config := networkTestConfig(t)
-	runner := &networkTestRunner{}
+	runner := &vmnet.RecordingRunner{}
 	journalPath := filepath.Join(t.TempDir(), "network.json")
 	controller, err := NewNetworkController(config, runner, journalPath)
 	if err != nil {
@@ -63,15 +32,15 @@ func TestNewNetworkControllerUsesPinnedToolsAndWritesValidJournal(t *testing.T) 
 	if err := controller.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.calls) != len(concrete.Plan().Commands) {
-		t.Fatalf("setup calls = %d, want %d", len(runner.calls), len(concrete.Plan().Commands))
+	if len(runner.Calls()) != len(concrete.Plan().Commands) {
+		t.Fatalf("setup calls = %d, want %d", len(runner.Calls()), len(concrete.Plan().Commands))
 	}
-	for _, call := range runner.calls {
-		if !filepath.IsAbs(call.command.Executable) {
-			t.Fatalf("setup used non-absolute executable %q", call.command.Executable)
+	for _, call := range runner.Calls() {
+		if !filepath.IsAbs(call.Command.Executable) {
+			t.Fatalf("setup used non-absolute executable %q", call.Command.Executable)
 		}
-		if len(call.command.Args) >= 4 && call.command.Args[0] == "netns" && call.command.Args[1] == "exec" && !filepath.IsAbs(call.command.Args[3]) {
-			t.Fatalf("namespace setup used non-absolute nested executable %q", call.command.Args[3])
+		if len(call.Command.Args) >= 4 && call.Command.Args[0] == "netns" && call.Command.Args[1] == "exec" && !filepath.IsAbs(call.Command.Args[3]) {
+			t.Fatalf("namespace setup used non-absolute nested executable %q", call.Command.Args[3])
 		}
 	}
 
@@ -93,7 +62,7 @@ func TestNewNetworkControllerUsesPinnedToolsAndWritesValidJournal(t *testing.T) 
 
 func TestNetworkControllerDelegatesDynamicFaults(t *testing.T) {
 	config := networkTestConfig(t)
-	runner := &networkTestRunner{}
+	runner := &vmnet.RecordingRunner{}
 	controller, err := NewNetworkController(config, runner, "")
 	if err != nil {
 		t.Fatal(err)
@@ -107,19 +76,22 @@ func TestNetworkControllerDelegatesDynamicFaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("controller type %T does not expose dynamic network faults", controller)
 	}
+	if err := controller.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := dynamic.Partition(context.Background(), vmnet.GRU, vmnet.SFO); err != nil {
 		t.Fatal(err)
 	}
-	partitionEnd := len(runner.calls)
-	if partitionEnd == 0 || !callsContain(runner.calls, "nft", "drop") {
-		t.Fatalf("partition calls did not install an nft drop rule: %+v", runner.calls)
+	partitionEnd := len(runner.Calls())
+	if partitionEnd == 0 || !callsContain(runner.Calls(), "nft", "drop") {
+		t.Fatalf("partition calls did not install an nft drop rule: %+v", runner.Calls())
 	}
 	if err := dynamic.Heal(context.Background(), vmnet.GRU, vmnet.SFO); err != nil {
 		t.Fatal(err)
 	}
-	if !callsContain(runner.calls[partitionEnd:], "nft", "flush") || callsContain(runner.calls[partitionEnd:], "nft", "drop") {
-		t.Fatalf("heal calls did not flush only the owned nft chains: %+v", runner.calls[partitionEnd:])
+	if !callsContain(runner.Calls()[partitionEnd:], "nft", "flush") || callsContain(runner.Calls()[partitionEnd:], "nft", "drop") {
+		t.Fatalf("heal calls did not flush only the owned nft chains: %+v", runner.Calls()[partitionEnd:])
 	}
 
 	fault := vmnet.FaultSpec{
@@ -133,18 +105,18 @@ func TestNetworkControllerDelegatesDynamicFaults(t *testing.T) {
 	if err := dynamic.SetNetem(context.Background(), fault); err != nil {
 		t.Fatal(err)
 	}
-	setEnd := len(runner.calls)
+	setEnd := len(runner.Calls())
 	if setEnd == 0 {
 		t.Fatal("SetNetem made no runner call")
 	}
-	if !callContains(runner.calls[setEnd-1], "tc", "replace", "37ms", "3ms", "1.25%", "512kbit") {
-		t.Fatalf("SetNetem call = %+v", runner.calls[setEnd-1])
+	if !callContains(runner.Calls()[setEnd-1], "tc", "replace", "37ms", "3ms", "1.25%", "512kbit") {
+		t.Fatalf("SetNetem call = %+v", runner.Calls()[setEnd-1])
 	}
 	if err := dynamic.ClearNetem(context.Background(), vmnet.SFO, vmnet.FRA); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.calls) != setEnd+1 || !callContains(runner.calls[len(runner.calls)-1], "tc", "qdisc", "replace", "root", "netem") {
-		t.Fatalf("ClearNetem calls = %+v", runner.calls[setEnd:])
+	if len(runner.Calls()) != setEnd+1 || !callContains(runner.Calls()[len(runner.Calls())-1], "tc", "qdisc", "replace", "root", "netem") {
+		t.Fatalf("ClearNetem calls = %+v", runner.Calls()[setEnd:])
 	}
 }
 
@@ -208,7 +180,7 @@ func TestValidateNetworkJournalRejectsToolAndRunOwnershipChanges(t *testing.T) {
 
 func TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands(t *testing.T) {
 	config := networkTestConfig(t)
-	runner := &networkTestRunner{}
+	runner := &vmnet.RecordingRunner{}
 	controller, err := NewNetworkController(config, runner, "")
 	if err != nil {
 		t.Fatal(err)
@@ -220,18 +192,18 @@ func TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands(t *t
 	if err := controller.Cleanup(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.calls) != len(concrete.Plan().Cleanup.Commands) {
-		t.Fatalf("cleanup calls = %d, want %d", len(runner.calls), len(concrete.Plan().Cleanup.Commands))
+	if len(runner.Calls()) != len(concrete.Plan().Cleanup.Commands) {
+		t.Fatalf("cleanup calls = %d, want %d", len(runner.Calls()), len(concrete.Plan().Cleanup.Commands))
 	}
-	for _, call := range runner.calls {
-		if !call.cleanup {
+	for _, call := range runner.Calls() {
+		if !call.Cleanup {
 			t.Fatalf("cleanup used ordinary runner entry point: %+v", call)
 		}
-		if call.canceled {
+		if call.Canceled {
 			t.Fatalf("cleanup inherited caller cancellation: %+v", call)
 		}
-		if !call.hasDeadline || call.deadline.Before(started) || call.deadline.After(started.Add(11*time.Second)) {
-			t.Fatalf("cleanup command deadline = %v, started %v", call.deadline, started)
+		if !call.HasDeadline || call.Deadline.Before(started) || call.Deadline.After(started.Add(11*time.Second)) {
+			t.Fatalf("cleanup command deadline = %v, started %v", call.Deadline, started)
 		}
 	}
 }
@@ -248,7 +220,9 @@ func networkTestConfig(t *testing.T) vmnet.Config {
 		paths[name] = path
 	}
 	config := vmnet.DefaultConfig()
-	config.RunID = "0123456789abcdef0123456789abcdef"
+	digest := sha256.Sum256([]byte(t.Name()))
+	config.RunID = hex.EncodeToString(digest[:16])
+	config.CoordinationRoot = filepath.Join(directory, "coordination")
 	config.Tools = vmnet.ToolPaths{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"]}
 	return config
 }
@@ -266,7 +240,7 @@ func cloneNetworkJournal(t *testing.T, journal vmnet.Journal) vmnet.Journal {
 	return clone
 }
 
-func callsContain(calls []networkTestCall, values ...string) bool {
+func callsContain(calls []vmnet.RecordingCall, values ...string) bool {
 	for _, call := range calls {
 		if callContains(call, values...) {
 			return true
@@ -275,8 +249,8 @@ func callsContain(calls []networkTestCall, values ...string) bool {
 	return false
 }
 
-func callContains(call networkTestCall, values ...string) bool {
-	line := call.command.Executable + "\x00" + strings.Join(call.command.Args, "\x00")
+func callContains(call vmnet.RecordingCall, values ...string) bool {
+	line := call.Command.Executable + "\x00" + strings.Join(call.Command.Args, "\x00")
 	for _, value := range values {
 		if !strings.Contains(line, value) {
 			return false
@@ -285,4 +259,4 @@ func callContains(call networkTestCall, values ...string) bool {
 	return true
 }
 
-var _ vmnet.CleanupRunner = (*networkTestRunner)(nil)
+var _ vmnet.CleanupRunner = (*vmnet.RecordingRunner)(nil)

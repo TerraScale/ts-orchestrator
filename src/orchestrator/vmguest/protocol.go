@@ -26,7 +26,8 @@ const (
 	MaxOutputBytes     = 256 << 10
 
 	maxFieldNameBytes = 16
-	maxOperationBytes = 16
+	maxOperationBytes = 18
+	maxActionBytes    = 16
 	maxPathBytes      = 240
 	maxArgumentBytes  = 4096
 	maxRequestArgs    = 3
@@ -40,6 +41,7 @@ const (
 	requestFieldArgs
 	requestFieldData
 	requestFieldMode
+	requestFieldAction
 )
 
 type Operation string
@@ -51,16 +53,40 @@ const (
 	OperationDataWrite Operation = "data-write"
 	OperationDataRead  Operation = "data-read"
 	OperationNetwork   Operation = "network-exchange"
+	OperationStorage   Operation = "storage-diagnostic"
+)
+
+type StorageAction string
+
+const (
+	StorageActionObserve    StorageAction = "observe"
+	StorageActionProbeWrite StorageAction = "probe-write"
+	StorageActionFillENOSPC StorageAction = "fill-enospc"
+	StorageActionClearFill  StorageAction = "clear-fill"
+	StorageActionFSCKRepair StorageAction = "fsck-repair"
+	StorageActionFSCKCheck  StorageAction = "fsck-check"
+	StorageActionGrow       StorageAction = "grow"
+)
+
+type StorageErrno string
+
+const (
+	StorageErrnoNone   StorageErrno = ""
+	StorageErrnoENOSPC StorageErrno = "ENOSPC"
+	StorageErrnoEIO    StorageErrno = "EIO"
+	StorageErrnoEROFS  StorageErrno = "EROFS"
+	StorageErrnoENODEV StorageErrno = "ENODEV"
 )
 
 // Request is one bounded operation. Data is base64 encoded by encoding/json.
 type Request struct {
-	SchemaVersion int       `json:"schemaVersion"`
-	Operation     Operation `json:"operation"`
-	Path          string    `json:"path,omitempty"`
-	Args          []string  `json:"args,omitempty"`
-	Data          []byte    `json:"data,omitempty"`
-	Mode          uint32    `json:"mode,omitempty"`
+	SchemaVersion int           `json:"schemaVersion"`
+	Operation     Operation     `json:"operation"`
+	Path          string        `json:"path,omitempty"`
+	Args          []string      `json:"args,omitempty"`
+	Data          []byte        `json:"data,omitempty"`
+	Mode          uint32        `json:"mode,omitempty"`
+	Action        StorageAction `json:"action,omitempty"`
 
 	decodedFields uint8
 }
@@ -88,14 +114,35 @@ type ProbeResult struct {
 	SeedDigest CommandResult `json:"seedDigest"`
 }
 
+// StorageObservation contains only evidence gathered from the configured
+// persistent data root and the device bound into the trusted guest seed.
+type StorageObservation struct {
+	Action             StorageAction `json:"action"`
+	Device             string        `json:"device"`
+	MountPath          string        `json:"mountPath"`
+	Filesystem         string        `json:"filesystem"`
+	Mounted            bool          `json:"mounted"`
+	ReadOnly           bool          `json:"readOnly"`
+	TotalBytes         uint64        `json:"totalBytes"`
+	AvailableBytes     uint64        `json:"availableBytes"`
+	AttemptedBytes     uint64        `json:"attemptedBytes"`
+	WrittenBytes       uint64        `json:"writtenBytes"`
+	Errno              StorageErrno  `json:"errno"`
+	ExitCode           int           `json:"exitCode"`
+	CorruptionDetected bool          `json:"corruptionDetected"`
+	Repaired           bool          `json:"repaired"`
+	Healthy            bool          `json:"healthy"`
+}
+
 // Response is always emitted for a decoded SSH request. Error denotes a
 // protocol or control-operation failure, not a diagnostic command exit.
 type Response struct {
-	SchemaVersion int            `json:"schemaVersion"`
-	Command       *CommandResult `json:"command,omitempty"`
-	Probe         *ProbeResult   `json:"probe,omitempty"`
-	Data          []byte         `json:"data,omitempty"`
-	Error         string         `json:"error,omitempty"`
+	SchemaVersion int                 `json:"schemaVersion"`
+	Command       *CommandResult      `json:"command,omitempty"`
+	Probe         *ProbeResult        `json:"probe,omitempty"`
+	Storage       *StorageObservation `json:"storage,omitempty"`
+	Data          []byte              `json:"data,omitempty"`
+	Error         string              `json:"error,omitempty"`
 }
 
 var (
@@ -225,6 +272,8 @@ func requestFieldBit(field string) (uint8, bool) {
 		return requestFieldData, true
 	case "mode":
 		return requestFieldMode, true
+	case "action":
+		return requestFieldAction, true
 	default:
 		return 0, false
 	}
@@ -252,6 +301,10 @@ func (parser *requestJSONParser) decodeField(field string, request *Request) err
 		return err
 	case "mode":
 		return parser.decodeInteger(&request.Mode)
+	case "action":
+		value, err := parser.decodeString(maxActionBytes)
+		request.Action = StorageAction(value)
+		return err
 	default:
 		return errRequestUnknown
 	}
@@ -747,48 +800,65 @@ func (request Request) Validate() error {
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation) {
 			return errors.New("vmguest: probe request fields are invalid")
 		}
-		if request.Path != "" || len(request.Args) != 0 || len(request.Data) != 0 || request.Mode != 0 {
+		if request.Path != "" || len(request.Args) != 0 || len(request.Data) != 0 || request.Mode != 0 || request.Action != "" {
 			return errors.New("vmguest: probe request contains unrelated fields")
 		}
 	case OperationExecute:
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldPath | requestFieldArgs) {
 			return errors.New("vmguest: diagnostic request fields are invalid")
 		}
-		if len(request.Data) != 0 || request.Mode != 0 || !admittedDiagnostic(request.Path, request.Args) {
+		if len(request.Data) != 0 || request.Mode != 0 || request.Action != "" || !admittedDiagnostic(request.Path, request.Args) {
 			return errors.New("vmguest: diagnostic command is not admitted")
 		}
 	case OperationPut:
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldPath | requestFieldData | requestFieldMode) {
 			return errors.New("vmguest: artifact request fields are invalid")
 		}
-		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxTransferBytes || (request.Mode != 0o600 && request.Mode != 0o644) {
+		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxTransferBytes || (request.Mode != 0o600 && request.Mode != 0o644) || request.Action != "" {
 			return errors.New("vmguest: artifact transfer is invalid")
 		}
 	case OperationDataWrite:
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldPath | requestFieldData) {
 			return errors.New("vmguest: persistent write request fields are invalid")
 		}
-		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxPersistentBytes || request.Mode != 0 {
+		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxPersistentBytes || request.Mode != 0 || request.Action != "" {
 			return errors.New("vmguest: persistent write is invalid")
 		}
 	case OperationDataRead:
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldPath) {
 			return errors.New("vmguest: persistent read request fields are invalid")
 		}
-		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) != 0 || request.Mode != 0 {
+		if !validRelativePath(request.Path) || len(request.Args) != 0 || len(request.Data) != 0 || request.Mode != 0 || request.Action != "" {
 			return errors.New("vmguest: persistent read is invalid")
 		}
 	case OperationNetwork:
 		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldPath | requestFieldData) {
 			return errors.New("vmguest: network exchange request fields are invalid")
 		}
-		if !validNetworkEndpoint(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxNetworkBytes || request.Mode != 0 {
+		if !validNetworkEndpoint(request.Path) || len(request.Args) != 0 || len(request.Data) == 0 || len(request.Data) > MaxNetworkBytes || request.Mode != 0 || request.Action != "" {
 			return errors.New("vmguest: network exchange is invalid")
+		}
+	case OperationStorage:
+		if !request.hasOnlyDecodedFields(requestFieldSchemaVersion | requestFieldOperation | requestFieldAction) {
+			return errors.New("vmguest: storage diagnostic request fields are invalid")
+		}
+		if request.Path != "" || len(request.Args) != 0 || len(request.Data) != 0 || request.Mode != 0 || !validStorageAction(request.Action) {
+			return errors.New("vmguest: storage diagnostic action is invalid")
 		}
 	default:
 		return errors.New("vmguest: operation is not admitted")
 	}
 	return nil
+}
+
+func validStorageAction(action StorageAction) bool {
+	switch action {
+	case StorageActionObserve, StorageActionProbeWrite, StorageActionFillENOSPC, StorageActionClearFill,
+		StorageActionFSCKRepair, StorageActionFSCKCheck, StorageActionGrow:
+		return true
+	default:
+		return false
+	}
 }
 
 func (request Request) hasOnlyDecodedFields(expected uint8) bool {

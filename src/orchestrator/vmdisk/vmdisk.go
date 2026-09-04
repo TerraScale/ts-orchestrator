@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -46,7 +48,9 @@ var (
 	ErrCorruptState        = errors.New("vmdisk: corrupt state")
 	ErrCorruptSnapshot     = errors.New("vmdisk: corrupt snapshot")
 	ErrDriveBusy           = errors.New("vmdisk: drive changed while preparing an offline artifact")
-	ErrDurabilityUncertain = errors.New("vmdisk: metadata is visible but directory durability could not be confirmed")
+	ErrDurabilityUncertain = errors.New("vmdisk: filesystem state is visible but directory durability could not be confirmed")
+	ErrClosed              = errors.New("vmdisk: store is closed")
+	ErrCleanupPending      = errors.New("vmdisk: deterministic terminal cleanup is pending")
 )
 
 // FaultKind identifies either a byte mutation performed on an unpublished
@@ -138,15 +142,16 @@ const ActivationNextBoot ActivationScope = "next-boot"
 type TransitionKind string
 
 const (
-	TransitionCreate     TransitionKind = "create"
-	TransitionAttach     TransitionKind = "attach"
-	TransitionDetach     TransitionKind = "detach"
-	TransitionFault      TransitionKind = "fault"
-	TransitionClearFault TransitionKind = "clear-faults"
-	TransitionExpand     TransitionKind = "expand"
-	TransitionCorrupt    TransitionKind = "corrupt"
-	TransitionWrite      TransitionKind = "write"
-	TransitionRestore    TransitionKind = "restore"
+	TransitionCreate          TransitionKind = "create"
+	TransitionAttach          TransitionKind = "attach"
+	TransitionDetach          TransitionKind = "detach"
+	TransitionFault           TransitionKind = "fault"
+	TransitionClearFault      TransitionKind = "clear-faults"
+	TransitionExpand          TransitionKind = "expand"
+	TransitionCorrupt         TransitionKind = "corrupt"
+	TransitionWrite           TransitionKind = "write"
+	TransitionRestore         TransitionKind = "restore"
+	TransitionAcknowledgeGrow TransitionKind = "acknowledge-filesystem-grow"
 )
 
 type Transition struct {
@@ -234,6 +239,16 @@ type Ownership struct {
 	GID int
 }
 
+// StoreIdentity is the exact store identity that a trusted outer cleanup
+// journal must persist before New creates any artifacts. Tombstone is derived
+// from Root and RunID and is rejected if a caller changes it.
+type StoreIdentity struct {
+	Root      string    `json:"root"`
+	RunID     string    `json:"run_id"`
+	Ownership Ownership `json:"ownership"`
+	Tombstone string    `json:"tombstone"`
+}
+
 type Config struct {
 	Root         string
 	RunID        string
@@ -272,6 +287,7 @@ type Store struct {
 	maxSnapshots int
 	runner       FaultRunner
 	lockFile     *os.File
+	closed       bool
 	mu           sync.Mutex
 	hooks        testHooks
 }
@@ -281,6 +297,8 @@ type Store struct {
 type testHooks struct {
 	beforeCopy           func(string) error
 	beforeMetadataCommit func(string) error
+	beforeManagedCleanup func(string) error
+	afterRootRename      func(StoreIdentity) error
 }
 
 func New(config Config) (*Store, error) { return newStore(config) }
@@ -315,6 +333,99 @@ func PlanPaths(root, id string, generation uint64) (Paths, error) {
 		Metadata:  filepath.Join(driveDir, metadataName),
 		Ownership: filepath.Join(driveDir, ownerFileName),
 	}, nil
+}
+
+// PlanStoreIdentity returns a canonical, replay-safe identity without
+// creating or changing the store.
+func PlanStoreIdentity(root, runID string, ownership Ownership) (StoreIdentity, error) {
+	plannedRoot, err := validatePlannedRoot(root)
+	if err != nil {
+		return StoreIdentity{}, err
+	}
+	if err := validateID(runID); err != nil {
+		return StoreIdentity{}, fmt.Errorf("%w: invalid run id", ErrInvalidRoot)
+	}
+	if err := validateOwnership(ownership); err != nil {
+		return StoreIdentity{}, err
+	}
+	name := "." + filepath.Base(plannedRoot) + ".vmdisk-remove-" + runID
+	if len(name) > 255 {
+		return StoreIdentity{}, fmt.Errorf("%w: terminal cleanup name is too long", ErrInvalidRoot)
+	}
+	return StoreIdentity{
+		Root:      plannedRoot,
+		RunID:     runID,
+		Ownership: ownership,
+		Tombstone: filepath.Join(filepath.Dir(plannedRoot), name),
+	}, nil
+}
+
+func (s *Store) Identity() StoreIdentity {
+	identity, _ := PlanStoreIdentity(s.root, s.runID, s.owner)
+	return identity
+}
+
+// RemoveStore replays terminal cleanup from a trusted outer journal. It
+// resumes a deterministic detached-root cleanup before touching Root.
+func RemoveStore(ctx context.Context, identity StoreIdentity) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	identity, err := validateStoreIdentity(identity)
+	if err != nil {
+		return err
+	}
+	if err := removeDetachedStore(identity); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(identity.Root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	store, err := openExistingStore(ctx, identity)
+	if err != nil {
+		return err
+	}
+	defer store.closeReplayHandle()
+	return store.CloseAndRemove(ctx)
+}
+
+// RemoveDriveOwned replays one drive cleanup from a trusted outer journal.
+// It resolves the current artifact generation and removes any owned snapshots
+// without following journaled artifact paths.
+func RemoveDriveOwned(ctx context.Context, identity StoreIdentity, id string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	identity, err := validateStoreIdentity(identity)
+	if err != nil {
+		return err
+	}
+	if err := removeDetachedStore(identity); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(identity.Root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	store, err := openExistingStore(ctx, identity)
+	if err != nil {
+		return err
+	}
+	defer store.closeReplayHandle()
+	return store.Remove(ctx, id)
+}
+
+func (s *Store) closeReplayHandle() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lockFile != nil {
+		_ = s.lockFile.Close()
+		s.lockFile = nil
+	}
+	s.closed = true
 }
 
 func (s *Store) Root() string  { return s.root }
@@ -397,7 +508,7 @@ func (s *Store) CreateSpec(ctx context.Context, spec DriveSpec) (*Drive, error) 
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stageDir, dir); err != nil {
+	if err := unix.Renameat2(unix.AT_FDCWD, stageDir, unix.AT_FDCWD, dir, unix.RENAME_NOREPLACE); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return nil, ErrExists
 		}
@@ -531,6 +642,7 @@ func (s *Store) PrepareExpansion(ctx context.Context, id string, size int64) (Tr
 	next.Generation++
 	next.Size = size
 	next.FilledBytes = min64(next.FilledBytes, size)
+	next.FillToENOSPC = false
 	next.GrowFilesystem = true
 	next.Transition = Transition{Kind: TransitionExpand, PreviousSize: state.Size}
 	next.UpdatedAt = time.Now().UTC()
@@ -596,7 +708,7 @@ func (s *Store) PrepareRestore(ctx context.Context, id string, source any) (Tran
 			return TransitionOutcome{}, ErrQuotaExceeded
 		}
 	}
-	if got, err := checksumExact(ctx, snapshot.Path, snapshot.Size); err != nil {
+	if got, err := checksumExact(ctx, snapshot.Path, snapshot.Size, s.owner, 0o400); err != nil {
 		return TransitionOutcome{}, err
 	} else if got != snapshot.Checksum {
 		return TransitionOutcome{}, fmt.Errorf("%w: checksum mismatch", ErrCorruptSnapshot)
@@ -635,7 +747,7 @@ func (s *Store) Checksum(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return checksumExact(ctx, path, state.Size)
+	return checksumExact(ctx, path, state.Size, s.owner, 0o600)
 }
 
 func (s *Store) Faults(ctx context.Context, id string) (FaultState, error) {
@@ -727,7 +839,7 @@ func (s *Store) PrepareFaultPlan(ctx context.Context, id string, plan FaultPlan)
 	if err := validateID(id); err != nil {
 		return TransitionOutcome{}, err
 	}
-	if plan.FillBytes < 0 || len(plan.Corruptions) > maxCorruptionsPerPlan {
+	if plan.FillBytes < 0 || (plan.FillAll && plan.FillBytes != 0) || (plan.Detach && plan.Reattach) || len(plan.Corruptions) > maxCorruptionsPerPlan {
 		return TransitionOutcome{}, ErrInvalidFault
 	}
 	done, err := s.begin(ctx)
@@ -817,6 +929,44 @@ func (s *Store) PrepareFaultPlan(ctx context.Context, id string, plan FaultPlan)
 	return TransitionOutcome{PreviousGeneration: previous, Plan: boot}, err
 }
 
+// AcknowledgeFilesystemGrow clears a one-shot guest resize intent only for
+// the generation that the runtime successfully applied. Replaying an
+// acknowledgment immediately after its committed transition is idempotent.
+func (s *Store) AcknowledgeFilesystemGrow(ctx context.Context, id string, generation uint64) (BootPlan, error) {
+	if err := validateID(id); err != nil {
+		return BootPlan{}, err
+	}
+	if generation == 0 {
+		return BootPlan{}, ErrCorruptState
+	}
+	done, err := s.begin(ctx)
+	if err != nil {
+		return BootPlan{}, err
+	}
+	defer done()
+	state, path, err := s.loadMetadata(id)
+	if err != nil {
+		return BootPlan{}, err
+	}
+	if state.Generation != generation {
+		if generation != ^uint64(0) && state.Generation == generation+1 && !state.GrowFilesystem && state.Transition.Kind == TransitionAcknowledgeGrow {
+			return s.bootPlanLocked(ctx, state, path)
+		}
+		return BootPlan{}, ErrDriveBusy
+	}
+	if !state.GrowFilesystem {
+		return s.bootPlanLocked(ctx, state, path)
+	}
+	state.Generation++
+	state.GrowFilesystem = false
+	state.Transition = Transition{Kind: TransitionAcknowledgeGrow}
+	state.UpdatedAt = time.Now().UTC()
+	if _, err := s.writeDiskMetadata(ctx, s.metadataPath(id), state); err != nil {
+		return BootPlan{}, err
+	}
+	return s.bootPlanLocked(ctx, state, path)
+}
+
 func (s *Store) Fill(ctx context.Context, id string, bytes int64) error {
 	if bytes <= 0 {
 		return fmt.Errorf("%w: fill must be positive", ErrInvalidFault)
@@ -891,44 +1041,45 @@ func (s *Store) Remove(ctx context.Context, id string) error {
 	} else if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(s.snapshots)
+	dirs, err := openStoreDirectories(s)
 	if err != nil {
 		return err
 	}
-	var ownedSnapshots []Snapshot
+	defer dirs.close()
+	entries, err := readDirectoryEntries(dirs.snapshots)
+	if err != nil {
+		return err
+	}
+	var ownedSnapshots []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			return fmt.Errorf("%w: unexpected snapshot entry %q", ErrOwnership, entry.Name())
 		}
-		snapshot, loadErr := s.loadSnapshotDir(filepath.Join(s.snapshots, entry.Name()))
+		directory, openErr := openOwnedDirectoryAt(dirs.snapshots, entry.Name(), s.owner, 0o700)
+		if openErr != nil {
+			return openErr
+		}
+		snapshot, loadErr := s.loadSnapshotDirectoryAt(directory, filepath.Join(s.snapshots, entry.Name()))
+		_ = directory.file.Close()
 		if loadErr != nil {
 			return loadErr
 		}
 		if snapshot.DriveID == id {
-			ownedSnapshots = append(ownedSnapshots, snapshot)
+			ownedSnapshots = append(ownedSnapshots, snapshot.ID)
 		}
 	}
-	for _, snapshot := range ownedSnapshots {
+	for _, snapshotID := range ownedSnapshots {
 		if err := contextErr(ctx); err != nil {
 			return err
 		}
-		if err := removeOwnedTree(filepath.Dir(snapshot.Path), s.runID, snapshot.ID, s.owner); err != nil {
+		if err := removeManagedDirectoryAt(dirs.snapshots, snapshotID, s.runID, snapshotID, s.owner, true); err != nil {
 			return err
-		}
-		if err := syncDirectory(s.snapshots); err != nil {
-			return fmt.Errorf("%w: remove snapshot %s: %v", ErrDurabilityUncertain, snapshot.ID, err)
 		}
 	}
 	if !driveExists {
 		return nil
 	}
-	if err := removeOwnedTree(s.driveDir(id), s.runID, id, s.owner); err != nil {
-		return err
-	}
-	if err := syncDirectory(s.drives); err != nil {
-		return fmt.Errorf("%w: remove drive %s: %v", ErrDurabilityUncertain, id, err)
-	}
-	return nil
+	return removeManagedDirectoryAt(dirs.drives, id, s.runID, id, s.owner, true)
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error { return s.Remove(ctx, id) }
@@ -942,8 +1093,54 @@ func (s *Store) Cleanup(ctx context.Context) error {
 		return err
 	}
 	defer done()
-	for _, parent := range []string{s.drives, s.snapshots} {
-		entries, err := os.ReadDir(parent)
+	return s.cleanupLocked(ctx)
+}
+
+// Close releases this process's store handle without removing any artifacts.
+// A trusted outer cleanup journal can then replay RemoveDriveOwned or
+// RemoveStore to model recovery after the original process exited.
+func (s *Store) Close(ctx context.Context) error {
+	done, err := s.begin(ctx)
+	if errors.Is(err, ErrClosed) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	release := true
+	defer func() {
+		if release {
+			done()
+		}
+	}()
+	lockFile := s.lockFile
+	s.closed = true
+	s.lockFile = nil
+	_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+	closeErr := lockFile.Close()
+	s.mu.Unlock()
+	release = false
+	return closeErr
+}
+
+func (s *Store) cleanupLocked(ctx context.Context) error {
+	type cleanupTarget struct {
+		parent *trustedDirectory
+		name   string
+		id     string
+		path   string
+	}
+	dirs, err := openStoreDirectories(s)
+	if err != nil {
+		return err
+	}
+	defer dirs.close()
+	var targets []cleanupTarget
+	for _, group := range []struct {
+		parent *trustedDirectory
+		path   string
+	}{{dirs.drives, s.drives}, {dirs.snapshots, s.snapshots}} {
+		entries, err := readDirectoryEntries(group.parent)
 		if err != nil {
 			return err
 		}
@@ -954,20 +1151,120 @@ func (s *Store) Cleanup(ctx context.Context) error {
 			if !entry.IsDir() {
 				return fmt.Errorf("%w: unexpected entry %q", ErrOwnership, entry.Name())
 			}
-			path := filepath.Join(parent, entry.Name())
-			owner, err := readArtifactOwner(path, s.owner)
+			child, err := openOwnedDirectoryAt(group.parent, entry.Name(), s.owner, 0o700)
+			if err != nil {
+				return err
+			}
+			owner, err := readArtifactOwnerAt(child, s.owner)
+			_ = child.file.Close()
 			if err != nil {
 				return err
 			}
 			if owner.RunID != s.runID {
 				return ErrOwnership
 			}
-			if err := removeOwnedTree(path, s.runID, owner.ID, s.owner); err != nil {
+			if err := validateManagedDirectoryAt(group.parent, entry.Name(), s.runID, owner.ID, s.owner, true); err != nil {
 				return err
 			}
-			if err := syncDirectory(parent); err != nil {
-				return fmt.Errorf("%w: cleanup %s: %v", ErrDurabilityUncertain, path, err)
+			targets = append(targets, cleanupTarget{parent: group.parent, name: entry.Name(), id: owner.ID, path: filepath.Join(group.path, entry.Name())})
+		}
+	}
+	for _, target := range targets {
+		if err := contextErr(ctx); err != nil {
+			return err
+		}
+		if s.hooks.beforeManagedCleanup != nil {
+			if err := s.hooks.beforeManagedCleanup(target.path); err != nil {
+				return err
 			}
+		}
+		if err := removeManagedDirectoryAt(target.parent, target.name, s.runID, target.id, s.owner, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CloseAndRemove performs terminal cleanup for a dedicated qualification
+// store. It removes only integrity-checked artifacts owned by this run,
+// atomically detaches the exact root while locked, then deletes it.
+func (s *Store) CloseAndRemove(ctx context.Context) error {
+	identity := s.Identity()
+	done, err := s.begin(ctx)
+	if err != nil {
+		if errors.Is(err, ErrClosed) {
+			return removeDetachedStore(identity)
+		}
+		return err
+	}
+	release := true
+	defer func() {
+		if release {
+			done()
+		}
+	}()
+	if err := s.validateStoreRootForRemoval(); err != nil {
+		return err
+	}
+	if err := s.cleanupLocked(ctx); err != nil {
+		return err
+	}
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+	renameSyncErr := renameStoreToTombstone(identity, s.lockFile)
+	if renameSyncErr != nil && !errors.Is(renameSyncErr, ErrDurabilityUncertain) {
+		return renameSyncErr
+	}
+	lockFile := s.lockFile
+	s.closed = true
+	s.lockFile = nil
+	_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+	closeErr := lockFile.Close()
+	s.mu.Unlock()
+	release = false
+	if s.hooks.afterRootRename != nil {
+		if err := s.hooks.afterRootRename(identity); err != nil {
+			return err
+		}
+	}
+	if err := removeDetachedStore(identity); err != nil {
+		if renameSyncErr != nil {
+			return fmt.Errorf("%w: detach store root: %v; cleanup: %v", ErrDurabilityUncertain, renameSyncErr, err)
+		}
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return nil
+}
+
+func (s *Store) validateStoreRootForRemoval() error {
+	dirs, err := openStoreDirectories(s)
+	if err != nil {
+		return err
+	}
+	defer dirs.close()
+	entries, err := readDirectoryEntries(dirs.root)
+	if err != nil || len(entries) != 4 {
+		return ErrOwnership
+	}
+	expected := map[string]bool{
+		storeMarkerName: false,
+		lockFileName:    false,
+		"drives":        false,
+		"snapshots":     false,
+	}
+	for _, entry := range entries {
+		if _, ok := expected[entry.Name()]; !ok {
+			return ErrOwnership
+		}
+		expected[entry.Name()] = true
+	}
+	for _, found := range expected {
+		if !found {
+			return ErrOwnership
 		}
 	}
 	return nil
@@ -979,7 +1276,7 @@ func (s *Store) bootPlanLocked(ctx context.Context, state diskMetadata, path str
 	if state.Attached {
 		attachment = AttachmentAttached
 		var err error
-		digest, err = checksumExact(ctx, path, state.Size)
+		digest, err = checksumExact(ctx, path, state.Size, s.owner, 0o600)
 		if err != nil {
 			return BootPlan{}, err
 		}

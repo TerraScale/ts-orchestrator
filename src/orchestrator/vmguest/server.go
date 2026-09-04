@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	DefaultInboxRoot = "/var/lib/terrascale/vmqual-inbox"
-	DefaultDataRoot  = "/var/lib/terrascale/vmqual-data"
-	DefaultSeedPath  = "/run/terrascale/guest-seed.json"
+	DefaultInboxRoot  = "/var/lib/terrascale/vmqual-inbox"
+	DefaultDataRoot   = "/var/lib/terrascale/vmqual-data"
+	DefaultDataDevice = "/dev/vdb"
+	DefaultSeedPath   = "/etc/terrascale/vmqual-guest-seed.json"
 )
 
 type Executor interface {
@@ -41,17 +42,19 @@ func (ProcessExecutor) Run(ctx context.Context, path string, args []string, stdo
 }
 
 type Config struct {
-	InboxRoot      string
-	DataRoot       string
-	SeedPath       string
-	Executor       Executor
-	NetworkDialer  NetworkDialer
-	CommandTimeout time.Duration
-	SessionTimeout time.Duration
+	InboxRoot               string
+	DataRoot                string
+	DataDevice              string
+	SeedPath                string
+	NetworkExchangeEndpoint string
+	Executor                Executor
+	NetworkDialer           NetworkDialer
+	CommandTimeout          time.Duration
+	SessionTimeout          time.Duration
 }
 
 func DefaultConfig() Config {
-	return Config{InboxRoot: DefaultInboxRoot, DataRoot: DefaultDataRoot, SeedPath: DefaultSeedPath, Executor: ProcessExecutor{}, CommandTimeout: 30 * time.Second, SessionTimeout: 2 * time.Minute}
+	return Config{InboxRoot: DefaultInboxRoot, DataRoot: DefaultDataRoot, DataDevice: DefaultDataDevice, SeedPath: DefaultSeedPath, Executor: ProcessExecutor{}, CommandTimeout: 30 * time.Second, SessionTimeout: 2 * time.Minute}
 }
 
 func (config Config) validate() (Config, error) {
@@ -61,6 +64,12 @@ func (config Config) validate() (Config, error) {
 	if config.DataRoot == "" {
 		config.DataRoot = DefaultDataRoot
 	}
+	if config.DataDevice == "" {
+		config.DataDevice = DefaultDataDevice
+	}
+	if config.DataDevice != DefaultDataDevice {
+		return Config{}, errors.New("vmguest: data device configuration is invalid")
+	}
 	if config.SeedPath == "" {
 		config.SeedPath = DefaultSeedPath
 	}
@@ -69,6 +78,9 @@ func (config Config) validate() (Config, error) {
 	}
 	if config.NetworkDialer == nil {
 		config.NetworkDialer = &net.Dialer{}
+	}
+	if config.NetworkExchangeEndpoint != "" && !validNetworkEndpoint(config.NetworkExchangeEndpoint) {
+		return Config{}, errors.New("vmguest: network exchange endpoint configuration is invalid")
 	}
 	if config.CommandTimeout == 0 {
 		config.CommandTimeout = 30 * time.Second
@@ -118,9 +130,15 @@ func ServeForced(ctx context.Context, input io.Reader, output io.Writer, origina
 	}
 	sessionContext, cancel := context.WithTimeout(ctx, validated.SessionTimeout)
 	defer cancel()
-	stopReadCancellation := armReadCancellation(sessionContext, input)
+	stopReadCancellation, err := armReadCancellation(sessionContext, input)
+	if err != nil {
+		return err
+	}
 	defer stopReadCancellation()
-	stopWriteCancellation := armWriteCancellation(sessionContext, output)
+	stopWriteCancellation, err := armWriteCancellation(sessionContext, output)
+	if err != nil {
+		return err
+	}
 	defer stopWriteCancellation()
 	response := Response{SchemaVersion: SchemaVersion}
 	if originalCommand != "" {
@@ -182,6 +200,12 @@ func handleRequest(ctx context.Context, config Config, request Request) Response
 		} else {
 			response.Data = data
 		}
+	case OperationStorage:
+		observation, err := storageDiagnostic(ctx, config, request.Action)
+		response.Storage = &observation
+		if err != nil {
+			response.Error = err.Error()
+		}
 	default:
 		response.Error = "vmguest: operation is not admitted"
 	}
@@ -194,6 +218,9 @@ func networkExchange(ctx context.Context, config Config, endpoint string, challe
 	}
 	if !validNetworkEndpoint(endpoint) || len(challenge) == 0 || len(challenge) > MaxNetworkBytes {
 		return nil, errors.New("vmguest: network exchange parameters are invalid")
+	}
+	if config.NetworkExchangeEndpoint == "" || endpoint != config.NetworkExchangeEndpoint {
+		return nil, errors.New("vmguest: network exchange endpoint is not authorized")
 	}
 	timeout := config.CommandTimeout
 	if timeout == 0 {
@@ -388,36 +415,40 @@ type writeDeadlineSetter interface {
 	SetWriteDeadline(time.Time) error
 }
 
-func armReadCancellation(ctx context.Context, value any) func() {
+func armReadCancellation(ctx context.Context, value any) (func(), error) {
 	setter, ok := value.(readDeadlineSetter)
 	if !ok {
-		return func() {}
+		return func() {}, nil
 	}
 	if deadline, present := ctx.Deadline(); present {
-		_ = setter.SetReadDeadline(deadline)
+		if err := setter.SetReadDeadline(deadline); err != nil {
+			return nil, errors.New("vmguest: request reader does not support cancellation")
+		}
 	}
 	stop := context.AfterFunc(ctx, func() { _ = setter.SetReadDeadline(time.Now()) })
 	return func() {
 		if stop() {
 			_ = setter.SetReadDeadline(time.Time{})
 		}
-	}
+	}, nil
 }
 
-func armWriteCancellation(ctx context.Context, value any) func() {
+func armWriteCancellation(ctx context.Context, value any) (func(), error) {
 	setter, ok := value.(writeDeadlineSetter)
 	if !ok {
-		return func() {}
+		return func() {}, nil
 	}
 	if deadline, present := ctx.Deadline(); present {
-		_ = setter.SetWriteDeadline(deadline)
+		if err := setter.SetWriteDeadline(deadline); err != nil {
+			return nil, errors.New("vmguest: response writer does not support cancellation")
+		}
 	}
 	stop := context.AfterFunc(ctx, func() { _ = setter.SetWriteDeadline(time.Now()) })
 	return func() {
 		if stop() {
 			_ = setter.SetWriteDeadline(time.Time{})
 		}
-	}
+	}, nil
 }
 
 func resolveExistingPath(path string) (string, error) {

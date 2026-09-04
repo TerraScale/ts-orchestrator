@@ -1,6 +1,6 @@
 // Command ts-node is the D-69 host agent: the only thing that touches a
-// host. It runs as root under the system unit cloud-init installs
-// (provider.TSNodeCloudInit: sha256-verified binary behind the
+// host. It runs as root under the shared tsnodebootstrap system unit
+// (a verified binary behind the
 // /opt/terrascale/ts-node/current symlink, exactly one unit, no arguments),
 // reads its own configuration from one JSON file, watches the local
 // manifest for desired components, serves the ts.orch.v2 host-agent subjects
@@ -13,12 +13,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +30,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
 // The defaults of ts-node; every one is overridable in the config file and
@@ -43,6 +47,7 @@ const (
 	tsNodeDefaultHeartbeat      = 10 * time.Second
 	tsNodeDefaultReconcile      = 30 * time.Second
 	tsNodeCommandTimeout        = 2 * time.Minute
+	tsNodeMaximumConfigBytes    = 64 << 10
 )
 
 // tsNodeConfigurationFile is the camelCase JSON shape of the agent's own
@@ -90,7 +95,7 @@ func parseTsNodeArguments(args []string) (string, error) {
 		return tsNodeDefaultConfigPath, nil
 	}
 	if len(args) != 2 || args[0] != "--config" || args[1] == "" ||
-		strings.ContainsAny(args[1], " \t\r\n") {
+		strings.ContainsAny(args[1], " \t\r\n") || !isAbsolute(args[1]) {
 		return "", errors.New(
 			"ts-node: the only supported arguments are --config <path> or none")
 	}
@@ -99,22 +104,35 @@ func parseTsNodeArguments(args []string) (string, error) {
 
 // loadTsNodeConfiguration reads and validates one configuration file.
 func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
-	data, err := os.ReadFile(path)
+	data, err := readTsNodeConfigurationFile(path)
 	if err != nil {
 		return tsNodeConfiguration{}, fmt.Errorf("ts-node: the configuration %s cannot be read: %s", path, err.Error())
 	}
+	if err := validateTsNodeConfigurationJSON(data); err != nil {
+		return tsNodeConfiguration{}, fmt.Errorf(
+			"ts-node: the configuration %s is not the canonical JSON shape: %s", path, err.Error())
+	}
 	var file tsNodeConfigurationFile
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&file); err != nil {
 		return tsNodeConfiguration{}, fmt.Errorf(
 			"ts-node: the configuration %s is not the canonical JSON shape: %s", path, err.Error())
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return tsNodeConfiguration{}, fmt.Errorf(
+			"ts-node: the configuration %s must be exactly one JSON document", path)
 	}
 	if _, err := hostagent.NewNodeId(file.NodeId); err != nil {
 		return tsNodeConfiguration{}, errors.New("ts-node: nodeId must be a lowercase DNS-style token")
 	}
 	if file.NatsURL == "" {
 		return tsNodeConfiguration{}, errors.New("ts-node: natsUrl is required")
+	}
+	if file.HeartbeatIntervalMs < 0 || file.ReconcileIntervalMs < 0 ||
+		file.HeartbeatIntervalMs > int64((1<<63-1)/int64(time.Millisecond)) ||
+		file.ReconcileIntervalMs > int64((1<<63-1)/int64(time.Millisecond)) {
+		return tsNodeConfiguration{}, errors.New("ts-node: configured intervals must be non-negative bounded milliseconds")
 	}
 	var options []nats.Option
 	credentials := []string{file.NatsNkeyFile, file.NatsTlsCaFile, file.NatsTlsCertFile, file.NatsTlsKeyFile}
@@ -174,6 +192,17 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 		!isAbsolute(configuration.UseraddBinary) {
 		return tsNodeConfiguration{}, errors.New("ts-node: every configured path must be absolute")
 	}
+	production := tsnodebootstrap.ProductionConfig()
+	if configuration.InstallRoot != production.InstallRoot {
+		return tsNodeConfiguration{}, errors.New("ts-node: installRoot must match the production bootstrap writable root")
+	}
+	if configuration.UnitDir != production.UnitDirectory {
+		return tsNodeConfiguration{}, errors.New("ts-node: unitDir must match the production bootstrap unit directory")
+	}
+	dataRelative, err := filepath.Rel(production.DataVolumeRoot, configuration.DataVolumeRoot)
+	if err != nil || dataRelative == ".." || strings.HasPrefix(dataRelative, ".."+string(filepath.Separator)) {
+		return tsNodeConfiguration{}, errors.New("ts-node: dataVolumeRoot must be within the production bootstrap writable root")
+	}
 	if configuration.ReleasePublicKey == "" {
 		return tsNodeConfiguration{}, errors.New(
 			"ts-node: releasePublicKey is required — the release-signing key is pinned, never fetched")
@@ -195,7 +224,104 @@ func positiveDefault(milliseconds int64, fallback time.Duration) time.Duration {
 	return fallback
 }
 
-func isAbsolute(path string) bool { return strings.HasPrefix(path, "/") }
+func isAbsolute(path string) bool {
+	if !filepath.IsAbs(path) || strings.ContainsAny(path, " \t\x00\r\n\\") {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == ".." {
+			return false
+		}
+	}
+	clean := filepath.Clean(path)
+	return clean != string(filepath.Separator) && clean == path
+}
+
+func readTsNodeConfigurationFile(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("configuration must be a regular file")
+	}
+	if info.Size() > tsNodeMaximumConfigBytes {
+		return nil, errors.New("configuration exceeds its size bound")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, tsNodeMaximumConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > tsNodeMaximumConfigBytes {
+		return nil, errors.New("configuration exceeds its size bound")
+	}
+	return data, nil
+}
+
+func validateTsNodeConfigurationJSON(data []byte) error {
+	allowed := map[string]struct{}{
+		"nodeId": {}, "natsUrl": {}, "natsNkeyFile": {}, "natsTlsCaFile": {},
+		"natsTlsCertFile": {}, "natsTlsKeyFile": {}, "releasePublicKey": {},
+		"manifestPath": {}, "installRoot": {}, "unitDir": {}, "dataVolumeRoot": {},
+		"chronycBinary": {}, "systemctlBinary": {}, "useraddBinary": {},
+		"heartbeatIntervalMilliseconds": {}, "reconcileIntervalMilliseconds": {},
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("configuration must be an object: %w", err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return errors.New("configuration must be a non-null object")
+	}
+	seen := make(map[string]bool, len(allowed))
+	for decoder.More() {
+		nameToken, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("configuration field name: %w", err)
+		}
+		name, ok := nameToken.(string)
+		if !ok {
+			return errors.New("configuration field name is invalid")
+		}
+		if _, known := allowed[name]; !known {
+			return fmt.Errorf("configuration contains unknown field %q", name)
+		}
+		if seen[name] {
+			return fmt.Errorf("configuration contains duplicate field %q", name)
+		}
+		seen[name] = true
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return fmt.Errorf("configuration.%s: %w", name, err)
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("configuration.%s must not be null", name)
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("configuration object is incomplete: %w", err)
+	}
+	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
+		return errors.New("configuration object is incomplete")
+	}
+	for _, required := range []string{"nodeId", "natsUrl", "releasePublicKey"} {
+		if !seen[required] {
+			return fmt.Errorf("configuration is missing field %q", required)
+		}
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return errors.New("configuration contains trailing data")
+	}
+	return nil
+}
 
 // composeTsNodeAgent composes the host agent from one validated
 // configuration.
@@ -213,10 +339,11 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		return nil, fmt.Errorf("ts-node: the systemd controller is invalid: %s", err.Error())
 	}
 	lifecycle, err := hostagent.NewLifecycle(hostagent.LifecycleConfig{
-		InstallRoot: configuration.InstallRoot,
-		UnitDir:     configuration.UnitDir,
-		Installer:   installer,
-		Systemd:     systemd,
+		InstallRoot:    configuration.InstallRoot,
+		UnitDir:        configuration.UnitDir,
+		DataVolumeRoot: configuration.DataVolumeRoot,
+		Installer:      installer,
+		Systemd:        systemd,
 		Users: hostagent.UseraddProvisioner{
 			UseraddBinary: configuration.UseraddBinary,
 			Timeout:       tsNodeCommandTimeout,
@@ -234,6 +361,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		DataVolumeRoot: configuration.DataVolumeRoot,
 		Systemd:        systemd,
 		InstallRoot:    configuration.InstallRoot,
+		Installer:      installer,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the facts source is invalid: %s", err.Error())
@@ -292,7 +420,7 @@ func main() {
 
 	if os.Geteuid() != 0 {
 		_, _ = fmt.Fprintln(os.Stderr,
-			"ts-node must run as root under its cloud-init system unit: writing systemd units and accounts is its D-69 job")
+			"ts-node must run as root under its bootstrap system unit: writing systemd units and accounts is its D-69 job")
 		os.Exit(2)
 	}
 	configPath, err := parseTsNodeArguments(os.Args[1:])

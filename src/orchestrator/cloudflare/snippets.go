@@ -28,8 +28,9 @@ type SnippetRuleWire struct {
 }
 
 type Snippet struct {
-	Name  string            `json:"snippet_name"`
-	Rules []SnippetRuleWire `json:"rules"`
+	Name   string            `json:"snippet_name"`
+	Digest string            `json:"digest,omitempty"`
+	Rules  []SnippetRuleWire `json:"rules"`
 }
 
 // SnippetAPI is the snippet-rules surface.

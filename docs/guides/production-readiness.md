@@ -50,6 +50,53 @@ The package map in `DESIGN.md` is useful for orientation but is incomplete
 relative to the working tree. Update it alongside the eventual package
 refactor after the in-flight implementation is integrated.
 
+### Production dependency audit
+
+The production composition root still always returns
+`ErrProductionCompositionMissing`. This is unfinished implementation, not a
+missing-credential or VM-environment gate. `control.OrchestratorOptions`
+currently resolves NATS and signed-command identities; it does not resolve the
+provider, TerraBase, catalog, notification, or durable operational-service
+dependencies required by `productionRuntimeConfig`.
+
+| Runtime input | Existing implementation and exact missing connection |
+| --- | --- |
+| Estate publication | `estate.ControlPlaneClient` implements public document writes. The root still needs its configured endpoint and credential, a coherent `estatepublisher.SnapshotSource`, and an `Authority` that reads the accepted epoch and rechecks its fence before each write. A constant epoch or empty snapshot cannot establish this. |
+| Identity and capability rotation | `security.IdentityIssuer` requires `Issue`, `Fetch`, and `Retire`; `CapabilityVault` requires `Generate`, `Fetch`, and `Retire`. Their concrete production implementations are absent. `MemberGateway` still needs member enumeration, distribution, generation verification, activation, retirement, rollback, and fencing; `Reloader` needs reload, verification, rollback, and fencing. These require authenticated host/member transports and durable operation receipts. |
+| Cloudflare rotation | `keyrotation.CloudflareSecretsStore` wraps the value API, but requires concrete `CloudflareCapabilityObserver.VerifyCapability` and `CloudflareCapabilityFencer.FenceCapability`. Secret metadata alone cannot prove the generation accepted by the Snippet. Its staged provider versions also need crash recovery before production use. |
+| Rotation state | `security.FileStateStore` is local process persistence, not global R3 authority. Compose a fenced global durable store for `security.StateStore` and an audit sink; prove that an old controller cannot overwrite a resumed rotation. |
+| Free database lifecycle | `reaper.DatabaseAdapter` needs the authoritative paginated catalog, snapshot and placement verification, close, Litestream stop, reactivation, CDN purge, and owned-data deletion. `KeyAdapter.DestroyDEK` and `MailAdapter.Send` have no concrete production implementation. The file/memory reaper stores do not establish global journal fencing. Notice delivery must be acknowledged before the durable lifecycle advances. |
+| Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `TickerScheduler` and `NATSJetStreamSnapshotter` exist, but still need composition with the authoritative stream, an OCI `SnapshotObjectStore` supporting verified reads, and verified per-Region snapshot mirrors. VM-local restore adapters are qualification fixtures. |
+| Release mirrors | `provider.DeliveryRegionStore` is concrete. The root must bind each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and a live `OwnershipCheck`. The delivery and restore paths must share those same scopes and journal. |
+
+The adjacent TerraBase checkout exposes its private contract in
+`../terrabase/contracts/proto/terrabase/v1/engine.proto` and the matching crate
+copy under `crates/terrabase-tbep/proto`. Its `MaintenanceService` currently
+provides `TopologyRead`, `AdminStatus`, `SupervisionHealth`, and
+`SupervisionShutdown`. `ReplicationService` provides `Health`, `Cursor`,
+`Fenced`, `Denials`, `Conflicts`, and `Depositions`. Those RPCs can support
+bounded observations; they do not provide the required database lifecycle,
+backup/restore, scratch-branch, key-ring, or placement-intent mutation
+contracts. This orchestrator checkout has no generated TBEP Go client or
+gRPC module dependency. A local successful fixture cannot fill that gap.
+
+The next concrete TBEP adapter can implement authenticated, same-host health
+and topology observation using the existing `MaintenanceService` and
+`ReplicationService` contracts. Pin the protobuf source and generated Go
+client, verify the peer identity against the admitted host, and test failures
+against the real server. Lifecycle mutations additionally need TerraBase
+server contracts that carry the accepted authority, operation ID, status
+observation, and durable receipt; `SupervisionShutdown` is not a replacement
+for database drain or safe member replacement.
+
+Scheduled production workers now preserve operation errors through runtime
+shutdown. A restore scheduler that exits successfully while its context is
+still active also fails the process. Cancellation remains a clean shutdown,
+and duplicate starts are rejected. Focused race tests cover periodic and
+long-running service failure, propagation through `closeRuntime`,
+cancellation, and close-before-start. These tests establish service lifecycle
+behavior only; production startup remains blocked by the missing graph above.
+
 ## First implementation slices
 
 1. Define explicit master, regional, and host-local roles and their durable

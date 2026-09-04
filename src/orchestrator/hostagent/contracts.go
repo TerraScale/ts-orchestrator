@@ -19,6 +19,7 @@
 //	drain-status NodeStatusRequest -> NodeStatusReport  state, quiesce gate, facts
 //	deploy     DeployCommand   -> DeployReceipt       flip + restart, quiesced only
 //	rollback   RollbackCommand -> DeployReceipt       symlink back + restart, any state
+//	apply-manifest ApplyManifestCommand -> ManifestReceipt durable desired-state CAS
 //	heartbeat  (publish-only)  HostHeartbeat          facts every interval
 //
 // The rollout choreography the delivery lane drives: write the host's
@@ -133,6 +134,8 @@ const (
 	// NatsSubjectLeafRollback performs the emergency version switch
 	// (request-reply).
 	NatsSubjectLeafRollback = "rollback"
+	// NatsSubjectLeafApplyManifest durably publishes desired host state.
+	NatsSubjectLeafApplyManifest = "apply-manifest"
 	// NatsSubjectLeafHeartbeat publishes periodic host facts.
 	NatsSubjectLeafHeartbeat = "heartbeat"
 )
@@ -190,6 +193,11 @@ func NodeDeploySubject(nodeId NodeId) (string, error) {
 // NodeRollbackSubject builds the request-reply rollback subject.
 func NodeRollbackSubject(nodeId NodeId) (string, error) {
 	return nodeCommandSubject(nodeId, NatsSubjectLeafRollback)
+}
+
+// NodeApplyManifestSubject builds the durable desired-manifest subject.
+func NodeApplyManifestSubject(nodeId NodeId) (string, error) {
+	return nodeCommandSubject(nodeId, NatsSubjectLeafApplyManifest)
 }
 
 // NodeHeartbeatSubject builds the publish-only heartbeat subject.
@@ -338,6 +346,35 @@ type RollbackCommand struct {
 	Component string `json:"component"`
 }
 
+// ApplyManifestCommand publishes the complete canonical desired manifest if
+// the currently durable manifest has the expected digest.
+type ApplyManifestCommand struct {
+	CommandId              string       `json:"commandId"`
+	ExpectedManifestSha256 string       `json:"expectedManifestSha256"`
+	Manifest               HostManifest `json:"manifest"`
+}
+
+// NewApplyManifestCommand validates one durable manifest compare-and-swap.
+func NewApplyManifestCommand(commandId, expectedManifestSha256 string, manifest HostManifest) (ApplyManifestCommand, error) {
+	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+		"Command ID must be a lowercase DNS-style token.")
+	if err != nil {
+		return ApplyManifestCommand{}, err
+	}
+	if !hostAgentSha256Pattern.MatchString(expectedManifestSha256) {
+		return ApplyManifestCommand{}, &errs.Argument{Param: "expectedManifestSha256", Message: "Expected manifest sha256 must be canonical lowercase hex."}
+	}
+	components, err := validateComponentSet(manifest.Components)
+	if err != nil {
+		return ApplyManifestCommand{}, err
+	}
+	return ApplyManifestCommand{
+		CommandId:              validatedCommand,
+		ExpectedManifestSha256: expectedManifestSha256,
+		Manifest:               HostManifest{Components: components},
+	}, nil
+}
+
 // NewRollbackCommand validates one rollback command.
 func NewRollbackCommand(commandId, component string) (RollbackCommand, error) {
 	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
@@ -361,6 +398,37 @@ type DeployReceipt struct {
 	Accepted  bool   `json:"accepted"`
 	Current   string `json:"current"`
 	Detail    string `json:"detail"`
+}
+
+// ManifestReceipt reports the durable manifest digest after one CAS.
+type ManifestReceipt struct {
+	CommandId      string `json:"commandId"`
+	NodeId         string `json:"nodeId"`
+	Accepted       bool   `json:"accepted"`
+	ManifestSha256 string `json:"manifestSha256"`
+	Detail         string `json:"detail"`
+}
+
+// NewManifestReceipt validates one apply-manifest receipt.
+func NewManifestReceipt(commandId, nodeId string, accepted bool, manifestSha256, detail string) (ManifestReceipt, error) {
+	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+		"Command ID must be a lowercase DNS-style token.")
+	if err != nil {
+		return ManifestReceipt{}, err
+	}
+	validatedNode, err := NewNodeId(nodeId)
+	if err != nil {
+		return ManifestReceipt{}, err
+	}
+	if !hostAgentSha256Pattern.MatchString(manifestSha256) {
+		return ManifestReceipt{}, &errs.Argument{Param: "manifestSha256", Message: "Manifest sha256 must be canonical lowercase hex."}
+	}
+	validatedDetail, err := requireHostAgentDetail(detail, "detail")
+	if err != nil {
+		return ManifestReceipt{}, err
+	}
+	return ManifestReceipt{CommandId: validatedCommand, NodeId: validatedNode.Value,
+		Accepted: accepted, ManifestSha256: manifestSha256, Detail: validatedDetail}, nil
 }
 
 // NewDeployReceipt validates one deploy receipt.

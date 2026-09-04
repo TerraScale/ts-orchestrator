@@ -111,8 +111,21 @@ func newStore(config Config) (*Store, error) {
 	if config.Ownership != nil {
 		owner = *config.Ownership
 	}
-	if owner.UID < 0 || owner.GID < 0 {
-		return nil, fmt.Errorf("%w: negative owner", ErrInvalidRoot)
+	if err := validateOwnership(owner); err != nil {
+		return nil, err
+	}
+	if config.RunID == "" {
+		if err := pendingDetachedStore(root); err != nil {
+			return nil, err
+		}
+	} else {
+		identity, err := PlanStoreIdentity(root, config.RunID, owner)
+		if err != nil {
+			return nil, err
+		}
+		if err := removeDetachedStore(identity); err != nil {
+			return nil, err
+		}
 	}
 	maxBytes, maxDrives, maxSnapshots := config.MaxBytes, config.MaxDrives, config.MaxSnapshots
 	if maxBytes == 0 {
@@ -148,6 +161,10 @@ func newStore(config Config) (*Store, error) {
 		_ = lockFile.Close()
 		return nil, err
 	}
+	if err := validateOpenedOwnedRegular(lockFile, filepath.Join(root, lockFileName), owner, 0o600); err != nil {
+		_ = lockFile.Close()
+		return nil, err
+	}
 	unlock := func() {
 		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 	}
@@ -178,9 +195,13 @@ func newStore(config Config) (*Store, error) {
 		}
 		marker = storeMarker{Version: storeMarkerVersion, Marker: markerMagic, RunID: runID, UID: owner.UID, GID: owner.GID, CreatedAt: time.Now().UTC()}
 		sealStoreMarker(&marker)
-		if _, err := atomicWriteJSON(context.Background(), markerPath, marker, owner, 0o600); err != nil {
+		committedMarker, writeErr := atomicWriteJSON(context.Background(), markerPath, marker, owner, 0o600)
+		if writeErr != nil {
 			_ = lockFile.Close()
-			return nil, err
+			if committedMarker != "" {
+				return nil, fmt.Errorf("%w: store marker: %v", ErrDurabilityUncertain, writeErr)
+			}
+			return nil, writeErr
 		}
 	} else if err != nil {
 		_ = lockFile.Close()
@@ -204,6 +225,10 @@ func newStore(config Config) (*Store, error) {
 			return nil, err
 		}
 	}
+	if err := validateStoreMountLayout(root, owner); err != nil {
+		_ = lockFile.Close()
+		return nil, err
+	}
 	if err := syncDirectory(root); err != nil {
 		_ = lockFile.Close()
 		return nil, err
@@ -219,6 +244,55 @@ func newStore(config Config) (*Store, error) {
 		_ = lockFile.Close()
 		return nil, ErrQuotaExceeded
 	}
+	return s, nil
+}
+
+func openExistingStore(ctx context.Context, identity StoreIdentity) (*Store, error) {
+	identity, err := validateStoreIdentity(identity)
+	if err != nil {
+		return nil, err
+	}
+	parent, err := openDirectoryPath(filepath.Dir(identity.Root))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.file.Close()
+	root, err := openOwnedDirectoryAt(parent, filepath.Base(identity.Root), identity.Ownership, 0o700)
+	if err != nil {
+		return nil, err
+	}
+	defer root.file.Close()
+	marker, err := loadStoreMarkerAt(root, identity.Ownership)
+	if err != nil || marker.RunID != identity.RunID {
+		return nil, ErrOwnership
+	}
+	for _, name := range []string{"drives", "snapshots"} {
+		dir, err := openOwnedDirectoryAt(root, name, identity.Ownership, 0o700)
+		if err != nil {
+			return nil, err
+		}
+		_ = dir.file.Close()
+	}
+	lockFile, _, err := openOwnedRegularAt(root, lockFileName, unix.O_RDWR, identity.Ownership, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{
+		root: identity.Root, drives: filepath.Join(identity.Root, "drives"), snapshots: filepath.Join(identity.Root, "snapshots"),
+		runID: identity.RunID, owner: identity.Ownership, maxBytes: maxDriveSize, maxDrives: 4096,
+		maxSnapshots: 16384, runner: fileFaultRunner{}, lockFile: lockFile,
+	}
+	done, err := s.begin(ctx)
+	if err != nil {
+		_ = lockFile.Close()
+		return nil, err
+	}
+	if err := s.recoverLocked(); err != nil {
+		done()
+		_ = lockFile.Close()
+		return nil, err
+	}
+	done()
 	return s, nil
 }
 
@@ -263,20 +337,55 @@ func (s *Store) begin(ctx context.Context) (func(), error) {
 	if err := contextErr(ctx); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	if err := unix.Flock(int(s.lockFile.Fd()), unix.LOCK_EX); err != nil {
+	for !s.mu.TryLock() {
+		if err := waitForLock(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if s.closed || s.lockFile == nil {
+		s.mu.Unlock()
+		return nil, ErrClosed
+	}
+	lockFile := s.lockFile
+	for {
+		err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+			s.mu.Unlock()
+			return nil, err
+		}
+		if err := waitForLock(ctx); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+	}
+	if err := validateOpenedOwnedRegular(lockFile, filepath.Join(s.root, lockFileName), s.owner, 0o600); err != nil {
+		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 		s.mu.Unlock()
 		return nil, err
 	}
 	if err := contextErr(ctx); err != nil {
-		_ = unix.Flock(int(s.lockFile.Fd()), unix.LOCK_UN)
+		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 		s.mu.Unlock()
 		return nil, err
 	}
 	return func() {
-		_ = unix.Flock(int(s.lockFile.Fd()), unix.LOCK_UN)
+		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 		s.mu.Unlock()
 	}, nil
+}
+
+func waitForLock(ctx context.Context) error {
+	timer := time.NewTimer(10 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Store) driveDir(id string) string { return filepath.Join(s.drives, id) }
@@ -313,8 +422,17 @@ func ensureStoreRoot(path string, owner Ownership) (bool, error) {
 	if !ok || int(actual.Uid) != owner.UID || int(actual.Gid) != owner.GID {
 		return false, fmt.Errorf("%w: %v", ErrInvalidRoot, ErrOwnership)
 	}
-	if err := applyOwnershipAndMode(path, owner, 0o700); err != nil {
-		return false, fmt.Errorf("%w: %v", ErrInvalidRoot, err)
+	if info.Mode().Perm() != 0o700 {
+		entries, readErr := os.ReadDir(path)
+		if readErr != nil || len(entries) != 0 {
+			return false, fmt.Errorf("%w: root mode must be 0700", ErrInvalidRoot)
+		}
+		if err := os.Chmod(path, 0o700); err != nil {
+			return false, fmt.Errorf("%w: secure empty root: %v", ErrInvalidRoot, err)
+		}
+		if err := syncDirectory(filepath.Dir(path)); err != nil {
+			return false, err
+		}
 	}
 	return false, nil
 }
@@ -338,7 +456,7 @@ func createOwnedDirectory(path string, owner Ownership) error {
 		return err
 	}
 	if err := applyOwnershipAndMode(path, owner, 0o700); err != nil {
-		_ = os.Remove(path)
+		_ = removeEmptyOwnedDirectoryPath(path, owner)
 		return err
 	}
 	return syncDirectory(path)
@@ -375,25 +493,65 @@ func validateOwnerMode(info os.FileInfo, owner Ownership, mode os.FileMode) erro
 }
 
 func openOrCreateOwned(path string, owner Ownership, mode os.FileMode) (*os.File, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, mode)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR|unix.O_NOFOLLOW, mode)
+	created := err == nil
+	if errors.Is(err, os.ErrExist) {
+		file, err = os.OpenFile(path, os.O_RDWR|unix.O_NOFOLLOW, 0)
+	}
 	if err != nil {
 		return nil, err
+	}
+	closeWithError := func(result error) (*os.File, error) {
+		if created {
+			fileInfo, fileErr := file.Stat()
+			pathInfo, pathErr := os.Lstat(path)
+			if fileErr == nil && pathErr == nil && pathInfo.Mode()&os.ModeSymlink == 0 && os.SameFile(fileInfo, pathInfo) {
+				_ = unlinkOwnedRegularPath(path, owner, mode)
+			}
+		}
+		_ = file.Close()
+		return nil, result
 	}
 	info, err := file.Stat()
 	if err != nil {
-		_ = file.Close()
-		return nil, err
+		return closeWithError(err)
 	}
-	pathInfo, err := os.Lstat(path)
-	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, pathInfo) {
-		_ = file.Close()
-		return nil, ErrOwnership
+	if !info.Mode().IsRegular() {
+		return closeWithError(ErrOwnership)
 	}
-	if err := applyFileOwnershipAndMode(file, info, owner, mode); err != nil {
-		_ = file.Close()
-		return nil, err
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Nlink != 1 {
+		return closeWithError(ErrOwnership)
+	}
+	if created {
+		if err := applyFileOwnershipAndMode(file, info, owner, mode); err != nil {
+			return closeWithError(err)
+		}
+	} else if err := validateOwnerMode(info, owner, mode); err != nil {
+		return closeWithError(err)
+	}
+	if err := validateOpenedOwnedRegular(file, path, owner, mode); err != nil {
+		return closeWithError(err)
 	}
 	return file, nil
+}
+
+func validateOpenedOwnedRegular(file *os.File, path string, owner Ownership, mode os.FileMode) error {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
+	if err != nil {
+		return err
+	}
+	defer parent.file.Close()
+	opened, openedStat, err := openOwnedRegularAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode)
+	if err != nil {
+		return err
+	}
+	_ = opened.Close()
+	fileStat, err := statxFile(file)
+	if err != nil || !sameStatxIdentity(openedStat, fileStat) {
+		return ErrOwnership
+	}
+	return validateStatxOwnerMode(fileStat, owner, mode, unix.S_IFREG, true)
 }
 
 func applyFileOwnershipAndMode(file *os.File, info os.FileInfo, owner Ownership, mode os.FileMode) error {
@@ -415,44 +573,22 @@ func applyFileOwnershipAndMode(file *os.File, info os.FileInfo, owner Ownership,
 }
 
 func openOwnedRegular(path string, flags int, owner Ownership, mode os.FileMode) (*os.File, error) {
-	before, err := os.Lstat(path)
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
 	if err != nil {
 		return nil, err
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return nil, ErrOutsideRoot
-	}
-	if err := validateOwnerMode(before, owner, mode); err != nil {
-		return nil, err
-	}
-	beforeStat, ok := before.Sys().(*syscall.Stat_t)
-	if !ok || beforeStat.Nlink != 1 {
-		return nil, ErrOwnership
-	}
-	file, err := os.OpenFile(path, flags, 0)
-	if err != nil {
-		return nil, err
-	}
-	after, err := file.Stat()
-	if err != nil || !os.SameFile(before, after) || !after.Mode().IsRegular() {
-		_ = file.Close()
-		return nil, ErrOutsideRoot
-	}
-	afterStat, ok := after.Sys().(*syscall.Stat_t)
-	if !ok || afterStat.Nlink != 1 {
-		_ = file.Close()
-		return nil, ErrOwnership
-	}
-	return file, nil
+	defer parent.file.Close()
+	file, _, err := openOwnedRegularAt(parent, filepath.Base(path), flags, owner, mode)
+	return file, err
 }
 
 func syncDirectory(path string) error {
-	file, err := os.Open(path)
+	dir, err := openDirectoryPath(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	return file.Sync()
+	defer dir.file.Close()
+	return dir.file.Sync()
 }
 
 func sealStoreMarker(marker *storeMarker) {
@@ -532,6 +668,23 @@ func readStrictJSON(path string, owner Ownership, mode os.FileMode, target any) 
 	if err != nil {
 		return err
 	}
+	return decodeStrictJSON(data, target)
+}
+
+func readStrictJSONAt(dir *trustedDirectory, name string, owner Ownership, mode os.FileMode, target any) error {
+	file, _, err := openOwnedRegularAt(dir, name, unix.O_RDONLY, owner, mode)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxMetadataBytes+1))
+	if err != nil {
+		return err
+	}
+	return decodeStrictJSON(data, target)
+}
+
+func decodeStrictJSON(data []byte, target any) error {
 	if len(data) == 0 || len(data) > maxMetadataBytes {
 		return ErrCorruptState
 	}
@@ -543,6 +696,18 @@ func readStrictJSON(path string, owner Ownership, mode os.FileMode, target any) 
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return ErrCorruptState
+	}
+	canonical, err := json.Marshal(target)
+	if err != nil || !bytes.Equal(data, canonical) && !bytes.Equal(data, append(canonical, '\n')) {
+		return ErrCorruptState
+	}
+	return nil
+}
+
+func validateOwnership(owner Ownership) error {
+	const maxUint32 = uint64(1<<32 - 1)
+	if owner.UID < 0 || owner.GID < 0 || uint64(owner.UID) > maxUint32 || uint64(owner.GID) > maxUint32 {
+		return fmt.Errorf("%w: ownership must contain uint32 UID/GID values", ErrInvalidRoot)
 	}
 	return nil
 }
@@ -586,7 +751,7 @@ func atomicWriteJSON(ctx context.Context, path string, value any, owner Ownershi
 	defer func() {
 		if !committed {
 			_ = file.Close()
-			_ = os.Remove(temporary)
+			_ = unlinkOwnedRegularPath(temporary, owner, mode)
 		}
 	}()
 	info, err := file.Stat()
@@ -667,24 +832,24 @@ func (s *Store) loadMetadata(id string) (diskMetadata, string, error) {
 	if err := validateID(id); err != nil {
 		return diskMetadata{}, "", err
 	}
-	return s.loadDriveDirectory(s.driveDir(id), id, true)
-}
-
-func (s *Store) loadDriveDirectory(dir, id string, strictEntries bool) (diskMetadata, string, error) {
-	info, err := os.Lstat(dir)
+	dirs, err := openStoreDirectories(s)
+	if err != nil {
+		return diskMetadata{}, "", err
+	}
+	defer dirs.close()
+	directory, err := openOwnedDirectoryAt(dirs.drives, id, s.owner, 0o700)
 	if errors.Is(err, os.ErrNotExist) {
 		return diskMetadata{}, "", ErrNotFound
 	}
 	if err != nil {
 		return diskMetadata{}, "", err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return diskMetadata{}, "", ErrOwnership
-	}
-	if err := validateOwnerMode(info, s.owner, 0o700); err != nil {
-		return diskMetadata{}, "", err
-	}
-	owner, err := readArtifactOwner(dir, s.owner)
+	defer directory.file.Close()
+	return s.loadDriveDirectoryAt(directory, s.driveDir(id), id, true)
+}
+
+func (s *Store) loadDriveDirectoryAt(directory *trustedDirectory, dir, id string, strictEntries bool) (diskMetadata, string, error) {
+	owner, err := readArtifactOwnerAt(directory, s.owner)
 	if err != nil {
 		return diskMetadata{}, "", err
 	}
@@ -692,7 +857,7 @@ func (s *Store) loadDriveDirectory(dir, id string, strictEntries bool) (diskMeta
 		return diskMetadata{}, "", ErrOwnership
 	}
 	var metadata diskMetadata
-	if err := readStrictJSON(filepath.Join(dir, metadataName), s.owner, 0o600, &metadata); err != nil {
+	if err := readStrictJSONAt(directory, metadataName, s.owner, 0o600, &metadata); err != nil {
 		return diskMetadata{}, "", fmt.Errorf("%w: disk metadata: %v", ErrCorruptState, err)
 	}
 	want := metadata.Integrity
@@ -705,11 +870,11 @@ func (s *Store) loadDriveDirectory(dir, id string, strictEntries bool) (diskMeta
 	if metadata.RunID != s.runID || metadata.ID != id {
 		return diskMetadata{}, "", ErrOwnership
 	}
-	if err := validateDiskMetadataValue(metadata, path, s.owner); err != nil {
+	if err := validateDiskMetadataValueAt(metadata, directory, s.owner); err != nil {
 		return diskMetadata{}, "", err
 	}
 	if strictEntries {
-		if err := validateExactEntries(dir, map[string]os.FileMode{
+		if err := validateExactEntriesAt(directory, map[string]os.FileMode{
 			ownerFileName:     0o600,
 			metadataName:      0o600,
 			metadata.Artifact: 0o600,
@@ -720,8 +885,53 @@ func (s *Store) loadDriveDirectory(dir, id string, strictEntries bool) (diskMeta
 	return metadata, path, nil
 }
 
+func validateDiskMetadataValueAt(metadata diskMetadata, directory *trustedDirectory, owner Ownership) error {
+	if err := validateDiskMetadataStructure(metadata); err != nil {
+		return err
+	}
+	file, _, err := openOwnedRegularAt(directory, metadata.Artifact, unix.O_RDONLY, owner, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrCorruptState
+		}
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() != metadata.Size {
+		return ErrCorruptState
+	}
+	return nil
+}
+
 func validateDiskMetadataValue(metadata diskMetadata, path string, owner Ownership) error {
-	if metadata.Version != metadataVersion || metadata.Generation == 0 || !validArtifactName(metadata.Artifact) || metadata.UpdatedAt.IsZero() {
+	if err := validateDiskMetadataStructure(metadata); err != nil {
+		return err
+	}
+	file, err := openOwnedRegular(path, os.O_RDONLY, owner, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrCorruptState
+		}
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() != metadata.Size {
+		return ErrCorruptState
+	}
+	return nil
+}
+
+func validateDiskMetadataStructure(metadata diskMetadata) error {
+	artifactGeneration, artifactErr := parseArtifactGeneration(metadata.Artifact)
+	if metadata.Version != metadataVersion || metadata.Generation == 0 || artifactErr != nil || artifactGeneration > metadata.Generation || metadata.UpdatedAt.IsZero() {
 		return ErrCorruptState
 	}
 	if err := validateID(metadata.RunID); err != nil {
@@ -743,34 +953,28 @@ func validateDiskMetadataValue(metadata diskMetadata, path string, owner Ownersh
 	if !validTransition(metadata.Transition, metadata.Size) {
 		return ErrCorruptState
 	}
-	file, err := openOwnedRegular(path, os.O_RDONLY, owner, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ErrCorruptState
-		}
-		return err
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	if info.Size() != metadata.Size {
-		return ErrCorruptState
-	}
 	return nil
 }
 
 func validTransition(transition Transition, size int64) bool {
 	switch transition.Kind {
-	case TransitionCreate, TransitionAttach, TransitionDetach, TransitionFault, TransitionClearFault, TransitionExpand, TransitionCorrupt, TransitionWrite, TransitionRestore:
+	case TransitionExpand:
+		if transition.PreviousSize <= 0 || transition.PreviousSize >= size || transition.SnapshotID != "" || len(transition.Corruptions) != 0 {
+			return false
+		}
+	case TransitionRestore:
+		if transition.PreviousSize <= 0 || transition.PreviousSize > maxDriveSize || validateID(transition.SnapshotID) != nil || len(transition.Corruptions) != 0 {
+			return false
+		}
+	case TransitionCorrupt:
+		if transition.PreviousSize != 0 || transition.SnapshotID != "" || len(transition.Corruptions) == 0 {
+			return false
+		}
+	case TransitionCreate, TransitionAttach, TransitionDetach, TransitionFault, TransitionClearFault, TransitionWrite, TransitionAcknowledgeGrow:
+		if transition.PreviousSize != 0 || transition.SnapshotID != "" || len(transition.Corruptions) != 0 {
+			return false
+		}
 	default:
-		return false
-	}
-	if transition.PreviousSize < 0 || transition.PreviousSize > maxDriveSize || (transition.Kind == TransitionExpand && (transition.PreviousSize <= 0 || transition.PreviousSize >= size)) {
-		return false
-	}
-	if transition.SnapshotID != "" && validateID(transition.SnapshotID) != nil {
 		return false
 	}
 	if len(transition.Corruptions) > maxCorruptionsPerPlan {
@@ -785,11 +989,135 @@ func validTransition(transition Transition, size int64) bool {
 }
 
 func validArtifactName(name string) bool {
-	return strings.HasPrefix(name, "artifact-") && strings.HasSuffix(name, ".img") && validateID(name) == nil
+	_, err := parseArtifactGeneration(name)
+	return err == nil
 }
 
-func validateExactEntries(dir string, expected map[string]os.FileMode, owner Ownership) error {
-	entries, err := os.ReadDir(dir)
+func parseArtifactGeneration(name string) (uint64, error) {
+	if !strings.HasPrefix(name, "artifact-") || !strings.HasSuffix(name, ".img") {
+		return 0, ErrCorruptState
+	}
+	digits := strings.TrimSuffix(strings.TrimPrefix(name, "artifact-"), ".img")
+	if len(digits) != 20 {
+		return 0, ErrCorruptState
+	}
+	generation, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil || generation == 0 {
+		return 0, ErrCorruptState
+	}
+	return generation, nil
+}
+
+// VerifyPaths validates a journaled committed drive without creating,
+// recovering, locking, or otherwise changing any filesystem object.
+func VerifyPaths(paths Paths, runID, id string) error {
+	actual, err := VerifyDrive(paths.Root, runID, id)
+	if err != nil {
+		return err
+	}
+	if paths != actual {
+		return ErrOutsideRoot
+	}
+	return nil
+}
+
+// VerifyPathsOwned is VerifyPaths for a store owned by a configured identity
+// rather than the current process identity.
+func VerifyPathsOwned(paths Paths, identity StoreIdentity, id string) error {
+	actual, err := VerifyDriveOwned(identity, id)
+	if err != nil {
+		return err
+	}
+	if paths != actual {
+		return ErrOutsideRoot
+	}
+	return nil
+}
+
+// VerifyDrive validates a committed drive read-only and returns the exact
+// current generation paths derived from integrity-checked metadata.
+func VerifyDrive(root, runID, id string) (Paths, error) {
+	identity, err := PlanStoreIdentity(root, runID, Ownership{UID: os.Geteuid(), GID: os.Getegid()})
+	if err != nil {
+		return Paths{}, err
+	}
+	return VerifyDriveOwned(identity, id)
+}
+
+// VerifyDriveOwned validates a committed drive against a trusted store
+// identity persisted before store creation. It never infers ownership from
+// mutable filesystem objects.
+func VerifyDriveOwned(identity StoreIdentity, id string) (Paths, error) {
+	identity, err := validateStoreIdentity(identity)
+	if err != nil {
+		return Paths{}, err
+	}
+	if validateID(id) != nil {
+		return Paths{}, ErrOwnership
+	}
+	parent, err := openDirectoryPath(filepath.Dir(identity.Root))
+	if err != nil {
+		return Paths{}, err
+	}
+	defer parent.file.Close()
+	root, err := openOwnedDirectoryAt(parent, filepath.Base(identity.Root), identity.Ownership, 0o700)
+	if err != nil {
+		return Paths{}, err
+	}
+	defer root.file.Close()
+	marker, err := loadStoreMarkerAt(root, identity.Ownership)
+	if err != nil {
+		return Paths{}, err
+	}
+	if marker.RunID != identity.RunID {
+		return Paths{}, ErrOwnership
+	}
+	lockFile, _, err := openOwnedRegularAt(root, lockFileName, unix.O_RDONLY, identity.Ownership, 0o600)
+	if err != nil {
+		return Paths{}, err
+	}
+	_ = lockFile.Close()
+	drives := filepath.Join(identity.Root, "drives")
+	driveRoot, err := openOwnedDirectoryAt(root, "drives", identity.Ownership, 0o700)
+	if err != nil {
+		return Paths{}, err
+	}
+	defer driveRoot.file.Close()
+	snapshots, err := openOwnedDirectoryAt(root, "snapshots", identity.Ownership, 0o700)
+	if err != nil {
+		return Paths{}, err
+	}
+	_ = snapshots.file.Close()
+	store := &Store{root: identity.Root, drives: drives, runID: identity.RunID, owner: identity.Ownership}
+	driveDir := filepath.Join(drives, id)
+	directory, err := openOwnedDirectoryAt(driveRoot, id, identity.Ownership, 0o700)
+	if errors.Is(err, os.ErrNotExist) {
+		return Paths{}, ErrNotFound
+	}
+	if err != nil {
+		return Paths{}, err
+	}
+	defer directory.file.Close()
+	state, artifact, err := store.loadDriveDirectoryAt(directory, driveDir, id, true)
+	if err != nil {
+		return Paths{}, err
+	}
+	artifactGeneration, err := parseArtifactGeneration(state.Artifact)
+	if err != nil {
+		return Paths{}, err
+	}
+	paths, err := PlanPaths(identity.Root, id, artifactGeneration)
+	if err != nil {
+		return Paths{}, err
+	}
+	if artifact != paths.Artifact {
+		return Paths{}, ErrCorruptState
+	}
+	return paths, nil
+}
+
+func validateExactEntriesAt(directory *trustedDirectory, expected map[string]os.FileMode, owner Ownership) error {
+	entries, err := readDirectoryEntries(directory)
 	if err != nil {
 		return err
 	}
@@ -801,17 +1129,11 @@ func validateExactEntries(dir string, expected map[string]os.FileMode, owner Own
 		if !ok {
 			return ErrCorruptState
 		}
-		info, err := os.Lstat(filepath.Join(dir, entry.Name()))
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return ErrCorruptState
-		}
-		if err := validateOwnerMode(info, owner, mode); err != nil {
+		file, _, err := openOwnedRegularAt(directory, entry.Name(), unix.O_RDONLY, owner, mode)
+		if err != nil {
 			return err
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Nlink != 1 {
-			return ErrOwnership
-		}
+		_ = file.Close()
 	}
 	return nil
 }
@@ -828,7 +1150,7 @@ func allocateImage(ctx context.Context, path string, size int64, owner Ownership
 	defer func() {
 		if !complete {
 			_ = file.Close()
-			_ = os.Remove(path)
+			_ = unlinkOwnedRegularPath(path, owner, 0o600)
 		}
 	}()
 	info, err := file.Stat()
@@ -861,12 +1183,19 @@ func (s *Store) stageClone(ctx context.Context, state diskMetadata, source strin
 	if generation <= state.Generation || targetSize < state.Size {
 		return "", ErrCorruptState
 	}
+	usage, err := s.usageLocked()
+	if err != nil {
+		return "", err
+	}
+	if exceedsQuota(usage.Bytes, targetSize, s.maxBytes) {
+		return "", ErrQuotaExceeded
+	}
 	if s.hooks.beforeCopy != nil {
 		if err := s.hooks.beforeCopy(source); err != nil {
 			return "", err
 		}
 	}
-	before, err := checksumExact(ctx, source, state.Size)
+	before, err := checksumExact(ctx, source, state.Size, s.owner, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -877,18 +1206,18 @@ func (s *Store) stageClone(ctx context.Context, state diskMetadata, source strin
 	complete := false
 	defer func() {
 		if !complete {
-			_ = os.Remove(destination)
+			_ = unlinkOwnedRegularPath(destination, s.owner, 0o600)
 			_ = syncDirectory(filepath.Dir(destination))
 		}
 	}()
 	if err := copyOwnedPrefix(ctx, source, 0o600, destination, 0o600, state.Size, s.owner); err != nil {
 		return "", err
 	}
-	copied, err := checksumPrefix(ctx, destination, state.Size)
+	copied, err := checksumPrefix(ctx, destination, state.Size, s.owner, 0o600)
 	if err != nil {
 		return "", err
 	}
-	after, err := checksumExact(ctx, source, state.Size)
+	after, err := checksumExact(ctx, source, state.Size, s.owner, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -912,14 +1241,14 @@ func (s *Store) stageClone(ctx context.Context, state diskMetadata, source strin
 
 func (s *Store) commitArtifactState(ctx context.Context, current diskMetadata, oldPath string, next diskMetadata, newPath string) error {
 	if filepath.Dir(newPath) != s.driveDir(current.ID) || filepath.Base(newPath) != artifactName(next.Generation) {
-		_ = os.Remove(newPath)
+		_ = unlinkOwnedRegularPath(newPath, s.owner, 0o600)
 		return ErrOutsideRoot
 	}
 	next.Artifact = filepath.Base(newPath)
 	committed := false
 	defer func() {
 		if !committed {
-			_ = os.Remove(newPath)
+			_ = unlinkOwnedRegularPath(newPath, s.owner, 0o600)
 			_ = syncDirectory(filepath.Dir(newPath))
 		}
 	}()
@@ -932,11 +1261,11 @@ func (s *Store) commitArtifactState(ctx context.Context, current diskMetadata, o
 	}
 	committed = true
 	if oldPath != newPath {
-		if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := unlinkOwnedRegularPath(oldPath, s.owner, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if err := syncDirectory(filepath.Dir(oldPath)); err != nil {
-			return err
+			return fmt.Errorf("%w: remove superseded artifact: %v", ErrDurabilityUncertain, err)
 		}
 	}
 	return nil
@@ -1013,43 +1342,45 @@ func validateExactFile(path string, size int64, owner Ownership, mode os.FileMod
 	return file.Sync()
 }
 
-func checksumExact(ctx context.Context, path string, size int64) (string, error) {
-	info, err := os.Lstat(path)
+func checksumExact(ctx context.Context, path string, size int64, owner Ownership, mode os.FileMode) (string, error) {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != size {
-		return "", ErrCorruptState
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Nlink != 1 {
-		return "", ErrOwnership
-	}
-	file, err := os.Open(path)
+	defer parent.file.Close()
+	file, _, err := openOwnedRegularAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
-	after, err := file.Stat()
-	if err != nil || !os.SameFile(info, after) {
-		return "", ErrOutsideRoot
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if info.Size() != size {
+		return "", ErrCorruptState
 	}
 	return checksumReaderAt(ctx, file, size)
 }
 
-func checksumPrefix(ctx context.Context, path string, size int64) (string, error) {
-	info, err := os.Lstat(path)
+func checksumPrefix(ctx context.Context, path string, size int64, owner Ownership, mode os.FileMode) (string, error) {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() < size {
-		return "", ErrCorruptState
-	}
-	file, err := os.Open(path)
+	defer parent.file.Close()
+	file, _, err := openOwnedRegularAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if info.Size() < size {
+		return "", ErrCorruptState
+	}
 	return checksumReaderAt(ctx, file, size)
 }
 
@@ -1143,7 +1474,7 @@ func overwriteFile(ctx context.Context, path string, offset, length int64, patte
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || offset > info.Size()-length {
 		return ErrInvalidFault
 	}
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	file, err := os.OpenFile(path, os.O_RDWR|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
@@ -1167,7 +1498,7 @@ func overwriteFile(ctx context.Context, path string, offset, length int64, patte
 }
 
 func verifyPattern(ctx context.Context, path string, corruption Corruption) error {
-	file, err := os.Open(path)
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
@@ -1196,7 +1527,12 @@ func verifyPattern(ctx context.Context, path string, corruption Corruption) erro
 
 func (s *Store) usageLocked() (Usage, error) {
 	var usage Usage
-	drives, err := os.ReadDir(s.drives)
+	dirs, err := openStoreDirectories(s)
+	if err != nil {
+		return Usage{}, err
+	}
+	defer dirs.close()
+	drives, err := readDirectoryEntries(dirs.drives)
 	if err != nil {
 		return Usage{}, err
 	}
@@ -1204,7 +1540,12 @@ func (s *Store) usageLocked() (Usage, error) {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), stageDrivePrefix) {
 			return Usage{}, fmt.Errorf("%w: unexpected drive entry %q", ErrOwnership, entry.Name())
 		}
-		state, _, err := s.loadMetadata(entry.Name())
+		directory, err := openOwnedDirectoryAt(dirs.drives, entry.Name(), s.owner, 0o700)
+		if err != nil {
+			return Usage{}, err
+		}
+		state, _, err := s.loadDriveDirectoryAt(directory, filepath.Join(s.drives, entry.Name()), entry.Name(), true)
+		_ = directory.file.Close()
 		if err != nil {
 			return Usage{}, err
 		}
@@ -1214,7 +1555,7 @@ func (s *Store) usageLocked() (Usage, error) {
 		}
 		usage.Bytes += state.Size
 	}
-	snapshots, err := os.ReadDir(s.snapshots)
+	snapshots, err := readDirectoryEntries(dirs.snapshots)
 	if err != nil {
 		return Usage{}, err
 	}
@@ -1222,7 +1563,12 @@ func (s *Store) usageLocked() (Usage, error) {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), stageSnapshotPrefix) {
 			return Usage{}, fmt.Errorf("%w: unexpected snapshot entry %q", ErrOwnership, entry.Name())
 		}
-		snapshot, err := s.loadSnapshotDir(filepath.Join(s.snapshots, entry.Name()))
+		directory, err := openOwnedDirectoryAt(dirs.snapshots, entry.Name(), s.owner, 0o700)
+		if err != nil {
+			return Usage{}, err
+		}
+		snapshot, err := s.loadSnapshotDirectoryAt(directory, filepath.Join(s.snapshots, entry.Name()))
+		_ = directory.file.Close()
 		if err != nil {
 			return Usage{}, err
 		}
@@ -1236,12 +1582,11 @@ func (s *Store) usageLocked() (Usage, error) {
 }
 
 func (s *Store) snapshotLocked(ctx context.Context, state diskMetadata, path string) (Snapshot, error) {
-	checksum, err := checksumExact(ctx, path, state.Size)
+	checksum, err := checksumExact(ctx, path, state.Size, s.owner, 0o600)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	identity := sha256.Sum256([]byte(s.runID + "\x00" + state.ID + "\x00" + checksum))
-	id := "snapshot-" + hex.EncodeToString(identity[:])
+	id := snapshotID(s.runID, state.ID, checksum)
 	dir := filepath.Join(s.snapshots, id)
 	if _, err := os.Lstat(dir); err == nil {
 		loaded, loadErr := s.loadSnapshotDir(dir)
@@ -1294,22 +1639,23 @@ func (s *Store) snapshotLocked(ctx context.Context, state diskMetadata, path str
 	if err := copyOwnedPrefix(ctx, path, 0o600, image, 0o600, state.Size, s.owner); err != nil {
 		return Snapshot{}, err
 	}
-	copyChecksum, err := checksumExact(ctx, image, state.Size)
+	copyChecksum, err := checksumExact(ctx, image, state.Size, s.owner, 0o600)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	afterChecksum, err := checksumExact(ctx, path, state.Size)
+	afterChecksum, err := checksumExact(ctx, path, state.Size, s.owner, 0o600)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	if copyChecksum != checksum || afterChecksum != checksum {
 		return Snapshot{}, ErrDriveBusy
 	}
-	if err := os.Chmod(image, 0o400); err != nil {
+	imageFile, err := openOwnedRegular(image, os.O_RDWR, s.owner, 0o600)
+	if err != nil {
 		return Snapshot{}, err
 	}
-	imageFile, err := openOwnedRegular(image, os.O_RDONLY, s.owner, 0o400)
-	if err != nil {
+	if err := imageFile.Chmod(0o400); err != nil {
+		_ = imageFile.Close()
 		return Snapshot{}, err
 	}
 	if err := imageFile.Sync(); err != nil {
@@ -1330,7 +1676,7 @@ func (s *Store) snapshotLocked(ctx context.Context, state diskMetadata, path str
 	if err := contextErr(ctx); err != nil {
 		return Snapshot{}, err
 	}
-	if err := os.Rename(stageDir, dir); err != nil {
+	if err := unix.Renameat2(unix.AT_FDCWD, stageDir, unix.AT_FDCWD, dir, unix.RENAME_NOREPLACE); err != nil {
 		return Snapshot{}, err
 	}
 	committed = true
@@ -1341,52 +1687,26 @@ func (s *Store) snapshotLocked(ctx context.Context, state diskMetadata, path str
 	return result, nil
 }
 
-// removeUncommittedStage is used only for a stage directory whose ownership
-// record was written before the final rename. It refuses every path that is
-// not a direct, labelled child of the snapshots directory.
-func removeUncommittedStageV2(path string, owner Ownership) error {
-	info, err := os.Lstat(path)
+func (s *Store) loadSnapshotDir(dir string) (Snapshot, error) {
+	dir = filepath.Clean(dir)
+	if filepath.Dir(dir) != s.snapshots || !validPathComponent(filepath.Base(dir)) {
+		return Snapshot{}, ErrOutsideRoot
+	}
+	dirs, err := openStoreDirectories(s)
 	if err != nil {
-		return err
+		return Snapshot{}, err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !strings.HasPrefix(filepath.Base(path), stageSnapshotPrefix) {
-		return ErrOwnership
-	}
-	if _, err := readArtifactOwner(path, owner); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(path)
+	defer dirs.close()
+	directory, err := openOwnedDirectoryAt(dirs.snapshots, filepath.Base(dir), s.owner, 0o700)
 	if err != nil {
-		return err
+		return Snapshot{}, err
 	}
-	for _, entry := range entries {
-		child := filepath.Join(path, entry.Name())
-		childInfo, err := os.Lstat(child)
-		if err != nil {
-			return err
-		}
-		if !childInfo.Mode().IsRegular() || childInfo.Mode()&os.ModeSymlink != 0 {
-			return ErrOwnership
-		}
-		if err := os.Remove(child); err != nil {
-			return err
-		}
-	}
-	return os.Remove(path)
+	defer directory.file.Close()
+	return s.loadSnapshotDirectoryAt(directory, dir)
 }
 
-func (s *Store) loadSnapshotDir(dir string) (Snapshot, error) {
-	if err := ensureNoSymlinkPath(s.snapshots, dir); err != nil {
-		return Snapshot{}, err
-	}
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return Snapshot{}, ErrOwnership
-	}
-	if err := validateOwnerMode(info, s.owner, 0o700); err != nil {
-		return Snapshot{}, err
-	}
-	owner, err := readArtifactOwner(dir, s.owner)
+func (s *Store) loadSnapshotDirectoryAt(directory *trustedDirectory, dir string) (Snapshot, error) {
+	owner, err := readArtifactOwnerAt(directory, s.owner)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -1394,26 +1714,36 @@ func (s *Store) loadSnapshotDir(dir string) (Snapshot, error) {
 		return Snapshot{}, ErrOwnership
 	}
 	var metadata snapshotMetadata
-	if err := readStrictJSON(filepath.Join(dir, metadataName), s.owner, 0o600, &metadata); err != nil {
+	if err := readStrictJSONAt(directory, metadataName, s.owner, 0o600, &metadata); err != nil {
 		return Snapshot{}, fmt.Errorf("%w: snapshot metadata: %v", ErrCorruptSnapshot, err)
 	}
 	want := metadata.Integrity
 	metadata.Integrity = ""
 	filesystem, filesystemErr := normalizeFilesystem(metadata.Filesystem)
-	if metadata.Version != snapshotVersion || metadata.RunID != s.runID || metadata.ID != owner.ID || validateID(metadata.ID) != nil || validateID(metadata.DriveID) != nil || metadata.Size <= 0 || metadata.Size > maxDriveSize || metadata.Generation == 0 || metadata.CreatedAt.IsZero() || filesystemErr != nil || filesystem != metadata.Filesystem || !validDigest(metadata.Checksum) || want == "" || want != structureDigest(metadata) {
+	if metadata.Version != snapshotVersion || metadata.RunID != s.runID || metadata.ID != owner.ID || validateID(metadata.DriveID) != nil || metadata.ID != snapshotID(metadata.RunID, metadata.DriveID, metadata.Checksum) || metadata.Size <= 0 || metadata.Size > maxDriveSize || metadata.Generation == 0 || metadata.CreatedAt.IsZero() || filesystemErr != nil || filesystem != metadata.Filesystem || !validDigest(metadata.Checksum) || want == "" || want != structureDigest(metadata) {
 		return Snapshot{}, ErrCorruptSnapshot
 	}
 	metadata.Integrity = want
 	image := filepath.Join(dir, snapshotImage)
-	if err := validateExactFile(image, metadata.Size, s.owner, 0o400); err != nil {
+	imageFile, _, err := openOwnedRegularAt(directory, snapshotImage, unix.O_RDONLY, s.owner, 0o400)
+	if err != nil {
 		return Snapshot{}, fmt.Errorf("%w: image: %v", ErrCorruptSnapshot, err)
 	}
-	if err := validateExactEntries(dir, map[string]os.FileMode{
+	defer imageFile.Close()
+	imageInfo, err := imageFile.Stat()
+	if err != nil || imageInfo.Size() != metadata.Size {
+		return Snapshot{}, fmt.Errorf("%w: image size", ErrCorruptSnapshot)
+	}
+	if err := validateExactEntriesAt(directory, map[string]os.FileMode{
 		ownerFileName: 0o600,
 		metadataName:  0o600,
 		snapshotImage: 0o400,
 	}, s.owner); err != nil {
 		return Snapshot{}, fmt.Errorf("%w: entries: %v", ErrCorruptSnapshot, err)
+	}
+	checksum, err := checksumReaderAt(context.Background(), imageFile, metadata.Size)
+	if err != nil || checksum != metadata.Checksum {
+		return Snapshot{}, fmt.Errorf("%w: image checksum", ErrCorruptSnapshot)
 	}
 	return Snapshot{RunID: metadata.RunID, ID: metadata.ID, DriveID: metadata.DriveID, Path: image, ManifestPath: filepath.Join(dir, metadataName), Size: metadata.Size, Checksum: metadata.Checksum, Filesystem: metadata.Filesystem, Generation: metadata.Generation, CreatedAt: metadata.CreatedAt, RequiresStoppedGuest: true}, nil
 }
@@ -1487,6 +1817,13 @@ func (s *Store) resolveSnapshot(source any, driveID string) (Snapshot, error) {
 }
 
 func (s *Store) stageSnapshotRestore(ctx context.Context, snapshot Snapshot, generation uint64, driveDir string) (string, error) {
+	usage, err := s.usageLocked()
+	if err != nil {
+		return "", err
+	}
+	if exceedsQuota(usage.Bytes, snapshot.Size, s.maxBytes) {
+		return "", ErrQuotaExceeded
+	}
 	path := filepath.Join(driveDir, artifactName(generation))
 	if s.hooks.beforeCopy != nil {
 		if err := s.hooks.beforeCopy(snapshot.Path); err != nil {
@@ -1499,19 +1836,19 @@ func (s *Store) stageSnapshotRestore(ctx context.Context, snapshot Snapshot, gen
 	complete := false
 	defer func() {
 		if !complete {
-			_ = os.Remove(path)
+			_ = unlinkOwnedRegularPath(path, s.owner, 0o600)
 			_ = syncDirectory(driveDir)
 		}
 	}()
 	if err := copyOwnedPrefix(ctx, snapshot.Path, 0o400, path, 0o600, snapshot.Size, s.owner); err != nil {
 		return "", err
 	}
-	if sourceChecksum, err := checksumExact(ctx, snapshot.Path, snapshot.Size); err != nil {
+	if sourceChecksum, err := checksumExact(ctx, snapshot.Path, snapshot.Size, s.owner, 0o400); err != nil {
 		return "", err
 	} else if !strings.EqualFold(sourceChecksum, snapshot.Checksum) {
 		return "", ErrCorruptSnapshot
 	}
-	if destinationChecksum, err := checksumExact(ctx, path, snapshot.Size); err != nil {
+	if destinationChecksum, err := checksumExact(ctx, path, snapshot.Size, s.owner, 0o600); err != nil {
 		return "", err
 	} else if !strings.EqualFold(destinationChecksum, snapshot.Checksum) {
 		return "", ErrCorruptSnapshot
@@ -1523,55 +1860,8 @@ func (s *Store) stageSnapshotRestore(ctx context.Context, snapshot Snapshot, gen
 	return path, nil
 }
 
-func verifyPatternV2(ctx context.Context, path string, corruption Corruption) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	buffer := make([]byte, min64(corruption.Length, copyBufferSize))
-	for remaining, offset := corruption.Length, corruption.Offset; remaining > 0; {
-		if err := contextErr(ctx); err != nil {
-			return err
-		}
-		want := int64(len(buffer))
-		if remaining < want {
-			want = remaining
-		}
-		n, err := file.ReadAt(buffer[:want], offset)
-		if err != nil && !(errors.Is(err, io.EOF) && int64(n) == want) {
-			return err
-		}
-		for _, value := range buffer[:n] {
-			if value != corruption.Pattern {
-				return ErrCorruptState
-			}
-		}
-		offset += int64(n)
-		remaining -= int64(n)
-	}
-	return nil
-}
-
 func removeOwnedTree(path, runID, id string, owner Ownership) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return ErrOwnership
-	}
-	if err := validateOwnerMode(info, owner, 0o700); err != nil {
-		return err
-	}
-	record, err := readArtifactOwner(path, owner)
-	if err != nil {
-		return err
-	}
-	if record.RunID != runID || record.ID != id {
-		return ErrOwnership
-	}
-	return removeVerifiedDirectory(path, owner)
+	return removeManagedDirectoryPath(path, runID, id, owner, true)
 }
 
 func removeUncommittedStage(path, runID string, owner Ownership) error {
@@ -1579,132 +1869,37 @@ func removeUncommittedStage(path, runID string, owner Ownership) error {
 	if !strings.HasPrefix(name, stageDrivePrefix+runID+"-") && !strings.HasPrefix(name, stageSnapshotPrefix+runID+"-") {
 		return ErrOwnership
 	}
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return ErrOwnership
-	}
-	if err := validateOwnerMode(info, owner, 0o700); err != nil {
-		return err
-	}
-	return removeVerifiedDirectory(path, owner)
-}
-
-func removeVerifiedDirectory(path string, owner Ownership) error {
-	entries, err := os.ReadDir(path)
 	if err != nil {
 		return err
 	}
-	files := make([]string, 0, len(entries))
-	ownerPath := ""
-	for _, entry := range entries {
-		if entry.IsDir() || !validManagedFileName(entry.Name()) {
-			return ErrOwnership
-		}
-		child := filepath.Join(path, entry.Name())
-		info, err := os.Lstat(child)
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return ErrOwnership
-		}
-		mode := os.FileMode(0o600)
-		if entry.Name() == snapshotImage {
-			mode = info.Mode().Perm()
-			if mode != 0o400 && mode != 0o600 {
-				return ErrOwnership
-			}
-		}
-		if err := validateOwnerMode(info, owner, mode); err != nil {
-			return err
-		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Nlink != 1 {
-			return ErrOwnership
-		}
-		if entry.Name() == ownerFileName {
-			ownerPath = child
-		} else {
-			files = append(files, child)
-		}
-	}
-	for _, file := range files {
-		if err := os.Remove(file); err != nil {
-			return err
-		}
-	}
-	if ownerPath != "" {
-		if err := os.Remove(ownerPath); err != nil {
-			return err
-		}
-	}
-	if err := syncDirectory(path); err != nil {
-		return err
-	}
-	return os.Remove(path)
+	return removeManagedDirectoryPath(path, "", "", owner, false)
 }
 
 func validManagedFileName(name string) bool {
 	return name == ownerFileName || name == metadataName || name == snapshotImage || strings.HasPrefix(name, jsonTemporaryPrefix) || validArtifactName(name)
 }
 
-func ensureNoSymlinkPath(root, path string) error {
-	root, err := filepath.Abs(filepath.Clean(root))
-	if err != nil {
-		return ErrOutsideRoot
-	}
-	path, err = filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return ErrOutsideRoot
-	}
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || filepath.IsAbs(relative) {
-		return ErrOutsideRoot
-	}
-	current := root
-	for _, part := range strings.Split(relative, string(os.PathSeparator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		current = filepath.Join(current, part)
-		info, statErr := os.Lstat(current)
-		if errors.Is(statErr, os.ErrNotExist) {
-			continue
-		}
-		if statErr != nil {
-			return statErr
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return ErrOutsideRoot
-		}
-	}
-	return nil
-}
-
-func validArtifactNameV2(name string) bool {
-	if !strings.HasPrefix(name, "artifact-") || !strings.HasSuffix(name, ".img") {
-		return false
-	}
-	digits := strings.TrimSuffix(strings.TrimPrefix(name, "artifact-"), ".img")
-	if len(digits) != 20 {
-		return false
-	}
-	generation, err := strconv.ParseUint(digits, 10, 64)
-	return err == nil && generation != 0
-}
-
 func (s *Store) recoverLocked() error {
-	if err := s.recoverRootEntries(); err != nil {
+	dirs, err := openStoreDirectories(s)
+	if err != nil {
 		return err
 	}
-	if err := s.recoverDriveEntries(); err != nil {
+	defer dirs.close()
+	if err := s.recoverRootEntries(dirs.root); err != nil {
 		return err
 	}
-	return s.recoverSnapshotEntries()
+	if err := s.recoverDriveEntries(dirs.drives); err != nil {
+		return err
+	}
+	return s.recoverSnapshotEntries(dirs.snapshots)
 }
 
-func (s *Store) recoverRootEntries() error {
-	entries, err := os.ReadDir(s.root)
+func (s *Store) recoverRootEntries(root *trustedDirectory) error {
+	entries, err := readDirectoryEntries(root)
 	if err != nil {
 		return err
 	}
@@ -1717,36 +1912,32 @@ func (s *Store) recoverRootEntries() error {
 			if !strings.HasPrefix(entry.Name(), jsonTemporaryPrefix) || entry.IsDir() {
 				return fmt.Errorf("%w: unexpected store entry %q", ErrOwnership, entry.Name())
 			}
-			if err := validateRemovableFile(filepath.Join(s.root, entry.Name()), s.owner, 0o600); err != nil {
-				return err
-			}
-			if err := os.Remove(filepath.Join(s.root, entry.Name())); err != nil {
+			if err := unlinkOwnedRegularAt(root, entry.Name(), s.owner, 0o600); err != nil {
 				return err
 			}
 			removed = true
 		}
 	}
 	if removed {
-		return syncDirectory(s.root)
+		return root.file.Sync()
 	}
 	return nil
 }
 
-func (s *Store) recoverDriveEntries() error {
-	entries, err := os.ReadDir(s.drives)
+func (s *Store) recoverDriveEntries(drives *trustedDirectory) error {
+	entries, err := readDirectoryEntries(drives)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		path := filepath.Join(s.drives, entry.Name())
 		if !entry.IsDir() {
 			return fmt.Errorf("%w: unexpected drive entry %q", ErrOwnership, entry.Name())
 		}
 		if strings.HasPrefix(entry.Name(), stageDrivePrefix) {
-			if err := removeUncommittedStage(path, s.runID, s.owner); err != nil {
-				return err
+			if !strings.HasPrefix(entry.Name(), stageDrivePrefix+s.runID+"-") {
+				return ErrOwnership
 			}
-			if err := syncDirectory(s.drives); err != nil {
+			if err := removeManagedDirectoryAt(drives, entry.Name(), "", "", s.owner, false); err != nil {
 				return err
 			}
 			continue
@@ -1754,12 +1945,19 @@ func (s *Store) recoverDriveEntries() error {
 		if validateID(entry.Name()) != nil {
 			return ErrOwnership
 		}
-		state, _, err := s.loadDriveDirectory(path, entry.Name(), false)
+		dir, err := openOwnedDirectoryAt(drives, entry.Name(), s.owner, 0o700)
 		if err != nil {
 			return err
 		}
-		dirEntries, err := os.ReadDir(path)
+		path := filepath.Join(s.drives, entry.Name())
+		state, _, err := s.loadDriveDirectoryAt(dir, path, entry.Name(), false)
 		if err != nil {
+			_ = dir.file.Close()
+			return err
+		}
+		dirEntries, err := readDirectoryEntries(dir)
+		if err != nil {
+			_ = dir.file.Close()
 			return err
 		}
 		removed := false
@@ -1768,65 +1966,62 @@ func (s *Store) recoverDriveEntries() error {
 				continue
 			}
 			if !strings.HasPrefix(child.Name(), jsonTemporaryPrefix) && !validArtifactName(child.Name()) {
+				_ = dir.file.Close()
 				return ErrCorruptState
 			}
-			if err := validateRemovableFile(filepath.Join(path, child.Name()), s.owner, 0o600); err != nil {
-				return err
-			}
-			if err := os.Remove(filepath.Join(path, child.Name())); err != nil {
+			if err := unlinkOwnedRegularAt(dir, child.Name(), s.owner, 0o600); err != nil {
+				_ = dir.file.Close()
 				return err
 			}
 			removed = true
 		}
 		if removed {
-			if err := syncDirectory(path); err != nil {
+			if err := dir.file.Sync(); err != nil {
+				_ = dir.file.Close()
 				return err
 			}
 		}
-		if _, _, err := s.loadDriveDirectory(path, entry.Name(), true); err != nil {
+		if _, _, err := s.loadDriveDirectoryAt(dir, path, entry.Name(), true); err != nil {
+			_ = dir.file.Close()
+			return err
+		}
+		if err := dir.file.Close(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Store) recoverSnapshotEntries() error {
-	entries, err := os.ReadDir(s.snapshots)
+func (s *Store) recoverSnapshotEntries(snapshots *trustedDirectory) error {
+	entries, err := readDirectoryEntries(snapshots)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		path := filepath.Join(s.snapshots, entry.Name())
 		if !entry.IsDir() {
 			return fmt.Errorf("%w: unexpected snapshot entry %q", ErrOwnership, entry.Name())
 		}
 		if strings.HasPrefix(entry.Name(), stageSnapshotPrefix) {
-			if err := removeUncommittedStage(path, s.runID, s.owner); err != nil {
-				return err
+			if !strings.HasPrefix(entry.Name(), stageSnapshotPrefix+s.runID+"-") {
+				return ErrOwnership
 			}
-			if err := syncDirectory(s.snapshots); err != nil {
+			if err := removeManagedDirectoryAt(snapshots, entry.Name(), "", "", s.owner, false); err != nil {
 				return err
 			}
 			continue
 		}
-		if _, err := s.loadSnapshotDir(path); err != nil {
+		dir, err := openOwnedDirectoryAt(snapshots, entry.Name(), s.owner, 0o700)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func validateRemovableFile(path string, owner Ownership, mode os.FileMode) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return ErrOwnership
-	}
-	if err := validateOwnerMode(info, owner, mode); err != nil {
-		return err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Nlink != 1 {
-		return ErrOwnership
+		path := filepath.Join(s.snapshots, entry.Name())
+		if _, err := s.loadSnapshotDirectoryAt(dir, path); err != nil {
+			_ = dir.file.Close()
+			return err
+		}
+		if err := dir.file.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1836,82 +2031,14 @@ func validDigest(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
 			return false
 		}
 	}
 	return true
 }
 
-func readContextAtV2(ctx context.Context, file *os.File, buffer []byte, offset int64) (int, error) {
-	total := 0
-	for total < len(buffer) {
-		if err := contextErr(ctx); err != nil {
-			return total, err
-		}
-		n, err := file.ReadAt(buffer[total:], offset+int64(total))
-		total += n
-		if err != nil {
-			if errors.Is(err, io.EOF) && total == len(buffer) {
-				return total, nil
-			}
-			return total, err
-		}
-	}
-	return total, nil
-}
-
-func writeContextAtV2(ctx context.Context, file *os.File, buffer []byte, offset int64) error {
-	for len(buffer) > 0 {
-		if err := contextErr(ctx); err != nil {
-			return err
-		}
-		n, err := file.WriteAt(buffer, offset)
-		if n > 0 {
-			offset += int64(n)
-			buffer = buffer[n:]
-		}
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-	}
-	return file.Sync()
-}
-
-type fileFaultRunnerV2 struct{}
-
-func (fileFaultRunnerV2) Apply(ctx context.Context, action FaultAction) error {
-	if action.Kind != FaultCorruption {
-		return nil
-	}
-	if action.Offset < 0 || action.Length <= 0 {
-		return ErrInvalidFault
-	}
-	file, err := os.OpenFile(action.Path, os.O_RDWR, 0)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	pattern := make([]byte, min64(action.Length, copyBufferSize))
-	for index := range pattern {
-		pattern[index] = action.Pattern
-	}
-	for remaining, offset := action.Length, action.Offset; remaining > 0; {
-		if err := contextErr(ctx); err != nil {
-			return err
-		}
-		count := int64(len(pattern))
-		if remaining < count {
-			count = remaining
-		}
-		if _, err := file.WriteAt(pattern[:count], offset); err != nil {
-			return err
-		}
-		offset += count
-		remaining -= count
-	}
-	return file.Sync()
+func snapshotID(runID, driveID, checksum string) string {
+	identity := sha256.Sum256([]byte(runID + "\x00" + driveID + "\x00" + checksum))
+	return "snapshot-" + hex.EncodeToString(identity[:])
 }

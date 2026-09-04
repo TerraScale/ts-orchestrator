@@ -71,7 +71,7 @@ func TestControlContractProvesLaunchR3AndRemoteRegion(t *testing.T) {
 	if !remote.RemoteManaged || remote.HasGlobalReplica || remote.MemberHosts != 2 || !remote.RegionalR3BelowFloorRejected {
 		t.Fatalf("unexpected remote Region proof: %+v", remote)
 	}
-	if remote.GlobalState.Topology != bootstrap.ControlTopologyGlobalR3 || remote.RegionState.Topology != bootstrap.ControlTopologyRemote {
+	if remote.GlobalState.Topology != bootstrap.ControlTopologyGlobalR3 || remote.RegionState.Topology != bootstrap.ControlTopologyGlobalR3 {
 		t.Fatalf("global and Region control states were conflated: global=%+v region=%+v", remote.GlobalState, remote.RegionState)
 	}
 	if want := []string{"fra", "gru", "sfo"}; !reflect.DeepEqual(remote.GlobalReplicas, want) {
@@ -79,8 +79,17 @@ func TestControlContractProvesLaunchR3AndRemoteRegion(t *testing.T) {
 	}
 	assertControlCalls(t, remote.Calls, bootstrap.ControlActionRemoteManage)
 
-	if got := len(contract.JournalPaths()); got != 6 {
-		t.Fatalf("journal count = %d, want 6", got)
+	if got := len(contract.JournalPaths()); got != 1 {
+		t.Fatalf("journal count = %d, want 1", got)
+	}
+	journalPath := contract.JournalPaths()[0]
+	for _, path := range append(append([]string{}, sfo.JournalPaths...), fra.JournalPaths...) {
+		if path != journalPath {
+			t.Fatalf("transition journal = %q, want shared journal %q", path, journalPath)
+		}
+	}
+	if bootstrapProof.JournalPath != journalPath || remote.JournalPath != journalPath {
+		t.Fatalf("control proofs did not use shared journal %q", journalPath)
 	}
 	for _, path := range contract.JournalPaths() {
 		assertPrivateJournal(t, path)

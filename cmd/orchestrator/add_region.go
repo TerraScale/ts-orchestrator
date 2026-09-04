@@ -423,27 +423,26 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 	if err != nil {
 		return err
 	}
-	spec, region, err := lookupAddRegionRegion(code)
-	if err != nil {
+	spec := estate.Default()
+	if lookup != nil {
+		spec, err = loadReconcileEstate(lookup)
+		if err != nil {
+			return err
+		}
+	}
+	if err := spec.Validate(); err != nil {
 		return err
 	}
-	if lookup != nil {
-		if path, ok := lookup(addRegionEstateEnvironment); ok && strings.TrimSpace(path) != "" {
-			spec, err = loadReconcileEstate(lookup)
-			if err != nil {
-				return err
-			}
-			found := false
-			for _, candidate := range spec.Regions {
-				if candidate.Code == code {
-					region, found = candidate, true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("add-region: unknown region %s: declare it in the estate first", code)
-			}
+	var region estate.Region
+	found := false
+	for _, candidate := range spec.Regions {
+		if candidate.Code == code {
+			region, found = candidate, true
+			break
 		}
+	}
+	if !found {
+		return fmt.Errorf("add-region: unknown region %s: declare it in the estate first", code)
 	}
 	if err := checkAddRegionFloor(region); err != nil {
 		return err

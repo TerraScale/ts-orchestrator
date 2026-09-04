@@ -11,11 +11,11 @@ import (
 // coherent estate snapshot source, and the live control-plane authority
 // fence. No environment lookup, transport, or fallback source is hidden here.
 func newEstatePublisher(
-	client estatepublisher.PublicDocumentClient,
+	client any,
 	snapshot estatepublisher.SnapshotSource,
 	authority estatepublisher.Authority,
 ) (*estatepublisher.Publisher, error) {
-	if client == nil {
+	if isNilProductionValue(client) {
 		return nil, errors.New("orchestrator: estate publisher client is required")
 	}
 	if snapshot == nil {

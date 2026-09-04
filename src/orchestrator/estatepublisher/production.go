@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/observability"
 )
 
 const (
@@ -42,6 +43,7 @@ var (
 	ErrGeneration    = errors.New("estate publisher: generation is invalid")
 	ErrStaleRemoval  = errors.New("estate publisher: stale document removal is unavailable")
 	ErrPayloadBounds = errors.New("estate publisher: document exceeds bounds")
+	ErrLabelPolicy   = errors.New("estate publisher: document labels are outside the bounded vocabulary")
 )
 
 // DocumentIDs is the complete production family set, in stable order.
@@ -168,6 +170,7 @@ type Config struct {
 	Interval          time.Duration
 	MaxDocumentBytes  int
 	MaxItems          int
+	LabelPolicy       observability.LabelAllowList
 	RetryMaxAttempts  int
 	RetryInitialDelay time.Duration
 	RetryMaxDelay     time.Duration
@@ -209,6 +212,7 @@ type Publisher struct {
 	interval   time.Duration
 	maxBytes   int
 	maxItems   int
+	labels     observability.LabelAllowList
 	attempts   int
 	initial    time.Duration
 	maxDelay   time.Duration
@@ -270,6 +274,15 @@ func New(config Config) (*Publisher, error) {
 	if maxItems < 1 || maxItems > DefaultMaxItems {
 		return nil, errors.New("estate publisher: item bound is invalid")
 	}
+	labels := config.LabelPolicy
+	if labels == nil {
+		labels = observability.DefaultLabelAllowList.Clone()
+	} else {
+		labels = labels.Clone()
+	}
+	if err := labels.Validate(); err != nil {
+		return nil, fmt.Errorf("estate publisher: label policy is invalid: %w", err)
+	}
 	attempts := config.RetryMaxAttempts
 	if attempts == 0 {
 		attempts = 3
@@ -307,7 +320,7 @@ func New(config Config) (*Publisher, error) {
 	p := &Publisher{
 		client: client, snapshot: config.Snapshot, authority: config.Authority,
 		generation: config.Generation, fenceToken: config.FenceToken,
-		interval: interval, maxBytes: maxBytes, maxItems: maxItems,
+		interval: interval, maxBytes: maxBytes, maxItems: maxItems, labels: labels,
 		attempts: attempts, initial: initial, maxDelay: maxDelay, sleep: sleep,
 		onSuccess: onSuccess, onFailure: onFailure,
 		now:  now,
@@ -551,7 +564,7 @@ func (p *Publisher) documents(snapshot estate.Snapshot) ([]Document, error) {
 			return nil, errors.New("estate publisher: snapshot contains a duplicate document id")
 		}
 		seen[item.ID] = struct{}{}
-		body, err := boundedJSON(item.Body, p.maxBytes, p.maxItems)
+		body, err := boundedJSON(item.Body, p.maxBytes, p.maxItems, p.labels)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", estate.QualifiedName(item.ID), err)
 		}
@@ -776,7 +789,7 @@ func validID(id string) bool {
 // boundedJSON first converts through JSON to normalize structs and then
 // recursively redacts secret-bearing fields. It rejects unsupported values,
 // excessive nesting, and oversized arrays/maps before any client call.
-func boundedJSON(value any, maxBytes, maxItems int) (json.RawMessage, error) {
+func boundedJSON(value any, maxBytes, maxItems int, labels observability.LabelAllowList) (json.RawMessage, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("encode: %w", err)
@@ -784,6 +797,9 @@ func boundedJSON(value any, maxBytes, maxItems int) (json.RawMessage, error) {
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, errors.New("encoded value is invalid JSON")
+	}
+	if err := validateDocumentLabels(decoded, labels); err != nil {
+		return nil, err
 	}
 	clean, count, err := redactValue(decoded, "", 0, maxItems)
 	if err != nil {
@@ -800,6 +816,41 @@ func boundedJSON(value any, maxBytes, maxItems int) (json.RawMessage, error) {
 		return nil, ErrPayloadBounds
 	}
 	return json.RawMessage(raw), nil
+}
+
+func validateDocumentLabels(value any, policy observability.LabelAllowList) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if strings.EqualFold(key, "labels") {
+				raw, ok := child.(map[string]any)
+				if !ok {
+					return ErrLabelPolicy
+				}
+				candidate := make(map[string]string, len(raw))
+				for name, value := range raw {
+					text, ok := value.(string)
+					if !ok {
+						return ErrLabelPolicy
+					}
+					candidate[name] = text
+				}
+				if err := policy.ValidateLabels(candidate); err != nil {
+					return fmt.Errorf("%w: %v", ErrLabelPolicy, err)
+				}
+			}
+			if err := validateDocumentLabels(child, policy); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if err := validateDocumentLabels(child, policy); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func redactValue(value any, key string, depth, maxItems int) (any, int, error) {

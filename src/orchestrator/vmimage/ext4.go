@@ -13,7 +13,12 @@ import (
 	"strings"
 )
 
-const maxFilesystemToolOutput = 1 << 20
+const (
+	maxFilesystemToolOutput = 1 << 20
+	ubuntuRootFSTabRecord   = "LABEL=cloudimg-rootfs / ext4 discard,commit=30,errors=remount-ro 0 1"
+	ubuntuBootFSTabRecord   = "LABEL=BOOT /boot ext4 defaults 0 2"
+	ubuntuUEFIFSTabRecord   = "LABEL=UEFI /boot/efi vfat umask=0077 0 1"
+)
 
 var blockSizePattern = regexp.MustCompile(`(?m)^Block size:\s+([0-9]+)\s*$`)
 
@@ -177,11 +182,12 @@ func validateExecutable(path string) error {
 	if path == "" || !strings.HasPrefix(path, "/") {
 		return errors.New("path must be absolute")
 	}
-	info, err := os.Lstat(path)
+	file, metadata, err := secureOpenPath(path, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o111 == 0 {
+	defer file.Close()
+	if !metadata.regular || metadata.special || metadata.permissions&0o111 == 0 {
 		return errors.New("path must be an executable regular non-symlink file")
 	}
 	return nil
@@ -233,7 +239,12 @@ func sanitizeUbuntuFSTab(content []byte) ([]byte, error) {
 		return nil, errors.New("vmimage: guest fstab size is invalid")
 	}
 	result := append([]byte(nil), content...)
-	seen := map[string]int{"/boot": 0, "/boot/efi": 0}
+	expected := map[string][]string{
+		"/":         strings.Fields(ubuntuRootFSTabRecord),
+		"/boot":     strings.Fields(ubuntuBootFSTabRecord),
+		"/boot/efi": strings.Fields(ubuntuUEFIFSTabRecord),
+	}
+	seen := map[string]int{"/": 0, "/boot": 0, "/boot/efi": 0}
 	for start := 0; start < len(content); {
 		end := bytes.IndexByte(content[start:], '\n')
 		if end < 0 {
@@ -245,21 +256,26 @@ func sanitizeUbuntuFSTab(content []byte) ([]byte, error) {
 		trimmed := bytes.TrimSpace(line)
 		if len(trimmed) > 0 && trimmed[0] != '#' {
 			fields := strings.Fields(string(trimmed))
-			if len(fields) < 4 {
+			if len(fields) != 6 {
 				return nil, errors.New("vmimage: guest fstab contains a malformed active record")
 			}
 			mount := fields[1]
-			if mount == "/boot" || mount == "/boot/efi" {
-				expectedSource := map[string]string{"/boot": "LABEL=BOOT", "/boot/efi": "LABEL=UEFI"}[mount]
-				if fields[0] != expectedSource || seen[mount] != 0 {
-					return nil, fmt.Errorf("vmimage: guest fstab has an unexpected %s mount", mount)
+			expectedFields, admitted := expected[mount]
+			if !admitted || seen[mount] != 0 {
+				return nil, fmt.Errorf("vmimage: guest fstab has an unexpected %s mount", mount)
+			}
+			for index := range fields {
+				if fields[index] != expectedFields[index] {
+					return nil, fmt.Errorf("vmimage: guest fstab has an unexpected %s record", mount)
 				}
+			}
+			seen[mount]++
+			if mount == "/boot" || mount == "/boot/efi" {
 				first := bytes.IndexFunc(line, func(character rune) bool { return character != ' ' && character != '\t' })
 				if first < 0 {
 					return nil, errors.New("vmimage: guest fstab boot record is empty")
 				}
 				result[start+first] = '#'
-				seen[mount]++
 			}
 		}
 		if end == len(content) {
@@ -267,8 +283,8 @@ func sanitizeUbuntuFSTab(content []byte) ([]byte, error) {
 		}
 		start = end + 1
 	}
-	if seen["/boot"] != 1 || seen["/boot/efi"] != 1 {
-		return nil, errors.New("vmimage: guest fstab does not contain the expected BOOT and UEFI records")
+	if seen["/"] != 1 || seen["/boot"] != 1 || seen["/boot/efi"] != 1 {
+		return nil, errors.New("vmimage: guest fstab does not contain the exact root, BOOT, and UEFI records")
 	}
 	return result, nil
 }
@@ -306,14 +322,13 @@ func patchExt4File(imagePath string, original, replacement []byte, blockSize int
 	if len(original) != len(replacement) || bytes.Equal(original, replacement) {
 		return errors.New("vmimage: guest fstab replacement must change bytes without changing length")
 	}
-	file, err := os.OpenFile(imagePath, os.O_RDWR, 0)
+	file, metadata, err := secureOpenPath(imagePath, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
+	if !metadata.regular || metadata.special || metadata.links != 1 {
+		return errors.New("vmimage: ext4 image metadata is unsafe")
 	}
 	for index, block := range blocks {
 		start := int64(index) * blockSize
@@ -323,7 +338,7 @@ func patchExt4File(imagePath string, original, replacement []byte, blockSize int
 		}
 		offset := block * blockSize
 		length := end - start
-		if offset < 0 || length <= 0 || offset > info.Size() || length > info.Size()-offset {
+		if offset < 0 || length <= 0 || offset > metadata.size || length > metadata.size-offset {
 			return errors.New("vmimage: guest fstab block lies outside the ext4 image")
 		}
 		current := make([]byte, length)

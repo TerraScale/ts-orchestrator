@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -37,8 +38,8 @@ type ManifestWatcher struct {
 
 // NewManifestWatcher validates the configuration and composes the watcher.
 func NewManifestWatcher(config ManifestWatcherConfig) (*ManifestWatcher, error) {
-	if config.ManifestPath == "" || config.ManifestPath[0] != '/' {
-		return nil, &InvalidOperationError{Message: "The manifest path must be an absolute path."}
+	if !safeAbsolutePath(config.ManifestPath) {
+		return nil, &InvalidOperationError{Message: "The manifest path must be an absolute safe path."}
 	}
 	if config.Interval <= 0 {
 		return nil, &InvalidOperationError{Message: "The watch interval must be positive."}
@@ -75,77 +76,218 @@ func (w *ManifestWatcher) Run(ctx context.Context) {
 // manifest changes nothing: the last valid desired state stays applied, so a
 // truncated write can never retire a serving component.
 func (w *ManifestWatcher) ReconcileOnce(ctx context.Context) error {
-	data, err := os.ReadFile(w.manifestPath)
-	if err != nil {
-		return fmt.Errorf("the manifest could not be read: %w", err)
-	}
-	manifest, err := ParseHostManifest(data)
+	manifest, err := w.readManifest()
 	if err != nil {
 		return err
 	}
 	return w.lifecycle.ApplyDesired(ctx, manifest.Components)
 }
 
+// HydrateOnce loads validated desired state without installing, starting, or
+// retiring anything. HostAgent uses it before journal recovery so commands
+// are available even when the first convergence pass later fails.
+func (w *ManifestWatcher) HydrateOnce() error {
+	manifest, err := w.readManifest()
+	if err != nil {
+		return err
+	}
+	return w.lifecycle.HydrateDesired(manifest.Components)
+}
+
+func (w *ManifestWatcher) readManifest() (HostManifest, error) {
+	data, err := readRegularFileBounded(w.manifestPath, hostAgentMaximumManifestBytes)
+	if err != nil {
+		return HostManifest{}, fmt.Errorf("the manifest could not be read: %w", err)
+	}
+	manifest, err := ParseHostManifest(data)
+	if err != nil {
+		return HostManifest{}, err
+	}
+	return manifest, nil
+}
+
+// HydrateDesired records a validated manifest and discovers older managed
+// units without performing host mutations.
+func (l *Lifecycle) HydrateDesired(desired []ComponentSpec) error {
+	validated, err := l.validateDesiredSet(desired)
+	if err != nil {
+		return err
+	}
+	discovered, err := l.discoverManagedComponents()
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]struct{}, len(validated))
+	for _, spec := range validated {
+		wanted[spec.Name] = struct{}{}
+	}
+	stale := make([]string, 0, len(discovered))
+	for _, component := range discovered {
+		if _, present := wanted[component]; !present {
+			stale = append(stale, component)
+		}
+	}
+	l.mutex.Lock()
+	l.desired = validated
+	l.stale = stale
+	l.mutex.Unlock()
+	return nil
+}
+
 // ApplyDesired converges the host on one desired component set: install,
 // provision, unit-file, enable, start, and retire. Per-component failures
 // are joined and reported; every other component still converges.
 func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []ComponentSpec) error {
+	validated, err := l.validateDesiredSet(desired)
+	if err != nil {
+		return err
+	}
+	discovered, err := l.discoverManagedComponents()
+	if err != nil {
+		return err
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	var failures []error
-	desiredNames := make(map[string]struct{}, len(desired))
-	for _, spec := range desired {
-		validated, err := NewComponentSpec(spec)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		desiredNames[validated.Name] = struct{}{}
-		if err := l.ensureComponentLocked(ctx, validated); err != nil {
+	desiredNames := make(map[string]struct{}, len(validated))
+	for _, spec := range validated {
+		desiredNames[spec.Name] = struct{}{}
+		if err := l.ensureComponentLocked(ctx, spec); err != nil {
 			failures = append(failures, fmt.Errorf(
-				"component %s did not converge: %w", validated.Name, err))
+				"component %s did not converge: %w", spec.Name, err))
 		}
 	}
-	retained := append([]ComponentSpec(nil), desired...)
+	retire := make(map[string]struct{}, len(l.desired)+len(l.stale)+len(discovered))
 	for _, spec := range l.desired {
 		if _, present := desiredNames[spec.Name]; present {
 			continue
 		}
-		if err := l.retireComponentLocked(ctx, spec); err != nil {
-			failures = append(failures, fmt.Errorf(
-				"component %s did not retire: %w", spec.Name, err))
-			// Keep a failed retirement in desired state. The next manifest
-			// tick must retry the stop/disable/delete sequence; dropping it
-			// here would make the host forget that the old unit still exists.
-			retained = append(retained, spec)
+		retire[spec.Name] = struct{}{}
+	}
+	for _, component := range l.stale {
+		if _, present := desiredNames[component]; !present {
+			retire[component] = struct{}{}
 		}
 	}
-	l.desired = retained
+	for _, component := range discovered {
+		if _, present := desiredNames[component]; !present {
+			retire[component] = struct{}{}
+		}
+	}
+	retainedStale := make([]string, 0, len(retire))
+	for component := range retire {
+		if err := l.retireComponentLocked(ctx, component); err != nil {
+			failures = append(failures, fmt.Errorf(
+				"component %s did not retire: %w", component, err))
+			// Keep a failed retirement separate from desired state. The next manifest
+			// tick must retry the stop/disable/delete sequence; dropping it
+			// here would make the host forget that the old unit still exists.
+			retainedStale = append(retainedStale, component)
+		}
+	}
+	l.desired = append([]ComponentSpec(nil), validated...)
+	l.stale = retainedStale
 	return errors.Join(failures...)
+}
+
+func (l *Lifecycle) validateDesiredSet(desired []ComponentSpec) ([]ComponentSpec, error) {
+	validated, err := validateComponentSet(desired)
+	if err != nil {
+		return nil, err
+	}
+	stateRoot := filepath.Join(l.dataRoot, TsNodeComponentName)
+	for _, spec := range validated {
+		if _, err := validateDirectoryWithin(l.dataRoot, spec.DataVolume); err != nil {
+			return nil, err
+		}
+		if spec.Name != TsNodeComponentName && pathsOverlap(spec.DataVolume, stateRoot) {
+			return nil, &InvalidOperationError{Message: "Component data volumes must not overlap the root-owned ts-node state directory."}
+		}
+	}
+	return validated, nil
+}
+
+func (l *Lifecycle) discoverManagedComponents() ([]string, error) {
+	entries, err := os.ReadDir(l.unitDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var managed []string
+	for _, entry := range entries {
+		name := entry.Name()
+		retiring := strings.HasSuffix(name, ".service.retiring")
+		if retiring {
+			name = strings.TrimSuffix(name, ".retiring")
+		}
+		if !strings.HasPrefix(name, "terrascale-") || !strings.HasSuffix(name, ".service") {
+			continue
+		}
+		component := strings.TrimSuffix(strings.TrimPrefix(name, "terrascale-"), ".service")
+		if component == TsNodeComponentName {
+			continue
+		}
+		if _, err := requireHostAgentName(component, "component", "The discovered component name is invalid."); err != nil {
+			continue
+		}
+		unit, present, err := readUnitState(l.unitDir, component)
+		if retiring {
+			var info os.FileInfo
+			unit, info, err = readRegularFileBoundedInfo(filepath.Join(l.unitDir, entry.Name()), hostAgentMaximumUnitBytes)
+			if err == nil {
+				err = requireOwnedRegular(info, false, "retirement marker")
+			}
+			present = err == nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !present || !strings.Contains(string(unit), "\nExecStart="+ExecStartPath(l.installRoot, component)+"\n") {
+			continue
+		}
+		componentDir := strings.TrimSuffix(InstallDir(l.installRoot, component), "/")
+		info, err := os.Lstat(componentDir)
+		if retiring && os.IsNotExist(err) {
+			managed = append(managed, component)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := requireOwnedDirectory(info, "discovered component install directory"); err != nil {
+			return nil, err
+		}
+		if err := requireSameMount(l.installRoot, componentDir); err != nil {
+			return nil, err
+		}
+		managed = append(managed, component)
+	}
+	slices.Sort(managed)
+	return managed, nil
 }
 
 // ensureComponentLocked converges one component: install the desired
 // version when missing, provision the dedicated user and data volume, keep
 // the unit file rendered, enable the unit, and start it while serving. The
 // ts-node self-component installs but never writes a unit or account — its
-// unit is cloud-init's, exactly one, and the flip is a deploy.
+// unit is the shared bootstrap unit, exactly one, and the flip is a deploy.
 func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpec) error {
-	if !InstalledVersion(l.installRoot, spec.Name, spec.Version) {
-		if _, err := l.installer.Install(spec); err != nil {
-			return err
-		}
+	if _, err := validateDirectoryWithin(l.dataRoot, spec.DataVolume); err != nil {
+		return err
+	}
+	// Install is itself a cheap verified no-op when the immutable version
+	// slot already contains the exact requested digest. Do not decide from
+	// mere path presence here: a corrupt or substituted slot must fail closed.
+	if _, err := l.installer.InstallContext(ctx, spec); err != nil {
+		return err
 	}
 	if spec.Name != TsNodeComponentName {
 		if err := l.users.EnsureUser(ctx, spec.User); err != nil {
 			return err
 		}
-		if !l.enabledUnits[UnitName(spec.Name)] {
-			if err := l.systemd.EnableUnit(ctx, UnitName(spec.Name)); err != nil {
-				return err
-			}
-			l.enabledUnits[UnitName(spec.Name)] = true
-		}
-		if err := os.MkdirAll(spec.DataVolume, 0o750); err != nil {
+		if err := ensureDirectoryWithin(l.dataRoot, spec.DataVolume, 0o750); err != nil {
 			return err
 		}
 		if err := l.users.OwnDirectory(ctx, spec.User, spec.DataVolume); err != nil {
@@ -154,45 +296,126 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpe
 		if err := l.writeUnitLocked(ctx, spec); err != nil {
 			return err
 		}
+		if err := os.Remove(filepath.Join(l.unitDir, UnitName(spec.Name)+".retiring")); err == nil {
+			if err := syncDir(l.unitDir); err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		// systemctl enable resolves the unit name, so the unit must already be
+		// durably committed and daemon-reloaded before it is enabled.
+		if !l.enabledUnits[UnitName(spec.Name)] {
+			if err := l.systemd.EnableUnit(ctx, UnitName(spec.Name)); err != nil {
+				return err
+			}
+			l.enabledUnits[UnitName(spec.Name)] = true
+		}
 		if l.state == NodeStateServing {
 			active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name))
-			if err == nil && !active {
-				return l.systemd.StartUnit(ctx, UnitName(spec.Name))
+			if err != nil {
+				return err
 			}
-			return nil
+			if !active {
+				return l.installer.withVerifiedCurrentTransition(ctx, spec, func(string) error {
+					return l.systemd.StartUnit(ctx, UnitName(spec.Name))
+				})
+			}
 		}
 	}
 	return nil
+}
+
+// retirementRecorded proves stop and disable completed before the owned unit
+// was renamed. This also lets drain recovery handle a unit systemd forgot.
+func (l *Lifecycle) retirementRecorded(component string) (bool, error) {
+	unitPath := filepath.Join(l.unitDir, UnitName(component))
+	markerPath := unitPath + ".retiring"
+	_, unitErr := os.Lstat(unitPath)
+	if unitErr != nil && !os.IsNotExist(unitErr) {
+		return false, unitErr
+	}
+	retirementRecorded := false
+	if os.IsNotExist(unitErr) {
+		_, info, markerErr := readRegularFileBoundedInfo(markerPath, hostAgentMaximumUnitBytes)
+		if markerErr == nil {
+			if err := requireOwnedRegular(info, false, "retirement marker"); err != nil {
+				return false, err
+			}
+			retirementRecorded = true
+		} else if !os.IsNotExist(markerErr) {
+			return false, markerErr
+		}
+	}
+	return retirementRecorded, nil
 }
 
 // retireComponentLocked removes one component that left the manifest: stop
 // and disable the unit, delete the unit file and the installed versions.
 // The data volume is deliberately kept — deleting a database's files is a
 // human decision (D-70 crypto-shred), never a reconcile side effect.
-func (l *Lifecycle) retireComponentLocked(ctx context.Context, spec ComponentSpec) error {
-	if spec.Name == TsNodeComponentName {
+func (l *Lifecycle) retireComponentLocked(ctx context.Context, component string) error {
+	if component == TsNodeComponentName {
 		return &InvalidOperationError{Message: "ts-node cannot retire itself."}
 	}
-	unit := UnitName(spec.Name)
-	var failures []error
-	if err := l.systemd.StopUnit(ctx, unit); err != nil {
-		failures = append(failures, fmt.Errorf("stop %s: %w", unit, err))
+	unit := UnitName(component)
+	unitPath := filepath.Join(l.unitDir, unit)
+	markerPath := unitPath + ".retiring"
+	retirementRecorded, err := l.retirementRecorded(component)
+	if err != nil {
+		return err
 	}
-	if l.enabledUnits[unit] {
-		if err := l.systemd.DisableUnit(ctx, unit); err != nil {
-			failures = append(failures, fmt.Errorf("disable %s: %w", unit, err))
-		} else {
-			delete(l.enabledUnits, unit)
+	if !retirementRecorded {
+		if err := l.systemd.StopUnit(ctx, unit); err != nil {
+			// A failed stop means the immutable version may still be serving. Do
+			// not remove its unit or executable and let the next reconcile retry.
+			return fmt.Errorf("stop %s: %w", unit, err)
 		}
 	}
-	if err := os.Remove(filepath.Join(l.unitDir, unit)); err != nil && !os.IsNotExist(err) {
-		failures = append(failures, err)
+	componentDir := strings.TrimSuffix(InstallDir(l.installRoot, component), "/")
+	componentInfo, err := os.Lstat(componentDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
+		if err := requireOwnedDirectory(componentInfo, "retired component install directory"); err != nil {
+			return err
+		}
+		if err := requireSameMount(l.installRoot, componentDir); err != nil {
+			return err
+		}
+		lock, err := lockInstallDirectory(ctx, componentDir)
+		if err != nil {
+			return err
+		}
+		defer unlockInstallDirectory(lock)
+	}
+	if !retirementRecorded {
+		if err := l.systemd.DisableUnit(ctx, unit); err != nil {
+			return fmt.Errorf("disable %s: %w", unit, err)
+		}
+	}
+	delete(l.enabledUnits, unit)
+	// Preserve the owned unit as a durable retirement marker until its
+	// executable removal is synced. A restart can resume even after systemd
+	// has forgotten the unit or the component directory has been removed.
+	if err := os.Rename(unitPath, markerPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := syncDir(l.unitDir); err != nil {
+		return err
 	}
 	if err := l.systemd.DaemonReload(ctx); err != nil {
-		failures = append(failures, err)
+		return err
 	}
-	if err := os.RemoveAll(strings.TrimSuffix(InstallDir(l.installRoot, spec.Name), "/")); err != nil {
-		failures = append(failures, err)
+	if err := os.RemoveAll(componentDir); err != nil {
+		return err
 	}
-	return errors.Join(failures...)
+	if err := syncDir(l.installRoot); err != nil {
+		return err
+	}
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return syncDir(l.unitDir)
 }

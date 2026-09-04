@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -21,6 +22,10 @@ type fakeMachine struct {
 	start, shutdown, stop, wait, version, inspect int
 	shutdownBlock                                 <-chan struct{}
 	waitBlock                                     <-chan struct{}
+	startErr, waitErr, exitConfirmedErr           error
+	inspectErr                                    error
+	omitInspectionVersion                         bool
+	shutdownLeavesAlive, stopLeavesAlive          bool
 	versionValue                                  string
 	pid                                           int
 	processStartTime                              uint64
@@ -38,8 +43,9 @@ func (m *fakeMachine) Start(context.Context) error {
 	m.state = StateRunning
 	m.processAlive = true
 	m.socketReady = true
+	err := m.startErr
 	m.mu.Unlock()
-	return nil
+	return err
 }
 func (m *fakeMachine) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
@@ -54,20 +60,24 @@ func (m *fakeMachine) Shutdown(ctx context.Context) error {
 		}
 	}
 	m.mu.Lock()
-	m.dead = true
-	m.state = StateStopped
-	m.processAlive = false
-	m.socketReady = false
+	if !m.shutdownLeavesAlive {
+		m.dead = true
+		m.state = StateStopped
+		m.processAlive = false
+		m.socketReady = false
+	}
 	m.mu.Unlock()
 	return nil
 }
 func (m *fakeMachine) StopVMM() error {
 	m.mu.Lock()
 	m.stop++
-	m.dead = true
-	m.state = StateStopped
-	m.processAlive = false
-	m.socketReady = false
+	if !m.stopLeavesAlive {
+		m.dead = true
+		m.state = StateStopped
+		m.processAlive = false
+		m.socketReady = false
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -83,7 +93,15 @@ func (m *fakeMachine) Wait(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	return nil
+	m.mu.Lock()
+	err := m.waitErr
+	m.mu.Unlock()
+	return err
+}
+func (m *fakeMachine) ExitConfirmed() (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.processAlive, m.exitConfirmedErr
 }
 func (m *fakeMachine) Version(context.Context) (string, error) {
 	m.mu.Lock()
@@ -109,7 +127,7 @@ func (m *fakeMachine) Inspect(context.Context) (Inspection, error) {
 		state = StateRunning
 	}
 	version, executable := m.versionValue, m.executable
-	if version == "" {
+	if version == "" && !m.omitInspectionVersion {
 		version = "1.0"
 	}
 	alive, socket := m.processAlive, m.socketReady
@@ -118,7 +136,7 @@ func (m *fakeMachine) Inspect(context.Context) (Inspection, error) {
 	} else if !alive && !socket && state == StateRunning {
 		alive, socket = true, true
 	}
-	return Inspection{State: state, PID: pid, ProcessStartTime: start, Executable: executable, ProcessAlive: alive, SocketReady: socket, Version: version}, nil
+	return Inspection{State: state, PID: pid, ProcessStartTime: start, Executable: executable, ExecutableValid: true, CgroupValid: true, ProcessAlive: alive, SocketReady: socket, Version: version}, m.inspectErr
 }
 
 type fakeAPI struct {
@@ -155,6 +173,33 @@ type fakeRunner struct {
 	commands []Command
 }
 
+type fakeDataDriveFaultAdapter struct {
+	attachment *fakeDataDriveFaultAttachment
+	err        error
+	request    DataDriveFaultRequest
+}
+
+func (a *fakeDataDriveFaultAdapter) Prepare(_ context.Context, request DataDriveFaultRequest) (DataDriveFaultAttachment, error) {
+	a.request = request
+	return a.attachment, a.err
+}
+
+type fakeDataDriveFaultAttachment struct {
+	path      string
+	cleaned   bool
+	activated bool
+}
+
+func (a *fakeDataDriveFaultAttachment) Path() string { return a.path }
+func (a *fakeDataDriveFaultAttachment) Cleanup(context.Context) error {
+	a.cleaned = true
+	return nil
+}
+func (a *fakeDataDriveFaultAttachment) Activate(context.Context) error {
+	a.activated = true
+	return nil
+}
+
 func (r *fakeRunner) Run(_ context.Context, c Command) error {
 	r.mu.Lock()
 	r.commands = append(r.commands, c)
@@ -173,15 +218,29 @@ func testConfig(t *testing.T) Config {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })
 	paths := map[string][]byte{"kernel": []byte("kernel"), "root": []byte("root"), "data": []byte("data"), "firecracker": []byte("firecracker"), "jailer": []byte("jailer")}
+	uid, gid := os.Getuid(), os.Getgid()
+	if uid == 0 || gid == 0 {
+		uid, gid = 1000, 1000
+	}
 	files := make(map[string]string)
 	for name, content := range paths {
 		path := filepath.Join(root, name)
-		if err := os.WriteFile(path, content, 0700); err != nil {
+		mode := os.FileMode(0700)
+		if name == "kernel" {
+			mode = 0644
+		} else if name == "root" || name == "data" {
+			mode = 0600
+		}
+		if err := os.WriteFile(path, content, mode); err != nil {
 			t.Fatal(err)
+		}
+		if (name == "root" || name == "data") && (os.Getuid() != uid || os.Getgid() != gid) {
+			if err := os.Chown(path, uid, gid); err != nil {
+				t.Fatal(err)
+			}
 		}
 		files[name] = path
 	}
-	uid, gid := 1000, 1000
 	return Config{ID: "gru-member-1", Region: "GRU", VCPU: 1, MemoryMiB: 256, KernelImage: files["kernel"], RootDrive: files["root"], DataDrive: files["data"], StateRoot: stateRoot, JailerUID: &uid, JailerGID: &gid, FirecrackerBinary: files["firecracker"], JailerBinary: files["jailer"], ExpectedVersion: "1.0", ExpectedKernelSHA256: digest(paths["kernel"]), ExpectedRootDriveSHA256: digest(paths["root"]), ExpectedDataDriveSHA256: digest(paths["data"]), ExpectedFirecrackerSHA256: digest(paths["firecracker"]), ExpectedJailerSHA256: digest(paths["jailer"]), ReadinessTimeout: 300 * time.Millisecond, StopTimeout: time.Second}
 }
 
@@ -189,7 +248,7 @@ func testProvider(t *testing.T, machine *fakeMachine, probe *fakeProbe, runner C
 	t.Helper()
 	p, err := New(Options{MachineFactory: func(_ context.Context, cfg Config) (Machine, error) {
 		machine.mu.Lock()
-		machine.executable = cfg.FirecrackerBinary
+		machine.executable = filepath.Join(cfg.JailerChrootBaseDir, filepath.Base(cfg.FirecrackerBinary), cfg.ID, "root", filepath.Base(cfg.FirecrackerBinary))
 		machine.mu.Unlock()
 		return machine, nil
 	}, OpenAPIFactory: func(Config) (OpenAPI, error) { return &fakeAPI{}, nil }, Probe: probe, CommandRunner: runner})
@@ -245,12 +304,31 @@ func TestLifecycleReadinessExecuteRebootAndDelete(t *testing.T) {
 
 func TestStopThenStartBuildsFreshRuntimeAndPreservesDiagnostics(t *testing.T) {
 	cfg := testConfig(t)
-	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
 	probe := &fakeProbe{result: Readiness{Systemd: true, DataDiskMounted: true, Network: true, TSNodeHealthy: true, ServiceHealthy: true}}
-	p := testProvider(t, machine, probe, nil)
+	var machines []*fakeMachine
+	p, err := New(Options{
+		MachineFactory: func(_ context.Context, machineConfig Config) (Machine, error) {
+			machine := &fakeMachine{
+				versionValue:     machineConfig.ExpectedVersion,
+				pid:              42 + len(machines),
+				processStartTime: uint64(100 + len(machines)),
+				executable:       filepath.Join(machineConfig.JailerChrootBaseDir, filepath.Base(machineConfig.FirecrackerBinary), machineConfig.ID, "root", filepath.Base(machineConfig.FirecrackerBinary)),
+			}
+			machines = append(machines, machine)
+			return machine, nil
+		},
+		OpenAPIFactory: func(Config) (OpenAPI, error) { return &fakeAPI{}, nil },
+		Probe:          probe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	created, err := p.Create(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if created.Paths.Cgroup != filepath.Join(created.Config.CgroupRoot, cgroupParentName, cfg.ID) || created.Paths.JailerCgroup != filepath.Join(created.Config.CgroupRoot, filepath.Base(cfg.FirecrackerBinary), cfg.ID) {
+		t.Fatalf("owned cgroup paths = %q / %q", created.Paths.Cgroup, created.Paths.JailerCgroup)
 	}
 	if err := os.WriteFile(created.Paths.Log, []byte("first boot\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -274,11 +352,215 @@ func TestStopThenStartBuildsFreshRuntimeAndPreservesDiagnostics(t *testing.T) {
 	if err != nil || string(data) != "first boot\n" {
 		t.Fatalf("diagnostic log after restart = %q, %v", data, err)
 	}
-	machine.mu.Lock()
-	starts := machine.start
-	machine.mu.Unlock()
-	if starts != 2 {
-		t.Fatalf("machine starts = %d, want 2", starts)
+	if len(machines) != 2 {
+		t.Fatalf("machine factory calls = %d, want 2", len(machines))
+	}
+	for index, machine := range machines {
+		machine.mu.Lock()
+		starts := machine.start
+		machine.mu.Unlock()
+		if starts != 1 {
+			t.Fatalf("machine %d starts = %d, want 1", index, starts)
+		}
+	}
+}
+
+func TestApplyDataDrivePlanRebuildsStoppedMachine(t *testing.T) {
+	cfg := testConfig(t)
+	writeDrive := func(name, contents string) string {
+		path := filepath.Join(filepath.Dir(cfg.DataDrive), name)
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if os.Getuid() != *cfg.JailerUID || os.Getgid() != *cfg.JailerGID {
+			if err := os.Chown(path, *cfg.JailerUID, *cfg.JailerGID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return path
+	}
+	replacement := writeDrive("replacement-data", "replacement")
+	faultPath := writeDrive("fault-data", "fault-adapter")
+	attachment := &fakeDataDriveFaultAttachment{path: faultPath}
+	adapter := &fakeDataDriveFaultAdapter{attachment: attachment}
+	var configs []Config
+	p, err := New(Options{
+		MachineFactory: func(_ context.Context, machineConfig Config) (Machine, error) {
+			configs = append(configs, machineConfig)
+			return &fakeMachine{
+				pid:              42 + len(configs),
+				processStartTime: uint64(100 + len(configs)),
+				versionValue:     machineConfig.ExpectedVersion,
+				executable:       filepath.Join(machineConfig.JailerChrootBaseDir, filepath.Base(machineConfig.FirecrackerBinary), machineConfig.ID, "root", filepath.Base(machineConfig.FirecrackerBinary)),
+			}, nil
+		},
+		OpenAPIFactory: func(Config) (OpenAPI, error) { return &fakeAPI{}, nil },
+		Probe:          &fakeProbe{},
+		DataDriveFault: adapter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, DataDrivePlan{DriveID: cfg.ID, Generation: 1, Attached: false}); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("running ApplyDataDrivePlan() error = %v", err)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan := DataDrivePlan{DriveID: cfg.ID, Generation: 1, Attached: true, Path: replacement, Size: int64(len("replacement")), SHA256: digest([]byte("replacement")), ReadOnly: true}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err == nil || !strings.Contains(err.Error(), "generation") {
+		t.Fatalf("replayed generation error = %v", err)
+	}
+	zeroGeneration := plan
+	zeroGeneration.Generation = 0
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, zeroGeneration); err == nil || !strings.Contains(err.Error(), "generation") {
+		t.Fatalf("zero generation error = %v", err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 2 || configs[1].DataDrive != replacement || !configs[1].DataDriveReadOnly {
+		t.Fatalf("replacement start config = %+v", configs)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan.Generation = 2
+	plan.ReadOnly = false
+	plan.IOFailure = true
+	p.resolveDataFault = func(path string, uid, gid int) (blockDeviceIdentity, error) {
+		if path != faultPath || uid != *cfg.JailerUID || gid != *cfg.JailerGID {
+			t.Fatalf("fault resolver = %q %d:%d", path, uid, gid)
+		}
+		return blockDeviceIdentity{Path: path, Device: 11, Inode: 12, Rdev: 13}, nil
+	}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err != nil {
+		t.Fatal(err)
+	}
+	if adapter.request.Generation != plan.Generation || adapter.request.VMID != cfg.ID || adapter.request.SourcePath != replacement {
+		t.Fatalf("fault adapter request = %+v", adapter.request)
+	}
+	i, err := p.get(cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.mu.Lock()
+	gotFaultPath := i.cfg.DataDrive
+	i.mu.Unlock()
+	if gotFaultPath != faultPath {
+		t.Fatalf("fault adapter path = %q", gotFaultPath)
+	}
+	if err := p.ActivateDataDriveFault(context.Background(), cfg.ID, plan.Generation); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("stopped ActivateDataDriveFault() error = %v", err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ActivateDataDriveFault(context.Background(), cfg.ID, plan.Generation-1); err == nil || !strings.Contains(err.Error(), "generation") {
+		t.Fatalf("stale activation error = %v", err)
+	}
+	if err := p.ActivateDataDriveFault(context.Background(), cfg.ID, plan.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if !attachment.activated {
+		t.Fatal("fault attachment was not activated")
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan.Generation = 3
+	plan.IOFailure = false
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err != nil {
+		t.Fatal(err)
+	}
+	if !attachment.cleaned {
+		t.Fatal("previous fault adapter was not cleaned")
+	}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, DataDrivePlan{DriveID: cfg.ID, Generation: 4, Attached: false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 4 || configs[3].DataDrive != "" {
+		t.Fatalf("detached start config = %+v", configs)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	p.dataFault = nil
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, DataDrivePlan{DriveID: cfg.ID, Generation: 5, Attached: true, Path: replacement, Size: int64(len("replacement")), SHA256: digest([]byte("replacement")), IOFailure: true}); err == nil || !strings.Contains(err.Error(), "requires a real runtime fault adapter") {
+		t.Fatalf("unsupported I/O failure error = %v", err)
+	}
+}
+
+func TestDataDriveFaultPreparationRollsBackAndDeleteCleansAttachment(t *testing.T) {
+	cfg := testConfig(t)
+	faultPath := filepath.Join(filepath.Dir(cfg.DataDrive), "fault-device")
+	failedAttachment := &fakeDataDriveFaultAttachment{path: faultPath}
+	adapter := &fakeDataDriveFaultAdapter{attachment: failedAttachment, err: errors.New("prepare failed")}
+	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
+	p, err := New(Options{
+		MachineFactory: func(_ context.Context, machineConfig Config) (Machine, error) {
+			machine.executable = filepath.Join(machineConfig.JailerChrootBaseDir, filepath.Base(machineConfig.FirecrackerBinary), machineConfig.ID, "root", filepath.Base(machineConfig.FirecrackerBinary))
+			return machine, nil
+		},
+		OpenAPIFactory: func(Config) (OpenAPI, error) { return &fakeAPI{}, nil },
+		Probe:          &fakeProbe{},
+		DataDriveFault: adapter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	plan := DataDrivePlan{DriveID: cfg.ID, Generation: 1, Attached: true, Path: cfg.DataDrive, Size: int64(len("data")), SHA256: cfg.ExpectedDataDriveSHA256, IOFailure: true}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err == nil || !strings.Contains(err.Error(), "prepare failed") {
+		t.Fatalf("failed Prepare() error = %v", err)
+	}
+	if !failedAttachment.cleaned {
+		t.Fatal("partially prepared attachment was not cleaned")
+	}
+	i, err := p.get(cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.mu.Lock()
+	generation, dataPath := i.dataGeneration, i.cfg.DataDrive
+	i.mu.Unlock()
+	if generation != 0 || dataPath != cfg.DataDrive {
+		t.Fatalf("failed preparation changed config: generation=%d path=%q", generation, dataPath)
+	}
+
+	activeAttachment := &fakeDataDriveFaultAttachment{path: faultPath}
+	adapter.attachment, adapter.err = activeAttachment, nil
+	p.resolveDataFault = func(path string, _, _ int) (blockDeviceIdentity, error) {
+		return blockDeviceIdentity{Path: path, Device: 21, Inode: 22, Rdev: 23}, nil
+	}
+	if err := p.ApplyDataDrivePlan(context.Background(), cfg.ID, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Delete(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !activeAttachment.cleaned {
+		t.Fatal("Delete did not clean the active fault attachment")
 	}
 }
 
@@ -300,6 +582,45 @@ func TestReadinessCancellationStopsVM(t *testing.T) {
 	machine.mu.Unlock()
 	if !stopped {
 		t.Fatal("cancellation did not stop VM")
+	}
+}
+
+func TestReadinessFailureReturnsUnconfirmedStopError(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.ReadinessTimeout = 20 * time.Millisecond
+	cfg.StopTimeout = 10 * time.Millisecond
+	machine := &fakeMachine{shutdownLeavesAlive: true, stopLeavesAlive: true, waitErr: errors.New("early SDK wait")}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	err := p.StartAndWaitReady(context.Background(), cfg.ID)
+	if err == nil || !strings.Contains(err.Error(), "not ready") || !strings.Contains(err.Error(), "exit was not confirmed") {
+		t.Fatalf("StartAndWaitReady() error = %v", err)
+	}
+}
+
+func TestCanceledStopStillForcesAndConfirmsExit(t *testing.T) {
+	cfg := testConfig(t)
+	never := make(chan struct{})
+	machine := &fakeMachine{shutdownBlock: never}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.Stop(ctx, cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	forced := machine.stop
+	machine.mu.Unlock()
+	if forced != 1 {
+		t.Fatalf("forced stops = %d, want 1", forced)
 	}
 }
 
@@ -354,13 +675,14 @@ func TestStartRevalidatesAnAlreadyRunningMachine(t *testing.T) {
 
 func TestInspectRejectsDeadOrChangedProcessIdentity(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		mutate func(*fakeMachine)
+		name      string
+		mutate    func(*fakeMachine)
+		wantState State
 	}{
-		{name: "dead process", mutate: func(machine *fakeMachine) { machine.dead = true }},
-		{name: "changed PID", mutate: func(machine *fakeMachine) { machine.pid++ }},
-		{name: "changed start time", mutate: func(machine *fakeMachine) { machine.processStartTime++ }},
-		{name: "changed executable", mutate: func(machine *fakeMachine) { machine.executable = "/bin/sh" }},
+		{name: "dead process", mutate: func(machine *fakeMachine) { machine.dead = true }, wantState: StateStopped},
+		{name: "changed PID", mutate: func(machine *fakeMachine) { machine.pid++ }, wantState: StateRunning},
+		{name: "changed start time", mutate: func(machine *fakeMachine) { machine.processStartTime++ }, wantState: StateRunning},
+		{name: "changed executable", mutate: func(machine *fakeMachine) { machine.executable = "/bin/sh" }, wantState: StateRunning},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig(t)
@@ -380,10 +702,41 @@ func TestInspectRejectsDeadOrChangedProcessIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if info.State != StateStopped || info.Ready {
+			if info.State != tc.wantState || info.Ready {
 				t.Fatalf("inspection trusted stale lifecycle state: %+v", info)
 			}
 		})
+	}
+}
+
+func TestInspectLostSocketKeepsLiveMachineStoppable(t *testing.T) {
+	cfg := testConfig(t)
+	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	machine.socketReady = false
+	machine.mu.Unlock()
+	info, err := p.Inspect(context.Background(), cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State != StateRunning || info.Ready {
+		t.Fatalf("lost-socket inspection = %+v", info)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	shutdown, wait := machine.shutdown, machine.wait
+	machine.mu.Unlock()
+	if shutdown != 1 || wait == 0 {
+		t.Fatalf("stop calls after lost socket = shutdown %d, wait %d", shutdown, wait)
 	}
 }
 
@@ -418,11 +771,49 @@ func TestConcurrentStopIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDeleteBlocksConcurrentStartUntilStateRemoval(t *testing.T) {
+	cfg := testConfig(t)
+	release := make(chan struct{})
+	machine := &fakeMachine{}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	machine.mu.Lock()
+	machine.shutdownBlock = release
+	machine.mu.Unlock()
+	deleted := make(chan error, 1)
+	go func() { deleted <- p.Delete(context.Background(), cfg.ID) }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		machine.mu.Lock()
+		shutdown := machine.shutdown
+		machine.mu.Unlock()
+		if shutdown > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Delete did not enter Stop")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := p.Start(context.Background(), cfg.ID); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("concurrent Start() error = %v", err)
+	}
+	close(release)
+	if err := <-deleted; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStopTimeoutRemainsRetryableAndBlocksDelete(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StopTimeout = 10 * time.Millisecond
 	never := make(chan struct{})
-	machine := &fakeMachine{waitBlock: never}
+	machine := &fakeMachine{waitBlock: never, shutdownLeavesAlive: true, stopLeavesAlive: true}
 	p := testProvider(t, machine, &fakeProbe{}, nil)
 	created, err := p.Create(context.Background(), cfg)
 	if err != nil {
@@ -439,6 +830,50 @@ func TestStopTimeoutRemainsRetryableAndBlocksDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(created.Paths.StateDir); err != nil {
 		t.Fatalf("indeterminate process state was deleted: %v", err)
+	}
+}
+
+func TestStartFailurePreservesLiveRuntimeUntilExitConfirmed(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.StopTimeout = 10 * time.Millisecond
+	machine := &fakeMachine{
+		startErr:              errors.New("SDK socket startup failed"),
+		waitErr:               errors.New("SDK exit channel closed early"),
+		inspectErr:            errors.New("API unavailable"),
+		omitInspectionVersion: true,
+		shutdownLeavesAlive:   true,
+		stopLeavesAlive:       true,
+	}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	created, err := p.Create(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "exit was not confirmed") {
+		t.Fatalf("Start() error = %v", err)
+	}
+	record, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != StateRunning || record.PID == 0 || record.ProcessStartTime == 0 || record.Firecracker != "" {
+		t.Fatalf("live startup-failure record = %+v", record)
+	}
+	if err := p.Delete(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "exit was not confirmed") {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := os.Stat(created.Paths.StateDir); err != nil {
+		t.Fatalf("live startup-failure state was removed: %v", err)
+	}
+	machine.mu.Lock()
+	machine.processAlive = false
+	machine.dead = true
+	machine.mu.Unlock()
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Delete(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -565,6 +1000,50 @@ func TestNormalizeConfigRejectsMismatchedAndOverlongJailPaths(t *testing.T) {
 	}
 }
 
+func TestCreateRequiresPrivateJailerDriveOwnership(t *testing.T) {
+	cfg := testConfig(t)
+	if err := os.Chmod(cfg.RootDrive, 0640); err != nil {
+		t.Fatal(err)
+	}
+	p := testProvider(t, &fakeMachine{}, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "want 0600") {
+		t.Fatalf("Create() mode error = %v", err)
+	}
+	if _, err := validatePrivateJailerFile(cfg.DataDrive, *cfg.JailerUID+1, *cfg.JailerGID); err == nil || !strings.Contains(err.Error(), "file owner") {
+		t.Fatalf("validatePrivateJailerFile() owner error = %v", err)
+	}
+}
+
+func TestRestartRejectsReplacedDriveInode(t *testing.T) {
+	cfg := testConfig(t)
+	machine := &fakeMachine{}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	if _, err := p.Create(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(filepath.Dir(cfg.RootDrive), "replacement-root")
+	if err := os.WriteFile(replacement, []byte("replacement"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getuid() != *cfg.JailerUID || os.Getgid() != *cfg.JailerGID {
+		if err := os.Chown(replacement, *cfg.JailerUID, *cfg.JailerGID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(replacement, cfg.RootDrive); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err == nil || !strings.Contains(err.Error(), "inode changed") {
+		t.Fatalf("restart with replaced root drive error = %v", err)
+	}
+}
+
 func TestRuntimeRecordRoundTrip(t *testing.T) {
 	cfg := testConfig(t)
 	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
@@ -582,6 +1061,91 @@ func TestRuntimeRecordRoundTrip(t *testing.T) {
 	}
 	if record.PID != 42 || record.ProcessStartTime != 100 || record.Firecracker != cfg.ExpectedVersion || record.SocketPath != created.Paths.Socket || record.LogPath != created.Paths.Log || record.MetricsPath != created.Paths.Metrics || record.State != StateRunning {
 		t.Fatalf("runtime record = %+v", record)
+	}
+	if record.StoppedAt != nil {
+		t.Fatalf("running runtime record has stopped timestamp %v", record.StoppedAt)
+	}
+	if err := p.Stop(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	record, err = ReadRuntimeRecord(created.Paths.StateDir, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != StateStopped || record.StoppedAt == nil || !record.StoppedAt.Equal(record.ObservedAt) {
+		t.Fatalf("stopped runtime record = %+v", record)
+	}
+	predatingStop := record.ObservedAt.Add(-time.Second)
+	record.StoppedAt = &predatingStop
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(created.Paths.RuntimeState, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID); err == nil || !strings.Contains(err.Error(), "stop timestamp predates") {
+		t.Fatalf("ReadRuntimeRecord() error = %v", err)
+	}
+}
+
+func TestRuntimeRecordRejectsTimestampBeforeOwnership(t *testing.T) {
+	cfg := testConfig(t)
+	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	created, err := p.Create(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	record, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ObservedAt = time.Unix(1, 0).UTC()
+	if err := writeRuntimeRecord(created.Paths.RuntimeState, record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID); err == nil || !strings.Contains(err.Error(), "predates its ownership marker") {
+		t.Fatalf("ReadRuntimeRecord() error = %v", err)
+	}
+}
+
+func TestRuntimeRecordRejectsNonCanonicalOwnedPath(t *testing.T) {
+	cfg := testConfig(t)
+	machine := &fakeMachine{versionValue: cfg.ExpectedVersion, pid: 42, processStartTime: 100}
+	p := testProvider(t, machine, &fakeProbe{}, nil)
+	created, err := p.Create(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background(), cfg.ID); err != nil {
+		t.Fatal(err)
+	}
+	record, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.SocketPath = filepath.Join(created.Paths.StateDir, "other.sock")
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(created.Paths.RuntimeState, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRuntimeRecord(created.Paths.StateDir, cfg.ID); err == nil {
+		t.Fatal("runtime record with a non-canonical owned path was accepted")
+	}
+}
+
+func TestProcessMeasurementMarksARealZeroSample(t *testing.T) {
+	now := time.Now()
+	idleCPU, sampled := cpuCoreUsage(42, 42, now, now.Add(time.Second))
+	if idleCPU != 0 || !sampled {
+		t.Fatalf("process sample = idle CPU %f, sampled %t", idleCPU, sampled)
 	}
 }
 
@@ -604,7 +1168,7 @@ func TestRuntimeRecordVerifiesPIDStartIdentityAndSocket(t *testing.T) {
 		t.Fatalf("VerifyRunningProcess() wrong executable error = %v", err)
 	}
 	record.ProcessStartTime++
-	if err := record.VerifyRunningProcess(); err == nil || !strings.Contains(err.Error(), "identity") {
+	if err := record.VerifyRunningProcess(observation.Executable); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("VerifyRunningProcess() altered start error = %v", err)
 	}
 }

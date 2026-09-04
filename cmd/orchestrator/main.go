@@ -79,8 +79,15 @@ var (
 	runEmbeddedNatsServer   = func(ctx context.Context, configuration bootstrap.NatsServerConfig) error {
 		return bootstrap.RunNatsServer(ctx, configuration)
 	}
-	renderCatalog = writeCatalog
-	verifyEstate  = verifyConfiguredOCIEstate
+	renderCatalog          = writeCatalog
+	verifyEstate           = verifyConfiguredOCIEstate
+	startProductionRuntime = func(ctx context.Context, options *control.OrchestratorOptions) (*productionRuntime, error) {
+		config, err := composeProductionRuntimeConfig(ctx, options)
+		if err != nil {
+			return nil, err
+		}
+		return newProductionRuntime(config)
+	}
 )
 
 // NatsProvision is a variable-friendly spelling for the package singleton's
@@ -308,10 +315,11 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 	}
 
 	var global component
+	var production *productionRuntime
 	closed := false
 	defer func() {
 		if !closed {
-			result = combineErrors(result, closeReverse(global, regional))
+			result = combineErrors(result, closeRuntime(production, global, regional))
 		}
 	}()
 
@@ -336,10 +344,32 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 			return errors.New("global directory runtime starter returned nil")
 		}
 	}
+	// The local role is deliberately limited to the embedded control runtime;
+	// production cells must admit the complete estate, rotation, reaper, and
+	// restore composition before they can serve as an automation authority.
+	if options.Cell != "local" {
+		production, err = startProductionRuntime(ctx, options)
+		if err != nil {
+			return fmt.Errorf("production runtime composition: %w", err)
+		}
+		if production == nil {
+			return errors.New("production runtime composition returned nil")
+		}
+		if err := production.Start(ctx); err != nil {
+			return err
+		}
+	}
 
-	result = waitForComponents(ctx, regional, global)
+	components := []component{}
+	if production != nil {
+		components = append(components, production)
+	}
+	if global != nil {
+		components = append(components, global)
+	}
+	result = waitForComponents(ctx, regional, components...)
 	closed = true
-	return combineErrors(result, closeReverse(global, regional))
+	return combineErrors(result, closeRuntime(production, global, regional))
 }
 
 func checkCommand(ctx context.Context, options *control.OrchestratorOptions) (result error) {
@@ -541,6 +571,20 @@ func closeReverse(global, regional component) error {
 	var result error
 	if global != nil {
 		result = global.Close()
+	}
+	if regional != nil {
+		result = combineErrors(result, regional.Close())
+	}
+	return result
+}
+
+func closeRuntime(production component, global, regional component) error {
+	var result error
+	if production != nil {
+		result = production.Close()
+	}
+	if global != nil {
+		result = combineErrors(result, global.Close())
 	}
 	if regional != nil {
 		result = combineErrors(result, regional.Close())

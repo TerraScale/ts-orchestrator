@@ -21,12 +21,31 @@ const (
 	MaxPersistentStorageFiles = 128
 	directoryOpenFlags        = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
 	storageIOChunk            = 64 << 10
-	maxStorageDirectoryDepth  = 3
+	// A four-part admitted file path has at most three parent directories.
+	// Deeper directories cannot contain a temporary created by this helper.
+	maxStorageDirectoryDepth = 3
 )
 
 var storageWriteGate = make(chan struct{}, 1)
 
 var errStorageDirectoryMissing = errors.New("vmguest: storage directory does not exist")
+
+type storageCauseError struct {
+	message string
+	cause   error
+}
+
+func (err storageCauseError) Error() string { return err.message }
+
+func (err storageCauseError) Unwrap() error { return err.cause }
+
+func storageFailure(message string, cause error) error {
+	if errors.Is(cause, unix.ENOSPC) || errors.Is(cause, unix.EIO) || errors.Is(cause, unix.EROFS) ||
+		errors.Is(cause, unix.ENODEV) || errors.Is(cause, unix.ENOENT) {
+		return storageCauseError{message: message, cause: cause}
+	}
+	return errors.New(message)
+}
 
 type storageQuota struct {
 	maxBytes int64
@@ -178,9 +197,9 @@ func scanStorageUsage(ctx context.Context, directoryFD int, rootStat unix.Stat_t
 	if err := ctx.Err(); err != nil {
 		return storageUsage{}, err
 	}
-	duplicate, err := unix.FcntlInt(uintptr(directoryFD), unix.F_DUPFD_CLOEXEC, 0)
+	duplicate, err := unix.Openat(directoryFD, ".", directoryOpenFlags, 0)
 	if err != nil {
-		return storageUsage{}, errors.New("vmguest: duplicate storage directory for quota")
+		return storageUsage{}, errors.New("vmguest: reopen storage directory for quota")
 	}
 	directory := os.NewFile(uintptr(duplicate), "vmguest-storage-quota-directory")
 	if directory == nil {
@@ -203,6 +222,13 @@ func scanStorageUsage(ctx context.Context, directoryFD int, rootStat unix.Stat_t
 				continue
 			} else if err != nil {
 				return storageUsage{}, errors.New("vmguest: inspect storage quota entry")
+			}
+			if depth == 0 && name == storageFillName {
+				mount, mountErr := pathMountID(directoryFD, name, unix.AT_SYMLINK_NOFOLLOW)
+				if !safeStorageFile(stat, rootStat, 0o600) || mountErr != nil || mount != rootMount {
+					return storageUsage{}, errors.New("vmguest: reserved storage fill file is unsafe")
+				}
+				continue
 			}
 			switch stat.Mode & unix.S_IFMT {
 			case unix.S_IFDIR:
@@ -343,7 +369,7 @@ func openStorageRoot(ctx context.Context, path string, create bool) (int, error)
 	}
 	current, err := unix.Open(string(filepath.Separator), directoryOpenFlags, 0)
 	if err != nil {
-		return -1, errors.New("vmguest: open filesystem root")
+		return -1, storageFailure("vmguest: open filesystem root", err)
 	}
 	parts := strings.Split(strings.TrimPrefix(path, string(filepath.Separator)), string(filepath.Separator))
 	for index, part := range parts {
@@ -360,11 +386,11 @@ func openStorageRoot(ctx context.Context, path string, create bool) (int, error)
 			}
 			if err := unix.Mkdirat(current, part, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
 				_ = unix.Close(current)
-				return -1, errors.New("vmguest: create storage directory")
+				return -1, storageFailure("vmguest: create storage directory", err)
 			}
 			if err := unix.Fsync(current); err != nil {
 				_ = unix.Close(current)
-				return -1, errors.New("vmguest: sync storage directory parent")
+				return -1, storageFailure("vmguest: sync storage directory parent", err)
 			}
 			if err := ctx.Err(); err != nil {
 				_ = unix.Close(current)
@@ -374,7 +400,7 @@ func openStorageRoot(ctx context.Context, path string, create bool) (int, error)
 		}
 		if openErr != nil {
 			_ = unix.Close(current)
-			return -1, errors.New("vmguest: open storage directory")
+			return -1, storageFailure("vmguest: open storage directory", openErr)
 		}
 		if err := validateTraversedDirectory(next, last); err != nil {
 			_ = unix.Close(next)
@@ -505,7 +531,13 @@ func safeReadableStorageFile(stat, root unix.Stat_t) bool {
 func validateOpenedStorageFile(fd int, root unix.Stat_t, rootMount uint64, mode os.FileMode) (unix.Stat_t, error) {
 	var stat unix.Stat_t
 	mount, mountErr := descriptorMountID(fd)
-	if err := unix.Fstat(fd, &stat); err != nil || !safeStorageFile(stat, root, mode) || mountErr != nil || mount != rootMount {
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return unix.Stat_t{}, storageFailure("vmguest: inspect opened storage file", err)
+	}
+	if mountErr != nil {
+		return unix.Stat_t{}, mountErr
+	}
+	if !safeStorageFile(stat, root, mode) || mount != rootMount {
 		return unix.Stat_t{}, errors.New("vmguest: opened storage file owner, mode, links, or mount is unsafe")
 	}
 	return stat, nil
@@ -536,7 +568,10 @@ func descriptorMountID(fd int) (uint64, error) {
 
 func pathMountID(directoryFD int, path string, flags int) (uint64, error) {
 	var stat unix.Statx_t
-	if err := unix.Statx(directoryFD, path, flags, unix.STATX_MNT_ID, &stat); err != nil || stat.Mask&unix.STATX_MNT_ID == 0 {
+	if err := unix.Statx(directoryFD, path, flags, unix.STATX_MNT_ID, &stat); err != nil {
+		return 0, storageFailure("vmguest: inspect storage mount", err)
+	}
+	if stat.Mask&unix.STATX_MNT_ID == 0 {
 		return 0, errors.New("vmguest: inspect storage mount")
 	}
 	return stat.Mnt_id, nil
@@ -667,9 +702,9 @@ func cleanupStorageDirectory(ctx context.Context, parentFD int, rootMount uint64
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	fd, err := unix.FcntlInt(uintptr(parentFD), unix.F_DUPFD_CLOEXEC, 0)
+	fd, err := unix.Openat(parentFD, ".", directoryOpenFlags, 0)
 	if err != nil {
-		return errors.New("vmguest: duplicate storage directory for cleanup")
+		return errors.New("vmguest: reopen storage directory for cleanup")
 	}
 	directory := os.NewFile(uintptr(fd), "vmguest-storage-directory")
 	if directory == nil {
