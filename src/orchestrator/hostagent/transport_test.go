@@ -176,14 +176,13 @@ func newTransportForTest(t *testing.T, connection NatsConnection, executor *Work
 	return transport
 }
 
-func defaultTransportForTest(t *testing.T) (*NatsTransport, *fakeNatsConnection, *fakeNativeAdapter, *fakeContainerAdapter) {
+func defaultTransportForTest(t *testing.T) (*NatsTransport, *fakeNatsConnection, *fakeNativeAdapter) {
 	t.Helper()
 	connection := newFakeNatsConnection()
 	systemd := &fakeNativeAdapter{observation: runningSystemdObservation()}
-	container := &fakeContainerAdapter{observation: runningPodmanObservation(t)}
-	executor := newExecutorForTest(t, systemd, container)
+	executor := newExecutorForTest(t, systemd)
 	transport := newTransportForTest(t, connection, executor, newFakeHeartbeatTicker(), defaultMetricsForTest(), false)
-	return transport, connection, systemd, container
+	return transport, connection, systemd
 }
 
 func defaultMetricsForTest() *fakeMetricsSource {
@@ -195,7 +194,7 @@ func defaultMetricsForTest() *fakeMetricsSource {
 }
 
 func TestNatsTransportSubscribesToEveryRequestSubject(t *testing.T) {
-	_, connection, _, _ := defaultTransportForTest(t)
+	_, connection, _ := defaultTransportForTest(t)
 
 	expected := []string{
 		"terrascale.node.v1.gru-node-1.converge",
@@ -224,8 +223,7 @@ func TestNatsTransportSubscribesToEveryRequestSubject(t *testing.T) {
 
 func TestNatsTransportRejectsStartAfterClose(t *testing.T) {
 	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()},
-		&fakeContainerAdapter{observation: runningPodmanObservation(t)})
+	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()})
 	ticker := newFakeHeartbeatTicker()
 	transport, err := NewNatsTransport(NatsTransportConfig{
 		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
@@ -248,8 +246,7 @@ func TestNatsTransportRejectsStartAfterClose(t *testing.T) {
 
 func TestNatsTransportRejectsAlreadyCancelledStartContext(t *testing.T) {
 	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()},
-		&fakeContainerAdapter{observation: runningPodmanObservation(t)})
+	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()})
 	ticker := newFakeHeartbeatTicker()
 	transport, err := NewNatsTransport(NatsTransportConfig{
 		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
@@ -315,7 +312,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 		},
 		{
 			leaf: "delete",
-			plan: executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1"),
+			plan: executorTestPlan(t, runtime.AdmittedRoleNats, runtime.RuntimeDriverNativeSystemd, "gru-nats-1"),
 			decoder: func(payload []byte) (string, bool, string) {
 				var receipt DeleteReceipt
 				if err := json.Unmarshal(payload, &receipt); err != nil {
@@ -327,7 +324,14 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.leaf, func(t *testing.T) {
-			_, connection, _, _ := defaultTransportForTest(t)
+			_, connection, systemd := defaultTransportForTest(t)
+			if test.leaf == "delete" {
+				systemd.observation = runtime.SystemdAllocationObservation{
+					UnitName: "terrascale-unit.service",
+					State:    runtime.SystemdAllocationStateAbsent,
+					Result:   "not-found",
+				}
+			}
 			command := executorTestCommand(t, test.plan, "cmd-"+test.leaf)
 			payload, err := json.Marshal(command)
 			if err != nil {
@@ -355,7 +359,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 }
 
 func TestNatsTransportWorkloadCommandWireRoundTrips(t *testing.T) {
-	plan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 	command := executorTestCommand(t, plan, "cmd-wire-1")
 
 	payload, err := json.Marshal(command)
@@ -384,7 +388,7 @@ func TestNatsTransportWorkloadCommandWireRoundTrips(t *testing.T) {
 }
 
 func TestNatsTransportCordonRejectsConvergeWhileObserving(t *testing.T) {
-	_, connection, systemd, _ := defaultTransportForTest(t)
+	_, connection, systemd := defaultTransportForTest(t)
 	cordonPayload, err := json.Marshal(mustCordonCommand(t, "cmd-cordon-1", true))
 	if err != nil {
 		t.Fatalf("cordon wire: %v", err)
@@ -428,10 +432,10 @@ func TestNatsTransportCordonRejectsConvergeWhileObserving(t *testing.T) {
 }
 
 func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
-	_, connection, systemd, container := defaultTransportForTest(t)
+	_, connection, systemd := defaultTransportForTest(t)
 	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
-	for _, plan := range []runtime.HostRuntimePlan{nativePlan, ociPlan} {
+	secondPlan := executorTestPlan(t, runtime.AdmittedRoleNats, runtime.RuntimeDriverNativeSystemd, "gru-nats-1")
+	for _, plan := range []runtime.HostRuntimePlan{nativePlan, secondPlan} {
 		payload, err := json.Marshal(executorTestCommand(t, plan, "cmd-"+plan.AllocationId.Value))
 		if err != nil {
 			t.Fatalf("command wire: %v", err)
@@ -458,7 +462,7 @@ func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
 	if len(report.Allocations) != 2 {
 		t.Fatalf("allocations = %+v", report.Allocations)
 	}
-	if report.Allocations[0].AllocationId != "dashboard-1" || report.Allocations[1].AllocationId != "gru-orchestrator-1" {
+	if report.Allocations[0].AllocationId != "gru-nats-1" || report.Allocations[1].AllocationId != "gru-orchestrator-1" {
 		t.Fatalf("allocations must be ordered: %+v", report.Allocations)
 	}
 	for _, allocation := range report.Allocations {
@@ -473,7 +477,6 @@ func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
 		State:    runtime.SystemdAllocationStateStopped,
 		Result:   "success",
 	}
-	container.observation = mustStoppedPodmanObservation(t)
 	cordonPayload, err := json.Marshal(mustCordonCommand(t, "cmd-cordon-2", true))
 	if err != nil {
 		t.Fatalf("cordon wire: %v", err)
@@ -492,7 +495,7 @@ func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
 func TestNatsTransportPublishesHeartbeatsOnInjectedTicks(t *testing.T) {
 	connection := newFakeNatsConnection()
 	systemd := &fakeNativeAdapter{}
-	executor := newExecutorForTest(t, systemd, &fakeContainerAdapter{})
+	executor := newExecutorForTest(t, systemd)
 	ticker := newFakeHeartbeatTicker()
 	newTransportForTest(t, connection, executor, ticker, defaultMetricsForTest(), false)
 
@@ -534,7 +537,7 @@ func assertHeartbeatPayload(t *testing.T, payload []byte) {
 }
 
 func TestNatsTransportRepliesEnvelopeErrorOnUndecodableCommand(t *testing.T) {
-	_, connection, systemd, _ := defaultTransportForTest(t)
+	_, connection, systemd := defaultTransportForTest(t)
 
 	reply := connection.request("terrascale.node.v1.gru-node-1.converge", []byte(`{"planJson":42}`))
 
@@ -552,7 +555,7 @@ func TestNatsTransportRepliesEnvelopeErrorOnUndecodableCommand(t *testing.T) {
 
 func TestNatsTransportCloseDrainsGracefully(t *testing.T) {
 	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{}, &fakeContainerAdapter{})
+	executor := newExecutorForTest(t, &fakeNativeAdapter{})
 	ticker := newFakeHeartbeatTicker()
 	transport := newTransportForTest(t, connection, executor, ticker, defaultMetricsForTest(), false)
 
@@ -587,7 +590,7 @@ func TestNatsTransportRejectsInvalidConfiguration(t *testing.T) {
 	valid := NatsTransportConfig{
 		NodeId:     executorTestNodeId(t),
 		Connection: newFakeNatsConnection(),
-		Executor:   newExecutorForTest(t, &fakeNativeAdapter{}, &fakeContainerAdapter{}),
+		Executor:   newExecutorForTest(t, &fakeNativeAdapter{}),
 		Metrics:    defaultMetricsForTest(),
 		Ticker:     newFakeHeartbeatTicker(),
 		Now:        fixedTestClock,

@@ -67,11 +67,11 @@ type allocationReservation struct {
 // adapter. Converge fails closed while the node is cordoned; Observe, Stop,
 // and Delete keep answering so a drain can finish.
 type WorkloadExecutor struct {
-	nodeId    NodeId
-	systemd   NativePlanAdapter
-	cordoned  atomic.Bool
-	mutex     sync.Mutex
-	records   map[string]allocationRecord
+	nodeId   NodeId
+	systemd  NativePlanAdapter
+	cordoned atomic.Bool
+	mutex    sync.Mutex
+	records  map[string]allocationRecord
 	// maximumTrackedAllocations is a package-private test seam. Production
 	// executors use hostAgentMaximumTrackedAllocations.
 	maximumTrackedAllocations int

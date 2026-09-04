@@ -1,5 +1,5 @@
-// This file composes the per-node host agent of the rootless-hosting and
-// autoscaling lane: one workload executor, one NATS transport, and the
+// This file composes the per-node host agent of the systemd hosting
+// lane: one workload executor, one NATS transport, and the
 // heartbeat metrics source, wired together from one fully explicit
 // configuration with no ambient environment reads.
 package hostagent
@@ -42,7 +42,7 @@ type HostAgentConfig struct {
 }
 
 // HostAgent is the node-side composition: it receives canonical plans on the
-// node subjects, executes them through the rootless adapters, and publishes
+// node subjects, executes them through the systemd adapter, and publishes
 // heartbeats until its context is cancelled or Close is called.
 type HostAgent struct {
 	nodeId            NodeId

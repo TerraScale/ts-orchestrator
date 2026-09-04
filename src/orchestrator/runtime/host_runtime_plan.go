@@ -80,7 +80,7 @@ func isLowercaseHexDigest(value string) bool {
 	return true
 }
 
-// RuntimeResourceLimits is the closed systemd/containerd cgroup-v2 envelope
+// RuntimeResourceLimits is the closed systemd cgroup-v2 envelope
 // for REQ-O012 and INV-017.
 type RuntimeResourceLimits struct {
 	MemoryMaxBytes  int64
@@ -107,7 +107,9 @@ type SystemdExecutionPlan struct {
 	Properties []string
 }
 
-// OciSecurityPlan is the closed containerd security envelope.
+// OciSecurityPlan is the retired OCI security envelope (D-69, no containers).
+// The struct is retained for wire decode and control-plane fingerprint
+// compatibility until I-1 replaces the declared-estate types.
 type OciSecurityPlan struct {
 	RunAsUser              uint32
 	RunAsGroup             uint32
@@ -118,7 +120,9 @@ type OciSecurityPlan struct {
 	CgroupParent           string
 }
 
-// OciExecutionPlan is the catalog-derived OCI execution plan.
+// OciExecutionPlan is the retired OCI execution plan (D-69, no containers).
+// Retained for wire decode and control-plane fingerprint compatibility until
+// I-1 replaces the declared-estate types.
 type OciExecutionPlan struct {
 	ContainerId    string
 	ImageReference string
@@ -314,9 +318,8 @@ func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResou
 	return *requested, nil
 }
 
-// MarshalJSON mirrors the C# CLI serializer: JsonSerializerDefaults.Web
-// (camelCase) + WriteIndented removed at this layer (callers indent), with
-// enums as camelCase strings and nulls preserved for the optional plans.
+// MarshalJSON emits the canonical camelCase plan shape: enums render as
+// camelCase strings and the optional execution plan preserves null.
 func (p HostRuntimePlan) MarshalJSON() ([]byte, error) {
 	var buffer bytes.Buffer
 	buffer.WriteString(`{"schemaVersion":`)
@@ -363,7 +366,7 @@ func (p HostRuntimePlan) MarshalJSON() ([]byte, error) {
 
 // MarshalJSON mirrors the Web-defaults camelCase output of
 // RuntimeResourceLimits, including the computed high/swap watermarks that
-// System.Text.Json serializes as read-only properties.
+// The computed watermarks serialize as read-only properties.
 func (l RuntimeResourceLimits) MarshalJSON() ([]byte, error) {
 	var buffer bytes.Buffer
 	buffer.WriteString(`{"memoryMaxBytes":`)

@@ -1,5 +1,5 @@
 // This file tests the workload executor: driver dispatch of serialized plans,
-// fail-closed cordon behavior, registry tracking, and drain observations.
+// fail-closed cordon behavior, allocation tracking, and drain observations.
 package hostagent
 
 import (
