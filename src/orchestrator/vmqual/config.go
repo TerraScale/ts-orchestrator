@@ -208,6 +208,10 @@ func (c Config) applyPins(p Pins) Config {
 	return c
 }
 
+// ApplyPins returns a command-ready configuration using only values from the
+// declared pin file for fields the caller did not explicitly provide.
+func (c Config) ApplyPins(p Pins) Config { return c.applyPins(p) }
+
 // HostPlatform reports whether the current process can qualify Firecracker.
 // It is deliberately a fact, not a fallback selector.
 func HostPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }

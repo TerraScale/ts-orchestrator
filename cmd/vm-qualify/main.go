@@ -41,6 +41,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		report.Write(out)
 		return report.Error()
 	case "image":
+		pins, err := vmqual.LoadPins(config.PinsPath)
+		if err != nil {
+			return err
+		}
+		config = config.ApplyPins(pins)
 		if err := vmqual.VerifyPinnedFiles(config); err != nil {
 			return err
 		}
@@ -101,6 +106,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 }
 
 func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
+	pins, err := vmqual.LoadPins(config.PinsPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	config = config.ApplyPins(pins)
 	if err := vmqual.VerifyPinnedFiles(config); err != nil {
 		return nil, nil, err
 	}

@@ -75,7 +75,11 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 	} else {
 		config = config.applyPins(pins)
 		add("pins", true, "host and guest artifacts are declared", "")
-		for name, pin := range map[string]ArtifactPin{"firecracker": pins.Firecracker, "jailer": pins.Jailer, "kernel": pins.Kernel, "rootfs": pins.RootFS} {
+		for _, artifact := range []struct {
+			name string
+			pin  ArtifactPin
+		}{{"firecracker", pins.Firecracker}, {"jailer", pins.Jailer}, {"kernel", pins.Kernel}, {"rootfs", pins.RootFS}} {
+			name, pin := artifact.name, artifact.pin
 			ok, detail := verifyPinnedFile(pin, name)
 			add(name, ok, detail, "restore the exact versioned release asset whose published digest is pinned")
 		}
@@ -161,9 +165,12 @@ func VerifyPinnedFiles(config Config) error {
 	if err != nil {
 		return err
 	}
-	for name, pin := range map[string]ArtifactPin{"firecracker": pins.Firecracker, "jailer": pins.Jailer, "kernel": pins.Kernel, "rootfs": pins.RootFS} {
-		if ok, detail := verifyPinnedFile(pin, name); !ok {
-			return fmt.Errorf("%s: %s", name, detail)
+	for _, artifact := range []struct {
+		name string
+		pin  ArtifactPin
+	}{{"firecracker", pins.Firecracker}, {"jailer", pins.Jailer}, {"kernel", pins.Kernel}, {"rootfs", pins.RootFS}} {
+		if ok, detail := verifyPinnedFile(artifact.pin, artifact.name); !ok {
+			return fmt.Errorf("%s: %s", artifact.name, detail)
 		}
 	}
 	return nil

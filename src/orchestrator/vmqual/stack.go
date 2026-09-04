@@ -128,6 +128,12 @@ func (s *Stack) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("vmqual: nil context")
 	}
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return s.EnforceBudget(ctx)
+	}
+	s.mu.Unlock()
 	if s.config.JournalPath != "" {
 		networkJournal := vmnet.Journal{}
 		if journaled, ok := s.config.Network.(interface{ Journal() vmnet.Journal }); ok {
@@ -241,6 +247,7 @@ func (s *Stack) Cleanup(ctx context.Context) error {
 	for id := range s.vms {
 		ids = append(ids, id)
 	}
+	s.started = false
 	s.mu.Unlock()
 	sort.Strings(ids)
 	cleanCtx := context.WithoutCancel(ctx)
