@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "architecture": "arm64",
+  "firecrackerVersion": "1.15.1",
+  "archive": {
+    "url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.15.1/firecracker-v1.15.1-aarch64.tgz",
+    "sha256": "00654ac1e702a22744121ea9f10a4f792ebd7c3a744cba587dfac9fcb79b41a5",
+    "size": 7422699
+  },
+  "firecracker": {
+    "archivePath": "release-v1.15.1-aarch64/firecracker-v1.15.1-aarch64",
+    "name": "firecracker",
+    "sha256": "e9ce7466c3b0d879d7a9158f4bf710dd5e131bbc5e580e5269fec66d5b5a0f0a",
+    "size": 3119984,
+    "mode": 493
+  },
+  "jailer": {
+    "archivePath": "release-v1.15.1-aarch64/jailer-v1.15.1-aarch64",
+    "name": "jailer",
+    "sha256": "7faa581395fd1994ee005efc0a9c8826b4a9f0616dd942c2486adb8a8eac13f0",
+    "size": 1900768,
+    "mode": 493
+  },
+  "sdkModule": "github.com/firecracker-microvm/firecracker-go-sdk",
+  "sdkVersion": "v1.0.0"
+}
