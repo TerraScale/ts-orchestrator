@@ -50,3 +50,49 @@ func TestDefaultEstateMatchesLaunchDecisions(t *testing.T) {
 		t.Fatalf("home Region is %q, want gru", spec.HomeRegion)
 	}
 }
+
+// TestDefaultEstateTiersBackupSegmentsPerD29 pins the Litestream segment
+// lifecycle: 24 h to Infrequent Access, 7 days to Archive (D-29).
+func TestDefaultEstateTiersBackupSegmentsPerD29(t *testing.T) {
+	for _, region := range Default().Regions {
+		var backups *Bucket
+		for i := range region.Buckets {
+			if region.Buckets[i].Name == "backups" {
+				backups = &region.Buckets[i]
+			}
+		}
+		if backups == nil {
+			t.Fatalf("Region %s declares no backups bucket", region.Code)
+		}
+		tiered := map[string]uint16{}
+		for _, rule := range backups.LifecycleRules {
+			switch rule.Action {
+			case "infrequent-access":
+				tiered["infrequent-access"] = rule.AfterDays
+			case "archive":
+				tiered["archive"] = rule.AfterDays
+			}
+		}
+		if tiered["infrequent-access"] != 1 {
+			t.Fatalf("Region %s moves segments to Infrequent Access after %d days, want 1 (24 h)", region.Code, tiered["infrequent-access"])
+		}
+		if tiered["archive"] != 7 {
+			t.Fatalf("Region %s moves segments to Archive after %d days, want 7", region.Code, tiered["archive"])
+		}
+	}
+}
+
+func TestValidateAdmitsD29LifecycleTiersAndRefusesUnknownActions(t *testing.T) {
+	spec := Default()
+	spec.Regions[0].Buckets[0].LifecycleRules = append(spec.Regions[0].Buckets[0].LifecycleRules,
+		BucketLifecycleRule{Name: "tier-infrequent", Action: "infrequent-access", AfterDays: 1},
+		BucketLifecycleRule{Name: "tier-archive", Action: "archive", AfterDays: 7},
+	)
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("D-29 lifecycle tiers rejected: %v", err)
+	}
+	spec.Regions[0].Buckets[0].LifecycleRules[0].Action = "glacier"
+	if err := spec.Validate(); err == nil {
+		t.Fatal("unknown lifecycle action accepted")
+	}
+}

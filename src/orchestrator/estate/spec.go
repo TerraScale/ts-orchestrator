@@ -384,7 +384,7 @@ func validateRegion(path string, region Region) error {
 			return err
 		}
 		for j, rule := range bucket.LifecycleRules {
-			if !oneOf(rule.Action, "delete", "archive") || rule.AfterDays == 0 {
+			if !oneOf(rule.Action, "delete", "archive", "infrequent-access") || rule.AfterDays == 0 {
 				return invalid(fmt.Sprintf("%s.lifecycleRules[%d]", bucketPath, j), "must declare a supported action and age")
 			}
 		}

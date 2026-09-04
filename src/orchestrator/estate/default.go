@@ -92,8 +92,15 @@ func defaultRegion(code, ociName, cidr string) Region {
 		},
 		Buckets: []Bucket{
 			{
+				// Litestream segment tiering per D-29: segments older than 24 h
+				// move to Infrequent Access, older than 7 days to Archive, and
+				// history expires after 35 days.
 				Name: "backups", Purpose: "database-backup", Versioning: true,
-				LifecycleRules: []BucketLifecycleRule{{Name: "expire-history", Action: "delete", AfterDays: 35}},
+				LifecycleRules: []BucketLifecycleRule{
+					{Name: "segments-infrequent-access", Action: "infrequent-access", AfterDays: 1},
+					{Name: "segments-archive", Action: "archive", AfterDays: 7},
+					{Name: "expire-history", Action: "delete", AfterDays: 35},
+				},
 			},
 			{
 				Name: "control-snapshots", Purpose: "control-snapshot", Versioning: true,
