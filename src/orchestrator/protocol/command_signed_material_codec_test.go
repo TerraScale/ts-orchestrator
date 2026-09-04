@@ -61,7 +61,7 @@ func TestCanonicalHashIsDeterministicAndCoversEveryMaterialField(t *testing.T) {
 	}
 }
 
-func TestCanonicalHashMatchesNonUtcDateTimeOffsetVector(t *testing.T) {
+func TestCanonicalHashMatchesNonUtcWireTimestampVector(t *testing.T) {
 	zone := time.FixedZone("BRT", -3*60*60)
 	envelope := validEnvelope(
 		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(protocolNow.Add(-time.Minute).In(zone)) },

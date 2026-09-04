@@ -13,13 +13,13 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// NatsOperationJournalStore mirrors the C# static class: infrastructure
-// provisions this bucket; controller identities only open and validate it.
+// NatsOperationJournalStore is the operation-journal bucket store:
+// infrastructure provisions this bucket; controller identities only open and
+// validate it.
 var NatsOperationJournalStore natsOperationJournalStore
 
 type natsOperationJournalStore struct{}
 
-// ProvisionAsync mirrors the C# ProvisionAsync.
 func (natsOperationJournalStore) ProvisionAsync(
 	ctx context.Context,
 	client *nats.Conn,
@@ -63,7 +63,6 @@ func (natsOperationJournalStore) ProvisionAsync(
 	return store, nil
 }
 
-// OpenAsync mirrors the C# OpenAsync.
 func (natsOperationJournalStore) OpenAsync(
 	ctx context.Context,
 	keyValue jetstream.JetStream,
@@ -92,8 +91,8 @@ func (natsOperationJournalStore) OpenAsync(
 	return store, nil
 }
 
-// ValidateAsync mirrors the C# public ValidateAsync. The Go nats.go client
-// exposes the backing stream through the JetStream context, so the store is
+// ValidateAsync validates an opened store. The Go nats.go client exposes
+// the backing stream through the JetStream context, so the store is
 // accompanied by the context it was opened from.
 func (natsOperationJournalStore) ValidateAsync(
 	ctx context.Context,
@@ -152,7 +151,6 @@ func natsOperationJournalValidate(
 	return nil
 }
 
-// ValidateConfiguration mirrors the C# ValidateConfiguration.
 func (natsOperationJournalStore) ValidateConfiguration(
 	actual jetstream.StreamConfig,
 	configuration jetstream.KeyValueConfig,
@@ -165,7 +163,6 @@ func (natsOperationJournalStore) ValidateConfiguration(
 		actual, natsOperationJournalCanonicalStream(configuration))
 }
 
-// ValidateExactStreamConfiguration mirrors the C# ValidateExactStreamConfiguration.
 func (natsOperationJournalStore) ValidateExactStreamConfiguration(
 	actual jetstream.StreamConfig,
 	expected jetstream.StreamConfig,
@@ -228,8 +225,6 @@ func (natsOperationJournalStore) ValidateExactStreamConfiguration(
 	return nil
 }
 
-// ValidateExactObjectConfiguration mirrors the C#
-// ValidateExactObjectConfiguration.
 func (natsOperationJournalStore) ValidateExactObjectConfiguration(
 	actual jetstream.StreamConfig,
 	configuration jetstream.ObjectStoreConfig,
@@ -281,7 +276,6 @@ func (natsOperationJournalStore) ValidateExactObjectConfiguration(
 	return nil
 }
 
-// CanonicalStream mirrors the C# CanonicalStream.
 func (natsOperationJournalStore) CanonicalStream(configuration jetstream.KeyValueConfig) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:              "KV_" + configuration.Bucket,
@@ -321,7 +315,6 @@ func natsOperationJournalCanonicalStream(configuration jetstream.KeyValueConfig)
 	return NatsOperationJournalStore.CanonicalStream(configuration)
 }
 
-// CanonicalKeyValueStream mirrors the C# CanonicalKeyValueStream.
 func (natsOperationJournalStore) CanonicalKeyValueStream(configuration jetstream.KeyValueConfig) jetstream.StreamConfig {
 	history := int64(configuration.History)
 	if history == 0 {
@@ -380,7 +373,6 @@ func (natsOperationJournalStore) CanonicalKeyValueStream(configuration jetstream
 	}
 }
 
-// ValidatePlainTopologyKeyValueConfiguration mirrors the C# method.
 func (natsOperationJournalStore) ValidatePlainTopologyKeyValueConfiguration(
 	actual jetstream.StreamConfig,
 	configuration jetstream.KeyValueConfig,
@@ -496,9 +488,9 @@ func natsOperationJournalSetBatchPublishDisabled(
 		return errors.New("Unable to serialize the operation journal stream configuration.")
 	}
 
-	// NATS.Net serializes the default enum value as persist_mode: 0, whereas
-	// nats-server 2.14 requires its named wire value. The same server revision
-	// exposes batch publishing as allow_batched rather than the older
+	// The serialized default enum value is persist_mode: 0, whereas nats-server
+	// 2.14 requires its named wire value. The same server revision exposes
+	// batch publishing as allow_batched rather than the older
 	// allow_batch_publish spelling. Send the explicit, fail-closed wire form.
 	config["persist_mode"] = "default"
 	config["allow_batched"] = false
@@ -548,7 +540,6 @@ func natsOperationJournalValidateBatchPublishDisabled(
 	return natsOperationJournalValidateBatchPublish(response.Data)
 }
 
-// ValidateBatchPublish mirrors the C# ValidateBatchPublish.
 func (natsOperationJournalStore) ValidateBatchPublish(response []byte) error {
 	return natsOperationJournalValidateBatchPublish(response)
 }

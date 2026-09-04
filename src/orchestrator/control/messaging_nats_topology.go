@@ -8,16 +8,14 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// NatsTopology mirrors the C# record: the regional controller's JetStream
-// topology for one cell.
+// NatsTopology is the regional controller's JetStream topology for one cell.
 type NatsTopology struct {
 	Cell     string
 	Replicas int
 	Instance string
 }
 
-// NewNatsTopology mirrors the C# record constructor (Instance defaults to
-// "local").
+// NewNatsTopology builds the topology; Instance defaults to "local".
 func NewNatsTopology(cell string, replicas int, instance string) *NatsTopology {
 	if instance == "" {
 		instance = "local"
@@ -82,7 +80,7 @@ func (t *NatsTopology) ServiceName() string { return "terrascale_orchestrator_" 
 
 func (t *NatsTopology) ServiceQueueGroup() string { return "orchestrator_" + t.Cell }
 
-// Streams mirrors NatsTopology.Streams.
+// Streams returns the regional stream configurations.
 func (t *NatsTopology) Streams() ([]jetstream.StreamConfig, error) {
 	cellSpecFamily, err := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
 		t.Cell, protocol.NatsSubjectTaxonomy.DesiredFamilySegment())
@@ -109,7 +107,7 @@ func (t *NatsTopology) Streams() ([]jetstream.StreamConfig, error) {
 	}, nil
 }
 
-// Leaders mirrors NatsTopology.Leaders.
+// Leaders returns the regional authority lease bucket.
 func (t *NatsTopology) Leaders() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:      "ORCH_LEADERS",
@@ -120,7 +118,7 @@ func (t *NatsTopology) Leaders() jetstream.KeyValueConfig {
 	}
 }
 
-// Runtime mirrors NatsTopology.Runtime.
+// Runtime returns the live orchestrator registration bucket.
 func (t *NatsTopology) Runtime() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:      "ORCH_RUNTIME",
@@ -132,7 +130,7 @@ func (t *NatsTopology) Runtime() jetstream.KeyValueConfig {
 	}
 }
 
-// Delivery mirrors NatsTopology.Delivery.
+// Delivery returns the delivery and handoff coordination bucket.
 func (t *NatsTopology) Delivery() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       "ORCH_DELIVERY",
@@ -159,9 +157,9 @@ func (t *NatsTopology) CommandReplay() jetstream.KeyValueConfig {
 	}
 }
 
-// Operations mirrors NatsTopology.Operations. This authoritative journal is
-// provisioned only by the infrastructure identity; controller TS_ORCH_REPLICAS
-// must never reconfigure it.
+// Operations returns the authoritative operation journal bucket. This journal
+// is provisioned only by the infrastructure identity; controller
+// TS_ORCH_REPLICAS must never reconfigure it.
 func (t *NatsTopology) Operations() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       "ORCH_OPERATIONS",
@@ -173,9 +171,8 @@ func (t *NatsTopology) Operations() jetstream.KeyValueConfig {
 	}
 }
 
-// OperationProofConsumptions mirrors NatsTopology.OperationProofConsumptions:
-// expiry-bounded R3 records that make each private journal authority proof
-// single-use.
+// OperationProofConsumptions returns expiry-bounded R3 records that make each
+// private journal authority proof single-use.
 func (t *NatsTopology) OperationProofConsumptions() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       "ORCH_OPERATION_PROOFS",
@@ -190,7 +187,7 @@ func (t *NatsTopology) OperationProofConsumptions() jetstream.KeyValueConfig {
 	}
 }
 
-// Bundles mirrors NatsTopology.Bundles.
+// Bundles returns the regional bundle object store.
 func (t *NatsTopology) Bundles() jetstream.ObjectStoreConfig {
 	return jetstream.ObjectStoreConfig{
 		Bucket:      "CELL_BUNDLES",
@@ -200,8 +197,8 @@ func (t *NatsTopology) Bundles() jetstream.ObjectStoreConfig {
 	}
 }
 
-// ProtocolPackage mirrors NatsTopology.ProtocolPackage: the controller may
-// read only this immutable canonical protocol package.
+// ProtocolPackage returns the immutable canonical protocol package store, the
+// only package the controller may read.
 func (t *NatsTopology) ProtocolPackage() jetstream.ObjectStoreConfig {
 	return jetstream.ObjectStoreConfig{
 		Bucket:      "ORCH_PROTOCOL_PACKAGE",
@@ -211,7 +208,7 @@ func (t *NatsTopology) ProtocolPackage() jetstream.ObjectStoreConfig {
 	}
 }
 
-// StartupConsumer mirrors NatsTopology.StartupConsumer.
+// StartupConsumer returns the runtime startup consumer configuration.
 func (t *NatsTopology) StartupConsumer() (jetstream.ConsumerConfig, error) {
 	filter, err := protocol.NatsSubjectTaxonomy.RuntimeStartupPattern(t.Cell)
 	if err != nil {
@@ -239,7 +236,7 @@ func (t *NatsTopology) StartupConsumer() (jetstream.ConsumerConfig, error) {
 	}, nil
 }
 
-// CellSpecConsumer mirrors NatsTopology.CellSpecConsumer.
+// CellSpecConsumer returns the regional CellSpec consumer configuration.
 func (t *NatsTopology) CellSpecConsumer() (jetstream.ConsumerConfig, error) {
 	subject, err := t.CellSpecSubject()
 	if err != nil {

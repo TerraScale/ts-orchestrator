@@ -84,9 +84,9 @@ func allCapabilitiesBounded63(values []string) bool {
 	return true
 }
 
-// GlobalCellAdvertisementIsControlEndpoint mirrors the C# IsControlEndpoint: a
-// cell advertisement endpoint is an absolute lowercase URI with an explicit
-// port, no path, query, fragment, or user information.
+// GlobalCellAdvertisementIsControlEndpoint reports whether a cell
+// advertisement endpoint is an absolute lowercase URI with an explicit port,
+// no path, query, fragment, or user information.
 func GlobalCellAdvertisementIsControlEndpoint(endpoint string) bool {
 	if len(endpoint) < 8 || len(endpoint) > 253 {
 		return false
@@ -145,7 +145,8 @@ func GlobalCellAdvertisementIsControlEndpoint(endpoint string) bool {
 	return parsed.RawQuery == "" && parsed.Fragment == "" && parsed.User == nil
 }
 
-// GlobalCellAdvertisementDisposition mirrors the C# enum.
+// GlobalCellAdvertisementDisposition is the outcome of applying one
+// advertisement.
 type GlobalCellAdvertisementDisposition int
 
 const (
@@ -155,8 +156,7 @@ const (
 	GlobalCellAdvertisementDispositionRejected  GlobalCellAdvertisementDisposition = 3
 )
 
-// GlobalCellDirectoryCondition mirrors the C# enum (serialized as strings by
-// the C# JsonStringEnumConverter).
+// GlobalCellDirectoryCondition grades the health of the directory projection.
 type GlobalCellDirectoryCondition int
 
 const (
@@ -178,7 +178,7 @@ func (c GlobalCellDirectoryCondition) String() string {
 	}
 }
 
-// GlobalCellDirectoryEntry mirrors the C# record.
+// GlobalCellDirectoryEntry is one cell's projection entry.
 type GlobalCellDirectoryEntry struct {
 	Cell              string
 	Cluster           string
@@ -194,8 +194,8 @@ type GlobalCellDirectoryEntry struct {
 	Endpoints         []string
 }
 
-// GlobalCellDirectorySnapshot mirrors the C# record. JSON tags mirror the C#
-// source-generated context (default options: PascalCase names).
+// GlobalCellDirectorySnapshot is the read-only global projection. Its JSON
+// field names are PascalCase and part of the persisted directory contract.
 type GlobalCellDirectorySnapshot struct {
 	SchemaVersion          int                          `json:"SchemaVersion"`
 	ObservedAt             time.Time                    `json:"ObservedAt"`
@@ -206,7 +206,7 @@ type GlobalCellDirectorySnapshot struct {
 	Cells                  []GlobalCellDirectoryEntry   `json:"Cells"`
 }
 
-// Validate mirrors the C# Validate.
+// Validate reports whether the snapshot is internally consistent.
 func (s *GlobalCellDirectorySnapshot) Validate() error {
 	active := 0
 	for _, cell := range s.Cells {
@@ -304,21 +304,21 @@ func allCellsHealthy(cells []GlobalCellDirectoryEntry) bool {
 	return true
 }
 
-// GlobalCellDirectory mirrors the C# class: converges durable regional
-// advertisements into a read-only global projection. Regional state remains
-// authoritative; expiry only marks a projection stale.
+// GlobalCellDirectory converges durable regional advertisements into a
+// read-only global projection. Regional state remains authoritative; expiry
+// only marks a projection stale.
 type GlobalCellDirectory struct {
 	mu                     sync.Mutex
 	advertisements         map[string]GlobalCellAdvertisement
 	rejectedAdvertisements int64
 }
 
-// NewGlobalCellDirectory mirrors the C# constructor.
 func NewGlobalCellDirectory() *GlobalCellDirectory {
 	return &GlobalCellDirectory{advertisements: map[string]GlobalCellAdvertisement{}}
 }
 
-// Apply mirrors the source-key Apply overload.
+// Apply applies an advertisement under sourceKey, which must match the cell's
+// derived advertisement key.
 func (d *GlobalCellDirectory) Apply(
 	sourceKey string,
 	advertisement GlobalCellAdvertisement,
@@ -340,7 +340,7 @@ func (d *GlobalCellDirectory) Apply(
 	return d.ApplyAdvertisement(advertisement, appliedAt)
 }
 
-// ApplyAdvertisement mirrors the plain Apply overload.
+// ApplyAdvertisement applies an advertisement without a source-key check.
 func (d *GlobalCellDirectory) ApplyAdvertisement(
 	advertisement GlobalCellAdvertisement,
 	appliedAt *time.Time,
@@ -406,13 +406,13 @@ func (d *GlobalCellDirectory) ApplyAdvertisement(
 	}
 }
 
-// GlobalCellDirectoryDispositionRejectedValue mirrors the C# Rejected value.
+// Disposition value aliases of GlobalCellAdvertisementDisposition.
 const (
 	GlobalCellDirectoryDispositionRejectedValue = GlobalCellAdvertisementDispositionRejected
 	GlobalCellDirectoryDispositionAcceptedValue = GlobalCellAdvertisementDispositionAccepted
 )
 
-// Snapshot mirrors the C# Snapshot.
+// Snapshot returns the projection observed at the given time (nil means now).
 func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirectorySnapshot {
 	if d == nil {
 		return globalCellDirectoryLifecycleUnavailableSnapshot()
@@ -489,7 +489,7 @@ func cloneGlobalCellAdvertisement(advertisement GlobalCellAdvertisement) GlobalC
 	return advertisement
 }
 
-// Remove mirrors the C# Remove.
+// Remove drops a cell's advertisement from the projection.
 func (d *GlobalCellDirectory) Remove(cell string) {
 	if d == nil {
 		return
@@ -499,7 +499,7 @@ func (d *GlobalCellDirectory) Remove(cell string) {
 	d.mu.Unlock()
 }
 
-// Reject mirrors the C# Reject.
+// Reject counts one rejected advertisement.
 func (d *GlobalCellDirectory) Reject() {
 	if d == nil {
 		return

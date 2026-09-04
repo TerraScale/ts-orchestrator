@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-// CiRunnerNatsPermissionPlan mirrors the C# record.
+// CiRunnerNatsPermissionPlan is one runner's exact NATS permissions.
 type CiRunnerNatsPermissionPlan struct {
 	Consumer      string
 	FilterSubject string
@@ -13,7 +13,8 @@ type CiRunnerNatsPermissionPlan struct {
 	Subscribe     []string
 }
 
-// NewCiRunnerNatsPermissionPlan mirrors the C# constructor (ordinal sorting).
+// NewCiRunnerNatsPermissionPlan copies the allowlists and sorts them
+// ordinally.
 func NewCiRunnerNatsPermissionPlan(
 	consumer string,
 	filterSubject string,
@@ -33,14 +34,13 @@ func NewCiRunnerNatsPermissionPlan(
 	}
 }
 
-// CiRunnerNatsPermissions mirrors the C# static class: the exact NATS.Net 2.7.2
-// subjects required by a runner agent after a controller has provisioned its
-// durable consumer. Job containers never receive this identity.
+// CiRunnerNatsPermissions computes the exact subjects required by a runner
+// agent after a controller has provisioned its durable consumer. Job
+// containers never receive this identity.
 var CiRunnerNatsPermissions ciRunnerNatsPermissions
 
 type ciRunnerNatsPermissions struct{}
 
-// Create mirrors CiRunnerNatsPermissions.Create.
 func (ciRunnerNatsPermissions) Create(
 	topology *GlobalNatsTopology,
 	zone string,

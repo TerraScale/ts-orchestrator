@@ -12,7 +12,7 @@ import (
 //go:embed protocol-manifest.json
 var embeddedProtocolManifest []byte
 
-// ProtocolSubjectFamilyScope mirrors the ProtocolSubjectFamilyScope enum.
+// ProtocolSubjectFamilyScope is the scope of one subject family.
 type ProtocolSubjectFamilyScope int
 
 const (
@@ -32,7 +32,7 @@ type ProtocolSubjectFamily struct {
 	AgentHashToken bool
 }
 
-// IsWellFormed mirrors the internal family well-formedness rule.
+// IsWellFormed reports whether the family entry is well formed.
 func (f ProtocolSubjectFamily) IsWellFormed() bool {
 	if f.Scope != ProtocolSubjectFamilyScopeGlobal && f.Scope != ProtocolSubjectFamilyScopeRegional {
 		return false
@@ -74,7 +74,7 @@ type ProtocolAccountKindGrants struct {
 	Subscribe       []string
 }
 
-// IsWellFormed mirrors the internal grants well-formedness rule.
+// IsWellFormed reports whether the grants entry is well formed.
 func (g ProtocolAccountKindGrants) IsWellFormed() bool {
 	if len(g.Kind) < 1 || len(g.Kind) > 64 {
 		return false
@@ -122,8 +122,8 @@ func isBoundedGrantPattern(pattern string) bool {
 }
 
 func isUnicodeWhitespace(r rune) bool {
-	// unicode.IsSpace mirrors char.IsWhiteSpace: ASCII whitespace, NEL/NBSP,
-	// and the Unicode space (Zs) category.
+	// unicode.IsSpace covers ASCII whitespace, NEL/NBSP, and the Unicode
+	// space (Zs) category.
 	return unicode.IsSpace(r)
 }
 
@@ -155,8 +155,8 @@ var (
 	embeddedManifest     *ProtocolManifest
 )
 
-// ProtocolManifestLoaded mirrors ProtocolManifest.Loaded: the loaded embedded
-// manifest. Loading validates the manifest shape once.
+// ProtocolManifestLoaded is the loaded embedded manifest. Loading validates
+// the manifest shape once.
 var ProtocolManifestLoaded = func() *ProtocolManifest {
 	embeddedManifestOnce.Do(func() {
 		embeddedManifest = loadEmbeddedProtocolManifest()

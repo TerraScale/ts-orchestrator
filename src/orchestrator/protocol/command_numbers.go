@@ -12,7 +12,8 @@ func (r ProtocolRevision) IsValid() bool { return r.Value > 0 }
 
 func (r ProtocolRevision) String() string { return strconv.FormatInt(r.Value, 10) }
 
-// ProtocolRevisionTryCreate mirrors ProtocolRevision.TryCreate.
+// ProtocolRevisionTryCreate validates value and returns the revision, or
+// false when value is out of range.
 func ProtocolRevisionTryCreate(value int64) (ProtocolRevision, bool) {
 	if value <= 0 {
 		return ProtocolRevision{}, false
@@ -31,7 +32,8 @@ func (g DesiredGeneration) IsValid() bool { return g.Value > 0 }
 
 func (g DesiredGeneration) String() string { return strconv.FormatInt(g.Value, 10) }
 
-// DesiredGenerationTryCreate mirrors DesiredGeneration.TryCreate.
+// DesiredGenerationTryCreate validates value and returns the generation, or
+// false when value is out of range.
 func DesiredGenerationTryCreate(value int64) (DesiredGeneration, bool) {
 	if value <= 0 {
 		return DesiredGeneration{}, false
@@ -50,7 +52,8 @@ func (e WriterEpoch) IsValid() bool { return e.Value > 0 }
 
 func (e WriterEpoch) String() string { return strconv.FormatInt(e.Value, 10) }
 
-// WriterEpochTryCreate mirrors WriterEpoch.TryCreate.
+// WriterEpochTryCreate validates value and returns the epoch, or false when
+// value is out of range.
 func WriterEpochTryCreate(value int64) (WriterEpoch, bool) {
 	if value <= 0 {
 		return WriterEpoch{}, false
@@ -69,7 +72,8 @@ func (a DeliveryAttempt) IsValid() bool { return a.Value > 0 }
 
 func (a DeliveryAttempt) String() string { return strconv.FormatInt(a.Value, 10) }
 
-// DeliveryAttemptTryCreate mirrors DeliveryAttempt.TryCreate.
+// DeliveryAttemptTryCreate validates value and returns the attempt, or false
+// when value is out of range.
 func DeliveryAttemptTryCreate(value int64) (DeliveryAttempt, bool) {
 	if value <= 0 {
 		return DeliveryAttempt{}, false

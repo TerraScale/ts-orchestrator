@@ -1,4 +1,4 @@
-// The C# test-assembly helper becomes a same-package test helper; the embedded
+// The regression-corpus loader is a same-package test helper; the embedded
 // resource is the byte-identical copy of test-corpus/protocol/minimal-fail-closed-seeds.json.
 package protocol
 
@@ -83,7 +83,7 @@ func corpusResult(code CorpusLoadCode, entries []ProtocolCorpusEntry) CorpusLoad
 	return CorpusLoadResult{Code: code, Entries: entries}
 }
 
-// protocolRegressionCorpusLoadEmbedded mirrors LoadEmbedded.
+// protocolRegressionCorpusLoadEmbedded loads the embedded regression corpus.
 func protocolRegressionCorpusLoadEmbedded() CorpusLoadResult {
 	// The resource is embedded; the MissingResource branch is unreachable here.
 	if len(embeddedRegressionCorpus) == 0 {
@@ -102,7 +102,8 @@ func protocolRegressionCorpusLoadString(source string) CorpusLoadResult {
 	return protocolRegressionCorpusLoadBytes([]byte(source), false)
 }
 
-// protocolRegressionCorpusLoadBytes mirrors Load(ReadOnlySpan<byte>, bool).
+// protocolRegressionCorpusLoadBytes loads the corpus bytes, optionally
+// verifying the content address.
 func protocolRegressionCorpusLoadBytes(source []byte, requireContentAddress bool) CorpusLoadResult {
 	if len(source) == 0 || len(source) > corpusMaximumBytes {
 		return corpusResult(CorpusLoadTooLarge, nil)
@@ -128,8 +129,8 @@ func protocolRegressionCorpusLoadBytes(source []byte, requireContentAddress bool
 }
 
 // parseCorpusDocument performs the strict, order-preserving, duplicate-aware
-// JSON walk the C# JsonDocument loop performed: exact root/entry field sets,
-// bounded depth (8), integers as numbers (not strings), and typed text rules.
+// JSON walk: exact root/entry field sets, bounded depth (8), integers as
+// numbers (not strings), and typed text rules.
 func parseCorpusDocument(source []byte) (*CorpusLoadResult, error) {
 	decoder := json.NewDecoder(bytes.NewReader(source))
 	decoder.UseNumber()
@@ -243,8 +244,9 @@ func parseCorpusDocument(source []byte) (*CorpusLoadResult, error) {
 
 // readCorpusValue reads one JSON value with a depth bound; object key order and
 // duplicates are discarded but duplicate keys are rejected downstream by the
-// exact-field-set check only in the C# sense (three properties where two are
-// expected). To preserve that, duplicates are counted as an extra property.
+// exact-field-set check, where a duplicate key surfaces as an extra property
+// (three properties where two are expected). To preserve that, duplicates are
+// counted as an extra property.
 func readCorpusValue(decoder *json.Decoder, depth int) (interface{}, error) {
 	if depth > 8 {
 		return nil, errors.New("depth exceeded")
@@ -279,7 +281,7 @@ func readCorpusValue(decoder *json.Decoder, depth int) (interface{}, error) {
 			}
 
 			if _, duplicate := object[key]; duplicate {
-				// Mirror the C# behavior: a duplicate property makes the
+				// A duplicate property makes the
 				// property count disagree with the exact field set.
 				object[key+"\u0000duplicate"+strconv.Itoa(len(object))] = nil
 			}
@@ -368,13 +370,13 @@ func corpusDigestText(value string) bool {
 	return true
 }
 
-// protocolRegressionCorpusDigest mirrors ProtocolRegressionCorpus.Digest.
+// protocolRegressionCorpusDigest digests one corpus entry.
 func protocolRegressionCorpusDigest(entry ProtocolCorpusEntry) string {
 	digest := sha256.Sum256([]byte(protocolRegressionCorpusCanonical(entry)))
 	return hex.EncodeToString(digest[:])
 }
 
-// protocolRegressionCorpusCanonical mirrors ProtocolRegressionCorpus.Canonical.
+// protocolRegressionCorpusCanonical renders the canonical entry form.
 func protocolRegressionCorpusCanonical(entry ProtocolCorpusEntry) string {
 	return "v1|family=" + strconv.Itoa(len(entry.Family)) + ":" + entry.Family +
 		"|seed=" + strconv.FormatInt(entry.Seed, 10) +
@@ -382,7 +384,7 @@ func protocolRegressionCorpusCanonical(entry ProtocolCorpusEntry) string {
 		"|expected=" + strconv.Itoa(len(entry.Expected)) + ":" + entry.Expected
 }
 
-// corpusReadBounded mirrors ProtocolRegressionCorpus.ReadBounded.
+// corpusReadBounded reads at most corpusMaximumBytes from stream.
 func corpusReadBounded(stream io.Reader) []byte {
 	buffer := make([]byte, corpusMaximumBytes+1)
 	count := 0

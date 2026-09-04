@@ -2,7 +2,7 @@ package protocol
 
 import "testing"
 
-// limits mirrors SubjectTestData.Limits.
+// testLimits builds bounded grammar limits for tests.
 func testLimits(maximumSubjectLength, maximumTokenCount, maximumTokenLength, maximumPermissionPatternCount int) *SubjectGrammarLimits {
 	limits, ok := SubjectGrammarLimitsTryCreate(
 		maximumSubjectLength, maximumTokenCount, maximumTokenLength, maximumPermissionPatternCount)
@@ -17,7 +17,7 @@ func defaultTestLimits() *SubjectGrammarLimits {
 	return testLimits(128, 16, 32, 16)
 }
 
-// fuzzLimits mirrors the private Limits() fixture of DeterministicProtocolFuzzTests.
+// fuzzLimits is the tighter limits fixture of the deterministic fuzz families.
 func fuzzLimits() *SubjectGrammarLimits {
 	return testLimits(64, 8, 16, 16)
 }

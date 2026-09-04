@@ -2,13 +2,13 @@
 // closed. Fatal runtime failures still terminate the process.
 package protocol
 
-// protocolExceptionPolicy mirrors the internal static class.
+// protocolExceptionPolicy recovers ordinary verifier panics.
 var protocolExceptionPolicy protocolExceptionPolicyStatic
 
 type protocolExceptionPolicyStatic struct{}
 
 // recoverVerifierFailure runs invoke and reports whether it panicked; a panic
-// stands in for the C# ordinary (non-fatal) exception path.
+// is treated as an ordinary (non-fatal) verifier failure.
 func (protocolExceptionPolicyStatic) recoverVerifierFailure(invoke func()) (failed bool) {
 	defer func() {
 		if recover() != nil {

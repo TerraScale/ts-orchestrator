@@ -18,8 +18,8 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// RegionalRuntimeMember mirrors the C# record. JSON tags mirror the C#
-// source-generated context (default options: PascalCase property names).
+// RegionalRuntimeMember is one controller's membership record. JSON tags
+// serialize PascalCase property names.
 type RegionalRuntimeMember struct {
 	SchemaVersion     int       `json:"SchemaVersion"`
 	Cell              string    `json:"Cell"`
@@ -40,13 +40,12 @@ type RegionalRuntimeMember struct {
 	IdentitySignature string    `json:"IdentitySignature"`
 }
 
-// IsValidFor mirrors the C# IsValidFor.
 func (m RegionalRuntimeMember) IsValidFor(expectedCell string, now time.Time) bool {
 	return m.SchemaVersion == protocol.ProtocolVersion.Current() &&
 		m.Cell == expectedCell &&
 		m.Cluster == "orchestrator-control-"+expectedCell &&
 		strings.TrimSpace(m.Instance) != "" &&
-		isDotNetGuidNoHyphens(m.SessionId) &&
+		isUUIDNoHyphens(m.SessionId) &&
 		strings.TrimSpace(m.Build) != "" &&
 		len(m.Capabilities) > 0 &&
 		allCapabilitiesBounded(m.Capabilities) &&
@@ -61,7 +60,7 @@ func (m RegionalRuntimeMember) IsValidFor(expectedCell string, now time.Time) bo
 		m.HasWellFormedIdentityMaterial()
 }
 
-// HasWellFormedIdentityMaterial mirrors the C# shape check: the cryptographic
+// HasWellFormedIdentityMaterial is a shape check only; the cryptographic
 // verification is VerifySignedIdentity.
 func (m RegionalRuntimeMember) HasWellFormedIdentityMaterial() bool {
 	if len(m.IdentityKeyId) != 32 || !isLowercaseHex(m.IdentityKeyId) {
@@ -76,13 +75,13 @@ func (m RegionalRuntimeMember) HasWellFormedIdentityMaterial() bool {
 	return isBase64Shape(m.IdentityPublicKey) && isBase64Shape(m.IdentitySignature)
 }
 
-// VerifySignedIdentity mirrors the C# full signed-identity verification.
+// VerifySignedIdentity performs the full signed-identity verification.
 func (m RegionalRuntimeMember) VerifySignedIdentity() bool {
 	return RegionalRuntimeMembershipIdentityVerify(m)
 }
 
-// CanonicalMaterial mirrors the C# CanonicalMaterial: every record field in a
-// fixed order with fixed separators, timestamps as invariant Unix milliseconds.
+// CanonicalMaterial renders every record field in a fixed order with fixed
+// separators, timestamps as invariant Unix milliseconds.
 func (m RegionalRuntimeMember) CanonicalMaterial() string {
 	return strings.Join([]string{
 		fmt.Sprintf("%d", m.SchemaVersion),
@@ -102,8 +101,7 @@ func (m RegionalRuntimeMember) CanonicalMaterial() string {
 	}, "\n")
 }
 
-// RegionalRuntimeMembershipCondition mirrors the C# enum (serialized as
-// strings by the C# JsonStringEnumConverter).
+// RegionalRuntimeMembershipCondition serializes as its string name.
 type RegionalRuntimeMembershipCondition int
 
 const (
@@ -125,7 +123,6 @@ func (c RegionalRuntimeMembershipCondition) String() string {
 	}
 }
 
-// RegionalRuntimeMembershipHealth mirrors the C# record.
 type RegionalRuntimeMembershipHealth struct {
 	ExpectedControllers             int                                `json:"ExpectedControllers"`
 	ActiveControllers               int                                `json:"ActiveControllers"`
@@ -141,9 +138,9 @@ type RegionalRuntimeMembershipHealth struct {
 	ObservedAt                      time.Time                          `json:"ObservedAt"`
 }
 
-// RegionalRuntimeMembershipHealthEvaluate mirrors the static Evaluate. The
-// conflictingControllers count is the CURRENT number of conflicting sessions: a
-// gauge bounded by the observed slots, never a lifetime counter.
+// RegionalRuntimeMembershipHealthEvaluate evaluates membership health. The
+// conflictingControllers count is the CURRENT number of conflicting sessions:
+// a gauge bounded by the observed slots, never a lifetime counter.
 func RegionalRuntimeMembershipHealthEvaluate(
 	cell string,
 	expectedControllers int,
@@ -237,8 +234,7 @@ func RegionalRuntimeMembershipHealthEvaluate(
 	}, nil
 }
 
-// Validate mirrors the C# Validate (panics with the C# message on invalid
-// state, mirroring the InvalidOperationException).
+// Validate panics on structurally invalid state.
 func (h RegionalRuntimeMembershipHealth) Validate() {
 	expectedMissing := maxInt(0, h.ExpectedControllers-h.ActiveControllers)
 	expectedUnexpected := maxInt(0, h.ActiveControllers-h.ExpectedControllers)
@@ -264,7 +260,7 @@ func (h RegionalRuntimeMembershipHealth) Validate() {
 	}
 }
 
-// Equal mirrors C# record equality over the health projection.
+// Equal compares the health projection field by field.
 func (h RegionalRuntimeMembershipHealth) Equal(other RegionalRuntimeMembershipHealth) bool {
 	return h.ExpectedControllers == other.ExpectedControllers &&
 		h.ActiveControllers == other.ActiveControllers &&
@@ -280,7 +276,6 @@ func (h RegionalRuntimeMembershipHealth) Equal(other RegionalRuntimeMembershipHe
 		h.ObservedAt.Equal(other.ObservedAt)
 }
 
-// RegionalRuntimeMembershipSnapshot mirrors the C# record.
 type RegionalRuntimeMembershipSnapshot struct {
 	SchemaVersion int                             `json:"SchemaVersion"`
 	Cell          string                          `json:"Cell"`
@@ -289,7 +284,6 @@ type RegionalRuntimeMembershipSnapshot struct {
 	Members       []RegionalRuntimeMember         `json:"Members"`
 }
 
-// Validate mirrors the C# Validate.
 func (s *RegionalRuntimeMembershipSnapshot) Validate(expectedCell string) error {
 	s.Health.Validate()
 	if s.SchemaVersion != protocol.ProtocolVersion.Current() || s.Cell != expectedCell ||
@@ -324,8 +318,8 @@ func (s *RegionalRuntimeMembershipSnapshot) Validate(expectedCell string) error 
 	return nil
 }
 
-// RegionalRuntimeMembership mirrors the C# class: one controller's renewable
-// KV registration and the watched, active peer view.
+// RegionalRuntimeMembership is one controller's renewable KV registration
+// and the watched, active peer view.
 type RegionalRuntimeMembership struct {
 	HeartbeatInterval time.Duration
 	LeaseDuration     time.Duration
@@ -364,7 +358,8 @@ type RegionalRuntimeMembership struct {
 	heartbeatStarted int32
 }
 
-// RegionalRuntimeMembershipStartAsync mirrors the C# StartAsync.
+// RegionalRuntimeMembershipStartAsync claims the membership slot and starts
+// the watch and heartbeat loops.
 func RegionalRuntimeMembershipStartAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
@@ -469,8 +464,8 @@ func RegionalRuntimeMembershipStartAsync(
 	return membership, nil
 }
 
-// Completion mirrors the C# Completion: the first loop to stop completes the
-// membership.
+// Completion returns a channel closed when the first loop stops and thereby
+// completes the membership.
 func (m *RegionalRuntimeMembership) Completion() <-chan struct{} {
 	if m == nil || m.watchLoopDone == nil {
 		return nil
@@ -493,7 +488,6 @@ func (m *RegionalRuntimeMembership) Completion() <-chan struct{} {
 	return done
 }
 
-// Snapshot mirrors the C# Snapshot property.
 func (m *RegionalRuntimeMembership) Snapshot() RegionalRuntimeMembershipSnapshot {
 	if m == nil || m.topology == nil {
 		return RegionalRuntimeMembershipSnapshot{}
@@ -560,7 +554,6 @@ func (m *RegionalRuntimeMembership) Snapshot() RegionalRuntimeMembershipSnapshot
 	}
 }
 
-// Health mirrors the C# Health property.
 func (m *RegionalRuntimeMembership) Health() RegionalRuntimeMembershipHealth {
 	return m.Snapshot().Health
 }
@@ -578,7 +571,7 @@ func (m *RegionalRuntimeMembership) LastFailure() error {
 	return nil
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops the loops and releases the membership.
 func (m *RegionalRuntimeMembership) Dispose() error {
 	if m == nil {
 		return nil
@@ -963,7 +956,7 @@ func anyStringWhitespace(values []string) bool {
 	return false
 }
 
-func isDotNetGuidNoHyphens(value string) bool {
+func isUUIDNoHyphens(value string) bool {
 	if len(value) != 32 {
 		return false
 	}

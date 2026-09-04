@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// RegionalControllerStatus ports the C# record (JSON source-generated context
-// used Web defaults for the wire shape).
+// RegionalControllerStatus is the controller status document; JSON tags
+// serialize camelCase fields.
 type RegionalControllerStatus struct {
 	SchemaVersion           int        `json:"schemaVersion"`
 	Cell                    string     `json:"cell"`
@@ -24,8 +24,7 @@ type RegionalControllerStatus struct {
 	AuthorityLeaseExpiresAt *time.Time `json:"authorityLeaseExpiresAt"`
 }
 
-// Validate ports RegionalControllerStatus.Validate; it mirrors the C#
-// InvalidOperationException on any invalid member.
+// Validate returns a single error when any member is invalid.
 func (s *RegionalControllerStatus) Validate(expectedCell string) error {
 	invalid := s.SchemaVersion != 2 || s.Cell != expectedCell ||
 		s.Instance == "" || s.ControlReplicas != 1 && s.ControlReplicas != 3 && s.ControlReplicas != 5 ||

@@ -10,28 +10,31 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// GlobalCellDirectoryLifecycleInitialRetryDelay mirrors the C# constant.
+// GlobalCellDirectoryLifecycleInitialRetryDelay is the initial supervision
+// retry delay.
 const GlobalCellDirectoryLifecycleInitialRetryDelay = 250 * time.Millisecond
 
-// GlobalCellDirectoryLifecycleMaximumRetryDelay mirrors the C# constant.
+// GlobalCellDirectoryLifecycleMaximumRetryDelay caps the supervision retry
+// delay.
 const GlobalCellDirectoryLifecycleMaximumRetryDelay = 5 * time.Second
 
-// IGlobalCellDirectoryRuntimeInstance mirrors the C# interface.
+// IGlobalCellDirectoryRuntimeInstance is one running directory runtime.
 type IGlobalCellDirectoryRuntimeInstance interface {
 	Snapshot() GlobalCellDirectorySnapshot
 	Completion() <-chan struct{}
 	Dispose() error
 }
 
-// IGlobalCellDirectoryServiceRuntimeInstance mirrors the C# interface.
+// IGlobalCellDirectoryServiceRuntimeInstance is one running directory query
+// service.
 type IGlobalCellDirectoryServiceRuntimeInstance interface {
 	Dispose()
 }
 
-// GlobalCellDirectoryLifecycle mirrors the C# class: supervises the optional
-// global directory without making regional startup depend on its
-// availability. A running instance is replaced after an unexpected
-// completion, while the last failure remains observable.
+// GlobalCellDirectoryLifecycle supervises the optional global directory
+// without making regional startup depend on its availability. A running
+// instance is replaced after an unexpected completion, while the last failure
+// remains observable.
 type GlobalCellDirectoryLifecycle struct {
 	startDirectory func(context.Context) (IGlobalCellDirectoryRuntimeInstance, error)
 	startService   func(context.Context, IGlobalCellDirectoryRuntimeInstance) (IGlobalCellDirectoryServiceRuntimeInstance, error)
@@ -55,7 +58,7 @@ type valueGlobalCellDirectoryRuntimeBox struct {
 
 type errorBox struct{ err error }
 
-// GlobalCellDirectoryLifecycleStart mirrors the C# Start.
+// GlobalCellDirectoryLifecycleStart starts supervision from configuration.
 func GlobalCellDirectoryLifecycleStart(
 	directoryConfiguration *GlobalDirectoryNatsConfiguration,
 	serviceConfiguration *GlobalDirectoryServiceNatsConfiguration,
@@ -106,7 +109,8 @@ func GlobalCellDirectoryLifecycleStart(
 		observeFailure)
 }
 
-// GlobalCellDirectoryLifecycleStartForTesting mirrors the C# StartForTesting.
+// GlobalCellDirectoryLifecycleStartForTesting starts supervision with the
+// given runtime factories.
 func GlobalCellDirectoryLifecycleStartForTesting(
 	startDirectory func(context.Context) (IGlobalCellDirectoryRuntimeInstance, error),
 	startService func(context.Context, IGlobalCellDirectoryRuntimeInstance) (IGlobalCellDirectoryServiceRuntimeInstance, error),
@@ -147,7 +151,7 @@ func GlobalCellDirectoryLifecycleStartForTesting(
 	return lifecycle, nil
 }
 
-// Completion mirrors the C# Completion.
+// Completion is closed when supervision has stopped.
 func (l *GlobalCellDirectoryLifecycle) Completion() <-chan struct{} {
 	if l == nil {
 		return nil
@@ -155,8 +159,8 @@ func (l *GlobalCellDirectoryLifecycle) Completion() <-chan struct{} {
 	return l.supervision
 }
 
-// Snapshot mirrors the C# Snapshot: the active directory projection or the
-// unavailable snapshot.
+// Snapshot returns the active directory projection or the unavailable
+// snapshot.
 func (l *GlobalCellDirectoryLifecycle) Snapshot() GlobalCellDirectorySnapshot {
 	if l == nil {
 		return globalCellDirectoryLifecycleUnavailableSnapshot()
@@ -168,12 +172,12 @@ func (l *GlobalCellDirectoryLifecycle) Snapshot() GlobalCellDirectorySnapshot {
 	return globalCellDirectoryLifecycleUnavailableSnapshot()
 }
 
-// Health mirrors the C# Health.
+// Health is the active projection's condition.
 func (l *GlobalCellDirectoryLifecycle) Health() GlobalCellDirectoryCondition {
 	return l.Snapshot().Condition
 }
 
-// LastFailure mirrors the C# LastFailure.
+// LastFailure is the most recent supervision failure, if any.
 func (l *GlobalCellDirectoryLifecycle) LastFailure() error {
 	if l == nil {
 		return nil
@@ -185,7 +189,7 @@ func (l *GlobalCellDirectoryLifecycle) LastFailure() error {
 	return nil
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops supervision and waits for it to finish.
 func (l *GlobalCellDirectoryLifecycle) Dispose() {
 	if l == nil {
 		return

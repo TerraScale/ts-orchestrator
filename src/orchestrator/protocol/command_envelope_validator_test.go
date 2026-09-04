@@ -178,8 +178,8 @@ func TestEqualValidityEndpointsAreAllowedButReversedWindowIsNeverResurrected(t *
 	reversed := validEnvelope(
 		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(protocolNow.Add(24 * time.Hour)) },
 		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(protocolNow.Add(-24 * time.Hour)) })
-	// TimeSpan.MaxValue is far beyond Go's duration range; the largest duration
-	// stands in for it.
+	// An effectively unbounded clock skew: the largest Go duration stands in
+	// for an infinite bound.
 	context := validContext(func(o *validContextOption) { o.skew = ptrOf(time.Duration(1<<62 - 1)) })
 
 	if !CommandEnvelopeValidator.Validate(&equal, context, protocolNow).IsValid() {
@@ -226,21 +226,21 @@ func TestClockSkewBoundariesAreInclusiveAndOneTickBeyondIsRejected(t *testing.T)
 
 func TestSkewComparisonsDoNotOverflowAtDatetimeExtremes(t *testing.T) {
 	context := validContext(func(o *validContextOption) { o.skew = ptrOf(time.Duration(0)) })
-	dotNetMaxValue := time.Date(9999, 12, 31, 23, 59, 59, 999999900, time.UTC)
-	dotNetMinValue := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxWireTime := time.Date(9999, 12, 31, 23, 59, 59, 999999900, time.UTC)
+	minWireTime := time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
 	farFuture := validEnvelope(
-		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(dotNetMaxValue.Add(-100)) },
-		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(dotNetMaxValue) })
+		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(maxWireTime.Add(-100)) },
+		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(maxWireTime) })
 	farPast := validEnvelope(
-		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(dotNetMinValue) },
-		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(dotNetMinValue.Add(100)) })
+		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(minWireTime) },
+		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(minWireTime.Add(100)) })
 
-	if CommandEnvelopeValidator.Validate(&farFuture, context, dotNetMinValue).Error !=
+	if CommandEnvelopeValidator.Validate(&farFuture, context, minWireTime).Error !=
 		CommandValidationErrorNotYetValid {
 		t.Fatal("far-future envelope must be NotYetValid")
 	}
 
-	if CommandEnvelopeValidator.Validate(&farPast, context, dotNetMaxValue).Error !=
+	if CommandEnvelopeValidator.Validate(&farPast, context, maxWireTime).Error !=
 		CommandValidationErrorExpired {
 		t.Fatal("far-past envelope must be Expired")
 	}

@@ -178,8 +178,8 @@ func (r *NatsJournalWriterRuntime) Close() error {
 	return nil
 }
 
-// Dispose is the synchronous Go lifecycle spelling of the C# DisposeAsync
-// boundary. Resource teardown itself is synchronous and idempotent.
+// Dispose releases the journal writer's resources; teardown is synchronous
+// and idempotent.
 func (r *NatsJournalWriterRuntime) Dispose() error { return r.Close() }
 
 func journalWriterConfigurationComplete(journal *NatsAuthoritativeJournalConfiguration) bool {

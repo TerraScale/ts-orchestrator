@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-// GlobalNatsRole mirrors the C# enum.
+// GlobalNatsRole identifies one global-control role.
 type GlobalNatsRole int
 
 const (
@@ -31,13 +31,13 @@ func (r GlobalNatsRole) String() string {
 	}
 }
 
-// GlobalNatsPermissionPlan mirrors the C# record: ordinally sorted allowlists.
+// GlobalNatsPermissionPlan is a pair of ordinally sorted allowlists.
 type GlobalNatsPermissionPlan struct {
 	Publish   []string
 	Subscribe []string
 }
 
-// NewGlobalNatsPermissionPlan mirrors the C# constructor.
+// NewGlobalNatsPermissionPlan copies the allowlists and sorts them ordinally.
 func NewGlobalNatsPermissionPlan(publish, subscribe []string) *GlobalNatsPermissionPlan {
 	orderedPublish := append([]string(nil), publish...)
 	sort.Strings(orderedPublish)
@@ -47,14 +47,13 @@ func NewGlobalNatsPermissionPlan(publish, subscribe []string) *GlobalNatsPermiss
 	return &GlobalNatsPermissionPlan{Publish: orderedPublish, Subscribe: orderedSubscribe}
 }
 
-// GlobalNatsPermissions mirrors the C# static class: the complete NATS subject
-// permissions for one global-control role. Callers grant the returned subjects
-// as an allowlist with no implicit defaults.
+// GlobalNatsPermissions computes the complete NATS subject permissions for one
+// global-control role. Callers grant the returned subjects as an allowlist
+// with no implicit defaults.
 var GlobalNatsPermissions globalNatsPermissions
 
 type globalNatsPermissions struct{}
 
-// GlobalNatsPermissionsCreate mirrors GlobalNatsPermissions.Create.
 func GlobalNatsPermissionsCreate(cell string, role GlobalNatsRole) (*GlobalNatsPermissionPlan, error) {
 	if !messagingCellTokenIsValid(cell) {
 		return nil, errors.New(
@@ -179,9 +178,9 @@ func globalNatsObjectStorePermissions(bucket string) []string {
 	}
 }
 
-// globalNatsKeyValueWatchPermissions mirrors KeyValueWatchPermissions: KV key
-// enumeration (retention/pruning scans and directory watches) as implemented by
-// NATS.Net 2.7.2 creates an ephemeral ordered push consumer via one
+// globalNatsKeyValueWatchPermissions grants what a JetStream KV key
+// enumeration (retention/pruning scans and directory watches) needs: it
+// creates an ephemeral ordered push consumer via one
 // $JS.API.CONSUMER.CREATE.KV_{bucket}.<ephemeral>.<filter> publish and receives
 // every entry on a fresh _INBOX.<nuid>.* subscription. It never creates
 // durable consumers, never pulls (MSG.NEXT), never acknowledges ($JS.ACK), and

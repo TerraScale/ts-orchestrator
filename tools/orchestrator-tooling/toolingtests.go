@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/ToolingTests.cs: the
-// repository self-test suite behind the `test` command.
+// The repository self-test suite behind the `test` command.
 package main
 
 import (
@@ -22,7 +21,7 @@ import (
 
 type toolingTests struct{}
 
-// ToolingTests mirrors the C# static class.
+// ToolingTests implements the `test` command.
 var ToolingTests = toolingTests{}
 
 type toolingTest struct {
@@ -52,8 +51,8 @@ func (toolingTests) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// runToolingTestBody mirrors the C# per-test catch: any panic becomes a
-// recorded failure carrying its message.
+// runToolingTestBody isolates one test body: any panic becomes a recorded
+// failure carrying its message.
 func runToolingTestBody(body func()) (failure error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -539,8 +538,7 @@ func developmentValidationLeaseRecoversStaleHolder() {
 }
 
 func developmentBoundedProcessObservation() {
-	// The C# suite observed `dotnet --version`; the Go toolchain equivalent is
-	// `go version`.
+	// The suite observes the Go toolchain version with `go version`.
 	result, err := BoundedProcessRunner.Run(
 		"go",
 		[]string{"version"},
@@ -767,7 +765,7 @@ func readHolderBoundedStderr(holder *leaseHolderProcess) string {
 	}
 }
 
-// Document mutation helpers mirroring the C# Mutate/Delete/Set/Resolve.
+// Document mutation helpers: Mutate/Delete/Set/Resolve.
 
 type aliasPair struct {
 	Alias  string
@@ -841,7 +839,7 @@ func (o *JsonObject) deepClone() *JsonObject {
 	return mustDocument2(deepCloneJSON(o))
 }
 
-// Assertion helpers mirroring the C# Assert* set.
+// Assertion helpers.
 
 func assertValidErrors(validationErrors []string) {
 	if len(validationErrors) != 0 {
@@ -906,7 +904,7 @@ func intJsonArray(values ...int) *JsonArray {
 	return array
 }
 
-// must helpers turn (value, error) returns into the C# exception flow.
+// must helpers turn (value, error) returns into panics.
 
 func mustDocument(object *JsonObject, err error) *JsonObject {
 	if err != nil {

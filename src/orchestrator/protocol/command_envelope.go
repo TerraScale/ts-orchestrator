@@ -11,26 +11,26 @@ import (
 )
 
 const (
-	dotNetTicksPerSecond = int64(10_000_000)
-	// dotNetEpochTickOffset is the tick count between 0001-01-01T00:00:00Z and
-	// 1970-01-01T00:00:00Z, the .NET TimeSpan/DateTimeOffset epoch difference.
-	dotNetEpochTickOffset = int64(621355968000000000)
+	ticksPerSecond = int64(10_000_000)
+	// epochTickOffset is the tick count between 0001-01-01T00:00:00Z and
+	// 1970-01-01T00:00:00Z: the signed material counts 100-nanosecond ticks
+	// from year 1, while time.Time counts seconds from the Unix epoch.
+	epochTickOffset = int64(621355968000000000)
 )
 
-// dotNetTicks returns DateTimeOffset.Ticks: the local wall-clock tick count
-// (100-nanosecond units since 0001-01-01), not UTC instant ticks. The offset is
-// serialized separately by CommandSignedMaterialCodec, matching the C# wire
-// contract.
-func dotNetTicks(t time.Time) int64 {
+// wallClockTicks returns the local wall-clock tick count (100-nanosecond units
+// since 0001-01-01), not the UTC instant tick count. The offset is serialized
+// separately by CommandSignedMaterialCodec, matching the wire contract.
+func wallClockTicks(t time.Time) int64 {
 	_, offsetSeconds := t.Zone()
-	return (t.Unix()+int64(offsetSeconds))*dotNetTicksPerSecond +
-		int64(t.Nanosecond())/100 + dotNetEpochTickOffset
+	return (t.Unix()+int64(offsetSeconds))*ticksPerSecond +
+		int64(t.Nanosecond())/100 + epochTickOffset
 }
 
-// dotNetOffsetTicks returns the .NET tick count of t's UTC offset.
-func dotNetOffsetTicks(t time.Time) int64 {
+// offsetTicks returns t's UTC offset in 100-nanosecond ticks.
+func offsetTicks(t time.Time) int64 {
 	_, offsetSeconds := t.Zone()
-	return int64(offsetSeconds) * dotNetTicksPerSecond
+	return int64(offsetSeconds) * ticksPerSecond
 }
 
 // timeZoneOffset returns the UTC offset of t as a duration.
@@ -39,10 +39,10 @@ func timeZoneOffset(t time.Time) time.Duration {
 	return time.Duration(offsetSeconds) * time.Second
 }
 
-// formatDotNetRoundTrip mirrors the C# DateTimeOffset "O" format string:
-// yyyy-MM-ddTHH:mm:ss.fffffffzzz with exactly seven fractional digits and a
-// signed ±hh:mm offset.
-func formatDotNetRoundTrip(t time.Time) string {
+// formatRFC3339Fixed renders t as RFC 3339 with exactly 7 fractional digits
+// and a signed ±hh:mm offset, matching the signed wire format
+// (2006-01-02T15:04:05.0000000Z07:00).
+func formatRFC3339Fixed(t time.Time) string {
 	var builder strings.Builder
 	builder.WriteString(t.Format("2006-01-02T15:04:05"))
 	builder.WriteByte('.')
@@ -94,7 +94,7 @@ type CommandEnvelope struct {
 	SignedMaterial    CommandSignedMaterial
 }
 
-// NewCommandEnvelope mirrors the CommandEnvelope constructor; it derives the
+// NewCommandEnvelope assembles the envelope and derives the
 // signed material from every covered field.
 func NewCommandEnvelope(
 	protocolVersion ProtocolRevision,
@@ -142,7 +142,7 @@ func NewCommandEnvelope(
 	}
 }
 
-// String mirrors the C# ToString: payload, digest, and signature are redacted.
+// String renders the envelope with payload, digest, and signature redacted.
 func (e CommandEnvelope) String() string {
 	return "CommandEnvelope { ProtocolVersion = " + e.ProtocolVersion.String() +
 		", Cell = " + e.Cell.String() +
@@ -151,8 +151,8 @@ func (e CommandEnvelope) String() string {
 		", WriterEpoch = " + e.WriterEpoch.String() +
 		", OperationId = " + e.OperationId.String() +
 		", IdempotencyKey = " + e.IdempotencyKey.String() +
-		", IssuedAt = " + formatDotNetRoundTrip(e.IssuedAt) +
-		", ExpiresAt = " + formatDotNetRoundTrip(e.ExpiresAt) +
+		", IssuedAt = " + formatRFC3339Fixed(e.IssuedAt) +
+		", ExpiresAt = " + formatRFC3339Fixed(e.ExpiresAt) +
 		", Attempt = " + e.Attempt.String() +
 		", Payload = <redacted>, PayloadDigest = <redacted>, Signature = <redacted> }"
 }
@@ -176,5 +176,5 @@ type CommandSignedMaterial struct {
 	PayloadDigest     PayloadDigest
 }
 
-// String mirrors the C# ToString: the material never renders its contents.
+// String never renders the material contents.
 func (CommandSignedMaterial) String() string { return "<command-signed-material>" }

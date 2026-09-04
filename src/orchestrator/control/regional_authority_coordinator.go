@@ -14,7 +14,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// RegionalAuthoritySnapshot mirrors the C# record.
 type RegionalAuthoritySnapshot struct {
 	State          string
 	IsLeader       bool
@@ -25,7 +24,6 @@ type RegionalAuthoritySnapshot struct {
 	Error          *string
 }
 
-// Ready mirrors the C# Ready property.
 func (s RegionalAuthoritySnapshot) Ready() bool {
 	if s.State != "leader" && s.State != "follower" {
 		return false
@@ -42,7 +40,7 @@ func (s RegionalAuthoritySnapshot) Ready() bool {
 	return s.LeaseExpiresAt != nil && s.LeaseExpiresAt.After(time.Now().UTC())
 }
 
-// Equal mirrors C# record equality.
+// Equal compares the snapshot field by field.
 func (s RegionalAuthoritySnapshot) Equal(other RegionalAuthoritySnapshot) bool {
 	return s.State == other.State &&
 		s.IsLeader == other.IsLeader &&
@@ -69,8 +67,8 @@ func optionalStringEqual(first, second *string) bool {
 	return *first == *second
 }
 
-// RegionalAuthorityLeaseDocument mirrors the C# record. JSON tags mirror the
-// C# source-generated context (default options: PascalCase names).
+// RegionalAuthorityLeaseDocument is the KV lease record. JSON tags serialize
+// PascalCase names.
 type RegionalAuthorityLeaseDocument struct {
 	SchemaVersion        int       `json:"SchemaVersion"`
 	AuthorityId          string    `json:"AuthorityId"`
@@ -81,7 +79,6 @@ type RegionalAuthorityLeaseDocument struct {
 	DurationMilliseconds int64     `json:"DurationMilliseconds"`
 }
 
-// RegionalAuthorityLeaseDocumentFrom mirrors the C# From factory.
 func RegionalAuthorityLeaseDocumentFrom(
 	authorityId string,
 	epoch int64,
@@ -98,7 +95,6 @@ func RegionalAuthorityLeaseDocumentFrom(
 	}
 }
 
-// ToLease mirrors the C# ToLease.
 func (d RegionalAuthorityLeaseDocument) ToLease() (AuthorityLease, error) {
 	if err := d.Validate(); err != nil {
 		return AuthorityLease{}, err
@@ -112,7 +108,6 @@ func (d RegionalAuthorityLeaseDocument) ToLease() (AuthorityLease, error) {
 	}, nil
 }
 
-// Validate mirrors the C# Validate.
 func (d RegionalAuthorityLeaseDocument) Validate() error {
 	if d.SchemaVersion != 1 || d.AuthorityId == "" || d.Epoch <= 0 ||
 		d.CandidateId == "" || d.LeaseId == "" ||
@@ -124,8 +119,8 @@ func (d RegionalAuthorityLeaseDocument) Validate() error {
 	return nil
 }
 
-// RegionalAuthorityCoordinator mirrors the C# class: the KV-backed authority
-// lease loop that publishes the RegionalAuthoritySnapshot.
+// RegionalAuthorityCoordinator is the KV-backed authority lease loop that
+// publishes the RegionalAuthoritySnapshot.
 type RegionalAuthorityCoordinator struct {
 	leaseDuration time.Duration
 	tickInterval  time.Duration
@@ -156,7 +151,8 @@ var regionalAuthoritySnapshotInitial = RegionalAuthoritySnapshot{
 	Error:      func() *string { value := "authority-not-observed"; return &value }(),
 }
 
-// RegionalAuthorityCoordinatorStartAsync mirrors the C# StartAsync.
+// RegionalAuthorityCoordinatorStartAsync starts the regional authority lease
+// loop for one cell's controller.
 func RegionalAuthorityCoordinatorStartAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
@@ -183,7 +179,8 @@ func RegionalAuthorityCoordinatorStartAsync(
 	return coordinator, nil
 }
 
-// RegionalAuthorityCoordinatorStartGlobalAsync mirrors the C# StartGlobalAsync.
+// RegionalAuthorityCoordinatorStartGlobalAsync starts the global authority
+// lease loop.
 func RegionalAuthorityCoordinatorStartGlobalAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
@@ -275,7 +272,6 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 	}()
 }
 
-// Snapshot mirrors the C# Snapshot property.
 func (c *RegionalAuthorityCoordinator) Snapshot() RegionalAuthoritySnapshot {
 	if c == nil {
 		return RegionalAuthoritySnapshot{}
@@ -286,7 +282,6 @@ func (c *RegionalAuthorityCoordinator) Snapshot() RegionalAuthoritySnapshot {
 	return c.snapshot
 }
 
-// Completion mirrors the C# Completion task.
 func (c *RegionalAuthorityCoordinator) Completion() <-chan struct{} {
 	if c == nil {
 		return nil
@@ -294,7 +289,7 @@ func (c *RegionalAuthorityCoordinator) Completion() <-chan struct{} {
 	return c.loopDone
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops the lease loop.
 func (c *RegionalAuthorityCoordinator) Dispose() {
 	if c == nil {
 		return
@@ -418,8 +413,8 @@ func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent Co
 		(errors.Is(err, jetstream.ErrKeyExists) ||
 			errors.Is(err, jetstream.ErrKeyRevisionMismatch) ||
 			errors.Is(err, jetstream.ErrKeyNotFound)) {
-		// NATS.Net may surface a simultaneous create loser as KeyNotFound while
-		// resolving the failed create response. It is still a normal CAS
+		// A simultaneous create loser may surface as KeyNotFound while the
+		// client resolves the failed create response. It is still a normal CAS
 		// conflict: re-read the authoritative key and enter the follower path.
 		observed, readErr := c.read(ctx)
 		if readErr != nil {
@@ -524,7 +519,8 @@ func (c *RegionalAuthorityCoordinator) read(ctx context.Context) (AuthorityObser
 	}, nil
 }
 
-// RegionalAuthorityCoordinatorHealth mirrors the C# internal Health factory.
+// RegionalAuthorityCoordinatorHealth builds the AuthorityHealth input the
+// coordinator feeds the decision engine.
 func RegionalAuthorityCoordinatorHealth(now time.Time, confirmedLeaseAge time.Duration) AuthorityHealth {
 	return regionalAuthorityHealth(now, confirmedLeaseAge)
 }

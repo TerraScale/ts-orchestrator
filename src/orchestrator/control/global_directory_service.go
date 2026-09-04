@@ -20,7 +20,8 @@ type GlobalCellDirectoryServiceRuntime struct {
 	disposed int32
 }
 
-// GlobalCellDirectoryServiceRuntimeStartAsync mirrors the C# StartAsync.
+// GlobalCellDirectoryServiceRuntimeStartAsync starts the GRU read-only
+// directory query service.
 func GlobalCellDirectoryServiceRuntimeStartAsync(
 	ctx context.Context,
 	configuration *GlobalDirectoryServiceNatsConfiguration,
@@ -123,7 +124,7 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 	return &GlobalCellDirectoryServiceRuntime{client: client, service: service}, nil
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops the service and closes the connection.
 func (r *GlobalCellDirectoryServiceRuntime) Dispose() {
 	if r == nil {
 		return

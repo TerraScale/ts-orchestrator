@@ -35,7 +35,7 @@ func (s *ConcreteSubject) Tokens() []string {
 	return s.tokens
 }
 
-// ConcreteSubjectTryParse mirrors ConcreteSubject.TryParse.
+// ConcreteSubjectTryParse parses one concrete subject; wildcards are rejected.
 func ConcreteSubjectTryParse(value string, limits *SubjectGrammarLimits) (*ConcreteSubject, SubjectGrammarError) {
 	tokens, err := subjectGrammarParserInstance.tryTokenize(value, limits)
 	if err != SubjectGrammarErrorNone {
@@ -51,7 +51,7 @@ func ConcreteSubjectTryParse(value string, limits *SubjectGrammarLimits) (*Concr
 	return &ConcreteSubject{value: value, tokens: tokens}, SubjectGrammarErrorNone
 }
 
-// Equal mirrors ConcreteSubject.Equals (ordinal value equality).
+// Equal is ordinal value equality.
 func (s *ConcreteSubject) Equal(other *ConcreteSubject) bool {
 	if s == nil || other == nil {
 		return s == other
@@ -60,7 +60,7 @@ func (s *ConcreteSubject) Equal(other *ConcreteSubject) bool {
 	return s.value == other.value
 }
 
-// CompareTo mirrors ConcreteSubject.CompareTo (ordinal, nil sorts last).
+// CompareTo is ordinal; nil sorts last.
 func (s *ConcreteSubject) CompareTo(other *ConcreteSubject) int {
 	if other == nil {
 		return 1

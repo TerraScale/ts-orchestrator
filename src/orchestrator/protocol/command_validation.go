@@ -8,7 +8,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 )
 
-// VerificationOutcome mirrors the VerificationOutcome enum.
+// VerificationOutcome is the outcome of one verifier call.
 type VerificationOutcome int
 
 const (
@@ -16,19 +16,17 @@ const (
 	VerificationOutcomeValid   VerificationOutcome = 1
 )
 
-// IPayloadDigestVerifier is the one-method port of the C# interface of the
-// same name; the interface keeps its C# name.
+// IPayloadDigestVerifier is the payload-digest verifier seam: one method.
 type IPayloadDigestVerifier interface {
 	Verify(payload OpaquePayload, expectedDigest PayloadDigest) VerificationOutcome
 }
 
-// ICommandSignatureVerifier is the one-method port of the C# interface of the
-// same name.
+// ICommandSignatureVerifier is the signature verifier seam: one method.
 type ICommandSignatureVerifier interface {
 	Verify(signedMaterial CommandSignedMaterial, signature OpaqueSignature) VerificationOutcome
 }
 
-// CommandValidationError mirrors the CommandValidationError enum.
+// CommandValidationError classifies why validation rejected an envelope.
 type CommandValidationError int
 
 const (
@@ -89,7 +87,7 @@ func (e CommandValidationError) String() string {
 	}
 }
 
-// CommandValidationResult mirrors the readonly record struct of the same name.
+// CommandValidationResult is the result of one envelope validation.
 // Acceptance is nil unless the envelope was accepted.
 type CommandValidationResult struct {
 	Error      CommandValidationError
@@ -99,7 +97,7 @@ type CommandValidationResult struct {
 // IsValid reports whether validation accepted the envelope.
 func (r CommandValidationResult) IsValid() bool { return r.Error == CommandValidationErrorNone }
 
-// Equal mirrors the record-struct value equality (acceptance compares by value).
+// Equal is value equality; the acceptance compares by value.
 func (r CommandValidationResult) Equal(other CommandValidationResult) bool {
 	if r.Error != other.Error {
 		return false
@@ -169,8 +167,7 @@ func newCommandAcceptance(envelope *CommandEnvelope, validatedAt time.Time) *Com
 	}
 }
 
-// Equal mirrors CommandAcceptance.Equals (field-by-field value equality;
-// instants compare as instants).
+// Equal is field-by-field value equality; instants compare as instants.
 func (a CommandAcceptance) Equal(other CommandAcceptance) bool {
 	return a.ProtocolVersion == other.ProtocolVersion &&
 		a.Cell == other.Cell &&
@@ -187,7 +184,7 @@ func (a CommandAcceptance) Equal(other CommandAcceptance) bool {
 		a.ValidatedAt.Equal(other.ValidatedAt)
 }
 
-// String mirrors the C# ToString: digest and signature are redacted.
+// String renders the acceptance with digest and signature redacted.
 func (a CommandAcceptance) String() string {
 	return "CommandAcceptance { ProtocolVersion = " + a.ProtocolVersion.String() +
 		", Cell = " + a.Cell.String() +
@@ -196,11 +193,11 @@ func (a CommandAcceptance) String() string {
 		", WriterEpoch = " + a.WriterEpoch.String() +
 		", OperationId = " + a.OperationId.String() +
 		", IdempotencyKey = " + a.IdempotencyKey.String() +
-		", IssuedAt = " + formatDotNetRoundTrip(a.IssuedAt) +
-		", ExpiresAt = " + formatDotNetRoundTrip(a.ExpiresAt) +
+		", IssuedAt = " + formatRFC3339Fixed(a.IssuedAt) +
+		", ExpiresAt = " + formatRFC3339Fixed(a.ExpiresAt) +
 		", Attempt = " + a.Attempt.String() +
 		", PayloadDigest = <redacted>, Signature = <redacted>, ValidatedAt = " +
-		formatDotNetRoundTrip(a.ValidatedAt) + " }"
+		formatRFC3339Fixed(a.ValidatedAt) + " }"
 }
 
 // CommandValidationContext is the frozen admission context of one validator.
@@ -215,9 +212,9 @@ type CommandValidationContext struct {
 	SignatureVerifier        ICommandSignatureVerifier
 }
 
-// NewCommandValidationContext mirrors the C# constructor; it defensively
-// copies the accepted protocol versions and fails when they cannot be captured
-// within the technical input bound (the C# ArgumentException).
+// NewCommandValidationContext defensively copies the accepted protocol
+// versions and fails when they cannot be captured within the technical input
+// bound.
 func NewCommandValidationContext(
 	expectedCell contracts.CellId,
 	expectedAggregateId contracts.AggregateId,
@@ -245,7 +242,7 @@ func NewCommandValidationContext(
 	}, nil
 }
 
-// IsWellFormed mirrors the internal context well-formedness gate.
+// IsWellFormed is the context well-formedness gate.
 func (c *CommandValidationContext) IsWellFormed() bool {
 	if c == nil {
 		return false
@@ -290,8 +287,8 @@ func captureAcceptedProtocolVersions(source []ProtocolRevision) (map[ProtocolRev
 	return captured, nil
 }
 
-// CommandEnvelopeValidator mirrors the C# static class: the pure, deterministic
-// INV-005 command admission validation.
+// CommandEnvelopeValidator is the pure, deterministic INV-005 command
+// admission validation.
 var CommandEnvelopeValidator commandEnvelopeValidator
 
 type commandEnvelopeValidator struct{}
@@ -396,8 +393,7 @@ func commandEnvelopeIsWellFormed(envelope *CommandEnvelope) bool {
 }
 
 // signedMaterialMatchesEnvelope protects the Go representation's mutable
-// exported fields. The C# envelope constructor made this relationship
-// structural, but a caller can construct a Go CommandEnvelope literal with a
+// exported fields: a caller can construct a CommandEnvelope literal with a
 // stale SignedMaterial. Verifying that stale material would otherwise accept
 // a signature for different command metadata.
 func signedMaterialMatchesEnvelope(envelope *CommandEnvelope) bool {

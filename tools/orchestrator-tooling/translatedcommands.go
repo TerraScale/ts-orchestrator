@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/TranslatedCommands.cs: the
-// shared Validation helpers plus the adr-readiness and owner-decisions
+// The shared Validation helpers plus the adr-readiness and owner-decisions
 // command validators.
 package main
 
@@ -17,10 +16,10 @@ import (
 
 type validationStatic struct{}
 
-// Validation mirrors the C# Validation static class.
+// Validation holds the shared document validation helpers.
 var Validation = validationStatic{}
 
-// JsonDocument mirrors Validation.JsonDocument.
+// JsonDocument reports the required keys missing from a document.
 func (validationStatic) JsonDocument(document *JsonObject, name string, requiredKeys ...string) []string {
 	var errors []string
 	for _, key := range requiredKeys {
@@ -31,7 +30,7 @@ func (validationStatic) JsonDocument(document *JsonObject, name string, required
 	return errors
 }
 
-// ValidateLocalAnchors mirrors Validation.ValidateLocalAnchors.
+// ValidateLocalAnchors checks evidence anchors against the repository root.
 func (validationStatic) ValidateLocalAnchors(anchors *JsonArray, where string, errors []string) []string {
 	return validationLocalAnchors(anchors, where, errors, ToolingSupport.Root())
 }
@@ -108,7 +107,7 @@ func hasInvalidAnchorSegment(relative string) bool {
 	return false
 }
 
-// resolveExistingPath mirrors the C# segment-by-segment symlink resolver.
+// resolveExistingPath resolves symlinks segment by segment.
 func resolveExistingPath(path string) string {
 	fullPath := path
 	if !filepath.IsAbs(fullPath) {
@@ -143,7 +142,7 @@ func isSymbolicLink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// readFileLines mirrors File.ReadAllLines (CR, LF, and CRLF line breaks, no
+// readFileLines splits a file into lines (CR, LF, and CRLF line breaks, no
 // trailing empty line).
 func readFileLines(path string) []string {
 	content, err := os.ReadFile(path)
@@ -171,8 +170,8 @@ func anyNonWhitespace(lines []string) bool {
 	return false
 }
 
-// tryParseDateOnly mirrors DateOnly.TryParse for the ISO-8601 invariant date
-// formats used by the checked-in evidence documents.
+// tryParseDateOnly accepts the ISO-8601 date and invariant slash date formats
+// used by the checked-in evidence documents.
 func tryParseDateOnly(value string) bool {
 	for _, layout := range []string{"2006-01-02", "2006/01/02", "01/02/2006"} {
 		if _, err := time.Parse(layout, value); err == nil {
@@ -182,8 +181,7 @@ func tryParseDateOnly(value string) bool {
 	return false
 }
 
-// tryParseDateTimeOffset mirrors DateTimeOffset.TryParse for ISO-8601
-// timestamps with an offset.
+// tryParseDateTimeOffset accepts ISO-8601 timestamps with an offset.
 func tryParseDateTimeOffset(value string) bool {
 	_, err := time.Parse(time.RFC3339, value)
 	return err == nil
@@ -203,7 +201,7 @@ func stringSlicesEqual(actual, expected []string) bool {
 
 type adrReadinessCommand struct{}
 
-// AdrReadinessCommand mirrors the C# static class.
+// AdrReadinessCommand implements the adr-readiness command.
 var AdrReadinessCommand = adrReadinessCommand{}
 
 var adrLanes = []string{
@@ -211,7 +209,7 @@ var adrLanes = []string{
 	"TerraBase", "Delivery", "Operations", "Cross-repository cleanup", "Verification",
 }
 
-// Lanes mirrors AdrReadinessCommand.Lanes.
+// Lanes returns the canonical owner-lane set.
 func (adrReadinessCommand) Lanes() map[string]bool {
 	lanes := make(map[string]bool, len(adrLanes))
 	for _, lane := range adrLanes {
@@ -248,7 +246,7 @@ func (adrReadinessCommand) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// Validate mirrors AdrReadinessCommand.Validate.
+// Validate returns the readiness-index validation errors.
 func (adrReadinessCommand) Validate(document *JsonObject) []string {
 	errors := Validation.JsonDocument(document, "readiness", "schemaVersion", "status", "openOwnerQuestions", "entries")
 	if value, ok := tryInt(document.Get("schemaVersion")); !ok || value != 1 {
@@ -367,7 +365,7 @@ func adrOption(arguments []string, name string) string {
 
 type ownerDecisionCommand struct{}
 
-// OwnerDecisionCommand mirrors the C# static class.
+// OwnerDecisionCommand implements the owner-decisions command.
 var OwnerDecisionCommand = ownerDecisionCommand{}
 
 var ownerDecisionUnits = map[string]string{
@@ -410,7 +408,7 @@ func (ownerDecisionCommand) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// Validate mirrors OwnerDecisionCommand.Validate.
+// Validate returns the owner-decision-packet validation errors.
 func (ownerDecisionCommand) Validate(document *JsonObject) []string {
 	errors := Validation.JsonDocument(document, "packet", "schemaVersion", "status", "recordedResponse", "questions")
 	if value, ok := document.Get("status").(string); !ok || value != "owner-choices-accepted-measurable-targets-pending" {
@@ -555,8 +553,8 @@ func specificationCells(line string) []string {
 	return cells
 }
 
-// nodeDisplay mirrors C# string interpolation of a JsonNode (JsonValue<string>
-// renders unquoted; other nodes render as JSON).
+// nodeDisplay renders a node for display: strings render unquoted, other
+// nodes render as JSON.
 func nodeDisplay(node any) string {
 	if node == nil {
 		return ""
@@ -573,7 +571,8 @@ func nodeDisplay(node any) string {
 
 type decisionReadinessValidator struct{}
 
-// DecisionReadinessValidator mirrors the C# static class.
+// DecisionReadinessValidator cross-checks the decision packet against the
+// readiness index.
 var DecisionReadinessValidator = decisionReadinessValidator{}
 
 var acceptedPolicyProvenance = []string{
@@ -661,7 +660,7 @@ var ownershipFields = []string{"id", "stableOwnerId", "accountableApprovalRole",
 
 var decisionEntryFields = []string{"id", "slug", "title", "status", "ownerLane", "decisionAdrReferences", "sourceAnchors", "evidenceLocations", "controllingInputs", "openInputOwnershipReferences", "availableEvidence", "missingEvidence", "executableDependencies", "closureEvidence", "exitEvidence"}
 
-// Validate mirrors DecisionReadinessValidator.Validate.
+// Validate returns the packet/readiness cross-check errors.
 func (decisionReadinessValidator) Validate(packet *JsonObject, readiness *JsonObject) []string {
 	var errors []string
 	inputs := decisionIds(packet.Get("inputs"), "packet inputs", 21, &errors)

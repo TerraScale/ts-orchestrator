@@ -3,9 +3,8 @@ package protocol
 import "crypto/subtle"
 
 // OpaquePayload is the secret-safe opaque command payload. Its bytes are never
-// rendered by String. The zero value stands in for the C# null reference
-// (IsPresent reports false); CopyFrom of an empty slice is a present, empty
-// payload, which the C# allows.
+// rendered by String. The zero value means no payload (IsPresent reports
+// false); CopyFrom of an empty slice is a present, empty payload.
 type OpaquePayload struct {
 	bytes   []byte
 	present bool
@@ -19,19 +18,19 @@ func (p OpaquePayload) Length() int { return len(p.bytes) }
 // already-admitted signed material after validation.
 func (p OpaquePayload) Bytes() []byte { return append([]byte(nil), p.bytes...) }
 
-// IsPresent distinguishes the zero value (the C# null payload) from a payload
+// IsPresent distinguishes the zero value (no payload) from a payload
 // constructed through CopyFrom, including an empty one.
 func (p OpaquePayload) IsPresent() bool { return p.present }
 
-// OpaquePayloadCopyFrom mirrors OpaquePayload.CopyFrom: it copies the input so
-// later mutation of the caller's slice cannot change the stored payload.
+// OpaquePayloadCopyFrom copies the input so later mutation of the caller's
+// slice cannot change the stored payload.
 func OpaquePayloadCopyFrom(source []byte) OpaquePayload {
 	copied := make([]byte, len(source))
 	copy(copied, source)
 	return OpaquePayload{bytes: copied, present: true}
 }
 
-// Equal mirrors OpaquePayload.Equals: a fixed-time content comparison.
+// Equal is a fixed-time content comparison.
 func (p OpaquePayload) Equal(other OpaquePayload) bool {
 	return opaqueBytesEqual(p.bytes, other.bytes)
 }
@@ -53,8 +52,8 @@ func (d PayloadDigest) Bytes() []byte { return append([]byte(nil), d.bytes...) }
 // IsValid reports whether the digest is nonempty.
 func (d PayloadDigest) IsValid() bool { return len(d.bytes) > 0 }
 
-// PayloadDigestTryCopyFrom mirrors PayloadDigest.TryCopyFrom: empty input is
-// rejected and yields the zero digest.
+// PayloadDigestTryCopyFrom copies the input; empty input is rejected and
+// yields the zero digest.
 func PayloadDigestTryCopyFrom(source []byte) (PayloadDigest, bool) {
 	if len(source) == 0 {
 		return PayloadDigest{}, false
@@ -65,7 +64,7 @@ func PayloadDigestTryCopyFrom(source []byte) (PayloadDigest, bool) {
 	return PayloadDigest{bytes: copied}, true
 }
 
-// Equal mirrors PayloadDigest.Equals: a fixed-time content comparison.
+// Equal is a fixed-time content comparison.
 func (d PayloadDigest) Equal(other PayloadDigest) bool {
 	return opaqueBytesEqual(d.bytes, other.bytes)
 }
@@ -86,8 +85,8 @@ func (s OpaqueSignature) Bytes() []byte { return append([]byte(nil), s.bytes...)
 // IsValid reports whether the signature is nonempty.
 func (s OpaqueSignature) IsValid() bool { return len(s.bytes) > 0 }
 
-// OpaqueSignatureTryCopyFrom mirrors OpaqueSignature.TryCopyFrom: empty input
-// is rejected and yields the zero signature.
+// OpaqueSignatureTryCopyFrom copies the input; empty input is rejected and
+// yields the zero signature.
 func OpaqueSignatureTryCopyFrom(source []byte) (OpaqueSignature, bool) {
 	if len(source) == 0 {
 		return OpaqueSignature{}, false
@@ -98,14 +97,14 @@ func OpaqueSignatureTryCopyFrom(source []byte) (OpaqueSignature, bool) {
 	return OpaqueSignature{bytes: copied}, true
 }
 
-// Equal mirrors OpaqueSignature.Equals: a fixed-time content comparison.
+// Equal is a fixed-time content comparison.
 func (s OpaqueSignature) Equal(other OpaqueSignature) bool {
 	return opaqueBytesEqual(s.bytes, other.bytes)
 }
 
 func (s OpaqueSignature) String() string { return "<opaque-signature>" }
 
-// opaqueBytesEqual mirrors CryptographicOperations.FixedTimeEquals.
+// opaqueBytesEqual is a fixed-time content comparison.
 func opaqueBytesEqual(left, right []byte) bool {
 	if len(left) != len(right) {
 		return false

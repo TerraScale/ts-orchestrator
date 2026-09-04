@@ -67,10 +67,10 @@ func (commandSignedMaterialCodec) Encode(material *CommandSignedMaterial) ([]byt
 		return nil, err
 	}
 
-	writer.writeInt64(dotNetTicks(material.IssuedAt))
-	writer.writeInt64(dotNetOffsetTicks(material.IssuedAt))
-	writer.writeInt64(dotNetTicks(material.ExpiresAt))
-	writer.writeInt64(dotNetOffsetTicks(material.ExpiresAt))
+	writer.writeInt64(wallClockTicks(material.IssuedAt))
+	writer.writeInt64(offsetTicks(material.IssuedAt))
+	writer.writeInt64(wallClockTicks(material.ExpiresAt))
+	writer.writeInt64(offsetTicks(material.ExpiresAt))
 	writer.writeInt64(material.Attempt.Value)
 	writer.writeBytes(material.Payload.Bytes())
 	writer.writeBytes(material.PayloadDigest.Bytes())
@@ -107,7 +107,8 @@ func validateCommandSignedMaterial(material *CommandSignedMaterial) error {
 	return nil
 }
 
-// bigEndianWriter mirrors ArrayBufferWriter<byte> plus the Write helpers.
+// bigEndianWriter appends big-endian integers, length-prefixed byte runs, and
+// validated strings to the canonical signing buffer.
 type bigEndianWriter struct {
 	buffer  []byte
 	written int

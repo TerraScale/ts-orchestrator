@@ -7,14 +7,14 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-// InvalidOperationError mirrors System.InvalidOperationException.
+// InvalidOperationError is an invalid-state failure of a runtime operation.
 type InvalidOperationError struct {
 	Message string
 }
 
 func (e *InvalidOperationError) Error() string { return e.Message }
 
-// InvalidDataError mirrors System.IO.InvalidDataException.
+// InvalidDataError marks payloads that are not the canonical shape.
 type InvalidDataError struct {
 	Message string
 }

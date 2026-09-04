@@ -13,15 +13,14 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// NatsTlsFiles mirrors the C# record: the three PEM file references of one
-// mTLS identity.
+// NatsTlsFiles holds the three PEM file references of one mTLS identity.
 type NatsTlsFiles struct {
 	CaFile          string
 	CertificateFile string
 	KeyFile         string
 }
 
-// NatsTlsFilesResolve mirrors NatsTlsFiles.Resolve. A nil result with a nil
+// NatsTlsFilesResolve resolves the three PEM files. A nil result with a nil
 // error means no TLS files were supplied.
 func NatsTlsFilesResolve(caFile, certificateFile, keyFile, optionPrefix string) (*NatsTlsFiles, error) {
 	values := []string{caFile, certificateFile, keyFile}
@@ -62,7 +61,8 @@ func NatsTlsFilesResolve(caFile, certificateFile, keyFile, optionPrefix string) 
 	return &NatsTlsFiles{CaFile: ca, CertificateFile: certificate, KeyFile: key}, nil
 }
 
-// SameIdentity mirrors NatsTlsFiles.SameIdentity.
+// SameIdentity reports whether both identities present the same certificate
+// public key.
 func (t *NatsTlsFiles) SameIdentity(other *NatsTlsFiles) bool {
 	if t == nil || other == nil {
 		return false
@@ -80,7 +80,8 @@ func (t *NatsTlsFiles) SameIdentity(other *NatsTlsFiles) bool {
 	return bytes.Equal(first, second)
 }
 
-// HasSubjectPublicKeyInfo mirrors NatsTlsFiles.HasSubjectPublicKeyInfo.
+// HasSubjectPublicKeyInfo reports whether the certificate presents the given
+// subject public key.
 func (t *NatsTlsFiles) HasSubjectPublicKeyInfo(subjectPublicKeyInfo []byte) bool {
 	if t == nil {
 		return false
@@ -93,7 +94,7 @@ func (t *NatsTlsFiles) HasSubjectPublicKeyInfo(subjectPublicKeyInfo []byte) bool
 	return bytes.Equal(key, subjectPublicKeyInfo)
 }
 
-// Options mirrors the C# NatsTlsOpts usage: TLS is required, the CA pins the
+// Options returns the nats.go TLS options: TLS is required, the CA pins the
 // trust root, and the certificate/key pair is the client identity.
 func (t *NatsTlsFiles) Options() []nats.Option {
 	if t == nil {
@@ -142,8 +143,8 @@ func natsTlsResolvePrivate(value, optionName string) (string, error) {
 	return path, nil
 }
 
-// natsTlsValidateIdentity mirrors the X509Certificate2.CreateFromPemFile and
-// CA basic-constraints checks of the C# Resolve.
+// natsTlsValidateIdentity checks the key pair matches the certificate and the
+// CA declares the CA basic constraint.
 func natsTlsValidateIdentity(certificateFile, keyFile, caFile, optionPrefix string) error {
 	if _, err := tls.LoadX509KeyPair(certificateFile, keyFile); err != nil {
 		return fmt.Errorf("%s files are not valid matching PEM credentials.", optionPrefix)

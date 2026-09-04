@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// SubjectGrammarError mirrors the SubjectGrammarError enum.
+// SubjectGrammarError classifies why a subject or pattern failed the grammar.
 type SubjectGrammarError int
 
 const (
@@ -127,8 +127,8 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 	return splitSubjectTokens(value), SubjectGrammarErrorNone
 }
 
-// splitSubjectTokens mirrors string.Split('.') for a nonempty subject: the
-// result is never empty and contains no trimming.
+// splitSubjectTokens splits a nonempty subject on '.': the result is never
+// empty and contains no trimming.
 func splitSubjectTokens(value string) []string {
 	tokens := []string{}
 	start := 0

@@ -29,7 +29,7 @@ func (v MessagingSchemaVersion) String() string {
 // MessageIdentityToken is one bounded message identity token: message id,
 // correlation id, and causation id. Identical rules as the command
 // identifiers: nonempty, no control characters, bounded. TryCreate accepts an
-// empty value (mirroring the C#); IsValid is the gate that rejects it.
+// empty value; IsValid is the gate that rejects it.
 type MessageIdentityToken struct {
 	Value string
 }
@@ -54,7 +54,8 @@ func (t MessageIdentityToken) IsValid() bool {
 	return true
 }
 
-// MessageIdentityTokenTryCreate mirrors MessageIdentityToken.TryCreate.
+// MessageIdentityTokenTryCreate validates value and returns the token; an
+// empty value is accepted and rejected only by IsValid.
 func MessageIdentityTokenTryCreate(value string) (MessageIdentityToken, bool) {
 	if value == "" {
 		return MessageIdentityToken{Value: value}, true
@@ -115,7 +116,7 @@ type MessagingSource struct {
 	Cluster  string
 }
 
-// IsWellFormed mirrors the C# rule: bounded token alphabet per field.
+// IsWellFormed requires a bounded token alphabet per field.
 func (s MessagingSource) IsWellFormed() bool {
 	return isMessagingSourceToken(s.Instance, 128) &&
 		isMessagingSourceToken(s.Session, 128) &&
@@ -151,7 +152,7 @@ type MessagingTargetScope struct {
 	Cell      *string
 }
 
-// IsWellFormed mirrors the C# rule.
+// IsWellFormed bounds the subject length and, when present, the cell token.
 func (s MessagingTargetScope) IsWellFormed() bool {
 	if len(s.Subject) < 1 || len(s.Subject) > 512 {
 		return false
@@ -219,7 +220,7 @@ const (
 	MessagingEnvelopeErrorCommandRejected MessagingEnvelopeError = 11
 )
 
-// MessagingEnvelopeResult mirrors the readonly record struct of the same name.
+// MessagingEnvelopeResult is the admission result of one envelope.
 type MessagingEnvelopeResult struct {
 	Error        MessagingEnvelopeError
 	CommandError CommandValidationError
@@ -258,8 +259,8 @@ type MessagingValidationContext struct {
 	CommandContext              *CommandValidationContext
 }
 
-// NewMessagingValidationContext mirrors the C# constructor (no validation;
-// IsWellFormed is the admission gate).
+// NewMessagingValidationContext captures the context without validation;
+// IsWellFormed is the admission gate.
 func NewMessagingValidationContext(
 	acceptedSchemaMajorVersions map[int]struct{},
 	permittedPayloadTypes map[string]struct{},
@@ -272,7 +273,7 @@ func NewMessagingValidationContext(
 	}
 }
 
-// IsWellFormed mirrors the internal context well-formedness rule.
+// IsWellFormed is the context well-formedness gate.
 func (c *MessagingValidationContext) IsWellFormed() bool {
 	if c == nil {
 		return false
@@ -291,8 +292,8 @@ func (c *MessagingValidationContext) IsWellFormed() bool {
 	return true
 }
 
-// MessagingEnvelopeValidator mirrors the C# static class: the pure, fail-closed
-// messaging-envelope admission. Every check is deterministic and
+// MessagingEnvelopeValidator is the pure, fail-closed messaging-envelope
+// admission. Every check is deterministic and
 // infrastructure-free: unknown major versions, malformed or off-taxonomy
 // subjects, declared-namespace disagreement with the derived classification,
 // subject/cell disagreement, unpermitted payload types, malformed trace
@@ -386,8 +387,8 @@ func (messagingEnvelopeValidator) Validate(
 	return messagingEnvelopeAccepted(envelope)
 }
 
-// extractCellScope mirrors the internal ExtractCellScope: it extracts the cell
-// token of a cell-scoped subject: the regional shape
+// extractCellScope extracts the cell token of a cell-scoped subject: the
+// regional shape
 // (ts.orch.v2.<cell>..., token 4) and, as defense in depth, the canonical
 // global per-cell shape (ts.orch.v2.global.desired.gitops.<cell>). Any other
 // global subject carries no cell scope.

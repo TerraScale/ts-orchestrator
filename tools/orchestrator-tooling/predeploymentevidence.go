@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/PreDeploymentEvidence.cs: the
-// evidence record a lab requires before it may start, plus its validator.
+// The evidence record a lab requires before it may start, plus its validator.
 package main
 
 import (
@@ -18,8 +17,8 @@ import (
 	"time"
 )
 
-// PreDeploymentEvidence mirrors the C# record; the JSON tags mirror
-// JsonSerializerOptions.Web (camelCase, as written by development-attest).
+// PreDeploymentEvidence is the evidence document; the JSON tags emit
+// camelCase keys, as written by development-attest.
 type PreDeploymentEvidence struct {
 	SchemaVersion       int                               `json:"schemaVersion"`
 	Result              string                            `json:"result"`
@@ -32,7 +31,7 @@ type PreDeploymentEvidence struct {
 	ProcessObservations []PreDeploymentProcessObservation `json:"processObservations"`
 }
 
-// PreDeploymentResourcePolicy mirrors the C# record.
+// PreDeploymentResourcePolicy is the resource policy the evidence declares.
 type PreDeploymentResourcePolicy struct {
 	AggregateMemoryLimitBytes  int64 `json:"aggregateMemoryLimitBytes"`
 	ExecutionMemoryLimitBytes  int64 `json:"executionMemoryLimitBytes"`
@@ -42,14 +41,14 @@ type PreDeploymentResourcePolicy struct {
 	MaximumValidationProcesses int   `json:"maximumValidationProcesses"`
 }
 
-// PreDeploymentTestModule mirrors the C# record.
+// PreDeploymentTestModule is one module's test inventory entry.
 type PreDeploymentTestModule struct {
 	Module               string `json:"module"`
 	Tests                int    `json:"tests"`
 	MaximumParallelTests int    `json:"maximumParallelTests"`
 }
 
-// PreDeploymentProcessObservation mirrors the C# record.
+// PreDeploymentProcessObservation is one observed validation process.
 type PreDeploymentProcessObservation struct {
 	Name                 string `json:"name"`
 	ProcessId            int    `json:"processId"`
@@ -58,7 +57,8 @@ type PreDeploymentProcessObservation struct {
 	DurationMilliseconds int64  `json:"durationMilliseconds"`
 }
 
-// RequirePreDeploymentEvidence mirrors PreDeploymentEvidence.RequireAsync.
+// RequirePreDeploymentEvidence verifies the evidence authorizes this lab
+// profile on the exact source commit and binary.
 func RequirePreDeploymentEvidence(ctx context.Context, evidenceFile string, workspaceRoot string, profile string) error {
 	if strings.TrimSpace(evidenceFile) == "" {
 		return errors.New("Lab startup requires --evidence with valid exact-tree pre-deployment evidence.")
@@ -106,8 +106,7 @@ func RequirePreDeploymentEvidence(ctx context.Context, evidenceFile string, work
 	if err != nil {
 		return errors.New("The current Orchestrator executable path is unavailable.")
 	}
-	// The C# check prefers the terrascale-orchestrator.dll sidecar next to the
-	// executable; a Go deployment hashes the executable itself.
+	// The hashed artifact is the executable itself.
 	artifactFile, err := os.Open(executable)
 	if err != nil {
 		return err
@@ -123,7 +122,8 @@ func RequirePreDeploymentEvidence(ctx context.Context, evidenceFile string, work
 	return nil
 }
 
-// HasBoundedValidationEvidence mirrors the C# internal validator.
+// HasBoundedValidationEvidence reports whether the evidence declares the
+// bounded validation policy and its observations.
 func (evidence *PreDeploymentEvidence) HasBoundedValidationEvidence() bool {
 	const aggregateLimit = int64(24) * 1024 * 1024 * 1024
 	const executionLimit = int64(20) * 1024 * 1024 * 1024

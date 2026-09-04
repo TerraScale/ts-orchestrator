@@ -2,10 +2,9 @@ package protocol
 
 import "strconv"
 
-// MessagingSemanticClass mirrors the MessagingSemanticClass enum: the five
-// message semantic classes of the messaging contract. Every control subject
-// maps to exactly one class; the class fixes what loss, replay, and
-// duplication mean for it.
+// MessagingSemanticClass is the set of five message semantic classes of the
+// messaging contract. Every control subject maps to exactly one class; the
+// class fixes what loss, replay, and duplication mean for it.
 type MessagingSemanticClass int
 
 const (
@@ -54,7 +53,7 @@ type SemanticClassRule struct {
 	compiled *SubjectPermissionPattern
 }
 
-// Matches mirrors the internal rule matcher.
+// Matches reports whether the concrete subject matches the rule's pattern.
 func (r *SemanticClassRule) Matches(subject *ConcreteSubject) bool {
 	return r.compiled != nil && r.compiled.Matches(subject)
 }
@@ -67,24 +66,22 @@ type StoreClassRule struct {
 	LossMeaning   string
 }
 
-// MessagingSemanticClasses mirrors the C# static class: the declarative
-// mapping of landed subjects and stores to semantic classes. This table is
-// the contract; the drift tests pin it against the landed topology
-// definitions.
+// MessagingSemanticClasses is the declarative mapping of landed subjects and
+// stores to semantic classes. This table is the contract; the drift tests pin
+// it against the landed topology definitions.
 var MessagingSemanticClasses messagingSemanticClasses
 
 type messagingSemanticClasses struct{}
 
-// SubjectRules mirrors MessagingSemanticClasses.SubjectRules; the patterns are
-// compiled once at package initialization and an invalid pattern panics,
-// mirroring the C# static-constructor InvalidOperationException.
+// SubjectRules returns the subject classification rules; the patterns are
+// compiled once at package initialization and an invalid pattern panics.
 func (messagingSemanticClasses) SubjectRules() []SemanticClassRule { return semanticClassSubjectRules }
 
-// StoreRules mirrors MessagingSemanticClasses.StoreRules.
+// StoreRules returns the store classification rules.
 func (messagingSemanticClasses) StoreRules() []StoreClassRule { return semanticClassStoreRules }
 
-// TryClassifySubject mirrors TryClassifySubject: it classifies one concrete
-// subject; unknown shapes fail closed with false.
+// TryClassifySubject classifies one concrete subject; unknown shapes fail
+// closed with false.
 func (messagingSemanticClasses) TryClassifySubject(subject string) (MessagingSemanticClass, NatsSubjectNamespace, bool) {
 	semanticClass := MessagingSemanticClassUnspecified
 	ns := NatsSubjectTaxonomy.Classify(subject)
@@ -102,7 +99,7 @@ func (messagingSemanticClasses) TryClassifySubject(subject string) (MessagingSem
 	return semanticClass, ns, false
 }
 
-// Matches mirrors MessagingSemanticClasses.Matches: subject patterns use the
+// Matches reports whether one subject matches one pattern; patterns use the
 // closed NATS permission grammar: * is one token and a terminal > is a
 // multi-token prefix.
 func (messagingSemanticClasses) Matches(pattern, subject string) bool {

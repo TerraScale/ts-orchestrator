@@ -7,13 +7,13 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 )
 
-// protocolNow mirrors ProtocolTestData.Now.
+// protocolNow is the fixed test clock.
 var protocolNow = time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 
-// payloadBytes mirrors ProtocolTestData.PayloadBytes.
+// payloadBytes is the fixed test payload.
 var payloadBytes = []byte{1, 2, 3, 4}
 
-// signatureBytes mirrors ProtocolTestData.SignatureBytes.
+// signatureBytes is the fixed test signature.
 var signatureBytes = []byte{9, 8, 7, 6}
 
 func testCell(value string) contracts.CellId {
@@ -66,7 +66,7 @@ func testSignature(source []byte) OpaqueSignature {
 	return signature
 }
 
-// validEnvelopeOption is one optional override of ProtocolTestData.ValidEnvelope.
+// validEnvelopeOption is one optional override of the valid-envelope fixture.
 type validEnvelopeOption struct {
 	protocol    *ProtocolRevision
 	cell        *contracts.CellId
@@ -104,7 +104,7 @@ func validEnvelope(overrides ...func(*validEnvelopeOption)) CommandEnvelope {
 		override(&options)
 	}
 
-	// A nil payload/digest/signature pointer reproduces the C# `null` test inputs.
+	// A nil payload/digest/signature pointer is the null test input.
 	var payload OpaquePayload
 	if options.payload != nil {
 		payload = *options.payload
@@ -138,7 +138,7 @@ func validEnvelope(overrides ...func(*validEnvelopeOption)) CommandEnvelope {
 
 func ptrOf[T any](value T) *T { return &value }
 
-// validContextOption is one optional override of ProtocolTestData.ValidContext.
+// validContextOption is one optional override of the valid-context fixture.
 type validContextOption struct {
 	expectedCell      *contracts.CellId
 	expectedAggregate *contracts.AggregateId
@@ -182,7 +182,7 @@ func validContext(overrides ...func(*validContextOption)) *CommandValidationCont
 	return context
 }
 
-// testDigestVerifier mirrors the C# TestDigestVerifier.
+// testDigestVerifier is the digest verifier test double.
 type testDigestVerifier struct {
 	matches bool
 	throws  bool
@@ -206,7 +206,7 @@ func (v *testDigestVerifier) Verify(payload OpaquePayload, expectedDigest Payloa
 	return VerificationOutcomeInvalid
 }
 
-// testSignatureVerifier mirrors the C# TestSignatureVerifier.
+// testSignatureVerifier is the signature verifier test double.
 type testSignatureVerifier struct {
 	isValid       bool
 	throws        bool
@@ -236,7 +236,7 @@ func (v *testSignatureVerifier) Verify(signedMaterial CommandSignedMaterial, sig
 	return VerificationOutcomeInvalid
 }
 
-// outcomeVerifier fixtures mirror the Outcome*Verifier doubles.
+// outcomeVerifier fixtures are the fixed-outcome verifier doubles.
 type outcomeDigestVerifier struct {
 	outcome VerificationOutcome
 }

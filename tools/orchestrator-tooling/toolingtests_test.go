@@ -1,4 +1,4 @@
-// Go-test wrapper for the ported ToolingTests bodies. The full suite remains
+// Go-test wrapper for the ToolingTests bodies. The full suite remains
 // available through `orchestrator-tooling test`; here only the hermetic
 // bodies run, because the mutation-based validator tests require the sibling
 // TerraScale workspace repositories to be checked out next to this module.

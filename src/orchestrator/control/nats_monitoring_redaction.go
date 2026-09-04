@@ -5,14 +5,13 @@ import (
 	"regexp"
 )
 
-// NatsMonitoringCorrelation mirrors the C# record: redacted correlation
-// metadata for NATS monitoring logs and traces.
+// NatsMonitoringCorrelation is redacted correlation metadata for NATS
+// monitoring logs and traces.
 type NatsMonitoringCorrelation struct {
 	CorrelationToken string
 	RedactedSummary  string
 }
 
-// NewNatsMonitoringCorrelation mirrors the C# constructor.
 func NewNatsMonitoringCorrelation(correlationToken, redactedSummary string) (*NatsMonitoringCorrelation, error) {
 	if err := natsMonitoringValidateToken(correlationToken); err != nil {
 		return nil, err
@@ -41,11 +40,11 @@ func natsMonitoringValidateToken(token string) error {
 	return nil
 }
 
-// NatsMonitoringRedactionRedactedPlaceholder mirrors the C# constant: the
-// bounded replacement for any detected secret-bearing span.
+// NatsMonitoringRedactionRedactedPlaceholder is the bounded replacement for
+// any detected secret-bearing span.
 const NatsMonitoringRedactionRedactedPlaceholder = "[redacted]"
 
-// natsMonitoringMaximumSummaryLength mirrors the C# private bound.
+// natsMonitoringMaximumSummaryLength bounds the summary length.
 const natsMonitoringMaximumSummaryLength = 256
 
 var (
@@ -60,15 +59,14 @@ var (
 		`(?i)(?:password|secret|token|apikey|api_key|nkey|seed)["']?\s*[:=]\s*["']?[^\s,"'}]{4,}`)
 )
 
-// NatsMonitoringRedaction mirrors the C# static class: the single redaction
-// boundary for NATS monitoring output.
+// NatsMonitoringRedaction is the single redaction boundary for NATS
+// monitoring output.
 var NatsMonitoringRedaction natsMonitoringRedaction
 
 type natsMonitoringRedaction struct{}
 
-// Sanitize mirrors the C# Sanitize: removes secret-bearing spans and bounds
-// the length. If a span cannot be proven clean it is replaced, never passed
-// through.
+// Sanitize removes secret-bearing spans and bounds the length. If a span
+// cannot be proven clean it is replaced, never passed through.
 func (natsMonitoringRedaction) Sanitize(value string) string {
 	sanitized := natsMonitoringPemBlockRegex.ReplaceAllString(
 		value, NatsMonitoringRedactionRedactedPlaceholder)
@@ -88,8 +86,8 @@ func (natsMonitoringRedaction) Sanitize(value string) string {
 	return sanitized[:natsMonitoringMaximumSummaryLength]
 }
 
-// ContainsSecretMaterial mirrors the C# ContainsSecretMaterial: true when the
-// value contains material the monitoring contract must never emit.
+// ContainsSecretMaterial is true when the value contains material the
+// monitoring contract must never emit.
 func (natsMonitoringRedaction) ContainsSecretMaterial(value string) bool {
 	if value == "" {
 		return false

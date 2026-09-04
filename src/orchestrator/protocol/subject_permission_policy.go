@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-// SubjectPermissionPolicyError mirrors the SubjectPermissionPolicyError enum.
+// SubjectPermissionPolicyError classifies why a permission policy was rejected.
 type SubjectPermissionPolicyError int
 
 const (
@@ -39,7 +39,7 @@ func (e SubjectPermissionPolicyError) String() string {
 	}
 }
 
-// SubjectPermissionReason mirrors the SubjectPermissionReason enum.
+// SubjectPermissionReason is the typed reason of one authorization decision.
 type SubjectPermissionReason int
 
 const (
@@ -68,7 +68,7 @@ func (r SubjectPermissionReason) String() string {
 	}
 }
 
-// SubjectPermissionDecision mirrors the readonly record struct of the same name.
+// SubjectPermissionDecision is the outcome of one authorization check.
 type SubjectPermissionDecision struct {
 	Reason SubjectPermissionReason
 }
@@ -107,8 +107,8 @@ func (p *SubjectPermissionPolicy) DenyPatterns() []*SubjectPermissionPattern {
 	return p.deny
 }
 
-// SubjectPermissionPolicyTryCreate mirrors SubjectPermissionPolicy.TryCreate.
-// A nil element stands in for the C# null pattern. The combined allow+deny
+// SubjectPermissionPolicyTryCreate compiles one closed allow/deny policy.
+// A nil element means no pattern and is rejected. The combined allow+deny
 // budget is limits.MaximumPermissionPatternCount.
 func SubjectPermissionPolicyTryCreate(
 	allow []*SubjectPermissionPattern,
@@ -146,8 +146,8 @@ func SubjectPermissionPolicyTryCreate(
 	return &SubjectPermissionPolicy{allow: allowPatterns, deny: denyPatterns}, SubjectPermissionPolicyErrorNone
 }
 
-// Authorize mirrors SubjectPermissionPolicy.Authorize: deny wins, then a
-// nonempty allow list must match.
+// Authorize decides one subject: deny wins, then a nonempty allow list must
+// match.
 func (p *SubjectPermissionPolicy) Authorize(subject *ConcreteSubject) SubjectPermissionDecision {
 	if p == nil || subject == nil {
 		return SubjectPermissionDecision{Reason: SubjectPermissionReasonDeniedInvalidSubject}

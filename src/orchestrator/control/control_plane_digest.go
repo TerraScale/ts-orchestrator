@@ -10,8 +10,6 @@ import (
 	"unicode"
 )
 
-// invalidArgument stands in for C# ArgumentException / ArgumentNullException
-// throws in ports where the caller distinguishes the failure.
 func invalidArgument(message string) error {
 	return errors.New(message)
 }
@@ -20,24 +18,20 @@ func argumentNil(name string) error {
 	return errors.New("Value cannot be null. (Parameter '" + name + "')")
 }
 
-// argumentOutOfRange stands in for C# ArgumentOutOfRangeException.
 func argumentOutOfRange(name string) error {
 	return errors.New("Specified argument was out of the range of valid values. (Parameter '" + name + "')")
 }
 
-// argumentOutOfRangeError carries the C# ArgumentOutOfRangeException message.
 func argumentOutOfRangeError(name, message string) error {
 	return errors.New(message + " (Parameter '" + name + "')")
 }
 
-// invalidOperation stands in for C# InvalidOperationException.
 func invalidOperation(message string) error {
 	return errors.New(message)
 }
 
 const int64max = int64(^uint64(0) >> 1)
 
-// isNullOrWhiteSpace mirrors string.IsNullOrWhiteSpace.
 func isNullOrWhiteSpace(value string) bool {
 	if value == "" {
 		return true
@@ -58,7 +52,7 @@ func isSpaceRune(r rune) bool {
 	return unicode.IsSpace(r)
 }
 
-// derefString mirrors `value ?? null` for nullable strings.
+// derefString returns the empty string for a nil pointer.
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -80,7 +74,7 @@ func maxInt64(left, right int64) int64 {
 	return right
 }
 
-// checkedAddInt64 mirrors C# checked arithmetic.
+// checkedAddInt64 adds two int64s, reporting overflow instead of wrapping.
 func checkedAddInt64(left, right int64) (int64, bool) {
 	sum := left + right
 	if (right > 0 && sum < left) || (right < 0 && sum > left) {
@@ -101,37 +95,37 @@ func checkedAddInt64(left, right int64) (int64, bool) {
 //	bool      -> "B1;" / "B0;"
 //	integer   -> "L" <invariant decimal> ";"
 //	enum      -> integer form
-//	timestamp -> "T" <utc .NET ticks> ";"
-//	duration  -> "D" <.NET ticks> ";"
+//	timestamp -> "T" <utc ticks, 100ns units since 0001-01-01T00:00:00Z> ";"
+//	duration  -> "D" <ticks, 100ns units> ";"
 //	array     -> "A" <count> "[" <items> "];"
 
-const dotNetEpochTicks = 621355968000000000 // 0001-01-01T00:00:00Z .. 1970-01-01T00:00:00Z
+const unixEpochOffsetTicks = 621355968000000000 // 0001-01-01T00:00:00Z .. 1970-01-01T00:00:00Z
 
 var (
-	dotNetMinTimestamp = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
-	dotNetMaxTimestamp = time.Date(9999, 12, 31, 23, 59, 59, 999999900, time.UTC)
+	minWireTimestamp = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxWireTimestamp = time.Date(9999, 12, 31, 23, 59, 59, 999999900, time.UTC)
 )
 
-// dotNetTimestampTicks returns .NET DateTimeOffset ticks (100ns units since
-// 0001-01-01T00:00:00Z) for the instant of t.
-func dotNetTimestampTicks(t time.Time) int64 {
-	return t.Unix()*10000000 + int64(t.Nanosecond())/100 + dotNetEpochTicks
+// timestampTicks returns ticks in 100ns units since
+// 0001-01-01T00:00:00Z for the instant of t.
+func timestampTicks(t time.Time) int64 {
+	return t.Unix()*10000000 + int64(t.Nanosecond())/100 + unixEpochOffsetTicks
 }
 
-// dotNetDurationTicks returns .NET TimeSpan ticks (100ns units).
-func dotNetDurationTicks(d time.Duration) int64 {
+// durationTicks returns the duration in 100ns units.
+func durationTicks(d time.Duration) int64 {
 	return int64(d) / 100
 }
 
-// dotNetCanAdd mirrors DateTimeOffset addition overflow semantics: the sum
-// must stay inside the DateTimeOffset range.
-func dotNetCanAdd(timestamp time.Time, duration time.Duration) bool {
+// canAddDuration reports whether timestamp+duration stays inside the supported
+// timestamp range (0001-01-01 through 9999-12-31).
+func canAddDuration(timestamp time.Time, duration time.Duration) bool {
 	sum := timestamp.Add(duration)
-	return !sum.Before(dotNetMinTimestamp) && !sum.After(dotNetMaxTimestamp)
+	return !sum.Before(minWireTimestamp) && !sum.After(maxWireTimestamp)
 }
 
-// dotNetTimeEquals compares two instants the way DateTimeOffset equality does.
-func dotNetTimeEquals(left, right time.Time) bool {
+// instantsEqual compares two instants for point-in-time equality.
+func instantsEqual(left, right time.Time) bool {
 	return left.Equal(right)
 }
 
@@ -209,13 +203,13 @@ func (w *digestWriter) WriteInt64Pointer(value *int64) {
 
 func (w *digestWriter) WriteTime(value time.Time) {
 	w.builder.WriteByte('T')
-	w.builder.WriteString(itoaCompact(dotNetTimestampTicks(value)))
+	w.builder.WriteString(itoaCompact(timestampTicks(value)))
 	w.builder.WriteByte(';')
 }
 
 func (w *digestWriter) WriteDuration(value time.Duration) {
 	w.builder.WriteByte('D')
-	w.builder.WriteString(itoaCompact(dotNetDurationTicks(value)))
+	w.builder.WriteString(itoaCompact(durationTicks(value)))
 	w.builder.WriteByte(';')
 }
 
@@ -245,7 +239,7 @@ func digestHash(value string) string {
 }
 
 func itoaCompact(value int64) string {
-	// strconv.FormatInt matches the C# invariant-culture formatting used by
-	// the digest writers.
+	// strconv.FormatInt renders plain invariant decimal digits, the form the
+	// digest writers persist.
 	return strconv.FormatInt(value, 10)
 }

@@ -6,7 +6,6 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// ControllerEligibilityClass mirrors the C# enum.
 type ControllerEligibilityClass int
 
 const (
@@ -42,14 +41,13 @@ func (c ControllerEligibilityClass) String() string {
 	}
 }
 
-// ControllerEligibilityRules mirrors the C# static class: pure
-// controller-eligibility rules composing the watched regional membership
-// health and the fenced authority lease claim.
+// ControllerEligibilityRules is the pure controller-eligibility rule set
+// composing the watched regional membership health and the fenced authority
+// lease claim.
 var ControllerEligibilityRules controllerEligibilityRules
 
 type controllerEligibilityRules struct{}
 
-// Decide mirrors ControllerEligibilityRules.Decide.
 func (controllerEligibilityRules) Decide(
 	membership *RegionalRuntimeMembershipHealth,
 	claim *protocol.AuthorityLeaseClaim,

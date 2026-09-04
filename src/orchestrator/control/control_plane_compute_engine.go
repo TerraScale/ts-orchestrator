@@ -686,7 +686,7 @@ func computeVolumeDispositionDefined(value VolumeDisposition) bool {
 }
 func computeNodeRoleDefined(value ComputeNodeRole) bool { return computeNodeRoleIsDefined(value) }
 
-// computeDefined mirrors the C# Defined<T> helper: defined and non-zero.
+// computeDefined reports defined and non-zero.
 func computeDefined(defined bool) bool { return defined }
 
 func computeOne(intent ComputeIntent, code ComputeTraceCode) *ComputeDecision {

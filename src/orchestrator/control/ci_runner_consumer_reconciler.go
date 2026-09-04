@@ -8,26 +8,24 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// CiRunnerConsumerRegistration mirrors the C# record.
+// CiRunnerConsumerRegistration identifies one reconciled CI runner consumer.
 type CiRunnerConsumerRegistration struct {
 	Zone     string
 	Consumer string
 	Subject  string
 }
 
-// NewCiRunnerConsumerRegistration mirrors the C# record constructor.
 func NewCiRunnerConsumerRegistration(zone, consumer, subject string) CiRunnerConsumerRegistration {
 	return CiRunnerConsumerRegistration{Zone: zone, Consumer: consumer, Subject: subject}
 }
 
-// CiRunnerConsumerReconciler mirrors the C# class: reconciles controller-owned
-// runner consumers before any runner identity can be issued.
+// CiRunnerConsumerReconciler reconciles controller-owned runner consumers
+// before any runner identity can be issued.
 type CiRunnerConsumerReconciler struct {
 	jetStream jetstream.JetStream
 	topology  *GlobalNatsTopology
 }
 
-// NewCiRunnerConsumerReconciler mirrors the C# constructor.
 func NewCiRunnerConsumerReconciler(js jetstream.JetStream, topology *GlobalNatsTopology) (*CiRunnerConsumerReconciler, error) {
 	if js == nil {
 		return nil, errors.New("(Parameter 'jetStream')")
@@ -40,7 +38,6 @@ func NewCiRunnerConsumerReconciler(js jetstream.JetStream, topology *GlobalNatsT
 	return &CiRunnerConsumerReconciler{jetStream: js, topology: topology}, nil
 }
 
-// ReconcileAsync mirrors the C# ReconcileAsync.
 func (r *CiRunnerConsumerReconciler) ReconcileAsync(
 	ctx context.Context,
 	zone string,
@@ -84,8 +81,7 @@ func (r *CiRunnerConsumerReconciler) ReconcileAsync(
 	return NewCiRunnerConsumerRegistration(zone, expected.Name, expected.FilterSubject), nil
 }
 
-// CiRunnerConsumerReconcilerMatches mirrors the static Matches: the closed
-// consumer profile comparison.
+// CiRunnerConsumerReconcilerMatches is the closed consumer profile comparison.
 func CiRunnerConsumerReconcilerMatches(
 	observed *jetstream.ConsumerInfo,
 	expected jetstream.ConsumerConfig,

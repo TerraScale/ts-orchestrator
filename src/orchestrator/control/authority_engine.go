@@ -176,7 +176,7 @@ func authorityAcquire(state *AuthorityState, command *AcquireAuthority) *Authori
 	if command.Baseline.KvRevision == int64max {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision cannot advance."))
 	}
-	if !dotNetCanAdd(command.Health.ServerTime, command.LeaseDuration) {
+	if !canAddDuration(command.Health.ServerTime, command.LeaseDuration) {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-005", "Lease expiry overflows timestamp range."))
 	}
 
@@ -223,7 +223,7 @@ func authorityRenew(state *AuthorityState, command *RenewAuthority) *AuthorityDe
 	if exact != nil {
 		return authorityLoseAuthority(state, command, command.Current, *exact)
 	}
-	if !dotNetCanAdd(command.Health.ServerTime, command.LeaseDuration) {
+	if !canAddDuration(command.Health.ServerTime, command.LeaseDuration) {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "Renewal expiry overflows timestamp range."))
 	}
 
@@ -534,7 +534,7 @@ func authorityLeaseError(observation *AuthorityObservation, health *AuthorityHea
 	if health.ServerTime.Before(observation.Lease.ServerIssuedAt) || health.MonotonicElapsed < 0 {
 		return authorityErrorPointer(AuthorityErrorCodeClockAnomaly, "INV-004", "Lease time moved backwards.")
 	}
-	if !dotNetCanAdd(observation.Lease.ServerIssuedAt, observation.Lease.Duration) {
+	if !canAddDuration(observation.Lease.ServerIssuedAt, observation.Lease.Duration) {
 		return authorityErrorPointer(AuthorityErrorCodeArithmeticOverflow, "INV-004", "Lease expiry overflows timestamp range.")
 	}
 	expiry := observation.Lease.ServerIssuedAt.Add(observation.Lease.Duration)
@@ -695,7 +695,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 				!pending.ExpectedObservation.Equal(*state.Confirmed) ||
 				pending.ProposedLease.CandidateId != derefString(state.CandidateId) ||
 				state.Confirmed.Lease == nil || pending.ProposedLease.LeaseId != state.Confirmed.Lease.LeaseId ||
-				!dotNetTimeEquals(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) ||
+				!instantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) ||
 				authorityEnsureExactCurrent(state, pending.ExpectedObservation, pending.RequestedAtHealth) != nil {
 				return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Renewal request does not preserve exact lease ownership and epoch.")
 			}
@@ -711,7 +711,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 				}
 			}
 			if pending.ProposedLease.CandidateId != requested.CandidateId ||
-				!dotNetTimeEquals(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) {
+				!instantsEqual(pending.ProposedLease.ServerIssuedAt, pending.RequestedAtHealth.ServerTime) {
 				return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Acquisition proposal identity/time differs from request evidence.")
 			}
 			expectedEpoch, ok := checkedAddInt64(pending.ExpectedEpoch, 1)
@@ -842,7 +842,7 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 
 func authorityValidateLease(lease AuthorityLease) *AuthorityError {
 	if isNullOrWhiteSpace(lease.CandidateId) || isNullOrWhiteSpace(lease.LeaseId) ||
-		lease.ServerIssuedAt.IsZero() || lease.Duration <= 0 || !dotNetCanAdd(lease.ServerIssuedAt, lease.Duration) {
+		lease.ServerIssuedAt.IsZero() || lease.Duration <= 0 || !canAddDuration(lease.ServerIssuedAt, lease.Duration) {
 		return authorityErrorPointer(AuthorityErrorCodeInvalidInput, "INV-005", "Lease is malformed.")
 	}
 	return nil

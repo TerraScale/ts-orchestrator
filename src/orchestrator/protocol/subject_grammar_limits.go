@@ -10,7 +10,8 @@ type SubjectGrammarLimits struct {
 	MaximumPermissionPatternCount int
 }
 
-// SubjectGrammarLimitsTryCreate mirrors SubjectGrammarLimits.TryCreate.
+// SubjectGrammarLimitsTryCreate validates the bounds and returns the limits,
+// or false when any bound is non-positive or inconsistent.
 func SubjectGrammarLimitsTryCreate(
 	maximumSubjectLength,
 	maximumTokenCount,

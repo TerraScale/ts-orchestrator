@@ -1,9 +1,8 @@
 package protocol
 
-// MessagingConnectivity mirrors the MessagingConnectivity enum: connectivity
-// classes for regional autonomy. They align one-to-one with the executable
-// decision core TerraScale.Orchestrator.ControlPlane.Messaging.ConnectivityState
-// consumed by MessagingPolicyEngine.DecidePartition.
+// MessagingConnectivity is the connectivity class for regional autonomy. The
+// values align one-to-one with the ConnectivityState consumed by
+// MessagingPolicyEngine.DecidePartition in the executable decision core.
 type MessagingConnectivity int
 
 const (
@@ -17,8 +16,8 @@ const (
 	MessagingConnectivityRegionalQuorumLost MessagingConnectivity = 3
 )
 
-// RegionalAutonomyOperationClass mirrors the RegionalAutonomyOperationClass
-// enum: the mutation classes the autonomy rules freeze or permit.
+// RegionalAutonomyOperationClass names the mutation classes the autonomy rules
+// freeze or permit.
 type RegionalAutonomyOperationClass int
 
 const (
@@ -43,7 +42,7 @@ const (
 	RegionalAutonomyOperationClassRegionalObservation RegionalAutonomyOperationClass = 6
 )
 
-// RegionalAutonomyDecision mirrors the RegionalAutonomyDecision enum.
+// RegionalAutonomyDecision is the autonomy decision for one operation class.
 type RegionalAutonomyDecision int
 
 const (
@@ -60,18 +59,19 @@ const (
 	RegionalAutonomyDecisionFrozenGlobalAuthorityClaim RegionalAutonomyDecision = 4
 )
 
-// RegionalAutonomyRules mirrors the C# static class: an isolated cell keeps
-// its pre-authorized regional work and freezes new global generations, policy,
-// and releases. When the regional quorum itself is lost, running workloads
-// continue on their last committed allocation but new mutations are held. The
-// epoch/generation comparison logic lives in
+// RegionalAutonomyRules freezes the regional autonomy rules: an isolated cell
+// keeps its pre-authorized regional work and freezes new global generations,
+// policy, and releases. When the regional quorum itself is lost, running
+// workloads continue on their last committed allocation but new mutations are
+// held. The epoch/generation comparison logic lives in
 // MessagingPolicyEngine.DecidePartition; these rules freeze the operation
 // classes.
 var RegionalAutonomyRules regionalAutonomyRules
 
 type regionalAutonomyRules struct{}
 
-// Decide mirrors RegionalAutonomyRules.Decide.
+// Decide returns the autonomy decision for one connectivity and operation
+// class.
 func (regionalAutonomyRules) Decide(
 	connectivity MessagingConnectivity,
 	operationClass RegionalAutonomyOperationClass,

@@ -7,28 +7,28 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-// InvalidOperationError mirrors System.InvalidOperationException.
+// InvalidOperationError reports a call that is invalid for the current state.
 type InvalidOperationError struct {
 	Message string
 }
 
 func (e *InvalidOperationError) Error() string { return e.Message }
 
-// InvalidDataError mirrors System.IO.InvalidDataException.
+// InvalidDataError reports malformed or unexpected input data.
 type InvalidDataError struct {
 	Message string
 }
 
 func (e *InvalidDataError) Error() string { return e.Message }
 
-// PlatformNotSupportedError mirrors System.PlatformNotSupportedException.
+// PlatformNotSupportedError reports an operation unsupported on this platform.
 type PlatformNotSupportedError struct {
 	Message string
 }
 
 func (e *PlatformNotSupportedError) Error() string { return e.Message }
 
-// OverflowError mirrors System.OverflowException raised by checked arithmetic.
+// OverflowError reports integer overflow.
 type OverflowError struct {
 	Message string
 }
@@ -37,7 +37,7 @@ func (e *OverflowError) Error() string { return e.Message }
 
 var bootstrapTokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 
-// BootstrapValueRules ports the internal BootstrapValueRules static class.
+// BootstrapValueRules validates the canonical bootstrap value shapes.
 var BootstrapValueRules bootstrapValueRules
 
 type bootstrapValueRules struct{}

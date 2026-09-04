@@ -1,5 +1,5 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/ToolDispatcher.cs: the
-// manual command dispatcher plus the json-format command that shares the file.
+// The manual command dispatcher plus the json-format command that shares the
+// file.
 package main
 
 import (
@@ -16,8 +16,8 @@ type toolCommand struct {
 	run  func(context.Context, []string) (int, error)
 }
 
-// toolCommands mirrors the C# dispatcher dictionary; the slice keeps the C#
-// insertion order for the usage inventory.
+// toolCommands is the command table; the slice keeps registration order for
+// the usage inventory.
 var toolCommands = []toolCommand{
 	{"adr-readiness", func(_ context.Context, arguments []string) (int, error) {
 		return AdrReadinessCommand.Run(arguments)
@@ -42,7 +42,7 @@ var toolCommands = []toolCommand{
 
 type toolDispatcher struct{}
 
-// ToolDispatcher mirrors the C# ToolDispatcher static class.
+// ToolDispatcher selects a command by name and runs it.
 var ToolDispatcher = toolDispatcher{}
 
 func (toolDispatcher) RunAsync(ctx context.Context, arguments []string) int {
@@ -87,7 +87,7 @@ func writeUsage() {
 
 type jsonFormatCommand struct{}
 
-// JsonFormatCommand mirrors the C# JsonFormatCommand static class.
+// JsonFormatCommand implements the json-format command.
 var JsonFormatCommand = jsonFormatCommand{}
 
 func (jsonFormatCommand) Run(arguments []string) (int, error) {
@@ -114,7 +114,8 @@ func (jsonFormatCommand) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// fullPathFromRoot mirrors Path.GetFullPath(path, baseDirectory).
+// fullPathFromRoot resolves path against baseDirectory; absolute paths pass
+// through cleaned.
 func fullPathFromRoot(baseDirectory, path string) string {
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path)

@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// NatsMonitoringSupervisionAction mirrors the C# enum: the supervision
-// decision for the monitoring observer itself.
+// NatsMonitoringSupervisionAction is the supervision decision for the
+// monitoring observer itself.
 type NatsMonitoringSupervisionAction int
 
 const (
@@ -34,27 +34,25 @@ func (a NatsMonitoringSupervisionAction) String() string {
 	}
 }
 
-// NatsMonitoringSupervision mirrors the C# static class: supervision for the
-// NATS monitoring observer. Supervision can only change how observability
-// reports itself; it has no capability that could gate, delay, or fail
-// regional control.
+// NatsMonitoringSupervision supervises the NATS monitoring observer.
+// Supervision can only change how observability reports itself; it has no
+// capability that could gate, delay, or fail regional control.
 var NatsMonitoringSupervision natsMonitoringSupervision
 
 type natsMonitoringSupervision struct{}
 
-// NatsMonitoringSupervisionDegradedAfter mirrors the C# DegradedAfter:
-// observations older than this stay truthful-but-degraded.
+// NatsMonitoringSupervisionDegradedAfter: observations older than this stay
+// truthful-but-degraded.
 var NatsMonitoringSupervisionDegradedAfter = 30 * time.Second
 
-// NatsMonitoringSupervisionUnavailableAfter mirrors the C# UnavailableAfter:
-// observations older than this are reported unavailable, never stale-served.
+// NatsMonitoringSupervisionUnavailableAfter: observations older than this are
+// reported unavailable, never stale-served.
 var NatsMonitoringSupervisionUnavailableAfter = 2 * time.Minute
 
-// NatsMonitoringSupervisionDegradedAfterConsecutiveFailures mirrors the C#
-// constant: consecutive failed observation rounds tolerated before degrading.
+// NatsMonitoringSupervisionDegradedAfterConsecutiveFailures is the number of
+// consecutive failed observation rounds tolerated before degrading.
 const NatsMonitoringSupervisionDegradedAfterConsecutiveFailures = 1
 
-// Evaluate mirrors NatsMonitoringSupervision.Evaluate.
 func (natsMonitoringSupervision) Evaluate(
 	lastSuccessfulObservation *time.Time,
 	consecutiveFailedRounds int,
@@ -87,7 +85,6 @@ func (natsMonitoringSupervision) Evaluate(
 	return NatsMonitoringSupervisionActionMarkUnavailable
 }
 
-// Availability mirrors NatsMonitoringSupervision.Availability.
 func (natsMonitoringSupervision) Availability(
 	lastSuccessfulObservation *time.Time,
 	consecutiveFailedRounds int,
@@ -103,9 +100,9 @@ func (natsMonitoringSupervision) Availability(
 	}
 }
 
-// RegionalControlContinues mirrors the C# RegionalControlContinues: always
-// true by construction; the pure function exists so tests can pin the
-// invariant that no supervision state ever suppresses control.
+// RegionalControlContinues is always true by construction; the pure function
+// exists so tests can pin the invariant that no supervision state ever
+// suppresses control.
 func (natsMonitoringSupervision) RegionalControlContinues(action NatsMonitoringSupervisionAction) bool {
 	return true
 }

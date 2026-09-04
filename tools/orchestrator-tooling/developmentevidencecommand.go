@@ -1,10 +1,8 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/DevelopmentEvidenceCommand.cs.
-// Toolchain mapping for the Go migration of this repository: the solution
-// restore/build become `go mod download` / `go build -p 1 -o bin/ ./...`, the
-// five .NET test-module executables become `go test` runs over the mapped
-// package areas, and the hashed binary artifact is the built runtime
-// executable under bin/ (gitignored like the C# bin/Debug tree). Command
-// names, evidence schema, exit codes, and output strings stay identical.
+// The development-attest command. Restore/build are `go mod download` /
+// `go build -p 1 -o bin/ ./...`, the five test modules become `go test` runs
+// over the mapped package areas, and the hashed binary artifact is the built
+// runtime executable under bin/ (gitignored). Command names, evidence schema,
+// exit codes, and output strings are unchanged.
 package main
 
 import (
@@ -17,48 +15,36 @@ import (
 	"time"
 )
 
-// DevelopmentRequiredProfile mirrors DevelopmentEvidenceCommand.RequiredProfile.
+// DevelopmentRequiredProfile is the profile development attestation authorizes.
 const DevelopmentRequiredProfile = "regional"
 
-// DevelopmentEvidenceSchemaVersion mirrors the C# constant.
 const DevelopmentEvidenceSchemaVersion = 2
 
-// DevelopmentMaximumParallelTestModules mirrors the C# constant.
 const DevelopmentMaximumParallelTestModules = 1
 
-// DevelopmentMaximumParallelTests mirrors the C# constant.
 const DevelopmentMaximumParallelTests = 4
 
-// DevelopmentDefaultTestModuleTimeoutMinutes mirrors the C# constant.
 const DevelopmentDefaultTestModuleTimeoutMinutes = 5
 
-// DevelopmentIntegrationTestModuleTimeoutMinutes mirrors the C# constant.
 const DevelopmentIntegrationTestModuleTimeoutMinutes = 15
 
-// DevelopmentMaximumValidationProcesses mirrors the C# constant.
 const DevelopmentMaximumValidationProcesses = 512
 
-// DevelopmentAggregateMemoryLimitBytes mirrors the C# constant.
 const DevelopmentAggregateMemoryLimitBytes = int64(24) * 1024 * 1024 * 1024
 
-// DevelopmentExecutionMemoryLimitBytes mirrors the C# constant.
 const DevelopmentExecutionMemoryLimitBytes = int64(20) * 1024 * 1024 * 1024
 
-// DevelopmentReservedHeadroomBytes mirrors the C# constant.
 const DevelopmentReservedHeadroomBytes = DevelopmentAggregateMemoryLimitBytes - DevelopmentExecutionMemoryLimitBytes
 
-// DevelopmentTestModule mirrors the C# TestModule record: the C# test project
-// name maps to the Go package pattern that now owns those tests.
+// DevelopmentTestModule is one test module: its package pattern and timeout.
 type DevelopmentTestModule struct {
 	Name              string
 	RelativeDirectory string
 	TimeoutMinutes    int
 }
 
-// DevelopmentTestModules mirrors the C# five-module inventory, mapped onto the
-// Go package areas: ControlPlane -> control, Model -> contracts, Protocol ->
-// protocol, Scheduler -> scheduling, and the integration suite covers the
-// whole module.
+// DevelopmentTestModules is the five-module inventory: control, contracts,
+// protocol, scheduling, and an integration suite covering the whole module.
 var DevelopmentTestModules = []DevelopmentTestModule{
 	{Name: "src/orchestrator/control", RelativeDirectory: "src/orchestrator/control", TimeoutMinutes: DevelopmentDefaultTestModuleTimeoutMinutes},
 	{Name: "src/orchestrator/contracts", RelativeDirectory: "src/orchestrator/contracts", TimeoutMinutes: DevelopmentDefaultTestModuleTimeoutMinutes},
@@ -67,7 +53,7 @@ var DevelopmentTestModules = []DevelopmentTestModule{
 	{Name: "./...", RelativeDirectory: ".", TimeoutMinutes: DevelopmentIntegrationTestModuleTimeoutMinutes},
 }
 
-// DevelopmentEvidenceOptions mirrors the C# Options record.
+// DevelopmentEvidenceOptions holds the parsed command options.
 type DevelopmentEvidenceOptions struct {
 	Output     string
 	Binary     string
@@ -76,7 +62,7 @@ type DevelopmentEvidenceOptions struct {
 
 type developmentEvidenceCommand struct{}
 
-// DevelopmentEvidenceCommand mirrors the C# static class.
+// DevelopmentEvidenceCommand implements the development-attest command.
 var DevelopmentEvidenceCommand = developmentEvidenceCommand{}
 
 func (developmentEvidenceCommand) Run(arguments []string) (int, error) {
@@ -121,8 +107,8 @@ func (developmentEvidenceCommand) Run(arguments []string) (int, error) {
 		return 0, err
 	}
 	observations = append(observations, observationEntry{"solution-restore", restoreResult.Observation})
-	// The Go build compiles every package in the module and emits the runtime
-	// binary under bin/ like the C# solution build did.
+	// The build compiles every package in the module and emits the runtime
+	// binary under bin/.
 	buildResult, err := runRequiredValidation("go", []string{"build", "-p", "1", "-o", "bin/", "./..."}, root, 5*time.Minute)
 	if err != nil {
 		return 0, err
@@ -149,8 +135,7 @@ func (developmentEvidenceCommand) Run(arguments []string) (int, error) {
 		moduleInventory.Set("maximumParallelTests", DevelopmentMaximumParallelTests)
 		inventory.Append(moduleInventory)
 	}
-	// The C# run re-executed the freshly built tooling executable; the Go
-	// attestation re-executes this same tooling binary.
+	// The attestation re-executes this same tooling binary.
 	toolingExecutable, err := os.Executable()
 	if err != nil {
 		return 0, err
@@ -237,7 +222,7 @@ func (developmentEvidenceCommand) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// Parse mirrors the C# internal option parser.
+// Parse parses and validates the command options.
 func (developmentEvidenceCommand) Parse(arguments []string) (DevelopmentEvidenceOptions, error) {
 	usage := func() (DevelopmentEvidenceOptions, error) {
 		return DevelopmentEvidenceOptions{}, newToolValidationException([]string{
@@ -310,9 +295,8 @@ func runRequiredValidation(fileName string, arguments []string, workingDirectory
 var developmentTestTotalPattern = regexp.MustCompile(`(?m)^\s*total:\s*(\d+)\s*$`)
 var developmentGoTestResultPattern = regexp.MustCompile(`(?m)^--- (?:PASS|FAIL|SKIP): \S+`)
 
-// ParseTestTotal mirrors the C# helper: a `total: N` line wins, otherwise the
-// `go test -v` top-level result lines are counted (the toolchain-mapped
-// equivalent of the test-module inventory line).
+// ParseTestTotal parses the reported test total: a `total: N` line wins,
+// otherwise the `go test -v` top-level result lines are counted.
 func (developmentEvidenceCommand) ParseTestTotal(module string, output string) (int, error) {
 	if match := developmentTestTotalPattern.FindStringSubmatch(output); match != nil {
 		if total, err := strconv.Atoi(match[1]); err == nil && total > 0 {
@@ -335,8 +319,8 @@ func isWithinPath(path string, directory string) bool {
 		!filepath.IsAbs(relative)
 }
 
-// resolveCodeArtifact mirrors the C# helper: the .dll sidecar no longer
-// exists, so the executable itself is the code artifact.
+// resolveCodeArtifact returns the executable itself as the hashed code
+// artifact.
 func resolveCodeArtifact(executable string) string {
 	return executable
 }

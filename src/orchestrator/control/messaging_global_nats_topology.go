@@ -13,11 +13,9 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// GlobalNatsTopology mirrors the C# class: the GRU global-authority JetStream
-// topology (streams, KV buckets, Object Stores, durable consumers) and the CI
-// subject derivations. NATS.Net model types map onto nats.go jetstream config
-// types (NatsKVConfig → jetstream.KeyValueConfig, NatsObjConfig →
-// jetstream.ObjectStoreConfig, StreamConfig/ConsumerConfig identically named).
+// GlobalNatsTopology is the GRU global-authority JetStream topology (streams,
+// KV buckets, Object Stores, durable consumers) and the CI subject
+// derivations.
 type GlobalNatsTopology struct {
 	Replicas int
 }
@@ -51,7 +49,7 @@ func GlobalNatsTopologyCellSpecSubjectPrefix() string {
 	return protocol.NatsSubjectTaxonomy.GlobalCellSpecPrefix()
 }
 
-// NewGlobalNatsTopology mirrors the C# constructor (R3 only).
+// NewGlobalNatsTopology validates the replica count (R3 only).
 func NewGlobalNatsTopology(replicas int) (*GlobalNatsTopology, error) {
 	if replicas != 3 {
 		return nil, errors.New("Global control state requires R3. (Parameter 'replicas')")
@@ -60,7 +58,7 @@ func NewGlobalNatsTopology(replicas int) (*GlobalNatsTopology, error) {
 	return &GlobalNatsTopology{Replicas: replicas}, nil
 }
 
-// Streams mirrors GlobalNatsTopology.Streams.
+// Streams returns the global stream configurations.
 func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 	return []jetstream.StreamConfig{
 		{
@@ -91,7 +89,7 @@ func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 	}
 }
 
-// Leaders mirrors GlobalNatsTopology.Leaders.
+// Leaders returns the fenced global authority lease bucket.
 func (t *GlobalNatsTopology) Leaders() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:      "ORCH_LEADERS",
@@ -102,7 +100,7 @@ func (t *GlobalNatsTopology) Leaders() jetstream.KeyValueConfig {
 	}
 }
 
-// Cells mirrors GlobalNatsTopology.Cells.
+// Cells returns the durable cell advertisement bucket.
 func (t *GlobalNatsTopology) Cells() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       GlobalNatsTopologyCellsBucket,
@@ -115,7 +113,7 @@ func (t *GlobalNatsTopology) Cells() jetstream.KeyValueConfig {
 	}
 }
 
-// Releases mirrors GlobalNatsTopology.Releases.
+// Releases returns the delivery and CI journal ledger bucket.
 func (t *GlobalNatsTopology) Releases() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		// Durable bucket name kept from the retired stage for store continuity; its
@@ -131,7 +129,7 @@ func (t *GlobalNatsTopology) Releases() jetstream.KeyValueConfig {
 	}
 }
 
-// RunnerJobs mirrors GlobalNatsTopology.RunnerJobs.
+// RunnerJobs returns the CI runner acceptance pointer bucket.
 func (t *GlobalNatsTopology) RunnerJobs() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       GlobalNatsTopologyRunnerJobsBucket,
@@ -144,7 +142,7 @@ func (t *GlobalNatsTopology) RunnerJobs() jetstream.KeyValueConfig {
 	}
 }
 
-// Bundles mirrors GlobalNatsTopology.Bundles.
+// Bundles returns the global CI bundle object store.
 func (t *GlobalNatsTopology) Bundles() jetstream.ObjectStoreConfig {
 	return jetstream.ObjectStoreConfig{
 		Bucket:      "GLOBAL_BUNDLES",
@@ -154,7 +152,7 @@ func (t *GlobalNatsTopology) Bundles() jetstream.ObjectStoreConfig {
 	}
 }
 
-// RunnerBundles mirrors GlobalNatsTopology.RunnerBundles.
+// RunnerBundles returns the CI runner bundle object store.
 func (t *GlobalNatsTopology) RunnerBundles() jetstream.ObjectStoreConfig {
 	return jetstream.ObjectStoreConfig{
 		Bucket:      GlobalNatsTopologyRunnerBundlesBucket,
@@ -165,7 +163,7 @@ func (t *GlobalNatsTopology) RunnerBundles() jetstream.ObjectStoreConfig {
 	}
 }
 
-// CiConsumer mirrors GlobalNatsTopology.CiConsumer.
+// CiConsumer returns the CI trigger consumer configuration.
 func (t *GlobalNatsTopology) CiConsumer() jetstream.ConsumerConfig {
 	return jetstream.ConsumerConfig{
 		Name:          "global_ci_trigger",
@@ -185,7 +183,7 @@ func (t *GlobalNatsTopology) CiConsumer() jetstream.ConsumerConfig {
 	}
 }
 
-// CiRuntimeProofConsumer mirrors GlobalNatsTopology.CiRuntimeProofConsumer.
+// CiRuntimeProofConsumer returns the CI runtime-proof consumer configuration.
 func (t *GlobalNatsTopology) CiRuntimeProofConsumer() jetstream.ConsumerConfig {
 	return jetstream.ConsumerConfig{
 		Name:              "global_ci_runtime_proof",
@@ -210,7 +208,7 @@ func (t *GlobalNatsTopology) CiRuntimeProofConsumer() jetstream.ConsumerConfig {
 	}
 }
 
-// CellSpecConsumer mirrors GlobalNatsTopology.CellSpecConsumer.
+// CellSpecConsumer returns the global CellSpec consumer for a cell.
 func (t *GlobalNatsTopology) CellSpecConsumer(cell string) (jetstream.ConsumerConfig, error) {
 	subject, err := GlobalNatsTopologyCellSpecSubject(cell)
 	if err != nil {
@@ -240,7 +238,8 @@ func (t *GlobalNatsTopology) CellSpecConsumer(cell string) (jetstream.ConsumerCo
 	}, nil
 }
 
-// CiJobConsumer mirrors GlobalNatsTopology.CiJobConsumer.
+// CiJobConsumer returns the durable fenced command inbox consumer for one
+// runner.
 func (t *GlobalNatsTopology) CiJobConsumer(zone, runner string) (jetstream.ConsumerConfig, error) {
 	subject, err := GlobalNatsTopologyCiJobSubject(zone, runner)
 	if err != nil {
@@ -272,7 +271,6 @@ func (t *GlobalNatsTopology) CiJobConsumer(zone, runner string) (jetstream.Consu
 	}, nil
 }
 
-// GlobalNatsTopologyCiJobSubject mirrors the static CiJobSubject.
 func GlobalNatsTopologyCiJobSubject(zone, runner string) (string, error) {
 	if zone != "untrusted-product" && zone != "trusted-build" {
 		return "", errors.New("The CI runner subject zone is invalid. (Parameter 'zone')")
@@ -286,7 +284,6 @@ func GlobalNatsTopologyCiJobSubject(zone, runner string) (string, error) {
 	return GlobalNatsTopologyCiJobSubjectPrefix() + "." + zone + "." + hash[:24], nil
 }
 
-// GlobalNatsTopologyCellSpecSubject mirrors the static CellSpecSubject.
 func GlobalNatsTopologyCellSpecSubject(cell string) (string, error) {
 	if !GlobalNatsTopologyIsCellToken(cell) {
 		return "", errors.New(
@@ -296,10 +293,8 @@ func GlobalNatsTopologyCellSpecSubject(cell string) (string, error) {
 	return GlobalNatsTopologyCellSpecSubjectPrefix() + "." + cell, nil
 }
 
-// GlobalNatsTopologyIsCellToken mirrors the internal IsCellToken.
 func GlobalNatsTopologyIsCellToken(cell string) bool { return messagingCellTokenIsValid(cell) }
 
-// GlobalNatsTopologyCellAdvertisementKey mirrors the internal CellAdvertisementKey.
 func GlobalNatsTopologyCellAdvertisementKey(cell string) (string, error) {
 	if !GlobalNatsTopologyIsCellToken(cell) {
 		return "", errors.New(
@@ -309,7 +304,6 @@ func GlobalNatsTopologyCellAdvertisementKey(cell string) (string, error) {
 	return "cell." + cell, nil
 }
 
-// GlobalNatsTopologyCiRunnerJournalPrefix mirrors the static CiRunnerJournalPrefix.
 func GlobalNatsTopologyCiRunnerJournalPrefix(runner string) (string, error) {
 	hash, err := GlobalNatsTopologyCiRunnerIdentityHash(runner)
 	if err != nil {
@@ -319,7 +313,6 @@ func GlobalNatsTopologyCiRunnerJournalPrefix(runner string) (string, error) {
 	return GlobalNatsTopologyCiRunnerJournalKeyPrefix + "." + hash + ".job", nil
 }
 
-// GlobalNatsTopologyCiRunnerIdentityHash mirrors the static CiRunnerIdentityHash.
 func GlobalNatsTopologyCiRunnerIdentityHash(runner string) (string, error) {
 	if len(runner) < 1 || len(runner) > 512 ||
 		strings.IndexFunc(runner, func(r rune) bool {
@@ -333,5 +326,5 @@ func GlobalNatsTopologyCiRunnerIdentityHash(runner string) (string, error) {
 }
 
 // GlobalNatsTopologyBucketName returns the KV bucket of a config for callers
-// that only need the name (mirrors config.Bucket in C#).
+// that only need the name.
 func GlobalNatsTopologyBucketName(config jetstream.KeyValueConfig) string { return config.Bucket }

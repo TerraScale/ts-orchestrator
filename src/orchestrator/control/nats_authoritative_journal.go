@@ -18,9 +18,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// NatsAuthoritativeJournalConfiguration mirrors the C# record: the separate
-// credentials and trust root required to host the private authoritative
-// journal writer.
+// NatsAuthoritativeJournalConfiguration carries the separate credentials and
+// trust root required to host the private authoritative journal writer.
 type NatsAuthoritativeJournalConfiguration struct {
 	NKeyFile                     string
 	Tls                          *NatsTlsFiles
@@ -30,8 +29,8 @@ type NatsAuthoritativeJournalConfiguration struct {
 	EligibleControllerIdentities map[string]struct{}
 }
 
-// NatsAuthoritativeJournalConfigurationResolve mirrors the C# Resolve. A nil
-// result with a nil error means nothing was supplied.
+// NatsAuthoritativeJournalConfigurationResolve resolves the configuration. A
+// nil result with a nil error means nothing was supplied.
 func NatsAuthoritativeJournalConfigurationResolve(
 	nkeyFile string,
 	caFile string,

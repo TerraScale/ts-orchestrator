@@ -71,11 +71,11 @@ type OrchestratorOptions struct {
 // EnvironmentLookup is deliberately injected so parsing never reads process
 // globals behind the caller's back. A false result means the variable is not
 // present; an empty present value remains an explicit (and usually invalid)
-// setting, matching the C# parser's null semantics.
+// setting.
 type EnvironmentLookup func(string) (string, bool)
 
 // NewOrchestratorOptions parses args and resolves the role-specific
-// environment settings. An omitted command means run, as in the C# CLI.
+// environment settings. An omitted command means run.
 func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*OrchestratorOptions, error) {
 	if environment == nil {
 		return nil, errors.New("an environment lookup function is required")

@@ -9,7 +9,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// RuntimeLifecycleNatsProtocol ports the closed, redacted wire contract for
+// RuntimeLifecycleNatsProtocol is the closed, redacted wire contract for
 // the private runtime-lifecycle journal bridge. This protocol carries no host
 // plan, secret, credential, provider identifier, or exception text.
 var RuntimeLifecycleNatsProtocol runtimeLifecycleNatsProtocol
@@ -209,9 +209,9 @@ func (r NatsRuntimeLifecycleJournalReply) Payload() string {
 		strconv.FormatUint(r.Revision, 10), checkpoint, r.RequestDigest}, "|")
 }
 
-// checkpointJSONValue mirrors the .NET source-generated JSON shape for
-// RuntimeLifecycleCheckpoint: PascalCase property names, enums as numbers and
-// nested single-value records as objects.
+// checkpointJSONValue is the JSON wire shape for RuntimeLifecycleCheckpoint:
+// PascalCase property names, enums as numbers, and nested single-value
+// records as objects.
 type checkpointJSONValue struct {
 	Value string `json:"Value"`
 }

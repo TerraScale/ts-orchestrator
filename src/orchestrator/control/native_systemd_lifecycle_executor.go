@@ -148,7 +148,7 @@ func (e *NativeSystemdRuntimeLifecycleExecutor) ObserveAsync(ctx context.Context
 }
 
 // PlanFingerprintForValidation binds an execution request to its plan
-// fingerprint the way the C# property chain did.
+// fingerprint.
 func (r RuntimeLifecycleExecutionRequest) PlanFingerprintForValidation() RuntimeLifecyclePlanFingerprint {
 	fingerprint, err := RuntimeLifecycleFingerprint.Plan(r.Plan)
 	if err != nil {

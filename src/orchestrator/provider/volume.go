@@ -69,7 +69,7 @@ func (t HTTPVolumeTransport) UpdateVolume(ctx context.Context, r VolumeUpdateReq
 }
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
-// Compatibility names for callers ported from the C# contracts.
+// Compatibility aliases kept for caller readability.
 type OciBlockVolumeExpansionAdapter = BlockVolumeExpansionAdapter
 type OciBlockVolumeObservation = VolumeObservation
 type OciBlockVolumeReadRequest = VolumeReadRequest

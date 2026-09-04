@@ -36,7 +36,8 @@ func (p *SubjectPermissionPattern) Tokens() []string {
 	return p.tokens
 }
 
-// SubjectPermissionPatternTryParse mirrors SubjectPermissionPattern.TryParse.
+// SubjectPermissionPatternTryParse parses one permission pattern; wildcards
+// must be whole tokens and `>` must be final.
 func SubjectPermissionPatternTryParse(value string, limits *SubjectGrammarLimits) (*SubjectPermissionPattern, SubjectGrammarError) {
 	tokens, err := subjectGrammarParserInstance.tryTokenize(value, limits)
 	if err != SubjectGrammarErrorNone {
@@ -64,8 +65,9 @@ func SubjectPermissionPatternTryParse(value string, limits *SubjectGrammarLimits
 	return &SubjectPermissionPattern{value: value, tokens: tokens}, SubjectGrammarErrorNone
 }
 
-// Matches mirrors SubjectPermissionPattern.Matches: `*` matches exactly one
-// token and a terminal `>` matches one or more remaining tokens.
+// Matches reports whether the concrete subject matches the pattern: `*`
+// matches exactly one token and a terminal `>` matches one or more remaining
+// tokens.
 func (p *SubjectPermissionPattern) Matches(subject *ConcreteSubject) bool {
 	if p == nil || subject == nil {
 		return false
@@ -97,7 +99,7 @@ func (p *SubjectPermissionPattern) Matches(subject *ConcreteSubject) bool {
 	return true
 }
 
-// Equal mirrors SubjectPermissionPattern.Equals (ordinal value equality).
+// Equal is ordinal value equality.
 func (p *SubjectPermissionPattern) Equal(other *SubjectPermissionPattern) bool {
 	if p == nil || other == nil {
 		return p == other
@@ -106,7 +108,7 @@ func (p *SubjectPermissionPattern) Equal(other *SubjectPermissionPattern) bool {
 	return p.value == other.value
 }
 
-// CompareTo mirrors SubjectPermissionPattern.CompareTo (ordinal, nil sorts last).
+// CompareTo is ordinal; nil sorts last.
 func (p *SubjectPermissionPattern) CompareTo(other *SubjectPermissionPattern) int {
 	if other == nil {
 		return 1

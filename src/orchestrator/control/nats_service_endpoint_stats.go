@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// NatsServiceEndpointName mirrors the C# enum: the closed endpoint-name domain
-// of the regional control service.
+// NatsServiceEndpointName is the closed endpoint-name domain of the regional
+// control service.
 type NatsServiceEndpointName int
 
 const (
@@ -45,7 +45,6 @@ func natsServiceEndpointNameIsDefined(n NatsServiceEndpointName) bool {
 	return n >= NatsServiceEndpointNameHealth && n <= NatsServiceEndpointNameDirectDelivery
 }
 
-// NatsServiceRequestResult mirrors the C# enum.
 type NatsServiceRequestResult int
 
 const (
@@ -68,9 +67,8 @@ func natsServiceRequestResultIsDefined(r NatsServiceRequestResult) bool {
 	return r >= NatsServiceRequestResultOk && r <= NatsServiceRequestResultError
 }
 
-// NatsServiceEndpointMeasurement mirrors the C# record: bounded latency
-// statistics for one service endpoint. JSON tags mirror the C#
-// source-generated context (default options: PascalCase names).
+// NatsServiceEndpointMeasurement is the bounded latency statistics for one
+// service endpoint. JSON tags serialize PascalCase names.
 type NatsServiceEndpointMeasurement struct {
 	Endpoint            NatsServiceEndpointName `json:"Endpoint"`
 	Requests            int64                   `json:"Requests"`
@@ -82,12 +80,10 @@ type NatsServiceEndpointMeasurement struct {
 	MaximumMilliseconds int64                   `json:"MaximumMilliseconds"`
 }
 
-// NatsServiceEndpointMeasurementEmpty mirrors the C# Empty factory.
 func NatsServiceEndpointMeasurementEmpty(endpoint NatsServiceEndpointName) NatsServiceEndpointMeasurement {
 	return NatsServiceEndpointMeasurement{Endpoint: endpoint}
 }
 
-// Validate mirrors the C# Validate.
 func (m NatsServiceEndpointMeasurement) Validate() error {
 	if !natsServiceEndpointNameIsDefined(m.Endpoint) || m.Requests < 0 || m.Errors < 0 ||
 		m.Errors > m.Requests ||
@@ -103,22 +99,20 @@ func (m NatsServiceEndpointMeasurement) Validate() error {
 	return nil
 }
 
-// natsServiceEndpointSampleLimit mirrors the C# SampleLimit.
+// natsServiceEndpointSampleLimit bounds the per-endpoint sample reservoir.
 const natsServiceEndpointSampleLimit = 256
 
-// NatsServiceEndpointStats mirrors the C# class: thread-safe recorder for
-// service endpoint statistics — one bounded reservoir per endpoint.
+// NatsServiceEndpointStats is a thread-safe recorder for service endpoint
+// statistics — one bounded reservoir per endpoint.
 type NatsServiceEndpointStats struct {
 	mu        sync.Mutex
 	recorders map[NatsServiceEndpointName]*natsServiceEndpointRecorder
 }
 
-// NewNatsServiceEndpointStats mirrors the C# constructor.
 func NewNatsServiceEndpointStats() *NatsServiceEndpointStats {
 	return &NatsServiceEndpointStats{recorders: map[NatsServiceEndpointName]*natsServiceEndpointRecorder{}}
 }
 
-// Record mirrors the C# Record.
 func (s *NatsServiceEndpointStats) Record(
 	endpoint NatsServiceEndpointName,
 	result NatsServiceRequestResult,
@@ -143,7 +137,6 @@ func (s *NatsServiceEndpointStats) Record(
 	recorder.Record(result, duration)
 }
 
-// Snapshot mirrors the C# Snapshot.
 func (s *NatsServiceEndpointStats) Snapshot() []NatsServiceEndpointMeasurement {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,11 +225,10 @@ func (r *natsServiceEndpointRecorder) Measurement(endpoint NatsServiceEndpointNa
 	return measurement
 }
 
-// NatsServiceStatsDocumentCurrentSchemaVersion mirrors the C# constant.
 const NatsServiceStatsDocumentCurrentSchemaVersion = 1
 
-// NatsServiceStatsDocument mirrors the C# record: the document served by the
-// read-only stats service endpoint.
+// NatsServiceStatsDocument is the document served by the read-only stats
+// service endpoint.
 type NatsServiceStatsDocument struct {
 	SchemaVersion    int                              `json:"SchemaVersion"`
 	Cell             string                           `json:"Cell"`
@@ -248,7 +240,6 @@ type NatsServiceStatsDocument struct {
 	Endpoints        []NatsServiceEndpointMeasurement `json:"Endpoints"`
 }
 
-// NatsServiceStatsDocumentCreate mirrors the C# Create.
 func NatsServiceStatsDocumentCreate(
 	cell string,
 	version string,
@@ -282,7 +273,6 @@ func NatsServiceStatsDocumentCreate(
 	return document, nil
 }
 
-// Validate mirrors the C# Validate.
 func (d *NatsServiceStatsDocument) Validate() error {
 	if d.SchemaVersion != NatsServiceStatsDocumentCurrentSchemaVersion ||
 		!messagingCellTokenIsValid(d.Cell) ||

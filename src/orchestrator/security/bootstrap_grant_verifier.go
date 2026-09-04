@@ -2,8 +2,8 @@ package security
 
 import "terrascale.tech/orchestrator/src/orchestrator/errs"
 
-// BootstrapGrantVerifier ports the static BootstrapGrantVerifier class; call it
-// as security.BootstrapGrantVerifier.Verify(input) to mirror the C# call site.
+// BootstrapGrantVerifier is the verification entry point; call it as
+// security.BootstrapGrantVerifier.Verify(input).
 var BootstrapGrantVerifier bootstrapGrantVerifier
 
 type bootstrapGrantVerifier struct{}

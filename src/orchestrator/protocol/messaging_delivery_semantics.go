@@ -6,26 +6,25 @@ import (
 	"time"
 )
 
-// DurableEffectAcknowledgementPolicy mirrors the sealed record: the
-// acknowledgement policy — a worker acknowledges only after the durable effect
-// exists or an idempotent replay of the same effect is proven. This pins the
-// landed behaviour — the acceptance journal record precedes the double-ack,
-// and authority loss after acceptance withholds the ack so the next epoch
-// holder re-derives the outcome.
+// DurableEffectAcknowledgementPolicy is the acknowledgement policy — a worker
+// acknowledges only after the durable effect exists or an idempotent replay of
+// the same effect is proven. This pins the landed behaviour — the acceptance
+// journal record precedes the double-ack, and authority loss after acceptance
+// withholds the ack so the next epoch holder re-derives the outcome.
 type DurableEffectAcknowledgementPolicy struct {
 	RequiresDoubleAck     bool
 	ProgressHeartbeat     *time.Duration
 	DurableEffectEvidence string
 }
 
-// DurableEffectAcknowledgementPolicyLanded mirrors DurableEffectAcknowledgementPolicy.Landed.
+// DurableEffectAcknowledgementPolicyLanded is the landed acknowledgement policy.
 var DurableEffectAcknowledgementPolicyLanded = DurableEffectAcknowledgementPolicy{
 	RequiresDoubleAck:     true,
 	ProgressHeartbeat:     durationPointer(30 * time.Second),
 	DurableEffectEvidence: "Journal acceptance or convergence record for the exact operation id",
 }
 
-// IsWellFormed mirrors the C# rule.
+// IsWellFormed reports whether the policy is well formed.
 func (p DurableEffectAcknowledgementPolicy) IsWellFormed() bool {
 	if !p.RequiresDoubleAck {
 		return false
@@ -38,8 +37,8 @@ func (p DurableEffectAcknowledgementPolicy) IsWellFormed() bool {
 	return p.ProgressHeartbeat == nil || *p.ProgressHeartbeat > 0
 }
 
-// BoundedRedeliveryPolicy mirrors the sealed record: the bounded redelivery
-// policy. JetStream derives the effective ack wait from the first backoff
+// BoundedRedeliveryPolicy is the bounded redelivery policy. JetStream derives
+// the effective ack wait from the first backoff
 // interval, so the declared ack wait must equal it. Exhaustion stops
 // redelivery only with terminal evidence — no message may disappear silently.
 // The pinned maximum ack-pending is the landed CellSpec consumer profile;
@@ -52,7 +51,7 @@ type BoundedRedeliveryPolicy struct {
 	ExhaustionRequiresTerminalEvidence bool
 }
 
-// BoundedRedeliveryPolicyLanded mirrors BoundedRedeliveryPolicy.Landed.
+// BoundedRedeliveryPolicyLanded is the landed bounded redelivery policy.
 var BoundedRedeliveryPolicyLanded = BoundedRedeliveryPolicy{
 	MaximumDeliveries: 5,
 	BackoffLadder: []time.Duration{
@@ -65,8 +64,8 @@ var BoundedRedeliveryPolicyLanded = BoundedRedeliveryPolicy{
 	ExhaustionRequiresTerminalEvidence: true,
 }
 
-// AckWait mirrors the C# property: the declared ack wait must equal the first
-// backoff interval.
+// AckWait returns the declared ack wait, which must equal the first backoff
+// interval.
 func (p BoundedRedeliveryPolicy) AckWait() (time.Duration, error) {
 	if len(p.BackoffLadder) > 0 {
 		return p.BackoffLadder[0], nil
@@ -75,7 +74,7 @@ func (p BoundedRedeliveryPolicy) AckWait() (time.Duration, error) {
 	return 0, errors.New("The backoff ladder is empty.")
 }
 
-// IsWellFormed mirrors the C# rule.
+// IsWellFormed reports whether the policy is well formed.
 func (p BoundedRedeliveryPolicy) IsWellFormed() bool {
 	if p.MaximumDeliveries < 1 || p.MaximumDeliveries > 100 {
 		return false
@@ -100,7 +99,7 @@ func (p BoundedRedeliveryPolicy) IsWellFormed() bool {
 	return p.MaximumAckPending >= 1 && p.ExhaustionRequiresTerminalEvidence
 }
 
-// PoisonDisposition mirrors the PoisonDisposition enum.
+// PoisonDisposition is the disposition of one poison decision.
 type PoisonDisposition int
 
 const (
@@ -119,8 +118,8 @@ const (
 	PoisonDispositionExhausted PoisonDisposition = 4
 )
 
-// PoisonTerminalReason mirrors the PoisonTerminalReason enum: why a message
-// was terminated or exhausted; the reason must survive in terminal evidence.
+// PoisonTerminalReason is why a message was terminated or exhausted; the
+// reason must survive in terminal evidence.
 type PoisonTerminalReason int
 
 const (
@@ -132,32 +131,30 @@ const (
 	PoisonTerminalReasonJournalRetentionOverflow               PoisonTerminalReason = 5
 )
 
-// PoisonDecision mirrors the nested PoisonDecision record.
+// PoisonDecision is one poison-message decision.
 type PoisonDecision struct {
 	Disposition PoisonDisposition
 	Reason      PoisonTerminalReason
 	Delay       *time.Duration
 }
 
-// PoisonDecisionNone mirrors PoisonDecision.None.
+// PoisonDecisionNone is the empty decision returned for out-of-range inputs.
 var PoisonDecisionNone = PoisonDecision{
 	Disposition: PoisonDispositionUnspecified,
 	Reason:      PoisonTerminalReasonUnspecified,
 	Delay:       nil,
 }
 
-// PoisonMessagePolicy mirrors the C# static class: the poison-message
-// decision core. A deterministic conflict (identical inputs, same wrong result
-// every redelivery) terminates immediately; a transient failure retries with
-// delay; an operational capacity failure holds loudly; exhaustion always
-// produces terminal evidence.
+// PoisonMessagePolicy is the poison-message decision core. A deterministic
+// conflict (identical inputs, same wrong result every redelivery) terminates
+// immediately; a transient failure retries with delay; an operational capacity
+// failure holds loudly; exhaustion always produces terminal evidence.
 var PoisonMessagePolicy poisonMessagePolicy
 
 type poisonMessagePolicy struct{}
 
-// Decide mirrors PoisonMessagePolicy.Decide: the disposition of one delivery
-// attempt. DeliveryCount is 1-based; maximumDeliveries comes from the
-// consumer profile.
+// Decide returns the disposition of one delivery attempt. DeliveryCount is
+// 1-based; maximumDeliveries comes from the consumer profile.
 func (poisonMessagePolicy) Decide(
 	deterministicConflict bool,
 	malformedInput bool,
@@ -211,7 +208,7 @@ func (poisonMessagePolicy) Decide(
 	}
 }
 
-// CancellationPolicy mirrors the sealed record: cancelling before the durable
+// CancellationPolicy is the cancellation policy: cancelling before the durable
 // effect means the message is NOT acknowledged (it returns for redelivery);
 // cancelling during the effect completes or compensates through the journal;
 // there is no partial acknowledgement.
@@ -220,19 +217,19 @@ type CancellationPolicy struct {
 	PartialAcknowledgementAllowed     bool
 }
 
-// CancellationPolicyLanded mirrors CancellationPolicy.Landed.
+// CancellationPolicyLanded is the landed cancellation policy.
 var CancellationPolicyLanded = CancellationPolicy{
 	AcknowledgeOnlyAfterDurableEffect: true,
 	PartialAcknowledgementAllowed:     false,
 }
 
-// IsWellFormed mirrors the C# rule.
+// IsWellFormed reports whether the policy is well formed.
 func (p CancellationPolicy) IsWellFormed() bool {
 	return p.AcknowledgeOnlyAfterDurableEffect && !p.PartialAcknowledgementAllowed
 }
 
-// DuplicateWindowPolicy mirrors the sealed record: message-id duplicate
-// windows are TRANSPORT suppression layered beneath operation-level
+// DuplicateWindowPolicy is the transport duplicate-window policy: message-id
+// duplicate windows are TRANSPORT suppression layered beneath operation-level
 // idempotency. The contract makes no exactly-once claim: outside the window a
 // duplicate is admitted and the idempotency key remains the authority.
 type DuplicateWindowPolicy struct {
@@ -240,29 +237,31 @@ type DuplicateWindowPolicy struct {
 	Channel string
 }
 
-// NoExactlyOnceClaim mirrors DuplicateWindowPolicy.NoExactlyOnceClaim.
+// NoExactlyOnceClaim is the contract's no-exactly-once disclaimer.
 const NoExactlyOnceClaim = "Duplicate windows suppress transport-level replays only; correctness is owned by " +
 	"operation-level idempotency keys, and no delivery is claimed to be exactly-once."
 
-// DuplicateWindowPolicyCellStreams mirrors DuplicateWindowPolicy.CellStreams.
+// DuplicateWindowPolicyCellStreams is the duplicate-window policy of the
+// regional cell streams.
 var DuplicateWindowPolicyCellStreams = DuplicateWindowPolicy{
 	Window:  2 * time.Minute,
 	Channel: "regional-cell-streams",
 }
 
-// DuplicateWindowPolicyGlobalCiStream mirrors DuplicateWindowPolicy.GlobalCiStream.
+// DuplicateWindowPolicyGlobalCiStream is the duplicate-window policy of the
+// global CI stream.
 var DuplicateWindowPolicyGlobalCiStream = DuplicateWindowPolicy{
 	Window:  24 * time.Hour,
 	Channel: "global-ci-stream",
 }
 
-// IsWellFormed mirrors the C# rule.
+// IsWellFormed reports whether the policy is well formed.
 func (p DuplicateWindowPolicy) IsWellFormed() bool {
 	return p.Window > 0 && p.Window <= 24*time.Hour && strings.TrimSpace(p.Channel) != ""
 }
 
-// DuplicateWindowDecision mirrors the DuplicateWindowDecision enum: the pure
-// transport-suppression decision for one message id.
+// DuplicateWindowDecision is the pure transport-suppression decision for one
+// message id.
 type DuplicateWindowDecision int
 
 const (
@@ -287,10 +286,10 @@ type duplicateWindowRecord struct {
 	observedAt time.Time
 }
 
-// MessageIdDuplicateWindow mirrors the sealed class: the deterministic,
-// bounded message-id duplicate-window tracker. It is pure: every observation
-// carries an explicit timestamp, and callers must still apply operation-level
-// idempotency. Like the C# class it is NOT synchronized.
+// MessageIdDuplicateWindow is the deterministic, bounded message-id
+// duplicate-window tracker. It is pure: every observation carries an explicit
+// timestamp, and callers must still apply operation-level idempotency. It is
+// NOT safe for concurrent use.
 type MessageIdDuplicateWindow struct {
 	window        time.Duration
 	capacity      int
@@ -298,7 +297,8 @@ type MessageIdDuplicateWindow struct {
 	evictionOrder []string
 }
 
-// NewMessageIdDuplicateWindow mirrors the constructor.
+// NewMessageIdDuplicateWindow creates a tracker with the given window and
+// capacity.
 func NewMessageIdDuplicateWindow(window time.Duration, capacity int) (*MessageIdDuplicateWindow, error) {
 	if window <= 0 {
 		return nil, errors.New("Specified argument was out of the range of valid values. (Parameter 'window')")
@@ -318,7 +318,7 @@ func NewMessageIdDuplicateWindow(window time.Duration, capacity int) (*MessageId
 // Count returns the number of resident message ids.
 func (w *MessageIdDuplicateWindow) Count() int { return len(w.observed) }
 
-// Observe mirrors Observe: record one observation and decide.
+// Observe records one observation and decides.
 func (w *MessageIdDuplicateWindow) Observe(messageId, digest string, now time.Time) DuplicateWindowDecision {
 	if messageId == "" || digest == "" {
 		return DuplicateWindowDecisionAdmit
@@ -346,9 +346,9 @@ func (w *MessageIdDuplicateWindow) Observe(messageId, digest string, now time.Ti
 	return DuplicateWindowDecisionAdmit
 }
 
-// Inspect mirrors Inspect: the read-only decision for one message id: exactly
-// the decision Observe would return, without recording anything. Consumers use
-// it before dispatch (the recording happens only after the durable effect is
+// Inspect returns the read-only decision for one message id: exactly the
+// decision Observe would return, without recording anything. Consumers use it
+// before dispatch (the recording happens only after the durable effect is
 // proven) so suppression can never skip work.
 func (w *MessageIdDuplicateWindow) Inspect(messageId, digest string, now time.Time) DuplicateWindowDecision {
 	if messageId == "" || digest == "" {
@@ -385,9 +385,8 @@ func (w *MessageIdDuplicateWindow) remember(messageId, digest string, now time.T
 	w.observed[messageId] = duplicateWindowRecord{digest: digest, observedAt: now}
 }
 
-// DuplicateWindowDeliveryAction mirrors the DuplicateWindowDeliveryAction
-// enum: the delivery action a consumer derives from one transport
-// duplicate-window decision.
+// DuplicateWindowDeliveryAction is the delivery action a consumer derives from
+// one transport duplicate-window decision.
 type DuplicateWindowDeliveryAction int
 
 const (
@@ -405,13 +404,13 @@ const (
 	DuplicateWindowDeliveryActionTerminateConflictingIdentity DuplicateWindowDeliveryAction = 3
 )
 
-// DuplicateWindowDelivery mirrors the C# static class: the pure mapping from a
-// duplicate-window decision to the consumer delivery action.
+// DuplicateWindowDelivery is the pure mapping from a duplicate-window decision
+// to the consumer delivery action.
 var DuplicateWindowDelivery duplicateWindowDelivery
 
 type duplicateWindowDelivery struct{}
 
-// Decide mirrors DuplicateWindowDelivery.Decide.
+// Decide maps one duplicate-window decision to its delivery action.
 func (duplicateWindowDelivery) Decide(decision DuplicateWindowDecision) DuplicateWindowDeliveryAction {
 	switch decision {
 	case DuplicateWindowDecisionAdmit, DuplicateWindowDecisionAdmitBeyondWindow:
@@ -425,10 +424,10 @@ func (duplicateWindowDelivery) Decide(decision DuplicateWindowDecision) Duplicat
 	}
 }
 
-// AuthorityLeaseClaim mirrors the sealed record: the fenced authority claim a
-// handler must hold to own work. Mirrors the landed
-// RegionalAuthorityCoordinator lease document: epoch from KV CAS, lease
-// expiry, and the KV revision of the accepted authority generation.
+// AuthorityLeaseClaim is the fenced authority claim a handler must hold to own
+// work. It matches the landed RegionalAuthorityCoordinator lease document:
+// epoch from KV CAS, lease expiry, and the KV revision of the accepted
+// authority generation.
 type AuthorityLeaseClaim struct {
 	Epoch          int64
 	KvRevision     int64
@@ -437,18 +436,18 @@ type AuthorityLeaseClaim struct {
 	CandidateId    string
 }
 
-// IsLive mirrors IsLive.
+// IsLive reports whether the claim is live at now.
 func (c AuthorityLeaseClaim) IsLive(now time.Time) bool {
 	return c.Epoch > 0 && c.KvRevision > 0 && c.LeaseExpiresAt.After(now)
 }
 
-// IsWellFormed mirrors IsWellFormed.
+// IsWellFormed reports whether the claim fields are populated.
 func (c AuthorityLeaseClaim) IsWellFormed() bool {
 	return c.Epoch > 0 && c.KvRevision > 0 &&
 		strings.TrimSpace(c.AuthorityId) != "" && strings.TrimSpace(c.CandidateId) != ""
 }
 
-// QueueGroupAdmission mirrors the QueueGroupAdmission enum.
+// QueueGroupAdmission is the admission decision for one queue-group delivery.
 type QueueGroupAdmission int
 
 const (
@@ -467,8 +466,8 @@ const (
 	QueueGroupAdmissionNotLeader QueueGroupAdmission = 4
 )
 
-// QueueGroupOwnership mirrors the C# static class: queue-group ownership and
-// handler-fencing decision core. Queue groups distribute only
+// QueueGroupOwnership is the queue-group ownership and handler-fencing
+// decision core. Queue groups distribute only
 // equivalent-worker work; authoritative writes additionally require the live
 // fenced lease, checked BEFORE the effect and again BEFORE the
 // acknowledgement, which is what prevents split writers: two holders can
@@ -477,7 +476,7 @@ var QueueGroupOwnership queueGroupOwnership
 
 type queueGroupOwnership struct{}
 
-// Decide mirrors QueueGroupOwnership.Decide.
+// Decide admits or fences one delivery.
 func (queueGroupOwnership) Decide(
 	liveClaim *AuthorityLeaseClaim,
 	isLeader bool,
@@ -513,8 +512,8 @@ func (queueGroupOwnership) Decide(
 	return QueueGroupAdmissionStaleEpoch
 }
 
-// MayCommitAuthoritativeWrite mirrors MayCommitAuthoritativeWrite: the
-// split-writer check for an authoritative journal append. The same fenced
+// MayCommitAuthoritativeWrite is the split-writer check for an authoritative
+// journal append. The same fenced
 // claim must be live immediately before the durable write and immediately
 // before the acknowledgement. A loss at either checkpoint abandons or
 // withholds — the in-flight write either never happened or is re-derived by

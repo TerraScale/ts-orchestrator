@@ -127,7 +127,7 @@ func NewNativeSystemdRuntimeAdmissionWithRunner(
 	hostEvidence := func() SystemdHostProbeResult {
 		var evidence SystemdHostProbeResult
 		func() {
-			// The C# seam wraps any probe failure as a host-admission failure.
+			// A panicking probe is a host-admission failure, never a partial pass.
 			defer func() {
 				if recovered := recover(); recovered != nil {
 					probeFailed = true

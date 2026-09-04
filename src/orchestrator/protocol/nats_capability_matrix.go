@@ -2,9 +2,9 @@ package protocol
 
 import "strings"
 
-// NatsCapability mirrors the NatsCapability enum: every NATS capability named
-// by the frozen feature-adoption contract. The enum is the machine-readable
-// completeness key: the matrix must disposition each member exactly once.
+// NatsCapability names every NATS capability of the frozen feature-adoption
+// contract. The closed set is the machine-readable completeness key: the
+// matrix must disposition each member exactly once.
 type NatsCapability int
 
 const (
@@ -87,7 +87,7 @@ func (c NatsCapability) String() string {
 	}
 }
 
-// NatsCapabilityDisposition mirrors the NatsCapabilityDisposition enum.
+// NatsCapabilityDisposition is the adoption disposition of one capability.
 type NatsCapabilityDisposition int
 
 const (
@@ -115,7 +115,7 @@ func (d NatsCapabilityDisposition) String() string {
 	}
 }
 
-// NatsCapabilityOwner mirrors the NatsCapabilityOwner enum: owner roles are a
+// NatsCapabilityOwner is the owner role of one capability; owner roles are a
 // closed set so responsibility cannot drift into prose.
 type NatsCapabilityOwner int
 
@@ -133,7 +133,7 @@ const (
 	NatsCapabilityOwnerStorageAndSnapshots     NatsCapabilityOwner = 10
 )
 
-// NatsDataClass mirrors the NatsDataClass enum.
+// NatsDataClass is the data classification of one capability.
 type NatsDataClass int
 
 const (
@@ -147,7 +147,7 @@ const (
 	NatsDataClassOperatorQuery        NatsDataClass = 7
 )
 
-// NatsDurabilityClass mirrors the NatsDurabilityClass enum.
+// NatsDurabilityClass is the durability classification of one capability.
 type NatsDurabilityClass int
 
 const (
@@ -163,7 +163,7 @@ const (
 	NatsDurabilityClassEphemeral NatsDurabilityClass = 3
 )
 
-// NatsOrderingClass mirrors the NatsOrderingClass enum.
+// NatsOrderingClass is the ordering classification of one capability.
 type NatsOrderingClass int
 
 const (
@@ -178,11 +178,10 @@ const (
 	NatsOrderingClassUnordered NatsOrderingClass = 3
 )
 
-// NatsCapabilityEntry mirrors the sealed record: one frozen capability
-// disposition. Accepted entries carry owner, data class, durability, ordering,
-// security boundary, failure mode, observability requirement, and landed
-// evidence. Deferred entries carry a revisit trigger; rejected entries carry
-// an exclusion rationale.
+// NatsCapabilityEntry is one frozen capability disposition. Accepted entries
+// carry owner, data class, durability, ordering, security boundary, failure
+// mode, observability requirement, and landed evidence. Deferred entries
+// carry a revisit trigger; rejected entries carry an exclusion rationale.
 type NatsCapabilityEntry struct {
 	Capability                         NatsCapability
 	Disposition                        NatsCapabilityDisposition
@@ -197,7 +196,8 @@ type NatsCapabilityEntry struct {
 	LandedEvidence                     string
 }
 
-// IsWellFormed mirrors the internal rule.
+// IsWellFormed reports whether the entry carries the attributes its
+// disposition requires.
 func (e NatsCapabilityEntry) IsWellFormed() bool {
 	if e.Capability == NatsCapabilityUnspecified || e.Disposition == NatsCapabilityDispositionUnspecified {
 		return false
@@ -221,27 +221,26 @@ func isPresentCapabilityText(value string) bool {
 	return strings.TrimSpace(value) != "" && len(value) <= 512
 }
 
-// NatsCapabilityMatrix mirrors the C# static class: the frozen NATS
-// feature-adoption matrix. Canonical document:
-// docs/contracts/nats-capability-matrix.md. Drift tests bind this table to
-// the document and pin every disposition.
+// NatsCapabilityMatrix is the frozen NATS feature-adoption matrix. Canonical
+// document: docs/contracts/nats-capability-matrix.md. Drift tests bind this
+// table to the document and pin every disposition.
 var NatsCapabilityMatrix natsCapabilityMatrix
 
 type natsCapabilityMatrix struct{}
 
 var natsCapabilityEntries = createNatsCapabilityEntries()
 
-// Entries mirrors NatsCapabilityMatrix.Entries; treat the slice as read-only.
+// Entries returns the frozen entries; treat the slice as read-only.
 func (natsCapabilityMatrix) Entries() []NatsCapabilityEntry { return natsCapabilityEntries }
 
-// Find mirrors NatsCapabilityMatrix.Find: the single disposition of one
-// capability, or nil when the matrix has none.
+// Find returns the single disposition of one capability, or nil when the
+// matrix has none.
 func (natsCapabilityMatrix) Find(capability NatsCapability) *NatsCapabilityEntry {
 	var found *NatsCapabilityEntry
 	for index := range natsCapabilityEntries {
 		if natsCapabilityEntries[index].Capability == capability {
 			if found != nil {
-				// Mirrors SingleOrDefault throwing on more than one match.
+				// Exactly one disposition per capability; duplicates are a bug.
 				panic("Sequence contains more than one matching element")
 			}
 
@@ -252,13 +251,14 @@ func (natsCapabilityMatrix) Find(capability NatsCapability) *NatsCapabilityEntry
 	return found
 }
 
-// IsComplete mirrors NatsCapabilityMatrix.IsComplete: every capability named
-// by the contract has exactly one well-formed disposition.
+// IsComplete reports that every capability named by the contract has exactly
+// one well-formed disposition.
 func (natsCapabilityMatrix) IsComplete() bool {
 	return len(NatsCapabilityMatrix.CompletenessViolations()) == 0
 }
 
-// CompletenessViolations mirrors NatsCapabilityMatrix.CompletenessViolations.
+// CompletenessViolations lists every missing, duplicate, or malformed
+// disposition.
 func (natsCapabilityMatrix) CompletenessViolations() []string {
 	violations := []string{}
 	seen := map[NatsCapability]struct{}{}

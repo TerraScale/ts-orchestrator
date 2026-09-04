@@ -11,7 +11,6 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// NatsMonitoringInstrumentKind mirrors the C# enum.
 type NatsMonitoringInstrumentKind int
 
 const (
@@ -33,7 +32,6 @@ func (k NatsMonitoringInstrumentKind) String() string {
 	}
 }
 
-// NatsMonitoringAlertSeverity mirrors the C# enum.
 type NatsMonitoringAlertSeverity int
 
 const (
@@ -52,8 +50,7 @@ func (s NatsMonitoringAlertSeverity) String() string {
 	}
 }
 
-// NatsMonitoringInstrument mirrors the C# record: one canonical NATS
-// monitoring instrument.
+// NatsMonitoringInstrument describes one canonical NATS monitoring instrument.
 type NatsMonitoringInstrument struct {
 	Name            string
 	Unit            string
@@ -63,7 +60,6 @@ type NatsMonitoringInstrument struct {
 	FailureBehavior string
 }
 
-// NewNatsMonitoringInstrument mirrors the C# constructor.
 func NewNatsMonitoringInstrument(
 	name string,
 	unit string,
@@ -121,13 +117,12 @@ func natsMonitoringInstrumentValidateName(name string) (string, error) {
 	return name, nil
 }
 
-// NatsMonitoringLabels mirrors the C# static class: the closed set of label
-// keys NATS monitoring may use.
+// NatsMonitoringLabels is the closed set of label keys NATS monitoring may
+// use.
 var NatsMonitoringLabels natsMonitoringLabels
 
 type natsMonitoringLabels struct{}
 
-// AllowedKeys mirrors the C# AllowedKeys.
 func (natsMonitoringLabels) AllowedKeys() []string {
 	return []string{
 		"terrascale.cell",
@@ -146,7 +141,6 @@ func (natsMonitoringLabels) AllowedKeys() []string {
 	}
 }
 
-// ForbiddenKeyFragments mirrors the C# ForbiddenKeyFragments.
 func (natsMonitoringLabels) ForbiddenKeyFragments() []string {
 	return []string{
 		"instance",
@@ -161,7 +155,6 @@ func (natsMonitoringLabels) ForbiddenKeyFragments() []string {
 	}
 }
 
-// IsAllowedLabelKey mirrors the C# IsAllowedLabelKey.
 func (natsMonitoringLabels) IsAllowedLabelKey(key string) bool {
 	for _, allowed := range NatsMonitoringLabels.AllowedKeys() {
 		if allowed == key {
@@ -172,7 +165,6 @@ func (natsMonitoringLabels) IsAllowedLabelKey(key string) bool {
 	return false
 }
 
-// Plane mirrors the C# Plane.
 func (natsMonitoringLabels) Plane(plane NatsMonitoringPlane) string {
 	switch plane {
 	case NatsMonitoringPlaneControl:
@@ -184,7 +176,6 @@ func (natsMonitoringLabels) Plane(plane NatsMonitoringPlane) string {
 	}
 }
 
-// ClusterRole mirrors the C# ClusterRole.
 func (natsMonitoringLabels) ClusterRole(role NatsClusterRole) string {
 	switch role {
 	case NatsClusterRoleRegional:
@@ -196,27 +187,22 @@ func (natsMonitoringLabels) ClusterRole(role NatsClusterRole) string {
 	}
 }
 
-// StreamClass mirrors the C# StreamClass.
 func (natsMonitoringLabels) StreamClass(streamClass NatsStreamClass) string {
 	return strings.ToLower(streamClass.String())
 }
 
-// ConsumerClass mirrors the C# ConsumerClass.
 func (natsMonitoringLabels) ConsumerClass(consumerClass NatsConsumerClass) string {
 	return strings.ToLower(consumerClass.String())
 }
 
-// StoreClass mirrors the C# StoreClass.
 func (natsMonitoringLabels) StoreClass(storeClass NatsStoreClass) string {
 	return strings.ToLower(storeClass.String())
 }
 
-// CertificateClass mirrors the C# CertificateClass.
 func (natsMonitoringLabels) CertificateClass(certificateClass NatsCertificateClass) string {
 	return strings.ToLower(certificateClass.String())
 }
 
-// Availability mirrors the C# Availability.
 func (natsMonitoringLabels) Availability(availability NatsMonitoringAvailability) string {
 	switch availability {
 	case NatsMonitoringAvailabilityAvailable:
@@ -230,7 +216,6 @@ func (natsMonitoringLabels) Availability(availability NatsMonitoringAvailability
 	}
 }
 
-// MeshState mirrors the C# MeshState.
 func (natsMonitoringLabels) MeshState(state NatsMeshCellState) string {
 	return strings.ToLower(state.String())
 }
@@ -252,8 +237,8 @@ func natsMonitoringInstrument(
 	return *instrument
 }
 
-// NatsMonitoringInstrumentCatalog mirrors the C# static class: the canonical
-// NATS monitoring instrument catalog.
+// NatsMonitoringInstrumentCatalog is the canonical NATS monitoring instrument
+// catalog.
 var NatsMonitoringInstrumentCatalog natsMonitoringInstrumentCatalog
 
 type natsMonitoringInstrumentCatalog struct{}
@@ -397,12 +382,10 @@ func natsMonitoringInstruments() []NatsMonitoringInstrument {
 	return natsMonitoringInstrumentsCollection
 }
 
-// Instruments mirrors the C# Instruments property.
 func (natsMonitoringInstrumentCatalog) Instruments() []NatsMonitoringInstrument {
 	return natsMonitoringInstruments()
 }
 
-// Require mirrors the C# Require.
 func (natsMonitoringInstrumentCatalog) Require(name string) (NatsMonitoringInstrument, error) {
 	for _, instrument := range natsMonitoringInstruments() {
 		if instrument.Name == name {
@@ -414,8 +397,8 @@ func (natsMonitoringInstrumentCatalog) Require(name string) (NatsMonitoringInstr
 		"The NATS monitoring instrument '%s' is not cataloged.", name)
 }
 
-// NatsMonitoringAlertRule mirrors the C# record: a typed alert-rule
-// descriptor tied to canonical failure and recovery states.
+// NatsMonitoringAlertRule is a typed alert-rule descriptor tied to canonical
+// failure and recovery states.
 type NatsMonitoringAlertRule struct {
 	Id              string
 	Description     string
@@ -426,7 +409,6 @@ type NatsMonitoringAlertRule struct {
 	Runbook         string
 }
 
-// NewNatsMonitoringAlertRule mirrors the C# constructor.
 func NewNatsMonitoringAlertRule(
 	id string,
 	description string,
@@ -466,13 +448,12 @@ func NewNatsMonitoringAlertRule(
 	}, nil
 }
 
-// NatsAlertCatalog mirrors the C# static class: actionable NATS alert
-// conditions, each bound to catalog instruments.
+// NatsAlertCatalog holds actionable NATS alert conditions, each bound to
+// catalog instruments.
 var NatsAlertCatalog natsAlertCatalog
 
 type natsAlertCatalog struct{}
 
-// Rules mirrors the C# Rules.
 func (natsAlertCatalog) Rules() []NatsMonitoringAlertRule {
 	constructed := []NatsMonitoringAlertRule{
 		natsAlertRule("nats.gateway.partition",
@@ -594,13 +575,13 @@ func natsAlertRule(
 	return *rule
 }
 
-// NatsMonitoringSnapshotEntryMaximumLabelValueLength mirrors the C# constant:
-// the label-value length cap (a cell token, bounded at 63 characters).
+// NatsMonitoringSnapshotEntryMaximumLabelValueLength is the label-value length
+// cap (a cell token, bounded at 63 characters).
 const NatsMonitoringSnapshotEntryMaximumLabelValueLength = 63
 
-// NatsMonitoringSnapshotEntry mirrors the C# record: one typed metric snapshot
-// entry the Grafana/Prometheus-facing projection serves. JSON tags mirror the
-// C# source-generated context (default options: PascalCase names).
+// NatsMonitoringSnapshotEntry is one typed metric snapshot entry the
+// Grafana/Prometheus-facing projection serves. JSON tags use PascalCase
+// names.
 type NatsMonitoringSnapshotEntry struct {
 	Instrument string            `json:"Instrument"`
 	Unit       string            `json:"Unit"`
@@ -608,7 +589,6 @@ type NatsMonitoringSnapshotEntry struct {
 	Value      float64           `json:"Value"`
 }
 
-// NewNatsMonitoringSnapshotEntry mirrors the C# constructor.
 func NewNatsMonitoringSnapshotEntry(
 	instrument string,
 	unit string,
@@ -642,10 +622,8 @@ func NewNatsMonitoringSnapshotEntry(
 	}, nil
 }
 
-// NatsMonitoringSnapshotCurrentSchemaVersion mirrors the C# constant.
 const NatsMonitoringSnapshotCurrentSchemaVersion = 1
 
-// NatsMonitoringSnapshot mirrors the C# record.
 type NatsMonitoringSnapshot struct {
 	SchemaVersion int                           `json:"SchemaVersion"`
 	Cell          string                        `json:"Cell"`
@@ -654,10 +632,10 @@ type NatsMonitoringSnapshot struct {
 	Entries       []NatsMonitoringSnapshotEntry `json:"Entries"`
 }
 
-// NatsMonitoringSnapshotFrom mirrors the static From: projects the bounded
-// aggregate into the dashboard-facing snapshot — one entry per instrument
-// series the current aggregate can truthfully support. Series whose source did
-// not report are omitted, never zero-filled.
+// NatsMonitoringSnapshotFrom projects the bounded aggregate into the
+// dashboard-facing snapshot — one entry per instrument series the current
+// aggregate can truthfully support. Series whose source did not report are
+// omitted, never zero-filled.
 func NatsMonitoringSnapshotFrom(aggregate NatsMonitoringAggregate) (*NatsMonitoringSnapshot, error) {
 	if err := aggregate.Validate(); err != nil {
 		return nil, err
@@ -802,7 +780,6 @@ func NatsMonitoringSnapshotFrom(aggregate NatsMonitoringAggregate) (*NatsMonitor
 	return snapshot, nil
 }
 
-// Validate mirrors the C# Validate.
 func (s *NatsMonitoringSnapshot) Validate() error {
 	if s.SchemaVersion != NatsMonitoringSnapshotCurrentSchemaVersion ||
 		!messagingCellTokenIsValid(s.Cell) || s.ObservedAt.IsZero() ||
@@ -841,8 +818,8 @@ func natsMonitoringLabelsIdentity(labels map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
-// RenderPrometheus mirrors the C# RenderPrometheus: Prometheus text exposition
-// with unit-suffixed names and sorted labels.
+// RenderPrometheus renders Prometheus text exposition with unit-suffixed
+// names and sorted labels.
 func (s *NatsMonitoringSnapshot) RenderPrometheus() (string, error) {
 	if err := s.Validate(); err != nil {
 		return "", err
@@ -902,9 +879,9 @@ func (s *NatsMonitoringSnapshot) RenderPrometheus() (string, error) {
 	return strings.Join(lines, "\n") + "\n", nil
 }
 
-// natsMonitoringEscapeLabelValue mirrors the C# EscapeLabelValue: backslash,
-// double quote, and newline are the three characters the format requires to be
-// escaped inside a quoted label value.
+// natsMonitoringEscapeLabelValue escapes backslash, double quote, and newline
+// — the three characters the format requires to be escaped inside a quoted
+// label value.
 func natsMonitoringEscapeLabelValue(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return replacer.Replace(value)

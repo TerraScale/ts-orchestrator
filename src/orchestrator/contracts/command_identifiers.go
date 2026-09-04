@@ -4,7 +4,8 @@ package contracts
 
 import "strings"
 
-// commandIdentifierRules mirrors the internal static CommandIdentifierRules.
+// commandIdentifierRulesIsValid reports whether value satisfies the command
+// identifier rules.
 func commandIdentifierRulesIsValid(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	if value == "" || trimmed == "" {
@@ -15,8 +16,7 @@ func commandIdentifierRulesIsValid(value string) bool {
 }
 
 // CellId is the strongly typed cell identifier of a signed command.
-// The zero value carries an empty Value and reports IsValid() == false,
-// mirroring the C# default readonly record struct.
+// The zero value carries an empty Value and reports IsValid() == false.
 type CellId struct {
 	Value string
 }
@@ -26,8 +26,8 @@ func (i CellId) IsValid() bool { return commandIdentifierRulesIsValid(i.Value) }
 
 func (i CellId) String() string { return i.Value }
 
-// CellIdTryCreate mirrors CellId.TryCreate; an empty value is the Go
-// equivalent of the C# null argument and always fails.
+// CellIdTryCreate validates and constructs a CellId; an empty value always
+// fails.
 func CellIdTryCreate(value string) (CellId, bool) {
 	if !commandIdentifierRulesIsValid(value) {
 		return CellId{}, false
@@ -46,7 +46,7 @@ func (i AggregateId) IsValid() bool { return commandIdentifierRulesIsValid(i.Val
 
 func (i AggregateId) String() string { return i.Value }
 
-// AggregateIdTryCreate mirrors AggregateId.TryCreate.
+// AggregateIdTryCreate validates and constructs an AggregateId.
 func AggregateIdTryCreate(value string) (AggregateId, bool) {
 	if !commandIdentifierRulesIsValid(value) {
 		return AggregateId{}, false
@@ -65,7 +65,7 @@ func (i OperationId) IsValid() bool { return commandIdentifierRulesIsValid(i.Val
 
 func (i OperationId) String() string { return i.Value }
 
-// OperationIdTryCreate mirrors OperationId.TryCreate.
+// OperationIdTryCreate validates and constructs an OperationId.
 func OperationIdTryCreate(value string) (OperationId, bool) {
 	if !commandIdentifierRulesIsValid(value) {
 		return OperationId{}, false
@@ -84,7 +84,7 @@ func (i IdempotencyKey) IsValid() bool { return commandIdentifierRulesIsValid(i.
 
 func (i IdempotencyKey) String() string { return i.Value }
 
-// IdempotencyKeyTryCreate mirrors IdempotencyKey.TryCreate.
+// IdempotencyKeyTryCreate validates and constructs an IdempotencyKey.
 func IdempotencyKeyTryCreate(value string) (IdempotencyKey, bool) {
 	if !commandIdentifierRulesIsValid(value) {
 		return IdempotencyKey{}, false

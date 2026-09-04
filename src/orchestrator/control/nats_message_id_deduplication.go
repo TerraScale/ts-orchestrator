@@ -8,10 +8,10 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// NatsMessageIdDeduplicationSnapshot mirrors the C# record: observation
-// counters of one message-id duplicate window. They sit next to — never in
-// place of — the operation-level idempotency-replay counters so the two layers
-// stay distinguishable.
+// NatsMessageIdDeduplicationSnapshot holds the observation counters of one
+// message-id duplicate window. They sit next to — never in place of — the
+// operation-level idempotency-replay counters so the two layers stay
+// distinguishable.
 type NatsMessageIdDeduplicationSnapshot struct {
 	Admitted     int
 	Suppressed   int
@@ -20,15 +20,14 @@ type NatsMessageIdDeduplicationSnapshot struct {
 	Resident     int
 }
 
-// NatsMessageIdDeduplicationDefaultCapacity mirrors the C# DefaultCapacity:
-// the bounded resident set — the memory ceiling of one channel's transport
-// window.
+// NatsMessageIdDeduplicationDefaultCapacity is the bounded resident set — the
+// memory ceiling of one channel's transport window.
 const NatsMessageIdDeduplicationDefaultCapacity = 4096
 
-// NatsMessageIdDeduplication mirrors the C# class: the transport-level
-// message-id duplicate window for one durable work channel, layered BENEATH
-// operation-level idempotency. Record is called only after a consumer proved
-// the durable effect; Inspect is read-only.
+// NatsMessageIdDeduplication is the transport-level message-id duplicate
+// window for one durable work channel, layered BENEATH operation-level
+// idempotency. Record is called only after a consumer proved the durable
+// effect; Inspect is read-only.
 type NatsMessageIdDeduplication struct {
 	policy protocol.DuplicateWindowPolicy
 	window *protocol.MessageIdDuplicateWindow
@@ -40,7 +39,6 @@ type NatsMessageIdDeduplication struct {
 	mu           sync.Mutex
 }
 
-// NewNatsMessageIdDeduplication mirrors the C# constructor.
 func NewNatsMessageIdDeduplication(
 	policy protocol.DuplicateWindowPolicy,
 	capacity int,
@@ -62,7 +60,6 @@ func NewNatsMessageIdDeduplication(
 	return &NatsMessageIdDeduplication{policy: policy, window: window}, nil
 }
 
-// Policy mirrors the C# Policy property.
 func (d *NatsMessageIdDeduplication) Policy() protocol.DuplicateWindowPolicy {
 	if d == nil {
 		return protocol.DuplicateWindowPolicy{}
@@ -70,7 +67,6 @@ func (d *NatsMessageIdDeduplication) Policy() protocol.DuplicateWindowPolicy {
 	return d.policy
 }
 
-// Channel mirrors the C# Channel property.
 func (d *NatsMessageIdDeduplication) Channel() string {
 	if d == nil {
 		return ""
@@ -78,7 +74,6 @@ func (d *NatsMessageIdDeduplication) Channel() string {
 	return d.policy.Channel
 }
 
-// Window mirrors the C# Window property.
 func (d *NatsMessageIdDeduplication) Window() time.Duration {
 	if d == nil {
 		return 0
@@ -86,7 +81,6 @@ func (d *NatsMessageIdDeduplication) Window() time.Duration {
 	return d.policy.Window
 }
 
-// Snapshot mirrors the C# Snapshot property.
 func (d *NatsMessageIdDeduplication) Snapshot() NatsMessageIdDeduplicationSnapshot {
 	if d == nil || d.window == nil {
 		return NatsMessageIdDeduplicationSnapshot{}
@@ -103,8 +97,8 @@ func (d *NatsMessageIdDeduplication) Snapshot() NatsMessageIdDeduplicationSnapsh
 	}
 }
 
-// Inspect mirrors the C# Inspect: read-only pre-dispatch decision; never
-// records anything.
+// Inspect returns the read-only pre-dispatch decision; it never records
+// anything.
 func (d *NatsMessageIdDeduplication) Inspect(messageId, digest string, now time.Time) protocol.DuplicateWindowDecision {
 	if d == nil || d.window == nil {
 		return protocol.DuplicateWindowDecisionAdmit
@@ -114,9 +108,9 @@ func (d *NatsMessageIdDeduplication) Inspect(messageId, digest string, now time.
 	return d.window.Inspect(messageId, digest, now)
 }
 
-// Record mirrors the C# Record: records one COMPLETED message identity. Call
-// only after the durable effect exists or a terminal disposition was recorded
-// for this exact delivery.
+// Record records one COMPLETED message identity. Call only after the durable
+// effect exists or a terminal disposition was recorded for this exact
+// delivery.
 func (d *NatsMessageIdDeduplication) Record(messageId, digest string, now time.Time) protocol.DuplicateWindowDecision {
 	if d == nil || d.window == nil {
 		return protocol.DuplicateWindowDecisionAdmit

@@ -6,11 +6,10 @@ import (
 	"time"
 )
 
-// DurableWorkDomain mirrors the DurableWorkDomain enum: which JetStream domain
-// durably owns a work stream, consumer, or queue group. The regional domain is
-// per-cell; the global domain is the single global control plane. No durable
-// work item crosses domains: gateways never create a WAN-spanning stream or
-// consumer.
+// DurableWorkDomain names which JetStream domain durably owns a work stream,
+// consumer, or queue group. The regional domain is per-cell; the global domain
+// is the single global control plane. No durable work item crosses domains:
+// gateways never create a WAN-spanning stream or consumer.
 type DurableWorkDomain int
 
 const (
@@ -23,8 +22,8 @@ const (
 	DurableWorkDomainGlobalControl DurableWorkDomain = 2
 )
 
-// DurableStreamRetention mirrors the DurableStreamRetention enum. Retention
-// limits is the only adopted shape.
+// DurableStreamRetention is the stream retention discipline. Retention limits
+// is the only adopted shape.
 type DurableStreamRetention int
 
 const (
@@ -34,8 +33,8 @@ const (
 	DurableStreamRetentionLimits DurableStreamRetention = 1
 )
 
-// DurableStreamDiscard mirrors the DurableStreamDiscard enum: what a stream
-// does when it reaches its age/bytes ceiling.
+// DurableStreamDiscard names what a stream does when it reaches its age/bytes
+// ceiling.
 type DurableStreamDiscard int
 
 const (
@@ -45,7 +44,7 @@ const (
 	DurableStreamDiscardOld DurableStreamDiscard = 1
 )
 
-// DurableAcknowledgement mirrors the DurableAcknowledgement enum. Explicit
+// DurableAcknowledgement is the acknowledgement discipline. Explicit
 // acknowledgement is the only adopted shape.
 type DurableAcknowledgement int
 
@@ -56,8 +55,8 @@ const (
 	DurableAcknowledgementExplicit DurableAcknowledgement = 1
 )
 
-// DurableWorkOwnership mirrors the DurableWorkOwnership enum: the ownership
-// discipline of one durable consumer or queue group.
+// DurableWorkOwnership is the ownership discipline of one durable consumer or
+// queue group.
 type DurableWorkOwnership int
 
 const (
@@ -77,10 +76,10 @@ const (
 	DurableWorkOwnershipReconciledRunnerIdentity DurableWorkOwnership = 4
 )
 
-// DurableStreamPlan mirrors the sealed record: one durable stream of the work
-// inventory — every attribute the delivery contract freezes is declared here
-// and drift-bound to the provisioning topology. Regional subjects are
-// templates over the cell token; SubjectFor substitutes a validated cell.
+// DurableStreamPlan is one durable stream of the work inventory — every
+// attribute the delivery contract freezes is declared here and drift-bound to
+// the provisioning topology. Regional subjects are templates over the cell
+// token; SubjectFor substitutes a validated cell.
 type DurableStreamPlan struct {
 	Stream                   string
 	Subjects                 []string
@@ -95,7 +94,7 @@ type DurableStreamPlan struct {
 	TerminalEvidenceBehavior string
 }
 
-// IsWellFormed mirrors the internal rule.
+// IsWellFormed reports whether every declared attribute is in range.
 func (p DurableStreamPlan) IsWellFormed() bool {
 	return isDurablePlanToken(p.Stream) &&
 		len(p.Subjects) >= 1 && allDurablePlanTokens(p.Subjects) &&
@@ -110,8 +109,8 @@ func (p DurableStreamPlan) IsWellFormed() bool {
 		isBoundedPlanText(p.TerminalEvidenceBehavior, 256)
 }
 
-// SubjectFor mirrors SubjectFor: it instantiates the cell-scoped subjects of a
-// regional stream template.
+// SubjectFor instantiates the cell-scoped subjects of a regional stream
+// template.
 func (p DurableStreamPlan) SubjectFor(cell string) ([]string, error) {
 	subjects := make([]string, len(p.Subjects))
 	for index, template := range p.Subjects {
@@ -169,10 +168,10 @@ func isBoundedPlanText(value string, maximum int) bool {
 	return strings.TrimSpace(value) != "" && len(value) <= maximum
 }
 
-// DurableConsumerPlan mirrors the sealed record: one durable consumer profile
-// of the work inventory — the closed pull shape every instance must reconcile
-// to, including the bounded redelivery contract and how terminal evidence is
-// produced when a delivery can make no further progress.
+// DurableConsumerPlan is one durable consumer profile of the work inventory —
+// the closed pull shape every instance must reconcile to, including the
+// bounded redelivery contract and how terminal evidence is produced when a
+// delivery can make no further progress.
 type DurableConsumerPlan struct {
 	Stream                   string
 	Consumer                 string
@@ -190,8 +189,8 @@ type DurableConsumerPlan struct {
 	TerminalEvidenceBehavior string
 }
 
-// AckWait mirrors the C# property: the declared ack wait equals the first
-// backoff interval (JetStream derives it).
+// AckWait returns the declared ack wait, which equals the first backoff
+// interval (JetStream derives it).
 func (p DurableConsumerPlan) AckWait() (time.Duration, error) {
 	if len(p.BackoffLadder) > 0 {
 		return p.BackoffLadder[0], nil
@@ -200,7 +199,7 @@ func (p DurableConsumerPlan) AckWait() (time.Duration, error) {
 	return 0, errors.New("The backoff ladder is empty.")
 }
 
-// IsWellFormed mirrors the internal rule.
+// IsWellFormed reports whether every declared attribute is in range.
 func (p DurableConsumerPlan) IsWellFormed() bool {
 	if !isDurablePlanToken(p.Stream) ||
 		!isDurablePlanToken(p.Consumer) ||
@@ -239,17 +238,16 @@ func (p DurableConsumerPlan) IsWellFormed() bool {
 		isBoundedPlanText(p.TerminalEvidenceBehavior, 256)
 }
 
-// FilterSubjectFor mirrors FilterSubjectFor: it instantiates the cell-scoped
-// filter subject of a regional consumer template.
+// FilterSubjectFor instantiates the cell-scoped filter subject of a regional
+// consumer template.
 func (p DurableConsumerPlan) FilterSubjectFor(cell string) (string, error) {
 	return durablePlanSubjectFor(p.FilterSubject, cell)
 }
 
-// QueueGroupPlan mirrors the sealed record: one queue group of the work
-// inventory. Queue groups distribute only equivalent-worker work; the
-// authoritative writer of any journal is always chosen by a fenced lease,
-// never by a queue group, and the group's subjects stay cell-scoped so no
-// cross-region member can join.
+// QueueGroupPlan is one queue group of the work inventory. Queue groups
+// distribute only equivalent-worker work; the authoritative writer of any
+// journal is always chosen by a fenced lease, never by a queue group, and the
+// group's subjects stay cell-scoped so no cross-region member can join.
 type QueueGroupPlan struct {
 	Group            string
 	Domain           DurableWorkDomain
@@ -258,7 +256,7 @@ type QueueGroupPlan struct {
 	FencingBasis     string
 }
 
-// IsWellFormed mirrors the internal rule.
+// IsWellFormed reports whether every declared attribute is in range.
 func (p QueueGroupPlan) IsWellFormed() bool {
 	return isDurablePlanToken(p.Group) &&
 		p.Domain != DurableWorkDomainUnspecified &&
@@ -275,40 +273,41 @@ var (
 	queueGroupPlans      = createQueueGroups()
 )
 
-// DurableWorkInventory mirrors the C# static class: the typed inventory of
-// every durable command/event/work stream, durable consumer profile, and
-// queue group the Orchestrator delivers work through. This table is the
-// contract; drift tests pin it against the provisioning topology (NatsTopology,
-// GlobalNatsTopology) and against the landed delivery policies
-// (BoundedRedeliveryPolicy, DuplicateWindowPolicy). It makes no exactly-once
-// claim: transport duplicate windows sit beneath operation-level idempotency
-// keys, which remain the authority for durable effects.
+// DurableWorkInventory is the typed inventory of every durable
+// command/event/work stream, durable consumer profile, and queue group the
+// Orchestrator delivers work through. This table is the contract; drift tests
+// pin it against the provisioning topology (NatsTopology, GlobalNatsTopology)
+// and against the landed delivery policies (BoundedRedeliveryPolicy,
+// DuplicateWindowPolicy). It makes no exactly-once claim: transport duplicate
+// windows sit beneath operation-level idempotency keys, which remain the
+// authority for durable effects.
 var DurableWorkInventory durableWorkInventory
 
 type durableWorkInventory struct{}
 
-// Redelivery mirrors DurableWorkInventory.Redelivery: the landed bounded
-// redelivery contract every profile must satisfy.
+// Redelivery returns the landed bounded redelivery contract every profile
+// must satisfy.
 func (durableWorkInventory) Redelivery() BoundedRedeliveryPolicy {
 	return BoundedRedeliveryPolicyLanded
 }
 
-// Streams mirrors DurableWorkInventory.Streams; treat the slice as read-only.
+// Streams returns the declared stream plans; treat the slice as read-only.
 func (durableWorkInventory) Streams() []DurableStreamPlan { return durableStreamPlans }
 
-// Consumers mirrors DurableWorkInventory.Consumers; treat the slice as read-only.
+// Consumers returns the declared consumer plans; treat the slice as read-only.
 func (durableWorkInventory) Consumers() []DurableConsumerPlan { return durableConsumerPlans }
 
-// QueueGroups mirrors DurableWorkInventory.QueueGroups; treat the slice as read-only.
+// QueueGroups returns the declared queue group plans; treat the slice as read-only.
 func (durableWorkInventory) QueueGroups() []QueueGroupPlan { return queueGroupPlans }
 
-// IsComplete mirrors DurableWorkInventory.IsComplete: every entry is well
-// formed and every consumer names a declared stream.
+// IsComplete reports that every entry is well formed and every consumer names
+// a declared stream.
 func (durableWorkInventory) IsComplete() bool {
 	return len(DurableWorkInventory.CompletenessViolations()) == 0
 }
 
-// CompletenessViolations mirrors DurableWorkInventory.CompletenessViolations.
+// CompletenessViolations lists every completeness and duplicate-declaration
+// violation of the inventory.
 func (durableWorkInventory) CompletenessViolations() []string {
 	violations := []string{}
 	streamNames := map[string]struct{}{}
@@ -574,15 +573,15 @@ func createQueueGroups() []QueueGroupPlan {
 	}
 }
 
-// BoundedRedeliveryContract mirrors the C# static class: the extension seam
-// binding a consumer plan to the landed bounded redelivery contract.
+// BoundedRedeliveryContract binds a consumer plan to the landed bounded
+// redelivery contract.
 var BoundedRedeliveryContract boundedRedeliveryContract
 
 type boundedRedeliveryContract struct{}
 
-// BoundedBy mirrors BoundedRedeliveryPolicy.BoundedBy: true when the consumer
-// profile satisfies the landed bounded redelivery contract — the delivery cap,
-// the backoff ladder, and the derived ack wait must equal the policy. The
+// BoundedBy is true when the consumer profile satisfies the landed bounded
+// redelivery contract — the delivery cap, the backoff ladder, and the derived
+// ack wait must equal the policy. The
 // ack-pending bound is per-consumer flow control — a profile may tighten it
 // (the fenced runner inbox pins 1) or widen it within its own declared pull
 // shape.

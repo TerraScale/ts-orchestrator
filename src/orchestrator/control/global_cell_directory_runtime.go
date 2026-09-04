@@ -15,15 +15,16 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// GlobalCellDirectoryAdvertisementInterval mirrors the C# constant.
+// GlobalCellDirectoryAdvertisementInterval is the publish interval.
 const GlobalCellDirectoryAdvertisementInterval = 5 * time.Second
 
-// GlobalCellDirectoryAdvertisementLease mirrors the C# constant.
+// GlobalCellDirectoryAdvertisementLease is the accepted advertisement
+// lifetime.
 const GlobalCellDirectoryAdvertisementLease = GlobalCellAdvertisementSemanticLease
 
-// GlobalCellDirectoryRuntime mirrors the C# class: publishes the local
-// regional leader's renewable advertisement and watches the durable global KV
-// projection. WAN failures are retried and never revoke local authority.
+// GlobalCellDirectoryRuntime publishes the local regional leader's renewable
+// advertisement and watches the durable global KV projection. WAN failures
+// are retried and never revoke local authority.
 type GlobalCellDirectoryRuntime struct {
 	store          jetstream.KeyValue
 	cell           string
@@ -41,7 +42,7 @@ type GlobalCellDirectoryRuntime struct {
 	disposed    int32
 }
 
-// GlobalCellDirectoryRuntimeStart mirrors the C# Start.
+// GlobalCellDirectoryRuntimeStart starts the runtime over an existing store.
 func GlobalCellDirectoryRuntimeStart(
 	store jetstream.KeyValue,
 	cell string,
@@ -111,8 +112,8 @@ func newGlobalCellDirectoryRuntime(
 	return runtime
 }
 
-// GlobalCellDirectoryRuntimeStartAsync mirrors the C# StartAsync: a
-// directory-only connection that reconciles only the GLOBAL_CELLS KV store.
+// GlobalCellDirectoryRuntimeStartAsync opens a directory-only connection that
+// reconciles only the GLOBAL_CELLS KV store.
 func GlobalCellDirectoryRuntimeStartAsync(
 	ctx context.Context,
 	configuration *GlobalDirectoryNatsConfiguration,
@@ -183,9 +184,8 @@ func GlobalCellDirectoryRuntimeStartAsync(
 		client), nil
 }
 
-// GlobalCellDirectoryRuntimeOpenExistingStore mirrors the C#
-// OpenExistingStoreAsync: it opens the infrastructure-provisioned directory
-// bucket without a configuration object.
+// GlobalCellDirectoryRuntimeOpenExistingStore opens the
+// infrastructure-provisioned directory bucket.
 func GlobalCellDirectoryRuntimeOpenExistingStore(
 	ctx context.Context,
 	keyValue jetstream.JetStream,
@@ -199,7 +199,7 @@ func GlobalCellDirectoryRuntimeOpenExistingStore(
 	return keyValue.KeyValue(ctx, GlobalNatsTopologyCellsBucket)
 }
 
-// Completion mirrors the C# Completion.
+// Completion is closed when the runtime's loops have stopped.
 func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
 	if r == nil || r.watchDone == nil {
 		return nil
@@ -222,7 +222,7 @@ func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
 	return done
 }
 
-// Snapshot mirrors the C# Snapshot.
+// Snapshot returns the runtime's current directory projection.
 func (r *GlobalCellDirectoryRuntime) Snapshot() GlobalCellDirectorySnapshot {
 	if r == nil || r.directory == nil {
 		return globalCellDirectoryLifecycleUnavailableSnapshot()
@@ -230,12 +230,12 @@ func (r *GlobalCellDirectoryRuntime) Snapshot() GlobalCellDirectorySnapshot {
 	return r.directory.Snapshot(nil)
 }
 
-// Health mirrors the C# Health.
+// Health is the projection's condition.
 func (r *GlobalCellDirectoryRuntime) Health() GlobalCellDirectoryCondition {
 	return r.Snapshot().Condition
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops the loops and closes the owned connection.
 func (r *GlobalCellDirectoryRuntime) Dispose() error {
 	if r == nil {
 		return nil
@@ -450,7 +450,8 @@ func (r *GlobalCellDirectoryRuntime) watchLoop() {
 	}
 }
 
-// GlobalCellDirectoryCreateAdvertisement mirrors the C# CreateAdvertisement.
+// GlobalCellDirectoryCreateAdvertisement builds the local cell's
+// advertisement.
 func GlobalCellDirectoryCreateAdvertisement(
 	membership RegionalRuntimeMembershipSnapshot,
 	authority RegionalAuthoritySnapshot,

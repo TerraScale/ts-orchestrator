@@ -112,12 +112,14 @@ func runNumericFuzz(seed uint64) fuzzSummary {
 	digest := uint64(0)
 	values := map[int64]struct{}{}
 	for index := 0; index < casesPerFamily; index++ {
-		// Fidelity note: the C# source writes `index % 7 switch { 0 => 0, ... }`,
-		// which C# binds as `index % (7 switch { ... })` — the switch input is the
-		// constant 7, which always falls to the `_` arm. The value is therefore
-		// index modulo one huge generator draw, which equals index for this range;
-		// the `_` arm (and only it) advances the generator every iteration. The
-		// port reproduces that behavior exactly, including the digest.
+		// Fidelity note: the reference corpus writes `index % 7 switch { 0 => 0, ... }`,
+		// intending `index % 7`, but the expression binds as
+		// `index % (7 switch { ... })` — the switch input is the constant 7, which
+		// always falls to the default arm, so the divisor is one huge generator
+		// draw, not 7. The value is therefore index modulo that huge draw, which
+		// equals index for this range; the default arm (and only it) advances the
+		// generator every iteration. This reproduction preserves that arithmetic
+		// exactly, including the digest.
 		divisor := int64(generator.next()&uint64(1<<63-1)) + 1
 		value := int64(index) % divisor
 

@@ -10,17 +10,15 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// messagingGroupAny and messagingOtherAny mirror the C#
-// UnixFileMode.Group*/Other* masks used by every owner-private file check in
-// the Messaging area.
+// messagingGroupAny and messagingOtherAny are the group/other permission masks
+// used by every owner-private file check.
 const (
 	messagingGroupAny = 0o070
 	messagingOtherAny = 0o007
 )
 
-// messagingUnixFileMode mirrors File.GetUnixFileMode for the Linux-only NATS
-// credential paths. A non-Linux platform fails closed (the C# threw
-// PlatformNotSupportedException).
+// messagingUnixFileMode returns the Unix permission bits for the Linux-only
+// NATS credential paths. A non-Linux platform fails closed.
 func messagingUnixFileMode(path string) (uint32, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -58,20 +56,18 @@ func messagingRejectSymlinkPath(path string) error {
 	return nil
 }
 
-// messagingUnixMode mirrors the C# File.GetUnixFileMode (permission bits
-// only, as os.FileMode.Perm()).
+// messagingUnixMode returns the permission bits of info (as
+// os.FileMode.Perm()).
 func messagingUnixMode(info os.FileInfo) uint32 { return uint32(info.Mode().Perm()) }
 
-// NatsCredentialFile mirrors the C# static class: resolution of a bounded,
-// owner-private NKey seed file plus the public-key helpers derived from the
-// seed.
+// NatsCredentialFile resolves a bounded, owner-private NKey seed file plus
+// the public-key helpers derived from the seed.
 var NatsCredentialFile natsCredentialFile
 
 type natsCredentialFile struct{}
 
-// Resolve mirrors NatsCredentialFile.Resolve: it returns the absolute path of a
-// bounded existing owner-private NKey seed file whose first non-blank line is a
-// valid NKey seed.
+// Resolve returns the absolute path of a bounded existing owner-private NKey
+// seed file whose first non-blank line is a valid NKey seed.
 func (natsCredentialFile) Resolve(value string, optionName string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", nil
@@ -106,7 +102,7 @@ func (natsCredentialFile) Resolve(value string, optionName string) (string, erro
 	return path, nil
 }
 
-// SameIdentity mirrors NatsCredentialFile.SameIdentity.
+// SameIdentity reports whether two seed files encode the same NKey identity.
 func (natsCredentialFile) SameIdentity(first, second string) (bool, error) {
 	firstKey, err := nkeysPublicKeyFromSeedFile(first)
 	if err != nil {
@@ -121,7 +117,7 @@ func (natsCredentialFile) SameIdentity(first, second string) (bool, error) {
 	return firstKey == secondKey, nil
 }
 
-// PublicKey mirrors NatsCredentialFile.PublicKey.
+// PublicKey returns the public key encoded by the seed file.
 func (natsCredentialFile) PublicKey(path string) (string, error) {
 	return nkeysPublicKeyFromSeedFile(path)
 }
@@ -142,7 +138,7 @@ func nkeysPublicKeyFromSeedFile(path string) (string, error) {
 	return pair.PublicKey()
 }
 
-// nkeySeed mirrors the private Seed helper: the first non-whitespace line.
+// nkeySeed returns the first non-whitespace line of the file.
 func nkeySeed(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

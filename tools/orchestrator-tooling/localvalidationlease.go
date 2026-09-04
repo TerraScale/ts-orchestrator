@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/LocalValidationLease.cs: a
-// single-writer lock file in the temp directory that serializes local
+// A single-writer lock file in the temp directory that serializes local
 // validation runs and recovers stale holders after a bulk stop.
 package main
 
@@ -13,15 +12,14 @@ import (
 	"syscall"
 )
 
-// LocalValidationLease mirrors the C# LocalValidationLease class. Acquire maps
-// the C# FileShare.None stream onto an exclusive flock held for the process
-// lifetime.
+// LocalValidationLease is an exclusive flock on the lock file, held for the
+// process lifetime.
 type LocalValidationLease struct {
 	file *os.File
 }
 
-// AcquireLocalValidationLease mirrors LocalValidationLease.Acquire; an empty
-// scope selects the user-name scope used by the development attestation.
+// AcquireLocalValidationLease acquires the lease for a scope; an empty scope
+// selects the user-name scope used by the development attestation.
 func AcquireLocalValidationLease(scope string) (*LocalValidationLease, error) {
 	if scope == "" {
 		scope = envUserName()
@@ -31,8 +29,9 @@ func AcquireLocalValidationLease(scope string) (*LocalValidationLease, error) {
 	if err == nil {
 		return lease, nil
 	}
-	// The C# code only enters the recovery branch for IOException; other
-	// failures (for example a read-only temp directory) propagate unchanged.
+	// The recovery branch is entered only when the lock is already held
+	// (EWOULDBLOCK/EAGAIN); other failures (for example a read-only temp
+	// directory) propagate unchanged.
 	if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 		return nil, err
 	}
@@ -106,7 +105,7 @@ func isProcessAlive(processId int) bool {
 	return false
 }
 
-// Close mirrors LocalValidationLease.Dispose.
+// Close releases the lease by closing the lock file.
 func (lease *LocalValidationLease) Close() error {
 	if lease == nil || lease.file == nil {
 		return nil

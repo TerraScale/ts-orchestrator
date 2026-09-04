@@ -7,8 +7,8 @@ import (
 	"sync"
 )
 
-// NatsControlAccountKind mirrors the NatsControlAccountKind enum: the closed
-// account kinds of the NATS control network. The kinds separate infrastructure
+// NatsControlAccountKind is the closed set of account kinds of the NATS
+// control network. The kinds separate infrastructure
 // administration, global authority, the global directory read service, one
 // regional controller scope per Region, per-host-agent scopes, CI
 // coordinators, isolated CI runners, read-only monitoring, and break-glass
@@ -67,9 +67,9 @@ type NatsControlAccountScope struct {
 	Subscribe   []string
 }
 
-// NatsControlAccountScopeCreate mirrors NatsControlAccountScope.Create. An
-// empty regionToken or agentIdentity is the Go equivalent of the C# null
-// optional argument. Region-scoped kinds require one strict lowercase Region
+// NatsControlAccountScopeCreate instantiates one account scope. An empty
+// regionToken or agentIdentity means the optional argument is absent.
+// Region-scoped kinds require one strict lowercase Region
 // token; every kind whose grants carry the agent-hash placeholder
 // additionally requires the admitted agent identity, which is reduced to its
 // fixed hash before any subject is composed. No other combination of scope
@@ -152,9 +152,9 @@ func instantiateGrantTemplates(templates []string, regionToken, agentHash string
 	return materialized
 }
 
-// NatsControlAccountModel mirrors the C# static class: the closed account
-// model, generated from and validated against the checked-in protocol
-// manifest. Completeness proves: every manifest kind maps to one account kind
+// NatsControlAccountModel is the closed account model, generated from and
+// validated against the checked-in protocol manifest. Completeness proves:
+// every manifest kind maps to one account kind
 // in both directions, every standing grant is a closed control-family
 // permission (or, for the infrastructure kind, platform-reserved surface),
 // write grants are pairwise disjoint across kinds, read-only kinds hold no
@@ -165,8 +165,8 @@ type natsControlAccountModel struct{}
 
 var manifestKindsOnce sync.Once
 
-// Kinds mirrors NatsControlAccountModel.Kinds: the closed account kinds,
-// generated from the checked-in protocol manifest.
+// Kinds returns the closed account kinds, generated from the checked-in
+// protocol manifest.
 func (natsControlAccountModel) Kinds() []NatsControlAccountKind {
 	manifestKindsOnce.Do(func() {
 		violations := NatsControlAccountModel.CompletenessViolations()
@@ -188,14 +188,13 @@ func (natsControlAccountModel) Kinds() []NatsControlAccountKind {
 	return kinds
 }
 
-// IsComplete mirrors NatsControlAccountModel.IsComplete.
+// IsComplete reports whether the model has no completeness violations.
 func (natsControlAccountModel) IsComplete() bool {
 	return len(NatsControlAccountModel.CompletenessViolations()) == 0
 }
 
-// CompletenessViolations mirrors NatsControlAccountModel.CompletenessViolations:
-// every disagreement between the protocol manifest, the account kinds, and the
-// disjointness contract.
+// CompletenessViolations lists every disagreement between the protocol
+// manifest, the account kinds, and the disjointness contract.
 func (natsControlAccountModel) CompletenessViolations() []string {
 	manifest := ProtocolManifestLoaded()
 	violations := []string{}
@@ -293,7 +292,7 @@ func materializeGrantTemplate(template, regionToken, agentHashToken string) stri
 		NatsSubjectTaxonomy.AgentHashPlaceholderToken(), agentHashToken)
 }
 
-// GrantTemplateFor mirrors the internal GrantTemplateFor.
+// GrantTemplateFor returns the manifest grant template of one account kind.
 func (natsControlAccountModel) GrantTemplateFor(kind NatsControlAccountKind) (ProtocolAccountKindGrants, error) {
 	if kind == NatsControlAccountKindUnspecified {
 		return ProtocolAccountKindGrants{}, errors.New(

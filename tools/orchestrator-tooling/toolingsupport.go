@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-// ToolValidationException mirrors the C# ToolValidationException: a distinct
-// set of validation errors, each reported on its own line with exit code 1.
+// ToolValidationException is a distinct set of validation errors, each
+// reported on its own line with exit code 1.
 type toolValidationException struct {
 	errorsList []string
 }
@@ -45,8 +45,8 @@ func isToolValidationException(err error) bool {
 	return errors.As(err, &validation)
 }
 
-// JsonObject is an insertion-ordered JSON object mirroring
-// System.Text.Json.Nodes.JsonObject.
+// JsonObject is an insertion-ordered JSON object with string keys and
+// arbitrary JSON values.
 type JsonObject struct {
 	keys   []string
 	values map[string]any
@@ -56,7 +56,7 @@ func newJsonObject() *JsonObject {
 	return &JsonObject{values: make(map[string]any)}
 }
 
-// Get returns the value for key, or nil when missing (like the C# indexer).
+// Get returns the value for key, or nil when missing.
 func (o *JsonObject) Get(key string) any {
 	if o == nil {
 		return nil
@@ -131,7 +131,7 @@ func (o *JsonObject) MarshalJSON() ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-// JsonArray mirrors System.Text.Json.Nodes.JsonArray.
+// JsonArray is an ordered JSON array of arbitrary JSON values.
 type JsonArray struct {
 	items []any
 }
@@ -180,8 +180,7 @@ func (a *JsonArray) MarshalJSON() ([]byte, error) {
 }
 
 // parseJSONNode parses JSON text into the DOM above, preserving document key
-// order, using json.Number for numbers and enforcing the 64-depth bound of
-// JsonDocumentOptions.MaxDepth.
+// order, using json.Number for numbers, and enforcing a 64-depth bound.
 func parseJSONNode(data []byte) (any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -257,8 +256,7 @@ func deepCloneJSON(node any) (any, error) {
 	return parseJSONNode(encoded)
 }
 
-// deepEqualJSON mirrors JsonNode.DeepEquals structural equality; numbers
-// compare by value.
+// deepEqualJSON reports structural equality; numbers compare by value.
 func deepEqualJSON(left, right any) bool {
 	switch leftValue := left.(type) {
 	case nil:
@@ -307,7 +305,7 @@ func deepEqualJSON(left, right any) bool {
 	return false
 }
 
-// Scalar accessors mirroring JsonValue.TryGetValue / GetValue semantics.
+// Scalar accessors returning (value, ok) for each JSON scalar type.
 func tryString(node any) (string, bool) {
 	value, ok := node.(string)
 	return value, ok
@@ -337,13 +335,13 @@ func tryBool(node any) (bool, bool) {
 	return value, ok
 }
 
-// stringValue mirrors the C# StringValue helper: the node's string value or
-// null when it is not a string scalar.
+// stringValue returns the node's string value and whether it is a string
+// scalar.
 func stringValue(node any) (string, bool) {
 	return tryString(node)
 }
 
-// ProcessResult mirrors the C# ProcessResult record.
+// ProcessResult is the captured outcome of a finished process.
 type ProcessResult struct {
 	ExitCode       int
 	StandardOutput string
@@ -352,11 +350,11 @@ type ProcessResult struct {
 
 type toolingSupport struct{}
 
-// ToolingSupport mirrors the C# ToolingSupport static class.
+// ToolingSupport holds the shared file, JSON, hashing, and process helpers.
 var ToolingSupport = toolingSupport{}
 
-// ReadJSON mirrors ToolingSupport.ReadJson (path relative to the repository
-// root, comments disallowed, depth capped at 64).
+// ReadJSON reads and parses a JSON file by repository-root-relative path
+// (comments disallowed, depth capped at 64).
 func (toolingSupport) ReadJSON(relativePath string) (any, error) {
 	content, err := os.ReadFile(filepath.Join(ToolingSupport.Root(), relativePath))
 	if err != nil {
@@ -384,8 +382,8 @@ func (toolingSupport) ReadObject(relativePath string) (*JsonObject, error) {
 	return object, nil
 }
 
-// Serialize mirrors ToolingSupport.Serialize: camelCase-irrelevant for DOM
-// nodes (keys are emitted verbatim), indented with two spaces plus newline.
+// Serialize renders a DOM node with keys emitted verbatim, indented with two
+// spaces plus a trailing newline.
 func (toolingSupport) Serialize(node any) (string, error) {
 	compact, err := json.Marshal(node)
 	if err != nil {
@@ -432,9 +430,9 @@ func (toolingSupport) RequireNoErrors(errs []string) error {
 	return nil
 }
 
-// RunProcess mirrors ToolingSupport.RunProcess: capture stdout/stderr, kill
-// the whole child tree on timeout. An empty workingDirectory runs in Root and
-// timeoutMilliseconds <= 0 selects the C# default of 30 seconds.
+// RunProcess runs a child process, capturing stdout/stderr and killing the
+// whole child tree on timeout. An empty workingDirectory runs in Root and
+// timeoutMilliseconds <= 0 selects the default of 30 seconds.
 func (toolingSupport) RunProcess(fileName string, arguments []string, workingDirectory string, timeoutMilliseconds int) (ProcessResult, error) {
 	if workingDirectory == "" {
 		workingDirectory = ToolingSupport.Root()
@@ -482,8 +480,7 @@ func (toolingSupport) GitBytes(repository string, arguments ...string) ([]byte, 
 	return stdout.Bytes(), nil
 }
 
-// Root mirrors ToolingSupport.Root: the directory containing the solution
-// (module root marker for the Go migration), found by walking up from the
+// Root returns the repository root directory, found by walking up from the
 // executable directory and then the working directory.
 func (toolingSupport) Root() string {
 	if root, ok := findRepositoryRoot(); ok {
@@ -528,9 +525,10 @@ func isRepositoryRoot(directory string) bool {
 	return false
 }
 
-// startProcess launches fileName with the .NET-host environment overrides the
-// C# runner applied, its own process group (so the tree can be killed), and
-// captured stdout/stderr buffers. The returned channel yields the Wait result.
+// startProcess launches fileName with environment overrides that disable
+// shared build servers (so no child lingers past the run), its own process
+// group (so the tree can be killed), and captured stdout/stderr buffers. The
+// returned channel yields the Wait result.
 func startProcess(fileName string, arguments []string, workingDirectory string) (*os.Process, chan error, *bytes.Buffer, *bytes.Buffer, error) {
 	command := exec.Command(fileName, arguments...)
 	command.Dir = workingDirectory
@@ -580,13 +578,13 @@ func exitCodeOf(waitErr error) int {
 
 func killProcessTree(processID int) {
 	// The child runs in its own process group (Setpgid), so a group kill
-	// reaches the whole tree like Process.Kill(entireProcessTree: true).
+	// reaches the whole tree.
 	if err := syscall.Kill(-processID, syscall.SIGKILL); err != nil {
 		_ = syscall.Kill(processID, syscall.SIGKILL)
 	}
 }
 
-// envUserName mirrors Environment.UserName on Unix.
+// envUserName resolves the invoking user's name from USER or LOGNAME.
 func envUserName() string {
 	for _, name := range []string{"USER", "LOGNAME"} {
 		if value := os.Getenv(name); value != "" {

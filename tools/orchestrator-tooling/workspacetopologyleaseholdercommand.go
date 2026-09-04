@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/WorkspaceTopologyLeaseHolderCommand.cs:
-// child-process fixture that holds the workspace topology lease on stdin.
+// Child-process fixture that holds the workspace topology lease on stdin.
 package main
 
 import (
@@ -13,7 +12,8 @@ import (
 
 type workspaceTopologyLeaseHolderCommand struct{}
 
-// WorkspaceTopologyLeaseHolderCommand mirrors the C# static class.
+// WorkspaceTopologyLeaseHolderCommand implements the lease-holder fixture
+// command.
 var WorkspaceTopologyLeaseHolderCommand = workspaceTopologyLeaseHolderCommand{}
 
 func (workspaceTopologyLeaseHolderCommand) RunAsync(ctx context.Context, arguments []string) (int, error) {
@@ -47,13 +47,13 @@ func (workspaceTopologyLeaseHolderCommand) RunAsync(ctx context.Context, argumen
 	}
 	fmt.Println("held")
 	if ignoreStandardInput {
-		// The hostile-holder fixture must ignore a closed stdin forever, like
-		// the C# infinite Task.Delay.
+		// The hostile-holder fixture must ignore a closed stdin forever: an
+		// unbounded wait.
 		select {}
 	}
 	reader := bufio.NewReader(os.Stdin)
-	// One discarded line, like the C# Console.In.ReadLineAsync(): the parent
-	// releases the holder by closing its standard input.
+	// One line is read and discarded from stdin: the parent releases the
+	// holder by closing its standard input.
 	_, _ = reader.ReadString('\n')
 	return 0, nil
 }

@@ -8,7 +8,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
-// Host runtime aliases mirroring the C# using aliases.
+// Host runtime type aliases for the runtime package.
 type (
 	HostArchitecture        = runtime.HostArchitecture
 	HostArtifactDigest      = runtime.ArtifactDigest
@@ -19,7 +19,7 @@ type (
 	HostRuntimePlan         = runtime.HostRuntimePlan
 )
 
-// RuntimeLifecycleContract ports the versioned, persistence-safe lifecycle
+// RuntimeLifecycleContract carries the versioned, persistence-safe lifecycle
 // contract constants. It intentionally contains fingerprints, never host
 // execution material.
 var RuntimeLifecycleContract runtimeLifecycleContractStatic
@@ -376,14 +376,14 @@ type RuntimeLifecycleJournalWrite struct {
 	Checkpoint *RuntimeLifecycleCheckpoint
 }
 
-// IRuntimeLifecycleJournal ports the journal interface.
+// IRuntimeLifecycleJournal is the journal interface.
 type IRuntimeLifecycleJournal interface {
 	ReadAsync(ctx context.Context, operationKey RuntimeLifecycleOperationKey) (RuntimeLifecycleJournalRead, error)
 	CompareExchangeAsync(ctx context.Context, operationKey RuntimeLifecycleOperationKey,
 		expectedRevision *uint64, checkpoint RuntimeLifecycleCheckpoint) (RuntimeLifecycleJournalWrite, error)
 }
 
-// IRuntimeLifecycleAuthorityGate ports the authority gate interface.
+// IRuntimeLifecycleAuthorityGate is the authority gate interface.
 type IRuntimeLifecycleAuthorityGate interface {
 	ReadAsync(ctx context.Context, cell RuntimeLifecycleCellId) (RuntimeLifecycleAuthority, error)
 }
@@ -422,7 +422,7 @@ type RuntimeLifecycleObservation struct {
 	Status          RuntimeLifecycleObservationStatus
 }
 
-// IRuntimeLifecycleHostExecutor ports the host executor interface.
+// IRuntimeLifecycleHostExecutor is the host executor interface.
 type IRuntimeLifecycleHostExecutor interface {
 	ExecuteAsync(ctx context.Context, request RuntimeLifecycleExecutionRequest) (*RuntimeLifecycleExecutorResponse, error)
 	ObserveAsync(ctx context.Context, request RuntimeLifecycleObservationRequest) (*RuntimeLifecycleObservation, error)
@@ -438,7 +438,7 @@ func (r RuntimeLifecycleResult) RequiresReconciliation() bool {
 	return r.Status == RuntimeLifecycleTerminalStatusReconciliationRequired
 }
 
-// RuntimeLifecycleFingerprint ports the fingerprint static class.
+// RuntimeLifecycleFingerprint computes the lifecycle fingerprints.
 var RuntimeLifecycleFingerprint runtimeLifecycleFingerprint
 
 type runtimeLifecycleFingerprint struct{}

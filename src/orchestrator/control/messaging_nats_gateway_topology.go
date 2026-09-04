@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// NatsGatewayPlane mirrors the C# enum: the NATS trust plane a cluster belongs
-// to. The control and product planes never share an operator, account,
-// process, port, cgroup, or store path.
+// NatsGatewayPlane is the NATS trust plane a cluster belongs to. The control
+// and product planes never share an operator, account, process, port, cgroup,
+// or store path.
 type NatsGatewayPlane int
 
 const (
@@ -30,14 +30,13 @@ func (p NatsGatewayPlane) String() string {
 	}
 }
 
-// NatsGatewayEndpoint mirrors the C# record: one qualified transport endpoint
-// — an explicit host and an explicit port.
+// NatsGatewayEndpoint is one qualified transport endpoint — an explicit host
+// and an explicit port.
 type NatsGatewayEndpoint struct {
 	Host string
 	Port int
 }
 
-// NewNatsGatewayEndpoint mirrors the C# constructor.
 func NewNatsGatewayEndpoint(host string, port int) (*NatsGatewayEndpoint, error) {
 	if !NatsGatewayEndpointIsValidHost(host) {
 		return nil, errors.New(
@@ -52,14 +51,14 @@ func NewNatsGatewayEndpoint(host string, port int) (*NatsGatewayEndpoint, error)
 	return &NatsGatewayEndpoint{Host: host, Port: port}, nil
 }
 
-// Qualified mirrors the C# Qualified property: the single canonical rendering
-// used by configuration and evidence.
+// Qualified renders host:port, the single canonical form used by
+// configuration and evidence.
 func (e *NatsGatewayEndpoint) Qualified() string {
 	return fmt.Sprintf("%s:%d", e.Host, e.Port)
 }
 
-// IsLoopback mirrors the C# IsLoopback: true for the whole loopback surface
-// the production profile rejects.
+// IsLoopback is true for the whole loopback surface the production profile
+// rejects.
 func (e *NatsGatewayEndpoint) IsLoopback() bool {
 	if strings.EqualFold(e.Host, "localhost") {
 		return true
@@ -85,8 +84,8 @@ func (e *NatsGatewayEndpoint) IsLoopback() bool {
 	return true
 }
 
-// NatsGatewayEndpointParse mirrors the static Parse: parses host:port;
-// anything else (including a bare host) is unqualified.
+// NatsGatewayEndpointParse parses host:port; anything else (including a bare
+// host) is unqualified.
 func NatsGatewayEndpointParse(qualified string) (*NatsGatewayEndpoint, error) {
 	endpoint, ok := NatsGatewayEndpointTryParse(qualified)
 	if !ok || endpoint == nil {
@@ -103,7 +102,6 @@ func NatsGatewayEndpointParse(qualified string) (*NatsGatewayEndpoint, error) {
 	return endpoint, nil
 }
 
-// NatsGatewayEndpointTryParse mirrors the static TryParse.
 func NatsGatewayEndpointTryParse(qualified string) (*NatsGatewayEndpoint, bool) {
 	if qualified == "" {
 		return nil, false
@@ -133,7 +131,6 @@ func NatsGatewayEndpointTryParse(qualified string) (*NatsGatewayEndpoint, bool) 
 	return endpoint, true
 }
 
-// NatsGatewayEndpointIsValidHost mirrors the static IsValidHost.
 func NatsGatewayEndpointIsValidHost(host string) bool {
 	if len(host) < 1 || len(host) > 253 {
 		return false
@@ -167,8 +164,7 @@ func NatsGatewayEndpointIsValidHost(host string) bool {
 	return true
 }
 
-// NatsGatewayTransport mirrors the C# enum: the transport a certificate
-// profile protects.
+// NatsGatewayTransport is the transport a certificate profile protects.
 type NatsGatewayTransport int
 
 const (
@@ -190,8 +186,8 @@ func (t NatsGatewayTransport) String() string {
 	}
 }
 
-// NatsGatewayCertificateProfile mirrors the C# record: one mTLS certificate
-// profile — file references only, never key material.
+// NatsGatewayCertificateProfile is one mTLS certificate profile — file
+// references only, never key material.
 type NatsGatewayCertificateProfile struct {
 	Transport              NatsGatewayTransport
 	CertificateFile        string
@@ -200,7 +196,6 @@ type NatsGatewayCertificateProfile struct {
 	ExpectedPeerIdentities []string
 }
 
-// NewNatsGatewayCertificateProfile mirrors the C# constructor.
 func NewNatsGatewayCertificateProfile(
 	transport NatsGatewayTransport,
 	certificateFile string,
@@ -247,14 +242,13 @@ func NewNatsGatewayCertificateProfile(
 	}, nil
 }
 
-// NatsGatewayProcessIdentity mirrors the C# record: the process identity of
-// one nats-server — its dedicated systemd unit and cgroup.
+// NatsGatewayProcessIdentity is the process identity of one nats-server — its
+// dedicated systemd unit and cgroup.
 type NatsGatewayProcessIdentity struct {
 	UnitName string
 	Cgroup   string
 }
 
-// NewNatsGatewayProcessIdentity mirrors the C# constructor.
 func NewNatsGatewayProcessIdentity(unitName, cgroup string) (*NatsGatewayProcessIdentity, error) {
 	if !strings.HasSuffix(unitName, ".service") || len(unitName) < 1 || len(unitName) > 256 {
 		return nil, errors.New(
@@ -270,8 +264,8 @@ func NewNatsGatewayProcessIdentity(unitName, cgroup string) (*NatsGatewayProcess
 	return &NatsGatewayProcessIdentity{UnitName: unitName, Cgroup: cgroup}, nil
 }
 
-// NatsGatewayServerIdentity mirrors the C# record: one immutable nats-server
-// identity inside a regional cluster.
+// NatsGatewayServerIdentity is one immutable nats-server identity inside a
+// regional cluster.
 type NatsGatewayServerIdentity struct {
 	ServerName          string
 	FailureDomain       string
@@ -283,7 +277,6 @@ type NatsGatewayServerIdentity struct {
 	StoreDirectory      string
 }
 
-// NewNatsGatewayServerIdentity mirrors the C# constructor.
 func NewNatsGatewayServerIdentity(
 	serverName string,
 	failureDomain string,
@@ -346,7 +339,7 @@ func NewNatsGatewayServerIdentity(
 	}, nil
 }
 
-// Profile mirrors the C# Profile method.
+// Profile returns the certificate profile for a transport, or nil.
 func (s *NatsGatewayServerIdentity) Profile(transport NatsGatewayTransport) *NatsGatewayCertificateProfile {
 	for _, profile := range s.CertificateProfiles {
 		if profile.Transport == transport {
@@ -357,7 +350,7 @@ func (s *NatsGatewayServerIdentity) Profile(transport NatsGatewayTransport) *Nat
 	return nil
 }
 
-// Listeners mirrors the C# Listeners property.
+// Listeners returns one endpoint for each open listener.
 func (s *NatsGatewayServerIdentity) Listeners() []*NatsGatewayEndpoint {
 	listeners := []*NatsGatewayEndpoint{s.Client, s.Route}
 	if s.Gateway != nil {
@@ -381,8 +374,7 @@ func isLowercaseDnsToken(value string) bool {
 	return true
 }
 
-// NatsGatewayAccountLimits mirrors the C# record: the account limits one
-// account scope enforces.
+// NatsGatewayAccountLimits is the account limits one account scope enforces.
 type NatsGatewayAccountLimits struct {
 	MaxConnections      int
 	MaxSubscriptions    int
@@ -392,7 +384,6 @@ type NatsGatewayAccountLimits struct {
 	MaxDiskStorageBytes int64
 }
 
-// NewNatsGatewayAccountLimits mirrors the C# constructor.
 func NewNatsGatewayAccountLimits(
 	maxConnections int,
 	maxSubscriptions int,
@@ -433,8 +424,8 @@ func NewNatsGatewayAccountLimits(
 	}, nil
 }
 
-// NatsGatewayAccountScope mirrors the C# record: one separately scoped account
-// inside the plane trust model.
+// NatsGatewayAccountScope is one separately scoped account inside the plane
+// trust model.
 type NatsGatewayAccountScope struct {
 	Cell            string
 	AccountName     string
@@ -443,7 +434,6 @@ type NatsGatewayAccountScope struct {
 	Limits          *NatsGatewayAccountLimits
 }
 
-// NewNatsGatewayAccountScope mirrors the C# constructor.
 func NewNatsGatewayAccountScope(
 	cell string,
 	accountName string,
@@ -528,13 +518,13 @@ func distinctSorted(values []string) []string {
 	return ordered
 }
 
-// NatsGatewayServiceExportScope mirrors the C# NatsGatewayServiceExport record.
+// NatsGatewayServiceExportScope is one exported service subject of an
+// account.
 type NatsGatewayServiceExportScope struct {
 	AccountName string
 	Subject     string
 }
 
-// NewNatsGatewayServiceExportScope mirrors the C# constructor.
 func NewNatsGatewayServiceExportScope(accountName, subject string) (*NatsGatewayServiceExportScope, error) {
 	if !GlobalNatsAccountNamesIsValid(accountName) {
 		return nil, errors.New("The exporting account name is invalid. (Parameter 'accountName')")
@@ -547,14 +537,14 @@ func NewNatsGatewayServiceExportScope(accountName, subject string) (*NatsGateway
 	return &NatsGatewayServiceExportScope{AccountName: accountName, Subject: subject}, nil
 }
 
-// NatsGatewayServiceImportScope mirrors the C# NatsGatewayServiceImport record.
+// NatsGatewayServiceImportScope is one imported subject with its source
+// account.
 type NatsGatewayServiceImportScope struct {
 	AccountName       string
 	Subject           string
 	SourceAccountName string
 }
 
-// NewNatsGatewayServiceImportScope mirrors the C# constructor.
 func NewNatsGatewayServiceImportScope(accountName, subject, sourceAccountName string) (*NatsGatewayServiceImportScope, error) {
 	if !GlobalNatsAccountNamesIsValid(accountName) {
 		return nil, errors.New("The importing account name is invalid. (Parameter 'accountName')")
@@ -575,14 +565,14 @@ func NewNatsGatewayServiceImportScope(accountName, subject, sourceAccountName st
 	}, nil
 }
 
-// NatsGatewayRelationship mirrors the C# record: one directed gateway
-// relationship from one cell's cluster to another's.
+// NatsGatewayRelationship is one directed gateway relationship from one
+// cell's cluster to another's.
 type NatsGatewayRelationship struct {
 	FromCell string
 	ToCell   string
 }
 
-// NatsGatewayCluster port constants mirror the C# consts.
+// NatsGatewayCluster listener ports by plane.
 const (
 	NatsGatewayClusterControlClientPort  = 4222
 	NatsGatewayClusterControlRoutePort   = 6222
@@ -591,8 +581,7 @@ const (
 	NatsGatewayClusterProductRoutePort   = 6223
 )
 
-// NatsGatewayCluster mirrors the C# record: one immutable regional cluster of
-// the plane.
+// NatsGatewayCluster is one immutable regional cluster of the plane.
 type NatsGatewayCluster struct {
 	Plane                   NatsGatewayPlane
 	Cell                    string
@@ -607,7 +596,6 @@ type NatsGatewayCluster struct {
 	ConfigurationGeneration int
 }
 
-// NewNatsGatewayCluster mirrors the C# constructor.
 func NewNatsGatewayCluster(
 	plane NatsGatewayPlane,
 	cell string,
@@ -705,7 +693,7 @@ func NewNatsGatewayCluster(
 	}, nil
 }
 
-// Profile mirrors the C# Profile method.
+// Profile returns the certificate profile of one server for a transport.
 func (c *NatsGatewayCluster) Profile(serverName string, transport NatsGatewayTransport) (*NatsGatewayCertificateProfile, error) {
 	server, err := c.Server(serverName)
 	if err != nil {
@@ -715,7 +703,7 @@ func (c *NatsGatewayCluster) Profile(serverName string, transport NatsGatewayTra
 	return server.Profile(transport), nil
 }
 
-// Server mirrors the C# Server method.
+// Server returns the uniquely named server of the cluster.
 func (c *NatsGatewayCluster) Server(serverName string) (*NatsGatewayServerIdentity, error) {
 	found := 0
 	var match *NatsGatewayServerIdentity
@@ -749,8 +737,7 @@ func isUppercaseToken(value string) bool {
 	return true
 }
 
-// NatsGatewayPlan mirrors the C# record: the complete typed plan for one NATS
-// plane.
+// NatsGatewayPlan is the complete typed plan for one NATS plane.
 type NatsGatewayPlan struct {
 	Plane                   NatsGatewayPlane
 	OperatorName            string
@@ -763,7 +750,6 @@ type NatsGatewayPlan struct {
 	Imports                 []*NatsGatewayServiceImportScope
 }
 
-// NewNatsGatewayPlan mirrors the C# constructor.
 func NewNatsGatewayPlan(
 	plane NatsGatewayPlane,
 	operatorName string,
@@ -817,7 +803,7 @@ func NewNatsGatewayPlan(
 	}, nil
 }
 
-// Cluster mirrors the C# Cluster method.
+// Cluster returns the unique cluster serving a cell, or nil.
 func (p *NatsGatewayPlan) Cluster(cell string) *NatsGatewayCluster {
 	found := 0
 	var match *NatsGatewayCluster

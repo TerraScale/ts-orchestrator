@@ -10,13 +10,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// NatsOperationJournalProvisioner mirrors the C# static class: it runs before
-// controllers start, using the separate infrastructure NATS identity.
+// NatsOperationJournalProvisioner runs before controllers start, using the
+// separate infrastructure NATS identity.
 var NatsOperationJournalProvisioner natsOperationJournalProvisioner
 
 type natsOperationJournalProvisioner struct{}
 
-// ProvisionAsync mirrors the C# ProvisionAsync.
 func (natsOperationJournalProvisioner) ProvisionAsync(
 	ctx context.Context,
 	options *OrchestratorOptions,
@@ -24,7 +23,6 @@ func (natsOperationJournalProvisioner) ProvisionAsync(
 	return NatsOperationJournalProvisioner.provision(ctx, options, true)
 }
 
-// ProvisionControllerAsync mirrors the C# ProvisionControllerAsync.
 func (natsOperationJournalProvisioner) ProvisionControllerAsync(
 	ctx context.Context,
 	options *OrchestratorOptions,
@@ -78,7 +76,6 @@ func (natsOperationJournalProvisioner) provision(
 	return NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(ctx, client, js, topology)
 }
 
-// ProvisionTopologyAsync mirrors the C# ProvisionTopologyAsync.
 func (natsOperationJournalProvisioner) ProvisionTopologyAsync(
 	ctx context.Context,
 	client *nats.Conn,
@@ -110,8 +107,6 @@ func (natsOperationJournalProvisioner) ProvisionTopologyAsync(
 	return err
 }
 
-// ProvisionControllerTopologyAsync mirrors the C#
-// ProvisionControllerTopologyAsync.
 func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 	ctx context.Context,
 	client *nats.Conn,

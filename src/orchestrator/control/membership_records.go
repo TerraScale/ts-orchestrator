@@ -15,10 +15,10 @@ import (
 	"time"
 )
 
-// RegionalRuntimeMembershipIdentity mirrors the C# class: a controller's
-// membership signing identity — one P-256 key pair. The private key never
-// leaves the process: only the key identifier, the public key, and the
-// signature travel in the record.
+// RegionalRuntimeMembershipIdentity is a controller's membership signing
+// identity — one P-256 key pair. The private key never leaves the process:
+// only the key identifier, the public key, and the signature travel in the
+// record.
 type RegionalRuntimeMembershipIdentity struct {
 	mu         sync.RWMutex
 	privateKey *ecdsa.PrivateKey
@@ -27,7 +27,6 @@ type RegionalRuntimeMembershipIdentity struct {
 	PublicKey  string
 }
 
-// RegionalRuntimeMembershipIdentityCreate mirrors the C# Create.
 func RegionalRuntimeMembershipIdentityCreate() (*RegionalRuntimeMembershipIdentity, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -54,8 +53,8 @@ func newRegionalRuntimeMembershipIdentity(key *ecdsa.PrivateKey) (*RegionalRunti
 	}, nil
 }
 
-// Sign mirrors the C# Sign: signs the record's canonical material; the
-// signature covers every field except itself.
+// Sign signs the record's canonical material; the signature covers every
+// field except itself.
 func (i *RegionalRuntimeMembershipIdentity) Sign(member RegionalRuntimeMember) string {
 	if i == nil {
 		return ""
@@ -93,9 +92,9 @@ func (i *RegionalRuntimeMembershipIdentity) Dispose() {
 	i.privateKey = nil
 }
 
-// RegionalRuntimeMembershipIdentityVerify mirrors the static Verify: the key
-// identifier must be the fingerprint of the embedded public key and the
-// signature must verify under it.
+// RegionalRuntimeMembershipIdentityVerify requires the key identifier to be
+// the fingerprint of the embedded public key and the signature to verify
+// under it.
 func RegionalRuntimeMembershipIdentityVerify(member RegionalRuntimeMember) bool {
 	if !member.HasWellFormedIdentityMaterial() {
 		return false
@@ -130,8 +129,8 @@ func RegionalRuntimeMembershipIdentityVerify(member RegionalRuntimeMember) bool 
 	return ecdsa.VerifyASN1(key, material[:], signature)
 }
 
-// RegionalRuntimeMembershipRecordClass mirrors the C# enum: the reader
-// taxonomy for regional membership records.
+// RegionalRuntimeMembershipRecordClass is the reader taxonomy for regional
+// membership records.
 type RegionalRuntimeMembershipRecordClass int
 
 const (
@@ -174,13 +173,12 @@ func (c RegionalRuntimeMembershipRecordClass) String() string {
 	}
 }
 
-// RegionalRuntimeMembershipReader mirrors the C# static class: pure
-// membership-record classification with fixed precedence.
+// RegionalRuntimeMembershipReader is the pure membership-record classifier
+// with fixed precedence.
 var RegionalRuntimeMembershipReader regionalRuntimeMembershipReader
 
 type regionalRuntimeMembershipReader struct{}
 
-// Classify mirrors RegionalRuntimeMembershipReader.Classify.
 func (regionalRuntimeMembershipReader) Classify(
 	expectedCell string,
 	instance string,
@@ -246,8 +244,8 @@ func (regionalRuntimeMembershipReader) Classify(
 	return RegionalRuntimeMembershipRecordClassStale
 }
 
-// ExpectedInstances mirrors the C# ExpectedInstances: the expected instance
-// ids of a symmetric controller set.
+// ExpectedInstances returns the expected instance ids of a symmetric
+// controller set.
 func (regionalRuntimeMembershipReader) ExpectedInstances(expectedControllers int) map[string]struct{} {
 	switch expectedControllers {
 	case 1, 3, 5:
@@ -265,7 +263,6 @@ func (regionalRuntimeMembershipReader) ExpectedInstances(expectedControllers int
 	return instances
 }
 
-// RegionalRuntimeMembershipMutationClass mirrors the C# enum.
 type RegionalRuntimeMembershipMutationClass int
 
 const (
@@ -299,13 +296,12 @@ func (c RegionalRuntimeMembershipMutationClass) String() string {
 	}
 }
 
-// RegionalRuntimeMembershipMutation mirrors the C# static class: the pure
-// compare-and-swap mutation policy.
+// RegionalRuntimeMembershipMutation is the pure compare-and-swap mutation
+// policy.
 var RegionalRuntimeMembershipMutation regionalRuntimeMembershipMutation
 
 type regionalRuntimeMembershipMutation struct{}
 
-// Decide mirrors RegionalRuntimeMembershipMutation.Decide.
 func (regionalRuntimeMembershipMutation) Decide(
 	boundCell string,
 	boundInstance string,
@@ -364,7 +360,7 @@ func (regionalRuntimeMembershipMutation) Decide(
 	return RegionalRuntimeMembershipMutationClassTakeOverExpiredLease
 }
 
-// MayDeleteCurrentRecord mirrors the C# deletion rule: a publisher may delete
+// MayDeleteCurrentRecord enforces the deletion rule: a publisher may delete
 // only its own session's record under its own compare-and-swap revision.
 func (regionalRuntimeMembershipMutation) MayDeleteCurrentRecord(
 	boundSessionId string,

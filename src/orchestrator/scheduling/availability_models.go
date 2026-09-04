@@ -11,7 +11,7 @@ import (
 
 var availabilityIdentityPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 
-// availabilityIdentityValidate ports the internal AvailabilityIdentity.Validate.
+// availabilityIdentityValidate validates the canonical identity token.
 func availabilityIdentityValidate(value string, parameterName string) (string, error) {
 	if len(value) < 1 || len(value) > 63 || !availabilityIdentityPattern.MatchString(value) {
 		return "", &errs.Argument{
@@ -91,12 +91,12 @@ type AvailabilityCount struct {
 	Value uint64
 }
 
-// NewAvailabilityCount wraps a count without validation (mirrors the C# record).
+// NewAvailabilityCount wraps a count without validation.
 func NewAvailabilityCount(value uint64) AvailabilityCount {
 	return AvailabilityCount{Value: value}
 }
 
-// AddChecked adds two counts with checked arithmetic.
+// AddChecked adds two counts, reporting overflow instead of wrapping.
 func (c AvailabilityCount) AddChecked(other AvailabilityCount) (AvailabilityCount, error) {
 	sum := c.Value + other.Value
 	if sum < c.Value {
@@ -105,7 +105,7 @@ func (c AvailabilityCount) AddChecked(other AvailabilityCount) (AvailabilityCoun
 	return AvailabilityCount{Value: sum}, nil
 }
 
-// SubtractChecked subtracts other from c with checked arithmetic.
+// SubtractChecked subtracts other from c, reporting overflow instead of wrapping.
 func (c AvailabilityCount) SubtractChecked(other AvailabilityCount) (AvailabilityCount, error) {
 	if other.Value > c.Value {
 		return AvailabilityCount{}, &OverflowError{Message: "Arithmetic operation resulted in an overflow."}
@@ -261,8 +261,7 @@ func NewReplicaObservation(
 	}, nil
 }
 
-// canonicalKey ports the internal CanonicalKey used for duplicate/conflict
-// detection.
+// canonicalKey builds the key used for duplicate/conflict detection.
 func (o ReplicaObservation) canonicalKey() string {
 	node := "-"
 	if o.NodeId != nil {

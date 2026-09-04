@@ -11,14 +11,14 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-// InvalidOperationError mirrors System.InvalidOperationException.
+// InvalidOperationError reports a call that is invalid for the current state.
 type InvalidOperationError struct {
 	Message string
 }
 
 func (e *InvalidOperationError) Error() string { return e.Message }
 
-// OverflowError mirrors System.OverflowException raised by checked arithmetic.
+// OverflowError reports integer overflow.
 type OverflowError struct {
 	Message string
 }
@@ -43,9 +43,8 @@ var SchedulerTechnicalInputLimits = struct {
 	ScoreDimensionCount:                 8,
 }
 
-// schedulerInputSnapshotCopy ports the internal SchedulerInputSnapshot.Copy bound
-// check. (The .NET enumerator-failure translation has no Go equivalent: slices
-// cannot fail mid-enumeration, so only the snapshot bound remains.)
+// schedulerInputSnapshotCopy enforces the technical snapshot bound and returns
+// a defensive copy of source.
 func schedulerInputSnapshotCopy[T any](source []T, maximum int, parameterName, inputName string) ([]T, error) {
 	if len(source) > maximum {
 		return nil, &errs.Argument{
@@ -70,7 +69,7 @@ type ResourceVector struct {
 	HugePages       int64
 }
 
-// ResourceVectorZero mirrors ResourceVector.Zero.
+// ResourceVectorZero is the vector with every dimension at zero.
 var ResourceVectorZero = ResourceVector{}
 
 func requireNonNegative(value int64, parameterName string) (int64, error) {
@@ -83,8 +82,8 @@ func requireNonNegative(value int64, parameterName string) (int64, error) {
 	return value, nil
 }
 
-// NewResourceVector validates and constructs a ResourceVector, mirroring the C#
-// constructor which rejects negative quantities.
+// NewResourceVector validates and constructs a ResourceVector, rejecting
+// negative quantities.
 func NewResourceVector(cpu, memory, blockIo, ephemeralDisk, bandwidth, pids, fileDescriptors, hugePages int64) (ResourceVector, error) {
 	var err error
 	if cpu, err = requireNonNegative(cpu, "cpu"); err != nil {
@@ -123,7 +122,8 @@ func NewResourceVector(cpu, memory, blockIo, ephemeralDisk, bandwidth, pids, fil
 	}, nil
 }
 
-// AddChecked adds two vectors with checked arithmetic.
+// AddChecked adds two vectors dimension-wise, reporting overflow instead of
+// wrapping.
 func (v ResourceVector) AddChecked(other ResourceVector) (ResourceVector, error) {
 	var dims [8]int64
 	values := [...]int64{v.Cpu, v.Memory, v.BlockIo, v.EphemeralDisk, v.Bandwidth, v.Pids, v.FileDescriptors, v.HugePages}
@@ -138,8 +138,8 @@ func (v ResourceVector) AddChecked(other ResourceVector) (ResourceVector, error)
 	return NewResourceVector(dims[0], dims[1], dims[2], dims[3], dims[4], dims[5], dims[6], dims[7])
 }
 
-// SubtractChecked subtracts other from v with checked arithmetic; the result is
-// re-validated as a non-negative vector exactly like the C# record constructor.
+// SubtractChecked subtracts other from v, reporting overflow instead of
+// wrapping; the result is re-validated as a non-negative vector.
 func (v ResourceVector) SubtractChecked(other ResourceVector) (ResourceVector, error) {
 	var dims [8]int64
 	values := [...]int64{v.Cpu, v.Memory, v.BlockIo, v.EphemeralDisk, v.Bandwidth, v.Pids, v.FileDescriptors, v.HugePages}
@@ -187,7 +187,7 @@ const (
 	ResourceDimensionHugePages
 )
 
-// AllResourceDimensions lists every dimension in canonical order (Enum.GetValues).
+// AllResourceDimensions lists every dimension in canonical order.
 var AllResourceDimensions = []ResourceDimension{
 	ResourceDimensionCpu,
 	ResourceDimensionMemory,
@@ -397,8 +397,8 @@ type NodeCandidate struct {
 	Veto          *CandidateVeto
 }
 
-// NewNodeCandidate snapshots and validates every caller input, mirroring the C#
-// constructor (optional collections are nil-able).
+// NewNodeCandidate snapshots and validates every caller input; optional
+// collections are nil-able.
 func NewNodeCandidate(
 	id string,
 	nodeClass string,
@@ -658,8 +658,8 @@ type PlacementReason struct {
 	Detail  string
 }
 
-// WasteComponent is one weighted waste term. WeightedWaste mirrors the C#
-// System.Numerics.BigInteger product Remaining*Weight.
+// WasteComponent is one weighted waste term. WeightedWaste is the exact product
+// Remaining*Weight, carried as a big.Int so it never overflows.
 type WasteComponent struct {
 	Dimension     ResourceDimension
 	Remaining     int64
@@ -784,7 +784,7 @@ func requireText(value string, parameterName string) (string, error) {
 	}
 }
 
-// checkedAdd mirrors C# checked integer addition.
+// checkedAdd adds, reporting overflow instead of wrapping.
 func checkedAdd(left, right int64) (int64, error) {
 	sum := left + right
 	if (sum > left) == (right > 0) {
@@ -793,7 +793,7 @@ func checkedAdd(left, right int64) (int64, error) {
 	return 0, &OverflowError{Message: "Arithmetic operation resulted in an overflow."}
 }
 
-// checkedSubtract mirrors C# checked integer subtraction.
+// checkedSubtract subtracts, reporting overflow instead of wrapping.
 func checkedSubtract(left, right int64) (int64, error) {
 	difference := left - right
 	if (difference < left) == (right > 0) {

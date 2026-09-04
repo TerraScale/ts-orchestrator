@@ -151,12 +151,11 @@ type AuthorityLease struct {
 	Duration       time.Duration
 }
 
-// Equal mirrors C# record value equality for leases (instants compare by UTC
-// instant, like DateTimeOffset equality).
+// Equal reports value equality for leases (instants compare by UTC instant).
 func (l AuthorityLease) Equal(other AuthorityLease) bool {
 	return l.CandidateId == other.CandidateId &&
 		l.LeaseId == other.LeaseId &&
-		dotNetTimeEquals(l.ServerIssuedAt, other.ServerIssuedAt) &&
+		instantsEqual(l.ServerIssuedAt, other.ServerIssuedAt) &&
 		l.Duration == other.Duration
 }
 
@@ -168,7 +167,7 @@ type AuthorityObservation struct {
 	Lease         *AuthorityLease
 }
 
-// Equal mirrors C# record value equality (deep, lease included).
+// Equal reports deep value equality, lease included.
 func (o AuthorityObservation) Equal(other AuthorityObservation) bool {
 	if o.AuthorityId != other.AuthorityId || o.KvRevision != other.KvRevision ||
 		o.Epoch != other.Epoch || o.ObservationId != other.ObservationId {
@@ -190,9 +189,8 @@ type AuthorityHealth struct {
 	ClockCertain     bool
 }
 
-// AuthorityCommand is the Go form of the abstract AuthorityCommand record.
-// The unexported marker keeps the hierarchy closed, like the C# internal
-// constructors.
+// AuthorityCommand is the closed hierarchy of authority commands. The
+// unexported marker method keeps the set of implementations fixed.
 type AuthorityCommand interface {
 	authorityCommandCommon() *AuthorityCommandBase
 }
@@ -344,7 +342,7 @@ func NewEvaluateMutationAuthority(authorityId, candidateId, requestId string,
 	}
 }
 
-// AuthorityIntent is the Go form of the abstract AuthorityIntent record.
+// AuthorityIntent is the closed hierarchy of authority intents.
 type AuthorityIntent interface {
 	authorityIntentCommon() *AuthorityIntentBase
 }
@@ -424,9 +422,8 @@ type MutationAuthorityPermit struct {
 	EvaluatedMonotonicElapsed time.Duration
 }
 
-// NewMutationAuthorityPermit mirrors the internal C# constructor: only an
-// accepted CAS, read, or evaluation command carrying lease evidence may mint
-// a permit.
+// NewMutationAuthorityPermit mints a permit only from an accepted CAS, read,
+// or evaluation command carrying lease evidence.
 func NewMutationAuthorityPermit(authorizingCommand AuthorityCommand) (*MutationAuthorityPermit, error) {
 	var observation *AuthorityObservation
 	var health *AuthorityHealth
@@ -489,7 +486,7 @@ type PendingAuthorityDelete struct {
 	RequestedAtHealth *AuthorityHealth
 }
 
-// AuthorityEvent is the Go form of the abstract AuthorityEvent record.
+// AuthorityEvent is the closed hierarchy of authority events.
 type AuthorityEvent interface {
 	authorityEventCommon() *AuthorityEventBase
 }
@@ -576,7 +573,7 @@ type AuthorityState struct {
 	LastError              *AuthorityError
 }
 
-// AuthorityStateEmpty mirrors AuthorityState.Empty.
+// AuthorityStateEmpty is the empty initial authority state.
 var AuthorityStateEmpty = &AuthorityState{
 	Status:        AuthorityStatusFollower,
 	JournalDigest: AuthorityDigestEmptyJournalDigest,
@@ -609,8 +606,8 @@ type AuthorityDecision struct {
 	DecisionDigest string
 }
 
-// NewAuthorityDecision mirrors AuthorityDecision.Create; nil collections are
-// normalized to empty lists like the C# optional arguments.
+// NewAuthorityDecision builds a decision; nil collections are normalized to
+// empty slices.
 func NewAuthorityDecision(state *AuthorityState, events []AuthorityEvent, intents []AuthorityIntent,
 	errors []AuthorityError, mutationPermit *MutationAuthorityPermit) *AuthorityDecision {
 	if events == nil {

@@ -8,8 +8,8 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// NatsMonitoringSubjects mirrors the C# static class: the exact, minimum $SYS
-// read subjects the monitoring contract may consume.
+// NatsMonitoringSubjects lists the exact, minimum $SYS read subjects the
+// monitoring contract may consume.
 var NatsMonitoringSubjects natsMonitoringSubjects
 
 type natsMonitoringSubjects struct{}
@@ -35,8 +35,7 @@ const (
 	NatsMonitoringSubjectsJetStreamAdvisories = "$SYS.JETSTREAM.ADVISORY.>"
 )
 
-// Requests mirrors the C# Requests: every request-reply monitoring subject, in
-// stable order.
+// Requests returns every request-reply monitoring subject, in stable order.
 func (natsMonitoringSubjects) Requests() []string {
 	return []string{
 		NatsMonitoringSubjectsAccounts,
@@ -48,7 +47,6 @@ func (natsMonitoringSubjects) Requests() []string {
 	}
 }
 
-// AdvisorySubscriptions mirrors the C# AdvisorySubscriptions.
 func (natsMonitoringSubjects) AdvisorySubscriptions() []string {
 	return []string{
 		NatsMonitoringSubjectsAccountAdvisories,
@@ -56,7 +54,6 @@ func (natsMonitoringSubjects) AdvisorySubscriptions() []string {
 	}
 }
 
-// IsMonitoringSubject mirrors the C# IsMonitoringSubject.
 func (natsMonitoringSubjects) IsMonitoringSubject(subject string) bool {
 	for _, candidate := range NatsMonitoringSubjects.Requests() {
 		if candidate == subject {
@@ -73,9 +70,8 @@ func (natsMonitoringSubjects) IsMonitoringSubject(subject string) bool {
 	return false
 }
 
-// IsAdvisoryDeliverySubject mirrors the C# IsAdvisoryDeliverySubject: true
-// when a subject is covered by one of the two advisory subscription
-// wildcards.
+// IsAdvisoryDeliverySubject is true when a subject is covered by one of the
+// two advisory subscription wildcards.
 func (natsMonitoringSubjects) IsAdvisoryDeliverySubject(subject string) bool {
 	if strings.HasPrefix(subject, "$SYS.ACCOUNT.") {
 		rest := subject[len("$SYS.ACCOUNT."):]
@@ -96,15 +92,15 @@ func (natsMonitoringSubjects) IsAdvisoryDeliverySubject(subject string) bool {
 	return false
 }
 
-// NatsMonitoringPermissionPlan mirrors the C# record: the read-only NATS
-// permission plan for the monitoring identity.
+// NatsMonitoringPermissionPlan is the read-only NATS permission plan for the
+// monitoring identity.
 type NatsMonitoringPermissionPlan struct {
 	Publish   []string
 	Subscribe []string
 }
 
-// NewNatsMonitoringPermissionPlan mirrors the C# constructor: the plan is the
-// single source the account model grants from, so it validates itself.
+// NewNatsMonitoringPermissionPlan builds the plan: the plan is the single
+// source the account model grants from, so it validates itself.
 func NewNatsMonitoringPermissionPlan(publish, subscribe []string) (*NatsMonitoringPermissionPlan, error) {
 	orderedPublish := append([]string(nil), publish...)
 	sort.Strings(orderedPublish)
@@ -149,27 +145,25 @@ func NewNatsMonitoringPermissionPlan(publish, subscribe []string) (*NatsMonitori
 	return &NatsMonitoringPermissionPlan{Publish: orderedPublish, Subscribe: orderedSubscribe}, nil
 }
 
-// NatsMonitoringPermissions mirrors the C# static class.
 var NatsMonitoringPermissions natsMonitoringPermissions
 
 type natsMonitoringPermissions struct{}
 
-// Create mirrors NatsMonitoringPermissions.Create: publish only the read-only
-// system-service request subjects, subscribe only to advisories and its own
-// inbox.
+// Create returns the plan: publish only the read-only system-service request
+// subjects, subscribe only to advisories and its own inbox.
 func (natsMonitoringPermissions) Create() (*NatsMonitoringPermissionPlan, error) {
 	subscribe := append(NatsMonitoringSubjects.AdvisorySubscriptions(), "_INBOX.>")
 	return NewNatsMonitoringPermissionPlan(NatsMonitoringSubjects.Requests(), subscribe)
 }
 
-// NatsMonitoringPermissionsForbidden mirrors the C# nested Forbidden class:
-// subject classes the monitoring plan must never be able to touch.
+// NatsMonitoringPermissionsForbidden lists the subject classes the monitoring
+// plan must never be able to touch.
 var NatsMonitoringPermissionsForbidden natsMonitoringPermissionsForbidden
 
 type natsMonitoringPermissionsForbidden struct{}
 
-// ControlPublish mirrors Forbidden.ControlPublish: control work — regional
-// command and internal journal subjects for every cell.
+// ControlPublish returns the control-work subjects — regional command and
+// internal journal subjects for every cell.
 func (natsMonitoringPermissionsForbidden) ControlPublish(cell string) []string {
 	direct, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(cell)
 	create, _ := protocol.NatsSubjectTaxonomy.OperationJournalCreateSubject(cell)
@@ -182,7 +176,6 @@ func (natsMonitoringPermissionsForbidden) ControlPublish(cell string) []string {
 	return []string{direct, create, update, desired, observation}
 }
 
-// GlobalControlPublish mirrors Forbidden.GlobalControlPublish.
 func (natsMonitoringPermissionsForbidden) GlobalControlPublish() []string {
 	return []string{
 		protocol.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>",
@@ -191,7 +184,6 @@ func (natsMonitoringPermissionsForbidden) GlobalControlPublish() []string {
 	}
 }
 
-// JetStreamMutation mirrors Forbidden.JetStreamMutation.
 func (natsMonitoringPermissionsForbidden) JetStreamMutation() []string {
 	return []string{
 		"$JS.API.STREAM.CREATE.>",
@@ -206,7 +198,6 @@ func (natsMonitoringPermissionsForbidden) JetStreamMutation() []string {
 	}
 }
 
-// SecretAndJournalReads mirrors Forbidden.SecretAndJournalReads.
 func (natsMonitoringPermissionsForbidden) SecretAndJournalReads() []string {
 	return []string{
 		"$KV.ORCH_OPERATIONS.>",
@@ -218,7 +209,6 @@ func (natsMonitoringPermissionsForbidden) SecretAndJournalReads() []string {
 	}
 }
 
-// ProductPlane mirrors Forbidden.ProductPlane.
 func (natsMonitoringPermissionsForbidden) ProductPlane() []string {
 	return []string{
 		"product.>",
@@ -229,9 +219,9 @@ func (natsMonitoringPermissionsForbidden) ProductPlane() []string {
 	}
 }
 
-// NatsMonitoringPermissionsGrants mirrors the C# Grants: true when a granted
-// subject pattern can carry the candidate subject. Patterns support a
-// single-token * and a trailing > (which must be the last token).
+// NatsMonitoringPermissionsGrants is true when a granted subject pattern can
+// carry the candidate subject. Patterns support a single-token * and a
+// trailing > (which must be the last token).
 func NatsMonitoringPermissionsGrants(granted []string, subject string) bool {
 	candidate := strings.Split(subject, ".")
 	for _, pattern := range granted {

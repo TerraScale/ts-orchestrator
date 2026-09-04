@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/Program.cs: the tooling
-// entry point delegates to the manual command dispatcher.
+// The tooling entry point delegates to the manual command dispatcher.
 package main
 
 import (

@@ -284,7 +284,7 @@ const (
 	CallCompleted
 )
 
-// Alternate names mirror the C# vocabulary and keep call sites readable.
+// Alternate names keep call sites readable.
 const (
 	ProviderResourceKindNode                = ResourceNode
 	ProviderResourceKindVolume              = ResourceVolume

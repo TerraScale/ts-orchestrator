@@ -16,14 +16,15 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// CiRunnerNatsIdentityConfiguration mirrors the C# sealed class.
+// CiRunnerNatsIdentityConfiguration holds the issuer signing key file and an
+// optional issuer-account public key.
 type CiRunnerNatsIdentityConfiguration struct {
 	SigningKeyFile   string
 	AccountPublicKey *string
 }
 
-// CiRunnerNatsIdentityConfigurationResolve mirrors the C# Resolve. A nil
-// result means no identity was supplied.
+// CiRunnerNatsIdentityConfigurationResolve resolves the identity settings; a
+// nil result means no identity was supplied.
 func CiRunnerNatsIdentityConfigurationResolve(
 	signingKeyFile string,
 	accountPublicKey string,
@@ -51,7 +52,7 @@ func CiRunnerNatsIdentityConfigurationResolve(
 	return &CiRunnerNatsIdentityConfiguration{SigningKeyFile: path, AccountPublicKey: accountKey}, nil
 }
 
-// Open mirrors the C# Open.
+// Open opens the configured signing credential.
 func (c *CiRunnerNatsIdentityConfiguration) Open() (*NatsAccountJwtSigner, error) {
 	if c == nil {
 		return nil, errors.New("The CI runner NATS identity is unavailable.")
@@ -59,15 +60,15 @@ func (c *CiRunnerNatsIdentityConfiguration) Open() (*NatsAccountJwtSigner, error
 	return NatsAccountJwtSignerOpen(c.SigningKeyFile, c.AccountPublicKey)
 }
 
-// INatsAccountJwtSigner mirrors the C# interface.
+// INatsAccountJwtSigner signs NATS account JWTs with a retained account NKey.
 type INatsAccountJwtSigner interface {
 	IssuerPublicKey() string
 	AccountPublicKey() string
 	SignAsync(ctx context.Context, material []byte) ([]byte, error)
 }
 
-// NatsAccountJwtSigner mirrors the C# class: an account or account-signing
-// NKey retained from a private systemd credential.
+// NatsAccountJwtSigner is an account or account-signing NKey retained from a
+// private systemd credential.
 type NatsAccountJwtSigner struct {
 	mu               chan struct{}
 	seed             []byte
@@ -75,7 +76,7 @@ type NatsAccountJwtSigner struct {
 	accountPublicKey string
 }
 
-// NatsAccountJwtSignerOpen mirrors the C# Open.
+// NatsAccountJwtSignerOpen opens and validates the account NKey file at path.
 func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccountJwtSigner, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("The NATS account signing credential path is required. (Parameter 'path')")
@@ -123,13 +124,15 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 	}, nil
 }
 
-// IssuerPublicKey mirrors the C# property.
+// IssuerPublicKey returns the signing key's public key.
 func (s *NatsAccountJwtSigner) IssuerPublicKey() string { return s.issuerPublicKey }
 
-// AccountPublicKey mirrors the C# property.
+// AccountPublicKey returns the account the issuer acts for, which may differ
+// from the signing key when signing with an account signing key.
 func (s *NatsAccountJwtSigner) AccountPublicKey() string { return s.accountPublicKey }
 
-// SignAsync mirrors the C# SignAsync.
+// SignAsync signs material with the retained seed, serialized so only one
+// signing operation runs at a time.
 func (s *NatsAccountJwtSigner) SignAsync(ctx context.Context, material []byte) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("The NATS account signing credential is unavailable.")
@@ -160,7 +163,7 @@ func (s *NatsAccountJwtSigner) SignAsync(ctx context.Context, material []byte) (
 	return pair.Sign(material)
 }
 
-// Dispose mirrors the C# Dispose.
+// Dispose zeroes the retained signing seed under the signing guard.
 func (s *NatsAccountJwtSigner) Dispose() {
 	if s == nil {
 		return
@@ -200,8 +203,8 @@ func natsRequireAccountPublicKey(value, message string) error {
 	return nil
 }
 
-// CiRunnerNatsCredentialLease mirrors the C# class: a disposable user JWT and
-// nonce-signing seed. Its string form never contains either.
+// CiRunnerNatsCredentialLease is a short-lived user JWT and nonce-signing
+// seed. Its string form never contains either.
 type CiRunnerNatsCredentialLease struct {
 	mu        sync.Mutex
 	PublicKey string
@@ -212,7 +215,6 @@ type CiRunnerNatsCredentialLease struct {
 	ExpiresAt time.Time
 }
 
-// NewCiRunnerNatsCredentialLease mirrors the C# constructor.
 func NewCiRunnerNatsCredentialLease(
 	publicKey string,
 	jwt string,
@@ -231,8 +233,8 @@ func NewCiRunnerNatsCredentialLease(
 	}
 }
 
-// WriteCredentialsFile mirrors the C# WriteCredentialsFile: an owner-private
-// credentials file in the exact NATS.Net format.
+// WriteCredentialsFile writes an owner-private credentials file in the
+// standard NATS credentials format.
 func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string, error) {
 	if l == nil {
 		return "", os.ErrClosed
@@ -300,7 +302,7 @@ func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string,
 	return fullPath, nil
 }
 
-// Dispose mirrors the C# Dispose.
+// Dispose zeroes the retained seed.
 func (l *CiRunnerNatsCredentialLease) Dispose() {
 	if l == nil {
 		return
@@ -314,13 +316,13 @@ func (l *CiRunnerNatsCredentialLease) Dispose() {
 	l.seed = nil
 }
 
-// String mirrors the redacted C# ToString.
+// String renders a redacted description; the JWT and seed never appear.
 func (l *CiRunnerNatsCredentialLease) String() string {
 	return fmt.Sprintf("CI runner NATS credential %s for %s, expires %s",
 		l.LeaseId, l.PublicKey, l.ExpiresAt.Format(time.RFC3339))
 }
 
-// CiRunnerNatsCredentialIssuer lifetimes mirror the C# constants.
+// Lifetime, payload, and subscription bounds for issued runner credentials.
 const (
 	CiRunnerNatsCredentialIssuerMaximumLifetime      = 75 * time.Minute
 	CiRunnerNatsCredentialIssuerMinimumLifetime      = time.Minute
@@ -329,14 +331,13 @@ const (
 	natsAccountPublicKeyMaximumCharacters            = 128
 )
 
-// CiRunnerNatsCredentialIssuer mirrors the C# class: issues a short-lived NATS
-// user only after its exact consumer was reconciled.
+// CiRunnerNatsCredentialIssuer issues a short-lived NATS user only after its
+// exact consumer was reconciled.
 type CiRunnerNatsCredentialIssuer struct {
 	topology *GlobalNatsTopology
 	signer   INatsAccountJwtSigner
 }
 
-// NewCiRunnerNatsCredentialIssuer mirrors the C# constructor.
 func NewCiRunnerNatsCredentialIssuer(
 	topology *GlobalNatsTopology,
 	signer INatsAccountJwtSigner,
@@ -352,7 +353,8 @@ func NewCiRunnerNatsCredentialIssuer(
 	return &CiRunnerNatsCredentialIssuer{topology: topology, signer: signer}, nil
 }
 
-// IssueAsync mirrors the C# IssueAsync.
+// IssueAsync issues a runner credential lease for an already-reconciled
+// consumer.
 func (i *CiRunnerNatsCredentialIssuer) IssueAsync(
 	ctx context.Context,
 	registration CiRunnerConsumerRegistration,
@@ -437,7 +439,7 @@ func (i *CiRunnerNatsCredentialIssuer) IssueAsync(
 
 func expectedName(name string) string { return name }
 
-// NatsUserJwtCodecToken mirrors the C# (string Jwt, string Id) tuple.
+// NatsUserJwtCodecToken carries the encoded JWT and its identifier.
 type NatsUserJwtCodecToken struct {
 	Jwt string
 	Id  string
@@ -445,12 +447,12 @@ type NatsUserJwtCodecToken struct {
 
 const natsUserJwtBase32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
-// NatsUserJwtCodec mirrors the C# static class.
+// NatsUserJwtCodec encodes and signs NATS user JWTs.
 var NatsUserJwtCodec natsUserJwtCodecStatic
 
 type natsUserJwtCodecStatic struct{}
 
-// NatsUserJwtCodecEncodeAsync mirrors the C# EncodeAsync.
+// NatsUserJwtCodecEncodeAsync encodes and signs one NATS user JWT.
 func NatsUserJwtCodecEncodeAsync(
 	ctx context.Context,
 	signer INatsAccountJwtSigner,
@@ -537,7 +539,7 @@ func NatsUserJwtCodecEncodeAsync(
 	}, nil
 }
 
-// natsUserJwtBase32 mirrors the C# Base32 helper (RFC 4648, no padding).
+// natsUserJwtBase32 encodes value as base32 (RFC 4648, no padding).
 func natsUserJwtBase32(value []byte) string {
 	var encoded strings.Builder
 	buffer := 0

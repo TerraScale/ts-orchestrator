@@ -10,8 +10,8 @@ import (
 	"unicode"
 )
 
-// NatsSubjectTaxonomy mirrors the C# static class: the closed NATS subject
-// taxonomy for TerraScale.Orchestrator v2 control messaging. This is the
+// NatsSubjectTaxonomy is the closed NATS subject taxonomy for the v2 control
+// messaging protocol. This is the
 // single canonical definition of every subject namespace root and every
 // concrete subject shape the production adapters may use; adapters compose
 // subjects exclusively through these definitions. The closed family set is
@@ -20,18 +20,18 @@ import (
 // silently. The taxonomy is infrastructure-free: it knows subject grammar, not
 // NATS clients.
 //
-// The C# public const string members become methods so call sites read like
-// the C# ones (NatsSubjectTaxonomy.Root(), NatsSubjectTaxonomy.GlobalRoot(), ...).
-// Methods that threw ArgumentException now return an error as their second value.
+// Every subject constant is a method (NatsSubjectTaxonomy.Root(),
+// NatsSubjectTaxonomy.GlobalRoot(), ...). Methods that can fail return an
+// error as their second value.
 var NatsSubjectTaxonomy natsSubjectTaxonomy
 
 type natsSubjectTaxonomy struct{}
 
-// Root mirrors NatsSubjectTaxonomy.Root: the one versioned control-plane
+// Root returns the one versioned control-plane
 // subject root. The product plane is NOT rooted here.
 func (natsSubjectTaxonomy) Root() string { return "ts.orch.v2" }
 
-// GlobalScopeToken mirrors NatsSubjectTaxonomy.GlobalScopeToken: the reserved
+// GlobalScopeToken is the reserved
 // scope token that names the global authority namespace.
 func (natsSubjectTaxonomy) GlobalScopeToken() string { return "global" }
 
@@ -41,7 +41,7 @@ func (natsSubjectTaxonomy) RegionPlaceholderToken() string { return "<region>" }
 // AgentHashPlaceholderToken mirrors the manifest <agent-hash> placeholder.
 func (natsSubjectTaxonomy) AgentHashPlaceholderToken() string { return "<agent-hash>" }
 
-// GlobalRoot mirrors NatsSubjectTaxonomy.GlobalRoot: the global-authority
+// GlobalRoot is the global-authority
 // namespace root (GRU-owned global journals, releases, and directory).
 func (natsSubjectTaxonomy) GlobalRoot() string {
 	return NatsSubjectTaxonomy.Root() + "." + NatsSubjectTaxonomy.GlobalScopeToken()
@@ -146,16 +146,16 @@ func (natsSubjectTaxonomy) GlobalCiFamilyPattern() string {
 	return NatsSubjectTaxonomy.GlobalRoot() + ".release.ci.>"
 }
 
-// AgentHashTokenLength mirrors the C# const: the length of the truncated
+// AgentHashTokenLength is the length of the truncated
 // SHA-256 host-agent hash token used in subjects.
 func (natsSubjectTaxonomy) AgentHashTokenLength() int { return 24 }
 
-// GrammarLimits mirrors the internal static grammar limits of the taxonomy.
+// GrammarLimits returns the taxonomy's bounded subject-grammar policy.
 func (natsSubjectTaxonomy) GrammarLimits() *SubjectGrammarLimits {
 	return taxonomyGrammarLimits
 }
 
-// Families mirrors NatsSubjectTaxonomy.Families: the closed subject families,
+// Families returns the closed subject families,
 // generated from the checked-in protocol manifest and validated against the
 // compiled taxonomy. Any disagreement panics: the manifest is the single
 // source of truth.
@@ -176,7 +176,7 @@ var (
 	manifestFamiliesOnce  sync.Once
 )
 
-// RegionalRoot mirrors NatsSubjectTaxonomy.RegionalRoot: the regional control
+// RegionalRoot returns the regional control
 // namespace root for one Region (ts.orch.v2.<region>).
 func (natsSubjectTaxonomy) RegionalRoot(cell string) (string, error) {
 	if cellTokenRuleIsValid(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
@@ -187,7 +187,7 @@ func (natsSubjectTaxonomy) RegionalRoot(cell string) (string, error) {
 		"The region subject token is not a lowercase DNS-style token and must not name the reserved global scope. (Parameter 'cell')")
 }
 
-// RegionalRootForRegionCode mirrors RegionalRootForRegionCode: the regional
+// RegionalRootForRegionCode returns the regional
 // control namespace root for one canonical uppercase RegionCode.
 func (natsSubjectTaxonomy) RegionalRootForRegionCode(regionCode string) (string, error) {
 	token, err := NatsSubjectTaxonomy.SubjectTokenForRegion(regionCode)
@@ -198,7 +198,7 @@ func (natsSubjectTaxonomy) RegionalRootForRegionCode(regionCode string) (string,
 	return NatsSubjectTaxonomy.RegionalRoot(token)
 }
 
-// CellSpecSubject mirrors CellSpecSubject: the durable signed regional
+// CellSpecSubject returns the durable signed regional
 // CellSpec subject (ts.orch.v2.<region>.desired.gitops).
 func (natsSubjectTaxonomy) CellSpecSubject(cell string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
@@ -209,7 +209,7 @@ func (natsSubjectTaxonomy) CellSpecSubject(cell string) (string, error) {
 	return root + ".desired.gitops", nil
 }
 
-// RegionalFamilyPattern mirrors RegionalFamilyPattern: the terminal permission
+// RegionalFamilyPattern returns the terminal permission
 // pattern of one closed regional family.
 func (natsSubjectTaxonomy) RegionalFamilyPattern(cell, familySegment string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
@@ -220,18 +220,19 @@ func (natsSubjectTaxonomy) RegionalFamilyPattern(cell, familySegment string) (st
 	return root + "." + familySegment + ".>", nil
 }
 
-// GlobalFamilyPattern mirrors GlobalFamilyPattern: the terminal permission
+// GlobalFamilyPattern returns the terminal permission
 // pattern of one closed global family.
 func (natsSubjectTaxonomy) GlobalFamilyPattern(familySegment string) string {
 	return NatsSubjectTaxonomy.GlobalRoot() + "." + familySegment + ".>"
 }
 
-// ControllerHealthSubject mirrors ControllerHealthSubject.
+// ControllerHealthSubject returns the controller health query subject of one cell.
 func (natsSubjectTaxonomy) ControllerHealthSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".query.health")
 }
 
-// ControllerInstanceHealthSubject mirrors ControllerInstanceHealthSubject.
+// ControllerInstanceHealthSubject returns the per-instance controller health
+// subject of one cell.
 func (natsSubjectTaxonomy) ControllerInstanceHealthSubject(cell, instance string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
 	if err != nil {
@@ -246,29 +247,29 @@ func (natsSubjectTaxonomy) ControllerInstanceHealthSubject(cell, instance string
 	return root + ".query.health." + token, nil
 }
 
-// ControllerStatusSubject mirrors ControllerStatusSubject.
+// ControllerStatusSubject returns the controller status query subject of one cell.
 func (natsSubjectTaxonomy) ControllerStatusSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".query.status")
 }
 
-// ControllerMembersSubject mirrors ControllerMembersSubject.
+// ControllerMembersSubject returns the controller members query subject of one cell.
 func (natsSubjectTaxonomy) ControllerMembersSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".query.members")
 }
 
-// ControllerStatsSubject mirrors ControllerStatsSubject: the read-only service
+// ControllerStatsSubject returns the read-only service
 // statistics endpoint subject (no mutation surface).
 func (natsSubjectTaxonomy) ControllerStatsSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".query.stats")
 }
 
-// DirectDeliverySubject mirrors DirectDeliverySubject: the signed
+// DirectDeliverySubject returns the signed
 // direct-delivery mutation admission subject (request/reply, lossy transport).
 func (natsSubjectTaxonomy) DirectDeliverySubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".command.delivery")
 }
 
-// ControllerInboxPrefix mirrors ControllerInboxPrefix: the ephemeral
+// ControllerInboxPrefix returns the ephemeral
 // controller inbox prefix under the command family; the NATS client appends
 // its unique suffix.
 func (natsSubjectTaxonomy) ControllerInboxPrefix(cell, publicKey string) (string, error) {
@@ -285,18 +286,20 @@ func (natsSubjectTaxonomy) ControllerInboxPrefix(cell, publicKey string) (string
 	return root + ".command.reply." + token, nil
 }
 
-// OperationJournalCreateSubject mirrors OperationJournalCreateSubject: the
+// OperationJournalCreateSubject returns the
 // ephemeral regional operation-journal append RPC.
 func (natsSubjectTaxonomy) OperationJournalCreateSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".command.journal.create")
 }
 
-// OperationJournalUpdateSubject mirrors OperationJournalUpdateSubject.
+// OperationJournalUpdateSubject returns the regional operation-journal update
+// RPC subject of one cell.
 func (natsSubjectTaxonomy) OperationJournalUpdateSubject(cell string) (string, error) {
 	return withRegionalRoot(cell, ".command.journal.update")
 }
 
-// OperationJournalReplySubject mirrors OperationJournalReplySubject.
+// OperationJournalReplySubject returns the per-caller operation-journal reply
+// subject of one cell.
 func (natsSubjectTaxonomy) OperationJournalReplySubject(cell, callerIdentity, nonce string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
 	if err != nil {
@@ -316,7 +319,7 @@ func (natsSubjectTaxonomy) OperationJournalReplySubject(cell, callerIdentity, no
 	return root + ".command.journal.reply." + identity + "." + nonceToken, nil
 }
 
-// RuntimeStartupSubject mirrors RuntimeStartupSubject: the runtime startup
+// RuntimeStartupSubject returns the runtime startup
 // observation of the closed observation family.
 func (natsSubjectTaxonomy) RuntimeStartupSubject(cell, instance string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
@@ -332,13 +335,13 @@ func (natsSubjectTaxonomy) RuntimeStartupSubject(cell, instance string) (string,
 	return root + ".observation.runtime.started." + token, nil
 }
 
-// RuntimeStartupPattern mirrors RuntimeStartupPattern: all runtime-startup
+// RuntimeStartupPattern returns the subject pattern of all runtime-startup
 // observations for one Region.
 func (natsSubjectTaxonomy) RuntimeStartupPattern(cell string) (string, error) {
 	return withRegionalRoot(cell, ".observation.runtime.started.>")
 }
 
-// RuntimeLifecycleJournalSubject mirrors RuntimeLifecycleJournalSubject: the
+// RuntimeLifecycleJournalSubject returns the
 // private runtime-lifecycle journal RPC under the non-streamed command family.
 func (natsSubjectTaxonomy) RuntimeLifecycleJournalSubject(cell, operation string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
@@ -354,7 +357,8 @@ func (natsSubjectTaxonomy) RuntimeLifecycleJournalSubject(cell, operation string
 	return root + ".command.runtime-lifecycle." + token, nil
 }
 
-// RuntimeLifecycleJournalReplySubject mirrors RuntimeLifecycleJournalReplySubject.
+// RuntimeLifecycleJournalReplySubject returns the per-caller runtime-lifecycle
+// journal reply subject of one cell.
 func (natsSubjectTaxonomy) RuntimeLifecycleJournalReplySubject(cell, callerIdentity, nonce string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
 	if err != nil {
@@ -374,7 +378,7 @@ func (natsSubjectTaxonomy) RuntimeLifecycleJournalReplySubject(cell, callerIdent
 	return root + ".command.runtime-lifecycle.reply." + identity + "." + nonceToken, nil
 }
 
-// HostAgentSubjectToken mirrors HostAgentSubjectToken: the fixed SHA-256
+// HostAgentSubjectToken returns the fixed SHA-256
 // subject token of one admitted host-agent identity (lowercase hex).
 func (natsSubjectTaxonomy) HostAgentSubjectToken(agentIdentity string) (string, error) {
 	hash, err := NatsSubjectTaxonomy.HostAgentIdentityHash(agentIdentity)
@@ -385,7 +389,7 @@ func (natsSubjectTaxonomy) HostAgentSubjectToken(agentIdentity string) (string, 
 	return hash[:NatsSubjectTaxonomy.AgentHashTokenLength()], nil
 }
 
-// HostAgentSubjectRoot mirrors HostAgentSubjectRoot: the host-agent subject
+// HostAgentSubjectRoot returns the host-agent subject
 // root of one admitted agent: the fixed hash, never the raw identity.
 func (natsSubjectTaxonomy) HostAgentSubjectRoot(cell, agentIdentity string) (string, error) {
 	root, err := NatsSubjectTaxonomy.RegionalRoot(cell)
@@ -401,7 +405,7 @@ func (natsSubjectTaxonomy) HostAgentSubjectRoot(cell, agentIdentity string) (str
 	return root + "." + NatsSubjectTaxonomy.RegionalAgentPrefixSegment() + "." + token, nil
 }
 
-// HostAgentCommandSubject mirrors HostAgentCommandSubject: the fenced command
+// HostAgentCommandSubject returns the fenced command
 // leaf addressed to exactly one admitted host agent.
 func (natsSubjectTaxonomy) HostAgentCommandSubject(cell, agentIdentity, command string) (string, error) {
 	root, err := NatsSubjectTaxonomy.HostAgentSubjectRoot(cell, agentIdentity)
@@ -417,7 +421,7 @@ func (natsSubjectTaxonomy) HostAgentCommandSubject(cell, agentIdentity, command 
 	return root + ".command." + token, nil
 }
 
-// HostAgentObservationSubject mirrors HostAgentObservationSubject: the
+// HostAgentObservationSubject returns the
 // observation leaf published by exactly one admitted host agent.
 func (natsSubjectTaxonomy) HostAgentObservationSubject(cell, agentIdentity, observation string) (string, error) {
 	root, err := NatsSubjectTaxonomy.HostAgentSubjectRoot(cell, agentIdentity)
@@ -433,7 +437,7 @@ func (natsSubjectTaxonomy) HostAgentObservationSubject(cell, agentIdentity, obse
 	return root + "." + NatsSubjectTaxonomy.ObservationFamilySegment() + "." + token, nil
 }
 
-// HostAgentAcknowledgementSubject mirrors HostAgentAcknowledgementSubject:
+// HostAgentAcknowledgementSubject returns
 // the acknowledgement leaf published by exactly one admitted host agent.
 func (natsSubjectTaxonomy) HostAgentAcknowledgementSubject(cell, agentIdentity, acknowledgement string) (string, error) {
 	root, err := NatsSubjectTaxonomy.HostAgentSubjectRoot(cell, agentIdentity)
@@ -449,7 +453,7 @@ func (natsSubjectTaxonomy) HostAgentAcknowledgementSubject(cell, agentIdentity, 
 	return root + ".ack." + token, nil
 }
 
-// HostAgentIdentityHash mirrors HostAgentIdentityHash: the fixed SHA-256 hash
+// HostAgentIdentityHash returns the fixed SHA-256 hash
 // of an admitted host-agent identity. The raw identity — which may carry
 // operator-controlled text — never becomes a subject token.
 func (natsSubjectTaxonomy) HostAgentIdentityHash(agentIdentity string) (string, error) {
@@ -464,7 +468,7 @@ func (natsSubjectTaxonomy) HostAgentIdentityHash(agentIdentity string) (string, 
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// TryMapRegionCodeToSubjectToken mirrors TryMapRegionCodeToSubjectToken: maps
+// TryMapRegionCodeToSubjectToken maps
 // one registered canonical uppercase RegionCode to its strict lowercase
 // subject token. The mapping is bijective: payloads keep the uppercase code
 // while subjects use the token.
@@ -481,7 +485,7 @@ func (natsSubjectTaxonomy) TryMapRegionCodeToSubjectToken(regionCode string) (st
 	}
 }
 
-// TryMapSubjectTokenToRegionCode mirrors TryMapSubjectTokenToRegionCode: maps
+// TryMapSubjectTokenToRegionCode maps
 // one registered strict lowercase subject token back to its canonical
 // uppercase RegionCode.
 func (natsSubjectTaxonomy) TryMapSubjectTokenToRegionCode(subjectToken string) (string, bool) {
@@ -497,7 +501,7 @@ func (natsSubjectTaxonomy) TryMapSubjectTokenToRegionCode(subjectToken string) (
 	}
 }
 
-// SubjectTokenForRegion mirrors SubjectTokenForRegion: the strict lowercase
+// SubjectTokenForRegion returns the strict lowercase
 // subject token of one canonical uppercase RegionCode.
 func (natsSubjectTaxonomy) SubjectTokenForRegion(regionCode string) (string, error) {
 	if token, ok := NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken(regionCode); ok {
@@ -508,7 +512,7 @@ func (natsSubjectTaxonomy) SubjectTokenForRegion(regionCode string) (string, err
 		"The RegionCode is not a registered canonical uppercase Region. (Parameter 'regionCode')")
 }
 
-// RegionCodeFromSubjectToken mirrors RegionCodeFromSubjectToken: the canonical
+// RegionCodeFromSubjectToken returns the canonical
 // uppercase RegionCode of one strict lowercase subject token.
 func (natsSubjectTaxonomy) RegionCodeFromSubjectToken(subjectToken string) (string, error) {
 	if code, ok := NatsSubjectTaxonomy.TryMapSubjectTokenToRegionCode(subjectToken); ok {
@@ -519,7 +523,7 @@ func (natsSubjectTaxonomy) RegionCodeFromSubjectToken(subjectToken string) (stri
 		"The subject token does not map to a registered canonical Region. (Parameter 'subjectToken')")
 }
 
-// GlobalCellSpecSubject mirrors GlobalCellSpecSubject: the durable globally
+// GlobalCellSpecSubject returns the durable globally
 // signed CellSpec subject for one Region.
 func (natsSubjectTaxonomy) GlobalCellSpecSubject(cell string) (string, error) {
 	if cellTokenRuleIsValid(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
@@ -530,7 +534,7 @@ func (natsSubjectTaxonomy) GlobalCellSpecSubject(cell string) (string, error) {
 		"The region subject token is not a lowercase DNS-style token and must not name the reserved global scope. (Parameter 'cell')")
 }
 
-// Classify mirrors NatsSubjectTaxonomy.Classify: classifies one concrete
+// Classify classifies one concrete
 // subject into the closed namespace taxonomy. Anything outside the closed set
 // — including every SupersededRoot-prefixed subject — classifies as Unknown:
 // classification fails closed; callers must reject unknown subjects.
@@ -614,7 +618,7 @@ func (natsSubjectTaxonomy) Classify(subject string) NatsSubjectNamespace {
 	}
 }
 
-// IsControlNamespace mirrors IsControlNamespace: exactly the seven control
+// IsControlNamespace reports membership in exactly the seven control
 // namespaces of the closed taxonomy; the product-plane business namespace is
 // excluded.
 func (natsSubjectTaxonomy) IsControlNamespace(ns NatsSubjectNamespace) bool {
@@ -632,7 +636,7 @@ func (natsSubjectTaxonomy) IsControlNamespace(ns NatsSubjectNamespace) bool {
 	}
 }
 
-// TryValidatePermissionPattern mirrors TryValidatePermissionPattern: it
+// TryValidatePermissionPattern
 // validates one permission pattern against the closed v2 family set. A
 // wildcard may never sit at — or span — the scope or family position, so no
 // permission can cross a Region boundary; superseded-root patterns are
@@ -684,7 +688,7 @@ func (natsSubjectTaxonomy) TryValidatePermissionPattern(pattern string) (bool, N
 	return true, NatsSubjectPermissionErrorNone
 }
 
-// TryAdmitSubject mirrors TryAdmitSubject: it validates one concrete subject
+// TryAdmitSubject validates one concrete subject
 // for admission into the closed v2 taxonomy: bounded grammar, control
 // namespace, strict ASCII tokens (customer-provided text never becomes a
 // subject token), and a fixed agent-hash token inside the host-agent family.
@@ -723,7 +727,7 @@ func (natsSubjectTaxonomy) TryAdmitSubject(subject string) (bool, NatsSubjectAdm
 	return true, NatsSubjectAdmissionErrorNone
 }
 
-// ManifestValidationViolations mirrors ManifestValidationViolations: every
+// ManifestValidationViolations lists every
 // disagreement between the checked-in protocol manifest and the compiled
 // taxonomy. An empty list is the contract: the closed family set is identical
 // in both directions.
@@ -775,7 +779,7 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 		family := manifest.SubjectFamilies[index]
 		if family.Scope == ProtocolSubjectFamilyScopeRegional && family.Family == NatsSubjectTaxonomy.RegionalAgentPrefixSegment() {
 			if agentFamily != nil {
-				// Mirrors SingleOrDefault throwing when more than one family matches.
+				// Exactly one regional agent family may exist; duplicates are a bug.
 				panic("Sequence contains more than one matching element")
 			}
 
@@ -791,12 +795,12 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 	return violations
 }
 
-// isValidCellToken mirrors the internal IsValidCellToken (the root
-// CellTokenRule of the C# assembly, replicated here because the Go protocol
-// package cannot import the control package that owns the root files).
+// isValidCellToken reports whether cell is a valid cell token. It exists so
+// this package does not import the control package that owns the root files.
 func isValidCellToken(cell string) bool { return cellTokenRuleIsValid(cell) }
 
-// isAgentHashToken mirrors the internal IsAgentHashToken.
+// isAgentHashToken reports whether token is a fixed-length lowercase hex
+// agent-hash token.
 func isAgentHashToken(token string) bool {
 	if len(token) != NatsSubjectTaxonomy.AgentHashTokenLength() {
 		return false
@@ -812,13 +816,14 @@ func isAgentHashToken(token string) bool {
 	return true
 }
 
-// isPlatformReservedRoot mirrors the internal IsPlatformReservedRoot.
+// isPlatformReservedRoot reports whether token starts with a NATS-reserved
+// root character ($, _, #).
 func isPlatformReservedRoot(token string) bool {
 	return len(token) > 0 && (token[0] == '$' || token[0] == '_' || token[0] == '#')
 }
 
-// cellTokenRuleIsValid replicates the internal CellTokenRule.IsValid from the
-// C# root folder: a 1..63 character lowercase DNS-style token that neither
+// cellTokenRuleIsValid reports whether cell is
+// a 1..63 character lowercase DNS-style token that neither
 // starts nor ends with a dash.
 func cellTokenRuleIsValid(cell string) bool {
 	if len(cell) < 1 || len(cell) > 63 {
@@ -978,7 +983,7 @@ func createGrammarLimits() *SubjectGrammarLimits {
 	return limits
 }
 
-// NatsSubjectNamespace mirrors the NatsSubjectNamespace enum: the closed set
+// NatsSubjectNamespace is the closed set
 // of subject namespaces. Seven of the eight business namespaces are control
 // subjects; the eighth — ProductPlane — names the separate product trust
 // plane, which the control taxonomy never defines subjects for, and
@@ -1026,7 +1031,7 @@ func (ns NatsSubjectNamespace) String() string {
 	}
 }
 
-// NatsSubjectPermissionError mirrors the NatsSubjectPermissionError enum: why
+// NatsSubjectPermissionError classifies why
 // one permission pattern is not a closed v2 control-family permission.
 type NatsSubjectPermissionError int
 
@@ -1067,7 +1072,7 @@ func (e NatsSubjectPermissionError) String() string {
 	}
 }
 
-// NatsSubjectAdmissionError mirrors the NatsSubjectAdmissionError enum: why
+// NatsSubjectAdmissionError classifies why
 // one concrete subject is not admissible into the closed v2 taxonomy.
 type NatsSubjectAdmissionError int
 

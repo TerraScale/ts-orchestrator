@@ -186,8 +186,8 @@ func parseRuntimePlanValues(arguments []string) (map[string]string, error) {
 		"--cpu-quota-percent": true, "--cpu-weight": true, "--io-weight": true,
 		"--nice": true,
 	}
-	// C# reports the first unknown key in dictionary insertion order; Go maps
-	// are unordered, so report the first unknown key in argument order instead.
+	// Report the first unknown key in argument order so the message is
+	// deterministic for a given command line.
 	for _, argument := range arguments {
 		if strings.HasPrefix(argument, "--") && !allowed[argument] {
 			return nil, &errs.Argument{

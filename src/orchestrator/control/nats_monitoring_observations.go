@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// NatsMonitoringPlane mirrors the C# enum.
 type NatsMonitoringPlane int
 
 const (
@@ -28,7 +27,6 @@ func (p NatsMonitoringPlane) String() string {
 	}
 }
 
-// NatsClusterRole mirrors the C# enum.
 type NatsClusterRole int
 
 const (
@@ -47,8 +45,8 @@ func (r NatsClusterRole) String() string {
 	}
 }
 
-// NatsStreamClass mirrors the C# enum: bounded classification of an observed
-// JetStream stream. Class — never a stream name — is the metric label.
+// NatsStreamClass is the bounded classification of an observed JetStream
+// stream. Class — never a stream name — is the metric label.
 type NatsStreamClass int
 
 const (
@@ -85,7 +83,6 @@ func (c NatsStreamClass) String() string {
 	}
 }
 
-// NatsConsumerClass mirrors the C# enum.
 type NatsConsumerClass int
 
 const (
@@ -113,7 +110,6 @@ func (c NatsConsumerClass) String() string {
 	}
 }
 
-// NatsStoreClass mirrors the C# enum.
 type NatsStoreClass int
 
 const (
@@ -132,7 +128,6 @@ func (c NatsStoreClass) String() string {
 	}
 }
 
-// NatsCertificateClass mirrors the C# enum.
 type NatsCertificateClass int
 
 const (
@@ -154,7 +149,7 @@ func (c NatsCertificateClass) String() string {
 	}
 }
 
-// NatsAdvisoryKind mirrors the C# enum: unknown kinds are counted as
+// NatsAdvisoryKind classifies advisory subjects: unknown kinds are counted as
 // unclassified, never dropped silently.
 type NatsAdvisoryKind int
 
@@ -186,7 +181,6 @@ func (k NatsAdvisoryKind) String() string {
 	}
 }
 
-// NatsConnectionsObservation mirrors the C# record.
 type NatsConnectionsObservation struct {
 	SchemaVersion int
 	Cell          string
@@ -196,7 +190,6 @@ type NatsConnectionsObservation struct {
 	ObservedAt    time.Time
 }
 
-// NatsConnectionsObserve mirrors the static Observe.
 func NatsConnectionsObserve(
 	cell string,
 	plane NatsMonitoringPlane,
@@ -207,7 +200,6 @@ func NatsConnectionsObserve(
 	return NatsConnectionsObservation{1, cell, plane, connections, reconnects, observedAt}
 }
 
-// Validate mirrors the C# Validate.
 func (o NatsConnectionsObservation) Validate() error {
 	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
 		o.Connections < 0 || o.Reconnects < 0 || o.ObservedAt.IsZero() {
@@ -217,7 +209,6 @@ func (o NatsConnectionsObservation) Validate() error {
 	return nil
 }
 
-// NatsRoutesObservation mirrors the C# record.
 type NatsRoutesObservation struct {
 	SchemaVersion int
 	Cell          string
@@ -225,7 +216,6 @@ type NatsRoutesObservation struct {
 	ObservedAt    time.Time
 }
 
-// NatsRoutesObserve mirrors the static Observe.
 func NatsRoutesObserve(cell string, routes int64, observedAt time.Time) NatsRoutesObservation {
 	return NatsRoutesObservation{1, cell, routes, observedAt}
 }
@@ -239,8 +229,8 @@ func (o NatsRoutesObservation) Validate() error {
 	return nil
 }
 
-// NatsGatewaysObservation mirrors the C# record: aggregate observation of one
-// server's outbound gateway links.
+// NatsGatewaysObservation is the aggregate observation of one server's
+// outbound gateway links.
 type NatsGatewaysObservation struct {
 	SchemaVersion        int
 	Cell                 string
@@ -249,7 +239,6 @@ type NatsGatewaysObservation struct {
 	ObservedAt           time.Time
 }
 
-// NatsGatewaysObserve mirrors the static Observe.
 func NatsGatewaysObserve(
 	cell string,
 	connected int,
@@ -259,7 +248,6 @@ func NatsGatewaysObserve(
 	return NatsGatewaysObservation{1, cell, connected, disconnected, observedAt}
 }
 
-// FullyDisconnected mirrors the C# property.
 func (o NatsGatewaysObservation) FullyDisconnected() bool {
 	return o.ConnectedGateways == 0 && o.DisconnectedGateways > 0
 }
@@ -273,7 +261,6 @@ func (o NatsGatewaysObservation) Validate() error {
 	return nil
 }
 
-// NatsAccountsObservation mirrors the C# record.
 type NatsAccountsObservation struct {
 	SchemaVersion int
 	Cell          string
@@ -282,7 +269,6 @@ type NatsAccountsObservation struct {
 	ObservedAt    time.Time
 }
 
-// NatsAccountsObserve mirrors the static Observe.
 func NatsAccountsObserve(
 	cell string,
 	accounts int64,
@@ -301,7 +287,6 @@ func (o NatsAccountsObservation) Validate() error {
 	return nil
 }
 
-// NatsJetStreamObservation mirrors the C# record.
 type NatsJetStreamObservation struct {
 	SchemaVersion int
 	Cell          string
@@ -313,7 +298,6 @@ type NatsJetStreamObservation struct {
 	ObservedAt    time.Time
 }
 
-// NatsJetStreamObserve mirrors the static Observe.
 func NatsJetStreamObserve(
 	cell string,
 	domains int64,
@@ -336,7 +320,6 @@ func (o NatsJetStreamObservation) Validate() error {
 	return nil
 }
 
-// NatsStreamClassState mirrors the C# record.
 type NatsStreamClassState struct {
 	StreamClass NatsStreamClass
 	Streams     int64
@@ -354,8 +337,8 @@ func (s NatsStreamClassState) Validate() error {
 	return nil
 }
 
-// NatsConsumerClassState mirrors the C# record: consumer identity (durable
-// name, subject, session) is deliberately not representable here.
+// NatsConsumerClassState is per-class consumer state: consumer identity
+// (durable name, subject, session) is deliberately not representable here.
 type NatsConsumerClassState struct {
 	StreamClass   NatsStreamClass
 	ConsumerClass NatsConsumerClass
@@ -378,7 +361,6 @@ func (s NatsConsumerClassState) Validate() error {
 	return nil
 }
 
-// NatsStoreClassState mirrors the C# record.
 type NatsStoreClassState struct {
 	StoreClass NatsStoreClass
 	Buckets    int64
@@ -396,7 +378,6 @@ func (s NatsStoreClassState) Validate() error {
 	return nil
 }
 
-// NatsServerResourceObservation mirrors the C# record.
 type NatsServerResourceObservation struct {
 	SchemaVersion         int
 	Cell                  string
@@ -405,7 +386,6 @@ type NatsServerResourceObservation struct {
 	ObservedAt            time.Time
 }
 
-// NatsServerResourceObserve mirrors the static Observe.
 func NatsServerResourceObserve(
 	cell string,
 	serverMemoryBytes int64,
@@ -424,7 +404,6 @@ func (o NatsServerResourceObservation) Validate() error {
 	return nil
 }
 
-// NatsCertificateObservation mirrors the C# record.
 type NatsCertificateObservation struct {
 	SchemaVersion    int
 	Cell             string
@@ -433,7 +412,6 @@ type NatsCertificateObservation struct {
 	ObservedAt       time.Time
 }
 
-// NatsCertificateObserve mirrors the static Observe.
 func NatsCertificateObserve(
 	cell string,
 	certificateClass NatsCertificateClass,
@@ -443,7 +421,6 @@ func NatsCertificateObserve(
 	return NatsCertificateObservation{1, cell, certificateClass, notAfter, observedAt}
 }
 
-// RemainingDays mirrors the C# RemainingDays.
 func (o NatsCertificateObservation) RemainingDays(now time.Time) int64 {
 	if err := o.Validate(); err != nil {
 		panic(err)
@@ -468,7 +445,6 @@ func (o NatsCertificateObservation) Validate() error {
 	return nil
 }
 
-// NatsAdvisoryCount mirrors the C# record.
 type NatsAdvisoryCount struct {
 	Kind        NatsAdvisoryKind
 	Occurrences int64
@@ -483,7 +459,6 @@ func (c NatsAdvisoryCount) Validate() error {
 	return nil
 }
 
-// NatsMeshCellState mirrors the C# enum.
 type NatsMeshCellState int
 
 const (
@@ -511,7 +486,6 @@ func (s NatsMeshCellState) String() string {
 	}
 }
 
-// NatsMeshCell mirrors the C# record.
 type NatsMeshCell struct {
 	Cell  string
 	State NatsMeshCellState
@@ -526,17 +500,15 @@ func (c NatsMeshCell) Validate() error {
 	return nil
 }
 
-// NatsMeshHealth mirrors the C# record: the aggregate mesh health.
+// NatsMeshHealth is the aggregate mesh health.
 type NatsMeshHealth struct {
 	SchemaVersion int
 	ObservedAt    time.Time
 	Cells         []NatsMeshCell
 }
 
-// NatsMeshHealthCurrentSchemaVersion mirrors the C# constant.
 const NatsMeshHealthCurrentSchemaVersion = 1
 
-// Count mirrors the C# Count.
 func (h NatsMeshHealth) Count(state NatsMeshCellState) int {
 	count := 0
 	for _, cell := range h.Cells {
@@ -554,9 +526,8 @@ func (h NatsMeshHealth) MissingCells() int      { return h.Count(NatsMeshCellSta
 func (h NatsMeshHealth) ConflictingCells() int  { return h.Count(NatsMeshCellStateConflicting) }
 func (h NatsMeshHealth) DisconnectedCells() int { return h.Count(NatsMeshCellStateDisconnected) }
 
-// NatsMeshHealthEvaluate mirrors the static Evaluate: composes per-cell
-// membership health and directory staleness with the gateway link
-// observations.
+// NatsMeshHealthEvaluate composes per-cell membership health and directory
+// staleness with the gateway link observations.
 func NatsMeshHealthEvaluate(
 	expectedCells []string,
 	membershipByCell map[string]RegionalRuntimeMembershipHealth,
@@ -636,7 +607,6 @@ func natsMeshStateFor(
 	return NatsMeshCellStateStale
 }
 
-// Validate mirrors the C# Validate.
 func (h NatsMeshHealth) Validate() error {
 	if h.SchemaVersion != NatsMeshHealthCurrentSchemaVersion || h.ObservedAt.IsZero() ||
 		len(h.Cells) == 0 {
@@ -664,7 +634,6 @@ func (h NatsMeshHealth) Validate() error {
 	return nil
 }
 
-// NatsMonitoringAvailability mirrors the C# enum.
 type NatsMonitoringAvailability int
 
 const (
@@ -686,11 +655,10 @@ func (a NatsMonitoringAvailability) String() string {
 	}
 }
 
-// NatsMonitoringAggregateCurrentSchemaVersion mirrors the C# constant.
 const NatsMonitoringAggregateCurrentSchemaVersion = 1
 
-// NatsMonitoringAggregate mirrors the C# record: the bounded NATS monitoring
-// aggregate the observability instruments project.
+// NatsMonitoringAggregate is the bounded NATS monitoring aggregate the
+// observability instruments project.
 type NatsMonitoringAggregate struct {
 	SchemaVersion                 int
 	Cell                          string
@@ -717,14 +685,14 @@ type NatsMonitoringAggregate struct {
 	Certificates                  []NatsCertificateObservation
 }
 
-// WithAvailability mirrors the C# `with` expression used by supervision.
+// WithAvailability returns the aggregate with the availability replaced;
+// supervision uses it to retag a validated aggregate.
 func (a NatsMonitoringAggregate) WithAvailability(availability NatsMonitoringAvailability) NatsMonitoringAggregate {
 	updated := a
 	updated.Availability = availability
 	return updated
 }
 
-// Validate mirrors the C# Validate.
 func (a NatsMonitoringAggregate) Validate() error {
 	if a.SchemaVersion != NatsMonitoringAggregateCurrentSchemaVersion ||
 		!messagingCellTokenIsValid(a.Cell) ||
@@ -822,13 +790,12 @@ func (a NatsMonitoringAggregate) Validate() error {
 	return nil
 }
 
-// NatsMonitoringClassifier mirrors the C# static class: maps a raw JetStream
-// stream or consumer name onto its bounded metric class. The mapping is total.
+// NatsMonitoringClassifier maps a raw JetStream stream or consumer name onto
+// its bounded metric class. The mapping is total.
 var NatsMonitoringClassifier natsMonitoringClassifier
 
 type natsMonitoringClassifier struct{}
 
-// ClassifyStream mirrors ClassifyStream.
 func (natsMonitoringClassifier) ClassifyStream(streamName string) NatsStreamClass {
 	if streamName == "" {
 		return NatsStreamClassUnknown
@@ -858,7 +825,7 @@ func (natsMonitoringClassifier) ClassifyStream(streamName string) NatsStreamClas
 	}
 }
 
-// ClassifyConsumer mirrors ClassifyConsumer. NATS.Net KeyValue/ObjectStore
+// ClassifyConsumer classifies a consumer by name. KeyValue/ObjectStore
 // watches use ephemeral push consumers whose delivered durable name is an
 // internal NUID: classify by shape, never identity.
 func (natsMonitoringClassifier) ClassifyConsumer(consumerName string) NatsConsumerClass {
@@ -895,7 +862,6 @@ func (natsMonitoringClassifier) ClassifyConsumer(consumerName string) NatsConsum
 	return NatsConsumerClassUnknown
 }
 
-// ClassifyAdvisory mirrors ClassifyAdvisory.
 func (natsMonitoringClassifier) ClassifyAdvisory(advisorySubject string) NatsAdvisoryKind {
 	if advisorySubject == "" {
 		return NatsAdvisoryKindUnclassified
@@ -943,24 +909,21 @@ func indexOfOrdinal(value, fragment string) int {
 	return -1
 }
 
-// INatsMonitoringObservation mirrors the C# interface: implemented by every
-// bounded observation so fail-closed parsing is compile-time checked.
+// INatsMonitoringObservation is implemented by every bounded observation so
+// fail-closed parsing is compile-time checked.
 type INatsMonitoringObservation interface {
 	Validate() error
 }
 
-// NatsMonitoringParsersMaximumReplyBytes mirrors the C# MaximumReplyBytes: the
-// bounded reply cap.
+// NatsMonitoringParsersMaximumReplyBytes is the bounded reply cap.
 const NatsMonitoringParsersMaximumReplyBytes = 4 * 1024 * 1024
 
-// NatsMonitoringParsers mirrors the C# static class: parses bounded
-// observations from raw $SYS monitoring and advisory payloads. Parsing is
-// defensive by contract.
+// NatsMonitoringParsers parses bounded observations from raw $SYS monitoring
+// and advisory payloads. Parsing is defensive by contract.
 var NatsMonitoringParsers natsMonitoringParsers
 
 type natsMonitoringParsers struct{}
 
-// Connections mirrors NatsMonitoringParsers.Connections.
 func (natsMonitoringParsers) Connections(
 	source string,
 	cell string,
@@ -1003,7 +966,6 @@ func (natsMonitoringParsers) Connections(
 	return &observation
 }
 
-// Routes mirrors NatsMonitoringParsers.Routes.
 func (natsMonitoringParsers) Routes(source, cell string, observedAt time.Time) *NatsRoutesObservation {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1023,7 +985,6 @@ func (natsMonitoringParsers) Routes(source, cell string, observedAt time.Time) *
 	return &observation
 }
 
-// Gateways mirrors NatsMonitoringParsers.Gateways.
 func (natsMonitoringParsers) Gateways(source, cell string, observedAt time.Time) *NatsGatewaysObservation {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1061,7 +1022,6 @@ func (natsMonitoringParsers) Gateways(source, cell string, observedAt time.Time)
 	return &observation
 }
 
-// Accounts mirrors NatsMonitoringParsers.Accounts.
 func (natsMonitoringParsers) Accounts(source, cell string, observedAt time.Time) *NatsAccountsObservation {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1096,7 +1056,6 @@ func (natsMonitoringParsers) Accounts(source, cell string, observedAt time.Time)
 	return &observation
 }
 
-// ServerResources mirrors NatsMonitoringParsers.ServerResources.
 func (natsMonitoringParsers) ServerResources(source, cell string, observedAt time.Time) *NatsServerResourceObservation {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1124,7 +1083,6 @@ func (natsMonitoringParsers) ServerResources(source, cell string, observedAt tim
 	return &observation
 }
 
-// JetStream mirrors NatsMonitoringParsers.JetStream.
 func (natsMonitoringParsers) JetStream(source, cell string, observedAt time.Time) *NatsJetStreamObservation {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1161,15 +1119,16 @@ func (natsMonitoringParsers) JetStream(source, cell string, observedAt time.Time
 	return &observation
 }
 
-// NatsMonitoringJetStreamDetail mirrors the C# tuple result of JetStreamDetail.
+// NatsMonitoringJetStreamDetail is the per-class detail returned by
+// JetStreamDetail.
 type NatsMonitoringJetStreamDetail struct {
 	Streams   []NatsStreamClassState
 	Consumers []NatsConsumerClassState
 }
 
-// JetStreamDetail mirrors NatsMonitoringParsers.JetStreamDetail: extracts the
-// per-class stream detail from a detailed JSZ reply. Stream and consumer names
-// are classified immediately and never leave this method.
+// JetStreamDetail extracts the per-class stream detail from a detailed JSZ
+// reply. Stream and consumer names are classified immediately and never leave
+// this method.
 func (natsMonitoringParsers) JetStreamDetail(source string) *NatsMonitoringJetStreamDetail {
 	root, ok := natsMonitoringTryDocument(source)
 	if !ok {
@@ -1362,8 +1321,8 @@ func natsMonitoringMergeConsumerState(
 	}
 }
 
-// natsMonitoringTryDocument mirrors TryDocument: bounded input; an oversized
-// reply is a hostile shape, not a census.
+// natsMonitoringTryDocument accepts only bounded input; an oversized reply is
+// a hostile shape, not a census.
 func natsMonitoringTryDocument(source string) (map[string]interface{}, bool) {
 	if len(source) == 0 || len(source) > NatsMonitoringParsersMaximumReplyBytes {
 		return nil, false
@@ -1377,8 +1336,8 @@ func natsMonitoringTryDocument(source string) (map[string]interface{}, bool) {
 	return root, true
 }
 
-// natsMonitoringEnvelopeData mirrors EnvelopeData: the system-service reply
-// envelope is {"server": {...}, "data": {...}}; parsers read only data.
+// natsMonitoringEnvelopeData unwraps the system-service reply envelope
+// {"server": {...}, "data": {...}}; parsers read only data.
 func natsMonitoringEnvelopeData(root map[string]interface{}) map[string]interface{} {
 	if data, exists := root["data"].(map[string]interface{}); exists {
 		return data
@@ -1419,4 +1378,4 @@ func natsMonitoringReadString(element map[string]interface{}, name string) *stri
 
 // INatsMonitoringObservation is implemented by every bounded observation so
 // fail-closed parsing stays compile-time checked; the typed parsers above
-// mirror the C# ValidOrNull<T> gate by returning nil on validation failure.
+// fail closed by returning nil on validation failure.

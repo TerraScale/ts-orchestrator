@@ -6,9 +6,9 @@ import (
 	"strconv"
 )
 
-// GlobalNatsCapability mirrors the C# enum: the capability selected by a
-// global-control identity. The account is derived from the capability, not
-// from a credential supplied by a caller.
+// GlobalNatsCapability is the capability selected by a global-control
+// identity. The account is derived from the capability, not from a credential
+// supplied by a caller.
 type GlobalNatsCapability int
 
 const (
@@ -33,7 +33,7 @@ func (c GlobalNatsCapability) String() string {
 	}
 }
 
-// GlobalNatsAccountKind mirrors the C# enum.
+// GlobalNatsAccountKind classifies global NATS accounts.
 type GlobalNatsAccountKind int
 
 const (
@@ -55,24 +55,25 @@ func (k GlobalNatsAccountKind) String() string {
 	}
 }
 
-// GlobalNatsAccountDescriptor mirrors the C# record.
+// GlobalNatsAccountDescriptor names one global NATS account.
 type GlobalNatsAccountDescriptor struct {
 	Kind GlobalNatsAccountKind
 	Name string
 }
 
-// GlobalNatsServiceExportScope mirrors the C# GlobalNatsServiceExport record.
+// GlobalNatsServiceExportScope is one exported service subject.
 type GlobalNatsServiceExportScope struct {
 	Subject string
 }
 
-// GlobalNatsServiceImportScope mirrors the C# GlobalNatsServiceImport record.
+// GlobalNatsServiceImportScope is one imported service subject with its
+// source account.
 type GlobalNatsServiceImportScope struct {
 	Subject       string
 	SourceAccount string
 }
 
-// GlobalNatsAccessPlan mirrors the C# sealed class.
+// GlobalNatsAccessPlan is the complete access plan for one capability.
 type GlobalNatsAccessPlan struct {
 	Cell        string
 	Capability  GlobalNatsCapability
@@ -82,20 +83,16 @@ type GlobalNatsAccessPlan struct {
 	Exports     []GlobalNatsServiceExportScope
 }
 
-// Publish mirrors the C# passthrough property.
 func (p *GlobalNatsAccessPlan) Publish() []string { return p.Permissions.Publish }
 
-// Subscribe mirrors the C# passthrough property.
 func (p *GlobalNatsAccessPlan) Subscribe() []string { return p.Permissions.Subscribe }
 
-// GlobalNatsAccessContract mirrors the C# static class: pure account and
-// cross-account access policy for the global directory. It returns names and
-// allowlists only.
+// GlobalNatsAccessContract is the pure account and cross-account access
+// policy for the global directory. It returns names and allowlists only.
 var GlobalNatsAccessContract globalNatsAccessContract
 
 type globalNatsAccessContract struct{}
 
-// Create mirrors GlobalNatsAccessContract.Create.
 func (globalNatsAccessContract) Create(
 	cell string,
 	capability GlobalNatsCapability,
@@ -165,7 +162,7 @@ func (globalNatsAccessContract) Create(
 	}, nil
 }
 
-// CreateForRole mirrors the GlobalNatsAccessContract.Create(role) overload.
+// CreateForRole builds the access plan for a role instead of a capability.
 func (globalNatsAccessContract) CreateForRole(cell string, role GlobalNatsRole) (*GlobalNatsAccessPlan, error) {
 	var capability GlobalNatsCapability
 	switch role {
@@ -218,8 +215,8 @@ const (
 	GlobalNatsAccountNamesGlobalDirectory = "ts-orch-global-directory"
 )
 
-// GlobalNatsAccountNamesRegionalControl mirrors the C# RegionalControl
-// factory.
+// GlobalNatsAccountNamesRegionalControl builds the regional control account
+// name for a cell.
 func GlobalNatsAccountNamesRegionalControl(cell string) (string, error) {
 	if !messagingCellTokenIsValid(cell) {
 		return "", errors.New(
@@ -234,7 +231,8 @@ func GlobalNatsAccountNamesRegionalControl(cell string) (string, error) {
 	return account, nil
 }
 
-// GlobalNatsAccountNamesIsValid mirrors the C# IsValid.
+// GlobalNatsAccountNamesIsValid reports whether account is a valid account
+// name.
 func GlobalNatsAccountNamesIsValid(account string) bool {
 	if len(account) < 1 || len(account) > 128 {
 		return false

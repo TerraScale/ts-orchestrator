@@ -1,5 +1,4 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/CiResultManifestCommand.cs:
-// turns TRX test results plus declared artifacts into the CI result manifest.
+// Turns TRX test results plus declared artifacts into the CI result manifest.
 package main
 
 import (
@@ -18,7 +17,7 @@ import (
 	"unicode"
 )
 
-// CiResultManifestOptions mirrors the C# record.
+// CiResultManifestOptions holds the parsed ci-result-manifest options.
 type CiResultManifestOptions struct {
 	Job        string
 	PlanDigest string
@@ -27,7 +26,7 @@ type CiResultManifestOptions struct {
 	Artifacts  []CiResultArtifactOption
 }
 
-// CiResultArtifactOption mirrors the C# record.
+// CiResultArtifactOption is one declared artifact.
 type CiResultArtifactOption struct {
 	Artifact     string
 	Architecture string
@@ -37,7 +36,7 @@ type CiResultArtifactOption struct {
 
 type ciResultManifestCommand struct{}
 
-// CiResultManifestCommand mirrors the C# static class.
+// CiResultManifestCommand implements the ci-result-manifest command.
 var CiResultManifestCommand = ciResultManifestCommand{}
 
 const (
@@ -54,7 +53,7 @@ var ciCounterNames = []string{
 	"inProgress", "pending",
 }
 
-// ciResultManifestDocument mirrors the writer output of the C# command.
+// ciResultManifestDocument is the written manifest document.
 type ciResultManifestDocument struct {
 	SchemaVersion     int                     `json:"schemaVersion"`
 	Job               string                  `json:"job"`
@@ -136,7 +135,7 @@ func (ciResultManifestCommand) Run(arguments []string) (int, error) {
 	return 0, nil
 }
 
-// Parse mirrors the C# internal option parser.
+// Parse parses and validates the command options.
 func (ciResultManifestCommand) Parse(arguments []string) (CiResultManifestOptions, error) {
 	job := ""
 	planDigest := ""
@@ -289,7 +288,7 @@ type trxCounters struct {
 	Attributes []xml.Attr `xml:",any,attr"`
 }
 
-// ReadTrx mirrors the C# internal TRX reader: (total, skipped).
+// ReadTrx reads one TRX file and returns (total, skipped).
 func (ciResultManifestCommand) ReadTrx(path string) (int, int, error) {
 	info, err := os.Stat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || info.Size() < 1 || info.Size() > ciMaximumTrxBytes {
@@ -430,7 +429,8 @@ func ciCounterNumber(counters *trxCounters, name string) (int, bool) {
 	return 0, false
 }
 
-// parseGuidValue mirrors Guid.TryParse (N, D, B, and P formats).
+// parseGuidValue accepts 32-digit, hyphened, braced, and parenthesized GUID
+// spellings, returning the 32 lowercase hex digits.
 func parseGuidValue(text string) (string, bool) {
 	value := strings.Trim(text, "{}()")
 	if len(value) == 36 {

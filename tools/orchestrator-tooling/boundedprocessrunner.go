@@ -1,6 +1,5 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/BoundedProcessRunner.cs: runs
-// a child process while sampling its whole process tree for memory/process
-// budget violations.
+// Runs a child process while sampling its whole process tree for
+// memory/process budget violations.
 package main
 
 import (
@@ -18,7 +17,7 @@ import (
 	"time"
 )
 
-// ProcessObservation mirrors the C# ProcessObservation record.
+// ProcessObservation records the peaks sampled during one child-process run.
 type ProcessObservation struct {
 	ProcessId            int
 	PeakMemoryBytes      int64
@@ -26,7 +25,7 @@ type ProcessObservation struct {
 	DurationMilliseconds int64
 }
 
-// ObservedProcessResult mirrors the C# ObservedProcessResult record.
+// ObservedProcessResult is the outcome of a bounded run plus its observation.
 type ObservedProcessResult struct {
 	ExitCode       int
 	StandardOutput string
@@ -36,7 +35,8 @@ type ObservedProcessResult struct {
 
 type boundedProcessRunner struct{}
 
-// BoundedProcessRunner mirrors the C# BoundedProcessRunner static class.
+// BoundedProcessRunner runs child processes under memory, process-count, and
+// time budgets.
 var BoundedProcessRunner = boundedProcessRunner{}
 
 func (boundedProcessRunner) Run(
@@ -149,8 +149,8 @@ type processTreeSample struct {
 
 func sampleTree(rootProcessId int) processTreeSample {
 	if runtime.GOOS != "linux" {
-		// The C# runner falls back to the whole-process working set on other
-		// operating systems; the repository validation targets Linux.
+		// Sampling reads /proc, so non-Linux hosts report no usage; the
+		// repository validation targets Linux.
 		return processTreeSample{}
 	}
 	entries, err := os.ReadDir("/proc")

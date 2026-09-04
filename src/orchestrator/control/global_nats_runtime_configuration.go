@@ -23,9 +23,9 @@ func globalNatsConfigurationValidateLegacyAuthorityAlias(cell string) error {
 	return nil
 }
 
-// GlobalDirectoryNatsConfiguration mirrors the C# sealed class: connection and
-// access settings for a regional directory publisher with one durable
-// capability, the GLOBAL_CELLS projection.
+// GlobalDirectoryNatsConfiguration holds connection and access settings for a
+// regional directory publisher with one durable capability, the GLOBAL_CELLS
+// projection.
 type GlobalDirectoryNatsConfiguration struct {
 	Url            string
 	Authentication *NatsAuthenticationFiles
@@ -39,8 +39,8 @@ type GlobalDirectoryNatsConfiguration struct {
 	Endpoints []string
 }
 
-// NewGlobalDirectoryNatsConfigurationFromNKey mirrors the nkey+tls C#
-// constructor with R3 fixed.
+// NewGlobalDirectoryNatsConfigurationFromNKey builds an R3 configuration from
+// an nkey file and TLS files.
 func NewGlobalDirectoryNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
@@ -51,8 +51,8 @@ func NewGlobalDirectoryNatsConfigurationFromNKey(
 		rawUrl, nkeyFile, tls, 3, cell)
 }
 
-// NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey mirrors the
-// nkey+tls+replicas C# constructor.
+// NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey builds the
+// configuration from an nkey file, TLS files, and a replica count.
 func NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey(
 	rawUrl string,
 	nkeyFile string,
@@ -68,8 +68,8 @@ func NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey(
 	return NewGlobalDirectoryNatsConfiguration(rawUrl, authentication, tls, replicas, cell, nil)
 }
 
-// NewGlobalDirectoryNatsConfiguration mirrors the main C# constructor
-// (replicas fixed at 3).
+// NewGlobalDirectoryNatsConfiguration validates the settings and normalizes
+// replicas to 3.
 func NewGlobalDirectoryNatsConfiguration(
 	rawUrl string,
 	authentication *NatsAuthenticationFiles,
@@ -124,13 +124,13 @@ func NewGlobalDirectoryNatsConfiguration(
 	}, nil
 }
 
-// AccessPlan mirrors the C# AccessPlan property.
+// AccessPlan returns the publisher access plan for this configuration.
 func (c *GlobalDirectoryNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
 	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityCellDirectoryPublisher)
 }
 
-// GlobalDirectoryNatsConfigurationResolve mirrors the C# Resolve overload
-// without a credentials file.
+// GlobalDirectoryNatsConfigurationResolve resolves the
+// TS_ORCH_GLOBAL_DIRECTORY_NATS settings without a credentials file.
 func GlobalDirectoryNatsConfigurationResolve(
 	rawUrl string,
 	nkeyFile string,
@@ -144,8 +144,9 @@ func GlobalDirectoryNatsConfigurationResolve(
 		rawUrl, nkeyFile, "", caFile, certificateFile, keyFile, replicas, cell, "")
 }
 
-// GlobalDirectoryNatsConfigurationResolveWithCredentials mirrors the full C#
-// Resolve.
+// GlobalDirectoryNatsConfigurationResolveWithCredentials resolves the full
+// TS_ORCH_GLOBAL_DIRECTORY_NATS settings; a nil result means no setting was
+// supplied.
 func GlobalDirectoryNatsConfigurationResolveWithCredentials(
 	rawUrl string,
 	nkeyFile string,
@@ -213,9 +214,9 @@ func GlobalDirectoryNatsConfigurationResolveWithCredentials(
 		parsed.String(), authentication, tls, replicas, cell, advertisedEndpoints)
 }
 
-// GlobalDirectoryNatsConfigurationParseEndpoints mirrors the C# ParseEndpoints:
-// a comma- or semicolon-separated list of one to eight absolute control
-// endpoints; nil means absent (a legal watch-only composition).
+// GlobalDirectoryNatsConfigurationParseEndpoints parses a comma- or
+// semicolon-separated list of one to eight absolute control endpoints; nil
+// means absent (a legal watch-only composition).
 func GlobalDirectoryNatsConfigurationParseEndpoints(endpoints string) ([]string, error) {
 	if strings.TrimSpace(endpoints) == "" {
 		return nil, nil
@@ -248,8 +249,8 @@ func GlobalDirectoryNatsConfigurationParseEndpoints(endpoints string) ([]string,
 	return parsed, nil
 }
 
-// GlobalDirectoryServiceNatsConfiguration mirrors the C# sealed class: the
-// GRU-only identity for the read-only global cell query service.
+// GlobalDirectoryServiceNatsConfiguration holds the GRU-only identity for the
+// read-only global cell query service.
 type GlobalDirectoryServiceNatsConfiguration struct {
 	Url            string
 	Authentication *NatsAuthenticationFiles
@@ -258,8 +259,8 @@ type GlobalDirectoryServiceNatsConfiguration struct {
 	Cell           string
 }
 
-// NewGlobalDirectoryServiceNatsConfigurationFromNKey mirrors the nkey C#
-// constructor.
+// NewGlobalDirectoryServiceNatsConfigurationFromNKey builds the configuration
+// from an nkey file.
 func NewGlobalDirectoryServiceNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
@@ -275,7 +276,8 @@ func NewGlobalDirectoryServiceNatsConfigurationFromNKey(
 	return NewGlobalDirectoryServiceNatsConfiguration(rawUrl, authentication, tls, replicas, cell)
 }
 
-// NewGlobalDirectoryServiceNatsConfiguration mirrors the main C# constructor.
+// NewGlobalDirectoryServiceNatsConfiguration validates the settings and
+// builds the configuration.
 func NewGlobalDirectoryServiceNatsConfiguration(
 	rawUrl string,
 	authentication *NatsAuthenticationFiles,
@@ -318,13 +320,13 @@ func NewGlobalDirectoryServiceNatsConfiguration(
 	}, nil
 }
 
-// AccessPlan mirrors the C# AccessPlan property.
+// AccessPlan returns the service access plan for this configuration.
 func (c *GlobalDirectoryServiceNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
 	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityCellDirectoryService)
 }
 
-// GlobalDirectoryServiceNatsConfigurationResolve mirrors the C# Resolve
-// overload without a credentials file.
+// GlobalDirectoryServiceNatsConfigurationResolve resolves the
+// TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS settings without a credentials file.
 func GlobalDirectoryServiceNatsConfigurationResolve(
 	rawUrl string,
 	nkeyFile string,
@@ -338,8 +340,9 @@ func GlobalDirectoryServiceNatsConfigurationResolve(
 		rawUrl, nkeyFile, "", caFile, certificateFile, keyFile, replicas, cell)
 }
 
-// GlobalDirectoryServiceNatsConfigurationResolveWithCredentials mirrors the
-// full C# Resolve.
+// GlobalDirectoryServiceNatsConfigurationResolveWithCredentials resolves the
+// full TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS settings; a nil result means no
+// setting was supplied.
 func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 	rawUrl string,
 	nkeyFile string,
@@ -394,8 +397,8 @@ func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 	return NewGlobalDirectoryServiceNatsConfiguration(rawUrl, authentication, tls, replicas, cell)
 }
 
-// GlobalAuthorityNatsConfiguration mirrors the C# internal sealed class:
-// GRU-only connection and access settings for the global authority.
+// GlobalAuthorityNatsConfiguration holds GRU-only connection and access
+// settings for the global authority.
 type GlobalAuthorityNatsConfiguration struct {
 	Url            string
 	Authentication *NatsAuthenticationFiles
@@ -404,8 +407,8 @@ type GlobalAuthorityNatsConfiguration struct {
 	Cell           string
 }
 
-// NewGlobalAuthorityNatsConfigurationFromNKey mirrors the nkey C#
-// constructor.
+// NewGlobalAuthorityNatsConfigurationFromNKey builds the configuration from
+// an nkey file.
 func NewGlobalAuthorityNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
@@ -421,7 +424,8 @@ func NewGlobalAuthorityNatsConfigurationFromNKey(
 	return NewGlobalAuthorityNatsConfiguration(rawUrl, authentication, tls, replicas, cell)
 }
 
-// NewGlobalAuthorityNatsConfiguration mirrors the main C# constructor.
+// NewGlobalAuthorityNatsConfiguration validates the settings and builds the
+// configuration.
 func NewGlobalAuthorityNatsConfiguration(
 	rawUrl string,
 	authentication *NatsAuthenticationFiles,
@@ -459,7 +463,7 @@ func NewGlobalAuthorityNatsConfiguration(
 	}, nil
 }
 
-// AccessPlan mirrors the C# AccessPlan property.
+// AccessPlan returns the global-authority access plan for this configuration.
 func (c *GlobalAuthorityNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
 	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityGlobalAuthority)
 }

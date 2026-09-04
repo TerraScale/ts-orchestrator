@@ -1,8 +1,6 @@
-// Port of tools/TerraScale.Orchestrator.Tooling/WorkspaceTopologyLease.cs:
-// serializes product development topologies within the same operating-system
-// named-mutex namespace. It provides no cross-session, container, or host
-// guarantee. The C# named mutex maps onto an exclusive flock on a lock file
-// named after the mutex.
+// Serializes product development topologies within one namespace. It provides
+// no cross-session, container, or host guarantee; the lease is an exclusive
+// flock on a lock file named after the namespace.
 package main
 
 import (
@@ -21,7 +19,7 @@ const (
 	workspaceTopologyRetryDelay          = 250 * time.Millisecond
 )
 
-// WorkspaceTopologyLease mirrors the C# WorkspaceTopologyLease class.
+// WorkspaceTopologyLease is a held workspace topology lease.
 type WorkspaceTopologyLease struct {
 	MutexName string
 
@@ -30,7 +28,8 @@ type WorkspaceTopologyLease struct {
 	closeOnce sync.Once
 }
 
-// AcquireWorkspaceTopologyLease mirrors WorkspaceTopologyLease.AcquireAsync.
+// AcquireWorkspaceTopologyLease acquires the lease or fails once ctx is done
+// or the timeout elapses.
 func AcquireWorkspaceTopologyLease(ctx context.Context, owner string, timeout time.Duration) (*WorkspaceTopologyLease, error) {
 	if owner == "" {
 		return nil, errors.New("owner cannot be null or whitespace")
@@ -60,7 +59,8 @@ func AcquireWorkspaceTopologyLease(ctx context.Context, owner string, timeout ti
 	}
 }
 
-// workspaceTopologyMutexName mirrors WorkspaceTopologyLease.GetMutexName.
+// workspaceTopologyMutexName derives the lock name from the configured
+// namespace.
 func workspaceTopologyMutexName() (string, error) {
 	leaseNamespace, present := os.LookupEnv(workspaceTopologyNamespaceVariable)
 	if !present {
@@ -141,8 +141,8 @@ func workspaceTopologyLockPath(mutexName string) string {
 	return filepath.Join(os.TempDir(), mutexName+".lock")
 }
 
-// Close mirrors WorkspaceTopologyLease.DisposeAsync: signal the owner thread,
-// then wait until the mutex has actually been released.
+// Close signals the owner goroutine, then waits until the lock has actually
+// been released.
 func (lease *WorkspaceTopologyLease) Close() error {
 	var err error
 	lease.closeOnce.Do(func() {

@@ -11,9 +11,8 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// NatsAuthenticationFiles mirrors the C# record: one resolved authentication
-// identity — either an NKey seed file or a NATS credentials file — plus its
-// public key.
+// NatsAuthenticationFiles is one resolved authentication identity — either an
+// NKey seed file or a NATS credentials file — plus its public key.
 type NatsAuthenticationFiles struct {
 	NKeyFile        *string
 	CredentialsFile *string
@@ -80,7 +79,8 @@ func NatsAuthenticationFilesResolve(
 	return &NatsAuthenticationFiles{CredentialsFile: &resolvedCredentials, PublicKey: publicKey}, nil
 }
 
-// NatsAuthenticationFilesFromCredentialsFile mirrors the C# FromCredentialsFile.
+// NatsAuthenticationFilesFromCredentialsFile resolves a required credentials
+// file into its authentication identity.
 func NatsAuthenticationFilesFromCredentialsFile(credentialsFile, optionPrefix string) (*NatsAuthenticationFiles, error) {
 	resolved, err := NatsAuthenticationFilesResolve("", credentialsFile, optionPrefix)
 	if err != nil {
@@ -94,8 +94,9 @@ func NatsAuthenticationFilesFromCredentialsFile(credentialsFile, optionPrefix st
 	return resolved, nil
 }
 
-// NatsAuthenticationFilesFromNKeyFile mirrors the C# FromNKeyFile while
-// exposing the NKey identity derived from the seed, rather than the path.
+// NatsAuthenticationFilesFromNKeyFile resolves an NKey seed file into its
+// authentication identity, exposing the public key derived from the seed
+// rather than the path.
 func NatsAuthenticationFilesFromNKeyFile(nkeyFile string) (*NatsAuthenticationFiles, error) {
 	if strings.TrimSpace(nkeyFile) == "" {
 		return nil, errors.New("The NKey file path is required.")
@@ -109,8 +110,8 @@ func NatsAuthenticationFilesFromNKeyFile(nkeyFile string) (*NatsAuthenticationFi
 	return &NatsAuthenticationFiles{NKeyFile: &nkeyFile, PublicKey: publicKey}, nil
 }
 
-// Options mirrors the C# Options property: the nats.go connection options the
-// resolved identity contributes (creds file or NKey seed signing).
+// Options returns the nats.go connection options the resolved identity
+// contributes (creds file or NKey seed signing).
 func (a *NatsAuthenticationFiles) Options() []nats.Option {
 	if a == nil {
 		return nil
