@@ -160,6 +160,82 @@ type storageUsage struct {
 	files int64
 }
 
+func scanStorageUsage(ctx context.Context, directoryFD int, rootStat unix.Stat_t, rootMount uint64, depth int) (storageUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return storageUsage{}, err
+	}
+	if depth > maxStorageDirectoryDepth {
+		return storageUsage{}, errors.New("vmguest: storage directory depth exceeded")
+	}
+	dup, err := unix.FcntlInt(uintptr(directoryFD), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return storageUsage{}, errors.New("vmguest: duplicate storage directory for usage")
+	}
+	directory := os.NewFile(uintptr(dup), "vmguest-storage-usage")
+	if directory == nil {
+		_ = unix.Close(dup)
+		return storageUsage{}, errors.New("vmguest: wrap storage directory for usage")
+	}
+	defer directory.Close()
+	var usage storageUsage
+	for {
+		if err := ctx.Err(); err != nil {
+			return storageUsage{}, err
+		}
+		entries, readErr := directory.Readdirnames(64)
+		for _, name := range entries {
+			if err := ctx.Err(); err != nil {
+				return storageUsage{}, err
+			}
+			var stat unix.Stat_t
+			if err := unix.Fstatat(directoryFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+				if errors.Is(err, unix.ENOENT) {
+					continue
+				}
+				return storageUsage{}, errors.New("vmguest: inspect storage usage entry")
+			}
+			switch stat.Mode & unix.S_IFMT {
+			case unix.S_IFREG:
+				if !safeStorageFile(stat, rootStat, 0o600) || stat.Size < 0 || usage.files == math.MaxInt64 || usage.bytes > math.MaxInt64-stat.Size {
+					return storageUsage{}, errors.New("vmguest: storage usage entry is unsafe")
+				}
+				usage.files++
+				usage.bytes += stat.Size
+			case unix.S_IFDIR:
+				if depth == maxStorageDirectoryDepth {
+					return storageUsage{}, errors.New("vmguest: storage directory depth exceeded")
+				}
+				child, openErr := unix.Openat(directoryFD, name, directoryOpenFlags, 0)
+				if openErr != nil {
+					return storageUsage{}, errors.New("vmguest: open storage usage directory")
+				}
+				if err := validateOwnedDirectory(child, rootMount); err != nil {
+					_ = unix.Close(child)
+					return storageUsage{}, err
+				}
+				nested, nestedErr := scanStorageUsage(ctx, child, rootStat, rootMount, depth+1)
+				_ = unix.Close(child)
+				if nestedErr != nil {
+					return storageUsage{}, nestedErr
+				}
+				if nested.files > math.MaxInt64-usage.files || nested.bytes > math.MaxInt64-usage.bytes {
+					return storageUsage{}, errors.New("vmguest: storage usage overflow")
+				}
+				usage.files += nested.files
+				usage.bytes += nested.bytes
+			default:
+				return storageUsage{}, errors.New("vmguest: storage usage contains an unsafe entry")
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return usage, nil
+		}
+		if readErr != nil {
+			return storageUsage{}, errors.New("vmguest: read storage usage directory")
+		}
+	}
+}
+
 func validateStorageQuota(usage storageUsage, targetExists bool, targetBytes int64, replacementBytes int, quota storageQuota) error {
 	files := usage.files
 	bytesWithoutTarget := usage.bytes
@@ -172,6 +248,93 @@ func validateStorageQuota(usage storageUsage, targetExists bool, targetBytes int
 		return errors.New("vmguest: storage quota exceeded")
 	}
 	return nil
+}
+
+func scanStorageUsage(ctx context.Context, directoryFD int, rootStat unix.Stat_t, rootMount uint64, depth int) (storageUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return storageUsage{}, err
+	}
+	duplicate, err := unix.FcntlInt(uintptr(directoryFD), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return storageUsage{}, errors.New("vmguest: duplicate storage directory for quota")
+	}
+	directory := os.NewFile(uintptr(duplicate), "vmguest-storage-quota-directory")
+	if directory == nil {
+		_ = unix.Close(duplicate)
+		return storageUsage{}, errors.New("vmguest: wrap storage directory for quota")
+	}
+	defer directory.Close()
+	var usage storageUsage
+	for {
+		if err := ctx.Err(); err != nil {
+			return storageUsage{}, err
+		}
+		names, readErr := directory.Readdirnames(64)
+		for _, name := range names {
+			if err := ctx.Err(); err != nil {
+				return storageUsage{}, err
+			}
+			var stat unix.Stat_t
+			if err := unix.Fstatat(directoryFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); errors.Is(err, unix.ENOENT) {
+				continue
+			} else if err != nil {
+				return storageUsage{}, errors.New("vmguest: inspect storage quota entry")
+			}
+			switch stat.Mode & unix.S_IFMT {
+			case unix.S_IFDIR:
+				if depth >= maxStorageDirectoryDepth {
+					continue
+				}
+				childFD, err := unix.Openat(directoryFD, name, directoryOpenFlags, 0)
+				if err != nil {
+					return storageUsage{}, errors.New("vmguest: open storage quota directory")
+				}
+				if err := validateOwnedDirectory(childFD, rootMount); err != nil {
+					_ = unix.Close(childFD)
+					return storageUsage{}, err
+				}
+				childUsage, err := scanStorageUsage(ctx, childFD, rootStat, rootMount, depth+1)
+				_ = unix.Close(childFD)
+				if err != nil {
+					return storageUsage{}, err
+				}
+				if usage.bytes > math.MaxInt64-childUsage.bytes || usage.files > math.MaxInt64-childUsage.files {
+					return storageUsage{}, errors.New("vmguest: storage quota accounting overflow")
+				}
+				usage.bytes += childUsage.bytes
+				usage.files += childUsage.files
+			case unix.S_IFREG:
+				mount, mountErr := pathMountID(directoryFD, name, unix.AT_SYMLINK_NOFOLLOW)
+				if !safeQuotaStorageFile(stat, rootStat) || mountErr != nil || mount != rootMount {
+					return storageUsage{}, errors.New("vmguest: storage quota file owner, mode, links, or mount is unsafe")
+				}
+				if stat.Size < 0 || usage.bytes > math.MaxInt64-stat.Size || usage.files == math.MaxInt64 {
+					return storageUsage{}, errors.New("vmguest: storage quota accounting overflow")
+				}
+				usage.bytes += stat.Size
+				usage.files++
+			default:
+				return storageUsage{}, errors.New("vmguest: storage quota entry is unsafe")
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return usage, nil
+		}
+		if readErr != nil {
+			return storageUsage{}, errors.New("vmguest: scan storage quota")
+		}
+		if len(names) == 0 {
+			return usage, nil
+		}
+	}
+}
+
+func safeQuotaStorageFile(stat, root unix.Stat_t) bool {
+	mode := stat.Mode & 0o7777
+	return int(stat.Uid) == os.Geteuid() &&
+		(mode == 0o600 || mode == 0o644) &&
+		stat.Nlink == 1 &&
+		stat.Dev == root.Dev
 }
 
 func boundedRead(ctx context.Context, rootPath, relative string, limit int) ([]byte, error) {

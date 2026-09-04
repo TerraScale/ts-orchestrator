@@ -90,6 +90,7 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 				run.SnapshotRegions = mirrored
 			}
 			if snapshotErr != nil {
+				snapshotErr = sanitizeError(snapshotErr)
 				run.Status = RunFailed
 				run.Error = snapshotErr.Error()
 				run.CompletedAt = d.config.Now().UTC()
