@@ -100,7 +100,7 @@ func TestDrainLifecycleIsQuiescedRestartReady(t *testing.T) {
 	harness.applyDesired(t, v1)
 
 	// Reconciliation installed v1, rendered the unit, enabled and started it.
-	if !harness.systemd.active[UnitName("terrabase")] {
+	if !harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit not started by reconciliation")
 	}
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "" {
@@ -117,7 +117,7 @@ func TestDrainLifecycleIsQuiescedRestartReady(t *testing.T) {
 	if state := harness.lifecycle.State(); state != NodeStateDraining {
 		t.Fatalf("state is %q", state)
 	}
-	if harness.systemd.active[UnitName("terrabase")] {
+	if harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit still active after drain")
 	}
 	if !harness.lifecycle.Quiesced(ctx) {
@@ -127,7 +127,7 @@ func TestDrainLifecycleIsQuiescedRestartReady(t *testing.T) {
 	// Install the next release through reconciliation while drained: the
 	// unit must not be restarted by the reconciler mid-drain.
 	harness.applyDesired(t, v2)
-	if harness.systemd.active[UnitName("terrabase")] {
+	if harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("reconciler started the unit during drain")
 	}
 	if !InstalledVersion(harness.root, "terrabase", "1.1.0") {
@@ -141,7 +141,7 @@ func TestDrainLifecycleIsQuiescedRestartReady(t *testing.T) {
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "1.1.0" {
 		t.Fatalf("current is %q after deploy", current)
 	}
-	if !harness.systemd.active[UnitName("terrabase")] {
+	if !harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit not started by deploy")
 	}
 	unit, err := os.ReadFile(filepath.Join(harness.unitDir, UnitName("terrabase")))
@@ -207,7 +207,7 @@ func TestRollbackWorksWithoutDrain(t *testing.T) {
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "1.0.0" {
 		t.Fatalf("current is %q after rollback", current)
 	}
-	if !harness.systemd.active[UnitName("terrabase")] {
+	if !harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit not restarted by rollback")
 	}
 }

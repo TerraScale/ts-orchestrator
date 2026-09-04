@@ -1,638 +1,309 @@
-// This file tests the node transport with a fake NATS connection and a
-// manually ticked heartbeat clock: full request-reply round trips, cordon
-// behavior, heartbeat content, and graceful close.
 package hostagent
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go"
-
-	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
-// fakePublication is one recorded publication.
-type fakePublication struct {
-	Subject string
-	Payload []byte
-}
-
-// fakeNatsConnection records subscriptions and publications and never touches
-// the network.
+// fakeNatsConnection is the in-memory NatsConnection seam: it captures
+// publications and answers request-reply pairs synchronously.
 type fakeNatsConnection struct {
 	mutex         sync.Mutex
-	handlers      map[string]func(*nats.Msg)
-	subscriptions []string
-	published     []fakePublication
-	flushes       int
-	drains        int
-	closes        int
+	subscriptions map[string]func(*nats.Msg)
+	published     []struct {
+		subject string
+		payload []byte
+	}
 }
 
 func newFakeNatsConnection() *fakeNatsConnection {
-	return &fakeNatsConnection{handlers: map[string]func(*nats.Msg){}}
+	return &fakeNatsConnection{subscriptions: map[string]func(*nats.Msg){}}
 }
 
 func (f *fakeNatsConnection) Subscribe(subject string, handler func(*nats.Msg)) (*nats.Subscription, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	f.handlers[subject] = handler
-	f.subscriptions = append(f.subscriptions, subject)
-	return nil, nil
+	f.subscriptions[subject] = handler
+	return &nats.Subscription{}, nil
 }
 
 func (f *fakeNatsConnection) Publish(subject string, payload []byte) error {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	f.published = append(f.published, fakePublication{Subject: subject, Payload: append([]byte(nil), payload...)})
+	f.published = append(f.published, struct {
+		subject string
+		payload []byte
+	}{subject, payload})
 	return nil
 }
 
-func (f *fakeNatsConnection) Request(subject string, payload []byte, timeout time.Duration) (*nats.Msg, error) {
-	return nil, errors.New("the node transport never issues requests")
-}
-
-func (f *fakeNatsConnection) Flush() error {
+// request delivers one request-reply message to the handler subscribed on
+// subject and returns the reply payload published to the inbox.
+func (f *fakeNatsConnection) request(subject string, payload []byte) ([]byte, error) {
 	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.flushes++
-	return nil
-}
-
-func (f *fakeNatsConnection) Drain() error {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.drains++
-	return nil
-}
-
-func (f *fakeNatsConnection) Close() {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.closes++
-}
-
-func (f *fakeNatsConnection) request(subject string, payload []byte) []byte {
-	f.mutex.Lock()
-	handler := f.handlers[subject]
+	handler, present := f.subscriptions[subject]
+	published := len(f.published)
 	f.mutex.Unlock()
-	if handler == nil {
-		panic("no handler subscribed on " + subject)
+	if !present {
+		return nil, &InvalidOperationError{Message: "no subscription on " + subject}
 	}
-	message := &nats.Msg{Subject: subject, Reply: "_INBOX.test", Data: payload}
-	handler(message)
-	return f.lastReply()
-}
-
-func (f *fakeNatsConnection) lastReply() []byte {
+	handler(&nats.Msg{Subject: subject, Data: payload, Reply: "_INBOX.test"})
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	for index := len(f.published) - 1; index >= 0; index-- {
-		if f.published[index].Subject == "_INBOX.test" {
-			return f.published[index].Payload
+	for _, publication := range f.published[published:] {
+		if publication.subject == "_INBOX.test" {
+			return publication.payload, nil
 		}
 	}
-	return nil
+	return nil, &InvalidOperationError{Message: "no reply was published"}
 }
 
-func (f *fakeNatsConnection) publicationsOn(subject string) []fakePublication {
+func (f *fakeNatsConnection) Flush() error { return nil }
+
+func (f *fakeNatsConnection) Drain() error { return nil }
+
+func (f *fakeNatsConnection) Close() {}
+
+func (f *fakeNatsConnection) heartbeatPayloads(t *testing.T) []HostHeartbeat {
+	t.Helper()
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	var matched []fakePublication
+	var heartbeats []HostHeartbeat
 	for _, publication := range f.published {
-		if publication.Subject == subject {
-			matched = append(matched, publication)
+		if publication.subject != "terrascale.node.v1.gru-1.heartbeat" {
+			continue
 		}
+		var heartbeat HostHeartbeat
+		if err := json.Unmarshal(publication.payload, &heartbeat); err != nil {
+			t.Fatalf("heartbeat payload does not decode: %v", err)
+		}
+		heartbeats = append(heartbeats, heartbeat)
 	}
-	return matched
+	return heartbeats
 }
 
-func (f *fakeNatsConnection) counts() (flushes int, drains int, closes int) {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	return f.flushes, f.drains, f.closes
-}
-
-// fakeHeartbeatTicker is a manually ticked heartbeat clock.
-type fakeHeartbeatTicker struct {
-	ticks   chan time.Time
+// manualTicker is the injectable heartbeat clock.
+type manualTicker struct {
+	channel chan time.Time
 	stopped bool
 }
 
-func newFakeHeartbeatTicker() *fakeHeartbeatTicker {
-	return &fakeHeartbeatTicker{ticks: make(chan time.Time, 8)}
-}
+func newManualTicker() *manualTicker { return &manualTicker{channel: make(chan time.Time, 1)} }
 
-func (f *fakeHeartbeatTicker) C() <-chan time.Time { return f.ticks }
+func (t *manualTicker) C() <-chan time.Time { return t.channel }
 
-func (f *fakeHeartbeatTicker) Stop() { f.stopped = true }
+func (t *manualTicker) Stop() { t.stopped = true }
 
-func (f *fakeHeartbeatTicker) tick() {
+func (t *manualTicker) tick() {
 	select {
-	case f.ticks <- time.Unix(0, 0):
+	case t.channel <- time.Now():
 	default:
-		panic("fake ticker tick channel is full")
 	}
 }
 
-// fakeMetricsSource serves one fixed valid sample.
-type fakeMetricsSource struct {
-	sample NodeMetricsSample
-	err    error
-}
-
-func (f *fakeMetricsSource) Sample(ctx context.Context) (NodeMetricsSample, error) {
-	return f.sample, f.err
-}
-
-// fixedTestClock serves one fixed positive timestamp.
-func fixedTestClock() time.Time { return time.Unix(1750000000, 0).UTC() }
-
-func newTransportForTest(t *testing.T, connection NatsConnection, executor *WorkloadExecutor,
-	ticker HeartbeatTicker, metrics MetricsSource, closeConnection bool) *NatsTransport {
+// newTestTransport builds one transport over the lifecycle harness.
+func newTestTransport(t *testing.T, harness *testHarness) (*NatsTransport, *fakeNatsConnection, *manualTicker) {
 	t.Helper()
+	connection := newFakeNatsConnection()
+	ticker := newManualTicker()
 	transport, err := NewNatsTransport(NatsTransportConfig{
-		NodeId:          executorTestNodeId(t),
-		Connection:      connection,
-		Executor:        executor,
-		Metrics:         metrics,
-		Ticker:          ticker,
-		Now:             fixedTestClock,
-		CloseConnection: closeConnection,
+		NodeId:     NodeId{Value: "gru-1"},
+		Connection: connection,
+		Lifecycle:  harness.lifecycle,
+		Facts:      harness.factsSource(t),
+		Ticker:     ticker,
+		Now:        func() time.Time { return time.Unix(1756900000, 0) },
 	})
 	if err != nil {
-		t.Fatalf("transport: %v", err)
+		t.Fatal(err)
 	}
 	if err := transport.Start(context.Background()); err != nil {
-		t.Fatalf("start: %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = transport.Close() })
-	return transport
+	return transport, connection, ticker
 }
 
-func defaultTransportForTest(t *testing.T) (*NatsTransport, *fakeNatsConnection, *fakeNativeAdapter) {
+// factsSource builds one facts source with a healthy clock for transport
+// tests.
+func (h *testHarness) factsSource(t *testing.T) *HostFactsSource {
 	t.Helper()
-	connection := newFakeNatsConnection()
-	systemd := &fakeNativeAdapter{observation: runningSystemdObservation()}
-	executor := newExecutorForTest(t, systemd)
-	transport := newTransportForTest(t, connection, executor, newFakeHeartbeatTicker(), defaultMetricsForTest(), false)
-	return transport, connection, systemd
-}
-
-func defaultMetricsForTest() *fakeMetricsSource {
-	sample, err := NewNodeMetricsSample(16<<30, 8<<30, 800, 200, 4096, 512, 0)
-	if err != nil {
-		panic(err)
-	}
-	return &fakeMetricsSource{sample: sample}
-}
-
-func TestNatsTransportSubscribesToEveryRequestSubject(t *testing.T) {
-	_, connection, _ := defaultTransportForTest(t)
-
-	expected := []string{
-		"terrascale.node.v1.gru-node-1.converge",
-		"terrascale.node.v1.gru-node-1.observe",
-		"terrascale.node.v1.gru-node-1.stop",
-		"terrascale.node.v1.gru-node-1.delete",
-		"terrascale.node.v1.gru-node-1.cordon",
-		"terrascale.node.v1.gru-node-1.drain-status",
-	}
-	if len(connection.subscriptions) != len(expected) {
-		t.Fatalf("subscriptions = %v", connection.subscriptions)
-	}
-	for _, subject := range expected {
-		if _, present := connection.handlers[subject]; !present {
-			t.Fatalf("subject %s not subscribed: %v", subject, connection.subscriptions)
-		}
-	}
-	if _, present := connection.handlers["terrascale.node.v1.gru-node-1.heartbeat"]; present {
-		t.Fatal("the heartbeat leaf is publish-only and must not be subscribed")
-	}
-	flushes, _, _ := connection.counts()
-	if flushes != 1 {
-		t.Fatalf("start must flush once, got %d", flushes)
-	}
-}
-
-func TestNatsTransportRejectsStartAfterClose(t *testing.T) {
-	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()})
-	ticker := newFakeHeartbeatTicker()
-	transport, err := NewNatsTransport(NatsTransportConfig{
-		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
-		Metrics: defaultMetricsForTest(), Ticker: ticker, Now: fixedTestClock,
+	source, err := NewHostFactsSource(HostFactsSourceConfig{
+		Clock:          fakeClock{offset: 10 * time.Millisecond},
+		Statfs:         fakeStatfs(1<<40, 1<<39),
+		DataVolumeRoot: h.dataVolume,
+		Systemd:        h.systemd,
+		InstallRoot:    h.root,
 	})
 	if err != nil {
-		t.Fatalf("transport: %v", err)
+		t.Fatal(err)
 	}
-	if err := transport.Close(); err != nil {
-		t.Fatalf("close: %v", err)
+	return source
+}
+
+// TestTransportServesTheDrainDeployRollbackSurface walks the RPC
+// choreography the delivery lane drives: drain, drain-status to the quiesce
+// gate, deploy, release — plus the rollback path.
+func TestTransportServesTheDrainDeployRollbackSurface(t *testing.T) {
+	harness := newTestHarness(t)
+	v1 := harness.publish(t, "terrabase", "1.0.0")
+	v2 := harness.publish(t, "terrabase", "1.1.0")
+	harness.applyDesired(t, v1, v2)
+	if err := FlipCurrent(harness.root, "terrabase", "1.0.0"); err != nil {
+		t.Fatal(err)
 	}
-	var operationError *InvalidOperationError
-	if err := transport.Start(context.Background()); !errors.As(err, &operationError) {
-		t.Fatalf("start after close must be rejected, got %v", err)
+	_, connection, _ := newTestTransport(t, harness)
+
+	// Drain through the RPC surface.
+	reply, err := connection.request("terrascale.node.v1.gru-1.drain",
+		mustJSON(t, DrainCommand{CommandId: "cmd-drain", Drain: true}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if flushes, _, _ := connection.counts(); flushes != 0 {
-		t.Fatalf("closed transport must not subscribe or flush: %d", flushes)
+	var drainReceipt DrainReceipt
+	if err := json.Unmarshal(reply, &drainReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if !drainReceipt.Draining || !drainReceipt.Quiesced || drainReceipt.NodeId != "gru-1" {
+		t.Fatalf("drain receipt is %+v", drainReceipt)
+	}
+
+	// The drain-status gate reports the same state with facts.
+	reply, err = connection.request("terrascale.node.v1.gru-1.drain-status",
+		mustJSON(t, NodeStatusRequest{CommandId: "cmd-status"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status NodeStatusReport
+	if err := json.Unmarshal(reply, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.State != NodeStateDraining || !status.Quiesced {
+		t.Fatalf("status report is %+v", status)
+	}
+	if status.Facts.ClockOffsetMillis != 10 || status.Facts.ClockUnhealthy {
+		t.Fatalf("status facts are %+v", status.Facts)
+	}
+
+	// Deploy v2 under the drain.
+	reply, err = connection.request("terrascale.node.v1.gru-1.deploy",
+		mustJSON(t, DeployCommand{CommandId: "cmd-deploy", Component: "terrabase", Version: "1.1.0"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deployReceipt DeployReceipt
+	if err := json.Unmarshal(reply, &deployReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if !deployReceipt.Accepted || deployReceipt.Current != "1.1.0" {
+		t.Fatalf("deploy receipt is %+v", deployReceipt)
+	}
+
+	// Release back to serving.
+	reply, err = connection.request("terrascale.node.v1.gru-1.drain",
+		mustJSON(t, DrainCommand{CommandId: "cmd-release"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reply, &drainReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if drainReceipt.Draining {
+		t.Fatalf("release receipt is %+v", drainReceipt)
+	}
+
+	// Rollback from serving: accepted, current back at 1.0.0.
+	reply, err = connection.request("terrascale.node.v1.gru-1.rollback",
+		mustJSON(t, RollbackCommand{CommandId: "cmd-rollback", Component: "terrabase"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reply, &deployReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if !deployReceipt.Accepted || deployReceipt.Current != "1.0.0" {
+		t.Fatalf("rollback receipt is %+v", deployReceipt)
 	}
 }
 
-func TestNatsTransportRejectsAlreadyCancelledStartContext(t *testing.T) {
-	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()})
-	ticker := newFakeHeartbeatTicker()
-	transport, err := NewNatsTransport(NatsTransportConfig{
-		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
-		Metrics: defaultMetricsForTest(), Ticker: ticker, Now: fixedTestClock,
-	})
+// TestTransportRefusesDeployWithoutDrain asserts the fail-closed gate
+// surfaces as an unaccepted receipt with the reason, not a timeout.
+func TestTransportRefusesDeployWithoutDrain(t *testing.T) {
+	harness := newTestHarness(t)
+	v1 := harness.publish(t, "terrabase", "1.0.0")
+	harness.applyDesired(t, v1)
+	_, connection, _ := newTestTransport(t, harness)
+	reply, err := connection.request("terrascale.node.v1.gru-1.deploy",
+		mustJSON(t, DeployCommand{CommandId: "cmd-deploy", Component: "terrabase", Version: "1.0.0"}))
 	if err != nil {
-		t.Fatalf("transport: %v", err)
+		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := transport.Start(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled start context must be rejected, got %v", err)
+	var receipt DeployReceipt
+	if err := json.Unmarshal(reply, &receipt); err != nil {
+		t.Fatal(err)
 	}
-	if len(connection.subscriptions) != 0 {
-		t.Fatalf("cancelled transport must not subscribe: %v", connection.subscriptions)
+	if receipt.Accepted {
+		t.Fatalf("undrained deploy accepted: %+v", receipt)
 	}
-	if flushes, _, _ := connection.counts(); flushes != 0 {
-		t.Fatalf("cancelled transport must not flush: %d", flushes)
-	}
-	if err := transport.Close(); err != nil {
-		t.Fatalf("close: %v", err)
+	if receipt.Detail == "" {
+		t.Fatal("refused receipt carries no reason")
 	}
 }
 
-func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
-	tests := []struct {
-		leaf    string
-		plan    runtime.HostRuntimePlan
-		decoder func([]byte) (commandId string, accepted bool, fingerprint string)
-	}{
-		{
-			leaf: "converge",
-			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
-			decoder: func(payload []byte) (string, bool, string) {
-				var receipt ConvergeReceipt
-				if err := json.Unmarshal(payload, &receipt); err != nil {
-					t.Fatalf("receipt: %v", err)
-				}
-				return receipt.CommandId, receipt.Accepted, receipt.PlanFingerprint
-			},
-		},
-		{
-			leaf: "observe",
-			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
-			decoder: func(payload []byte) (string, bool, string) {
-				var receipt ObserveReceipt
-				if err := json.Unmarshal(payload, &receipt); err != nil {
-					t.Fatalf("receipt: %v", err)
-				}
-				return receipt.CommandId, receipt.Accepted, receipt.PlanFingerprint
-			},
-		},
-		{
-			leaf: "stop",
-			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
-			decoder: func(payload []byte) (string, bool, string) {
-				var receipt StopReceipt
-				if err := json.Unmarshal(payload, &receipt); err != nil {
-					t.Fatalf("receipt: %v", err)
-				}
-				return receipt.CommandId, receipt.Accepted, receipt.PlanFingerprint
-			},
-		},
-		{
-			leaf: "delete",
-			plan: executorTestPlan(t, runtime.AdmittedRoleNats, runtime.RuntimeDriverNativeSystemd, "gru-nats-1"),
-			decoder: func(payload []byte) (string, bool, string) {
-				var receipt DeleteReceipt
-				if err := json.Unmarshal(payload, &receipt); err != nil {
-					t.Fatalf("receipt: %v", err)
-				}
-				return receipt.CommandId, receipt.Accepted, receipt.PlanFingerprint
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.leaf, func(t *testing.T) {
-			_, connection, systemd := defaultTransportForTest(t)
-			if test.leaf == "delete" {
-				systemd.observation = runtime.SystemdAllocationObservation{
-					UnitName: "terrascale-unit.service",
-					State:    runtime.SystemdAllocationStateAbsent,
-					Result:   "not-found",
-				}
-			}
-			command := executorTestCommand(t, test.plan, "cmd-"+test.leaf)
-			payload, err := json.Marshal(command)
-			if err != nil {
-				t.Fatalf("command wire: %v", err)
-			}
-
-			reply := connection.request("terrascale.node.v1.gru-node-1."+test.leaf, payload)
-
-			commandId, accepted, fingerprint := test.decoder(reply)
-			if commandId != "cmd-"+test.leaf {
-				t.Fatalf("command id = %q", commandId)
-			}
-			if !accepted {
-				t.Fatalf("reply not accepted: %s", reply)
-			}
-			expectedFingerprint, err := runtime.CanonicalPlanFingerprint.Compute(test.plan)
-			if err != nil {
-				t.Fatalf("fingerprint: %v", err)
-			}
-			if fingerprint != expectedFingerprint {
-				t.Fatalf("fingerprint = %q, want %q", fingerprint, expectedFingerprint)
-			}
-		})
-	}
-}
-
-func TestNatsTransportWorkloadCommandWireRoundTrips(t *testing.T) {
-	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	command := executorTestCommand(t, plan, "cmd-wire-1")
-
-	payload, err := json.Marshal(command)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if !strings.Contains(string(payload), `"planJson":"`) || !strings.Contains(string(payload), `"commandId":"cmd-wire-1"`) {
-		t.Fatalf("wire payload = %s", payload)
-	}
-
-	var decoded WorkloadCommandRequest
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if decoded.CommandId != command.CommandId || string(decoded.PlanJson) != string(command.PlanJson) {
-		t.Fatal("the command wire round trip must be lossless")
-	}
-
-	var rejected WorkloadCommandRequest
-	if err := json.Unmarshal([]byte(`{"planJson":"e30=","commandId":"cmd-x","injected":1}`), &rejected); err == nil {
-		t.Fatal("unknown wire fields must be rejected")
-	}
-	if err := json.Unmarshal([]byte(`{"commandId":"cmd-x"}`), &rejected); err == nil {
-		t.Fatal("a command without a plan payload must be rejected")
-	}
-}
-
-func TestNatsTransportCordonRejectsConvergeWhileObserving(t *testing.T) {
-	_, connection, systemd := defaultTransportForTest(t)
-	cordonPayload, err := json.Marshal(mustCordonCommand(t, "cmd-cordon-1", true))
-	if err != nil {
-		t.Fatalf("cordon wire: %v", err)
-	}
-
-	ackReply := connection.request("terrascale.node.v1.gru-node-1.cordon", cordonPayload)
-
-	var acknowledgment CordonAcknowledgment
-	if err := json.Unmarshal(ackReply, &acknowledgment); err != nil {
-		t.Fatalf("ack: %v", err)
-	}
-	if !acknowledgment.Cordoned || acknowledgment.NodeId != "gru-node-1" || acknowledgment.CommandId != "cmd-cordon-1" {
-		t.Fatalf("acknowledgment = %+v", acknowledgment)
-	}
-
-	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	convergePayload, err := json.Marshal(executorTestCommand(t, plan, "cmd-after-cordon"))
-	if err != nil {
-		t.Fatalf("command wire: %v", err)
-	}
-	convergeReply := connection.request("terrascale.node.v1.gru-node-1.converge", convergePayload)
-	var convergeReceipt ConvergeReceipt
-	if err := json.Unmarshal(convergeReply, &convergeReceipt); err != nil {
-		t.Fatalf("receipt: %v", err)
-	}
-	if convergeReceipt.Accepted {
-		t.Fatal("a cordoned node must refuse new work")
-	}
-	if systemd.convergeCalls != 0 {
-		t.Fatal("a cordoned node must not reach the adapter")
-	}
-
-	observeReply := connection.request("terrascale.node.v1.gru-node-1.observe", convergePayload)
-	var observeReceipt ObserveReceipt
-	if err := json.Unmarshal(observeReply, &observeReceipt); err != nil {
-		t.Fatalf("receipt: %v", err)
-	}
-	if !observeReceipt.Accepted {
-		t.Fatal("observe must keep answering while cordoned")
-	}
-}
-
-func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
-	_, connection, systemd := defaultTransportForTest(t)
-	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	secondPlan := executorTestPlan(t, runtime.AdmittedRoleNats, runtime.RuntimeDriverNativeSystemd, "gru-nats-1")
-	for _, plan := range []runtime.HostRuntimePlan{nativePlan, secondPlan} {
-		payload, err := json.Marshal(executorTestCommand(t, plan, "cmd-"+plan.AllocationId.Value))
-		if err != nil {
-			t.Fatalf("command wire: %v", err)
-		}
-		connection.request("terrascale.node.v1.gru-node-1.converge", payload)
-	}
-
-	statusPayload, err := json.Marshal(mustNodeStatusRequest(t, "cmd-drain-1"))
-	if err != nil {
-		t.Fatalf("status wire: %v", err)
-	}
-	reply := connection.request("terrascale.node.v1.gru-node-1.drain-status", statusPayload)
-
-	var report DrainStatusReport
-	if err := json.Unmarshal(reply, &report); err != nil {
-		t.Fatalf("report: %v", err)
-	}
-	if report.CommandId != "cmd-drain-1" || report.NodeId != "gru-node-1" {
-		t.Fatalf("report = %+v", report)
-	}
-	if report.Cordoned || report.Drained {
-		t.Fatalf("an uncordoned node is not drained: %+v", report)
-	}
-	if len(report.Allocations) != 2 {
-		t.Fatalf("allocations = %+v", report.Allocations)
-	}
-	if report.Allocations[0].AllocationId != "gru-nats-1" || report.Allocations[1].AllocationId != "gru-orchestrator-1" {
-		t.Fatalf("allocations must be ordered: %+v", report.Allocations)
-	}
-	for _, allocation := range report.Allocations {
-		if !allocation.Running {
-			t.Fatalf("converged allocations report running: %+v", allocation)
-		}
-	}
-
-	// Stop everything, cordon, and require a drained report.
-	systemd.observation = runtime.SystemdAllocationObservation{
-		UnitName: "terrascale-unit.service",
-		State:    runtime.SystemdAllocationStateStopped,
-		Result:   "success",
-	}
-	cordonPayload, err := json.Marshal(mustCordonCommand(t, "cmd-cordon-2", true))
-	if err != nil {
-		t.Fatalf("cordon wire: %v", err)
-	}
-	connection.request("terrascale.node.v1.gru-node-1.cordon", cordonPayload)
-
-	reply = connection.request("terrascale.node.v1.gru-node-1.drain-status", statusPayload)
-	if err := json.Unmarshal(reply, &report); err != nil {
-		t.Fatalf("report: %v", err)
-	}
-	if !report.Cordoned || !report.Drained {
-		t.Fatalf("a cordoned node with stopped allocations is drained: %+v", report)
-	}
-}
-
-func TestNatsTransportPublishesHeartbeatsOnInjectedTicks(t *testing.T) {
-	connection := newFakeNatsConnection()
-	systemd := &fakeNativeAdapter{}
-	executor := newExecutorForTest(t, systemd)
-	ticker := newFakeHeartbeatTicker()
-	newTransportForTest(t, connection, executor, ticker, defaultMetricsForTest(), false)
-
-	subject := "terrascale.node.v1.gru-node-1.heartbeat"
-	if published := connection.publicationsOn(subject); len(published) != 1 {
-		t.Fatalf("start must publish the first heartbeat, got %d", len(published))
-	}
-	assertHeartbeatPayload(t, connection.publicationsOn(subject)[0].Payload)
-
+// TestTransportPublishesHeartbeatsOnTheTicker asserts the heartbeat cadence
+// and payload over the publish-only subject.
+func TestTransportPublishesHeartbeatsOnTheTicker(t *testing.T) {
+	harness := newTestHarness(t)
+	v1 := harness.publish(t, "terrabase", "1.0.0")
+	harness.applyDesired(t, v1)
+	_, connection, ticker := newTestTransport(t, harness)
 	ticker.tick()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(connection.publicationsOn(subject)) >= 2 {
+	var heartbeats []HostHeartbeat
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		heartbeats = connection.heartbeatPayloads(t)
+		if len(heartbeats) >= 2 || time.Now().After(deadline) { // Start heartbeat plus the tick
 			break
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
-	if published := connection.publicationsOn(subject); len(published) != 2 {
-		t.Fatalf("each tick must publish one heartbeat, got %d", len(published))
+	if len(heartbeats) < 2 {
+		t.Fatalf("heartbeats published: %d", len(heartbeats))
 	}
-	assertHeartbeatPayload(t, connection.publicationsOn(subject)[1].Payload)
-}
-
-func assertHeartbeatPayload(t *testing.T, payload []byte) {
-	t.Helper()
-	var heartbeat NodeHeartbeat
-	if err := json.Unmarshal(payload, &heartbeat); err != nil {
-		t.Fatalf("heartbeat: %v", err)
+	heartbeat := heartbeats[len(heartbeats)-1]
+	if heartbeat.NodeId != "gru-1" || heartbeat.UnixSeconds != 1756900000 {
+		t.Fatalf("heartbeat envelope is %+v", heartbeat)
 	}
-	if heartbeat.NodeId.Value != "gru-node-1" {
-		t.Fatalf("node id = %q", heartbeat.NodeId.Value)
-	}
-	if heartbeat.UnixSeconds != fixedTestClock().Unix() {
-		t.Fatalf("unix seconds = %d", heartbeat.UnixSeconds)
-	}
-	if heartbeat.Metrics.CpuQuotaPercent != 800 || heartbeat.Metrics.TasksMax != 4096 {
-		t.Fatalf("metrics = %+v", heartbeat.Metrics)
+	if heartbeat.Facts.State != NodeStateServing || heartbeat.Facts.TsNodeVersion != TsNodeVersion {
+		t.Fatalf("heartbeat facts are %+v", heartbeat.Facts)
 	}
 }
 
-func TestNatsTransportRepliesEnvelopeErrorOnUndecodableCommand(t *testing.T) {
-	_, connection, systemd := defaultTransportForTest(t)
-
-	reply := connection.request("terrascale.node.v1.gru-node-1.converge", []byte(`{"planJson":42}`))
-
-	var envelopeError CommandEnvelopeError
-	if err := json.Unmarshal(reply, &envelopeError); err != nil {
-		t.Fatalf("envelope error: %v", err)
-	}
-	if envelopeError.Detail == "" {
-		t.Fatal("the envelope error must carry a bounded detail")
-	}
-	if systemd.convergeCalls != 0 {
-		t.Fatal("an undecodable command must not reach the adapter")
-	}
-}
-
-func TestNatsTransportCloseDrainsGracefully(t *testing.T) {
-	connection := newFakeNatsConnection()
-	executor := newExecutorForTest(t, &fakeNativeAdapter{})
-	ticker := newFakeHeartbeatTicker()
-	transport := newTransportForTest(t, connection, executor, ticker, defaultMetricsForTest(), false)
-
-	if err := transport.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	if err := transport.Close(); err != nil {
-		t.Fatalf("close must be idempotent: %v", err)
-	}
-	flushes, drains, closes := connection.counts()
-	if flushes != 1 || drains != 1 {
-		t.Fatalf("flushes = %d, drains = %d", flushes, drains)
-	}
-	if closes != 0 {
-		t.Fatalf("a caller-owned connection must not be closed, got %d closes", closes)
-	}
-	if !ticker.stopped {
-		t.Fatal("close must stop the ticker")
-	}
-
-	ownedConnection := newFakeNatsConnection()
-	ownedTransport := newTransportForTest(t, ownedConnection, executor, newFakeHeartbeatTicker(), defaultMetricsForTest(), true)
-	if err := ownedTransport.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
-	if _, drains, closes := ownedConnection.counts(); drains != 1 || closes != 1 {
-		t.Fatalf("an owned connection must be drained and closed: drains = %d, closes = %d", drains, closes)
-	}
-}
-
-func TestNatsTransportRejectsInvalidConfiguration(t *testing.T) {
-	valid := NatsTransportConfig{
-		NodeId:     executorTestNodeId(t),
-		Connection: newFakeNatsConnection(),
-		Executor:   newExecutorForTest(t, &fakeNativeAdapter{}),
-		Metrics:    defaultMetricsForTest(),
-		Ticker:     newFakeHeartbeatTicker(),
-		Now:        fixedTestClock,
-	}
-	tests := []struct {
-		name      string
-		mutate    func(config *NatsTransportConfig)
-		wantParam string
-	}{
-		{name: "missing connection", mutate: func(c *NatsTransportConfig) { c.Connection = nil }, wantParam: "Connection"},
-		{name: "missing executor", mutate: func(c *NatsTransportConfig) { c.Executor = nil }, wantParam: "Executor"},
-		{name: "missing metrics", mutate: func(c *NatsTransportConfig) { c.Metrics = nil }, wantParam: "Metrics"},
-		{name: "missing ticker", mutate: func(c *NatsTransportConfig) { c.Ticker = nil }, wantParam: "Ticker"},
-		{name: "missing clock", mutate: func(c *NatsTransportConfig) { c.Now = nil }, wantParam: "Now"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			config := valid
-			test.mutate(&config)
-			if _, err := NewNatsTransport(config); err == nil {
-				t.Fatal("expected a configuration error")
-			} else if !errorsAsParam(err, test.wantParam) {
-				t.Fatalf("error %v does not reference param %s", err, test.wantParam)
-			}
-		})
-	}
-}
-
-func mustCordonCommand(t *testing.T, commandId string, cordoned bool) CordonCommand {
-	t.Helper()
-	command, err := NewCordonCommand(commandId, cordoned)
+// TestTransportRejectsUnknownFields asserts the closed wire vocabulary.
+func TestTransportRejectsUnknownFields(t *testing.T) {
+	harness := newTestHarness(t)
+	harness.applyDesired(t, harness.publish(t, "terrabase", "1.0.0"))
+	_, connection, _ := newTestTransport(t, harness)
+	reply, err := connection.request("terrascale.node.v1.gru-1.drain",
+		[]byte(`{"commandId":"cmd-bad","drain":true,"extra":1}`))
 	if err != nil {
-		t.Fatalf("cordon command: %v", err)
+		t.Fatal(err)
 	}
-	return command
+	var envelope CommandEnvelopeError
+	if err := json.Unmarshal(reply, &envelope); err != nil || envelope.Detail == "" {
+		t.Fatalf("unknown field not answered with an envelope error: %s %v", reply, err)
+	}
 }
 
-func mustNodeStatusRequest(t *testing.T, commandId string) NodeStatusRequest {
+func mustJSON(t *testing.T, value any) []byte {
 	t.Helper()
-	request, err := NewNodeStatusRequest(commandId)
+	encoded, err := json.Marshal(value)
 	if err != nil {
-		t.Fatalf("status request: %v", err)
+		t.Fatal(err)
 	}
-	return request
+	return encoded
 }

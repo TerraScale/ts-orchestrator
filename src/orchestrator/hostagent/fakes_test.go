@@ -89,6 +89,13 @@ func (f *fakeSystemd) ops() []string {
 	return append([]string(nil), f.operations...)
 }
 
+// isActive reports one unit's activity under the fake's lock.
+func (f *fakeSystemd) isActive(unit string) bool {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+	return f.active[unit]
+}
+
 // fakeUsers is the recording fake of UserProvisioner.
 type fakeUsers struct {
 	mutex   sync.Mutex

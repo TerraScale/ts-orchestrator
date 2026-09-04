@@ -47,7 +47,7 @@ func TestManifestReconciliationInstallsUnitsAndStarts(t *testing.T) {
 	if err != nil || len(unit) == 0 {
 		t.Fatalf("unit file not written: %v", err)
 	}
-	if !harness.systemd.active[UnitName("terrabase")] {
+	if !harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit not started")
 	}
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "" {
@@ -111,7 +111,7 @@ func TestManifestRetirementRemovesUnitsKeepsData(t *testing.T) {
 	if _, err := os.Stat(InstallDir(harness.root, "terrabase")); !os.IsNotExist(err) {
 		t.Fatal("component directory not removed on retirement")
 	}
-	if harness.systemd.active[UnitName("terrabase")] {
+	if harness.systemd.isActive(UnitName("terrabase")) {
 		t.Fatal("unit still active after retirement")
 	}
 	if info, err := os.Stat(spec.DataVolume); err != nil || !info.IsDir() {
