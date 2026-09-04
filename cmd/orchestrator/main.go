@@ -119,6 +119,12 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		}
 		return nil
 	}
+	if name == "reconcile" {
+		if err := runReconcile(ctx, args, output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
 
 	options, err := parseOptions(args, control.EnvironmentLookup(lookup))
 	if err != nil {
@@ -184,6 +190,12 @@ func requestedCommand(args []string) (string, error) {
 	if len(args) == 0 {
 		return "run", nil
 	}
+	if args[0] == "reconcile" {
+		if len(args) == 1 || len(args) == 2 && args[1] == dryRunFlag {
+			return "reconcile", nil
+		}
+		return "unsupported", errors.New("orchestrator: unsupported command")
+	}
 	if len(args) > 1 {
 		return "unsupported", errors.New("orchestrator: command accepts no arguments")
 	}
@@ -201,7 +213,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile":
 		return args[0]
 	default:
 		return "unsupported"
@@ -647,6 +659,7 @@ func writeCatalog(output io.Writer) error {
 		{Name: "catalog", Description: "render this deterministic command and configuration catalog"},
 		{Name: "provision-journal", Description: "provision the infrastructure-owned operation journal"},
 		{Name: "journal-writer", Description: "start the isolated authoritative journal writer"},
+		{Name: "reconcile", Description: "drive the observed estate to the declared estate; --dry-run prints the plan"},
 	}
 	environment := []string{
 		"TS_ORCH_CELL", "TS_ORCH_NATS_URL", "TS_ORCH_REPLICAS", "TS_ORCH_INSTANCE",
