@@ -1,4 +1,4 @@
-# NATS monitoring observability snapshot (issue #23)
+# NATS monitoring observability snapshot
 
 Status: adapter evidence for the Orchestrator messaging observability contract.
 Subject tokens name the mandatory `ts.orch.v2` control root selected by the

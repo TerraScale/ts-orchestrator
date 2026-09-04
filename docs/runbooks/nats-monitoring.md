@@ -4,7 +4,7 @@
 > health is not database health. TerraBase causal lag, replication, repair,
 > reactive sync, and usage require engine-owned signals.
 
-Operator procedures for the NATS monitoring observability contract (issue #23): the
+Operator procedures for the NATS monitoring observability contract: the
 bounded instruments in `NatsMonitoringInstrumentCatalog`, the alert rules in
 `NatsAlertCatalog`, and the read-only monitoring identity's permission plan in
 `NatsMonitoringPermissions`. Every alert condition, state, and remediation below is

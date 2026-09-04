@@ -12,7 +12,7 @@
 | | |
 | --- | --- |
 | Contract version | 1 (frozen) |
-| Ratified by | `TerraScale.Orchestrator` issue #18 (parent #16, dependency #17) |
+| Ratified by | `TerraScale.Orchestrator` contract review |
 | Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go`, `messaging_regional_autonomy.go`, `messaging_compatibility.go` |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |

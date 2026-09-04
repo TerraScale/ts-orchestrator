@@ -11,7 +11,7 @@
 | | |
 | --- | --- |
 | Contract version | 1 |
-| Ratified by | `TerraScale.Orchestrator` issue #22 (parent #16, dependencies #17, #18, #20) |
+| Ratified by | `TerraScale.Orchestrator` contract review |
 | Machine-readable definitions | `src/orchestrator/protocol/durable_work_inventory.go` (typed inventory), `messaging_delivery_semantics.go` (bounded redelivery, duplicate windows, poisoning, queue-group ownership) |
 | Drift binding | Go protocol tests pin completeness and policy binding; Go control tests bind the table to the provisioning topologies (`NatsTopology`, `GlobalNatsTopology`) and every consumer name a runtime reconciles |
 | Canonicality | `docs/contracts/nats-capability-matrix.md` remains the ONE canonical NATS capability contract; this document is the canonical per-stream, per-consumer inventory beneath it and defers to it on capability dispositions |

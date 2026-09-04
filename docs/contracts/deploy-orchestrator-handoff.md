@@ -3,11 +3,11 @@
 | | |
 | --- | --- |
 | Mapping version | **1** |
-| Ratified by | `TerraScale.Orchestrator` issue #26 (part of #2; dependency #13) |
+| Ratified by | `TerraScale.Orchestrator` contract review |
 | Handoff manifest schema | v1 (`minimum 1`, `maximum 1`) |
 | Executable contract | `DeliveryRequest` schema version **1** — the Go delivery package (`src/orchestrator/delivery`) |
-| Producing side | `TerraScale.Deploy` — `terrascale-deploy deploy` will publish the version-1 handoff manifest shaped by its public manifest conventions (`docs/public-alpha-handoff.md`, multi-architecture OCI image indexes with preserved digests). Contract-first: this document defines the target shape; `TerraScale/TerraScale.Deploy#1`–`#3` are the tickets that will publish producers for it, so until they land only the fixtures here represent the Deploy side |
-| Consuming side | `TerraScale.Orchestrator` issue #3 (direct-delivery runtime) and #6; referenced by `TerraScale/TerraScale.Deploy#1`, `#2`, `#3` |
+| Producing side | `TerraScale.Deploy` — `terrascale-deploy deploy` will publish the version-1 handoff manifest shaped by its public manifest conventions (`docs/public-alpha-handoff.md`, multi-architecture OCI image indexes with preserved digests). Contract-first: this document defines the target shape; until the producers land only the fixtures here represent the Deploy side |
+| Consuming side | `TerraScale.Orchestrator` direct-delivery runtime; referenced by the `TerraScale.Deploy` producer work |
 | Implementation | `src/orchestrator/delivery` (pure translation boundary; no I/O) |
 | Drift binding | Go delivery tests and the fixtures under `testdata/delivery/deploy_handoff/` |
 
@@ -68,7 +68,7 @@ version-1 request cannot carry:
 - `rollbackArtifact` — the exact rollback identity (digest, manifest digest, kind,
   architecture), or `null` for a first deployment.
 
-Issue #3's runtime consumes this typed shape; the `Delivery` element is exactly what the
+The direct-delivery runtime consumes this typed shape; the `Delivery` element is exactly what the
 direct-delivery coordinator validates and (after its own authorization, provenance, and health
 gates) executes. `authorityGeneration`, `writerEpoch`, and `attempt` are pinned to `1` by
 mapping v1; the signed command-envelope seam owns the live values.

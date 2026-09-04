@@ -139,7 +139,7 @@ pre-existing native first-party lane because the qualified artifact format
 is a digest-bound self-contained HTTP executable, not an OCI image.
 
 This amendment is recorded with the parent-steward's authorization
-(repair loop on issue #9, 2026-08-25). Moving MCP to an OCI image lane
+(repair loop, 2026-08-25). Moving MCP to an OCI image lane
 remains open and requires no superseding decision here: it becomes the
 preferred shape once `TerraScale.MCP` qualifies an OCI image, at which
 point the catalog entry's allowed drivers change through the normal
