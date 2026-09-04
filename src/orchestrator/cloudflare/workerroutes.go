@@ -2,8 +2,10 @@ package cloudflare
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // WorkerRoute declares one Worker route: api. first contact to the ts-proxy
@@ -45,6 +47,13 @@ func (c *Client) DeleteWorkerRoute(ctx context.Context, id string) error {
 
 func (z *Zone) reconcileWorkerRoutes(ctx context.Context, c *Client, p *Plan) error {
 	api := WorkerRouteAPI(c)
+	// A declared route may never put a Worker on the reactive hot path
+	// (D-55): that is a configuration bug, refused before any plan exists.
+	for _, r := range z.WorkerRoutes {
+		if err := forbidHotPathRoute(r.Pattern, z.ZoneName); err != nil {
+			return err
+		}
+	}
 	live, err := api.ListWorkerRoutes(ctx)
 	if err != nil {
 		return err
@@ -70,6 +79,22 @@ func (z *Zone) reconcileWorkerRoutes(ctx context.Context, c *Client, p *Plan) er
 		p.Changes = append(p.Changes, Change{Action: Delete, Resource: "worker-route", Ref: r.Pattern,
 			Detail: r.Pattern + " -> " + r.Script,
 			apply:  func(ctx context.Context) error { return api.DeleteWorkerRoute(ctx, id) }})
+	}
+	return nil
+}
+
+// forbidHotPathRoute rejects a declared pattern whose hostname is
+// sync.api.<zone> — no Worker ever runs there (D-55) — or a wildcard, which
+// would capture sync.api along with everything else. Live drift on that
+// hostname is deleted as an orphan by the diff above; this guard keeps the
+// bug out of the declaration itself.
+func forbidHotPathRoute(pattern, zoneName string) error {
+	host := strings.ToLower(pattern)
+	if i := strings.IndexByte(host, '/'); i >= 0 {
+		host = host[:i]
+	}
+	if host == "sync.api."+strings.ToLower(zoneName) || strings.HasPrefix(host, "*.") {
+		return fmt.Errorf("cloudflare: worker route %q would put a Worker on the reactive hot path (D-55)", pattern)
 	}
 	return nil
 }

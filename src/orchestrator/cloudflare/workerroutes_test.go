@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -80,8 +81,8 @@ func TestWorkerRoutesReconcile(t *testing.T) {
 func TestWorkerRoutesNeverTouchSyncAPI(t *testing.T) {
 	z := routeZone()
 	for _, r := range z.WorkerRoutes {
-		if r.Pattern == "sync.terrascale.tech/*" || r.Pattern == "sync.api.terrascale.tech/*" {
-			t.Fatalf("a Worker on the reactive hot path is forbidden (D-55): %v", r)
+		if err := forbidHotPathRoute(r.Pattern, z.ZoneName); err != nil {
+			t.Fatalf("the declared zone must be servable: %v", err)
 		}
 	}
 	live := `[{"id":"bad","pattern":"sync.api.terrascale.tech/*","script":"anything"}]`
@@ -103,5 +104,32 @@ func TestWorkerRoutesNeverTouchSyncAPI(t *testing.T) {
 	}
 	if !deleted {
 		t.Fatalf("a sync.api route must be deleted as drift, got %v", summarize(p))
+	}
+}
+
+// A declaration that would CREATE a hot-path route is refused before any
+// API call: it is a configuration bug, not drift (D-55).
+func TestWorkerRoutesRefuseHotPathDeclarations(t *testing.T) {
+	for _, pattern := range []string{
+		"sync.api.terrascale.tech/*",
+		"sync.api.terrascale.tech",
+		"*.terrascale.tech/*",
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			z := routeZone()
+			z.WorkerRoutes = append(z.WorkerRoutes, WorkerRoute{Pattern: pattern, Script: ProxyWorkerScript})
+			c, _ := testClient(func(call fakeCall) (int, string, http.Header) {
+				t.Errorf("no API call may happen: %s", call.String())
+				return failEnvelope(http.StatusTeapot, 0, "unreachable")
+			})
+			p := &Plan{}
+			err := z.reconcileWorkerRoutes(context.Background(), c, p)
+			if err == nil || !strings.Contains(err.Error(), "D-55") {
+				t.Fatalf("error = %v, want the D-55 refusal", err)
+			}
+			if len(p.Changes) != 0 {
+				t.Fatalf("a refused declaration must plan nothing: %v", summarize(p))
+			}
+		})
 	}
 }
