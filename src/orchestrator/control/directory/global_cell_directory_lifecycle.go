@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -63,7 +64,7 @@ func GlobalCellDirectoryLifecycleStart(
 	directoryConfiguration *GlobalDirectoryNatsConfiguration,
 	serviceConfiguration *GlobalDirectoryServiceNatsConfiguration,
 	membership func() RegionalRuntimeMembershipSnapshot,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() authority.RegionalAuthoritySnapshot,
 	publishEnabled bool,
 	cancellationToken context.Context,
 	observeFailure func(error),
@@ -163,13 +164,13 @@ func (l *GlobalCellDirectoryLifecycle) Completion() <-chan struct{} {
 // snapshot.
 func (l *GlobalCellDirectoryLifecycle) Snapshot() GlobalCellDirectorySnapshot {
 	if l == nil {
-		return globalCellDirectoryLifecycleUnavailableSnapshot()
+		return GlobalCellDirectoryLifecycleUnavailableSnapshot()
 	}
 	if active := l.activeDirectory.Load(); active != nil {
 		return active.instance.Snapshot()
 	}
 
-	return globalCellDirectoryLifecycleUnavailableSnapshot()
+	return GlobalCellDirectoryLifecycleUnavailableSnapshot()
 }
 
 // Health is the active projection's condition.
@@ -319,7 +320,7 @@ func globalCellDirectoryLifecycleDelay(ctx context.Context, duration time.Durati
 	}
 }
 
-func globalCellDirectoryLifecycleUnavailableSnapshot() GlobalCellDirectorySnapshot {
+func GlobalCellDirectoryLifecycleUnavailableSnapshot() GlobalCellDirectorySnapshot {
 	return GlobalCellDirectorySnapshot{
 		SchemaVersion: protocol.ProtocolVersion.Current(),
 		ObservedAt:    time.Now().UTC(),

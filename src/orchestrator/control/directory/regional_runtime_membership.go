@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -325,13 +327,13 @@ type RegionalRuntimeMembership struct {
 	LeaseDuration     time.Duration
 
 	store        jetstream.KeyValue
-	topology     *NatsTopology
+	topology     *messaging.NatsTopology
 	key          string
 	sessionId    string
 	build        string
 	capabilities []string
 	startedAt    time.Time
-	authority    func() RegionalAuthoritySnapshot
+	authority    func() authority.RegionalAuthoritySnapshot
 	identity     *RegionalRuntimeMembershipIdentity
 	ownsIdentity bool
 
@@ -363,11 +365,11 @@ type RegionalRuntimeMembership struct {
 func RegionalRuntimeMembershipStartAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
-	topology *NatsTopology,
+	topology *messaging.NatsTopology,
 	build string,
 	capabilities []string,
 	startedAt time.Time,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() authority.RegionalAuthoritySnapshot,
 	identity *RegionalRuntimeMembershipIdentity,
 ) (*RegionalRuntimeMembership, error) {
 	if ctx == nil {
@@ -560,6 +562,12 @@ func (m *RegionalRuntimeMembership) Health() RegionalRuntimeMembershipHealth {
 
 // LastFailure returns the terminal background-loop error, if any. Cancellation
 // during normal disposal is not a failure.
+// RecordHeartbeatFailure records a terminal heartbeat-loop failure so
+// readiness and diagnostics can reflect an externally observed death.
+func (m *RegionalRuntimeMembership) RecordHeartbeatFailure(err error) {
+	m.heartbeatFailure.Store(&errorBox{err: err})
+}
+
 func (m *RegionalRuntimeMembership) LastFailure() error {
 	if m == nil {
 		return nil
@@ -719,7 +727,7 @@ func (m *RegionalRuntimeMembership) heartbeatLoop() {
 
 		if err := m.heartbeatOnce(); err != nil {
 			if !errors.Is(err, context.Canceled) {
-				m.heartbeatFailure.Store(&errorBox{err: err})
+				m.RecordHeartbeatFailure(err)
 				if m.stopping != nil {
 					m.stopping()
 				}

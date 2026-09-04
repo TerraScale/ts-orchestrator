@@ -1,10 +1,11 @@
-package control
+package directory
 
 import (
 	"errors"
 	"fmt"
 	"strconv"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 // GlobalNatsCapability is the capability selected by a global-control
@@ -79,7 +80,7 @@ type GlobalNatsAccessPlan struct {
 	Cell        string
 	Capability  GlobalNatsCapability
 	Account     GlobalNatsAccountDescriptor
-	Permissions *GlobalNatsPermissionPlan
+	Permissions *messaging.GlobalNatsPermissionPlan
 	Imports     []GlobalNatsServiceImportScope
 	Exports     []GlobalNatsServiceExportScope
 }
@@ -113,16 +114,16 @@ func (globalNatsAccessContract) Create(
 		}
 	}
 
-	var role GlobalNatsRole
+	var role messaging.GlobalNatsRole
 	switch capability {
 	case GlobalNatsCapabilityCellDirectoryPublisher:
-		role = GlobalNatsRoleCellDirectoryPublisher
+		role = messaging.GlobalNatsRoleCellDirectoryPublisher
 	case GlobalNatsCapabilityCellDirectoryReader:
-		role = GlobalNatsRoleCellDirectoryReader
+		role = messaging.GlobalNatsRoleCellDirectoryReader
 	case GlobalNatsCapabilityCellDirectoryService:
-		role = GlobalNatsRoleCellDirectoryService
+		role = messaging.GlobalNatsRoleCellDirectoryService
 	case GlobalNatsCapabilityGlobalAuthority:
-		role = GlobalNatsRoleGlobalAuthority
+		role = messaging.GlobalNatsRoleGlobalAuthority
 	default:
 		return nil, fmt.Errorf(
 			"Unknown global NATS capability. (Parameter 'capability')\nActual value was %d.", int(capability))
@@ -133,7 +134,7 @@ func (globalNatsAccessContract) Create(
 		return nil, err
 	}
 
-	permissions, err := GlobalNatsPermissionsCreate(cell, role)
+	permissions, err := messaging.GlobalNatsPermissionsCreate(cell, role)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +142,7 @@ func (globalNatsAccessContract) Create(
 	imports := []GlobalNatsServiceImportScope{}
 	if capability == GlobalNatsCapabilityCellDirectoryReader {
 		imports = append(imports, GlobalNatsServiceImportScope{
-			Subject:       GlobalNatsTopologyCellDirectorySubject(),
+			Subject:       messaging.GlobalNatsTopologyCellDirectorySubject(),
 			SourceAccount: GlobalNatsAccountNamesGlobalDirectory,
 		})
 	}
@@ -149,7 +150,7 @@ func (globalNatsAccessContract) Create(
 	exports := []GlobalNatsServiceExportScope{}
 	if capability == GlobalNatsCapabilityCellDirectoryService {
 		exports = append(exports, GlobalNatsServiceExportScope{
-			Subject: GlobalNatsTopologyCellDirectorySubject(),
+			Subject: messaging.GlobalNatsTopologyCellDirectorySubject(),
 		})
 	}
 
@@ -164,16 +165,16 @@ func (globalNatsAccessContract) Create(
 }
 
 // CreateForRole builds the access plan for a role instead of a capability.
-func (globalNatsAccessContract) CreateForRole(cell string, role GlobalNatsRole) (*GlobalNatsAccessPlan, error) {
+func (globalNatsAccessContract) CreateForRole(cell string, role messaging.GlobalNatsRole) (*GlobalNatsAccessPlan, error) {
 	var capability GlobalNatsCapability
 	switch role {
-	case GlobalNatsRoleCellDirectoryPublisher:
+	case messaging.GlobalNatsRoleCellDirectoryPublisher:
 		capability = GlobalNatsCapabilityCellDirectoryPublisher
-	case GlobalNatsRoleCellDirectoryReader:
+	case messaging.GlobalNatsRoleCellDirectoryReader:
 		capability = GlobalNatsCapabilityCellDirectoryReader
-	case GlobalNatsRoleCellDirectoryService:
+	case messaging.GlobalNatsRoleCellDirectoryService:
 		capability = GlobalNatsCapabilityCellDirectoryService
-	case GlobalNatsRoleGlobalAuthority:
+	case messaging.GlobalNatsRoleGlobalAuthority:
 		capability = GlobalNatsCapabilityGlobalAuthority
 	default:
 		return nil, fmt.Errorf(

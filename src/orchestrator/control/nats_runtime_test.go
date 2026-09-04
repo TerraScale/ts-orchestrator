@@ -87,7 +87,7 @@ func TestNatsRuntimeReadinessIncludesMembershipLoopFailure(t *testing.T) {
 	if !runtime.ready() {
 		t.Fatal("healthy authority and membership should be ready")
 	}
-	runtime.membership.heartbeatFailure.Store(&errorBox{err: errors.New("heartbeat failed")})
+	runtime.membership.RecordHeartbeatFailure(errors.New("heartbeat failed"))
 	if runtime.ready() {
 		t.Fatal("a terminal membership heartbeat failure must make the runtime not ready")
 	}

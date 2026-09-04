@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -37,14 +39,14 @@ func newRegionalRuntimeMembershipForHeartbeat(
 		HeartbeatInterval: time.Hour,
 		LeaseDuration:     20 * time.Second,
 		store:             regionalRuntimeMembershipHeartbeatStore{update: update},
-		topology:          &NatsTopology{Cell: "gru", Replicas: 1, Instance: "controller-1"},
+		topology:          &messaging.NatsTopology{Cell: "gru", Replicas: 1, Instance: "controller-1"},
 		sessionId:         "0123456789abcdef0123456789abcdef",
 		build:             "test-build",
 		capabilities:      []string{"authority"},
 		startedAt:         now.Add(-time.Second),
-		authority: func() RegionalAuthoritySnapshot {
+		authority: func() authority.RegionalAuthoritySnapshot {
 			leaseExpiresAt := time.Now().UTC().Add(time.Minute)
-			return RegionalAuthoritySnapshot{
+			return authority.RegionalAuthoritySnapshot{
 				State:          "leader",
 				IsLeader:       true,
 				Epoch:          1,
@@ -206,9 +208,9 @@ func TestRegionalRuntimeMembershipDisposeBeforeHeartbeatStartDoesNotBlock(t *tes
 }
 
 func TestRegionalRuntimeMembershipRejectsNilContext(t *testing.T) {
-	topology := NewNatsTopology("membership-test", 1, "one")
-	if _, err := RegionalRuntimeMembershipStartAsync(nil, nil, topology, "build", []string{"runtime"}, time.Now().UTC(), func() RegionalAuthoritySnapshot {
-		return RegionalAuthoritySnapshot{}
+	topology := messaging.NewNatsTopology("membership-test", 1, "one")
+	if _, err := RegionalRuntimeMembershipStartAsync(nil, nil, topology, "build", []string{"runtime"}, time.Now().UTC(), func() authority.RegionalAuthoritySnapshot {
+		return authority.RegionalAuthoritySnapshot{}
 	}, nil); err == nil {
 		t.Fatal("nil context was accepted")
 	}

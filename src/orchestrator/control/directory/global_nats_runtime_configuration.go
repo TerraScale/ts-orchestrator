@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"errors"
@@ -7,12 +7,13 @@ import (
 	"sort"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 // globalNatsConfigurationIsLegacyAuthorityAliasAllowed: the legacy
 // TS_ORCH_GLOBAL_NATS_* settings identify GRU global authority.
 func globalNatsConfigurationIsLegacyAuthorityAliasAllowed(cell string) bool {
-	return cell == "gru" && GlobalNatsTopologyIsCellToken(cell)
+	return cell == "gru" && messaging.GlobalNatsTopologyIsCellToken(cell)
 }
 
 func globalNatsConfigurationValidateLegacyAuthorityAlias(cell string) error {
@@ -29,8 +30,8 @@ func globalNatsConfigurationValidateLegacyAuthorityAlias(cell string) error {
 // projection.
 type GlobalDirectoryNatsConfiguration struct {
 	Url            string
-	Authentication *NatsAuthenticationFiles
-	Tls            *NatsTlsFiles
+	Authentication *messaging.NatsAuthenticationFiles
+	Tls            *messaging.NatsTlsFiles
 	Replicas       int
 	Cell           string
 
@@ -45,7 +46,7 @@ type GlobalDirectoryNatsConfiguration struct {
 func NewGlobalDirectoryNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
-	tls *NatsTlsFiles,
+	tls *messaging.NatsTlsFiles,
 	cell string,
 ) (*GlobalDirectoryNatsConfiguration, error) {
 	return NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey(
@@ -57,11 +58,11 @@ func NewGlobalDirectoryNatsConfigurationFromNKey(
 func NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey(
 	rawUrl string,
 	nkeyFile string,
-	tls *NatsTlsFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 ) (*GlobalDirectoryNatsConfiguration, error) {
-	authentication, err := NatsAuthenticationFilesFromNKeyFile(nkeyFile)
+	authentication, err := messaging.NatsAuthenticationFilesFromNKeyFile(nkeyFile)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +74,8 @@ func NewGlobalDirectoryNatsConfigurationWithReplicasFromNKey(
 // replicas to 3.
 func NewGlobalDirectoryNatsConfiguration(
 	rawUrl string,
-	authentication *NatsAuthenticationFiles,
-	tls *NatsTlsFiles,
+	authentication *messaging.NatsAuthenticationFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 	endpoints []string,
@@ -182,7 +183,7 @@ func GlobalDirectoryNatsConfigurationResolveWithCredentials(
 		return nil, errors.New("The global directory cell is invalid. (Parameter 'cell')")
 	}
 
-	authentication, err := NatsAuthenticationFilesResolve(
+	authentication, err := messaging.NatsAuthenticationFilesResolve(
 		nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_DIRECTORY_NATS")
 	if err != nil {
 		return nil, err
@@ -202,7 +203,7 @@ func GlobalDirectoryNatsConfigurationResolveWithCredentials(
 		return nil, errors.New("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL must be an absolute tls:// URL.")
 	}
 
-	tls, err := NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS")
+	tls, err := messaging.NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS")
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +255,8 @@ func GlobalDirectoryNatsConfigurationParseEndpoints(endpoints string) ([]string,
 // read-only global cell query service.
 type GlobalDirectoryServiceNatsConfiguration struct {
 	Url            string
-	Authentication *NatsAuthenticationFiles
-	Tls            *NatsTlsFiles
+	Authentication *messaging.NatsAuthenticationFiles
+	Tls            *messaging.NatsTlsFiles
 	Replicas       int
 	Cell           string
 }
@@ -265,11 +266,11 @@ type GlobalDirectoryServiceNatsConfiguration struct {
 func NewGlobalDirectoryServiceNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
-	tls *NatsTlsFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 ) (*GlobalDirectoryServiceNatsConfiguration, error) {
-	authentication, err := NatsAuthenticationFilesFromNKeyFile(nkeyFile)
+	authentication, err := messaging.NatsAuthenticationFilesFromNKeyFile(nkeyFile)
 	if err != nil {
 		return nil, err
 	}
@@ -281,8 +282,8 @@ func NewGlobalDirectoryServiceNatsConfigurationFromNKey(
 // builds the configuration.
 func NewGlobalDirectoryServiceNatsConfiguration(
 	rawUrl string,
-	authentication *NatsAuthenticationFiles,
-	tls *NatsTlsFiles,
+	authentication *messaging.NatsAuthenticationFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 ) (*GlobalDirectoryServiceNatsConfiguration, error) {
@@ -374,7 +375,7 @@ func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 		return nil, errors.New("The global directory service identity is GRU-only. (Parameter 'cell')")
 	}
 
-	authentication, err := NatsAuthenticationFilesResolve(
+	authentication, err := messaging.NatsAuthenticationFilesResolve(
 		nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS")
 	if err != nil {
 		return nil, err
@@ -385,7 +386,7 @@ func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 			"Global directory service NATS requires URL, authentication, CA, certificate, and key together.")
 	}
 
-	tls, err := NatsTlsFilesResolve(
+	tls, err := messaging.NatsTlsFilesResolve(
 		caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS")
 	if err != nil {
 		return nil, err
@@ -402,8 +403,8 @@ func GlobalDirectoryServiceNatsConfigurationResolveWithCredentials(
 // settings for the global authority.
 type GlobalAuthorityNatsConfiguration struct {
 	Url            string
-	Authentication *NatsAuthenticationFiles
-	Tls            *NatsTlsFiles
+	Authentication *messaging.NatsAuthenticationFiles
+	Tls            *messaging.NatsTlsFiles
 	Replicas       int
 	Cell           string
 }
@@ -413,11 +414,11 @@ type GlobalAuthorityNatsConfiguration struct {
 func NewGlobalAuthorityNatsConfigurationFromNKey(
 	rawUrl string,
 	nkeyFile string,
-	tls *NatsTlsFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 ) (*GlobalAuthorityNatsConfiguration, error) {
-	authentication, err := NatsAuthenticationFilesFromNKeyFile(nkeyFile)
+	authentication, err := messaging.NatsAuthenticationFilesFromNKeyFile(nkeyFile)
 	if err != nil {
 		return nil, err
 	}
@@ -429,8 +430,8 @@ func NewGlobalAuthorityNatsConfigurationFromNKey(
 // configuration.
 func NewGlobalAuthorityNatsConfiguration(
 	rawUrl string,
-	authentication *NatsAuthenticationFiles,
-	tls *NatsTlsFiles,
+	authentication *messaging.NatsAuthenticationFiles,
+	tls *messaging.NatsTlsFiles,
 	replicas int,
 	cell string,
 ) (*GlobalAuthorityNatsConfiguration, error) {
@@ -493,7 +494,7 @@ func GlobalAuthorityNatsConfigurationResolveWithCredentials(
 		return nil, nil
 	}
 
-	authentication, err := NatsAuthenticationFilesResolve(nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_NATS")
+	authentication, err := messaging.NatsAuthenticationFilesResolve(nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_NATS")
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +504,7 @@ func GlobalAuthorityNatsConfigurationResolveWithCredentials(
 			"Global control NATS requires URL, authentication, CA, certificate, and key together.")
 	}
 
-	tls, err := NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_NATS_TLS")
+	tls, err := messaging.NatsTlsFilesResolve(caFile, certificateFile, keyFile, "TS_ORCH_GLOBAL_NATS_TLS")
 	if err != nil {
 		return nil, err
 	}

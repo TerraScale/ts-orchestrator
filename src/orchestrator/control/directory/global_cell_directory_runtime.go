@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -30,7 +32,7 @@ type GlobalCellDirectoryRuntime struct {
 	store          jetstream.KeyValue
 	cell           string
 	membership     func() RegionalRuntimeMembershipSnapshot
-	authority      func() RegionalAuthoritySnapshot
+	authority      func() authority.RegionalAuthoritySnapshot
 	endpoints      []string
 	ownedClient    *nats.Conn
 	publishEnabled bool
@@ -48,7 +50,7 @@ func GlobalCellDirectoryRuntimeStart(
 	store jetstream.KeyValue,
 	cell string,
 	membership func() RegionalRuntimeMembershipSnapshot,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() authority.RegionalAuthoritySnapshot,
 	publishEnabled bool,
 	endpoints []string,
 ) (*GlobalCellDirectoryRuntime, error) {
@@ -56,7 +58,7 @@ func GlobalCellDirectoryRuntimeStart(
 		return nil, errors.New("(Parameter 'store')")
 	}
 
-	if !GlobalNatsTopologyIsCellToken(cell) {
+	if !messaging.GlobalNatsTopologyIsCellToken(cell) {
 		return nil, errors.New("The global directory cell is invalid. (Parameter 'cell')")
 	}
 
@@ -81,7 +83,7 @@ func newGlobalCellDirectoryRuntime(
 	store jetstream.KeyValue,
 	cell string,
 	membership func() RegionalRuntimeMembershipSnapshot,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() authority.RegionalAuthoritySnapshot,
 	endpoints []string,
 	publishEnabled bool,
 	ownedClient *nats.Conn,
@@ -119,7 +121,7 @@ func GlobalCellDirectoryRuntimeStartAsync(
 	ctx context.Context,
 	configuration *GlobalDirectoryNatsConfiguration,
 	membership func() RegionalRuntimeMembershipSnapshot,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() authority.RegionalAuthoritySnapshot,
 	publishEnabled bool,
 ) (*GlobalCellDirectoryRuntime, error) {
 	if ctx == nil {
@@ -197,7 +199,7 @@ func GlobalCellDirectoryRuntimeOpenExistingStore(
 	if keyValue == nil {
 		return nil, errors.New("(Parameter 'keyValue')")
 	}
-	return keyValue.KeyValue(ctx, GlobalNatsTopologyCellsBucket)
+	return keyValue.KeyValue(ctx, messaging.GlobalNatsTopologyCellsBucket)
 }
 
 // Completion is closed when the runtime's loops have stopped.
@@ -226,7 +228,7 @@ func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
 // Snapshot returns the runtime's current directory projection.
 func (r *GlobalCellDirectoryRuntime) Snapshot() GlobalCellDirectorySnapshot {
 	if r == nil || r.directory == nil {
-		return globalCellDirectoryLifecycleUnavailableSnapshot()
+		return GlobalCellDirectoryLifecycleUnavailableSnapshot()
 	}
 	return r.directory.Snapshot(nil)
 }
@@ -300,8 +302,8 @@ func (r *GlobalCellDirectoryRuntime) publishLoop() {
 var errGlobalCellAdvertisementNotPublishable = errors.New(
 	"The local global-cell advertisement is invalid.")
 
-func (r *GlobalCellDirectoryRuntime) publishOnce(regionalAuthority RegionalAuthoritySnapshot) error {
-	key, err := GlobalNatsTopologyCellAdvertisementKey(r.cell)
+func (r *GlobalCellDirectoryRuntime) publishOnce(regionalAuthority authority.RegionalAuthoritySnapshot) error {
+	key, err := messaging.GlobalNatsTopologyCellAdvertisementKey(r.cell)
 	if err != nil {
 		return err
 	}
@@ -421,7 +423,7 @@ func (r *GlobalCellDirectoryRuntime) watchLoop() {
 				advertisedCell = entry.Key()[len("cell."):]
 			}
 
-			if !GlobalNatsTopologyIsCellToken(advertisedCell) {
+			if !messaging.GlobalNatsTopologyIsCellToken(advertisedCell) {
 				r.directory.Reject()
 				continue
 			}
@@ -455,7 +457,7 @@ func (r *GlobalCellDirectoryRuntime) watchLoop() {
 // advertisement.
 func GlobalCellDirectoryCreateAdvertisement(
 	membership RegionalRuntimeMembershipSnapshot,
-	authority RegionalAuthoritySnapshot,
+	authority authority.RegionalAuthoritySnapshot,
 	sequence int64,
 	endpoints []string,
 ) (GlobalCellAdvertisement, error) {

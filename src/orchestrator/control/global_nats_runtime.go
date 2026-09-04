@@ -532,7 +532,7 @@ func (r *GlobalNatsRuntime) AuthoritySnapshot() RegionalAuthoritySnapshot {
 }
 func (r *GlobalNatsRuntime) DirectorySnapshot() GlobalCellDirectorySnapshot {
 	if r == nil || r.directory == nil {
-		return globalCellDirectoryLifecycleUnavailableSnapshot()
+		return GlobalCellDirectoryLifecycleUnavailableSnapshot()
 	}
 	return r.directory.Snapshot()
 }

@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -74,19 +75,19 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 
 	err = service.AddEndpoint(shared.NatsSvcEndpointConfig{
 		Name:    "cells",
-		Subject: GlobalNatsTopologyCellDirectorySubject(),
+		Subject: messaging.GlobalNatsTopologyCellDirectorySubject(),
 		Metadata: map[string]string{
 			"protocol": strconv.Itoa(protocol.ProtocolVersion.Current()),
 			"readOnly": "true",
-			"source":   GlobalNatsTopologyCellsBucket,
+			"source":   messaging.GlobalNatsTopologyCellsBucket,
 		},
 		Handler: func(ctx context.Context, message *nats.Msg) error {
 			observedAt := time.Now().UTC()
-			identity, messageId, err := NewNatsMessageIdentity()
+			identity, messageId, err := messaging.NewNatsMessageIdentity()
 			if err != nil {
 				return err
 			}
-			subject := GlobalNatsTopologyCellDirectorySubject()
+			subject := messaging.GlobalNatsTopologyCellDirectorySubject()
 			document, err := protocol.MarshalMessagingEnvelope(&protocol.MessagingEnvelope{
 				SchemaVersion: protocol.MessagingSchemaVersionCurrent,
 				MessageId:     messageId,

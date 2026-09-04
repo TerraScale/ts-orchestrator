@@ -1,4 +1,4 @@
-package control
+package directory
 
 import (
 	"net/url"
@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -34,7 +35,7 @@ const GlobalCellAdvertisementSemanticLease = 20 * time.Second
 // IsValid reports whether the advertisement satisfies the directory contract.
 func (a GlobalCellAdvertisement) IsValid(now time.Time) bool {
 	valid := a.SchemaVersion == protocol.ProtocolVersion.Current() &&
-		GlobalNatsTopologyIsCellToken(a.Cell) &&
+		messaging.GlobalNatsTopologyIsCellToken(a.Cell) &&
 		a.Cluster == "orchestrator-control-"+a.Cell &&
 		a.AuthorityId == a.Cell+"-regional" &&
 		a.AuthorityEpoch > 0 && a.AuthorityRevision > 0 && a.Sequence > 0 &&
@@ -331,7 +332,7 @@ func (d *GlobalCellDirectory) Apply(
 		panic("The value cannot be an empty string or composed entirely of whitespace. (Parameter 'sourceKey')")
 	}
 
-	expectedKey, err := GlobalNatsTopologyCellAdvertisementKey(advertisement.Cell)
+	expectedKey, err := messaging.GlobalNatsTopologyCellAdvertisementKey(advertisement.Cell)
 	if err != nil || expectedKey != sourceKey {
 		atomic.AddInt64(&d.rejectedAdvertisements, 1)
 		return GlobalCellAdvertisementDispositionRejected
@@ -415,7 +416,7 @@ const (
 // Snapshot returns the projection observed at the given time (nil means now).
 func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirectorySnapshot {
 	if d == nil {
-		return globalCellDirectoryLifecycleUnavailableSnapshot()
+		return GlobalCellDirectoryLifecycleUnavailableSnapshot()
 	}
 	now := time.Now().UTC()
 	if observedAt != nil {
