@@ -1,142 +1,115 @@
 # Architecture boundaries
 
-The full authority is the repository [`GOAL.md`](../../GOAL.md). The workspace
-[`GOAL.md`](../../../GOAL.md) controls cross-repository decisions.
+The workspace [`GOAL.md`](../../../GOAL.md) is the sole authority. The
+repository [`GOAL.md`](../../GOAL.md) collects the requirements that apply to
+the orchestrator and defines its Firecracker qualification suite.
 
-## Product roles
+## Product role
 
-TerraScale is product-specific. Orchestrator schedules a closed set of trusted
-TerraScale roles and separately admitted tenant compute. It does not implement
-Kubernetes compatibility or provide a generic cluster API.
+`ts-orchestrator` is TerraScale's product-specific Go control plane. It is the
+single automation authority for the declared OCI and Cloudflare estate. It
+manages Region and host lifecycle, identity, placement intent, signed release
+activation, repair coordination, infrastructure telemetry, and estate-state
+publication.
 
-| Role | Boundary |
+It is not Kubernetes-compatible, a general workload scheduler, a customer
+compute product, a query proxy, or part of the data path. It never owns
+database mutations, SQLite behavior, CRDT merge, replication correctness,
+reactive sync, or authoritative usage.
+
+| Component | Boundary |
 | --- | --- |
-| Dashboard | One full-stack Vinext TypeScript app. Owns Better Auth, Organizations, Projects, Users, Payments, entitlements, Streamable HTTP MCP, and customer workflows. |
-| TerraBase | Private Rust database engine. Owns mutations, replication, repair, reactive sync, metrics, and authoritative usage. |
-| Orchestrator | Owns infrastructure, scheduling, workload identity, database placement intent, capacity, repair orchestration, and delivery. |
+| TerraBase | Private Rust engine and public API; owns documents, SQLite, replication, repair correctness, reactive sync, and usage truth. |
+| Orchestrator | Declares and reconciles infrastructure, operates hosts, supplies placement intent, coordinates repair, and activates releases. |
+| `ts-node` | Only agent allowed to mutate a production host; verifies and installs signed binaries and manages hardened systemd units. |
+| Dashboard | Vinext Cloudflare Worker; owns identity, organizations, projects, billing, MCP, and the customer/admin UI. |
+| `ts-deploy` | Builds, checks, signs, publishes, and submits candidates; never owns rollout state. |
 
-Dashboard uses `@terrascale/sdk` and the same public APIs as customer
-Projects. It has no direct TerraBase, TBEP, private route, or tenant bypass.
+## Control topology
 
-The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
-services are removed after direct cutover. Historical deployment records for
-those roles do not authorize new implementations.
+GRU is the global authority. At launch there are no dedicated control hosts.
+One control replica is co-hosted on a member host in each of GRU, SFO, and FRA,
+and the three replicas form one embedded JetStream R3 group across those
+Regions. A Region can move to an autonomous three-replica regional group only
+after it has at least three hosts; that is post-launch capacity work.
 
-## Regional control
+Control mutations are fenced, authenticated, idempotent, restart-safe, and
+durably journaled. Loss of GRU or NATS can freeze new global mutations but
+cannot stop reads, eligible writes, replication, or reconnect recovery in an
+already admitted Region.
 
-GRU owns the permanent three-replica global authority. Every Region owns a
-three-replica Regional Orchestrator and local JetStream R3 domain. Regions
-continue signed survival-policy work when GRU or the WAN is unavailable.
-Global release, policy, and catalog changes freeze. Existing database reads,
-eligible writes, replication, repair, and client catch-up do not pause.
+NATS contains orchestrator control state only. Customer documents, WAL,
+replication frames, reactive frames, query results, and usage truth never enter
+it.
 
-The Orchestrator uses typed desired and observed state, fenced writers,
-idempotent operations, immutable release identities, and durable receipts.
-Host tags, load, a missing heartbeat, NATS lease expiry, or filtered inventory
-cannot grant database membership or authorize destructive storage work.
+## Estate and providers
 
-## Database placement and host scheduling
+The complete desired estate is typed Go configuration. The reconciler observes
+OCI and Cloudflare, produces a deterministic dependency-ordered plan, applies
+it, re-observes, and records drift and audit events. Missing or ambiguous
+ownership fails closed; deletion requires proven TerraScale ownership and
+authority.
 
-Database placement belongs to each database, not to its Project. A database
-selects one through twenty active Regions. Every selected active Region stores
-every logical Partition and accepts writes. GRU, SFO, and FRA are the initial
-catalog.
+Routine OCI and Cloudflare changes are automated. The owner performs only
+account, plan, payment, and initial credential setup. `bootstrap` creates the
+first GRU estate from an empty tenancy and hands authority to the running
+control plane. `add-region <code>` creates and qualifies a complete Region.
 
-Production uses two active TerraBase Members per selected Region and
-Partition, placed in independent failure domains. A backup is optional,
-read-only, non-voting, and independent of active placement.
+## Hosts and delivery
 
-Orchestrator owns accepted placement intent and concrete host allocation.
-TerraBase owns membership acceptance, replica epochs, causal actor lifecycle,
-split and merge decisions, repair, and safe decommission. Scheduling pressure
-may request capacity in the selected Region. It cannot add a Region, remove a
-Region, spill data into an unselected Region, or appoint a leader.
+Production hosts are Ubuntu LTS minimal with no container runtime, production
+OCI image, or registry. They run only `ts-node`, TerraBase, a control replica
+where placed, and the Grafana agent. `ts-node` installs versioned static
+binaries under `/opt/terrascale`, verifies ed25519 signatures and SHA-256
+digests, writes hardened systemd units, coordinates drain, atomically activates
+the new version, and restores the prior digest on rollback.
 
-## Database transport
+`ts-deploy` submits a candidate but cannot activate it. The orchestrator first
+mirrors accepted artifacts to every Region. TerraBase rollout begins with one
+GRU canary and then advances one host at a time across Regions while preserving
+RF=2 and enforcing drain, health, replication, backup, and catch-up gates.
+There is no regional blue-green product stack.
 
-TBEP is the private control protocol (gRPC per D-02); no customer data
-rides it. NATS stays inside the orchestrator and never carries customer
-data.
+## Placement and residency
 
-Region-to-Region TerraBase replication also uses direct QUIC with mutual TLS.
-TerraBase owns flow control, batching, acknowledgements, causal reconciliation,
-anti-entropy, and Merkle repair.
+Every launch Region has two admitted member hosts. The orchestrator supplies
+TerraBase placement intent and peer lists; TerraBase accepts membership and
+owns replication and repair correctness. The orchestrator never appoints a
+database leader.
 
-## NATS
+A database placement lock is immutable after creation. Placement,
+replication, backup, restore, export, branch, repair, and Region lifecycle all
+apply the same lock and cannot widen it.
 
-NATS is the mandatory Orchestrator v2 consensus, control-state, discovery, and
-durable-work system. Global and regional JetStream domains form one
-gateway-connected supercluster without a WAN Raft group.
-It never carries database documents, WAL, CRDT deltas, replication frames,
-query results, reactive sync, or authoritative usage.
+## Local qualification
 
-NATS remains absent from TerraBase correctness and customer data paths. The
-checked-in subjects and the adapter's composition-time global topology follow
-the accepted `ts.orch.v2` contract.
+Firecracker on Linux/KVM is the mandatory local backend. Six real Ubuntu LTS
+systemd guests model the launch estate. A test-only Go `SandboxVMProvider`
+owns Firecracker lifecycle, TAP and Region networking, deterministic
+`nftables`/`tc netem` faults, persistent and faultable drives, snapshots,
+readiness, diagnostics, and crash-safe cleanup.
 
-## Tenant isolation and capacity
+Bounded local OCI, Cloudflare, object-store, and edge endpoints exercise real
+provider contracts and failure semantics. They have no privileged path into
+orchestration decisions. Production code cannot import Firecracker or register
+the local endpoints.
 
-Every database path enforces native scope:
+Unit fakes remain useful but do not qualify host lifecycle, delivery, repair,
+networking, storage, or degraded mode. Those areas require the complete
+Firecracker-backed `make vm-test`. Real OCI and Cloudflare gates still qualify
+provider behavior and production performance.
 
-```text
-TenantId
-ProjectId
-DatabaseId
-EnvironmentId
-```
+## Trust and visibility
 
-Collection prefixes are not isolation. Query, index, WAL, replication, backup,
-restore, sync, administration, snapshots, and metrics all validate the same
-scope.
+Host and workload identity use short-lived certificates, mutual TLS, SPIFFE
+identity, rotated trust bundles, and auditable bootstrap grants. Configuration
+contains secret references rather than secret bytes. Secrets and customer
+content never enter Git, logs, traces, metrics, fixtures, or receipts.
 
-Database API and TerraBase enforce admission before autoscaling. Bounded queues,
-fair scheduling, resource budgets, backpressure, spill where safe, load
-shedding, and checkpoint or snapshot fallback protect shared hosts. Capacity
-signals then allow Orchestrator to add or move eligible workloads.
+The orchestrator publishes bounded `estate.*` documents into the control-plane
+database on change and at least every ten seconds. The dashboard reads them
+through the public SDK. Infrastructure actions remain in the orchestrator CLI;
+the dashboard does not gain a private control transport.
 
-## Trust
-
-Workload identity uses short-lived X.509 certificates, mutual TLS, scoped
-authorization, rotated trust bundles, and auditable bootstrap grants. Same-host
-communication does not weaken identity or encryption.
-
-Secrets and customer content never enter Git, NATS, desired state, logs,
-traces, metrics, fixtures, or receipts. Configuration carries secret
-references, not secret bytes.
-
-## Delivery
-
-Build once and deploy the exact qualified digest. Release, configuration,
-schema, migration, trust, rollback, and evidence identities bind to one
-candidate. Each Region builds full green capacity beside unchanged blue and
-keeps green outside production routing until startup, minimum health, real
-dependency, authorization, isolation, routing, customer-journey, and rollback
-tests pass. One durable routing generation cuts traffic over. A failed green
-generation changes only green. Blue remains available through the rollback
-window. Rollback restores retained qualified bytes and never rebuilds an
-artifact.
-
-TerraBase implements the invariant with surge Members, catch-up, causal and
-materialized Merkle verification, and TerraBase-accepted overlapping
-membership. Controllers and NATS replace one replica at a time and restore
-full quorum before the next replacement. Regional blue-green does not create a
-second writable TerraBase cluster or a competing control quorum.
-
-## Production repository boundary
-
-The production project contains no embedded development host, `dev` runtime
-mode, local product composition, development NATS bootstrap, development PKI,
-fixed lab routing, development-host-specific fixture, or fake-provider runtime
-registration. Generic fakes and process fixtures live only in test or tooling
-projects and cannot enter the production dependency graph or artifact.
-
-## Evidence boundary
-
-Pure tests and an external RF=1 lab cannot prove production RF=2 durability,
-host loss, remote mutual TLS, cloud storage, systemd, twenty-Region behavior,
-or measured noisy-neighbor isolation. Only exact candidate-bound evidence from
-the owning runtime and benchmark authority can support those claims.
-
-Historical ADRs that require permanent TerraBase R3, Project-owned Regions,
-UDS TBEP, NATS inside TerraBase correctness, standalone Authentication,
-Payments, Platform, or MCP are superseded for future work.
+Historical ADRs and contract documents may describe implemented legacy
+adapters. They remain evidence, not authority for new work.
