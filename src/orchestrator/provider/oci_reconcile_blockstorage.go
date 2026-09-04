@@ -18,6 +18,13 @@ import (
 // BalancedVPUsPerGiB is the OCI "Balanced" volume performance tier (D-65).
 const BalancedVPUsPerGiB = 10
 
+// These defaults are deliberately conservative.  A full volume may be grown
+// by one current-volume-sized step, but never beyond OCI's supported bound.
+const (
+	DefaultFullUtilizationPercent uint8  = 95
+	DefaultMaxVolumeGiB           uint64 = 32 * 1024
+)
+
 // DataVolumeName derives the deterministic data volume name for a member slot.
 func DataVolumeName(regionCode string, index int) string {
 	return "terrascale-" + regionCode + "-" + strconv.Itoa(index) + "-data"
@@ -30,6 +37,18 @@ type ObservedVolume struct {
 	VPUsPerGiB         uint64
 	LifecycleState     string
 	AvailabilityDomain string
+	// UtilizationPercent and HealthState are supplied by the host/storage
+	// observation contract when available.  Zero/empty means that signal was
+	// not reported; it is not treated as evidence of health or fullness.
+	UtilizationPercent uint8
+	HealthState        string
+	// KMSKeyID is retained across a replacement.  An empty value means the
+	// provider did not return encryption metadata, so replacement is unsafe.
+	KMSKeyID string
+	// BackupVerified and ReplicaCount are the minimum evidence a stateful
+	// replacement needs.  They are intentionally observations, never guesses.
+	BackupVerified bool
+	ReplicaCount   uint8
 }
 
 type ObservedAttachment struct {
@@ -43,6 +62,17 @@ type BlockStorageObserved struct {
 	Volumes     []ObservedVolume
 	Attachments []ObservedAttachment
 	Members     []ObservedMember
+}
+
+// BlockStoragePolicy controls repairs which can affect durable data.  A zero
+// policy keeps the historical safe behaviour (create/expand/attach only).
+// Replacement requires both explicit permission and proof of a recoverable
+// copy; the reconciler never infers that proof from a provider lifecycle bit.
+type BlockStoragePolicy struct {
+	AllowReplacement       bool
+	DataSafetyProven       bool
+	FullUtilizationPercent uint8
+	MaxVolumeGiB           uint64
 }
 
 // BlockStorageGateway is the OCI core-service seam for volume reconciliation.
@@ -60,6 +90,10 @@ type VolumeSpec struct {
 	SizeGiB            uint64
 	VPUsPerGiB         uint64
 	AvailabilityDomain string
+	KMSKeyID           string
+	// RetryToken binds retries of a replacement to the same intent. Empty
+	// means the stable display name is sufficient for first-time creation.
+	RetryToken string
 }
 
 type CreateVolumeAction struct{ Spec VolumeSpec }
@@ -93,10 +127,29 @@ type DetachAttachmentAction struct{ AttachmentID string }
 func (a DetachAttachmentAction) Kind() OCIActionKind { return OCIActionDetachAttachment }
 func (a DetachAttachmentAction) Summary() string     { return "detach attachment " + a.AttachmentID }
 
+// ReplaceVolumeAction is an additive, data-preserving repair. Apply creates
+// the replacement in the old volume's residency and encryption scope, binds
+// it to the existing member, and only then detaches the old attachment. The
+// old volume is intentionally never deleted by this reconciler.
+type ReplaceVolumeAction struct {
+	OldVolumeID     string
+	OldAttachmentID string
+	InstanceID      string
+	Spec            VolumeSpec
+}
+
+// A replacement is reported as a create for existing drift/reporting
+// consumers; it remains an action owned by this reconciler in Apply.
+func (a ReplaceVolumeAction) Kind() OCIActionKind { return OCIActionCreateVolume }
+func (a ReplaceVolumeAction) Summary() string {
+	return "replace volume " + a.OldVolumeID + " with " + a.Spec.DisplayName
+}
+
 // BlockStorageReconciler converges one Region's data volumes and attachments.
 type BlockStorageReconciler struct {
 	Block   BlockStorageGateway
 	Compute ComputeGateway
+	Policy  BlockStoragePolicy
 }
 
 var _ OCIReconciler[estate.Region, BlockStorageObserved] = (*BlockStorageReconciler)(nil)
@@ -184,6 +237,9 @@ func (r *BlockStorageReconciler) Observe(ctx context.Context, declared estate.Re
 }
 
 func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.Region, observed BlockStorageObserved) (OCIPlan, error) {
+	if r == nil || r.Block == nil || r.Compute == nil {
+		return OCIPlan{}, &InvalidOperationError{Message: "block storage reconciler is unavailable"}
+	}
 	if ctx == nil {
 		return OCIPlan{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
@@ -193,6 +249,9 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	pool := declared.Members
 	if pool.DataVolumeGiB == 0 {
 		return OCIPlan{}, &errs.Argument{Message: "declared member pool has no data volume size"}
+	}
+	if uint64(pool.DataVolumeGiB) > r.maxVolumeGiB() {
+		return OCIPlan{}, &errs.Argument{Message: "declared member data volume exceeds the bounded expansion limit"}
 	}
 	members := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
@@ -209,29 +268,44 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 		}
 		members[member.Index] = member
 	}
-	volumes := make(map[string]ObservedVolume, len(observed.Volumes))
 	declaredVolumeNames := make(map[string]bool, int(pool.Count))
 	for index := 1; index <= int(pool.Count); index++ {
 		declaredVolumeNames[DataVolumeName(declared.Code, index)] = true
 	}
-	plan := OCIPlan{}
+	volumes := make(map[string]ObservedVolume, len(observed.Volumes))
 	for _, volume := range observed.Volumes {
 		if !declaredVolumeNames[volume.DisplayName] {
 			continue
 		}
-		switch observedVolumeState(volume.LifecycleState) {
-		case volumeStateAbsent:
+		state := observedVolumeState(volume.LifecycleState)
+		if state == volumeStateAbsent {
 			continue
-		case volumeStateFailed:
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " failed and cannot be used"}
-		case volumeStateUnknown:
+		}
+		if state == volumeStateUnknown {
 			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
 		}
-		if _, duplicate := volumes[volume.DisplayName]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
+		if volume.HealthState != "" && !volumeHealthIsKnown(volume.HealthState) {
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable health state"}
+		}
+		if volume.UtilizationPercent > 100 {
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an invalid utilization"}
+		}
+		if previous, duplicate := volumes[volume.DisplayName]; duplicate {
+			// A failed/terminated volume can coexist with the replacement while
+			// an asynchronous repair settles. Prefer the usable observation;
+			// two usable volumes are ambiguous and fail closed.
+			if volumeSelectionRank(volume) > volumeSelectionRank(previous) {
+				volumes[volume.DisplayName] = volume
+				continue
+			}
+			if volumeSelectionRank(volume) < volumeSelectionRank(previous) {
+				continue
+			}
+			return OCIPlan{}, &InvalidDataError{Message: "multiple usable volumes share the declared name " + volume.DisplayName}
 		}
 		volumes[volume.DisplayName] = volume
 	}
+	plan := OCIPlan{}
 	attachments := make(map[string]ObservedAttachment, len(observed.Attachments))
 	for _, attachment := range observed.Attachments {
 		state := observedAttachmentState(attachment.LifecycleState)
@@ -241,7 +315,14 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 		if state == attachmentStateUnknown {
 			return OCIPlan{}, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
 		}
-		if state == attachmentStateAbsent || !declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
+		if state == attachmentStateAbsent {
+			continue
+		}
+		volumeName := volumeNameByID(observed, attachment.VolumeID)
+		if volumeName == "" {
+			return OCIPlan{}, &InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
+		}
+		if !declaredVolumeNames[volumeName] {
 			continue
 		}
 		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
@@ -270,13 +351,68 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 		if observedVolumeState(volume.LifecycleState) == volumeStatePending {
 			continue
 		}
-		if volume.SizeGiB < uint64(pool.DataVolumeGiB) {
-			plan.Actions = append(plan.Actions, ExpandVolumeAction{VolumeID: volume.ID, NewSizeGiB: uint64(pool.DataVolumeGiB)})
-		} else if volume.SizeGiB > uint64(pool.DataVolumeGiB) {
-			return OCIPlan{}, &InvalidDataError{Message: "declared data volume size is below the observed volume; volumes never shrink"}
+		if volume.SizeGiB == 0 {
+			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " has no size"}
+		}
+		if volume.AvailabilityDomain != "" && member.AvailabilityDomain != "" && volume.AvailabilityDomain != member.AvailabilityDomain {
+			return OCIPlan{}, &InvalidDataError{Message: "volume " + name + " is outside the member availability domain"}
+		}
+		if volumeNeedsReplacement(volume) {
+			if !r.Policy.AllowReplacement || !r.volumeSafetyProven(volume) {
+				return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " is unhealthy and replacement safety is unproven"}
+			}
+			if volume.KMSKeyID == "" {
+				return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " has no encryption identity for replacement"}
+			}
+			if volume.SizeGiB > r.maxVolumeGiB() {
+				return OCIPlan{}, &InvalidDataError{Message: "unhealthy volume " + name + " exceeds the bounded replacement size"}
+			}
+			availabilityDomain := volume.AvailabilityDomain
+			if availabilityDomain == "" {
+				availabilityDomain = member.AvailabilityDomain
+			}
+			var oldAttachmentID string
+			if attachment, attached := attachments[volume.ID]; attached {
+				if observedAttachmentState(attachment.LifecycleState) == attachmentStatePending {
+					continue
+				}
+				oldAttachmentID = attachment.ID
+			}
+			plan.Actions = append(plan.Actions, ReplaceVolumeAction{
+				OldVolumeID: volume.ID, OldAttachmentID: oldAttachmentID, InstanceID: member.ID,
+				Spec: VolumeSpec{DisplayName: name, SizeGiB: maxVolumeSize(volume.SizeGiB, uint64(pool.DataVolumeGiB)), VPUsPerGiB: BalancedVPUsPerGiB, AvailabilityDomain: availabilityDomain, KMSKeyID: volume.KMSKeyID, RetryToken: volume.ID + ".replacement"},
+			})
+			continue
+		}
+		targetSize := uint64(pool.DataVolumeGiB)
+		if volume.SizeGiB > uint64(pool.DataVolumeGiB) {
+			// A larger observed volume is safe to retain, but report the drift
+			// unless the full-volume repair below is the reason it grew.
+			if !volumeIsFull(volume, r.Policy) {
+				return OCIPlan{}, &InvalidDataError{Message: "declared data volume size is below the observed volume; volumes never shrink"}
+			}
 		}
 		if volume.VPUsPerGiB != BalancedVPUsPerGiB {
 			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " is not on the Balanced performance tier"}
+		}
+		if volumeIsFull(volume, r.Policy) {
+			maxSize := r.maxVolumeGiB()
+			if volume.SizeGiB >= maxSize {
+				return OCIPlan{}, &InvalidDataError{Message: "full volume " + name + " reached the bounded expansion limit"}
+			}
+			newSize := volume.SizeGiB * 2
+			if newSize < volume.SizeGiB || newSize < uint64(pool.DataVolumeGiB) {
+				newSize = uint64(pool.DataVolumeGiB)
+			}
+			if newSize > maxSize {
+				newSize = maxSize
+			}
+			if newSize > targetSize {
+				targetSize = newSize
+			}
+		}
+		if targetSize > volume.SizeGiB {
+			plan.Actions = append(plan.Actions, ExpandVolumeAction{VolumeID: volume.ID, NewSizeGiB: targetSize})
 		}
 		if attachment, attached := attachments[volume.ID]; attached {
 			if observedAttachmentState(attachment.LifecycleState) == attachmentStatePending {
@@ -296,7 +432,17 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	}
 	for _, attachment := range observed.Attachments {
 		state := observedAttachmentState(attachment.LifecycleState)
-		if state == attachmentStateActive && !declaredVolumeNames[volumeNameByID(observed, attachment.VolumeID)] {
+		if state != attachmentStateActive {
+			continue
+		}
+		name := volumeNameByID(observed, attachment.VolumeID)
+		desired, selected := volumes[name]
+		if selected && observedVolumeState(desired.LifecycleState) == volumeStatePending {
+			// Keep the known-good/last-known attachment until the replacement
+			// volume is AVAILABLE and can be attached safely.
+			continue
+		}
+		if name == "" || !declaredVolumeNames[name] || (selected && desired.ID != attachment.VolumeID) {
 			plan.Actions = append(plan.Actions, DetachAttachmentAction{AttachmentID: attachment.ID})
 		}
 	}
@@ -310,6 +456,70 @@ func volumeNameByID(observed BlockStorageObserved, volumeID string) string {
 		}
 	}
 	return ""
+}
+
+func volumeHealthIsKnown(state string) bool {
+	switch state {
+	case "HEALTHY", "AVAILABLE", "ONLINE", "OK", "GOOD", "DEGRADED", "UNHEALTHY", "FAILED", "ERROR", "FAULTED", "INACCESSIBLE", "IO_ERROR":
+		return true
+	default:
+		return false
+	}
+}
+
+func volumeUsableForSelection(volume ObservedVolume) bool {
+	return observedVolumeState(volume.LifecycleState) == volumeStateActive && !volumeNeedsReplacement(volume)
+}
+
+func volumeSelectionRank(volume ObservedVolume) uint8 {
+	if volumeUsableForSelection(volume) {
+		return 3
+	}
+	if observedVolumeState(volume.LifecycleState) == volumeStatePending {
+		return 2
+	}
+	return 1
+}
+
+func volumeNeedsReplacement(volume ObservedVolume) bool {
+	if observedVolumeState(volume.LifecycleState) == volumeStateFailed {
+		return true
+	}
+	switch volume.HealthState {
+	case "DEGRADED", "UNHEALTHY", "FAILED", "ERROR", "FAULTED", "INACCESSIBLE", "IO_ERROR":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *BlockStorageReconciler) volumeSafetyProven(volume ObservedVolume) bool {
+	return r.Policy.DataSafetyProven || (volume.BackupVerified && volume.ReplicaCount >= 2)
+}
+
+func (r *BlockStorageReconciler) maxVolumeGiB() uint64 {
+	if r == nil || r.Policy.MaxVolumeGiB == 0 {
+		return DefaultMaxVolumeGiB
+	}
+	return r.Policy.MaxVolumeGiB
+}
+
+func maxVolumeSize(current, desired uint64) uint64 {
+	if current > desired {
+		return current
+	}
+	return desired
+}
+
+func volumeIsFull(volume ObservedVolume, policy BlockStoragePolicy) bool {
+	if volume.UtilizationPercent == 0 {
+		return false
+	}
+	threshold := policy.FullUtilizationPercent
+	if threshold == 0 {
+		threshold = DefaultFullUtilizationPercent
+	}
+	return volume.UtilizationPercent >= threshold
 }
 
 func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (bool, error) {
@@ -345,11 +555,17 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 		case volumeStatePending:
 			return false, nil
 		case volumeStateFailed:
-			return false, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " failed and cannot be used"}
+			// A failed volume is a repair candidate. Reconcile decides whether
+			// replacement is permitted; bootstrap must keep polling rather than
+			// declaring a data-loss failure.
+			continue
 		case volumeStateUnknown:
 			return false, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
 		case volumeStateAbsent:
 			continue
+		}
+		if volume.HealthState != "" && volumeNeedsReplacement(volume) {
+			return false, nil
 		}
 		if _, duplicate := volumes[volume.DisplayName]; duplicate {
 			return false, &InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
@@ -359,7 +575,11 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 	attachments := make(map[string]ObservedAttachment, len(observed.Attachments))
 	for _, attachment := range observed.Attachments {
 		state := observedAttachmentState(attachment.LifecycleState)
-		if !declaredVolumeName(declared, volumeNameByID(observed, attachment.VolumeID)) {
+		volumeName := volumeNameByID(observed, attachment.VolumeID)
+		if volumeName == "" && state != attachmentStateAbsent {
+			return false, &InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
+		}
+		if !declaredVolumeName(declared, volumeName) {
 			if state == attachmentStatePending {
 				return false, nil
 			}
@@ -387,7 +607,7 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 		}
 		name := DataVolumeName(declared.Code, index)
 		volume, volumeOK := volumes[name]
-		if !volumeOK || observedVolumeState(volume.LifecycleState) != volumeStateActive || volume.SizeGiB != uint64(declared.Members.DataVolumeGiB) || volume.VPUsPerGiB != BalancedVPUsPerGiB {
+		if !volumeOK || observedVolumeState(volume.LifecycleState) != volumeStateActive || volume.SizeGiB < uint64(declared.Members.DataVolumeGiB) || volume.VPUsPerGiB != BalancedVPUsPerGiB || volumeNeedsReplacement(volume) || volumeIsFull(volume, r.Policy) {
 			return false, nil
 		}
 		attachment, attached := attachments[volume.ID]
@@ -421,25 +641,92 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 		switch a := action.(type) {
 		case CreateVolumeAction:
 			if _, err := r.Block.CreateVolume(ctx, a.Spec); err != nil {
-				return err
+				return blockMutationError(ctx, err)
 			}
 		case ExpandVolumeAction:
 			if err := r.Block.ExpandVolume(ctx, a.VolumeID, a.NewSizeGiB); err != nil {
-				return err
+				return blockMutationError(ctx, err)
 			}
 		case AttachVolumeAction:
 			if _, err := r.Block.AttachVolume(ctx, a.InstanceID, a.VolumeID, ""); err != nil {
-				return err
+				return blockMutationError(ctx, err)
 			}
 		case DetachAttachmentAction:
 			if err := r.Block.DetachAttachment(ctx, a.AttachmentID); err != nil {
-				return err
+				return blockMutationError(ctx, err)
+			}
+		case ReplaceVolumeAction:
+			if a.OldVolumeID == "" || a.InstanceID == "" || a.Spec.DisplayName == "" || a.Spec.SizeGiB == 0 || a.Spec.AvailabilityDomain == "" || a.Spec.KMSKeyID == "" || a.Spec.RetryToken == "" {
+				return &InvalidOperationError{Message: "volume replacement action is incomplete"}
+			}
+			var oldVolume bool
+			for _, volume := range observed.Volumes {
+				if volume.ID == a.OldVolumeID && volume.DisplayName == a.Spec.DisplayName {
+					oldVolume = true
+					break
+				}
+			}
+			if !oldVolume {
+				return &InvalidOperationError{Message: "volume replacement action is stale"}
+			}
+			if a.OldAttachmentID != "" {
+				found := false
+				for _, attachment := range observed.Attachments {
+					if attachment.ID == a.OldAttachmentID && attachment.VolumeID == a.OldVolumeID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return &InvalidOperationError{Message: "volume replacement attachment is stale"}
+				}
+			}
+			created, err := r.Block.CreateVolume(ctx, a.Spec)
+			if err != nil {
+				return blockMutationError(ctx, err)
+			}
+			if created.ID == "" {
+				return &ProviderOutcomeUnknownError{Message: "volume replacement create returned no identity"}
+			}
+			if observedVolumeState(created.LifecycleState) == volumeStatePending {
+				// OCI creates are asynchronous. The old attachment remains in
+				// place; the next observation selects this pending replacement
+				// and waits before issuing an attach.
+				return nil
+			}
+			if observedVolumeState(created.LifecycleState) != volumeStateActive {
+				return &ProviderOutcomeUnknownError{Message: "volume replacement create has an unconfirmed lifecycle state"}
+			}
+			if _, err := r.Block.AttachVolume(ctx, a.InstanceID, created.ID, a.Spec.DisplayName); err != nil {
+				return blockMutationError(ctx, err)
+			}
+			if a.OldAttachmentID != "" {
+				if err := r.Block.DetachAttachment(ctx, a.OldAttachmentID); err != nil {
+					return blockMutationError(ctx, err)
+				}
 			}
 		default:
 			return &InvalidOperationError{Message: "block storage reconciler received a foreign action"}
 		}
 	}
 	return nil
+}
+
+// blockMutationError turns transport failures after a request may have been
+// accepted into the shared unknown-outcome contract.  Cancellation remains a
+// context error so callers can distinguish a stopped reconcile from a cloud
+// mutation which needs re-observation.
+func blockMutationError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if indeterminate(err) {
+		return &ProviderOutcomeUnknownError{Message: "block storage mutation outcome is unknown; reconcile after observation"}
+	}
+	return err
 }
 
 // OCIBlockStorageGateway is the real block-volume gateway over the signed
@@ -469,6 +756,11 @@ type ociVolumeDocument struct {
 	VPUsPerGB          uint64 `json:"vpusPerGB"`
 	LifecycleState     string `json:"lifecycleState"`
 	AvailabilityDomain string `json:"availabilityDomain"`
+	KMSKeyID           string `json:"kmsKeyId"`
+	UtilizationPercent uint8  `json:"utilizationPercent"`
+	HealthState        string `json:"healthState"`
+	BackupVerified     bool   `json:"backupVerified"`
+	ReplicaCount       uint8  `json:"replicaCount"`
 }
 
 func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, error) {
@@ -485,30 +777,36 @@ func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVol
 		if !isOCID(item.ID, "volume") {
 			return nil, &InvalidDataError{Message: "OCI volume response is invalid"}
 		}
-		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain})
+		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, KMSKeyID: item.KMSKeyID, UtilizationPercent: item.UtilizationPercent, HealthState: item.HealthState, BackupVerified: item.BackupVerified, ReplicaCount: item.ReplicaCount})
 	}
 	return volumes, nil
 }
 
 func (g *OCIBlockStorageGateway) CreateVolume(ctx context.Context, spec VolumeSpec) (ObservedVolume, error) {
 	if !validEstateName(spec.DisplayName) || spec.SizeGiB == 0 || spec.SizeGiB > 16<<20 ||
-		spec.VPUsPerGiB == 0 || spec.VPUsPerGiB > 120 || len(spec.AvailabilityDomain) == 0 || len(spec.AvailabilityDomain) > 128 {
+		spec.VPUsPerGiB == 0 || spec.VPUsPerGiB > 120 || len(spec.AvailabilityDomain) == 0 || len(spec.AvailabilityDomain) > 128 ||
+		(spec.RetryToken != "" && (len(spec.RetryToken) > 96 || !tokenPattern.MatchString(spec.RetryToken))) {
 		return ObservedVolume{}, &errs.Argument{Message: "volume create request is invalid"}
 	}
 	var document ociVolumeDocument
+	retryToken := spec.RetryToken
+	if retryToken == "" {
+		retryToken = spec.DisplayName
+	}
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/volumes", struct {
 		CompartmentID      string `json:"compartmentId"`
 		AvailabilityDomain string `json:"availabilityDomain"`
 		DisplayName        string `json:"displayName"`
 		SizeInGBs          uint64 `json:"sizeInGBs"`
 		VPUsPerGB          uint64 `json:"vpusPerGB"`
-	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB}, map[string]string{"opc-retry-token": spec.DisplayName}, &document); err != nil {
+		KMSKeyID           string `json:"kmsKeyId,omitempty"`
+	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB, KMSKeyID: spec.KMSKeyID}, map[string]string{"opc-retry-token": retryToken}, &document); err != nil {
 		return ObservedVolume{}, err
 	}
 	if !isOCID(document.ID, "volume") {
 		return ObservedVolume{}, &InvalidDataError{Message: "OCI volume create response is invalid"}
 	}
-	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain}, nil
+	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain, KMSKeyID: document.KMSKeyID, UtilizationPercent: document.UtilizationPercent, HealthState: document.HealthState, BackupVerified: document.BackupVerified, ReplicaCount: document.ReplicaCount}, nil
 }
 
 func (g *OCIBlockStorageGateway) ExpandVolume(ctx context.Context, volumeID string, sizeGiB uint64) error {
@@ -517,7 +815,7 @@ func (g *OCIBlockStorageGateway) ExpandVolume(ctx context.Context, volumeID stri
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPut, "/20160918/volumes/"+url.PathEscape(volumeID), struct {
 		SizeInGBs uint64 `json:"sizeInGBs"`
-	}{SizeInGBs: sizeGiB}, nil, nil)
+	}{SizeInGBs: sizeGiB}, map[string]string{"opc-retry-token": volumeID + "/" + strconv.FormatUint(sizeGiB, 10)}, nil)
 }
 
 type ociAttachmentDocument struct {

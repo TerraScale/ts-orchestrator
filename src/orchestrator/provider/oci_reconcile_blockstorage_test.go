@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -10,6 +11,11 @@ type fakeBlockGateway struct {
 	volumes     []ObservedVolume
 	attachments []ObservedAttachment
 	nextID      int
+	createErr   error
+	expandErr   error
+	attachErr   error
+	detachErr   error
+	calls       []string
 }
 
 func (f *fakeBlockGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, error) {
@@ -17,13 +23,21 @@ func (f *fakeBlockGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, e
 }
 
 func (f *fakeBlockGateway) CreateVolume(ctx context.Context, spec VolumeSpec) (ObservedVolume, error) {
+	f.calls = append(f.calls, "create")
+	if f.createErr != nil {
+		return ObservedVolume{}, f.createErr
+	}
 	f.nextID++
-	created := ObservedVolume{ID: "ocid1.volume.oc1.x." + string(rune('a'+f.nextID)), DisplayName: spec.DisplayName, SizeGiB: spec.SizeGiB, VPUsPerGiB: spec.VPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: spec.AvailabilityDomain}
+	created := ObservedVolume{ID: "ocid1.volume.oc1.x." + string(rune('a'+f.nextID)), DisplayName: spec.DisplayName, SizeGiB: spec.SizeGiB, VPUsPerGiB: spec.VPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: spec.AvailabilityDomain, KMSKeyID: spec.KMSKeyID}
 	f.volumes = append(f.volumes, created)
 	return created, nil
 }
 
 func (f *fakeBlockGateway) ExpandVolume(ctx context.Context, volumeID string, sizeGiB uint64) error {
+	f.calls = append(f.calls, "expand")
+	if f.expandErr != nil {
+		return f.expandErr
+	}
 	for i := range f.volumes {
 		if f.volumes[i].ID == volumeID {
 			f.volumes[i].SizeGiB = sizeGiB
@@ -37,6 +51,10 @@ func (f *fakeBlockGateway) ListAttachments(ctx context.Context) ([]ObservedAttac
 }
 
 func (f *fakeBlockGateway) AttachVolume(ctx context.Context, instanceID, volumeID, displayName string) (ObservedAttachment, error) {
+	f.calls = append(f.calls, "attach")
+	if f.attachErr != nil {
+		return ObservedAttachment{}, f.attachErr
+	}
 	f.nextID++
 	created := ObservedAttachment{ID: "ocid1.volumeattachment.oc1.x." + string(rune('a'+f.nextID)), InstanceID: instanceID, VolumeID: volumeID, LifecycleState: "ATTACHED"}
 	f.attachments = append(f.attachments, created)
@@ -44,6 +62,10 @@ func (f *fakeBlockGateway) AttachVolume(ctx context.Context, instanceID, volumeI
 }
 
 func (f *fakeBlockGateway) DetachAttachment(ctx context.Context, attachmentID string) error {
+	f.calls = append(f.calls, "detach")
+	if f.detachErr != nil {
+		return f.detachErr
+	}
 	remaining := f.attachments[:0]
 	for _, attachment := range f.attachments {
 		if attachment.ID != attachmentID {
@@ -230,6 +252,84 @@ func TestBlockStoragePendingFailedAndDuplicateResources(t *testing.T) {
 	duplicate.Volumes = append(duplicate.Volumes, duplicate.Volumes[0])
 	if _, err := reconciler.Reconcile(context.Background(), declared, duplicate); err == nil {
 		t.Fatal("duplicate volume accepted")
+	}
+}
+
+func TestBlockStorageFullVolumePlansBoundedExpansion(t *testing.T) {
+	declared := testComputeRegion()
+	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	observed := testBlockObserved(member)
+	observed.Volumes = []ObservedVolume{{
+		ID: "ocid1.volume.oc1.x.full", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200,
+		VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: "AD-1", UtilizationPercent: 99,
+	}}
+	plan, err := (&BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}}).Reconcile(context.Background(), declared, observed)
+	if err != nil {
+		t.Fatalf("full volume reconcile failed: %v", err)
+	}
+	if len(plan.Actions) != 2 || plan.Actions[0].Kind() != OCIActionExpandVolume || plan.Actions[1].Kind() != OCIActionAttachVolume {
+		t.Fatalf("full volume plan = %v, want bounded expansion then attach", plan.Kinds())
+	}
+	if got := plan.Actions[0].(ExpandVolumeAction).NewSizeGiB; got != 400 {
+		t.Fatalf("full volume target = %d, want 400 GiB", got)
+	}
+
+	observed.Volumes[0].SizeGiB = DefaultMaxVolumeGiB
+	if _, err := (&BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}}).Reconcile(context.Background(), declared, observed); err == nil {
+		t.Fatal("full volume at bound was accepted")
+	}
+}
+
+func TestBlockStorageUnhealthyVolumeRequiresProvenReplacement(t *testing.T) {
+	declared := testComputeRegion()
+	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	observed := testBlockObserved(member)
+	observed.Volumes = []ObservedVolume{{
+		ID: "ocid1.volume.oc1.x.bad", DisplayName: DataVolumeName("gru", 1), SizeGiB: 200,
+		VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "ERROR", AvailabilityDomain: "AD-1", KMSKeyID: "ocid1.key.oc1.x.key", BackupVerified: true, ReplicaCount: 2,
+	}}
+	observed.Attachments = []ObservedAttachment{{ID: "ocid1.volumeattachment.oc1.x.old", InstanceID: member.ID, VolumeID: observed.Volumes[0].ID, LifecycleState: "ATTACHED"}}
+	reconciler := &BlockStorageReconciler{Block: &fakeBlockGateway{}, Compute: &fakeComputeGateway{}, Policy: BlockStoragePolicy{AllowReplacement: true}}
+	plan, err := reconciler.Reconcile(context.Background(), declared, observed)
+	if err != nil {
+		t.Fatalf("replacement reconcile failed: %v", err)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind() != OCIActionCreateVolume {
+		t.Fatalf("replacement plan = %v, want one replacement action", plan.Kinds())
+	}
+	replacement := plan.Actions[0].(ReplaceVolumeAction)
+	if replacement.OldVolumeID != observed.Volumes[0].ID || replacement.OldAttachmentID != observed.Attachments[0].ID || replacement.Spec.AvailabilityDomain != "AD-1" || replacement.Spec.KMSKeyID != observed.Volumes[0].KMSKeyID {
+		t.Fatalf("replacement lost identity/residency: %+v", replacement)
+	}
+	if err := reconciler.Apply(context.Background(), declared, observed, plan); err != nil {
+		t.Fatalf("replacement apply failed: %v", err)
+	}
+	block := reconciler.Block.(*fakeBlockGateway)
+	if got, want := block.calls, []string{"create", "attach", "detach"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("replacement calls = %v, want create/attach/detach", got)
+	}
+}
+
+func TestBlockStorageUnknownMutationOutcomeStopsPlan(t *testing.T) {
+	declared := testComputeRegion()
+	member := ObservedMember{ID: "ocid1.instance.oc1.x.1", Index: 1, Shape: declared.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1"}
+	volume := ObservedVolume{ID: "ocid1.volume.oc1.x.1", DisplayName: DataVolumeName("gru", 1), SizeGiB: 50, VPUsPerGiB: BalancedVPUsPerGiB, LifecycleState: "AVAILABLE", AvailabilityDomain: "AD-1"}
+	block := &fakeBlockGateway{expandErr: &ProviderOutcomeUnknownError{Message: "accepted by OCI"}}
+	reconciler := &BlockStorageReconciler{Block: block, Compute: &fakeComputeGateway{}}
+	plan, err := reconciler.Reconcile(context.Background(), declared, testBlockObserved(member))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use a plan containing a mutating operation followed by attach: Apply must
+	// stop at the indeterminate operation and never risk a second mutation.
+	plan.Actions = []OCIAction{ExpandVolumeAction{VolumeID: volume.ID, NewSizeGiB: 200}, AttachVolumeAction{InstanceID: member.ID, VolumeID: volume.ID}}
+	err = reconciler.Apply(context.Background(), declared, testBlockObserved(member), plan)
+	var unknown *ProviderOutcomeUnknownError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("unknown mutation error = %v, want ProviderOutcomeUnknownError", err)
+	}
+	if len(block.calls) != 1 || block.calls[0] != "expand" {
+		t.Fatalf("calls after unknown outcome = %v, want only expand", block.calls)
 	}
 }
 
