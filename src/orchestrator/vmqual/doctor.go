@@ -90,7 +90,11 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 		add(tool, err == nil, pathOrError(path, err), "install the host fault tool without using a container runtime")
 	}
 	if config.Root != "" {
-		ok, detail := diskBudget(config.Root, 4<<30)
+		diskPath := config.Root
+		if _, statErr := os.Stat(diskPath); statErr != nil {
+			diskPath = filepath.Dir(diskPath)
+		}
+		ok, detail := diskBudget(diskPath, 4<<30)
 		add("disk", ok, detail, "make at least 4 GiB available for the six-guest qualification stack")
 	}
 	return report

@@ -190,6 +190,7 @@ func (s *Stack) EnforceBudget(ctx context.Context) error {
 	s.mu.Unlock()
 	var rss uint64
 	var cpu float64
+	var configuredMiB int64
 	for _, guest := range guests {
 		s.mu.Lock()
 		vm := s.vms[guest.ID]
@@ -206,6 +207,10 @@ func (s *Stack) EnforceBudget(ctx context.Context) error {
 		}
 		rss += observation.RSSBytes
 		cpu += observation.IdleCPU
+		configuredMiB += guest.MemoryMiB
+	}
+	if configuredMiB*1024*1024 > s.config.MaxRSSBytes {
+		return fmt.Errorf("vmqual: configured memory budget exceeded: %d MiB", configuredMiB)
 	}
 	if rss > uint64(s.config.MaxRSSBytes) {
 		return fmt.Errorf("vmqual: idle RSS budget exceeded: %d > %d", rss, s.config.MaxRSSBytes)
