@@ -79,9 +79,9 @@ func TestNatsRuntimeReadinessIncludesMembershipLoopFailure(t *testing.T) {
 	now := time.Now().UTC()
 	expires := now.Add(time.Minute)
 	runtime := &NatsRuntime{
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: RegionalAuthorityCoordinatorForSnapshot(RegionalAuthoritySnapshot{
 			State: "leader", ObservedAt: now, LeaseExpiresAt: &expires,
-		}},
+		}),
 		membership: &RegionalRuntimeMembership{},
 	}
 	if !runtime.ready() {
@@ -113,10 +113,10 @@ func TestNatsRuntimeHealthServiceReturnsTheBoundV2Envelope(t *testing.T) {
 	runtime := &NatsRuntime{
 		client:   client,
 		topology: NewNatsTopology("gru", 1, "controller-1"),
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: RegionalAuthorityCoordinatorForSnapshot(RegionalAuthoritySnapshot{
 			State: "leader", IsLeader: true, Epoch: 2, KvRevision: 4,
 			ObservedAt: now, LeaseExpiresAt: &expires,
-		}},
+		}),
 		membership:  &RegionalRuntimeMembership{},
 		stats:       NewNatsServiceEndpointStats(),
 		lifetimeCtx: context.Background(),

@@ -1,4 +1,4 @@
-package control
+package authority
 
 import "time"
 import "terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"

@@ -1,4 +1,4 @@
-package control
+package authority
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 )
 
 type RegionalAuthoritySnapshot struct {
@@ -191,7 +192,7 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	if store == nil {
 		return nil, errors.New("(Parameter 'store')")
 	}
-	if !GlobalNatsTopologyIsCellToken(cell) {
+	if !messaging.GlobalNatsTopologyIsCellToken(cell) {
 		return nil, errors.New("The global authority candidate cell is invalid. (Parameter 'cell')")
 	}
 	if !shared.MessagingCellTokenIsValid(instance) {
@@ -640,4 +641,11 @@ func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (*CompareAndSetLe
 
 	intent, ok := intents[0].(*CompareAndSetLeaseIntent)
 	return intent, ok
+}
+
+// RegionalAuthorityCoordinatorForSnapshot returns a coordinator primed with
+// one state snapshot and no lease machinery; read-only hosts and tests use it
+// to present a known authority state.
+func RegionalAuthorityCoordinatorForSnapshot(snapshot RegionalAuthoritySnapshot) *RegionalAuthorityCoordinator {
+	return &RegionalAuthorityCoordinator{snapshot: snapshot}
 }
