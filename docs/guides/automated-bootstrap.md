@@ -42,8 +42,8 @@ reconciles until it has:
 4. installed only `ts-node` through cloud-init;
 5. admitted host identities and let `ts-node` fetch and verify the signed
    orchestrator and TerraBase artifacts;
-6. formed the launch control replica on the selected GRU member and joined it
-   to the declared cross-Region control topology as Regions are added;
+6. started the first GRU master and regional orchestrator with temporary
+   pre-customer R1 storage on the selected GRU member;
 7. converged certificates, Cloudflare DNS and routes, KV, telemetry, and
    external probes; and
 8. handed mutation authority to the running control plane and removed the
@@ -61,9 +61,15 @@ targets, the control replica, identities, edge routing, telemetry, and external
 probes are healthy. Partial completion remains declared state for automatic
 repair; it does not turn into a list of console steps.
 
-Adding SFO or FRA uses `terrascale-orchestrator add-region <code>` and the same
-reconcile, readiness, ownership, and rollback rules. Region removal is also
-declarative and must fence placement and routing, drain safely, and prove all
+Every added Region uses `terrascale-orchestrator add-region <code>` and starts
+its own regional orchestrator under GRU authority, with the same reconcile,
+readiness, ownership, and rollback rules. SFO and FRA also synchronize global
+control replicas. Their fenced R3 promotion, quorum verification, and
+post-transition snapshot retire the remaining bootstrap authority. Customer
+admission stays closed until R3 and the production gates pass.
+
+Region removal is declarative and must fence placement and routing, drain
+safely, and prove all
 residency and retention obligations before deletion.
 
 The local Firecracker suite qualifies orchestration behavior and failure

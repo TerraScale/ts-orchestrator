@@ -27,11 +27,19 @@ reactive sync, or authoritative usage.
 
 ## Control topology
 
-GRU is the global authority. At launch there are no dedicated control hosts.
-One control replica is co-hosted on a member host in each of GRU, SFO, and FRA,
-and the three replicas form one embedded JetStream R3 group across those
-Regions. A Region can move to an autonomous three-replica regional group only
-after it has at least three hosts; that is post-launch capacity work.
+GRU starts first and hosts the single active global master. Every Region runs
+its own regional orchestrator from initial admission. The master manages
+those processes; they reconcile local OCI resources and coordinate TerraBase
+members under fenced, Region-scoped authority.
+
+At launch there are no dedicated control hosts. One orchestrator is co-hosted
+on a member host in each of GRU, SFO, and FRA. Their embedded NATS replicas
+form the permanent global JetStream R3 after the temporary pre-customer GRU
+R1 bootstrap. Regions 4 through 20 also run regional orchestrators but do not
+join the global R3. They use it for authoritative control state. A separate
+regional R3 requires at least three eligible hosts and remains post-launch
+capacity work. Regional process placement and NATS replica placement are
+separate decisions.
 
 Control mutations are fenced, authenticated, idempotent, restart-safe, and
 durably journaled. Loss of GRU or NATS can freeze new global mutations but

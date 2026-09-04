@@ -11,6 +11,20 @@ wins and this file must be corrected in the same change. This file contains
 decisions and acceptance criteria, never progress, dates, commit hashes, or
 review records.
 
+## Mission
+
+Build TerraScale's Go orchestrator specifically for TerraBase. It manages the
+infrastructure that runs both itself and the TerraBase cluster. GRU is created
+first and hosts the single active global master. Every Region, including GRU,
+runs its own regional orchestrator from initial admission.
+
+The GRU master manages the regional orchestrators. Each regional orchestrator
+reconciles its own OCI resources, operates local hosts through `ts-node`, and
+coordinates the local TerraBase members through private TBEP. Global policy,
+Region admission, control membership, and cross-Region changes remain under
+GRU authority. A regional orchestrator is required even when the Region has
+only two member hosts and no independent regional JetStream quorum.
+
 ## Workspace decision map
 
 This map is an index, not a substitute for the requirements below.
@@ -83,7 +97,9 @@ reactive frames, or usage truth.
 
 ## Control-plane topology
 
-- GRU is the global authority.
+- GRU hosts the single active global master and the first regional
+  orchestrator. The master manages the lifecycle and authority of every
+  regional orchestrator, including its own GRU regional role.
 - Greenfield bootstrap starts one co-hosted GRU control replica as a temporary
   JetStream R1. R1 is allowed only before customers and only until SFO and FRA
   are ready.
@@ -95,8 +111,10 @@ reactive frames, or usage truth.
 - Launch and production use one permanent global R3, with one replica co-hosted
   in each of GRU, SFO, and FRA. They never downgrade to R1 after promotion.
 - There are no dedicated control hosts at launch.
-- Regions 4 through 20 start with two member hosts and no global control
-  replica. The GRU/SFO/FRA group manages them remotely.
+- Every Region starts with a regional orchestrator co-hosted on one of its
+  two member hosts. Regions 4 through 20 do not join the global R3. Their
+  regional orchestrators execute Region-scoped work under GRU-issued authority
+  and use the global R3 for authoritative control records.
 - A later Region may gain a separate three-replica regional control group only
   after it has at least three eligible hosts. That group handles Region-scoped
   control work; global mutations remain under the permanent global R3. This is
@@ -108,6 +126,41 @@ reactive frames, or usage truth.
 - Control mutations are fenced, authenticated, idempotent, restart-safe, and
   durably journaled. Missing, stale, conflicting, or unverified authority fails
   closed.
+
+### Master and regional responsibilities
+
+One active master means one fenced global mutation authority. The three global
+JetStream replicas provide control-state durability; they are not three
+independent masters. A NATS storage leader does not automatically become the
+application master. Regional authority cannot promote itself to global
+master when GRU is unreachable.
+
+| Responsibility | GRU master | Regional orchestrator |
+| --- | --- | --- |
+| Desired estate | Own the accepted global declaration and revision | Reconcile the accepted Region-scoped declaration |
+| Orchestrator lifecycle | Bootstrap, admit, configure, upgrade, replace, and retire regional orchestrators | Report identity, version, readiness, and operation receipts |
+| OCI resources | Own shared IAM policy and assign bounded regional authority | Observe and reconcile owned regional compute, network, storage, and identities |
+| TerraBase cluster | Coordinate placement policy, residency, cross-Region membership intent, and rollout order | Apply local placement intent, health gates, drain, replacement, and restore coordination through TBEP |
+| Cloudflare | Coordinate shared zone policy, routing publication, and release promotion | Supply observed regional health and placement facts |
+| State and visibility | Maintain the authoritative estate view and aggregate regional status | Report bounded observations, metrics references, and durable receipts |
+
+Every regional operation carries a Region identity, accepted desired-state
+revision, operation ID, and fencing epoch. Credential scope and mutation-time
+checks enforce the same boundary. A retry resumes the operation recorded in
+the journal. Expired authority, conflicting ownership, or an unavailable
+authoritative journal stops new mutations. Reconnection re-observes provider
+and host state before resuming work; it never blindly replays queued changes.
+
+Existing TerraBase service continues during master, regional orchestrator, or
+NATS loss. Local observation and already admitted service operation may
+continue. New control mutations require valid authority and durable recording.
+Any future disconnected repair authority must specify its operation limits,
+expiry, and reconciliation rules before it is enabled.
+
+GRU is the home of global orchestration state and the consolidated estate
+view. Durable replicas and backups protect that state outside GRU. This does
+not move customer data out of its residency boundary or change the existing
+ownership of usage truth by TerraBase and collected telemetry by Grafana Cloud.
 
 ## Launch estate
 
@@ -200,15 +253,59 @@ release. Starting from an empty OCI Region, one command creates storage,
 networking, two member hosts, Litestream targets, certificates, routes, health
 and placement KV entries, telemetry, and probes. SFO and FRA also receive the
 synchronized candidates required for the global R1-to-R3 promotion. Regions 4
-through 20 use the global R3 remotely unless at least three eligible hosts and a
-separate declaration qualify them for a regional R3. The command waits for the
-applicable member, control, backup, edge-routing, and external-probe gates before
+through 20 also start and admit their own regional orchestrator, backed by the
+global R3. At least three eligible hosts and a separate declaration are needed
+for an independent regional R3. The command waits for the regional
+orchestrator, member, control, backup, edge-routing, and external-probe gates before
 the Region can serve. `--dry-run` is the generated runbook.
 
 Region removal is declarative and fail-closed. It fences new placement and
 routing, drains services, proves that placement locks, retention, backup, and
 deletion obligations are satisfied, then removes owned resources. It never
 widens a database placement lock.
+
+### First-master bootstrap and handoff
+
+Bootstrap must work before TerraBase, the dashboard, regional orchestrators,
+and the global quorum exist. Its durable operation journal, artifact trust,
+provider ownership proof, and initial identity must not depend on those
+services already being healthy. Bootstrap retries use the same estate identity
+and operation history, including after a crash between provider creation and
+receipt persistence.
+
+Handoff has two distinct boundaries. Once GRU runtime authority is verified,
+the owner's provisioning process stops acting as the routine controller and
+its API key is never copied to a host. Any remaining bootstrap authority is
+limited to completing the pre-customer topology transition. After synchronized
+R3 promotion, quorum verification, and the post-transition snapshot, that
+remaining authority is revoked. Neither a rerun of bootstrap nor an old host
+may establish a second master or return production to R1.
+
+Customer admission requires permanent R3 and the production gates. A healthy
+GRU R1 is a bootstrap milestone, not permission to serve customers. Recovery
+from a lost first master must preserve the operation journal and accepted
+epoch, fence the old identity, and prove ownership before resuming creation.
+
+### Managing the orchestrator itself
+
+The declared estate includes the master's and regional orchestrators' hosts,
+embedded NATS storage, identities, certificates, versions, resource limits,
+health checks, and backups. Their installation and replacement use `ts-node`.
+The master must reconcile a failed regional orchestrator without requiring
+that failed process to repair itself.
+
+Control-plane releases replace one replica at a time, preserve quorum and
+accepted history, and verify journal and protocol compatibility before
+activation. A master restart resumes durable operations. Rollback restores a
+compatible binary without restoring an older fencing epoch. A schema change
+that prevents binary rollback needs a tested recovery path before release.
+
+A total master or control-store failure requires a documented recovery path
+that can run without a healthy orchestrator. Recovery verifies snapshot
+integrity, restores acknowledged state under the declared recovery objective,
+and fences old controllers before admitting replacements. Regional processes
+must reject stale master commands after recovery. No automated recovery may
+choose between conflicting durable histories or discard the last known copy.
 
 ## Placement and residency
 
@@ -225,6 +322,26 @@ widens a database placement lock.
 - Infrastructure actions such as drain, replace, `add-region`, and rollback
   stay in the orchestrator CLI. Product actions stay in the dashboard and
   public management API.
+
+### TerraBase lifecycle contract
+
+The orchestrator manages TerraBase membership intent, capacity, configuration,
+release versions, backup targets, drain, replacement, and restore scheduling.
+TerraBase owns membership acceptance, writer and follower transitions,
+replication correctness, catch-up evidence, and permission to serve. An
+orchestrator master is never a TerraBase database primary.
+
+Every lifecycle operation must use a pinned, versioned TBEP contract with
+mutual authentication, deadlines, idempotency, and durable operation status.
+A transport timeout is an unknown result until observed. Host liveness alone
+cannot prove replication health, safe removal, successful backup, or readiness
+to receive traffic. Unavailable or stale TerraBase evidence fails the relevant
+mutation gate closed.
+
+Cluster qualification must cover create, scale out, drain, replace, rejoin,
+upgrade, rollback, backup, restore, and safe removal using the real TerraBase
+binary. Infrastructure completion and TerraBase readiness are separate gates;
+placement and routing are published only after both pass.
 
 ## Host agent and systemd runtime
 
@@ -543,8 +660,10 @@ make vm-clean     # removes only labelled TerraScale Firecracker test resources
 3. the SFO and FRA candidates synchronize before one atomic R1-to-R3 promotion;
    the accepted epoch never regresses, bootstrap authority is retired, the R3
    survives one replica loss, and production cannot downgrade to R1;
-4. a fourth two-host Region is managed remotely without a global replica, and
-   a separate regional R3 is refused below three eligible hosts;
+4. a fourth two-host Region runs its own admitted regional orchestrator without
+   joining the global R3; it reconciles local resources under GRU authority,
+   rejects cross-Region and stale-master commands, and cannot form a separate
+   regional R3 below three eligible hosts;
 5. reconciliation creates missing resources, corrects mutable drift, handles
    eventual provider state, and refuses unowned deletion;
 6. `ts-node` installs signed artifacts for the native guest architecture,
@@ -612,6 +731,41 @@ Launch requires a 7-day soak on the exact release digests, successful rollback
 rehearsal in every Region, 14 consecutive daily restore drills, live external
 SLO probes and paging, no critical security findings, and the complete
 workspace acceptance checklist.
+
+## Refactoring order and completion criteria
+
+Refactoring must produce working operational paths in this order:
+
+1. Define and enforce master, regional orchestrator, storage replica, and host
+   agent identities. Remove remote-only Region assumptions. Prove single
+   master fencing and regional resource isolation before adding mutations.
+2. Complete empty-tenancy GRU bootstrap, restart recovery, runtime handoff,
+   SFO/FRA admission, and R1-to-R3 promotion. Inject a crash at every authority
+   boundary and refuse premature customer admission.
+3. Wire the production process to concrete durable stores, provider clients,
+   regional dispatch, TBEP clients, and background services. Required adapter
+   absence must produce an actionable startup error, never apparent readiness.
+4. Complete TerraBase lifecycle and regional repair paths, then orchestrator
+   upgrades, replacement, and full control-state recovery. Verify duplicate,
+   delayed, reordered, and indeterminate operations through real process
+   boundaries.
+5. Remove superseded roles, duplicate policy implementations, obsolete
+   adapters, and stale documentation as each replacement passes its gates.
+   Preserve or explicitly migrate acknowledged journal and wire contracts.
+6. Pass portable checks, Firecracker qualification, real-provider drills, and
+   launch soak requirements on the intended release. Record measured recovery
+   time, acknowledged-state loss, and capacity against declared limits.
+
+Before implementing a lifecycle path, specify its owning controller, required
+authority, persisted intent and receipts, provider or TBEP contract, retry and
+recovery behavior, and observable success criteria. Before production, declare
+control-plane RPO/RTO, regional recovery targets, reconciliation deadlines,
+resource budgets, and supported version skew. Unspecified targets and missing
+qualification evidence block production acceptance.
+
+Implementation findings and unresolved inputs belong in the
+[production readiness guide](docs/guides/production-readiness.md), not as
+progress claims in this goal.
 
 ## Repository construction requirements
 

@@ -33,11 +33,16 @@ behavior, arbitrary customer workloads, or a public query proxy.
 
 ## Launch shape
 
-GRU is the global authority. At launch, one control replica is co-hosted on a
-member host in each of GRU, SFO, and FRA; those three replicas form one
-JetStream R3 control group across the Regions. Each Region has two admitted
-TerraBase member hosts. Existing Regions keep serving when the orchestrator,
-GRU, or NATS is unavailable.
+GRU starts first and hosts the single active global master. Every Region runs
+its own co-hosted regional orchestrator to manage its OCI resources and
+TerraBase members under GRU authority. The GRU, SFO, and FRA processes also
+host the permanent global JetStream R3. Later Regions run regional
+orchestrators without joining that global storage group. Each Region starts
+with two admitted TerraBase member hosts.
+
+Bootstrap uses a temporary pre-customer GRU R1, then admits synchronized SFO
+and FRA replicas and promotes to R3 before customer admission. Existing
+Regions keep serving when the orchestrator, GRU, or NATS is unavailable.
 
 Production hosts are Ubuntu LTS minimal and contain no Docker, Podman,
 containerd, container image, or registry. Cloud-init installs only `ts-node`.
@@ -101,9 +106,9 @@ go build ./...
 go test -race ./...
 ```
 
-The complete repository verification set is `make check`; under the target
-contract it also runs the Firecracker smoke and full VM qualification on a
-Linux/KVM runner.
+`make check` is the portable repository verification set. The separate
+Firecracker `make vm-test` gate runs on Linux/KVM before candidate submission
+on every `develop` push, including documentation changes.
 
 ## Documentation
 
@@ -111,5 +116,6 @@ Linux/KVM runner.
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
 - [Firecracker local qualification](docs/guides/running-locally.md)
+- [Production readiness and refactoring inputs](docs/guides/production-readiness.md)
 - [Current package map](DESIGN.md)
 - [Current terminology](CONTEXT.md)

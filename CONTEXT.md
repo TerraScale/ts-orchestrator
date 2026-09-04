@@ -27,7 +27,22 @@ _Avoid_: assumed state, cached permission to delete.
 One process participating in the launch JetStream R3 control group. At launch,
 one replica is co-hosted in each of GRU, SFO, and FRA; there is one group across
 the three Regions.
-_Avoid_: regional orchestrator, dedicated launch control host.
+_Avoid_: independent global master, dedicated launch control host.
+
+**Regional orchestrator**
+
+The Go process present in every Region from initial admission. It reconciles
+local OCI resources and coordinates TerraBase members under authority issued
+by the GRU master. It need not host an independent regional JetStream R3.
+_Avoid_: remote-only Region, autonomous global master.
+
+**GRU master**
+
+The single active global authority, bootstrapped first. It admits, configures,
+upgrades, replaces, and retires regional orchestrators. Global JetStream
+replication protects its control state; storage leadership grants no separate
+application authority.
+_Avoid_: sole durable copy, TerraBase database primary.
 
 **GRU authority**  
 The global mutation authority. Losing it may freeze new global control changes
