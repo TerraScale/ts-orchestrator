@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "operationId": "terrabase-2026-09-03-001",
+  "source": {
+    "repository": "terrabase",
+    "commit": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+    "treeDigest": "sha256:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  "artifact": {
+    "digest": "sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    "manifestDigest": "sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+    "kind": "service",
+    "architecture": "linux/arm64"
+  },
+  "target": {
+    "service": "terrabase",
+    "environment": "production",
+    "regions": [
+      "gru",
+      "sfo",
+      "fra"
+    ]
+  },
+  "configurationRevision": "sha256:e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+  "migrationRevision": null,
+  "requestedBy": "ts-deploy",
+  "reason": "green develop push",
+  "rollback": {
+    "artifactDigest": "sha256:f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6",
+    "manifestDigest": "sha256:0707070707070707070707070707070707070707070707070707070707070707",
+    "kind": "service",
+    "architecture": "linux/arm64"
+  },
+  "informational": {
+    "notes": null,
+    "notificationChannels": null
+  }
+}

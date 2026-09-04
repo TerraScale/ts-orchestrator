@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "operationId": "terrabase-2026-09-03-001",
+  "status": "succeeded",
+  "source": {
+    "repository": "terrabase",
+    "commit": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+    "treeDigest": "sha256:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+  },
+  "artifactDigest": "sha256:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "target": {
+    "service": "terrabase",
+    "environment": "production",
+    "regions": [
+      "gru",
+      "sfo",
+      "fra"
+    ]
+  },
+  "provenance": {
+    "verified": true,
+    "configurationRevision": "sha256:e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+    "migrationRevision": null
+  },
+  "health": {
+    "checks": [
+      {
+        "name": "drain",
+        "status": "passed"
+      },
+      {
+        "name": "health",
+        "status": "passed"
+      },
+      {
+        "name": "catch-up",
+        "status": "passed"
+      }
+    ],
+    "converged": true
+  },
+  "rollback": {
+    "attempted": false,
+    "targetArtifactDigest": null,
+    "status": "not_required",
+    "targetManifestDigest": null
+  },
+  "auditId": "op-terrabase-2026-09-03-001",
+  "error": null,
+  "artifactManifestDigest": "sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+}
