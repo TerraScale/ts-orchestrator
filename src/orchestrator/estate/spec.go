@@ -228,9 +228,9 @@ const (
 // ResourceRef is the stable provider-neutral identity used by observation,
 // reconciliation, and drift reporting.
 type ResourceRef struct {
-	Kind   ResourceKind
-	Region string
-	Name   string
+	Kind   ResourceKind `json:"kind"`
+	Region string       `json:"region,omitempty"`
+	Name   string       `json:"name"`
 }
 
 // Validate rejects incomplete, ambiguous, or unsafe declarations before they
