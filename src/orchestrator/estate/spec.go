@@ -72,6 +72,7 @@ type Network struct {
 	CIDR           string
 	Subnets        []Subnet
 	SecurityGroups []NetworkSecurityGroup
+	RouteTables    []RouteTable
 }
 
 type Subnet struct {
@@ -92,6 +93,22 @@ type NetworkSecurityRule struct {
 	Peer      string
 	PortMin   uint16
 	PortMax   uint16
+}
+
+// RouteTable declares one subnet's routes. Member subnets are private, so
+// the public internet (replication peers, OCI APIs, artifact fetches) is
+// reachable only through the Region's NAT gateway (D-66); routes name it
+// declaratively and the network reconciler owns the gateway resource.
+type RouteTable struct {
+	Name   string
+	Subnet string
+	Routes []RouteRule
+}
+
+// RouteRule sends one destination CIDR through the Region's NAT gateway.
+type RouteRule struct {
+	Destination string
+	ViaNAT      bool
 }
 
 type Bucket struct {
@@ -367,6 +384,45 @@ func validateRegion(path string, region Region) error {
 			if err := validateSecurityRule(fmt.Sprintf("%s.network.securityGroups[%d].rules[%d]", path, i, j), rule); err != nil {
 				return err
 			}
+		}
+	}
+	if err := uniqueNames(path+".network.routeTables", len(region.Network.RouteTables), func(i int) string { return region.Network.RouteTables[i].Name }); err != nil {
+		return err
+	}
+	for i, table := range region.Network.RouteTables {
+		tablePath := fmt.Sprintf("%s.network.routeTables[%d]", path, i)
+		if len(table.Routes) == 0 {
+			return invalid(tablePath+".routes", "must not be empty")
+		}
+		declaredSubnet := false
+		for _, subnet := range region.Network.Subnets {
+			if subnet.Name == table.Subnet {
+				declaredSubnet = true
+				break
+			}
+		}
+		if !declaredSubnet {
+			return invalid(tablePath+".subnet", "must name a declared subnet")
+		}
+		destinations := make(map[string]struct{}, len(table.Routes))
+		for j, rule := range table.Routes {
+			rulePath := fmt.Sprintf("%s.routes[%d]", tablePath, j)
+			destination, err := netip.ParsePrefix(rule.Destination)
+			if err != nil {
+				return invalid(rulePath+".destination", "must be a valid CIDR prefix")
+			}
+			destination = destination.Masked()
+			if networkPrefix.Contains(destination.Addr()) && destination.Bits() >= networkPrefix.Bits() {
+				return invalid(rulePath+".destination", "must not fall inside the Region VCN")
+			}
+			if !rule.ViaNAT {
+				return invalid(rulePath+".viaNat", "must declare a supported route target")
+			}
+			canonical := destination.String()
+			if _, duplicate := destinations[canonical]; duplicate {
+				return invalid(rulePath+".destination", "duplicates another route destination")
+			}
+			destinations[canonical] = struct{}{}
 		}
 	}
 	if len(region.Buckets) == 0 || len(region.VaultKeys) == 0 || len(region.Certificates) == 0 {

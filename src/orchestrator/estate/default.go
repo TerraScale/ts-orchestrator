@@ -81,6 +81,13 @@ func defaultRegion(code, ociName, cidr string) Region {
 		Network: Network{
 			CIDR:    cidr,
 			Subnets: []Subnet{{Name: "members", CIDR: cidr, RegionCode: code}},
+			// Member subnets are private: replication, OCI APIs, and
+			// artifact fetches ride one default route through the Region NAT
+			// gateway (D-66) and nothing else is exposed.
+			RouteTables: []RouteTable{{
+				Name: "members", Subnet: "members",
+				Routes: []RouteRule{{Destination: "0.0.0.0/0", ViaNAT: true}},
+			}},
 			SecurityGroups: []NetworkSecurityGroup{{
 				Name: "members",
 				Rules: []NetworkSecurityRule{
