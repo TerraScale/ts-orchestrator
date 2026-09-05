@@ -1,0 +1,20 @@
+Guest diagnostic extraction, base acc3db71, 2026-09-05.
+
+Moved fixed service report JSON and status/journal parsing into stdlib-only
+guestdiagnostic. vmqualruntime consumes it directly and retains guest I/O,
+deadlines, bounded output, failure wrapping and process supervision.
+No aliases or compatibility readers. Golden JSON covers category order,
+unknown systemd values, malformed journal input and redaction.
+vmqualruntime decreases from 9997 to 9874 Go lines; guestdiagnostic has 170.
+
+Sequential verification, Go1.27.1, GOMAXPROCS=4 GOFLAGS=-p=2:
+make check: PASS exit 0, including full portable race suite.
+go test -race -count=1 -tags sandboxvm ./src/orchestrator/guestdiagnostic ./src/orchestrator/vmqualruntime: PASS exit 0.
+
+The separately recorded VM attempt used clean acc3db71 before extraction.
+It observed orchestrator and ts-node running but failed TerraBase readiness.
+This parser extraction does not establish full-stack or production readiness.
+
+Local log SHA256:
+1e2184b97950f86dafa101c3a44649f31f45d0b110af578e0f9affdb1fd0fdb4  /tmp/ts-guestdiagnostic-check.log
+b346d57c13cdbf0e2c53f8b99c6dc8e57e529a0f1125c59fa9e291b800d7d112  /tmp/ts-guestdiagnostic-tagged.log

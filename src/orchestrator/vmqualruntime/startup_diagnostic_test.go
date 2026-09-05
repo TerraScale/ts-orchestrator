@@ -100,32 +100,7 @@ func TestStartupDiagnosticTimeoutStillStops(t *testing.T) {
 	}
 }
 
-func TestStartupJournalLimitsAndCategories(t *testing.T) {
-	var initial startupServiceDiagnostic
-	parseStartupJournal(&initial, []byte(`{"MESSAGE":"not a directory SECRET","PRIORITY":"3"}`))
-	if len(initial.Categories) != 1 || initial.Categories[0] != "path-not-directory" {
-		t.Fatalf("path category lost: %+v", initial)
-	}
-	var engine startupServiceDiagnostic
-	parseStartupJournal(&engine, []byte(`{"MESSAGE":"Error: MissingConfigurationPath","PRIORITY":"3"}`))
-	if len(engine.Categories) != 1 || engine.Categories[0] != "terrabase-configuration-missing" {
-		t.Fatalf("engine category lost: %+v", engine)
-	}
-	var composition startupServiceDiagnostic
-	parseStartupJournal(&composition, []byte(`{"MESSAGE":"orchestrator: production runtime requires configured estate publisher, key rotation, free-tier reaper, restore drill, and delivery mirror adapters","PRIORITY":"3"}`))
-	if len(composition.Categories) != 1 || composition.Categories[0] != "production-composition-missing" {
-		t.Fatalf("composition category lost: %+v", composition)
-	}
-	var estate startupServiceDiagnostic
-	parseStartupJournal(&estate, []byte(`{"MESSAGE":"orchestrator: OCI estate verification requires TS_ORCH_OCI_ESTATE_FILE, TS_ORCH_OCI_KEY_ID, and TS_ORCH_OCI_PRIVATE_KEY_FILE","PRIORITY":"3"}`))
-	if len(estate.Categories) != 1 || estate.Categories[0] != "oci-estate-configuration-missing" {
-		t.Fatalf("estate category lost: %+v", estate)
-	}
-	var report startupServiceDiagnostic
-	parseStartupJournal(&report, []byte(strings.Repeat(`{"MESSAGE":"permission denied TOKEN","PRIORITY":"3"}`+"\n", 100)))
-	if report.JournalEntries != 20 || report.SeverityCounts[3] != 20 || len(report.Categories) != 1 {
-		t.Fatalf("unbounded journal: %+v", report)
-	}
+func TestStartupDiagnosticOutputBound(t *testing.T) {
 	var copied startupBoundedOutput
 	if _, err := io.Copy(&copied, io.LimitReader(strings.NewReader(strings.Repeat("x", 128<<10)), 128<<10)); err == nil || copied.Len() != 64<<10 {
 		t.Fatal("io.Copy bypassed output bound")

@@ -1,0 +1,40 @@
+Fresh Firecracker qualification attempt on clean acc3db71, Linux amd64.
+Privileged doctor PASS. Fresh helper and guest orchestrator/ts-node binaries;
+TerraBase was the supplied executable, not rebuilt here.
+
+Run: 2026-09-05T13:11:18.972054553Z to 2026-09-05T13:14:16.503445501Z.
+vm-test FAIL exit 1 at gru-member-1 service readiness:
+vmqual: activated terrabase process is not running.
+Observed ts-node active/running, PID 2281, result success.
+Observed orchestrator active/running, PID 2568, result success.
+TerraBase activating/auto-restart, exit status 1, diagnostic category
+terrabase-configuration-missing.
+
+The immutable version configuration path permitted observed orchestrator
+startup. This does not establish live guest authority readiness, two-host
+membership, R3 promotion, six-host/fourth-region scenarios or fault coverage.
+No idle resource gate passed; zero unmeasured fields are not evidence.
+
+Peak host RSS: 475766784 bytes; configured guest RAM: 512MiB.
+Automatic cleanup: 78504110ns. Explicit clean PASS exit 0.
+Follow-up inspection found no Firecracker process or files in the owned state
+directory. Reported provider paths were absent and listeners unreachable.
+The adjacent JSON preserves the complete SuiteReport.
+
+Guest artifact SHA256:
+277cee18df8ea63d8874d2badf0bab606a2ffbaf6a611a96f948f68b7acd9f01  ts-node (9556128 bytes)
+8883178d9944656d2ab5759c45efc4d0d8ed405ed206104edf9a794c641a7bbe  orchestrator (28860576 bytes)
+300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7  TerraBase (17787952 bytes)
+
+Helper SHA256:
+a1297a95c23254bb3859858be5bda499f1b89d02785c07f5ac433056c74724bb  /tmp/ts-orchestrator-vm-qualify-immutable-config
+ea1975a5a95e7a8d1dff0c5598e93217fa8353656467933bcde4ccafdc7134b5  /tmp/ts-orchestrator-vm-artifacts-immutable-config
+
+Same VM root, pins, image manifest, Go1.27.1/e2fsprogs1.47.4 PATH,
+GOMAXPROCS=4 GOFLAGS=-p=2 and privileged environment as recorded in
+vm-test-initial-r1-2026-09-05.txt. Helper suffix changed to immutable-config.
+
+Local log SHA256:
+26ff37acc45723745b9db0f002747c2fb79c656a443a8389eadb3ad1422d7cff  /tmp/ts-vm-immutable-config-test.log
+deeac44a591b7ad2000220f1616d60284e5b74f21d5c1be7f59ec790510cfb4c  /tmp/ts-vm-immutable-config-doctor.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-vm-immutable-config-clean.log

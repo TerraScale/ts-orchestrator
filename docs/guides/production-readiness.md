@@ -110,7 +110,11 @@ ts-node remained active; orchestrator restarted without a matched diagnostic,
 and TerraBase reported missing configuration. Cleanup passed. A unit/reader
 regression then reproduced the generated `current` configuration path being
 rejected by symlink-safe admission. Configuration arguments now pin immutable
-version slots. A fresh guest run must qualify that correction.
+version slots. The [fresh run on acc3db71](../evidence/vm-test-immutable-config-2026-09-05.txt)
+observed both ts-node and orchestrator active and running. TerraBase still
+failed with missing configuration, stopping the suite at the first guest.
+Cleanup passed. This establishes observed process startup only; guest authority
+readiness, R3 promotion and the six-host/fourth-region scenarios remain unproven.
 
 CI belongs to `ts-deploy`; the global runtime no longer opens CI stores, issues
 runner credentials or constructs a runner reconciler. Signed delivery continues
