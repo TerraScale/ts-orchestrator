@@ -1,9 +1,10 @@
 package security
 
-// Current and previous credential references are retirement obligations. A
+// ValidCurrentRotationState checks the current and previous credential
+// references that represent durable retirement obligations. A
 // partial record must never be repaired by deriving them from a candidate or
 // by treating a missing version as an empty key ring.
-func validCurrentRotationState(state PersistedState) bool {
+func ValidCurrentRotationState(state PersistedState) bool {
 	if state.CurrentVersion == 0 {
 		if state.CurrentIdentityRef != "" || state.CurrentCapabilityRef != "" || state.CurrentCapabilityID != "" || !state.CurrentExpiry.IsZero() {
 			return false

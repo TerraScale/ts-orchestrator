@@ -81,23 +81,24 @@ func TestBootstrapReceiverInstallsActivatesRetriesAndRetires(t *testing.T) {
 		t.Fatal("admitted initial binary was not installed")
 	}
 	commands, _ := BootstrapCommands(grant)
-	var last []byte
-	for _, step := range commands {
+	request := func(step BootstrapCommand) ([]byte, error) {
 		issued := time.Now().UTC()
-		signed, err := SignBootstrapCommand(signer, wire, step.Subject, step.Command, issued, issued.Add(20*time.Second))
+		signed, err := SignBootstrapCommand(signer, wire, step.Subject, step.Command, issued, issued.Add(30*time.Second))
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
-		response, err := connection.request(step.Subject, signed)
+		return connection.request(step.Subject, signed)
+	}
+	for _, step := range commands {
+		response, err := request(step)
 		if err != nil || !bytes.Contains(response, []byte(`"commandId"`)) {
 			t.Fatalf("step=%s response=%s err=%v", step.Command, response, err)
 		}
 		before := len(harness.systemd.ops())
-		repeated, err := connection.request(step.Subject, signed)
+		repeated, err := request(step)
 		if err != nil || !bytes.Equal(response, repeated) || len(harness.systemd.ops()) != before {
 			t.Fatalf("retry changed effects: %s %v", repeated, err)
 		}
-		last = signed
 	}
 	current, err := CurrentVersion(harness.root, spec.Name)
 	if err != nil || current != spec.Version || !harness.systemd.isActive(UnitName(spec.Name)) {
@@ -114,7 +115,7 @@ func TestBootstrapReceiverInstallsActivatesRetriesAndRetires(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := len(harness.systemd.ops())
-	response, err := connection.request(commands[len(commands)-1].Subject, last)
+	response, err := request(commands[len(commands)-1])
 	if err != nil || !strings.Contains(string(response), "permanently retired") || len(harness.systemd.ops()) != before {
 		t.Fatalf("retired replay=%s err=%v", response, err)
 	}
@@ -123,7 +124,7 @@ func TestBootstrapReceiverInstallsActivatesRetriesAndRetires(t *testing.T) {
 	}
 	restarted, connection := bootstrapTestTransport(t, harness, authority)
 	_ = restarted
-	response, err = connection.request(commands[0].Subject, last)
+	response, err = request(commands[len(commands)-1])
 	if err != nil || !!bytes.Contains(response, []byte(`"commandId"`)) {
 		t.Fatalf("restart replay=%s err=%v", response, err)
 	}

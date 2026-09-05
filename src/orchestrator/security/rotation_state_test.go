@@ -107,3 +107,30 @@ func TestExplicitRotationPreservesOutstandingOverlap(t *testing.T) {
 		t.Fatalf("rotation after retirement = %+v, %v", result, err)
 	}
 }
+
+func TestRotationResumePreservesIssuedReferencesWhenProviderChangesResult(t *testing.T) {
+	for _, kind := range []string{"identity", "capability"} {
+		t.Run(kind, func(t *testing.T) {
+			clock := &rotationClock{now: time.Now().UTC()}
+			store := &rotationStore{}
+			coordinator := testCoordinator(t, &rotationConsumers{}, clock, store)
+			state := coordinator.newState(emptyState(coordinator.regions), "resumed-issuance", clock.Now())
+			state.NewIdentityRef = "identity-1"
+			if kind == "identity" {
+				state.NewIdentityRef = "previously-admitted-identity"
+			} else {
+				state.NewCapabilityRef = "previously-admitted-capability"
+				state.NewCapabilityID = "previously-admitted-key"
+			}
+			if err := store.Save(context.Background(), state); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := coordinator.Resume(context.Background()); err == nil {
+				t.Fatal("provider replaced issued reference under same operation")
+			}
+			if store.state.NewIdentityRef != state.NewIdentityRef || store.state.NewCapabilityRef != state.NewCapabilityRef || store.state.NewCapabilityID != state.NewCapabilityID || store.state.Phase != PhaseFailed {
+				t.Fatal("failed resume lost durable issuance/retirement references")
+			}
+		})
+	}
+}

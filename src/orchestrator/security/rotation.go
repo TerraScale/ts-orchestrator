@@ -583,7 +583,7 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 	if err != nil {
 		return err
 	}
-	if identity.Reference == "" || identity.Version != state.NewVersion || identity.ExpiresAt.Before(state.NewExpiry) {
+	if identity.Reference == "" || state.NewIdentityRef != "" && identity.Reference != state.NewIdentityRef || identity.Version != state.NewVersion || identity.ExpiresAt.Before(state.NewExpiry) {
 		wipe(identity.WorkloadTLS)
 		wipe(identity.ControlTLS)
 		wipe(identity.TrustBundle)
@@ -612,7 +612,7 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 	defer wipe(identity.ControlTLS)
 	defer wipe(identity.TrustBundle)
 	defer wipe(capability.Key)
-	if capability.ID == "" || capability.Reference == "" || capability.Version != state.NewVersion || capability.Bucket != state.NewBucket || capability.ExpiresAt.Before(state.NewExpiry) {
+	if capability.ID == "" || capability.Reference == "" || state.NewCapabilityRef != "" && capability.Reference != state.NewCapabilityRef || state.NewCapabilityID != "" && capability.ID != state.NewCapabilityID || capability.Version != state.NewVersion || capability.Bucket != state.NewBucket || capability.ExpiresAt.Before(state.NewExpiry) {
 		_ = c.issuer.Retire(ctx, identity.Reference, key(*state, "identity-retire-orphan", "", ""))
 		if capability.Reference != "" {
 			_ = c.vault.Retire(ctx, capability.Reference, key(*state, "capability-retire-orphan", "", ""))
@@ -907,7 +907,7 @@ func (c *Coordinator) load(ctx context.Context) (PersistedState, error) {
 	if err != nil {
 		return PersistedState{}, &RotationError{Code: "state_load_failed"}
 	}
-	if !validCurrentRotationState(state) {
+	if !ValidCurrentRotationState(state) {
 		return PersistedState{}, &RotationError{Code: "state_invalid"}
 	}
 	if state.Members == nil {

@@ -31,6 +31,7 @@ describe code that exists today; they do not preserve a retired topology.
 | Initial host grant wire and signing | `src/orchestrator/nodebootstrap` | protocol, security |
 | Initial local host activation | `src/orchestrator/hostbootstrap` | hostagent, nodeauthority, nodebootstrap |
 | Initial host credentials | `src/orchestrator/hostsecrets` | OCI Go SDK instance identity and Secrets API |
+| Production rotation and global state | `src/orchestrator/keyrotation` | security, control/authority, cloudflare |
 | Authenticated host client | `src/orchestrator/hostcontrol` | hostagent, delivery |
 | OCI control snapshot storage | `src/orchestrator/restoresnapshot` | restoredrill, provider, delivery |
 | CLI / process entry | `cmd/orchestrator` | control, provider, ocireconcile |

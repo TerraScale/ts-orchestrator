@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
@@ -205,15 +206,22 @@ func TestNewProductionRequiresEveryAuthority(t *testing.T) {
 		t.Fatalf("missing authority error = %v", err)
 	}
 	issuer, vault := &productionIssuer{}, &productionVault{}
-	_, err := NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: &memoryState{}, Regions: []string{"gru"}})
+	_, err := NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: &NATSStateStoreConfig{}, Regions: []string{"gru"}})
+	if err == nil {
+		t.Fatal("production accepted missing live global state authority")
+	}
+	cluster := newRotationStateCluster(t)
+	connection := cluster.connect(t)
+	kv := openRotationTestLeaseStore(t, t.Context(), connection, true)
+	coordinator, err := authority.RegionalAuthorityCoordinatorStartGlobalAsync(t.Context(), kv, "gru", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer coordinator.Dispose()
+	lease := readRotationTestLease(t, t.Context(), kv)
+	stateConfig := &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch)}
+	_, err = NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: stateConfig, Regions: []string{"gru"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
-
-type memoryState struct{}
-
-func (*memoryState) Load(context.Context) (security.PersistedState, error) {
-	return security.PersistedState{}, security.ErrNoState
-}
-func (*memoryState) Save(context.Context, security.PersistedState) error { return nil }

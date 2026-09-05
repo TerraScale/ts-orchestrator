@@ -26,7 +26,7 @@ type Config struct {
 	Secrets      security.SecretsStore
 	Publisher    security.AtomicPublisher
 	Reloader     security.Reloader
-	State        security.StateStore
+	State        *NATSStateStoreConfig
 	Audit        security.AuditSink
 	Regions      []string
 	Clock        func() time.Time
@@ -52,8 +52,12 @@ func NewProduction(config Config) (*security.Coordinator, error) {
 	if isNil(config.Reloader) {
 		return nil, configurationError("member reloader authority is missing")
 	}
-	if isNil(config.State) {
+	if config.State == nil {
 		return nil, configurationError("durable rotation state store is missing")
+	}
+	state, err := NewNATSStateStore(*config.State)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateRegions(config.Regions); err != nil {
 		return nil, configurationError("rotation regions are invalid")
@@ -72,7 +76,7 @@ func NewProduction(config Config) (*security.Coordinator, error) {
 	}
 	return security.NewCoordinator(security.Config{
 		Issuer: config.Issuer, Vault: config.Vault, Members: config.Members, Secrets: config.Secrets,
-		Publisher: publisher, Reloader: config.Reloader, State: config.State,
+		Publisher: publisher, Reloader: config.Reloader, State: state,
 		Audit: audit, Regions: append([]string(nil), config.Regions...),
 		Clock: clock, ExpirySafety: config.ExpirySafety,
 	})
