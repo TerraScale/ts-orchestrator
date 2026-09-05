@@ -41,7 +41,7 @@ type SnapshotConsumerEvidence struct {
 	Redelivered       int    `json:"redelivered"`
 }
 
-// RestorePreliminarySnapshot validates the exact v3 envelope, observes an
+// RestorePreliminarySnapshot validates the exact v4 envelope, observes an
 // existing stream or restores an absent one, and reads all retained content.
 // A caller compares this result to a separate reference restore of the same
 // archive before accepting a replay. Conflicting existing streams are never
@@ -68,7 +68,7 @@ func RestorePreliminarySnapshot(ctx context.Context, nc *nats.Conn, stream strin
 	if err != nil {
 		return SnapshotRestoreEvidence{}, err
 	}
-	return observeRestoredSnapshot(ctx, nc, target, manifest)
+	return observeRestoredSnapshot(ctx, nc, target, manifest, maximum)
 }
 func restoreSnapshotArchive(ctx context.Context, nc *nats.Conn, manifest jetStreamSnapshotManifest, archive []byte) error {
 	payload, err := json.Marshal(struct {
@@ -120,7 +120,7 @@ func restoreSnapshotArchive(ctx context.Context, nc *nats.Conn, manifest jetStre
 	}
 	return nil
 }
-func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstream.Stream, manifest jetStreamSnapshotManifest) (SnapshotRestoreEvidence, error) {
+func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstream.Stream, manifest jetStreamSnapshotManifest, maximum int64) (SnapshotRestoreEvidence, error) {
 	fail := func(reason string) (SnapshotRestoreEvidence, error) {
 		return SnapshotRestoreEvidence{}, fmt.Errorf("%w: restored %s %s", ErrSnapshotVerification, manifest.Stream, reason)
 	}
@@ -151,34 +151,13 @@ func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstrea
 	}
 	configHash := sha256.Sum256(configBytes)
 	evidence := SnapshotRestoreEvidence{Stream: manifest.Stream, ConfigSHA256: hex.EncodeToString(configHash[:]), Messages: state.Msgs, Bytes: state.Bytes, FirstSequence: state.FirstSeq, LastSequence: state.LastSeq, Deleted: state.NumDeleted, Consumers: []SnapshotConsumerEvidence{}}
-	records := sha256.New()
-	encoder := json.NewEncoder(records)
-	sequence := state.FirstSeq
-	var count uint64
-	// next_by_subj walks retained records without a request for every deleted
-	// sequence, while their exact sequence numbers still bind all interior holes.
-	for sequence > 0 && sequence <= state.LastSeq && count < state.Msgs {
-		message, err := target.GetMsg(ctx, sequence, jetstream.WithGetMsgSubject(">"))
-		if err != nil {
-			return SnapshotRestoreEvidence{}, err
-		}
-		if message.Sequence < sequence || message.Sequence > state.LastSeq || message.Time.IsZero() {
-			return fail("record ordering differs")
-		}
-		if err := encoder.Encode(message); err != nil {
-			return SnapshotRestoreEvidence{}, err
-		}
-		count++
-		if message.Sequence == ^uint64(0) {
-			sequence = 0
-		} else {
-			sequence = message.Sequence + 1
-		}
+	evidence.RecordsSHA256, err = snapshotRecordsDigest(ctx, target, before.State, maximum)
+	if err != nil {
+		return SnapshotRestoreEvidence{}, err
 	}
-	if count != state.Msgs {
-		return fail("record count differs")
+	if evidence.RecordsSHA256 != manifest.RecordsSHA256 {
+		return fail("records differ from source")
 	}
-	evidence.RecordsSHA256 = hex.EncodeToString(records.Sum(nil))
 	observed, err := (&NATSJetStreamSnapshotter{connection: nc, stream: manifest.Stream}).consumerInventory(ctx)
 	if err != nil {
 		return SnapshotRestoreEvidence{}, err

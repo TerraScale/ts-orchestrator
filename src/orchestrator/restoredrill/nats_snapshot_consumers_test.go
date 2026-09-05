@@ -67,6 +67,9 @@ func TestSnapshotEnvelopeRequiresExplicitConsumerInventory(t *testing.T) {
 	for _, mutate := range []func(*jetStreamSnapshotManifest){
 		func(m *jetStreamSnapshotManifest) { m.Version = 1 },
 		func(m *jetStreamSnapshotManifest) { m.Version = 2 },
+		func(m *jetStreamSnapshotManifest) { m.Version = 3 },
+		func(m *jetStreamSnapshotManifest) { m.RecordsSHA256 = "" },
+		func(m *jetStreamSnapshotManifest) { m.RecordsSHA256 = "invalid" },
 		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint = nil },
 		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint.ConfigSHA256 = "invalid" },
 		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint.AckFloorConsumer = 1 },

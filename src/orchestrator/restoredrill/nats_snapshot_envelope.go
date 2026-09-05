@@ -15,6 +15,7 @@ import (
 // STREAM.RESTORE and stream the exact inner stream.snapshot bytes. The outer
 // object digest binds the original request, creation time and restore metadata.
 type jetStreamSnapshotManifest struct {
+	RecordsSHA256 string                 `json:"recordsSha256"`
 	Version       int                    `json:"version"`
 	Stream        string                 `json:"stream"`
 	Request       SnapshotRequest        `json:"request"`
@@ -89,7 +90,7 @@ func decodeJetStreamSnapshotEnvelope(data []byte, stream string, maximum int64) 
 	if _, err := archive.Next(); err != io.EOF {
 		return fail()
 	}
-	if manifest.Version != 3 || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
+	if manifest.Version != 4 || !snapshotRecordDigestValid(manifest.RecordsSHA256) || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
 		return fail()
 	}
 	// Comparing the canonical envelope also rejects duplicate JSON fields,

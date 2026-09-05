@@ -19,7 +19,7 @@ cutover, or bootstrap credential retirement. See
 [its qualifications](../evidence/nats-snapshot-promotion-limits-2026-09-05.md).
 
 The current single-stream transport in
-`src/orchestrator/restoredrill/nats_snapshot.go` stores a version-3 USTAR
+`src/orchestrator/restoredrill/nats_snapshot.go` stores a version-4 USTAR
 envelope with exactly two ordered regular files: `manifest.json` and
 `stream.snapshot`. The manifest retains the stream name, complete snapshot
 request, capture time, snapshot API configuration and stream state, an explicit
@@ -28,8 +28,21 @@ contains the exact S2-compressed NATS archive, requested with consumers included
 checking enabled. The object identity hashes the complete envelope.
 `ControlEpoch` is the sole snapshot epoch field and callback; database restore
 epochs remain separate. Version 1 lacked consumer inventory; version 2 lacked
-source checkpoint evidence. Both are rejected. There is no bare-archive or
+source checkpoint evidence; version 3 lacked source record evidence. All are
+rejected. There is no bare-archive or
 old-field compatibility reader.
+
+The manifest also retains `recordsSha256`, computed from the source's retained
+records after transfer. Each record binds its subject, headers, payload, original
+timestamp and sequence through deterministic SDK JSON encoding. Source stream
+state and configuration must match the snapshot response before the read and
+remain unchanged afterward; source creation identity must also remain stable.
+Consumer inventory/checkpoints are checked again after the read. Public restore
+requires its record digest to match this source digest before candidate evidence
+can be accepted. The encoded records are hashed incrementally with a cumulative
+bound of eight times the configured snapshot limit. GET permission is limited
+to the exact admitted source streams. These checks do not supply a writer fence
+or make sequential stream captures an atomic cut.
 
 The configured byte bound covers the complete envelope; the default is 64 MiB,
 the maximum configurable bound is 1 GiB, and the manifest is limited to 1 MiB.

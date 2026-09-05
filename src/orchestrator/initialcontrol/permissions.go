@@ -1,7 +1,7 @@
 package initialcontrol
 
 import (
-	"sort"
+	"slices"
 )
 
 // PublicationJournalPermissions is a privileged source-only connection. The
@@ -24,9 +24,9 @@ func CapturePermissions(cell, instance string, global bool) (publish, subscribe 
 	}
 	publish = []string{"$JS.API.STREAM.NAMES"}
 	for _, name := range captureStreamNames(profile) {
-		publish = append(publish, "$JS.API.STREAM.INFO."+name, "$JS.API.STREAM.SNAPSHOT."+name, "$JS.SNAPSHOT.ACK."+name+".>", "$JS.API.CONSUMER.NAMES."+name, "$JS.API.CONSUMER.INFO."+name+".*")
+		publish = append(publish, "$JS.API.STREAM.INFO."+name, "$JS.API.STREAM.SNAPSHOT."+name, "$JS.API.STREAM.MSG.GET."+name, "$JS.SNAPSHOT.ACK."+name+".>", "$JS.API.CONSUMER.NAMES."+name, "$JS.API.CONSUMER.INFO."+name+".*")
 	}
-	sort.Strings(publish)
+	slices.Sort(publish)
 	return publish, []string{"_INBOX.>"}, nil
 }
 
@@ -41,7 +41,7 @@ func captureStreamNames(profile accountProfile) []string {
 	for _, bucket := range profile.Objects {
 		names = append(names, "OBJ_"+bucket.Bucket)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
@@ -81,6 +81,6 @@ func Permissions(cell, instance string, global, provisioner bool) (publish, subs
 	if !global {
 		publish = append(publish, "$KV.ORCH_RUNTIME.controller."+instance, "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>", "$JS.API.CONSUMER.DELETE.KV_ORCH_RUNTIME.*", "$JS.API.CONSUMER.INFO.KV_ORCH_RUNTIME.*", "$JS.API.CONSUMER.MSG.NEXT.KV_ORCH_RUNTIME.*")
 	}
-	sort.Strings(publish)
+	slices.Sort(publish)
 	return publish, []string{"_INBOX.>"}, nil
 }

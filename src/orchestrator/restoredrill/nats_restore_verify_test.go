@@ -2,6 +2,7 @@ package restoredrill
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,15 @@ func verifyPreliminaryRestore(t *testing.T, ctx context.Context, body []byte) {
 	manifest, archive, err := decodeJetStreamSnapshotEnvelope(body, "CONTROL_STATE", 8<<20)
 	if err != nil || len(manifest.Consumers) == 0 || manifest.Consumers[0].Checkpoint == nil {
 		t.Fatalf("source checkpoint missing: %v", err)
+	}
+	changedRecords := manifest
+	changedRecords.RecordsSHA256 = strings.Repeat("0", 64)
+	wrongRecords, err := encodeJetStreamSnapshotEnvelope(changedRecords, archive, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestorePreliminarySnapshot(ctx, privateRestoreBroker(t), "CONTROL_STATE", wrongRecords, 8<<20); err == nil {
+		t.Fatal("archive accepted despite disagreement with source records")
 	}
 	manifest.Consumers[0].Checkpoint.AckPending++
 	changedSource, err := encodeJetStreamSnapshotEnvelope(manifest, archive, 8<<20)

@@ -134,7 +134,7 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 	if err != nil {
 		return ControlStateSnapshot{}, err
 	}
-	manifest := jetStreamSnapshotManifest{Version: 3, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
+	manifest := jetStreamSnapshotManifest{Version: 4, RecordsSHA256: response.RecordsSHA256, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
 	data, err := encodeJetStreamSnapshotEnvelope(manifest, archive, s.maxBytes)
 	if err != nil {
 		return ControlStateSnapshot{}, err
@@ -171,11 +171,12 @@ type natsSnapshotRequest struct {
 }
 
 type natsSnapshotResponse struct {
-	Consumers []natsSnapshotConsumer `json:"-"`
-	Type      string                 `json:"type"`
-	Error     *natsAPIError          `json:"error,omitempty"`
-	Config    json.RawMessage        `json:"config,omitempty"`
-	State     *natsSnapshotState     `json:"state,omitempty"`
+	RecordsSHA256 string                 `json:"-"`
+	Consumers     []natsSnapshotConsumer `json:"-"`
+	Type          string                 `json:"type"`
+	Error         *natsAPIError          `json:"error,omitempty"`
+	Config        json.RawMessage        `json:"config,omitempty"`
+	State         *natsSnapshotState     `json:"state,omitempty"`
 }
 
 type natsSnapshotState = nats.StreamState
@@ -260,6 +261,14 @@ func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, 
 	}
 	if !sameSnapshotConsumers(before, after) || len(before) != response.State.Consumers {
 		return nil, natsSnapshotResponse{}, fmt.Errorf("%w: consumer inventory changed during snapshot", ErrSnapshotVerification)
+	}
+	response.RecordsSHA256, err = s.sourceRecordsDigest(ctx, response)
+	if err != nil {
+		return nil, natsSnapshotResponse{}, err
+	}
+	final, err := s.consumerInventory(ctx)
+	if err != nil || !sameSnapshotConsumers(before, final) {
+		return nil, natsSnapshotResponse{}, fmt.Errorf("%w: consumer state changed during source record verification", ErrSnapshotVerification)
 	}
 	response.Consumers = before
 	return snapshot.Bytes(), response, nil

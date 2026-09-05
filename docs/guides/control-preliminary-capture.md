@@ -104,7 +104,7 @@ SHA-256, size, and capture time. It explicitly marks the result preliminary and
 uses a signature domain distinct from the owner request. Its signer is the
 source membership identity already pinned by the original grant.
 
-Each version-3 snapshot envelope records the stream's consumer inventory before
+Each version-4 snapshot envelope records the stream's consumer inventory before
 and after capture. Consumer identities must match across those observations.
 File-backed consumers also require an unchanged configuration digest, delivered
 and acknowledgement-floor sequences, and pending/redelivery counts. Public
@@ -113,7 +113,12 @@ The file archive must contain metadata, checksum, and checkpoint files for
 every file-backed consumer. Memory-backed ephemeral watchers appear in the
 inventory but are absent from the NATS file archive; their later recreation is
 outside this capture path. A memory-backed durable consumer refuses capture.
-Version-1 and version-2 envelopes lack the required evidence and are rejected. These checks preserve
+The source's retained records are hashed after transfer under unchanged stream
+state/configuration checks. Restores must match that digest, including record
+subjects, headers, data, timestamps and sequences. The source-only capture
+credential has exact-stream `STREAM.MSG.GET` permission for this read. Record
+encoding is bounded to eight times the configured snapshot limit.
+Version-1 through version-3 envelopes lack required evidence and are rejected. These checks preserve
 the distinction between an omitted watcher and a missing durable checkpoint;
 they do not prove an atomic cut across streams or decode every per-message
 pending-acknowledgement entry in the archived checkpoint. A prior version's

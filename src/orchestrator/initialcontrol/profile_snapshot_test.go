@@ -70,6 +70,7 @@ func profilePromotionBackup(t *testing.T, ctx context.Context, nc *nats.Conn, na
 	// The production snapshotter has already validated and read back the object;
 	// these checks independently bind exactly what the restore protocol receives.
 	var manifest struct {
+		RecordsSHA256 string                       `json:"recordsSha256"`
 		Version       int                          `json:"version"`
 		Stream        string                       `json:"stream"`
 		Request       restoredrill.SnapshotRequest `json:"request"`
@@ -119,7 +120,7 @@ func profilePromotionBackup(t *testing.T, ctx context.Context, nc *nats.Conn, na
 	if err := writer.Close(); err != nil || !bytes.Equal(canonical.Bytes(), envelope) {
 		t.Fatal("noncanonical or trailing snapshot envelope data")
 	}
-	if manifest.Version != 3 || manifest.Stream != name || manifest.Request != request || !manifest.CreatedAt.Equal(identity.CreatedAt) || manifest.ArchiveSize != int64(len(inner)) || manifest.ArchiveSHA256 != delivery.SHA256Digest(inner) {
+	if manifest.Version != 4 || manifest.Stream != name || manifest.Request != request || !manifest.CreatedAt.Equal(identity.CreatedAt) || manifest.ArchiveSize != int64(len(inner)) || manifest.ArchiveSHA256 != delivery.SHA256Digest(inner) {
 		t.Fatalf("snapshot manifest differs from receipt: %+v", manifest)
 	}
 	var config server.StreamConfig
