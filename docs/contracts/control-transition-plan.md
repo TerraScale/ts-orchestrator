@@ -71,8 +71,10 @@ pinned and cannot be overwritten by a renewed document.
 
 These APIs record agreement only. They do not publish a preparation receipt,
 retire a source, seal or copy files, run a broker, restore/promote a stream,
-apply a manifest, mint a lease, or revoke credentials. No CLI or service launch
-currently delivers a plan to these APIs. Before enabling execution, implement
+apply a manifest, mint a lease, or revoke credentials. The owner command `plan-storage-transition` now prepares a signed plan against
+original host grants and preliminary candidate evidence; see the
+[operator guide](../guides/control-storage-transition-plan.md). No service launch
+currently delivers that plan to these APIs. Before enabling execution, implement
 the original-bootstrap-key delivery chain, phase-specific host journal and
 receipt checks, complete inventory/ownership observations, the source stop and
 seal protocol, and pre-NATS recovery in the order required by
