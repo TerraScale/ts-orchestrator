@@ -167,7 +167,7 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 	}
 	publicationRaw, err := io.ReadAll(io.LimitReader(publicationBody, preliminarytransfer.MaximumBytes+1))
 	err = errors.Join(err, publicationBody.Close())
-	if err != nil || publicationMeta != publicationHead || int64(len(publicationRaw)) != publicationHead.Size || !delivery.SameDigest(delivery.SHA256Digest(publicationRaw), publicationHead.SHA256) {
+	if err != nil || publicationMeta != publicationHead || int64(len(publicationRaw)) != publicationHead.Size || !delivery.SameDigest(strings.TrimPrefix(delivery.SHA256Digest(publicationRaw), "sha256:"), publicationHead.SHA256) {
 		return nil, errors.New("candidatesync: publication bytes differ")
 	}
 	publication, err := preliminarytransfer.CheckPublicationForScope(v.Scope, publicationRaw)
@@ -333,7 +333,7 @@ func artifactName(o preliminarytransfer.ObjectMapping) string {
 	return preliminarytransfer.Digest([]byte(o.Account+"/"+o.LocalKey)) + ".snapshot"
 }
 func metadataMatches(m provider.ObjectMetadata, o preliminarytransfer.ObjectMapping) bool {
-	return m.ETag != "" && m.Size == o.Size && delivery.SameDigest(m.SHA256, o.SHA256)
+	return m.ETag != "" && m.Size == o.Size && delivery.SameDigest(m.SHA256, strings.TrimPrefix(o.SHA256, "sha256:"))
 }
 func pinStage(ctx context.Context, s *stage, pin []byte, allowed map[string]bool) error {
 	prior, found, err := s.read("scope.json", preliminarytransfer.MaximumBytes)

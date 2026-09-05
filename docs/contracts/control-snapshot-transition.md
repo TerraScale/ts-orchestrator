@@ -224,6 +224,12 @@ listeners, routes, authority workers, or membership publication. Both brokers
 stop before its signed preliminary receipt is published. Comparing those two
 restores proves consistency with the same archive. It does not independently
 prove equality to the live source API's consumer checkpoints or a final cut.
+Reference preparation publishes its scope pin atomically before starting the
+broker. Recovery accepts an empty reference directory or validated temporary
+scope-write files when the pin is absent. It retains unrecognized files,
+unsafe temporary files, and conflicting committed pins. OCI object metadata
+uses bare SHA-256 hex; comparison with signed artifact digests removes the
+artifact contract's `sha256:` prefix.
 See [the transfer guide](../guides/control-preliminary-transfer.md) for the
 actual request and material flow. The full storage transition grant,
 post-retirement capture, authoritative destination activation, and R3 readiness

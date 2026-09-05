@@ -50,7 +50,7 @@ func (m *memoryObjects) ObserveBucket(context.Context) (provider.OCIBucketObserv
 }
 func (m *memoryObjects) HeadObject(_ context.Context, r provider.ObjectRef) (provider.ObjectMetadata, bool, error) {
 	raw, ok := m.objects[r.Name]
-	return provider.ObjectMetadata{SHA256: delivery.SHA256Digest(raw), Size: int64(len(raw)), ETag: "etag"}, ok, nil
+	return provider.ObjectMetadata{SHA256: strings.TrimPrefix(delivery.SHA256Digest(raw), "sha256:"), Size: int64(len(raw)), ETag: "etag"}, ok, nil
 }
 func (m *memoryObjects) GetObject(ctx context.Context, r provider.ObjectRef) (io.ReadCloser, provider.ObjectMetadata, error) {
 	meta, _, _ := m.HeadObject(ctx, r)

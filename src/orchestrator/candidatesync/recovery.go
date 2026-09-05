@@ -17,9 +17,9 @@ import (
 )
 
 func temporaryName(name, prefix string) bool {
-	suffix := strings.TrimPrefix(name, prefix)
+	suffix, found := strings.CutPrefix(name, prefix)
 	raw, e := hex.DecodeString(suffix)
-	return strings.HasPrefix(name, prefix) && e == nil && len(raw) == 16 && hex.EncodeToString(raw) == suffix
+	return found && e == nil && len(raw) == 16 && hex.EncodeToString(raw) == suffix
 }
 func recoverTemporary(ctx context.Context, s *stage, name string) error {
 	if !temporaryName(name, ".staging-") {
@@ -53,20 +53,14 @@ func newReference(ctx context.Context, s *stage, pin []byte) (string, error) {
 		return "", e
 	}
 	path := fmt.Sprintf("/proc/self/fd/%d/%s", s.dir.Fd(), name)
-	f, e := os.OpenFile(filepath.Join(path, "scope.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if e != nil {
-		return "", e
-	}
-	_, e = f.Write(pin)
-	e = errors.Join(e, f.Sync(), f.Close())
-	if e != nil {
-		return "", e
-	}
 	d, e := os.Open(path)
 	if e != nil {
 		return "", e
 	}
-	e = errors.Join(d.Sync(), d.Close(), s.dir.Sync())
+	// Publish the scope atomically before a broker can create any data. A crash
+	// during the write leaves only a recognizable temporary file for recovery.
+	reference := &stage{dir: d, check: s.check}
+	e = errors.Join(reference.publish(ctx, "scope.json", pin), d.Close(), s.dir.Sync())
 	return path, e
 }
 func recoverReference(ctx context.Context, s *stage, name string, pin []byte) error {
@@ -83,13 +77,36 @@ func recoverReference(ctx context.Context, s *stage, name string, pin []byte) er
 	}
 	if len(entries) > 0 {
 		f, e := os.Open(filepath.Join(path, "scope.json"))
-		if e != nil {
-			return errors.New("candidatesync: unpinned reference state retained")
-		}
-		raw, e := io.ReadAll(io.LimitReader(f, preliminarytransfer.MaximumBytes+1))
-		e = errors.Join(e, f.Close())
-		if e != nil || !bytes.Equal(raw, pin) {
-			return errors.New("candidatesync: conflicting reference scope retained")
+		if errors.Is(e, os.ErrNotExist) {
+			// Only an interrupted scope publication may precede the scope pin.
+			// A directory containing broker data without that pin is retained.
+			d, openErr := os.Open(path)
+			if openErr != nil {
+				return openErr
+			}
+			defer d.Close()
+			reference := &stage{dir: d, check: s.check}
+			for _, entry := range entries {
+				if !temporaryName(entry.Name(), ".staging-") {
+					return errors.New("candidatesync: unpinned reference state retained")
+				}
+				file, err := reference.openFile(entry.Name(), unix.O_RDONLY)
+				if err != nil {
+					return err
+				}
+				if err = file.Close(); err != nil {
+					return err
+				}
+			}
+		} else {
+			if e != nil {
+				return errors.New("candidatesync: unpinned reference state retained")
+			}
+			raw, e := io.ReadAll(io.LimitReader(f, preliminarytransfer.MaximumBytes+1))
+			e = errors.Join(e, f.Close())
+			if e != nil || !bytes.Equal(raw, pin) {
+				return errors.New("candidatesync: conflicting reference scope retained")
+			}
 		}
 	}
 	if e = s.mutationCheck(ctx); e != nil {
