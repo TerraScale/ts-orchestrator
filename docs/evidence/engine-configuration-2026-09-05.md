@@ -54,9 +54,10 @@ without replaying the acknowledged prefix.
 
 ## Evidence limits
 
-No new configured Firecracker run or engine parser execution was performed for
-this declaration path. It requires explicit qualification database/placement
-inputs and TLS material. The pinned parser marker is still a worktree source
+At the time of these portable checks, no configured Firecracker run had been
+performed. The subsequent [configured guest attempt](vm-test-configured-engine-2026-09-05.md)
+used explicit diagnostic database/placement inputs and TLS material, but still
+failed engine startup. The pinned parser marker is still a worktree source
 hash, not a published contract or source-to-binary attestation. The engine's
 durable membership source and SFO/FRA admission remain unfinished. The prior
 [full VM attempt](vm-test-candidate-recovery-2026-09-05.json) failed at missing

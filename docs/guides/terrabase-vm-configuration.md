@@ -27,7 +27,7 @@ Do not put credentials or PEM material in this document.
 | `artifactSha256`, `release` | Exact bare SHA-256 and version of the supplied signed TerraBase artifact |
 | `environment`, `cluster` | Explicit bounded environment name and canonical cluster ULID |
 | `generation`, `epoch` | Positive declared placement values representable as TOML integers; these claims do not establish admitted membership |
-| `hosts` | One entry for every host in the network plan, with `nodeId`, unique canonical `member` ULID, `certificateFile`, `privateKeyFile`, and `caFile` |
+| `hosts` | One entry for every launch host in GRU/SFO/FRA, with `nodeId`, unique canonical `member` ULID, `certificateFile`, `privateKeyFile`, and `caFile` |
 | `databases` | Explicit enabled database records containing `tenant`, `project`, `database`, home `region`, `allowedRegions`, `encryptionKey`, `maxStorageBytes`, `maxDocuments`, and `maxInflight` |
 | `limits` | Explicit `maxMessageBytes`, `maxInflight`, `requestTimeoutMillis`, `tlsHandshakeTimeoutMillis`, and `shutdownGraceMillis` |
 
@@ -37,6 +37,10 @@ database IDs are unique, and each database Region must occur in the declared
 placement. The renderer supports the producer's current GRU/SFO/FRA schema,
 with exactly two hosts per included Region and at least one enabled database.
 The normal launch network plan requires all six host declarations.
+The full suite also reserves IAD networking for a later expansion scenario.
+Those reserved hosts are excluded from the initial engine bindings and peer
+list. A network reservation does not admit engine placement. IAD bootstrap
+still requires admitted allocation and supported controller/engine configuration.
 
 Every database requires an explicit `allowedRegions` lock. Because the current
 engine schema applies one placement to the whole catalog, every included Region

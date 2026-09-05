@@ -40,8 +40,10 @@ The [TerraBase VM configuration path](terrabase-vm-configuration.md) now renders
 explicit production declarations into the owner-signed GRU host manifest and
 separately provisions exact member TLS material. It binds the supplied engine
 artifact and validated guest addresses. It still needs a published launch
-contract, engine membership integration, and actual configured guest evidence;
-the last full VM attempt failed on missing TerraBase configuration.
+contract and engine membership integration. The latest
+[configured guest attempt](../evidence/vm-test-configured-engine-2026-09-05.md)
+booted the first GRU guest with ts-node and orchestrator running, but TerraBase
+exited with status 1 without a recognized diagnostic category. No scenario ran.
 
 Canonical component, launch and manifest validation now lives in
 `src/orchestrator/hostmanifest`. Host installation, signed bootstrap grants,
