@@ -134,6 +134,11 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 	if checkpoint.AckFloor.Stream != 2 || checkpoint.AckFloor.Consumer != 2 || checkpoint.NumPending != 1 || checkpoint.NumAckPending != 0 {
 		t.Fatalf("fixture checkpoint not committed: %+v", checkpoint)
 	}
+	// Live runtime watchers are ephemeral memory consumers. The pinned server
+	// counts them in API State but deliberately omits them from file archives.
+	if _, err := stream.CreateConsumer(ctx, jetstream.ConsumerConfig{Name: "MEMORY_WATCHER", MemoryStorage: true, AckPolicy: jetstream.AckExplicitPolicy, InactiveThreshold: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
 	before, err := stream.Info(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +167,9 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 	manifest, inner, err := decodeJetStreamSnapshotEnvelope(body, "CONTROL_STATE", 8<<20)
 	if err != nil || manifest.Request != request || manifest.State.Msgs != before.State.Msgs {
 		t.Fatalf("snapshot envelope: %+v %v", manifest, err)
+	}
+	if manifest.State.Consumers != 2 || len(manifest.Consumers) != 2 || manifest.Consumers[0].Name != "CONTROL_CHECKPOINT" || manifest.Consumers[0].MemoryStorage || manifest.Consumers[1].Name != "MEMORY_WATCHER" || !manifest.Consumers[1].MemoryStorage || manifest.Consumers[1].Durable != "" {
+		t.Fatalf("watcher omission not explicitly recorded: %+v", manifest.Consumers)
 	}
 	archive := tar.NewReader(s2.NewReader(bytes.NewReader(inner)))
 	entries := 0

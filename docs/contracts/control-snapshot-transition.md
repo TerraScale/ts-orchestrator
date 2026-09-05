@@ -17,16 +17,16 @@ cutover, or bootstrap credential retirement. See
 [its qualifications](../evidence/nats-snapshot-promotion-limits-2026-09-05.md).
 
 The current single-stream transport in
-`src/orchestrator/restoredrill/nats_snapshot.go` stores a version-1 USTAR
+`src/orchestrator/restoredrill/nats_snapshot.go` stores a version-2 USTAR
 envelope with exactly two ordered regular files: `manifest.json` and
 `stream.snapshot`. The manifest retains the stream name, complete snapshot
-request, capture time, snapshot API configuration and stream state, and the
-inner archive's SHA-256 and size. `stream.snapshot` contains the exact
-S2-compressed NATS archive, requested with consumers included and message
+request, capture time, snapshot API configuration and stream state, an explicit
+consumer inventory, and the inner archive's SHA-256 and size. `stream.snapshot`
+contains the exact S2-compressed NATS archive, requested with consumers included and message
 checking enabled. The object identity hashes the complete envelope.
 `ControlEpoch` is the sole snapshot epoch field and callback; database restore
-epochs remain separate. There is no bare-archive or old-field compatibility
-reader.
+epochs remain separate. Version 1 envelopes lacked the consumer inventory and
+are rejected. There is no bare-archive or old-field compatibility reader.
 
 The configured byte bound covers the complete envelope; the default is 64 MiB,
 the maximum configurable bound is 1 GiB, and the manifest is limited to 1 MiB.
@@ -35,11 +35,29 @@ Canonical envelope comparison rejects alternate headers, duplicate manifest
 fields, extra entries and trailing bytes. Inner validation checks the stream
 configuration against `meta.inf`, requires stream metadata/checksum entries,
 checks inequalities within the API-reported allocator state, requires a
-message block for nonempty or previously allocated streams, and requires
-metadata/checksum/state files for the reported number of consumers. It consumes
-the compressed stream to its end. These are structural checks. The validator
-does not parse message blocks to reconstruct allocator, message or deletion
-state, or prove that every API state field matches the archived contents.
+message block for nonempty or previously allocated streams, and validates the
+archived consumer inventory described below. It consumes the compressed stream
+to its end. These are structural checks. The validator does not parse message
+blocks to reconstruct allocator, message or deletion state, or decode consumer
+checkpoint state to prove equivalence with API observations.
+
+The snapshotter inventories consumers through the public names and info APIs
+before and after capture. The sorted inventory retains each consumer's name,
+creation time, durable name, and memory-storage flag. Both observations must
+match, and their count must equal the snapshot API's consumer count. Inventory
+is bounded to 256 consumers per stream. This checks those identity fields;
+it does not fence consumer deliveries or acknowledgements during capture.
+
+The pinned NATS file snapshot omits memory-backed consumers even though the
+snapshot API counts them. Version 2 explicitly records memory-backed ephemeral
+watchers as omitted from the archive. A memory-backed durable consumer refuses
+capture because its checkpoint would be lost. Every file-backed consumer must
+have exactly its metadata, checksum, and nonempty checkpoint files in the
+archive, with matching consumer and durable names and file storage. Unexpected
+or missing archived consumers fail verification. Presence of a checkpoint file
+is not proof that its contents match a live API checkpoint; public restore and
+state comparison remain necessary. Ephemeral watcher recreation also remains a
+destination runtime responsibility.
 
 A successful first upload requires PUT, matching HEAD digest/size with a
 nonempty ETag, and GET of the exact uploaded bytes. A retry reads and validates

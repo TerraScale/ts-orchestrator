@@ -138,6 +138,12 @@ func TestSnapshotterNeverAcknowledgesUnrelatedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer nc.Close()
+	_, err = nc.Subscribe("$JS.API.CONSUMER.NAMES.STATE", func(m *nats.Msg) {
+		_ = m.Respond([]byte(`{"type":"io.nats.jetstream.api.v1.consumer_names_response","total":0,"offset":0,"consumers":[]}`))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	trap, err := nc.SubscribeSync("control.write")
 	if err != nil {
 		t.Fatal(err)

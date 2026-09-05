@@ -29,7 +29,6 @@ type AccountInventory struct {
 	Account string   `json:"account"`
 	Streams []string `json:"streams"`
 }
-type Account = AccountInventory
 type Request struct {
 	Version            int                `json:"version"`
 	TransitionID       string             `json:"transitionId"`

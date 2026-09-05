@@ -32,7 +32,7 @@ func TestSnapshotEnvelopeConfigPreservesLargeIntegerAndRejectsNestedDuplicates(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := jetStreamSnapshotManifest{Version: 1, Stream: "STATE", Request: SnapshotRequest{RunID: "json", IdempotencyKey: "json", ObjectKey: "json.epoch-1.snapshot", ControlEpoch: 1}, CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
+	manifest := jetStreamSnapshotManifest{Version: 2, Stream: "STATE", Request: SnapshotRequest{RunID: "json", IdempotencyKey: "json", ObjectKey: "json.epoch-1.snapshot", ControlEpoch: 1}, CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
 	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, inner, defaultJetStreamSnapshotBytes)
 	if err != nil {
 		t.Fatal(err)

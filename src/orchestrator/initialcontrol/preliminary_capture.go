@@ -102,7 +102,6 @@ func startPreliminaryWorker(ctx context.Context, admission *initialgrant.Admissi
 				}
 			}
 			if err != nil && !errors.Is(err, os.ErrNotExist) && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "capture diagnostic: %v\n", err)
 				w.mu.Lock()
 				w.status.State = "failed"
 				// Error text is deliberately fixed: request contents and credential

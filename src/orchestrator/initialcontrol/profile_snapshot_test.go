@@ -76,6 +76,7 @@ func profilePromotionBackup(t *testing.T, ctx context.Context, nc *nats.Conn, na
 		CreatedAt     time.Time                    `json:"createdAt"`
 		Config        json.RawMessage              `json:"config"`
 		State         json.RawMessage              `json:"state"`
+		Consumers     json.RawMessage              `json:"consumers"`
 		ArchiveSHA256 string                       `json:"archiveSha256"`
 		ArchiveSize   int64                        `json:"archiveSize"`
 	}
@@ -118,7 +119,7 @@ func profilePromotionBackup(t *testing.T, ctx context.Context, nc *nats.Conn, na
 	if err := writer.Close(); err != nil || !bytes.Equal(canonical.Bytes(), envelope) {
 		t.Fatal("noncanonical or trailing snapshot envelope data")
 	}
-	if manifest.Version != 1 || manifest.Stream != name || manifest.Request != request || !manifest.CreatedAt.Equal(identity.CreatedAt) || manifest.ArchiveSize != int64(len(inner)) || manifest.ArchiveSHA256 != delivery.SHA256Digest(inner) {
+	if manifest.Version != 2 || manifest.Stream != name || manifest.Request != request || !manifest.CreatedAt.Equal(identity.CreatedAt) || manifest.ArchiveSize != int64(len(inner)) || manifest.ArchiveSHA256 != delivery.SHA256Digest(inner) {
 		t.Fatalf("snapshot manifest differs from receipt: %+v", manifest)
 	}
 	var config server.StreamConfig

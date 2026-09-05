@@ -15,14 +15,15 @@ import (
 // STREAM.RESTORE and stream the exact inner stream.snapshot bytes. The outer
 // object digest binds the original request, creation time and restore metadata.
 type jetStreamSnapshotManifest struct {
-	Version       int                `json:"version"`
-	Stream        string             `json:"stream"`
-	Request       SnapshotRequest    `json:"request"`
-	CreatedAt     time.Time          `json:"createdAt"`
-	Config        json.RawMessage    `json:"config"`
-	State         *natsSnapshotState `json:"state"`
-	ArchiveSHA256 string             `json:"archiveSha256"`
-	ArchiveSize   int64              `json:"archiveSize"`
+	Version       int                    `json:"version"`
+	Stream        string                 `json:"stream"`
+	Request       SnapshotRequest        `json:"request"`
+	CreatedAt     time.Time              `json:"createdAt"`
+	Config        json.RawMessage        `json:"config"`
+	State         *natsSnapshotState     `json:"state"`
+	Consumers     []natsSnapshotConsumer `json:"consumers"`
+	ArchiveSHA256 string                 `json:"archiveSha256"`
+	ArchiveSize   int64                  `json:"archiveSize"`
 }
 
 const snapshotManifestMaxBytes = 1 << 20
@@ -88,7 +89,7 @@ func decodeJetStreamSnapshotEnvelope(data []byte, stream string, maximum int64) 
 	if _, err := archive.Next(); err != io.EOF {
 		return fail()
 	}
-	if manifest.Version != 1 || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
+	if manifest.Version != 2 || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
 		return fail()
 	}
 	// Comparing the canonical envelope also rejects duplicate JSON fields,
@@ -97,7 +98,7 @@ func decodeJetStreamSnapshotEnvelope(data []byte, stream string, maximum int64) 
 	if err != nil || !bytes.Equal(canonical, data) {
 		return fail()
 	}
-	if err := validateJetStreamSnapshot(body, stream, maximum, manifest.Config, manifest.State); err != nil {
+	if err := validateJetStreamSnapshot(body, stream, maximum, manifest.Config, manifest.State, manifest.Consumers); err != nil {
 		return fail()
 	}
 	return manifest, body, nil

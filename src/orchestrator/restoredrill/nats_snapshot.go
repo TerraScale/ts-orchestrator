@@ -134,7 +134,7 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 	if err != nil {
 		return ControlStateSnapshot{}, err
 	}
-	manifest := jetStreamSnapshotManifest{Version: 1, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
+	manifest := jetStreamSnapshotManifest{Version: 2, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
 	data, err := encodeJetStreamSnapshotEnvelope(manifest, archive, s.maxBytes)
 	if err != nil {
 		return ControlStateSnapshot{}, err
@@ -171,10 +171,11 @@ type natsSnapshotRequest struct {
 }
 
 type natsSnapshotResponse struct {
-	Type   string             `json:"type"`
-	Error  *natsAPIError      `json:"error,omitempty"`
-	Config json.RawMessage    `json:"config,omitempty"`
-	State  *natsSnapshotState `json:"state,omitempty"`
+	Consumers []natsSnapshotConsumer `json:"-"`
+	Type      string                 `json:"type"`
+	Error     *natsAPIError          `json:"error,omitempty"`
+	Config    json.RawMessage        `json:"config,omitempty"`
+	State     *natsSnapshotState     `json:"state,omitempty"`
 }
 
 type natsSnapshotState = nats.StreamState
@@ -186,6 +187,10 @@ type natsAPIError struct {
 }
 
 func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, natsSnapshotResponse, error) {
+	before, err := s.consumerInventory(ctx)
+	if err != nil {
+		return nil, natsSnapshotResponse{}, err
+	}
 	inbox := nats.NewInbox()
 	subscription, err := s.connection.SubscribeSync(inbox)
 	if err != nil {
@@ -249,6 +254,14 @@ func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, 
 	if snapshot.Len() == 0 {
 		return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream returned an empty snapshot")
 	}
+	after, err := s.consumerInventory(ctx)
+	if err != nil {
+		return nil, natsSnapshotResponse{}, err
+	}
+	if !sameSnapshotConsumers(before, after) || len(before) != response.State.Consumers {
+		return nil, natsSnapshotResponse{}, fmt.Errorf("%w: consumer inventory changed during snapshot", ErrSnapshotVerification)
+	}
+	response.Consumers = before
 	return snapshot.Bytes(), response, nil
 }
 
@@ -278,7 +291,7 @@ func validNATSStreamName(value string) bool {
 	return true
 }
 
-func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config json.RawMessage, state *natsSnapshotState) error {
+func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config json.RawMessage, state *natsSnapshotState, inventory []natsSnapshotConsumer) error {
 	if len(data) == 0 || int64(len(data)) > maximum || state == nil {
 		return ErrSnapshotVerification
 	}
@@ -295,6 +308,18 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 	meta, checksum, messages := false, false, false
 	seen := map[string]bool{}
 	consumers := map[string]map[string]bool{}
+	expectedConsumers := map[string]natsSnapshotConsumer{}
+	if inventory == nil || len(inventory) != state.Consumers || len(inventory) > maximumSnapshotConsumers {
+		return fmt.Errorf("%w: consumer inventory missing", ErrSnapshotVerification)
+	}
+	for i, c := range inventory {
+		if !validNATSStreamName(c.Name) || c.Created.IsZero() || (i > 0 && c.Name <= inventory[i-1].Name) || c.MemoryStorage && c.Durable != "" {
+			return fmt.Errorf("%w: consumer inventory invalid", ErrSnapshotVerification)
+		}
+		if !c.MemoryStorage {
+			expectedConsumers[c.Name] = c
+		}
+	}
 	var expanded int64
 	for {
 		header, err := archive.Next()
@@ -347,6 +372,22 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 			if len(parts) != 3 || !validNATSStreamName(parts[1]) || (parts[2] != "meta.inf" && parts[2] != "meta.sum" && parts[2] != "o.dat") || header.Size == 0 {
 				return ErrSnapshotVerification
 			}
+			expected, known := expectedConsumers[parts[1]]
+			if !known {
+				return fmt.Errorf("%w: unexpected archived consumer", ErrSnapshotVerification)
+			}
+			if parts[2] == "meta.inf" {
+				body, err := io.ReadAll(io.LimitReader(archive, header.Size+1))
+				var metadata struct {
+					StoredName    string `json:"Name"`
+					Name          string `json:"name"`
+					Durable       string `json:"durable_name"`
+					MemoryStorage bool   `json:"mem_storage"`
+				}
+				if err != nil || int64(len(body)) != header.Size || json.Unmarshal(body, &metadata) != nil || metadata.StoredName != expected.Name || metadata.Name != expected.Name || metadata.Durable != expected.Durable || metadata.MemoryStorage {
+					return fmt.Errorf("%w: archived consumer metadata differs", ErrSnapshotVerification)
+				}
+			}
 			if consumers[parts[1]] == nil {
 				consumers[parts[1]] = map[string]bool{}
 			}
@@ -369,7 +410,7 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 	if err != nil || len(trailing) != 0 || expandedReader.N == 0 {
 		return ErrSnapshotVerification
 	}
-	if len(consumers) != state.Consumers {
+	if len(consumers) != len(expectedConsumers) {
 		return ErrSnapshotVerification
 	}
 	for _, files := range consumers {

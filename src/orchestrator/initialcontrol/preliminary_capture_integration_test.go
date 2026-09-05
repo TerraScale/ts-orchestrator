@@ -113,6 +113,9 @@ func TestInitialRuntimePreliminaryCaptureBothAccountsAndReplay(t *testing.T) {
 	request := captureRequest(t, f, runtime, "preliminary-large")
 	raw := publishCaptureRequest(t, f, request)
 	status := awaitCapture(t, runtime, "complete")
+	if authority := runtime.GlobalAuthority(); !authority.Ready() || !authority.IsLeader || authority.Epoch != int64(request.ControlEpoch) {
+		t.Fatalf("capture did not preserve the live source global term: %+v", authority)
+	}
 	if status.TotalStreams == 0 || status.CapturedStreams != status.TotalStreams || status.ReceiptSHA256 == "" {
 		t.Fatalf("incomplete capture status: %+v", status)
 	}
@@ -166,8 +169,17 @@ func TestInitialRuntimePreliminaryCaptureBothAccountsAndReplay(t *testing.T) {
 	}
 	// Restart elects a new real term. The old signed request cannot be upgraded
 	// or substituted even though its previous immutable receipt remains valid.
-	if runtime.GlobalAuthority().Epoch <= int64(request.ControlEpoch) {
-		t.Fatal("source restart did not advance actual election term")
+	awaitCapture(t, runtime, "failed")
+	electionDeadline := time.Now().Add(20 * time.Second)
+	for {
+		global, regional := runtime.GlobalAuthority(), runtime.RegionalAuthority()
+		if global.Ready() && global.IsLeader && global.Epoch > int64(request.ControlEpoch) && regional.Ready() && regional.IsLeader {
+			break
+		}
+		if time.Now().After(electionDeadline) {
+			t.Fatalf("source did not reacquire authority after the retained lease expired: global=%+v regional=%+v", global, regional)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	awaitCapture(t, runtime, "failed")
 	after, err = os.ReadFile(receiptPath)
@@ -230,5 +242,62 @@ func retireCaptureSource(t *testing.T, f *fixture, runtime *initialcontrol.Runti
 	sum := sha256.Sum256(raw)
 	if runtime.PreliminaryCapture().ReceiptSHA256 != "" && runtime.PreliminaryCapture().ReceiptSHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatal("retirement replaced capture receipt")
+	}
+}
+
+func TestInitialRuntimePreliminaryCaptureCloseDuringTransfer(t *testing.T) {
+	namespace(t)
+	config, _ := fixtureConfigCapture(t, true)
+	f := admit(t, config)
+	runtime, err := initialcontrol.Start(t.Context(), f.admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runtime.Close() })
+	nc := client(t, config, *config.Regional.Provisioner)
+	js, _ := jetstream.New(nc)
+	bucket, err := js.KeyValue(t.Context(), "ORCH_DELIVERY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		data := make([]byte, 512<<10)
+		if _, err := rand.Read(data); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bucket.Put(t.Context(), fmt.Sprintf("cancel-%d", i), data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nc.Close()
+	publishCaptureRequest(t, f, captureRequest(t, f, runtime, "cancel-active-capture"))
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		status := runtime.PreliminaryCapture()
+		if status.State == "capturing" && status.CapturedStreams > 0 && status.CapturedStreams < status.TotalStreams {
+			break
+		}
+		if time.Now().After(deadline) || status.State == "complete" {
+			t.Fatalf("did not observe active partial capture: %+v", status)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- runtime.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime close did not cancel and join active capture")
+	}
+	select {
+	case <-runtime.Completion():
+	default:
+		t.Fatal("runtime close returned before owned components stopped")
+	}
+	if _, err := os.Stat(filepath.Join(config.PreliminaryCapture.OutputDir, "receipt.json")); !os.IsNotExist(err) {
+		t.Fatal("canceled partial capture published a completion receipt", err)
 	}
 }

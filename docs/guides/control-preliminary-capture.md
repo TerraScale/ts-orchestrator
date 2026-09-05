@@ -68,7 +68,9 @@ The planner verifies the source grant and derives its source, store scope,
 profile digest, and exact account/stream inventory. It returns a JSON bundle
 with `publicKeyPem` and `request`. It has no network effects and returns no
 private key or source account credentials. The request is a separately signed
-canonical JSON document. Deliver the exact `request` document at the admitted
+canonical JSON document bounded to 64 KiB. Its accounts follow the source's
+regional/global order, with unique sorted stream names in each account.
+Deliver the exact `request` document at the admitted
 `requestFile`, preserving its bytes without pretty-printing or adding a newline.
 The runtime verifies it against the owner key retained by the original initial
 admission; the output public key does not install a new runtime trust root.
@@ -99,6 +101,16 @@ SHA-256, size, and capture time. It explicitly marks the result preliminary and
 uses a signature domain distinct from the owner request. Its signer is the
 source membership identity already pinned by the original grant.
 
+Each version-2 snapshot envelope records the stream's consumer inventory before
+and after capture. Consumer identities must match across those observations.
+The file archive must contain metadata, checksum, and checkpoint files for
+every file-backed consumer. Memory-backed ephemeral watchers appear in the
+inventory but are absent from the NATS file archive; their later recreation is
+outside this capture path. A memory-backed durable consumer refuses capture.
+Version-1 envelopes lack this inventory and are rejected. These checks preserve
+the distinction between an omitted watcher and a missing durable checkpoint;
+they do not prove an atomic consumer checkpoint or restored state equivalence.
+
 The first accepted signed request pins the output directory. Retrying the same
 bytes within the same live term reuses verified immutable snapshots and the
 original receipt. A corrected request can be accepted before an output pin
@@ -106,7 +118,10 @@ exists. Once pinned, changed dates, signatures, epochs, or inventory conflict
 with that directory. The worker does not delete or replace prior evidence to
 force a retry. A restart that establishes a newer global term cannot resume an
 unfinished request from the old term. This path has no automatic request
-rotation or abandoned-output cleanup protocol.
+rotation or abandoned-output cleanup protocol. Recovery removes only validated
+temporary publication files named `.staging-` followed by 32 lowercase hex
+characters under the exclusive staging lock. Other unexpected entries fail
+closed and remain untouched.
 
 GRU can advance between stream captures. Full inventory checks and archive
 readback do not make sequential snapshots an atomic application cut. Preserve

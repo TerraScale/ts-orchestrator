@@ -217,7 +217,7 @@ func TestSnapshotEnvelopeRejectsIncompleteNonemptyArchive(t *testing.T) {
 	if writer.Close() != nil || compressed.Close() != nil {
 		t.Fatal("archive close")
 	}
-	manifest := jetStreamSnapshotManifest{Version: 1, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, ArchiveSize: int64(incomplete.Len()), ArchiveSHA256: delivery.SHA256Digest(incomplete.Bytes())}
+	manifest := jetStreamSnapshotManifest{Version: 2, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(incomplete.Len()), ArchiveSHA256: delivery.SHA256Digest(incomplete.Bytes())}
 	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, incomplete.Bytes(), defaultJetStreamSnapshotBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -275,12 +275,12 @@ func TestSnapshotEnvelopeRejectsMissingConsumerAndTrailingData(t *testing.T) {
 			if writer.Close() != nil || compressed.Close() != nil {
 				t.Fatal("archive close")
 			}
-			if err := validateJetStreamSnapshot(changed.Bytes(), "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State); !errors.Is(err, ErrSnapshotVerification) {
+			if err := validateJetStreamSnapshot(changed.Bytes(), "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State, response.Consumers); !errors.Is(err, ErrSnapshotVerification) {
 				t.Fatalf("missing consumer payload accepted: %v", err)
 			}
 		})
 	}
-	manifest := jetStreamSnapshotManifest{Version: 1, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
+	manifest := jetStreamSnapshotManifest{Version: 2, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
 	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, inner, defaultJetStreamSnapshotBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ func TestSnapshotEnvelopeRejectsMissingConsumerAndTrailingData(t *testing.T) {
 		}
 	}
 	for _, data := range [][]byte{append(append([]byte(nil), inner...), 1, 2, 3), append(append([]byte(nil), inner...), inner...), inner[:len(inner)-1]} {
-		if err := validateJetStreamSnapshot(data, "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State); !errors.Is(err, ErrSnapshotVerification) {
+		if err := validateJetStreamSnapshot(data, "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State, response.Consumers); !errors.Is(err, ErrSnapshotVerification) {
 			t.Fatalf("inner trailing/truncated data accepted: %v", err)
 		}
 	}
