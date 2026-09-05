@@ -184,41 +184,49 @@ func (s *EpochStore) resumeStorageTransitionPlan(ctx context.Context, expectedDi
 	if err != nil {
 		return zero, err
 	}
-	if r.NodeID != s.node || v.Digest() != expectedDigest {
-		return zero, errors.New("nodeauthority: transition resume scope differs")
-	}
-	if err = v.Check(time.Now()); err != nil {
-		return zero, err
-	}
-	a, found, err := s.loadManifestAdmission()
-	if err != nil {
-		return zero, err
-	}
-	p, err := v.Plan()
-	if err != nil {
-		return zero, err
-	}
-	allowedManifest := a.ManifestSHA256 == r.ManifestSHA256 || s.node == p.Source.NodeID && a.ManifestSHA256 == p.Source.CaptureManifestSHA256
-	if !found || a.GrantSHA256 != r.BootstrapGrantSHA256 || !allowedManifest {
-		return zero, errors.New("nodeauthority: transition manifest admission changed")
-	}
-	floor, err := s.load()
-	if err != nil {
-		return zero, err
-	}
-	if r.Authority.Epoch == 0 && floor.Epoch != 0 || r.Authority.Epoch > 0 && (floor.AuthorityID != r.Authority.AuthorityID || floor.Epoch < r.Authority.Epoch || floor.Epoch == r.Authority.Epoch && (floor.CandidateID != r.Authority.CandidateID || floor.LeaseID != r.Authority.LeaseID)) {
-		return zero, errors.New("nodeauthority: transition authority floor changed or regressed")
-	}
-	if err = ctx.Err(); err != nil {
-		return zero, err
-	}
-	if err = syncEpochDirectory(filepath.Dir(s.path)); err != nil {
-		return zero, err
-	}
-	if err = v.Check(time.Now()); err != nil {
+	if err := s.validateStorageTransitionResumeLocked(ctx, r, v, expectedDigest); err != nil {
 		return zero, err
 	}
 	return v, nil
+}
+
+func (s *EpochStore) validateStorageTransitionResumeLocked(ctx context.Context, r storageTransitionRecord, v controltransition.VerifiedPlan, expectedDigest string) error {
+	var err error
+	if r.NodeID != s.node || v.Digest() != expectedDigest {
+		return errors.New("nodeauthority: transition resume scope differs")
+	}
+	if err = v.Check(time.Now()); err != nil {
+		return err
+	}
+	a, found, err := s.loadManifestAdmission()
+	if err != nil {
+		return err
+	}
+	p, err := v.Plan()
+	if err != nil {
+		return err
+	}
+	allowedManifest := a.ManifestSHA256 == r.ManifestSHA256 || s.node == p.Source.NodeID && a.ManifestSHA256 == p.Source.CaptureManifestSHA256
+	if !found || a.GrantSHA256 != r.BootstrapGrantSHA256 || !allowedManifest {
+		return errors.New("nodeauthority: transition manifest admission changed")
+	}
+	floor, err := s.load()
+	if err != nil {
+		return err
+	}
+	if r.Authority.Epoch == 0 && floor.Epoch != 0 || r.Authority.Epoch > 0 && (floor.AuthorityID != r.Authority.AuthorityID || floor.Epoch < r.Authority.Epoch || floor.Epoch == r.Authority.Epoch && (floor.CandidateID != r.Authority.CandidateID || floor.LeaseID != r.Authority.LeaseID)) {
+		return errors.New("nodeauthority: transition authority floor changed or regressed")
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = syncEpochDirectory(filepath.Dir(s.path)); err != nil {
+		return err
+	}
+	if err = v.Check(time.Now()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func readStorageTransitionRecord(path string, uid uint32) (storageTransitionRecord, controltransition.VerifiedPlan, error) {
@@ -282,6 +290,10 @@ func writeStorageTransitionRecord(path string, r storageTransitionRecord, check,
 	if err != nil || len(raw) > storageTransitionMaximumBytes {
 		return errors.New("nodeauthority: transition pin exceeds bound")
 	}
+	return writeStorageTransitionBytes(path, raw, check, afterRename)
+}
+
+func writeStorageTransitionBytes(path string, raw []byte, check, afterRename func() error) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".storage-transition-")
 	if err != nil {
 		return err
