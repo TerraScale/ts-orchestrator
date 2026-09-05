@@ -12,10 +12,6 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
-func candidateCommandConfig() transitiongrant.Config {
-	return transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "transition-1", NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-store", StoreDir: "/var/lib/terrascale/orchestrator/candidate", GrantFile: "/etc/terrascale/candidate/grant.json", GrantPublicKeyFile: "/etc/terrascale/candidate/owner.pem"}
-}
-
 type candidateCancelWriter struct {
 	bytes.Buffer
 	cancel context.CancelFunc

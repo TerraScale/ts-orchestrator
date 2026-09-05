@@ -143,7 +143,7 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 		return bad
 	}
 	g := preparation.Grant
-	if g.TransitionID != r.TransitionID || g.Source.NodeID != identity.NodeID || g.Source.InitialGrantSHA256 != identity.GrantSHA256 || g.Source.StoreScopeSHA256 != identity.StoreScopeSHA256 || g.Source.ServerName != cfg.Broker.ServerName || g.Peers[0].NodeID != identity.NodeID || g.Peers[0].BootstrapGrantSHA256 != identity.GrantSHA256 || g.Peers[0].PreparedManifestSHA256 != identity.ManifestSHA256 || input.CandidateIssuedAt.Before(g.IssuedAt) || input.CandidateExpiresAt.After(g.ExpiresAt) || now.Before(g.IssuedAt) || !now.Before(g.ExpiresAt) {
+	if g.TransitionID != r.TransitionID || g.Source.NodeID != identity.NodeID || g.Source.InitialGrantSHA256 != identity.GrantSHA256 || g.Source.StoreScopeSHA256 != identity.StoreScopeSHA256 || g.Source.ServerName != cfg.Broker.ServerName || input.CandidateIssuedAt.Before(g.IssuedAt) || input.CandidateExpiresAt.After(g.ExpiresAt) || now.Before(g.IssuedAt) || !now.Before(g.ExpiresAt) {
 		return bad
 	}
 	scope := preliminarytransfer.Scope{Version: 1, TransitionID: r.TransitionID, SourceNodeID: identity.NodeID, InitialGrantSHA256: identity.GrantSHA256, StoreScopeSHA256: identity.StoreScopeSHA256, ProfileSHA256: profile, SourcePublicKeyPEM: string(sourcePublic), CaptureRequest: requestSigned, CaptureReceipt: receiptSigned, RequestSHA256: request.Digest, ReceiptSHA256: preliminarytransfer.Digest(receiptSigned), PreparationGrantSHA256: preparation.Digest, Prefix: input.Prefix, Destinations: input.Destinations, MaxSnapshotBytes: input.MaxSnapshotBytes, MaxTotalBytes: input.MaxTotalBytes, MaxRestoreBytes: input.MaxRestoreBytes}
@@ -231,6 +231,17 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 			return bad
 		}
 		bundle.Candidates = append(bundle.Candidates, candidateOutput{c.NodeID, raw})
+	}
+	// Recheck finite authority after all protected reads and signing. A slow
+	// filesystem must not let a plan emit authorizations that have since expired.
+	finalNow := time.Now().UTC()
+	if upload.Check(finalNow) != nil {
+		return bad
+	}
+	for _, candidate := range bundle.Candidates {
+		if _, err := preliminarytransfer.VerifyCandidateRequest(public, candidate.Request, finalNow); err != nil {
+			return bad
+		}
 	}
 	encoded, err := json.Marshal(bundle)
 	if err != nil {

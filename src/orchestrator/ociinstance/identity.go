@@ -47,7 +47,7 @@ type Identity struct {
 }
 
 func New(ctx context.Context, region string, options Options) (*Identity, error) {
-	if ctx == nil || ctx.Err() != nil || !provider.ValidOCIRegion(region) {
+	if ctx == nil || ctx.Err() != nil || !validHomeRegion(region) {
 		return nil, ErrIdentity
 	}
 	lifetime, cancel := context.WithCancel(ctx)
@@ -184,7 +184,7 @@ func (i *Identity) NewTransportForRegion(service provider.OCIService, region str
 		return nil, ErrRequest
 	}
 	host, ok := provider.OCIServiceHost(service, region)
-	if !ok {
+	if !ok || !validHomeRegion(region) {
 		return nil, ErrRequest
 	}
 	cfg, err := provider.NewOCIServiceTransportConfig(service, region, "https://"+host)
@@ -213,7 +213,7 @@ func productionTransport() *http.Transport {
 func allowedObjectHost(host string) bool {
 	const prefix = "objectstorage."
 	const suffix = ".oraclecloud.com"
-	return strings.HasPrefix(host, prefix) && strings.HasSuffix(host, suffix) && provider.ValidOCIRegion(strings.TrimSuffix(strings.TrimPrefix(host, prefix), suffix))
+	return strings.HasPrefix(host, prefix) && strings.HasSuffix(host, suffix) && validHomeRegion(strings.TrimSuffix(strings.TrimPrefix(host, prefix), suffix))
 }
 
 type lifetimeTransport struct {
@@ -282,7 +282,7 @@ func (d credentialDispatcher) Do(request *http.Request) (*http.Response, error) 
 		return nil, ErrIdentity
 	}
 	// The region response must match the explicitly configured home region.
-	if metadata && request.URL.Path == "/opc/v2/instance/region" && string(body) != i.region {
+	if metadata && request.URL.Path == "/opc/v2/instance/region" && !matchesMetadataRegion(string(body), i.region) {
 		clear(body)
 		return nil, ErrIdentity
 	}

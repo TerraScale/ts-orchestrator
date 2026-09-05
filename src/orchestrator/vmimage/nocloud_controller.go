@@ -6,6 +6,7 @@ import (
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
+	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 )
 
@@ -62,7 +63,7 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 func controllerOwnershipBootstrap(files []NoCloudRootFile) string {
 	var script strings.Builder
 	for _, file := range files {
-		if !vmcontrolseed.IsFilePath(file.Path) {
+		if !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) {
 			continue
 		}
 		script.WriteString("/usr/bin/chown " + vmcontrolseed.ServiceUser + ":" + vmcontrolseed.ServiceUser + " " + file.Path + "\n")

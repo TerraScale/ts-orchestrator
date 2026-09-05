@@ -18,6 +18,7 @@ import (
 // worker. The owner-signed transfer scope separately selects exact objects.
 // It does not authorize store promotion, election, or TerraBase membership.
 type CandidateSyncConfig struct {
+	AuthorityReaderSHA256 string             `json:"authorityReaderSha256"`
 	RequestFile           string             `json:"requestFile"`
 	StagingDir            string             `json:"stagingDir"`
 	ReceiptDir            string             `json:"receiptDir"`
@@ -31,7 +32,7 @@ type CandidateSyncConfig struct {
 
 func (s CandidateSyncConfig) Validate(storeDir string) error {
 	bad := errors.New("transitiongrant: invalid isolated candidate sync configuration")
-	if s.MaxSnapshotBytes < 1024 || s.MaxSnapshotBytes > 1<<30 || s.MaxTotalBytes < s.MaxSnapshotBytes || s.MaxTotalBytes > 256<<30 || s.MaxRestoreBytes < s.MaxSnapshotBytes || s.MaxRestoreBytes > 256<<30 {
+	if !digest(s.AuthorityReaderSHA256) || s.MaxSnapshotBytes < 1024 || s.MaxSnapshotBytes > 1<<30 || s.MaxTotalBytes < s.MaxSnapshotBytes || s.MaxTotalBytes > 256<<30 || s.MaxRestoreBytes < s.MaxSnapshotBytes || s.MaxRestoreBytes > 256<<30 {
 		return bad
 	}
 	paths := []string{s.RequestFile, s.StagingDir, s.ReceiptDir, s.ReceiptPrivateKeyFile, storeDir}

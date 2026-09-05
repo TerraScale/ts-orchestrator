@@ -80,11 +80,13 @@ func CanonicalScope(s Scope) ([]byte, error) {
 	if len(s.Destinations) != 3 || len(s.Candidates) != 2 {
 		return nil, errors.New("preliminarytransfer: exact launch destination and candidate inventory required")
 	}
+	seenRegions, seenBuckets := map[string]bool{}, map[string]bool{}
 	for i, region := range []string{"gru", "sfo", "fra"} {
 		d := s.Destinations[i]
-		if d.Region != region || !validToken(d.OCIRegion) || !validToken(d.Namespace) || !validToken(d.Bucket) || !boundedIdentifier(d.BucketResourceID) || !boundedIdentifier(d.CompartmentID) || d.OwnershipGeneration == 0 || len(d.OwnershipTags) < 2 || len(d.OwnershipTags) > 32 || d.OwnershipTags["terrascale-managed"] == "" || d.OwnershipTags["terrascale-region"] != region {
+		if seenRegions[d.OCIRegion] || seenBuckets[d.BucketResourceID] || d.Region != region || !validToken(d.OCIRegion) || !validToken(d.Namespace) || !validToken(d.Bucket) || !boundedIdentifier(d.BucketResourceID) || !boundedIdentifier(d.CompartmentID) || d.OwnershipGeneration == 0 || len(d.OwnershipTags) < 2 || len(d.OwnershipTags) > 32 || d.OwnershipTags["terrascale-managed"] == "" || d.OwnershipTags["terrascale-region"] != region {
 			return nil, errors.New("preliminarytransfer: invalid exact OCI ownership destination")
 		}
+		seenRegions[d.OCIRegion], seenBuckets[d.BucketResourceID] = true, true
 		for k, v := range d.OwnershipTags {
 			if !boundedIdentifier(k) || !boundedIdentifier(v) {
 				return nil, errors.New("preliminarytransfer: invalid ownership tag")
@@ -213,4 +215,13 @@ func (v VerifiedScope) CaptureTime() (time.Time, error) {
 	}
 	r, err := preliminarycapture.VerifyReceipt([]byte(v.Scope.SourcePublicKeyPEM), v.Scope.CaptureReceipt)
 	return r.CreatedAt, err
+}
+
+// HistoricalCapture returns the verified completed capture request. Its original
+// expiry remains intact; this grants no fresh capture or source mutation.
+func (v VerifiedScope) HistoricalCapture() (preliminarycapture.VerifiedRequest, error) {
+	if err := v.Check(); err != nil {
+		return preliminarycapture.VerifiedRequest{}, err
+	}
+	return preliminarycapture.VerifyRequest(v.public, v.Scope.CaptureRequest)
 }

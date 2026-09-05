@@ -1,5 +1,5 @@
 // Package initialcontrolcli runs the owner-admitted initial GRU process and
-// reports bounded local preliminary-capture status changes.
+// reports bounded preliminary capture and publication status changes.
 package initialcontrolcli
 
 import (
@@ -30,28 +30,39 @@ func Run(ctx context.Context, path string, output io.Writer) (result error) {
 		return err
 	}
 	defer func() { result = errors.Join(result, runtime.Close(), runtime.Err()) }()
-	return reportCapture(ctx, runtime, output)
+	return reportPreliminary(ctx, runtime, output)
 }
 
-type captureRuntime interface {
+type preliminaryRuntime interface {
 	Completion() <-chan struct{}
 	PreliminaryCapture() initialcontrol.PreliminaryCaptureStatus
+	PreliminaryPublication() initialcontrol.PreliminaryPublicationStatus
 }
 
-func reportCapture(ctx context.Context, runtime captureRuntime, output io.Writer) error {
+func reportPreliminary(ctx context.Context, runtime preliminaryRuntime, output io.Writer) error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	var previous initialcontrol.PreliminaryCaptureStatus
+	type event struct {
+		PreliminaryCapture     initialcontrol.PreliminaryCaptureStatus     `json:"preliminaryCapture"`
+		PreliminaryPublication initialcontrol.PreliminaryPublicationStatus `json:"preliminaryPublication"`
+	}
+	var previous event
 	havePrevious := false
 	emit := func() error {
-		status := runtime.PreliminaryCapture()
+		status := event{runtime.PreliminaryCapture(), runtime.PreliminaryPublication()}
+		// Error fields are bounded public summaries even if a future worker
+		// accidentally returns an underlying provider or filesystem error.
+		if status.PreliminaryCapture.Error != "" {
+			status.PreliminaryCapture.Error = "preliminary capture refused or incomplete"
+		}
+		if status.PreliminaryPublication.Error != "" {
+			status.PreliminaryPublication.Error = "preliminary publication refused or incomplete"
+		}
 		if havePrevious && status == previous {
 			return nil
 		}
-		if err := json.NewEncoder(output).Encode(struct {
-			PreliminaryCapture initialcontrol.PreliminaryCaptureStatus `json:"preliminaryCapture"`
-		}{status}); err != nil {
-			return errors.New("initial control: could not write preliminary capture status")
+		if err := json.NewEncoder(output).Encode(status); err != nil {
+			return errors.New("initial control: could not write preliminary status")
 		}
 		previous, havePrevious = status, true
 		return nil

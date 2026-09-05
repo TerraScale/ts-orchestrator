@@ -25,6 +25,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 )
 
@@ -107,6 +108,7 @@ type TSNodeNATSIdentity struct {
 // fetched and reconciled by the running ts-node.
 type TSNodeBootstrap struct {
 	Controller                   *vmcontrolseed.Material
+	Candidate                    *vmcandidateseed.Material
 	InitialGrant                 *TSNodeInitialGrant
 	MembershipIdentityPrivateKey []byte
 	MembershipPins               map[string]string
@@ -200,6 +202,11 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		return tsNodeBootstrapMaterial{}, err
 	}
 	commandFiles = append(commandFiles, controllerFiles...)
+	candidateFiles, err := canonicalCandidateBootstrap(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	commandFiles = append(commandFiles, candidateFiles...)
 	memberPrivate, memberPins, err := canonicalMembershipBootstrap(input)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err

@@ -129,7 +129,7 @@ func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstrea
 		return SnapshotRestoreEvidence{}, err
 	}
 	var expected jetstream.StreamConfig
-	if json.Unmarshal(manifest.Config, &expected) != nil || !reflect.DeepEqual(before.Config, expected) {
+	if json.Unmarshal(manifest.Config, &expected) != nil || !sameRestoredConfig(before.Config, expected) {
 		return fail("configuration differs")
 	}
 	persistent := 0
@@ -239,4 +239,23 @@ func SameSnapshotRestoreEvidence(a, b SnapshotRestoreEvidence) bool {
 	}
 	right, err := json.Marshal(b)
 	return err == nil && bytes.Equal(left, right)
+}
+
+// NATS injects these two read-only version observations into API responses;
+// snapshot config contains only the stored metadata. All stored keys remain bound.
+func sameRestoredConfig(a, b jetstream.StreamConfig) bool {
+	normalize := func(c jetstream.StreamConfig) jetstream.StreamConfig {
+		metadata := make(map[string]string, len(c.Metadata))
+		for k, v := range c.Metadata {
+			if k != "_nats.level" && k != "_nats.ver" {
+				metadata[k] = v
+			}
+		}
+		if len(metadata) == 0 {
+			metadata = nil
+		}
+		c.Metadata = metadata
+		return c
+	}
+	return reflect.DeepEqual(normalize(a), normalize(b))
 }

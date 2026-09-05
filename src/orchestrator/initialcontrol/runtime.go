@@ -20,8 +20,8 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 )
 
-// Runtime owns only initial authority and membership. Delivery, command
-// ingress, journal writers and estate workers are deliberately not composed.
+// Runtime owns initial authority, membership and explicitly admitted
+// preliminary capture and publication workers.
 type Runtime struct {
 	broker                       *bootstrap.NatsServer
 	regionalClient, globalClient *nats.Conn
@@ -37,6 +37,7 @@ type Runtime struct {
 	closeErr                     error
 	closing                      bool
 	capture                      *preliminaryWorker
+	publication                  *preliminaryPublicationWorker
 }
 
 func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runtime, resultErr error) {
@@ -247,6 +248,9 @@ func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runt
 	}
 	if cfg.PreliminaryCapture != nil {
 		r.capture = startPreliminaryWorker(lifetime, admission, r.GlobalAuthority)
+		if cfg.PreliminaryCapture.Publication != nil {
+			r.publication = startPreliminaryPublicationWorker(lifetime, admission, r.GlobalAuthority)
+		}
 	}
 	started = true
 	go r.supervise(lifetime, admission)
@@ -366,6 +370,9 @@ func (r *Runtime) Close() error {
 		r.cancel()
 		if r.capture != nil {
 			<-r.capture.done
+		}
+		if r.publication != nil {
+			<-r.publication.done
 		}
 		if r.global != nil {
 			r.global.Dispose()

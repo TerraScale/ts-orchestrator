@@ -17,9 +17,11 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/nodebootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 )
 
 type candidatePlanInput struct {
+	PrivateMaterialDirectory string               `json:"privateMaterialDirectory,omitempty"`
 	OwnerPrivateKeyFile      string               `json:"ownerPrivateKeyFile"`
 	PublicKeyFile            string               `json:"publicKeyFile"`
 	SourceNodeID             string               `json:"sourceNodeId"`
@@ -33,9 +35,10 @@ type candidatePlanInput struct {
 	Candidates               []candidatePlanEntry `json:"candidates"`
 }
 type candidatePlanEntry struct {
-	Manifest         hostmanifest.HostManifest `json:"manifest"`
-	Config           transitiongrant.Config    `json:"config"`
-	BootstrapGrantID string                    `json:"bootstrapGrantId"`
+	SyncGeneration   *vmcandidateseed.Declaration `json:"syncGeneration,omitempty"`
+	Manifest         hostmanifest.HostManifest    `json:"manifest"`
+	Config           transitiongrant.Config       `json:"config"`
+	BootstrapGrantID string                       `json:"bootstrapGrantId"`
 }
 type candidatePlanBundle struct {
 	PublicKeyPEM     string                `json:"publicKeyPem"`
@@ -113,6 +116,20 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 		}
 		entry := input.Candidates[i]
 		if entry.Config.Region != region || entry.Config.TransitionID != input.TransitionID {
+			return bad
+		}
+		if entry.SyncGeneration != nil {
+			if input.PrivateMaterialDirectory == "" {
+				return bad
+			}
+			material, err := vmcandidateseed.Generate(input.PrivateMaterialDirectory, entry.Config, *entry.SyncGeneration)
+			if err != nil {
+				return err
+			}
+			entry.Config = material.Config
+			input.Candidates[i].Config = material.Config
+			material.Clear()
+		} else if input.PrivateMaterialDirectory != "" {
 			return bad
 		}
 		manifest, err := bootstrap.PlanControlCandidateManifest(entry.Manifest, entry.Config)

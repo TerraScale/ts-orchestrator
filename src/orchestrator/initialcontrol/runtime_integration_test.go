@@ -115,15 +115,24 @@ func fixtureConfig(t *testing.T) (initialgrant.Config, initialgrant.Config) {
 
 func fixtureConfigCapture(t *testing.T, capture bool) (initialgrant.Config, initialgrant.Config) {
 	t.Helper()
+	var declaration *vmcontrolseed.PreliminaryCaptureDeclaration
+	if capture {
+		declaration = &vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: 32 << 20, MaxTotalBytes: 128 << 20}
+	}
+	return fixtureConfigCaptureDeclaration(t, declaration)
+}
+
+func fixtureConfigCaptureDeclaration(t *testing.T, declaration *vmcontrolseed.PreliminaryCaptureDeclaration) (initialgrant.Config, initialgrant.Config) {
+	t.Helper()
 	seedKey, seedPublic := memberKey(t)
 	peerKey, peerPublic := memberKey(t)
 	guests := []vmcontrolseed.Guest{{ID: "gru-one", Address: "10.77.0.10", MembershipPublicKey: seedPublic}, {ID: "gru-two", Address: "10.77.0.11", MembershipPublicKey: peerPublic}}
-	materials, err := vmcontrolseed.GenerateGRU("runtime-test", guests)
-	if capture {
-		for _, material := range materials {
-			material.Clear()
-		}
-		materials, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture("runtime-test", guests, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: 32 << 20, MaxTotalBytes: 128 << 20})
+	var materials map[string]vmcontrolseed.Material
+	var err error
+	if declaration == nil {
+		materials, err = vmcontrolseed.GenerateGRU("runtime-test", guests)
+	} else {
+		materials, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture("runtime-test", guests, *declaration)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +163,7 @@ func fixtureConfigCapture(t *testing.T, capture bool) (initialgrant.Config, init
 		settings := strings.NewReplacer(vmcontrolseed.Directory, directory, vmcontrolseed.AuthorityDirectory, directory+"/reader").Replace(material.Settings)
 		settings = strings.ReplaceAll(settings, vmcontrolseed.StorePath, filepath.Join(root, "nats"))
 		settings = strings.ReplaceAll(settings, vmcontrolseed.CaptureOutputPath, filepath.Join(root, "capture"))
+		settings = strings.ReplaceAll(settings, vmcontrolseed.PublicationStatePath, filepath.Join(root, "publication"))
 		settings = strings.ReplaceAll(settings, "tls://10.77.0.10:4222", endpoint)
 		var c initialgrant.Config
 		if err = json.Unmarshal([]byte(settings), &c); err != nil {

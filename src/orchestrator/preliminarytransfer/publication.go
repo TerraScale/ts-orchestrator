@@ -1,6 +1,7 @@
 package preliminarytransfer
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"time"
@@ -15,6 +16,7 @@ type PublishedObject struct {
 	ETag string `json:"etag"`
 }
 type PublicationReceipt struct {
+	UploadAuthorization json.RawMessage   `json:"uploadAuthorization"`
 	Version             int               `json:"version"`
 	ScopeSHA256         string            `json:"scopeSha256"`
 	UploadRequestSHA256 string            `json:"uploadRequestSha256"`
@@ -24,7 +26,7 @@ type PublicationReceipt struct {
 }
 
 func validPublication(r PublicationReceipt) bool {
-	if r.Version != 1 || !validDigest(r.ScopeSHA256) || !validDigest(r.UploadRequestSHA256) || r.ControlEpoch == 0 || r.CreatedAt.IsZero() || len(r.Objects) == 0 || len(r.Objects) > 768 {
+	if len(r.UploadAuthorization) == 0 || len(r.UploadAuthorization) > MaximumBytes || r.Version != 1 || !validDigest(r.ScopeSHA256) || !validDigest(r.UploadRequestSHA256) || r.ControlEpoch == 0 || r.CreatedAt.IsZero() || len(r.Objects) == 0 || len(r.Objects) > 768 {
 		return false
 	}
 	for _, o := range r.Objects {
@@ -54,20 +56,52 @@ func VerifyPublicationReceipt(public, signed []byte) (PublicationReceipt, error)
 // CheckPublication proves every exact regional mapping was observed under this
 // finite upload request. It does not assert final-cut freshness or candidate sync.
 func CheckPublication(upload VerifiedUpload, signed []byte) (PublicationReceipt, error) {
-	r, err := VerifyPublicationReceipt([]byte(upload.Scope.Scope.SourcePublicKeyPEM), signed)
+	r, err := CheckPublicationForScope(upload.Scope, signed)
 	if err != nil {
 		return r, err
 	}
-	if upload.Check(r.CreatedAt) != nil || r.ScopeSHA256 != upload.Scope.Digest || r.UploadRequestSHA256 != upload.Digest || r.ControlEpoch != upload.Authorization.ControlEpoch || len(r.Objects) != len(upload.Scope.Scope.Objects) {
-		return r, errors.New("preliminarytransfer: publication scope or authority differs")
+	var request Request
+	if canonicalDecode(upload.Signed, &request) != nil || upload.Check(r.CreatedAt) != nil || r.UploadRequestSHA256 != upload.Digest || r.ControlEpoch != upload.Authorization.ControlEpoch || !reflect.DeepEqual(r.UploadAuthorization, request.Authorization) {
+		return r, errors.New("preliminarytransfer: publication upload request differs")
+	}
+	return r, nil
+}
+
+// CheckPublicationForScope validates a historical receipt under its original
+// finite owner upload authorization. A renewal needs no source lease to verify
+// that receipt and cannot replace its captured bytes, mappings or prior term.
+func CheckPublicationForScope(scope VerifiedScope, signed []byte) (PublicationReceipt, error) {
+	var empty PublicationReceipt
+	if err := scope.Check(); err != nil {
+		return empty, err
+	}
+	r, err := VerifyPublicationReceipt([]byte(scope.Scope.SourcePublicKeyPEM), signed)
+	if err != nil {
+		return r, err
+	}
+	var auth UploadAuthorization
+	if _, err := verifyDocument(scope.public, r.UploadAuthorization, uploadDomain, &auth); err != nil {
+		return r, err
+	}
+	captured, err := scope.CaptureTime()
+	if err != nil {
+		return r, err
+	}
+	epoch, err := scope.CaptureEpoch()
+	if err != nil {
+		return r, err
+	}
+	if !validUpload(auth) || auth.ScopeSHA256 != scope.Digest || auth.ControlEpoch != r.ControlEpoch || auth.IssuedAt.Before(captured) || r.CreatedAt.Before(auth.IssuedAt) || !r.CreatedAt.Before(auth.ExpiresAt) || r.CreatedAt.Before(captured) || r.ControlEpoch < epoch || r.ScopeSHA256 != scope.Digest || len(r.Objects) != len(scope.Scope.Objects) {
+		return r, errors.New("preliminarytransfer: historical publication authority or scope differs")
 	}
 	for i, o := range r.Objects {
-		if !reflect.DeepEqual(o.ObjectMapping, upload.Scope.Scope.Objects[i]) {
+		if !reflect.DeepEqual(o.ObjectMapping, scope.Scope.Objects[i]) {
 			return r, errors.New("preliminarytransfer: publication mapping differs")
 		}
 	}
 	return r, nil
 }
+
 func PublicationKey(scope Scope) string {
 	return scope.Prefix + "/" + scope.RequestSHA256 + "/publication.receipt.json"
 }

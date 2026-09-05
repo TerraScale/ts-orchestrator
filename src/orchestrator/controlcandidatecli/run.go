@@ -8,13 +8,14 @@ import (
 	"io"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/candidatesync"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
-// Run keeps the admitted candidate process available without opening
-// a broker, electing an authority, or reporting ordinary runtime readiness.
+// Run keeps the admitted candidate process available while optionally verifying preliminary snapshots in isolated temporary brokers.
+// It never elects an authority or reports ordinary runtime readiness.
 func Run(ctx context.Context, path string, output io.Writer) error {
 	raw, err := initialgrant.ReadMaterialFile(path, transitiongrant.MaximumBytes, false)
 	if err != nil {
@@ -50,27 +51,11 @@ func waitControlCandidate(ctx context.Context, config transitiongrant.Config, ou
 	if err := json.NewEncoder(output).Encode(receipt); err != nil {
 		return errors.New("candidate preparation receipt could not be written")
 	}
-	expiry := time.NewTimer(time.Until(receipt.ExpiresAt))
-	defer expiry.Stop()
 	poll := time.NewTicker(250 * time.Millisecond)
 	defer poll.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-expiry.C:
-			return errors.New("candidate preparation admission has expired")
-		case <-poll.C:
-			current, err := validate(ctx, config)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
-			}
-			if current != receipt {
-				return errors.New("candidate preparation admission changed")
-			}
-		}
-	}
+	return watchCandidate(ctx, config, output, receipt, validate, productionSyncDependencies(), poll.C)
+}
+
+func productionSyncDependencies() syncDependencies {
+	return syncDependencies{initialgrant.ReadPreliminaryUpload, nodeauthority.VerifyPublishedCandidateRequest, nodeauthority.WithinPublishedCandidateMutation, candidatesync.Run}
 }

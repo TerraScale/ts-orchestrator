@@ -32,12 +32,12 @@ type Config struct {
 	MaxBytes     int64
 	Journal      provider.ProviderMutationJournal
 	Ownership    *provider.DurableOwnershipJournal
-	// Authorize verifies live global mutation authority at snapshotControlEpoch
+	// Authorize verifies live global mutation authority at uploadControlEpoch
 	// and permission to write the specified destination Region. The term is
-	// snapshot.ControlEpoch, never the destination's regional election term.
+	// snapshot.ControlEpoch for Put, or the explicit current term for PutAtEpoch.
 	// Missing, expired, or mismatched global authority and out-of-scope
 	// destinations must return an error before each new PUT.
-	Authorize func(ctx context.Context, destinationRegion string, snapshotControlEpoch uint64) error
+	Authorize func(ctx context.Context, destinationRegion string, uploadControlEpoch uint64) error
 }
 
 type binding struct {
@@ -106,6 +106,9 @@ func token(v string) bool {
 	return v != "" && len(v) <= 256 && strings.TrimSpace(v) == v && !strings.ContainsAny(v, "/\\\x00\r\n\t") && v != "." && v != ".."
 }
 func (s *Store) resolve(ctx context.Context, region, bucket, key string) (binding, provider.ObjectRef, uint64, error) {
+	return s.resolveObject(ctx, region, bucket, key, false)
+}
+func (s *Store) resolveObject(ctx context.Context, region, bucket, key string, receipt bool) (binding, provider.ObjectRef, uint64, error) {
 	if ctx == nil {
 		return binding{}, provider.ObjectRef{}, 0, errors.New("snapshot: context is required")
 	}
@@ -118,6 +121,15 @@ func (s *Store) resolve(ctx context.Context, region, bucket, key string) (bindin
 	b, ok := s.regions[region]
 	if !ok || bucket != b.region.Bucket || !strings.HasPrefix(key, s.prefix) || !token(strings.TrimPrefix(key, s.prefix)) {
 		return binding{}, provider.ObjectRef{}, 0, errors.New("snapshot: object outside configured scope")
+	}
+	if receipt {
+		if strings.TrimPrefix(key, s.prefix) != "publication.receipt.json" {
+			return binding{}, provider.ObjectRef{}, 0, errors.New("snapshot: publication receipt outside configured scope")
+		}
+		if err := s.owned(ctx, region, b); err != nil {
+			return binding{}, provider.ObjectRef{}, 0, err
+		}
+		return b, provider.ObjectRef{Namespace: b.region.Namespace, Bucket: bucket, Name: key}, 0, nil
 	}
 	match := suffix.FindStringSubmatch(key)
 	if len(match) != 2 {
@@ -150,7 +162,10 @@ func identity(m provider.ObjectMetadata) delivery.ObjectIdentity {
 	return delivery.ObjectIdentity{Digest: "sha256:" + m.SHA256, Size: m.Size, ETag: m.ETag}
 }
 func (s *Store) Head(ctx context.Context, region, bucket, key string) (delivery.ObjectIdentity, bool, error) {
-	b, ref, _, err := s.resolve(ctx, region, bucket, key)
+	return s.headObject(ctx, region, bucket, key, false)
+}
+func (s *Store) headObject(ctx context.Context, region, bucket, key string, receipt bool) (delivery.ObjectIdentity, bool, error) {
+	b, ref, _, err := s.resolveObject(ctx, region, bucket, key, receipt)
 	if err != nil {
 		return delivery.ObjectIdentity{}, false, err
 	}
@@ -164,7 +179,10 @@ func (s *Store) Head(ctx context.Context, region, bucket, key string) (delivery.
 	return identity(m), true, nil
 }
 func (s *Store) GetSnapshot(ctx context.Context, region, bucket, key string) ([]byte, bool, error) {
-	b, ref, _, err := s.resolve(ctx, region, bucket, key)
+	return s.getObject(ctx, region, bucket, key, false)
+}
+func (s *Store) getObject(ctx context.Context, region, bucket, key string, receipt bool) ([]byte, bool, error) {
+	b, ref, _, err := s.resolveObject(ctx, region, bucket, key, receipt)
 	if err != nil {
 		return nil, false, err
 	}
@@ -196,15 +214,24 @@ func (s *Store) GetSnapshot(ctx context.Context, region, bucket, key string) ([]
 	return body, true, nil
 }
 func (s *Store) Put(ctx context.Context, region, bucket, key string, body []byte) error {
-	b, ref, epoch, err := s.resolve(ctx, region, bucket, key)
+	return s.putObject(ctx, region, bucket, key, body, 0, false)
+}
+func (s *Store) putObject(ctx context.Context, region, bucket, key string, body []byte, uploadEpoch uint64, receipt bool) error {
+	b, ref, epoch, err := s.resolveObject(ctx, region, bucket, key, receipt)
 	if err != nil {
 		return err
 	}
 	if len(body) == 0 || int64(len(body)) > s.max {
 		return errors.New("snapshot: invalid body size")
 	}
+	if uploadEpoch != 0 {
+		epoch = uploadEpoch
+	}
+	if epoch == 0 {
+		return errors.New("snapshot: current upload epoch required")
+	}
 	body = append([]byte(nil), body...)
-	existing, found, err := s.GetSnapshot(ctx, region, bucket, key)
+	existing, found, err := s.getObject(ctx, region, bucket, key, receipt)
 	if err != nil {
 		return err
 	}
@@ -213,7 +240,9 @@ func (s *Store) Put(ctx context.Context, region, bucket, key string, body []byte
 		if delivery.SHA256Digest(existing) != digest {
 			return errors.New("snapshot: immutable object conflict")
 		}
-		return nil
+
+		// Even identical remote bytes must settle an interrupted durable mutation
+		// before publication can report completion under the current authority.
 	}
 	if err = s.owned(ctx, region, b); err != nil {
 		return err
@@ -227,7 +256,7 @@ func (s *Store) Put(ctx context.Context, region, bucket, key string, body []byte
 	if _, err = b.objects.PutObject(ctx, req); err != nil {
 		return err
 	}
-	verified, found, err := s.GetSnapshot(ctx, region, bucket, key)
+	verified, found, err := s.getObject(ctx, region, bucket, key, receipt)
 	if err != nil {
 		return err
 	}

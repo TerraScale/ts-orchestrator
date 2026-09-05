@@ -1,6 +1,7 @@
 package preliminarytransfer
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -131,7 +132,11 @@ func TestPublicationExactInventoryAndRequestBinding(t *testing.T) {
 	f := newTransferFixture(t)
 	upload := f.upload(t, 8, f.now)
 	fixture := func() PublicationReceipt {
-		r := PublicationReceipt{Version: 1, ScopeSHA256: upload.Scope.Digest, UploadRequestSHA256: upload.Digest, ControlEpoch: 8, CreatedAt: f.now.Add(time.Minute)}
+		var original Request
+		if err := json.Unmarshal(upload.Signed, &original); err != nil {
+			t.Fatal(err)
+		}
+		r := PublicationReceipt{UploadAuthorization: original.Authorization, Version: 1, ScopeSHA256: upload.Scope.Digest, UploadRequestSHA256: upload.Digest, ControlEpoch: 8, CreatedAt: f.now.Add(time.Minute)}
 		for _, o := range upload.Scope.Scope.Objects {
 			r.Objects = append(r.Objects, PublishedObject{ObjectMapping: o, ETag: "etag-" + o.Region + "-" + o.Stream})
 		}
@@ -177,5 +182,37 @@ func TestPublicationExactInventoryAndRequestBinding(t *testing.T) {
 	renewed := f.upload(t, 9, f.now.Add(time.Minute))
 	if _, err := CheckPublication(renewed, signed); err == nil {
 		t.Fatal("publication rebound to renewal")
+	}
+}
+
+func TestHistoricalPublicationUsesOriginalOwnerAuthorization(t *testing.T) {
+	f := newTransferFixture(t)
+	original := f.upload(t, 8, f.now)
+	var wire Request
+	if err := json.Unmarshal(original.Signed, &wire); err != nil {
+		t.Fatal(err)
+	}
+	receipt := PublicationReceipt{Version: 1, ScopeSHA256: original.Scope.Digest, UploadRequestSHA256: original.Digest, UploadAuthorization: wire.Authorization, ControlEpoch: 8, CreatedAt: f.now.Add(time.Minute)}
+	for _, o := range original.Scope.Scope.Objects {
+		receipt.Objects = append(receipt.Objects, PublishedObject{ObjectMapping: o, ETag: "etag-" + o.Region + "-" + o.Stream})
+	}
+	signed, err := SignPublicationReceipt(f.source, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed := f.upload(t, 9, f.now.Add(2*time.Hour))
+	if _, err := CheckPublicationForScope(renewed.Scope, signed); err != nil {
+		t.Fatalf("historical scope receipt rejected after renewal: %v", err)
+	}
+	if _, err := CheckPublication(renewed, signed); err == nil {
+		t.Fatal("old receipt claimed renewed upload term")
+	}
+	receipt.CreatedAt = original.Authorization.ExpiresAt
+	invalid, err := SignPublicationReceipt(f.source, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckPublicationForScope(original.Scope, invalid); err == nil {
+		t.Fatal("source receipt outside original owner authority accepted")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 
 	"golang.org/x/crypto/ssh"
@@ -67,11 +68,13 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
-	if file.Owner != "" && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path)) || file.Owner != membershipServiceUser) {
+	if file.Owner != "" && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
 	}
 	limit := 0
 	switch {
+	case vmcandidateseed.IsServiceFile(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:
+		limit = 64 << 10
 	case vmcontrolseed.IsAuthorityFilePath(file.Path) && file.Mode == 0400 && file.Owner == "":
 		limit = 64 << 10
 	case vmcontrolseed.IsFilePath(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:
@@ -160,6 +163,9 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	}
 	if err := validateGuestControl(spec.GuestControl, guestSeed.Image.Architecture); err != nil {
 		return NoCloudSeed{}, err
+	}
+	if spec.TSNode.Candidate != nil && spec.TSNode.Candidate.Config.Region != spec.Region {
+		return NoCloudSeed{}, errors.New("vmimage: candidate material belongs to another region")
 	}
 	if spec.TSNode.Controller != nil && (spec.TSNode.Controller.Address != spec.Address || spec.Region != "gru") {
 		return NoCloudSeed{}, errors.New("vmimage: controller seed must match the declared GRU guest address")

@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
 // Config is included in the original owner-signed host admission. Qualification
@@ -32,7 +30,7 @@ type QualificationConfig struct {
 }
 
 func ValidateConfig(config Config) error {
-	if !provider.ValidOCIRegion(config.Region) {
+	if !validHomeRegion(config.Region) {
 		return ErrIdentity
 	}
 	q := config.Qualification

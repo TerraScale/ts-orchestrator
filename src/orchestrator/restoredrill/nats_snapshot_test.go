@@ -195,6 +195,7 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 	// Restore the exact uploaded object into a separate broker/store. Parsing
 	// tar alone cannot prove NATS accepts the archive or preserves its checkpoint.
 	restoreSnapshotAndVerify(t, ctx, inner, before, originals, checkpoint)
+	verifyPreliminaryRestore(t, ctx, body)
 	if retry, err := snapshotter.Snapshot(ctx, request); err != nil || retry != snapshot {
 		t.Fatalf("uploaded snapshot readback retry: %+v %v", retry, err)
 	}
