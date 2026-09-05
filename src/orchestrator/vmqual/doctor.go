@@ -79,6 +79,12 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 		ctx = context.Background()
 	}
 	add("platform", runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"), HostPlatform(), "run on native Linux amd64 or arm64; software emulation is not supported")
+	clockError, clockErr := synchronizedHostTime()
+	clockDetail := fmt.Sprintf("host kernel synchronized; maximum error %s", clockError)
+	if clockErr != nil {
+		clockDetail = clockErr.Error()
+	}
+	add("host-clock", clockErr == nil, clockDetail, "provide a synchronized host clock with adjtimex maximum error <=500ms; inspect the host time daemon and wait for its next synchronization sample")
 	kvmOK, kvmDetail := writableKVM()
 	add("kvm", kvmOK, kvmDetail, "grant the qualification runner narrow writable access to /dev/kvm")
 	if err := config.Validate(); err != nil {
@@ -165,7 +171,6 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 		{"nft", "install nftables", "deterministic cross-Region partitions"},
 		{"tc", "install iproute2", "netem fault profiles"},
 		{"qemu-img", "install qemu-utils", "pinned QCOW2 conversion"},
-		{"cloud-localds", "install cloud-image-utils", "per-VM NoCloud seed drives"},
 		{"mkfs.ext4", "install e2fsprogs", "persistent guest data disks"},
 		{"debugfs", "install e2fsprogs", "read-only Ubuntu identity inspection and fstab sanitization during image preparation"},
 		{"e2fsck", "install e2fsprogs", "read-only ext4 consistency verification"},

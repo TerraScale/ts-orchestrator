@@ -49,7 +49,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 			t.Fatalf("network config does not contain %q", expected)
 		}
 	}
-	for _, expected := range []string{"#cloud-config", "ssh_pwauth: false", "lock_passwd: true", `restrict,command="/usr/local/libexec/terrascale-vmqual-control"`, GuestSeedPath, "terrascale-data", "/var/lib/terrascale", "f0VMRgIBAQA", "terrascale-ts-node.service", "sha256sum --check --strict", "openssl pkeyutl -verify", "10.77.0.1 releases.terrascale.tech", cloudHostsTemplatePath, "cloud-init single --name update_etc_hosts", "update-ca-certificates", "set -eu", tsNodeBootstrapManifestPath, desiredHostManifestPath} {
+	for _, expected := range []string{"#cloud-config", "ssh_pwauth: false", "lock_passwd: true", `restrict,command="/usr/local/libexec/terrascale-vmqual-control"`, GuestSeedPath, "terrascale-data", "/var/lib/terrascale", "terrascale-ts-node.service", "sha256sum --check --strict", "openssl pkeyutl -verify", "10.77.0.1 releases.terrascale.tech", cloudHostsTemplatePath, "cloud-init single --name update_etc_hosts", "update-ca-certificates", "set -eu", "server 10.77.0.1 iburst minpoll 4 maxpoll 5", "chronyc waitsync", "systemctl enable --now terrascale-vmqual-chrony.service", tsNodeBootstrapManifestPath, desiredHostManifestPath} {
 		if !strings.Contains(string(first.UserData), expected) {
 			t.Fatalf("user data does not contain %q", expected)
 		}
@@ -72,6 +72,15 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	if strings.Contains(string(first.UserData), "path: "+desiredHostManifestPath) {
 		t.Fatal("NoCloud write_files placed the manifest beneath the not-yet-mounted data volume")
 	}
+	if len(first.RootFiles) != 2 || first.RootFiles[0].Path != GuestControlPath || first.RootFiles[0].Mode != 0500 || !bytes.Equal(first.RootFiles[0].Content, spec.GuestControl) || first.RootFiles[1].Path != tsNodeBootstrapBinaryPath || first.RootFiles[1].Mode != 0600 || !bytes.Equal(first.RootFiles[1].Content, spec.TSNode.Binary) {
+		t.Fatal("root payloads do not preserve validated binaries and modes")
+	}
+	if strings.Contains(string(first.UserData), "f0VMRgIBAQA") || strings.Contains(string(first.UserData), "path: "+GuestControlPath) || strings.Contains(string(first.UserData), "path: "+tsNodeBootstrapBinaryPath+"\n") {
+		t.Fatal("cloud-init YAML still embeds a binary")
+	}
+	if strings.HasPrefix(tsNodeBootstrapBinaryPath, "/run/") || strings.HasPrefix(tsNodeBootstrapBinaryPath, defaultDataMount+"/") {
+		t.Fatal("bootstrap binary is hidden by a boot mount")
+	}
 	wantRunCmd := "runcmd:\n  - [/bin/sh, " + tsNodeBootstrapScriptPath + "]\n"
 	if index := strings.Index(string(first.UserData), "runcmd:\n"); index < 0 || string(first.UserData[index:]) != wantRunCmd {
 		t.Fatalf("NoCloud bootstrap is not one fail-closed runcmd operation:\n%s", first.UserData)
@@ -86,6 +95,34 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	}
 	if !strings.Contains(string(material.config), `"manifestPath":"`+desiredHostManifestPath+`"`) {
 		t.Fatalf("ts-node config does not use the reserved manifest path: %s", material.config)
+	}
+}
+
+func TestNoCloudBinarySizeDoesNotExpandCloudInitYAML(t *testing.T) {
+	spec := validNoCloudSpec(t)
+	small, err := BuildNoCloudSeed(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.GuestControl = append(spec.GuestControl, make([]byte, 20<<20)...)
+	large, err := BuildNoCloudSeed(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(small.UserData, large.UserData) || len(large.UserData) > 32<<10 || !bytes.Equal(large.RootFiles[0].Content, spec.GuestControl) {
+		t.Fatal("large guest control expanded cloud-init YAML or lost payload bytes")
+	}
+}
+
+func TestNoCloudRootFileRejectsUnboundDestination(t *testing.T) {
+	for _, file := range []NoCloudRootFile{
+		{Path: "/etc/shadow", Mode: 0600, Content: []byte("x")},
+		{Path: GuestControlPath, Mode: 04755, Content: []byte("x")},
+		{Path: GuestControlPath, Mode: 0500},
+	} {
+		if file.Validate() == nil {
+			t.Fatalf("accepted invalid root payload: %s", file.Path)
+		}
 	}
 }
 

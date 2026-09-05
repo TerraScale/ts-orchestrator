@@ -23,10 +23,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 )
 
 const (
-	artifactLimit       = int64(16 << 20)
+	artifactLimit       = int64(vmimage.MaxServiceBinaryBytes)
 	artifactPrefix      = ".qualification-artifacts-"
 	childShutdownWindow = 30 * time.Second
 )

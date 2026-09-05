@@ -326,11 +326,13 @@ func (n *networkController) VerifyNoOwnedResources(ctx context.Context) error {
 	if services != nil {
 		errs = append(errs, services.VerifyStopped())
 	}
+	// Namespace teardown can return before the kernel releases its peer veth
+	// and sysfs entry. Observe disappearance within one bounded cleanup window.
+	settleCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 	for _, region := range plan.Regions {
 		for _, path := range []string{region.NamespacePath, filepath.Join("/sys/class/net", region.Uplink.RootDevice)} {
-			if _, err := os.Lstat(path); err == nil {
-				errs = append(errs, fmt.Errorf("vmqual: owned network resource remains: %s", path))
-			} else if !errors.Is(err, os.ErrNotExist) {
+			if err := awaitNetworkResourceRemoval(settleCtx, path); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -343,6 +345,25 @@ func (n *networkController) VerifyNoOwnedResources(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func awaitNetworkResourceRemoval(ctx context.Context, path string) error {
+	for {
+		_, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("vmqual: owned network resource remains: %s: %w", path, ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 type networkJournalWriter struct{ path string }

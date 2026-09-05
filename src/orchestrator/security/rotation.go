@@ -412,6 +412,14 @@ func (c *Coordinator) Rotate(ctx context.Context, operationID string) (RotationR
 	if state.OperationID == operationID && state.Phase == PhaseFailed {
 		return RotationResult{}, &RotationError{Code: "rotation_failed_closed"}
 	}
+	if state.Phase == PhaseActive && state.OldVersion != 0 {
+		if now.Before(state.OldExpiry) {
+			return RotationResult{}, &RotationError{Code: "rotation_overlap_active"}
+		}
+		if err := c.retireAt(ctx, &state); err != nil {
+			return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+		}
+	}
 	if state.OperationID == "" || state.Phase == PhaseActive || state.Phase == PhaseFailed {
 		if state.LastVersion == ^uint64(0) || state.NewVersion == ^uint64(0) || state.CurrentVersion == ^uint64(0) {
 			return RotationResult{}, &RotationError{Code: "version_exhausted"}
@@ -491,13 +499,7 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 	defer wipe(capability.Key)
 	previousCapability, err := c.previousCapability(ctx, state, now)
 	if err != nil {
-		// Legacy stage adapters predate the current+previous key-ring
-		// contract and may not retain material across a process restart. The
-		// atomic publisher is the production contract and must fail closed.
-		if c.publisher != nil {
-			return RotationResult{}, c.failClosed(ctx, state, "previous_material_unavailable")
-		}
-		previousCapability = CapabilityMaterial{}
+		return RotationResult{}, c.failClosed(ctx, state, "previous_material_unavailable")
 	}
 	defer wipe(previousCapability.Key)
 	if now.After(state.NewExpiry) || state.NewExpiry.Sub(now) <= c.safety {
@@ -610,17 +612,12 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 	defer wipe(identity.ControlTLS)
 	defer wipe(identity.TrustBundle)
 	defer wipe(capability.Key)
-	if capability.Reference == "" || capability.Version != state.NewVersion || capability.Bucket != state.NewBucket || capability.ExpiresAt.Before(state.NewExpiry) {
+	if capability.ID == "" || capability.Reference == "" || capability.Version != state.NewVersion || capability.Bucket != state.NewBucket || capability.ExpiresAt.Before(state.NewExpiry) {
 		_ = c.issuer.Retire(ctx, identity.Reference, key(*state, "identity-retire-orphan", "", ""))
 		if capability.Reference != "" {
 			_ = c.vault.Retire(ctx, capability.Reference, key(*state, "capability-retire-orphan", "", ""))
 		}
 		return errors.New("provider returned invalid material")
-	}
-	if capability.ID == "" {
-		// Providers should return an ID. Keep a deterministic fallback for old
-		// adapters while ensuring the durable journal still carries no secret.
-		capability.ID = fmt.Sprintf("generation-%d", state.NewVersion)
 	}
 	state.NewIdentityRef, state.NewCapabilityRef, state.NewCapabilityID = identity.Reference, capability.Reference, capability.ID
 	state.Phase = PhaseDistribute
@@ -855,7 +852,7 @@ func (c *Coordinator) material(ctx context.Context, state PersistedState) (Ident
 		wipe(capability.Key)
 		return IdentityMaterial{}, CapabilityMaterial{}, errors.New("material version mismatch")
 	}
-	if state.NewCapabilityID != "" && capability.ID != "" && capability.ID != state.NewCapabilityID {
+	if state.NewCapabilityID == "" || capability.ID != state.NewCapabilityID {
 		wipe(identity.WorkloadTLS)
 		wipe(identity.ControlTLS)
 		wipe(identity.TrustBundle)
@@ -880,7 +877,7 @@ func (c *Coordinator) previousCapability(ctx context.Context, state PersistedSta
 		wipe(material.Key)
 		return CapabilityMaterial{}, errors.New("previous capability version mismatch")
 	}
-	if state.OldCapabilityID != "" && material.ID != "" && material.ID != state.OldCapabilityID {
+	if state.OldCapabilityID == "" || material.ID != state.OldCapabilityID {
 		wipe(material.Key)
 		return CapabilityMaterial{}, errors.New("previous capability key identity mismatch")
 	}
@@ -909,6 +906,9 @@ func (c *Coordinator) load(ctx context.Context) (PersistedState, error) {
 	}
 	if err != nil {
 		return PersistedState{}, &RotationError{Code: "state_load_failed"}
+	}
+	if !validCurrentRotationState(state) {
+		return PersistedState{}, &RotationError{Code: "state_invalid"}
 	}
 	if state.Members == nil {
 		state.Members = map[string][]string{}
@@ -946,10 +946,6 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 	version := base + 1
 	currentIdentity, currentCapability, currentCapabilityID := previous.CurrentIdentityRef, previous.CurrentCapabilityRef, previous.CurrentCapabilityID
 	currentVersion, currentExpiry := previous.CurrentVersion, previous.CurrentExpiry
-	if currentVersion == 0 && previous.Phase == PhaseActive {
-		// Compatibility with state written before Current* was introduced.
-		currentIdentity, currentCapability, currentCapabilityID, currentVersion, currentExpiry = previous.NewIdentityRef, previous.NewCapabilityRef, previous.NewCapabilityID, previous.NewVersion, previous.NewExpiry
-	}
 	identityExpiry := now.Add(CapabilityPeriod)
 	// A previous key is retained only for the edge overlap window. The
 	// provider material itself may have a longer not-after, but keeping it in
@@ -967,11 +963,7 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {
-	version, expiry := state.NewVersion, state.NewExpiry
-	if state.CurrentVersion != 0 {
-		version, expiry = state.CurrentVersion, state.CurrentExpiry
-	}
-	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: version, NewBucket: state.NewBucket, NewExpiry: expiry, CurrentKeyID: state.CurrentCapabilityID, PreviousKeyID: state.PreviousCapabilityID}
+	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: state.NewVersion, NewBucket: state.NewBucket, NewExpiry: state.NewExpiry, CurrentKeyID: state.CurrentCapabilityID, PreviousKeyID: state.PreviousCapabilityID}
 }
 
 func emptyState(regions []string) PersistedState {

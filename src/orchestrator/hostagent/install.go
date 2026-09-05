@@ -459,7 +459,10 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 		return "", err
 	}
 	if installed && complete {
-		return versionDir, nil
+		return versionDir, verifyExpectedLaunch(versionDir, validated)
+	}
+	if installed {
+		return "", &InvalidDataError{Message: "The installed version is missing immutable release metadata."}
 	}
 	staging, err := os.MkdirTemp(componentDir, ".staging-"+validated.Version+"-")
 	if err != nil {
@@ -515,6 +518,9 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 	if err := writeReleaseDigest(digestPath, validated.Sha256); err != nil {
 		return failClosed(err)
 	}
+	if err := writeComponentLaunch(staging, validated); err != nil {
+		return failClosed(err)
+	}
 	if err := os.Chmod(staging, 0o755); err != nil {
 		return failClosed(err)
 	}
@@ -524,32 +530,13 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 	if err := syncDir(componentDir); err != nil {
 		return failClosed(err)
 	}
-	if installed {
-		if err := backfillReleaseMetadata(staging, versionDir, validated.Name); err != nil {
-			return failClosed(err)
-		}
-		if err := os.RemoveAll(staging); err != nil {
-			return "", err
-		}
-		if err := syncDir(componentDir); err != nil {
-			return "", err
-		}
-		_, complete, err := i.inspectInstalledRelease(versionDir, validated.Name, validated.Sha256)
-		if err != nil || !complete {
-			if err != nil {
-				return "", err
-			}
-			return "", &InvalidDataError{Message: "The installed version metadata is incomplete."}
-		}
-		return versionDir, nil
-	}
 	if err := os.Rename(staging, versionDir); err != nil {
 		// Another process following this install contract may have won a
 		// same-version race. The slot is an idempotent success only when its
 		// immutable artifact has the exact expected identity; it is never
 		// deleted or overwritten here.
 		installed, complete, verifyErr := i.inspectInstalledRelease(versionDir, validated.Name, validated.Sha256)
-		if verifyErr == nil && installed && complete {
+		if verifyErr == nil && installed && complete && verifyExpectedLaunch(versionDir, validated) == nil {
 			removeErr := os.RemoveAll(staging)
 			return versionDir, errors.Join(removeErr, syncDir(componentDir))
 		}
@@ -585,27 +572,6 @@ func writeReleaseDigest(path, digest string) error {
 		return err
 	}
 	return nil
-}
-
-func backfillReleaseMetadata(staging, versionDir, component string) error {
-	created := make([]string, 0, 2)
-	for _, suffix := range []string{".sig", ".sha256"} {
-		source := filepath.Join(staging, component+suffix)
-		destination := filepath.Join(versionDir, component+suffix)
-		if _, err := os.Lstat(destination); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		if err := os.Link(source, destination); err != nil {
-			for _, path := range created {
-				_ = os.Remove(path)
-			}
-			return err
-		}
-		created = append(created, destination)
-	}
-	return syncDir(versionDir)
 }
 
 // lockInstallDirectory serializes installers across processes. A crash
@@ -687,9 +653,8 @@ func removeAbandonedInstallStages(componentDir string) error {
 	return nil
 }
 
-// inspectInstalledRelease distinguishes an absent slot, a legacy exact slot
-// that still needs durable authentication metadata, and a fully verified
-// release. Existing invalid content is never replaced.
+// inspectInstalledRelease authenticates an immutable release and its launch
+// configuration. Existing incomplete or invalid slots are never repaired or replaced.
 func (i *Installer) inspectInstalledRelease(versionDir, component, expectedSha256 string) (bool, bool, error) {
 	directory, err := os.Lstat(versionDir)
 	if os.IsNotExist(err) {
@@ -752,7 +717,20 @@ func (i *Installer) inspectInstalledRelease(versionDir, component, expectedSha25
 			return false, false, &InvalidDataError{Message: "The installed release signature metadata is invalid."}
 		}
 	}
-	return true, digestPresent && signaturePresent, nil
+	launchPresent, err := hasComponentLaunch(versionDir, component)
+	if err != nil {
+		return false, false, err
+	}
+	if launchPresent {
+		launch, err := readComponentLaunch(versionDir, component)
+		if err != nil {
+			return false, false, err
+		}
+		if launch.Sha256 != digestHex {
+			return false, false, &InvalidDataError{Message: "The component launch manifest is bound to a different artifact."}
+		}
+	}
+	return true, digestPresent && signaturePresent && launchPresent, nil
 }
 
 func readOptionalRegularFileBounded(path string, maximum int64) ([]byte, os.FileInfo, bool, error) {

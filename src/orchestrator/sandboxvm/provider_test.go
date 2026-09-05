@@ -241,7 +241,7 @@ func testConfig(t *testing.T) Config {
 		}
 		files[name] = path
 	}
-	return Config{ID: "gru-member-1", Region: "GRU", VCPU: 1, MemoryMiB: 256, KernelImage: files["kernel"], RootDrive: files["root"], DataDrive: files["data"], StateRoot: stateRoot, JailerUID: &uid, JailerGID: &gid, FirecrackerBinary: files["firecracker"], JailerBinary: files["jailer"], ExpectedVersion: "1.0", ExpectedKernelSHA256: digest(paths["kernel"]), ExpectedRootDriveSHA256: digest(paths["root"]), ExpectedDataDriveSHA256: digest(paths["data"]), ExpectedFirecrackerSHA256: digest(paths["firecracker"]), ExpectedJailerSHA256: digest(paths["jailer"]), ReadinessTimeout: 300 * time.Millisecond, StopTimeout: time.Second}
+	return Config{ID: "unit-" + digest([]byte(stateRoot))[:12], Region: "GRU", VCPU: 1, MemoryMiB: 256, KernelImage: files["kernel"], RootDrive: files["root"], DataDrive: files["data"], StateRoot: stateRoot, JailerUID: &uid, JailerGID: &gid, FirecrackerBinary: files["firecracker"], JailerBinary: files["jailer"], ExpectedVersion: "1.0", ExpectedKernelSHA256: digest(paths["kernel"]), ExpectedRootDriveSHA256: digest(paths["root"]), ExpectedDataDriveSHA256: digest(paths["data"]), ExpectedFirecrackerSHA256: digest(paths["firecracker"]), ExpectedJailerSHA256: digest(paths["jailer"]), ReadinessTimeout: 300 * time.Millisecond, StopTimeout: time.Second}
 }
 
 func testProvider(t *testing.T, machine *fakeMachine, probe *fakeProbe, runner CommandRunner) *Provider {

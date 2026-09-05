@@ -50,6 +50,36 @@ The package map in `DESIGN.md` is useful for orientation but is incomplete
 relative to the working tree. Update it alongside the eventual package
 refactor after the in-flight implementation is integrated.
 
+### Guest service startup
+
+Host manifests now carry bounded literal `arguments` and nonsecret
+`configuration`. `@config` selects the immutable configuration next to the
+current signed binary. `ts-node` writes the configuration and admitted launch
+manifest in the same staged version directory, refuses same-version launch
+changes or incomplete existing slots, and restores the prior version's arguments
+and configuration on rollback. The detached artifact signature authenticates the
+binary only; launch configuration relies on authenticated manifest admission.
+Configuration files are readable by services and must contain secret file
+references, never secret values. The private-key PEM check is not a general
+secret detector. Self-service `ts-node` launch remains owned by its bootstrap
+unit, with release metadata retained for authenticated self-rollback.
+
+Qualification initial activation uses the existing journaled host drain,
+deploy, and release commands, verifies the seeded manifest digest and exact host
+component observations, and resumes partially activated hosts without deploying
+an unexpected version. This isolated NATS transport has no GRU fencing fields or
+cryptographic caller authentication; it does not qualify production authority.
+
+The guest manifests still lack concrete TerraBase and orchestrator launch
+configuration. Bare TerraBase startup fails because its process requires
+`--config FILE` or `TERRABASE_CONFIG_FILE`. Even with a complete production
+configuration, the inspected adjacent producer's
+`crates/terrabase-server/src/runtime.rs` production path drains its opened member
+and returns `Membership: no durable orchestrator membership source is configured`.
+That same file maps production Regions only to GRU/SFO/FRA. These are unfinished
+producer paths, not missing VM credentials. A local-development engine observation
+does not satisfy production membership, RF=2, or fourth-Region acceptance.
+
 ### Production dependency audit
 
 The production composition root still always returns
@@ -77,14 +107,16 @@ provides `TopologyRead`, `AdminStatus`, `SupervisionHealth`, and
 `Fenced`, `Denials`, `Conflicts`, and `Depositions`. Those RPCs can support
 bounded observations; they do not provide the required database lifecycle,
 backup/restore, scratch-branch, key-ring, or placement-intent mutation
-contracts. This orchestrator checkout has no generated TBEP Go client or
-gRPC module dependency. A local successful fixture cannot fill that gap.
+contracts. `src/orchestrator/tbep` now pins the complete protobuf source and
+generated Go bindings and implements scoped health, topology, and admin
+observations over TLS 1.3 with exact admitted SPIFFE identity verification.
+The pin records the modified producer worktree's exact file digests; it is not
+a published contract release. Transport tests do not establish real-server
+qualification.
 
-The next concrete TBEP adapter can implement authenticated, same-host health
-and topology observation using the existing `MaintenanceService` and
-`ReplicationService` contracts. Pin the protobuf source and generated Go
-client, verify the peer identity against the admitted host, and test failures
-against the real server. Lifecycle mutations additionally need TerraBase
+The production host observation loop still needs to consume this client and
+qualify it against the real server. Replication observations remain separate
+from health. Lifecycle mutations additionally need TerraBase
 server contracts that carry the accepted authority, operation ID, status
 observation, and durable receipt; `SupervisionShutdown` is not a replacement
 for database drain or safe member replacement.

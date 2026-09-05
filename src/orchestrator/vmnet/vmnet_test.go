@@ -377,7 +377,7 @@ func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Uplinks) != len(plan.Regions) || len(plan.Forwards) != 3*len(plan.Regions) || len(plan.Listeners) != 3 {
+	if len(plan.Uplinks) != len(plan.Regions) || len(plan.Forwards) != 4*len(plan.Regions) || len(plan.Listeners) != 4 {
 		t.Fatalf("endpoint topology: uplinks=%d forwards=%d listeners=%d", len(plan.Uplinks), len(plan.Forwards), len(plan.Listeners))
 	}
 	if !reflect.DeepEqual(plan.Uplinks, plan.Cleanup.Uplinks) || !reflect.DeepEqual(plan.Forwards, plan.Cleanup.Forwards) || !reflect.DeepEqual(plan.Listeners, plan.Cleanup.Listeners) || !reflect.DeepEqual(plan.DNSRecords, plan.Cleanup.DNSRecords) {
@@ -429,7 +429,7 @@ func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
 	dnat, snat, endpointAccepts, serviceAssignments, uplinkCreations := 0, 0, 0, 0, 0
 	for _, command := range plan.Commands {
 		args := command.Args
-		if contains(args, "masquerade") || contains(args, "0.0.0.0/0") || contains(args, "udp") || contains(args, "default") {
+		if contains(args, "masquerade") || contains(args, "0.0.0.0/0") || contains(args, "default") {
 			t.Fatalf("plan contains an internet escape or broad forwarding rule: %+v", command)
 		}
 		if contains(args, "dnat") {
@@ -1609,4 +1609,28 @@ func ownedResourceNames(plan NetworkPlan) map[string]bool {
 		}
 	}
 	return result
+}
+
+func TestOnlyBoundedNTPUDPAllowed(t *testing.T) {
+	for _, spec := range []EndpointSpec{
+		{Name: "ntp", Region: GRU, Protocol: UDP, GuestPort: 123, HostPort: 18124},
+		{Name: "ntp", Region: GRU, Protocol: UDP, GuestPort: 124, HostPort: 18123},
+		{Name: "dns", Region: GRU, Protocol: UDP, GuestPort: 123, HostPort: 18123},
+	} {
+		config := qualifiedConfig(t)
+		config.Endpoints = []EndpointSpec{spec}
+		if _, err := Plan(config); err == nil {
+			t.Fatalf("unbounded UDP admitted: %+v", spec)
+		}
+	}
+	plan, err := Plan(qualifiedConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, region := range plan.Regions {
+		forward, ok := plan.Endpoint(region.Code, "ntp")
+		if !ok || forward.Protocol != UDP || forward.GuestPort != 123 || forward.HostPort != 18123 || forward.GuestAddress != region.Gateway {
+			t.Fatalf("NTP mapping: %+v", forward)
+		}
+	}
 }

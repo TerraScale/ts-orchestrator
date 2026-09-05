@@ -63,7 +63,7 @@ func RenderSystemdUnit(installRoot string, spec ComponentSpec) (string, error) {
 	b.WriteString("Type=exec\n")
 	b.WriteString("User=" + spec.User + "\n")
 	b.WriteString("Group=" + spec.User + "\n")
-	b.WriteString("ExecStart=" + ExecStartPath(installRoot, spec.Name) + "\n")
+	b.WriteString("ExecStart=" + componentExecStart(installRoot, spec) + "\n")
 	b.WriteString("Restart=on-failure\n")
 	b.WriteString("RestartSec=2s\n")
 	// The exact D-69 hardening block. CapabilityBoundingSet= (empty) strips

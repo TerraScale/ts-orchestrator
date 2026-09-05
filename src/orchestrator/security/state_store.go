@@ -26,9 +26,6 @@ func NewFileStateStore(path string) (*FileStateStore, error) {
 	return &FileStateStore{path: filepath.Clean(path)}, nil
 }
 
-// JSONStateStore is a descriptive compatibility alias.
-type JSONStateStore = FileStateStore
-
 func (s *FileStateStore) Load(ctx context.Context) (PersistedState, error) {
 	if s == nil || s.path == "" {
 		return PersistedState{}, ErrNoState

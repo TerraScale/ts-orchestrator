@@ -14,15 +14,25 @@ func TestProductionRuntimeRequiresOwnershipReread(t *testing.T) {
 	}
 }
 
-func TestScheduledServiceStopsOnCancellation(t *testing.T) {
+func TestScheduledServiceReconcilesImmediatelyAndStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	called := make(chan struct{})
-	service := newScheduledService("test", 24*time.Hour, func(context.Context, time.Time) error {
-		close(called)
-		return errors.New("unexpected callback")
+	defer cancel()
+	called := make(chan time.Time, 2)
+	service := newScheduledService("test", 24*time.Hour, func(_ context.Context, at time.Time) error {
+		called <- at
+		return nil
 	})
+	before := time.Now()
 	if err := service.Start(ctx); err != nil {
 		t.Fatalf("start scheduled service: %v", err)
+	}
+	select {
+	case at := <-called:
+		if at.Before(before) || at.After(time.Now()) || at.Location() != time.UTC {
+			t.Fatalf("startup reconciliation time = %v", at)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("daily service postponed startup reconciliation")
 	}
 	cancel()
 	if err := service.Close(); err != nil {
@@ -30,7 +40,7 @@ func TestScheduledServiceStopsOnCancellation(t *testing.T) {
 	}
 	select {
 	case <-called:
-		t.Fatal("scheduled service ran before its interval")
+		t.Fatal("scheduled service ran again before its interval")
 	default:
 	}
 }

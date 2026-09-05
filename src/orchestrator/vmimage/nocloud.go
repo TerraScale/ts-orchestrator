@@ -45,12 +45,38 @@ type NoCloudSeedSpec struct {
 }
 
 // NoCloudSeed contains the three files consumed by cloud-init's NoCloud data
-// source. The caller writes these bytes into an ISO or VFAT image labelled
-// "cidata" and attaches it read-only to the guest.
+// source. Qualification writes them into /var/lib/cloud/seed/nocloud in the
+// private guest root filesystem before boot.
 type NoCloudSeed struct {
 	MetaData      []byte
 	NetworkConfig []byte
 	UserData      []byte
+	RootFiles     []NoCloudRootFile
+}
+
+// NoCloudRootFile is a validated binary installed in the private root before boot.
+// Paths and modes are fixed by BuildNoCloudSeed, never supplied by guest input.
+type NoCloudRootFile struct {
+	Path    string
+	Mode    uint32
+	Content []byte
+}
+
+// Validate rejects root file destinations, permissions and sizes outside the seed contract.
+func (file NoCloudRootFile) Validate() error {
+	limit := 0
+	switch {
+	case file.Path == GuestControlPath && file.Mode == 0500:
+		limit = maxGuestControl
+	case file.Path == tsNodeBootstrapBinaryPath && file.Mode == 0600:
+		limit = maxTSNodeBinaryBytes
+	case (file.Path == "/usr/sbin/chronyd" || file.Path == "/usr/bin/chronyc") && file.Mode == 0555:
+		limit = 2 << 20
+	}
+	if limit == 0 || len(file.Content) == 0 || len(file.Content) > limit {
+		return errors.New("vmimage: invalid NoCloud root file")
+	}
+	return nil
 }
 
 // BuildNoCloudSeed validates the guest identity and produces deterministic
@@ -129,6 +155,10 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 		MetaData:      buildNoCloudMetaData(spec),
 		NetworkConfig: buildNoCloudNetwork(address, spec.PrefixBits, gateway, guestMAC, nameservers),
 		UserData:      buildNoCloudUserData(spec, dataDevice, dataMount, tsNode),
+		RootFiles: []NoCloudRootFile{
+			{Path: GuestControlPath, Mode: 0500, Content: append([]byte(nil), spec.GuestControl...)},
+			{Path: tsNodeBootstrapBinaryPath, Mode: 0600, Content: tsNode.binary},
+		},
 	}, nil
 }
 
@@ -283,7 +313,11 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string, ts
 	output.WriteString("mounts:\n")
 	fmt.Fprintf(&output, "  - [%s, %s, ext4, 'defaults,nofail,nodev,nosuid', '0', '2']\n", yamlScalar(dataDevice), yamlScalar(dataMount))
 	output.WriteString("write_files:\n")
-	writeNoCloudFile(&output, tsNodeBootstrapBinaryPath, "root:root", "0600", tsNode.binary)
+	writeNoCloudChrony(&output, tsNode.hostAddress)
+	versionDirectory := "/opt/terrascale/ts-node/" + tsNode.version
+	writeNoCloudFile(&output, versionDirectory+"/ts-node.launch.json", "root:root", "0444", tsNode.launchManifest)
+	writeNoCloudFile(&output, versionDirectory+"/ts-node.config", "root:root", "0444", nil)
+	writeNoCloudFile(&output, versionDirectory+"/ts-node.sha256", "root:root", "0444", []byte(tsNode.digest))
 	writeNoCloudFile(&output, tsNodeBootstrapSigPath, "root:root", "0600", tsNode.signature)
 	writeNoCloudFile(&output, tsNodeBootstrapKeyPath, "root:root", "0600", tsNode.publicKeyPEM)
 	writeNoCloudFile(&output, tsNodeBootstrapDigestPath, "root:root", "0600", []byte(tsNode.digest+"  "+tsNodeBootstrapBinaryPath+"\n"))
@@ -300,11 +334,6 @@ func buildNoCloudUserData(spec NoCloudSeedSpec, dataDevice, dataMount string, ts
 	if len(tsNode.ca) != 0 {
 		writeNoCloudFile(&output, artifactCAPath, "root:root", "0644", tsNode.ca)
 	}
-	output.WriteString("  - path: " + GuestControlPath + "\n")
-	output.WriteString("    owner: root:root\n")
-	output.WriteString("    permissions: '0500'\n")
-	output.WriteString("    encoding: b64\n")
-	fmt.Fprintf(&output, "    content: %s\n", base64.StdEncoding.EncodeToString(spec.GuestControl))
 	output.WriteString("  - path: " + GuestSeedPath + "\n")
 	output.WriteString("    owner: root:root\n")
 	output.WriteString("    permissions: '0600'\n")
@@ -320,7 +349,11 @@ func writeNoCloudFile(output *bytes.Buffer, path, owner, permissions string, con
 	output.WriteString("    owner: " + owner + "\n")
 	output.WriteString("    permissions: '" + permissions + "'\n")
 	output.WriteString("    encoding: b64\n")
-	output.WriteString("    content: " + base64.StdEncoding.EncodeToString(content) + "\n")
+	if len(content) == 0 {
+		output.WriteString("    content: ''\n")
+	} else {
+		output.WriteString("    content: " + base64.StdEncoding.EncodeToString(content) + "\n")
+	}
 }
 
 func writeNoCloudLiteralFile(output *bytes.Buffer, path, owner, permissions, content string) {

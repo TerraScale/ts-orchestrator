@@ -32,7 +32,6 @@ type sandboxVM struct {
 	executor  sandboxvm.CommandRunner
 	seedDir   string
 	rootDrive string
-	seedDrive string
 	resources VMResourceIdentity
 	deleteMu  sync.Mutex
 	deleted   bool
@@ -59,6 +58,12 @@ func (v *sandboxVM) StartReady(ctx context.Context) error {
 		if err := bootstrapper.Bootstrap(ctx); err != nil {
 			_ = v.provider.Stop(context.Background(), v.id)
 			return fmt.Errorf("vmqual: bootstrap guest artifacts: %w", err)
+		}
+	}
+	if v.factory != nil {
+		if err := v.factory.activateGuest(ctx, v.id); err != nil {
+			_ = v.provider.Stop(context.Background(), v.id)
+			return fmt.Errorf("vmqual: activate guest services: %w", err)
 		}
 	}
 	if err := v.provider.WaitReady(ctx, v.id); err != nil {
@@ -188,7 +193,8 @@ func (v *sandboxVM) HostDiskUsageBytes(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return allocatedPathBytes(v.rootDrive, drive.Path, v.seedDrive)
+	paths := []string{v.rootDrive, drive.Path}
+	return allocatedPathBytes(paths...)
 }
 
 func (v *sandboxVM) VerifyNoOwnedResources(ctx context.Context) error {
@@ -289,12 +295,10 @@ func NewProductionComponents(config Config, image ImageResult, networkConfig vmn
 	if !canonicalAbsolute(config.Root) || filepath.Clean(config.Root) == string(filepath.Separator) {
 		return nil, nil, errors.New("vmqual: production root must be an absolute owned directory")
 	}
-	coordinationRoot := filepath.Join(config.Root, "vmnet-coordination")
-	if networkConfig.CoordinationRoot == "" {
-		networkConfig.CoordinationRoot = coordinationRoot
-	}
-	if filepath.Clean(networkConfig.CoordinationRoot) != coordinationRoot {
-		return nil, nil, errors.New("vmqual: network coordination root must be owned below the qualification root")
+	// Host resources can collide across qualification directories. Use vmnet's
+	// single host lock directory, never a lock directory scoped to this run.
+	if networkConfig.CoordinationRoot != "" {
+		return nil, nil, errors.New("vmqual: production network must use the default host coordination root")
 	}
 	if networkConfig.TAPUID == 0 && networkConfig.TAPGID == 0 {
 		networkConfig.TAPUID, networkConfig.TAPGID = uint32(config.JailerUID), uint32(config.JailerGID)
@@ -428,9 +432,6 @@ func (f *firecrackerFactory) Create(ctx context.Context, guest Guest) (VM, error
 	if err != nil {
 		return nil, err
 	}
-	if err := secureJailerDrive(vmConfig.SeedDrive, f.config.JailerUID, f.config.JailerGID); err != nil {
-		return nil, fmt.Errorf("vmqual: hand off seed drive to jailer: %w", err)
-	}
 	if err := f.enforceDiskBudget(resources.SeedDir); err != nil {
 		return nil, err
 	}
@@ -458,7 +459,7 @@ func (f *firecrackerFactory) Create(ctx context.Context, guest Guest) (VM, error
 		return nil, err
 	}
 	f.provider.RegisterGuest(vmConfig, seedDigest)
-	vm := &sandboxVM{provider: f.provider, disks: disks, factory: f, guest: guest, id: guest.ID, executor: executor, seedDir: resources.SeedDir, rootDrive: rootDrive, seedDrive: vmConfig.SeedDrive, resources: resources}
+	vm := &sandboxVM{provider: f.provider, disks: disks, factory: f, guest: guest, id: guest.ID, executor: executor, seedDir: resources.SeedDir, rootDrive: rootDrive, resources: resources}
 	f.activeMu.Lock()
 	if f.closed || f.active[guest.ID] != nil {
 		f.activeMu.Unlock()
@@ -670,8 +671,11 @@ func allocatedTreeBytes(roots ...string) (uint64, error) {
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("vmqual: disk ownership tree contains a non-regular entry: %s", path)
 			}
-			stat, ok := info.Sys().(*unix.Stat_t)
-			if !ok || stat.Nlink == 0 || stat.Blocks < 0 {
+			var stat unix.Stat_t
+			if err := unix.Lstat(path, &stat); err != nil {
+				return err
+			}
+			if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink == 0 || stat.Blocks < 0 {
 				return fmt.Errorf("vmqual: cannot measure allocated bytes for %s", path)
 			}
 			key := diskInode{device: uint64(stat.Dev), inode: stat.Ino}
@@ -767,7 +771,6 @@ func (f *firecrackerFactory) PlanResources(ctx context.Context, guest Guest) (VM
 		DriveMetadataPath:    drivePaths.Metadata,
 		DriveOwnershipPath:   drivePaths.Ownership,
 		SeedDir:              seedDir,
-		SeedDrivePath:        filepath.Join(seedDir, "seed.img"),
 	}, nil
 }
 
@@ -1016,7 +1019,7 @@ func formatPersistentDataDrive(ctx context.Context, formatter, path, id string) 
 		return fmt.Errorf("vmqual: data drive: %w", err)
 	}
 	command := exec.CommandContext(ctx, formatter, "-F", "-q", "-t", "ext4", "-L", "terrascale-data", "-U", deterministicDiskUUID(id), "-m", "0", "-E", "lazy_itable_init=0,lazy_journal_init=0", path)
-	command.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	command.Env = hostToolEnvironment()
 	command.WaitDelay = 2 * time.Second
 	var output limitedHostOutput
 	command.Stdout, command.Stderr = &output, &output

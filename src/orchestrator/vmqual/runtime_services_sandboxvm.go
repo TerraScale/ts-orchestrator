@@ -39,6 +39,7 @@ type qualificationRuntimeServices struct {
 	tlsCertificate tls.Certificate
 	resources      map[string][]byte
 
+	timeService  *qualificationTimeService
 	nats         *natsserver.Server
 	httpServer   *http.Server
 	httpListener net.Listener
@@ -90,6 +91,10 @@ func newQualificationServices(config Config, plan vmnet.NetworkPlan, architectur
 }
 
 func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
+	ntp, ok := plan.Listener("ntp")
+	if !ok || ntp.Protocol != vmnet.UDP || ntp.Port != 18123 || ntp.Address == "" {
+		return errors.New("vmqual: required NTP listener is not the canonical UDP/18123 endpoint")
+	}
 	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
 		listener, ok := plan.Listener(name)
 		if !ok || listener.Protocol != vmnet.TCP || listener.Port != port || listener.Address == "" {
@@ -97,6 +102,10 @@ func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
 		}
 	}
 	for _, region := range plan.Regions {
+		ntp, ok := plan.Endpoint(region.Code, "ntp")
+		if !ok || ntp.Protocol != vmnet.UDP || ntp.GuestPort != 123 || ntp.HostPort != 18123 {
+			return fmt.Errorf("vmqual: Region %s lacks the canonical NTP endpoint", region.Code)
+		}
 		for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
 			endpoint, ok := plan.Endpoint(region.Code, name)
 			if !ok || endpoint.Protocol != vmnet.TCP || endpoint.GuestPort != port || endpoint.HostPort != port {
@@ -333,6 +342,14 @@ func (services *qualificationRuntimeServices) Start(ctx context.Context) error {
 		_ = services.closeHTTPLocked(ctx)
 		return errors.New("vmqual: embedded NATS bound outside the planned listener")
 	}
+	timeService, err := startQualificationTimeService(services.plan)
+	if err != nil {
+		nats.Shutdown()
+		nats.WaitForShutdown()
+		_ = services.closeHTTPLocked(ctx)
+		return err
+	}
+	services.timeService = timeService
 	services.nats, services.started = nats, true
 	return nil
 }
@@ -390,6 +407,10 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 	services.closed = true
 	services.started = false
 	var errs []error
+	if services.timeService != nil {
+		errs = append(errs, services.timeService.Close())
+		services.timeService = nil
+	}
 	if services.nats != nil {
 		services.nats.Shutdown()
 		services.nats.WaitForShutdown()
@@ -442,7 +463,7 @@ func (services *qualificationRuntimeServices) VerifyStopped() error {
 	}
 	services.mu.Lock()
 	defer services.mu.Unlock()
-	if services.started || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil {
+	if services.started || services.timeService != nil || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil {
 		return errors.New("vmqual: qualification listener remains active")
 	}
 	return nil

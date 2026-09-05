@@ -288,6 +288,10 @@ func (l *Lifecycle) prepareRollback(component string) (transitionPlan, error) {
 			"Component %s has no previous version to roll back to.", component)}
 	}
 	spec.Version = previous
+	spec, err = installedLaunchForSpec(l.installRoot, spec)
+	if err != nil {
+		return transitionPlan{}, err
+	}
 	return transitionPlan{Spec: spec}, nil
 }
 
@@ -310,6 +314,9 @@ func (l *Lifecycle) applyTransitionLocked(ctx context.Context, plan transitionPl
 		return &InvalidDataError{Message: "The transition release digest does not match its component spec."}
 	}
 	return l.installer.withVerifiedTransition(ctx, plan.Spec.Name, plan.Spec.Version, plan.ExpectedSha256, func() error {
+		if err := verifyExpectedLaunch(VersionDir(l.installRoot, plan.Spec.Name, plan.Spec.Version), plan.Spec); err != nil {
+			return err
+		}
 		if plan.Spec.Name == TsNodeComponentName {
 			current, err := CurrentVersion(l.installRoot, plan.Spec.Name)
 			if err != nil {
@@ -462,6 +469,10 @@ func (l *Lifecycle) prepareRollbackLocked(component string) (transitionPlan, err
 			"Component %s has no previous version to roll back to.", component)}
 	}
 	spec.Version = previous
+	spec, err = installedLaunchForSpec(l.installRoot, spec)
+	if err != nil {
+		return transitionPlan{}, err
+	}
 	return transitionPlan{Spec: spec}, nil
 }
 

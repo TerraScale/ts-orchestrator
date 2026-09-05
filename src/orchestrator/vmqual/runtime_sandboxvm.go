@@ -17,7 +17,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -83,6 +82,7 @@ type guestCredential struct {
 	mu        sync.Mutex
 	id        string
 	address   string
+	namespace string
 	control   bool
 	service   bool
 	private   ed25519.PrivateKey
@@ -95,20 +95,15 @@ type guestCredential struct {
 // guestTransport holds private qualification credentials only in process
 // memory. Each entry belongs to exactly one VM and is erased on VM deletion.
 type guestTransport struct {
-	mu           sync.RWMutex
-	credentials  map[string]*guestCredential
-	cloudLocalDS string
+	mu          sync.RWMutex
+	credentials map[string]*guestCredential
 }
 
 func newGuestTransport(root string) (*guestTransport, error) {
 	if root == "" || !filepath.IsAbs(root) {
 		return nil, errors.New("vmqual: guest transport root must be absolute")
 	}
-	cloudLocalDS, err := resolveHostExecutable("cloud-localds")
-	if err != nil {
-		return nil, fmt.Errorf("vmqual: cloud-localds: %w", err)
-	}
-	return &guestTransport{credentials: make(map[string]*guestCredential), cloudLocalDS: cloudLocalDS}, nil
+	return &guestTransport{credentials: make(map[string]*guestCredential)}, nil
 }
 
 func guestTransportFor(stateRoot string) *guestTransport {
@@ -145,8 +140,8 @@ func releaseGuestTransport(stateRoot string) error {
 	return nil
 }
 
-func (transport *guestTransport) addGuest(id, address string, control, service bool) (string, error) {
-	if transport == nil || id == "" || address == "" {
+func (transport *guestTransport) addGuest(id, address, namespace string, control, service bool) (string, error) {
+	if transport == nil || id == "" || address == "" || !canonicalAbsolute(namespace) {
 		return "", errors.New("vmqual: guest credential identity is incomplete")
 	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
@@ -163,7 +158,7 @@ func (transport *guestTransport) addGuest(id, address string, control, service b
 		zeroBytes(private)
 		return "", err
 	}
-	credential := &guestCredential{id: id, address: address, control: control, service: service, private: private, signer: signer, publicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicSSH)))}
+	credential := &guestCredential{id: id, address: address, namespace: namespace, control: control, service: service, private: private, signer: signer, publicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicSSH)))}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	if _, exists := transport.credentials[id]; exists {
@@ -256,8 +251,7 @@ func (transport *guestTransport) request(ctx context.Context, id, address string
 			return captureHostKeyLocked(credential, key)
 		},
 	}
-	dialer := net.Dialer{}
-	connection, err := dialer.DialContext(ctx, "tcp", target)
+	connection, err := dialGuestNamespace(ctx, credential.namespace, target)
 	if err != nil {
 		return vmguest.Response{}, err
 	}
@@ -635,7 +629,7 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 	if transport == nil {
 		return "", errors.New("vmqual: guest transport is not registered")
 	}
-	publicKey, err := transport.addGuest(guest.ID, network.Address, guest.Control, guest.Service)
+	publicKey, err := transport.addGuest(guest.ID, network.Address, network.NamespacePath, guest.Control, guest.Service)
 	if err != nil {
 		return "", err
 	}
@@ -653,34 +647,33 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest Guest
 	if err != nil {
 		return "", err
 	}
+	chronyFiles, err := loadQualificationChrony(ctx, factory.image.Manifest.Architecture)
+	if err != nil {
+		return "", err
+	}
+	seed.RootFiles = append(seed.RootFiles, chronyFiles...)
 	seedDir := filepath.Join(factory.config.StateRoot, guest.ID)
 	if err := requireOwnedDirectory(seedDir); err != nil {
 		return "", err
 	}
-	metaPath, networkPath, userDataPath := filepath.Join(seedDir, "meta-data"), filepath.Join(seedDir, "network-config"), filepath.Join(seedDir, "user-data")
+	payloadDir := filepath.Join(seedDir, "nocloud")
+	if err := os.Mkdir(payloadDir, 0700); err != nil {
+		return "", err
+	}
+	metaPath, networkPath, userDataPath := filepath.Join(payloadDir, "meta-data"), filepath.Join(payloadDir, "network-config"), filepath.Join(payloadDir, "user-data")
 	for path, data := range map[string][]byte{metaPath: seed.MetaData, networkPath: seed.NetworkConfig, userDataPath: seed.UserData} {
 		if err := writeNewStateFile(path, data); err != nil {
 			return "", err
 		}
 	}
-	seedPath := filepath.Join(seedDir, "seed.img")
-	command := exec.CommandContext(ctx, transport.cloudLocalDS, "--network-config="+networkPath, seedPath, userDataPath, metaPath)
-	command.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
-	command.WaitDelay = 2 * time.Second
-	var output limitedBuffer
-	output.limit = 64 << 10
-	command.Stdout, command.Stderr = &output, &output
-	if err := command.Run(); err != nil {
-		return "", fmt.Errorf("vmqual: build NoCloud seed: %w: %s", err, output.String())
+	if err := injectNoCloudRoot(ctx, config.RootDrive, payloadDir, seed); err != nil {
+		return "", err
 	}
-	if err := regularImmutableFile(seedPath); err != nil {
-		return "", fmt.Errorf("vmqual: NoCloud seed: %w", err)
-	}
-	seedDigest, err := fileSHA256(seedPath)
+	rootDigest, err := fileSHA256(config.RootDrive)
 	if err != nil {
 		return "", err
 	}
-	config.SeedDrive, config.ExpectedSeedDriveSHA256 = seedPath, seedDigest
+	config.ExpectedRootDriveSHA256 = rootDigest
 	config.NetworkNamespace, config.TapName, config.GuestMAC, config.GuestAddress = network.NamespacePath, network.TAP, network.MAC, network.Address
 	credentialOwned = false
 	return vmimage.GuestChannelSeedDigest(guestSeed), nil
@@ -773,7 +766,7 @@ func loadProductionArtifacts(config Config, architecture vmimage.Architecture) (
 	seenDigests := map[string]string{controlDigest: "guest-control"}
 	for _, component := range components {
 		path := component.input.Path
-		data, info, err := readSecureInput(path, vmguest.MaxTransferBytes, true)
+		data, info, err := readSecureInput(path, vmimage.MaxServiceBinaryBytes, true)
 		if err != nil {
 			zeroArtifactInputs(artifacts)
 			zeroBytes(publicKey)

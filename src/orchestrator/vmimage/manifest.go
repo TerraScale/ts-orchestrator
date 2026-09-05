@@ -36,6 +36,11 @@ const (
 )
 
 const (
+	// MaxServiceBinaryBytes bounds signed native service artifacts delivered
+	// through the qualification artifact server or the initial ts-node seed.
+	// Guest diagnostic requests have a separate, smaller transfer bound.
+	MaxServiceBinaryBytes = 64 << 20
+
 	ManifestSchemaVersion = 1
 	defaultArtifactMode   = uint32(0o644)
 	maxSourceLength       = 4096

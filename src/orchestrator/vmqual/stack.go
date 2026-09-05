@@ -92,7 +92,6 @@ type VMResourceIdentity struct {
 	DriveMetadataPath    string            `json:"driveMetadataPath,omitempty"`
 	DriveOwnershipPath   string            `json:"driveOwnershipPath,omitempty"`
 	SeedDir              string            `json:"seedDir,omitempty"`
-	SeedDrivePath        string            `json:"seedDrivePath,omitempty"`
 	Process              VMProcessIdentity `json:"process,omitempty"`
 }
 
@@ -793,7 +792,6 @@ type JournalVM struct {
 	DriveMetadataPath    string             `json:"driveMetadataPath,omitempty"`
 	DriveOwnershipPath   string             `json:"driveOwnershipPath,omitempty"`
 	SeedDir              string             `json:"seedDir,omitempty"`
-	SeedDrivePath        string             `json:"seedDrivePath,omitempty"`
 	Process              *VMProcessIdentity `json:"process,omitempty"`
 	Cleaned              bool               `json:"cleaned"`
 }
@@ -834,7 +832,6 @@ type vmResourceClaim struct {
 	DriveMetadataPath    string    `json:"driveMetadataPath,omitempty"`
 	DriveOwnershipPath   string    `json:"driveOwnershipPath,omitempty"`
 	SeedDir              string    `json:"seedDir,omitempty"`
-	SeedDrivePath        string    `json:"seedDrivePath,omitempty"`
 	CreatedAt            time.Time `json:"createdAt"`
 }
 
@@ -1069,7 +1066,7 @@ func (s *Stack) journalCreatedAt() time.Time {
 }
 
 func journalVMFromResources(runID string, guest Guest, claimPath string, resource VMResourceIdentity) JournalVM {
-	return JournalVM{RunID: runID, ID: guest.ID, Region: string(guest.Region), Phase: vmPhasePlanned, ClaimPath: claimPath, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RunMarkerPath: resource.RunMarkerPath, RuntimePath: resource.RuntimePath, JailRoot: resource.JailRoot, SocketPath: resource.SocketPath, LogPath: resource.LogPath, MetricsPath: resource.MetricsPath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DrivePath: resource.DrivePath, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir, SeedDrivePath: resource.SeedDrivePath}
+	return JournalVM{RunID: runID, ID: guest.ID, Region: string(guest.Region), Phase: vmPhasePlanned, ClaimPath: claimPath, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RunMarkerPath: resource.RunMarkerPath, RuntimePath: resource.RuntimePath, JailRoot: resource.JailRoot, SocketPath: resource.SocketPath, LogPath: resource.LogPath, MetricsPath: resource.MetricsPath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DrivePath: resource.DrivePath, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir}
 }
 
 func newRunID() (string, error) {

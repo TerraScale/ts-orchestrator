@@ -26,7 +26,8 @@ import (
 )
 
 const (
-	productionRotationInterval = 24 * time.Hour
+	productionRotationInterval = time.Minute
+	productionRotationLead     = 15 * time.Minute
 	productionReaperInterval   = 24 * time.Hour
 )
 
@@ -121,12 +122,8 @@ func (r *productionRuntime) Start(ctx context.Context) error {
 		return err
 	}
 	r.workers = []*scheduledService{
-		newScheduledService("key rotation", productionRotationInterval, func(runCtx context.Context, at time.Time) error {
-			operationID := "capability-rotation-" + at.UTC().Format("20060102")
-			if _, err := r.rotation.Rotate(runCtx, operationID); err != nil {
-				return err
-			}
-			_, err := r.rotation.RetireExpired(runCtx)
+		newScheduledService("key rotation", productionRotationInterval, func(runCtx context.Context, _ time.Time) error {
+			_, err := r.rotation.Reconcile(runCtx, productionRotationLead)
 			return err
 		}),
 		newScheduledService("free-tier reaper", productionReaperInterval, func(runCtx context.Context, _ time.Time) error {
@@ -226,6 +223,15 @@ func (s *scheduledService) Start(ctx context.Context) error {
 			if err == nil && loopCtx.Err() == nil {
 				err = errors.New("service stopped unexpectedly")
 			}
+			s.recordError(loopCtx, err)
+			return
+		}
+		// Reconcile persisted work on every start. Waiting for the first daily
+		// tick leaves interrupted rotations and reaping asleep after a restart.
+		if err := loopCtx.Err(); err != nil {
+			return
+		}
+		if err := s.run(loopCtx, time.Now().UTC()); err != nil {
 			s.recordError(loopCtx, err)
 			return
 		}

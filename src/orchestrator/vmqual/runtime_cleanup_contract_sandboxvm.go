@@ -291,7 +291,7 @@ func newCleanupProbe(ctx context.Context, source *firecrackerFactory, cause Clea
 	networkConfig := vmnet.Config{
 		Prefix: "tsc", RunID: networkRunID, Tools: source.network.plan.Tools,
 		TAPUID: uint32(source.config.JailerUID), TAPGID: uint32(source.config.JailerGID),
-		CoordinationRoot: filepath.Join(root, "vmnet-coordination"),
+		CoordinationRoot: source.network.plan.CoordinationRoot,
 		Regions:          []vmnet.RegionSpec{{Code: vmnet.GRU, CIDR: fmt.Sprintf("10.88.%d.0/24", thirdOctet), Guests: []vmnet.GuestSpec{{ID: guest.ID}}}},
 	}
 	networkJournal := filepath.Join(root, "network-cleanup-journal.json")
@@ -477,7 +477,6 @@ func (p *cleanupProbe) targets(observation VMObservation) (cleanupProbeTargets, 
 			resources.SandboxOwnershipPath, resources.RunMarkerPath, resources.RuntimePath,
 			resources.JailRoot, resources.LogPath, resources.MetricsPath,
 			resources.DrivePath, resources.DriveMetadataPath, resources.DriveOwnershipPath,
-			resources.SeedDrivePath,
 		},
 	}
 	for _, listener := range p.plan.Listeners {
@@ -699,19 +698,7 @@ func (realCleanupHostObserver) TableExists(ctx context.Context, ipPath, nftPath,
 }
 
 func (realCleanupHostObserver) ListenerExists(ctx context.Context, address string) (bool, error) {
-	if _, _, err := net.SplitHostPort(address); err != nil {
-		return false, err
-	}
-	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
-	connection, err := dialer.DialContext(ctx, "tcp4", address)
-	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		return false, nil
-	}
-	_ = connection.Close()
-	return true, nil
+	return kernelListenerExists(ctx, address)
 }
 
 func cleanupCommandExists(ctx context.Context, executable string, args []string, absentMessages ...string) (bool, error) {
@@ -719,7 +706,7 @@ func cleanupCommandExists(ctx context.Context, executable string, args []string,
 		return false, errors.New("cleanup observation executable is not absolute")
 	}
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	command.Env = hostToolEnvironment()
 	var output limitedBuffer
 	output.limit = 64 << 10
 	command.Stdout, command.Stderr = &output, &output

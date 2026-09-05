@@ -124,6 +124,38 @@ func TestValidateArtifactsRejectsAliasesAndDuplicateBytes(t *testing.T) {
 	}
 }
 
+func TestServiceArtifactCanExceedDiagnosticTransferLimit(t *testing.T) {
+	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
+		t.Skip("qualification ELF validation is native Linux only")
+	}
+	directory := t.TempDir()
+	source := buildTestELF(t, directory, "service", "large-native-service")
+	// ELF permits trailing bytes. Preserve the real ELF headers while covering
+	// the size reached by the static TerraBase release, above diagnostic limits.
+	const size = 17 << 20
+	if err := os.Truncate(source, size); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, "installed")
+	if err := copyArtifact(source, target); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := validateArtifacts([]artifact{{component: "terrabase", path: target}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zeroArtifacts(artifacts)
+	if len(artifacts[0].data) != size {
+		t.Fatalf("artifact bytes = %d, want %d", len(artifacts[0].data), size)
+	}
+	if err := os.Truncate(source, artifactLimit+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyArtifact(source, filepath.Join(directory, "oversized")); err == nil {
+		t.Fatal("accepted an artifact larger than the service limit")
+	}
+}
+
 func TestCleanupOwnedDirectoryIsNarrow(t *testing.T) {
 	root := t.TempDir()
 	owned, err := os.MkdirTemp(root, artifactPrefix)

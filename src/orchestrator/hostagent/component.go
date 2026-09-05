@@ -95,6 +95,13 @@ type ComponentSpec struct {
 	// enumerates interfaces through rtnetlink can be admitted without
 	// weakening every other unit.
 	NeedsNetlink bool `json:"needsNetlink"`
+	// Arguments is a canonical space-separated list of literal arguments.
+	// @config expands to the immutable configuration beside the current binary.
+	// Values requiring shell quoting or systemd interpolation are not supported.
+	Arguments string `json:"arguments,omitempty"`
+	// Configuration is nonsecret UTF-8 configuration. Use external secret file
+	// references: manifests and installed configuration are readable by services.
+	Configuration string `json:"configuration,omitempty"`
 }
 
 // NewComponentSpec validates one component spec at the manifest trust
@@ -162,6 +169,9 @@ func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
 				hostAgentMinimumIoWeight, hostAgentMaximumIoWeight),
 		}
 	}
+	if err := validateComponentLaunch(spec); err != nil {
+		return ComponentSpec{}, err
+	}
 	return ComponentSpec{
 		Name:           name,
 		Version:        version,
@@ -174,6 +184,8 @@ func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
 		MemoryMaxBytes: spec.MemoryMaxBytes,
 		IOWeight:       spec.IOWeight,
 		NeedsNetlink:   spec.NeedsNetlink,
+		Arguments:      spec.Arguments,
+		Configuration:  spec.Configuration,
 	}, nil
 }
 
@@ -392,7 +404,7 @@ func validateHostManifestComponents(data []byte, path string) error {
 	fields := map[string]hostManifestJSONField{
 		"name": {}, "version": {}, "artifactUrl": {}, "signatureUrl": {},
 		"sha256": {}, "user": {}, "dataVolume": {}, "cpuWeight": {},
-		"memoryMaxBytes": {}, "ioWeight": {}, "needsNetlink": {},
+		"memoryMaxBytes": {}, "ioWeight": {}, "needsNetlink": {}, "arguments": {}, "configuration": {},
 	}
 	required := []string{
 		"name", "version", "artifactUrl", "signatureUrl", "sha256", "user",

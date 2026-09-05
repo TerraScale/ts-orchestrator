@@ -157,7 +157,7 @@ var launchRegions = []RegionCode{GRU, SFO, FRA}
 
 var transitPrefix = netip.MustParsePrefix("10.78.255.0/24")
 
-const networkPlanVersion = 4
+const networkPlanVersion = 5
 
 // StableCIDR returns the deterministic qualification subnet for a launch
 // Region.
@@ -224,11 +224,16 @@ type RegionSpec struct {
 }
 
 // TransportProtocol is the closed set of protocols admitted for host
-// endpoint forwarding. Qualification endpoints are TCP listeners; DNS names
-// are installed in guest configuration rather than exposed as a UDP proxy.
+// endpoint forwarding. UDP is restricted to the qualification NTP endpoint;
+// DNS names are installed in guest configuration.
 type TransportProtocol string
 
 const TCP TransportProtocol = "tcp"
+const UDP TransportProtocol = "udp"
+
+func validEndpointTransport(name string, protocol TransportProtocol, guestPort, hostPort uint16) bool {
+	return protocol == TCP && guestPort != 0 && hostPort != 0 || protocol == UDP && name == "ntp" && guestPort == 123 && hostPort == 18123
+}
 
 // EndpointSpec declares one bounded guest-to-host listener mapping. Addresses
 // are assigned by Plan so callers cannot forward traffic to an ambient host.
@@ -312,7 +317,7 @@ type Config struct {
 	Prefix  string       `json:"prefix,omitempty"`
 	Regions []RegionSpec `json:"regions"`
 	Faults  []FaultSpec  `json:"faults,omitempty"`
-	// Endpoints nil selects the three qualification listeners for every
+	// Endpoints nil selects the four qualification listeners for every
 	// declared Region. A non-nil slice declares the complete allowed set.
 	Endpoints []EndpointSpec `json:"endpoints,omitempty"`
 	TAPUID    uint32         `json:"tap_uid,omitempty"`
@@ -1130,12 +1135,13 @@ func regionUplink(prefix, runID string, region RegionCode, ownsService bool) Reg
 }
 
 func defaultEndpointSpecs(regions []RegionNetwork) []EndpointSpec {
-	endpoints := make([]EndpointSpec, 0, len(regions)*3)
+	endpoints := make([]EndpointSpec, 0, len(regions)*4)
 	for _, region := range regions {
 		endpoints = append(endpoints,
 			EndpointSpec{Name: "nats", Region: region.Code, Protocol: TCP, GuestPort: 4222, HostPort: 4222},
 			EndpointSpec{Name: "artifacts", Region: region.Code, Protocol: TCP, GuestPort: 8443, HostPort: 8443, DNSNames: []string{"releases.terrascale.tech"}},
 			EndpointSpec{Name: "smoke", Region: region.Code, Protocol: TCP, GuestPort: 18080, HostPort: 18080},
+			EndpointSpec{Name: "ntp", Region: region.Code, Protocol: UDP, GuestPort: 123, HostPort: 18123},
 		)
 	}
 	return endpoints
@@ -1170,7 +1176,7 @@ func validateResolvedEndpoints(prefix, runID string, regions []RegionCode, uplin
 	seenGuestPorts := make(map[string]bool, len(forwards))
 	lastRegion, lastName := RegionCode(""), ""
 	for index, forward := range forwards {
-		if !declared[forward.Region] || validIdentifier(forward.Name, "endpoint name", 32) != nil || forward.Protocol != TCP || forward.GuestPort == 0 || forward.HostPort == 0 || forward.HostAddress != serviceAddress || len(forward.DNSNames) > maxEndpointDNS {
+		if !declared[forward.Region] || validIdentifier(forward.Name, "endpoint name", 32) != nil || !validEndpointTransport(forward.Name, forward.Protocol, forward.GuestPort, forward.HostPort) || forward.HostAddress != serviceAddress || len(forward.DNSNames) > maxEndpointDNS {
 			return errors.New("invalid endpoint forward")
 		}
 		guestAddress, err := netip.ParseAddr(forward.GuestAddress)
@@ -1451,8 +1457,8 @@ func Plan(config Config) (NetworkPlan, error) {
 		if err := validIdentifier(spec.Name, "endpoint name", 32); err != nil {
 			return NetworkPlan{}, err
 		}
-		if spec.Protocol != TCP || spec.GuestPort == 0 || spec.HostPort == 0 {
-			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q must declare nonzero TCP ports", spec.Name)
+		if !validEndpointTransport(spec.Name, spec.Protocol, spec.GuestPort, spec.HostPort) {
+			return NetworkPlan{}, fmt.Errorf("vmnet: endpoint %q must declare nonzero TCP ports or the fixed qualification NTP endpoint", spec.Name)
 		}
 		key := string(spec.Region) + "\x00" + spec.Name
 		if seenEndpoints[key] {

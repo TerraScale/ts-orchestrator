@@ -388,10 +388,7 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 		}
 	}
 	seedEmpty := resource.SeedDir == ""
-	if (resource.SeedDrivePath == "") != seedEmpty || resource.SeedDrivePath != "" && !canonicalAbsolute(resource.SeedDrivePath) {
-		return fmt.Errorf("vmqual: cleanup resource %q has an incomplete seed plan", resource.ID)
-	}
-	if !seedEmpty && (resource.SeedDir != filepath.Join(journal.StateRoot, resource.ID) || resource.SeedDrivePath != filepath.Join(resource.SeedDir, "seed.img")) {
+	if !seedEmpty && resource.SeedDir != filepath.Join(journal.StateRoot, resource.ID) {
 		return fmt.Errorf("vmqual: cleanup resource %q has invalid seed paths", resource.ID)
 	}
 	return nil
@@ -823,11 +820,11 @@ func zeroProcessIdentity(process VMProcessIdentity) bool {
 }
 
 func sameResourcePaths(expected JournalVM, observed VMResourceIdentity, runID string) bool {
-	return observed.RunID == runID && expected.StateDir == observed.StateDir && expected.SandboxOwnershipPath == observed.SandboxOwnershipPath && expected.RunMarkerPath == observed.RunMarkerPath && expected.RuntimePath == observed.RuntimePath && expected.JailRoot == observed.JailRoot && expected.SocketPath == observed.SocketPath && expected.LogPath == observed.LogPath && expected.MetricsPath == observed.MetricsPath && expected.CgroupRoot == observed.CgroupRoot && expected.CgroupPath == observed.CgroupPath && expected.JailerCgroupPath == observed.JailerCgroupPath && expected.FirecrackerPath == observed.FirecrackerPath && expected.DriveDir == observed.DriveDir && expected.DrivePath == observed.DrivePath && expected.DriveMetadataPath == observed.DriveMetadataPath && expected.DriveOwnershipPath == observed.DriveOwnershipPath && expected.SeedDir == observed.SeedDir && expected.SeedDrivePath == observed.SeedDrivePath
+	return observed.RunID == runID && expected.StateDir == observed.StateDir && expected.SandboxOwnershipPath == observed.SandboxOwnershipPath && expected.RunMarkerPath == observed.RunMarkerPath && expected.RuntimePath == observed.RuntimePath && expected.JailRoot == observed.JailRoot && expected.SocketPath == observed.SocketPath && expected.LogPath == observed.LogPath && expected.MetricsPath == observed.MetricsPath && expected.CgroupRoot == observed.CgroupRoot && expected.CgroupPath == observed.CgroupPath && expected.JailerCgroupPath == observed.JailerCgroupPath && expected.FirecrackerPath == observed.FirecrackerPath && expected.DriveDir == observed.DriveDir && expected.DrivePath == observed.DrivePath && expected.DriveMetadataPath == observed.DriveMetadataPath && expected.DriveOwnershipPath == observed.DriveOwnershipPath && expected.SeedDir == observed.SeedDir
 }
 
 func claimForResource(resource JournalVM, createdAt time.Time) vmResourceClaim {
-	return vmResourceClaim{Version: runMarkerVersion, Marker: runClaimMarker, RunID: resource.RunID, ID: resource.ID, Region: resource.Region, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RuntimePath: resource.RuntimePath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir, SeedDrivePath: resource.SeedDrivePath, CreatedAt: createdAt}
+	return vmResourceClaim{Version: runMarkerVersion, Marker: runClaimMarker, RunID: resource.RunID, ID: resource.ID, Region: resource.Region, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RuntimePath: resource.RuntimePath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir, CreatedAt: createdAt}
 }
 
 func readJournal(path string) (Journal, error) {
@@ -1259,7 +1256,7 @@ func oneOf(value string, admitted ...string) bool {
 }
 
 func resourcePaths(resource JournalVM) []string {
-	return []string{resource.ClaimPath, resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.CgroupPath, resource.JailerCgroupPath, resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.DriveOwnershipPath, resource.SeedDir, resource.SeedDrivePath}
+	return []string{resource.ClaimPath, resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.CgroupPath, resource.JailerCgroupPath, resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.DriveOwnershipPath, resource.SeedDir}
 }
 
 func sameJournalPlan(existing, proposed Journal) bool {

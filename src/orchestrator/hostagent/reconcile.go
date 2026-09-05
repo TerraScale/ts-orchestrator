@@ -244,7 +244,7 @@ func (l *Lifecycle) discoverManagedComponents() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !present || !strings.Contains(string(unit), "\nExecStart="+ExecStartPath(l.installRoot, component)+"\n") {
+		if !present || !managedExecStart(string(unit), ExecStartPath(l.installRoot, component)) {
 			continue
 		}
 		componentDir := strings.TrimSuffix(InstallDir(l.installRoot, component), "/")
@@ -293,7 +293,20 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpe
 		if err := l.users.OwnDirectory(ctx, spec.User, spec.DataVolume); err != nil {
 			return err
 		}
-		if err := l.writeUnitLocked(ctx, spec); err != nil {
+		unitSpec := spec
+		current, err := CurrentVersion(l.installRoot, spec.Name)
+		if err != nil {
+			return err
+		}
+		if current != "" {
+			unitSpec.Version = current
+		}
+		unitSpec, err = installedLaunchForSpec(l.installRoot, unitSpec)
+		if err != nil {
+			return err
+		}
+		unitSpec.Version = spec.Version
+		if err := l.writeUnitLocked(ctx, unitSpec); err != nil {
 			return err
 		}
 		if err := os.Remove(filepath.Join(l.unitDir, UnitName(spec.Name)+".retiring")); err == nil {
@@ -418,4 +431,14 @@ func (l *Lifecycle) retireComponentLocked(ctx context.Context, component string)
 		return err
 	}
 	return syncDir(l.unitDir)
+}
+
+// Match only an exact executable token, never a path prefix or another directive.
+func managedExecStart(unit, executable string) bool {
+	for _, line := range strings.Split(unit, "\n") {
+		if line == "ExecStart="+executable || strings.HasPrefix(line, "ExecStart="+executable+" ") {
+			return true
+		}
+	}
+	return false
 }

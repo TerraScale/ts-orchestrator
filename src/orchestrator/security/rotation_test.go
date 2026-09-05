@@ -103,7 +103,7 @@ func (v *rotationVault) Generate(_ context.Context, r CapabilityRequest) (Capabi
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	ref := "capability-" + string(rune('0'+r.Generation))
-	material := CapabilityMaterial{Reference: ref, Version: r.Generation, Bucket: r.Bucket, NotBefore: r.NotBefore, ExpiresAt: r.ExpiresAt, Key: []byte("hmac-secret")}
+	material := CapabilityMaterial{ID: ref, Reference: ref, Version: r.Generation, Bucket: r.Bucket, NotBefore: r.NotBefore, ExpiresAt: r.ExpiresAt, Key: []byte("hmac-secret")}
 	if v.materials == nil {
 		v.materials = map[string]CapabilityMaterial{}
 	}
@@ -231,7 +231,10 @@ func TestRotationResumesDurableStateAndVersionsRemainMonotonic(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock.Set(clock.Now().Add(24*time.Hour - time.Nanosecond))
-	second := testCoordinator(t, consumers, clock, store)
+	second, err := NewCoordinator(Config{Issuer: first.issuer, Vault: first.vault, Members: consumers, Secrets: first.secrets, Reloader: first.reloader, State: store, Regions: first.regions, Clock: clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := second.Rotate(context.Background(), "op-2")
 	if err != nil {
 		t.Fatal(err)

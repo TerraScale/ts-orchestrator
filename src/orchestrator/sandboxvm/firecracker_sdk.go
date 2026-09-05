@@ -1096,6 +1096,10 @@ func (m *sdkMachine) Inspect(ctx context.Context) (Inspection, error) {
 		executableMatches = false
 	}
 	inspection.Executable = process.Executable
+	if executableMatches {
+		// Provider records use the host coordinate after root and inode proof.
+		inspection.Executable = m.expectedExecutable
+	}
 	inspection.ExecutableValid = executableMatches
 	inspection.CgroupValid = m.cgroup.Validate(pid) == nil
 	inspection.ProcessAlive = process.Alive && process.StartTime == start

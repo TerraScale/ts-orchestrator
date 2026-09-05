@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	maxTSNodeBinaryBytes        = 64 << 20
+	maxTSNodeBinaryBytes        = MaxServiceBinaryBytes
 	maxDesiredManifestBytes     = 64 << 10
 	maxArtifactCACertificate    = 64 << 10
 	tsNodeConfigPath            = "/etc/terrascale/ts-node.json"
 	tsNodeStateDirectory        = "/var/lib/terrascale/ts-node"
 	desiredHostManifestPath     = tsNodeStateDirectory + "/manifest.json"
-	tsNodeBootstrapDirectory    = "/run/terrascale/bootstrap"
+	tsNodeBootstrapDirectory    = "/opt/terrascale/bootstrap"
 	tsNodeBootstrapBinaryPath   = tsNodeBootstrapDirectory + "/ts-node"
 	tsNodeBootstrapDigestPath   = tsNodeBootstrapDirectory + "/ts-node.sha256"
 	tsNodeBootstrapKeyPath      = tsNodeBootstrapDirectory + "/ts-node.pub"
@@ -66,8 +66,10 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	versionDirectory := "/opt/terrascale/ts-node/" + tsNode.version
 	script.WriteString("/usr/bin/install -d -o root -g root -m 0755 " + versionDirectory + "\n")
 	script.WriteString("/usr/bin/install -o root -g root -m 0755 " + tsNodeBootstrapBinaryPath + " " + versionDirectory + "/ts-node\n")
+	script.WriteString("/usr/bin/install -o root -g root -m 0444 " + tsNodeBootstrapSigPath + " " + versionDirectory + "/ts-node.sig\n")
 	script.WriteString("/usr/bin/ln -sfnT " + versionDirectory + " /opt/terrascale/ts-node/current\n")
 	script.WriteString("/usr/bin/systemctl daemon-reload\n")
+	script.WriteString(chronyBootstrapScript())
 	script.WriteString("/usr/bin/systemctl enable --now " + tsnodebootstrap.UnitName + "\n")
 	script.WriteString("/usr/bin/rm -f " + tsNodeBootstrapBinaryPath + " " + tsNodeBootstrapSigPath + " " + tsNodeBootstrapKeyPath + " " + tsNodeBootstrapDigestPath + " " + tsNodeBootstrapManifestPath + " " + tsNodeBootstrapScriptPath + "\n")
 	script.WriteString("/usr/bin/rmdir " + tsNodeBootstrapDirectory + "\n")
@@ -90,17 +92,18 @@ type TSNodeBootstrap struct {
 }
 
 type tsNodeBootstrapMaterial struct {
-	version      string
-	digest       string
-	binary       []byte
-	signature    []byte
-	publicKeyPEM []byte
-	config       []byte
-	manifest     []byte
-	ca           []byte
-	hostAddress  string
-	unit         string
-	desired      hostagent.HostManifest
+	version        string
+	digest         string
+	binary         []byte
+	signature      []byte
+	publicKeyPEM   []byte
+	config         []byte
+	launchManifest []byte
+	manifest       []byte
+	ca             []byte
+	hostAddress    string
+	unit           string
+	desired        hostagent.HostManifest
 }
 
 type tsNodeConfigurationFile struct {
@@ -167,12 +170,21 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, fmt.Errorf("vmimage: render ts-node unit: %w", err)
 	}
+	baseURL := "https://" + artifactReleaseHost + ":" + artifactReleasePort + "/releases/ts-node/" + input.Version + "/ts-node"
+	launchManifest, err := hostagent.CanonicalHostManifestJSON(hostagent.HostManifest{Components: []hostagent.ComponentSpec{{
+		Name: hostagent.TsNodeComponentName, Version: input.Version, ArtifactURL: baseURL,
+		SignatureURL: baseURL + ".sig", Sha256: input.SHA256, User: "terrascale-ts-node",
+		DataVolume: tsNodeStateDirectory, CPUWeight: 100, MemoryMaxBytes: 512 << 20, IOWeight: 100,
+	}}})
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
 	return tsNodeBootstrapMaterial{
 		version: input.Version, digest: input.SHA256, binary: append([]byte(nil), input.Binary...),
 		signature:    append([]byte(nil), input.Signature...),
 		publicKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyDER}),
 		config:       config, manifest: manifest, ca: ca, hostAddress: hostAddress, unit: unit,
-		desired: desired,
+		desired: desired, launchManifest: launchManifest,
 	}, nil
 }
 

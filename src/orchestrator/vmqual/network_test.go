@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,35 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
+
+func TestNetworkCleanupWaitsForRemovalAndRejectsPersistentResource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owned-link")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- awaitNetworkResourceRemoval(ctx, path) }()
+	select {
+	case err := <-result:
+		t.Fatalf("cleanup returned while resource existed: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := awaitNetworkResourceRemoval(ctx, path); !errors.Is(err, context.Canceled) {
+		t.Fatalf("persistent resource error = %v", err)
+	}
+}
 
 func TestNewNetworkControllerUsesPinnedToolsAndWritesValidJournal(t *testing.T) {
 	config := networkTestConfig(t)

@@ -42,4 +42,15 @@ func TestAllocatedPathBytesMeasuresSparseAllocation(t *testing.T) {
 	if duplicated != allocated {
 		t.Fatalf("duplicate inode counted twice: %d != %d", duplicated, allocated)
 	}
+	alias := filepath.Join(filepath.Dir(path), "alias.img")
+	if err := os.Link(path, alias); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := allocatedTreeBytes(filepath.Dir(path), filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree != allocated {
+		t.Fatalf("tree allocation = %d, want %d with hardlink and repeated root deduplicated", tree, allocated)
+	}
 }

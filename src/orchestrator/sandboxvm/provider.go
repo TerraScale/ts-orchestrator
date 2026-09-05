@@ -1972,14 +1972,29 @@ func executablePathMatches(expected, observed string) bool {
 }
 
 func sameProcessExecutable(expected string, pid int, observed string) (bool, error) {
-	if pid <= 0 || !executablePathMatches(expected, observed) {
-		return false, errors.New("process executable path does not match the jail copy")
+	if pid <= 0 || !filepath.IsAbs(expected) || !filepath.IsAbs(observed) || strings.HasSuffix(observed, " (deleted)") {
+		return false, fmt.Errorf("process executable path %q does not match the jail copy %q", observed, expected)
+	}
+	if !executablePathMatches(expected, observed) {
+		// procfs can report the executable relative to the process's chroot.
+		// Accept that coordinate only when the actual process root is the exact
+		// expected jail directory. The executable inode is checked below too.
+		if observed != "/"+filepath.Base(expected) {
+			return false, errors.New("process executable is outside the expected jail")
+		}
+		jailInfo, err := os.Stat(filepath.Dir(expected))
+		if err != nil {
+			return false, err
+		}
+		rootInfo, err := os.Stat(filepath.Join("/proc", strconv.Itoa(pid), "root"))
+		if err != nil {
+			return false, err
+		}
+		if !os.SameFile(jailInfo, rootInfo) {
+			return false, errors.New("process root does not match the expected jail")
+		}
 	}
 	expectedPath, err := filepath.EvalSymlinks(expected)
-	if err != nil {
-		return false, err
-	}
-	observedPath, err := filepath.EvalSymlinks(observed)
 	if err != nil {
 		return false, err
 	}
@@ -1991,7 +2006,7 @@ func sameProcessExecutable(expected string, pid int, observed string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return filepath.Clean(expectedPath) == filepath.Clean(observedPath) && os.SameFile(expectedInfo, observedInfo), nil
+	return os.SameFile(expectedInfo, observedInfo), nil
 }
 
 func writeRuntimeRecord(path string, record RuntimeRecord) error {
