@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
 	"time"
 
@@ -59,6 +60,13 @@ type bootstrapControlAdmission struct {
 	cloudflare  *cloudflare.Client
 	regions     []bootstrapControlRegion
 }
+
+func (a *bootstrapControlAdmission) Close() {
+	if a != nil {
+		a.loaded.closeCredentials()
+	}
+}
+
 type bootstrapControlFactory struct {
 	Validate  func(context.Context, envLookup, string) (*bootstrapControlAdmission, error)
 	Construct func(context.Context, *bootstrapControlAdmission, string) (*bootstrap.ControlStateMachine, error)
@@ -81,6 +89,12 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 	if err != nil {
 		return nil, err
 	}
+	admitted := false
+	defer func() {
+		if !admitted {
+			loaded.closeCredentials()
+		}
+	}()
 	credentials, cf, err := bootstrapControlProviderCredentials(lookup, loaded.declaration.Regions)
 	if err != nil {
 		return nil, err
@@ -93,6 +107,7 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 	if err != nil {
 		return nil, err
 	}
+	admitted = true
 	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, cloudflare: cf, regions: regions}, nil
 }
 func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (ocireconcile.BootstrapCredentials, *cloudflare.Client, error) {
@@ -303,7 +318,7 @@ func persistBootstrapControlReceipt(path string, next bootstrapControlReceipt) e
 	if next.Generation <= 0 || len(next.Regions) == 0 {
 		return errors.New("control: invalid provider receipt")
 	}
-	if raw, err := readBootstrapControlFile(path, true, 1<<20); err == nil {
+	if raw, err := bootstrapcredentials.ReadFile(path, true, 1<<20); err == nil {
 		var prior bootstrapControlReceipt
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
@@ -375,7 +390,7 @@ func extendsBootstrapControlReceipt(prior, next bootstrapControlReceipt) bool {
 // OCI receipts. A full launch declaration may include unprovisioned regions.
 func selectBootstrapControlStage(loaded *loadedBootstrapControl, target string) ([]bootstrapControlRegion, error) {
 	active := map[string]bool{target: true}
-	if raw, err := readBootstrapControlFile(loaded.declaration.ReceiptFile, true, 1<<20); err == nil {
+	if raw, err := bootstrapcredentials.ReadFile(loaded.declaration.ReceiptFile, true, 1<<20); err == nil {
 		var prior bootstrapControlReceipt
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
@@ -441,10 +456,20 @@ func selectBootstrapControlStage(loaded *loadedBootstrapControl, target string) 
 }
 
 func bootstrapControlIntentDigest(loaded loadedBootstrapControl) (string, error) {
+	if len(loaded.declaration.Stores) != len(loaded.storeIdentities) {
+		return "", errors.New("control: captured store identities required for admission digest")
+	}
+	for name, ref := range loaded.declaration.Stores {
+		identity, ok := loaded.storeIdentities[name]
+		if !ok || identity.URL != ref.URL || identity.PublicNKey == "" || identity.CASHA256 == "" || identity.CertificateSHA256 == "" {
+			return "", errors.New("control: captured store identity differs from declaration")
+		}
+	}
 	raw, err := json.Marshal(struct {
-		Declaration bootstrapControlConfig
-		Seeds       map[string]map[int]string
-	}{loaded.declaration, loaded.seeds})
+		Declaration     bootstrapControlConfig
+		Seeds           map[string]map[int]string
+		StoreIdentities map[string]bootstrapcredentials.Identity
+	}{loaded.declaration, loaded.seeds, loaded.storeIdentities})
 	if err != nil {
 		return "", err
 	}

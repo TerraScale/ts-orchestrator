@@ -11,6 +11,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 
 	"math/big"
 	"os"
@@ -93,7 +95,7 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimePath := write("runtime.pub", pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: runtimeDER}))
-	hostSeed := bootstrapControlHostSeed{HostID: "gru-1", NATS: bootstrapControlCredentials{URL: "tls://nats.example:4222", CAFile: write("ca.pem", certificatePEM), CertificateFile: write("client.pem", certificatePEM), PrivateKeyFile: write("client.key", privatePEM), NKeySeedFile: write("user.seed", seed)}, PrivateKeySecretID: "ocid1.vaultsecret.oc1.test.client", PrivateKeyVersion: 1, NKeySecretID: "ocid1.vaultsecret.oc1.test.user", NKeyVersion: 2, CommandTrust: []bootstrapHostTrustReference{{CandidateID: "gru-controller-gru-1", PublicKeyFile: runtimePath}}}
+	hostSeed := bootstrapControlHostSeed{HostID: "gru-1", NATS: bootstrapcredentials.Reference{URL: "tls://nats.example:4222", CAFile: write("ca.pem", certificatePEM), CertificateFile: write("client.pem", certificatePEM), PrivateKeyFile: write("client.key", privatePEM), NKeySeedFile: write("user.seed", seed)}, PrivateKeySecretID: "ocid1.vaultsecret.oc1.test.client", PrivateKeyVersion: 1, NKeySecretID: "ocid1.vaultsecret.oc1.test.user", NKeyVersion: 2, CommandTrust: []bootstrapHostTrustReference{{CandidateID: "gru-controller-gru-1", PublicKeyFile: runtimePath}}}
 
 	readerKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	readerDER, _ := x509.MarshalPKCS8PrivateKey(readerKey)
@@ -145,6 +147,53 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("same-path captured store substitution", func(t *testing.T) {
+		first, err := bootstrapcredentials.Load(hostSeed.NATS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer first.Close()
+		alternate, err := nkeys.CreateUser()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer alternate.Wipe()
+		alternateSeed, _ := alternate.Seed()
+		defer clear(alternateSeed)
+		for _, name := range []string{"administrative", "revoked"} {
+			t.Run(name, func(t *testing.T) {
+				scoped := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Stores: map[string]bootstrapcredentials.Reference{"administrative": hostSeed.NATS, "revoked": hostSeed.NATS}}, storeIdentities: map[string]bootstrapcredentials.Identity{"administrative": first.PublicIdentity(), "revoked": first.PublicIdentity()}}
+				before, err := bootstrapControlIntentDigest(scoped)
+				if err != nil {
+					t.Fatal(err)
+				}
+				receipt := filepath.Join(t.TempDir(), "receipt.json")
+				if err = persistBootstrapControlReceipt(receipt, bootstrapControlReceipt{Generation: 1, DeclarationSHA256: before, Regions: []bootstrap.ControlRegionBinding{{Code: "gru"}}}); err != nil {
+					t.Fatal(err)
+				}
+				if err = os.WriteFile(hostSeed.NATS.NKeySeedFile, alternateSeed, 0600); err != nil {
+					t.Fatal(err)
+				}
+				changed, err := bootstrapcredentials.Load(hostSeed.NATS)
+				if restoreErr := os.WriteFile(hostSeed.NATS.NKeySeedFile, seed, 0600); restoreErr != nil {
+					t.Fatal(restoreErr)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer changed.Close()
+				scoped.storeIdentities[name] = changed.PublicIdentity()
+				after, err := bootstrapControlIntentDigest(scoped)
+				if err != nil || before == after {
+					t.Fatal("changed captured identity omitted from immutable intent")
+				}
+				if err = persistBootstrapControlReceipt(receipt, bootstrapControlReceipt{Generation: 1, DeclarationSHA256: after, Regions: []bootstrap.ControlRegionBinding{{Code: "gru"}}}); err == nil {
+					t.Fatal("same-path credential substitution accepted for persisted generation")
+				}
+			})
+		}
+	})
 	loaded := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "gru", OCIRegion: "sa-saopaulo-1", MemberCount: 1, CommandCandidateID: "gru-controller-gru-1"}}, Members: []bootstrapControlMember{{HostID: "gru-1", Region: "gru", Index: 1}}, Seeds: []bootstrapControlHostSeed{hostSeed}, Activations: []bootstrapControlActivation{{HostID: "gru-1", OwnerPublicKeyFile: publicPath}}}, activations: map[string]loadedControlActivation{"gru-1": activation}, signers: map[string]*security.CommandSignatureSigner{"gru": runtimeSigner}}
 	lookup := func(key string) (string, bool) {
 		values := map[string]string{ocireconcile.TSNodeVersionEnvironment: "1.2.3", ocireconcile.TSNodeSHA256Environment: strings.Repeat("ab", 32), ocireconcile.TSNodeURLEnvironment: "https://releases.terrascale.tech/ts-node", bootstrapReleaseKeyEnvironment: hex.EncodeToString(bytes.Repeat([]byte{1}, 32))}

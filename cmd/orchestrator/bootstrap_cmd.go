@@ -357,6 +357,7 @@ func runBootstrapProvision(ctx context.Context, lookup envLookup, output io.Writ
 	if err != nil {
 		return err
 	}
+	defer admission.Close()
 	request := admission.provision
 	if err := runBootstrapOCI(ctx, lookup, request, output); err != nil {
 		return err

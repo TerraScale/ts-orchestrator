@@ -2,22 +2,15 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"github.com/nats-io/nats.go"
 	"io"
-	"net/url"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
-	"time"
 
-	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
@@ -26,13 +19,6 @@ import (
 
 const bootstrapControlConfigEnvironment = "TS_ORCH_CONTROL_CONFIG_FILE"
 
-type bootstrapControlCredentials struct {
-	URL             string `json:"url"`
-	CAFile          string `json:"caFile"`
-	CertificateFile string `json:"certificateFile"`
-	PrivateKeyFile  string `json:"privateKeyFile"`
-	NKeySeedFile    string `json:"nkeySeedFile"`
-}
 type bootstrapControlRegion struct {
 	Code                  string `json:"code"`
 	OCIRegion             string `json:"ociRegion"`
@@ -79,103 +65,35 @@ type bootstrapControlAction struct {
 	RevokedStore string `json:"revokedStore,omitempty"`
 }
 type bootstrapControlConfig struct {
-	Version         int                                    `json:"version"`
-	Generation      int64                                  `json:"generation"`
-	CompartmentName string                                 `json:"compartmentName"`
-	ReceiptFile     string                                 `json:"receiptFile"`
-	Stores          map[string]bootstrapControlCredentials `json:"stores"`
-	Regions         []bootstrapControlRegion               `json:"regions"`
-	Members         []bootstrapControlMember               `json:"members"`
-	Seeds           []bootstrapControlHostSeed             `json:"seeds"`
-	Activations     []bootstrapControlActivation           `json:"activations"`
-	Actions         []bootstrapControlAction               `json:"actions"`
+	Version         int                                       `json:"version"`
+	Generation      int64                                     `json:"generation"`
+	CompartmentName string                                    `json:"compartmentName"`
+	ReceiptFile     string                                    `json:"receiptFile"`
+	Stores          map[string]bootstrapcredentials.Reference `json:"stores"`
+	Regions         []bootstrapControlRegion                  `json:"regions"`
+	Members         []bootstrapControlMember                  `json:"members"`
+	Seeds           []bootstrapControlHostSeed                `json:"seeds"`
+	Activations     []bootstrapControlActivation              `json:"activations"`
+	Actions         []bootstrapControlAction                  `json:"actions"`
 }
 type loadedBootstrapControl struct {
-	declaration bootstrapControlConfig
-	stores      map[string]bootstrap.ControlNATSStore
-	signers     map[string]*security.CommandSignatureSigner
-	members     []bootstrap.ControlRuntimeMember
-	actions     []bootstrap.ControlRuntimeActionPlan
-	activations map[string]loadedControlActivation
-	seeds       map[string]map[int]string
+	credentialOwners []*bootstrapcredentials.Credentials
+	storeIdentities  map[string]bootstrapcredentials.Identity
+	declaration      bootstrapControlConfig
+	stores           map[string]bootstrap.ControlNATSStore
+	signers          map[string]*security.CommandSignatureSigner
+	members          []bootstrap.ControlRuntimeMember
+	actions          []bootstrap.ControlRuntimeActionPlan
+	activations      map[string]loadedControlActivation
+	seeds            map[string]map[int]string
 }
 
-func readBootstrapControlFile(path string, private bool, limit int64) ([]byte, error) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return nil, errors.New("control: credential/config path must be absolute and clean")
-	}
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, errors.New("control: required credential/config file unavailable")
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > limit || (private && info.Mode().Perm()&0077 != 0) {
-		return nil, errors.New("control: file must be bounded, regular and owner-private")
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Geteuid() {
-		return nil, errors.New("control: file must belong to current owner")
-	}
-	return io.ReadAll(io.LimitReader(file, limit+1))
-}
-func loadBootstrapControlCredentials(ref bootstrapControlCredentials) (bootstrap.ControlNATSStore, error) {
-	parsed, err := url.Parse(ref.URL)
-	if err != nil || parsed.Scheme != "tls" || parsed.Hostname() == "" || parsed.Port() == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
-		return bootstrap.ControlNATSStore{}, errors.New("control: canonical TLS NATS authority required")
-	}
-	ca, err := readBootstrapControlFile(ref.CAFile, false, 1<<20)
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, err
-	}
-	cert, err := readBootstrapControlFile(ref.CertificateFile, false, 1<<20)
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, err
-	}
-	key, err := readBootstrapControlFile(ref.PrivateKeyFile, true, 64<<10)
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, err
-	}
-	identity, err := tls.X509KeyPair(cert, key)
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, errors.New("control: invalid TLS client identity")
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(ca) {
-		return bootstrap.ControlNATSStore{}, errors.New("control: invalid NATS CA")
-	}
-	leaf, err := x509.ParseCertificate(identity.Certificate[0])
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, errors.New("control: invalid client certificate")
-	}
-	intermediates := x509.NewCertPool()
-	for _, raw := range identity.Certificate[1:] {
-		certificate, err := x509.ParseCertificate(raw)
-		if err != nil {
-			return bootstrap.ControlNATSStore{}, err
+func loadBootstrapControl(lookup envLookup) (result loadedBootstrapControl, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			result.closeCredentials()
 		}
-		intermediates.AddCert(certificate)
-	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: time.Now(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return bootstrap.ControlNATSStore{}, errors.New("control: client identity is not valid under declared CA")
-	}
-	seed, err := readBootstrapControlFile(ref.NKeySeedFile, true, 4096)
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, err
-	}
-	pair, err := nkeys.FromSeed(bytes.TrimSpace(seed))
-	if err != nil {
-		return bootstrap.ControlNATSStore{}, errors.New("control: invalid NKey seed")
-	}
-	public, err := pair.PublicKey()
-	if err != nil || !nkeys.IsValidPublicUserKey(public) {
-		return bootstrap.ControlNATSStore{}, errors.New("control: NKey must be user identity")
-	}
-	config := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: parsed.Hostname(), RootCAs: roots, Certificates: []tls.Certificate{identity}}
-	return bootstrap.ControlNATSStore{URL: ref.URL, Options: []nats.Option{nats.Secure(config), nats.Nkey(public, pair.Sign), nats.NoReconnect()}}, nil
-}
-
-func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
-	var result loadedBootstrapControl
+	}()
 	if lookup == nil {
 		return result, errors.New("control: environment lookup required")
 	}
@@ -183,7 +101,7 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 	if !ok || path == "" {
 		return result, errors.New("control: set " + bootstrapControlConfigEnvironment)
 	}
-	raw, err := readBootstrapControlFile(path, true, 4<<20)
+	raw, err := bootstrapcredentials.ReadFile(path, true, 4<<20)
 	if err != nil {
 		return result, err
 	}
@@ -197,14 +115,17 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 		return result, errors.New("control: invalid runtime declaration scope")
 	}
 	result.stores = map[string]bootstrap.ControlNATSStore{}
+	result.storeIdentities = map[string]bootstrapcredentials.Identity{}
 	result.signers = map[string]*security.CommandSignatureSigner{}
 	var stores []string
 	for name, ref := range config.Stores {
-		store, err := loadBootstrapControlCredentials(ref)
+		credentials, err := bootstrapcredentials.Load(ref)
 		if err != nil {
 			return result, err
 		}
-		result.stores[name] = store
+		result.credentialOwners = append(result.credentialOwners, credentials)
+		result.storeIdentities[name] = credentials.PublicIdentity()
+		result.stores[name] = bootstrap.ControlNATSStore{URL: credentials.URL, Options: credentials.Options}
 		stores = append(stores, name)
 	}
 	estateSpec, err := loadReconcileEstate(lookup)
@@ -231,10 +152,12 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 		if _, ok := result.stores[region.AuthorityStore]; !ok {
 			return result, errors.New("control: missing regional authority store")
 		}
-		if _, err := readBootstrapControlFile(region.CommandSigningKeyFile, true, 64<<10); err != nil {
+		signingBytes, err := bootstrapcredentials.ReadFile(region.CommandSigningKeyFile, true, 64<<10)
+		if err != nil {
 			return result, err
 		}
-		signer, err := security.LoadCommandSignatureSignerPEM(region.CommandSigningKeyFile)
+		signer, err := security.ParseCommandSignatureSignerPEM(signingBytes)
+		clear(signingBytes)
 		if err != nil {
 			return result, err
 		}
@@ -293,6 +216,7 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 		if err != nil {
 			return result, err
 		}
+		result.activations[input.HostID] = activation
 		allowed, err := hostmanifest.HostManifestSha256(activation.grant.Manifest)
 		if err != nil {
 			return result, err
@@ -326,4 +250,21 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+func (c *loadedBootstrapControl) closeCredentials() {
+	if c == nil {
+		return
+	}
+	for _, owner := range c.credentialOwners {
+		_ = owner.Close()
+	}
+	for _, signer := range c.signers {
+		_ = signer.Close()
+	}
+	for _, activation := range c.activations {
+		if activation.signer != nil {
+			_ = activation.signer.Close()
+		}
+	}
 }

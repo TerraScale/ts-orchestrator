@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/nats-io/nkeys"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
@@ -34,15 +35,15 @@ type bootstrapHostFileReference struct {
 	VersionNumber int64  `json:"versionNumber,omitempty"`
 }
 type bootstrapControlHostSeed struct {
-	AuthorityReader    nodeauthority.ReaderConfig    `json:"authorityReader"`
-	HostID             string                        `json:"hostId"`
-	PrivateKeySecretID string                        `json:"privateKeySecretId"`
-	PrivateKeyVersion  int64                         `json:"privateKeyVersion"`
-	NKeySecretID       string                        `json:"nkeySecretId"`
-	NKeyVersion        int64                         `json:"nkeyVersion"`
-	NATS               bootstrapControlCredentials   `json:"nats"`
-	CommandTrust       []bootstrapHostTrustReference `json:"commandTrust"`
-	Files              []bootstrapHostFileReference  `json:"files"`
+	AuthorityReader    nodeauthority.ReaderConfig     `json:"authorityReader"`
+	HostID             string                         `json:"hostId"`
+	PrivateKeySecretID string                         `json:"privateKeySecretId"`
+	PrivateKeyVersion  int64                          `json:"privateKeyVersion"`
+	NKeySecretID       string                         `json:"nkeySecretId"`
+	NKeyVersion        int64                          `json:"nkeyVersion"`
+	NATS               bootstrapcredentials.Reference `json:"nats"`
+	CommandTrust       []bootstrapHostTrustReference  `json:"commandTrust"`
+	Files              []bootstrapHostFileReference   `json:"files"`
 }
 
 func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapControl) error {
@@ -90,7 +91,11 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if member.HostID == "" || !ok {
 			return errors.New("control: seed requires declared host and signed owner grant")
 		}
-		if _, err := loadBootstrapControlCredentials(seed.NATS); err != nil {
+		credentialCheck, err := bootstrapcredentials.Load(seed.NATS)
+		if err != nil {
+			return err
+		}
+		if err = credentialCheck.Close(); err != nil {
 			return err
 		}
 		if err := validateBootstrapAuthorityReader(seed, activation); err != nil {
@@ -99,9 +104,12 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		var files []ocireconcile.BootstrapHostFile
 		var secrets []map[string]any
 		add := func(source, path string, private bool, secretID string, version int64) error {
-			content, err := readBootstrapControlFile(source, private, 32<<10)
+			content, err := bootstrapcredentials.ReadFile(source, private, 32<<10)
 			if err != nil {
 				return err
+			}
+			if private {
+				defer clear(content)
 			}
 			if err := validateBootstrapSeedContent(content, private, loaded.activations); err != nil {
 				return err
@@ -153,7 +161,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			if key.CandidateID == "" || strings.ContainsAny(key.CandidateID, " \r\n\x00") || seenCandidates[key.CandidateID] {
 				return errors.New("control: invalid host command trust")
 			}
-			content, err := readBootstrapControlFile(key.PublicKeyFile, false, 32<<10)
+			content, err := bootstrapcredentials.ReadFile(key.PublicKeyFile, false, 32<<10)
 			if err != nil {
 				return err
 			}

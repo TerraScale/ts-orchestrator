@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
@@ -45,7 +46,7 @@ func validateBootstrapAuthorityReader(seed bootstrapControlHostSeed, activation 
 		if _, exists := material[file.Path]; exists || file.Private != private {
 			return errors.New("control: duplicate authority material or incorrect secrecy")
 		}
-		data, err := readBootstrapControlFile(file.SourceFile, private, 32<<10)
+		data, err := bootstrapcredentials.ReadFile(file.SourceFile, private, 32<<10)
 		if err != nil {
 			return err
 		}
@@ -73,12 +74,12 @@ func validateBootstrapAuthorityReader(seed bootstrapControlHostSeed, activation 
 	if err != nil || public != reader.PublicNKey {
 		return errors.New("control: authority NKey pin differs")
 	}
-	transport, err := readBootstrapControlFile(seed.NATS.NKeySeedFile, true, 4096)
+	transport, err := bootstrapcredentials.ReadFile(seed.NATS.NKeySeedFile, true, 4096)
 	if err != nil {
 		return err
 	}
 	defer clear(transport)
-	tlsTransport, err := readBootstrapControlFile(seed.NATS.CertificateFile, false, 32<<10)
+	tlsTransport, err := bootstrapcredentials.ReadFile(seed.NATS.CertificateFile, false, 32<<10)
 	if err != nil {
 		return err
 	}

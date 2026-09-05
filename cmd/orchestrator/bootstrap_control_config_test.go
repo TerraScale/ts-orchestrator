@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"testing"
 )
@@ -17,23 +18,23 @@ func TestBootstrapControlFilesRejectSymlinksAndSharedSecrets(t *testing.T) {
 	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readBootstrapControlFile(path, true, 100); err != nil {
+	if _, err := bootstrapcredentials.ReadFile(path, true, 100); err != nil {
 		t.Fatal(err)
 	}
 	link := path + "-link"
 	if err := os.Symlink(path, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readBootstrapControlFile(link, true, 100); err == nil {
+	if _, err := bootstrapcredentials.ReadFile(link, true, 100); err == nil {
 		t.Fatal("symlink secret admitted")
 	}
 	if err := os.Chmod(path, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readBootstrapControlFile(path, true, 100); err == nil {
+	if _, err := bootstrapcredentials.ReadFile(path, true, 100); err == nil {
 		t.Fatal("shared secret admitted")
 	}
-	if _, err := readBootstrapControlFile(path, false, 2); err == nil {
+	if _, err := bootstrapcredentials.ReadFile(path, false, 2); err == nil {
 		t.Fatal("oversized credential admitted")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"github.com/nats-io/nats.go"
 	"io"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
@@ -34,11 +35,11 @@ type loadedControlActivation struct {
 
 func loadControlActivation(input bootstrapControlActivation) (loadedControlActivation, error) {
 	var result loadedControlActivation
-	signed, err := readBootstrapControlFile(input.GrantFile, true, 2<<20)
+	signed, err := bootstrapcredentials.ReadFile(input.GrantFile, true, 2<<20)
 	if err != nil {
 		return result, err
 	}
-	public, err := readBootstrapControlFile(input.OwnerPublicKeyFile, false, 64<<10)
+	public, err := bootstrapcredentials.ReadFile(input.OwnerPublicKeyFile, false, 64<<10)
 	if err != nil {
 		return result, err
 	}
@@ -52,11 +53,19 @@ func loadControlActivation(input bootstrapControlActivation) (loadedControlActiv
 	}
 	ownerDigest := sha256.Sum256(block.Bytes)
 	var signer *security.CommandSignatureSigner
-	if input.OwnerSigningKeyFile != "" {
-		if _, err := readBootstrapControlFile(input.OwnerSigningKeyFile, true, 64<<10); err != nil {
-			return result, err
+	transferred := false
+	defer func() {
+		if !transferred && signer != nil {
+			_ = signer.Close()
 		}
-		signer, err = security.LoadCommandSignatureSignerPEM(input.OwnerSigningKeyFile)
+	}()
+	if input.OwnerSigningKeyFile != "" {
+		signingBytes, readErr := bootstrapcredentials.ReadFile(input.OwnerSigningKeyFile, true, 64<<10)
+		if readErr != nil {
+			return result, readErr
+		}
+		signer, err = security.ParseCommandSignatureSignerPEM(signingBytes)
+		clear(signingBytes)
 		if err != nil {
 			return result, err
 		}
@@ -69,6 +78,7 @@ func loadControlActivation(input bootstrapControlActivation) (loadedControlActiv
 			return result, errors.New("control: activation signer differs from owner grant")
 		}
 	}
+	transferred = true
 	return loadedControlActivation{grant: grant, signed: signed, signer: signer, ownerKeyID: hex.EncodeToString(ownerDigest[:])}, nil
 }
 

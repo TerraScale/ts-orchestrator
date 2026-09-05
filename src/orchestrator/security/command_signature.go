@@ -5,6 +5,7 @@ package security
 // the small detached-signature envelope used by control runtimes.
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -14,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,9 +52,6 @@ type CommandSignatureTrustKey struct {
 	NotAfter      time.Time
 	RevokedAt     *time.Time
 }
-
-// CommandTrustKey is a readable compatibility alias for configuration code.
-type CommandTrustKey = CommandSignatureTrustKey
 
 // CommandSignatureVerifierConfig is bounded, owner-supplied verifier
 // configuration. The verifier retains public keys only.
@@ -143,16 +142,6 @@ func LoadCommandSignatureVerifierPEM(paths []string) (*CommandSignatureVerifier,
 		keys = append(keys, CommandSignatureTrustKey{KeyID: id, Algorithm: CommandSignatureAlgorithm, PublicKeySPKI: data})
 	}
 	return NewCommandSignatureVerifierFromKeys(keys)
-}
-
-// NewEcdsaCommandSignatureVerifier and LoadEcdsaCommandSignatureVerifierPEM
-// preserve the descriptive name used by the deleted implementation.
-func NewEcdsaCommandSignatureVerifier(config CommandSignatureVerifierConfig) (*CommandSignatureVerifier, error) {
-	return NewCommandSignatureVerifier(config)
-}
-
-func LoadEcdsaCommandSignatureVerifierPEM(paths []string) (*CommandSignatureVerifier, error) {
-	return LoadCommandSignatureVerifierPEM(paths)
 }
 
 // Verify implements protocol.ICommandSignatureVerifier. Envelope validity
@@ -360,25 +349,37 @@ type CommandSignatureSigner struct {
 	sync sync.Mutex
 }
 
-// Migration-friendly names matching the former Delivery implementation.
-type EcdsaCommandSignatureVerifier = CommandSignatureVerifier
-type EcdsaCommandSigner = CommandSignatureSigner
-
-func LoadEcdsaCommandSignerPEM(path string) (*CommandSignatureSigner, error) {
-	return LoadCommandSignatureSignerPEM(path)
-}
-
 // LoadCommandSignatureSignerPEM loads a PKCS#8 or SEC1 P-256 private key.
 func LoadCommandSignatureSignerPEM(path string) (*CommandSignatureSigner, error) {
 	data, err := readBoundedPrivatePEM(path)
 	if err != nil {
 		return nil, err
 	}
+	defer clear(data)
+	return ParseCommandSignatureSignerPEM(data)
+}
+
+// ParseCommandSignatureSignerPEM parses one bounded PKCS#8 or SEC1 P-256 key.
+// The caller owns data and should clear it after parsing. The signer retains an
+// independent parsed key until Close; decoded DER is cleared before returning.
+// File ownership and permissions must be checked by the caller capturing data.
+func ParseCommandSignatureSignerPEM(data []byte) (*CommandSignatureSigner, error) {
+	if len(data) == 0 || len(data) > maximumCommandKeyBytes {
+		return nil, errors.New("the command signing credential must be bounded PEM data")
+	}
 	block, rest := pem.Decode(data)
-	if block == nil || len(strings.TrimSpace(string(rest))) != 0 || !strings.Contains(block.Type, "PRIVATE KEY") {
+	if block == nil {
+		return nil, errors.New("the command signing credential is not a P-256 private key")
+	}
+	defer clear(block.Bytes)
+	if len(bytes.TrimSpace(rest)) != 0 || len(block.Headers) != 0 ||
+		bytes.Count(data, []byte("-----BEGIN ")) != 1 || bytes.Count(data, []byte("-----END ")) != 1 ||
+		(block.Type != "PRIVATE KEY" && block.Type != "EC PRIVATE KEY") ||
+		!bytes.HasPrefix(bytes.TrimSpace(data), []byte("-----BEGIN "+block.Type+"-----")) {
 		return nil, errors.New("the command signing credential is not a P-256 private key")
 	}
 	var parsed any
+	var err error
 	if block.Type == "PRIVATE KEY" {
 		parsed, err = x509.ParsePKCS8PrivateKey(block.Bytes)
 	} else {
@@ -517,18 +518,24 @@ func readBoundedPrivatePEM(path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("the command signing credential path is required")
 	}
-	clean := filepath.Clean(path)
-	info, err := os.Stat(clean)
+	file, err := openCommandSigningCredential(filepath.Clean(path))
+	if err != nil {
+		return nil, errors.New("the command signing credential must be a bounded existing PEM file")
+	}
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > maximumCommandKeyBytes {
 		return nil, errors.New("the command signing credential must be a bounded existing PEM file")
 	}
-	if runtimeIsLinux() {
-		mode := info.Mode().Perm()
-		if mode&0077 != 0 {
-			return nil, errors.New("the command signing credential must be private to the owner")
-		}
+	if runtimeIsLinux() && info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("the command signing credential must be private to the owner")
 	}
-	return os.ReadFile(clean)
+	data, err := io.ReadAll(io.LimitReader(file, maximumCommandKeyBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maximumCommandKeyBytes {
+		clear(data)
+		return nil, errors.New("the command signing credential must be a bounded existing PEM file")
+	}
+	return data, nil
 }
 
 // Kept as a variable to make platform-specific tests and future non-Linux
