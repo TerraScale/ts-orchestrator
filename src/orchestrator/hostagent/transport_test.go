@@ -132,12 +132,13 @@ func newTestTransport(t *testing.T, harness *testHarness) (*NatsTransport, *fake
 	connection := newFakeNatsConnection()
 	ticker := newManualTicker()
 	transport, err := NewNatsTransport(NatsTransportConfig{
-		NodeId:     NodeId{Value: "gru-1"},
-		Connection: connection,
-		Lifecycle:  harness.lifecycle,
-		Facts:      harness.factsSource(t),
-		Ticker:     ticker,
-		Now:        func() time.Time { return time.Unix(1756900000, 0) },
+		CommandAuthority: testCommandAuthorizer{},
+		NodeId:           NodeId{Value: "gru-1"},
+		Connection:       connection,
+		Lifecycle:        harness.lifecycle,
+		Facts:            harness.factsSource(t),
+		Ticker:           ticker,
+		Now:              func() time.Time { return time.Unix(1756900000, 0) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -368,7 +369,8 @@ func TestTransportRollbackReplayIsStable(t *testing.T) {
 	secondConnection := newFakeNatsConnection()
 	secondTicker := newManualTicker()
 	second, err := NewNatsTransport(NatsTransportConfig{
-		NodeId: NodeId{Value: "gru-1"}, Connection: secondConnection,
+		CommandAuthority: testCommandAuthorizer{},
+		NodeId:           NodeId{Value: "gru-1"}, Connection: secondConnection,
 		Lifecycle: harness.lifecycle, Facts: harness.factsSource(t), Ticker: secondTicker,
 		Now: func() time.Time { return time.Unix(1756900000, 0) },
 	})
@@ -427,6 +429,15 @@ func TestTransportRecoversPendingRollbackAtPinnedTarget(t *testing.T) {
 				}
 			}
 			_, connection, _ := newTestTransport(t, harness)
+			// Startup preserves the unknown outcome. Only a fresh authorized reissue
+			// may resume the persisted pinned target.
+			before := countOperation(harness.systemd.ops(), "restart:"+UnitName("terrabase"))
+			if !mutateBeforeRestart && before != 0 {
+				t.Fatal("pending rollback executed without fresh authority")
+			}
+			if _, err := connection.request("ts.orch.v1.gru.agent.9a097238a730924911f02fcc.command.rollback", request); err != nil {
+				t.Fatal(err)
+			}
 			if current, _ := CurrentVersion(harness.root, "terrabase"); current != "1.0.0" {
 				t.Fatalf("recovery current = %q", current)
 			}

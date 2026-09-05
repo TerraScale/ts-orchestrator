@@ -97,6 +97,7 @@ type scenarioTestFactory struct {
 	cordoned            map[string]bool
 	persistentData      []byte
 	badDeliveryEvidence bool
+	authority           func(context.Context, *delivery.Request) error
 }
 
 func newScenarioTestFactory() *scenarioTestFactory {
@@ -214,7 +215,7 @@ func (n *scenarioTestNetwork) Cleanup(context.Context) error {
 	return nil
 }
 
-func newScenarioHarness(t *testing.T, factory *scenarioTestFactory, network *scenarioTestNetwork) (*LocalProviderEndpoints, *LocalScenarioDriver, *vmqual.Stack) {
+func newScenarioHarness(t *testing.T, factory *scenarioTestFactory, network *scenarioTestNetwork, controlFactory func(string) scenarioControlProof) (*LocalProviderEndpoints, *LocalScenarioDriver, *vmqual.Stack) {
 	t.Helper()
 	stateRoot := t.TempDir()
 	networkConfig := vmnet.DefaultConfig()
@@ -244,6 +245,9 @@ func newScenarioHarness(t *testing.T, factory *scenarioTestFactory, network *sce
 	if err != nil {
 		providers.Close()
 		t.Fatal(err)
+	}
+	if controlFactory != nil {
+		driver.control = controlFactory(filepath.Join(stateRoot, "control-contract"))
 	}
 	stack, err := vmqual.NewStack(vmqual.StackConfig{
 		Guests:      vmqual.LaunchGuests(256),
@@ -281,8 +285,9 @@ func assertScenarioResourcesClean(t *testing.T, providers *LocalProviderEndpoint
 
 func TestLocalScenarioJourneyUsesAllProviderEndpoints(t *testing.T) {
 	factory := newScenarioTestFactory()
+	factory.authority = explicitScenarioAuthority(factory)
 	network := &scenarioTestNetwork{}
-	providers, driver, stack := newScenarioHarness(t, factory, network)
+	providers, driver, stack := newScenarioHarness(t, factory, network, explicitModeledControlFixture(t))
 	report, err := RunSuite(context.Background(), stack, driver)
 	if err != nil {
 		t.Fatalf("local suite failed: %v\nreport=%+v\nevidence=%+v", err, report, driver.Evidence())
@@ -323,7 +328,7 @@ func TestLocalScenarioJourneyUsesAllProviderEndpoints(t *testing.T) {
 func TestRunSuiteCleansAfterCancellation(t *testing.T) {
 	factory := newScenarioTestFactory()
 	network := &scenarioTestNetwork{}
-	providers, driver, stack := newScenarioHarness(t, factory, network)
+	providers, driver, stack := newScenarioHarness(t, factory, network, explicitModeledControlFixture(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	factory.cancelOnStart = 1
 	factory.cancel = cancel
@@ -337,8 +342,9 @@ func TestRunSuiteCleansAfterCancellation(t *testing.T) {
 func TestRunSuiteCleansAfterFailedScenarioAssertion(t *testing.T) {
 	factory := newScenarioTestFactory()
 	factory.badDeliveryEvidence = true
+	factory.authority = explicitScenarioAuthority(factory)
 	network := &scenarioTestNetwork{}
-	providers, driver, stack := newScenarioHarness(t, factory, network)
+	providers, driver, stack := newScenarioHarness(t, factory, network, explicitModeledControlFixture(t))
 	report, err := RunSuite(context.Background(), stack, driver)
 	if err == nil {
 		t.Fatal("RunSuite accepted altered guest delivery evidence")
@@ -436,7 +442,7 @@ func TestFourthRegionRequiresBothNewGuestsBeforeReportingSuccess(t *testing.T) {
 	factory := newScenarioTestFactory()
 	factory.failStartID = "iad-member-2"
 	network := &scenarioTestNetwork{}
-	providers, driver, stack := newScenarioHarness(t, factory, network)
+	providers, driver, stack := newScenarioHarness(t, factory, network, explicitModeledControlFixture(t))
 	report, err := RunSuite(context.Background(), stack, driver)
 	if err == nil || len(report.Scenarios) != 4 || report.Scenarios[3].Scenario != ScenarioFourthRegion || report.Scenarios[3].Passed {
 		t.Fatalf("fourth region falsely admitted: %+v, %v", report.Scenarios, err)
@@ -450,4 +456,37 @@ func TestFourthRegionRequiresBothNewGuestsBeforeReportingSuccess(t *testing.T) {
 		t.Fatalf("both new host attempts were not made: %v", factory.createOrder)
 	}
 	assertScenarioResourcesClean(t, providers, factory, network)
+}
+
+// Callers explicitly choose the modeled state-machine fixture. Production and
+// missing-capability harnesses receive no implicit successful control runtime.
+func explicitModeledControlFixture(t *testing.T) func(string) scenarioControlProof {
+	t.Helper()
+	return func(root string) scenarioControlProof {
+		contract, err := NewControlContract(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contract
+	}
+}
+
+func (factory *scenarioTestFactory) QualificationDeliveryAuthority(ctx context.Context, request *delivery.Request) error {
+	if factory.authority == nil {
+		return errors.New("unit fixture has no admitted delivery authority")
+	}
+	return factory.authority(ctx, request)
+}
+func explicitScenarioAuthority(factory *scenarioTestFactory) func(context.Context, *delivery.Request) error {
+	return func(ctx context.Context, request *delivery.Request) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		factory.mu.Lock()
+		defer factory.mu.Unlock()
+		if request == nil || request.OperationID == "" || factory.vms["gru-member-1"] == nil || !factory.vms["gru-member-1"].running {
+			return errors.New("unit control lease is unavailable")
+		}
+		return nil
+	}
 }

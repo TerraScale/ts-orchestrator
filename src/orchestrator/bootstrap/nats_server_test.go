@@ -10,13 +10,16 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 func TestValidateNatsServerConfigFailsClosed(t *testing.T) {
@@ -109,7 +112,8 @@ func TestParserErrorDoesNotExposeConfigurationSecret(t *testing.T) {
 	}
 }
 
-func TestRunNatsServerCancellation(t *testing.T) {
+func natsLifecycleTestConfig(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
 	caCert, caKey := makeCertificate(t, nil, nil, true)
 	serverCert, serverKey := makeCertificate(t, caCert, caKey, false)
@@ -144,6 +148,12 @@ accounts: {
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
+	return configPath
+}
+
+func TestRunNatsServerCancellation(t *testing.T) {
+	configPath := natsLifecycleTestConfig(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
@@ -180,10 +190,11 @@ func makeCertificate(t *testing.T, parentCertPEM, parentKeyPEM []byte, isCA bool
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "test-nats"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 		NotBefore:             time.Now().Add(-time.Minute),
 		NotAfter:              time.Now().Add(time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  isCA,
 	}
@@ -217,4 +228,130 @@ func parentOrSelf(parent *x509.Certificate, self *x509.Certificate) *x509.Certif
 		return parent
 	}
 	return self
+}
+
+func TestEmbeddedNatsLifecycleReadyCloseAndFailure(t *testing.T) {
+	for _, mode := range []string{"close", "cancel", "unexpected"} {
+		t.Run(mode, func(t *testing.T) {
+			path := natsLifecycleTestConfig(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			handle, err := StartNatsServer(ctx, NatsServerConfig{ConfigPath: path, ReadinessTimeout: 5 * time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer handle.Close()
+			directory := filepath.Dir(path)
+			client, connectErr := nats.Connect(handle.instance.ClientURL(), nats.UserInfo("runner", "test-only"), nats.RootCAs(filepath.Join(directory, "ca.pem")), nats.ClientCert(filepath.Join(directory, "server.pem"), filepath.Join(directory, "server-key.pem")), nats.NoReconnect())
+			if connectErr != nil {
+				t.Fatal(connectErr)
+			}
+			if err := client.FlushTimeout(time.Second); err != nil {
+				t.Fatal(err)
+			}
+			client.Close()
+			if !handle.Ready() {
+				t.Fatal("start returned before readiness")
+			}
+			select {
+			case <-handle.Completion():
+				t.Fatal("healthy server already completed")
+			default:
+			}
+			switch mode {
+			case "close":
+				var group sync.WaitGroup
+				for range 8 {
+					group.Go(func() {
+						if err := handle.Close(); err != nil {
+							t.Error(err)
+						}
+					})
+				}
+				group.Wait()
+			case "cancel":
+				cancel()
+			case "unexpected":
+				handle.instance.Shutdown()
+			}
+			select {
+			case <-handle.Completion():
+			case <-time.After(5 * time.Second):
+				t.Fatal("server did not fully stop")
+			}
+			if handle.Ready() {
+				t.Fatal("stopped server remains ready")
+			}
+			if mode == "close" && handle.Err() != nil {
+				t.Fatalf("clean close: %v", handle.Err())
+			}
+			if mode == "cancel" && !errors.Is(handle.Err(), context.Canceled) {
+				t.Fatalf("cancellation: %v", handle.Err())
+			}
+			if mode == "unexpected" && handle.Err() == nil {
+				t.Fatal("unexpected shutdown hidden")
+			}
+		})
+	}
+}
+
+func TestEmbeddedNatsParsesWithoutWritingReleaseDirectory(t *testing.T) {
+	path := natsLifecycleTestConfig(t)
+	release := filepath.Join(filepath.Dir(path), "release")
+	if err := os.Mkdir(release, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	immutable := filepath.Join(release, "nats.conf")
+	if err := os.WriteFile(immutable, body, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(release, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(release, 0o700)
+	handle, err := StartNatsServer(context.Background(), NatsServerConfig{ConfigPath: immutable, ReadinessTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	files, err := os.ReadDir(release)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("release directory changed: %v %v", files, err)
+	}
+	options, err := loadNatsServerOptions(immutable)
+	if err != nil || options.ConfigFile != "" {
+		t.Fatalf("server retains mutable file parsing path: %v", err)
+	}
+}
+
+func TestEmbeddedNatsListenerFailureReturnsToOwner(t *testing.T) {
+	path := natsLifecycleTestConfig(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.Replace(string(body), "127.0.0.1:0", listener.Addr().String(), 1))
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handle, err := StartNatsServer(context.Background(), NatsServerConfig{ConfigPath: path, ReadinessTimeout: time.Second})
+	if handle != nil {
+		handle.Close()
+		t.Fatal("occupied listener admitted")
+	}
+	if err == nil {
+		t.Fatal("listener failure hidden")
+	}
+	if strings.Contains(err.Error(), "test-only") || strings.Contains(err.Error(), path) {
+		t.Fatalf("startup exposed configuration: %v", err)
+	}
 }

@@ -16,6 +16,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -23,7 +25,10 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
+	natsclient "github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -41,13 +46,22 @@ type qualificationRuntimeServices struct {
 	tlsCertificate tls.Certificate
 	resources      map[string][]byte
 
-	timeService  *qualificationTimeService
-	nats         *natsserver.Server
-	httpServer   *http.Server
-	httpListener net.Listener
-	httpDone     chan error
-	started      bool
-	closed       bool
+	natsAuthority      *qualificationNATSAuthority
+	controlConnections []*natsclient.Conn
+	controlClients     map[string]*hostcontrol.Client
+	controlRegions     []bootstrap.ControlRegionBinding
+	controlRuntime     bootstrap.ControlRuntime
+	natsStoreParent    *os.Root
+	natsStoreName      string
+	natsStoreRunID     string
+	stateRoot          string
+	timeService        *qualificationTimeService
+	nats               *natsserver.Server
+	httpServer         *http.Server
+	httpListener       net.Listener
+	httpDone           chan error
+	started            bool
+	closed             bool
 }
 
 func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, architecture vmimage.Architecture) (qualificationServices, error) {
@@ -84,9 +98,14 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
+	authority, err := newQualificationNATSAuthority(plan)
+	if err != nil {
+		return nil, err
+	}
 	services := &qualificationRuntimeServices{
 		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest,
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
+		natsAuthority: authority, stateRoot: config.StateRoot,
 	}
 	cleanupArtifacts = false
 	return services, nil
@@ -263,13 +282,34 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if len(tsNode.binary) == 0 || len(tsNode.signature) != ed25519.SignatureSize {
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: signed ts-node bootstrap is missing")
 	}
+	if services.natsAuthority == nil {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: guest NATS authority missing")
+	}
+	identity := services.natsAuthority.guests[guest.ID]
+	if identity == nil {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: guest lacks provisioned NATS identity")
+	}
+	membership := services.natsAuthority.memberships[guest.ID]
+	if membership == nil {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: membership identity not provisioned")
+	}
+	pins := make(map[string]string, len(services.natsAuthority.memberships))
+	for host, member := range services.natsAuthority.memberships {
+		pins[host] = member.PublicKey
+	}
+	commandTrust, err := services.natsAuthority.commandTrust(services.plan, guest.Region)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
 	bootstrap := vmimage.TSNodeBootstrap{
+		MembershipIdentityPrivateKey: append([]byte(nil), membership.PrivatePEM...), MembershipPins: pins,
 		Version: tsNode.manifest.Version, Binary: append([]byte(nil), tsNode.binary...),
 		SHA256: tsNode.manifest.SHA256, Signature: append([]byte(nil), tsNode.signature...),
 		ReleasePublicKey: append(ed25519.PublicKey(nil), services.publicKey...),
 		Config: vmimage.TSNodeConfig{
+			AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: commandTrust,
 			NodeID:  guest.ID,
-			NATSURL: "nats://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))),
+			NATSURL: "tls://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))),
 			// Match the production ts-node cadences. Reauthenticating complete
 			// releases at subsecond intervals distorts idle CPU and status contention.
 			HeartbeatInterval: 10 * time.Second, ReconcileInterval: 30 * time.Second,
@@ -277,6 +317,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		DesiredHostManifest:   append([]byte(nil), services.manifest...),
 		ArtifactCACertificate: append([]byte(nil), services.caCertificate...),
 		ArtifactHostAddress:   artifactEndpoint.GuestAddress,
+		NATSIdentity:          &vmimage.TSNodeNATSIdentity{NKeySeed: append([]byte(nil), identity.seed...), TLSCA: append([]byte(nil), services.natsAuthority.ca...), TLSCertificate: append([]byte(nil), identity.certificate...), TLSPrivateKey: append([]byte(nil), identity.privateKey...)},
 	}
 	return bootstrap, seedArtifacts, nil
 }
@@ -324,9 +365,21 @@ func (services *qualificationRuntimeServices) Start(ctx context.Context) error {
 	}
 
 	natsPlan, _ := services.plan.Listener("nats")
+	if services.natsAuthority == nil {
+		_ = services.closeHTTPLocked(ctx)
+		return errors.New("vmqual: NATS authentication authority missing")
+	}
+	storeDir, err := services.prepareNATSStore(ctx)
+	if err != nil {
+		_ = services.closeHTTPLocked(ctx)
+		return err
+	}
 	nats, err := natsserver.NewServer(&natsserver.Options{
 		ServerName: "vmqual-" + services.plan.RunID, Host: natsPlan.Address, Port: int(natsPlan.Port),
-		NoLog: true, NoSigs: true, MaxConn: 128, MaxPayload: 1 << 20,
+		NoLog: true, NoSigs: true, MaxConn: 128, MaxPayload: 4 << 20,
+		JetStream: true, StoreDir: storeDir, JetStreamMaxMemory: 8 << 20, JetStreamMaxStore: 64 << 20,
+		Nkeys:     services.natsAuthority.users,
+		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{services.natsAuthority.server}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: services.natsAuthority.roots},
 	})
 	if err != nil {
 		_ = services.closeHTTPLocked(ctx)
@@ -345,6 +398,12 @@ func (services *qualificationRuntimeServices) Start(ctx context.Context) error {
 		nats.WaitForShutdown()
 		_ = services.closeHTTPLocked(ctx)
 		return errors.New("vmqual: embedded NATS bound outside the planned listener")
+	}
+	if err := services.probeNATSController(ctx, nats.ClientURL()); err != nil {
+		nats.Shutdown()
+		nats.WaitForShutdown()
+		_ = services.closeHTTPLocked(ctx)
+		return err
 	}
 	timeService, err := startQualificationTimeService(services.plan)
 	if err != nil {
@@ -406,7 +465,7 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 	services.mu.Lock()
 	defer services.mu.Unlock()
 	if services.closed {
-		return nil
+		return services.removeNATSStore()
 	}
 	services.closed = true
 	services.started = false
@@ -415,11 +474,20 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		errs = append(errs, services.timeService.Close())
 		services.timeService = nil
 	}
+	for _, connection := range services.controlConnections {
+		connection.Close()
+	}
+	services.controlConnections = nil
 	if services.nats != nil {
 		services.nats.Shutdown()
 		services.nats.WaitForShutdown()
 		services.nats = nil
 	}
+	if services.natsAuthority != nil {
+		services.natsAuthority.close()
+		services.natsAuthority = nil
+	}
+	errs = append(errs, services.removeNATSStore())
 	if err := services.closeHTTPLocked(context.WithoutCancel(ctx)); err != nil {
 		errs = append(errs, err)
 	}
@@ -447,7 +515,7 @@ func (services *qualificationRuntimeServices) closeHTTPLocked(ctx context.Contex
 		_ = services.httpListener.Close()
 	}
 	var serveErr error
-	if services.httpDone != nil {
+	if services.httpDone != nil || services.natsStoreParent != nil {
 		select {
 		case serveErr = <-services.httpDone:
 		case <-shutdownCtx.Done():
@@ -467,10 +535,54 @@ func (services *qualificationRuntimeServices) VerifyStopped() error {
 	}
 	services.mu.Lock()
 	defer services.mu.Unlock()
-	if services.started || services.timeService != nil || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil {
+	if services.started || services.timeService != nil || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil || services.natsStoreParent != nil {
 		return errors.New("vmqual: qualification listener remains active")
 	}
 	return nil
 }
 
 var _ qualificationServices = (*qualificationRuntimeServices)(nil)
+
+// prepareNATSStore creates only the current run's private fixture store. An
+// existing store requires cleanup rather than silently reusing another run.
+func (services *qualificationRuntimeServices) prepareNATSStore(ctx context.Context) (string, error) {
+	if !filepath.IsAbs(services.stateRoot) || filepath.Clean(services.stateRoot) != services.stateRoot {
+		return "", errors.New("vmqual: NATS store requires owned state root")
+	}
+	if services.natsStoreRunID != "" || services.natsStoreParent != nil {
+		return "", errors.New("vmqual: NATS fixture store already prepared")
+	}
+	runID, bound := vmqual.RunIDFromContext(ctx)
+	if !bound {
+		var err error
+		runID, err = vmqual.NewRunID()
+		if err != nil {
+			return "", err
+		}
+	}
+	path, err := vmqual.PrepareNATSFixtureStore(ctx, services.stateRoot, runID)
+	if err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(services.stateRoot)
+	if err != nil {
+		return "", err
+	}
+	name := filepath.Base(path)
+	services.natsStoreParent, services.natsStoreName, services.natsStoreRunID = root, name, runID
+	return filepath.Join(services.stateRoot, name), nil
+}
+
+func (services *qualificationRuntimeServices) removeNATSStore() error {
+	if services.natsStoreParent == nil {
+		return nil
+	}
+	if err := vmqual.RemoveNATSFixtureStore(services.stateRoot, services.natsStoreRunID); err != nil {
+		return err
+	}
+	err := services.natsStoreParent.Close()
+	services.natsStoreParent = nil
+	services.natsStoreName = ""
+	services.natsStoreRunID = ""
+	return err
+}

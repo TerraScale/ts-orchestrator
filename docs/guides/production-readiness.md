@@ -37,7 +37,7 @@ continues.
 
 | Area | Entry points inspected | Finding and next proof |
 | --- | --- | --- |
-| Runtime composition | `cmd/orchestrator/main.go`, `runtime_composition.go` | Production startup calls `composeProductionRuntimeConfig`. Its default returns `ErrProductionCompositionMissing`, and the search found no other assignment. Wire the concrete dependencies and prove startup through the real executable. |
+| Runtime composition | `cmd/orchestrator/main.go`, `runtime_composition.go` | Production startup calls `admitProductionRuntime`. Its default returns `ErrProductionCompositionMissing`, and the search found no other assignment. Wire the concrete dependencies and prove startup through the real executable. |
 | Bootstrap and control transition | `src/orchestrator/bootstrap/greenfield.go`, `control_plane.go`, `provider_control_plane.go` | Durable bootstrap and R1/R3 transition contracts exist. Prove the CLI, provider effects, host admission, synchronization, and credential retirement together under interruption. |
 | Region topology | `src/orchestrator/bootstrap/control_plane.go`, `cmd/orchestrator/add_region.go` | The implementation contains `remote-managed` topology. Audit whether each path actually installs and admits a regional process. Replace remote-only behavior with the newly required per-Region orchestrator while preserving storage placement. |
 | Authority | `src/orchestrator/control/authority/authority_engine.go` | Lease, epoch, replay, and fencing decisions exist. Trace their enforcement to every provider, host, and TBEP mutation; a decision engine alone does not establish single-master safety. |
@@ -64,11 +64,18 @@ references, never secret values. The private-key PEM check is not a general
 secret detector. Self-service `ts-node` launch remains owned by its bootstrap
 unit, with release metadata retained for authenticated self-rollback.
 
-Qualification initial activation uses the existing journaled host drain,
-deploy, and release commands, verifies the seeded manifest digest and exact host
-component observations, and resumes partially activated hosts without deploying
-an unexpected version. This isolated NATS transport has no GRU fencing fields or
-cryptographic caller authentication; it does not qualify production authority.
+The initial activation algorithm validates the seeded manifest digest and
+component observations before planning journaled drain, deploy, and release
+commands. Its live sender now refuses mutations until actual command authority
+is connected; algorithm tests cannot establish working guest activation. The qualification transport now requires TLS 1.3, verified client certificates,
+and per-node NKeys with node-specific command permissions. Its file-backed
+JetStream is a test transport, not the guest global control store. It cannot
+supply GRU authority or R3 qualification evidence. The receiver now verifies signed host commands against the current regional
+lease and a durable local epoch floor. It rejects pending-command replay
+without fresh authorization and prevents concurrent receiver ownership.
+These changes have not passed real-guest qualification. Initial activation
+still needs an independently authenticated bootstrap manifest or retired
+bootstrap grant; a fabricated lease in the fixture broker cannot supply it.
 
 The guest manifests still lack concrete TerraBase and orchestrator launch
 configuration. Bare TerraBase startup fails because its process requires
@@ -97,12 +104,32 @@ group/other writes. The command rejects symlinks and FIFOs. This supports the
 host agent's immutable configuration contract without embedding credentials in
 release slots.
 
-Qualification cannot yet generate the required authoritative values. It still
-needs admitted NATS identities and TLS files, signed-command identity and trust,
-and OCI estate/signer references. TerraBase separately needs durable membership,
+Qualification now generates disposable NATS identities and TLS files and
+stages private credentials outside cloud-init UserData. Persistent membership
+keys and explicit peer pins are staged for the service identity. It still needs the complete
+signed-command authority path and OCI estate/signer references. TerraBase separately needs durable membership,
 admitted database placement, peer identity, and Vault bindings. The command
 file reader does not supply these missing authorities or complete runtime
 composition.
+
+### Embedded server and membership identity
+
+Selected orchestrator processes can host the NATS library through a supervised
+server handle. Its lifecycle tests use real authenticated TLS connections and
+cover readiness, cancellation, concurrent shutdown, and listener failure.
+Configuration parsing reads immutable bytes without writing temporary files in
+the release directory. The command now orders static admission, broker readiness, live adapter
+construction, and command subscriptions, then shuts down clients before the
+broker. Focused tests cover construction failure and broker failure exit
+status. They do not establish working production composition or guest R3.
+
+Membership startup now requires a persistent PKCS8 P-256 signing key and an
+explicit map of controller instance IDs to canonical Base64 PKIX public keys.
+The map must include the local identity. Membership observation cannot learn a
+new trusted key from the first record or replace a pin after lease expiry.
+The settings are `TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE` and
+`TS_ORCH_MEMBERSHIP_PINS_FILE`. Focused race tests pass for file admission and
+the control membership path; real-guest membership qualification remains open.
 
 ### Production dependency audit
 
@@ -115,13 +142,13 @@ dependencies required by `productionRuntimeConfig`.
 
 | Runtime input | Existing implementation and exact missing connection |
 | --- | --- |
-| Signed command dispatch | Production options never construct `CommandDispatcher`, so regional runtime admission fails before serving commands. The command must connect admitted envelopes to the fenced durable lifecycle journal, regional routing, and authenticated host/member executors. A callback that merely accepts an envelope is insufficient. |
+| Signed command dispatch | The regional runtime now constructs the delivery dispatcher with a file-backed JetStream journal, generation admission, and live regional lease checks. Regional commands now require exactly their signed Region, and rollout verifies all mirrored bytes without writing mirrors. The master preparation and signed regional fanout route is still unfinished. The executable still lacks complete concrete rollout dependencies, and receiver-side fencing is implemented but has not passed real-guest qualification. |
 | Estate publication | `estate.ControlPlaneClient` implements public document writes. The root still needs its configured endpoint and credential, a coherent `estatepublisher.SnapshotSource`, and an `Authority` that reads the accepted epoch and rechecks its fence before each write. A constant epoch or empty snapshot cannot establish this. |
 | Identity and capability rotation | `security.IdentityIssuer` requires `Issue`, `Fetch`, and `Retire`; `CapabilityVault` requires `Generate`, `Fetch`, and `Retire`. Their concrete production implementations are absent. `MemberGateway` still needs member enumeration, distribution, generation verification, activation, retirement, rollback, and fencing; `Reloader` needs reload, verification, rollback, and fencing. These require authenticated host/member transports and durable operation receipts. |
 | Cloudflare rotation | `keyrotation.CloudflareSecretsStore` wraps the value API, but requires concrete `CloudflareCapabilityObserver.VerifyCapability` and `CloudflareCapabilityFencer.FenceCapability`. Secret metadata alone cannot prove the generation accepted by the Snippet. Its staged provider versions also need crash recovery before production use. |
 | Rotation state | `security.FileStateStore` is local process persistence, not global R3 authority. Compose a fenced global durable store for `security.StateStore` and an audit sink; prove that an old controller cannot overwrite a resumed rotation. |
 | Free database lifecycle | `reaper.DatabaseAdapter` needs the authoritative paginated catalog, snapshot and placement verification, close, Litestream stop, reactivation, CDN purge, and owned-data deletion. `KeyAdapter.DestroyDEK` and `MailAdapter.Send` have no concrete production implementation. The file/memory reaper stores do not establish global journal fencing. Notice delivery must be acknowledged before the durable lifecycle advances. |
-| Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `TickerScheduler` and `NATSJetStreamSnapshotter` exist, but still need composition with the authoritative stream, an OCI `SnapshotObjectStore` supporting verified reads, and verified per-Region snapshot mirrors. VM-local restore adapters are qualification fixtures. |
+| Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `restoredrill.NATSJournal` now persists runs, items, source facts, and restore epochs in the global authority stream. Stream-wide CAS barriers protect successful reads and mutations. Three-node file-backed JetStream tests cover restart, stale writers, minority outage, and late-commit recovery with history 1. Its authoritative facts producer and command wiring remain unfinished. `TickerScheduler` and `NATSJetStreamSnapshotter` exist. `restoresnapshot` now implements signed OCI snapshot writes, full-content verified reads, and per-Region mirrors with durable ownership checks and immutable object keys; its HTTP contract tests pass under race detection. These adapters still need production composition with the authoritative stream and exact regional scopes. VM-local restore adapters are qualification fixtures. |
 | Release mirrors | `provider.DeliveryRegionStore` is concrete. The root must bind each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and a live `OwnershipCheck`. The delivery and restore paths must share those same scopes and journal. |
 
 The adjacent TerraBase checkout exposes its private contract in
@@ -222,3 +249,39 @@ Keep the goal's seven-day soak, rollback rehearsal in every Region, fourteen
 consecutive daily restore drills, live external SLO probes, and security gates.
 Report failed or unrun gates explicitly. A documentation update or a passing
 unit suite does not make the system production ready.
+
+### Local authority and startup evidence, 2026-09-05
+
+The [portable evidence](../evidence/authority-portable-gates-2026-09-05.txt)
+records passing portable and sandboxvm-tagged race suites for the authority,
+control, snapshot, and fixture-store changes. These results do not establish
+production composition or successful guest activation.
+
+The first [VM attempt](../evidence/vm-test-authority-store-identity-2026-09-05.json)
+failed before guest creation because the fixture store received the network
+run identity instead of the stack UUID. The runtime now passes the stack UUID
+and records its cleanup obligation before creating the store. A regression
+exercises the actual stack-to-network context propagation.
+
+The next [VM attempt](../evidence/vm-test-authority-guest-start-2026-09-05.json)
+booted `gru-member-1` but never reached service readiness. Peak host RSS was
+332,275,712 bytes with 512 MiB configured. `ts-node` exited with status 1 and
+restarted; orchestrator and TerraBase stayed inactive. Explicit `vm-clean`
+passed afterward. No baseline, fourth-Region, fault scenario, or idle resource
+budget passed.
+
+Investigation found that the authority client rejected `nats.ClientCert`,
+which supplies the verified client certificate through `TLSCertCB`. The
+validator now accepts that supported callback while retaining TLS 1.3,
+verified server chains, NKey authentication, and disabled mutation buffering.
+Real authenticated connection tests reproduce the production credential
+loader. Startup diagnostics retain fixed failure categories and preserve an
+earlier substantive error when the final attempt times out.
+
+The [callback-fix VM run](../evidence/vm-test-authority-callback-2026-09-05.json)
+confirmed `ts-node` active and running, with fresh status showing the signed
+artifacts installed. Initial activation then refused a mutation because the
+qualification sender has no actual regional authority, and the independent
+bootstrap grant path remains unwired. Orchestrator and TerraBase remained
+inactive. Peak host RSS was 412,532,736 bytes; no readiness, scenario, or idle
+budget passed. Automatic cleanup and explicit `vm-clean` succeeded.

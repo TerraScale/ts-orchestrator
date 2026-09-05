@@ -5,12 +5,9 @@ package control
 // admitted envelope: lifecycle/runtime code remains an injected dependency.
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,110 +27,6 @@ const (
 	NatsCommandIngressMaximumMessageBytes = 2 * 1024 * 1024
 	NatsCommandIngressMaximumSubjectBytes = 256
 )
-
-// NatsCommandEnvelope is the bounded JSON representation carried on the
-// command subject. []byte fields use encoding/json's standard base64 form;
-// no credential or exception field exists on this wire type.
-type NatsCommandEnvelope struct {
-	ProtocolVersion   int64     `json:"protocolVersion"`
-	Cell              string    `json:"cell"`
-	AggregateID       string    `json:"aggregateId"`
-	DesiredGeneration int64     `json:"desiredGeneration"`
-	WriterEpoch       int64     `json:"writerEpoch"`
-	OperationID       string    `json:"operationId"`
-	IdempotencyKey    string    `json:"idempotencyKey"`
-	IssuedAt          time.Time `json:"issuedAt"`
-	ExpiresAt         time.Time `json:"expiresAt"`
-	Attempt           int64     `json:"attempt"`
-	Payload           []byte    `json:"payload"`
-	PayloadDigest     []byte    `json:"payloadDigest"`
-	Signature         []byte    `json:"signature"`
-}
-
-// EncodeNatsCommandEnvelope emits the strict ingress wire shape from the
-// protocol-owned envelope. It reuses copies of opaque bytes and never mutates
-// an admitted command.
-func EncodeNatsCommandEnvelope(envelope protocol.CommandEnvelope) ([]byte, error) {
-	if len(envelope.Payload.Bytes()) > NatsCommandIngressMaximumMessageBytes {
-		return nil, errors.New("command payload exceeds the ingress bound")
-	}
-	wire := NatsCommandEnvelope{
-		ProtocolVersion: envelope.ProtocolVersion.Value, Cell: envelope.Cell.Value,
-		AggregateID: envelope.AggregateId.Value, DesiredGeneration: envelope.DesiredGeneration.Value,
-		WriterEpoch: envelope.WriterEpoch.Value, OperationID: envelope.OperationId.Value,
-		IdempotencyKey: envelope.IdempotencyKey.Value, IssuedAt: envelope.IssuedAt,
-		ExpiresAt: envelope.ExpiresAt, Attempt: envelope.Attempt.Value,
-		Payload: envelope.Payload.Bytes(), PayloadDigest: envelope.PayloadDigest.Bytes(),
-		Signature: envelope.Signature.Bytes(),
-	}
-	encoded, err := json.Marshal(wire)
-	if err != nil {
-		return nil, errors.New("command envelope could not be encoded")
-	}
-	if len(encoded) > NatsCommandIngressMaximumMessageBytes {
-		return nil, errors.New("command envelope exceeds the ingress bound")
-	}
-	return encoded, nil
-}
-
-func decodeNatsCommandEnvelope(data []byte) (protocol.CommandEnvelope, error) {
-	if len(data) == 0 || len(data) > NatsCommandIngressMaximumMessageBytes {
-		return protocol.CommandEnvelope{}, errors.New("command envelope exceeds the ingress bound")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var wire NatsCommandEnvelope
-	if err := decoder.Decode(&wire); err != nil {
-		return protocol.CommandEnvelope{}, errors.New("command envelope is malformed")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return protocol.CommandEnvelope{}, errors.New("command envelope contains trailing data")
-	}
-	version, ok := protocol.ProtocolRevisionTryCreate(wire.ProtocolVersion)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid protocol version")
-	}
-	cell, ok := contracts.CellIdTryCreate(wire.Cell)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid cell")
-	}
-	aggregate, ok := contracts.AggregateIdTryCreate(wire.AggregateID)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid aggregate")
-	}
-	generation, ok := protocol.DesiredGenerationTryCreate(wire.DesiredGeneration)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid generation")
-	}
-	epoch, ok := protocol.WriterEpochTryCreate(wire.WriterEpoch)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid writer epoch")
-	}
-	operation, ok := contracts.OperationIdTryCreate(wire.OperationID)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid operation")
-	}
-	idempotency, ok := contracts.IdempotencyKeyTryCreate(wire.IdempotencyKey)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid idempotency key")
-	}
-	attempt, ok := protocol.DeliveryAttemptTryCreate(wire.Attempt)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid attempt")
-	}
-	payload := protocol.OpaquePayloadCopyFrom(wire.Payload)
-	digest, ok := protocol.PayloadDigestTryCopyFrom(wire.PayloadDigest)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid payload digest")
-	}
-	signature, ok := protocol.OpaqueSignatureTryCopyFrom(wire.Signature)
-	if !ok {
-		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid signature")
-	}
-	return protocol.NewCommandEnvelope(version, cell, aggregate, generation, epoch, operation,
-		idempotency, wire.IssuedAt, wire.ExpiresAt, attempt, payload, digest, signature), nil
-}
 
 // CommandIngressDispatcher is called only after protocol and security
 // admission has accepted the envelope and atomically consumed its replay key.
@@ -375,7 +268,7 @@ func (i *NatsCommandIngress) Handle(ctx context.Context, data []byte) (CommandIn
 	if err := ctx.Err(); err != nil {
 		return CommandIngressDecision{Code: CommandIngressCodeCanceled}, err
 	}
-	envelope, err := decodeNatsCommandEnvelope(data)
+	envelope, err := protocol.DecodeCommandEnvelope(data)
 	if err != nil {
 		return CommandIngressDecision{Code: CommandIngressCodeMalformed}, nil
 	}

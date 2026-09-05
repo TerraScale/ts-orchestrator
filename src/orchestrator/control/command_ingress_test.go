@@ -75,7 +75,7 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 	t.Cleanup(func() { _ = ingress.Close() })
 
 	envelope := ingressTestEnvelope(t, signer, cell, aggregate, now)
-	wire, err := EncodeNatsCommandEnvelope(envelope)
+	wire, err := protocol.EncodeCommandEnvelope(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 
 	wrongCell, _ := contracts.CellIdTryCreate("iad")
 	hostile := ingressTestEnvelope(t, signer, wrongCell, aggregate, now)
-	hostileWire, _ := EncodeNatsCommandEnvelope(hostile)
+	hostileWire, _ := protocol.EncodeCommandEnvelope(hostile)
 	decision, err = ingress.Handle(context.Background(), hostileWire)
 	if err != nil || decision.Code != CommandIngressCodeRejected || decision.ValidationError != protocol.CommandValidationErrorWrongCell {
 		t.Fatalf("tenant mismatch was not rejected before dispatch: %v, %v", decision, err)

@@ -101,6 +101,8 @@ func injectNoCloudRoot(ctx context.Context, root, payloadDir string, seed vmimag
 		if _, err := run(true, "write "+name+" "+file.Path, 64<<10); err != nil {
 			return err
 		}
+		// Stage private material under root while the guest is stopped. The
+		// bootstrap script creates and verifies any declared final service owner.
 		for _, field := range []string{fmt.Sprintf("mode 0%o", 0100000|file.Mode), "uid 0", "gid 0"} {
 			if _, err := run(true, "set_inode_field "+file.Path+" "+field, 64<<10); err != nil {
 				return err

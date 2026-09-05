@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -32,24 +33,117 @@ const (
 	NatsServerDefaultReadiness = 30 * time.Second
 )
 
-// NatsServerConfig is the complete, explicit input to the dedicated NATS
-// process mode. No defaults are taken from the environment or current
-// working directory.
+// NatsServerConfig explicitly selects the local server configuration.
+// Callers omit this configuration on hosts that are not NATS replicas.
 type NatsServerConfig struct {
 	ConfigPath       string
 	ReadinessTimeout time.Duration
 }
 
-// NatsServerRunner links the NATS server into the orchestrator binary. The
-// caller must execute it as its own OS process; this runner intentionally has
-// no controller lifecycle or shared state.
-type NatsServerRunner struct {
-	config NatsServerConfig
+// NatsServer owns a linked server from readiness through complete shutdown.
+type NatsServer struct {
+	instance  *server.Server
+	done      chan struct{}
+	stop      chan struct{}
+	closeOnce sync.Once
+	mu        sync.RWMutex
+	err       error
 }
 
-// NewNatsServerRunner validates the explicit process configuration. The file
-// is parsed again by Run so a caller cannot accidentally run a path that was
-// replaced between construction and execution.
+// StartNatsServer returns only after the authenticated listeners are ready.
+// The caller must supervise Completion and close the server after its clients.
+func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer, error) {
+	if ctx == nil {
+		return nil, errors.New("nats server context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validateNatsServerConfig(config); err != nil {
+		return nil, err
+	}
+	options, err := loadNatsServerOptions(config.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateNatsServerOptions(options); err != nil {
+		return nil, err
+	}
+	// The orchestrator owns OS signals and supervises this server explicitly.
+	options.NoSigs = true
+	instance, err := server.NewServer(options)
+	if err != nil {
+		return nil, errors.New("construct nats server: configuration was rejected")
+	}
+	fatalErrors := make(chan error, 1)
+	// The stock logger exits the process. A linked server reports failure to
+	// its owner so the controller can shut down every resource it owns.
+	instance.SetLogger(&natsServerLogger{fatalErrors: fatalErrors}, false, false)
+	instance.Start()
+	if err := waitForNatsReadiness(ctx, instance, config.ReadinessTimeout, fatalErrors); err != nil {
+		shutdownNatsServer(instance)
+		return nil, err
+	}
+	handle := &NatsServer{instance: instance, done: make(chan struct{}), stop: make(chan struct{})}
+	stopped := make(chan struct{})
+	go func() { instance.WaitForShutdown(); close(stopped) }()
+	go func() {
+		var terminal error
+		select {
+		case <-ctx.Done():
+			terminal = ctx.Err()
+		case <-handle.stop:
+		case <-fatalErrors:
+			terminal = errors.New("nats server reported a fatal error")
+		case <-stopped:
+			terminal = errors.New("nats server stopped unexpectedly")
+		}
+		shutdownNatsServer(instance)
+		<-stopped
+		handle.mu.Lock()
+		handle.err = terminal
+		handle.mu.Unlock()
+		close(handle.done)
+	}()
+	return handle, nil
+}
+
+func (s *NatsServer) Ready() bool {
+	if s == nil {
+		return false
+	}
+	select {
+	case <-s.done:
+		return false
+	case <-s.stop:
+		return false
+	default:
+	}
+	return s.instance.ReadyForConnections(time.Millisecond)
+}
+
+func (s *NatsServer) Completion() <-chan struct{} { return s.done }
+
+// Err reports the terminal result after Completion closes.
+func (s *NatsServer) Err() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.err
+}
+
+// Close is concurrent-safe and waits until listeners and storage have stopped.
+func (s *NatsServer) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() { close(s.stop) })
+	<-s.done
+	return nil
+}
+
+// NatsServerRunner adapts the same server lifecycle to a blocking command.
+type NatsServerRunner struct{ config NatsServerConfig }
+
 func NewNatsServerRunner(config NatsServerConfig) (*NatsServerRunner, error) {
 	if err := validateNatsServerConfig(config); err != nil {
 		return nil, err
@@ -57,88 +151,21 @@ func NewNatsServerRunner(config NatsServerConfig) (*NatsServerRunner, error) {
 	return &NatsServerRunner{config: config}, nil
 }
 
-// RunNatsServer starts a linked nats-server and blocks until cancellation or
-// an unexpected server failure. A clean context cancellation returns
-// context.Canceled after the server has fully shut down.
 func RunNatsServer(ctx context.Context, config NatsServerConfig) error {
-	if ctx == nil {
-		return errors.New("nats server context is nil")
-	}
-	runner, err := NewNatsServerRunner(config)
+	instance, err := StartNatsServer(ctx, config)
 	if err != nil {
 		return err
 	}
-	return runner.Run(ctx)
+	defer instance.Close()
+	<-instance.Completion()
+	return instance.Err()
 }
 
-// RunNATSServer is an acronym-compatible spelling of RunNatsServer.
-func RunNATSServer(ctx context.Context, config NatsServerConfig) error {
-	return RunNatsServer(ctx, config)
-}
-
-// RunEmbeddedNatsServer is a convenience for a future command dispatcher
-// whose only mode-specific argument is the explicit configuration path.
-func RunEmbeddedNatsServer(ctx context.Context, configPath string, readinessTimeout time.Duration) error {
-	return RunNatsServer(ctx, NatsServerConfig{
-		ConfigPath:       configPath,
-		ReadinessTimeout: readinessTimeout,
-	})
-}
-
-// Run starts the server after validating and parsing its configuration. The
-// linked server remains in this goroutine's process, but this function is
-// intended to be called from a dedicated OS process selected by the binary's
-// command dispatcher.
 func (r *NatsServerRunner) Run(ctx context.Context) error {
-	if ctx == nil {
-		return errors.New("nats server context is nil")
+	if r == nil {
+		return errors.New("nats server runner is nil")
 	}
-	if err := validateNatsServerConfig(r.config); err != nil {
-		return err
-	}
-
-	options, err := loadNatsServerOptions(r.config.ConfigPath)
-	if err != nil {
-		return err
-	}
-	if err := validateNatsServerOptions(options); err != nil {
-		return err
-	}
-
-	serverInstance, err := server.NewServer(options)
-	if err != nil {
-		return errors.New("construct nats server: configuration was rejected")
-	}
-	fatalErrors := make(chan error, 1)
-	// The stock logger calls os.Exit from Fatalf. A linked server must report
-	// asynchronous listener failures to its owner instead of terminating the
-	// controller process (or hiding the startup error).
-	serverInstance.SetLogger(&natsServerLogger{fatalErrors: fatalErrors}, false, false)
-	serverInstance.Start()
-
-	if err := waitForNatsReadiness(ctx, serverInstance, r.config.ReadinessTimeout, fatalErrors); err != nil {
-		shutdownNatsServer(serverInstance)
-		return err
-	}
-
-	serverStopped := make(chan struct{})
-	go func() {
-		serverInstance.WaitForShutdown()
-		close(serverStopped)
-	}()
-
-	select {
-	case <-ctx.Done():
-		shutdownNatsServer(serverInstance)
-		<-serverStopped
-		return ctx.Err()
-	case err := <-fatalErrors:
-		shutdownNatsServer(serverInstance)
-		<-serverStopped
-		return fmt.Errorf("nats server failed: %w", err)
-	case <-serverStopped:
-		return errors.New("nats server stopped unexpectedly")
-	}
+	return RunNatsServer(ctx, r.config)
 }
 
 func loadNatsServerOptions(configPath string) (*server.Options, error) {
@@ -150,28 +177,10 @@ func loadNatsServerOptions(configPath string) (*server.Options, error) {
 		return nil, errors.New("nats server configuration must not use include directives")
 	}
 
-	// Parse an immutable private copy in the same directory. Relative TLS and
-	// storage paths retain their documented base, while a replacement of the
-	// deployment-supplied file cannot change the bytes after validation.
-	temporary, err := os.CreateTemp(filepath.Dir(configPath), ".terrascale-nats-*.conf")
-	if err != nil {
-		return nil, errors.New("prepare nats server configuration for parsing")
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
-		_ = temporary.Close()
-		return nil, errors.New("prepare nats server configuration for parsing")
-	}
-	if _, writeErr := temporary.Write(configuration); writeErr != nil {
-		_ = temporary.Close()
-		return nil, errors.New("prepare nats server configuration for parsing")
-	}
-	if closeErr := temporary.Close(); closeErr != nil {
-		return nil, errors.New("prepare nats server configuration for parsing")
-	}
-
-	options, err := server.ProcessConfigFile(temporaryPath)
+	// Parse the validated immutable bytes directly. Release directories may
+	// be read-only, and parsing must not require a writable neighboring file.
+	options := &server.Options{}
+	err = options.ProcessConfigString(string(configuration))
 	if err != nil {
 		// Parser errors can contain authentication values and source snippets.
 		return nil, errors.New("parse nats server configuration: configuration is invalid")
@@ -388,6 +397,14 @@ func waitForNatsReadiness(ctx context.Context, instance *server.Server, timeout 
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case err := <-fatalErrors:
+			return fmt.Errorf("nats server failed during startup: %w", err)
+		default:
+		}
 		if instance.ReadyForConnections(1 * time.Millisecond) {
 			return nil
 		}

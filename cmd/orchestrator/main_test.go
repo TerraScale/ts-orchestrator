@@ -3,11 +3,25 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
+	"time"
+
 	"errors"
+	"github.com/nats-io/nkeys"
 	"strings"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 )
 
 type fakeComponent struct {
@@ -57,6 +71,9 @@ func restoreHostSeams(t *testing.T) {
 	t.Helper()
 	oldParse := parseOptions
 	oldRegional := startRegionalRuntime
+	oldProduction := startProductionRuntime
+	oldAdmission := admitProductionRuntime
+	oldEmbedded := startEmbeddedNatsRuntime
 	oldCheckRegional := checkRegionalRuntime
 	oldGlobal := startGlobalRuntime
 	oldDirectory := startDirectoryRuntime
@@ -68,10 +85,13 @@ func restoreHostSeams(t *testing.T) {
 	oldCatalog := renderCatalog
 	oldGlobalConfig := makeGlobalConfiguration
 	oldVerifyEstate := verifyEstate
-	verifyEstate = func(context.Context, envLookup) error { return nil }
+	verifyEstate = func(context.Context, string, envLookup) error { return nil }
 	t.Cleanup(func() {
 		parseOptions = oldParse
 		startRegionalRuntime = oldRegional
+		startProductionRuntime = oldProduction
+		admitProductionRuntime = oldAdmission
+		startEmbeddedNatsRuntime = oldEmbedded
 		checkRegionalRuntime = oldCheckRegional
 		startGlobalRuntime = oldGlobal
 		startDirectoryRuntime = oldDirectory
@@ -156,7 +176,7 @@ func TestExecuteRefusesRunWhenOCIEstateVerificationFails(t *testing.T) {
 		return fakeOptions(control.OrchestratorCommandRun), nil
 	}
 	estateErr := errors.New("malformed estate")
-	verifyEstate = func(context.Context, envLookup) error { return estateErr }
+	verifyEstate = func(context.Context, string, envLookup) error { return estateErr }
 	started := false
 	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
 		started = true
@@ -175,13 +195,13 @@ func TestConfiguredEstateRequiresExplicitProviderSelection(t *testing.T) {
 			return value, ok
 		}
 	}
-	if err := verifyConfiguredOCIEstate(context.Background(), lookup(map[string]string{providerEnvironment: "local"})); err != nil {
+	if err := verifyConfiguredOCIEstate(context.Background(), "local", lookup(map[string]string{providerEnvironment: "local"})); err != nil {
 		t.Fatalf("explicit local provider rejected: %v", err)
 	}
-	if err := verifyConfiguredOCIEstate(context.Background(), lookup(nil)); err == nil {
+	if err := verifyConfiguredOCIEstate(context.Background(), "local", lookup(nil)); err == nil {
 		t.Fatal("missing provider selection was accepted")
 	}
-	if err := verifyConfiguredOCIEstate(context.Background(), lookup(map[string]string{providerEnvironment: "oci"})); err == nil {
+	if err := verifyConfiguredOCIEstate(context.Background(), "local", lookup(map[string]string{providerEnvironment: "oci"})); err == nil {
 		t.Fatal("OCI provider without estate settings was accepted")
 	}
 }
@@ -354,3 +374,203 @@ func TestCatalogIsDeterministicAndCredentialFree(t *testing.T) {
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
+
+func TestNonlocalRunAndCheckRequireOCIBeforeRuntime(t *testing.T) {
+	restoreHostSeams(t)
+	verifyEstate = verifyConfiguredOCIEstate
+	dir := t.TempDir()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	seed, err := user.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"identity.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		"key.pem":      pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+		"user.seed":    seed,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	membershipKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipDER, err := x509.MarshalPKCS8PrivateKey(membershipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: membershipDER})
+	_, membershipPublic, err := directory.RegionalRuntimeMembershipPublicKeyFromPEM(membershipPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipPins, err := json.Marshal(map[string]string{"gru-1": membershipPublic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"membership.pem": membershipPEM, "membership-pins.json": membershipPins} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	values := map[string]string{
+		"TS_ORCH_CELL": "gru", "TS_ORCH_INSTANCE": "gru-1", "TS_ORCH_REPLICAS": "3", "TS_ORCH_NATS_URL": "tls://nats.internal:4222",
+		"TS_ORCH_NATS_NKEY_FILE":              filepath.Join(dir, "user.seed"),
+		"TS_ORCH_NATS_TLS_CA_FILE":            filepath.Join(dir, "identity.pem"),
+		"TS_ORCH_NATS_TLS_CERT_FILE":          filepath.Join(dir, "identity.pem"),
+		"TS_ORCH_NATS_TLS_KEY_FILE":           filepath.Join(dir, "key.pem"),
+		"TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE": filepath.Join(dir, "membership.pem"),
+		"TS_ORCH_MEMBERSHIP_PINS_FILE":        filepath.Join(dir, "membership-pins.json"),
+		"TS_ORCH_COMMAND_SIGNING_KEY_FILE":    filepath.Join(dir, "command.key"),
+		"TS_ORCH_COMMAND_TRUST_KEY_FILES":     filepath.Join(dir, "command.pub"),
+		providerEnvironment:                   "local",
+	}
+	lookup := func(key string) (string, bool) { value, present := values[key]; return value, present }
+	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
+		t.Fatal("nonlocal run started with local provider")
+		return nil, nil
+	}
+	checkRegionalRuntime = func(context.Context, *control.OrchestratorOptions) error {
+		t.Fatal("nonlocal check started with local provider")
+		return nil
+	}
+	for _, command := range []string{"run", "check"} {
+		t.Run(command, func(t *testing.T) {
+			options, err := control.ParseOrchestratorOptions([]string{command}, lookup)
+			if err != nil || options.Cell != "gru" {
+				t.Fatalf("fixture must pass real option admission: options=%v error=%v", options, err)
+			}
+			err = execute(context.Background(), []string{command}, lookup, ioDiscard{})
+			if err == nil || !strings.Contains(errors.Unwrap(err).Error(), "nonlocal cells require the OCI provider") {
+				t.Fatalf("nonlocal provider admission: %v", err)
+			}
+		})
+	}
+	// The same settings reach estate admission after explicit OCI selection.
+	values[providerEnvironment] = "oci"
+	if err := execute(context.Background(), []string{"check"}, lookup, ioDiscard{}); err == nil || !strings.Contains(errors.Unwrap(err).Error(), "OCI estate verification configuration is required") {
+		t.Fatalf("missing OCI estate bypassed: %v", err)
+	}
+	// Local tooling retains its documented default cell and explicit provider.
+	delete(values, "TS_ORCH_CELL")
+	values[providerEnvironment] = "local"
+	checked := false
+	checkRegionalRuntime = func(context.Context, *control.OrchestratorOptions) error { checked = true; return nil }
+	if err := execute(context.Background(), []string{"check"}, lookup, ioDiscard{}); err != nil || !checked {
+		t.Fatalf("explicit local check failed: %v checked=%v", err, checked)
+	}
+}
+
+func TestProductionAdmissionPrecedesRegionalStartup(t *testing.T) {
+	for _, kind := range []string{"error", "nil", "missing-delivery"} {
+		t.Run(kind, func(t *testing.T) {
+			restoreHostSeams(t)
+			rejected := errors.New("production admission rejected")
+			admitProductionRuntime = testProductionAdmission(func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error) {
+				if kind == "error" {
+					return nil, rejected
+				}
+				if kind == "missing-delivery" {
+					return &productionRuntime{}, nil
+				}
+				return nil, nil
+			})
+			startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
+				t.Fatal("regional transport started before production admission")
+				return nil, nil
+			}
+			options := fakeOptions(control.OrchestratorCommandRun)
+			options.Cell = "gru"
+			err := runCommand(context.Background(), options, nil)
+			if err == nil || (kind == "error" && !errors.Is(err, rejected)) {
+				t.Fatalf("admission result: %v", err)
+			}
+		})
+	}
+}
+
+func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
+	for _, stage := range []string{"regional", "regional-nil", "global"} {
+		t.Run(stage, func(t *testing.T) {
+			restoreHostSeams(t)
+			worker := newScheduledService("admission cleanup probe", 0, func(context.Context, time.Time) error {
+				t.Error("production worker started before transport admission")
+				return nil
+			})
+			admitted := &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, workers: []*scheduledService{worker}}
+			var order []string
+			admitProductionRuntime = testProductionAdmission(func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error) {
+				order = append(order, "admit")
+				return admitted, nil
+			})
+			failed := errors.New("transport start failed")
+			regional := &fakeComponent{done: make(chan struct{})}
+			startRegionalRuntime = func(_ context.Context, got *control.OrchestratorOptions) (component, error) {
+				if got.Delivery != admitted.delivery {
+					t.Fatal("regional runtime did not receive admitted production delivery")
+				}
+				order = append(order, "regional")
+				if stage == "regional" {
+					return regional, failed
+				}
+				if stage == "regional-nil" {
+					return nil, nil
+				}
+				return regional, nil
+			}
+			makeGlobalConfiguration = func(*control.OrchestratorOptions, component) (*control.GlobalNatsRuntimeConfiguration, error) {
+				return &control.GlobalNatsRuntimeConfiguration{}, nil
+			}
+			startGlobalRuntime = func(context.Context, *control.GlobalNatsRuntimeConfiguration) (component, error) {
+				order = append(order, "global")
+				return nil, failed
+			}
+			options := fakeOptions(control.OrchestratorCommandRun)
+			options.Cell = "gru"
+			options.GlobalNats = &control.GlobalAuthorityNatsConfiguration{}
+			err := runCommand(context.Background(), options, nil)
+			if options.Delivery != nil {
+				t.Fatal("startup mutated caller options")
+			}
+			if err == nil || (stage != "regional-nil" && !errors.Is(err, failed)) {
+				t.Fatalf("startup result: %v", err)
+			}
+			if len(order) < 2 || order[0] != "admit" || order[1] != "regional" {
+				t.Fatalf("startup order: %v", order)
+			}
+			if !worker.closed || worker.started {
+				t.Fatalf("admitted worker closed=%v started=%v", worker.closed, worker.started)
+			}
+			if stage != "regional-nil" && !regional.closed {
+				t.Fatal("regional resource leaked after startup failure")
+			}
+		})
+	}
+}
+
+// A test admission plan keeps construction delayed until run has started its
+// explicitly selected broker, matching the real root resolver's contract.
+func testProductionAdmission(construct func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error)) func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+	return func(_ context.Context, options *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+		return &admittedProductionRuntime{construct: func(ctx context.Context) (*productionRuntime, error) { return construct(ctx, options) }}, nil
+	}
+}

@@ -26,9 +26,6 @@ import (
 const (
 	natsServerConfigEnvironment        = "TS_ORCH_NATS_SERVER_CONFIG_FILE"
 	natsServerReadinessEnvironment     = "TS_ORCH_NATS_SERVER_READINESS_TIMEOUT"
-	natsServerConfigAliasEnvironment   = "TS_ORCH_NATS_SERVER_CONFIG"
-	natsConfigAliasEnvironment         = "TS_ORCH_NATS_CONFIG_FILE"
-	natsReadinessAliasEnvironment      = "TS_ORCH_NATS_READINESS_TIMEOUT"
 	ociEstateFileEnvironment           = "TS_ORCH_OCI_ESTATE_FILE"
 	ociKeyIDEnvironment                = "TS_ORCH_OCI_KEY_ID"
 	ociPrivateKeyFileEnvironment       = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
@@ -82,11 +79,11 @@ var (
 	renderCatalog          = writeCatalog
 	verifyEstate           = verifyConfiguredOCIEstate
 	startProductionRuntime = func(ctx context.Context, options *control.OrchestratorOptions) (*productionRuntime, error) {
-		config, err := composeProductionRuntimeConfig(ctx, options)
+		admission, err := admitProductionRuntime(ctx, options)
 		if err != nil {
 			return nil, err
 		}
-		return newProductionRuntime(config)
+		return admission.Construct(ctx)
 	}
 )
 
@@ -180,14 +177,18 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		return commandFailure(name, errors.New("options are missing"))
 	}
 	if options.Command == control.OrchestratorCommandRun || options.Command == control.OrchestratorCommandCheck {
-		if err := verifyEstate(ctx, lookup); err != nil {
+		if err := verifyEstate(ctx, options.Cell, lookup); err != nil {
 			return commandFailure(name, err)
 		}
 	}
 
 	switch options.Command {
 	case control.OrchestratorCommandRun:
-		err = runCommand(ctx, options)
+		var serverConfig *bootstrap.NatsServerConfig
+		serverConfig, err = selectedNatsConfiguration(lookup)
+		if err == nil {
+			err = runCommand(ctx, options, serverConfig)
+		}
 	case control.OrchestratorCommandCheck:
 		err = checkCommand(ctx, options)
 	case control.OrchestratorCommandProvisionJournal:
@@ -203,7 +204,20 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	return nil
 }
 
-func verifyConfiguredOCIEstate(ctx context.Context, lookup envLookup) error {
+// Local tooling retains its explicit provider selection. Every other cell
+// must verify its OCI estate before starting or checking any runtime.
+func validateConfiguredProvider(cell string, lookup envLookup) error {
+	providerName, present := lookup(providerEnvironment)
+	if cell != "local" && (!present || strings.TrimSpace(providerName) != "oci") {
+		return errors.New("nonlocal cells require the OCI provider")
+	}
+	return nil
+}
+
+func verifyConfiguredOCIEstate(ctx context.Context, cell string, lookup envLookup) error {
+	if err := validateConfiguredProvider(cell, lookup); err != nil {
+		return err
+	}
 	providerName, providerPresent := lookup(providerEnvironment)
 	if !providerPresent {
 		return errors.New("provider selection is required")
@@ -321,8 +335,70 @@ func exitCode(err error) int {
 	return 1
 }
 
-func runCommand(ctx context.Context, options *control.OrchestratorOptions) (result error) {
-	regional, err := startRegionalRuntime(ctx, options)
+func runCommand(ctx context.Context, options *control.OrchestratorOptions, serverConfig *bootstrap.NatsServerConfig) (result error) {
+	if ctx == nil || options == nil {
+		return errors.New("run requires context and options")
+	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	serverCtx, stopServer := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopServer()
+	var server embeddedNatsRuntime
+	monitorDone := make(chan struct{})
+	defer close(monitorDone)
+	var regional, global component
+	var err error
+	var production *productionRuntime
+	defer func() {
+		// A broker fault cancels dependent work internally. Preserve its failure
+		// status instead of reporting that cancellation as an operator interrupt.
+		if !isNilProductionValue(server) && ctx.Err() == nil && errors.Is(result, context.Canceled) && server.Err() != nil {
+			result = server.Err()
+		}
+		result = combineErrors(result, closeRunRuntime(production, global, regional, server))
+	}()
+
+	var admission *admittedProductionRuntime
+	if options.Cell != "local" {
+		admission, err = admitProductionRuntime(ctx, options)
+		if err != nil {
+			return fmt.Errorf("production runtime admission: %w", err)
+		}
+		if admission == nil || admission.construct == nil {
+			return errors.New("production runtime admission is incomplete")
+		}
+	}
+	if serverConfig != nil {
+		server, err = startSelectedNatsRuntime(ctx, serverCtx, stopServer, *serverConfig)
+		if err != nil {
+			return err
+		}
+		go func() {
+			select {
+			case <-server.Completion():
+				cancelRun()
+			case <-monitorDone:
+			}
+		}()
+	}
+	// Live constructors may now open local durable stores. No regional command
+	// transport exists until the complete production graph has been constructed.
+	if admission != nil {
+		production, err = admission.Construct(runCtx)
+		if err != nil {
+			return fmt.Errorf("production runtime composition: %w", err)
+		}
+		if production == nil {
+			return errors.New("production runtime composition returned nil")
+		}
+		if production.delivery == nil {
+			return errors.New("production runtime composition requires signed delivery")
+		}
+		configuredOptions := *options
+		configuredOptions.Delivery = production.delivery
+		options = &configuredOptions
+	}
+	regional, err = startRegionalRuntime(runCtx, options)
 	if err != nil {
 		return err
 	}
@@ -330,21 +406,12 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 		return errors.New("regional runtime starter returned nil")
 	}
 
-	var global component
-	var production *productionRuntime
-	closed := false
-	defer func() {
-		if !closed {
-			result = combineErrors(result, closeRuntime(production, global, regional))
-		}
-	}()
-
 	if options.GlobalNats != nil {
 		configuration, configErr := makeGlobalConfiguration(options, regional)
 		if configErr != nil {
 			return configErr
 		}
-		global, err = startGlobalRuntime(ctx, configuration)
+		global, err = startGlobalRuntime(runCtx, configuration)
 		if err != nil {
 			return err
 		}
@@ -352,7 +419,7 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 			return errors.New("global runtime starter returned nil")
 		}
 	} else if options.GlobalDirectoryNats != nil {
-		global, err = startDirectoryRuntime(ctx, options, regional)
+		global, err = startDirectoryRuntime(runCtx, options, regional)
 		if err != nil {
 			return err
 		}
@@ -360,18 +427,8 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 			return errors.New("global directory runtime starter returned nil")
 		}
 	}
-	// The local role is deliberately limited to the embedded control runtime;
-	// production cells must admit the complete estate, rotation, reaper, and
-	// restore composition before they can serve as an automation authority.
-	if options.Cell != "local" {
-		production, err = startProductionRuntime(ctx, options)
-		if err != nil {
-			return fmt.Errorf("production runtime composition: %w", err)
-		}
-		if production == nil {
-			return errors.New("production runtime composition returned nil")
-		}
-		if err := production.Start(ctx); err != nil {
+	if production != nil {
+		if err := production.Start(runCtx); err != nil {
 			return err
 		}
 	}
@@ -383,9 +440,10 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions) (resu
 	if global != nil {
 		components = append(components, global)
 	}
-	result = waitForComponents(ctx, regional, components...)
-	closed = true
-	return combineErrors(result, closeRuntime(production, global, regional))
+	if server != nil {
+		components = append(components, server)
+	}
+	return waitForComponents(runCtx, regional, components...)
 }
 
 func checkCommand(ctx context.Context, options *control.OrchestratorOptions) (result error) {
@@ -709,11 +767,11 @@ func natsServerConfiguration(lookup envLookup) (bootstrap.NatsServerConfig, erro
 	if lookup == nil {
 		return bootstrap.NatsServerConfig{}, errors.New("nats-server environment lookup is required")
 	}
-	path, present := firstEnvironment(lookup, natsServerConfigEnvironment, natsServerConfigAliasEnvironment, natsConfigAliasEnvironment)
+	path, present := lookup(natsServerConfigEnvironment)
 	if !present || strings.TrimSpace(path) == "" {
 		return bootstrap.NatsServerConfig{}, errors.New("nats-server configuration file is required")
 	}
-	value, present := firstEnvironment(lookup, natsServerReadinessEnvironment, natsReadinessAliasEnvironment)
+	value, present := lookup(natsServerReadinessEnvironment)
 	if !present {
 		return bootstrap.NatsServerConfig{ConfigPath: path, ReadinessTimeout: bootstrap.NatsServerDefaultReadiness}, nil
 	}
@@ -725,18 +783,6 @@ func natsServerConfiguration(lookup envLookup) (bootstrap.NatsServerConfig, erro
 		return bootstrap.NatsServerConfig{}, errors.New("nats-server readiness timeout is invalid")
 	}
 	return bootstrap.NatsServerConfig{ConfigPath: path, ReadinessTimeout: timeout}, nil
-}
-
-func firstEnvironment(lookup envLookup, names ...string) (string, bool) {
-	if lookup == nil {
-		return "", false
-	}
-	for _, name := range names {
-		if value, present := lookup(name); present {
-			return value, true
-		}
-	}
-	return "", false
 }
 
 type catalogDocument struct {
@@ -773,10 +819,10 @@ func writeCatalog(output io.Writer) error {
 		"TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE",
 		"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE", "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY",
 		"TS_ORCH_COMMAND_SIGNING_KEY_FILE", "TS_ORCH_COMMAND_TRUST_KEY_FILES", "TS_ORCH_COMMAND_AGGREGATE_ID",
+		"TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE", "TS_ORCH_MEMBERSHIP_PINS_FILE",
 		"TS_ORCH_INFRA_NATS_NKEY_FILE", "TS_ORCH_INFRA_NATS_TLS_CA_FILE", "TS_ORCH_INFRA_NATS_TLS_CERT_FILE", "TS_ORCH_INFRA_NATS_TLS_KEY_FILE",
 		"TS_ORCH_JOURNAL_NATS_NKEY_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CA_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE", "TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE", "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE", "TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE", "TS_ORCH_JOURNAL_CONTROLLER_NKEYS",
 		natsServerConfigEnvironment, natsServerReadinessEnvironment,
-		natsServerConfigAliasEnvironment, natsConfigAliasEnvironment, natsReadinessAliasEnvironment,
 		providerEnvironment, ociEstateFileEnvironment, ociKeyIDEnvironment, ociPrivateKeyFileEnvironment,
 		reconcileProgressEnvironment,
 	}

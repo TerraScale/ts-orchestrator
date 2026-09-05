@@ -1,0 +1,49 @@
+Real vm-test booted gru-member-1. ts-node was active/running and answered fresh status with the signed artifacts installed. Initial activation was refused because the fixture sender lacks real regional authority and the independent signed bootstrap path is not wired. Orchestrator and TerraBase remained inactive. No guest readiness or scenario passed.
+
+Qualifier SHA256: e1ba1e134a81cad074cf61e0d06f8ba4dcd021efe3b901b57d99120a11042595
+Artifact helper SHA256: b5871b0404c21cc54cd64d5ca6a19efdb9860e3d4587c1e31b15b6f9989b34ea
+
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH,GOFLAGS /tmp/ts-orchestrator-vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server" -- /tmp/ts-orchestrator-vm-qualify test
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.e0c047953bd6eb99 sha256=e0c047953bd6eb990fbb7aaa3032c1827d879785df8f5a72416fd237fa0a0800 bytes=8638624
+vm-artifacts: component=orchestrator version=vmqual.ed4974b0658b0c48 sha256=ed4974b0658b0c486087fcc304c50f4126a3db7132ac3f65a7553bcbda6e1ace bytes=27414688
+vm-artifacts: component=terrabase version=vmqual.300d71b2c6e44655 sha256=300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7 bytes=17787952
+time="2026-09-05T00:46:43-03:00" level=info msg="Called startVMM(), setting up a VMM on /var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-1/root/api.sock"
+time="2026-09-05T00:46:43-03:00" level=info msg="refreshMachineConfiguration: [GET /machine-config][200] getMachineConfigurationOK  &{CPUTemplate: MemSizeMib:0x2335bd7212b0 Smt:0x2335bd7212b8 TrackDirtyPages:false VcpuCount:0x2335bd7212a8}"
+time="2026-09-05T00:46:43-03:00" level=info msg="PutGuestBootSource: [PUT /boot-source][204] putGuestBootSourceNoContent "
+time="2026-09-05T00:46:43-03:00" level=info msg="Attaching drive rootfs.ext4, slot rootfs, root true."
+time="2026-09-05T00:46:43-03:00" level=info msg="Attached drive rootfs.ext4: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-05T00:46:43-03:00" level=info msg="Attaching drive artifact-00000000000000000001.img, slot data, root false."
+time="2026-09-05T00:46:43-03:00" level=info msg="Attached drive artifact-00000000000000000001.img: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-05T00:46:43-03:00" level=info msg="Attaching NIC tst0c43gru01 (hwaddr 02:fc:77:01:01:01) at index 1"
+time="2026-09-05T00:46:43-03:00" level=info msg="No interfaces are allowed to access MMDS, skipping MMDS config"
+time="2026-09-05T00:46:43-03:00" level=info msg="startInstance successful: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-05T00:46:43-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-05T00:47:56-03:00" level=info msg="Sent instance shutdown request: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-05T00:48:00-03:00" level=info msg="firecracker exited: status=0"
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: ts-node mutation requires a signed command from the actual regional lease holder; the qualification sender has no regional command authority adapter; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2240,"activeState":"active","subState":"running","result":"success","journalEntries":5,"severityCounts":[0,0,0,0,0,0,5,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","activeState":"inactive","subState":"dead","result":"success","journalEntries":0,"severityCounts":[0,0,0,0,0,0,0,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"inactive","subState":"dead","result":"success","journalEntries":0,"severityCounts":[0,0,0,0,0,0,0,0]}]
+vmqual: observe fra-member-1 console: file was not created
+vmqual: observe fra-member-1 metrics: file was not created
+vmqual: observe fra-member-2 console: file was not created
+vmqual: observe fra-member-2 metrics: file was not created
+vmqual: observe gru-member-2 console: file was not created
+vmqual: observe gru-member-2 metrics: file was not created
+vmqual: observe sfo-member-1 console: file was not created
+vmqual: observe sfo-member-1 metrics: file was not created
+vmqual: observe sfo-member-2 console: file was not created
+vmqual: observe sfo-member-2 metrics: file was not created
+vmqual: observe fra-member-1 console: file was not created
+vmqual: observe fra-member-1 metrics: file was not created
+vmqual: observe fra-member-2 console: file was not created
+vmqual: observe fra-member-2 metrics: file was not created
+vmqual: observe gru-member-2 console: file was not created
+vmqual: observe gru-member-2 metrics: file was not created
+vmqual: observe sfo-member-1 console: file was not created
+vmqual: observe sfo-member-1 metrics: file was not created
+vmqual: observe sfo-member-2 console: file was not created
+vmqual: observe sfo-member-2 metrics: file was not created
+vm-artifacts: exit status 1
+make: *** [Makefile:36: vm-test] Error 1
+
+Explicit cleanup exited 0:
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH /tmp/ts-orchestrator-vm-qualify clean

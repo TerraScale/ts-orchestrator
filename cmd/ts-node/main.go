@@ -15,7 +15,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +33,8 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
@@ -52,27 +57,36 @@ const (
 
 // tsNodeConfigurationFile is the camelCase JSON shape of the agent's own
 // configuration.
+type tsNodeCommandTrustFile struct {
+	CandidateID   string `json:"candidateId"`
+	PublicKeyFile string `json:"publicKeyFile"`
+}
+
 type tsNodeConfigurationFile struct {
-	NodeId              string `json:"nodeId"`
-	NatsURL             string `json:"natsUrl"`
-	NatsNkeyFile        string `json:"natsNkeyFile"`
-	NatsTlsCaFile       string `json:"natsTlsCaFile"`
-	NatsTlsCertFile     string `json:"natsTlsCertFile"`
-	NatsTlsKeyFile      string `json:"natsTlsKeyFile"`
-	ReleasePublicKey    string `json:"releasePublicKey"`
-	ManifestPath        string `json:"manifestPath"`
-	InstallRoot         string `json:"installRoot"`
-	UnitDir             string `json:"unitDir"`
-	DataVolumeRoot      string `json:"dataVolumeRoot"`
-	ChronycBinary       string `json:"chronycBinary"`
-	SystemctlBinary     string `json:"systemctlBinary"`
-	UseraddBinary       string `json:"useraddBinary"`
-	HeartbeatIntervalMs int64  `json:"heartbeatIntervalMilliseconds"`
-	ReconcileIntervalMs int64  `json:"reconcileIntervalMilliseconds"`
+	AuthorityBucket     string                   `json:"authorityBucket"`
+	CommandTrustKeys    []tsNodeCommandTrustFile `json:"commandTrustKeys"`
+	NodeId              string                   `json:"nodeId"`
+	NatsURL             string                   `json:"natsUrl"`
+	NatsNkeyFile        string                   `json:"natsNkeyFile"`
+	NatsTlsCaFile       string                   `json:"natsTlsCaFile"`
+	NatsTlsCertFile     string                   `json:"natsTlsCertFile"`
+	NatsTlsKeyFile      string                   `json:"natsTlsKeyFile"`
+	ReleasePublicKey    string                   `json:"releasePublicKey"`
+	ManifestPath        string                   `json:"manifestPath"`
+	InstallRoot         string                   `json:"installRoot"`
+	UnitDir             string                   `json:"unitDir"`
+	DataVolumeRoot      string                   `json:"dataVolumeRoot"`
+	ChronycBinary       string                   `json:"chronycBinary"`
+	SystemctlBinary     string                   `json:"systemctlBinary"`
+	UseraddBinary       string                   `json:"useraddBinary"`
+	HeartbeatIntervalMs int64                    `json:"heartbeatIntervalMilliseconds"`
+	ReconcileIntervalMs int64                    `json:"reconcileIntervalMilliseconds"`
 }
 
 // tsNodeConfiguration is the validated runtime configuration.
 type tsNodeConfiguration struct {
+	AuthorityBucket   string
+	CommandTrustKeys  []tsNodeCommandTrustFile
 	NodeId            string
 	NatsURL           string
 	natsOptions       []nats.Option
@@ -134,6 +148,14 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 		file.ReconcileIntervalMs > int64((1<<63-1)/int64(time.Millisecond)) {
 		return tsNodeConfiguration{}, errors.New("ts-node: configured intervals must be non-negative bounded milliseconds")
 	}
+	if file.AuthorityBucket == "" || len(file.CommandTrustKeys) == 0 || len(file.CommandTrustKeys) > 4 {
+		return tsNodeConfiguration{}, errors.New("ts-node: authorityBucket and candidate-bound commandTrustKeys are required")
+	}
+	for _, key := range file.CommandTrustKeys {
+		if key.CandidateID == "" || !isAbsolute(key.PublicKeyFile) {
+			return tsNodeConfiguration{}, errors.New("ts-node: each command trust key requires candidateId and an absolute publicKeyFile")
+		}
+	}
 	var options []nats.Option
 	credentials := []string{file.NatsNkeyFile, file.NatsTlsCaFile, file.NatsTlsCertFile, file.NatsTlsKeyFile}
 	supplied := 0
@@ -171,7 +193,9 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 		return tsNodeConfiguration{}, errors.New(
 			"ts-node: natsUrl must use nats:// for local use or tls:// for production")
 	}
+	options = append(options, nats.ReconnectBufSize(-1))
 	configuration := tsNodeConfiguration{
+		AuthorityBucket: file.AuthorityBucket, CommandTrustKeys: file.CommandTrustKeys,
 		NodeId:            file.NodeId,
 		NatsURL:           file.NatsURL,
 		natsOptions:       options,
@@ -265,6 +289,7 @@ func readTsNodeConfigurationFile(path string) ([]byte, error) {
 
 func validateTsNodeConfigurationJSON(data []byte) error {
 	allowed := map[string]struct{}{
+		"authorityBucket": {}, "commandTrustKeys": {},
 		"nodeId": {}, "natsUrl": {}, "natsNkeyFile": {}, "natsTlsCaFile": {},
 		"natsTlsCertFile": {}, "natsTlsKeyFile": {}, "releasePublicKey": {},
 		"manifestPath": {}, "installRoot": {}, "unitDir": {}, "dataVolumeRoot": {},
@@ -370,7 +395,37 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: --node-id is invalid: %s", err.Error())
 	}
+	paths := make([]string, 0, len(configuration.CommandTrustKeys))
+	candidates := map[string]string{}
+	for _, key := range configuration.CommandTrustKeys {
+		paths = append(paths, key.PublicKeyFile)
+		data, err := os.ReadFile(key.PublicKeyFile)
+		if err != nil || len(data) > 32*1024 {
+			return nil, errors.New("ts-node: command trust key cannot be read")
+		}
+		block, _ := pem.Decode(data)
+		if block == nil || block.Type != "PUBLIC KEY" {
+			return nil, errors.New("ts-node: command trust key must be public SPKI PEM")
+		}
+		sum := sha256.Sum256(block.Bytes)
+		keyID := hex.EncodeToString(sum[:])
+		if _, exists := candidates[keyID]; exists {
+			return nil, errors.New("ts-node: duplicate command trust key")
+		}
+		candidates[keyID] = key.CandidateID
+	}
+	trust, err := security.LoadCommandSignatureVerifierPEM(paths)
+	if err != nil {
+		return nil, errors.New("ts-node: command trust configuration is invalid")
+	}
 	return hostagent.NewHostAgent(hostagent.HostAgentConfig{
+		CommandAuthorityFactory: func(connection hostagent.NatsConnection) (nodeauthority.CommandAuthorizer, error) {
+			live, ok := connection.(hostagent.LiveNatsConnection)
+			if !ok {
+				return nil, errors.New("ts-node: receiver authority requires a live authenticated NATS connection")
+			}
+			return nodeauthority.NewRegionalCommandAuthorizer(nodeauthority.CommandAuthorityConfig{Connection: live.Connection, NodeID: configuration.NodeId, Bucket: configuration.AuthorityBucket, Trust: trust, SignerCandidates: candidates})
+		},
 		NodeId:            nodeId,
 		NatsURL:           configuration.NatsURL,
 		NatsOptions:       configuration.natsOptions,

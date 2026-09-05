@@ -22,7 +22,7 @@ import (
 
 const maxCleanupJournalBytes = 4 << 20
 
-// CleanJournal replays only resources claimed by one v1 vmqual run. It never
+// CleanJournal replays only resources claimed by one vmqual run. It never
 // scans process tables, network interfaces, or a broad directory.
 func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 	if ctx == nil {
@@ -79,6 +79,9 @@ func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 		if err := vmdisk.RemoveStore(cleanCtx, diskIdentity); err != nil {
 			return fmt.Errorf("vmqual: remove disk store: %w", err)
 		}
+	}
+	if err := cleanupNATSFixtureStore(journal); err != nil {
+		return err
 	}
 	if !journal.NetworkCleaned && journal.NetworkPhase != networkPhaseCleaned {
 		journal.NetworkPhase = networkPhaseCleaning
@@ -271,6 +274,9 @@ func validateJournal(journal Journal) error {
 		if journal.ResourceRoot == "" || identity.Root != filepath.Join(journal.ResourceRoot, "drives") {
 			return errors.New("vmqual: disk store is outside the cleanup resource root")
 		}
+	}
+	if journal.NATSFixtureStore != "" && journal.NATSFixtureStore != filepath.Join(journal.StateRoot, "nats-fixture-"+journal.RunID) {
+		return errors.New("vmqual: fixture store path is outside run ownership")
 	}
 	wantRunMarker := filepath.Join(journal.StateRoot, ".vmqual-runs", journal.RunID+".json")
 	if journal.RunMarkerPath != wantRunMarker {

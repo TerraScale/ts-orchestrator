@@ -19,7 +19,7 @@ type scenarioState struct {
 	recovery    *vmqual.RecoveryFaultResult
 }
 
-func (d *LocalScenarioDriver) attachedContracts() (*vmqual.Stack, *ControlContract, error) {
+func (d *LocalScenarioDriver) attachedContracts() (*vmqual.Stack, scenarioControlProof, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.stack == nil || d.control == nil {
@@ -118,16 +118,16 @@ func (d *LocalScenarioDriver) scenarioFourthRegion(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	guests := vmqual.FourthRegionGuests(stack.Guests()[0].MemoryMiB)
+	if err := stack.AdmitRegion(ctx, guests); err != nil {
+		return err
+	}
 	proof, err := control.VerifyRemoteRegion(ctx, "iad")
 	if err != nil {
 		return err
 	}
 	accepted := proof.MemberHosts == 2 && proof.RemoteManaged && !proof.HasGlobalReplica && proof.RegionalR3BelowFloorRejected && len(proof.GlobalReplicas) == 3 && proof.JournalPath != ""
 	if err := d.prove(ScenarioFourthRegion, "fourth-region-control-admission-preserves-global-r3", accepted, fmt.Sprintf("region=%s members=%d globalReplicas=%d", proof.Region, proof.MemberHosts, len(proof.GlobalReplicas))); err != nil {
-		return err
-	}
-	guests := vmqual.FourthRegionGuests(stack.Guests()[0].MemoryMiB)
-	if err := stack.AdmitRegion(ctx, guests); err != nil {
 		return err
 	}
 	live, err := observeLiveRegions(ctx, stack)
@@ -171,7 +171,14 @@ func (d *LocalScenarioDriver) deliveryProof(ctx context.Context) (*DeliveryContr
 	if !ok {
 		return nil, errors.New("vmqual: VM factory does not implement guest-backed delivery control")
 	}
+	authority, ok := stack.Config().VMFactory.(interface {
+		QualificationDeliveryAuthority(context.Context, *delivery.Request) error
+	})
+	if !ok {
+		return nil, errors.New("vmqual: VM factory lacks live coordinator and lease validation for delivery")
+	}
 	result, err := RunDeliveryContract(ctx, DeliveryContractConfig{
+		Authority: authority.QualificationDeliveryAuthority,
 		StateRoot: stack.Config().StateRoot,
 		Endpoints: d.Endpoints,
 		Guest:     guest,

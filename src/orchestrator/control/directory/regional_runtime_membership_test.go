@@ -211,7 +211,7 @@ func TestRegionalRuntimeMembershipRejectsNilContext(t *testing.T) {
 	topology := messaging.NewNatsTopology("membership-test", 1, "one")
 	if _, err := RegionalRuntimeMembershipStartAsync(nil, nil, topology, "build", []string{"runtime"}, time.Now().UTC(), func() authority.RegionalAuthoritySnapshot {
 		return authority.RegionalAuthoritySnapshot{}
-	}, nil); err == nil {
+	}, nil, nil); err == nil {
 		t.Fatal("nil context was accepted")
 	}
 }

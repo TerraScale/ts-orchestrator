@@ -2,16 +2,20 @@ package vmimage
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"debug/elf"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nkeys"
+
+	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 )
 
@@ -72,7 +79,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	if strings.Contains(string(first.UserData), "path: "+desiredHostManifestPath) {
 		t.Fatal("NoCloud write_files placed the manifest beneath the not-yet-mounted data volume")
 	}
-	if len(first.RootFiles) != 2 || first.RootFiles[0].Path != GuestControlPath || first.RootFiles[0].Mode != 0500 || !bytes.Equal(first.RootFiles[0].Content, spec.GuestControl) || first.RootFiles[1].Path != tsNodeBootstrapBinaryPath || first.RootFiles[1].Mode != 0600 || !bytes.Equal(first.RootFiles[1].Content, spec.TSNode.Binary) {
+	if len(first.RootFiles) != 9 || first.RootFiles[0].Path != GuestControlPath || first.RootFiles[0].Mode != 0500 || !bytes.Equal(first.RootFiles[0].Content, spec.GuestControl) || first.RootFiles[1].Path != tsNodeBootstrapBinaryPath || first.RootFiles[1].Mode != 0600 || !bytes.Equal(first.RootFiles[1].Content, spec.TSNode.Binary) {
 		t.Fatal("root payloads do not preserve validated binaries and modes")
 	}
 	if strings.Contains(string(first.UserData), "f0VMRgIBAQA") || strings.Contains(string(first.UserData), "path: "+GuestControlPath) || strings.Contains(string(first.UserData), "path: "+tsNodeBootstrapBinaryPath+"\n") {
@@ -85,7 +92,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	if index := strings.Index(string(first.UserData), "runcmd:\n"); index < 0 || string(first.UserData[index:]) != wantRunCmd {
 		t.Fatalf("NoCloud bootstrap is not one fail-closed runcmd operation:\n%s", first.UserData)
 	}
-	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
+	material, err := canonicalTSNodeBootstrap(spec.TSNode, ARM64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +136,7 @@ func TestNoCloudRootFileRejectsUnboundDestination(t *testing.T) {
 func TestTSNodeBootstrapScriptStopsOnVerificationFailure(t *testing.T) {
 	t.Parallel()
 	spec := validNoCloudSpec(t)
-	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
+	material, err := canonicalTSNodeBootstrap(spec.TSNode, ARM64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +188,7 @@ func TestTSNodeBootstrapScriptStopsOnVerificationFailure(t *testing.T) {
 
 func TestTSNodeBootstrapInstallsManifestAfterVerification(t *testing.T) {
 	t.Parallel()
-	material, err := canonicalTSNodeBootstrap(validNoCloudSpec(t).TSNode, ArchitectureARM64)
+	material, err := canonicalTSNodeBootstrap(validNoCloudSpec(t).TSNode, ARM64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +239,8 @@ func TestNoCloudSeedRejectsInvalidTSNodeBootstrap(t *testing.T) {
 			value.SHA256 = digest(value.Binary)
 			value.Signature = ed25519.Sign(value.ReleasePublicKeyPrivateForTest(), value.Binary)
 		}},
-		{name: "NATS URL", mutate: func(value *TSNodeBootstrap) { value.Config.NATSURL = "nats://example.com:4222" }},
-		{name: "NATS port", mutate: func(value *TSNodeBootstrap) { value.Config.NATSURL = "nats://10.77.0.1:4223" }},
+		{name: "NATS URL", mutate: func(value *TSNodeBootstrap) { value.Config.NATSURL = "tls://example.com:4222" }},
+		{name: "NATS port", mutate: func(value *TSNodeBootstrap) { value.Config.NATSURL = "tls://10.77.0.1:4223" }},
 		{name: "manifest host", mutate: func(value *TSNodeBootstrap) {
 			value.DesiredHostManifest = bytes.ReplaceAll(value.DesiredHostManifest, []byte("releases.terrascale.tech"), []byte("evil.example"))
 		}},
@@ -306,7 +313,7 @@ func TestNoCloudSeedRejectsCrossFieldMismatches(t *testing.T) {
 		mutate func(*NoCloudSeedSpec)
 	}{
 		{name: "node identity", mutate: func(value *NoCloudSeedSpec) { value.TSNode.Config.NodeID = "gru-member-2" }},
-		{name: "NATS gateway", mutate: func(value *NoCloudSeedSpec) { value.TSNode.Config.NATSURL = "nats://10.77.0.2:4222" }},
+		{name: "NATS gateway", mutate: func(value *NoCloudSeedSpec) { value.TSNode.Config.NATSURL = "tls://10.77.0.2:4222" }},
 		{name: "artifact gateway", mutate: func(value *NoCloudSeedSpec) { value.TSNode.ArtifactHostAddress = "10.77.0.2" }},
 		{name: "network exchange gateway", mutate: func(value *NoCloudSeedSpec) {
 			value.GuestSeed = bytes.Replace(value.GuestSeed, []byte("10.77.0.1:18080"), []byte("10.77.0.2:18080"), 1)
@@ -542,6 +549,19 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 	}
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
 	caCertificate := testCACertificate(t, privateKey)
+	membershipKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipDER, err := x509.MarshalPKCS8PrivateKey(membershipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	membershipPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: membershipDER})
+	_, membershipPublic, err := directory.RegionalRuntimeMembershipPublicKeyFromPEM(membershipPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
 	desiredManifest := marshalDesiredManifest(t, []hostagent.ComponentSpec{
 		productionComponent("orchestrator", "3.0.0", digest(orchestratorBinary)),
 		productionComponent("terrabase", "3.0.0", digest(terrabaseBinary)),
@@ -555,10 +575,13 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 		GuestControl: runnableELF64(elf.EM_AARCH64),
 		TSNode: TSNodeBootstrap{
 			Version: "3.0.0", Binary: tsNodeBinary, SHA256: digest(tsNodeBinary), Signature: ed25519.Sign(privateKey, tsNodeBinary),
-			ReleasePublicKey:      privateKey.Public().(ed25519.PublicKey),
-			Config:                TSNodeConfig{NodeID: "gru-member-1", NATSURL: "nats://10.77.0.1:4222", HeartbeatInterval: time.Second, ReconcileInterval: 250 * time.Millisecond},
-			DesiredHostManifest:   desiredManifest,
-			ArtifactCACertificate: caCertificate, ArtifactHostAddress: "10.77.0.1",
+			ReleasePublicKey:             privateKey.Public().(ed25519.PublicKey),
+			NATSIdentity:                 testTSNodeNATSIdentity(t, privateKey, caCertificate),
+			MembershipIdentityPrivateKey: membershipPEM,
+			MembershipPins:               map[string]string{"gru-member-1": membershipPublic},
+			Config:                       TSNodeConfig{AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: []TSNodeCommandTrust{{CandidateID: "gru-controller-gru-member-1", PublicKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: mustDecodeBase64(t, membershipPublic)})}}, NodeID: "gru-member-1", NATSURL: "tls://10.77.0.1:4222", HeartbeatInterval: time.Second, ReconcileInterval: 250 * time.Millisecond},
+			DesiredHostManifest:          desiredManifest,
+			ArtifactCACertificate:        caCertificate, ArtifactHostAddress: "10.77.0.1",
 		},
 	}
 }
@@ -568,11 +591,29 @@ func cloneNoCloudSpec(input NoCloudSeedSpec) NoCloudSeedSpec {
 	cloned.Nameservers = append([]string(nil), input.Nameservers...)
 	cloned.GuestSeed = append([]byte(nil), input.GuestSeed...)
 	cloned.GuestControl = append([]byte(nil), input.GuestControl...)
+	cloned.TSNode.MembershipIdentityPrivateKey = append([]byte(nil), input.TSNode.MembershipIdentityPrivateKey...)
+	cloned.TSNode.MembershipPins = make(map[string]string, len(input.TSNode.MembershipPins))
+	for id, pin := range input.TSNode.MembershipPins {
+		cloned.TSNode.MembershipPins[id] = pin
+	}
+	cloned.TSNode.Config.CommandTrustKeys = append([]TSNodeCommandTrust(nil), input.TSNode.Config.CommandTrustKeys...)
+	for index := range cloned.TSNode.Config.CommandTrustKeys {
+		cloned.TSNode.Config.CommandTrustKeys[index].PublicKeyPEM = append([]byte(nil), input.TSNode.Config.CommandTrustKeys[index].PublicKeyPEM...)
+	}
 	cloned.TSNode.Binary = append([]byte(nil), input.TSNode.Binary...)
 	cloned.TSNode.Signature = append([]byte(nil), input.TSNode.Signature...)
 	cloned.TSNode.ReleasePublicKey = append(ed25519.PublicKey(nil), input.TSNode.ReleasePublicKey...)
 	cloned.TSNode.DesiredHostManifest = append([]byte(nil), input.TSNode.DesiredHostManifest...)
 	cloned.TSNode.ArtifactCACertificate = append([]byte(nil), input.TSNode.ArtifactCACertificate...)
+	if input.TSNode.NATSIdentity != nil {
+		identity := *input.TSNode.NATSIdentity
+		identity.NKeySeed = append([]byte(nil), identity.NKeySeed...)
+		identity.TLSCA = append([]byte(nil), identity.TLSCA...)
+		identity.TLSCertificate = append([]byte(nil), identity.TLSCertificate...)
+		identity.TLSPrivateKey = append([]byte(nil), identity.TLSPrivateKey...)
+		cloned.TSNode.NATSIdentity = &identity
+	}
+
 	return cloned
 }
 
@@ -659,6 +700,111 @@ func runnableELF64(machine elf.Machine) []byte {
 		binary.LittleEndian.PutUint32(data[segmentOffset:], 0xd65f03c0)
 	} else {
 		data[segmentOffset] = 0xc3
+	}
+	return data
+}
+
+func testTSNodeNATSIdentity(t *testing.T, caKey ed25519.PrivateKey, caPEM []byte) *TSNodeNATSIdentity {
+	t.Helper()
+	block, _ := pem.Decode(caPEM)
+	ca, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x65}, ed25519.SeedSize))
+	uri, _ := url.Parse("spiffe://vmqual.terrascale.test/test-run/ts-node/gru-member-1")
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: ca.NotBefore, NotAfter: ca.NotAfter, URIs: []*url.URL{uri}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, key.Public(), caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := nkeys.FromRawSeed(nkeys.PrefixByteUser, bytes.Repeat([]byte{0x33}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	seed, err := user.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &TSNodeNATSIdentity{NKeySeed: append([]byte(nil), seed...), TLSCA: caPEM, TLSCertificate: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), TLSPrivateKey: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})}
+}
+
+func TestNoCloudNATSIdentityIsPrivateAndBoundToGuest(t *testing.T) {
+	spec := validNoCloudSpec(t)
+	seed, err := BuildNoCloudSeed(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range [][]byte{spec.TSNode.NATSIdentity.NKeySeed, spec.TSNode.NATSIdentity.TLSPrivateKey} {
+		for _, evidence := range [][]byte{seed.UserData, seed.MetaData, seed.NetworkConfig, spec.GuestSeed} {
+			if bytes.Contains(evidence, secret) || bytes.Contains(evidence, []byte(base64.StdEncoding.EncodeToString(secret))) {
+				t.Fatal("private identity entered cloud-init or guest evidence")
+			}
+		}
+	}
+	for _, file := range seed.RootFiles[2:6] {
+		if file.Mode != 0600 || file.Validate() != nil {
+			t.Fatal("credential file lacks fixed private admission")
+		}
+		file.Mode = 0644
+		if file.Validate() == nil {
+			t.Fatal("public credential file accepted")
+		}
+	}
+	material, err := canonicalTSNodeBootstrap(spec.TSNode, ARM64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config tsNodeConfigurationFile
+	if err := json.Unmarshal(material.config, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.NATSNKeyFile != tsNodeNKeyPath || config.NATSTLSCAFile != tsNodeTLSCAPath || config.NATSTLSCertFile != tsNodeTLSCertPath || config.NATSTLSKeyFile != tsNodeTLSKeyPath {
+		t.Fatal("ts-node did not receive private identity file paths")
+	}
+	spec.TSNode.NATSIdentity.NKeySeed[0] ^= 1
+	if bytes.Equal(seed.RootFiles[2].Content, spec.TSNode.NATSIdentity.NKeySeed) {
+		t.Fatal("seed retains caller-owned secret bytes")
+	}
+}
+
+func TestNoCloudRejectsMissingOrMismatchedNATSIdentity(t *testing.T) {
+	for _, kind := range []string{"missing", "partial", "key-mismatch", "ca-mismatch", "oversize", "wrong-node", "plaintext"} {
+		t.Run(kind, func(t *testing.T) {
+			spec := validNoCloudSpec(t)
+			switch kind {
+			case "missing":
+				spec.TSNode.NATSIdentity = nil
+			case "partial":
+				spec.TSNode.NATSIdentity.TLSCA = nil
+			case "key-mismatch":
+				spec.TSNode.NATSIdentity.TLSPrivateKey = []byte("PRIVATE_CANARY")
+			case "ca-mismatch":
+				spec.TSNode.NATSIdentity.TLSCA = testCACertificate(t, ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x88}, 32)))
+			case "oversize":
+				spec.TSNode.NATSIdentity.NKeySeed = bytes.Repeat([]byte("PRIVATE_CANARY"), 65536)
+			case "wrong-node":
+				spec.TSNode.Config.NodeID = "another-node"
+			case "plaintext":
+				spec.TSNode.Config.NATSURL = "nats://10.77.0.1:4222"
+			}
+			if _, err := BuildNoCloudSeed(spec); err == nil || strings.Contains(err.Error(), "PRIVATE_CANARY") {
+				t.Fatalf("identity rejection: %v", err)
+			}
+		})
+	}
+}
+
+func mustDecodeBase64(t *testing.T, value string) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return data
 }

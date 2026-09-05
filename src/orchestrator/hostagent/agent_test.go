@@ -29,14 +29,15 @@ func TestAgentServesAndReconcilesFromTheManifest(t *testing.T) {
 	}
 	connection := newFakeNatsConnection()
 	agent, err := NewHostAgent(HostAgentConfig{
-		NodeId:            NodeId{Value: "gru-1"},
-		Connection:        connection,
-		Lifecycle:         harness.lifecycle,
-		Facts:             harness.factsSource(t),
-		ManifestPath:      manifestPath,
-		ReconcileInterval: 10 * time.Millisecond,
-		HeartbeatInterval: 10 * time.Millisecond,
-		Now:               func() time.Time { return time.Unix(1756900000, 0) },
+		CommandAuthorityFactory: testCommandAuthorityFactory,
+		NodeId:                  NodeId{Value: "gru-1"},
+		Connection:              connection,
+		Lifecycle:               harness.lifecycle,
+		Facts:                   harness.factsSource(t),
+		ManifestPath:            manifestPath,
+		ReconcileInterval:       10 * time.Millisecond,
+		HeartbeatInterval:       10 * time.Millisecond,
+		Now:                     func() time.Time { return time.Unix(1756900000, 0) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +80,8 @@ func TestAgentReconnectsAfterEmbeddedBrokerRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent, err := NewHostAgent(HostAgentConfig{
-		NodeId: NodeId{Value: "gru-1"}, NatsURL: instance.ClientURL(), ConnectTimeout: time.Second,
+		CommandAuthorityFactory: testCommandAuthorityFactory,
+		NodeId:                  NodeId{Value: "gru-1"}, NatsURL: instance.ClientURL(), ConnectTimeout: time.Second,
 		Lifecycle: harness.lifecycle, Facts: harness.factsSource(t), ManifestPath: manifestPath,
 		ReconcileInterval: 20 * time.Millisecond, HeartbeatInterval: 20 * time.Millisecond,
 		Now: time.Now,
@@ -175,14 +177,15 @@ func requestAgentStatus(url, commandId string) error {
 func TestNewHostAgentValidatesConfiguration(t *testing.T) {
 	harness := newTestHarness(t)
 	base := HostAgentConfig{
-		NodeId:            NodeId{Value: "gru-1"},
-		Connection:        newFakeNatsConnection(),
-		Lifecycle:         harness.lifecycle,
-		Facts:             harness.factsSource(t),
-		ManifestPath:      "/etc/terrascale/manifest.json",
-		ReconcileInterval: time.Second,
-		HeartbeatInterval: time.Second,
-		Now:               time.Now,
+		CommandAuthorityFactory: testCommandAuthorityFactory,
+		NodeId:                  NodeId{Value: "gru-1"},
+		Connection:              newFakeNatsConnection(),
+		Lifecycle:               harness.lifecycle,
+		Facts:                   harness.factsSource(t),
+		ManifestPath:            "/etc/terrascale/manifest.json",
+		ReconcileInterval:       time.Second,
+		HeartbeatInterval:       time.Second,
+		Now:                     time.Now,
 	}
 	if _, err := NewHostAgent(base); err != nil {
 		t.Fatalf("valid configuration rejected: %v", err)

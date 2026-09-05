@@ -250,7 +250,7 @@ type LocalScenarioDriver struct {
 	completed []Scenario
 	evidence  []Evidence
 	stack     *vmqual.Stack
-	control   *ControlContract
+	control   scenarioControlProof
 	cleanup   *ProviderCleanupObservation
 	state     scenarioState
 }
@@ -304,13 +304,11 @@ func (d *LocalScenarioDriver) AttachStack(stack *vmqual.Stack) error {
 	if len(stack.Guests()) != 6 {
 		return errors.New("vmqual: local scenario requires six started guests")
 	}
-	control, err := NewControlContract(filepath.Join(stack.Config().StateRoot, "control-contract"))
-	if err != nil {
-		return fmt.Errorf("vmqual: initialize control qualification: %w", err)
-	}
 	d.mu.Lock()
 	d.stack = stack
-	d.control = control
+	if d.control == nil {
+		d.control = &runtimeControlProof{stack: stack, journalRoot: filepath.Join(stack.Config().StateRoot, "control-contract")}
+	}
 	d.state = scenarioState{}
 	d.mu.Unlock()
 	if binder, ok := stack.Config().VMFactory.(interface {

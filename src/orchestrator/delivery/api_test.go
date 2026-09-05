@@ -175,7 +175,7 @@ func testServer(t *testing.T, roller Roller, store *fakeStore) (*Server, *httpte
 	if err != nil {
 		t.Fatalf("build mirror: %v", err)
 	}
-	server, err := NewServer(ServerConfig{
+	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil },
 		Token:   func() (string, error) { return "delivery-token", nil },
 		Fetcher: fetcher,
 		Trust:   func() *TrustSet { return trust },
@@ -338,7 +338,7 @@ func TestNewServerRejectsUnsafeLeaseTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewServer(ServerConfig{
+	_, err = NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil },
 		LeaseTTL: time.Millisecond,
 		Token:    func() (string, error) { return "delivery-token", nil },
 		Fetcher:  fetcher,
@@ -394,7 +394,7 @@ func TestDeliveryAPIRecoveryClosesRunningOperationWithoutRerun(t *testing.T) {
 	// a crashed owner while retaining an explicit owner/generation fence.
 	journal.clock = func() time.Time { return time.Now().UTC().Add(time.Hour) }
 	roller := &fakeRoller{}
-	server, err := NewServer(ServerConfig{Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: roller, Journal: journal})
+	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil }, Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: roller, Journal: journal})
 	if err != nil {
 		t.Fatalf("build server: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestDeliveryAPIFailsClosedForDurableRunningOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build second journal: %v", err)
 	}
-	second, err := NewServer(ServerConfig{
+	second, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil },
 		Token:   func() (string, error) { return "delivery-token", nil },
 		Fetcher: fetcher,
 		Trust:   func() *TrustSet { return trust },
@@ -713,7 +713,7 @@ func TestDeliveryAPIStaleOwnerCannotRollbackAfterGenerationTakeover(t *testing.T
 	clock := time.Unix(500, 0).UTC()
 	journal.clock = func() time.Time { return clock }
 	roller := &leaseLostRoller{started: make(chan struct{}), gate: make(chan struct{})}
-	server, err := NewServer(ServerConfig{
+	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil },
 		OwnerID:  "owner-a",
 		LeaseTTL: time.Minute,
 		Token:    func() (string, error) { return "delivery-token", nil },

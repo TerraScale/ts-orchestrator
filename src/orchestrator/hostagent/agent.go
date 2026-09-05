@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 const (
@@ -23,6 +24,7 @@ const (
 // in-process or pre-dialed connection, or lets the agent dial one explicit
 // URL itself.
 type HostAgentConfig struct {
+	CommandAuthorityFactory func(NatsConnection) (nodeauthority.CommandAuthorizer, error)
 	// NodeId is the validated node identity the agent serves.
 	NodeId NodeId
 	// Connection is a pre-wired transport connection owned by the caller.
@@ -53,33 +55,37 @@ type HostAgentConfig struct {
 // manifest, answers the ts.orch.v1 host-agent subjects of contracts.go, and
 // publishes heartbeats until its context is cancelled or Close is called.
 type HostAgent struct {
-	nodeId            NodeId
-	connection        NatsConnection
-	natsURL           string
-	natsOptions       []nats.Option
-	connectTimeout    time.Duration
-	ownsConnection    bool
-	lifecycle         *Lifecycle
-	facts             *HostFactsSource
-	manifestPath      string
-	reconcileInterval time.Duration
-	heartbeatInterval time.Duration
-	nowFunc           func() time.Time
-	transport         *NatsTransport
-	watcher           *ManifestWatcher
-	completion        chan struct{}
-	completionOnce    sync.Once
-	runCancel         context.CancelFunc
-	watcherDone       chan struct{}
-	mutex             sync.Mutex
-	closeOnce         sync.Once
-	closeErr          error
-	closed            bool
+	commandAuthorityFactory func(NatsConnection) (nodeauthority.CommandAuthorizer, error)
+	nodeId                  NodeId
+	connection              NatsConnection
+	natsURL                 string
+	natsOptions             []nats.Option
+	connectTimeout          time.Duration
+	ownsConnection          bool
+	lifecycle               *Lifecycle
+	facts                   *HostFactsSource
+	manifestPath            string
+	reconcileInterval       time.Duration
+	heartbeatInterval       time.Duration
+	nowFunc                 func() time.Time
+	transport               *NatsTransport
+	watcher                 *ManifestWatcher
+	completion              chan struct{}
+	completionOnce          sync.Once
+	runCancel               context.CancelFunc
+	watcherDone             chan struct{}
+	mutex                   sync.Mutex
+	closeOnce               sync.Once
+	closeErr                error
+	closed                  bool
 }
 
 // NewHostAgent validates the configuration and composes the agent. Nothing
 // is dialed or started here; Start does that.
 func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
+	if config.CommandAuthorityFactory == nil {
+		return nil, &InvalidOperationError{Message: "A receiver authority factory is required."}
+	}
 	nodeId, err := NewNodeId(config.NodeId.Value)
 	if err != nil {
 		return nil, err
@@ -132,20 +138,21 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		return nil, err
 	}
 	return &HostAgent{
-		nodeId:            nodeId,
-		connection:        config.Connection,
-		natsURL:           config.NatsURL,
-		natsOptions:       append([]nats.Option(nil), config.NatsOptions...),
-		connectTimeout:    config.ConnectTimeout,
-		ownsConnection:    config.Connection == nil,
-		lifecycle:         config.Lifecycle,
-		facts:             config.Facts,
-		manifestPath:      config.ManifestPath,
-		reconcileInterval: config.ReconcileInterval,
-		heartbeatInterval: config.HeartbeatInterval,
-		nowFunc:           config.Now,
-		watcher:           watcher,
-		completion:        make(chan struct{}),
+		commandAuthorityFactory: config.CommandAuthorityFactory,
+		nodeId:                  nodeId,
+		connection:              config.Connection,
+		natsURL:                 config.NatsURL,
+		natsOptions:             append([]nats.Option(nil), config.NatsOptions...),
+		connectTimeout:          config.ConnectTimeout,
+		ownsConnection:          config.Connection == nil,
+		lifecycle:               config.Lifecycle,
+		facts:                   config.Facts,
+		manifestPath:            config.ManifestPath,
+		reconcileInterval:       config.ReconcileInterval,
+		heartbeatInterval:       config.HeartbeatInterval,
+		nowFunc:                 config.Now,
+		watcher:                 watcher,
+		completion:              make(chan struct{}),
 	}, nil
 }
 
@@ -196,14 +203,21 @@ func (a *HostAgent) Start(ctx context.Context) error {
 		a.releaseDialed(connection)
 		return err
 	}
+	authorizer, err := a.commandAuthorityFactory(connection)
+	if err != nil {
+		ticker.Stop()
+		a.releaseDialed(connection)
+		return err
+	}
 	transport, err := NewNatsTransport(NatsTransportConfig{
-		NodeId:          a.nodeId,
-		Connection:      connection,
-		Lifecycle:       a.lifecycle,
-		Facts:           a.facts,
-		Ticker:          ticker,
-		Now:             a.nowFunc,
-		CloseConnection: a.ownsConnection,
+		CommandAuthority: authorizer,
+		NodeId:           a.nodeId,
+		Connection:       connection,
+		Lifecycle:        a.lifecycle,
+		Facts:            a.facts,
+		Ticker:           ticker,
+		Now:              a.nowFunc,
+		CloseConnection:  a.ownsConnection,
 	})
 	if err != nil {
 		ticker.Stop()

@@ -27,6 +27,8 @@ describe code that exists today; they do not preserve a retired topology.
 | Control plane (delivery, messaging, observability, operations) | `src/orchestrator/control` | contracts, protocol, runtime, security |
 | Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
 | Host agent | `src/orchestrator/hostagent` | runtime |
+| Authenticated host client | `src/orchestrator/hostcontrol` | hostagent, delivery |
+| OCI control snapshot storage | `src/orchestrator/restoresnapshot` | restoredrill, provider, delivery |
 | CLI / process entry | `cmd/orchestrator` | control, provider |
 | VM qualification core | `src/orchestrator/vmqual` | shared configuration, lifecycle, journals, diagnostic/resource evidence, guest contracts |
 | Firecracker qualification runtime | `src/orchestrator/vmqualruntime` | vmqual, sandboxvm, vmnet, vmdisk, vmimage, production host/provider packages |
@@ -126,3 +128,15 @@ Full run ownership comments and exact rule specifications identify cleanup
 targets. Cleanup preserves unrelated firewall rules and retains the host
 allocation lease if deletion fails. Qualification requires a trusted iptables
 executable; it never changes host firewall policies or flushes host chains.
+
+Bootstrap control transitions use authenticated host observations, signed
+membership pins, actual authority leases, and the complete declared JetStream
+assignments. OCI instance tags identify owned resources; they cannot prove that
+a controller started, synchronized state, or formed a storage quorum. Regional
+membership epochs and global election terms are separate values.
+
+The qualification broker uses disposable mTLS and per-host NKey identities.
+Its bounded file store is registered in the stack cleanup journal before
+creation. Crash cleanup validates the exact run path and ownership marker;
+orderly cleanup retains the journal if the service store remains. This broker
+is a fixture transport and cannot establish guest global authority or R3.

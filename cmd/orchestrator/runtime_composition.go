@@ -34,14 +34,28 @@ const (
 var (
 	ErrProductionCompositionMissing = errors.New("orchestrator: production runtime requires configured estate publisher, key rotation, free-tier reaper, restore drill, and delivery mirror adapters")
 
-	// composeProductionRuntimeConfig is intentionally a single seam. The
-	// binary's provider/control integration supplies concrete ports here; unit
-	// tests replace it with deterministic fakes. No in-memory fallback is
-	// permitted for the production cell.
-	composeProductionRuntimeConfig = func(context.Context, *control.OrchestratorOptions) (productionRuntimeConfig, error) {
-		return productionRuntimeConfig{}, ErrProductionCompositionMissing
+	// Admission validates all configuration and credential references without
+	// opening clients or listeners. The returned plan opens live stores only
+	// after the selected embedded broker is ready. Missing root configuration
+	// fails here, before any listener can start.
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+		return nil, ErrProductionCompositionMissing
 	}
 )
+
+// admittedProductionRuntime binds validated static input to its live
+// constructor. The root resolver must return both together, so run cannot
+// accidentally compose live stores before static admission or broker startup.
+type admittedProductionRuntime struct {
+	construct func(context.Context) (*productionRuntime, error)
+}
+
+func (a *admittedProductionRuntime) Construct(ctx context.Context) (*productionRuntime, error) {
+	if a == nil || a.construct == nil {
+		return nil, errors.New("production runtime admission is incomplete")
+	}
+	return a.construct(ctx)
+}
 
 // productionRuntimeConfig contains all side-effecting production ports. The
 // delivery store is composed here, from the same durable provider journal and
@@ -58,9 +72,19 @@ type productionRuntimeConfig struct {
 	Restore  productionRestoreConfig
 
 	DeliveryStore provider.DeliveryRegionStoreConfig
+	Delivery      productionDeliveryConfig
+}
+
+// The production root owns the mirror and estate. Provider composition
+// supplies the fetcher, active signing trust, and rollout adapters only.
+type productionDeliveryConfig struct {
+	Fetcher delivery.ArtifactFetcher
+	Trust   func() *delivery.TrustSet
+	Rollout delivery.RolloutConfig
 }
 
 type productionRuntime struct {
+	delivery   *control.SignedDeliveryRuntimeConfig
 	publisher  *estatepublisher.Publisher
 	rotation   *security.Coordinator
 	reaper     *reaper.Reconciler
@@ -86,6 +110,16 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, fmt.Errorf("runtime artifact mirror: %w", err)
 	}
 
+	rollout := config.Delivery.Rollout
+	rollout.Spec = spec
+	signedDelivery := &control.SignedDeliveryRuntimeConfig{
+		Fetcher: config.Delivery.Fetcher, Trust: config.Delivery.Trust,
+		Mirror: mirror, Rollout: rollout,
+	}
+	if err := signedDelivery.Validate(); err != nil {
+		return nil, fmt.Errorf("runtime signed delivery: %w", err)
+	}
+
 	publisher, err := newEstatePublisher(config.EstateClient, config.EstateSnapshot, config.EstateAuthority)
 	if err != nil {
 		return nil, fmt.Errorf("runtime estate publisher: %w", err)
@@ -103,6 +137,7 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, fmt.Errorf("runtime restore drill: %w", err)
 	}
 	return &productionRuntime{
+		delivery:  signedDelivery,
 		publisher: publisher,
 		rotation:  rotation,
 		reaper:    reaperRuntime,

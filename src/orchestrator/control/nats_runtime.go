@@ -20,7 +20,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
+	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -35,14 +37,15 @@ const (
 // here: infrastructure provisions it, while the controller opens and checks
 // every resource before it starts serving or claiming membership.
 type NatsRuntime struct {
-	client         *nats.Conn
-	topology       *NatsTopology
-	service        *shared.NatsSvcServer
-	serviceInfo    *nats.Subscription
-	authority      *RegionalAuthorityCoordinator
-	membership     *RegionalRuntimeMembership
-	stats          *NatsServiceEndpointStats
-	commandIngress *NatsCommandIngress
+	client             *nats.Conn
+	topology           *NatsTopology
+	service            *shared.NatsSvcServer
+	serviceInfo        *nats.Subscription
+	authority          *RegionalAuthorityCoordinator
+	membership         *RegionalRuntimeMembership
+	membershipIdentity *RegionalRuntimeMembershipIdentity
+	stats              *NatsServiceEndpointStats
+	commandIngress     *NatsCommandIngress
 
 	lifetimeCtx    context.Context
 	cancel         context.CancelFunc
@@ -71,6 +74,24 @@ type natsRuntimeState struct {
 func NatsRuntimeStartAsync(ctx context.Context, options *OrchestratorOptions) (*NatsRuntime, error) {
 	if err := validateNatsRuntimeInputs(ctx, options, OrchestratorCommandRun); err != nil {
 		return nil, err
+	}
+
+	identity, err := directory.RegionalRuntimeMembershipIdentityLoadFile(options.MembershipSigningKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	identityTransferred := false
+	defer func() {
+		if !identityTransferred {
+			identity.Dispose()
+		}
+	}()
+	pins, err := directory.RegionalRuntimeMembershipPinsLoadFile(options.MembershipPinsFile)
+	if err != nil {
+		return nil, err
+	}
+	if pins[options.Instance] != identity.PublicKey {
+		return nil, errors.New("membership pins do not admit the controller signing identity")
 	}
 
 	lifetimeCtx, cancel := context.WithCancel(ctx)
@@ -117,7 +138,7 @@ func NatsRuntimeStartAsync(ctx context.Context, options *OrchestratorOptions) (*
 	sort.Strings(capabilities)
 	membership, err := RegionalRuntimeMembershipStartAsync(
 		lifetimeCtx, state.runtime, topology, "unknown", capabilities, startedAt,
-		authority.Snapshot, nil)
+		authority.Snapshot, identity, pins)
 	if err != nil {
 		authority.Dispose()
 		cleanup()
@@ -125,11 +146,12 @@ func NatsRuntimeStartAsync(ctx context.Context, options *OrchestratorOptions) (*
 	}
 
 	runtime := &NatsRuntime{
-		client: client, topology: topology, authority: authority, membership: membership,
+		client: client, topology: topology, authority: authority, membership: membership, membershipIdentity: identity,
 		stats: NewNatsServiceEndpointStats(), lifetimeCtx: lifetimeCtx, cancel: cancel,
 		completion: make(chan struct{}),
 	}
-	if err := runtime.startCommandIngress(options, state.commandReplay); err != nil {
+	identityTransferred = true
+	if err := runtime.startCommandIngress(options, state); err != nil {
 		_ = runtime.Close()
 		return nil, err
 	}
@@ -225,8 +247,17 @@ func validateNatsRuntimeInputs(ctx context.Context, options *OrchestratorOptions
 		if options.CommandIdentity == nil || options.CommandIdentity.SigningKeyFile == "" || len(options.CommandIdentity.TrustKeyFiles) == 0 {
 			return errors.New("The run command requires command signing and trust key credentials.")
 		}
-		if options.CommandDispatcher == nil {
-			return errors.New("The run command requires a signed command dispatcher.")
+		if options.Delivery == nil {
+			return errors.New("The run command requires a signed delivery runtime.")
+		}
+		if options.MembershipSigningKeyFile == "" || options.MembershipPinsFile == "" {
+			return errors.New("The run command requires membership signing identity and explicit peer pins.")
+		}
+		if options.CommandAggregateID != "" && options.CommandAggregateID != "delivery" {
+			return errors.New("The run command aggregate must be delivery.")
+		}
+		if err := options.Delivery.Validate(); err != nil {
+			return err
 		}
 	}
 	if options.NatsNKeyFile != nil {
@@ -425,18 +456,25 @@ func (sha256CommandPayloadDigestVerifier) Verify(payload protocol.OpaquePayload,
 	return protocol.VerificationOutcomeValid
 }
 
-func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, replayStore jetstream.KeyValue) error {
+func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, state *natsRuntimeState) error {
 	if r == nil || r.client == nil || r.topology == nil {
 		return errors.New("command ingress runtime composition is incomplete")
 	}
 	if options == nil || options.CommandIdentity == nil || options.CommandIdentity.SigningKeyFile == "" || len(options.CommandIdentity.TrustKeyFiles) == 0 {
 		return errors.New("signed command ingress identity is missing")
 	}
-	if options.CommandDispatcher == nil {
-		return errors.New("signed command ingress dispatcher is missing")
+	if state == nil || state.commandReplay == nil || options.Delivery == nil {
+		return errors.New("signed delivery runtime or replay store is missing")
 	}
-	if replayStore == nil {
-		return errors.New("signed command ingress replay store is missing")
+	if options.CommandAggregateID != "" && options.CommandAggregateID != "delivery" {
+		return errors.New("signed command ingress aggregate must be delivery")
+	}
+	if r.client.MaxPayload() < messaging.DeliveryOperationMaxMessageBytes {
+		return errors.New("signed delivery: NATS max_payload cannot hold a durable operation")
+	}
+	dispatch, err := r.deliveryDispatcher(r.lifetimeCtx, state, *options.Delivery)
+	if err != nil {
+		return err
 	}
 	cell, ok := contracts.CellIdTryCreate(r.topology.Cell)
 	if !ok {
@@ -457,7 +495,7 @@ func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, replaySt
 	if err != nil {
 		return errors.New("signed command ingress subject is invalid")
 	}
-	replay, err := NewNatsCommandReplayStore(replayStore)
+	replay, err := NewNatsCommandReplayStore(state.commandReplay)
 	if err != nil {
 		return err
 	}
@@ -467,7 +505,7 @@ func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, replaySt
 		ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation,
 		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
 		AllowedClockSkew: 2 * time.Minute, MaximumValidityWindow: natsRuntimeCommandValidityWindow,
-		PayloadDigestVerifier: sha256CommandPayloadDigestVerifier{}, Dispatch: options.CommandDispatcher,
+		PayloadDigestVerifier: sha256CommandPayloadDigestVerifier{}, Dispatch: dispatch,
 	})
 	if err != nil {
 		return errors.New("signed command ingress could not be composed")
@@ -740,6 +778,9 @@ func (r *NatsRuntime) Close() error {
 			if err := r.membership.Dispose(); err != nil && r.closeErr == nil {
 				r.closeErr = err
 			}
+		}
+		if r.membershipIdentity != nil {
+			r.membershipIdentity.Dispose()
 		}
 		if r.authority != nil {
 			r.authority.Dispose()

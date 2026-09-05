@@ -130,13 +130,24 @@ func (t *NatsTopology) Runtime() jetstream.KeyValueConfig {
 	}
 }
 
+// DeliveryOperationMaxDocumentBytes holds a request, receipt and journal metadata.
+const DeliveryOperationMaxDocumentBytes = 2*1024*1024 + 16*1024
+
+// DeliveryOperationMaxValueBytes also allows the KV CAS headers counted by
+// JetStream in its per-message size limit.
+const DeliveryOperationMaxValueBytes = DeliveryOperationMaxDocumentBytes + 4*1024
+
+// DeliveryOperationMaxMessageBytes includes the ordinary leader API's JSON
+// base64 encoding of a full operation and its response metadata.
+const DeliveryOperationMaxMessageBytes = (DeliveryOperationMaxValueBytes+2)/3*4 + 16*1024
+
 // Delivery returns the delivery and handoff coordination bucket.
 func (t *NatsTopology) Delivery() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
 		Bucket:       "ORCH_DELIVERY",
 		Description:  "Durable regional delivery and handoff coordination for " + t.Cell,
 		History:      2,
-		MaxValueSize: 16 * 1024,
+		MaxValueSize: DeliveryOperationMaxValueBytes,
 		MaxBytes:     256 * 1024 * 1024,
 		Replicas:     t.Replicas,
 	}

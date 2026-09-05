@@ -54,9 +54,11 @@ type NoCloudSeed struct {
 	RootFiles     []NoCloudRootFile
 }
 
-// NoCloudRootFile is a validated binary installed in the private root before boot.
+// NoCloudRootFile is validated bootstrap material installed in the private root before boot.
 // Paths and modes are fixed by BuildNoCloudSeed, never supplied by guest input.
 type NoCloudRootFile struct {
+	// Owner is the verified final bootstrap principal; empty means root.
+	Owner   string
 	Path    string
 	Mode    uint32
 	Content []byte
@@ -64,12 +66,23 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
+	if file.Owner != "" && (file.Path != MembershipIdentityPath || file.Owner != membershipServiceUser) {
+		return errors.New("vmimage: unbound root file bootstrap owner")
+	}
 	limit := 0
 	switch {
+	case file.Path == MembershipIdentityPath && file.Mode == 0400 && file.Owner == membershipServiceUser:
+		limit = 64 << 10
+	case (file.Path == commandTrustPath(0) || file.Path == commandTrustPath(1) || file.Path == commandTrustPath(2) || file.Path == commandTrustPath(3)) && file.Mode == 0444:
+		limit = 1024
+	case file.Path == MembershipPinsPath && file.Mode == 0444:
+		limit = 256 << 10
 	case file.Path == GuestControlPath && file.Mode == 0500:
 		limit = maxGuestControl
 	case file.Path == tsNodeBootstrapBinaryPath && file.Mode == 0600:
 		limit = maxTSNodeBinaryBytes
+	case (file.Path == tsNodeNKeyPath || file.Path == tsNodeTLSCAPath || file.Path == tsNodeTLSCertPath || file.Path == tsNodeTLSKeyPath) && file.Mode == 0600:
+		limit = 64 << 10
 	case (file.Path == "/usr/sbin/chronyd" || file.Path == "/usr/bin/chronyc") && file.Mode == 0555:
 		limit = 2 << 20
 	}
@@ -80,7 +93,7 @@ func (file NoCloudRootFile) Validate() error {
 }
 
 // BuildNoCloudSeed validates the guest identity and produces deterministic
-// cloud-init data. It does not execute a shell or embed a private credential.
+// cloud-init data and private root files. Credentials never enter cloud-init data.
 func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if !instanceIDPattern.MatchString(spec.InstanceID) {
 		return NoCloudSeed{}, errors.New("vmimage: NoCloud instance id is not safe")
@@ -155,10 +168,16 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 		MetaData:      buildNoCloudMetaData(spec),
 		NetworkConfig: buildNoCloudNetwork(address, spec.PrefixBits, gateway, guestMAC, nameservers),
 		UserData:      buildNoCloudUserData(spec, dataDevice, dataMount, tsNode),
-		RootFiles: []NoCloudRootFile{
+		RootFiles: append([]NoCloudRootFile{
 			{Path: GuestControlPath, Mode: 0500, Content: append([]byte(nil), spec.GuestControl...)},
 			{Path: tsNodeBootstrapBinaryPath, Mode: 0600, Content: tsNode.binary},
-		},
+			{Path: tsNodeNKeyPath, Mode: 0600, Content: tsNode.identity.NKeySeed},
+			{Path: tsNodeTLSCAPath, Mode: 0600, Content: tsNode.identity.TLSCA},
+			{Path: tsNodeTLSCertPath, Mode: 0600, Content: tsNode.identity.TLSCertificate},
+			{Path: tsNodeTLSKeyPath, Mode: 0600, Content: tsNode.identity.TLSPrivateKey},
+			{Path: MembershipIdentityPath, Mode: 0400, Owner: membershipServiceUser, Content: tsNode.membershipPrivate},
+			{Path: MembershipPinsPath, Mode: 0444, Content: tsNode.membershipPins},
+		}, tsNode.commandTrustFiles...),
 	}, nil
 }
 
@@ -167,7 +186,7 @@ func validateNoCloudBindings(spec NoCloudSeedSpec, guestSeed GuestChannelSeed, g
 		return errors.New("vmimage: ts-node node id does not match the NoCloud instance id")
 	}
 	wantGateway := gateway.String()
-	if spec.TSNode.Config.NATSURL != "nats://"+wantGateway+":4222" {
+	if spec.TSNode.Config.NATSURL != "tls://"+wantGateway+":4222" {
 		return errors.New("vmimage: ts-node NATS endpoint does not match the NoCloud gateway")
 	}
 	if tsNode.hostAddress != wantGateway {

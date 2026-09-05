@@ -4,9 +4,11 @@ package vmqualruntime
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"testing"
 	"time"
 
@@ -17,16 +19,20 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 )
 
-func TestFirecrackerDeliveryCordonUsesEmbeddedNATSAndObservedStatus(t *testing.T) {
-	server := startDeliveryTestNATS(t)
-	services := &qualificationRuntimeServices{nats: server, started: true}
+func TestFirecrackerDeliveryRequiresRegionalAuthorityAndAllowsObservedStatus(t *testing.T) {
+	server, authority := startDeliveryTestNATS(t)
+	services := &qualificationRuntimeServices{nats: server, started: true, natsAuthority: authority}
 	host := "gru-member-1"
 	factory := &firecrackerFactory{
 		active:   map[string]*sandboxVM{host: {id: host, guest: vmqual.Guest{ID: host}}},
 		services: services,
 	}
 
-	connection, err := nats.Connect(server.ClientURL(), nats.NoReconnect())
+	options, err := authority.options(authority.guests[host])
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := nats.Connect(server.ClientURL(), options...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,31 +103,23 @@ func TestFirecrackerDeliveryCordonUsesEmbeddedNATSAndObservedStatus(t *testing.T
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := factory.Cordon(ctx, host, true); err != nil {
-		t.Fatalf("cordon: %v", err)
+	for _, cordoned := range []bool{true, false} {
+		if err := factory.Cordon(ctx, host, cordoned); err == nil || !strings.Contains(err.Error(), "actual regional lease holder") {
+			t.Fatalf("mutation without regional authority = %v", err)
+		}
 	}
 	report, err := factory.DrainStatus(ctx, host)
 	if err != nil {
 		t.Fatalf("drain status: %v", err)
 	}
-	if !report.Cordoned || !report.Drained {
-		t.Fatalf("drain report = %+v", report)
-	}
-	if err := factory.Cordon(ctx, host, false); err != nil {
-		t.Fatalf("uncordon: %v", err)
-	}
-	report, err = factory.DrainStatus(ctx, host)
-	if err != nil {
-		t.Fatalf("released status: %v", err)
-	}
 	if report.Cordoned || report.Drained {
-		t.Fatalf("released report = %+v", report)
+		t.Fatalf("unsigned mutation changed status: %+v", report)
 	}
 
 	mutex.Lock()
 	defer mutex.Unlock()
-	if len(commandIDs) != 6 {
-		t.Fatalf("durable command IDs = %d, want six unique requests", len(commandIDs))
+	if len(commandIDs) != 1 {
+		t.Fatalf("durable command IDs = %d, want one read-only request", len(commandIDs))
 	}
 	for id := range commandIDs {
 		if !strings.HasPrefix(id, "vmq-") {
@@ -204,10 +202,22 @@ func TestDeliveryFactoryRejectsUnownedGuestBeforeNATS(t *testing.T) {
 	}
 }
 
-func startDeliveryTestNATS(t *testing.T) *natsserver.Server {
+func startDeliveryTestNATS(t *testing.T) (*natsserver.Server, *qualificationNATSAuthority) {
 	t.Helper()
+	config := vmnet.DefaultConfig()
+	config.RunID = "0123456789abcdef0123456789abcdef"
+	plan, err := vmnet.Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := newQualificationNATSAuthority(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server, err := natsserver.NewServer(&natsserver.Options{
 		Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true,
+		Nkeys: authority.users, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{authority.server}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: authority.roots},
+		JetStream: true, StoreDir: t.TempDir(), JetStreamMaxMemory: 8 << 20, JetStreamMaxStore: 64 << 20,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +231,7 @@ func startDeliveryTestNATS(t *testing.T) *natsserver.Server {
 	t.Cleanup(func() {
 		server.Shutdown()
 		server.WaitForShutdown()
+		authority.close()
 	})
-	return server
+	return server, authority
 }

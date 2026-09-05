@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
+	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
@@ -335,7 +336,6 @@ type RegionalRuntimeMembership struct {
 	startedAt    time.Time
 	authority    func() authority.RegionalAuthoritySnapshot
 	identity     *RegionalRuntimeMembershipIdentity
-	ownsIdentity bool
 
 	membersMu       sync.Mutex
 	members         map[string]RegionalRuntimeMember
@@ -371,6 +371,7 @@ func RegionalRuntimeMembershipStartAsync(
 	startedAt time.Time,
 	authority func() authority.RegionalAuthoritySnapshot,
 	identity *RegionalRuntimeMembershipIdentity,
+	pins map[string]string,
 ) (*RegionalRuntimeMembership, error) {
 	if ctx == nil {
 		return nil, errors.New("(Parameter 'ctx')")
@@ -394,16 +395,17 @@ func RegionalRuntimeMembershipStartAsync(
 			"Runtime capabilities must be non-empty, unique, and ordinally sorted. (Parameter 'capabilities')")
 	}
 
-	// A supplied identity remains caller-owned; identities generated here are
-	// released when membership is disposed.
-	ownsIdentity := identity == nil
-	if identity == nil {
-		generated, err := RegionalRuntimeMembershipIdentityCreate()
-		if err != nil {
-			return nil, err
+	// Identity and peer pins are explicit admission inputs. Membership never
+	// learns authority from an observed record or creates a replacement key.
+	if len(pins) == 0 || len(pins) > 128 || identity == nil || !validMembershipPublicKey(identity.PublicKey) || pins[topology.Instance] != identity.PublicKey {
+		return nil, errors.New("membership requires an explicit signing identity and matching self pin")
+	}
+	admittedPins := map[string]string{}
+	for instance, public := range pins {
+		if len(instance) > 128 || !shared.MessagingCellTokenIsValid(instance) || !validMembershipPublicKey(public) {
+			return nil, errors.New("membership peer pins are invalid")
 		}
-
-		identity = generated
+		admittedPins["controller."+instance] = public
 	}
 
 	sessionBytes := make([]byte, 16)
@@ -424,10 +426,9 @@ func RegionalRuntimeMembershipStartAsync(
 		startedAt:         startedAt,
 		authority:         authority,
 		identity:          identity,
-		ownsIdentity:      ownsIdentity,
 		members:           map[string]RegionalRuntimeMember{},
 		previousMembers:   map[string]RegionalRuntimeMember{},
-		identityPins:      map[string]string{},
+		identityPins:      admittedPins,
 		stopping:          stopping,
 		stoppingCtx:       stoppingCtx,
 		watchLoopDone:     make(chan struct{}),
@@ -586,9 +587,6 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 	}
 	if !atomic.CompareAndSwapInt32(&m.disposed, 0, 1) {
 		return nil
-	}
-	if m.ownsIdentity && m.identity != nil {
-		defer m.identity.Dispose()
 	}
 
 	if m.stopping != nil {
@@ -823,28 +821,10 @@ func (m *RegionalRuntimeMembership) watchLoop() {
 
 			m.membersMu.Lock()
 			pinnedKey, pinned := m.identityPins[key]
-			if !pinned {
-				m.identityPins[key] = member.IdentityPublicKey
-				pinnedKey = member.IdentityPublicKey
-			}
 			m.membersMu.Unlock()
-
-			if pinnedKey != member.IdentityPublicKey {
-				// Key continuity: a different key is only accepted as a healing
-				// takeover once the previously observed record's lease has
-				// fully lapsed.
-				m.membersMu.Lock()
-				pinnedPrevious, hasPrevious := m.members[key]
-				m.membersMu.Unlock()
-
-				if !hasPrevious || pinnedPrevious.LeaseExpiresAt.After(time.Now().UTC()) {
-					m.rejectMember(key)
-					continue
-				}
-
-				m.membersMu.Lock()
-				m.identityPins[key] = member.IdentityPublicKey
-				m.membersMu.Unlock()
+			if !pinned || pinnedKey != member.IdentityPublicKey {
+				m.rejectMember(key)
+				continue
 			}
 
 			// Stash the outgoing record unconditionally: the snapshot's CURRENT
@@ -876,7 +856,6 @@ func (m *RegionalRuntimeMembership) removeMember(key string) {
 	m.membersMu.Lock()
 	delete(m.members, key)
 	delete(m.previousMembers, key)
-	delete(m.identityPins, key)
 	m.membersMu.Unlock()
 }
 

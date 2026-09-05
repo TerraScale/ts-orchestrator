@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nats-io/nkeys"
+
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
@@ -25,6 +28,11 @@ const (
 	maxTSNodeBinaryBytes        = MaxServiceBinaryBytes
 	maxDesiredManifestBytes     = 64 << 10
 	maxArtifactCACertificate    = 64 << 10
+	tsNodeNATSDirectory         = "/etc/terrascale/ts-node-nats"
+	tsNodeNKeyPath              = tsNodeNATSDirectory + "/user.seed"
+	tsNodeTLSCAPath             = tsNodeNATSDirectory + "/ca.pem"
+	tsNodeTLSCertPath           = tsNodeNATSDirectory + "/client.pem"
+	tsNodeTLSKeyPath            = tsNodeNATSDirectory + "/client.key"
 	tsNodeConfigPath            = "/etc/terrascale/ts-node.json"
 	tsNodeStateDirectory        = "/var/lib/terrascale/ts-node"
 	desiredHostManifestPath     = tsNodeStateDirectory + "/manifest.json"
@@ -45,6 +53,8 @@ const (
 // host agent. Paths and the release key are derived by vmimage and cannot be
 // redirected by a caller.
 type TSNodeConfig struct {
+	AuthorityBucket   string
+	CommandTrustKeys  []TSNodeCommandTrust
 	NodeID            string
 	NATSURL           string
 	HeartbeatInterval time.Duration
@@ -70,59 +80,78 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	script.WriteString("/usr/bin/ln -sfnT " + versionDirectory + " /opt/terrascale/ts-node/current\n")
 	script.WriteString("/usr/bin/systemctl daemon-reload\n")
 	script.WriteString(chronyBootstrapScript())
+	script.WriteString(membershipOwnershipBootstrap())
 	script.WriteString("/usr/bin/systemctl enable --now " + tsnodebootstrap.UnitName + "\n")
 	script.WriteString("/usr/bin/rm -f " + tsNodeBootstrapBinaryPath + " " + tsNodeBootstrapSigPath + " " + tsNodeBootstrapKeyPath + " " + tsNodeBootstrapDigestPath + " " + tsNodeBootstrapManifestPath + " " + tsNodeBootstrapScriptPath + "\n")
 	script.WriteString("/usr/bin/rmdir " + tsNodeBootstrapDirectory + "\n")
 	return script.String()
 }
 
+// TSNodeNATSIdentity holds one admitted guest identity. It is copied into
+// root-only files in the private guest disk, never cloud-init user data.
+type TSNodeNATSIdentity struct {
+	NKeySeed       []byte
+	TLSCA          []byte
+	TLSCertificate []byte
+	TLSPrivateKey  []byte
+}
+
 // TSNodeBootstrap is the only production bootstrap material admitted into a
 // NoCloud seed. Orchestrator and TerraBase remain desired-manifest artifacts
 // fetched and reconciled by the running ts-node.
 type TSNodeBootstrap struct {
-	Version               string
-	Binary                []byte
-	SHA256                string
-	Signature             []byte
-	ReleasePublicKey      ed25519.PublicKey
-	Config                TSNodeConfig
-	DesiredHostManifest   []byte
-	ArtifactCACertificate []byte
-	ArtifactHostAddress   string
+	MembershipIdentityPrivateKey []byte
+	MembershipPins               map[string]string
+	NATSIdentity                 *TSNodeNATSIdentity
+	Version                      string
+	Binary                       []byte
+	SHA256                       string
+	Signature                    []byte
+	ReleasePublicKey             ed25519.PublicKey
+	Config                       TSNodeConfig
+	DesiredHostManifest          []byte
+	ArtifactCACertificate        []byte
+	ArtifactHostAddress          string
 }
 
 type tsNodeBootstrapMaterial struct {
-	version        string
-	digest         string
-	binary         []byte
-	signature      []byte
-	publicKeyPEM   []byte
-	config         []byte
-	launchManifest []byte
-	manifest       []byte
-	ca             []byte
-	hostAddress    string
-	unit           string
-	desired        hostagent.HostManifest
+	commandTrustFiles []NoCloudRootFile
+	membershipPrivate []byte
+	membershipPins    []byte
+	identity          *TSNodeNATSIdentity
+	version           string
+	digest            string
+	binary            []byte
+	signature         []byte
+	publicKeyPEM      []byte
+	config            []byte
+	launchManifest    []byte
+	manifest          []byte
+	ca                []byte
+	hostAddress       string
+	unit              string
+	desired           hostagent.HostManifest
 }
 
 type tsNodeConfigurationFile struct {
-	NodeID                        string `json:"nodeId"`
-	NATSURL                       string `json:"natsUrl"`
-	NATSNKeyFile                  string `json:"natsNkeyFile"`
-	NATSTLSCAFile                 string `json:"natsTlsCaFile"`
-	NATSTLSCertFile               string `json:"natsTlsCertFile"`
-	NATSTLSKeyFile                string `json:"natsTlsKeyFile"`
-	ReleasePublicKey              string `json:"releasePublicKey"`
-	ManifestPath                  string `json:"manifestPath"`
-	InstallRoot                   string `json:"installRoot"`
-	UnitDir                       string `json:"unitDir"`
-	DataVolumeRoot                string `json:"dataVolumeRoot"`
-	ChronycBinary                 string `json:"chronycBinary"`
-	SystemctlBinary               string `json:"systemctlBinary"`
-	UseraddBinary                 string `json:"useraddBinary"`
-	HeartbeatIntervalMilliseconds int64  `json:"heartbeatIntervalMilliseconds"`
-	ReconcileIntervalMilliseconds int64  `json:"reconcileIntervalMilliseconds"`
+	AuthorityBucket               string                   `json:"authorityBucket"`
+	CommandTrustKeys              []tsNodeCommandTrustFile `json:"commandTrustKeys"`
+	NodeID                        string                   `json:"nodeId"`
+	NATSURL                       string                   `json:"natsUrl"`
+	NATSNKeyFile                  string                   `json:"natsNkeyFile"`
+	NATSTLSCAFile                 string                   `json:"natsTlsCaFile"`
+	NATSTLSCertFile               string                   `json:"natsTlsCertFile"`
+	NATSTLSKeyFile                string                   `json:"natsTlsKeyFile"`
+	ReleasePublicKey              string                   `json:"releasePublicKey"`
+	ManifestPath                  string                   `json:"manifestPath"`
+	InstallRoot                   string                   `json:"installRoot"`
+	UnitDir                       string                   `json:"unitDir"`
+	DataVolumeRoot                string                   `json:"dataVolumeRoot"`
+	ChronycBinary                 string                   `json:"chronycBinary"`
+	SystemctlBinary               string                   `json:"systemctlBinary"`
+	UseraddBinary                 string                   `json:"useraddBinary"`
+	HeartbeatIntervalMilliseconds int64                    `json:"heartbeatIntervalMilliseconds"`
+	ReconcileIntervalMilliseconds int64                    `json:"reconcileIntervalMilliseconds"`
 }
 
 func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) (tsNodeBootstrapMaterial, error) {
@@ -145,6 +174,18 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 	if len(input.ReleasePublicKey) != ed25519.PublicKeySize || len(input.Signature) != ed25519.SignatureSize ||
 		!ed25519.Verify(input.ReleasePublicKey, input.Binary, input.Signature) {
 		return tsNodeBootstrapMaterial{}, errors.New("vmimage: ts-node bootstrap signature is invalid")
+	}
+	_, commandFiles, err := canonicalCommandTrust(input.Config)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	memberPrivate, memberPins, err := canonicalMembershipBootstrap(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	identity, err := canonicalTSNodeNATSIdentity(input.NATSIdentity, input.Config.NodeID)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
 	}
 	config, err := canonicalTSNodeConfig(input.Config, input.ReleasePublicKey)
 	if err != nil {
@@ -180,7 +221,8 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		return tsNodeBootstrapMaterial{}, err
 	}
 	return tsNodeBootstrapMaterial{
-		version: input.Version, digest: input.SHA256, binary: append([]byte(nil), input.Binary...),
+		membershipPrivate: memberPrivate, membershipPins: memberPins, commandTrustFiles: commandFiles,
+		identity: identity, version: input.Version, digest: input.SHA256, binary: append([]byte(nil), input.Binary...),
 		signature:    append([]byte(nil), input.Signature...),
 		publicKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyDER}),
 		config:       config, manifest: manifest, ca: ca, hostAddress: hostAddress, unit: unit,
@@ -202,7 +244,7 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 		return nil, errors.New("vmimage: ts-node node id is invalid")
 	}
 	parsed, err := url.Parse(config.NATSURL)
-	if err != nil || parsed.Scheme != "nats" || parsed.Opaque != "" || parsed.User != nil || parsed.Path != "" ||
+	if err != nil || parsed.Scheme != "tls" || parsed.Opaque != "" || parsed.User != nil || parsed.Path != "" ||
 		parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, errors.New("vmimage: ts-node NATS URL must be a canonical private IPv4 endpoint")
 	}
@@ -211,7 +253,7 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 	port, portErr := strconv.Atoi(portText)
 	if err != nil || addressErr != nil || portErr != nil || !address.Is4() || !address.IsPrivate() ||
 		port != 4222 || strconv.Itoa(port) != portText || parsed.Host != address.String()+":"+portText ||
-		config.NATSURL != "nats://"+parsed.Host {
+		config.NATSURL != "tls://"+parsed.Host {
 		return nil, errors.New("vmimage: ts-node NATS URL must be a canonical private IPv4 endpoint")
 	}
 	for _, interval := range []time.Duration{config.HeartbeatInterval, config.ReconcileInterval} {
@@ -219,8 +261,14 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 			return nil, errors.New("vmimage: ts-node intervals must be explicit whole milliseconds between 100ms and 5m")
 		}
 	}
+	trustRefs, _, err := canonicalCommandTrust(config)
+	if err != nil {
+		return nil, err
+	}
 	wire := tsNodeConfigurationFile{
+		AuthorityBucket: config.AuthorityBucket, CommandTrustKeys: trustRefs,
 		NodeID: config.NodeID, NATSURL: config.NATSURL,
+		NATSNKeyFile: tsNodeNKeyPath, NATSTLSCAFile: tsNodeTLSCAPath, NATSTLSCertFile: tsNodeTLSCertPath, NATSTLSKeyFile: tsNodeTLSKeyPath,
 		ReleasePublicKey: hex.EncodeToString(publicKey), ManifestPath: desiredHostManifestPath,
 		InstallRoot: "/opt/terrascale", UnitDir: "/etc/systemd/system", DataVolumeRoot: "/var/lib/terrascale",
 		ChronycBinary: "/usr/bin/chronyc", SystemctlBinary: "/usr/bin/systemctl", UseraddBinary: "/usr/sbin/useradd",
@@ -289,4 +337,65 @@ func canonicalArtifactHostAddress(value string) (string, error) {
 		return "", errors.New("vmimage: artifact host address must be canonical private IPv4")
 	}
 	return value, nil
+}
+
+func canonicalTSNodeNATSIdentity(input *TSNodeNATSIdentity, nodeID string) (*TSNodeNATSIdentity, error) {
+	invalid := func() (*TSNodeNATSIdentity, error) {
+		return nil, errors.New("vmimage: ts-node requires a bounded user NKey and matching trusted guest mTLS identity")
+	}
+	if input == nil {
+		return invalid()
+	}
+	for _, part := range [][]byte{input.NKeySeed, input.TLSCA, input.TLSCertificate, input.TLSPrivateKey} {
+		if len(part) == 0 || len(part) > 64<<10 {
+			return invalid()
+		}
+	}
+	if len(input.NKeySeed) > 4096 {
+		return invalid()
+	}
+	user, err := nkeys.FromSeed(bytes.TrimSpace(input.NKeySeed))
+	if err != nil {
+		return invalid()
+	}
+	defer user.Wipe()
+	public, err := user.PublicKey()
+	if err != nil || !nkeys.IsValidPublicUserKey(public) {
+		return invalid()
+	}
+	pair, err := tls.X509KeyPair(input.TLSCertificate, input.TLSPrivateKey)
+	if err != nil || len(pair.Certificate) == 0 {
+		return invalid()
+	}
+	caBlock, rest := pem.Decode(input.TLSCA)
+	if caBlock == nil || caBlock.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		return invalid()
+	}
+	ca, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil || !ca.IsCA {
+		return invalid()
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil || leaf.IsCA || len(leaf.URIs) != 1 {
+		return invalid()
+	}
+	intermediates := x509.NewCertPool()
+	for _, der := range pair.Certificate[1:] {
+		certificate, err := x509.ParseCertificate(der)
+		if err != nil {
+			return invalid()
+		}
+		intermediates.AddCert(certificate)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return invalid()
+	}
+	uri := leaf.URIs[0]
+	parts := strings.Split(strings.TrimPrefix(uri.Path, "/"), "/")
+	if uri.Scheme != "spiffe" || uri.Host != "vmqual.terrascale.test" || uri.User != nil || uri.RawQuery != "" || uri.Fragment != "" || uri.RawPath != "" || len(parts) != 3 || !namePattern.MatchString(parts[0]) || parts[1] != "ts-node" || parts[2] != nodeID {
+		return invalid()
+	}
+	return &TSNodeNATSIdentity{NKeySeed: append([]byte(nil), input.NKeySeed...), TLSCA: append([]byte(nil), input.TLSCA...), TLSCertificate: append([]byte(nil), input.TLSCertificate...), TLSPrivateKey: append([]byte(nil), input.TLSPrivateKey...)}, nil
 }

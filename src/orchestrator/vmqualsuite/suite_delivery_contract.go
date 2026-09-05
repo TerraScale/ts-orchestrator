@@ -37,6 +37,7 @@ var deliveryContractHosts = map[string][]string{
 // DeliveryContractConfig binds the in-process production delivery contracts
 // to the persistent local providers and the real guest control surface.
 type DeliveryContractConfig struct {
+	Authority func(context.Context, *delivery.Request) error
 	StateRoot string
 	Endpoints *LocalProviderEndpoints
 	Guest     vmqual.DeliveryGuestControl
@@ -96,6 +97,9 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 	}
 	if config.Guest == nil {
 		return result, errors.New("vmqual: delivery contract requires a guest-backed ts-node control")
+	}
+	if config.Authority == nil {
+		return result, errors.New("vmqual: delivery requires a live control authority callback")
 	}
 	if err := validateDeliveryContractProviders(config); err != nil {
 		return result, err
@@ -180,13 +184,16 @@ func RunDeliveryContract(ctx context.Context, config DeliveryContractConfig) (De
 
 	fetcher := &deliveryContractFetcher{artifacts: make(map[string]deliveryContractFetch)}
 	server, err := delivery.NewServer(delivery.ServerConfig{
-		OwnerID: "vmqual-delivery-contract",
-		Token:   func() (string, error) { return vmqual.DeliveryContractToken, nil },
-		Fetcher: fetcher,
-		Trust:   func() *delivery.TrustSet { return release.trust },
-		Mirror:  mirror,
-		Rollout: rollout,
-		Journal: journal,
+		Authority: config.Authority,
+		// This is the GRU-owned preparation contract; regional executors verify mirrors.
+		MirrorMode: delivery.MirrorModePrepareAll,
+		OwnerID:    "vmqual-delivery-contract",
+		Token:      func() (string, error) { return vmqual.DeliveryContractToken, nil },
+		Fetcher:    fetcher,
+		Trust:      func() *delivery.TrustSet { return release.trust },
+		Mirror:     mirror,
+		Rollout:    rollout,
+		Journal:    journal,
 	})
 	if err != nil {
 		return result, fmt.Errorf("vmqual: build production delivery server: %w", err)

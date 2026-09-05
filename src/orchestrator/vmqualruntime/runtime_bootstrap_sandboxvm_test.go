@@ -46,10 +46,10 @@ func TestInitialActivationRefusesForeignOrUninstalledState(t *testing.T) {
 	}
 }
 
-func TestInitialActivationUsesPerComponentDrainAndResumes(t *testing.T) {
-	server := startDeliveryTestNATS(t)
+func TestInitialActivationRequiresActualCommandAuthorityBeforeMutation(t *testing.T) {
+	server, authority := startDeliveryTestNATS(t)
 	host := "gru-member-1"
-	factory := &firecrackerFactory{active: map[string]*sandboxVM{host: {id: host, guest: vmqual.Guest{ID: host}}}, services: &qualificationRuntimeServices{nats: server, started: true}}
+	factory := &firecrackerFactory{active: map[string]*sandboxVM{host: {id: host, guest: vmqual.Guest{ID: host}}}, services: &qualificationRuntimeServices{nats: server, started: true, natsAuthority: authority}}
 	data, err := desiredHostManifest([]guestArtifactInput{
 		{manifest: vmimage.GuestArtifact{Component: "orchestrator", Version: "1.0.0", SHA256: strings.Repeat("a", 64)}},
 		{manifest: vmimage.GuestArtifact{Component: "terrabase", Version: "2.0.0", SHA256: strings.Repeat("b", 64)}},
@@ -62,7 +62,11 @@ func TestInitialActivationUsesPerComponentDrainAndResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	digest, _ := hostagent.HostManifestSha256(manifest)
-	connection, err := nats.Connect(server.ClientURL(), nats.NoReconnect())
+	options, err := authority.options(authority.guests[host])
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := nats.Connect(server.ClientURL(), options...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +76,7 @@ func TestInitialActivationUsesPerComponentDrainAndResumes(t *testing.T) {
 	drainSubject, _ := hostagent.NodeDrainSubject(node)
 	deploySubject, _ := hostagent.NodeDeploySubject(node)
 	var mu sync.Mutex
-	draining, active := false, false
-	current := map[string]string{}
-	deployed, drains := 0, 0
+	mutations, observations := 0, 0
 	for _, subject := range []string{statusSubject, drainSubject, deploySubject} {
 		subject := subject
 		_, err := connection.Subscribe(subject, func(message *nats.Msg) {
@@ -85,34 +87,15 @@ func TestInitialActivationUsesPerComponentDrainAndResumes(t *testing.T) {
 			case statusSubject:
 				var request hostagent.NodeStatusRequest
 				_ = json.Unmarshal(message.Data, &request)
-				state := hostagent.NodeStateServing
-				if draining {
-					state = hostagent.NodeStateDraining
-				}
-				facts := hostagent.HostFacts{State: state, ManifestSha256: digest, Components: []hostagent.ComponentFact{}}
+				observations++
+				facts := hostagent.HostFacts{State: hostagent.NodeStateServing, ManifestSha256: digest, Components: []hostagent.ComponentFact{}}
 				for _, spec := range manifest.Components {
-					facts.Components = append(facts.Components, hostagent.ComponentFact{Name: spec.Name, Desired: spec.Version, Version: current[spec.Name], Installed: true, UnitActive: active})
+					facts.Components = append(facts.Components, hostagent.ComponentFact{Name: spec.Name, Desired: spec.Version, Installed: true})
 				}
-				reply = hostagent.NodeStatusReport{CommandId: request.CommandId, NodeId: host, State: state, Quiesced: draining && !active, Facts: facts}
-			case drainSubject:
-				var command hostagent.DrainCommand
-				_ = json.Unmarshal(message.Data, &command)
-				draining = command.Drain
-				active = !draining
-				if draining {
-					drains++
-				}
-				reply = hostagent.DrainReceipt{CommandId: command.CommandId, NodeId: host, Draining: draining, Quiesced: draining, Detail: "observed"}
-			case deploySubject:
-				var command hostagent.DeployCommand
-				_ = json.Unmarshal(message.Data, &command)
-				accepted := draining && !active
-				if accepted {
-					current[command.Component] = command.Version
-					active = true
-					deployed++
-				}
-				reply = hostagent.DeployReceipt{CommandId: command.CommandId, NodeId: host, Accepted: accepted, Current: current[command.Component], Detail: "observed"}
+				reply = hostagent.NodeStatusReport{CommandId: request.CommandId, NodeId: host, State: hostagent.NodeStateServing, Facts: facts}
+			case drainSubject, deploySubject:
+				mutations++
+				return
 			}
 			encoded, _ := json.Marshal(reply)
 			_ = message.Respond(encoded)
@@ -126,15 +109,14 @@ func TestInitialActivationUsesPerComponentDrainAndResumes(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := factory.activateAdmittedGuest(ctx, host, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if err := factory.activateAdmittedGuest(ctx, host, manifest); err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := factory.activateAdmittedGuest(ctx, host, manifest); err == nil || !strings.Contains(err.Error(), "actual regional lease holder") {
+			t.Fatalf("activation without bootstrap authority = %v", err)
+		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if deployed != 2 || drains != 2 {
-		t.Fatalf("deploys=%d drains=%d", deployed, drains)
+	if mutations != 0 || observations != 2 {
+		t.Fatalf("mutations=%d observations=%d; want zero mutations and two status observations", mutations, observations)
 	}
 }

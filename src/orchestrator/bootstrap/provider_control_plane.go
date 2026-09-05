@@ -84,6 +84,7 @@ type ControlRegionBinding struct {
 // and the canonical Cloudflare client. OCI transports must be signed, bound to
 // the Region's canonical HTTPS authority, and use the core service.
 type ProductionControlPlaneProviderConfig struct {
+	Runtime    ControlRuntime
 	Regions    []ControlRegionBinding
 	OCI        map[string]*provider.OCIHTTPTransport
 	Cloudflare *cloudflare.Client
@@ -93,6 +94,7 @@ type ProductionControlPlaneProviderConfig struct {
 // provider URLs. Every URL must be an absolute loopback HTTP(S) URL with an
 // explicit port and no path, query, userinfo, or fragment.
 type LocalControlPlaneProviderConfig struct {
+	Runtime             ControlRuntime
 	Regions             []ControlRegionBinding
 	OCIBaseURLs         map[string]string
 	CloudflareBaseURL   string
@@ -221,6 +223,7 @@ type controlRegion struct {
 // Cloudflare HTTP clients. Calls are serialized within the process; OCI ETags
 // fence concurrent writers outside it.
 type ProviderControlPlane struct {
+	runtime    ControlRuntime
 	mu         sync.Mutex
 	regions    map[string]controlRegion
 	cloudflare *cloudflare.Client
@@ -233,7 +236,7 @@ var _ ControlPlaneProvider = (*ProviderControlPlane)(nil)
 // at non-canonical authorities. Local qualification must use the separate
 // local constructor below.
 func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConfig) (*ProviderControlPlane, error) {
-	if !validProductionCloudflareClient(config.Cloudflare) {
+	if config.Runtime == nil || !validProductionCloudflareClient(config.Cloudflare) {
 		return nil, ErrControlProviderInvalid
 	}
 	regions, err := normalizeControlRegions(config.Regions)
@@ -256,7 +259,7 @@ func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConf
 	}
 	cf := cloudflare.NewClient(config.Cloudflare.Token, config.Cloudflare.ZoneID, config.Cloudflare.AccountID)
 	cf.HTTP = config.Cloudflare.HTTP
-	return &ProviderControlPlane{regions: bound, cloudflare: cf, now: time.Now}, nil
+	return &ProviderControlPlane{runtime: config.Runtime, regions: bound, cloudflare: cf, now: time.Now}, nil
 }
 
 // NewLocalControlPlaneProvider builds a provider for the loopback HTTP
@@ -264,7 +267,7 @@ func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConf
 // URLs even if the supplied HTTP client could reach them.
 func NewLocalControlPlaneProvider(config LocalControlPlaneProviderConfig) (*ProviderControlPlane, error) {
 	regions, err := normalizeControlRegions(config.Regions)
-	if err != nil || len(config.OCIBaseURLs) != len(regions) || config.HTTPClient == nil || config.HTTPClient.Timeout <= 0 ||
+	if config.Runtime == nil || err != nil || len(config.OCIBaseURLs) != len(regions) || config.HTTPClient == nil || config.HTTPClient.Timeout <= 0 ||
 		strings.TrimSpace(config.CloudflareZoneID) == "" || strings.TrimSpace(config.CloudflareAccountID) == "" {
 		return nil, ErrControlProviderInvalid
 	}
@@ -287,7 +290,7 @@ func NewLocalControlPlaneProvider(config LocalControlPlaneProviderConfig) (*Prov
 	if client.Transport != nil {
 		cf.HTTP = client.Transport
 	}
-	return &ProviderControlPlane{regions: bound, cloudflare: cf, now: time.Now}, nil
+	return &ProviderControlPlane{runtime: config.Runtime, regions: bound, cloudflare: cf, now: time.Now}, nil
 }
 
 func validProductionCloudflareClient(client *cloudflare.Client) bool {
@@ -431,6 +434,7 @@ type controlInstance struct {
 	local          bool
 	region         string
 	memberIndex    int
+	runtimeActive  bool
 }
 
 func (p *ProviderControlPlane) readInstance(ctx context.Context, region controlRegion, memberID string, index int) (controlInstance, error) {
@@ -477,6 +481,13 @@ func readControlBody(response *http.Response, limit int64) ([]byte, error) {
 }
 
 func (p *ProviderControlPlane) readAllLocked(ctx context.Context) ([]controlInstance, error) {
+	if p.runtime == nil {
+		return nil, ErrControlRuntimeUnavailable
+	}
+	live, err := p.runtime.Observe(ctx)
+	if err != nil {
+		return nil, err
+	}
 	codes := p.regionCodes()
 	instances := make([]controlInstance, 0)
 	for _, code := range codes {
@@ -486,6 +497,7 @@ func (p *ProviderControlPlane) readAllLocked(ctx context.Context) ([]controlInst
 			if err != nil {
 				return nil, err
 			}
+			instance.runtimeActive = live[memberID]
 			instances = append(instances, instance)
 		}
 	}
@@ -502,7 +514,7 @@ func (p *ProviderControlPlane) regionCodes() []string {
 }
 
 func activeMemberLifecycle(instance controlInstance) bool {
-	return instance.LifecycleState == "RUNNING" || (instance.local && instance.LifecycleState == "AVAILABLE")
+	return instance.runtimeActive && (instance.LifecycleState == "RUNNING" || (instance.local && instance.LifecycleState == "AVAILABLE"))
 }
 
 func parseUintTag(tags map[string]string, name string) (uint64, error) {
@@ -770,7 +782,8 @@ func (p *ProviderControlPlane) addMissingGlobalReplicas(observation *ControlObse
 }
 
 // ObserveControl reads every configured expected member and the Cloudflare
-// Worker-health document. OCI is authoritative for state and quorum.
+// Worker-health document. Runtime readback, not OCI lifecycle tags, proves
+// that an expected control process is active.
 func (p *ProviderControlPlane) ObserveControl(ctx context.Context) (ControlObservation, error) {
 	if p == nil || ctx == nil {
 		return ControlObservation{}, ErrControlProviderUnavailable
@@ -979,7 +992,7 @@ func (p *ProviderControlPlane) actionTargets(kind ControlActionKind, region stri
 	}
 }
 
-type tagMutation func(map[string]string, controlInstance, uint64, []controlInstance) error
+type tagMutation func(map[string]string, controlInstance, uint64, []controlInstance, ControlRuntimeEvidence) error
 
 func (p *ProviderControlPlane) mutate(ctx context.Context, request ControlActionRequest, kind ControlActionKind, change tagMutation) (ControlReceipt, error) {
 	if p == nil {
@@ -988,12 +1001,17 @@ func (p *ProviderControlPlane) mutate(ctx context.Context, request ControlAction
 	if err := validateProviderAction(ctx, request, kind); err != nil {
 		return ControlReceipt{}, err
 	}
+	if p.runtime == nil {
+		return ControlReceipt{}, ErrControlRuntimeUnavailable
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	targets, err := p.actionTargets(kind, request.Action.Region)
 	if err != nil {
 		return ControlReceipt{}, err
 	}
+	var evidence ControlRuntimeEvidence
+	runtimeExecuted := false
 	for attempt := 0; attempt < controlProviderMaxAttempts; attempt++ {
 		instances, readErr := p.readAllLocked(ctx)
 		if readErr != nil {
@@ -1018,6 +1036,31 @@ func (p *ProviderControlPlane) mutate(ctx context.Context, request ControlAction
 		if request.Action.TargetEpoch < maxEpoch {
 			return ControlReceipt{}, ErrControlEpochRegression
 		}
+		for _, target := range targets {
+			instance := byMember[p.regions[target.region].binding.MemberIDs[target.index]]
+			if instance.missing {
+				return ControlReceipt{}, ErrControlProviderUnavailable
+			}
+			if instance.FreeformTags[controlTagActionKey] == request.Action.IdempotencyKey && (instance.FreeformTags[controlTagActionKind] != string(kind) || instance.FreeformTags[controlTagPlan] != request.PlanFingerprint) {
+				return ControlReceipt{}, ErrControlProviderInvalid
+			}
+		}
+		if !runtimeExecuted {
+			evidence, err = p.runtime.Execute(ctx, request)
+			if err != nil {
+				return ControlReceipt{}, err
+			}
+			if err := evidence.validate(time.Now().UTC()); err != nil {
+				return ControlReceipt{}, err
+			}
+			runtimeExecuted = true
+			// Execution can start or replace processes. Re-read actual liveness
+			// before evaluating the transition's postconditions and recording it.
+			continue
+		}
+		if err := evidence.validate(time.Now().UTC()); err != nil {
+			return ControlReceipt{}, err
+		}
 		sequence := maxSequence + 1
 		complete := true
 		for _, target := range targets {
@@ -1034,7 +1077,7 @@ func (p *ProviderControlPlane) mutate(ctx context.Context, request ControlAction
 			}
 			complete = false
 			tags := cloneControlTags(instance.FreeformTags)
-			if err := change(tags, instance, sequence, instances); err != nil {
+			if err := change(tags, instance, sequence, instances, evidence); err != nil {
 				return ControlReceipt{}, err
 			}
 			tags[controlTagActionKey] = request.Action.IdempotencyKey
@@ -1111,11 +1154,6 @@ func setControlBase(tags map[string]string, role, authority string, epoch uint64
 	delete(tags, controlTagPendingEpoch)
 }
 
-func digestControlEvidence(kind, region string, instance controlInstance, epoch uint64) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{"terrascale-control-v1", kind, region, instance.ID, instance.CompartmentID, strconv.FormatUint(epoch, 10)}, "\x00")))
-	return hex.EncodeToString(sum[:])
-}
-
 func copyCandidateTags(target map[string]string, source map[string]string, region string) error {
 	for _, suffix := range []string{controlCandidateIdentity, controlCandidateStorage, controlCandidateHealth, controlCandidateState,
 		controlCandidateStartSeq, controlCandidateSyncSeq, controlCandidateVerifySeq} {
@@ -1144,7 +1182,7 @@ func candidateSource(instances []controlInstance, region string) (controlInstanc
 }
 
 func (p *ProviderControlPlane) StartTemporaryR1(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionStartTemporaryR1, func(tags map[string]string, instance controlInstance, _ uint64, _ []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionStartTemporaryR1, func(tags map[string]string, instance controlInstance, _ uint64, _ []controlInstance, evidence ControlRuntimeEvidence) error {
 		if request.State.normalize().Phase != ControlPhaseEmpty || request.Action.TargetEpoch != 1 || tags[controlTagRole] != "" {
 			return ErrControlInvalid
 		}
@@ -1155,7 +1193,7 @@ func (p *ProviderControlPlane) StartTemporaryR1(ctx context.Context, request Con
 }
 
 func (p *ProviderControlPlane) FenceTemporaryR1(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionFenceR1, func(tags map[string]string, _ controlInstance, _ uint64, _ []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionFenceR1, func(tags map[string]string, _ controlInstance, _ uint64, _ []controlInstance, evidence ControlRuntimeEvidence) error {
 		if tags[controlTagRole] != controlRoleTemporaryStart || tags[controlTagPendingEpoch] != "1" || request.Action.TargetEpoch != 1 {
 			return ErrControlInvalid
 		}
@@ -1165,7 +1203,7 @@ func (p *ProviderControlPlane) FenceTemporaryR1(ctx context.Context, request Con
 }
 
 func (p *ProviderControlPlane) StartCandidate(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionStartCandidate, func(tags map[string]string, instance controlInstance, sequence uint64, instances []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionStartCandidate, func(tags map[string]string, instance controlInstance, sequence uint64, instances []controlInstance, evidence ControlRuntimeEvidence) error {
 		phase := request.State.normalize().Phase
 		if phase != ControlPhaseR1 && phase != ControlPhasePromoting {
 			return ErrControlInvalid
@@ -1175,7 +1213,7 @@ func (p *ProviderControlPlane) StartCandidate(ctx context.Context, request Contr
 		}
 		setControlBase(tags, controlRoleCandidate, controlAuthorityBootstrap, request.Action.ExpectedEpoch, false)
 		region := request.Action.Region
-		tags[controlCandidateTag(region, controlCandidateIdentity)] = digestControlEvidence("identity", region, instance, request.Action.ExpectedEpoch)
+		tags[controlCandidateTag(region, controlCandidateIdentity)] = evidence.IdentityDigest
 		tags[controlCandidateTag(region, controlCandidateState)] = controlCandidateStarted
 		tags[controlCandidateTag(region, controlCandidateStartSeq)] = strconv.FormatUint(sequence, 10)
 		return nil
@@ -1195,14 +1233,14 @@ func providerHasTemporaryR1(instances []controlInstance, epoch uint64) bool {
 }
 
 func (p *ProviderControlPlane) SyncCandidate(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionSyncCandidate, func(tags map[string]string, instance controlInstance, sequence uint64, _ []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionSyncCandidate, func(tags map[string]string, instance controlInstance, sequence uint64, _ []controlInstance, evidence ControlRuntimeEvidence) error {
 		region := request.Action.Region
 		if tags[controlTagRole] != controlRoleCandidate || tags[controlCandidateTag(region, controlCandidateState)] != controlCandidateStarted ||
 			tags[controlCandidateTag(region, controlCandidateIdentity)] == "" || !activeMemberLifecycle(instance) {
 			return ErrControlInvalid
 		}
-		tags[controlCandidateTag(region, controlCandidateStorage)] = digestControlEvidence("storage", region, instance, request.Action.ExpectedEpoch)
-		tags[controlCandidateTag(region, controlCandidateHealth)] = digestControlEvidence("health", region, instance, request.Action.ExpectedEpoch)
+		tags[controlCandidateTag(region, controlCandidateStorage)] = evidence.StorageDigest
+		tags[controlCandidateTag(region, controlCandidateHealth)] = evidence.HealthDigest
 		tags[controlCandidateTag(region, controlCandidateState)] = controlCandidateSynced
 		tags[controlCandidateTag(region, controlCandidateSyncSeq)] = strconv.FormatUint(sequence, 10)
 		return nil
@@ -1210,7 +1248,7 @@ func (p *ProviderControlPlane) SyncCandidate(ctx context.Context, request Contro
 }
 
 func (p *ProviderControlPlane) VerifyCandidate(ctx context.Context, request ControlActionRequest) (CandidateEvidence, error) {
-	receipt, err := p.mutate(ctx, request, ControlActionVerifyCandidate, func(tags map[string]string, _ controlInstance, sequence uint64, _ []controlInstance) error {
+	receipt, err := p.mutate(ctx, request, ControlActionVerifyCandidate, func(tags map[string]string, _ controlInstance, sequence uint64, _ []controlInstance, evidence ControlRuntimeEvidence) error {
 		candidate, exists, parseErr := candidateFromTags(tags, request.Action.Region)
 		if parseErr != nil || !exists || !candidate.Evidence.Ready() {
 			return ErrControlPromotionNotReady
@@ -1236,7 +1274,7 @@ func (p *ProviderControlPlane) VerifyCandidate(ctx context.Context, request Cont
 }
 
 func (p *ProviderControlPlane) PromoteGlobalR3(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionPromoteR3, func(tags map[string]string, _ controlInstance, sequence uint64, instances []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionPromoteR3, func(tags map[string]string, _ controlInstance, sequence uint64, instances []controlInstance, evidence ControlRuntimeEvidence) error {
 		if request.Action.TargetEpoch != request.Action.ExpectedEpoch+1 {
 			return ErrControlInvalid
 		}
@@ -1256,7 +1294,7 @@ func (p *ProviderControlPlane) PromoteGlobalR3(ctx context.Context, request Cont
 }
 
 func (p *ProviderControlPlane) VerifyGlobalR3(ctx context.Context, request ControlActionRequest) error {
-	_, err := p.mutate(ctx, request, ControlActionVerifyQuorum, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance) error {
+	_, err := p.mutate(ctx, request, ControlActionVerifyQuorum, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance, evidence ControlRuntimeEvidence) error {
 		active := 0
 		for _, instance := range instances {
 			if instance.memberIndex != 0 || instance.missing || instance.FreeformTags[controlTagRole] != controlRoleGlobal ||
@@ -1281,7 +1319,7 @@ func (p *ProviderControlPlane) VerifyGlobalR3(ctx context.Context, request Contr
 }
 
 func (p *ProviderControlPlane) RevokeBootstrapAuthority(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionRevokeBootstrap, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionRevokeBootstrap, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance, evidence ControlRuntimeEvidence) error {
 		verified := 0
 		for _, instance := range instances {
 			if instance.memberIndex == 0 && !instance.missing && instance.FreeformTags[controlTagRole] == controlRoleGlobal &&
@@ -1298,7 +1336,7 @@ func (p *ProviderControlPlane) RevokeBootstrapAuthority(ctx context.Context, req
 }
 
 func (p *ProviderControlPlane) RemoteManageRegion(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionRemoteManage, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionRemoteManage, func(tags map[string]string, _ controlInstance, _ uint64, instances []controlInstance, evidence ControlRuntimeEvidence) error {
 		if !providerHasPermanentQuorum(instances, request.Action.ExpectedEpoch) {
 			return ErrControlQuorumNotVerified
 		}
@@ -1325,7 +1363,7 @@ func providerHasPermanentQuorum(instances []controlInstance, epoch uint64) bool 
 }
 
 func (p *ProviderControlPlane) StartRegionalR3(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
-	return p.mutate(ctx, request, ControlActionStartRegionalR3, func(tags map[string]string, instance controlInstance, _ uint64, _ []controlInstance) error {
+	return p.mutate(ctx, request, ControlActionStartRegionalR3, func(tags map[string]string, instance controlInstance, _ uint64, _ []controlInstance, evidence ControlRuntimeEvidence) error {
 		if !activeMemberLifecycle(instance) || request.Action.TargetEpoch <= request.Action.ExpectedEpoch {
 			return ErrControlInvalid
 		}

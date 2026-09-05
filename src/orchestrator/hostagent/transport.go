@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 const (
@@ -256,6 +258,7 @@ func decodeRollbackCommand(data []byte) (RollbackCommand, error) {
 
 // NatsTransportConfig is the fully explicit transport configuration.
 type NatsTransportConfig struct {
+	CommandAuthority nodeauthority.CommandAuthorizer
 	// NodeId identifies the node whose subjects the transport serves.
 	NodeId NodeId
 	// Connection is the NATS connection seam the transport uses.
@@ -283,6 +286,8 @@ type NatsTransportConfig struct {
 // drain, drain-status, deploy, and rollback requests through the lifecycle
 // and publishes heartbeats on the injected clock's cadence.
 type NatsTransport struct {
+	authorizer      nodeauthority.CommandAuthorizer
+	epochs          *nodeauthority.EpochStore
 	nodeId          NodeId
 	connection      NatsConnection
 	lifecycle       *Lifecycle
@@ -308,6 +313,9 @@ type NatsTransport struct {
 
 // NewNatsTransport validates the configuration and composes the transport.
 func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
+	if config.CommandAuthority == nil {
+		return nil, errors.New("hostagent: receiver command authority is required")
+	}
 	nodeId, err := NewNodeId(config.NodeId.Value)
 	if err != nil {
 		return nil, err
@@ -348,6 +356,7 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		return nil, err
 	}
 	return &NatsTransport{
+		authorizer:      config.CommandAuthority,
 		nodeId:          nodeId,
 		connection:      config.Connection,
 		lifecycle:       config.Lifecycle,
@@ -389,24 +398,34 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 	if err := t.journal.initialize(); err != nil {
 		return err
 	}
+	var epochErr error
+	t.epochs, epochErr = nodeauthority.NewEpochStore(t.journal.dir, t.nodeId.Value)
+	if epochErr != nil {
+		return epochErr
+	}
+	// Pending mutations require a fresh signed reissue after restart; they
+	// cannot be resumed from an expired or superseded controller's intent.
+	acquired := true
+	defer func() {
+		if acquired {
+			_ = t.epochs.Close()
+		}
+	}()
 	if err := t.prepareLifecycleForStartup(); err != nil {
 		return err
 	}
 	if err := t.restoreDurableDrain(ctx); err != nil {
 		return err
 	}
-	if err := t.recoverPending(ctx); err != nil {
-		return err
-	}
 	subscriptions := []struct {
 		subject func(NodeId) (string, error)
 		handler func(*nats.Msg)
 	}{
-		{NodeDrainSubject, t.handleDrain},
+		{NodeDrainSubject, t.authorizedHandler(t.handleDrain)},
 		{NodeDrainStatusSubject, t.handleDrainStatus},
-		{NodeDeploySubject, t.handleDeploy},
-		{NodeRollbackSubject, t.handleRollback},
-		{NodeApplyManifestSubject, t.handleApplyManifest},
+		{NodeDeploySubject, t.authorizedHandler(t.handleDeploy)},
+		{NodeRollbackSubject, t.authorizedHandler(t.handleRollback)},
+		{NodeApplyManifestSubject, t.authorizedHandler(t.handleApplyManifest)},
 	}
 	for _, entry := range subscriptions {
 		subject, err := entry.subject(t.nodeId)
@@ -433,6 +452,7 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 		t.unsubscribeAll()
 		return err
 	}
+	acquired = false
 	t.started = true
 	go t.heartbeatLoop(ctx)
 	return nil
@@ -477,6 +497,11 @@ func (t *NatsTransport) Close() error {
 				_ = subscription.Drain()
 			}
 		}
+		t.commandMutex.Lock()
+		if t.epochs != nil {
+			t.closeErr = errors.Join(t.closeErr, t.epochs.Close())
+		}
+		t.commandMutex.Unlock()
 		if t.closeConnection {
 			if err := t.connection.Drain(); err != nil {
 				t.closeErr = err
@@ -550,7 +575,7 @@ func (t *NatsTransport) handleDrainStatus(message *nats.Msg) {
 			t.respond(message, record.Response)
 			return
 		}
-		t.finishJournalRecord(message, record)
+		t.finishJournalRecord(t.context(), message, record)
 		return
 	}
 	response, err := t.statusResponse(request)
@@ -600,6 +625,12 @@ func (t *NatsTransport) handleRecordedCommand(message *nats.Msg, kind, commandId
 	}
 	t.commandMutex.Lock()
 	defer t.commandMutex.Unlock()
+	commandContext, cancel, authorityErr := t.authorizeLocked(message)
+	if authorityErr != nil {
+		t.replyEnvelopeError(message, authorityErr)
+		return
+	}
+	defer cancel()
 	record, found, err := t.journal.find(kind, commandId, request)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
@@ -616,7 +647,7 @@ func (t *NatsTransport) handleRecordedCommand(message *nats.Msg, kind, commandId
 			return
 		}
 	}
-	response, err := t.executeJournalRecord(record)
+	response, err := t.executeJournalRecord(commandContext, record)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
@@ -636,6 +667,12 @@ func (t *NatsTransport) handleTransitionCommand(message *nats.Msg, kind, command
 	}
 	t.commandMutex.Lock()
 	defer t.commandMutex.Unlock()
+	commandContext, cancel, authorityErr := t.authorizeLocked(message)
+	if authorityErr != nil {
+		t.replyEnvelopeError(message, authorityErr)
+		return
+	}
+	defer cancel()
 	record, found, err := t.journal.find(kind, commandId, request)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
@@ -646,10 +683,10 @@ func (t *NatsTransport) handleTransitionCommand(message *nats.Msg, kind, command
 			t.respond(message, record.Response)
 			return
 		}
-		t.finishJournalRecord(message, record)
+		t.finishJournalRecord(commandContext, message, record)
 		return
 	}
-	ctx := t.context()
+	ctx := commandContext
 	if ctx == nil {
 		t.replyEnvelopeError(message, &InvalidOperationError{Message: "The transport is not serving commands."})
 		return
@@ -674,11 +711,11 @@ func (t *NatsTransport) handleTransitionCommand(message *nats.Msg, kind, command
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.finishJournalRecord(message, record)
+	t.finishJournalRecord(commandContext, message, record)
 }
 
-func (t *NatsTransport) finishJournalRecord(message *nats.Msg, record commandJournalRecord) {
-	response, err := t.executeJournalRecord(record)
+func (t *NatsTransport) finishJournalRecord(ctx context.Context, message *nats.Msg, record commandJournalRecord) {
+	response, err := t.executeJournalRecord(ctx, record)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
@@ -690,8 +727,7 @@ func (t *NatsTransport) finishJournalRecord(message *nats.Msg, record commandJou
 	t.respond(message, response)
 }
 
-func (t *NatsTransport) executeJournalRecord(record commandJournalRecord) ([]byte, error) {
-	ctx := t.context()
+func (t *NatsTransport) executeJournalRecord(ctx context.Context, record commandJournalRecord) ([]byte, error) {
 	if ctx == nil {
 		return nil, &InvalidOperationError{Message: "The transport is not serving commands."}
 	}
@@ -892,23 +928,6 @@ func writeDurableManifest(path string, data []byte) error {
 		return err
 	}
 	return syncDir(dir)
-}
-
-func (t *NatsTransport) recoverPending(ctx context.Context) error {
-	records, err := t.journal.pending()
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
-		response, err := t.executeJournalRecord(record)
-		if err != nil {
-			return err
-		}
-		if err := t.journal.complete(record, response); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // prepareLifecycleForStartup restores the durable mode flag before manifest

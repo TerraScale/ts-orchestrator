@@ -20,7 +20,8 @@ var (
 )
 
 // ControlContractCall is one state-machine call observed at the provider
-// boundary. Applied is false when an idempotency key repeated an earlier call.
+// boundary. Applied is a modeled fixture mutation flag; runtime-backed calls
+// record fresh proof receipt without claiming an underlying mutation count.
 type ControlContractCall struct {
 	Sequence      uint64
 	Kind          bootstrap.ControlActionKind
@@ -86,8 +87,8 @@ type ControlRemoteRegionProof struct {
 }
 
 // ControlContract is portable unit-test support for the public bootstrap
-// state machine. Tagged Firecracker qualification uses the production control
-// provider instead of this deterministic provider.
+// state machine. It is selected explicitly by unit tests; VM qualification
+// instead resolves the factory's authenticated guest control runtime.
 type ControlContract struct {
 	mu          sync.Mutex
 	journalRoot string

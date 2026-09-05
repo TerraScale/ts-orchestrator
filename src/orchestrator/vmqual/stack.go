@@ -398,7 +398,7 @@ func (s *Stack) initializeRun(ctx context.Context) error {
 			return fmt.Errorf("vmqual: journal network apply: %w", err)
 		}
 	}
-	if err := s.config.Network.Apply(runCtx); err != nil {
+	if err := s.config.Network.Apply(s.fixtureStoreContext(runCtx)); err != nil {
 		cleanupErr := s.cleanupAfterFailure()
 		return errors.Join(fmt.Errorf("vmqual: apply network: %w", err), cleanupErr)
 	}
@@ -677,7 +677,7 @@ func (s *Stack) cleanup(cleanCtx context.Context) error {
 		journal.Phase = journalPhaseCleaning
 		return nil
 	})
-	netErr := s.config.Network.Cleanup(cleanCtx)
+	netErr := errors.Join(s.config.Network.Cleanup(cleanCtx), s.verifyFixtureStoreRemoved())
 	var networkVerifyErr error
 	if verifier, ok := s.config.Network.(interface {
 		VerifyNoOwnedResources(context.Context) error
@@ -763,21 +763,22 @@ func (s *Stack) RunID() string {
 // Journal is written before stack mutation. Every destructive target is bound
 // to one run UUID; cleanup never searches for arbitrary Firecracker processes.
 type Journal struct {
-	Version        int               `json:"version"`
-	Marker         string            `json:"marker"`
-	RunID          string            `json:"runId"`
-	Revision       uint64            `json:"revision"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
-	StateRoot      string            `json:"stateRoot"`
-	ResourceRoot   string            `json:"resourceRoot,omitempty"`
-	DiskStore      *JournalDiskStore `json:"diskStore,omitempty"`
-	RunMarkerPath  string            `json:"runMarkerPath"`
-	Phase          string            `json:"phase"`
-	VMs            []JournalVM       `json:"vms"`
-	Network        vmnet.Journal     `json:"network"`
-	NetworkPhase   string            `json:"networkPhase"`
-	NetworkCleaned bool              `json:"networkCleaned"`
+	Version          int               `json:"version"`
+	Marker           string            `json:"marker"`
+	RunID            string            `json:"runId"`
+	Revision         uint64            `json:"revision"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+	StateRoot        string            `json:"stateRoot"`
+	ResourceRoot     string            `json:"resourceRoot,omitempty"`
+	DiskStore        *JournalDiskStore `json:"diskStore,omitempty"`
+	NATSFixtureStore string            `json:"natsFixtureStore,omitempty"`
+	RunMarkerPath    string            `json:"runMarkerPath"`
+	Phase            string            `json:"phase"`
+	VMs              []JournalVM       `json:"vms"`
+	Network          vmnet.Journal     `json:"network"`
+	NetworkPhase     string            `json:"networkPhase"`
+	NetworkCleaned   bool              `json:"networkCleaned"`
 }
 
 type JournalDiskStore struct {

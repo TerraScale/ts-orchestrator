@@ -1,0 +1,211 @@
+{
+  "startedAt": "2026-09-05T03:19:56.157585981Z",
+  "finishedAt": "2026-09-05T03:19:58.009574691Z",
+  "cleanupDuration": 90487493,
+  "resources": {
+    "configuredMemoryMiB": 0,
+    "idleRSSBytes": 0,
+    "peakRSSBytes": 0,
+    "idleCPU": 0,
+    "peakIdleCPU": 0,
+    "hostDiskBytes": 0,
+    "peakHostDiskBytes": 0,
+    "vms": []
+  },
+  "sampling": {
+    "source": "cgroup-v2:memory.current,memory.peak,cpu.stat",
+    "interval": 100000000,
+    "startedAt": "0001-01-01T00:00:00Z",
+    "finishedAt": "2026-09-05T03:19:57.919076188Z",
+    "vms": []
+  },
+  "diagnostics": [
+    {
+      "vmId": "fra-member-1",
+      "region": "FRA",
+      "capturedAt": "2026-09-05T03:19:57.78191632Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/fra-member-1/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/fra-member-1/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    },
+    {
+      "vmId": "fra-member-2",
+      "region": "FRA",
+      "capturedAt": "2026-09-05T03:19:57.781934206Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/fra-member-2/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/fra-member-2/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    },
+    {
+      "vmId": "gru-member-1",
+      "region": "GRU",
+      "capturedAt": "2026-09-05T03:19:57.781949652Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-1/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-1/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    },
+    {
+      "vmId": "gru-member-2",
+      "region": "GRU",
+      "capturedAt": "2026-09-05T03:19:57.781957642Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-2/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-2/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    },
+    {
+      "vmId": "sfo-member-1",
+      "region": "SFO",
+      "capturedAt": "2026-09-05T03:19:57.781964797Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/sfo-member-1/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/sfo-member-1/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    },
+    {
+      "vmId": "sfo-member-2",
+      "region": "SFO",
+      "capturedAt": "2026-09-05T03:19:57.781972127Z",
+      "console": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/sfo-member-2/firecracker.log",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      },
+      "metrics": {
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/sfo-member-2/firecracker.metrics",
+        "present": false,
+        "sourceBytes": 0,
+        "capturedBytes": 0,
+        "truncated": false,
+        "observation": "file was not created"
+      }
+    }
+  ],
+  "providerCleanup": {
+    "capturedAt": "2026-09-05T03:19:58.008863813Z",
+    "paths": [
+      {
+        "kind": "control-contract",
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/control-contract",
+        "present": false
+      },
+      {
+        "kind": "object-store",
+        "region": "FRA",
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/providers/object/fra",
+        "present": false
+      },
+      {
+        "kind": "object-store",
+        "region": "GRU",
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/providers/object/gru",
+        "present": false
+      },
+      {
+        "kind": "object-store",
+        "region": "SFO",
+        "path": "/var/lib/terrascale-qualification/ts-orchestrator/state/providers/object/sfo",
+        "present": false
+      }
+    ],
+    "listeners": [
+      {
+        "kind": "cloudflare",
+        "address": "127.0.0.1:41047",
+        "reachable": false
+      },
+      {
+        "kind": "edge",
+        "address": "127.0.0.1:42351",
+        "reachable": false
+      },
+      {
+        "kind": "object-fra",
+        "address": "127.0.0.1:39247",
+        "reachable": false
+      },
+      {
+        "kind": "object-gru",
+        "address": "127.0.0.1:41617",
+        "reachable": false
+      },
+      {
+        "kind": "object-sfo",
+        "address": "127.0.0.1:45103",
+        "reachable": false
+      },
+      {
+        "kind": "oci",
+        "address": "127.0.0.1:46337",
+        "reachable": false
+      }
+    ]
+  },
+  "scenarios": null
+}

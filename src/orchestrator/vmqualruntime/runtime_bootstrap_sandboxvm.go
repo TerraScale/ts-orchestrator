@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
+	"net"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -45,6 +47,7 @@ func (factory *firecrackerFactory) activateAdmittedGuest(ctx context.Context, ho
 	defer cancel()
 	var report hostagent.NodeStatusReport
 	var lastStatusError error
+	var failures activationStatusFailures
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -58,12 +61,12 @@ func (factory *firecrackerFactory) activateAdmittedGuest(ctx context.Context, ho
 				break
 			}
 			lastStatusError = errors.New("guest reports desired signed artifacts not yet installed")
-		} else if activation.Err() == nil || !errors.Is(err, activation.Err()) {
-			lastStatusError = err
+		} else {
+			lastStatusError = failures.record(err, lastStatusError)
 		}
 		select {
 		case <-activation.Done():
-			return fmt.Errorf("vmqual: initial signed host installation unavailable: %w", errors.Join(activation.Err(), lastStatusError))
+			return fmt.Errorf("vmqual: initial signed host installation unavailable (status failures: no-responders=%d authentication=%d timeout=%d other=%d): %w", failures.noResponders, failures.authentication, failures.timeout, failures.other, errors.Join(activation.Err(), lastStatusError))
 		case <-ticker.C:
 		}
 	}
@@ -181,4 +184,30 @@ func initialActivationStatus(report hostagent.NodeStatusReport, manifest hostage
 		ready = ready && fact.Installed
 	}
 	return ready, nil
+}
+
+// Fixed labels retain early failures when a final deadline obscures their cause.
+type activationStatusFailures struct{ noResponders, authentication, timeout, other uint64 }
+
+func (failures *activationStatusFailures) observe(err error) {
+	var networkError net.Error
+	switch {
+	case errors.Is(err, nats.ErrNoResponders):
+		failures.noResponders++
+	case errors.Is(err, nats.ErrAuthorization):
+		failures.authentication++
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout), errors.As(err, &networkError) && networkError.Timeout():
+		failures.timeout++
+	default:
+		failures.other++
+	}
+}
+
+func (failures *activationStatusFailures) record(err, previous error) error {
+	timeouts := failures.timeout
+	failures.observe(err)
+	if previous != nil && (failures.timeout != timeouts || errors.Is(err, context.Canceled)) {
+		return previous
+	}
+	return err
 }

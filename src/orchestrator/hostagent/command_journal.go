@@ -213,7 +213,7 @@ func (j *commandJournal) latestDrain() (DrainCommand, bool, error) {
 	var latest commandJournalRecord
 	found := false
 	for _, record := range document.Records {
-		if record.Kind == commandKindDrain && (!found || record.Sequence > latest.Sequence) {
+		if record.Kind == commandKindDrain && record.State == commandJournalDone && (!found || record.Sequence > latest.Sequence) {
 			latest = record
 			found = true
 		}

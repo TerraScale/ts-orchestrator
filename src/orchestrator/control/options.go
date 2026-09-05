@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	membership "terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
@@ -63,9 +64,11 @@ type OrchestratorOptions struct {
 	AuthoritativeJournal       *NatsAuthoritativeJournalConfiguration
 	// CommandIdentity is the controller's explicit trust configuration for
 	// signed regional commands. It is required by the production run role.
-	CommandIdentity    *security.CommandIdentityConfiguration
-	CommandAggregateID string
-	CommandDispatcher  CommandIngressDispatcher
+	CommandIdentity          *security.CommandIdentityConfiguration
+	CommandAggregateID       string
+	Delivery                 *SignedDeliveryRuntimeConfig
+	MembershipSigningKeyFile string
+	MembershipPinsFile       string
 }
 
 // EnvironmentLookup is deliberately injected so parsing never reads process
@@ -109,6 +112,8 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 	replicasText := defaultValue("TS_ORCH_REPLICAS", "1")
 	instance := defaultValue("TS_ORCH_INSTANCE", "local")
 
+	membershipSigningKey := lookup("TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE")
+	membershipPins := lookup("TS_ORCH_MEMBERSHIP_PINS_FILE")
 	controllerNKey := lookup("TS_ORCH_NATS_NKEY_FILE")
 	controllerCA := lookup("TS_ORCH_NATS_TLS_CA_FILE")
 	controllerCert := lookup("TS_ORCH_NATS_TLS_CERT_FILE")
@@ -157,7 +162,7 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 
 	if err := rejectUnownedCredentials(command, orchestratorCredentialFamilies{
 		controller: []string{
-			controllerNKey, controllerCA, controllerCert, controllerKey,
+			controllerNKey, controllerCA, controllerCert, controllerKey, membershipSigningKey, membershipPins,
 			globalURL, globalNKey, globalCredentials, globalCA, globalCert, globalKey,
 			directoryURL, directoryNKey, directoryCredentials, directoryCA, directoryCert, directoryKey,
 			serviceURL, serviceNKey, serviceCredentials, serviceCA, serviceCert, serviceKey,
@@ -286,6 +291,21 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		}
 	}
 
+	if command == OrchestratorCommandRun || membershipSigningKey != "" || membershipPins != "" {
+		identity, err := membership.RegionalRuntimeMembershipIdentityLoadFile(membershipSigningKey)
+		if err != nil {
+			return nil, fmt.Errorf("membership signing identity is invalid: %w", err)
+		}
+		defer identity.Dispose()
+		pins, err := membership.RegionalRuntimeMembershipPinsLoadFile(membershipPins)
+		if err != nil {
+			return nil, fmt.Errorf("membership pins are invalid: %w", err)
+		}
+		if pins[instance] != identity.PublicKey {
+			return nil, errors.New("membership pins must include the configured controller signing identity")
+		}
+	}
+
 	var journal *NatsAuthoritativeJournalConfiguration
 	if command == OrchestratorCommandJournalWriter {
 		journal, err = NatsAuthoritativeJournalConfigurationResolve(journalNKey, journalCA, journalCert, journalKey, journalAuthority, journalReply, journalControllers)
@@ -314,6 +334,7 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		AuthoritativeJournal:       journal,
 		CommandIdentity:            commandIdentity,
 		CommandAggregateID:         commandAggregate,
+		MembershipSigningKeyFile:   membershipSigningKey, MembershipPinsFile: membershipPins,
 	}, nil
 }
 

@@ -166,8 +166,8 @@ func (d *LocalScenarioDriver) ProviderCleanupEvidence() (ProviderCleanupObservat
 	return observation, true
 }
 
-func (d *LocalScenarioDriver) providerCleanupTargets(stateRoot string, control *ControlContract) ([]providerCleanupTarget, error) {
-	controlRoot := filepath.Dir(control.journalPath)
+func (d *LocalScenarioDriver) providerCleanupTargets(stateRoot string, control scenarioControlProof) ([]providerCleanupTarget, error) {
+	controlRoot := control.JournalRoot()
 	if controlRoot != filepath.Join(stateRoot, "control-contract") {
 		return nil, errors.New("vmqual: control cleanup root differs from its owned state path")
 	}

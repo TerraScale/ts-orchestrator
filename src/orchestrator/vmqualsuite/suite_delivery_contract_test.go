@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
@@ -130,13 +131,27 @@ func TestRunDeliveryContractExercisesProductionContracts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = endpoints.Close() })
 
+	var authorityCalls atomic.Int64
 	result, err := RunDeliveryContract(context.Background(), DeliveryContractConfig{
+		Authority: func(ctx context.Context, request *delivery.Request) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if request == nil || request.OperationID == "" {
+				return errors.New("unadmitted unit operation")
+			}
+			authorityCalls.Add(1)
+			return nil
+		},
 		StateRoot: stateRoot,
 		Endpoints: endpoints,
 		Guest:     newDeliveryContractTestGuest("linux/amd64"),
 	})
 	if err != nil {
 		t.Fatalf("run delivery contract: %v", err)
+	}
+	if authorityCalls.Load() == 0 {
+		t.Fatal("delivery never consulted explicit unit authority")
 	}
 	if result.NativeArchitecture != "linux/amd64" || len(result.ArchitectureDigests) != 2 || result.ArchitectureDigests["linux/arm64"] == "" {
 		t.Fatalf("architecture proof = %q %#v", result.NativeArchitecture, result.ArchitectureDigests)
@@ -180,5 +195,12 @@ func TestValidateDeliveryArchitectureManifestRejectsIdentityDrift(t *testing.T) 
 	manifest.Artifacts[0].Digest = delivery.SHA256Digest([]byte("drift"))
 	if _, err := vmqual.ValidateDeliveryArchitectureManifest(manifest, release.candidates, release.publicKey); err == nil {
 		t.Fatal("manifest identity drift was accepted")
+	}
+}
+
+func TestDeliveryContractRequiresExplicitLiveAuthority(t *testing.T) {
+	_, err := RunDeliveryContract(context.Background(), DeliveryContractConfig{Guest: newDeliveryContractTestGuest("linux/amd64")})
+	if err == nil || !strings.Contains(err.Error(), "live control authority") {
+		t.Fatalf("missing authority reached provider setup: %v", err)
 	}
 }

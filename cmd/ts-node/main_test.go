@@ -41,6 +41,8 @@ func TestParseTsNodeArguments(t *testing.T) {
 const minimalConfig = `{
   "nodeId": "gru-1",
   "natsUrl": "nats://127.0.0.1:4222",
+ "authorityBucket":"ORCH_GRU_LEADERS",
+ "commandTrustKeys":[{"candidateId":"gru-controller-test","publicKeyFile":"/etc/terrascale/command-public.pem"}],
   "releasePublicKey": "0000000000000000000000000000000000000000000000000000000000000000"
 }`
 

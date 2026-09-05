@@ -49,10 +49,6 @@ type RegionObjectStoreInspector interface {
 	Head(ctx context.Context, region, bucket, object string) (identity ObjectIdentity, found bool, err error)
 }
 
-// RegionObjectStoreReader is retained as a descriptive alias for callers that
-// think of the operation as a read rather than an inspection.
-type RegionObjectStoreReader = RegionObjectStoreInspector
-
 // RegionObjectStoreIdentityWriter is an optional write contract for adapters
 // that expose the provider's returned object identity. When present, the
 // returned version/ETag/metadata are compared with the subsequent Head result
@@ -113,18 +109,12 @@ func (e *MirrorError) Unwrap() error {
 	return e.Err
 }
 
-// ArtifactMirrorError is the long-form name for MirrorError.
-type ArtifactMirrorError = MirrorError
-
 // MirrorBatchError reports every Region failure. All Regions are attempted
 // before this is returned, so a partial mirror is never mistaken for a safe
 // rollout. Failures are sorted by Region for stable logs and tests.
 type MirrorBatchError struct {
 	Failures []*MirrorError
 }
-
-// ArtifactMirrorBatchError is the long-form name for MirrorBatchError.
-type ArtifactMirrorBatchError = MirrorBatchError
 
 func (e *MirrorBatchError) Error() string {
 	if e == nil || len(e.Failures) == 0 {
@@ -207,7 +197,7 @@ func MirrorObject(service, digest string) string {
 // later delivery targeting any Region finds its artifact locally. Every
 // Region must succeed before the rollout may start.
 func (m *ArtifactMirror) MirrorAll(ctx context.Context, artifact *ReleaseArtifact) error {
-	return m.mirrorAll(ctx, artifact, OperationFence{}, nil)
+	return m.mirrorAll(ctx, artifact, OperationFence{}, nil, false)
 }
 
 // MirrorAllFenced is the authoritative delivery path. The checker is called
@@ -223,10 +213,10 @@ func (m *ArtifactMirror) MirrorAllFenced(ctx context.Context, artifact *ReleaseA
 	if _, ok := m.Store.(FencedRegionObjectStore); !ok {
 		return errors.New("delivery: artifact mirror requires a fenced object store")
 	}
-	return m.mirrorAll(ctx, artifact, fence, check)
+	return m.mirrorAll(ctx, artifact, fence, check, false)
 }
 
-func (m *ArtifactMirror) mirrorAll(ctx context.Context, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker) error {
+func (m *ArtifactMirror) mirrorAll(ctx context.Context, artifact *ReleaseArtifact, fence OperationFence, check FenceChecker, verifyOnly bool) error {
 	if m == nil || artifact == nil {
 		return errors.New("delivery: artifact mirror is not configured")
 	}
@@ -284,7 +274,11 @@ func (m *ArtifactMirror) mirrorAll(ctx context.Context, artifact *ReleaseArtifac
 				results <- &MirrorError{Region: region.Code, Kind: MirrorFailureMismatch, Err: fmt.Errorf("region declares no %s bucket", ReleaseBucketPurpose), Remediation: "Declare exactly one release-artifact bucket in the Region estate."}
 				return
 			}
-			results <- m.mirrorRegion(ctx, inspector, region.Code, bucket, object, artifact, fence, check)
+			if verifyOnly {
+				results <- m.verifyRegion(ctx, region.Code, bucket, object, artifact, fence, check)
+			} else {
+				results <- m.mirrorRegion(ctx, inspector, region.Code, bucket, object, artifact, fence, check)
+			}
 		}()
 	}
 	var failures []*MirrorError

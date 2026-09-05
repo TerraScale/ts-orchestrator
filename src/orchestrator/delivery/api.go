@@ -64,6 +64,8 @@ type RolloutResult struct {
 // ServerConfig is the fully explicit delivery API configuration. Every
 // dependency is required; none is defaulted.
 type ServerConfig struct {
+	MirrorMode MirrorMode
+	Authority  func(context.Context, *Request) error
 	// OwnerID identifies this process for durable operation fencing. Empty uses
 	// a process-unique ID; production may provide a stable instance identity.
 	OwnerID string
@@ -92,14 +94,66 @@ type ServerConfig struct {
 // into every Region's release bucket, drives the rollout, and publishes the
 // terminal receipt ts-deploy can poll. It is safe for concurrent use.
 type Server struct {
-	config   ServerConfig
-	inFlight sync.Map // operation ID -> struct{}
+	*Executor
+	token func() (string, error)
+}
+
+// Executor owns the authenticated command execution path independently of HTTP.
+type Executor struct {
+	config   ExecutorConfig
+	inFlight sync.Map
+}
+
+// ExecutorConfig supplies verified release/provider ports and the durable journal.
+// Authority is required and re-read at admission and every mutation boundary.
+// Signed control ingress always installs its live regional authority checker.
+type ExecutorConfig struct {
+	MirrorMode MirrorMode
+	OwnerID    string
+	LeaseTTL   time.Duration
+	Fetcher    ArtifactFetcher
+	Trust      func() *TrustSet
+	Mirror     *ArtifactMirror
+	Rollout    Roller
+	Journal    *Journal
+	Now        func() time.Time
+	Authority  func(context.Context, *Request) error
 }
 
 var serverOwnerSequence atomic.Uint64
 
 // NewServer validates the configuration and composes the API.
 func NewServer(config ServerConfig) (*Server, error) {
+	if config.Token == nil {
+		return nil, errors.New("delivery: server requires a delivery token source")
+	}
+	executor, err := NewExecutor(ExecutorConfig{
+		MirrorMode: config.MirrorMode, OwnerID: config.OwnerID, LeaseTTL: config.LeaseTTL, Fetcher: config.Fetcher,
+		Trust: config.Trust, Mirror: config.Mirror, Rollout: config.Rollout,
+		Journal: config.Journal, Now: config.Now, Authority: config.Authority,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Server{Executor: executor, token: config.Token}, nil
+}
+
+// NewExecutor composes real delivery execution without inventing HTTP credentials.
+func NewExecutor(config ExecutorConfig) (*Executor, error) {
+	if config.MirrorMode != MirrorModePrepareAll && config.MirrorMode != MirrorModeVerifyAll {
+		return nil, errors.New("delivery: explicit artifact mirror mode is required")
+	}
+	if config.MirrorMode == MirrorModeVerifyAll {
+		if config.Mirror == nil {
+			return nil, errors.New("delivery: artifact mirror is required")
+		}
+		if _, ok := config.Mirror.Store.(RegionObjectStoreContentReader); !ok {
+			return nil, errors.New("delivery: regional execution requires verified mirror reads")
+		}
+	}
+	if config.Authority == nil {
+		return nil, errors.New("delivery: executor requires live authority")
+	}
 	if strings.TrimSpace(config.OwnerID) == "" {
 		sequence := serverOwnerSequence.Add(1)
 		config.OwnerID = "delivery-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatUint(sequence, 10)
@@ -109,9 +163,6 @@ func NewServer(config ServerConfig) (*Server, error) {
 	}
 	if config.LeaseTTL < minimumOperationLeaseTTL {
 		return nil, fmt.Errorf("delivery: operation lease TTL must be at least %s", minimumOperationLeaseTTL)
-	}
-	if config.Token == nil {
-		return nil, errors.New("delivery: server requires a delivery token source")
 	}
 	if config.Fetcher == nil {
 		return nil, errors.New("delivery: server requires an artifact fetcher")
@@ -137,7 +188,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if config.Journal == nil {
 		return nil, errors.New("delivery: server requires a journal")
 	}
-	return &Server{config: config}, nil
+	return &Executor{config: config}, nil
 }
 
 // Handler serves the delivery API: POST one DeliveryRequest, GET one receipt
@@ -188,6 +239,15 @@ func (s *Server) serveOperation(writer http.ResponseWriter, request *http.Reques
 		}
 		if _, running := s.inFlight.Load(operationID); running {
 			s.writeError(writer, http.StatusConflict, "operation_in_progress", "The operation is still running.", "Wait for the terminal receipt or retry recovery after the owner lease expires.")
+			return
+		}
+		operation, exists, readErr := s.config.Journal.GetWithError(operationID)
+		if readErr != nil || !exists || operation.Request == nil {
+			s.writeError(writer, http.StatusNotFound, "operation_not_found", "The recoverable operation is unavailable.", "Restore journal health and retry.")
+			return
+		}
+		if err := s.checkAuthority(request.Context(), operation.Request); err != nil {
+			s.writeError(writer, http.StatusConflict, "delivery_fenced", "Delivery authority is unavailable.", "Retry under the current regional writer.")
 			return
 		}
 		receipt, err := s.config.Journal.RecoverUnknown(operationID)
@@ -308,7 +368,7 @@ const rolloutRecoveryTimeout = 30 * time.Second
 // verification, all-Region mirroring, rollout, and the terminal receipt.
 // The terminal receipt always validates against the request before it is
 // returned or stored.
-func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error) {
+func (s *Executor) Submit(ctx context.Context, request *Request) (*Receipt, error) {
 	if request == nil {
 		return nil, errors.New("delivery: request is required")
 	}
@@ -329,6 +389,9 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := s.checkAuthority(ctx, request); err != nil {
+		return nil, err
+	}
 	lease := OperationLease{OwnerID: s.config.OwnerID, TTL: s.config.LeaseTTL}
 	operation, exists, err := s.config.Journal.Begin(request, lease)
 	if err != nil {
@@ -340,6 +403,9 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 	if exists {
 		if operation.State == OperationDone && operation.Receipt != nil {
 			return operation.Receipt, nil
+		}
+		if err := s.checkAuthority(ctx, request); err != nil {
+			return nil, err
 		}
 		taken, takeoverErr := s.config.Journal.Takeover(request.OperationID, operation.RequestDigest, lease)
 		if takeoverErr != nil {
@@ -375,17 +441,20 @@ func (s *Server) Submit(ctx context.Context, request *Request) (*Receipt, error)
 			return nil, fmt.Errorf("delivery: produced an invalid failure receipt for %s: %w", request.OperationID, err)
 		}
 	}
+	if err := s.checkAuthority(ctx, request); err != nil {
+		return nil, err
+	}
 	if err := s.config.Journal.Finish(request.OperationID, operation.RequestDigest, receipt, leaseFor(operation, s.config)); err != nil {
 		return nil, err
 	}
 	return receipt, nil
 }
 
-func leaseFor(operation *Operation, config ServerConfig) OperationLease {
+func leaseFor(operation *Operation, config ExecutorConfig) OperationLease {
 	return OperationLease{OwnerID: config.OwnerID, TTL: config.LeaseTTL, Generation: operation.Generation}
 }
 
-func (s *Server) renewOperationLease(ctx context.Context, request *Request, operation *Operation, done chan<- struct{}, cancel context.CancelFunc) {
+func (s *Executor) renewOperationLease(ctx context.Context, request *Request, operation *Operation, done chan<- struct{}, cancel context.CancelFunc) {
 	defer close(done)
 	interval := operationLeaseRenewInterval(s.config.LeaseTTL)
 	ticker := time.NewTicker(interval)
@@ -396,6 +465,10 @@ func (s *Server) renewOperationLease(ctx context.Context, request *Request, oper
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := s.checkAuthority(ctx, request); err != nil {
+				cancel()
+				return
+			}
 			if err := s.config.Journal.Renew(request.OperationID, operation.RequestDigest, lease, operation.Generation); err != nil {
 				cancel()
 				return
@@ -422,7 +495,7 @@ func operationLeaseRenewInterval(ttl time.Duration) time.Duration {
 // terminal receipt (never a half-ack): verification and mirroring failures
 // mean the deploy never started; rollout errors, cancellation, and panics are
 // converted to a fixed failed result so the operation can be finished.
-func (s *Server) deliver(ctx context.Context, request *Request, operation *Operation) (receipt *Receipt, err error) {
+func (s *Executor) deliver(ctx context.Context, request *Request, operation *Operation) (receipt *Receipt, err error) {
 	verified := false
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -458,7 +531,12 @@ func (s *Server) deliver(ctx context.Context, request *Request, operation *Opera
 	}
 	verified = true
 	fence := fenceFor(operation)
-	if err := s.config.Mirror.MirrorAllFenced(preflightContext, artifact, fence, s.config.Journal.VerifyFence); err != nil {
+	check := s.checker(ctx, request)
+	mirrorArtifact := s.config.Mirror.MirrorAllFenced
+	if s.config.MirrorMode == MirrorModeVerifyAll {
+		mirrorArtifact = s.config.Mirror.VerifyAllFenced
+	}
+	if err := mirrorArtifact(preflightContext, artifact, fence, check); err != nil {
 		// D-71: the artifact mirrors into every Region before rollout starts;
 		// a partial mirror means the deploy never started, so nothing is
 		// stranded mid-way.
@@ -467,7 +545,11 @@ func (s *Server) deliver(ctx context.Context, request *Request, operation *Opera
 		}
 		return failed("mirror_incomplete", "The artifact could not be mirrored into every Region.", "Retry the same operation ID after the Region object stores are reachable.")
 	}
-	result, err := rollSafely(ctx, s.config.Rollout, request, artifact, fence, s.config.Journal.VerifyFence)
+	ctx, err = WithExecutionFence(ctx, fence, check)
+	if err != nil {
+		return nil, err
+	}
+	result, err := rollSafely(ctx, s.config.Rollout, request, artifact, fence, check)
 	if err != nil {
 		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), s.recoverOwnedRollout(ctx, request, artifact, operation)), true)
 	}
@@ -479,8 +561,11 @@ func (s *Server) deliver(ctx context.Context, request *Request, operation *Opera
 // over the generation and the stale owner must not issue compensating writes.
 // Renewing immediately before rollback also keeps the lease alive while the
 // heartbeat goroutine remains active during the bounded recovery call.
-func (s *Server) recoverOwnedRollout(ctx context.Context, request *Request, artifact *ReleaseArtifact, operation *Operation) *Rollback {
+func (s *Executor) recoverOwnedRollout(ctx context.Context, request *Request, artifact *ReleaseArtifact, operation *Operation) *Rollback {
 	if operation == nil || s.config.Journal == nil {
+		return nil
+	}
+	if err := s.checkAuthority(ctx, request); err != nil {
 		return nil
 	}
 	lease := leaseFor(operation, s.config)
@@ -488,7 +573,7 @@ func (s *Server) recoverOwnedRollout(ctx context.Context, request *Request, arti
 		return nil
 	}
 	if fenced, ok := s.config.Rollout.(FencedRollbacker); ok {
-		return recoverFencedRollout(ctx, fenced, request, artifact, fenceFor(operation), s.config.Journal.VerifyFence)
+		return recoverFencedRollout(ctx, fenced, request, artifact, fenceFor(operation), s.checker(ctx, request))
 	}
 	return recoverRollout(ctx, s.config.Rollout, request, artifact)
 }
@@ -669,7 +754,7 @@ func (s *Server) authorize(request *http.Request) error {
 		return errors.New("delivery: missing bearer token")
 	}
 	presented := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-	expected, err := s.config.Token()
+	expected, err := s.token()
 	if err != nil || expected == "" {
 		return errors.New("delivery: delivery token is not configured")
 	}

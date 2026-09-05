@@ -145,7 +145,7 @@ func TestRunConfigurationReplacesEnvironmentForOptionsAndEstate(t *testing.T) {
 		return &control.OrchestratorOptions{Command: control.OrchestratorCommandRun}, nil
 	}
 	stopped := errors.New("estate sentinel")
-	verifyEstate = func(_ context.Context, lookup envLookup) error {
+	verifyEstate = func(_ context.Context, _ string, lookup envLookup) error {
 		assertSource(control.EnvironmentLookup(lookup))
 		return stopped
 	}

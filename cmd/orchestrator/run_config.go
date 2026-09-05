@@ -29,7 +29,9 @@ var runConfigurationKeys = map[string]bool{
 	"TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE": true,
 	"TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE": true,
 	"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE": true, "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY": true,
+	"TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE": true, "TS_ORCH_MEMBERSHIP_PINS_FILE": true,
 	"TS_ORCH_COMMAND_SIGNING_KEY_FILE": true, "TS_ORCH_COMMAND_TRUST_KEY_FILES": true, "TS_ORCH_COMMAND_AGGREGATE_ID": true,
+	natsServerConfigEnvironment: true, natsServerReadinessEnvironment: true,
 	providerEnvironment: true, ociEstateFileEnvironment: true, ociKeyIDEnvironment: true, ociPrivateKeyFileEnvironment: true,
 }
 
@@ -107,10 +109,14 @@ func parseRunConfiguration(data []byte) (envLookup, error) {
 			return nil, errors.New("run configuration requires explicit cell, instance, NATS URL, and replicas")
 		}
 	}
-	if values["TS_ORCH_CELL"] == "local" || values[providerEnvironment] != "oci" {
+	if values["TS_ORCH_CELL"] == "local" {
 		return nil, errors.New("run file configuration requires a production cell and OCI provider")
 	}
-	return func(key string) (string, bool) { value, present := values[key]; return value, present }, nil
+	lookup := func(key string) (string, bool) { value, present := values[key]; return value, present }
+	if err := validateConfiguredProvider(values["TS_ORCH_CELL"], lookup); err != nil {
+		return nil, err
+	}
+	return lookup, nil
 }
 
 // Credentials live in separately provisioned files, never in this immutable

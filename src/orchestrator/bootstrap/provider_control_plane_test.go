@@ -66,6 +66,7 @@ func newControlProviderHarness(t *testing.T) *controlProviderHarness {
 	}
 	var err error
 	h.provider, err = NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{
+		Runtime: &unitControlRuntime{bindings: bindings},
 		Regions: bindings, OCIBaseURLs: urls, CloudflareBaseURL: h.cf.URL,
 		CloudflareZoneID: "zone-local", CloudflareAccountID: "account-local", HTTPClient: h.client,
 	})
@@ -321,11 +322,78 @@ func TestControlPlaneProviderSeparatesProductionAndLocalAuthorities(t *testing.T
 	binding := ControlRegionBinding{Code: "gru", OCIRegion: "sa-saopaulo-1", CompartmentID: "ocid1.compartment.oc1.local.control",
 		MemberIDs: []string{"ocid1.instance.oc1.local.1"}}
 	for _, rawURL := range []string{"https://api.cloudflare.com:443", "http://127.0.0.1", "http://127.0.0.1:8080/path", "http://user@127.0.0.1:8080"} {
-		_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Regions: []ControlRegionBinding{binding},
+		_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Runtime: &unitControlRuntime{}, Regions: []ControlRegionBinding{binding},
 			OCIBaseURLs: map[string]string{"gru": "http://127.0.0.1:8080"}, CloudflareBaseURL: rawURL,
 			CloudflareZoneID: "zone", CloudflareAccountID: "account", HTTPClient: client})
 		if !errors.Is(err, ErrControlProviderInvalid) {
 			t.Errorf("local constructor accepted %q: %v", rawURL, err)
 		}
+	}
+}
+
+// unitControlRuntime is deliberately test-owned. Provider HTTP tests exercise
+// OCI intent recording only; they are not evidence of a live control runtime.
+type unitControlRuntime struct {
+	bindings []ControlRegionBinding
+	failure  error
+	calls    int
+}
+
+func (r *unitControlRuntime) Execute(_ context.Context, request ControlActionRequest) (ControlRuntimeEvidence, error) {
+	r.calls++
+	if r.failure != nil {
+		return ControlRuntimeEvidence{}, r.failure
+	}
+	digest := sha256.Sum256([]byte("unit-runtime:" + request.Action.IdempotencyKey))
+	value := hex.EncodeToString(digest[:])
+	return ControlRuntimeEvidence{IdentityDigest: value, StorageDigest: value, HealthDigest: value, ObservedAt: time.Now().UTC()}, nil
+}
+func (r *unitControlRuntime) Observe(context.Context) (map[string]bool, error) {
+	result := map[string]bool{}
+	for _, binding := range r.bindings {
+		for _, member := range binding.MemberIDs {
+			result[member] = true
+		}
+	}
+	return result, nil
+}
+
+func TestControlProviderCannotRecordRuntimeFailure(t *testing.T) {
+	h := newControlProviderHarness(t)
+	runtime := h.provider.runtime.(*unitControlRuntime)
+	runtime.failure = ErrControlRuntimeUnavailable
+	request := controlTestRequest(ControlActionStartTemporaryR1, "gru", 0, 1, ControlPlaneState{})
+	if _, err := h.provider.StartTemporaryR1(h.ctx, request); !errors.Is(err, ErrControlRuntimeUnavailable) {
+		t.Fatalf("runtime error lost: %v", err)
+	}
+	observation, err := h.provider.ObserveControl(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.State.Epoch != 0 {
+		t.Fatalf("runtime failure mutated topology: %+v", observation)
+	}
+}
+
+func TestControlProviderRejectsEpochRegressionBeforeRuntimeExecution(t *testing.T) {
+	h := newControlProviderHarness(t)
+	h.bootstrapAndPromote()
+	runtime := h.provider.runtime.(*unitControlRuntime)
+	calls := runtime.calls
+	request := controlTestRequest(ControlActionStartTemporaryR1, "gru", 0, 1, ControlPlaneState{})
+	if _, err := h.provider.StartTemporaryR1(h.ctx, request); !errors.Is(err, ErrControlEpochRegression) {
+		t.Fatalf("regression not refused: %v", err)
+	}
+	if runtime.calls != calls {
+		t.Fatal("runtime handoff ran before epoch regression validation")
+	}
+}
+
+func TestLocalControlProviderRequiresExplicitRuntime(t *testing.T) {
+	h := newControlProviderHarness(t)
+	binding := h.bindings["gru"]
+	_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Regions: []ControlRegionBinding{binding}, OCIBaseURLs: map[string]string{"gru": h.oci.URL}, CloudflareBaseURL: h.cf.URL, CloudflareZoneID: "zone-local", CloudflareAccountID: "account-local", HTTPClient: h.client})
+	if !errors.Is(err, ErrControlProviderInvalid) {
+		t.Fatalf("constructor silently supplied runtime: %v", err)
 	}
 }

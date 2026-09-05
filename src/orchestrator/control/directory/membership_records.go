@@ -37,8 +37,8 @@ func RegionalRuntimeMembershipIdentityCreate() (*RegionalRuntimeMembershipIdenti
 }
 
 func newRegionalRuntimeMembershipIdentity(key *ecdsa.PrivateKey) (*RegionalRuntimeMembershipIdentity, error) {
-	if key == nil {
-		return nil, fmt.Errorf("membership identity key is nil")
+	if key == nil || key.Curve != elliptic.P256() {
+		return nil, fmt.Errorf("membership identity requires a P-256 key")
 	}
 	publicKey, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
@@ -116,7 +116,7 @@ func RegionalRuntimeMembershipIdentityVerify(member RegionalRuntimeMember) bool 
 	}
 
 	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok {
+	if !ok || key.Curve != elliptic.P256() {
 		return false
 	}
 
