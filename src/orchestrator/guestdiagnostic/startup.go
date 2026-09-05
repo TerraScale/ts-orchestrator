@@ -62,6 +62,7 @@ func ParseStatus(report *Service, data []byte) {
 func ParseJournal(report *Service, data []byte) {
 	categories := []struct{ match, label string }{
 		{"error: missingconfigurationpath", "terrabase-configuration-missing"},
+		{"a tls material file is unsafe or invalid", "tls-material-rejected"},
 		{"no durable orchestrator membership source is configured", "membership-source-missing"},
 		{"orchestrator: production runtime requires configured estate publisher, key rotation, free-tier reaper, restore drill, and delivery mirror adapters", "production-composition-missing"},
 		{"orchestrator: oci estate verification requires ts_orch_oci_estate_file, ts_orch_oci_key_id, and ts_orch_oci_private_key_file", "oci-estate-configuration-missing"},

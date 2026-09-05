@@ -7,6 +7,11 @@ import (
 )
 
 func TestStartupJournalLimitsAndCategories(t *testing.T) {
+	var tls Service
+	ParseJournal(&tls, []byte(`{"MESSAGE":"Error: ProductionStartup(Transport(\"a TLS material file is unsafe or invalid\")) SECRET","PRIORITY":"3"}`))
+	if len(tls.Categories) != 1 || tls.Categories[0] != "tls-material-rejected" {
+		t.Fatalf("TLS category lost: %+v", tls)
+	}
 	var initial Service
 	ParseJournal(&initial, []byte(`{"MESSAGE":"not a directory SECRET","PRIORITY":"3"}`))
 	if len(initial.Categories) != 1 || initial.Categories[0] != "path-not-directory" {
