@@ -7,7 +7,7 @@
 // bounded dashboard observations the composition root forwards through
 // EventRouter.EmitObservation.
 //
-// ClockSample mirrors hostagent.ClockOffsetSample without importing the
+// ClockSample mirrors hostplatform.ClockOffsetSample without importing the
 // hostagent package, keeping the observability boundary a leaf in the
 // package graph. The composition root converts one HostFacts heartbeat
 // (ClockOffsetMillis, ClockMeasured, ClockUnhealthy) into a ClockSample

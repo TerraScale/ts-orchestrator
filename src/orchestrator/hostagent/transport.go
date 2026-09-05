@@ -957,6 +957,13 @@ func (t *NatsTransport) prepareLifecycleForStartup() error {
 }
 
 func (t *NatsTransport) restoreDurableDrain(ctx context.Context) error {
+	if handled, err := t.resumeExpiredCandidateStartup(ctx); handled || err != nil {
+		return err
+	}
+	return t.restoreRecordedDrain(ctx)
+}
+
+func (t *NatsTransport) restoreRecordedDrain(ctx context.Context) error {
 	command, found, err := t.journal.latestDrain()
 	if err != nil || !found {
 		return err

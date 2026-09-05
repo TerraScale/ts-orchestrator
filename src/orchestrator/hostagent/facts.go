@@ -9,6 +9,7 @@ import (
 	"context"
 	"golang.org/x/sys/unix"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/hostplatform"
 )
 
 // TsNodeVersion is stamped at build time by ts-deploy
@@ -87,7 +88,7 @@ func OsStatfs(path string) (int64, int64, error) {
 // HostFactsSourceConfig is the fully explicit facts-source configuration.
 type HostFactsSourceConfig struct {
 	// Clock reads the chrony offset.
-	Clock ClockSource
+	Clock hostplatform.ClockSource
 	// Statfs measures the data volume.
 	Statfs StatfsPath
 	// DataVolumeRoot is the mount point disk facts report; the component
@@ -104,7 +105,7 @@ type HostFactsSourceConfig struct {
 
 // HostFactsSource samples every heartbeat dimension on demand.
 type HostFactsSource struct {
-	clock          ClockSource
+	clock          hostplatform.ClockSource
 	statfs         StatfsPath
 	dataVolumeRoot string
 	systemd        SystemdController
@@ -155,7 +156,7 @@ func (s *HostFactsSource) Sample(
 		return HostFacts{}, &InvalidOperationError{Message: "The facts context must not be nil."}
 	}
 	offset, clockErr := s.clock.Offset(ctx)
-	clock := SampleClock(offset, clockErr)
+	clock := hostplatform.SampleClock(offset, clockErr)
 	disk := DiskFacts{Path: s.dataVolumeRoot}
 	if total, available, err := s.statfs(s.dataVolumeRoot); err == nil {
 		disk.TotalBytes, disk.AvailableBytes = total, available

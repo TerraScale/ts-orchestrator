@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/hostplatform"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func fakeStatfs(total, available int64) StatfsPath {
 	return func(path string) (int64, int64, error) { return total, available, nil }
 }
 
-func newTestFactsSource(t *testing.T, clock ClockSource, systemd SystemdController) *HostFactsSource {
+func newTestFactsSource(t *testing.T, clock hostplatform.ClockSource, systemd SystemdController) *HostFactsSource {
 	t.Helper()
 	source, err := NewHostFactsSource(HostFactsSourceConfig{
 		Clock:          clock,

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/candidateplan"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
@@ -131,7 +132,7 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		return runInitialGRUR1(ctx, args[2])
 	}
 	if name == "plan-control-candidates" {
-		if err := planControlCandidates(ctx, args[2], output); err != nil {
+		if err := candidateplan.Run(ctx, args[2], output); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil

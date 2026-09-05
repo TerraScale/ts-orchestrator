@@ -284,6 +284,9 @@ func writeCandidateRecord(path string, r candidatePreparationRecord, mode os.Fil
 func (s *EpochStore) retireCandidatePreparationLocked() error {
 	r, e := readCandidateRecord(filepath.Join(filepath.Dir(s.path), candidateRecordName), 0600, uint32(os.Geteuid()))
 	if os.IsNotExist(e) {
+		if _, publicErr := os.Lstat(filepath.Join(CandidatePreparationDirectory, "preparation.json")); !os.IsNotExist(publicErr) {
+			return errors.New("nodeauthority: candidate publication lacks private admission")
+		}
 		return nil
 	}
 	if e != nil {

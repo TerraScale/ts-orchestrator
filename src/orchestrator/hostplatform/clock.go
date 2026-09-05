@@ -4,7 +4,7 @@
 // exceeds 500 ms. Refusing new writes is the member engine's job; ts-node
 // exports the fact both directions — the offset metric and the unhealthy
 // flag — over the control plane.
-package hostagent
+package hostplatform
 
 import (
 	"bytes"

@@ -23,9 +23,6 @@ func candidateComponent(manifest hostmanifest.HostManifest) (hostmanifest.Compon
 			return spec, c, true, e
 		}
 		if found {
-			if len(manifest.Components) != 1 {
-				return spec, c, true, errors.New("hostagent: candidate preparation manifest must contain only its inert orchestrator")
-			}
 			return spec, c, true, nil
 		}
 	}
@@ -64,7 +61,7 @@ func readCandidateOwnerFile(path string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, transitiongrant.MaximumBytes+1))
 }
 func (t *NatsTransport) initializeCandidatePreparation(manifest hostmanifest.HostManifest, digest string) (bool, error) {
-	_, c, found, e := candidateComponent(manifest)
+	spec, c, found, e := candidateComponent(manifest)
 	if e != nil || !found {
 		return found, e
 	}
@@ -75,7 +72,7 @@ func (t *NatsTransport) initializeCandidatePreparation(manifest hostmanifest.Hos
 	if err := t.validateBootstrapInitialState(bootstrap); err != nil {
 		return true, err
 	}
-	if err := validateCandidateCurrent(t.lifecycle, manifest.Components[0]); err != nil {
+	if err := validateCandidateCurrent(t.lifecycle, spec); err != nil {
 		return true, err
 	}
 	if runtime, err := t.epochs.AdmittedManifest(digest); err == nil && runtime {
@@ -124,6 +121,12 @@ func (t *NatsTransport) initializeCandidatePreparation(manifest hostmanifest.Hos
 // or reconcile unrelated components. A still-live initial grant uses the
 // ordinary local bootstrap executor instead.
 func ResumeLocalCandidatePreparation(ctx context.Context, lifecycle *Lifecycle, node string, public, signed []byte, manifestPath string) (bool, error) {
+	if ctx == nil || lifecycle == nil {
+		return false, errors.New("hostagent: candidate recovery context and lifecycle required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	authority, e := parseBootstrapAuthority(node, public, signed)
 	if e != nil {
 		return false, e
@@ -167,7 +170,7 @@ func ResumeLocalCandidatePreparation(ctx context.Context, lifecycle *Lifecycle, 
 	}
 	bounded, cancel := context.WithDeadline(ctx, receipt.ExpiresAt)
 	defer cancel()
-	if e = lifecycle.HydrateDesired(authority.grant.Manifest.Components); e != nil {
+	if e = lifecycle.HydrateDesired([]hostmanifest.ComponentSpec{spec}); e != nil {
 		return true, e
 	}
 	return true, resumeCandidateActivation(bounded, lifecycle, journal, spec, receipt)
@@ -245,4 +248,42 @@ func resumeCandidateActivation(ctx context.Context, l *Lifecycle, journal *comma
 		return l.installer.withVerifiedCurrentTransition(ctx, spec, func(ctx context.Context, _ string) error { return l.systemd.StartUnit(ctx, UnitName(spec.Name)) })
 	}
 	return nil
+}
+
+// Keep full signed desired inventory for facts and manifest CAS, but never
+// replay its broad drain/release effects using an expired initial grant.
+func (t *NatsTransport) resumeExpiredCandidateStartup(ctx context.Context) (bool, error) {
+	bootstrap, ok := t.authorizer.(*BootstrapAuthority)
+	if !ok {
+		return false, nil
+	}
+	// A later ordinary manifest uses its own persisted runtime admission.
+	manifest := hostmanifest.HostManifest{Components: t.lifecycle.Desired()}
+	spec, c, candidate, err := candidateComponent(manifest)
+	if err != nil || !candidate {
+		return candidate, err
+	}
+	digest, err := hostmanifest.HostManifestSha256(manifest)
+	if err != nil || digest != bootstrap.manifestDigest {
+		return true, errors.New("hostagent: startup candidate manifest differs")
+	}
+	runtime, err := t.epochs.AdmittedManifest(digest)
+	if err != nil {
+		return true, err
+	}
+	if runtime {
+		return true, nil
+	}
+	if time.Now().Before(bootstrap.grant.ExpiresAt) {
+		bounded, cancel := context.WithDeadline(ctx, bootstrap.grant.ExpiresAt)
+		defer cancel()
+		return true, t.restoreRecordedDrain(bounded)
+	}
+	receipt, err := t.epochs.ResumeCandidatePreparation(ctx, c, bootstrap.digest, digest)
+	if err != nil {
+		return true, err
+	}
+	bounded, cancel := context.WithDeadline(ctx, receipt.ExpiresAt)
+	defer cancel()
+	return true, resumeCandidateActivation(bounded, t.lifecycle, t.journal, spec, receipt)
 }

@@ -1,4 +1,4 @@
-package main
+package candidateplan
 
 import (
 	"bytes"
@@ -48,9 +48,9 @@ type candidatePlanOutput struct {
 	BootstrapGrant json.RawMessage `json:"bootstrapGrant"`
 }
 
-// planControlCandidates emits public preparation artifacts only. The owner
+// Run emits public preparation artifacts only. The owner
 // signs the exact candidate manifests first, then the separate transition grant.
-func planControlCandidates(ctx context.Context, path string, output io.Writer) error {
+func Run(ctx context.Context, path string, output io.Writer) error {
 	bad := errors.New("candidate plan: invalid protected input, owner identity or finite preparation binding")
 	if ctx == nil || output == nil {
 		return bad

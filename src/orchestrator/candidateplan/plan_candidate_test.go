@@ -1,4 +1,4 @@
-package main
+package candidateplan
 
 import (
 	"bytes"
@@ -97,7 +97,7 @@ func TestPlanControlCandidatesEmitsExactPublicSignedBundle(t *testing.T) {
 	input, path, private := candidatePlanFixture(t)
 	defer clear(private)
 	var output bytes.Buffer
-	if err := planControlCandidates(context.Background(), path, &output); err != nil {
+	if err := Run(context.Background(), path, &output); err != nil {
 		t.Fatal(err)
 	}
 	for _, secret := range [][]byte{private, []byte(input.OwnerPrivateKeyFile), []byte(input.SourceBootstrapGrantFile)} {
@@ -184,7 +184,7 @@ func TestPlanControlCandidatesRejectsUntrustedInputsWithoutOutput(t *testing.T) 
 				t.Fatal(err)
 			}
 			var output bytes.Buffer
-			if err := planControlCandidates(context.Background(), path, &output); err == nil || output.Len() != 0 {
+			if err := Run(context.Background(), path, &output); err == nil || output.Len() != 0 {
 				t.Fatal("invalid plan produced output")
 			}
 		})
@@ -203,7 +203,7 @@ func TestPlanControlCandidatesRejectsUntrustedInputsWithoutOutput(t *testing.T) 
 			t.Fatal(err)
 		}
 		var output bytes.Buffer
-		if err := planControlCandidates(context.Background(), path, &output); err == nil || output.Len() != 0 {
+		if err := Run(context.Background(), path, &output); err == nil || output.Len() != 0 {
 			t.Fatal("out-of-range bootstrap expiry accepted")
 		}
 	}
@@ -214,7 +214,7 @@ func TestPlanControlCandidatesRejectsUntrustedInputsWithoutOutput(t *testing.T) 
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := planControlCandidates(context.Background(), path, &output); err == nil || output.Len() != 0 {
+	if err := Run(context.Background(), path, &output); err == nil || output.Len() != 0 {
 		t.Fatal("unprotected owner key accepted")
 	}
 	if err := os.Chmod(input.OwnerPrivateKeyFile, 0600); err != nil {
@@ -232,12 +232,12 @@ func TestPlanControlCandidatesRejectsUntrustedInputsWithoutOutput(t *testing.T) 
 		t.Fatal(err)
 	}
 	clear(der)
-	if err := planControlCandidates(context.Background(), path, &output); err == nil || output.Len() != 0 {
+	if err := Run(context.Background(), path, &output); err == nil || output.Len() != 0 {
 		t.Fatal("foreign owner signer accepted")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := planControlCandidates(ctx, path, &output); err != context.Canceled {
+	if err := Run(ctx, path, &output); err != context.Canceled {
 		t.Fatalf("canceled producer: %v", err)
 	}
 }

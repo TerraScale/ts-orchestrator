@@ -1,4 +1,4 @@
-package hostagent
+package hostplatform
 
 import (
 	"context"

@@ -36,6 +36,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostplatform"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
@@ -388,7 +389,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the installer is invalid: %s", err.Error())
 	}
-	systemd, err := hostagent.NewSystemctlController(configuration.SystemctlBinary, tsNodeCommandTimeout)
+	systemd, err := hostplatform.NewSystemctlController(configuration.SystemctlBinary, tsNodeCommandTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the systemd controller is invalid: %s", err.Error())
 	}
@@ -407,7 +408,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		return nil, fmt.Errorf("ts-node: the lifecycle is invalid: %s", err.Error())
 	}
 	facts, err := hostagent.NewHostFactsSource(hostagent.HostFactsSourceConfig{
-		Clock: hostagent.ChronyTrackingSource{
+		Clock: hostplatform.ChronyTrackingSource{
 			ChronycBinary: configuration.ChronycBinary,
 			Timeout:       tsNodeCommandTimeout,
 		},
