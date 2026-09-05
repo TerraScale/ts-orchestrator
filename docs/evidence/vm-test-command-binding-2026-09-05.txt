@@ -1,0 +1,74 @@
+Qualification on clean a23379de069f4f66cf6763e63dddbe2eed459a2a, Linux amd64.
+Date: 2026-09-05. This is development evidence, not release qualification.
+
+Portable make check PASS after fixing fixture races and startup/deadline timing.
+Full go test -race -tags sandboxvm -count=1 ./... PASS. The subsequent
+nodeauthority deadline-test adjustment passed make check and three targeted
+race runs; the complete tagged suite predates that test-only adjustment.
+Linux arm64 cross-build PASS; this does not qualify native arm64 behavior.
+Privileged make vm-doctor PASS.
+
+Earlier portable attempts exposed running NATS options mutated by test fixtures
+in keyrotation and reaper. The tagged attempt exposed the same restoredrill
+race and a reconnect assertion made during initial host installation. The
+five matching fixture constructors now pass cloned options; the reconnect
+test waits for the initial convergence pass. Another portable run exhausted a
+100ms test grant during durable admission. Its five-second replacement still
+verifies actual expiry and the exact admitted mutation deadline.
+
+The qualification sender now signs with the enrolled regional candidate key,
+requires explicit live lease resolution, and rejects mismatched/expired
+identity and authority before publication. Real TLS/NKey transport tests verify
+the signature, refusal during takeover, and signer cleanup. The full VM suite
+still has no caller supplying this binding's actual guest lease resolver.
+
+make vm-test FAIL exit 2; vm-qualify exited 1. First guest only.
+Run: 2026-09-05T17:25:31.965458416Z to 2026-09-05T17:28:11.301584391Z.
+ts-node and orchestrator were active/running. TerraBase exited 1 and restarted
+with terrabase-configuration-missing. No six-host/fourth-Region baseline,
+R3 transfer, workload, fault scenario, or idle budget was qualified.
+Unmeasured zero fields in the adjacent SuiteReport are not passing evidence.
+Peak guest cgroup RSS: 446640128 bytes; configured RAM 512 MiB.
+Automatic cleanup: 93111061 ns. Explicit make vm-clean PASS.
+Post-cleanup inspection found no Firecracker/jailer process or files under the
+owned state directory. Reported provider paths were absent and listeners
+unreachable. Diagnostics for guests never created retain that observation.
+
+Fresh guest artifacts, qualification-only ephemeral ed25519 signatures:
+vm-artifacts: component=ts-node version=vmqual.c0ceae1912dc21b6 sha256=c0ceae1912dc21b6e39f786ce62d34c8c52cf85ba6eb8c2b6bfebf5176dad7f2 bytes=9613472
+vm-artifacts: component=orchestrator version=vmqual.c4e621b9e4b5275a sha256=c4e621b9e4b5275a6fb59abc1c0efba6acb4e2769e88456d34a947522a4d8ff8 bytes=28930208
+vm-artifacts: component=terrabase version=vmqual.300d71b2c6e44655 sha256=300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7 bytes=17787952
+TerraBase was supplied, not rebuilt or attested to the adjacent producer HEAD.
+
+Invocation:
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" /tmp/ts-orchestrator-vm-artifacts-command-binding --root "/var/lib/terrascale-qualification/ts-orchestrator" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server" -- /tmp/ts-orchestrator-vm-qualify-command-binding test
+Executed under sudo -n, with GOMAXPROCS=4 GOFLAGS=-p=2. PATH included
+/home/mariogk/.local/share/mise/installs/go/1.27.1/bin and pinned
+/nix/store/3llrnwchkvcxgnrr604fhkvcmrlbrk2q-e2fsprogs-1.47.4-bin/bin.
+The helper executables were freshly built from the committed source.
+Explicit cleanup used the same VM_ROOT, pins, and VM_QUALIFY with make vm-clean.
+
+Bounded guest startup diagnostic:
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: activated terrabase process is not running; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2283,"activeState":"active","subState":"running","result":"success","journalEntries":5,"severityCounts":[0,0,0,0,0,0,5,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","mainPid":2567,"activeState":"active","subState":"running","result":"success","journalEntries":7,"severityCounts":[0,0,0,0,0,0,7,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":11,"severityCounts":[0,0,0,0,2,2,7,0],"categories":["terrabase-configuration-missing"]}]
+
+CI observation through fj actions tasks --repo TerraScale/ts-orchestrator:
+Task #96 for a23379de06 failed after 10s. No CI passing result is claimed.
+fj release view latest --repo TerraScale/ts-deploy failed: could not find release
+latest. fj release list --repo TerraScale/ts-deploy returned no releases.
+The workflow defaults to that lookup. The task log was not retrieved, so this
+lookup failure is not proof of the job's exact failing step or selected pin.
+The adjacent ts-deploy source gates make vm-test after portable verification
+and before publication, but source presence does not prove deployed CI behavior.
+
+Local log and helper SHA256:
+e9e27a636d5f1f9a1c4b023ec6d60f9ef123530a7af39bc5a8cc559495cbf926  /tmp/ts-orchestrator-command-binding-check-final.log
+79e7984860c2e77d5c6a0abc7e6a3fe2f254ea9e952f7add3979a51aa9da57a1  /tmp/ts-orchestrator-command-binding-tagged-fixed.log
+08b4e518650d3f6f176db81c7d613ca56f28391cd694b128b0ab90a07b63e29d  /tmp/ts-orchestrator-command-binding-check.log
+236b1f6da0c279c1509a468742e8c0255705acf2ecde8501f214495c3fba3192  /tmp/ts-orchestrator-command-binding-check-fixed.log
+370291761f0bf6d3de8e71839bd3928653fe0cfed0c8377da370ac137fbdb8c2  /tmp/ts-orchestrator-command-binding-tagged-all.log
+af9142357259879bc1ac51413bcc06f018e0a7d2bafd4936a945644fb0a91009  /tmp/ts-vm-command-binding-doctor.log
+04bcfaef25d893efe51488662ffdb0db1b3eedbb91abe897a3a55ce01f26890c  /tmp/ts-vm-command-binding-test.log
+017fda0d484e198f5cc962b5047b42fc7488e9991c7f21f548e818c2fa555532  /tmp/ts-vm-command-binding-clean.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-vm-command-binding-clean-inspection.log
+876d1726cbfa2d9f94e45c748832e4952208ddfb2212e97fa44bdd930a500369  /tmp/ts-orchestrator-vm-qualify-command-binding
+030859c14bdbf1108bff1bdadb339dd8f998dcace5f078d6b5efd04a5004b988  /tmp/ts-orchestrator-vm-artifacts-command-binding

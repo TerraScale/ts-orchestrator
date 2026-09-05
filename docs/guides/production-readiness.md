@@ -154,6 +154,13 @@ observed both ts-node and orchestrator active and running. TerraBase still
 failed with missing configuration, stopping the suite at the first guest.
 Cleanup passed. This establishes observed process startup only; guest authority
 readiness, R3 promotion and the six-host/fourth-region scenarios remain unproven.
+The [command-binding verification](../evidence/vm-test-command-binding-2026-09-05.txt)
+records the signed transport tests, repaired race fixtures, passing portable
+gate, and fresh Firecracker run on `a23379de`. TerraBase still failed with
+missing configuration while ts-node and orchestrator remained active. Cleanup
+passed. Forgejo reported the commit's CI task failed; its default ts-deploy
+release lookup also found no published release. CI and production acceptance
+remain open.
 The [fresh receiver run on 8e919f63](../evidence/vm-test-receiver-authority-2026-09-05.txt)
 also observed ts-node and orchestrator running with the new reader configuration.
 TerraBase still reported missing configuration, stopping the suite at the first
