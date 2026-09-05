@@ -389,8 +389,8 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 			}
 		}()
 	}
-	// Live constructors may now open local durable stores. No regional command
-	// transport exists until the complete production graph has been constructed.
+	// Live constructors may now open local durable stores. Global workers are constructed
+	// later, only after the GRU election owns a proven lease.
 	if admission != nil {
 		production, err = admission.Construct(runCtx)
 		if err != nil {
@@ -450,7 +450,7 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 		}
 	}
 	if production != nil {
-		if err := production.Start(runCtx); err != nil {
+		if err := production.StartGlobal(runCtx, global); err != nil {
 			return err
 		}
 	}

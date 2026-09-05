@@ -43,13 +43,14 @@ type MailAdapter interface {
 // ProductionConfig contains every authority needed by the D-76 production
 // reaper. Missing adapters fail closed before a reconciler is returned.
 type ProductionConfig struct {
-	Database DatabaseAdapter
-	Key      KeyAdapter
-	Mail     MailAdapter
-	Store    StateStore
-	Audit    AuditSink
-	Clock    Clock
-	PageSize int
+	Database             DatabaseAdapter
+	Key                  KeyAdapter
+	Mail                 MailAdapter
+	Store                *NATSStateStoreConfig
+	Audit                AuditSink
+	Clock                Clock
+	PageSize             int
+	CheckEffectAuthority func(context.Context) error
 }
 
 // productionExecutor keeps key destruction in the explicit key adapter while
@@ -59,39 +60,61 @@ type ProductionConfig struct {
 type productionExecutor struct {
 	database DatabaseAdapter
 	key      KeyAdapter
+	check    func(context.Context) error
 }
 
 func (e productionExecutor) EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error {
-	if err := ctx.Err(); err != nil {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
 		return err
 	}
 	if err := e.database.VerifySnapshotPlacement(ctx, databaseID); err != nil {
+		return err
+	}
+	if err := checkReaperEffect(ctx, e.check); err != nil {
 		return err
 	}
 	return e.database.EnsureSnapshot(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) CloseDatabase(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.database.CloseDatabase(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) StopLitestream(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.database.StopLitestream(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) Reactivate(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.database.Reactivate(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) PurgeCDN(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.database.PurgeCDN(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) DestroyDEK(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.key.DestroyDEK(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return err
+	}
 	return e.database.DeleteOwnedData(ctx, databaseID, operationKey)
 }
 
@@ -116,15 +139,19 @@ func missingProductionDependency(value any) bool {
 func NewProductionReconciler(config ProductionConfig) (*Reconciler, error) {
 	if missingProductionDependency(config.Database) || missingProductionDependency(config.Key) ||
 		missingProductionDependency(config.Mail) || missingProductionDependency(config.Store) ||
-		missingProductionDependency(config.Audit) {
+		missingProductionDependency(config.Audit) || config.CheckEffectAuthority == nil {
 		return nil, ErrMissingDependency
+	}
+	store, err := NewNATSStateStore(*config.Store)
+	if err != nil {
+		return nil, err
 	}
 	return NewReconciler(Config{
 		Catalog:     config.Database,
-		Executor:    productionExecutor{database: config.Database, key: config.Key},
-		Mailer:      config.Mail,
-		Audit:       config.Audit,
-		Store:       config.Store,
+		Executor:    productionExecutor{database: config.Database, key: config.Key, check: config.CheckEffectAuthority},
+		Mailer:      guardedReaperMail{config.Mail, config.CheckEffectAuthority},
+		Audit:       guardedReaperAudit{config.Audit, config.CheckEffectAuthority},
+		Store:       store,
 		Clock:       config.Clock,
 		PageSize:    config.PageSize,
 		PauseAfter:  DefaultPauseAfter,
@@ -202,3 +229,41 @@ var (
 	_ Executor = productionExecutor{}
 	_ Mailer   = (MailAdapter)(nil)
 )
+
+// Admission is checked for every call, including failure audits whose caller
+// deliberately detached cancellation. Provider implementations must repeat the
+// authority check at each transport retry and mutation boundary. This callback
+// cannot revoke requests already admitted by an external service.
+func checkReaperEffect(ctx context.Context, check func(context.Context) error) error {
+	if ctx == nil || check == nil {
+		return ErrStateFenced
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return check(ctx)
+}
+
+type guardedReaperMail struct {
+	mail  MailAdapter
+	check func(context.Context) error
+}
+
+func (g guardedReaperMail) Send(ctx context.Context, email Email) error {
+	if err := checkReaperEffect(ctx, g.check); err != nil {
+		return err
+	}
+	return g.mail.Send(ctx, email)
+}
+
+type guardedReaperAudit struct {
+	audit AuditSink
+	check func(context.Context) error
+}
+
+func (g guardedReaperAudit) Record(ctx context.Context, event AuditEvent) error {
+	if err := checkReaperEffect(ctx, g.check); err != nil {
+		return err
+	}
+	return g.audit.Record(ctx, event)
+}

@@ -166,7 +166,7 @@ func openRestoreLeaseStore(t *testing.T, ctx context.Context, connection *nats.C
 }
 func newRestoreJournalClient(t *testing.T, connection *nats.Conn, epoch uint64, candidate string) *NATSJournal {
 	t.Helper()
-	journal, err := NewNATSJournal(NATSJournalConfig{Connection: connection, CandidateID: candidate, AuthorityEpoch: epoch})
+	journal, err := NewNATSJournal(NATSJournalConfig{Connection: connection, CandidateID: candidate, AuthorityEpoch: epoch, LeaseID: fmt.Sprintf("lease-%d", epoch)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestNATSRestoreJournalConcurrentClaimsAndExpiredAuthority(t *testing.T) {
 		if err != nil {
 			t.Fatal("negative fixture failed to establish intended transport")
 		}
-		_, err = NewNATSJournal(NATSJournalConfig{Connection: unsafeConnection, CandidateID: "global-controller-gru-concurrent", AuthorityEpoch: 1})
+		_, err = NewNATSJournal(NATSJournalConfig{Connection: unsafeConnection, CandidateID: "global-controller-gru-concurrent", AuthorityEpoch: 1, LeaseID: "lease-1"})
 		unsafeConnection.Close()
 		if !errors.Is(err, ErrInvalidConfig) {
 			t.Fatalf("accepted unsafe %s transport: %v", mode, err)
@@ -374,5 +374,32 @@ func TestNATSRestoreJournalConcurrentClaimsAndExpiredAuthority(t *testing.T) {
 	putRestoreLease(t, ctx, store, expired)
 	if _, err := one.ClaimRestoreEpoch(ctx, "database", "expired"); !errors.Is(err, ErrRestoreEpochFenced) {
 		t.Fatalf("expired authority claimed epoch: %v", err)
+	}
+}
+
+func TestNATSRestoreJournalRequiresExactLeaseID(t *testing.T) {
+	cluster := newRestoreJournalCluster(t)
+	connection := cluster.connect(t)
+	ctx := context.Background()
+	store := openRestoreLeaseStore(t, ctx, connection, true)
+	lease := restoreLease(1, "global-controller-gru-leaseid")
+	putRestoreLease(t, ctx, store, lease)
+	if _, err := NewNATSJournal(NATSJournalConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: 1}); err == nil {
+		t.Fatal("missing lease ID accepted")
+	}
+	journal := newRestoreJournalClient(t, connection, 1, lease.CandidateId)
+	facts := JournalFacts{JournalCut: "cut-1", Checksum: "checksum-1", RowCount: 1}
+	if err := journal.RecordFacts(ctx, "database", facts); err != nil {
+		t.Fatal(err)
+	}
+	lease.IssuedAt = time.Now().UTC()
+	putRestoreLease(t, ctx, store, lease)
+	if _, err := journal.Facts(ctx, "database"); err != nil {
+		t.Fatalf("same-lease renewal rejected: %v", err)
+	}
+	lease.LeaseId = "replacement-lease"
+	putRestoreLease(t, ctx, store, lease)
+	if _, err := journal.Facts(ctx, "database"); err == nil {
+		t.Fatal("same candidate and epoch with changed lease ID accepted")
 	}
 }

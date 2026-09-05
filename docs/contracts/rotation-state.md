@@ -4,12 +4,14 @@
 receives its own optimistic state session. The constructor no longer accepts
 a file or arbitrary `security.StateStore` as production authority.
 
-The root must supply the actual GRU global lease candidate and epoch and an
+The root must supply the actual GRU global lease candidate, epoch and lease ID and an
 authenticated global-account connection. The connection requires verified
 TLS 1.3, mTLS, a user NKey, disabled reconnect and disabled reconnect buffering.
 The existing generic global connection allows reconnect; it cannot be reused
 without changing its lifecycle. The caller owns this connection and must
-recreate the coordinator and store after takeover or connection loss.
+recreate the coordinator and store after takeover or connection loss. The
+production worker supervisor now constructs these sessions after election;
+the complete CLI adapter resolver remains unfinished.
 
 Lease, state and read barriers share `KV_ORCH_LEADERS`. The stream must use R3
 FileStorage with no TTL, at least 300 KiB per-message support and at least
@@ -48,6 +50,12 @@ that store, with external provider effects supplied by test fixtures.
 They qualify durable state behavior only. Issuer, Vault, member, Secrets Store,
 reloader and publisher adapters must still recheck authority before external
 effects. The CLI root does not yet construct the complete production runtime.
+
+`RefreshAuthority` and `CheckEffectAuthority` commit a fresh quorum barrier
+without changing the coordinator's loaded state cursor. The root uses a
+separate proof session and permanently cancels the worker context after a
+failed check. Lease renewal may update timestamps and revisions; candidate,
+epoch and lease ID remain fixed for the session.
 
 The [recorded gates](../evidence/rotation-state-gates-2026-09-05.txt) passed on
 the integrated source. Test setup waits for the elected stream leader and

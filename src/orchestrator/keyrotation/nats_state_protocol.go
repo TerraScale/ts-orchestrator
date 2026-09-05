@@ -103,7 +103,7 @@ func (s *NATSStateStore) snapshot(ctx context.Context) (rotationSnapshot, error)
 		return rotationSnapshot{}, ErrStateConflict
 	}
 	var lease authority.RegionalAuthorityLeaseDocument
-	if strictRotationJSON(leaseMessage.Data, &lease) != nil || !rotationLeaseLive(lease, time.Now().UTC()) || lease.CandidateId != s.candidate || lease.Epoch != int64(s.epoch) {
+	if strictRotationJSON(leaseMessage.Data, &lease) != nil || !rotationLeaseLive(lease, time.Now().UTC()) || lease.CandidateId != s.candidate || lease.Epoch != int64(s.epoch) || lease.LeaseId != s.leaseID {
 		return rotationSnapshot{}, ErrStateFenced
 	}
 	snapshot := rotationSnapshot{sequence: info.State.LastSeq, leaseRevision: leaseMessage.Sequence, lease: lease}

@@ -38,18 +38,20 @@ type NATSJournalConfig struct {
 	Connection     *nats.Conn
 	CandidateID    string
 	AuthorityEpoch uint64
+	LeaseID        string
 }
 type NATSJournal struct {
 	connection *nats.Conn
 	js         jetstream.JetStream
 	candidate  string
 	epoch      uint64
+	leaseID    string
 }
 
 var _ JournalPort = (*NATSJournal)(nil)
 
 func NewNATSJournal(config NATSJournalConfig) (*NATSJournal, error) {
-	if config.Connection == nil || !config.Connection.IsConnected() || !config.Connection.AuthRequired() || config.AuthorityEpoch == 0 || config.AuthorityEpoch > math.MaxInt64 || !strings.HasPrefix(config.CandidateID, "global-controller-gru-") || !validToken(config.CandidateID) {
+	if config.Connection == nil || !config.Connection.IsConnected() || !config.Connection.AuthRequired() || !validToken(config.LeaseID) || config.AuthorityEpoch == 0 || config.AuthorityEpoch > math.MaxInt64 || !strings.HasPrefix(config.CandidateID, "global-controller-gru-") || !validToken(config.CandidateID) {
 		return nil, ErrInvalidConfig
 	}
 	options := config.Connection.Opts
@@ -64,7 +66,7 @@ func NewNATSJournal(config NATSJournalConfig) (*NATSJournal, error) {
 	if err != nil {
 		return nil, ErrRestoreJournalUnavailable
 	}
-	return &NATSJournal{connection: config.Connection, js: js, candidate: config.CandidateID, epoch: config.AuthorityEpoch}, nil
+	return &NATSJournal{connection: config.Connection, js: js, candidate: config.CandidateID, epoch: config.AuthorityEpoch, leaseID: config.LeaseID}, nil
 }
 
 type restoreDatabaseEpoch struct {
@@ -166,7 +168,7 @@ func (journal *NATSJournal) snapshot(ctx context.Context) (restoreJournalSnapsho
 		return restoreJournalSnapshot{}, ErrRestoreJournalConflict
 	}
 	var lease authority.RegionalAuthorityLeaseDocument
-	if json.Unmarshal(leaseMessage.Data, &lease) != nil || lease.Validate() != nil || lease.AuthorityId != "global" || lease.CandidateId != journal.candidate || lease.Epoch != int64(journal.epoch) || lease.IssuedAt.After(time.Now().UTC()) || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
+	if json.Unmarshal(leaseMessage.Data, &lease) != nil || lease.Validate() != nil || lease.AuthorityId != "global" || lease.CandidateId != journal.candidate || lease.LeaseId != journal.leaseID || lease.Epoch != int64(journal.epoch) || lease.IssuedAt.After(time.Now().UTC()) || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
 		return restoreJournalSnapshot{}, ErrRestoreEpochFenced
 	}
 	snapshot := restoreJournalSnapshot{sequence: info.State.LastSeq, leaseRevision: leaseMessage.Sequence, lease: lease, state: emptyRestoreJournalState()}

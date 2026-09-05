@@ -89,7 +89,7 @@ func TestNewProductionRequiresEveryAuthority(t *testing.T) {
 	}
 	defer coordinator.Dispose()
 	lease := readRotationTestLease(t, t.Context(), kv)
-	stateConfig := &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch)}
+	stateConfig := &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}
 	_, err = NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: stateConfig, Regions: []string{"gru"}})
 	if err != nil {
 		t.Fatal(err)

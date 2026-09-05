@@ -113,6 +113,12 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 
 	publish = append(publish,
 		"$KV."+topology.Leaders().Bucket+".authority.global",
+		"$KV."+topology.Leaders().Bucket+".security.rotation.state",
+		"$KV."+topology.Leaders().Bucket+".security.rotation.barrier",
+		"$KV."+topology.Leaders().Bucket+".restore.drill.state",
+		"$KV."+topology.Leaders().Bucket+".restore.drill.barrier",
+		"$KV."+topology.Leaders().Bucket+".reaper.state",
+		"$KV."+topology.Leaders().Bucket+".reaper.barrier",
 		"$KV."+topology.Releases().Bucket+".>",
 		"$KV."+topology.MasterDeliveries().Bucket+".master.>",
 		"_INBOX.>",
@@ -123,6 +129,9 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 		GlobalNatsTopologyCellSpecSubjectPrefix()+".*",
 	)
 
+	// Runtime admission reads the directory bucket through the authority
+	// connection. Directory publication retains its separate identity.
+	publish = append(publish, "$JS.API.STREAM.INFO.KV_"+topology.Cells().Bucket)
 	publish = append(publish, globalNatsKeyValueManagement(topology.Leaders().Bucket)...)
 	publish = append(publish, globalNatsKeyValueManagement(topology.Releases().Bucket)...)
 	publish = append(publish, globalNatsKeyValueManagement(topology.MasterDeliveries().Bucket)...)

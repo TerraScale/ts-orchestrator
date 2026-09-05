@@ -20,6 +20,7 @@ describe code that exists today; they do not preserve a retired topology.
 | Contracts | `src/orchestrator/contracts` | — |
 | NATS subjects, accounts and capability policy | `src/orchestrator/natspolicy` | contracts |
 | Protocol envelopes and delivery semantics | `src/orchestrator/protocol` | contracts, natspolicy |
+| Scheduled service lifecycle | `src/orchestrator/lifecycle` | — (leaf) |
 | Runtime | `src/orchestrator/runtime` | — (leaf) |
 | Security | `src/orchestrator/security` | — (leaf) |
 | Scheduling | `src/orchestrator/scheduling` | — (leaf) |

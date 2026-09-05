@@ -76,22 +76,23 @@ func (k *productionKey) DestroyDEK(_ context.Context, id, _ string) error {
 	return nil
 }
 
-func productionConfig(database *productionDatabase, key *productionKey, clock Clock, store StateStore) ProductionConfig {
+func productionConfig(database *productionDatabase, key *productionKey, clock Clock, store *NATSStateStoreConfig) ProductionConfig {
 	return ProductionConfig{
-		Database: database,
-		Key:      key,
-		Mail:     &testMailer{},
-		Store:    store,
-		Audit:    &testAudit{},
-		Clock:    clock,
-		PageSize: 10,
+		Database:             database,
+		Key:                  key,
+		Mail:                 &testMailer{},
+		Store:                store,
+		Audit:                &testAudit{},
+		Clock:                clock,
+		PageSize:             10,
+		CheckEffectAuthority: func(ctx context.Context) error { return ctx.Err() },
 	}
 }
 
 func TestNewProductionReconcilerFailsClosedOnMissingAuthority(t *testing.T) {
 	database := &productionDatabase{database: freeDatabase(time.Unix(1, 0))}
 	key := &productionKey{}
-	base := productionConfig(database, key, ClockFunc(func() time.Time { return time.Unix(2, 0) }), &MemoryStore{})
+	base := productionConfig(database, key, ClockFunc(func() time.Time { return time.Unix(2, 0) }), &NATSStateStoreConfig{})
 	tests := []struct {
 		name string
 		edit func(*ProductionConfig)
@@ -101,6 +102,7 @@ func TestNewProductionReconcilerFailsClosedOnMissingAuthority(t *testing.T) {
 		{"mail", func(c *ProductionConfig) { c.Mail = nil }},
 		{"store", func(c *ProductionConfig) { c.Store = nil }},
 		{"audit", func(c *ProductionConfig) { c.Audit = nil }},
+		{"effect authority", func(c *ProductionConfig) { c.CheckEffectAuthority = nil }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -117,7 +119,7 @@ func TestProductionPauseVerifiesPlacementBeforeBackup(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(DefaultPauseAfter)}
 	database := &productionDatabase{database: freeDatabase(base), verify: errors.New("placement lock unavailable")}
-	reaper, err := NewProductionReconciler(productionConfig(database, &productionKey{}, clock, &MemoryStore{}))
+	reaper, err := NewProductionReconciler(productionConfig(database, &productionKey{}, clock, newProductionStateConfig(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +140,7 @@ func TestProductionPolicyDeletesAtNinetyAfterTwoAdditionalNotices(t *testing.T) 
 	database := &productionDatabase{database: freeDatabase(base)}
 	key := &productionKey{}
 	mail := &testMailer{}
-	config := productionConfig(database, key, clock, &MemoryStore{})
+	config := productionConfig(database, key, clock, newProductionStateConfig(t))
 	config.Mail = mail
 	reaper, err := NewProductionReconciler(config)
 	if err != nil {
@@ -168,7 +170,7 @@ func TestProductionHookClockDrivenRequestRaceReactivatesOnce(t *testing.T) {
 	clock := &testClock{now: base.Add(DefaultPauseAfter)}
 	database := &productionDatabase{database: freeDatabase(base)}
 	key := &productionKey{}
-	wiring, err := NewProductionWiring(productionConfig(database, key, clock, &MemoryStore{}))
+	wiring, err := NewProductionWiring(productionConfig(database, key, clock, newProductionStateConfig(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,5 +209,58 @@ func TestProductionHookClockDrivenRequestRaceReactivatesOnce(t *testing.T) {
 	}
 	if reactivations != 1 {
 		t.Fatalf("reactivations = %d; calls = %v", reactivations, database.calls)
+	}
+}
+
+func newProductionStateConfig(t *testing.T) *NATSStateStoreConfig {
+	t.Helper()
+	cluster := newReaperStateCluster(t)
+	connection := cluster.connect(t)
+	kv := openReaperTestLeaseStore(t, context.Background(), connection, true)
+	lease := reaperTestLease(1, "global-controller-gru-a")
+	putReaperTestLease(t, context.Background(), kv, lease)
+	return &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}
+}
+
+func TestProductionEffectAdmissionCoversAllCallsAndDetachedFailureAudit(t *testing.T) {
+	database := &productionDatabase{}
+	key := &productionKey{}
+	mail := &testMailer{}
+	audit := &testAudit{}
+	fenced := func(context.Context) error { return ErrStateFenced }
+	executor := productionExecutor{database: database, key: key, check: fenced}
+	for _, call := range []func(context.Context, string, string) error{executor.EnsureSnapshot, executor.CloseDatabase, executor.StopLitestream, executor.Reactivate, executor.PurgeCDN, executor.DestroyDEK, executor.DeleteOwnedData} {
+		if err := call(t.Context(), "db-1", "op"); !errors.Is(err, ErrStateFenced) {
+			t.Fatalf("fenced method: %v", err)
+		}
+	}
+	if err := (guardedReaperMail{mail, fenced}).Send(t.Context(), Email{}); !errors.Is(err, ErrStateFenced) {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := (guardedReaperAudit{audit, fenced}).Record(context.WithoutCancel(canceled), AuditEvent{}); !errors.Is(err, ErrStateFenced) {
+		t.Fatal(err)
+	}
+	executor.check = func(context.Context) error { return nil }
+	if err := executor.EnsureSnapshot(canceled, "db-1", "op"); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if len(database.calls) != 0 || len(key.calls) != 0 || len(mail.emails) != 0 || len(audit.events) != 0 {
+		t.Fatal("fenced/canceled effect reached adapter")
+	}
+	checks := 0
+	executor.check = func(context.Context) error {
+		checks++
+		if checks > 1 {
+			return ErrStateFenced
+		}
+		return nil
+	}
+	if err := executor.EnsureSnapshot(t.Context(), "db-1", "op"); !errors.Is(err, ErrStateFenced) {
+		t.Fatal(err)
+	}
+	if len(database.calls) != 1 || database.calls[0] != "placement/db-1" {
+		t.Fatalf("snapshot was not rechecked after placement: %v", database.calls)
 	}
 }

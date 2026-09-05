@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"reflect"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
@@ -62,14 +64,8 @@ func (a *admittedProductionRuntime) Construct(ctx context.Context) (*productionR
 // exact per-Region scopes used by the rollout path; callers cannot provide a
 // put-only or unscoped mirror.
 type productionRuntimeConfig struct {
-	EstateClient    any
-	EstateSnapshot  estatepublisher.SnapshotSource
-	EstateAuthority estatepublisher.Authority
-	EstateSpec      estate.Spec
-
-	Rotation keyrotation.Config
-	Reaper   reaper.ProductionConfig
-	Restore  productionRestoreConfig
+	Global     *productionGlobalWorkerPlan
+	EstateSpec estate.Spec
 
 	DeliveryStore provider.DeliveryRegionStoreConfig
 	Delivery      productionDeliveryConfig
@@ -95,15 +91,45 @@ type productionMasterDeliveryConfig struct {
 	RequestTimeout time.Duration
 }
 
+// The admitted plan validates provider references before listeners, but builds
+// clients and lease-specific adapters only inside a proven global session.
+type productionGlobalWorkerPlan struct {
+	CandidateID    string
+	OpenConnection func(context.Context) (*nats.Conn, error)
+	Construct      func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
+}
+type productionGlobalWorkerConfig struct {
+	// Close releases every client allocated by Construct, including partial
+	// results returned with an error. It is required even for an empty bundle.
+	Close          func() error
+	EstateClient   any
+	EstateSnapshot estatepublisher.SnapshotSource
+	Rotation       keyrotation.Config
+	Reaper         reaper.ProductionConfig
+	Restore        productionRestoreConfig
+}
 type productionRuntime struct {
+	plan           *productionGlobalWorkerPlan
+	mirror         *delivery.ArtifactMirror
+	supervisor     *leaseOwnedGlobalWorkers
+	mu             sync.Mutex
+	active         *productionGlobalWorkers
 	delivery       *control.SignedDeliveryRuntimeConfig
 	masterDelivery *control.MasterDeliveryRuntimeConfig
-	publisher      *estatepublisher.Publisher
-	rotation       *security.Coordinator
-	reaper         *reaper.Reconciler
-	restore        *restoredrill.ProductionComposition
-	workers        []*scheduledService
-	completion     chan struct{}
+}
+
+type productionGlobalWorkers struct {
+	release    func() error
+	closeOnce  sync.Once
+	closeError error
+	finished   sync.Once
+	lifetime   context.Context
+	publisher  *estatepublisher.Publisher
+	rotation   *security.Coordinator
+	reaper     *reaper.Reconciler
+	restore    *restoredrill.ProductionComposition
+	workers    []*lifecycle.Service
+	completion chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -128,30 +154,70 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, err
 	}
 
-	publisher, err := newEstatePublisher(config.EstateClient, config.EstateSnapshot, config.EstateAuthority)
-	if err != nil {
-		return nil, fmt.Errorf("runtime estate publisher: %w", err)
+	if config.Delivery.Master != nil && config.Global == nil {
+		return nil, errors.New("runtime global worker plan is missing")
 	}
+	if config.Global != nil && config.Delivery.Master == nil {
+		return nil, errors.New("runtime global workers require GRU master configuration")
+	}
+	if config.Global != nil && (config.Global.Construct == nil || config.Global.OpenConnection == nil || config.Global.CandidateID == "") {
+		return nil, errors.New("runtime global worker plan is incomplete")
+	}
+	return &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror}, nil
+}
+
+func ownedGlobalWorkers(config productionGlobalWorkerConfig) *productionGlobalWorkers {
+	return &productionGlobalWorkers{release: config.Close, completion: make(chan struct{})}
+}
+
+func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session globalWorkerSession, mirror *delivery.ArtifactMirror) (*productionGlobalWorkers, error) {
+	group := ownedGlobalWorkers(config)
+	if config.Close == nil {
+		return group, errors.New("runtime global client cleanup is required")
+	}
+
+	epoch := uint64(session.Lease.Epoch)
+	check := func(ctx context.Context) (uint64, error) {
+		if err := session.CheckEffectAuthority(ctx); err != nil {
+			return 0, err
+		}
+		return epoch, nil
+	}
+	publisher, err := newEstatePublisher(config.EstateClient, config.EstateSnapshot, estatepublisher.AuthorityFunc{
+		GenerationFunc: check,
+		FenceFunc: func(ctx context.Context, generation uint64) error {
+			if generation != epoch {
+				return estatepublisher.ErrFenced
+			}
+			return session.CheckEffectAuthority(ctx)
+		},
+	})
+	if err != nil {
+		return group, fmt.Errorf("runtime estate publisher: %w", err)
+	}
+	group.publisher = publisher
+	config.Rotation.State = &keyrotation.NATSStateStoreConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId}
 	rotation, err := keyrotation.NewProduction(config.Rotation)
 	if err != nil {
-		return nil, fmt.Errorf("runtime key rotation: %w", err)
+		return group, fmt.Errorf("runtime key rotation: %w", err)
 	}
+	config.Reaper.Store = &reaper.NATSStateStoreConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId}
+	config.Reaper.CheckEffectAuthority = session.CheckEffectAuthority
 	reaperRuntime, err := reaper.NewProduction(config.Reaper)
 	if err != nil {
-		return nil, fmt.Errorf("runtime free-tier reaper: %w", err)
+		return group, fmt.Errorf("runtime free-tier reaper: %w", err)
 	}
+	journal, err := restoredrill.NewNATSJournal(restoredrill.NATSJournalConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId})
+	if err != nil {
+		return group, fmt.Errorf("runtime restore journal: %w", err)
+	}
+	config.Restore.Journal = journal
 	restore, err := restoredrill.NewProductionComposition(config.Restore.resolve(mirror))
 	if err != nil {
-		return nil, fmt.Errorf("runtime restore drill: %w", err)
+		return group, fmt.Errorf("runtime restore drill: %w", err)
 	}
-	return &productionRuntime{
-		delivery:       signedDelivery,
-		masterDelivery: masterDelivery,
-		publisher:      publisher,
-		rotation:       rotation,
-		reaper:         reaperRuntime,
-		restore:        restore,
-	}, nil
+	group.rotation, group.reaper, group.restore = rotation, reaperRuntime, restore
+	return group, nil
 }
 
 func composeProductionDelivery(config productionDeliveryConfig, spec estate.Spec, mirror *delivery.ArtifactMirror) (*control.SignedDeliveryRuntimeConfig, *control.MasterDeliveryRuntimeConfig, error) {
@@ -199,6 +265,9 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 	if config.Cell != "gru" || config.Authority == nil || config.Authority.Cell != "gru" {
 		return errors.New("runtime master delivery: global runtime must belong to GRU")
 	}
+	if r.plan != nil && r.plan.CandidateID != "global-controller-"+config.Cell+"-"+config.Instance {
+		return errors.New("runtime global worker candidate differs from GRU election")
+	}
 	if r.masterDelivery == nil {
 		return errors.New("runtime master delivery: explicit master adapters are required for GRU")
 	}
@@ -213,34 +282,36 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 	return nil
 }
 
-func (r *productionRuntime) Start(ctx context.Context) error {
+func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
 		return errors.New("orchestrator: production runtime context is required")
 	}
+	r.lifetime = ctx
 	if err := r.publisher.Start(ctx); err != nil {
 		return err
 	}
-	r.workers = []*scheduledService{
-		newScheduledService("key rotation", productionRotationInterval, func(runCtx context.Context, _ time.Time) error {
+	r.workers = []*lifecycle.Service{
+		lifecycle.NewScheduledService("key rotation", productionRotationInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.rotation.Reconcile(runCtx, productionRotationLead)
 			return err
 		}),
-		newScheduledService("free-tier reaper", productionReaperInterval, func(runCtx context.Context, _ time.Time) error {
+		lifecycle.NewScheduledService("free-tier reaper", productionReaperInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.reaper.Run(runCtx)
 			return err
 		}),
-		newScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
+		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
 		}),
 	}
-	r.completion = make(chan struct{})
+	if r.completion == nil {
+		r.completion = make(chan struct{})
+	}
 	for _, worker := range r.workers {
 		if err := worker.Start(ctx); err != nil {
-			_ = r.Close()
-			return fmt.Errorf("orchestrator: start %s: %w", worker.name, err)
+			return fmt.Errorf("orchestrator: start %s: %w", worker.Name(), err)
 		}
 	}
 	go func() {
@@ -250,12 +321,12 @@ func (r *productionRuntime) Start(ctx context.Context) error {
 		case <-r.workers[1].Completion():
 		case <-r.workers[2].Completion():
 		}
-		close(r.completion)
+		r.finished.Do(func() { close(r.completion) })
 	}()
 	return nil
 }
 
-func (r *productionRuntime) Completion() <-chan struct{} {
+func (r *productionGlobalWorkers) Completion() <-chan struct{} {
 	if r == nil || r.completion == nil {
 		return nil
 	}
@@ -265,134 +336,122 @@ func (r *productionRuntime) Completion() <-chan struct{} {
 // NotifyChange is the immediate publication path used by reconciler apply
 // callbacks. Publisher change notifications are coalesced, so bursts of
 // provider repair still produce one bounded estate write pass.
-func (r *productionRuntime) NotifyChange() {
+func (r *productionGlobalWorkers) NotifyChange() {
 	if r != nil && r.publisher != nil {
 		r.publisher.NotifyChange()
 	}
 }
 
+func (r *productionGlobalWorkers) Close() error {
+	if r == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		var result error
+		for i := len(r.workers) - 1; i >= 0; i-- {
+			worker := r.workers[i]
+			var err error
+			if r.lifetime != nil && r.lifetime.Err() != nil {
+				err = worker.Shutdown()
+			} else {
+				err = worker.Close()
+			}
+			result = combineErrors(result, err)
+		}
+		if r.publisher != nil {
+			result = combineErrors(result, r.publisher.Close())
+		}
+		if r.release != nil {
+			result = combineErrors(result, r.release())
+		}
+		if r.completion != nil {
+			r.finished.Do(func() { close(r.completion) })
+		}
+		r.closeError = result
+	})
+	return r.closeError
+}
+
+// Start attaches only the operational workers to the GRU election. Regional
+// runtimes have no global plan and continue independently on followers.
+// Standalone reconcile cannot assume global authority from process admission.
+func (r *productionRuntime) Start(context.Context) error {
+	return errors.New("production global workers require the live GRU election")
+}
+func (r *productionRuntime) StartGlobal(ctx context.Context, global component) error {
+	if r == nil {
+		return errors.New("production runtime is missing")
+	}
+	if r.plan == nil {
+		if r.masterDelivery != nil {
+			return errors.New("global worker plan is missing")
+		}
+		return nil
+	}
+	source, ok := global.(interface {
+		AuthoritySnapshot() control.RegionalAuthoritySnapshot
+	})
+	if !ok {
+		return errors.New("global workers require the live GRU election")
+	}
+	supervisor, err := startLeaseOwnedGlobalWorkers(ctx, globalWorkerSessionConfig{
+		CandidateID: r.plan.CandidateID, Snapshot: source.AuthoritySnapshot, OpenConnection: r.plan.OpenConnection,
+		Start: r.constructGlobalWorkers,
+	})
+	if err != nil {
+		return err
+	}
+	r.supervisor = supervisor
+	return nil
+}
+func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session globalWorkerSession) (component, error) {
+	config, err := r.plan.Construct(ctx, session)
+	if err != nil {
+		return ownedGlobalWorkers(config), err
+	}
+	if err := session.CheckEffectAuthority(ctx); err != nil {
+		return ownedGlobalWorkers(config), err
+	}
+	group, err := newProductionGlobalWorkers(config, session, r.mirror)
+	if err != nil {
+		return group, err
+	}
+	if err := group.Start(ctx); err != nil {
+		return group, err
+	}
+	r.mu.Lock()
+	r.active = group
+	r.mu.Unlock()
+	return group, nil
+}
+func (r *productionRuntime) Completion() <-chan struct{} {
+	if r == nil || r.supervisor == nil {
+		return nil
+	}
+	return r.supervisor.Completion()
+}
+func (r *productionRuntime) NotifyChange() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	group := r.active
+	r.mu.Unlock()
+	if group != nil {
+		group.NotifyChange()
+	}
+}
 func (r *productionRuntime) Close() error {
 	if r == nil {
 		return nil
 	}
-	var result error
-	for i := len(r.workers) - 1; i >= 0; i-- {
-		result = combineErrors(result, r.workers[i].Close())
+	if r.supervisor != nil {
+		return r.supervisor.Close()
 	}
-	if r.publisher != nil {
-		result = combineErrors(result, r.publisher.Close())
+	if r.active != nil {
+		return r.active.Close()
 	}
-	return result
-}
-
-// scheduledService adapts a periodic operation to the command lifecycle.
-// A zero interval means the operation owns its own cadence (the restore
-// drill's daily SchedulerPort); all services still share cancellation.
-type scheduledService struct {
-	name       string
-	interval   time.Duration
-	run        func(context.Context, time.Time) error
-	completion chan struct{}
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	started    bool
-	closed     bool
-	runError   error
-}
-
-func newScheduledService(name string, interval time.Duration, run func(context.Context, time.Time) error) *scheduledService {
-	return &scheduledService{name: name, interval: interval, run: run, completion: make(chan struct{})}
-}
-
-func (s *scheduledService) Start(ctx context.Context) error {
-	if s == nil || s.run == nil || ctx == nil {
-		return errors.New("orchestrator: scheduled service is invalid")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.started || s.closed {
-		return fmt.Errorf("orchestrator: %s cannot be started again", s.name)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	loopCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
-	s.started = true
-	go func() {
-		defer close(s.completion)
-		if s.interval <= 0 {
-			err := s.run(loopCtx, time.Time{})
-			if err == nil && loopCtx.Err() == nil {
-				err = errors.New("service stopped unexpectedly")
-			}
-			s.recordError(loopCtx, err)
-			return
-		}
-		// Reconcile persisted work on every start. Waiting for the first daily
-		// tick leaves interrupted rotations and reaping asleep after a restart.
-		if err := loopCtx.Err(); err != nil {
-			return
-		}
-		if err := s.run(loopCtx, time.Now().UTC()); err != nil {
-			s.recordError(loopCtx, err)
-			return
-		}
-		ticker := time.NewTicker(s.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-loopCtx.Done():
-				return
-			case at := <-ticker.C:
-				if err := s.run(loopCtx, at); err != nil {
-					s.recordError(loopCtx, err)
-					return
-				}
-			}
-		}
-	}()
 	return nil
-}
-
-func (s *scheduledService) recordError(ctx context.Context, err error) {
-	if err == nil || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {
-		return
-	}
-	s.mu.Lock()
-	s.runError = fmt.Errorf("orchestrator: %s failed: %w", s.name, err)
-	s.mu.Unlock()
-}
-
-func (s *scheduledService) Completion() <-chan struct{} {
-	if s == nil {
-		return nil
-	}
-	return s.completion
-}
-
-func (s *scheduledService) Close() error {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	s.closed = true
-	if s.cancel != nil {
-		s.cancel()
-	}
-	started := s.started
-	s.mu.Unlock()
-	if !started {
-		return nil
-	}
-	select {
-	case <-s.completion:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.runError
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("orchestrator: %s shutdown timed out", s.name)
-	}
 }
 
 func isNilProductionValue(value any) bool {

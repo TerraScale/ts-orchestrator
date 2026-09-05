@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
 	"errors"
@@ -512,11 +513,11 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 	for _, stage := range []string{"regional", "regional-nil", "global"} {
 		t.Run(stage, func(t *testing.T) {
 			restoreHostSeams(t)
-			worker := newScheduledService("admission cleanup probe", 0, func(context.Context, time.Time) error {
+			worker := lifecycle.NewScheduledService("admission cleanup probe", 0, func(context.Context, time.Time) error {
 				t.Error("production worker started before transport admission")
 				return nil
 			})
-			admitted := &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, workers: []*scheduledService{worker}}
+			admitted := &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, active: &productionGlobalWorkers{workers: []*lifecycle.Service{worker}}}
 			if stage == "global" {
 				admitted.masterDelivery = productionMasterDeliveryFixture(t)
 			}
@@ -560,8 +561,8 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 			if len(order) < 2 || order[0] != "admit" || order[1] != "regional" {
 				t.Fatalf("startup order: %v", order)
 			}
-			if !worker.closed || worker.started {
-				t.Fatalf("admitted worker closed=%v started=%v", worker.closed, worker.started)
+			if err := worker.Start(context.Background()); err == nil {
+				t.Fatal("admitted worker was not closed")
 			}
 			if stage != "regional-nil" && !regional.closed {
 				t.Fatal("regional resource leaked after startup failure")

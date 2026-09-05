@@ -22,7 +22,7 @@ func rotationTestState() security.PersistedState {
 }
 func newRotationTestSession(t *testing.T, nc *nats.Conn, lease authority.RegionalAuthorityLeaseDocument) *NATSStateStore {
 	t.Helper()
-	session, err := NewNATSStateStore(NATSStateStoreConfig{Connection: nc, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch)})
+	session, err := NewNATSStateStore(NATSStateStoreConfig{Connection: nc, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId})
 	if err != nil {
 		t.Fatal(err)
 	}

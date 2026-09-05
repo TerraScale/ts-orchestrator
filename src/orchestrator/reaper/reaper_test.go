@@ -232,23 +232,3 @@ func TestReactivationStartsFreshPauseOperationCycle(t *testing.T) {
 		t.Fatalf("expected two complete pause cycles and one reactivation, calls=%v", executor.calls)
 	}
 }
-
-func TestFileStoreRoundTrip(t *testing.T) {
-	path := t.TempDir() + "/reaper/state.json"
-	store, err := NewFileStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	when := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
-	want := State{Version: 7, Cursor: "page-2", Entries: map[string]Entry{"db": {DatabaseID: "db", Phase: PhasePaused, PausedAt: when, Operations: map[string]Operation{"pause/close": {Status: operationDone}}, Audits: map[string]bool{"audit": true}}}}
-	if err := store.Save(context.Background(), want); err != nil {
-		t.Fatal(err)
-	}
-	got, err := store.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Version != want.Version || got.Cursor != want.Cursor || got.Entries["db"].Operations["pause/close"].Status != operationDone || !got.Entries["db"].PausedAt.Equal(when) {
-		t.Fatalf("round trip: got=%+v", got)
-	}
-}

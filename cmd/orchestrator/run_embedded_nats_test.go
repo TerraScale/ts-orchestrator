@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"testing"
 	"time"
 
@@ -80,17 +81,17 @@ func TestProductionAdmissionFailureStartsNoEmbeddedListener(t *testing.T) {
 func TestEmbeddedNatsPrecedesRegionalAndClosesAfterClients(t *testing.T) {
 	restoreHostSeams(t)
 	var order []string
-	worker := newScheduledService("cleanup probe", 0, func(context.Context, time.Time) error { return nil })
+	worker := lifecycle.NewScheduledService("cleanup probe", 0, func(context.Context, time.Time) error { return nil })
 	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
 		order = append(order, "admit")
 		return &admittedProductionRuntime{construct: func(context.Context) (*productionRuntime, error) {
 			order = append(order, "compose")
-			return &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, workers: []*scheduledService{worker}}, nil
+			return &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, active: &productionGlobalWorkers{workers: []*lifecycle.Service{worker}}}, nil
 		}}, nil
 	}
 	regional := &fakeComponent{done: make(chan struct{}), name: "regional-close", order: &order}
 	broker := &fakeEmbeddedNats{done: make(chan struct{}), ready: true, close: func() {
-		if !regional.closed || !worker.closed {
+		if !regional.closed || worker.Start(context.Background()) == nil {
 			t.Error("broker closed before dependent resources")
 		}
 		order = append(order, "broker-close")

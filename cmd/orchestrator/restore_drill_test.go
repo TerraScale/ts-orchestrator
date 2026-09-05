@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestProductionRestoreSchedulerCadenceAndCancellation(t *testing.T) {
 func TestProductionRestoreSchedulerFailureReachesSupervision(t *testing.T) {
 	failure := errors.New("restore journal unavailable")
 	config := (productionRestoreConfig{}).resolve(nil)
-	service := newScheduledService("restore drill", 0, func(ctx context.Context, _ time.Time) error {
+	service := lifecycle.NewScheduledService("restore drill", 0, func(ctx context.Context, _ time.Time) error {
 		return config.Scheduler.Every(ctx, time.Millisecond, func(context.Context, time.Time) error {
 			return failure
 		})

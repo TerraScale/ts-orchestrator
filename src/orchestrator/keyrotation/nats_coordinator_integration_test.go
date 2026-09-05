@@ -27,7 +27,7 @@ func TestNATSProductionCoordinatorRotatesRestartsAndAdvancesGeneration(t *testin
 	issuer := &coordinatorIntegrationIssuer{materials: map[string]security.IdentityMaterial{}}
 	vault := &coordinatorIntegrationVault{materials: map[string]security.CapabilityMaterial{}}
 	publisher := &coordinatorIntegrationPublisher{receipts: map[string]security.PublicationReceipt{}}
-	config := Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, Publisher: publisher, State: &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch)}, Regions: []string{"gru", "sfo", "fra"}, Clock: func() time.Time { return now }}
+	config := Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, Publisher: publisher, State: &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, Regions: []string{"gru", "sfo", "fra"}, Clock: func() time.Time { return now }}
 	coordinator, err := NewProduction(config)
 	if err != nil {
 		t.Fatal(err)

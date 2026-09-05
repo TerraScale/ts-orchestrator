@@ -42,6 +42,7 @@ type NATSStateStoreConfig struct {
 	Connection     *nats.Conn
 	CandidateID    string
 	AuthorityEpoch uint64
+	LeaseID        string
 }
 
 // NATSStateStore is one coordinator's optimistic state session. Never share one
@@ -54,6 +55,7 @@ type NATSStateStore struct {
 	js         jetstream.JetStream
 	candidate  string
 	epoch      uint64
+	leaseID    string
 	mu         sync.Mutex
 	loaded     bool
 	revision   uint64
@@ -62,7 +64,7 @@ type NATSStateStore struct {
 var _ security.StateStore = (*NATSStateStore)(nil)
 
 func NewNATSStateStore(config NATSStateStoreConfig) (*NATSStateStore, error) {
-	if config.Connection == nil || config.AuthorityEpoch == 0 || config.AuthorityEpoch > math.MaxInt64 || !strings.HasPrefix(config.CandidateID, "global-controller-gru-") || !rotationToken(config.CandidateID) {
+	if config.Connection == nil || config.AuthorityEpoch == 0 || config.AuthorityEpoch > math.MaxInt64 || !rotationToken(config.LeaseID) || !strings.HasPrefix(config.CandidateID, "global-controller-gru-") || !rotationToken(config.CandidateID) {
 		return nil, configurationError("live GRU global state authority is required")
 	}
 	if err := rotationTransport(config.Connection); err != nil {
@@ -72,7 +74,7 @@ func NewNATSStateStore(config NATSStateStoreConfig) (*NATSStateStore, error) {
 	if err != nil {
 		return nil, ErrStateUnavailable
 	}
-	return &NATSStateStore{connection: config.Connection, js: js, candidate: config.CandidateID, epoch: config.AuthorityEpoch}, nil
+	return &NATSStateStore{connection: config.Connection, js: js, candidate: config.CandidateID, epoch: config.AuthorityEpoch, leaseID: config.LeaseID}, nil
 }
 
 func rotationToken(value string) bool {
@@ -238,4 +240,39 @@ func rotationIntentTransition(prior, next *security.PersistedState) error {
 		return ErrStateConflict
 	}
 	return nil
+}
+
+// RefreshAuthority proves this exact owner through a new quorum-committed
+// barrier without loading or advancing the coordinator's state cursor.
+func (s *NATSStateStore) RefreshAuthority(ctx context.Context) (authority.RegionalAuthorityLeaseDocument, error) {
+	if s == nil || ctx == nil {
+		return authority.RegionalAuthorityLeaseDocument{}, ErrStateUnavailable
+	}
+	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	for attempt := 0; attempt < 8; attempt++ {
+		snapshot, err := s.snapshot(bounded)
+		if errors.Is(err, ErrStateConflict) {
+			continue
+		}
+		if err != nil {
+			return authority.RegionalAuthorityLeaseDocument{}, err
+		}
+		_, err = s.commit(bounded, snapshot, nil, false)
+		if errors.Is(err, ErrStateConflict) {
+			continue
+		}
+		if err != nil {
+			return authority.RegionalAuthorityLeaseDocument{}, err
+		}
+		return snapshot.lease, nil
+	}
+	return authority.RegionalAuthorityLeaseDocument{}, ErrStateConflict
+}
+
+// CheckEffectAuthority is the dispatch guard for a fixed global lease. Remote
+// receivers must still enforce their own mutation fence and idempotency.
+func (s *NATSStateStore) CheckEffectAuthority(ctx context.Context) error {
+	_, err := s.RefreshAuthority(ctx)
+	return err
 }
