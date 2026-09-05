@@ -121,6 +121,13 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	if err != nil {
 		return err
 	}
+	if name == "run" && len(args) == 3 {
+		lookup, err = loadRunConfiguration(args[2])
+		if err != nil {
+			return commandFailure(name, err)
+		}
+		args = []string{"run"}
+	}
 	if name == "observe-member" {
 		return runObserveMember(ctx, args, output)
 	}
@@ -227,6 +234,9 @@ func verifyConfiguredOCIEstate(ctx context.Context, lookup envLookup) error {
 
 func requestedCommand(args []string) (string, error) {
 	if len(args) == 0 {
+		return "run", nil
+	}
+	if args[0] == "run" && len(args) == 3 && args[1] == "--config" && args[2] != "" {
 		return "run", nil
 	}
 	if args[0] == "observe-member" {
@@ -745,7 +755,7 @@ func writeCatalog(output io.Writer) error {
 		return errors.New("catalog output is nil")
 	}
 	commands := []catalogCommand{
-		{Name: "run", Description: "start the regional runtime and configured global roles"},
+		{Name: "run", Description: "start the regional runtime and configured global roles; --config FILE uses an explicit production JSON setting source"},
 		{Name: "check", Description: "perform bounded regional and configured global dependency checks"},
 		{Name: "nats-server", Description: "run the embedded NATS server from an explicit configuration file"},
 		{Name: "catalog", Description: "render this deterministic command and configuration catalog"},

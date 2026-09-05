@@ -55,7 +55,7 @@ type productionRuntimeConfig struct {
 
 	Rotation keyrotation.Config
 	Reaper   reaper.ProductionConfig
-	Restore  restoredrill.ProductionConfig
+	Restore  productionRestoreConfig
 
 	DeliveryStore provider.DeliveryRegionStoreConfig
 }
@@ -85,7 +85,6 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 	if err != nil {
 		return nil, fmt.Errorf("runtime artifact mirror: %w", err)
 	}
-	config.Restore.ArtifactMirror = mirror
 
 	publisher, err := newEstatePublisher(config.EstateClient, config.EstateSnapshot, config.EstateAuthority)
 	if err != nil {
@@ -99,7 +98,7 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 	if err != nil {
 		return nil, fmt.Errorf("runtime free-tier reaper: %w", err)
 	}
-	restore, err := ComposeRestoreDrill(config.Restore)
+	restore, err := restoredrill.NewProductionComposition(config.Restore.resolve(mirror))
 	if err != nil {
 		return nil, fmt.Errorf("runtime restore drill: %w", err)
 	}

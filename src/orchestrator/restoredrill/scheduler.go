@@ -6,12 +6,12 @@ import (
 )
 
 // TickerScheduler is the production timing adapter. The first callback is
-// after interval; a failed callback does not stop future daily proofs because
-// the drill itself pages and durably records the failure.
+// after interval. Callback failures return to process supervision: failures
+// before durable journal access cannot be assumed to have been recorded or paged.
 type TickerScheduler struct{}
 
 func (TickerScheduler) Every(ctx context.Context, interval time.Duration, f func(context.Context, time.Time) error) error {
-	if interval <= 0 || f == nil {
+	if ctx == nil || interval <= 0 || f == nil {
 		return ErrInvalidConfig
 	}
 	ticker := time.NewTicker(interval)
@@ -21,7 +21,9 @@ func (TickerScheduler) Every(ctx context.Context, interval time.Duration, f func
 		case <-ctx.Done():
 			return ctx.Err()
 		case at := <-ticker.C:
-			_ = f(ctx, at)
+			if err := f(ctx, at); err != nil {
+				return err
+			}
 		}
 	}
 }

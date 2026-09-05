@@ -35,16 +35,12 @@ const (
 // command subject. []byte fields use encoding/json's standard base64 form;
 // no credential or exception field exists on this wire type.
 type NatsCommandEnvelope struct {
-	ProtocolVersion int64  `json:"protocolVersion"`
-	Cell            string `json:"cell"`
-	AggregateID     string `json:"aggregateId"`
-	// AggregateId is the repository's Go spelling; AggregateID remains a
-	// source-compatible alias for callers using initialism style.
-	AggregateId       string    `json:"-"`
+	ProtocolVersion   int64     `json:"protocolVersion"`
+	Cell              string    `json:"cell"`
+	AggregateID       string    `json:"aggregateId"`
 	DesiredGeneration int64     `json:"desiredGeneration"`
 	WriterEpoch       int64     `json:"writerEpoch"`
 	OperationID       string    `json:"operationId"`
-	OperationId       string    `json:"-"`
 	IdempotencyKey    string    `json:"idempotencyKey"`
 	IssuedAt          time.Time `json:"issuedAt"`
 	ExpiresAt         time.Time `json:"expiresAt"`
@@ -64,9 +60,7 @@ func EncodeNatsCommandEnvelope(envelope protocol.CommandEnvelope) ([]byte, error
 	wire := NatsCommandEnvelope{
 		ProtocolVersion: envelope.ProtocolVersion.Value, Cell: envelope.Cell.Value,
 		AggregateID: envelope.AggregateId.Value, DesiredGeneration: envelope.DesiredGeneration.Value,
-		AggregateId: envelope.AggregateId.Value,
 		WriterEpoch: envelope.WriterEpoch.Value, OperationID: envelope.OperationId.Value,
-		OperationId:    envelope.OperationId.Value,
 		IdempotencyKey: envelope.IdempotencyKey.Value, IssuedAt: envelope.IssuedAt,
 		ExpiresAt: envelope.ExpiresAt, Attempt: envelope.Attempt.Value,
 		Payload: envelope.Payload.Bytes(), PayloadDigest: envelope.PayloadDigest.Bytes(),
@@ -104,11 +98,7 @@ func decodeNatsCommandEnvelope(data []byte) (protocol.CommandEnvelope, error) {
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid cell")
 	}
-	aggregateValue := wire.AggregateID
-	if aggregateValue == "" {
-		aggregateValue = wire.AggregateId
-	}
-	aggregate, ok := contracts.AggregateIdTryCreate(aggregateValue)
+	aggregate, ok := contracts.AggregateIdTryCreate(wire.AggregateID)
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid aggregate")
 	}
@@ -120,11 +110,7 @@ func decodeNatsCommandEnvelope(data []byte) (protocol.CommandEnvelope, error) {
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid writer epoch")
 	}
-	operationValue := wire.OperationID
-	if operationValue == "" {
-		operationValue = wire.OperationId
-	}
-	operation, ok := contracts.OperationIdTryCreate(operationValue)
+	operation, ok := contracts.OperationIdTryCreate(wire.OperationID)
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid operation")
 	}
@@ -166,7 +152,6 @@ type NatsCommandIngressConfiguration struct {
 
 	ExpectedCell             contracts.CellId
 	ExpectedAggregateID      contracts.AggregateId
-	ExpectedAggregateId      contracts.AggregateId
 	MinimumDesiredGeneration protocol.DesiredGeneration
 	MinimumWriterEpoch       protocol.WriterEpoch
 	AcceptedProtocolVersions []protocol.ProtocolRevision
@@ -274,11 +259,7 @@ func NewNatsCommandIngress(configuration NatsCommandIngressConfiguration) (*Nats
 		}
 		return nil, errors.New("command security boundary verifier is required")
 	}
-	expectedAggregate := configuration.ExpectedAggregateID
-	if !expectedAggregate.IsValid() {
-		expectedAggregate = configuration.ExpectedAggregateId
-	}
-	validation, err := protocol.NewCommandValidationContext(configuration.ExpectedCell, expectedAggregate,
+	validation, err := protocol.NewCommandValidationContext(configuration.ExpectedCell, configuration.ExpectedAggregateID,
 		configuration.MinimumDesiredGeneration, configuration.MinimumWriterEpoch,
 		configuration.AcceptedProtocolVersions, configuration.AllowedClockSkew,
 		configuration.PayloadDigestVerifier, boundary.Verifier())

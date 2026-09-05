@@ -80,6 +80,30 @@ That same file maps production Regions only to GRU/SFO/FRA. These are unfinished
 producer paths, not missing VM credentials. A local-development engine observation
 does not satisfy production membership, RF=2, or fourth-Region acceptance.
 
+### Immutable orchestrator launch configuration
+
+`ts-node` can launch the orchestrator with `Arguments: "run --config @config"`
+and a `Configuration` string containing a JSON object that maps admitted
+`TS_ORCH_*` setting names to string values. The command resolves the installed absolute configuration path.
+An explicit file replaces the process environment entirely. It requires cell,
+instance, NATS URL, replica count, and `TS_ORCH_PROVIDER=oci`; production identity
+and estate validation still run before any runtime starts.
+
+The file contains nonsecret settings and absolute credential-file references.
+Inline Cloudflare/Grafana tokens, URL credentials, unknown or duplicate fields,
+trailing data, and local-provider bypasses are rejected. Files must be regular,
+at most 64 KiB, have one link, belong to root or the service identity, and deny
+group/other writes. The command rejects symlinks and FIFOs. This supports the
+host agent's immutable configuration contract without embedding credentials in
+release slots.
+
+Qualification cannot yet generate the required authoritative values. It still
+needs admitted NATS identities and TLS files, signed-command identity and trust,
+and OCI estate/signer references. TerraBase separately needs durable membership,
+admitted database placement, peer identity, and Vault bindings. The command
+file reader does not supply these missing authorities or complete runtime
+composition.
+
 ### Production dependency audit
 
 The production composition root still always returns
@@ -122,7 +146,9 @@ observation, and durable receipt; `SupervisionShutdown` is not a replacement
 for database drain or safe member replacement.
 
 Scheduled production workers now preserve operation errors through runtime
-shutdown. A restore scheduler that exits successfully while its context is
+shutdown. The restore scheduler returns callback failures, including journal
+read failures that occur before a run can be durably recorded or paged, to
+process supervision. A restore scheduler that exits successfully while its context is
 still active also fails the process. Cancellation remains a clean shutdown,
 and duplicate starts are rejected. Focused race tests cover periodic and
 long-running service failure, propagation through `closeRuntime`,

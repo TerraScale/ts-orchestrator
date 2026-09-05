@@ -94,7 +94,7 @@ type JournalPort interface {
 }
 
 // SchedulerPort is the only timing dependency. Every must invoke f at the
-// daily schedule (and may return when ctx is cancelled).
+// daily schedule and return callback failures or context cancellation.
 type SchedulerPort interface {
 	Every(context.Context, time.Duration, func(context.Context, time.Time) error) error
 }
