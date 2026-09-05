@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"terrascale.tech/orchestrator/internal/testengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
@@ -55,13 +57,30 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer issuer.Close()
-	services := &qualificationRuntimeServices{plan: plan, natsAuthority: authority, controlSeeds: seeds, artifacts: artifacts, manifest: manifest, bootstrapIssuer: issuer}
+	var bindings []vmengineconfig.Binding
+	for _, region := range plan.Regions {
+		for _, guest := range region.Guests {
+			bindings = append(bindings, vmengineconfig.Binding{NodeID: guest.ID, Region: string(region.Code), Address: guest.Address})
+		}
+	}
+	_, declaration := testengineconfig.Declaration(t, bindings, strings.Repeat("b", 64), "1.0.0")
+	engineSeeds, err := vmengineconfig.Load(declaration, strings.Repeat("b", 64), "1.0.0", bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, m := range engineSeeds {
+			m.Clear()
+		}
+	}()
+	services := &qualificationRuntimeServices{plan: plan, natsAuthority: authority, controlSeeds: seeds, engineSeeds: engineSeeds, artifacts: artifacts, manifest: manifest, bootstrapIssuer: issuer}
 	for _, guest := range guests {
 		result, _, err := services.Bootstrap(vmqual.Guest{ID: guest.ID, Region: vmnet.GRU})
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer result.Controller.Clear()
+		defer result.Engine.Clear()
 		capacity, err := services.DataDriveBytes(vmqual.Guest{ID: guest.ID, Region: vmnet.GRU})
 		if err != nil || result.Controller.Selected && capacity <= 1352<<20 || !result.Controller.Selected && capacity != 64<<20 {
 			t.Fatal("qualification disk does not match admitted seed role")
@@ -84,11 +103,15 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 		if configured.Components[0].Arguments != vmcontrolseed.Arguments || configured.Components[0].Configuration != result.Controller.Settings || !strings.HasPrefix(configured.Components[0].Version, "ctl-") {
 			t.Fatal("configured immutable launch missing")
 		}
+		if result.Engine == nil || result.Engine.ValidateManifest(guest.ID, guest.Address, configured) != nil || strings.Count(configured.Components[1].Configuration, "[[transport.peers]]") != 5 {
+			t.Fatal("signed production engine configuration and six-host peer set missing")
+		}
 		again, _, err := services.Bootstrap(vmqual.Guest{ID: guest.ID, Region: vmnet.GRU})
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer again.Controller.Clear()
+		defer again.Engine.Clear()
 		if !bytes.Equal(result.DesiredHostManifest, again.DesiredHostManifest) {
 			t.Fatal("bootstrap manifest changed")
 		}

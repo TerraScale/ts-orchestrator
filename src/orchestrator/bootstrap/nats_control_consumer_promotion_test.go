@@ -153,11 +153,12 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 }
 
 func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *testing.T) {
-	t.Run("resume-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, false) })
-	t.Run("lease-replaced-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, true) })
+	t.Run("resume-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, false, false) })
+	t.Run("lease-replaced-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, true, false) })
+	t.Run("current-replicas-with-regressed-checkpoint", func(t *testing.T) { testControlConsumerStreamReadiness(t, false, true) })
 }
 
-func testControlConsumerStreamReadiness(t *testing.T, replaceLease bool) {
+func testControlConsumerStreamReadiness(t *testing.T, replaceLease, regressReady bool) {
 	t.Helper()
 	cluster := newControlMutationStateCluster(t)
 	nc := cluster.connect(t)
@@ -205,7 +206,7 @@ func testControlConsumerStreamReadiness(t *testing.T, replaceLease bool) {
 	// Keep the actual broker and all updates, but withhold one replica's
 	// current observation until the caller has demonstrably checked it.
 	// This controls the observation order without racing a wall-clock sleep.
-	observed := &withheldStreamReadiness{JetStream: js, waiting: make(chan struct{}, 1), consumerEffect: make(chan struct{}, 1)}
+	observed := &withheldStreamReadiness{JetStream: js, waiting: make(chan struct{}, 1), consumerEffect: make(chan struct{}, 1), regressReady: regressReady}
 	if replaceLease {
 		observed.afterLostObservation = func() {
 			lease.LeaseId = "replacement-after-lost-observation"
@@ -261,6 +262,12 @@ func testControlConsumerStreamReadiness(t *testing.T, replaceLease bool) {
 			}
 			return
 		}
+		if regressReady {
+			if !errors.Is(err, ErrControlRuntimeUnavailable) || !strings.Contains(err.Error(), "checkpoint=false") || !observed.regressionInjected.Load() {
+				t.Fatalf("current replicas with regressed checkpoint were not refused: %v", err)
+			}
+			return
+		}
 		if err != nil {
 			logControlPromotionState(t, stream, consumer)
 			t.Fatal(err)
@@ -313,6 +320,8 @@ type withheldStreamReadiness struct {
 	afterLostObservation    func()
 	resumedReads            atomic.Int32
 	consumerUpdates         atomic.Int32
+	regressReady            bool
+	regressionInjected      atomic.Bool
 }
 
 func (w *withheldStreamReadiness) Stream(ctx context.Context, name string) (jetstream.Stream, error) {
@@ -353,8 +362,26 @@ func (c *unansweredFirstConsumerObservation) Info(ctx context.Context) (*jetstre
 		}
 		return nil, ctx.Err()
 	}
-	c.owner.resumedReads.Add(1)
-	return c.Consumer.Info(ctx)
+	reads := c.owner.resumedReads.Add(1)
+	info, err := c.Consumer.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if reads == 1 {
+		// Reproduce the real election response: correct identity/profile but
+		// no stable leader and a provisional checkpoint below the predecessor.
+		copy := *info
+		copy.Cluster = nil
+		copy.AckFloor.Consumer, copy.AckFloor.Stream = 0, 0
+		return &copy, nil
+	}
+	if c.owner.regressReady && controlConsumerReplicaAssignment(info.Cluster, []string{"controlMutation-0", "controlMutation-1", "controlMutation-2"}) {
+		copy := *info
+		copy.AckFloor.Consumer, copy.AckFloor.Stream = 0, 0
+		c.owner.regressionInjected.Store(true)
+		return &copy, nil
+	}
+	return info, nil
 }
 
 type withheldStreamObservation struct {

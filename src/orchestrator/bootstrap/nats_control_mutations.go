@@ -346,7 +346,7 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		profileMatches := journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream)
 		createdMatches := info.Created.Equal(before.Created)
 		checkpointPreserved := info.AckFloor.Consumer >= before.AckFloor.Consumer && info.AckFloor.Stream >= before.AckFloor.Stream && info.Delivered.Consumer >= before.Delivered.Consumer && info.Delivered.Stream >= before.Delivered.Stream
-		if !profileMatches || !createdMatches || !checkpointPreserved {
+		if !profileMatches || !createdMatches {
 			return fmt.Errorf("%w: promoted consumer observation differs, profile=%t replicas=%d created=%t checkpoint=%t", ErrControlRuntimeUnavailable, profileMatches, info.Config.Replicas, createdMatches, checkpointPreserved)
 		}
 		servers, err := controlConsumerTargetServers(update.Store, plan.Stream, pins)
@@ -355,6 +355,11 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		}
 		ready := controlConsumerReplicaAssignment(info.Cluster, servers)
 		if ready {
+			// During election NATS may expose a provisional zero checkpoint.
+			// Only the fully current admitted group can prove preserved state.
+			if !checkpointPreserved {
+				return fmt.Errorf("%w: promoted consumer observation differs, profile=%t replicas=%d created=%t checkpoint=%t", ErrControlRuntimeUnavailable, profileMatches, info.Config.Replicas, createdMatches, checkpointPreserved)
+			}
 			return checkControlMutation(ctx, js, update.Store, pins)
 		}
 		select {

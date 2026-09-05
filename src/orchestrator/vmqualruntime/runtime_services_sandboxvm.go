@@ -318,13 +318,17 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	engineSeed := services.engineSeeds[guest.ID]
 	if engineSeed != nil {
 		base, err := hostmanifest.ParseHostManifest(baseManifest)
-		if err != nil { return vmimage.TSNodeBootstrap{}, nil, err }
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
 		base, err = engineSeed.Apply(base)
 		if err != nil {
 			return vmimage.TSNodeBootstrap{}, nil, err
 		}
 		baseManifest, err = hostmanifest.CanonicalHostManifestJSON(base)
-		if err != nil { return vmimage.TSNodeBootstrap{}, nil, err }
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
 	}
 	desired, err := controlSeed.LaunchManifest(baseManifest)
 	if err != nil {

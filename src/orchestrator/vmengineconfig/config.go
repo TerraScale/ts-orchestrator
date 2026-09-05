@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -54,14 +55,15 @@ type Host struct {
 }
 
 type Database struct {
-	Tenant          string `json:"tenant"`
-	Project         string `json:"project"`
-	Database        string `json:"database"`
-	Region          string `json:"region"`
-	EncryptionKey   string `json:"encryptionKey"`
-	MaxStorageBytes uint64 `json:"maxStorageBytes"`
-	MaxDocuments    uint64 `json:"maxDocuments"`
-	MaxInflight     uint64 `json:"maxInflight"`
+	Tenant          string   `json:"tenant"`
+	Project         string   `json:"project"`
+	Database        string   `json:"database"`
+	Region          string   `json:"region"`
+	AllowedRegions  []string `json:"allowedRegions"`
+	EncryptionKey   string   `json:"encryptionKey"`
+	MaxStorageBytes uint64   `json:"maxStorageBytes"`
+	MaxDocuments    uint64   `json:"maxDocuments"`
+	MaxInflight     uint64   `json:"maxInflight"`
 }
 
 type Limits struct {
@@ -171,7 +173,7 @@ func Load(path, artifact, release string, bindings []Binding) (map[string]*Mater
 
 func validate(d Declaration, artifact, release string, bindings []Binding) (map[string]Binding, error) {
 	bad := errors.New("vmengineconfig: explicit production identities, placement, release, or bounds invalid")
-	if d.Version != 1 || d.Contract != Contract || !digest.MatchString(artifact) || d.ArtifactSHA256 != artifact || d.Release != release || len(release) == 0 || len(release) > 128 || !environment.MatchString(d.Environment) || !ulid.MatchString(d.Cluster) || d.Generation == 0 || d.Epoch == 0 {
+	if d.Version != 1 || d.Contract != Contract || !digest.MatchString(artifact) || d.ArtifactSHA256 != artifact || d.Release != release || len(release) == 0 || len(release) > 128 || !environment.MatchString(d.Environment) || !ulid.MatchString(d.Cluster) || d.Generation == 0 || d.Epoch == 0 || d.Generation > math.MaxInt64 || d.Epoch > math.MaxInt64 {
 		return nil, bad
 	}
 	for _, r := range release {
@@ -207,6 +209,20 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 	for _, db := range d.Databases {
 		if !ulid.MatchString(db.Tenant) || !ulid.MatchString(db.Project) || !ulid.MatchString(db.Database) || !ulid.MatchString(db.EncryptionKey) || databases[db.Database] || regions[db.Region] != 2 || projects[db.Project] != "" && projects[db.Project] != db.Tenant || db.MaxStorageBytes == 0 || db.MaxStorageBytes > 1<<50 || db.MaxDocuments == 0 || db.MaxDocuments > 1_000_000_000 || db.MaxInflight == 0 || db.MaxInflight > 1_000_000 {
 			return nil, bad
+		}
+		allowed := map[string]bool{}
+		for _, region := range db.AllowedRegions {
+			if allowed[region] || !slices.Contains([]string{"GRU", "SFO", "FRA"}, region) {
+				return nil, bad
+			}
+			allowed[region] = true
+		}
+		// The current engine schema has one placement for the whole catalog.
+		// Never render a database into a topology outside its explicit lock.
+		for region := range regions {
+			if !allowed[region] {
+				return nil, errors.New("vmengineconfig: shared engine placement exceeds a database residency lock")
+			}
 		}
 		projects[db.Project], databases[db.Database] = db.Tenant, true
 	}

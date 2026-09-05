@@ -36,6 +36,13 @@ continues.
 
 ## What the code establishes
 
+The [TerraBase VM configuration path](terrabase-vm-configuration.md) now renders
+explicit production declarations into the owner-signed GRU host manifest and
+separately provisions exact member TLS material. It binds the supplied engine
+artifact and validated guest addresses. It still needs a published launch
+contract, engine membership integration, and actual configured guest evidence;
+the last full VM attempt failed on missing TerraBase configuration.
+
 Canonical component, launch and manifest validation now lives in
 `src/orchestrator/hostmanifest`. Host installation, signed bootstrap grants,
 control handoff and VM preparation consume that package directly. The strict
