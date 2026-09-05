@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -706,7 +708,7 @@ func TestNetworkApplyRouteDriftRepair(t *testing.T) {
 
 func TestOCINetworkGatewayVCNContract(t *testing.T) {
 	var requestBody map[string]any
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost || request.URL.Path != "/20160918/vcns" {
 			t.Fatalf("unexpected vcn request %s %s", request.Method, request.URL.String())
 		}
@@ -733,7 +735,7 @@ func TestOCINetworkGatewayVCNContract(t *testing.T) {
 
 func TestOCINetworkGatewayReusesStableRetryToken(t *testing.T) {
 	var tokens []string
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost || request.URL.Path != "/20160918/vcns" {
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
 		}
@@ -758,7 +760,7 @@ func TestOCINetworkGatewayRejectsInvalidScope(t *testing.T) {
 	if _, err := NewOCINetworkGateway(nil, "ocid1.compartment.oc1.x"); err == nil {
 		t.Fatal("nil transport accepted")
 	}
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		t.Fatal("no request expected")
 		return nil, nil
 	})
@@ -786,7 +788,7 @@ func TestSecurityRuleWireMapsProtocols(t *testing.T) {
 
 func TestOCINetworkGatewayRouteTableContract(t *testing.T) {
 	var requestBody map[string]any
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost || request.URL.Path != "/20160918/routeTables" {
 			t.Fatalf("unexpected route table request %s %s", request.Method, request.URL.String())
 		}
@@ -819,7 +821,7 @@ func TestOCINetworkGatewayRouteTableContract(t *testing.T) {
 
 func TestOCINetworkGatewayRouteMutationContract(t *testing.T) {
 	var seen []string
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		seen = append(seen, request.Method+" "+request.URL.Path)
 		switch {
 		case request.Method == http.MethodPut && request.URL.Path == "/20160918/routeTables/"+url.PathEscape("ocid1.routetable.oc1.x"):

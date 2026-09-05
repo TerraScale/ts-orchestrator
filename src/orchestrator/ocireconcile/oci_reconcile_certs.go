@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -125,7 +127,7 @@ func (r *CertReconciler) now() time.Time {
 
 func (r *CertReconciler) Observe(ctx context.Context, declared estate.Region) (CertsObserved, error) {
 	if r == nil || r.Gateway == nil {
-		return CertsObserved{}, &InvalidOperationError{Message: "certificate reconciler is unavailable"}
+		return CertsObserved{}, &provider.InvalidOperationError{Message: "certificate reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return CertsObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -144,7 +146,7 @@ func (r *CertReconciler) Observe(ctx context.Context, declared estate.Region) (C
 			continue
 		}
 		if seen[cert.DisplayName] {
-			return CertsObserved{}, &InvalidDataError{Message: "multiple certificates share the display name " + cert.DisplayName}
+			return CertsObserved{}, &provider.InvalidDataError{Message: "multiple certificates share the display name " + cert.DisplayName}
 		}
 		seen[cert.DisplayName] = true
 		observed.Certs = append(observed.Certs, cert)
@@ -162,7 +164,7 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 	byName := make(map[string]ObservedCert, len(observed.Certs))
 	for _, cert := range observed.Certs {
 		if _, dup := byName[cert.DisplayName]; dup {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple certificates share the display name " + cert.DisplayName}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple certificates share the display name " + cert.DisplayName}
 		}
 		byName[cert.DisplayName] = cert
 	}
@@ -200,16 +202,16 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 		case "FAILED":
 			// Failed issuance needs an owner decision: blind retries burn
 			// CA quota and can mask a compromised chain.
-			return OCIPlan{}, &InvalidDataError{Message: "observed certificate " + display + " failed issuance and needs an owner decision"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed certificate " + display + " failed issuance and needs an owner decision"}
 		default:
-			return OCIPlan{}, &InvalidDataError{Message: "observed certificate " + display + " lifecycle is unknown"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed certificate " + display + " lifecycle is unknown"}
 		}
 		if !sameCertDNSNames(observedCert.DNSNames, declaredCert.DNSNames) {
 			plan.Actions = append(plan.Actions, RenewCertificateAction{CertID: observedCert.ID, DisplayName: display, DNSNames: append([]string(nil), declaredCert.DNSNames...), Reason: RenewReasonDrift})
 			continue
 		}
 		if observedCert.ExpiresAtUnix <= 0 {
-			return OCIPlan{}, &InvalidDataError{Message: "observed certificate " + display + " has no expiry evidence"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed certificate " + display + " has no expiry evidence"}
 		}
 		windowSeconds := uint64(declaredCert.RenewBeforeHours) * 3600
 		remaining := observedCert.ExpiresAtUnix - r.now().Unix()
@@ -226,7 +228,7 @@ func (r *CertReconciler) Reconcile(ctx context.Context, declared estate.Region, 
 
 func (r *CertReconciler) Apply(ctx context.Context, declared estate.Region, observed CertsObserved, plan OCIPlan) error {
 	if r == nil || r.Gateway == nil {
-		return &InvalidOperationError{Message: "certificate reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "certificate reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -242,10 +244,10 @@ func (r *CertReconciler) Apply(ctx context.Context, declared estate.Region, obse
 		switch a := action.(type) {
 		case CreateCertificateAction:
 			if a.DisplayName != CertDisplayName(declared.Code, a.Name) {
-				return &InvalidDataError{Message: "certificate create does not match the declared region and name"}
+				return &provider.InvalidDataError{Message: "certificate create does not match the declared region and name"}
 			}
 			if _, exists := byName[a.DisplayName]; exists {
-				return &InvalidOperationError{Message: "certificate " + a.DisplayName + " already exists; re-observe before applying"}
+				return &provider.InvalidOperationError{Message: "certificate " + a.DisplayName + " already exists; re-observe before applying"}
 			}
 			if err := validateCertDNSNames(a.DNSNames); err != nil {
 				return err
@@ -257,15 +259,15 @@ func (r *CertReconciler) Apply(ctx context.Context, declared estate.Region, obse
 		case RenewCertificateAction:
 			existing, exists := byName[a.DisplayName]
 			if !exists || existing.ID != a.CertID {
-				return &InvalidOperationError{Message: "certificate " + a.DisplayName + " changed under the plan; re-observe before applying"}
+				return &provider.InvalidOperationError{Message: "certificate " + a.DisplayName + " changed under the plan; re-observe before applying"}
 			}
-			if !isOCID(a.CertID, "certificate") {
+			if !provider.IsOCID(a.CertID, "certificate") {
 				return &errs.Argument{Message: "certificate renew requires a certificate identity"}
 			}
 			switch a.Reason {
 			case RenewReasonDrift, RenewReasonWindow, RenewReasonExpired:
 			default:
-				return &InvalidOperationError{Message: "certificate renewal for " + a.DisplayName + " carries no reason; re-observe before applying"}
+				return &provider.InvalidOperationError{Message: "certificate renewal for " + a.DisplayName + " carries no reason; re-observe before applying"}
 			}
 			if err := validateCertDNSNames(a.DNSNames); err != nil {
 				return err
@@ -274,7 +276,7 @@ func (r *CertReconciler) Apply(ctx context.Context, declared estate.Region, obse
 				return err
 			}
 		default:
-			return &InvalidOperationError{Message: "certificate reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "certificate reconciler received a foreign action"}
 		}
 	}
 	return nil
@@ -321,7 +323,7 @@ func validateCertDNSNames(names []string) error {
 // created version is issued by that authority, never imported, so private
 // keys are generated and held inside OCI.
 type OCICertificatesGateway struct {
-	Certs         *OCIHTTPTransport
+	Certs         *provider.OCIHTTPTransport
 	CompartmentID string
 	AuthorityID   string
 	MaxListed     int
@@ -331,14 +333,14 @@ var _ CertGateway = (*OCICertificatesGateway)(nil)
 
 // NewOCICertificatesGateway validates the transport, compartment scope, and
 // issuing authority.
-func NewOCICertificatesGateway(certs *OCIHTTPTransport, compartmentID, authorityID string) (*OCICertificatesGateway, error) {
-	if certs == nil || certs.Config.Service != OCIServiceCertificates {
+func NewOCICertificatesGateway(certs *provider.OCIHTTPTransport, compartmentID, authorityID string) (*OCICertificatesGateway, error) {
+	if certs == nil || certs.Config.Service != provider.OCIServiceCertificates {
 		return nil, &errs.Argument{Message: "certificate gateway requires the certificates transport"}
 	}
-	if !isOCID(compartmentID, "compartment") {
+	if !provider.IsOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "certificate gateway requires a compartment identity"}
 	}
-	if !isOCID(authorityID, "certificateauthority") {
+	if !provider.IsOCID(authorityID, "certificateauthority") {
 		return nil, &errs.Argument{Message: "certificate gateway requires an issuing authority identity"}
 	}
 	return &OCICertificatesGateway{Certs: certs, CompartmentID: compartmentID, AuthorityID: authorityID, MaxListed: certificateListBound}, nil
@@ -379,8 +381,8 @@ func (g *OCICertificatesGateway) ListCertificates(ctx context.Context) ([]Observ
 	}
 	certs := make([]ObservedCert, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "certificate") || item.Name == "" {
-			return nil, &InvalidDataError{Message: "OCI certificate list response is invalid"}
+		if !provider.IsOCID(item.ID, "certificate") || item.Name == "" {
+			return nil, &provider.InvalidDataError{Message: "OCI certificate list response is invalid"}
 		}
 		var document ociCertDetailDocument
 		if err := doOCIJSON(ctx, g.Certs, http.MethodGet, "/20210224/certificates/"+url.PathEscape(item.ID), nil, nil, &document); err != nil {
@@ -398,8 +400,8 @@ func (g *OCICertificatesGateway) ListCertificates(ctx context.Context) ([]Observ
 // observedCert reduces a certificate document to the metadata the
 // reconciler owns: identity, lifecycle, DNS SANs, and version expiry.
 func observedCert(document ociCertDetailDocument) (ObservedCert, error) {
-	if !isOCID(document.ID, "certificate") || document.Name == "" {
-		return ObservedCert{}, &InvalidDataError{Message: "OCI certificate response is invalid"}
+	if !provider.IsOCID(document.ID, "certificate") || document.Name == "" {
+		return ObservedCert{}, &provider.InvalidDataError{Message: "OCI certificate response is invalid"}
 	}
 	names := document.SubjectAlternativeNames
 	expiry := document.TimeExpiresAt
@@ -414,7 +416,7 @@ func observedCert(document ociCertDetailDocument) (ObservedCert, error) {
 	dnsNames := make([]string, 0, len(names))
 	for _, name := range names {
 		if name.Type != "DNS" || len(name.Value) == 0 || len(name.Value) > 253 || strings.ContainsAny(name.Value, "\r\n\x00 ") {
-			return ObservedCert{}, &InvalidDataError{Message: "OCI certificate subject alternative name is invalid"}
+			return ObservedCert{}, &provider.InvalidDataError{Message: "OCI certificate subject alternative name is invalid"}
 		}
 		dnsNames = append(dnsNames, name.Value)
 	}
@@ -423,12 +425,12 @@ func observedCert(document ociCertDetailDocument) (ObservedCert, error) {
 	if expiry != "" {
 		parsed, err := time.Parse(time.RFC3339, expiry)
 		if err != nil {
-			return ObservedCert{}, &InvalidDataError{Message: "OCI certificate expiry is invalid"}
+			return ObservedCert{}, &provider.InvalidDataError{Message: "OCI certificate expiry is invalid"}
 		}
 		expiresAt = parsed.Unix()
 	}
 	if document.LifecycleState == "ACTIVE" && (len(dnsNames) == 0 || expiresAt <= 0) {
-		return ObservedCert{}, &InvalidDataError{Message: "OCI active certificate has no usable version evidence"}
+		return ObservedCert{}, &provider.InvalidDataError{Message: "OCI active certificate has no usable version evidence"}
 	}
 	return ObservedCert{ID: document.ID, DisplayName: document.Name, LifecycleState: document.LifecycleState, DNSNames: dnsNames, ExpiresAtUnix: expiresAt}, nil
 }
@@ -476,7 +478,7 @@ func (g *OCICertificatesGateway) CreateCertificate(ctx context.Context, displayN
 // carrying the declared SAN set and a fresh validity window. Consumers keep
 // the same OCID, so rotation needs no rebinding.
 func (g *OCICertificatesGateway) RenewCertificate(ctx context.Context, certID string, dnsNames []string) (ObservedCert, error) {
-	if !isOCID(certID, "certificate") {
+	if !provider.IsOCID(certID, "certificate") {
 		return ObservedCert{}, &errs.Argument{Message: "certificate renew requires a certificate identity"}
 	}
 	if err := validateCertDNSNames(dnsNames); err != nil {

@@ -17,7 +17,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-func validObjectPart(value string, max int, slash bool) bool {
+func ValidObjectPart(value string, max int, slash bool) bool {
 	if value == "" || len(value) > max || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\r\n\x00") {
 		return false
 	}
@@ -75,13 +75,13 @@ func LoadOCIEstateSpec(path string) (OCIEstateSpec, error) {
 }
 
 func validateOCIEstateSpec(spec OCIEstateSpec) error {
-	if len(spec.Region) < 1 || len(spec.Region) > 63 || !regionPattern.MatchString(spec.Region) ||
-		!isOCID(spec.TenancyID, "tenancy") || !isOCID(spec.ControlCompartmentID, "compartment") ||
-		!isOCID(spec.NetworkCompartmentID, "compartment") || !isOCID(spec.WorkloadCompartmentID, "compartment") ||
-		!isOCID(spec.VCNID, "vcn") || !isOCID(spec.IAMPolicyCompartmentID, "compartment") ||
-		!isOCID(spec.VaultID, "vault") || !isOCID(spec.KeyID, "key") ||
-		!validObjectPart(spec.ObjectNamespace, 128, false) || !validObjectPart(spec.LedgerBucket, 256, false) ||
-		!validObjectPart(spec.BackupBucket, 256, false) || spec.LedgerBucket == spec.BackupBucket ||
+	if len(spec.Region) < 1 || len(spec.Region) > 63 || !ValidOCIRegion(spec.Region) ||
+		!IsOCID(spec.TenancyID, "tenancy") || !IsOCID(spec.ControlCompartmentID, "compartment") ||
+		!IsOCID(spec.NetworkCompartmentID, "compartment") || !IsOCID(spec.WorkloadCompartmentID, "compartment") ||
+		!IsOCID(spec.VCNID, "vcn") || !IsOCID(spec.IAMPolicyCompartmentID, "compartment") ||
+		!IsOCID(spec.VaultID, "vault") || !IsOCID(spec.KeyID, "key") ||
+		!ValidObjectPart(spec.ObjectNamespace, 128, false) || !ValidObjectPart(spec.LedgerBucket, 256, false) ||
+		!ValidObjectPart(spec.BackupBucket, 256, false) || spec.LedgerBucket == spec.BackupBucket ||
 		len(spec.SubnetIDs) < 1 || len(spec.SubnetIDs) > 16 || len(spec.NetworkSecurityGroupIDs) < 1 || len(spec.NetworkSecurityGroupIDs) > 16 ||
 		len(spec.IAMPolicies) == 0 || len(spec.IAMPolicies) > 16 {
 		return &errs.Argument{Message: "OCI estate specification is incomplete"}
@@ -113,7 +113,7 @@ func validateEstateIDs(groups ...any) error {
 		kind := groups[index+1].(string)
 		seen := map[string]bool{}
 		for _, id := range ids {
-			if !isOCID(id, kind) || seen[id] {
+			if !IsOCID(id, kind) || seen[id] {
 				return &errs.Argument{Message: "OCI estate specification contains invalid resource identities"}
 			}
 			seen[id] = true
@@ -153,13 +153,13 @@ func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEsta
 	if validateOCIEstateSpec(spec) != nil || keyID == "" || !filepath.IsAbs(keyPath) {
 		return nil, &errs.Argument{Message: "OCI estate verification credentials are invalid"}
 	}
-	key, err := readRSAPrivateKey(keyPath)
+	key, err := ReadRSAPrivateKey(keyPath)
 	if err != nil {
 		return nil, err
 	}
 	transports := make(map[OCIService]*OCIHTTPTransport, 5)
 	for _, service := range []OCIService{OCIServiceCore, OCIServiceIdentity, OCIServiceObjectStorage, OCIServiceVault} {
-		host, _ := ociServiceHost(service, spec.Region)
+		host, _ := OCIServiceHost(service, spec.Region)
 		config, configErr := NewOCIServiceTransportConfig(service, spec.Region, "https://"+host)
 		if configErr != nil {
 			return nil, configErr
@@ -182,7 +182,7 @@ func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEsta
 	return &OCIEstateHTTPReader{Transports: transports}, nil
 }
 
-func readRSAPrivateKey(path string) (*rsa.PrivateKey, error) {
+func ReadRSAPrivateKey(path string) (*rsa.PrivateKey, error) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return nil, &InvalidDataError{Message: "OCI signing key file is unavailable or has unsafe permissions"}
@@ -293,7 +293,7 @@ func verifyEstateResource(ctx context.Context, reader OCIEstateReader, service O
 		ProhibitPublicIPOnVNIC bool   `json:"prohibitPublicIpOnVnic"`
 	}
 	decodeErr := json.Unmarshal(body, &document)
-	ready := document.LifecycleState == "ACTIVE" || document.LifecycleState == "AVAILABLE" || (isOCID(id, "key") && document.LifecycleState == "ENABLED")
+	ready := document.LifecycleState == "ACTIVE" || document.LifecycleState == "AVAILABLE" || (IsOCID(id, "key") && document.LifecycleState == "ENABLED")
 	if err != nil || status < 200 || status >= 300 || decodeErr != nil || document.ID != id ||
 		(compartment != "" && document.CompartmentID != compartment) || (vcn != "" && document.VCNID != vcn) ||
 		!ready || (requirePrivate && !document.ProhibitPublicIPOnVNIC) {

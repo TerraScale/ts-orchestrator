@@ -102,6 +102,11 @@ That same file maps production Regions only to GRU/SFO/FRA. These are unfinished
 producer paths, not missing VM credentials. A local-development engine observation
 does not satisfy production membership, RF=2, or fourth-Region acceptance.
 
+A [direct check of the pinned binary](../evidence/terrabase-missing-config-process-2026-09-05.txt)
+confirmed exit 1 with `Error: MissingConfigurationPath` when no configuration
+is selected. Future guest diagnostics recognize that fixed error text. This
+direct process result does not retroactively identify prior guest exits.
+
 ### Immutable orchestrator launch configuration
 
 `ts-node` can launch the orchestrator with `Arguments: "run --config @config"`
@@ -371,3 +376,17 @@ RSS was 421,564,416 bytes, and automatic plus explicit cleanup passed.
 No full-stack scenario passed. The [final portable evidence](../evidence/bootstrap-delivery-portable-gates-2026-09-05.txt)
 records passing `make check` and the complete sandboxvm-tagged race suite for
 the integrated source.
+
+The [service-diagnostic VM run](../evidence/vm-test-service-config-diagnostics-2026-09-05.json)
+captured both actual guest categories: `oci-estate-configuration-missing` for
+the orchestrator and `terrabase-configuration-missing` for TerraBase. Both
+services exited with status 1 after activation; ts-node stayed active. Peak
+host RSS was 414,420,992 bytes. Automatic and explicit cleanup passed, and no
+full-stack scenario passed. These binaries predate the provider package split.
+
+The OCI implementation now separates transport, ownership and resource
+adapters in `provider` from reconciliation and bootstrap in `ocireconcile`.
+Both packages are below 10,000 Go lines including tests. Consumers use the
+extracted APIs directly; no forwarding compatibility layer remains.
+The [split verification](../evidence/oci-package-split-gates-2026-09-05.txt)
+records passing portable and tagged race suites plus a Linux arm64 cross-build.

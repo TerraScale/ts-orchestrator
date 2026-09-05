@@ -13,6 +13,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
@@ -24,20 +25,20 @@ var (
 )
 
 // OCIBootstrapper is the exact typed OCI bootstrap entry point. The
-// production constructor always installs provider.RunOCIBootstrap.
-type OCIBootstrapper func(context.Context, provider.BootstrapRequest, provider.BootstrapGateways, io.Writer) error
+// production constructor always installs ocireconcile.RunOCIBootstrap.
+type OCIBootstrapper func(context.Context, ocireconcile.BootstrapRequest, ocireconcile.BootstrapGateways, io.Writer) error
 
 // BootstrapGatewaySource resolves the typed gateways for one declared OCI
 // Region. Local qualification supplies HTTP-backed gateways here.
 type BootstrapGatewaySource interface {
-	BootstrapGateways(context.Context, estate.Region) (provider.BootstrapGateways, error)
+	BootstrapGateways(context.Context, estate.Region) (ocireconcile.BootstrapGateways, error)
 }
 
-type BootstrapGatewaySourceFunc func(context.Context, estate.Region) (provider.BootstrapGateways, error)
+type BootstrapGatewaySourceFunc func(context.Context, estate.Region) (ocireconcile.BootstrapGateways, error)
 
-func (f BootstrapGatewaySourceFunc) BootstrapGateways(ctx context.Context, region estate.Region) (provider.BootstrapGateways, error) {
+func (f BootstrapGatewaySourceFunc) BootstrapGateways(ctx context.Context, region estate.Region) (ocireconcile.BootstrapGateways, error) {
 	if f == nil {
-		return provider.BootstrapGateways{}, ErrInvalidConfiguration
+		return ocireconcile.BootstrapGateways{}, ErrInvalidConfiguration
 	}
 	return f(ctx, region)
 }
@@ -167,19 +168,19 @@ func NewService(dependencies Dependencies, options Options) (*Service, error) {
 // NewProductionService fixes the production OCI implementation and canonical
 // retry/delete policy. Endpoints still come from the explicit typed gateways.
 func NewProductionService(dependencies Dependencies) (*Service, error) {
-	dependencies.Bootstrapper = provider.RunOCIBootstrap
+	dependencies.Bootstrapper = ocireconcile.RunOCIBootstrap
 	return NewService(dependencies, ProductionOptions())
 }
 
 type BootstrapRequest struct {
 	Desired  estate.Spec
-	Provider provider.BootstrapRequest
+	Provider ocireconcile.BootstrapRequest
 }
 
 type AddRegionRequest struct {
 	Desired  estate.Spec
 	Region   string
-	Provider provider.BootstrapRequest
+	Provider ocireconcile.BootstrapRequest
 }
 
 type RemoteRegionRequest struct {
@@ -411,7 +412,7 @@ func (s *Service) ObserveControl(ctx context.Context, desired estate.Spec) (Cont
 	return s.observeControl(ctx, desired)
 }
 
-func (s *Service) bootstrapRegion(ctx context.Context, region estate.Region, request provider.BootstrapRequest) error {
+func (s *Service) bootstrapRegion(ctx context.Context, region estate.Region, request ocireconcile.BootstrapRequest) error {
 	gateways, err := s.dependencies.BootstrapGateways.BootstrapGateways(ctx, region)
 	if err != nil {
 		return err

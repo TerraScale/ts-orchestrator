@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -363,7 +365,7 @@ func TestBlockStorageUnknownMutationOutcomeStopsPlan(t *testing.T) {
 	declared := testComputeRegion()
 	member := testOwnedMember("gru", 1, declared.Members.PrimaryShape, "RUNNING", "AD-1")
 	volume := testOwnedVolume("gru", 1, "ocid1.volume.oc1.x.1", 50, "AVAILABLE", "AD-1")
-	block := &fakeBlockGateway{expandErr: &ProviderOutcomeUnknownError{Message: "accepted by OCI"}}
+	block := &fakeBlockGateway{expandErr: &provider.ProviderOutcomeUnknownError{Message: "accepted by OCI"}}
 	reconciler := &BlockStorageReconciler{Block: block, Compute: &fakeComputeGateway{}}
 	plan, err := reconciler.Reconcile(context.Background(), declared, testBlockObserved(member))
 	if err != nil {
@@ -375,7 +377,7 @@ func TestBlockStorageUnknownMutationOutcomeStopsPlan(t *testing.T) {
 	observed := testBlockObserved(member)
 	observed.Volumes = []ObservedVolume{volume}
 	err = reconciler.Apply(context.Background(), declared, observed, plan)
-	var unknown *ProviderOutcomeUnknownError
+	var unknown *provider.ProviderOutcomeUnknownError
 	if !errors.As(err, &unknown) {
 		t.Fatalf("unknown mutation error = %v, want ProviderOutcomeUnknownError", err)
 	}

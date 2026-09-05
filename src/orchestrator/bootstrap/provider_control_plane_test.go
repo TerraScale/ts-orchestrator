@@ -17,6 +17,7 @@ import (
 	"time"
 
 	productioncf "terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	localcf "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare"
 	localoci "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci"
@@ -84,9 +85,9 @@ func (h *controlProviderHarness) createMember(region string, index int) string {
 		"shape":              "VM.Standard.A1.Flex",
 		"availabilityDomain": "AD-1",
 		"freeformTags": map[string]string{
-			provider.OCIManagedTag:  provider.ManagedMemberTagValue,
-			provider.OCIScopeTag:    region,
-			provider.MemberIndexTag: strconv.Itoa(index),
+			provider.OCIManagedTag:      ocireconcile.ManagedMemberTagValue,
+			provider.OCIScopeTag:        region,
+			ocireconcile.MemberIndexTag: strconv.Itoa(index),
 		},
 	})
 	if err != nil {

@@ -28,7 +28,7 @@ type ociInstanceDocument struct {
 	FreeformTags  map[string]string `json:"freeformTags"`
 }
 
-func ociStatus(resp *http.Response, operation string) error {
+func CheckOCIStatus(resp *http.Response, operation string) error {
 	if resp == nil {
 		return &InvalidDataError{Message: "OCI request returned no response"}
 	}
@@ -77,7 +77,7 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 	v := url.Values{}
 	v.Set("compartmentId", t.CompartmentId)
 	v.Set("limit", strconv.Itoa(limit))
-	list, err := readOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
+	list, err := ReadOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 	}
 	out := make([]OciCiRunnerNodeObservation, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId || len(item.FreeformTags) > 32 || !validFreeformTags(item.FreeformTags) {
+		if !IsOCID(item.ID, "instance") || !IsOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId || len(item.FreeformTags) > 32 || !validFreeformTags(item.FreeformTags) {
 			return nil, &InvalidDataError{Message: "OCI instance observation contains invalid identity"}
 		}
 		state, ok := ociRunnerState(item.Lifecycle)
@@ -217,12 +217,12 @@ func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction
 	}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": a.Demand.IdempotencyToken})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			return c.reconcileLaunch(ctx, a)
 		}
 		return OciCiRunnerMutationReceipt{}, err
 	}
-	if err := ociStatus(resp, "runner launch"); err != nil {
+	if err := CheckOCIStatus(resp, "runner launch"); err != nil {
 		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 			return c.reconcileLaunch(ctx, a)
 		}
@@ -236,7 +236,7 @@ func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction
 	if len(body) != 0 && json.Unmarshal(body, &item) != nil {
 		return c.reconcileLaunch(ctx, a)
 	}
-	if !isOCID(item.ID, "instance") {
+	if !IsOCID(item.ID, "instance") {
 		return c.reconcileLaunch(ctx, a)
 	}
 	return OciCiRunnerMutationReceipt{InstanceId: item.ID, ETag: item.ETag, OpcRequestId: safeHeader(resp, "opc-request-id"), OpcWorkRequestId: safeHeader(resp, "opc-work-request-id")}, nil
@@ -266,7 +266,7 @@ func (c *OCIComputeClient) reconcileLaunch(ctx context.Context, a LaunchOciCiRun
 }
 
 func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunnerAction) (OciCiRunnerMutationReceipt, error) {
-	if !isOCID(a.InstanceId, "instance") || !isSafeETag(a.ETag) {
+	if !IsOCID(a.InstanceId, "instance") || !isSafeETag(a.ETag) {
 		return OciCiRunnerMutationReceipt{}, &errs.Argument{Message: "OCI runner termination request is invalid"}
 	}
 	if c.Ownership == nil || !c.Ownership.AuthoritativeDurable() {
@@ -275,12 +275,12 @@ func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunner
 	record, ok, err := c.Ownership.Lookup(ctx, ProviderResourceId{Value: a.InstanceId})
 	if err != nil {
 		return OciCiRunnerMutationReceipt{}, err
-	} else if !ok || record.ResourceId.Value != a.InstanceId || !isOCID(record.CompartmentId.Value, "compartment") || record.Generation.Value == 0 {
+	} else if !ok || record.ResourceId.Value != a.InstanceId || !IsOCID(record.CompartmentId.Value, "compartment") || record.Generation.Value == 0 {
 		return OciCiRunnerMutationReceipt{}, &InvalidOperationError{Message: "OCI runner termination ownership is not recorded"}
 	}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodDelete, "/20160918/instances/"+url.PathEscape(a.InstanceId), nil, map[string]string{"If-Match": a.ETag})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			return c.reconcileTermination(ctx, a)
 		}
 		return OciCiRunnerMutationReceipt{}, err
@@ -289,7 +289,7 @@ func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunner
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return OciCiRunnerMutationReceipt{InstanceId: a.InstanceId, ETag: a.ETag, OpcRequestId: safeHeader(resp, "opc-request-id"), OpcWorkRequestId: safeHeader(resp, "opc-work-request-id")}, nil
 	}
-	if err := ociStatus(resp, "runner termination"); err != nil {
+	if err := CheckOCIStatus(resp, "runner termination"); err != nil {
 		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 			return c.reconcileTermination(ctx, a)
 		}
@@ -392,14 +392,14 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 	}{SourceType: "image", ImageID: spec.ImageId}, Metadata: map[string]string{"user_data": spec.BootstrapBase64}, FreeformTags: map[string]string{"terrascale-operation": r.Context.OperationId.Value, "terrascale-create-key": target.Key.Value, "terrascale-idempotency-key": r.Context.IdempotencyKey.Value}}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": r.Context.IdempotencyKey.Value})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
 				return recovered, nil
 			}
 		}
 		return CreateNodeProviderResponse{}, err
 	}
-	if err := ociStatus(resp, "node create"); err != nil {
+	if err := CheckOCIStatus(resp, "node create"); err != nil {
 		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 			if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
 				return recovered, nil
@@ -415,7 +415,7 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 		return CreateNodeProviderResponse{}, err
 	}
 	var item ociInstanceDocument
-	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
+	if json.Unmarshal(body, &item) != nil || !IsOCID(item.ID, "instance") {
 		if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
 			return recovered, nil
 		}
@@ -432,7 +432,7 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 }
 
 func validateCreateRequestShape(r CreateNodeProviderRequest) error {
-	if r.Context.Action != ActionCreateNode || r.Context.ResourceKind != ResourceNode || !isOCID(r.Context.CompartmentId.Value, "compartment") || r.Context.Target == nil {
+	if r.Context.Action != ActionCreateNode || r.Context.ResourceKind != ResourceNode || !IsOCID(r.Context.CompartmentId.Value, "compartment") || r.Context.Target == nil {
 		return &errs.Argument{Message: "OCI node create request is invalid"}
 	}
 	target, ok := r.Context.Target.(IdempotentProviderCreate)
@@ -446,7 +446,7 @@ func validateCreateRequestShape(r CreateNodeProviderRequest) error {
 }
 
 func validateOciNodeLaunchSpec(spec OciNodeLaunchSpec, r CreateNodeProviderRequest) error {
-	if !isOCID(spec.CompartmentId, "compartment") || spec.CompartmentId != r.Context.CompartmentId.Value || !isOCID(spec.SubnetId, "subnet") || !isOCID(spec.ImageId, "image") {
+	if !IsOCID(spec.CompartmentId, "compartment") || spec.CompartmentId != r.Context.CompartmentId.Value || !IsOCID(spec.SubnetId, "subnet") || !IsOCID(spec.ImageId, "image") {
 		return &InvalidDataError{Message: "OCI node launch resolution has invalid resource scope"}
 	}
 	if len(spec.AvailabilityDomain) == 0 || len(spec.AvailabilityDomain) > 128 || strings.IndexFunc(spec.AvailabilityDomain, func(ch rune) bool { return ch < 0x20 || ch == 0x7f }) >= 0 || len(spec.FaultDomain) > 64 || strings.IndexFunc(spec.FaultDomain, func(ch rune) bool { return ch < 0x20 || ch == 0x7f }) >= 0 {
@@ -460,7 +460,7 @@ func validateOciNodeLaunchSpec(spec OciNodeLaunchSpec, r CreateNodeProviderReque
 	}
 	seen := map[string]bool{}
 	for _, id := range spec.NetworkSecurityGroupIds {
-		if !isOCID(id, "networksecuritygroup") || seen[id] {
+		if !IsOCID(id, "networksecuritygroup") || seen[id] {
 			return &InvalidDataError{Message: "OCI node launch resolution has invalid network groups"}
 		}
 		seen[id] = true
@@ -498,7 +498,7 @@ func (c *OCIComputeNodeClient) ReconcileCreateNode(ctx context.Context, r Create
 		if item.FreeformTags["terrascale-create-key"] != r.Binding.CreateKey || item.FreeformTags["terrascale-operation"] != r.Context.OperationId.Value {
 			continue
 		}
-		if !isOCID(item.ID, "instance") {
+		if !IsOCID(item.ID, "instance") {
 			return CreateNodeReconciliation{}, &InvalidDataError{Message: "OCI node reconciliation identity is invalid"}
 		}
 		record, owned, lookupErr := c.Ownership.Lookup(ctx, ProviderResourceId{Value: item.ID})
@@ -528,7 +528,7 @@ func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartmen
 	v := url.Values{}
 	v.Set("compartmentId", compartment)
 	v.Set("limit", "1000")
-	list, err := readOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
+	list, err := ReadOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +547,7 @@ func (c *OCIComputeNodeClient) reconcileNodeCreate(ctx context.Context, r Create
 		return CreateNodeProviderResponse{}, err
 	}
 	for _, item := range items {
-		if item.FreeformTags["terrascale-create-key"] == r.Binding.CreateKey && item.FreeformTags["terrascale-operation"] == r.Context.OperationId.Value && isOCID(item.ID, "instance") {
+		if item.FreeformTags["terrascale-create-key"] == r.Binding.CreateKey && item.FreeformTags["terrascale-operation"] == r.Context.OperationId.Value && IsOCID(item.ID, "instance") {
 			record, owned, lookupErr := c.Ownership.Lookup(ctx, ProviderResourceId{Value: item.ID})
 			if lookupErr != nil {
 				return CreateNodeProviderResponse{}, lookupErr

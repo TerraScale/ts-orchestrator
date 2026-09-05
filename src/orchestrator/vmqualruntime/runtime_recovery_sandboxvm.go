@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 
@@ -704,13 +705,13 @@ func (factory *firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, gue
 	if err != nil {
 		return observation, err
 	}
-	gateway, err := provider.NewOCIMemberGateway(ociTransport, "ocid1.compartment.oc1.local.vmqual", "ocid1.image.oc1.local.arm64")
+	gateway, err := ocireconcile.NewOCIMemberGateway(ociTransport, "ocid1.compartment.oc1.local.vmqual", "ocid1.image.oc1.local.arm64")
 	if err != nil {
 		return observation, err
 	}
-	reconciler := &provider.ComputeReconciler{Compute: gateway}
-	declared := provider.ComputeDeclared{Region: estate.Region{Code: strings.ToLower(string(guest.Region))}}
-	spec := provider.MemberLaunchSpec{
+	reconciler := &ocireconcile.ComputeReconciler{Compute: gateway}
+	declared := ocireconcile.ComputeDeclared{Region: estate.Region{Code: strings.ToLower(string(guest.Region))}}
+	spec := ocireconcile.MemberLaunchSpec{
 		DisplayName:        "terrascale-" + strings.ToLower(string(guest.Region)) + "-recovery",
 		Index:              1,
 		Shape:              recoveryPrimaryShape,
@@ -723,8 +724,8 @@ func (factory *firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, gue
 		AvailabilityDomain: "AD-1",
 		CloudInitBase64:    cloudInit,
 	}
-	plan := provider.OCIPlan{Actions: []provider.OCIAction{provider.LaunchMemberAction{Region: declared.Region, Spec: spec}}}
-	if err := reconciler.Apply(ctx, declared, provider.ComputeObserved{}, plan); err != nil {
+	plan := ocireconcile.OCIPlan{Actions: []ocireconcile.OCIAction{ocireconcile.LaunchMemberAction{Region: declared.Region, Spec: spec}}}
+	if err := reconciler.Apply(ctx, declared, ocireconcile.ComputeObserved{}, plan); err != nil {
 		return observation, fmt.Errorf("vmqual: apply A1-to-E5 compute plan: %w", err)
 	}
 	observation.Attempts = transport.launchShapes()
@@ -748,7 +749,7 @@ func (factory *firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, gue
 		return observation, errors.New("vmqual: fallback instance identity changed before readiness")
 	}
 	observation.SelectedShape = members[0].Shape
-	architecture, _ := provider.ShapeArch(observation.SelectedShape)
+	architecture, _ := ocireconcile.ShapeArch(observation.SelectedShape)
 	observation.SelectedArchitecture = architecture
 	observation.ReplacementReady = members[0].LifecycleState == "RUNNING"
 	return observation, nil
@@ -799,12 +800,12 @@ func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (st
 	if err != nil {
 		return "", err
 	}
-	files := make([]provider.BootstrapHostFile, 0, len(publicFiles))
+	files := make([]ocireconcile.BootstrapHostFile, 0, len(publicFiles))
 	for path, content := range publicFiles {
-		files = append(files, provider.BootstrapHostFile{Path: path, Content: content, Private: true})
+		files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: content, Private: true})
 	}
 
-	return provider.TSNodeCloudInit(seed.Version, seed.SHA256, artifact.Source, artifact.Source+".sig", hex.EncodeToString(seed.ReleasePublicKey), files)
+	return ocireconcile.TSNodeCloudInit(seed.Version, seed.SHA256, artifact.Source, artifact.Source+".sig", hex.EncodeToString(seed.ReleasePublicKey), files)
 }
 
 type recoveryOCIRewriteTransport struct {
@@ -885,7 +886,7 @@ func exerciseCertificateRotation(ctx context.Context, region string) (vmqual.Cer
 	}
 	now := time.Now().UTC()
 	hostname := region + ".api.terrascale.tech"
-	displayName := provider.CertDisplayName(region, "member-control")
+	displayName := ocireconcile.CertDisplayName(region, "member-control")
 	gateway, roots, err := newRecoveryCertificateGateway(now, displayName, hostname)
 	if err != nil {
 		return observation, err
@@ -902,7 +903,7 @@ func exerciseCertificateRotation(ctx context.Context, region string) (vmqual.Cer
 	declared := estate.Region{Code: region, Certificates: []estate.Certificate{{
 		Name: "member-control", Purpose: "member-control", DNSNames: []string{hostname}, RenewBeforeHours: 24 * 30,
 	}}}
-	reconciler := &provider.CertReconciler{Gateway: gateway, Now: func() time.Time { return now }}
+	reconciler := &ocireconcile.CertReconciler{Gateway: gateway, Now: func() time.Time { return now }}
 	observed, err := reconciler.Observe(ctx, declared)
 	if err != nil {
 		return observation, fmt.Errorf("vmqual: observe expired certificate: %w", err)
@@ -914,8 +915,8 @@ func exerciseCertificateRotation(ctx context.Context, region string) (vmqual.Cer
 	if len(plan.Actions) != 1 {
 		return observation, fmt.Errorf("vmqual: expired certificate planned %d actions", len(plan.Actions))
 	}
-	renewal, ok := plan.Actions[0].(provider.RenewCertificateAction)
-	if !ok || renewal.Reason != provider.RenewReasonExpired {
+	renewal, ok := plan.Actions[0].(ocireconcile.RenewCertificateAction)
+	if !ok || renewal.Reason != ocireconcile.RenewReasonExpired {
 		return observation, errors.New("vmqual: certificate reconciler did not plan an expired-version renewal")
 	}
 	if err := reconciler.Apply(ctx, declared, observed, plan); err != nil {
@@ -939,7 +940,7 @@ type recoveryCertificateGateway struct {
 	ca                *x509.Certificate
 	caPrivate         ed25519.PrivateKey
 	activeCertificate tls.Certificate
-	observed          provider.ObservedCert
+	observed          ocireconcile.ObservedCert
 	now               time.Time
 }
 
@@ -978,14 +979,14 @@ func newRecoveryCertificateGateway(now time.Time, displayName, hostname string) 
 		return nil, nil, err
 	}
 	gateway.activeCertificate = certificate
-	gateway.observed = provider.ObservedCert{
+	gateway.observed = ocireconcile.ObservedCert{
 		ID: "ocid1.certificate.oc1.local.vmqual", DisplayName: displayName,
 		LifecycleState: "ACTIVE", DNSNames: []string{hostname}, ExpiresAtUnix: certificate.Leaf.NotAfter.Unix(),
 	}
 	return gateway, roots, nil
 }
 
-func (gateway *recoveryCertificateGateway) ListCertificates(ctx context.Context) ([]provider.ObservedCert, error) {
+func (gateway *recoveryCertificateGateway) ListCertificates(ctx context.Context) ([]ocireconcile.ObservedCert, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -993,25 +994,25 @@ func (gateway *recoveryCertificateGateway) ListCertificates(ctx context.Context)
 	defer gateway.mu.Unlock()
 	copy := gateway.observed
 	copy.DNSNames = append([]string(nil), copy.DNSNames...)
-	return []provider.ObservedCert{copy}, nil
+	return []ocireconcile.ObservedCert{copy}, nil
 }
 
-func (*recoveryCertificateGateway) CreateCertificate(context.Context, string, []string) (provider.ObservedCert, error) {
-	return provider.ObservedCert{}, errors.New("vmqual: recovery certificate already exists")
+func (*recoveryCertificateGateway) CreateCertificate(context.Context, string, []string) (ocireconcile.ObservedCert, error) {
+	return ocireconcile.ObservedCert{}, errors.New("vmqual: recovery certificate already exists")
 }
 
-func (gateway *recoveryCertificateGateway) RenewCertificate(ctx context.Context, id string, names []string) (provider.ObservedCert, error) {
+func (gateway *recoveryCertificateGateway) RenewCertificate(ctx context.Context, id string, names []string) (ocireconcile.ObservedCert, error) {
 	if err := ctx.Err(); err != nil {
-		return provider.ObservedCert{}, err
+		return ocireconcile.ObservedCert{}, err
 	}
 	gateway.mu.Lock()
 	defer gateway.mu.Unlock()
 	if id != gateway.observed.ID || len(names) != 1 || names[0] != gateway.observed.DNSNames[0] {
-		return provider.ObservedCert{}, errors.New("vmqual: recovery certificate identity changed")
+		return ocireconcile.ObservedCert{}, errors.New("vmqual: recovery certificate identity changed")
 	}
 	certificate, err := gateway.issue(names[0], gateway.now.Add(-time.Minute), gateway.now.Add(12*time.Hour))
 	if err != nil {
-		return provider.ObservedCert{}, err
+		return ocireconcile.ObservedCert{}, err
 	}
 	if private, ok := gateway.activeCertificate.PrivateKey.(ed25519.PrivateKey); ok {
 		zeroBytes(private)

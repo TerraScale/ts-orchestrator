@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -124,7 +126,7 @@ func BootstrapCredentialsFromEnv(lookup func(string) (string, bool)) (BootstrapC
 		PrivateKeyPath: values[OCIPrivateKeyEnvironment],
 		Region:         values[OCIRegionEnvironment],
 	}
-	if !isOCID(credentials.TenancyOCID, "tenancy") || !isOCID(credentials.UserOCID, "user") ||
+	if !provider.IsOCID(credentials.TenancyOCID, "tenancy") || !provider.IsOCID(credentials.UserOCID, "user") ||
 		!validOCIFingerprint(credentials.Fingerprint) {
 		return BootstrapCredentials{}, &errs.Argument{Message: "bootstrap OCI credentials are malformed"}
 	}
@@ -171,7 +173,7 @@ func DefaultBootstrapRegion() (estate.Region, error) {
 			return region, nil
 		}
 	}
-	return estate.Region{}, &InvalidDataError{Message: "default estate has no home region"}
+	return estate.Region{}, &provider.InvalidDataError{Message: "default estate has no home region"}
 }
 
 // BootstrapRequest is the non-secret bootstrap input.
@@ -184,10 +186,10 @@ type BootstrapRequest struct {
 }
 
 func (r BootstrapRequest) validate() error {
-	if r.Region.Members.Count < PlacementMinimumMemberHosts || r.Region.Members.PrimaryShape == "" || r.Region.Members.PrimaryShape == r.Region.Members.FallbackShape {
+	if r.Region.Members.Count < provider.PlacementMinimumMemberHosts || r.Region.Members.PrimaryShape == "" || r.Region.Members.PrimaryShape == r.Region.Members.FallbackShape {
 		return &errs.Argument{Message: "bootstrap region must declare two member hosts on distinct shapes"}
 	}
-	if !isOCID(r.ImageID, "image") {
+	if !provider.IsOCID(r.ImageID, "image") {
 		return &errs.Argument{Message: "bootstrap requires an Ubuntu arm64 image identity"}
 	}
 	if !validEstateName(r.CompartmentName) {
@@ -265,7 +267,7 @@ func convergeStage[D any, O any](ctx context.Context, stage string, reconciler O
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if reconciler == nil {
-		return &InvalidOperationError{Message: "bootstrap reconciler is unavailable: " + stage}
+		return &provider.InvalidOperationError{Message: "bootstrap reconciler is unavailable: " + stage}
 	}
 	config := BootstrapConvergenceConfig{}
 	if len(settings) > 0 {
@@ -323,7 +325,7 @@ func convergeStage[D any, O any](ctx context.Context, stage string, reconciler O
 	if err := stageCtx.Err(); err != nil {
 		return fmt.Errorf("bootstrap %s polling cancelled: %w", stage, classifyBootstrapOutcome(err))
 	}
-	return classifyBootstrapOutcome(&ProviderOutcomeUnknownError{Message: "bootstrap stage did not converge within its polling budget: " + stage})
+	return classifyBootstrapOutcome(&provider.ProviderOutcomeUnknownError{Message: "bootstrap stage did not converge within its polling budget: " + stage})
 }
 
 // bootstrapConverger lets asynchronous resource reconcilers distinguish an
@@ -368,7 +370,7 @@ func classifyBootstrapOutcome(err error) error {
 	if err == nil {
 		return nil
 	}
-	var unknown *ProviderOutcomeUnknownError
+	var unknown *provider.ProviderOutcomeUnknownError
 	if errors.As(err, &unknown) {
 		return err
 	}
@@ -376,20 +378,20 @@ func classifyBootstrapOutcome(err error) error {
 		return err
 	}
 	return &bootstrapOutcomeUnknownError{
-		ProviderOutcomeUnknownError: &ProviderOutcomeUnknownError{Message: "OCI bootstrap operation outcome is unknown; retry the same declaration"},
+		ProviderOutcomeUnknownError: &provider.ProviderOutcomeUnknownError{Message: "OCI bootstrap operation outcome is unknown; retry the same declaration"},
 		cause:                       err,
 	}
 }
 
 type bootstrapOutcomeUnknownError struct {
-	*ProviderOutcomeUnknownError
+	*provider.ProviderOutcomeUnknownError
 	cause error
 }
 
 func (e *bootstrapOutcomeUnknownError) Unwrap() error { return e.cause }
 
 func (e *bootstrapOutcomeUnknownError) As(target any) bool {
-	if destination, ok := target.(**ProviderOutcomeUnknownError); ok {
+	if destination, ok := target.(**provider.ProviderOutcomeUnknownError); ok {
 		*destination = e.ProviderOutcomeUnknownError
 		return true
 	}
@@ -404,18 +406,18 @@ type IdentityGateway interface {
 
 // OCIIdentityGateway is the real identity gateway over the signed transport.
 type OCIIdentityGateway struct {
-	Identity  *OCIHTTPTransport
+	Identity  *provider.OCIHTTPTransport
 	TenancyID string
 }
 
 var _ IdentityGateway = (*OCIIdentityGateway)(nil)
 
 // NewOCIIdentityGateway validates the identity transport and tenancy scope.
-func NewOCIIdentityGateway(identity *OCIHTTPTransport, tenancyID string) (*OCIIdentityGateway, error) {
-	if identity == nil || identity.Config.Service != OCIServiceIdentity {
+func NewOCIIdentityGateway(identity *provider.OCIHTTPTransport, tenancyID string) (*OCIIdentityGateway, error) {
+	if identity == nil || identity.Config.Service != provider.OCIServiceIdentity {
 		return nil, &errs.Argument{Message: "identity gateway requires the identity transport"}
 	}
-	if !isOCID(tenancyID, "tenancy") {
+	if !provider.IsOCID(tenancyID, "tenancy") {
 		return nil, &errs.Argument{Message: "identity gateway requires a tenancy identity"}
 	}
 	return &OCIIdentityGateway{Identity: identity, TenancyID: tenancyID}, nil
@@ -426,7 +428,7 @@ func NewOCIIdentityGateway(identity *OCIHTTPTransport, tenancyID string) (*OCIId
 // adopted and polled rather than creating a duplicate.
 func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string) (string, error) {
 	if g == nil || g.Identity == nil {
-		return "", &InvalidOperationError{Message: "identity gateway is unavailable"}
+		return "", &provider.InvalidOperationError{Message: "identity gateway is unavailable"}
 	}
 	if ctx == nil {
 		return "", &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -442,7 +444,7 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 		query := url.Values{}
 		query.Set("compartmentId", g.TenancyID)
 		query.Set("name", name)
-		return readBootstrapControlList[compartment](ctx, g.Identity, "/20160918/compartments", query)
+		return provider.ReadOCICollection[compartment](ctx, g.Identity, "/20160918/compartments", query)
 	}
 	findCompartment := func(items []compartment) (string, string, error) {
 		var found *compartment
@@ -451,11 +453,11 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 			if item.LifecycleState == "DELETED" {
 				continue
 			}
-			if !isOCID(item.ID, "compartment") {
-				return "", "", &InvalidDataError{Message: "OCI compartment response is invalid"}
+			if !provider.IsOCID(item.ID, "compartment") {
+				return "", "", &provider.InvalidDataError{Message: "OCI compartment response is invalid"}
 			}
 			if found != nil {
-				return "", "", &InvalidDataError{Message: "multiple compartments share the declared name"}
+				return "", "", &provider.InvalidDataError{Message: "multiple compartments share the declared name"}
 			}
 			found = &item
 		}
@@ -482,17 +484,17 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 					return "", err
 				}
 			case "FAILED", "ERROR":
-				return "", &InvalidDataError{Message: "OCI compartment creation failed"}
+				return "", &provider.InvalidDataError{Message: "OCI compartment creation failed"}
 			case "":
 				// A create that disappears before becoming ACTIVE has an
 				// ambiguous provider outcome. Do not issue another create from
 				// this invocation; add-region will re-observe the same intent.
-				return "", &ProviderOutcomeUnknownError{Message: "OCI compartment outcome is unknown before it became ACTIVE"}
+				return "", &provider.ProviderOutcomeUnknownError{Message: "OCI compartment outcome is unknown before it became ACTIVE"}
 			default:
-				return "", &InvalidDataError{Message: "OCI compartment lifecycle state is unusable"}
+				return "", &provider.InvalidDataError{Message: "OCI compartment lifecycle state is unusable"}
 			}
 		}
-		return "", &InvalidOperationError{Message: "OCI compartment did not become ACTIVE within the polling budget"}
+		return "", &provider.InvalidOperationError{Message: "OCI compartment did not become ACTIVE within the polling budget"}
 	}
 	items, err := listCompartments()
 	if err != nil {
@@ -505,7 +507,7 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 			return id, nil
 		}
 		if state == "FAILED" || state == "ERROR" {
-			return "", &InvalidDataError{Message: "OCI compartment creation failed"}
+			return "", &provider.InvalidDataError{Message: "OCI compartment creation failed"}
 		}
 		activeID, err := waitForCompartment()
 		if err != nil {
@@ -526,8 +528,8 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 	}{CompartmentID: g.TenancyID, Name: name, Description: "TerraScale estate (orchestrator-managed)"}, map[string]string{"opc-retry-token": name}, &created); err != nil {
 		return "", err
 	}
-	if !isOCID(created.ID, "compartment") {
-		return "", &InvalidDataError{Message: "OCI compartment create response is invalid"}
+	if !provider.IsOCID(created.ID, "compartment") {
+		return "", &provider.InvalidDataError{Message: "OCI compartment create response is invalid"}
 	}
 	if created.LifecycleState == "ACTIVE" {
 		return created.ID, nil
@@ -568,30 +570,30 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	if request.Region.OCIName != credentials.Region {
 		return &errs.Argument{Message: "bootstrap region credentials and declared estate region disagree"}
 	}
-	key, err := readRSAPrivateKey(credentials.PrivateKeyPath)
+	key, err := provider.ReadRSAPrivateKey(credentials.PrivateKeyPath)
 	if err != nil {
 		return err
 	}
-	signer, err := NewInstancePrincipalSigner(credentials.SigningKeyID(), key)
+	signer, err := provider.NewInstancePrincipalSigner(credentials.SigningKeyID(), key)
 	if err != nil {
 		return err
 	}
-	newTransport := func(service OCIService) (*OCIHTTPTransport, error) {
-		host, _ := ociServiceHost(service, credentials.Region)
+	newTransport := func(service provider.OCIService) (*provider.OCIHTTPTransport, error) {
+		host, _ := provider.OCIServiceHost(service, credentials.Region)
 		if host == "" {
 			host = "bootstrap-management.kms." + credentials.Region + ".oraclecloud.com"
 		}
-		config, err := NewOCIServiceTransportConfig(service, credentials.Region, "https://"+host)
+		config, err := provider.NewOCIServiceTransportConfig(service, credentials.Region, "https://"+host)
 		if err != nil {
 			return nil, err
 		}
-		return NewOCIHTTPTransport(config, nil, signer)
+		return provider.NewOCIHTTPTransport(config, nil, signer)
 	}
-	core, err := newTransport(OCIServiceCore)
+	core, err := newTransport(provider.OCIServiceCore)
 	if err != nil {
 		return err
 	}
-	identityTransport, err := newTransport(OCIServiceIdentity)
+	identityTransport, err := newTransport(provider.OCIServiceIdentity)
 	if err != nil {
 		return err
 	}
@@ -615,7 +617,7 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	if err != nil {
 		return err
 	}
-	objectTransport, err := newTransport(OCIServiceObjectStorage)
+	objectTransport, err := newTransport(provider.OCIServiceObjectStorage)
 	if err != nil {
 		return err
 	}
@@ -623,11 +625,11 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	if err != nil {
 		return err
 	}
-	vaultTransport, err := newTransport(OCIServiceVault)
+	vaultTransport, err := newTransport(provider.OCIServiceVault)
 	if err != nil {
 		return err
 	}
-	managementTransport, err := newTransport(OCIServiceVaultManagement)
+	managementTransport, err := newTransport(provider.OCIServiceVaultManagement)
 	if err != nil {
 		return err
 	}

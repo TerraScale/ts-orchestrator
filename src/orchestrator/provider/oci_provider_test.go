@@ -41,7 +41,7 @@ func (s *testOwnershipCAS) CompareAndSwap(_ context.Context, key string, version
 
 func TestOCIValidationRejectsLookalikeIdentities(t *testing.T) {
 	for _, id := range []string{"ocid1.volume.oc1", "ocid1.volume.oc1.x/escape", "ocid1.volume.oc1.x.", "ocid1.volume.bad.x"} {
-		if isOCID(id, "volume") {
+		if IsOCID(id, "volume") {
 			t.Fatalf("accepted malformed OCID %q", id)
 		}
 	}
@@ -103,7 +103,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 func TestSafeErrorDoesNotEchoProviderBody(t *testing.T) {
 	secret := "private-key-material"
 	resp := &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody, Header: make(http.Header)}
-	if err := ociStatus(resp, secret); err == nil || strings.Contains(err.Error(), secret) {
+	if err := CheckOCIStatus(resp, secret); err == nil || strings.Contains(err.Error(), secret) {
 		t.Fatalf("provider response leaked into error: %v", err)
 	}
 }

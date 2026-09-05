@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
@@ -459,9 +460,9 @@ func (p *ProviderControlPlane) readInstance(ctx context.Context, region controlR
 	}
 	if instance.ID != memberID || instance.CompartmentID != region.binding.CompartmentID ||
 		instance.ETag == "" || len(instance.ETag) > 256 || strings.ContainsAny(instance.ETag, "\r\n") ||
-		instance.FreeformTags[provider.OCIManagedTag] != provider.ManagedMemberTagValue ||
+		instance.FreeformTags[provider.OCIManagedTag] != ocireconcile.ManagedMemberTagValue ||
 		instance.FreeformTags[provider.OCIScopeTag] != region.binding.Code ||
-		instance.FreeformTags[provider.MemberIndexTag] != strconv.Itoa(index+1) {
+		instance.FreeformTags[ocireconcile.MemberIndexTag] != strconv.Itoa(index+1) {
 		return controlInstance{}, ErrControlProviderInvalid
 	}
 	instance.local, instance.region, instance.memberIndex = region.oci.local, region.binding.Code, index

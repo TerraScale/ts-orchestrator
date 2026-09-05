@@ -18,7 +18,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 )
 
 type bootstrapHostTrustReference struct {
@@ -47,15 +47,15 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 	if len(loaded.declaration.Seeds) == 0 {
 		return errors.New("control: per-slot initial host seeds are required")
 	}
-	version, err := addRegionRequiredEnv(lookup, provider.TSNodeVersionEnvironment)
+	version, err := addRegionRequiredEnv(lookup, ocireconcile.TSNodeVersionEnvironment)
 	if err != nil {
 		return err
 	}
-	digest, err := addRegionRequiredEnv(lookup, provider.TSNodeSHA256Environment)
+	digest, err := addRegionRequiredEnv(lookup, ocireconcile.TSNodeSHA256Environment)
 	if err != nil {
 		return err
 	}
-	artifact, err := addRegionRequiredEnv(lookup, provider.TSNodeURLEnvironment)
+	artifact, err := addRegionRequiredEnv(lookup, ocireconcile.TSNodeURLEnvironment)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if _, err := loadBootstrapControlCredentials(seed.NATS); err != nil {
 			return err
 		}
-		var files []provider.BootstrapHostFile
+		var files []ocireconcile.BootstrapHostFile
 		var secrets []map[string]any
 		add := func(source, path string, private bool, secretID string, version int64) error {
 			content, err := readBootstrapControlFile(source, private, 32<<10)
@@ -112,7 +112,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 				}
 				return nil
 			}
-			files = append(files, provider.BootstrapHostFile{Path: path, Content: content, Private: private})
+			files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: content, Private: private})
 			return nil
 		}
 		const root = "/etc/terrascale/ts-node-bootstrap/"
@@ -134,7 +134,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if err != nil {
 			return err
 		}
-		files = append(files, provider.BootstrapHostFile{Path: "/var/lib/terrascale/ts-node/manifest.json", Content: manifest, Private: true}, provider.BootstrapHostFile{Path: root + "grant.json", Content: activation.signed, Private: true})
+		files = append(files, ocireconcile.BootstrapHostFile{Path: "/var/lib/terrascale/ts-node/manifest.json", Content: manifest, Private: true}, ocireconcile.BootstrapHostFile{Path: root + "grant.json", Content: activation.signed, Private: true})
 		for _, input := range loaded.declaration.Activations {
 			if input.HostID == seed.HostID {
 				if err := add(input.OwnerPublicKeyFile, root+"authority.pem", false, "", 0); err != nil {
@@ -183,7 +183,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			}
 			seenCandidates[key.CandidateID] = true
 			path := fmt.Sprintf("%strust-%d.pem", root, index)
-			files = append(files, provider.BootstrapHostFile{Path: path, Content: content})
+			files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: content})
 			trust = append(trust, map[string]string{"candidateId": key.CandidateID, "publicKeyFile": path})
 		}
 		if len(trust) == 0 {
@@ -204,7 +204,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if err != nil {
 			return err
 		}
-		files = append(files, provider.BootstrapHostFile{Path: "/etc/terrascale/ts-node.json", Content: wire, Private: true})
+		files = append(files, ocireconcile.BootstrapHostFile{Path: "/etc/terrascale/ts-node.json", Content: wire, Private: true})
 		var ociRegion string
 		for _, region := range loaded.declaration.Regions {
 			if region.Code == member.Region {
@@ -222,8 +222,8 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if err := hostsecrets.ValidateSeed(secretDeclaration); err != nil {
 			return err
 		}
-		files = append(files, provider.BootstrapHostFile{Path: "/etc/terrascale/host-secrets.json", Content: secretWire, Private: true})
-		cloudInit, err := provider.TSNodeCloudInit(version, digest, artifact, artifact+".sig", release, files)
+		files = append(files, ocireconcile.BootstrapHostFile{Path: "/etc/terrascale/host-secrets.json", Content: secretWire, Private: true})
+		cloudInit, err := ocireconcile.TSNodeCloudInit(version, digest, artifact, artifact+".sig", release, files)
 		if err != nil {
 			return err
 		}

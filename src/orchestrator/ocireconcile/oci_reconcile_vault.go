@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -94,7 +96,7 @@ var _ OCIReconciler[estate.Region, VaultObserved] = (*VaultReconciler)(nil)
 
 func (r *VaultReconciler) Observe(ctx context.Context, declared estate.Region) (VaultObserved, error) {
 	if r == nil || r.Vault == nil {
-		return VaultObserved{}, &InvalidOperationError{Message: "vault reconciler is unavailable"}
+		return VaultObserved{}, &provider.InvalidOperationError{Message: "vault reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return VaultObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -110,7 +112,7 @@ func (r *VaultReconciler) Observe(ctx context.Context, declared estate.Region) (
 	for i := range vaults {
 		if vaults[i].DisplayName == DefaultVaultName(declared.Code) && vaults[i].LifecycleState != "DELETED" {
 			if observed.Vault != nil {
-				return VaultObserved{}, &InvalidDataError{Message: "multiple vaults share the declared name"}
+				return VaultObserved{}, &provider.InvalidDataError{Message: "multiple vaults share the declared name"}
 			}
 			vault := vaults[i]
 			observed.Vault = &vault
@@ -140,7 +142,7 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 	if observed.Vault.VaultType == vaultTypeVirtualPrivate {
 		// D-65 forbids Virtual Private Vaults; adopting one silently would
 		// put the estate on a paid tier it never declared.
-		return OCIPlan{}, &InvalidDataError{Message: "observed vault is a Virtual Private Vault, which the estate never declares"}
+		return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault is a Virtual Private Vault, which the estate never declares"}
 	}
 	switch observedVaultState(observed.Vault.LifecycleState) {
 	case vaultStatePending:
@@ -148,14 +150,14 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 		// vault, and bootstrap polls before advancing to buckets.
 		return plan, nil
 	case vaultStateFailed:
-		return OCIPlan{}, &InvalidDataError{Message: "observed vault failed and cannot be used"}
+		return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault failed and cannot be used"}
 	case vaultStateAbsent:
-		return OCIPlan{}, &InvalidDataError{Message: "observed vault is not usable"}
+		return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault is not usable"}
 	}
 	keys := make(map[string]ObservedKey, len(observed.Keys))
 	for _, key := range observed.Keys {
 		if _, exists := keys[key.DisplayName]; exists {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple vault keys share the declared name"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple vault keys share the declared name"}
 		}
 		keys[key.DisplayName] = key
 	}
@@ -166,7 +168,7 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 				// AES-256. Adopting an HSM or foreign-shape key by name
 				// would put the Region on a paid tier it never declared,
 				// exactly like a Virtual Private Vault.
-				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " does not match the declared AES-256 software key shape"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault key " + declaredKey.Name + " does not match the declared AES-256 software key shape"}
 			}
 			switch observedKeyState(observed.LifecycleState) {
 			case vaultKeyStateActive:
@@ -176,9 +178,9 @@ func (r *VaultReconciler) Reconcile(ctx context.Context, declared estate.Region,
 				// OCI is still processing this one is not idempotent.
 				continue
 			case vaultKeyStateFailed:
-				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " failed and cannot be used"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault key " + declaredKey.Name + " failed and cannot be used"}
 			case vaultKeyStateUnknown:
-				return OCIPlan{}, &InvalidDataError{Message: "observed vault key " + declaredKey.Name + " has an unusable lifecycle state"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed vault key " + declaredKey.Name + " has an unusable lifecycle state"}
 			}
 		}
 		plan.Actions = append(plan.Actions, CreateVaultKeyAction{VaultName: observed.Vault.DisplayName, KeyName: declaredKey.Name})
@@ -234,11 +236,11 @@ func observedKeyState(state string) vaultKeyState {
 func (r *VaultReconciler) bootstrapConverged(value, declaration any) (bool, error) {
 	observed, ok := value.(VaultObserved)
 	if !ok {
-		return false, &InvalidDataError{Message: "vault convergence observation has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "vault convergence observation has the wrong type"}
 	}
 	declared, ok := declaration.(estate.Region)
 	if !ok {
-		return false, &InvalidDataError{Message: "vault convergence declaration has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "vault convergence declaration has the wrong type"}
 	}
 	if observed.Vault == nil {
 		return false, nil
@@ -247,16 +249,16 @@ func (r *VaultReconciler) bootstrapConverged(value, declaration any) (bool, erro
 	case vaultStatePending:
 		return false, nil
 	case vaultStateFailed:
-		return false, &InvalidDataError{Message: "observed vault failed and cannot be used"}
+		return false, &provider.InvalidDataError{Message: "observed vault failed and cannot be used"}
 	case vaultStateAbsent:
-		return false, &InvalidDataError{Message: "observed vault is not usable"}
+		return false, &provider.InvalidDataError{Message: "observed vault is not usable"}
 	}
 	for _, key := range observed.Keys {
 		switch observedKeyState(key.LifecycleState) {
 		case vaultKeyStatePending:
 			return false, nil
 		case vaultKeyStateFailed:
-			return false, &InvalidDataError{Message: "observed vault key " + key.DisplayName + " failed and cannot be used"}
+			return false, &provider.InvalidDataError{Message: "observed vault key " + key.DisplayName + " failed and cannot be used"}
 		}
 	}
 	for _, declaredKey := range declared.VaultKeys {
@@ -276,7 +278,7 @@ func (r *VaultReconciler) bootstrapConverged(value, declaration any) (bool, erro
 
 func (r *VaultReconciler) Apply(ctx context.Context, declared estate.Region, observed VaultObserved, plan OCIPlan) error {
 	if r == nil || r.Vault == nil {
-		return &InvalidOperationError{Message: "vault reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "vault reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -295,13 +297,13 @@ func (r *VaultReconciler) Apply(ctx context.Context, declared estate.Region, obs
 			vault = &created
 		case CreateVaultKeyAction:
 			if vault == nil || vault.LifecycleState != "ACTIVE" || vault.DisplayName != a.VaultName {
-				return &InvalidOperationError{Message: "key create requires an active declared vault"}
+				return &provider.InvalidOperationError{Message: "key create requires an active declared vault"}
 			}
 			if _, err := r.Vault.CreateKey(ctx, *vault, a.KeyName); err != nil {
 				return err
 			}
 		default:
-			return &InvalidOperationError{Message: "vault reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "vault reconciler received a foreign action"}
 		}
 	}
 	return nil
@@ -311,8 +313,8 @@ func (r *VaultReconciler) Apply(ctx context.Context, declared estate.Region, obs
 // vaults service transport, key management over each vault's own
 // management endpoint.
 type OCIVaultGateway struct {
-	Vaults        *OCIHTTPTransport
-	Management    *OCIHTTPTransport // used only to validate endpoint shape
+	Vaults        *provider.OCIHTTPTransport
+	Management    *provider.OCIHTTPTransport // used only to validate endpoint shape
 	Region        string
 	CompartmentID string
 }
@@ -322,17 +324,17 @@ var _ VaultGateway = (*OCIVaultGateway)(nil)
 // NewOCIVaultGateway validates the vaults transport and compartment scope.
 // The management transport seeds endpoint validation for per-vault key
 // clients.
-func NewOCIVaultGateway(vaults, management *OCIHTTPTransport, region, compartmentID string) (*OCIVaultGateway, error) {
-	if vaults == nil || vaults.Config.Service != OCIServiceVault {
+func NewOCIVaultGateway(vaults, management *provider.OCIHTTPTransport, region, compartmentID string) (*OCIVaultGateway, error) {
+	if vaults == nil || vaults.Config.Service != provider.OCIServiceVault {
 		return nil, &errs.Argument{Message: "vault gateway requires the vaults transport"}
 	}
-	if management == nil || management.Config.Service != OCIServiceVaultManagement {
+	if management == nil || management.Config.Service != provider.OCIServiceVaultManagement {
 		return nil, &errs.Argument{Message: "vault gateway requires a vault-management transport"}
 	}
-	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
+	if len(region) < 1 || len(region) > 63 || !provider.ValidOCIRegion(region) {
 		return nil, &errs.Argument{Message: "vault gateway requires a canonical region"}
 	}
-	if !isOCID(compartmentID, "compartment") {
+	if !provider.IsOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "vault gateway requires a compartment identity"}
 	}
 	return &OCIVaultGateway{Vaults: vaults, Management: management, Region: region, CompartmentID: compartmentID}, nil
@@ -347,13 +349,13 @@ type ociVaultDocument struct {
 }
 
 func observedVault(document ociVaultDocument) (ObservedVault, error) {
-	if !isOCID(document.ID, "vault") {
-		return ObservedVault{}, &InvalidDataError{Message: "OCI vault response is invalid"}
+	if !provider.IsOCID(document.ID, "vault") {
+		return ObservedVault{}, &provider.InvalidDataError{Message: "OCI vault response is invalid"}
 	}
 	if document.VaultType != vaultTypeDefault && document.VaultType != vaultTypeVirtualPrivate {
 		// An unknown or missing vault type cannot be checked against the
 		// D-65 Virtual Private Vault prohibition.
-		return ObservedVault{}, &InvalidDataError{Message: "OCI vault response is invalid"}
+		return ObservedVault{}, &provider.InvalidDataError{Message: "OCI vault response is invalid"}
 	}
 	return ObservedVault{ID: document.ID, DisplayName: document.DisplayName, VaultType: document.VaultType, LifecycleState: document.LifecycleState, ManagementEndpoint: document.ManagementEndpoint}, nil
 }
@@ -361,7 +363,7 @@ func observedVault(document ociVaultDocument) (ObservedVault, error) {
 func (g *OCIVaultGateway) ListVaults(ctx context.Context) ([]ObservedVault, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	list, err := readOCIResourceList[ociVaultDocument](ctx, g.Vaults, "/20180608/vaults", query, func(item ociVaultDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociVaultDocument](ctx, g.Vaults, "/20180608/vaults", query, func(item ociVaultDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +395,7 @@ func (g *OCIVaultGateway) CreateVault(ctx context.Context, name string) (Observe
 		return ObservedVault{}, err
 	}
 	if created.VaultType == vaultTypeVirtualPrivate {
-		return ObservedVault{}, &InvalidDataError{Message: "OCI created a vault type the estate never declares"}
+		return ObservedVault{}, &provider.InvalidDataError{Message: "OCI created a vault type the estate never declares"}
 	}
 	return created, nil
 }
@@ -401,15 +403,15 @@ func (g *OCIVaultGateway) CreateVault(ctx context.Context, name string) (Observe
 // keyTransport derives the per-vault management transport, validated
 // against the gateway's region so a hostile vault document cannot redirect
 // signed key requests elsewhere.
-func (g *OCIVaultGateway) keyTransport(vault ObservedVault) (*OCIHTTPTransport, error) {
-	if !isOCID(vault.ID, "vault") || vault.LifecycleState != "ACTIVE" {
+func (g *OCIVaultGateway) keyTransport(vault ObservedVault) (*provider.OCIHTTPTransport, error) {
+	if !provider.IsOCID(vault.ID, "vault") || vault.LifecycleState != "ACTIVE" {
 		return nil, &errs.Argument{Message: "key request requires an active vault"}
 	}
-	config, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, g.Region, vault.ManagementEndpoint)
+	config, err := provider.NewOCIServiceTransportConfig(provider.OCIServiceVaultManagement, g.Region, vault.ManagementEndpoint)
 	if err != nil {
-		return nil, &InvalidDataError{Message: "vault management endpoint is invalid for the region"}
+		return nil, &provider.InvalidDataError{Message: "vault management endpoint is invalid for the region"}
 	}
-	return NewOCIHTTPTransport(config, g.Management.Client, g.Management.Signer)
+	return provider.NewOCIHTTPTransport(config, g.Management.Client, g.Management.Signer)
 }
 
 type ociKeyShapeDocument struct {
@@ -426,13 +428,13 @@ type ociKeyDocument struct {
 }
 
 func observedKey(document ociKeyDocument) (ObservedKey, error) {
-	if !isOCID(document.ID, "key") {
-		return ObservedKey{}, &InvalidDataError{Message: "OCI key response is invalid"}
+	if !provider.IsOCID(document.ID, "key") {
+		return ObservedKey{}, &provider.InvalidDataError{Message: "OCI key response is invalid"}
 	}
 	if document.KeyShape.Algorithm == "" || document.KeyShape.Length <= 0 || document.KeyShape.Protection == "" {
 		// The shape is what makes a key the declared per-Region KEK
 		// (D-70); a response without it cannot be trusted.
-		return ObservedKey{}, &InvalidDataError{Message: "OCI key response is invalid"}
+		return ObservedKey{}, &provider.InvalidDataError{Message: "OCI key response is invalid"}
 	}
 	return ObservedKey{ID: document.ID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Algorithm: document.KeyShape.Algorithm, LengthBits: document.KeyShape.Length, Protection: document.KeyShape.Protection}, nil
 }
@@ -444,7 +446,7 @@ func (g *OCIVaultGateway) ListKeys(ctx context.Context, vault ObservedVault) ([]
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	list, err := readOCIResourceList[ociKeyDocument](ctx, transport, "/20180608/keys", query, func(item ociKeyDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociKeyDocument](ctx, transport, "/20180608/keys", query, func(item ociKeyDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +483,7 @@ func (g *OCIVaultGateway) CreateKey(ctx context.Context, vault ObservedVault, ke
 		return ObservedKey{}, err
 	}
 	if !created.matchesDeclaredKeyShape() {
-		return ObservedKey{}, &InvalidDataError{Message: "OCI created a vault key shape the estate never declares"}
+		return ObservedKey{}, &provider.InvalidDataError{Message: "OCI created a vault key shape the estate never declares"}
 	}
 	return created, nil
 }

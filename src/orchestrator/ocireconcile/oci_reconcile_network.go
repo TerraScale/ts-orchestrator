@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -221,7 +223,7 @@ var securityProtocolNumbers = map[string]string{"tcp": "6", "udp": "17", "icmp":
 
 func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region) (NetworkObserved, error) {
 	if r == nil || r.Gateway == nil {
-		return NetworkObserved{}, &InvalidOperationError{Message: "network reconciler is unavailable"}
+		return NetworkObserved{}, &provider.InvalidOperationError{Message: "network reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return NetworkObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -237,10 +239,10 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 	for i := range vcns {
 		if vcns[i].LifecycleState != "TERMINATED" && vcns[i].LifecycleState != "TERMINATING" {
 			if !networkVCNOwned(vcns[i], declared.Code) {
-				return NetworkObserved{}, &InvalidDataError{Message: "a VCN with the declared name is not positively owned"}
+				return NetworkObserved{}, &provider.InvalidDataError{Message: "a VCN with the declared name is not positively owned"}
 			}
 			if observed.VCN != nil {
-				return NetworkObserved{}, &InvalidDataError{Message: "multiple VCNs share the declared name"}
+				return NetworkObserved{}, &provider.InvalidDataError{Message: "multiple VCNs share the declared name"}
 			}
 			vcn := vcns[i]
 			observed.VCN = &vcn
@@ -296,17 +298,17 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 		return plan, nil
 	} else {
 		if !networkVCNOwned(*observed.VCN, declared.Code) {
-			return OCIPlan{}, &InvalidDataError{Message: "observed VCN is not positively owned"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed VCN is not positively owned"}
 		}
 		switch observedNetworkState(observed.VCN.LifecycleState) {
 		case networkStatePending:
 			// Do not create dependent resources until the VCN is usable.
 			return plan, nil
 		case networkStateFailed, networkStateUnknown, networkStateAbsent:
-			return OCIPlan{}, &InvalidDataError{Message: "observed VCN has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed VCN has an unusable lifecycle state"}
 		case networkStateActive:
 			if observed.VCN.CIDR != declared.Network.CIDR {
-				return OCIPlan{}, &InvalidDataError{Message: "observed VCN CIDR does not match the declared network and cannot be renumbered"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed VCN CIDR does not match the declared network and cannot be renumbered"}
 			}
 		}
 	}
@@ -314,29 +316,29 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	for _, subnet := range observed.Subnets {
 		for _, declaredSubnet := range declared.Network.Subnets {
 			if subnet.DisplayName == declaredSubnet.Name && !networkSubnetOwned(subnet, declared.Code) {
-				return OCIPlan{}, &InvalidDataError{Message: "declared subnet " + subnet.DisplayName + " is not positively owned"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "declared subnet " + subnet.DisplayName + " is not positively owned"}
 			}
 		}
 		if networkSubnetOwned(subnet, declared.Code) && observed.VCN != nil && subnet.VCNID != observed.VCN.ID {
-			return OCIPlan{}, &InvalidDataError{Message: "owned subnet is outside the declared VCN"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "owned subnet is outside the declared VCN"}
 		}
 		switch observedNetworkState(subnet.LifecycleState) {
 		case networkStateAbsent:
 			continue
 		case networkStateFailed:
-			return OCIPlan{}, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
 		case networkStateUnknown:
-			return OCIPlan{}, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
 		}
 		if _, duplicate := subnets[subnet.DisplayName]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
 		}
 		subnets[subnet.DisplayName] = subnet
 	}
 	for _, declaredSubnet := range declared.Network.Subnets {
 		if existing, ok := subnets[declaredSubnet.Name]; ok {
 			if existing.CIDR != declaredSubnet.CIDR {
-				return OCIPlan{}, &InvalidDataError{Message: "observed subnet " + declaredSubnet.Name + " CIDR drift cannot be repaired in place"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed subnet " + declaredSubnet.Name + " CIDR drift cannot be repaired in place"}
 			}
 			continue
 		}
@@ -346,22 +348,22 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 	for _, group := range observed.NSGs {
 		for _, declaredGroup := range declared.Network.SecurityGroups {
 			if group.DisplayName == declaredGroup.Name && !networkNSGOwned(group, declared.Code) {
-				return OCIPlan{}, &InvalidDataError{Message: "declared network security group " + group.DisplayName + " is not positively owned"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "declared network security group " + group.DisplayName + " is not positively owned"}
 			}
 		}
 		if networkNSGOwned(group, declared.Code) && observed.VCN != nil && group.VCNID != observed.VCN.ID {
-			return OCIPlan{}, &InvalidDataError{Message: "owned network security group is outside the declared VCN"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "owned network security group is outside the declared VCN"}
 		}
 		switch observedNetworkState(group.LifecycleState) {
 		case networkStateAbsent:
 			continue
 		case networkStateFailed:
-			return OCIPlan{}, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
 		case networkStateUnknown:
-			return OCIPlan{}, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
 		}
 		if _, duplicate := groups[group.DisplayName]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
 		}
 		groups[group.DisplayName] = group
 	}
@@ -399,18 +401,18 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 		routeTables := make(map[string]ObservedRouteTable, len(observed.RouteTables))
 		for _, table := range observed.RouteTables {
 			if networkRouteTableOwned(table, declared.Code) && observed.VCN != nil && table.VCNID != observed.VCN.ID {
-				return OCIPlan{}, &InvalidDataError{Message: "owned route table is outside the declared VCN"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "owned route table is outside the declared VCN"}
 			}
 			switch observedNetworkState(table.LifecycleState) {
 			case networkStateAbsent:
 				continue
 			case networkStateFailed:
-				return OCIPlan{}, &InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
 			case networkStateUnknown:
-				return OCIPlan{}, &InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
 			}
 			if _, duplicate := routeTables[table.DisplayName]; duplicate {
-				return OCIPlan{}, &InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
 			}
 			routeTables[table.DisplayName] = table
 		}
@@ -423,7 +425,7 @@ func (r *NetworkReconciler) Reconcile(ctx context.Context, declared estate.Regio
 				continue
 			}
 			if !networkRouteTableOwned(existing, declared.Code) {
-				return OCIPlan{}, &InvalidDataError{Message: "declared route table " + existing.DisplayName + " is not positively owned"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "declared route table " + existing.DisplayName + " is not positively owned"}
 			}
 			if observedNetworkState(existing.LifecycleState) != networkStateActive {
 				continue
@@ -449,24 +451,24 @@ func resolveDeclaredNAT(declared estate.Region, observed NetworkObserved) (natID
 	seen := false
 	for _, gateway := range observed.NATGateways {
 		if networkNATOwned(gateway, declared.Code) && observed.VCN != nil && gateway.VCNID != observed.VCN.ID {
-			return "", false, &InvalidDataError{Message: "owned NAT gateway is outside the declared VCN"}
+			return "", false, &provider.InvalidDataError{Message: "owned NAT gateway is outside the declared VCN"}
 		}
 		switch observedNetworkState(gateway.LifecycleState) {
 		case networkStateAbsent:
 			continue
 		case networkStateFailed:
-			return "", false, &InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " failed and cannot be used"}
+			return "", false, &provider.InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " failed and cannot be used"}
 		case networkStateUnknown:
-			return "", false, &InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " has an unusable lifecycle state"}
+			return "", false, &provider.InvalidDataError{Message: "observed NAT gateway " + gateway.DisplayName + " has an unusable lifecycle state"}
 		}
 		if gateway.DisplayName != natName {
 			continue
 		}
 		if !networkNATOwned(gateway, declared.Code) {
-			return "", false, &InvalidDataError{Message: "declared NAT gateway is not positively owned"}
+			return "", false, &provider.InvalidDataError{Message: "declared NAT gateway is not positively owned"}
 		}
 		if seen {
-			return "", false, &InvalidDataError{Message: "multiple NAT gateways share the declared name " + natName}
+			return "", false, &provider.InvalidDataError{Message: "multiple NAT gateways share the declared name " + natName}
 		}
 		seen = true
 		if observedNetworkState(gateway.LifecycleState) == networkStateActive {
@@ -504,11 +506,11 @@ func observedNetworkState(state string) networkResourceState {
 func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, error) {
 	observed, ok := value.(NetworkObserved)
 	if !ok {
-		return false, &InvalidDataError{Message: "network convergence observation has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "network convergence observation has the wrong type"}
 	}
 	declared, ok := declaration.(estate.Region)
 	if !ok {
-		return false, &InvalidDataError{Message: "network convergence declaration has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "network convergence declaration has the wrong type"}
 	}
 	if observed.VCN == nil {
 		return false, nil
@@ -530,15 +532,15 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 		case networkStateAbsent:
 			continue
 		case networkStateFailed:
-			return false, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
+			return false, &provider.InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " failed and cannot be used"}
 		case networkStateUnknown:
-			return false, &InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed subnet " + subnet.DisplayName + " has an unusable lifecycle state"}
 		}
 		if _, duplicate := subnets[subnet.DisplayName]; duplicate {
-			return false, &InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
+			return false, &provider.InvalidDataError{Message: "multiple subnets share the declared name " + subnet.DisplayName}
 		}
 		if networkSubnetOwned(subnet, declared.Code) && subnet.VCNID != observed.VCN.ID {
-			return false, &InvalidDataError{Message: "owned subnet is outside the declared VCN"}
+			return false, &provider.InvalidDataError{Message: "owned subnet is outside the declared VCN"}
 		}
 		subnets[subnet.DisplayName] = subnet
 	}
@@ -559,15 +561,15 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 		case networkStateAbsent:
 			continue
 		case networkStateFailed:
-			return false, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
+			return false, &provider.InvalidDataError{Message: "observed network security group " + group.DisplayName + " failed and cannot be used"}
 		case networkStateUnknown:
-			return false, &InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed network security group " + group.DisplayName + " has an unusable lifecycle state"}
 		}
 		if _, duplicate := groups[group.DisplayName]; duplicate {
-			return false, &InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
+			return false, &provider.InvalidDataError{Message: "multiple network security groups share the declared name " + group.DisplayName}
 		}
 		if networkNSGOwned(group, declared.Code) && group.VCNID != observed.VCN.ID {
-			return false, &InvalidDataError{Message: "owned network security group is outside the declared VCN"}
+			return false, &provider.InvalidDataError{Message: "owned network security group is outside the declared VCN"}
 		}
 		groups[group.DisplayName] = group
 	}
@@ -597,18 +599,18 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 				}
 			}
 			if networkRouteTableOwned(table, declared.Code) && table.VCNID != observed.VCN.ID {
-				return false, &InvalidDataError{Message: "owned route table is outside the declared VCN"}
+				return false, &provider.InvalidDataError{Message: "owned route table is outside the declared VCN"}
 			}
 			switch observedNetworkState(table.LifecycleState) {
 			case networkStateAbsent:
 				continue
 			case networkStateFailed:
-				return false, &InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
+				return false, &provider.InvalidDataError{Message: "observed route table " + table.DisplayName + " failed and cannot be used"}
 			case networkStateUnknown:
-				return false, &InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
+				return false, &provider.InvalidDataError{Message: "observed route table " + table.DisplayName + " has an unusable lifecycle state"}
 			}
 			if _, duplicate := routeTables[table.DisplayName]; duplicate {
-				return false, &InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
+				return false, &provider.InvalidDataError{Message: "multiple route tables share the declared name " + table.DisplayName}
 			}
 			routeTables[table.DisplayName] = table
 		}
@@ -628,7 +630,7 @@ func (r *NetworkReconciler) bootstrapConverged(value, declaration any) (bool, er
 
 func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, observed NetworkObserved, plan OCIPlan) error {
 	if r == nil || r.Gateway == nil {
-		return &InvalidOperationError{Message: "network reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "network reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -659,8 +661,8 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 		}
 	}
 	routedSpecs := func(rules []RouteRuleSpec) ([]RouteRuleSpec, error) {
-		if !isOCID(natID, "natgateway") {
-			return nil, &InvalidOperationError{Message: "route reconciliation requires a live NAT gateway"}
+		if !provider.IsOCID(natID, "natgateway") {
+			return nil, &provider.InvalidOperationError{Message: "route reconciliation requires a live NAT gateway"}
 		}
 		resolved := make([]RouteRuleSpec, 0, len(rules))
 		for _, spec := range rules {
@@ -677,15 +679,15 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			}
 			vcnID = created.ID
 		case CreateSubnetAction:
-			if !isOCID(vcnID, "vcn") {
-				return &InvalidOperationError{Message: "subnet create requires a live VCN"}
+			if !provider.IsOCID(vcnID, "vcn") {
+				return &provider.InvalidOperationError{Message: "subnet create requires a live VCN"}
 			}
 			if _, err := r.Gateway.CreateSubnet(ctx, vcnID, a.Name, a.CIDR); err != nil {
 				return err
 			}
 		case CreateNSGAction:
-			if !isOCID(vcnID, "vcn") {
-				return &InvalidOperationError{Message: "network security group create requires a live VCN"}
+			if !provider.IsOCID(vcnID, "vcn") {
+				return &provider.InvalidOperationError{Message: "network security group create requires a live VCN"}
 			}
 			created, err := r.Gateway.CreateNSG(ctx, vcnID, a.Name)
 			if err != nil {
@@ -694,8 +696,8 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			createdNSGs[created.DisplayName] = created.ID
 		case ReplaceNSGRulesAction:
 			nsgID := createdNSGs[a.Name]
-			if !isOCID(nsgID, "networksecuritygroup") {
-				return &InvalidOperationError{Message: "security rule replacement requires a live network security group"}
+			if !provider.IsOCID(nsgID, "networksecuritygroup") {
+				return &provider.InvalidOperationError{Message: "security rule replacement requires a live network security group"}
 			}
 			if err := r.verifyOwnedNSG(ctx, declared, observed, a.Name, nsgID); err != nil {
 				return err
@@ -711,8 +713,8 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 				}
 			}
 		case CreateNATGatewayAction:
-			if !isOCID(vcnID, "vcn") {
-				return &InvalidOperationError{Message: "NAT gateway create requires a live VCN"}
+			if !provider.IsOCID(vcnID, "vcn") {
+				return &provider.InvalidOperationError{Message: "NAT gateway create requires a live VCN"}
 			}
 			created, err := r.Gateway.CreateNATGateway(ctx, vcnID, a.Name)
 			if err != nil {
@@ -720,8 +722,8 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			}
 			natID = created.ID
 		case CreateRouteTableAction:
-			if !isOCID(vcnID, "vcn") {
-				return &InvalidOperationError{Message: "route table create requires a live VCN"}
+			if !provider.IsOCID(vcnID, "vcn") {
+				return &provider.InvalidOperationError{Message: "route table create requires a live VCN"}
 			}
 			rules, err := routedSpecs(a.Rules)
 			if err != nil {
@@ -734,8 +736,8 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			routeTableIDs[created.DisplayName] = created.ID
 		case ReplaceRouteRulesAction:
 			tableID := routeTableIDs[a.Name]
-			if !isOCID(tableID, "routetable") {
-				return &InvalidOperationError{Message: "route rule replacement requires a live route table"}
+			if !provider.IsOCID(tableID, "routetable") {
+				return &provider.InvalidOperationError{Message: "route rule replacement requires a live route table"}
 			}
 			rules, err := routedSpecs(a.Rules)
 			if err != nil {
@@ -746,37 +748,37 @@ func (r *NetworkReconciler) Apply(ctx context.Context, declared estate.Region, o
 			}
 		case AttachSubnetRouteTableAction:
 			subnetID, tableID := subnetIDs[a.Subnet], routeTableIDs[a.RouteTable]
-			if !isOCID(subnetID, "subnet") || !isOCID(tableID, "routetable") {
-				return &InvalidOperationError{Message: "subnet route attachment requires a live subnet and route table"}
+			if !provider.IsOCID(subnetID, "subnet") || !provider.IsOCID(tableID, "routetable") {
+				return &provider.InvalidOperationError{Message: "subnet route attachment requires a live subnet and route table"}
 			}
 			if err := r.Gateway.AttachSubnetRouteTable(ctx, subnetID, tableID); err != nil {
 				return err
 			}
 		default:
-			return &InvalidOperationError{Message: "network reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "network reconciler received a foreign action"}
 		}
 	}
 	return nil
 }
 
 func networkVCNOwned(v ObservedVCN, region string) bool {
-	return isOCID(v.ID, "vcn") && v.DisplayName == VCNName(region) && positiveOCIOwnership(v.FreeformTags, "vcn", region)
+	return provider.IsOCID(v.ID, "vcn") && v.DisplayName == VCNName(region) && provider.HasOCIOwnershipTags(v.FreeformTags, "vcn", region)
 }
 
 func networkSubnetOwned(v ObservedSubnet, region string) bool {
-	return isOCID(v.ID, "subnet") && positiveOCIOwnership(v.FreeformTags, "subnet", region)
+	return provider.IsOCID(v.ID, "subnet") && provider.HasOCIOwnershipTags(v.FreeformTags, "subnet", region)
 }
 
 func networkNSGOwned(v ObservedNSG, region string) bool {
-	return isOCID(v.ID, "networksecuritygroup") && positiveOCIOwnership(v.FreeformTags, "networksecuritygroup", region)
+	return provider.IsOCID(v.ID, "networksecuritygroup") && provider.HasOCIOwnershipTags(v.FreeformTags, "networksecuritygroup", region)
 }
 
 func networkNATOwned(v ObservedNATGateway, region string) bool {
-	return isOCID(v.ID, "natgateway") && v.DisplayName == NATGatewayName(region) && positiveOCIOwnership(v.FreeformTags, "natgateway", region)
+	return provider.IsOCID(v.ID, "natgateway") && v.DisplayName == NATGatewayName(region) && provider.HasOCIOwnershipTags(v.FreeformTags, "natgateway", region)
 }
 
 func networkRouteTableOwned(v ObservedRouteTable, region string) bool {
-	return isOCID(v.ID, "routetable") && positiveOCIOwnership(v.FreeformTags, "routetable", region)
+	return provider.IsOCID(v.ID, "routetable") && provider.HasOCIOwnershipTags(v.FreeformTags, "routetable", region)
 }
 
 func sameObservedVCN(a, b ObservedVCN) bool {
@@ -792,7 +794,7 @@ func sameObservedNSG(a, b ObservedNSG) bool {
 // authorization; ownership or parent identity changes must stop the plan.
 func (r *NetworkReconciler) verifyOwnedNSG(ctx context.Context, declared estate.Region, observed NetworkObserved, name, id string) error {
 	if observed.VCN == nil || !networkVCNOwned(*observed.VCN, declared.Code) {
-		return &InvalidOperationError{Message: "security rule mutation requires an owned VCN"}
+		return &provider.InvalidOperationError{Message: "security rule mutation requires an owned VCN"}
 	}
 	vcns, err := r.Gateway.ListVCNs(ctx, VCNName(declared.Code))
 	if err != nil {
@@ -806,7 +808,7 @@ func (r *NetworkReconciler) verifyOwnedNSG(ctx context.Context, declared estate.
 		}
 	}
 	if currentVCN == nil || !networkVCNOwned(*currentVCN, declared.Code) || !sameObservedVCN(*currentVCN, *observed.VCN) {
-		return &InvalidOperationError{Message: "refusing stale or ownership-changed VCN rule mutation"}
+		return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed VCN rule mutation"}
 	}
 	groups, err := r.Gateway.ListNSGs(ctx, observed.VCN.ID)
 	if err != nil {
@@ -827,7 +829,7 @@ func (r *NetworkReconciler) verifyOwnedNSG(ctx context.Context, declared estate.
 		}
 	}
 	if currentNSG == nil || !networkNSGOwned(*currentNSG, declared.Code) || currentNSG.VCNID != observed.VCN.ID || !sameObservedNSG(*currentNSG, expected) {
-		return &InvalidOperationError{Message: "refusing stale or ownership-changed NSG rule mutation"}
+		return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed NSG rule mutation"}
 	}
 	return nil
 }
@@ -844,7 +846,7 @@ func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared es
 		}
 	}
 	if !networkNSGOwned(expected, declared.Code) || expected.VCNID != observed.VCN.ID {
-		return &InvalidOperationError{Message: "security rule removal requires an owned NSG in the declared VCN"}
+		return &provider.InvalidOperationError{Message: "security rule removal requires an owned NSG in the declared VCN"}
 	}
 	current, err := r.Gateway.ListNSGRules(ctx, nsgID)
 	if err != nil {
@@ -861,8 +863,8 @@ func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared es
 	for _, id := range ids {
 		rule, ok := byID[id]
 		expected, expectedOK := expectedRules[id]
-		if !ok || !expectedOK || !rule.Managed || !isOCID(id, "securityrule") || !sameObservedSecurityRule(rule, expected) {
-			return &InvalidOperationError{Message: "refusing unowned or stale security rule removal"}
+		if !ok || !expectedOK || !rule.Managed || !provider.IsOCID(id, "securityrule") || !sameObservedSecurityRule(rule, expected) {
+			return &provider.InvalidOperationError{Message: "refusing unowned or stale security rule removal"}
 		}
 	}
 	return r.Gateway.RemoveNSGRules(ctx, nsgID, ids)
@@ -979,7 +981,7 @@ func ingressDirection(declared string) string {
 // OCINetworkGateway is the real core-service gateway over the signed OCI
 // HTTP transport. It performs no retries beyond the transport's own.
 type OCINetworkGateway struct {
-	Core          *OCIHTTPTransport
+	Core          *provider.OCIHTTPTransport
 	CompartmentID string
 	Scope         string
 }
@@ -996,11 +998,11 @@ func networkRetryToken(kind string, value any) string {
 }
 
 // NewOCINetworkGateway validates the compartment scope and service authority.
-func NewOCINetworkGateway(core *OCIHTTPTransport, compartmentID string, scope ...string) (*OCINetworkGateway, error) {
-	if core == nil || core.Config.Service != OCIServiceCore {
+func NewOCINetworkGateway(core *provider.OCIHTTPTransport, compartmentID string, scope ...string) (*OCINetworkGateway, error) {
+	if core == nil || core.Config.Service != provider.OCIServiceCore {
 		return nil, &errs.Argument{Message: "network gateway requires the OCI core transport"}
 	}
-	if !isOCID(compartmentID, "compartment") {
+	if !provider.IsOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "network gateway requires a compartment identity"}
 	}
 	region := ""
@@ -1012,9 +1014,9 @@ func NewOCINetworkGateway(core *OCIHTTPTransport, compartmentID string, scope ..
 
 func networkOwnershipTags(region, kind string) map[string]string {
 	if region == "" {
-		return map[string]string{OCIManagedTag: kind}
+		return map[string]string{provider.OCIManagedTag: kind}
 	}
-	return map[string]string{OCIManagedTag: kind, OCIScopeTag: region}
+	return map[string]string{provider.OCIManagedTag: kind, provider.OCIScopeTag: region}
 }
 
 type ociVCNDocument struct {
@@ -1027,17 +1029,17 @@ type ociVCNDocument struct {
 }
 
 func ociVCNObserved(document ociVCNDocument) (ObservedVCN, error) {
-	if !isOCID(document.ID, "vcn") || len(document.CIDRBlocks) == 0 {
-		return ObservedVCN{}, &InvalidDataError{Message: "OCI VCN response is invalid"}
+	if !provider.IsOCID(document.ID, "vcn") || len(document.CIDRBlocks) == 0 {
+		return ObservedVCN{}, &provider.InvalidDataError{Message: "OCI VCN response is invalid"}
 	}
-	return ObservedVCN{ID: document.ID, DisplayName: document.DisplayName, CIDR: document.CIDRBlocks[0], LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedVCN{ID: document.ID, DisplayName: document.DisplayName, CIDR: document.CIDRBlocks[0], LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListVCNs(ctx context.Context, name string) ([]ObservedVCN, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("displayName", name)
-	list, err := readOCIResourceList[ociVCNDocument](ctx, g.Core, "/20160918/vcns", query, func(item ociVCNDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociVCNDocument](ctx, g.Core, "/20160918/vcns", query, func(item ociVCNDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -1081,28 +1083,28 @@ type ociSubnetDocument struct {
 }
 
 func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]ObservedSubnet, error) {
-	if !isOCID(vcnID, "vcn") {
+	if !provider.IsOCID(vcnID, "vcn") {
 		return nil, &errs.Argument{Message: "subnet list requires a VCN identity"}
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	list, err := readOCIResourceList[ociSubnetDocument](ctx, g.Core, "/20160918/subnets", query, func(item ociSubnetDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociSubnetDocument](ctx, g.Core, "/20160918/subnets", query, func(item ociSubnetDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
 	subnets := make([]ObservedSubnet, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "subnet") {
-			return nil, &InvalidDataError{Message: "OCI subnet response is invalid"}
+		if !provider.IsOCID(item.ID, "subnet") {
+			return nil, &provider.InvalidDataError{Message: "OCI subnet response is invalid"}
 		}
-		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState, RouteTableID: item.RouteTableID, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
+		subnets = append(subnets, ObservedSubnet{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, CIDR: item.CIDRBlock, LifecycleState: item.LifecycleState, RouteTableID: item.RouteTableID, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
 	}
 	return subnets, nil
 }
 
 func (g *OCINetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr string) (ObservedSubnet, error) {
-	if !isOCID(vcnID, "vcn") || !validEstateName(name) || !validCIDR(cidr) {
+	if !provider.IsOCID(vcnID, "vcn") || !validEstateName(name) || !validCIDR(cidr) {
 		return ObservedSubnet{}, &errs.Argument{Message: "subnet create request is invalid"}
 	}
 	var document ociSubnetDocument
@@ -1116,10 +1118,10 @@ func (g *OCINetworkGateway) CreateSubnet(ctx context.Context, vcnID, name, cidr 
 	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, CIDRBlock: cidr, ProhibitPublicIPOnVNIC: true, FreeformTags: networkOwnershipTags(g.Scope, "subnet")}, map[string]string{"opc-retry-token": networkRetryToken("subnet", struct{ VCN, Name, CIDR string }{vcnID, name, cidr})}, &document); err != nil {
 		return ObservedSubnet{}, err
 	}
-	if !isOCID(document.ID, "subnet") {
-		return ObservedSubnet{}, &InvalidDataError{Message: "OCI subnet create response is invalid"}
+	if !provider.IsOCID(document.ID, "subnet") {
+		return ObservedSubnet{}, &provider.InvalidDataError{Message: "OCI subnet create response is invalid"}
 	}
-	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState, RouteTableID: document.RouteTableID, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedSubnet{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, CIDR: document.CIDRBlock, LifecycleState: document.LifecycleState, RouteTableID: document.RouteTableID, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 type ociNSGDocument struct {
@@ -1132,28 +1134,28 @@ type ociNSGDocument struct {
 }
 
 func (g *OCINetworkGateway) ListNSGs(ctx context.Context, vcnID string) ([]ObservedNSG, error) {
-	if !isOCID(vcnID, "vcn") {
+	if !provider.IsOCID(vcnID, "vcn") {
 		return nil, &errs.Argument{Message: "network security group list requires a VCN identity"}
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	list, err := readOCIResourceList[ociNSGDocument](ctx, g.Core, "/20160918/networkSecurityGroups", query, func(item ociNSGDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociNSGDocument](ctx, g.Core, "/20160918/networkSecurityGroups", query, func(item ociNSGDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
 	groups := make([]ObservedNSG, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "networksecuritygroup") {
-			return nil, &InvalidDataError{Message: "OCI network security group response is invalid"}
+		if !provider.IsOCID(item.ID, "networksecuritygroup") {
+			return nil, &provider.InvalidDataError{Message: "OCI network security group response is invalid"}
 		}
-		groups = append(groups, ObservedNSG{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, LifecycleState: item.LifecycleState, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
+		groups = append(groups, ObservedNSG{ID: item.ID, VCNID: item.VCNID, DisplayName: item.DisplayName, LifecycleState: item.LifecycleState, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
 	}
 	return groups, nil
 }
 
 func (g *OCINetworkGateway) CreateNSG(ctx context.Context, vcnID, name string) (ObservedNSG, error) {
-	if !isOCID(vcnID, "vcn") || !validEstateName(name) {
+	if !provider.IsOCID(vcnID, "vcn") || !validEstateName(name) {
 		return ObservedNSG{}, &errs.Argument{Message: "network security group create request is invalid"}
 	}
 	var document ociNSGDocument
@@ -1165,10 +1167,10 @@ func (g *OCINetworkGateway) CreateNSG(ctx context.Context, vcnID, name string) (
 	}{CompartmentID: g.CompartmentID, VCNID: vcnID, DisplayName: name, FreeformTags: networkOwnershipTags(g.Scope, "networksecuritygroup")}, map[string]string{"opc-retry-token": networkRetryToken("nsg", struct{ VCN, Name string }{vcnID, name})}, &document); err != nil {
 		return ObservedNSG{}, err
 	}
-	if !isOCID(document.ID, "networksecuritygroup") {
-		return ObservedNSG{}, &InvalidDataError{Message: "OCI network security group create response is invalid"}
+	if !provider.IsOCID(document.ID, "networksecuritygroup") {
+		return ObservedNSG{}, &provider.InvalidDataError{Message: "OCI network security group create response is invalid"}
 	}
-	return ObservedNSG{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedNSG{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 type ociPortRange struct {
@@ -1201,8 +1203,8 @@ type ociSecurityRuleWire struct {
 }
 
 func observedSecurityRule(document ociSecurityRuleDocument) (ObservedSecurityRule, error) {
-	if !isOCID(document.ID, "securityrule") || (document.Source == "" && document.Destination == "") {
-		return ObservedSecurityRule{}, &InvalidDataError{Message: "OCI security rule response is invalid"}
+	if !provider.IsOCID(document.ID, "securityrule") || (document.Source == "" && document.Destination == "") {
+		return ObservedSecurityRule{}, &provider.InvalidDataError{Message: "OCI security rule response is invalid"}
 	}
 	peer := document.Source
 	if peer == "" {
@@ -1220,7 +1222,7 @@ func observedSecurityRule(document ociSecurityRuleDocument) (ObservedSecurityRul
 		}
 	case "1":
 	default:
-		return ObservedSecurityRule{}, &InvalidDataError{Message: "OCI security rule response has an unknown protocol"}
+		return ObservedSecurityRule{}, &provider.InvalidDataError{Message: "OCI security rule response has an unknown protocol"}
 	}
 	return rule, nil
 }
@@ -1273,10 +1275,10 @@ func validateSecurityRuleSpec(spec SecurityRuleSpec) error {
 }
 
 func (g *OCINetworkGateway) ListNSGRules(ctx context.Context, nsgID string) ([]ObservedSecurityRule, error) {
-	if !isOCID(nsgID, "networksecuritygroup") {
+	if !provider.IsOCID(nsgID, "networksecuritygroup") {
 		return nil, &errs.Argument{Message: "security rule list requires a network security group identity"}
 	}
-	list, err := readOCIResourceList[ociSecurityRuleDocument](ctx, g.Core, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules", url.Values{}, func(item ociSecurityRuleDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociSecurityRuleDocument](ctx, g.Core, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules", url.Values{}, func(item ociSecurityRuleDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -1292,7 +1294,7 @@ func (g *OCINetworkGateway) ListNSGRules(ctx context.Context, nsgID string) ([]O
 }
 
 func (g *OCINetworkGateway) AddNSGRules(ctx context.Context, nsgID string, rules []SecurityRuleSpec) error {
-	if !isOCID(nsgID, "networksecuritygroup") || len(rules) == 0 || len(rules) > 64 {
+	if !provider.IsOCID(nsgID, "networksecuritygroup") || len(rules) == 0 || len(rules) > 64 {
 		return &errs.Argument{Message: "security rule add request is invalid"}
 	}
 	wire := make([]ociSecurityRuleWire, 0, len(rules))
@@ -1312,11 +1314,11 @@ func (g *OCINetworkGateway) AddNSGRules(ctx context.Context, nsgID string, rules
 }
 
 func (g *OCINetworkGateway) RemoveNSGRules(ctx context.Context, nsgID string, ruleIDs []string) error {
-	if !isOCID(nsgID, "networksecuritygroup") || len(ruleIDs) == 0 || len(ruleIDs) > 64 {
+	if !provider.IsOCID(nsgID, "networksecuritygroup") || len(ruleIDs) == 0 || len(ruleIDs) > 64 {
 		return &errs.Argument{Message: "security rule remove request is invalid"}
 	}
 	for _, id := range ruleIDs {
-		if !isOCID(id, "securityrule") {
+		if !provider.IsOCID(id, "securityrule") {
 			return &errs.Argument{Message: "security rule remove request contains an invalid identity"}
 		}
 	}
@@ -1338,20 +1340,20 @@ type ociNATGatewayDocument struct {
 }
 
 func ociNATGatewayObserved(document ociNATGatewayDocument) (ObservedNATGateway, error) {
-	if !isOCID(document.ID, "natgateway") {
-		return ObservedNATGateway{}, &InvalidDataError{Message: "OCI NAT gateway response is invalid"}
+	if !provider.IsOCID(document.ID, "natgateway") {
+		return ObservedNATGateway{}, &provider.InvalidDataError{Message: "OCI NAT gateway response is invalid"}
 	}
-	return ObservedNATGateway{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedNATGateway{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListNATGateways(ctx context.Context, vcnID string) ([]ObservedNATGateway, error) {
-	if !isOCID(vcnID, "vcn") {
+	if !provider.IsOCID(vcnID, "vcn") {
 		return nil, &errs.Argument{Message: "NAT gateway list requires a VCN identity"}
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	list, err := readOCIResourceList[ociNATGatewayDocument](ctx, g.Core, "/20160918/natGateways", query, func(item ociNATGatewayDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociNATGatewayDocument](ctx, g.Core, "/20160918/natGateways", query, func(item ociNATGatewayDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -1367,7 +1369,7 @@ func (g *OCINetworkGateway) ListNATGateways(ctx context.Context, vcnID string) (
 }
 
 func (g *OCINetworkGateway) CreateNATGateway(ctx context.Context, vcnID, name string) (ObservedNATGateway, error) {
-	if !isOCID(vcnID, "vcn") || !validEstateName(name) {
+	if !provider.IsOCID(vcnID, "vcn") || !validEstateName(name) {
 		return ObservedNATGateway{}, &errs.Argument{Message: "NAT gateway create request is invalid"}
 	}
 	var document ociNATGatewayDocument
@@ -1417,21 +1419,21 @@ func networkEntityType(ocid string) string {
 // a declaration.
 func observedRouteRule(document ociRouteRuleDocument) (ObservedRouteRule, error) {
 	if document.NetworkEntityID == "" || document.Destination == "" {
-		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule response is invalid"}
+		return ObservedRouteRule{}, &provider.InvalidDataError{Message: "OCI route rule response is invalid"}
 	}
 	targetType := networkEntityType(document.NetworkEntityID)
 	if targetType == "" {
-		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule target is unrecognized"}
+		return ObservedRouteRule{}, &provider.InvalidDataError{Message: "OCI route rule target is unrecognized"}
 	}
 	if _, err := netip.ParsePrefix(document.Destination); err != nil {
-		return ObservedRouteRule{}, &InvalidDataError{Message: "OCI route rule destination is invalid"}
+		return ObservedRouteRule{}, &provider.InvalidDataError{Message: "OCI route rule destination is invalid"}
 	}
 	return ObservedRouteRule{Destination: document.Destination, TargetID: document.NetworkEntityID, TargetType: targetType}, nil
 }
 
 func ociRouteTableObserved(document ociRouteTableDocument) (ObservedRouteTable, error) {
-	if !isOCID(document.ID, "routetable") {
-		return ObservedRouteTable{}, &InvalidDataError{Message: "OCI route table response is invalid"}
+	if !provider.IsOCID(document.ID, "routetable") {
+		return ObservedRouteTable{}, &provider.InvalidDataError{Message: "OCI route table response is invalid"}
 	}
 	rules := make([]ObservedRouteRule, 0, len(document.RouteRules))
 	for _, item := range document.RouteRules {
@@ -1441,17 +1443,17 @@ func ociRouteTableObserved(document ociRouteTableDocument) (ObservedRouteTable, 
 		}
 		rules = append(rules, rule)
 	}
-	return ObservedRouteTable{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Routes: rules, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedRouteTable{ID: document.ID, VCNID: document.VCNID, DisplayName: document.DisplayName, LifecycleState: document.LifecycleState, Routes: rules, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCINetworkGateway) ListRouteTables(ctx context.Context, vcnID string) ([]ObservedRouteTable, error) {
-	if !isOCID(vcnID, "vcn") {
+	if !provider.IsOCID(vcnID, "vcn") {
 		return nil, &errs.Argument{Message: "route table list requires a VCN identity"}
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	list, err := readOCIResourceList[ociRouteTableDocument](ctx, g.Core, "/20160918/routeTables", query, func(item ociRouteTableDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociRouteTableDocument](ctx, g.Core, "/20160918/routeTables", query, func(item ociRouteTableDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
@@ -1473,7 +1475,7 @@ func routeRuleWire(spec RouteRuleSpec) (ociRouteRuleDocument, error) {
 	if err != nil {
 		return ociRouteRuleDocument{}, &errs.Argument{Message: "route destination must be a CIDR prefix"}
 	}
-	if !isOCID(spec.NATGatewayID, "natgateway") {
+	if !provider.IsOCID(spec.NATGatewayID, "natgateway") {
 		return ociRouteRuleDocument{}, &errs.Argument{Message: "route target must be a NAT gateway identity"}
 	}
 	return ociRouteRuleDocument{Destination: destination.Masked().String(), DestinationType: "CIDR_BLOCK", NetworkEntityID: spec.NATGatewayID}, nil
@@ -1495,7 +1497,7 @@ func routeRulesWire(rules []RouteRuleSpec) ([]ociRouteRuleDocument, error) {
 }
 
 func (g *OCINetworkGateway) CreateRouteTable(ctx context.Context, vcnID, name string, rules []RouteRuleSpec) (ObservedRouteTable, error) {
-	if !isOCID(vcnID, "vcn") || !validEstateName(name) {
+	if !provider.IsOCID(vcnID, "vcn") || !validEstateName(name) {
 		return ObservedRouteTable{}, &errs.Argument{Message: "route table create request is invalid"}
 	}
 	wire, err := routeRulesWire(rules)
@@ -1520,7 +1522,7 @@ func (g *OCINetworkGateway) CreateRouteTable(ctx context.Context, vcnID, name st
 }
 
 func (g *OCINetworkGateway) ReplaceRouteRules(ctx context.Context, routeTableID string, rules []RouteRuleSpec) error {
-	if !isOCID(routeTableID, "routetable") {
+	if !provider.IsOCID(routeTableID, "routetable") {
 		return &errs.Argument{Message: "route rule replacement requires a route table identity"}
 	}
 	wire, err := routeRulesWire(rules)
@@ -1536,7 +1538,7 @@ func (g *OCINetworkGateway) ReplaceRouteRules(ctx context.Context, routeTableID 
 }
 
 func (g *OCINetworkGateway) AttachSubnetRouteTable(ctx context.Context, subnetID, routeTableID string) error {
-	if !isOCID(subnetID, "subnet") || !isOCID(routeTableID, "routetable") {
+	if !provider.IsOCID(subnetID, "subnet") || !provider.IsOCID(routeTableID, "routetable") {
 		return &errs.Argument{Message: "subnet route attachment request is invalid"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPut, "/20160918/subnets/"+url.PathEscape(subnetID), struct {
@@ -1545,7 +1547,7 @@ func (g *OCINetworkGateway) AttachSubnetRouteTable(ctx context.Context, subnetID
 }
 
 func validEstateName(name string) bool {
-	return len(name) >= 1 && len(name) <= 63 && tokenPattern.MatchString(name)
+	return len(name) >= 1 && len(name) <= 63 && provider.ValidToken(name)
 }
 
 func validCIDR(cidr string) bool {

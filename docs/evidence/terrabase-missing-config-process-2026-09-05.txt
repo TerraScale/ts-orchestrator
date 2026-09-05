@@ -1,0 +1,20 @@
+Direct pinned TerraBase process check, Linux amd64, 2026-09-05
+
+Binary SHA256:
+300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7
+
+Command:
+env -u TERRABASE_CONFIG_FILE /home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server
+
+Exit code: 1
+Output:
+Error: MissingConfigurationPath
+
+The production entry point resolves its configuration path before loading
+configuration or starting the runtime. No configuration was supplied for this
+check. No adjacent repository file was changed.
+
+This verifies the exact binary's missing-configuration error text. It does
+not identify the cause of a previous guest process exit, because that guest
+report did not retain this category. The guest diagnostic parser now maps
+this fixed error text to terrabase-configuration-missing for future runs.

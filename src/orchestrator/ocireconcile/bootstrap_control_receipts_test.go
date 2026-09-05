@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -14,9 +16,9 @@ import (
 func TestBootstrapControlMembersReadOnlyExactOwnedSlots(t *testing.T) {
 	compartment := "ocid1.compartment.oc1.test.control"
 	tenancy := "ocid1.tenancy.oc1.test.owner"
-	members := []map[string]any{{"id": "ocid1.instance.oc1.test.one", "displayName": "terrascale-gru-1", "compartmentId": compartment, "lifecycleState": "RUNNING", "freeformTags": map[string]string{OCIManagedTag: ManagedMemberTagValue, OCIScopeTag: "gru", MemberIndexTag: "1"}}}
+	members := []map[string]any{{"id": "ocid1.instance.oc1.test.one", "displayName": "terrascale-gru-1", "compartmentId": compartment, "lifecycleState": "RUNNING", "freeformTags": map[string]string{provider.OCIManagedTag: ManagedMemberTagValue, provider.OCIScopeTag: "gru", MemberIndexTag: "1"}}}
 	requests := 0
-	transport := func(service OCIService) *OCIHTTPTransport {
+	transport := func(service provider.OCIService) *provider.OCIHTTPTransport {
 		return testOCITransport(t, service, func(request *http.Request) (*http.Response, error) {
 			requests++
 			if request.Method != http.MethodGet {
@@ -32,7 +34,7 @@ func TestBootstrapControlMembersReadOnlyExactOwnedSlots(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(string(raw)))}, nil
 		})
 	}
-	core, identity := transport(OCIServiceCore), transport(OCIServiceIdentity)
+	core, identity := transport(provider.OCIServiceCore), transport(provider.OCIServiceIdentity)
 	id, got, err := ReadBootstrapControlMembers(context.Background(), core, identity, tenancy, "terrascale", "gru", 1)
 	if err != nil || id != compartment || len(got) != 1 || got[0].ID != "ocid1.instance.oc1.test.one" || requests != 2 {
 		t.Fatalf("receipt=%s %+v %v requests=%d", id, got, err, requests)
@@ -55,10 +57,10 @@ func TestBootstrapControlMembersReadOnlyExactOwnedSlots(t *testing.T) {
 func TestBootstrapControlListRejectsNullAndWrappedCollections(t *testing.T) {
 	for _, body := range []string{"null", `{"items":[]}`, "[]"} {
 		t.Run(body, func(t *testing.T) {
-			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+			transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 			})
-			_, err := readBootstrapControlList[json.RawMessage](context.Background(), transport, "/20160918/instances", url.Values{})
+			_, err := provider.ReadOCICollection[json.RawMessage](context.Background(), transport, "/20160918/instances", url.Values{})
 			if (err == nil) != (body == "[]") {
 				t.Fatalf("collection %s: %v", body, err)
 			}
@@ -68,7 +70,7 @@ func TestBootstrapControlListRejectsNullAndWrappedCollections(t *testing.T) {
 
 func TestMemberGatewayReadsCanonicalPaginatedAvailabilityDomains(t *testing.T) {
 	requests := 0
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		requests++
 		if request.Method != http.MethodGet || request.URL.Path != "/20160918/availabilityDomains" || request.URL.Query().Get("compartmentId") != "ocid1.compartment.oc1.test.control" {
 			t.Fatalf("unexpected request: %s", request.URL)

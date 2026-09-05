@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -156,7 +158,7 @@ func ShapeArch(shape string) (string, bool) {
 
 func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclared) (ComputeObserved, error) {
 	if r == nil || r.Compute == nil || r.Network == nil {
-		return ComputeObserved{}, &InvalidOperationError{Message: "compute reconciler is unavailable"}
+		return ComputeObserved{}, &provider.InvalidOperationError{Message: "compute reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return ComputeObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -188,7 +190,7 @@ func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclare
 // (D-65), so the first declared subnet and every declared NSG apply.
 func (r *ComputeReconciler) memberSubnetAndNSGs(declared estate.Region, observed ComputeObserved) (string, []string, error) {
 	if len(declared.Network.Subnets) == 0 || len(observed.Subnets) == 0 {
-		return "", nil, &InvalidDataError{Message: "member launch requires an observed subnet"}
+		return "", nil, &provider.InvalidDataError{Message: "member launch requires an observed subnet"}
 	}
 	declaredSubnet := declared.Network.Subnets[0].Name
 	var subnetID string
@@ -198,13 +200,13 @@ func (r *ComputeReconciler) memberSubnetAndNSGs(declared estate.Region, observed
 			break
 		}
 	}
-	if !isOCID(subnetID, "subnet") {
-		return "", nil, &InvalidDataError{Message: "member launch requires a live observed subnet"}
+	if !provider.IsOCID(subnetID, "subnet") {
+		return "", nil, &provider.InvalidDataError{Message: "member launch requires a live observed subnet"}
 	}
 	nsgIDs := make([]string, 0, len(observed.NSGs))
 	for _, declaredGroup := range declared.Network.SecurityGroups {
 		for _, group := range observed.NSGs {
-			if group.DisplayName == declaredGroup.Name && networkNSGOwned(group, declared.Code) && memberIsLive(group.LifecycleState) && isOCID(group.ID, "networksecuritygroup") {
+			if group.DisplayName == declaredGroup.Name && networkNSGOwned(group, declared.Code) && memberIsLive(group.LifecycleState) && provider.IsOCID(group.ID, "networksecuritygroup") {
 				nsgIDs = append(nsgIDs, group.ID)
 			}
 		}
@@ -221,14 +223,14 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 		return OCIPlan{}, err
 	}
 	pool := declared.Region.Members
-	if pool.Count < PlacementMinimumMemberHosts {
+	if pool.Count < provider.PlacementMinimumMemberHosts {
 		return OCIPlan{}, &errs.Argument{Message: "declared member pool is below the placement host floor"}
 	}
 	if _, ok := ShapeArch(pool.PrimaryShape); !ok {
-		return OCIPlan{}, &InvalidDataError{Message: "declared primary shape " + pool.PrimaryShape + " has an unrecognized architecture"}
+		return OCIPlan{}, &provider.InvalidDataError{Message: "declared primary shape " + pool.PrimaryShape + " has an unrecognized architecture"}
 	}
 	if _, ok := ShapeArch(pool.FallbackShape); !ok {
-		return OCIPlan{}, &InvalidDataError{Message: "declared fallback shape " + pool.FallbackShape + " has an unrecognized architecture"}
+		return OCIPlan{}, &provider.InvalidDataError{Message: "declared fallback shape " + pool.FallbackShape + " has an unrecognized architecture"}
 	}
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
@@ -245,18 +247,18 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			if !owned {
 				continue
 			}
-			return OCIPlan{}, &InvalidDataError{Message: "owned member is outside the declared member namespace"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "owned member is outside the declared member namespace"}
 		}
 		state := observedMemberState(member.LifecycleState)
 		if state == memberStateFailed {
-			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
 		}
 		if state == memberStateAbsent {
 			continue
 		}
 		if member.Index >= 1 && member.Index <= int(pool.Count) {
 			if _, duplicate := live[member.Index]; duplicate {
-				return OCIPlan{}, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
 			}
 			live[member.Index] = member
 			continue
@@ -269,7 +271,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 		// and the reconcile loop simply replans on the next pass.
 		for index := 1; index <= int(pool.Count); index++ {
 			if _, exists := live[index]; !exists {
-				return OCIPlan{}, &InvalidDataError{Message: "member launch requires the network to exist first"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "member launch requires the network to exist first"}
 			}
 		}
 		return plan, nil
@@ -345,11 +347,11 @@ func observedMemberState(state string) memberLifecycleState {
 func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, error) {
 	observed, ok := value.(ComputeObserved)
 	if !ok {
-		return false, &InvalidDataError{Message: "compute convergence observation has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "compute convergence observation has the wrong type"}
 	}
 	declared, ok := declaration.(ComputeDeclared)
 	if !ok {
-		return false, &InvalidDataError{Message: "compute convergence declaration has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "compute convergence declaration has the wrong type"}
 	}
 	slots := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
@@ -358,15 +360,15 @@ func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, er
 		}
 		switch observedMemberState(member.LifecycleState) {
 		case memberStateFailed:
-			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
+			return false, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
 		case memberStatePending, memberStateStopped, memberStateAbsent:
 			return false, nil
 		case memberStateUnknown:
-			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
 		}
 		if member.Index >= 1 && member.Index <= int(declared.Region.Members.Count) {
 			if _, duplicate := slots[member.Index]; duplicate {
-				return false, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+				return false, &provider.InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
 			}
 			slots[member.Index] = member
 		}
@@ -408,7 +410,7 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 
 func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared, observed ComputeObserved, plan OCIPlan) error {
 	if r == nil || r.Compute == nil {
-		return &InvalidOperationError{Message: "compute reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "compute reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -431,14 +433,14 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 				return err
 			}
 		default:
-			return &InvalidOperationError{Message: "compute reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "compute reconciler received a foreign action"}
 		}
 	}
 	return nil
 }
 
 func memberOwnedInRegion(member ObservedMember, region string) bool {
-	return isOCID(member.ID, "instance") && positiveOCIOwnership(member.FreeformTags, ManagedMemberTagValue, region) &&
+	return provider.IsOCID(member.ID, "instance") && provider.HasOCIOwnershipTags(member.FreeformTags, ManagedMemberTagValue, region) &&
 		member.DisplayName == MemberDisplayName(region, member.Index)
 }
 
@@ -470,7 +472,7 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 		}
 	}
 	if !found || !memberOwnedInRegion(expected, region) || (computeScopeCompartment(r.Compute) != "" && expected.CompartmentID != computeScopeCompartment(r.Compute)) {
-		return &InvalidOperationError{Message: "member termination requires positively owned observed instance"}
+		return &provider.InvalidOperationError{Message: "member termination requires positively owned observed instance"}
 	}
 	current, err := r.Compute.ListMembers(ctx)
 	if err != nil {
@@ -481,7 +483,7 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 			continue
 		}
 		if !memberOwnedInRegion(member, region) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) || !sameObservedMember(member, expected) {
-			return &InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
+			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
 		}
 		return r.Compute.TerminateMember(ctx, id)
 	}
@@ -510,9 +512,9 @@ func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberL
 		return err
 	}
 	image := spec.FallbackImageID
-	if !isOCID(image, "image") {
+	if !provider.IsOCID(image, "image") {
 		if fallbackArch != primaryArch {
-			return &InvalidDataError{Message: "fallback shape " + spec.FallbackShape + " is " + fallbackArch + " while the primary is " + primaryArch + "; the declaration names no " + fallbackArch + " boot image"}
+			return &provider.InvalidDataError{Message: "fallback shape " + spec.FallbackShape + " is " + fallbackArch + " while the primary is " + primaryArch + "; the declaration names no " + fallbackArch + " boot image"}
 		}
 		image = spec.ImageID
 	}
@@ -539,7 +541,7 @@ const (
 // and the image-provisioned key at tsNodeTrustKeyPath is used. No credentials
 // are written to the host or emitted in cloud-init command output.
 func renderTSNodeCloudInit(version, sha256Hex, artifactURL, signatureURL, publicKey string) (string, error) {
-	if len(version) < 1 || len(version) > 32 || !tokenPattern.MatchString(version) {
+	if len(version) < 1 || len(version) > 32 || !provider.ValidToken(version) {
 		return "", &errs.Argument{Message: "ts-node release version is invalid"}
 	}
 	if len(sha256Hex) != 64 || strings.ToLower(sha256Hex) != sha256Hex {
@@ -657,17 +659,17 @@ func tsNodeShellQuote(value string) string {
 // transport. Instances are launched with no SSH keys and no metadata beyond
 // the cloud-init user_data: hosts use instance principals, never files.
 type ociMemberGateway struct {
-	Core          *OCIHTTPTransport
+	Core          *provider.OCIHTTPTransport
 	CompartmentID string
 	ImageID       string
 }
 
 // NewOCIMemberGateway validates the compartment and launch image scope.
-func NewOCIMemberGateway(core *OCIHTTPTransport, compartmentID, imageID string) (ComputeGateway, error) {
-	if core == nil || core.Config.Service != OCIServiceCore {
+func NewOCIMemberGateway(core *provider.OCIHTTPTransport, compartmentID, imageID string) (ComputeGateway, error) {
+	if core == nil || core.Config.Service != provider.OCIServiceCore {
 		return nil, &errs.Argument{Message: "member gateway requires the OCI core transport"}
 	}
-	if !isOCID(compartmentID, "compartment") || !isOCID(imageID, "image") {
+	if !provider.IsOCID(compartmentID, "compartment") || !provider.IsOCID(imageID, "image") {
 		return nil, &errs.Argument{Message: "member gateway requires a compartment and image identity"}
 	}
 	return &ociMemberGateway{Core: core, CompartmentID: compartmentID, ImageID: imageID}, nil
@@ -691,14 +693,14 @@ func (g *ociMemberGateway) ListAvailabilityDomains(ctx context.Context) ([]strin
 	type domain struct {
 		Name string `json:"name"`
 	}
-	items, err := readBootstrapControlList[domain](ctx, g.Core, "/20160918/availabilityDomains", query)
+	items, err := provider.ReadOCICollection[domain](ctx, g.Core, "/20160918/availabilityDomains", query)
 	if err != nil {
 		return nil, err
 	}
 	domains := make([]string, 0, len(items))
 	for _, item := range items {
 		if len(item.Name) == 0 || len(item.Name) > 128 {
-			return nil, &InvalidDataError{Message: "OCI availability domain response is invalid"}
+			return nil, &provider.InvalidDataError{Message: "OCI availability domain response is invalid"}
 		}
 		domains = append(domains, item.Name)
 	}
@@ -708,24 +710,24 @@ func (g *ociMemberGateway) ListAvailabilityDomains(ctx context.Context) ([]strin
 func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	items, err := readBootstrapControlList[ociMemberDocument](ctx, g.Core, "/20160918/instances", query)
+	items, err := provider.ReadOCICollection[ociMemberDocument](ctx, g.Core, "/20160918/instances", query)
 	if err != nil {
 		return nil, err
 	}
 	members := make([]ObservedMember, 0, len(items))
 	for _, item := range items {
-		if !isOCID(item.ID, "instance") {
-			return nil, &InvalidDataError{Message: "OCI member instance response has an invalid identity"}
+		if !provider.IsOCID(item.ID, "instance") {
+			return nil, &provider.InvalidDataError{Message: "OCI member instance response has an invalid identity"}
 		}
 		index := 0
-		if item.FreeformTags[OCIManagedTag] == ManagedMemberTagValue {
+		if item.FreeformTags[provider.OCIManagedTag] == ManagedMemberTagValue {
 			parsed, err := strconv.Atoi(item.FreeformTags[MemberIndexTag])
 			if err != nil || parsed < 1 || parsed > 1024 {
-				return nil, &InvalidDataError{Message: "OCI member instance has an invalid member index"}
+				return nil, &provider.InvalidDataError{Message: "OCI member instance has an invalid member index"}
 			}
 			index = parsed
 		}
-		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Shape: item.Shape, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
+		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Shape: item.Shape, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
 	}
 	return members, nil
 }
@@ -733,11 +735,11 @@ func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, e
 func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error) {
 	if !validEstateName(strings.TrimPrefix(spec.DisplayName, "terrascale-")) || spec.Index < 1 || spec.Index > 1024 ||
 		len(spec.Shape) == 0 || len(spec.Shape) > 96 || spec.OCPUs <= 0 || spec.OCPUs > 192 || spec.MemoryGiB <= 0 || spec.MemoryGiB > 2048 ||
-		!isOCID(spec.SubnetID, "subnet") || len(spec.CloudInitBase64) == 0 || len(spec.CloudInitBase64) > 48*1024 {
+		!provider.IsOCID(spec.SubnetID, "subnet") || len(spec.CloudInitBase64) == 0 || len(spec.CloudInitBase64) > 48*1024 {
 		return ObservedMember{}, &errs.Argument{Message: "member launch request is invalid"}
 	}
 	for _, nsg := range spec.NSGIDs {
-		if !isOCID(nsg, "networksecuritygroup") {
+		if !provider.IsOCID(nsg, "networksecuritygroup") {
 			return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid network security group"}
 		}
 	}
@@ -751,7 +753,7 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 	if spec.ImageID != "" {
 		imageID = spec.ImageID
 	}
-	if !isOCID(imageID, "image") || (spec.FallbackImageID != "" && !isOCID(spec.FallbackImageID, "image")) {
+	if !provider.IsOCID(imageID, "image") || (spec.FallbackImageID != "" && !provider.IsOCID(spec.FallbackImageID, "image")) {
 		return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid boot image"}
 	}
 	payload := struct {
@@ -793,28 +795,28 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 			ImageID    string `json:"imageId"`
 		}{SourceType: "image", ImageID: imageID},
 		Metadata:     map[string]string{"user_data": spec.CloudInitBase64},
-		FreeformTags: map[string]string{OCIManagedTag: ManagedMemberTagValue, OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)},
+		FreeformTags: map[string]string{provider.OCIManagedTag: ManagedMemberTagValue, provider.OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)},
 	}
 	var document ociMemberDocument
 	retryToken := spec.DisplayName
 	if err := doOCIJSON(ctx, g.Core, http.MethodPost, "/20160918/instances", payload, map[string]string{"opc-retry-token": retryToken}, &document); err != nil {
 		return ObservedMember{}, err
 	}
-	if !isOCID(document.ID, "instance") {
-		return ObservedMember{}, &InvalidDataError{Message: "OCI member launch response is invalid"}
+	if !provider.IsOCID(document.ID, "instance") {
+		return ObservedMember{}, &provider.InvalidDataError{Message: "OCI member launch response is invalid"}
 	}
 	return ObservedMember{ID: document.ID, DisplayName: document.DisplayName, Index: spec.Index, Shape: document.Shape, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain}, nil
 }
 
 func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) error {
-	if !isOCID(instanceID, "instance") {
+	if !provider.IsOCID(instanceID, "instance") {
 		return &errs.Argument{Message: "member start requires an instance identity"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPost, "/20160918/instances/"+url.PathEscape(instanceID)+"/actions/start", struct{}{}, nil, nil)
 }
 
 func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID string) error {
-	if !isOCID(instanceID, "instance") {
+	if !provider.IsOCID(instanceID, "instance") {
 		return &errs.Argument{Message: "member terminate requires an instance identity"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodDelete, "/20160918/instances/"+url.PathEscape(instanceID), nil, nil, nil)

@@ -43,7 +43,7 @@ func VolumeCreateMutationScope(request VolumeCreateRequest) string {
 }
 
 func validateVolumeCreate(request VolumeCreateRequest) error {
-	if !isOCID(request.CompartmentID, "compartment") || len(request.AvailabilityDomain) < 1 || len(request.AvailabilityDomain) > 128 {
+	if !IsOCID(request.CompartmentID, "compartment") || len(request.AvailabilityDomain) < 1 || len(request.AvailabilityDomain) > 128 {
 		return &errs.Argument{Message: "volume create placement is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "volume display name", 128); err != nil {
@@ -69,7 +69,7 @@ type ociAutomatedVolume struct {
 }
 
 func blockVolumeFromOCI(item ociAutomatedVolume, work string) (BlockVolume, error) {
-	if !isOCID(item.ID, "volume") || !isOCID(item.CompartmentID, "compartment") || item.SizeGiB == 0 {
+	if !IsOCID(item.ID, "volume") || !IsOCID(item.CompartmentID, "compartment") || item.SizeGiB == 0 {
 		return BlockVolume{}, &InvalidDataError{Message: "OCI block volume response is invalid"}
 	}
 	return BlockVolume{ID: item.ID, CompartmentID: item.CompartmentID, LifecycleState: item.LifecycleState, SizeGiB: item.SizeGiB, VPUsPerGiB: item.VPUsPerGiB, ETag: item.ETag, WorkRequestID: work}, nil
@@ -120,7 +120,7 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 	}
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodPost, "/20160918/volumes", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": derivedRetryToken(request.Mutation, "volume")})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			return BlockVolume{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		return BlockVolume{}, err
@@ -151,7 +151,7 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 
 func (a *OCIBlockStorageAdapter) findVolumeForIntent(ctx context.Context, request VolumeCreateRequest) (BlockVolume, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	items, err := readOCIResourceList[ociAutomatedVolume](ctx, a.Core, "/20160918/volumes", query, func(item ociAutomatedVolume) string { return item.ID })
+	items, err := ReadOCIResourceList[ociAutomatedVolume](ctx, a.Core, "/20160918/volumes", query, func(item ociAutomatedVolume) string { return item.ID })
 	if err != nil || len(items) > maximumOCIListResults {
 		return BlockVolume{}, false, &InvalidDataError{Message: "OCI volume reconciliation response is invalid"}
 	}
@@ -173,7 +173,7 @@ func (a *OCIBlockStorageAdapter) findVolumeForIntent(ctx context.Context, reques
 }
 
 func (a *OCIBlockStorageAdapter) GetBlockVolume(ctx context.Context, id string) (BlockVolume, bool, error) {
-	if a == nil || a.Core == nil || !isOCID(id, "volume") {
+	if a == nil || a.Core == nil || !IsOCID(id, "volume") {
 		return BlockVolume{}, false, &errs.Argument{Message: "block volume identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumes/"+url.PathEscape(id), nil)
@@ -216,7 +216,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI block storage adapter is unavailable"}
 	}
-	if !isOCID(request.VolumeID, "volume") || !isSafeETag(request.IfMatch) {
+	if !IsOCID(request.VolumeID, "volume") || !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "volume delete fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.VolumeID, ""); err != nil {
@@ -247,7 +247,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 	}
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodDelete, "/20160918/volumes/"+url.PathEscape(request.VolumeID), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			if _, found, readErr := a.GetBlockVolume(ctx, request.VolumeID); readErr == nil && !found {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.VolumeID, ETag: request.IfMatch})
 			}
@@ -300,7 +300,7 @@ type ociAutomatedAttachment struct {
 }
 
 func attachmentFromOCI(item ociAutomatedAttachment, work string) (VolumeAttachment, error) {
-	if !isOCID(item.ID, "volumeattachment") || !isOCID(item.CompartmentID, "compartment") || !isOCID(item.InstanceID, "instance") || !isOCID(item.VolumeID, "volume") {
+	if !IsOCID(item.ID, "volumeattachment") || !IsOCID(item.CompartmentID, "compartment") || !IsOCID(item.InstanceID, "instance") || !IsOCID(item.VolumeID, "volume") {
 		return VolumeAttachment{}, &InvalidDataError{Message: "OCI volume attachment response is invalid"}
 	}
 	return VolumeAttachment{ID: item.ID, CompartmentID: item.CompartmentID, InstanceID: item.InstanceID, VolumeID: item.VolumeID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: work}, nil
@@ -310,7 +310,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return VolumeAttachment{}, &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
 	}
-	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.InstanceID, "instance") || !isOCID(request.VolumeID, "volume") {
+	if !IsOCID(request.CompartmentID, "compartment") || !IsOCID(request.InstanceID, "instance") || !IsOCID(request.VolumeID, "volume") {
 		return VolumeAttachment{}, &errs.Argument{Message: "volume attachment identity is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, request.CompartmentID); err != nil {
@@ -361,7 +361,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	}
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodPost, "/20160918/volumeAttachments", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": derivedRetryToken(request.Mutation, "attachment")})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			return VolumeAttachment{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		return VolumeAttachment{}, err
@@ -392,7 +392,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 
 func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request VolumeAttachRequest) (VolumeAttachment, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "instanceId": {request.InstanceID}, "volumeId": {request.VolumeID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	list, err := readOCIResourceList[ociAutomatedAttachment](ctx, a.Core, "/20160918/volumeAttachments", query, func(item ociAutomatedAttachment) string { return item.ID })
+	list, err := ReadOCIResourceList[ociAutomatedAttachment](ctx, a.Core, "/20160918/volumeAttachments", query, func(item ociAutomatedAttachment) string { return item.ID })
 	if err != nil || len(list) > maximumOCIListResults {
 		return VolumeAttachment{}, false, &InvalidDataError{Message: "OCI attachment reconciliation response is invalid"}
 	}
@@ -407,7 +407,7 @@ func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request
 }
 
 func (a *OCIVolumeAttachmentAdapter) GetVolumeAttachment(ctx context.Context, id string) (VolumeAttachment, bool, error) {
-	if a == nil || a.Core == nil || !isOCID(id, "volumeattachment") {
+	if a == nil || a.Core == nil || !IsOCID(id, "volumeattachment") {
 		return VolumeAttachment{}, false, &errs.Argument{Message: "volume attachment identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumeAttachments/"+url.PathEscape(id), nil)
@@ -450,7 +450,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
 	}
-	if !isOCID(request.AttachmentID, "volumeattachment") || !isSafeETag(request.IfMatch) {
+	if !IsOCID(request.AttachmentID, "volumeattachment") || !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "volume detach fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.AttachmentID, ""); err != nil {
@@ -481,7 +481,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 	}
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodDelete, "/20160918/volumeAttachments/"+url.PathEscape(request.AttachmentID), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			if _, found, readErr := a.GetVolumeAttachment(ctx, request.AttachmentID); readErr == nil && !found {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.AttachmentID, ETag: request.IfMatch})
 			}

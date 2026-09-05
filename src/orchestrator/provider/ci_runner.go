@@ -77,7 +77,7 @@ type OciCiRunnerLaunchTemplate struct {
 
 func NewOciCiRunnerLaunchTemplate(compartment, availability, fault, subnet string, nsg []string, image string, generation int64) (OciCiRunnerLaunchTemplate, error) {
 	for _, x := range []struct{ v, k string }{{compartment, "compartment"}, {subnet, "subnet"}, {image, "image"}} {
-		if !isOCID(x.v, x.k) {
+		if !IsOCID(x.v, x.k) {
 			return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI CI runner OCID is invalid"}
 		}
 	}
@@ -86,7 +86,7 @@ func NewOciCiRunnerLaunchTemplate(compartment, availability, fault, subnet strin
 	}
 	seen := map[string]bool{}
 	for _, x := range nsg {
-		if !isOCID(x, "networksecuritygroup") || seen[x] {
+		if !IsOCID(x, "networksecuritygroup") || seen[x] {
 			return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI CI runner NSGs must be distinct OCIDs"}
 		}
 		seen[x] = true
@@ -272,12 +272,12 @@ func validRunnerDemand(d OciCiRunnerDemand) bool {
 }
 
 func validRunnerLaunchTemplate(t OciCiRunnerLaunchTemplate) bool {
-	if !isOCID(t.CompartmentId, "compartment") || !isOCID(t.SubnetId, "subnet") || !isOCID(t.ImageId, "image") || t.AvailabilityDomain == "" || t.Generation <= 0 || len(t.NetworkSecurityGroupIds) < 1 || len(t.NetworkSecurityGroupIds) > 5 {
+	if !IsOCID(t.CompartmentId, "compartment") || !IsOCID(t.SubnetId, "subnet") || !IsOCID(t.ImageId, "image") || t.AvailabilityDomain == "" || t.Generation <= 0 || len(t.NetworkSecurityGroupIds) < 1 || len(t.NetworkSecurityGroupIds) > 5 {
 		return false
 	}
 	seen := map[string]bool{}
 	for _, id := range t.NetworkSecurityGroupIds {
-		if !isOCID(id, "networksecuritygroup") || seen[id] {
+		if !IsOCID(id, "networksecuritygroup") || seen[id] {
 			return false
 		}
 		seen[id] = true
@@ -288,7 +288,7 @@ func validRunnerLaunchTemplate(t OciCiRunnerLaunchTemplate) bool {
 func validRunnerOwnershipRecords(r OciCiRunnerCapacityRequest) bool {
 	seen := map[string]bool{}
 	for _, record := range r.OwnershipRecords {
-		if !isOCID(record.ResourceId.Value, "instance") || !isOCID(record.CompartmentId.Value, "compartment") || record.CompartmentId.Value != r.LaunchTemplate.CompartmentId || record.Generation.Value != uint64(r.LaunchTemplate.Generation) || seen[record.ResourceId.Value] {
+		if !IsOCID(record.ResourceId.Value, "instance") || !IsOCID(record.CompartmentId.Value, "compartment") || record.CompartmentId.Value != r.LaunchTemplate.CompartmentId || record.Generation.Value != uint64(r.LaunchTemplate.Generation) || seen[record.ResourceId.Value] {
 			return false
 		}
 		if _, err := canonicalToken(record.CellId.Value, "cellId"); err != nil {
@@ -445,7 +445,7 @@ func LoadOciCiRunnerPoolConfiguration(path string) (*OciCiRunnerPoolConfiguratio
 		return nil, &InvalidDataError{Message: "CI runner pool configuration has unsupported shape"}
 	}
 	eu, eerr := url.Parse(strings.TrimSpace(d.Endpoint))
-	if eerr != nil || eu.Scheme != "https" || eu.User != nil || (eu.Path != "" && eu.Path != "/") || eu.RawQuery != "" || eu.Fragment != "" || !strings.HasPrefix(eu.Host, "iaas.") || !strings.HasSuffix(eu.Host, ".oraclecloud.com") || !regionPattern.MatchString(strings.TrimSuffix(strings.TrimPrefix(eu.Host, "iaas."), ".oraclecloud.com")) {
+	if eerr != nil || eu.Scheme != "https" || eu.User != nil || (eu.Path != "" && eu.Path != "/") || eu.RawQuery != "" || eu.Fragment != "" || !strings.HasPrefix(eu.Host, "iaas.") || !strings.HasSuffix(eu.Host, ".oraclecloud.com") || !ValidOCIRegion(strings.TrimSuffix(strings.TrimPrefix(eu.Host, "iaas."), ".oraclecloud.com")) {
 		return nil, &InvalidDataError{Message: "CI runner pool endpoint is invalid"}
 	}
 	if d.IdleSeconds < 30 || d.IdleSeconds > 900 || d.PollSeconds < 1 || d.PollSeconds > 30 {

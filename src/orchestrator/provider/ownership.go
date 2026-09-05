@@ -19,11 +19,11 @@ const (
 // positiveOCIOwnership proves the minimum local ownership boundary available
 // at a provider observation. The caller must additionally validate the
 // resource kind, exact declared name, parent OCID, and current generation.
-func positiveOCIOwnership(tags map[string]string, kind, region string) bool {
+func HasOCIOwnershipTags(tags map[string]string, kind, region string) bool {
 	return tags != nil && tags[OCIManagedTag] == kind && tags[OCIScopeTag] == region
 }
 
-func copyOCITags(tags map[string]string) map[string]string {
+func CopyOCITags(tags map[string]string) map[string]string {
 	if len(tags) == 0 {
 		return nil
 	}

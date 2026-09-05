@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"testing"
 )
 
@@ -75,7 +75,7 @@ func TestDefaultControlFactoryPreflightRefusesBeforeOCI(t *testing.T) {
 	defer func() { runBootstrapOCI = original; bootstrapControlMachineFactory = originalFactory }()
 	bootstrapControlMachineFactory = newBootstrapControlFactory()
 	touched := false
-	runBootstrapOCI = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+	runBootstrapOCI = func(context.Context, func(string) (string, bool), ocireconcile.BootstrapRequest, io.Writer) error {
 		touched = true
 		return nil
 	}

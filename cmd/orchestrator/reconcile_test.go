@@ -10,7 +10,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
 
@@ -109,8 +109,8 @@ func TestOCICompositionCoversAllDeclaredRegionsAndObservedState(t *testing.T) {
 	}
 	region := spec.Regions[0]
 	state := ociObservedState(region, &ociRegionObservation{
-		compute: provider.ComputeObserved{Members: []provider.ObservedMember{{ID: "ocid1.instance.oc1.x", LifecycleState: "RUNNING", Shape: region.Members.PrimaryShape}}},
-		network: provider.NetworkObserved{VCN: &provider.ObservedVCN{ID: "ocid1.vcn.oc1.x", CIDR: region.Network.CIDR}},
+		compute: ocireconcile.ComputeObserved{Members: []ocireconcile.ObservedMember{{ID: "ocid1.instance.oc1.x", LifecycleState: "RUNNING", Shape: region.Members.PrimaryShape}}},
+		network: ocireconcile.NetworkObserved{VCN: &ocireconcile.ObservedVCN{ID: "ocid1.vcn.oc1.x", CIDR: region.Network.CIDR}},
 	})
 	if len(state.Resources) < 2 {
 		t.Fatalf("OCI observed state has %d resources, want at least compute and network", len(state.Resources))
@@ -119,13 +119,13 @@ func TestOCICompositionCoversAllDeclaredRegionsAndObservedState(t *testing.T) {
 
 type unknownOCIAction struct{}
 
-func (unknownOCIAction) Kind() provider.OCIActionKind { return "unexpected-provider-action" }
-func (unknownOCIAction) Summary() string              { return "unexpected" }
+func (unknownOCIAction) Kind() ocireconcile.OCIActionKind { return "unexpected-provider-action" }
+func (unknownOCIAction) Summary() string                  { return "unexpected" }
 
 func TestFilterOCIPlanFailsClosedAtGenericOwnershipBoundary(t *testing.T) {
-	plan := provider.OCIPlan{Actions: []provider.OCIAction{
+	plan := ocireconcile.OCIPlan{Actions: []ocireconcile.OCIAction{
 		unknownOCIAction{},
-		provider.CreateVCNAction{Name: "vcn", CIDR: "10.0.0.0/16"},
+		ocireconcile.CreateVCNAction{Name: "vcn", CIDR: "10.0.0.0/16"},
 	}}
 	withoutOwner := filterOCIPlan(plan, reconcile.Plan{}, "gru")
 	if len(withoutOwner.Actions) != 0 {
@@ -136,7 +136,7 @@ func TestFilterOCIPlanFailsClosedAtGenericOwnershipBoundary(t *testing.T) {
 		Ref:  estate.ResourceRef{Kind: estate.ResourceNetwork, Region: "gru", Name: "vcn"},
 	}}}
 	filtered := filterOCIPlan(plan, owned, "gru")
-	if len(filtered.Actions) != 1 || filtered.Actions[0].Kind() != provider.OCIActionCreateVCN {
+	if len(filtered.Actions) != 1 || filtered.Actions[0].Kind() != ocireconcile.OCIActionCreateVCN {
 		t.Fatalf("owned provider action was not retained: %v", filtered.Kinds())
 	}
 }

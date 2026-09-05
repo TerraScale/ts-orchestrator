@@ -101,7 +101,7 @@ func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectP
 		"opc-meta-terrascale-sha256": request.SHA256,
 	})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			metadata, found, readErr := a.HeadObject(ctx, request.Object)
 			if readErr == nil && found && metadata.SHA256 == request.SHA256 && metadata.Size == int64(len(request.Content)) {
 				if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}); err != nil {
@@ -250,7 +250,7 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	}
 	resp, err := a.ObjectStorage.DoWithHeaders(ctx, http.MethodDelete, objectStoragePath(request.Object), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			if _, found, readErr := a.HeadObject(ctx, request.Object); readErr == nil && !found {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
 			}

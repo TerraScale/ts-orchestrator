@@ -1,0 +1,30 @@
+Real configured GRU service diagnostic run, Linux amd64, 2026-09-05.
+
+Signed owner transport activation completed. ts-node stayed active.
+Orchestrator and TerraBase each exited1 and auto-restarted. Both actual guest
+failure categories were captured:
+- orchestrator: oci-estate-configuration-missing
+- TerraBase: terrabase-configuration-missing
+
+Readiness correctly failed. Peak host RSS was 414420992 bytes with 512 MiB
+configured. No six-host baseline, fourth Region, fault scenario or idle
+resource budget passed. Automatic and explicit cleanup passed.
+
+The binaries predate the provider package extraction. This run qualifies
+only the observed initial activation and fixed diagnostic capture. It does
+not qualify production composition, offline activation, credential retrieval,
+regional authority, embedded broker readiness or the full VM suite.
+
+Qualifier SHA256: f8e432339490f427eeae10683482dc4450b24456043e6e223764cdcfc39f8e5c
+Artifact helper SHA256: a55de02fdab0659deb47e25133b894a0389ef93717fff0ee7a70c9d7869778bb
+
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH,GOFLAGS /tmp/ts-orchestrator-vm-artifacts-journal-fixed --root "/var/lib/terrascale-qualification/ts-orchestrator" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server" -- /tmp/ts-orchestrator-vm-qualify-engine-diagnostic test
+vm-artifacts: component=ts-node version=vmqual.656c3d4960e0ac84 sha256=656c3d4960e0ac848ea625395b79b1ecfc55c73c625d532f63ab6511396feed3 bytes=9453728
+vm-artifacts: component=orchestrator version=vmqual.de2a903420634845 sha256=de2a90342063484514469d2260ed6fa924c7f96062ffca8bffafda4e5d2710f8 bytes=28455072
+vm-artifacts: component=terrabase version=vmqual.300d71b2c6e44655 sha256=300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7 bytes=17787952
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: activated orchestrator process is not running; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2284,"activeState":"active","subState":"running","result":"success","journalEntries":5,"severityCounts":[0,0,0,0,0,0,5,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":18,"severityCounts":[0,0,0,0,3,3,12,0],"categories":["oci-estate-configuration-missing"]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":11,"severityCounts":[0,0,0,0,2,2,7,0],"categories":["terrabase-configuration-missing"]}]
+vm-artifacts: exit status 1
+make: *** [Makefile:36: vm-test] Error 1
+
+Explicit cleanup:
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH /tmp/ts-orchestrator-vm-qualify-engine-diagnostic clean

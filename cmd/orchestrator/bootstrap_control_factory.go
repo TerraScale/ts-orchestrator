@@ -25,6 +25,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
@@ -52,9 +53,9 @@ func closeBootstrapControlMachine(machine *bootstrap.ControlStateMachine) {
 }
 
 type bootstrapControlAdmission struct {
-	provision   provider.BootstrapRequest
+	provision   ocireconcile.BootstrapRequest
 	loaded      loadedBootstrapControl
-	credentials provider.BootstrapCredentials
+	credentials ocireconcile.BootstrapCredentials
 	cloudflare  *cloudflare.Client
 	regions     []bootstrapControlRegion
 }
@@ -92,15 +93,15 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 	if err != nil {
 		return nil, err
 	}
-	return &bootstrapControlAdmission{provision: provider.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, cloudflare: cf, regions: regions}, nil
+	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, cloudflare: cf, regions: regions}, nil
 }
-func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (provider.BootstrapCredentials, *cloudflare.Client, error) {
-	credentials, err := provider.BootstrapCredentialsFromEnv(lookup)
+func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (ocireconcile.BootstrapCredentials, *cloudflare.Client, error) {
+	credentials, err := ocireconcile.BootstrapCredentialsFromEnv(lookup)
 	if err != nil {
 		return credentials, nil, err
 	}
 	for _, region := range regions {
-		if _, err := provider.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceCore); err != nil {
+		if _, err := ocireconcile.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceCore); err != nil {
 			return credentials, nil, err
 		}
 	}
@@ -137,15 +138,15 @@ func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControl
 	architectures := map[string]string{}
 	var bindings []bootstrap.ControlRegionBinding
 	for _, region := range admission.regions {
-		core, err := provider.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceCore)
+		core, err := ocireconcile.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceCore)
 		if err != nil {
 			return nil, err
 		}
-		identity, err := provider.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceIdentity)
+		identity, err := ocireconcile.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceIdentity)
 		if err != nil {
 			return nil, err
 		}
-		compartment, members, err := provider.ReadBootstrapControlMembers(ctx, core, identity, credentials.TenancyOCID, loaded.declaration.CompartmentName, region.Code, region.MemberCount)
+		compartment, members, err := ocireconcile.ReadBootstrapControlMembers(ctx, core, identity, credentials.TenancyOCID, loaded.declaration.CompartmentName, region.Code, region.MemberCount)
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +154,7 @@ func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControl
 		for _, member := range members {
 			binding.MemberIDs = append(binding.MemberIDs, member.ID)
 			actual[region.Code+"/"+strconv.Itoa(member.Index)] = member.ID
-			arch, ok := provider.ShapeArch(member.Shape)
+			arch, ok := ocireconcile.ShapeArch(member.Shape)
 			if !ok {
 				return nil, errors.New("control: observed member architecture is unknown")
 			}
@@ -172,9 +173,9 @@ func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControl
 		if id == "" {
 			continue
 		}
-		wanted := provider.MemberArchAMD64
+		wanted := ocireconcile.MemberArchAMD64
 		if member.Architecture == runtimeplan.HostArchitectureArm64 {
-			wanted = provider.MemberArchArm64
+			wanted = ocireconcile.MemberArchArm64
 		}
 		if architectures[id] != wanted {
 			return nil, errors.New("control: admitted host architecture differs from OCI receipt")

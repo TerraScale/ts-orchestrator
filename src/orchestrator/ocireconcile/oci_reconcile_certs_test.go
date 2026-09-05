@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -65,7 +67,7 @@ func (f *fakeCertGateway) RenewCertificate(ctx context.Context, certID string, d
 			return cert, nil
 		}
 	}
-	return ObservedCert{}, &InvalidDataError{Message: "certificate is unknown"}
+	return ObservedCert{}, &provider.InvalidDataError{Message: "certificate is unknown"}
 }
 
 func certTestReconciler(gateway *fakeCertGateway) *CertReconciler {
@@ -351,7 +353,7 @@ func TestCertDisplayNameIsRegionQualified(t *testing.T) {
 func certTestGateway(t *testing.T, roundTrip roundTripFunc) *OCICertificatesGateway {
 	t.Helper()
 	gateway, err := NewOCICertificatesGateway(
-		testOCITransport(t, OCIServiceCertificates, roundTrip),
+		testOCITransport(t, provider.OCIServiceCertificates, roundTrip),
 		"ocid1.compartment.oc1.x", "ocid1.certificateauthority.oc1.x")
 	if err != nil {
 		t.Fatal(err)
@@ -363,11 +365,11 @@ func TestOCICertificatesGatewayRejectsScope(t *testing.T) {
 	if _, err := NewOCICertificatesGateway(nil, "ocid1.compartment.oc1.x", "ocid1.certificateauthority.oc1.x"); err == nil {
 		t.Fatal("nil transport accepted")
 	}
-	core := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) { return testHTTPResponse(http.StatusOK, `{}`, nil), nil })
+	core := testOCITransport(t, provider.OCIServiceCore, func(*http.Request) (*http.Response, error) { return testHTTPResponse(http.StatusOK, `{}`, nil), nil })
 	if _, err := NewOCICertificatesGateway(core, "ocid1.compartment.oc1.x", "ocid1.certificateauthority.oc1.x"); err == nil {
 		t.Fatal("core transport accepted for certificates")
 	}
-	certs := testOCITransport(t, OCIServiceCertificates, func(*http.Request) (*http.Response, error) { return testHTTPResponse(http.StatusOK, `{}`, nil), nil })
+	certs := testOCITransport(t, provider.OCIServiceCertificates, func(*http.Request) (*http.Response, error) { return testHTTPResponse(http.StatusOK, `{}`, nil), nil })
 	if _, err := NewOCICertificatesGateway(certs, "not-an-ocid", "ocid1.certificateauthority.oc1.x"); err == nil {
 		t.Fatal("invalid compartment accepted")
 	}

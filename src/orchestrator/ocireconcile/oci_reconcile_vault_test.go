@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -171,7 +173,7 @@ func TestVaultApplyRefusesKeysWithoutActiveVault(t *testing.T) {
 	if err == nil {
 		t.Fatal("key create without a vault accepted")
 	}
-	var invalid *InvalidOperationError
+	var invalid *provider.InvalidOperationError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("Apply() = %v, want invalid operation", err)
 	}
@@ -228,7 +230,7 @@ func TestVaultForeignShapeKeyIsRefused(t *testing.T) {
 		if err == nil {
 			t.Fatalf("key %+v adopted", key)
 		}
-		var invalid *InvalidDataError
+		var invalid *provider.InvalidDataError
 		if !errors.As(err, &invalid) {
 			t.Fatalf("Reconcile() = %v, want invalid data", err)
 		}
@@ -241,16 +243,16 @@ func TestVaultForeignShapeKeyIsRefused(t *testing.T) {
 
 func vaultTestGateway(t *testing.T, roundTrip roundTripFunc) *OCIVaultGateway {
 	t.Helper()
-	management, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", "https://test-management.kms.sa-saopaulo-1.oraclecloud.com")
+	management, err := provider.NewOCIServiceTransportConfig(provider.OCIServiceVaultManagement, "sa-saopaulo-1", "https://test-management.kms.sa-saopaulo-1.oraclecloud.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	managementTransport, err := NewOCIHTTPTransport(management, &http.Client{Transport: roundTrip}, nil)
+	managementTransport, err := provider.NewOCIHTTPTransport(management, &http.Client{Transport: roundTrip}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	gateway, err := NewOCIVaultGateway(
-		testOCITransport(t, OCIServiceVault, roundTrip),
+		testOCITransport(t, provider.OCIServiceVault, roundTrip),
 		managementTransport,
 		"sa-saopaulo-1", "ocid1.compartment.oc1.x")
 	if err != nil {
@@ -288,7 +290,7 @@ func TestOCIVaultGatewayListKeysRequiresShape(t *testing.T) {
 	if err == nil {
 		t.Fatal("key without shape accepted")
 	}
-	var invalid *InvalidDataError
+	var invalid *provider.InvalidDataError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("ListKeys() = %v, want invalid data", err)
 	}
@@ -303,7 +305,7 @@ func TestOCIVaultGatewayCreateKeyRefusesForeignShape(t *testing.T) {
 	if err == nil {
 		t.Fatal("HSM-shaped key accepted")
 	}
-	var invalid *InvalidDataError
+	var invalid *provider.InvalidDataError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("CreateKey() = %v, want invalid data", err)
 	}
@@ -317,7 +319,7 @@ func TestOCIVaultGatewayListVaultsRequiresKnownType(t *testing.T) {
 	if err == nil {
 		t.Fatal("vault without a known type accepted")
 	}
-	var invalid *InvalidDataError
+	var invalid *provider.InvalidDataError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("ListVaults() = %v, want invalid data", err)
 	}

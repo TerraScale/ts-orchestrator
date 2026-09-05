@@ -10,7 +10,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
 
@@ -20,9 +20,9 @@ import (
 type OCIRegionControllerConfig struct {
 	Region       estate.Region
 	ImageID      string
-	Gateways     provider.BootstrapGateways
-	Certificates provider.CertGateway
-	BlockPolicy  provider.BlockStoragePolicy
+	Gateways     ocireconcile.BootstrapGateways
+	Certificates ocireconcile.CertGateway
+	BlockPolicy  ocireconcile.BlockStoragePolicy
 }
 
 type OCIRegionControllerSource interface {
@@ -109,24 +109,24 @@ type OCIReconcileController struct {
 type ociRegionController struct {
 	region  estate.Region
 	imageID string
-	network *provider.NetworkReconciler
-	compute *provider.ComputeReconciler
-	block   *provider.BlockStorageReconciler
-	object  *provider.ObjectStorageReconciler
-	vault   *provider.VaultReconciler
-	certs   *provider.CertReconciler
+	network *ocireconcile.NetworkReconciler
+	compute *ocireconcile.ComputeReconciler
+	block   *ocireconcile.BlockStorageReconciler
+	object  *ocireconcile.ObjectStorageReconciler
+	vault   *ocireconcile.VaultReconciler
+	certs   *ocireconcile.CertReconciler
 
 	mu       sync.Mutex
 	observed *ociRegionObservation
 }
 
 type ociRegionObservation struct {
-	network provider.NetworkObserved
-	compute provider.ComputeObserved
-	block   provider.BlockStorageObserved
-	object  provider.ObjectStorageObserved
-	vault   provider.VaultObserved
-	certs   provider.CertsObserved
+	network ocireconcile.NetworkObserved
+	compute ocireconcile.ComputeObserved
+	block   ocireconcile.BlockStorageObserved
+	object  ocireconcile.ObjectStorageObserved
+	vault   ocireconcile.VaultObserved
+	certs   ocireconcile.CertsObserved
 }
 
 func newOCIRegionController(declared estate.Region, config OCIRegionControllerConfig) (*ociRegionController, error) {
@@ -137,12 +137,12 @@ func newOCIRegionController(declared estate.Region, config OCIRegionControllerCo
 	}
 	return &ociRegionController{
 		region: declared, imageID: config.ImageID,
-		network: &provider.NetworkReconciler{Gateway: config.Gateways.Network},
-		compute: &provider.ComputeReconciler{Compute: config.Gateways.Compute, Network: config.Gateways.Network},
-		block:   &provider.BlockStorageReconciler{Block: config.Gateways.Block, Compute: config.Gateways.Compute, Policy: config.BlockPolicy},
-		object:  &provider.ObjectStorageReconciler{Object: config.Gateways.Object},
-		vault:   &provider.VaultReconciler{Vault: config.Gateways.Vault},
-		certs:   &provider.CertReconciler{Gateway: config.Certificates},
+		network: &ocireconcile.NetworkReconciler{Gateway: config.Gateways.Network},
+		compute: &ocireconcile.ComputeReconciler{Compute: config.Gateways.Compute, Network: config.Gateways.Network},
+		block:   &ocireconcile.BlockStorageReconciler{Block: config.Gateways.Block, Compute: config.Gateways.Compute, Policy: config.BlockPolicy},
+		object:  &ocireconcile.ObjectStorageReconciler{Object: config.Gateways.Object},
+		vault:   &ocireconcile.VaultReconciler{Vault: config.Gateways.Vault},
+		certs:   &ocireconcile.CertReconciler{Gateway: config.Certificates},
 	}, nil
 }
 
@@ -181,7 +181,7 @@ func (r *ociRegionController) observe(ctx context.Context) (*ociRegionObservatio
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
-	compute, err := r.compute.Observe(ctx, provider.ComputeDeclared{Region: r.region, ImageID: r.imageID})
+	compute, err := r.compute.Observe(ctx, ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID})
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
@@ -237,7 +237,7 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 			return err
 		}
 	}
-	computeDeclared := provider.ComputeDeclared{Region: r.region, ImageID: r.imageID}
+	computeDeclared := ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID}
 	steps := []func() error{
 		func() error {
 			plan, err := r.network.Reconcile(ctx, r.region, observed.network)
@@ -392,8 +392,8 @@ func planForRegion(plan reconcile.Plan, region string) reconcile.Plan {
 	return result
 }
 
-func filterOCIPlan(plan provider.OCIPlan, generic reconcile.Plan, region string) provider.OCIPlan {
-	var result provider.OCIPlan
+func filterOCIPlan(plan ocireconcile.OCIPlan, generic reconcile.Plan, region string) ocireconcile.OCIPlan {
+	var result ocireconcile.OCIPlan
 	for _, action := range plan.Actions {
 		ref, ok := ociActionRef(region, action)
 		if !ok {
@@ -430,32 +430,32 @@ func genericHasRef(plan reconcile.Plan, ref estate.ResourceRef) bool {
 	return false
 }
 
-func ociActionRef(region string, action provider.OCIAction) (estate.ResourceRef, bool) {
+func ociActionRef(region string, action ocireconcile.OCIAction) (estate.ResourceRef, bool) {
 	switch value := action.(type) {
-	case provider.CreateVCNAction:
+	case ocireconcile.CreateVCNAction:
 		return estate.ResourceRef{Kind: estate.ResourceNetwork, Region: region, Name: "vcn"}, true
-	case provider.CreateSubnetAction:
+	case ocireconcile.CreateSubnetAction:
 		return estate.ResourceRef{Kind: estate.ResourceSubnet, Region: region, Name: value.Name}, true
-	case provider.CreateNSGAction:
+	case ocireconcile.CreateNSGAction:
 		return estate.ResourceRef{Kind: estate.ResourceNSG, Region: region, Name: value.Name}, true
-	case provider.ReplaceNSGRulesAction:
+	case ocireconcile.ReplaceNSGRulesAction:
 		return estate.ResourceRef{Kind: estate.ResourceNSG, Region: region, Name: value.Name}, true
-	case provider.LaunchMemberAction, provider.StartMemberAction, provider.TerminateMemberAction,
-		provider.CreateVolumeAction, provider.ExpandVolumeAction, provider.AttachVolumeAction, provider.DetachAttachmentAction:
+	case ocireconcile.LaunchMemberAction, ocireconcile.StartMemberAction, ocireconcile.TerminateMemberAction,
+		ocireconcile.CreateVolumeAction, ocireconcile.ExpandVolumeAction, ocireconcile.AttachVolumeAction, ocireconcile.DetachAttachmentAction:
 		return estate.ResourceRef{Kind: estate.ResourceCompute, Region: region, Name: "members"}, true
-	case provider.CreateBucketAction:
+	case ocireconcile.CreateBucketAction:
 		return estate.ResourceRef{Kind: estate.ResourceBucket, Region: region, Name: value.Name}, true
-	case provider.SetBucketVersioningAction:
+	case ocireconcile.SetBucketVersioningAction:
 		return estate.ResourceRef{Kind: estate.ResourceBucket, Region: region, Name: value.Name}, true
-	case provider.SetBucketLifecycleAction:
+	case ocireconcile.SetBucketLifecycleAction:
 		return estate.ResourceRef{Kind: estate.ResourceBucket, Region: region, Name: value.Name}, true
-	case provider.CreateVaultAction:
+	case ocireconcile.CreateVaultAction:
 		return estate.ResourceRef{Kind: estate.ResourceVaultKey, Region: region}, true
-	case provider.CreateVaultKeyAction:
+	case ocireconcile.CreateVaultKeyAction:
 		return estate.ResourceRef{Kind: estate.ResourceVaultKey, Region: region, Name: value.KeyName}, true
-	case provider.CreateCertificateAction:
+	case ocireconcile.CreateCertificateAction:
 		return estate.ResourceRef{Kind: estate.ResourceCertificate, Region: region, Name: value.Name}, true
-	case provider.RenewCertificateAction:
+	case ocireconcile.RenewCertificateAction:
 		return estate.ResourceRef{Kind: estate.ResourceCertificate, Region: region, Name: value.DisplayName}, true
 	default:
 		return estate.ResourceRef{}, false
@@ -534,7 +534,7 @@ func observedOCIState(region estate.Region, observed *ociRegionObservation) reco
 	}
 	for _, certificate := range observed.certs.Certs {
 		for _, declared := range region.Certificates {
-			if provider.CertDisplayName(region.Code, declared.Name) != certificate.DisplayName {
+			if ocireconcile.CertDisplayName(region.Code, declared.Name) != certificate.DisplayName {
 				continue
 			}
 			attributes := []reconcile.Attribute{{Name: "certificate.purpose", Value: declared.Purpose}, {Name: "certificate.renew-before-hours", Value: fmt.Sprint(declared.RenewBeforeHours)}}
@@ -547,7 +547,7 @@ func observedOCIState(region estate.Region, observed *ociRegionObservation) reco
 	return state
 }
 
-func observedDataVolumeSize(region estate.Region, observed provider.BlockStorageObserved) string {
+func observedDataVolumeSize(region estate.Region, observed ocireconcile.BlockStorageObserved) string {
 	for _, volume := range observed.Volumes {
 		if volume.LifecycleState != "TERMINATED" && volume.LifecycleState != "TERMINATING" {
 			return fmt.Sprint(volume.SizeGiB)

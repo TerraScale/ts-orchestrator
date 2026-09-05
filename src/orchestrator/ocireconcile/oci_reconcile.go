@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"bytes"
@@ -109,7 +111,7 @@ func classifyOCIRejection(status int, code, message string) error {
 	if strings.Contains(strings.ToLower(message), "out of host capacity") {
 		return &OCIShapeCapacityError{}
 	}
-	return &InvalidDataError{Message: "OCI request was rejected"}
+	return &provider.InvalidDataError{Message: "OCI request was rejected"}
 }
 
 type ociRejectionDocument struct {
@@ -123,9 +125,9 @@ type ociRejectionDocument struct {
 // decodes the bounded response body into out. A nil out is allowed for calls
 // whose response body is irrelevant. Non-2xx responses become classified
 // reconciler errors.
-func doOCIJSON[T any](ctx context.Context, transport *OCIHTTPTransport, method, path string, payload any, headers map[string]string, out *T) error {
+func doOCIJSON[T any](ctx context.Context, transport *provider.OCIHTTPTransport, method, path string, payload any, headers map[string]string, out *T) error {
 	if transport == nil {
-		return &InvalidOperationError{Message: "OCI transport is unavailable"}
+		return &provider.InvalidOperationError{Message: "OCI transport is unavailable"}
 	}
 	var request io.Reader
 	if payload != nil {
@@ -139,7 +141,7 @@ func doOCIJSON[T any](ctx context.Context, transport *OCIHTTPTransport, method, 
 	if err != nil {
 		return err
 	}
-	raw, err := ReadBoundedBody(resp, transport.Config.MaxBodyBytes)
+	raw, err := provider.ReadBoundedBody(resp, transport.Config.MaxBodyBytes)
 	if err != nil {
 		return err
 	}
@@ -155,7 +157,7 @@ func doOCIJSON[T any](ctx context.Context, transport *OCIHTTPTransport, method, 
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
-		return &InvalidDataError{Message: "OCI response is invalid"}
+		return &provider.InvalidDataError{Message: "OCI response is invalid"}
 	}
 	return nil
 }

@@ -11,7 +11,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
 
@@ -31,14 +31,14 @@ func TestNewServiceRejectsIncompleteDependencies(t *testing.T) {
 func TestBootstrapUsesTypedProviderPathAndObservedControlState(t *testing.T) {
 	control := newTestControl(bootstrap.ControlPlaneState{})
 	var bootstrapped estate.Region
-	service := newTestService(t, control, func(_ context.Context, request provider.BootstrapRequest, _ provider.BootstrapGateways, _ io.Writer) error {
+	service := newTestService(t, control, func(_ context.Context, request ocireconcile.BootstrapRequest, _ ocireconcile.BootstrapGateways, _ io.Writer) error {
 		bootstrapped = request.Region
 		return nil
 	}, nil)
 
 	result, err := service.Bootstrap(context.Background(), BootstrapRequest{
 		Desired: estate.Default(),
-		Provider: provider.BootstrapRequest{
+		Provider: ocireconcile.BootstrapRequest{
 			Region: estate.Region{Code: "caller-must-not-select-the-home-region"},
 		},
 	})
@@ -72,7 +72,7 @@ func TestFourthRegionUsesRemoteManagementAndRefusesRegionalR3BelowFloor(t *testi
 	}
 	control.observation.QuorumAvailable = true
 	var bootstrapCalls atomic.Int32
-	service := newTestService(t, control, func(context.Context, provider.BootstrapRequest, provider.BootstrapGateways, io.Writer) error {
+	service := newTestService(t, control, func(context.Context, ocireconcile.BootstrapRequest, ocireconcile.BootstrapGateways, io.Writer) error {
 		bootstrapCalls.Add(1)
 		return nil
 	}, nil)
@@ -153,7 +153,7 @@ func TestServiceSerializesConcurrentOperationsWithoutRaces(t *testing.T) {
 	}
 }
 
-func testBootstrapper(context.Context, provider.BootstrapRequest, provider.BootstrapGateways, io.Writer) error {
+func testBootstrapper(context.Context, ocireconcile.BootstrapRequest, ocireconcile.BootstrapGateways, io.Writer) error {
 	return nil
 }
 
@@ -186,8 +186,8 @@ func newTestService(t *testing.T, control *testControl, bootstrapper OCIBootstra
 	})
 	service, err := NewService(Dependencies{
 		Bootstrapper: bootstrapper,
-		BootstrapGateways: BootstrapGatewaySourceFunc(func(context.Context, estate.Region) (provider.BootstrapGateways, error) {
-			return provider.BootstrapGateways{}, nil
+		BootstrapGateways: BootstrapGatewaySourceFunc(func(context.Context, estate.Region) (ocireconcile.BootstrapGateways, error) {
+			return ocireconcile.BootstrapGateways{}, nil
 		}),
 		Control: control, ControlJournals: journalFactory,
 		Reconcilers: source, Progress: progress,

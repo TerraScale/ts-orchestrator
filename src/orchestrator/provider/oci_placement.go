@@ -45,7 +45,7 @@ func NewPlacementLock(regions []string) (PlacementLock, error) {
 	}
 	seen := make(map[string]struct{}, len(regions))
 	for _, region := range regions {
-		if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
+		if len(region) < 1 || len(region) > 63 || !ValidOCIRegion(region) {
 			return PlacementLock{}, &errs.Argument{Message: "placement lock region code is invalid"}
 		}
 		if _, exists := seen[region]; exists {

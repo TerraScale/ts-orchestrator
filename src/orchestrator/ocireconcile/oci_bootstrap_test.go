@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -59,7 +61,7 @@ func TestConvergeStageDeadlineIsRetryableAndPreservesCause(t *testing.T) {
 	if err == nil {
 		t.Fatal("convergeStage unexpectedly converged")
 	}
-	var unknown *ProviderOutcomeUnknownError
+	var unknown *provider.ProviderOutcomeUnknownError
 	if !errors.As(err, &unknown) {
 		t.Fatalf("deadline error = %v, want retryable unknown outcome", err)
 	}
@@ -78,7 +80,7 @@ func TestBootstrapConvergenceConfigRejectsInvalidBounds(t *testing.T) {
 	if err := request.validate(); err == nil {
 		t.Fatal("invalid polling bounds accepted")
 	}
-	if got := classifyBootstrapOutcome(&ProviderOutcomeUnknownError{Message: "accepted"}); got.Error() != "accepted" {
+	if got := classifyBootstrapOutcome(&provider.ProviderOutcomeUnknownError{Message: "accepted"}); got.Error() != "accepted" {
 		t.Fatalf("known unknown outcome was rewritten: %v", got)
 	}
 	request.Convergence = BootstrapConvergenceConfig{MaxPasses: bootstrapMaximumPasses + 1}
@@ -241,7 +243,7 @@ func TestDefaultBootstrapRegionMatchesEstateHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := estate.Default()
-	if region.Code != spec.HomeRegion || region.Members.Count < PlacementMinimumMemberHosts {
+	if region.Code != spec.HomeRegion || region.Members.Count < provider.PlacementMinimumMemberHosts {
 		t.Fatalf("bootstrap region = %+v, want the estate home region with two members", region)
 	}
 }

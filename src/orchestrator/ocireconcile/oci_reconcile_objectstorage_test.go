@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -191,7 +193,7 @@ func TestLifecycleRuleSpecsRejectUnknownAction(t *testing.T) {
 
 func TestOCIObjectStorageGatewayLifecycleContract(t *testing.T) {
 	var requestBody map[string]any
-	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPut || request.URL.Path != "/n/ts-ns/b/terrascale-backups-gru/lifecyclePolicy" {
 			t.Fatalf("unexpected lifecycle request %s %s", request.Method, request.URL.String())
 		}
@@ -228,7 +230,7 @@ func TestOCIObjectStorageGatewayLifecycleContract(t *testing.T) {
 
 func TestOCIObjectStorageGatewayReusesStableRetryToken(t *testing.T) {
 	var tokens []string
-	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost || request.URL.Path != "/n/ts-ns/b/" {
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.String())
 		}
@@ -250,7 +252,7 @@ func TestOCIObjectStorageGatewayReusesStableRetryToken(t *testing.T) {
 }
 
 func TestOCIObjectStorageGatewayTreatsMissingPolicyAsEmpty(t *testing.T) {
-	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path == "/n" {
 			return testHTTPResponse(http.StatusOK, `"ts-ns"`, http.Header{}), nil
 		}

@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -111,7 +113,7 @@ var _ OCIReconciler[estate.Region, ObjectStorageObserved] = (*ObjectStorageRecon
 
 func (r *ObjectStorageReconciler) Observe(ctx context.Context, declared estate.Region) (ObjectStorageObserved, error) {
 	if r == nil || r.Object == nil {
-		return ObjectStorageObserved{}, &InvalidOperationError{Message: "object storage reconciler is unavailable"}
+		return ObjectStorageObserved{}, &provider.InvalidOperationError{Message: "object storage reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return ObjectStorageObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -157,7 +159,7 @@ func (r *ObjectStorageReconciler) Reconcile(ctx context.Context, declared estate
 	byName := make(map[string]ObservedBucket, len(observed.Buckets))
 	for _, bucket := range observed.Buckets {
 		if _, duplicate := byName[bucket.Name]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
 		}
 		byName[bucket.Name] = bucket
 	}
@@ -187,11 +189,11 @@ func (r *ObjectStorageReconciler) Reconcile(ctx context.Context, declared estate
 func (r *ObjectStorageReconciler) bootstrapConverged(value, declaration any) (bool, error) {
 	observed, ok := value.(ObjectStorageObserved)
 	if !ok {
-		return false, &InvalidDataError{Message: "object storage convergence observation has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "object storage convergence observation has the wrong type"}
 	}
 	declared, ok := declaration.(estate.Region)
 	if !ok {
-		return false, &InvalidDataError{Message: "object storage convergence declaration has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "object storage convergence declaration has the wrong type"}
 	}
 	if observed.Namespace == "" {
 		return false, nil
@@ -199,7 +201,7 @@ func (r *ObjectStorageReconciler) bootstrapConverged(value, declaration any) (bo
 	byName := make(map[string]ObservedBucket, len(observed.Buckets))
 	for _, bucket := range observed.Buckets {
 		if _, duplicate := byName[bucket.Name]; duplicate {
-			return false, &InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
+			return false, &provider.InvalidDataError{Message: "multiple buckets share the declared name " + bucket.Name}
 		}
 		byName[bucket.Name] = bucket
 	}
@@ -244,7 +246,7 @@ func lifecycleMatches(declared []LifecycleRuleSpec, observed ObservedBucket) boo
 
 func (r *ObjectStorageReconciler) Apply(ctx context.Context, declared estate.Region, observed ObjectStorageObserved, plan OCIPlan) error {
 	if r == nil || r.Object == nil {
-		return &InvalidOperationError{Message: "object storage reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "object storage reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -267,7 +269,7 @@ func (r *ObjectStorageReconciler) Apply(ctx context.Context, declared estate.Reg
 				return err
 			}
 		default:
-			return &InvalidOperationError{Message: "object storage reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "object storage reconciler received a foreign action"}
 		}
 	}
 	return nil
@@ -277,7 +279,7 @@ func (r *ObjectStorageReconciler) Apply(ctx context.Context, declared estate.Reg
 // transport. Lifecycle GETs use the raw transport because a missing policy
 // is an ordinary 404, not an error.
 type OCIObjectStorageGateway struct {
-	Object         *OCIHTTPTransport
+	Object         *provider.OCIHTTPTransport
 	CompartmentID  string
 	MaxBucketsList int
 }
@@ -285,11 +287,11 @@ type OCIObjectStorageGateway struct {
 var _ ObjectStorageGateway = (*OCIObjectStorageGateway)(nil)
 
 // NewOCIObjectStorageGateway validates the transport and compartment scope.
-func NewOCIObjectStorageGateway(object *OCIHTTPTransport, compartmentID string) (*OCIObjectStorageGateway, error) {
-	if object == nil || object.Config.Service != OCIServiceObjectStorage {
+func NewOCIObjectStorageGateway(object *provider.OCIHTTPTransport, compartmentID string) (*OCIObjectStorageGateway, error) {
+	if object == nil || object.Config.Service != provider.OCIServiceObjectStorage {
 		return nil, &errs.Argument{Message: "object storage gateway requires the object-storage transport"}
 	}
-	if !isOCID(compartmentID, "compartment") {
+	if !provider.IsOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "object storage gateway requires a compartment identity"}
 	}
 	return &OCIObjectStorageGateway{Object: object, CompartmentID: compartmentID, MaxBucketsList: 128}, nil
@@ -300,8 +302,8 @@ func (g *OCIObjectStorageGateway) GetNamespace(ctx context.Context) (string, err
 	if err := doOCIJSON(ctx, g.Object, http.MethodGet, "/n", nil, nil, &namespace); err != nil {
 		return "", err
 	}
-	if len(namespace) < 1 || len(namespace) > 128 || !validObjectPart(namespace, 128, false) {
-		return "", &InvalidDataError{Message: "OCI object storage namespace response is invalid"}
+	if len(namespace) < 1 || len(namespace) > 128 || !provider.ValidObjectPart(namespace, 128, false) {
+		return "", &provider.InvalidDataError{Message: "OCI object storage namespace response is invalid"}
 	}
 	return namespace, nil
 }
@@ -316,23 +318,23 @@ type ociBucketSummaryDocument struct {
 }
 
 func (g *OCIObjectStorageGateway) ListBuckets(ctx context.Context, namespace string) ([]ObservedBucket, error) {
-	if !validObjectPart(namespace, 128, false) {
+	if !provider.ValidObjectPart(namespace, 128, false) {
 		return nil, &errs.Argument{Message: "object storage namespace is invalid"}
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("limit", strconv.Itoa(g.MaxBucketsList))
-	list, err := readOCIResourceList[ociBucketSummaryDocument](ctx, g.Object, "/n/"+url.PathEscape(namespace)+"/b/", query, func(item ociBucketSummaryDocument) string { return item.Name })
+	list, err := provider.ReadOCIResourceList[ociBucketSummaryDocument](ctx, g.Object, "/n/"+url.PathEscape(namespace)+"/b/", query, func(item ociBucketSummaryDocument) string { return item.Name })
 	if err != nil {
 		return nil, err
 	}
 	if len(list) > g.MaxBucketsList {
-		return nil, &InvalidDataError{Message: "OCI bucket list exceeds the reconciliation bound"}
+		return nil, &provider.InvalidDataError{Message: "OCI bucket list exceeds the reconciliation bound"}
 	}
 	buckets := make([]ObservedBucket, 0, len(list))
 	for _, item := range list {
-		if !validObjectPart(item.Name, 256, false) {
-			return nil, &InvalidDataError{Message: "OCI bucket response is invalid"}
+		if !provider.ValidObjectPart(item.Name, 256, false) {
+			return nil, &provider.InvalidDataError{Message: "OCI bucket response is invalid"}
 		}
 		observed := ObservedBucket{Name: item.Name}
 		var document ociBucketDocument
@@ -398,7 +400,7 @@ func (g *OCIObjectStorageGateway) getLifecycleRules(ctx context.Context, namespa
 	if err != nil {
 		return nil, err
 	}
-	body, err := ReadBoundedBody(resp, g.Object.Config.MaxBodyBytes)
+	body, err := provider.ReadBoundedBody(resp, g.Object.Config.MaxBodyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -406,20 +408,20 @@ func (g *OCIObjectStorageGateway) getLifecycleRules(ctx context.Context, namespa
 		return nil, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &InvalidDataError{Message: "OCI lifecycle policy request was rejected"}
+		return nil, &provider.InvalidDataError{Message: "OCI lifecycle policy request was rejected"}
 	}
 	var policy ociLifecyclePolicy
 	if len(body) == 0 {
 		return nil, nil
 	}
 	if json.Unmarshal(body, &policy) != nil || len(policy.Items) > 64 {
-		return nil, &InvalidDataError{Message: "OCI lifecycle policy response is invalid"}
+		return nil, &provider.InvalidDataError{Message: "OCI lifecycle policy response is invalid"}
 	}
 	rules := make([]ObservedLifecycleRule, 0, len(policy.Items))
 	for _, item := range policy.Items {
 		rule, ok := observedLifecycleRule(item)
 		if !ok {
-			return nil, &InvalidDataError{Message: "OCI lifecycle policy response is invalid"}
+			return nil, &provider.InvalidDataError{Message: "OCI lifecycle policy response is invalid"}
 		}
 		rules = append(rules, rule)
 	}
@@ -427,7 +429,7 @@ func (g *OCIObjectStorageGateway) getLifecycleRules(ctx context.Context, namespa
 }
 
 func (g *OCIObjectStorageGateway) CreateBucket(ctx context.Context, namespace, name string, versioning bool) error {
-	if !validObjectPart(namespace, 128, false) || !validObjectPart(name, 256, false) {
+	if !provider.ValidObjectPart(namespace, 128, false) || !provider.ValidObjectPart(name, 256, false) {
 		return &errs.Argument{Message: "bucket create request is invalid"}
 	}
 	payload := struct {
@@ -445,7 +447,7 @@ func (g *OCIObjectStorageGateway) CreateBucket(ctx context.Context, namespace, n
 }
 
 func (g *OCIObjectStorageGateway) SetVersioning(ctx context.Context, namespace, bucket string, enabled bool) error {
-	if !validObjectPart(namespace, 128, false) || !validObjectPart(bucket, 256, false) {
+	if !provider.ValidObjectPart(namespace, 128, false) || !provider.ValidObjectPart(bucket, 256, false) {
 		return &errs.Argument{Message: "bucket versioning request is invalid"}
 	}
 	value := "Suspended"
@@ -462,13 +464,13 @@ func (g *OCIObjectStorageGateway) SetVersioning(ctx context.Context, namespace, 
 }
 
 func (g *OCIObjectStorageGateway) SetLifecycleRules(ctx context.Context, namespace, bucket string, rules []LifecycleRuleSpec) error {
-	if !validObjectPart(namespace, 128, false) || !validObjectPart(bucket, 256, false) {
+	if !provider.ValidObjectPart(namespace, 128, false) || !provider.ValidObjectPart(bucket, 256, false) {
 		return &errs.Argument{Message: "bucket lifecycle request is invalid"}
 	}
 	items := make([]ociLifecycleItem, 0, len(rules))
 	for _, rule := range rules {
 		action, known := lifecycleWireAction(rule.Action)
-		if !known || rule.AfterDays == 0 || !validObjectPart(rule.Name, 256, false) {
+		if !known || rule.AfterDays == 0 || !provider.ValidObjectPart(rule.Name, 256, false) {
 			return &errs.Argument{Message: "bucket lifecycle request is invalid"}
 		}
 		item := ociLifecycleItem{Name: rule.Name, Action: action, TimeAmount: rule.AfterDays, TimeUnit: "DAYS", IsEnabled: true}

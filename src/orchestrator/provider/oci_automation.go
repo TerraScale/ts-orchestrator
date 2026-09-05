@@ -182,7 +182,7 @@ func ComputeLaunchMutationScope(request ComputeLaunchRequest) string {
 }
 
 func validateComputeLaunch(request ComputeLaunchRequest) error {
-	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.ImageID, "image") {
+	if !IsOCID(request.CompartmentID, "compartment") || !IsOCID(request.ImageID, "image") {
 		return &errs.Argument{Message: "compute launch resource identity is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
@@ -193,7 +193,7 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 	}
 	seenNSG := map[string]bool{}
 	for _, id := range request.NSGIDs {
-		if !isOCID(id, "networksecuritygroup") || seenNSG[id] {
+		if !IsOCID(id, "networksecuritygroup") || seenNSG[id] {
 			return &errs.Argument{Message: "compute launch network security group is invalid"}
 		}
 		seenNSG[id] = true
@@ -204,7 +204,7 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 	}
 	for _, candidate := range request.Candidates {
 		if len(candidate.AvailabilityDomain) < 1 || len(candidate.AvailabilityDomain) > 128 ||
-			!isOCID(candidate.SubnetID, "subnet") ||
+			!IsOCID(candidate.SubnetID, "subnet") ||
 			len(candidate.FaultDomain) > 64 || len(candidate.Shape) < 1 || len(candidate.Shape) > 128 ||
 			strings.ContainsAny(candidate.AvailabilityDomain+candidate.FaultDomain+candidate.Shape, "\r\n") ||
 			math.IsNaN(candidate.OCPUs) || math.IsInf(candidate.OCPUs, 0) || candidate.OCPUs <= 0 || candidate.OCPUs > 192 ||
@@ -306,7 +306,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		resp, err := a.Core.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": derivedRetryToken(request.Mutation, strconv.Itoa(index))})
 		if err != nil {
-			if indeterminate(err) {
+			if IsOutcomeIndeterminate(err) {
 				return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 			}
 			return ComputeInstance{}, err
@@ -331,7 +331,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		var item ociAutomatedInstance
-		if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
+		if json.Unmarshal(body, &item) != nil || !IsOCID(item.ID, "instance") {
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		if item.ETag == "" {
@@ -352,7 +352,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 
 func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	items, err := readOCIResourceList[ociAutomatedInstance](ctx, a.Core, "/20160918/instances", query, func(item ociAutomatedInstance) string { return item.ID })
+	items, err := ReadOCIResourceList[ociAutomatedInstance](ctx, a.Core, "/20160918/instances", query, func(item ociAutomatedInstance) string { return item.ID })
 	if err != nil || len(items) > maximumOCIListResults {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation response is invalid"}
 	}
@@ -369,14 +369,14 @@ func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request C
 		return ComputeInstance{}, false, nil
 	}
 	item := matches[0]
-	if !isOCID(item.ID, "instance") {
+	if !IsOCID(item.ID, "instance") {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation identity is invalid"}
 	}
 	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
 }
 
 func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (ComputeInstance, bool, error) {
-	if a == nil || a.Core == nil || !isOCID(id, "instance") {
+	if a == nil || a.Core == nil || !IsOCID(id, "instance") {
 		return ComputeInstance{}, false, &errs.Argument{Message: "compute instance identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances/"+url.PathEscape(id), nil)
@@ -418,7 +418,7 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
 	}
-	if !isOCID(request.InstanceID, "instance") || !isSafeETag(request.IfMatch) {
+	if !IsOCID(request.InstanceID, "instance") || !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "compute termination fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, ""); err != nil {
@@ -449,7 +449,7 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	}
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodDelete, "/20160918/instances/"+url.PathEscape(request.InstanceID), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
-		if indeterminate(err) {
+		if IsOutcomeIndeterminate(err) {
 			if _, found, readErr := a.GetInstance(ctx, request.InstanceID); readErr == nil && !found {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
 			}

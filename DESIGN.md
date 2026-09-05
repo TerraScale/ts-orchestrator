@@ -23,7 +23,8 @@ describe code that exists today; they do not preserve a retired topology.
 | Security | `src/orchestrator/security` | — (leaf) |
 | Scheduling | `src/orchestrator/scheduling` | — (leaf) |
 | Estate (declared desired state) | `src/orchestrator/estate` | — (leaf) |
-| Provider (OCI cloud) | `src/orchestrator/provider` | — (leaf) |
+| OCI transport, ownership and resource adapters | `src/orchestrator/provider` | delivery, errs |
+| OCI reconciliation and bootstrap | `src/orchestrator/ocireconcile` | provider, estate, errs, tsnodebootstrap |
 | Control plane (delivery, messaging, observability, operations) | `src/orchestrator/control` | contracts, protocol, runtime, security |
 | Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
 | Host agent | `src/orchestrator/hostagent` | runtime |
@@ -32,7 +33,7 @@ describe code that exists today; they do not preserve a retired topology.
 | Initial host credentials | `src/orchestrator/hostsecrets` | OCI Go SDK instance identity and Secrets API |
 | Authenticated host client | `src/orchestrator/hostcontrol` | hostagent, delivery |
 | OCI control snapshot storage | `src/orchestrator/restoresnapshot` | restoredrill, provider, delivery |
-| CLI / process entry | `cmd/orchestrator` | control, provider |
+| CLI / process entry | `cmd/orchestrator` | control, provider, ocireconcile |
 | VM qualification core | `src/orchestrator/vmqual` | shared configuration, lifecycle, journals, diagnostic/resource evidence, guest contracts |
 | Firecracker qualification runtime | `src/orchestrator/vmqualruntime` | vmqual, sandboxvm, vmnet, vmdisk, vmimage, production host/provider packages |
 | Qualification grant issuer and activation | `src/orchestrator/vmqualbootstrap` | hostagent, security |

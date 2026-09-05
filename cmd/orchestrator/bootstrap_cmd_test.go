@@ -10,16 +10,16 @@ import (
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 )
 
 func bootstrapRunbookLookup() envLookup {
 	values := map[string]string{
-		provider.OCITenancyEnvironment:          "ocid1.tenancy.oc1..aaaaaaaa",
-		provider.OCIImageEnvironment:            "ocid1.image.oc1..aaaaaaaa",
+		ocireconcile.OCITenancyEnvironment:      "ocid1.tenancy.oc1..aaaaaaaa",
+		ocireconcile.OCIImageEnvironment:        "ocid1.image.oc1..aaaaaaaa",
 		bootstrapAvailabilityDomainsEnvironment: "AD-1,AD-2",
-		provider.TSNodeURLEnvironment:           "https://releases.example/ts-node",
-		provider.TSNodeSHA256Environment:        strings.Repeat("a", 64),
+		ocireconcile.TSNodeURLEnvironment:       "https://releases.example/ts-node",
+		ocireconcile.TSNodeSHA256Environment:    strings.Repeat("a", 64),
 		bootstrapReleaseKeyEnvironment:          strings.Repeat("ab", 32),
 		addRegionControlJournalEnv:              "/var/lib/terrascale/control-journal.json",
 	}
@@ -166,7 +166,7 @@ func TestBootstrapDryRunNeedsAnOutput(t *testing.T) {
 func TestBootstrapRefusesBeforeOCIWhenControlCompositionIsMissing(t *testing.T) {
 	oldBootstrap, oldFactory := runBootstrapOCI, bootstrapControlMachineFactory
 	called := false
-	runBootstrapOCI = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+	runBootstrapOCI = func(context.Context, func(string) (string, bool), ocireconcile.BootstrapRequest, io.Writer) error {
 		called = true
 		return nil
 	}
@@ -237,7 +237,7 @@ func (p *bootstrapControlProviderFake) StartRegionalR3(context.Context, bootstra
 func TestBootstrapFormsTheFencedControlGroupAfterOCI(t *testing.T) {
 	oldBootstrap, oldFactory := runBootstrapOCI, bootstrapControlMachineFactory
 	var order []string
-	runBootstrapOCI = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+	runBootstrapOCI = func(context.Context, func(string) (string, bool), ocireconcile.BootstrapRequest, io.Writer) error {
 		order = append(order, "oci")
 		return nil
 	}
@@ -280,10 +280,10 @@ func TestBootstrapFormsTheFencedControlGroupAfterOCI(t *testing.T) {
 
 func TestBootstrapResumesAMidTransitionControlJournal(t *testing.T) {
 	oldBootstrap, oldFactory := runBootstrapOCI, bootstrapControlMachineFactory
-	runBootstrapOCI = func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error {
+	runBootstrapOCI = func(context.Context, func(string) (string, bool), ocireconcile.BootstrapRequest, io.Writer) error {
 		return nil
 	}
-	region, err := provider.DefaultBootstrapRegion()
+	region, err := ocireconcile.DefaultBootstrapRegion()
 	if err != nil {
 		t.Fatal(err)
 	}

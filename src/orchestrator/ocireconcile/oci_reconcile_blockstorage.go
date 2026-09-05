@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -222,7 +224,7 @@ func observedAttachmentState(state string) attachmentLifecycleState {
 
 func (r *BlockStorageReconciler) Observe(ctx context.Context, declared estate.Region) (BlockStorageObserved, error) {
 	if r == nil || r.Block == nil || r.Compute == nil {
-		return BlockStorageObserved{}, &InvalidOperationError{Message: "block storage reconciler is unavailable"}
+		return BlockStorageObserved{}, &provider.InvalidOperationError{Message: "block storage reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return BlockStorageObserved{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -246,7 +248,7 @@ func (r *BlockStorageReconciler) Observe(ctx context.Context, declared estate.Re
 
 func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.Region, observed BlockStorageObserved) (OCIPlan, error) {
 	if r == nil || r.Block == nil || r.Compute == nil {
-		return OCIPlan{}, &InvalidOperationError{Message: "block storage reconciler is unavailable"}
+		return OCIPlan{}, &provider.InvalidOperationError{Message: "block storage reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return OCIPlan{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -272,12 +274,12 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 		case memberStateAbsent:
 			continue
 		case memberStateFailed:
-			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
 		case memberStateUnknown:
-			return OCIPlan{}, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
 		}
 		if _, duplicate := members[member.Index]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
 		}
 		members[member.Index] = member
 	}
@@ -291,20 +293,20 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			continue
 		}
 		if !volumeOwnedInRegion(volume, declared.Code) {
-			return OCIPlan{}, &InvalidDataError{Message: "declared volume " + volume.DisplayName + " is not positively owned"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "declared volume " + volume.DisplayName + " is not positively owned"}
 		}
 		state := observedVolumeState(volume.LifecycleState)
 		if state == volumeStateAbsent {
 			continue
 		}
 		if state == volumeStateUnknown {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
 		}
 		if volume.HealthState != "" && !volumeHealthIsKnown(volume.HealthState) {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable health state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable health state"}
 		}
 		if volume.UtilizationPercent > 100 {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an invalid utilization"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an invalid utilization"}
 		}
 		if previous, duplicate := volumes[volume.DisplayName]; duplicate {
 			// A failed/terminated volume can coexist with the replacement while
@@ -317,7 +319,7 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			if volumeSelectionRank(volume) < volumeSelectionRank(previous) {
 				continue
 			}
-			return OCIPlan{}, &InvalidDataError{Message: "multiple usable volumes share the declared name " + volume.DisplayName}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple usable volumes share the declared name " + volume.DisplayName}
 		}
 		volumes[volume.DisplayName] = volume
 	}
@@ -326,17 +328,17 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 	for _, attachment := range observed.Attachments {
 		state := observedAttachmentState(attachment.LifecycleState)
 		if state == attachmentStateFailed {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
 		}
 		if state == attachmentStateUnknown {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
 		}
 		if state == attachmentStateAbsent {
 			continue
 		}
 		volumeName := volumeNameByID(observed, attachment.VolumeID)
 		if volumeName == "" {
-			return OCIPlan{}, &InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
 		}
 		if !declaredVolumeNames[volumeName] {
 			continue
@@ -345,7 +347,7 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			continue
 		}
 		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
-			return OCIPlan{}, &InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
 		}
 		attachments[attachment.VolumeID] = attachment
 	}
@@ -371,20 +373,20 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			continue
 		}
 		if volume.SizeGiB == 0 {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " has no size"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + name + " has no size"}
 		}
 		if volume.AvailabilityDomain != "" && member.AvailabilityDomain != "" && volume.AvailabilityDomain != member.AvailabilityDomain {
-			return OCIPlan{}, &InvalidDataError{Message: "volume " + name + " is outside the member availability domain"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "volume " + name + " is outside the member availability domain"}
 		}
 		if volumeNeedsReplacement(volume) {
 			if !r.Policy.AllowReplacement || !r.volumeSafetyProven(volume) {
-				return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " is unhealthy and replacement safety is unproven"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + name + " is unhealthy and replacement safety is unproven"}
 			}
 			if volume.KMSKeyID == "" {
-				return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " has no encryption identity for replacement"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + name + " has no encryption identity for replacement"}
 			}
 			if volume.SizeGiB > r.maxVolumeGiB() {
-				return OCIPlan{}, &InvalidDataError{Message: "unhealthy volume " + name + " exceeds the bounded replacement size"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "unhealthy volume " + name + " exceeds the bounded replacement size"}
 			}
 			availabilityDomain := volume.AvailabilityDomain
 			if availabilityDomain == "" {
@@ -408,16 +410,16 @@ func (r *BlockStorageReconciler) Reconcile(ctx context.Context, declared estate.
 			// A larger observed volume is safe to retain, but report the drift
 			// unless the full-volume repair below is the reason it grew.
 			if !volumeIsFull(volume, r.Policy) {
-				return OCIPlan{}, &InvalidDataError{Message: "declared data volume size is below the observed volume; volumes never shrink"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "declared data volume size is below the observed volume; volumes never shrink"}
 			}
 		}
 		if volume.VPUsPerGiB != BalancedVPUsPerGiB {
-			return OCIPlan{}, &InvalidDataError{Message: "observed volume " + name + " is not on the Balanced performance tier"}
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed volume " + name + " is not on the Balanced performance tier"}
 		}
 		if volumeIsFull(volume, r.Policy) {
 			maxSize := r.maxVolumeGiB()
 			if volume.SizeGiB >= maxSize {
-				return OCIPlan{}, &InvalidDataError{Message: "full volume " + name + " reached the bounded expansion limit"}
+				return OCIPlan{}, &provider.InvalidDataError{Message: "full volume " + name + " reached the bounded expansion limit"}
 			}
 			newSize := volume.SizeGiB * 2
 			if newSize < volume.SizeGiB || newSize < uint64(pool.DataVolumeGiB) {
@@ -565,11 +567,11 @@ func volumeIsFull(volume ObservedVolume, policy BlockStoragePolicy) bool {
 func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (bool, error) {
 	observed, ok := value.(BlockStorageObserved)
 	if !ok {
-		return false, &InvalidDataError{Message: "block storage convergence observation has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "block storage convergence observation has the wrong type"}
 	}
 	declared, ok := declaration.(estate.Region)
 	if !ok {
-		return false, &InvalidDataError{Message: "block storage convergence declaration has the wrong type"}
+		return false, &provider.InvalidDataError{Message: "block storage convergence declaration has the wrong type"}
 	}
 	members := make(map[int]ObservedMember, len(observed.Members))
 	for _, member := range observed.Members {
@@ -578,14 +580,14 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 		}
 		switch observedMemberState(member.LifecycleState) {
 		case memberStateFailed:
-			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
+			return false, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot host a volume"}
 		case memberStateUnknown:
-			return false, &InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
 		case memberStateAbsent:
 			continue
 		}
 		if _, duplicate := members[member.Index]; duplicate {
-			return false, &InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
+			return false, &provider.InvalidDataError{Message: "multiple instances occupy declared member slot " + strconv.Itoa(member.Index)}
 		}
 		members[member.Index] = member
 	}
@@ -606,7 +608,7 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 			// declaring a data-loss failure.
 			continue
 		case volumeStateUnknown:
-			return false, &InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed volume " + volume.DisplayName + " has an unusable lifecycle state"}
 		case volumeStateAbsent:
 			continue
 		}
@@ -614,7 +616,7 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 			return false, nil
 		}
 		if _, duplicate := volumes[volume.DisplayName]; duplicate {
-			return false, &InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
+			return false, &provider.InvalidDataError{Message: "multiple volumes share the declared name " + volume.DisplayName}
 		}
 		volumes[volume.DisplayName] = volume
 	}
@@ -623,7 +625,7 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 		state := observedAttachmentState(attachment.LifecycleState)
 		volumeName := volumeNameByID(observed, attachment.VolumeID)
 		if volumeName == "" && state != attachmentStateAbsent {
-			return false, &InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
+			return false, &provider.InvalidDataError{Message: "observed attachment " + attachment.ID + " refers to an unknown volume"}
 		}
 		if !declaredVolumeName(declared, volumeName) {
 			if state == attachmentStatePending {
@@ -638,14 +640,14 @@ func (r *BlockStorageReconciler) bootstrapConverged(value, declaration any) (boo
 		case attachmentStatePending:
 			return false, nil
 		case attachmentStateFailed:
-			return false, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
+			return false, &provider.InvalidDataError{Message: "observed volume attachment " + attachment.ID + " failed and cannot be used"}
 		case attachmentStateUnknown:
-			return false, &InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
+			return false, &provider.InvalidDataError{Message: "observed volume attachment " + attachment.ID + " has an unusable lifecycle state"}
 		case attachmentStateAbsent:
 			continue
 		}
 		if _, duplicate := attachments[attachment.VolumeID]; duplicate {
-			return false, &InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
+			return false, &provider.InvalidDataError{Message: "multiple attachments exist for volume " + attachment.VolumeID}
 		}
 		attachments[attachment.VolumeID] = attachment
 	}
@@ -678,7 +680,7 @@ func declaredVolumeName(region estate.Region, name string) bool {
 
 func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Region, observed BlockStorageObserved, plan OCIPlan) error {
 	if r == nil || r.Block == nil {
-		return &InvalidOperationError{Message: "block storage reconciler is unavailable"}
+		return &provider.InvalidOperationError{Message: "block storage reconciler is unavailable"}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
@@ -690,21 +692,21 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 		switch a := action.(type) {
 		case CreateVolumeAction:
 			if !declaredVolumeName(declared, a.Spec.DisplayName) {
-				return &InvalidOperationError{Message: "volume create action is outside the declared volume namespace"}
+				return &provider.InvalidOperationError{Message: "volume create action is outside the declared volume namespace"}
 			}
 			if _, err := r.Block.CreateVolume(ctx, a.Spec); err != nil {
 				return blockMutationError(ctx, err)
 			}
 		case ExpandVolumeAction:
 			if !ownedVolumeID(observed, a.VolumeID, declared.Code) {
-				return &InvalidOperationError{Message: "volume expansion requires positively owned observed volume"}
+				return &provider.InvalidOperationError{Message: "volume expansion requires positively owned observed volume"}
 			}
 			if err := r.Block.ExpandVolume(ctx, a.VolumeID, a.NewSizeGiB); err != nil {
 				return blockMutationError(ctx, err)
 			}
 		case AttachVolumeAction:
 			if !ownedMemberID(observed, a.InstanceID, declared.Code) || !ownedVolumeID(observed, a.VolumeID, declared.Code) {
-				return &InvalidOperationError{Message: "volume attachment requires positively owned member and volume"}
+				return &provider.InvalidOperationError{Message: "volume attachment requires positively owned member and volume"}
 			}
 			if _, err := r.Block.AttachVolume(ctx, a.InstanceID, a.VolumeID, ""); err != nil {
 				return blockMutationError(ctx, err)
@@ -715,7 +717,7 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 			}
 		case ReplaceVolumeAction:
 			if a.OldVolumeID == "" || a.InstanceID == "" || a.Spec.DisplayName == "" || a.Spec.SizeGiB == 0 || a.Spec.AvailabilityDomain == "" || a.Spec.KMSKeyID == "" || a.Spec.RetryToken == "" {
-				return &InvalidOperationError{Message: "volume replacement action is incomplete"}
+				return &provider.InvalidOperationError{Message: "volume replacement action is incomplete"}
 			}
 			var oldVolume bool
 			for _, volume := range observed.Volumes {
@@ -725,10 +727,10 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				}
 			}
 			if !oldVolume {
-				return &InvalidOperationError{Message: "volume replacement action is stale"}
+				return &provider.InvalidOperationError{Message: "volume replacement action is stale"}
 			}
 			if !ownedMemberID(observed, a.InstanceID, declared.Code) {
-				return &InvalidOperationError{Message: "volume replacement requires a positively owned member"}
+				return &provider.InvalidOperationError{Message: "volume replacement requires a positively owned member"}
 			}
 			if a.OldAttachmentID != "" {
 				found := false
@@ -739,7 +741,7 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 					}
 				}
 				if !found {
-					return &InvalidOperationError{Message: "volume replacement attachment is stale"}
+					return &provider.InvalidOperationError{Message: "volume replacement attachment is stale"}
 				}
 			}
 			created, err := r.Block.CreateVolume(ctx, a.Spec)
@@ -747,7 +749,7 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				return blockMutationError(ctx, err)
 			}
 			if created.ID == "" {
-				return &ProviderOutcomeUnknownError{Message: "volume replacement create returned no identity"}
+				return &provider.ProviderOutcomeUnknownError{Message: "volume replacement create returned no identity"}
 			}
 			if observedVolumeState(created.LifecycleState) == volumeStatePending {
 				// OCI creates are asynchronous. The old attachment remains in
@@ -756,7 +758,7 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				return nil
 			}
 			if observedVolumeState(created.LifecycleState) != volumeStateActive {
-				return &ProviderOutcomeUnknownError{Message: "volume replacement create has an unconfirmed lifecycle state"}
+				return &provider.ProviderOutcomeUnknownError{Message: "volume replacement create has an unconfirmed lifecycle state"}
 			}
 			if _, err := r.Block.AttachVolume(ctx, a.InstanceID, created.ID, a.Spec.DisplayName); err != nil {
 				return blockMutationError(ctx, err)
@@ -767,14 +769,14 @@ func (r *BlockStorageReconciler) Apply(ctx context.Context, declared estate.Regi
 				}
 			}
 		default:
-			return &InvalidOperationError{Message: "block storage reconciler received a foreign action"}
+			return &provider.InvalidOperationError{Message: "block storage reconciler received a foreign action"}
 		}
 	}
 	return nil
 }
 
 func volumeOwnedInRegion(volume ObservedVolume, region string) bool {
-	return isOCID(volume.ID, "volume") && positiveOCIOwnership(volume.FreeformTags, "volume", region) &&
+	return provider.IsOCID(volume.ID, "volume") && provider.HasOCIOwnershipTags(volume.FreeformTags, "volume", region) &&
 		volume.DisplayName == DataVolumeName(region, volumeSlot(volume.DisplayName))
 }
 
@@ -797,7 +799,7 @@ func volumeSlot(name string) int {
 }
 
 func attachmentOwned(attachment ObservedAttachment, observed BlockStorageObserved, region string) bool {
-	if !isOCID(attachment.ID, "volumeattachment") || !isOCID(attachment.InstanceID, "instance") || !isOCID(attachment.VolumeID, "volume") {
+	if !provider.IsOCID(attachment.ID, "volumeattachment") || !provider.IsOCID(attachment.InstanceID, "instance") || !provider.IsOCID(attachment.VolumeID, "volume") {
 		return false
 	}
 	if attachment.Managed {
@@ -836,10 +838,10 @@ func (r *BlockStorageReconciler) detachOwnedAttachment(ctx context.Context, regi
 		}
 	}
 	if !found || !attachmentOwned(expected, observed, region) {
-		return &InvalidOperationError{Message: "attachment detach requires positively owned observed attachment"}
+		return &provider.InvalidOperationError{Message: "attachment detach requires positively owned observed attachment"}
 	}
 	if gateway, ok := r.Block.(*OCIBlockStorageGateway); ok && gateway != nil && expected.CompartmentID != gateway.CompartmentID {
-		return &InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
+		return &provider.InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
 	}
 	current, err := r.Block.ListAttachments(ctx)
 	if err != nil {
@@ -859,10 +861,10 @@ func (r *BlockStorageReconciler) detachOwnedAttachment(ctx context.Context, regi
 			continue
 		}
 		if !attachmentOwned(attachment, currentParents, region) || !sameObservedAttachment(attachment, expected) || !parentsUnchanged(expected, observed, currentParents, region) {
-			return &InvalidOperationError{Message: "refusing stale or ownership-changed attachment detach"}
+			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed attachment detach"}
 		}
 		if gateway, ok := r.Block.(*OCIBlockStorageGateway); ok && gateway != nil && attachment.CompartmentID != gateway.CompartmentID {
-			return &InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
+			return &provider.InvalidOperationError{Message: "attachment detach is outside the gateway compartment"}
 		}
 		return r.Block.DetachAttachment(ctx, id)
 	}
@@ -919,8 +921,8 @@ func blockMutationError(ctx context.Context, err error) error {
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if indeterminate(err) {
-		return &ProviderOutcomeUnknownError{Message: "block storage mutation outcome is unknown; reconcile after observation"}
+	if provider.IsOutcomeIndeterminate(err) {
+		return &provider.ProviderOutcomeUnknownError{Message: "block storage mutation outcome is unknown; reconcile after observation"}
 	}
 	return err
 }
@@ -928,18 +930,18 @@ func blockMutationError(ctx context.Context, err error) error {
 // OCIBlockStorageGateway is the real block-volume gateway over the signed
 // core-service transport.
 type OCIBlockStorageGateway struct {
-	Core          *OCIHTTPTransport
+	Core          *provider.OCIHTTPTransport
 	CompartmentID string
 }
 
 var _ BlockStorageGateway = (*OCIBlockStorageGateway)(nil)
 
 // NewOCIBlockStorageGateway validates the compartment scope.
-func NewOCIBlockStorageGateway(core *OCIHTTPTransport, compartmentID string) (*OCIBlockStorageGateway, error) {
-	if core == nil || core.Config.Service != OCIServiceCore {
+func NewOCIBlockStorageGateway(core *provider.OCIHTTPTransport, compartmentID string) (*OCIBlockStorageGateway, error) {
+	if core == nil || core.Config.Service != provider.OCIServiceCore {
 		return nil, &errs.Argument{Message: "block storage gateway requires the OCI core transport"}
 	}
-	if !isOCID(compartmentID, "compartment") {
+	if !provider.IsOCID(compartmentID, "compartment") {
 		return nil, &errs.Argument{Message: "block storage gateway requires a compartment identity"}
 	}
 	return &OCIBlockStorageGateway{Core: core, CompartmentID: compartmentID}, nil
@@ -964,16 +966,16 @@ type ociVolumeDocument struct {
 func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	list, err := readOCIResourceList[ociVolumeDocument](ctx, g.Core, "/20160918/volumes", query, func(item ociVolumeDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociVolumeDocument](ctx, g.Core, "/20160918/volumes", query, func(item ociVolumeDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
 	volumes := make([]ObservedVolume, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "volume") {
-			return nil, &InvalidDataError{Message: "OCI volume response is invalid"}
+		if !provider.IsOCID(item.ID, "volume") {
+			return nil, &provider.InvalidDataError{Message: "OCI volume response is invalid"}
 		}
-		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, KMSKeyID: item.KMSKeyID, UtilizationPercent: item.UtilizationPercent, HealthState: item.HealthState, BackupVerified: item.BackupVerified, ReplicaCount: item.ReplicaCount, CompartmentID: item.CompartmentID, FreeformTags: copyOCITags(item.FreeformTags)})
+		volumes = append(volumes, ObservedVolume{ID: item.ID, DisplayName: item.DisplayName, SizeGiB: item.SizeInGBs, VPUsPerGiB: item.VPUsPerGB, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, KMSKeyID: item.KMSKeyID, UtilizationPercent: item.UtilizationPercent, HealthState: item.HealthState, BackupVerified: item.BackupVerified, ReplicaCount: item.ReplicaCount, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
 	}
 	return volumes, nil
 }
@@ -981,7 +983,7 @@ func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVol
 func (g *OCIBlockStorageGateway) CreateVolume(ctx context.Context, spec VolumeSpec) (ObservedVolume, error) {
 	if !validEstateName(spec.DisplayName) || spec.SizeGiB == 0 || spec.SizeGiB > 16<<20 ||
 		spec.VPUsPerGiB == 0 || spec.VPUsPerGiB > 120 || len(spec.AvailabilityDomain) == 0 || len(spec.AvailabilityDomain) > 128 ||
-		(spec.RetryToken != "" && (len(spec.RetryToken) > 96 || !tokenPattern.MatchString(spec.RetryToken))) {
+		(spec.RetryToken != "" && (len(spec.RetryToken) > 96 || !provider.ValidToken(spec.RetryToken))) {
 		return ObservedVolume{}, &errs.Argument{Message: "volume create request is invalid"}
 	}
 	var document ociVolumeDocument
@@ -1000,14 +1002,14 @@ func (g *OCIBlockStorageGateway) CreateVolume(ctx context.Context, spec VolumeSp
 	}{CompartmentID: g.CompartmentID, AvailabilityDomain: spec.AvailabilityDomain, DisplayName: spec.DisplayName, SizeInGBs: spec.SizeGiB, VPUsPerGB: spec.VPUsPerGiB, KMSKeyID: spec.KMSKeyID, FreeformTags: volumeOwnershipTags(spec.DisplayName)}, map[string]string{"opc-retry-token": retryToken}, &document); err != nil {
 		return ObservedVolume{}, err
 	}
-	if !isOCID(document.ID, "volume") {
-		return ObservedVolume{}, &InvalidDataError{Message: "OCI volume create response is invalid"}
+	if !provider.IsOCID(document.ID, "volume") {
+		return ObservedVolume{}, &provider.InvalidDataError{Message: "OCI volume create response is invalid"}
 	}
-	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain, KMSKeyID: document.KMSKeyID, UtilizationPercent: document.UtilizationPercent, HealthState: document.HealthState, BackupVerified: document.BackupVerified, ReplicaCount: document.ReplicaCount, CompartmentID: document.CompartmentID, FreeformTags: copyOCITags(document.FreeformTags)}, nil
+	return ObservedVolume{ID: document.ID, DisplayName: document.DisplayName, SizeGiB: document.SizeInGBs, VPUsPerGiB: document.VPUsPerGB, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain, KMSKeyID: document.KMSKeyID, UtilizationPercent: document.UtilizationPercent, HealthState: document.HealthState, BackupVerified: document.BackupVerified, ReplicaCount: document.ReplicaCount, CompartmentID: document.CompartmentID, FreeformTags: provider.CopyOCITags(document.FreeformTags)}, nil
 }
 
 func (g *OCIBlockStorageGateway) ExpandVolume(ctx context.Context, volumeID string, sizeGiB uint64) error {
-	if !isOCID(volumeID, "volume") || sizeGiB == 0 || sizeGiB > 16<<20 {
+	if !provider.IsOCID(volumeID, "volume") || sizeGiB == 0 || sizeGiB > 16<<20 {
 		return &errs.Argument{Message: "volume expand request is invalid"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPut, "/20160918/volumes/"+url.PathEscape(volumeID), struct {
@@ -1025,14 +1027,14 @@ type ociAttachmentDocument struct {
 func (g *OCIBlockStorageGateway) ListAttachments(ctx context.Context) ([]ObservedAttachment, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	list, err := readOCIResourceList[ociAttachmentDocument](ctx, g.Core, "/20160918/volumeAttachments", query, func(item ociAttachmentDocument) string { return item.ID })
+	list, err := provider.ReadOCIResourceList[ociAttachmentDocument](ctx, g.Core, "/20160918/volumeAttachments", query, func(item ociAttachmentDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
 	attachments := make([]ObservedAttachment, 0, len(list))
 	for _, item := range list {
-		if !isOCID(item.ID, "volumeattachment") || !isOCID(item.InstanceID, "instance") || !isOCID(item.VolumeID, "volume") {
-			return nil, &InvalidDataError{Message: "OCI volume attachment response is invalid"}
+		if !provider.IsOCID(item.ID, "volumeattachment") || !provider.IsOCID(item.InstanceID, "instance") || !provider.IsOCID(item.VolumeID, "volume") {
+			return nil, &provider.InvalidDataError{Message: "OCI volume attachment response is invalid"}
 		}
 		attachments = append(attachments, ObservedAttachment{ID: item.ID, InstanceID: item.InstanceID, VolumeID: item.VolumeID, LifecycleState: item.LifecycleState, CompartmentID: g.CompartmentID})
 	}
@@ -1040,7 +1042,7 @@ func (g *OCIBlockStorageGateway) ListAttachments(ctx context.Context) ([]Observe
 }
 
 func (g *OCIBlockStorageGateway) AttachVolume(ctx context.Context, instanceID, volumeID, displayName string) (ObservedAttachment, error) {
-	if !isOCID(instanceID, "instance") || !isOCID(volumeID, "volume") {
+	if !provider.IsOCID(instanceID, "instance") || !provider.IsOCID(volumeID, "volume") {
 		return ObservedAttachment{}, &errs.Argument{Message: "volume attach request is invalid"}
 	}
 	if displayName == "" {
@@ -1057,14 +1059,14 @@ func (g *OCIBlockStorageGateway) AttachVolume(ctx context.Context, instanceID, v
 	}{CompartmentID: g.CompartmentID, InstanceID: instanceID, VolumeID: volumeID, AttachmentTyp: "iscsi", DisplayName: displayName}, map[string]string{"opc-retry-token": instanceID + "/" + volumeID}, &document); err != nil {
 		return ObservedAttachment{}, err
 	}
-	if !isOCID(document.ID, "volumeattachment") {
-		return ObservedAttachment{}, &InvalidDataError{Message: "OCI volume attach response is invalid"}
+	if !provider.IsOCID(document.ID, "volumeattachment") {
+		return ObservedAttachment{}, &provider.InvalidDataError{Message: "OCI volume attach response is invalid"}
 	}
 	return ObservedAttachment{ID: document.ID, InstanceID: document.InstanceID, VolumeID: document.VolumeID, LifecycleState: document.LifecycleState, Managed: true, CompartmentID: g.CompartmentID}, nil
 }
 
 func (g *OCIBlockStorageGateway) DetachAttachment(ctx context.Context, attachmentID string) error {
-	if !isOCID(attachmentID, "volumeattachment") {
+	if !provider.IsOCID(attachmentID, "volumeattachment") {
 		return &errs.Argument{Message: "attachment detach request is invalid"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodDelete, "/20160918/volumeAttachments/"+url.PathEscape(attachmentID), nil, nil, nil)
@@ -1083,5 +1085,5 @@ func volumeOwnershipTags(name string) map[string]string {
 	if i := strings.LastIndexByte(region, '-'); i >= 0 {
 		region = region[:i]
 	}
-	return map[string]string{OCIManagedTag: "volume", OCIScopeTag: region}
+	return map[string]string{provider.OCIManagedTag: "volume", provider.OCIScopeTag: region}
 }

@@ -34,7 +34,7 @@ var tokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 var nativePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/=+@-]{0,255}$`)
 
 func canonicalToken(value, param string) (string, error) {
-	if len(value) < 1 || len(value) > 96 || !tokenPattern.MatchString(value) {
+	if len(value) < 1 || len(value) > 96 || !ValidToken(value) {
 		return "", &errs.Argument{Param: param, Message: "provider identity must be a bounded canonical token"}
 	}
 	return value, nil
@@ -749,3 +749,6 @@ func newFingerprint(items []HandoffInventoryItem) HandoffInventoryFingerprint {
 	return HandoffInventoryFingerprint{digestProjection(items)}
 }
 func (s HandoffScope) Fingerprint() string { return s.InventoryFingerprint.Value }
+
+// ValidToken reports whether a provider token uses the canonical identifier grammar.
+func ValidToken(value string) bool { return tokenPattern.MatchString(value) }

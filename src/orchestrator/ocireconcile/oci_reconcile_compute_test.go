@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -100,7 +102,7 @@ func (f *fakeComputeGateway) addMember(id string, index int, shape, state string
 }
 
 func testMemberOwnershipTags(region string) map[string]string {
-	return map[string]string{OCIManagedTag: ManagedMemberTagValue, OCIScopeTag: region}
+	return map[string]string{provider.OCIManagedTag: ManagedMemberTagValue, provider.OCIScopeTag: region}
 }
 
 func testOwnedMember(region string, index int, shape, state, availabilityDomain string) ObservedMember {
@@ -271,7 +273,7 @@ func TestComputeApplyRefusesCrossArchFallbackWithoutImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = reconciler.Apply(ctx, declared, testComputeObserved(), plan)
-	var invalid *InvalidDataError
+	var invalid *provider.InvalidDataError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("Apply without an amd64 image = %v, want InvalidDataError", err)
 	}
@@ -490,7 +492,7 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 	var requestBody map[string]any
 	var retryToken string
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+	transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost || request.URL.Path != "/20160918/instances" {
 			t.Fatalf("unexpected launch request %s %s", request.Method, request.URL.String())
 		}

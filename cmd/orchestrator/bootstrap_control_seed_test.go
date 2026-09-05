@@ -19,7 +19,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
@@ -92,7 +92,7 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 	hostSeed := bootstrapControlHostSeed{HostID: "gru-1", NATS: bootstrapControlCredentials{URL: "tls://nats.example:4222", CAFile: write("ca.pem", certificatePEM), CertificateFile: write("client.pem", certificatePEM), PrivateKeyFile: write("client.key", privatePEM), NKeySeedFile: write("user.seed", seed)}, PrivateKeySecretID: "ocid1.vaultsecret.oc1.test.client", PrivateKeyVersion: 1, NKeySecretID: "ocid1.vaultsecret.oc1.test.user", NKeyVersion: 2, CommandTrust: []bootstrapHostTrustReference{{CandidateID: "gru-controller-gru-1", PublicKeyFile: runtimePath}}}
 	loaded := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "gru", OCIRegion: "sa-saopaulo-1", MemberCount: 1, CommandCandidateID: "gru-controller-gru-1"}}, Members: []bootstrapControlMember{{HostID: "gru-1", Region: "gru", Index: 1}}, Seeds: []bootstrapControlHostSeed{hostSeed}, Activations: []bootstrapControlActivation{{HostID: "gru-1", OwnerPublicKeyFile: publicPath}}}, activations: map[string]loadedControlActivation{"gru-1": activation}, signers: map[string]*security.CommandSignatureSigner{"gru": runtimeSigner}}
 	lookup := func(key string) (string, bool) {
-		values := map[string]string{provider.TSNodeVersionEnvironment: "1.2.3", provider.TSNodeSHA256Environment: strings.Repeat("ab", 32), provider.TSNodeURLEnvironment: "https://releases.terrascale.tech/ts-node", bootstrapReleaseKeyEnvironment: hex.EncodeToString(bytes.Repeat([]byte{1}, 32))}
+		values := map[string]string{ocireconcile.TSNodeVersionEnvironment: "1.2.3", ocireconcile.TSNodeSHA256Environment: strings.Repeat("ab", 32), ocireconcile.TSNodeURLEnvironment: "https://releases.terrascale.tech/ts-node", bootstrapReleaseKeyEnvironment: hex.EncodeToString(bytes.Repeat([]byte{1}, 32))}
 		value, ok := values[key]
 		return value, ok
 	}

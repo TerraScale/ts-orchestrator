@@ -25,7 +25,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 )
 
 // bootstrapStages is the converge order one bootstrap run follows: the OCI
@@ -49,18 +49,18 @@ const (
 // needs. Credential material is resolved only by the real run, loudly, from
 // its own variables.
 var bootstrapInputs = []string{
-	provider.OCITenancyEnvironment,
-	provider.OCIImageEnvironment,
+	ocireconcile.OCITenancyEnvironment,
+	ocireconcile.OCIImageEnvironment,
 	bootstrapAvailabilityDomainsEnvironment,
-	provider.TSNodeURLEnvironment,
-	provider.TSNodeSHA256Environment,
+	ocireconcile.TSNodeURLEnvironment,
+	ocireconcile.TSNodeSHA256Environment,
 	bootstrapReleaseKeyEnvironment,
 }
 
 // runBootstrapOCI is the OCI provider boundary for the estate stages; a
 // variable so command tests can prove ordering without provider credentials.
 // The reconcilers themselves are never replaced.
-var runBootstrapOCI = provider.RunOCIBootstrapFromEnvironment
+var runBootstrapOCI = ocireconcile.RunOCIBootstrapFromEnvironment
 
 // bootstrapControlMachineFactory composes the durable, fenced control state
 // machine from reviewed declarations and owner credential references.
@@ -158,15 +158,15 @@ func bootstrapConfigFromEnv(lookup envLookup) (bootstrap.BootstrapConfig, error)
 	if err != nil {
 		return bootstrap.BootstrapConfig{}, err
 	}
-	artifactURL := values[provider.TSNodeURLEnvironment]
+	artifactURL := values[ocireconcile.TSNodeURLEnvironment]
 	config := bootstrap.DefaultBootstrapConfig()
-	config.TenancyID = values[provider.OCITenancyEnvironment]
-	config.ImageID = values[provider.OCIImageEnvironment]
+	config.TenancyID = values[ocireconcile.OCITenancyEnvironment]
+	config.ImageID = values[ocireconcile.OCIImageEnvironment]
 	config.AvailabilityDomains = domains
 	config.CloudInit = bootstrap.CloudInitConfig{
 		ArtifactURL:        artifactURL,
 		SignatureURL:       artifactURL + ".sig",
-		SHA256:             values[provider.TSNodeSHA256Environment],
+		SHA256:             values[ocireconcile.TSNodeSHA256Environment],
 		SignaturePublicKey: values[bootstrapReleaseKeyEnvironment],
 	}
 	if err := config.Validate(); err != nil {
@@ -255,7 +255,7 @@ func renderBootstrapRunbook(lookup envLookup, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	region, err := provider.DefaultBootstrapRegion()
+	region, err := ocireconcile.DefaultBootstrapRegion()
 	if err != nil {
 		return err
 	}
@@ -349,7 +349,7 @@ func runBootstrapProvision(ctx context.Context, lookup envLookup, output io.Writ
 	if lookup == nil {
 		return errors.New("bootstrap: environment lookup is nil")
 	}
-	region, err := provider.DefaultBootstrapRegion()
+	region, err := ocireconcile.DefaultBootstrapRegion()
 	if err != nil {
 		return err
 	}

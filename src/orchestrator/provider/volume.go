@@ -45,7 +45,7 @@ type VolumeTransport interface {
 type HTTPVolumeTransport struct{ OCI *OCIHTTPTransport }
 
 func (t HTTPVolumeTransport) GetVolume(ctx context.Context, r VolumeReadRequest) (*VolumeObservation, error) {
-	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") {
+	if t.OCI == nil || !IsOCID(r.VolumeId.Value, "volume") || !IsOCID(r.CompartmentId.Value, "compartment") {
 		return nil, &errs.Argument{Message: "volume read identity is invalid"}
 	}
 	resp, err := t.OCI.Do(ctx, http.MethodGet, "/20160918/volumes/"+url.PathEscape(r.VolumeId.Value), nil)
@@ -55,7 +55,7 @@ func (t HTTPVolumeTransport) GetVolume(ctx context.Context, r VolumeReadRequest)
 	return DecodeVolumeResponse(resp)
 }
 func (t HTTPVolumeTransport) UpdateVolume(ctx context.Context, r VolumeUpdateRequest) (*VolumeObservation, error) {
-	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") || !isSafeETag(r.IfMatch) || r.NewSize.Value == 0 || r.NewSize.Value%BytesPerGiB != 0 {
+	if t.OCI == nil || !IsOCID(r.VolumeId.Value, "volume") || !IsOCID(r.CompartmentId.Value, "compartment") || !isSafeETag(r.IfMatch) || r.NewSize.Value == 0 || r.NewSize.Value%BytesPerGiB != 0 {
 		return nil, &errs.Argument{Message: "volume update request is invalid"}
 	}
 	payload := struct {
@@ -116,7 +116,7 @@ func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent Provider
 		return VolumeExpansionResult{}, &InvalidOperationError{Message: "volume expansion intent is not exact"}
 	}
 	t, ok := c.Target.(ExistingProviderResource)
-	if !ok || !isOCID(t.Id.Value, "volume") || !isOCID(c.CompartmentId.Value, "compartment") || s.Transport == nil {
+	if !ok || !IsOCID(t.Id.Value, "volume") || !IsOCID(c.CompartmentId.Value, "compartment") || s.Transport == nil {
 		return VolumeExpansionResult{}, &InvalidOperationError{Message: "volume expansion target or scope is invalid"}
 	}
 	req := VolumeReadRequest{t.Id, c.CompartmentId}
@@ -144,7 +144,7 @@ func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent Provider
 	if err == nil && updated != nil && updated.VolumeId == t.Id && updated.CompartmentId == c.CompartmentId && updated.Size.Value >= target.Value && updated.ETag != "" {
 		return converged(c.IdempotencyKey, *updated), nil
 	}
-	if err != nil && !indeterminate(err) {
+	if err != nil && !IsOutcomeIndeterminate(err) {
 		return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, ObservedSize: obs.Size, ObservedETag: obs.ETag, CleanupNone: true}, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -168,7 +168,7 @@ func converged(k ProviderIdempotencyKey, o VolumeObservation) VolumeExpansionRes
 
 var _ BlockVolumeExpansionProvider = BlockVolumeExpansionAdapter{}
 
-func isOCID(v, kind string) bool {
+func IsOCID(v, kind string) bool {
 	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") || strings.Count(v, ".") < 3 {
 		return false
 	}
@@ -193,7 +193,7 @@ func isOCID(v, kind string) bool {
 	}
 	return true
 }
-func indeterminate(err error) bool {
+func IsOutcomeIndeterminate(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error)) || errors.As(err, new(*ProviderOutcomeUnknownError))
 }
 
@@ -223,7 +223,7 @@ const (
 	OCIServiceCertificates    OCIService = "certificates"
 )
 
-func ociServiceHost(service OCIService, region string) (string, bool) {
+func OCIServiceHost(service OCIService, region string) (string, bool) {
 	switch service {
 	case "", OCIServiceCore:
 		return "iaas." + region + ".oraclecloud.com", true
@@ -243,7 +243,7 @@ func ociServiceHost(service OCIService, region string) (string, bool) {
 }
 
 func validOCIServiceHost(service OCIService, region, host string) bool {
-	expected, ok := ociServiceHost(service, region)
+	expected, ok := OCIServiceHost(service, region)
 	if !ok {
 		return false
 	}
@@ -269,10 +269,10 @@ func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) 
 
 func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (OCITransportConfig, error) {
 	region = strings.TrimSpace(region)
-	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
+	if len(region) < 1 || len(region) > 63 || !ValidOCIRegion(region) {
 		return OCITransportConfig{}, &errs.Argument{Message: "configured OCI region is not canonical"}
 	}
-	_, ok := ociServiceHost(service, region)
+	_, ok := OCIServiceHost(service, region)
 	if !ok {
 		return OCITransportConfig{}, &errs.Argument{Message: "OCI service is invalid"}
 	}
@@ -295,8 +295,8 @@ type OCIHTTPTransport struct {
 }
 
 func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer RequestSigner) (*OCIHTTPTransport, error) {
-	_, serviceOK := ociServiceHost(config.Service, config.Region)
-	if len(config.Region) < 1 || len(config.Region) > 63 || !regionPattern.MatchString(config.Region) ||
+	_, serviceOK := OCIServiceHost(config.Service, config.Region)
+	if len(config.Region) < 1 || len(config.Region) > 63 || !ValidOCIRegion(config.Region) ||
 		config.Endpoint == nil || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
 		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
 		config.Endpoint.Opaque != "" || config.Endpoint.RawPath != "" ||
@@ -469,7 +469,7 @@ func DecodeVolumeResponse(resp *http.Response) (*VolumeObservation, error) {
 		return nil, &InvalidDataError{Message: "OCI volume request failed"}
 	}
 	var v ociVolumeResponse
-	if json.Unmarshal(body, &v) != nil || !isOCID(v.Id, "volume") || !isOCID(v.CompartmentId, "compartment") || v.SizeInGBs <= 0 || uint64(v.SizeInGBs) > math.MaxUint64/BytesPerGiB || !isSafeETag(resp.Header.Get("ETag")) {
+	if json.Unmarshal(body, &v) != nil || !IsOCID(v.Id, "volume") || !IsOCID(v.CompartmentId, "compartment") || v.SizeInGBs <= 0 || uint64(v.SizeInGBs) > math.MaxUint64/BytesPerGiB || !isSafeETag(resp.Header.Get("ETag")) {
 		return nil, nil
 	}
 	return &VolumeObservation{ProviderResourceId{v.Id}, ProviderCompartmentId{v.CompartmentId}, ProviderByteCount{uint64(v.SizeInGBs) * BytesPerGiB}, resp.Header.Get("ETag")}, nil
@@ -477,3 +477,6 @@ func DecodeVolumeResponse(resp *http.Response) (*VolumeObservation, error) {
 func isSafeETag(v string) bool {
 	return len(v) > 0 && len(v) <= 256 && !strings.ContainsAny(v, "\r\n") && strings.TrimSpace(v) != ""
 }
+
+// ValidOCIRegion reports whether a region uses the canonical OCI region grammar.
+func ValidOCIRegion(value string) bool { return regionPattern.MatchString(value) }

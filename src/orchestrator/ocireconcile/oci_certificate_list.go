@@ -1,4 +1,6 @@
-package provider
+package ocireconcile
+
+import "terrascale.tech/orchestrator/src/orchestrator/provider"
 
 import (
 	"context"
@@ -20,10 +22,10 @@ func (g *OCICertificatesGateway) listCertificateSummaries(ctx context.Context) (
 		if err != nil {
 			return nil, err
 		}
-		if err := ociStatus(response, "certificate listing"); err != nil {
+		if err := provider.CheckOCIStatus(response, "certificate listing"); err != nil {
 			return nil, err
 		}
-		raw, err := ReadBoundedBody(response, g.Certs.Config.MaxBodyBytes)
+		raw, err := provider.ReadBoundedBody(response, g.Certs.Config.MaxBodyBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -31,11 +33,11 @@ func (g *OCICertificatesGateway) listCertificateSummaries(ctx context.Context) (
 			Items []ociCertSummaryDocument `json:"items"`
 		}
 		if json.Unmarshal(raw, &collection) != nil || collection.Items == nil || len(result)+len(collection.Items) > g.MaxListed {
-			return nil, &InvalidDataError{Message: "OCI certificate collection exceeds its bound or is invalid"}
+			return nil, &provider.InvalidDataError{Message: "OCI certificate collection exceeds its bound or is invalid"}
 		}
 		for _, item := range collection.Items {
 			if item.ID == "" || seenIDs[item.ID] {
-				return nil, &InvalidDataError{Message: "OCI certificate collection repeats an identity"}
+				return nil, &provider.InvalidDataError{Message: "OCI certificate collection repeats an identity"}
 			}
 			seenIDs[item.ID] = true
 		}
@@ -45,10 +47,10 @@ func (g *OCICertificatesGateway) listCertificateSummaries(ctx context.Context) (
 			return result, nil
 		}
 		if len(next) > 4096 || strings.ContainsAny(next, "\r\n\x00") || seenPages[next] {
-			return nil, &InvalidDataError{Message: "OCI certificate pagination is invalid"}
+			return nil, &provider.InvalidDataError{Message: "OCI certificate pagination is invalid"}
 		}
 		seenPages[next] = true
 		query.Set("page", next)
 	}
-	return nil, &InvalidDataError{Message: "OCI certificate pagination exceeds its bound"}
+	return nil, &provider.InvalidDataError{Message: "OCI certificate pagination exceeds its bound"}
 }

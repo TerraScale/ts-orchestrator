@@ -105,7 +105,7 @@ func validateMutationIntent(intent ProviderMutationIntent) error {
 		return &errs.Argument{Message: "provider mutation intent is incomplete"}
 	}
 	if len(intent.Scope) < 1 || len(intent.Scope) > 512 || strings.ContainsAny(intent.Scope, "\r\n") ||
-		len(intent.Action) < 1 || len(intent.Action) > 96 || !tokenPattern.MatchString(intent.Action) {
+		len(intent.Action) < 1 || len(intent.Action) > 96 || !ValidToken(intent.Action) {
 		return &errs.Argument{Message: "provider mutation intent identity is invalid"}
 	}
 	if len(intent.Fingerprint) != sha256.Size*2 {
@@ -250,7 +250,7 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 	if err := validateMutationIntent(intent); err != nil {
 		return ProviderMutationRecord{}, err
 	}
-	if failure != "" && (len(failure) > 96 || !tokenPattern.MatchString(failure)) {
+	if failure != "" && (len(failure) > 96 || !ValidToken(failure)) {
 		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation failure code is invalid"}
 	}
 	if len(result.ResourceID) > 2048 || len(result.WorkRequestID) > 256 || len(result.ETag) > 512 ||
@@ -554,21 +554,21 @@ type WorkRequestProvider interface {
 }
 
 func mutationResultInstance(result ProviderMutationResult) (ComputeInstance, error) {
-	if !isOCID(result.ResourceID, "instance") {
+	if !IsOCID(result.ResourceID, "instance") {
 		return ComputeInstance{}, &InvalidDataError{Message: "durable compute result is invalid"}
 	}
 	return ComputeInstance{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil
 }
 
 func mutationResultVolume(result ProviderMutationResult) (BlockVolume, error) {
-	if !isOCID(result.ResourceID, "volume") {
+	if !IsOCID(result.ResourceID, "volume") {
 		return BlockVolume{}, &InvalidDataError{Message: "durable volume result is invalid"}
 	}
 	return BlockVolume{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil
 }
 
 func mutationResultAttachment(result ProviderMutationResult) (VolumeAttachment, error) {
-	if !isOCID(result.ResourceID, "volumeattachment") {
+	if !IsOCID(result.ResourceID, "volumeattachment") {
 		return VolumeAttachment{}, &InvalidDataError{Message: "durable attachment result is invalid"}
 	}
 	return VolumeAttachment{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil

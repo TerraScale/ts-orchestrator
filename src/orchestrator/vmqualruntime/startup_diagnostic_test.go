@@ -101,6 +101,11 @@ func TestStartupDiagnosticTimeoutStillStops(t *testing.T) {
 }
 
 func TestStartupJournalLimitsAndCategories(t *testing.T) {
+	var engine startupServiceDiagnostic
+	parseStartupJournal(&engine, []byte(`{"MESSAGE":"Error: MissingConfigurationPath","PRIORITY":"3"}`))
+	if len(engine.Categories) != 1 || engine.Categories[0] != "terrabase-configuration-missing" {
+		t.Fatalf("engine category lost: %+v", engine)
+	}
 	var composition startupServiceDiagnostic
 	parseStartupJournal(&composition, []byte(`{"MESSAGE":"orchestrator: production runtime requires configured estate publisher, key rotation, free-tier reaper, restore drill, and delivery mirror adapters","PRIORITY":"3"}`))
 	if len(composition.Categories) != 1 || composition.Categories[0] != "production-composition-missing" {

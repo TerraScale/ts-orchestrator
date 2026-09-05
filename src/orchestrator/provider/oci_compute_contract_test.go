@@ -45,7 +45,7 @@ func TestInstancePrincipalSignerBindsMutationBody(t *testing.T) {
 
 func testOCITransport(t *testing.T, service OCIService, roundTrip roundTripFunc) *OCIHTTPTransport {
 	t.Helper()
-	host, ok := ociServiceHost(service, "sa-saopaulo-1")
+	host, ok := OCIServiceHost(service, "sa-saopaulo-1")
 	if !ok {
 		t.Fatal("unknown test service")
 	}

@@ -25,6 +25,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 	runtimeprobe "terrascale.tech/orchestrator/src/orchestrator/runtime"
@@ -51,7 +52,7 @@ var addRegionCodePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
 // runAddRegionBootstrap executes the OCI stages for one region. It is a
 // variable so dry-run-adjacent tests can stub the provider boundary; the
 // reconcilers themselves are never replaced here.
-var runAddRegionBootstrap = provider.RunOCIBootstrapFromEnvironment
+var runAddRegionBootstrap = ocireconcile.RunOCIBootstrapFromEnvironment
 
 // addRegionStageFunc is the narrow composition seam for stages that are not
 // part of the OCI bootstrap aggregate. Production composition is expected to
@@ -188,7 +189,7 @@ func addRegionCertificatesFromEnvironment(ctx context.Context, lookup envLookup,
 		return &AddRegionRetryableError{Stage: "certificates", State: "accepted"}
 	}
 	for _, declared := range region.Certificates {
-		display := provider.CertDisplayName(region.Code, declared.Name)
+		display := ocireconcile.CertDisplayName(region.Code, declared.Name)
 		for _, cert := range observed.Certs {
 			if cert.DisplayName == display && cert.LifecycleState != "ACTIVE" {
 				return &AddRegionRetryableError{Stage: "certificates", State: strings.ToLower(cert.LifecycleState)}
@@ -216,7 +217,7 @@ func addRegionEdgeFromEnvironment(ctx context.Context, lookup envLookup, spec es
 	return cloudflare.Apply(ctx, plan)
 }
 
-func newAddRegionCertificateReconciler(spec estate.Spec, region estate.Region, lookup envLookup) (*provider.CertReconciler, error) {
+func newAddRegionCertificateReconciler(spec estate.Spec, region estate.Region, lookup envLookup) (*ocireconcile.CertReconciler, error) {
 	if lookup == nil {
 		return nil, errors.New("environment lookup is nil")
 	}
@@ -259,11 +260,11 @@ func newAddRegionCertificateReconciler(spec estate.Spec, region estate.Region, l
 	if err != nil {
 		return nil, err
 	}
-	gateway, err := provider.NewOCICertificatesGateway(certs, declared.ControlCompartmentID, authorityID)
+	gateway, err := ocireconcile.NewOCICertificatesGateway(certs, declared.ControlCompartmentID, authorityID)
 	if err != nil {
 		return nil, err
 	}
-	return &provider.CertReconciler{Gateway: gateway}, nil
+	return &ocireconcile.CertReconciler{Gateway: gateway}, nil
 }
 
 type addRegionCloudflareController struct {
@@ -465,7 +466,7 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 		return err
 	}
 	var admission *bootstrapControlAdmission
-	if sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
+	if sameBootstrapStage(runAddRegionBootstrap, ocireconcile.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
 		admission, err = addRegionControlMachineFactory.Validate(ctx, lookup, region.Code)
 		if err != nil {
 			return addRegionMissingStage("control", err)
@@ -479,7 +480,7 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 		run  addRegionStageFunc
 	}{
 		{"oci", func(ctx context.Context, _ envLookup, _ estate.Spec, region estate.Region, output io.Writer) error {
-			request := provider.BootstrapRequest{Region: region}
+			request := ocireconcile.BootstrapRequest{Region: region}
 			if admission != nil {
 				request.HostCloudInit = admission.provision.HostCloudInit
 			}
@@ -489,7 +490,7 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 			// A test/provider may inject a control stage. The default stage is
 			// required only for the real OCI bootstrap; a fake bootstrap cannot
 			// accidentally turn the absent control provider into a false success.
-			if runAddRegionControl != nil && (sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) || !sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment)) {
+			if runAddRegionControl != nil && (sameBootstrapStage(runAddRegionBootstrap, ocireconcile.RunOCIBootstrapFromEnvironment) || !sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment)) {
 				if admission != nil {
 					return addRegionControlAdmitted(ctx, lookup, region, admission)
 				}
@@ -543,7 +544,7 @@ func validateAddRegionStages(lookup envLookup, spec estate.Spec, region estate.R
 	if runAddRegionBootstrap == nil {
 		return &AddRegionMissingStageError{Stage: "oci"}
 	}
-	if sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
+	if sameBootstrapStage(runAddRegionBootstrap, ocireconcile.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
 		path, present := lookup(addRegionControlJournalEnv)
 		if !present || strings.TrimSpace(path) == "" {
 			return addRegionMissingStage("control", errors.New("durable control journal is required"))
@@ -589,7 +590,7 @@ func sameAddRegionStage(left, right addRegionStageFunc) bool {
 	return reflect.ValueOf(left).Pointer() == reflect.ValueOf(right).Pointer()
 }
 
-func sameBootstrapStage(left, right func(context.Context, func(string) (string, bool), provider.BootstrapRequest, io.Writer) error) bool {
+func sameBootstrapStage(left, right func(context.Context, func(string) (string, bool), ocireconcile.BootstrapRequest, io.Writer) error) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
@@ -814,7 +815,7 @@ func buildAddRegionRunbook(spec estate.Spec, region estate.Region) (addRegionRun
 	// the runbook claims them: object storage with lifecycle rules is a
 	// precondition, not an aspiration.
 	for _, bucket := range region.Buckets {
-		if _, err := provider.LifecycleRuleSpecs(bucket); err != nil {
+		if _, err := ocireconcile.LifecycleRuleSpecs(bucket); err != nil {
 			return addRegionRunbook{}, err
 		}
 	}
