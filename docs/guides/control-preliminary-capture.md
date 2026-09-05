@@ -110,7 +110,12 @@ File-backed consumers also require an unchanged configuration digest, delivered
 and acknowledgement-floor sequences, and pending/redelivery counts. Public
 restore verification compares those values directly to the source envelope.
 The file archive must contain metadata, checksum, and checkpoint files for
-every file-backed consumer. Memory-backed ephemeral watchers appear in the
+every file-backed consumer. Before publication or restore, the validator decodes
+the pinned format-2 checkpoint and binds its counters to source evidence. It
+rejects malformed/truncated entries, duplicates, overflow and trailing bytes.
+Checkpoint files are limited to 64 MiB with at most 1,048,576 pending entries
+and 1,048,576 redelivery entries; encoded length further bounds allocation.
+Memory-backed ephemeral watchers appear in the
 inventory but are absent from the NATS file archive; their later recreation is
 outside this capture path. A memory-backed durable consumer refuses capture.
 The source's retained records are hashed after transfer under unchanged stream
@@ -120,8 +125,9 @@ credential has exact-stream `STREAM.MSG.GET` permission for this read. Record
 encoding is bounded to eight times the configured snapshot limit.
 Version-1 through version-3 envelopes lack required evidence and are rejected. These checks preserve
 the distinction between an omitted watcher and a missing durable checkpoint;
-they do not prove an atomic cut across streams or decode every per-message
-pending-acknowledgement entry in the archived checkpoint. A prior version's
+they do not prove an atomic cut across streams or independently compare every
+per-message entry with a live source API map, which NATS does not expose.
+A prior version's
 immutable snapshot cannot be upgraded in place. A new capture needs a newly
 authorized request, output scope, and object keys; retain conflicting old state
 for investigation rather than overwriting a pinned capture or candidate store.

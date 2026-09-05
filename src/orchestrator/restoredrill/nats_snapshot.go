@@ -400,6 +400,15 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 					return fmt.Errorf("%w: archived consumer metadata differs", ErrSnapshotVerification)
 				}
 			}
+			if parts[2] == "o.dat" {
+				if header.Size > maximumConsumerCheckpointBytes {
+					return fmt.Errorf("%w: consumer checkpoint exceeds bound", ErrSnapshotVerification)
+				}
+				body, err := io.ReadAll(io.LimitReader(archive, header.Size+1))
+				if err != nil || int64(len(body)) != header.Size || !validConsumerState(body, expected.Checkpoint) {
+					return fmt.Errorf("%w: archived consumer checkpoint differs or is malformed", ErrSnapshotVerification)
+				}
+			}
 			if consumers[parts[1]] == nil {
 				consumers[parts[1]] = map[string]bool{}
 			}

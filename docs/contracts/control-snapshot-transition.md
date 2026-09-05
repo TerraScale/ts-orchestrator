@@ -54,8 +54,9 @@ checks inequalities within the API-reported allocator state, requires a
 message block for nonempty or previously allocated streams, and validates the
 archived consumer inventory described below. It consumes the compressed stream
 to its end. These are structural checks. The validator does not parse message
-blocks to reconstruct allocator, message or deletion state, or decode consumer
-checkpoint state to prove equivalence with API observations.
+blocks to reconstruct allocator, message or deletion state. Consumer checkpoint
+validation is described below; the public API does not expose the source's
+complete per-message pending/redelivery maps for an independent comparison.
 
 The snapshotter inventories consumers through the public names and info APIs
 before and after capture. The sorted inventory retains each consumer's name,
@@ -73,8 +74,16 @@ watchers as omitted from the archive. A memory-backed durable consumer refuses
 capture because its checkpoint would be lost. Every file-backed consumer must
 have exactly its metadata, checksum, and nonempty checkpoint files in the
 archive, with matching consumer and durable names and file storage. Unexpected
-or missing archived consumers fail verification. Presence of a checkpoint file
-is not proof that its contents match a live API checkpoint. Public restore now
+or missing archived consumers fail verification. Before publication or restore,
+`o.dat` is decoded under the pinned NATS v2.14.6 format-2 contract. Unsupported
+formats, noncanonical/truncated varints, duplicate stream entries, invalid
+sequence ranges, timestamp overflow and trailing bytes are rejected. Each file
+is bounded to 64 MiB and each pending/redelivery collection to 1,048,576 entries,
+also bounded by the actual remaining bytes before map allocation. Its delivered
+and acknowledgement-floor sequences and collection counts must match the
+retained source API checkpoint. This checks every encoded entry structurally;
+it does not independently establish each entry's live source identity or timer.
+Public restore also
 requires each persistent consumer's configuration digest and checkpoint values
 to equal the retained source evidence, before comparing target and reference
 restores. Ephemeral watcher recreation also remains a
