@@ -28,6 +28,11 @@ type jetStreamSnapshotManifest struct {
 const snapshotManifestMaxBytes = 1 << 20
 
 func encodeJetStreamSnapshotEnvelope(manifest jetStreamSnapshotManifest, archive []byte, maximum int64) ([]byte, error) {
+	config, err := canonicalSnapshotJSON(manifest.Config)
+	if err != nil {
+		return nil, ErrSnapshotVerification
+	}
+	manifest.Config = config
 	metadata, err := json.Marshal(manifest)
 	if err != nil || len(metadata) > snapshotManifestMaxBytes || int64(len(metadata))+int64(len(archive))+2048 > maximum {
 		return nil, ErrSnapshotVerification
@@ -96,4 +101,14 @@ func decodeJetStreamSnapshotEnvelope(data []byte, stream string, maximum int64) 
 		return fail()
 	}
 	return manifest, body, nil
+}
+
+func canonicalSnapshotJSON(data []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return nil, ErrSnapshotVerification
+	}
+	return json.Marshal(value)
 }

@@ -95,10 +95,7 @@ func Connect(ctx context.Context, config Config, network net.Dialer) (*nats.Conn
 	}
 	connection, err := settings.Connect()
 	if err != nil {
-		if bounded.Err() != nil {
-			return nil, bounded.Err()
-		}
-		return nil, err
+		return nil, connectionFailure(bounded, err)
 	}
 	if err := bounded.Err(); err != nil {
 		connection.Close()
@@ -118,4 +115,16 @@ func Connect(ctx context.Context, config Config, network net.Dialer) (*nats.Conn
 	}
 	transferred = true
 	return connection, nil
+}
+
+// A socket deadline may fire before the context timer goroutine records Err.
+// Normalize against the absolute deadline too, retaining cancellation precedence.
+func connectionFailure(ctx context.Context, cause error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return cause
 }

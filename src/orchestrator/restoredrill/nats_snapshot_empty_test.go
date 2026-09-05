@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,9 +162,6 @@ func TestNATSSnapshotEmptyStreamsPreserveAllocatorAndConsumer(t *testing.T) {
 				state := *manifest.State
 				changed.State = &state
 				mutate(&changed)
-				if changed.State.Msgs == 1 && purged {
-					continue
-				}
 				altered, err := encodeJetStreamSnapshotEnvelope(changed, inner, defaultJetStreamSnapshotBytes)
 				if err != nil {
 					t.Fatal(err)
@@ -206,7 +204,7 @@ func TestSnapshotEnvelopeRejectsIncompleteNonemptyArchive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if header.Name != "meta.inf" && header.Name != "meta.sum" {
+		if strings.HasSuffix(header.Name, ".blk") {
 			continue
 		}
 		if err := writer.WriteHeader(header); err != nil {
@@ -226,5 +224,94 @@ func TestSnapshotEnvelopeRejectsIncompleteNonemptyArchive(t *testing.T) {
 	}
 	if _, _, err := decodeJetStreamSnapshotEnvelope(envelope, "STATE", defaultJetStreamSnapshotBytes); !errors.Is(err, ErrSnapshotVerification) {
 		t.Fatalf("missing payload accepted: %v", err)
+	}
+}
+
+func TestSnapshotEnvelopeRejectsMissingConsumerAndTrailingData(t *testing.T) {
+	nc, js := snapshotTestBroker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stream, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: "STATE", Subjects: []string{"state"}, Storage: jetstream.FileStorage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.CreateConsumer(ctx, jetstream.ConsumerConfig{Name: "CHECKPOINT", Durable: "CHECKPOINT", AckPolicy: jetstream.AckExplicitPolicy}); err != nil {
+		t.Fatal(err)
+	}
+	snapshotter, err := NewNATSJetStreamSnapshotter(NATSJetStreamSnapshotterConfig{Connection: nc, Stream: "STATE", Store: &snapshotCaptureStore{objects: map[string][]byte{}}, Region: "gru", Bucket: "snapshots"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner, response, err := snapshotter.streamSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Real empty stream contains no message blocks; its only retained payload is
+	// the durable consumer, which must not disappear during validation.
+	for _, omit := range []string{"obs/CHECKPOINT/meta.inf", "obs/CHECKPOINT/meta.sum", "obs/CHECKPOINT/o.dat", "all-consumers"} {
+		t.Run(omit, func(t *testing.T) {
+			var changed bytes.Buffer
+			compressed := s2.NewWriter(&changed)
+			writer := tar.NewWriter(compressed)
+			reader := tar.NewReader(s2.NewReader(bytes.NewReader(inner)))
+			for {
+				header, err := reader.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if header.Name == omit || (omit == "all-consumers" && len(header.Name) > 4 && header.Name[:4] == "obs/") {
+					continue
+				}
+				if err := writer.WriteHeader(header); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := io.Copy(writer, reader); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if writer.Close() != nil || compressed.Close() != nil {
+				t.Fatal("archive close")
+			}
+			if err := validateJetStreamSnapshot(changed.Bytes(), "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State); !errors.Is(err, ErrSnapshotVerification) {
+				t.Fatalf("missing consumer payload accepted: %v", err)
+			}
+		})
+	}
+	manifest := jetStreamSnapshotManifest{Version: 1, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
+	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, inner, defaultJetStreamSnapshotBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := decodeJetStreamSnapshotEnvelope(envelope, "STATE", defaultJetStreamSnapshotBytes); err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range [][]byte{append(append([]byte(nil), envelope...), 0), append(append([]byte(nil), envelope...), envelope...), envelope[:len(envelope)-1]} {
+		if _, _, err := decodeJetStreamSnapshotEnvelope(data, "STATE", defaultJetStreamSnapshotBytes); !errors.Is(err, ErrSnapshotVerification) {
+			t.Fatalf("outer trailing/truncated data accepted: %v", err)
+		}
+	}
+	for _, data := range [][]byte{append(append([]byte(nil), inner...), 1, 2, 3), append(append([]byte(nil), inner...), inner...), inner[:len(inner)-1]} {
+		if err := validateJetStreamSnapshot(data, "STATE", defaultJetStreamSnapshotBytes, response.Config, response.State); !errors.Is(err, ErrSnapshotVerification) {
+			t.Fatalf("inner trailing/truncated data accepted: %v", err)
+		}
+	}
+	// Canonical ordering and exact tar headers prohibit duplicate entries.
+	duplicated := append(append([]byte(nil), envelope[:len(envelope)-1024]...), envelope...)
+	if _, _, err := decodeJetStreamSnapshotEnvelope(duplicated, "STATE", defaultJetStreamSnapshotBytes); !errors.Is(err, ErrSnapshotVerification) {
+		t.Fatalf("duplicate entries accepted: %v", err)
+	}
+	if _, _, err := decodeJetStreamSnapshotEnvelope(envelope, "STATE", int64(len(envelope)-1)); !errors.Is(err, ErrSnapshotVerification) {
+		t.Fatalf("oversize accepted: %v", err)
+	}
+	manifest.State = nil
+	data, err := encodeJetStreamSnapshotEnvelope(manifest, inner, defaultJetStreamSnapshotBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := decodeJetStreamSnapshotEnvelope(data, "STATE", defaultJetStreamSnapshotBytes); !errors.Is(err, ErrSnapshotVerification) {
+		t.Fatalf("missing API state accepted: %v", err)
 	}
 }

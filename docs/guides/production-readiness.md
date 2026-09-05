@@ -120,7 +120,26 @@ admitted successor that preserves GRU's store while forming the three-server
 cluster. Candidate mirrors alone do not establish Raft replicas.
 The [snapshot transition design](../contracts/control-snapshot-transition.md)
 records the required preparation, final-cut capture, restoration and activation
-ordering. That flow remains unimplemented.
+ordering. That flow remains unimplemented. The single-stream snapshot adapter
+now stores a version-1 envelope containing the exact NATS archive, its digest,
+the original request and capture time, and the configuration/state needed by
+the public restore API. Both first upload and retry require full object-body
+readback; retry also validates the envelope and exact request. `ControlEpoch`
+is the sole snapshot epoch field and callback. Fresh empty and purged streams
+are covered by independent-broker restore tests that verify sequence allocation,
+durable consumer checkpoints and the next acknowledged delivery. Canonical
+format, finite size/expansion limits, missing archive members and corrupt or
+unreadable bodies have focused coverage. Structural validation checks API-state
+inequalities and archive-member presence; it does not parse message blocks or
+prove all reported state equals the archived contents. Public restore tests
+cover their fixtures. Production restoration must compare recovered records,
+allocator/deletion state and consumer checkpoints against the admitted manifest
+and source evidence. These guarantees apply to one supplied stream/account
+connection. Complete account inventories, writer fencing,
+consistent multi-stream capture and production restore composition remain open.
+The [single-metadata-seed experiment](../evidence/nats-single-metadata-seed-2026-09-05.md)
+also did not establish a working one-member clustered bootstrap on pinned NATS;
+it does not qualify an alternative promotion path.
 
 [NATS mutation admission](../contracts/bootstrap-nats-mutations.md) now pins the
 candidate, term and LeaseID in each mutating action declaration and checks them
@@ -339,7 +358,7 @@ dependencies required by `productionRuntimeConfig`.
 | Cloudflare rotation | The former `CloudflareSecretsStore` adapter used unsupported version/activation endpoints and has been removed. Real CRUD operations use secret IDs and do not provide atomic current/previous activation. Production rotation still needs durable provider-ID receipts, supported consumer bindings and rollout, propagation verification, overlap/retirement proof, and rollback/fencing behavior. The [contract audit](../contracts/cloudflare-rotation-effects.md) records the API sources and remaining requirements. |
 | Rotation state | Production key rotation requires `keyrotation.NATSStateStoreConfig` and a separate state session for each coordinator. The root binds the actual candidate, epoch and lease ID after election and owns the connection lifetime. State and quorum read barriers share the global R3 lease stream. Loaded-revision CAS rejects stale writers; late commits retain prior state for recovery. Three-server tests cover restart, minority loss, takeover, lost replies and conflicting sessions. Issued references and publication receipts cannot change within a rotation. The CLI resolver, audit sink and fenced provider adapters remain unfinished. |
 | Free database lifecycle | Production construction requires concrete globally fenced NATS state and effect admission checks. Real R3 tests cover restart, stale writers, minority loss, lost replies, lease replacement and late commits, plus day 30/60/90 and reactivation. File persistence is removed; memory state exists only in domain tests. Database, key and mail adapters still need actual production implementations and transport-boundary authority checks. The bounded checkpoint needs [sharding and retention work](../contracts/reaper-state-authority.md) before launch-scale use. |
-| Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `restoredrill.NATSJournal` now persists runs, items, source facts, and restore epochs in the global authority stream. Stream-wide CAS barriers protect successful reads and mutations. Three-node file-backed JetStream tests cover restart, stale writers, minority outage, and late-commit recovery with history 1. Its authoritative facts producer and command wiring remain unfinished. `TickerScheduler` and `NATSJetStreamSnapshotter` exist. `restoresnapshot` now implements signed OCI snapshot writes, full-content verified reads, and per-Region mirrors with durable ownership checks and immutable object keys; its HTTP contract tests pass under race detection. These adapters still need production composition with the authoritative stream and exact regional scopes. VM-local restore adapters are qualification fixtures. |
+| Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `restoredrill.NATSJournal` now persists runs, items, source facts, and restore epochs in the global authority stream. Stream-wide CAS barriers protect successful reads and mutations. Three-node file-backed JetStream tests cover restart, stale writers, minority outage, and late-commit recovery with history 1. Its authoritative facts producer and command wiring remain unfinished. `TickerScheduler` and the versioned single-stream `NATSJetStreamSnapshotter` exist, with verified full-body readback and empty/purged-stream restore coverage described above. `restoresnapshot` now implements signed OCI snapshot writes, full-content verified reads, and per-Region mirrors with durable ownership checks and immutable object keys; its HTTP contract tests pass under race detection. These adapters still need production composition with the authoritative stream and exact regional scopes. VM-local restore adapters are qualification fixtures. |
 | Release mirrors | `provider.DeliveryRegionStore` is concrete. The root must bind each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and a live `OwnershipCheck`. The delivery and restore paths must share those same scopes and journal. |
 
 OCI resource list adapters now consume canonical array responses and bounded

@@ -1,6 +1,8 @@
 # Control snapshot transition design
 
-Status: design input, not implemented or production-qualified. Audited on
+Status: the end-to-end transition remains design input and is not implemented
+or production-qualified. The single-stream snapshot envelope described below
+is implemented. Audited on
 2026-09-05 against PR-03 in `GOAL.md`. This document describes the required
 end-to-end transition from the temporary GRU standalone R1 to permanent
 GRU/SFO/FRA R3. A snapshot transport helper or an optional restore field alone
@@ -13,6 +15,68 @@ It does not establish production writer fencing, signed preparation, authority
 cutover, or bootstrap credential retirement. See
 [the empirical audit](../evidence/nats-snapshot-promotion-audit-2026-09-05.md) and
 [its qualifications](../evidence/nats-snapshot-promotion-limits-2026-09-05.md).
+
+The current single-stream transport in
+`src/orchestrator/restoredrill/nats_snapshot.go` stores a version-1 USTAR
+envelope with exactly two ordered regular files: `manifest.json` and
+`stream.snapshot`. The manifest retains the stream name, complete snapshot
+request, capture time, snapshot API configuration and stream state, and the
+inner archive's SHA-256 and size. `stream.snapshot` contains the exact
+S2-compressed NATS archive, requested with consumers included and message
+checking enabled. The object identity hashes the complete envelope.
+`ControlEpoch` is the sole snapshot epoch field and callback; database restore
+epochs remain separate. There is no bare-archive or old-field compatibility
+reader.
+
+The configured byte bound covers the complete envelope; the default is 64 MiB,
+the maximum configurable bound is 1 GiB, and the manifest is limited to 1 MiB.
+The inner decompressed archive is bounded at eight times the configured bound.
+Canonical envelope comparison rejects alternate headers, duplicate manifest
+fields, extra entries and trailing bytes. Inner validation checks the stream
+configuration against `meta.inf`, requires stream metadata/checksum entries,
+checks inequalities within the API-reported allocator state, requires a
+message block for nonempty or previously allocated streams, and requires
+metadata/checksum/state files for the reported number of consumers. It consumes
+the compressed stream to its end. These are structural checks. The validator
+does not parse message blocks to reconstruct allocator, message or deletion
+state, or prove that every API state field matches the archived contents.
+
+A successful first upload requires PUT, matching HEAD digest/size with a
+nonempty ETag, and GET of the exact uploaded bytes. A retry reads and validates
+the stored envelope, requires its request to match exactly, and returns the
+original capture time. Missing, corrupt or unreadable bodies fail even when
+HEAD claims success. The returned snapshot identity therefore describes a
+verified stored envelope, not merely an acknowledged upload.
+
+Fresh empty streams and purged streams with a nonzero sequence allocator are
+supported. `TestNATSSnapshotEmptyStreamsPreserveAllocatorAndConsumer` restores
+both through the public NATS API into an independent file-backed broker using
+only the envelope's configuration, state and inner archive. It verifies first
+and last sequence, durable consumer configuration, delivered/acknowledged
+positions, pending counts, the next allocated message and its acknowledged
+delivery. Other focused tests exercise nonempty content/checkpoint recovery,
+readback failures, missing message or consumer files and trailing data. These
+public restore tests cover their fixtures; they do not prove arbitrary
+archive state equivalence, clustered restoration or the known consumer
+creation-time defect below.
+
+The transport captures one configured stream on one supplied account
+connection. It does not discover both control accounts, authorize a complete
+inventory, fence writers, publish an atomic multi-stream cut, or compose a
+production restore worker. A restore implementation must validate the envelope,
+submit its configuration/state to the public restore API, transmit the inner
+archive, and compare the recovered records, allocator/deletion state and
+consumer checkpoints against the admitted manifest and source evidence.
+Envelope acceptance alone cannot satisfy that comparison. Sending the outer
+envelope to NATS is incorrect. The private codec and test restore calls are not
+an executable production transition.
+
+A separate [single-metadata-seed experiment](../evidence/nats-single-metadata-seed-2026-09-05.md)
+did not establish clustered startup with one metadata member on the pinned
+server. A self route left the expected metadata size at two without a leader;
+a non-JetStream router experiment also failed its readiness gate. This does
+not prove every possible clustered bootstrap configuration unsupported. It
+provides no verified alternative to the transition work described here.
 
 The current callers expose an ordering gap:
 
@@ -149,10 +213,8 @@ partial transfer, expired retained records, one-replica write availability, and
 full retained-directory restart. Tests must also prove that a replay cannot
 return permanent production control to R1 or make two authorities writable.
 
-`src/orchestrator/restoredrill/nats_snapshot.go` already provides a bounded
-snapshot transport with durable object-store verification, and the permanent
-profile test supplies public restore transport and content comparisons. They
-are implementation references. Neither currently supplies this transition's
-source fence, complete cut, durable restoration receipts, or authority protocol.
+The versioned single-stream envelope and the permanent profile test are
+implementation references. Neither supplies this transition's source fence,
+complete cut, durable restoration receipts, or authority protocol.
 The real bootstrap and add-region commands must exercise the integrated flow
 on six ready guests before PR-03 can be declared complete.

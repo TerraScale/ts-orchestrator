@@ -31,6 +31,9 @@ var snapshotSHA256Pattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // SnapshotObjectStore is the durable provider boundary required by the NATS
 // snapshot adapter. HEAD is mandatory because an acknowledged PUT alone is
 // not proof that the snapshot is readable from Object Storage.
+// Put must atomically create an immutable object without overwriting an existing
+// key. A retry may succeed only when the stored bytes are identical. This
+// requirement applies across snapshotter instances and process restarts.
 type SnapshotObjectStore interface {
 	delivery.RegionObjectStore
 	delivery.RegionObjectStoreInspector
@@ -274,7 +277,16 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 	if len(data) == 0 || int64(len(data)) > maximum || state == nil {
 		return ErrSnapshotVerification
 	}
-	archive := tar.NewReader(s2.NewReader(bytes.NewReader(data)))
+	compressed := s2.NewReader(bytes.NewReader(data))
+	expandedReader := &io.LimitedReader{R: compressed, N: maximum*8 + 1}
+	archive := tar.NewReader(expandedReader)
+	if state.Msgs == 0 {
+		if state.Bytes != 0 || (state.LastSeq == 0 && state.FirstSeq != 0) || (state.LastSeq > 0 && (state.LastSeq == ^uint64(0) || state.FirstSeq != state.LastSeq+1)) {
+			return ErrSnapshotVerification
+		}
+	} else if state.Bytes == 0 || state.FirstSeq == 0 || state.LastSeq < state.FirstSeq || state.Msgs > state.LastSeq-state.FirstSeq+1 {
+		return ErrSnapshotVerification
+	}
 	meta, checksum, messages := false, false, false
 	seen := map[string]bool{}
 	consumers := map[string]map[string]bool{}
@@ -305,7 +317,8 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 			}
 			delete(archived, "Created")
 			actualJSON, _ := json.Marshal(archived)
-			expectedJSON, _ := json.Marshal(expected)
+			actualJSON, _ = canonicalSnapshotJSON(actualJSON)
+			expectedJSON, _ := canonicalSnapshotJSON(config)
 			if !bytes.Equal(actualJSON, expectedJSON) {
 				return ErrSnapshotVerification
 			}
@@ -344,6 +357,12 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 				return ErrSnapshotVerification
 			}
 		}
+	}
+	// Force the S2 decoder through its trailer: tar EOF alone does not check
+	// truncated compressed frames or bytes concatenated after the tar archive.
+	trailing, err := io.ReadAll(io.LimitReader(expandedReader, 1))
+	if err != nil || len(trailing) != 0 || expandedReader.N == 0 {
+		return ErrSnapshotVerification
 	}
 	if len(consumers) != state.Consumers {
 		return ErrSnapshotVerification
