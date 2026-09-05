@@ -233,7 +233,7 @@ Control and reactive data paths retain their separate ownership.
   processes host replicas of the authoritative global control store. The
   base OS still runs normal systemd, networking, time, storage, SSH, and update
   services.
-- Every Region has its own object storage for Litestream, release artifacts,
+- Every Region has its own object storage for native TerraBase backups, release artifacts,
   and control snapshots, with the declared lifecycle rules.
 - OCI is the durable source of truth for customer data. Cloudflare provides
   DNS, TLS, WAF, Workers, the reactive Snippet, KV, and authorized CDN copies.
@@ -303,7 +303,7 @@ OCI API key. From an empty tenancy it must:
 
 `terrascale-orchestrator add-region <code>` is one declared-estate entry plus a
 release. Starting from an empty OCI Region, one command creates storage,
-networking, two member hosts, Litestream targets, certificates, routes, health
+networking, two member hosts, native TerraBase backup targets, certificates, routes, health
 and placement KV entries, telemetry, and probes. SFO and FRA also receive the
 synchronized candidates required for the global R1-to-R3 promotion. Regions 4
 through 20 also start and admit their own regional orchestrator, backed by the
@@ -369,7 +369,7 @@ choose between conflicting durable histories or discard the last known copy.
   immutable after database creation and cannot be widened.
 - Placement, replication destinations, backup targets, restore targets,
   exports, branches, repair, and Region addition must all honor the same lock.
-- A joining Region restores from a Litestream snapshot already copied into
+- A joining Region restores from a native TerraBase backup snapshot already copied into
   that Region, catches up, and passes TerraBase's proof of equality before it
   serves.
 - Infrastructure actions such as drain, replace, `add-region`, and rollback
@@ -461,7 +461,7 @@ and under 5 minutes for Workers.
 Self-healing is the default. The reconciler must automatically handle:
 
 - a failed host by creating a replacement, installing `ts-node`, restoring or
-  catching up from the surviving RF=2 member or Litestream, updating placement,
+  catching up from the surviving RF=2 member or native TerraBase backups, updating placement,
   and updating KV;
 - A1 capacity exhaustion by retrying with the declared E5 fallback shape;
 - a full or unhealthy disk by draining, expanding or replacing storage, and
@@ -551,7 +551,7 @@ cannot be proven require an explicit owner action.
 
 The orchestrator coordinates the infrastructure side of the Free database
 reaper. At 30 days without a request it pauses the database, closes the file,
-stops the Litestream stream, and retains the snapshot. At 90 days, and only
+stops the native TerraBase backup stream, and retains the snapshot. At 90 days, and only
 after the product has recorded the required notices and current eligibility,
 it destroys the DEK and deletes the remaining owned data. Paid databases are
 never reaped. One request reactivates a paused database.
@@ -804,7 +804,7 @@ Required production drills are:
 - A1 exhaustion and E5 fallback;
 - clock skew and safe write fencing;
 - failed canary and mid-rollout rollback; and
-- restore from Litestream and JetStream snapshots.
+- restore from native TerraBase backups and JetStream snapshots.
 
 Launch requires a 7-day soak on the exact release digests, successful rollback
 rehearsal in every Region, 14 consecutive daily restore drills, live external
@@ -1099,3 +1099,17 @@ validates manifests for linux/amd64 and linux/arm64 on every release. Native
 arm64 Firecracker qualification becomes required once an arm64 KVM runner is
 available. Until then, real OCI A1 qualification remains the arm64 gate and the
 Firecracker result must not claim arm64 coverage.
+
+## Native backup ownership (D-29, TerraBase ADR 0046)
+
+TerraBase will rebuild [Litestream](https://github.com/benbjohnson/litestream)
+as an internal native Rust backup subsystem after reviewing a pinned upstream
+revision. The orchestrator provisions regional buckets, lifecycle rules and
+key authority, requests lifecycle operations over TBEP, and verifies backup
+readiness and daily restore drills. TerraBase owns WAL capture, checkpoint
+coordination, bounded shared workers, uploads, PITR, restore, and branching.
+Do not provision or supervise an external Litestream binary or a process per
+database in the target design. Remove that integration in the replacement
+series. Performance and resource-efficiency gains must be demonstrated by
+TerraBase benchmarks and recovery tests; this decision does not mean the
+native subsystem is already implemented.
