@@ -340,11 +340,12 @@ func authorityObserveSet(state *AuthorityState, command *ObserveAuthorityCas) *A
 		if observationError := authorityValidateObservation(observation); observationError != nil {
 			return authorityReject(state, *observationError)
 		}
+		// KV revisions are stream sequences; unrelated keys can consume intervening revisions.
 		revision, ok := shared.CheckedAddInt64(pending.ExpectedRevision, 1)
 		if !ok {
 			return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision overflowed."))
 		}
-		if observation.KvRevision != revision || observation.Epoch != pending.ProposedEpoch ||
+		if observation.KvRevision < revision || observation.Epoch != pending.ProposedEpoch ||
 			observation.Lease == nil || !observation.Lease.Equal(pending.ProposedLease) {
 			return authorityFence(state, command, observation,
 				authorityError(AuthorityErrorCodeRevisionMismatch, "INV-004", "Successful CAS observation does not exactly match the proposed lease."))
@@ -424,11 +425,12 @@ func authorityObserveDelete(state *AuthorityState, command *ObserveAuthorityDele
 		return authorityReject(state, *validation)
 	}
 	pending := state.PendingDelete
+	// KV revisions are stream sequences; unrelated keys can consume intervening revisions.
 	revision, ok := shared.CheckedAddInt64(pending.ExpectedRevision, 1)
 	if !ok {
 		return authorityHold(state, command, authorityError(AuthorityErrorCodeArithmeticOverflow, "INV-004", "KV revision overflowed."))
 	}
-	if command.Observation.KvRevision != revision || command.Observation.Epoch != pending.ExpectedEpoch || command.Observation.Lease != nil {
+	if command.Observation.KvRevision < revision || command.Observation.Epoch != pending.ExpectedEpoch || command.Observation.Lease != nil {
 		return authorityFence(state, command, command.Observation,
 			authorityError(AuthorityErrorCodeRevisionMismatch, "INV-004", "Compare-and-delete observation does not exactly confirm absence."))
 	}
@@ -740,8 +742,8 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 		if !ok {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed CAS revision overflowed.")
 		}
-		if confirmed.Observation.KvRevision != expectedRevision {
-			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed CAS revision is not the exact successor.")
+		if confirmed.Observation.KvRevision < expectedRevision {
+			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed CAS revision did not advance.")
 		}
 		if authoritySafetyError(confirmed.Health) != nil || authorityLeaseError(confirmed.Observation, confirmed.Health) != nil {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Confirmed lease was not valid at supplied result time.")
@@ -793,8 +795,8 @@ func authorityValidateEventSemantics(state *AuthorityState, event AuthorityEvent
 		if !ok {
 			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Delete confirmation revision overflowed.")
 		}
-		if confirmed.Observation.KvRevision != expectedRevision {
-			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Delete confirmation revision is not the exact successor.")
+		if confirmed.Observation.KvRevision < expectedRevision {
+			return authorityErrorPointer(AuthorityErrorCodeInvalidJournal, "INV-004", "Delete confirmation revision did not advance.")
 		}
 
 	case *AuthorityReadRequested:

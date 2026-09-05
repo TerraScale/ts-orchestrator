@@ -402,3 +402,11 @@ than 20 lines of room and need extraction before further additions.
 The [NATS policy verification](../evidence/natspolicy-split-gates-2026-09-05.txt)
 records passing portable and tagged race suites and a Linux arm64 cross-build.
 These checks do not establish guest readiness or production composition.
+
+The authority engine now accepts successful lease writes whose stream
+revision advances by more than one. Rotation and restore barriers share the
+lease stream, so exact-successor revision checks incorrectly fenced valid
+renewals. Exact lease identity, epoch, key CAS and overflow checks remain.
+The [authority regression evidence](../evidence/authority-stream-revision-gates-2026-09-05.txt)
+covers real NATS renewal after sibling-key writes, rejection of stale writes,
+successor conflict and journal replay.

@@ -60,7 +60,7 @@ func TestMismatchedSuccessfulCasFencesWithoutAuthority(t *testing.T) {
 	proposal := pending.Intents[0].(*CompareAndSetLeaseIntent).ProposedLease
 	mismatch, err := AuthorityEngine.Decide(history, NewObserveAuthorityCas("regional-authority",
 		"candidate-a", "acquire-a", AuthorityCasOutcomeSucceeded,
-		&AuthorityObservation{AuthorityId: "regional-authority", KvRevision: 12, Epoch: 6,
+		&AuthorityObservation{AuthorityId: "regional-authority", KvRevision: 10, Epoch: 6,
 			ObservationId: "wrong-revision", Lease: &proposal},
 		authorityHealthy(authorityStart, 0)))
 	if err != nil {

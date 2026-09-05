@@ -20,6 +20,14 @@ requests plus publication to:
 - `$KV.ORCH_LEADERS.security.rotation.state`
 - `$KV.ORCH_LEADERS.security.rotation.barrier`
 
+JetStream KV revisions are stream sequences. State and barrier writes can
+advance the sequence between lease writes. The authority engine and journal
+replay therefore require a successful lease CAS or deletion to advance the
+observed revision, while preserving the exact proposed lease and epoch.
+The store still enforces CAS against the previous revision of the lease key.
+A real NATS regression covers renewal with intervening sibling-key writes,
+stale CAS rejection and refusal to overwrite a successor lease.
+
 Load, including an absent-state result, commits a quorum barrier. Save checks
 the session's loaded state revision and uses a stream-wide expected-sequence
 commit that also fences global lease changes. Identical retries require a

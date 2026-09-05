@@ -1,0 +1,82 @@
+Authority stream revision verification, 2026-09-05, Linux amd64
+
+Go 1.27.1. The portable gate exited zero on the integrated authority fix.
+JetStream KV revisions are stream-wide, so successful lease CAS/delete
+confirmations and journal replay accept advancing revisions with gaps.
+Exact lease and epoch checks, key CAS and overflow checks remain enforced.
+
+TestGlobalAuthorityRenewsAcrossSiblingStreamWrites uses a real embedded
+JetStream file store and the production global authority coordinator. It
+observes automatic renewal after sibling-key writes, rejects stale key CAS,
+and proves the old coordinator cannot overwrite a successor lease.
+Model tests cover nonconsecutive write/delete replay and identity mismatches.
+This is portable NATS evidence, not Firecracker or production qualification.
+
+GOMAXPROCS=4 GOFLAGS=-p=2 make check
+test -z "$(gofmt -l .)"
+go vet ./...
+go build ./...
+go test -race -count=1 ./...
+ok  	terrascale.tech/orchestrator/cmd/orchestrator	1.486s
+ok  	terrascale.tech/orchestrator/cmd/ts-node	1.063s
+ok  	terrascale.tech/orchestrator/cmd/vm-artifacts	3.163s
+ok  	terrascale.tech/orchestrator/cmd/vm-guest-control	3.302s
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify	1.051s
+ok  	terrascale.tech/orchestrator/src/node	1.244s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrap	5.865s
+ok  	terrascale.tech/orchestrator/src/orchestrator/cloudflare	1.901s
+?   	terrascale.tech/orchestrator/src/orchestrator/contracts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control	8.000s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/authority	4.103s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/directory	1.108s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/engines	[no test files]
+?   	terrascale.tech/orchestrator/src/orchestrator/control/internal/shared	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/journal	1.054s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/messaging	1.033s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/monitoring	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/placement	1.024s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controlcommand	1.926s
+ok  	terrascale.tech/orchestrator/src/orchestrator/delivery	9.639s
+?   	terrascale.tech/orchestrator/src/orchestrator/errs	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/estate	1.368s
+ok  	terrascale.tech/orchestrator/src/orchestrator/estatepublisher	1.048s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostagent	3.198s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostbootstrap	4.511s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostcontrol	2.101s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostsecrets	2.412s
+ok  	terrascale.tech/orchestrator/src/orchestrator/keyrotation	27.292s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natspolicy	1.046s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	1.974s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodebootstrap	1.065s
+ok  	terrascale.tech/orchestrator/src/orchestrator/observability	1.158s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ocireconcile	1.302s
+ok  	terrascale.tech/orchestrator/src/orchestrator/protocol	2.550s
+ok  	terrascale.tech/orchestrator/src/orchestrator/provider	1.174s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reaper	1.031s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reconcile	2.045s
+ok  	terrascale.tech/orchestrator/src/orchestrator/residency	1.027s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoredrill	13.843s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoresnapshot	1.053s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runtime	1.173s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare	1.063s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/edge	1.061s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/objectstore	1.054s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci	1.073s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxvm	1.440s
+ok  	terrascale.tech/orchestrator/src/orchestrator/scheduling	6.036s
+ok  	terrascale.tech/orchestrator/src/orchestrator/security	1.078s
+ok  	terrascale.tech/orchestrator/src/orchestrator/tbep	1.290s
+?   	terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap	1.023s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed	1.077s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmdisk	2.053s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmguest	13.031s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	2.770s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmnet	6.478s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqual	5.328s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap	1.168s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	4.284s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualsuite	26.694s
+?   	terrascale.tech/orchestrator/tests/journalchild	[no test files]
+ok  	terrascale.tech/orchestrator/tools/orchestrator-tooling	2.317s
+exit code: 0
