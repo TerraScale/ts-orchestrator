@@ -97,6 +97,9 @@ func (s *EpochStore) acknowledgeStorageTransitionPlan(ctx context.Context, expec
 	if err = writeStorageTransitionBytes(path, raw, check, afterRename); err != nil {
 		return nil, err
 	}
+	if err = check(); err != nil {
+		return nil, err
+	}
 	return raw, nil
 }
 

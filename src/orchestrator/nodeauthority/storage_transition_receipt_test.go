@@ -141,7 +141,11 @@ func TestStorageTransitionAcknowledgementRefusesUnsafeFilesAndRuntimeDestination
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := s.acknowledgeStorageTransitionPlan(t.Context(), v.Digest(), host, uid, nil)
+	interrupted, cancel := context.WithCancel(t.Context())
+	if _, err := s.acknowledgeStorageTransitionPlan(interrupted, v.Digest(), host, uid, func() error { cancel(); return nil }); !errors.Is(err, context.Canceled) {
+		t.Fatal("acknowledgement reported success after cancellation", err)
+	}
+	raw, err := s.acknowledgeStorageTransitionPlan(t.Context(), v.Digest(), nil, uid, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

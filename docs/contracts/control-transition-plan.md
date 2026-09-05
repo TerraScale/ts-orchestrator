@@ -90,6 +90,9 @@ original admission time, and receipt publication time. Source receipts also
 retain the admitted regional command digest and authority identity. Destination
 receipts require all ordinary-authority fields to remain empty or zero. The
 complete signed receipt is bounded to 8 KiB.
+`PublishedAt` records when the receipt was created for publication. Successful
+emission also requires the durable write and a final cancellation/lifetime check;
+the timestamp alone does not prove persistence completed.
 
 `controltransition.VerifyPinReceipt` validates historical acknowledgement
 evidence against the key and identities in the verified owner plan. It does not

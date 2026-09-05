@@ -1,0 +1,2 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	9.037s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	1.255s

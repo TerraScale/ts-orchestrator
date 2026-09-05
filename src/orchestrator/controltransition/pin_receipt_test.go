@@ -2,7 +2,9 @@ package controltransition
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -45,33 +47,30 @@ func pinReceiptFixture(t testing.TB, separateGRU bool) (VerifiedPlan, []PinRecei
 }
 
 func FuzzVerifyPinReceipt(f *testing.F) {
-	v, receipts, signers := pinReceiptFixture(f, false)
-	p, err := v.Plan()
+	// Public-only fixture gives every fuzz worker the same verified plan while
+	// mutations target the receipt. Historical verification needs no clock fake.
+	raw, err := os.ReadFile("testdata/pin-receipt.json")
 	if err != nil {
 		f.Fatal(err)
 	}
-	owner, public := testKey(f)
-	planRaw, err := SignPlan(owner, p)
+	var fixture struct {
+		Public  []byte         `json:"public"`
+		Plan    jsontext.Value `json:"plan"`
+		Receipt jsontext.Value `json:"receipt"`
+	}
+	if err := json.Unmarshal(raw, &fixture, json.RejectUnknownMembers(true)); err != nil {
+		f.Fatal(err)
+	}
+	v, err := VerifyPlan(fixture.Public, fixture.Plan)
 	if err != nil {
 		f.Fatal(err)
 	}
-	v, err = VerifyPlan(public, planRaw)
-	if err != nil {
+	if _, err := VerifyPinReceipt(v, fixture.Receipt); err != nil {
 		f.Fatal(err)
 	}
-	receipt := receipts[0]
-	receipt.PlanSHA256 = v.Digest()
-	raw, err := SignPinReceipt(signers[0], v, receipt)
-	if err != nil {
-		f.Fatal(err)
-	}
-	f.Add(public, planRaw, raw)
-	f.Add(public, planRaw, []byte(`{}`))
-	f.Fuzz(func(t *testing.T, public, planRaw, raw []byte) {
-		v, err := VerifyPlan(public, planRaw)
-		if err != nil {
-			return
-		}
+	f.Add([]byte(fixture.Receipt))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
 		r, err := VerifyPinReceipt(v, raw)
 		if err == nil && (r.PlanSHA256 != v.Digest() || r.Phase != "plan-pinned" || len(raw) > PinReceiptMaximumBytes) {
 			t.Fatal("invalid acknowledgement verified")
