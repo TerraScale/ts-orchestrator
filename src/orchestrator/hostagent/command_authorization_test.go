@@ -3,6 +3,7 @@ package hostagent
 import (
 	"context"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestPendingDrainDoesNotMutateDuringReceiverRestart(t *testing.T) {
 	for _, drain := range []bool{true, false} {
 		t.Run(map[bool]string{true: "pending-drain", false: "pending-release"}[drain], func(t *testing.T) {
 			harness := newTestHarness(t)
-			journal, err := newCommandJournal(filepath.Join(harness.dataVolume, TsNodeComponentName, "command-journal"))
+			journal, err := newCommandJournal(filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "command-journal"))
 			if err != nil {
 				t.Fatal(err)
 			}

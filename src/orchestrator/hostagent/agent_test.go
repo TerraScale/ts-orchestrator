@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 )
 
 // TestAgentServesAndReconcilesFromTheManifest asserts the composed agent:
@@ -22,8 +23,8 @@ func TestAgentServesAndReconcilesFromTheManifest(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
-	if err := os.WriteFile(manifestPath, mustJSON(t, HostManifest{
-		Components: []ComponentSpec{spec},
+	if err := os.WriteFile(manifestPath, mustJSON(t, hostmanifest.HostManifest{
+		Components: []hostmanifest.ComponentSpec{spec},
 	}), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestAgentReconnectsAfterEmbeddedBrokerRestart(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
-	if err := os.WriteFile(manifestPath, mustJSON(t, HostManifest{Components: []ComponentSpec{spec}}), 0o600); err != nil {
+	if err := os.WriteFile(manifestPath, mustJSON(t, hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}}), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	agent, err := NewHostAgent(HostAgentConfig{

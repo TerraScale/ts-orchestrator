@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
@@ -18,11 +19,11 @@ import (
 
 func releaseFixture(t *testing.T, version, digest string) Release {
 	t.Helper()
-	component, err := hostagent.NewComponentSpec(hostagent.ComponentSpec{Name: "terrabase", Version: version, Sha256: digest, ArtifactURL: "https://releases.example/terrabase", SignatureURL: "https://releases.example/terrabase.sig", User: "terrabase", DataVolume: "/var/lib/terrabase", CPUWeight: 100, MemoryMaxBytes: 1 << 30, IOWeight: 100})
+	component, err := hostmanifest.NewComponentSpec(hostmanifest.ComponentSpec{Name: "terrabase", Version: version, Sha256: digest, ArtifactURL: "https://releases.example/terrabase", SignatureURL: "https://releases.example/terrabase.sig", User: "terrabase", DataVolume: "/var/lib/terrabase", CPUWeight: 100, MemoryMaxBytes: 1 << 30, IOWeight: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Release{Manifest: hostagent.HostManifest{Components: []hostagent.ComponentSpec{component}}, ExpectedManifestSHA: strings.Repeat("a", 64), Architecture: runtimeplan.HostArchitectureX64}
+	return Release{Manifest: hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{component}}, ExpectedManifestSHA: strings.Repeat("a", 64), Architecture: runtimeplan.HostArchitectureX64}
 }
 func deliveryPlan(t *testing.T, digest string) []byte {
 	t.Helper()
@@ -55,7 +56,7 @@ func TestDeliveryConvergesExactManifestAndReplayUsesFreshFacts(t *testing.T) {
 	client := testClient(t, connection, nil)
 	release := releaseFixture(t, "1.0", strings.Repeat("c", 64))
 	plan := deliveryPlan(t, strings.Repeat("c", 64))
-	desiredDigest, _ := hostagent.HostManifestSha256(release.Manifest)
+	desiredDigest, _ := hostmanifest.HostManifestSha256(release.Manifest)
 	var mu sync.Mutex
 	current := statusFacts("")
 	var applyCount, deployCount, drainCount atomic.Int32
@@ -71,13 +72,13 @@ func TestDeliveryConvergesExactManifestAndReplayUsesFreshFacts(t *testing.T) {
 			respondJSON(message, report)
 		case strings.HasSuffix(message.Subject, ".apply-manifest"):
 			applyCount.Add(1)
-			var command hostagent.ApplyManifestCommand
+			var command hostmanifest.ApplyManifestCommand
 			_ = json.Unmarshal(message.Data, &command)
 			if command.ExpectedManifestSha256 != current.Facts.ManifestSha256 {
 				respondJSON(message, hostagent.NewCommandEnvelopeError("CAS conflict"))
 				return
 			}
-			digest, _ := hostagent.HostManifestSha256(command.Manifest)
+			digest, _ := hostmanifest.HostManifestSha256(command.Manifest)
 			current.Facts.ManifestSha256 = digest
 			spec := command.Manifest.Components[0]
 			current.Facts.Components = []hostagent.ComponentFact{{Name: spec.Name, Version: "0.9", Desired: spec.Version, Installed: true, UnitActive: false}}

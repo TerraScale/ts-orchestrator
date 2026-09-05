@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -47,7 +48,7 @@ type ControlRuntimeMember struct {
 type ControlHostHandoff struct {
 	MemberID               string
 	ExpectedManifestSHA256 string
-	Manifest               hostagent.HostManifest
+	Manifest               hostmanifest.HostManifest
 }
 
 type ControlStreamAssignment struct {
@@ -232,7 +233,7 @@ func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
 		if _, ok := r.members[handoff.MemberID]; !ok || !canonicalControlDigest(handoff.ExpectedManifestSHA256) {
 			return ErrControlProviderInvalid
 		}
-		if _, err := hostagent.CanonicalHostManifestJSON(handoff.Manifest); err != nil {
+		if _, err := hostmanifest.CanonicalHostManifestJSON(handoff.Manifest); err != nil {
 			return err
 		}
 		hasControl := false
@@ -581,7 +582,7 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 
 func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlActionRequest, handoff ControlHostHandoff) error {
 	member := r.members[handoff.MemberID]
-	desired, err := hostagent.HostManifestSha256(handoff.Manifest)
+	desired, err := hostmanifest.HostManifestSha256(handoff.Manifest)
 	if err != nil {
 		return err
 	}
@@ -615,7 +616,7 @@ func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlAc
 			byName[fact.Name] = fact
 		}
 		for _, component := range handoff.Manifest.Components {
-			if component.Name == hostagent.TsNodeComponentName {
+			if component.Name == hostmanifest.TsNodeComponentName {
 				continue
 			}
 			fact, ok := byName[component.Name]
@@ -634,7 +635,7 @@ func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlAc
 			client := r.config.Hosts[member.Region]
 			if !versionsMatch {
 				for _, component := range handoff.Manifest.Components {
-					if component.Name == hostagent.TsNodeComponentName || byName[component.Name].Version == component.Version {
+					if component.Name == hostmanifest.TsNodeComponentName || byName[component.Name].Version == component.Version {
 						continue
 					}
 					if !report.Quiesced {
@@ -1060,30 +1061,30 @@ func (r *NATSControlRuntime) VerifyQuorumAvailability(ctx context.Context, epoch
 // PlanControlLaunchManifest assigns content-addressed local launch revisions.
 // The signed artifact URL, detached signature and digest remain unchanged;
 // configuration/arguments/resource changes cannot overwrite an installed slot.
-func PlanControlLaunchManifest(input hostagent.HostManifest) (hostagent.HostManifest, error) {
-	canonical, err := hostagent.CanonicalHostManifestJSON(input)
+func PlanControlLaunchManifest(input hostmanifest.HostManifest) (hostmanifest.HostManifest, error) {
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(input)
 	if err != nil {
-		return hostagent.HostManifest{}, err
+		return hostmanifest.HostManifest{}, err
 	}
-	manifest, err := hostagent.ParseHostManifest(canonical)
+	manifest, err := hostmanifest.ParseHostManifest(canonical)
 	if err != nil {
-		return hostagent.HostManifest{}, err
+		return hostmanifest.HostManifest{}, err
 	}
 	for i := range manifest.Components {
 		component := manifest.Components[i]
-		if component.Name == hostagent.TsNodeComponentName {
+		if component.Name == hostmanifest.TsNodeComponentName {
 			continue
 		}
 		material := component
 		material.Version = ""
 		digest, err := controlEvidenceDigest(material)
 		if err != nil {
-			return hostagent.HostManifest{}, err
+			return hostmanifest.HostManifest{}, err
 		}
 		component.Version = "ctl-" + digest[:56]
-		validated, err := hostagent.NewComponentSpec(component)
+		validated, err := hostmanifest.NewComponentSpec(component)
 		if err != nil {
-			return hostagent.HostManifest{}, err
+			return hostmanifest.HostManifest{}, err
 		}
 		manifest.Components[i] = validated
 	}

@@ -30,7 +30,8 @@ describe code that exists today; they do not preserve a retired topology.
 | OCI reconciliation and bootstrap | `src/orchestrator/ocireconcile` | provider, estate, errs, tsnodebootstrap |
 | Control plane (delivery, messaging, observability, operations) | `src/orchestrator/control` | contracts, protocol, runtime, security |
 | Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
-| Host agent | `src/orchestrator/hostagent` | runtime |
+| Host manifest and canonical handoff | `src/orchestrator/hostmanifest` | errs |
+| Host agent | `src/orchestrator/hostagent` | runtime, hostmanifest |
 | Initial host grant wire and signing | `src/orchestrator/nodebootstrap` | protocol, security |
 | Initial local host activation | `src/orchestrator/hostbootstrap` | hostagent, nodeauthority, nodebootstrap |
 | Initial host credentials | `src/orchestrator/hostsecrets` | OCI Go SDK instance identity and Secrets API |

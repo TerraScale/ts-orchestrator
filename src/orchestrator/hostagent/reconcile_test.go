@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 )
@@ -65,7 +66,7 @@ func TestManifestReconciliationInstallsUnitsWithoutActivation(t *testing.T) {
 	}
 }
 
-func componentJSON(t *testing.T, spec ComponentSpec) string {
+func componentJSON(t *testing.T, spec hostmanifest.ComponentSpec) string {
 	t.Helper()
 	encoded, err := json.Marshal(spec)
 	if err != nil {
@@ -74,46 +75,11 @@ func componentJSON(t *testing.T, spec ComponentSpec) string {
 	return string(encoded)
 }
 
-func TestParseHostManifestRejectsNonCanonicalJSON(t *testing.T) {
-	harness := newTestHarness(t)
-	component := componentJSON(t, harness.publish(t, "terrabase", "1.0.0"))
-	valid := `{"components":[` + component + `]}`
-	cases := map[string]string{
-		"top-level null":      `null`,
-		"components null":     `{"components":null}`,
-		"component null":      `{"components":[null]}`,
-		"top-level duplicate": `{"components":[],"components":[]}`,
-		"top-level case":      strings.Replace(valid, `"components"`, `"Components"`, 1),
-		"top-level unknown":   strings.Replace(valid, `{`, `{"unknown":true,`, 1),
-		"trailing document":   valid + `{}`,
-		"component duplicate": strings.Replace(valid, `"name":"terrabase"`, `"name":"terrabase","name":"terrabase"`, 1),
-		"component case":      strings.Replace(valid, `"artifactUrl"`, `"ArtifactUrl"`, 1),
-		"component unknown":   strings.Replace(valid, `"name":"terrabase"`, `"name":"terrabase","unknown":true`, 1),
-		"component null field": strings.Replace(valid,
-			`"dataVolume":"`+harness.dataVolume+`/terrabase"`, `"dataVolume":null`, 1),
-		"component missing field": strings.Replace(valid, `,"needsNetlink":false`, ``, 1),
-	}
-	for name, document := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := ParseHostManifest([]byte(document)); err == nil {
-				t.Fatal("non-canonical manifest accepted")
-			}
-		})
-	}
-	if _, err := ParseHostManifest([]byte(valid)); err != nil {
-		t.Fatalf("canonical manifest rejected: %v", err)
-	}
-	oversized := append([]byte(valid), []byte(strings.Repeat(" ", hostAgentMaximumManifestBytes-len(valid)+1))...)
-	if _, err := ParseHostManifest(oversized); err == nil {
-		t.Fatal("oversized manifest accepted")
-	}
-}
-
 func TestManifestRejectsDataVolumesOutsideRootBeforeMutation(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	spec.DataVolume = filepath.Join(t.TempDir(), "outside")
-	if err := harness.lifecycle.ApplyDesired(context.Background(), []ComponentSpec{spec}); err == nil {
+	if err := harness.lifecycle.ApplyDesired(context.Background(), []hostmanifest.ComponentSpec{spec}); err == nil {
 		t.Fatal("data volume outside configured root accepted")
 	}
 	if InstalledVersion(harness.root, spec.Name, spec.Version) {
@@ -136,7 +102,7 @@ func TestManifestRejectsDataVolumeSymlinkBeforeMutation(t *testing.T) {
 	}
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	spec.DataVolume = filepath.Join(link, "terrabase")
-	if err := harness.lifecycle.ApplyDesired(context.Background(), []ComponentSpec{spec}); err == nil {
+	if err := harness.lifecycle.ApplyDesired(context.Background(), []hostmanifest.ComponentSpec{spec}); err == nil {
 		t.Fatal("symlinked data volume accepted")
 	}
 	if InstalledVersion(harness.root, spec.Name, spec.Version) {
@@ -251,7 +217,7 @@ func TestManifestInvalidOrMissingChangesNothing(t *testing.T) {
 	if err := watcher.ReconcileOnce(context.Background()); err == nil {
 		t.Fatal("invalid manifest reported success")
 	}
-	if err := os.WriteFile(manifestPath, []byte(strings.Repeat(" ", hostAgentMaximumManifestBytes+1)), 0o600); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(strings.Repeat(" ", hostmanifest.MaximumManifestBytes+1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := watcher.ReconcileOnce(context.Background()); err == nil {
@@ -270,13 +236,13 @@ func TestManifestInvalidOrMissingChangesNothing(t *testing.T) {
 // account: its unit is the shared bootstrap unit, exactly one.
 func TestManifestTsNodeSelfComponentInstallsWithoutUnit(t *testing.T) {
 	harness := newTestHarness(t)
-	spec := harness.publish(t, TsNodeComponentName, "2.0.0")
+	spec := harness.publish(t, hostmanifest.TsNodeComponentName, "2.0.0")
 	spec.User = "ignored-user"
 	harness.applyDesired(t, spec)
-	if !InstalledVersion(harness.root, TsNodeComponentName, "2.0.0") {
+	if !InstalledVersion(harness.root, hostmanifest.TsNodeComponentName, "2.0.0") {
 		t.Fatal("ts-node release not installed")
 	}
-	if _, err := os.Stat(filepath.Join(harness.unitDir, UnitName(TsNodeComponentName))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(harness.unitDir, UnitName(hostmanifest.TsNodeComponentName))); !os.IsNotExist(err) {
 		t.Fatal("ts-node unit file written")
 	}
 	if len(harness.users.ensured) != 0 {

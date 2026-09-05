@@ -3,6 +3,7 @@ package vmimage
 import (
 	"bytes"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 )
@@ -22,7 +23,7 @@ func canonicalInitialGrant(input TSNodeBootstrap) ([]NoCloudRootFile, error) {
 	if err != nil {
 		return nil, errors.New("vmimage: initial host grant failed owner verification")
 	}
-	canonical, err := hostagent.CanonicalHostManifestJSON(grant.Manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
 	if err != nil || !bytes.Equal(canonical, input.DesiredHostManifest) {
 		return nil, errors.New("vmimage: initial grant must admit the complete desired host manifest")
 	}

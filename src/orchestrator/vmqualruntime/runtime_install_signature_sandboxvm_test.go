@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
@@ -79,7 +80,7 @@ func TestQualificationHTTPSReleaseInstallsThroughTSNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "https://" + net.JoinHostPort(artifactReleaseHostname, portText)
-	spec := hostagent.ComponentSpec{Name: "orchestrator", Version: "v1", ArtifactURL: base + artifactPath, SignatureURL: base + signaturePath, Sha256: hex.EncodeToString(digest[:]), User: "terrascale-orchestrator", DataVolume: "/var/lib/terrascale/orchestrator", CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100}
+	spec := hostmanifest.ComponentSpec{Name: "orchestrator", Version: "v1", ArtifactURL: base + artifactPath, SignatureURL: base + signaturePath, Sha256: hex.EncodeToString(digest[:]), User: "terrascale-orchestrator", DataVolume: "/var/lib/terrascale/orchestrator", CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100}
 	installed, err := installer.InstallContext(context.Background(), spec)
 	if err != nil {
 		t.Fatal(err)

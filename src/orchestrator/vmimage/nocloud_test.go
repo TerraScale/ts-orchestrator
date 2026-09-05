@@ -20,13 +20,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nkeys"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
 
@@ -331,22 +332,22 @@ func TestNoCloudSeedRejectsCrossFieldMismatches(t *testing.T) {
 			value.TSNode.Signature = ed25519.Sign(value.TSNode.ReleasePublicKeyPrivateForTest(), value.TSNode.Binary)
 		}},
 		{name: "orchestrator version", mutate: func(value *NoCloudSeedSpec) {
-			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostagent.HostManifest) {
+			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostmanifest.HostManifest) {
 				manifest.Components[0] = productionComponent("orchestrator", "3.0.1", manifest.Components[0].Sha256)
 			})
 		}},
 		{name: "orchestrator digest", mutate: func(value *NoCloudSeedSpec) {
-			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostagent.HostManifest) {
+			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostmanifest.HostManifest) {
 				manifest.Components[0].Sha256 = strings.Repeat("1", 64)
 			})
 		}},
 		{name: "terrabase version", mutate: func(value *NoCloudSeedSpec) {
-			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostagent.HostManifest) {
+			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostmanifest.HostManifest) {
 				manifest.Components[1] = productionComponent("terrabase", "3.0.1", manifest.Components[1].Sha256)
 			})
 		}},
 		{name: "terrabase digest", mutate: func(value *NoCloudSeedSpec) {
-			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostagent.HostManifest) {
+			value.TSNode.DesiredHostManifest = mutateDesiredManifest(t, value.TSNode.DesiredHostManifest, func(manifest *hostmanifest.HostManifest) {
 				manifest.Components[1].Sha256 = strings.Repeat("2", 64)
 			})
 		}},
@@ -368,43 +369,43 @@ func TestNoCloudSeedRejectsNonProductionDesiredManifest(t *testing.T) {
 	base := validNoCloudSpec(t)
 	tests := []struct {
 		name   string
-		mutate func(*hostagent.HostManifest)
+		mutate func(*hostmanifest.HostManifest)
 	}{
-		{name: "missing component", mutate: func(value *hostagent.HostManifest) { value.Components = value.Components[:1] }},
-		{name: "extra component", mutate: func(value *hostagent.HostManifest) {
+		{name: "missing component", mutate: func(value *hostmanifest.HostManifest) { value.Components = value.Components[:1] }},
+		{name: "extra component", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components = append(value.Components, productionComponent("worker", "3.0.0", strings.Repeat("3", 64)))
 		}},
-		{name: "component order", mutate: func(value *hostagent.HostManifest) {
+		{name: "component order", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components[0], value.Components[1] = value.Components[1], value.Components[0]
 		}},
-		{name: "component name", mutate: func(value *hostagent.HostManifest) { value.Components[0].Name = "worker" }},
-		{name: "reserved version", mutate: func(value *hostagent.HostManifest) { value.Components[0].Version = "current" }},
-		{name: "user", mutate: func(value *hostagent.HostManifest) { value.Components[0].User = "terrascale-worker" }},
-		{name: "data volume", mutate: func(value *hostagent.HostManifest) { value.Components[0].DataVolume = "/var/lib/terrascale/worker" }},
-		{name: "ts-node data ancestor", mutate: func(value *hostagent.HostManifest) { value.Components[0].DataVolume = "/var/lib/terrascale" }},
-		{name: "ts-node data root", mutate: func(value *hostagent.HostManifest) { value.Components[0].DataVolume = tsNodeStateDirectory }},
-		{name: "ts-node data descendant", mutate: func(value *hostagent.HostManifest) {
+		{name: "component name", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].Name = "worker" }},
+		{name: "reserved version", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].Version = "current" }},
+		{name: "user", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].User = "terrascale-worker" }},
+		{name: "data volume", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].DataVolume = "/var/lib/terrascale/worker" }},
+		{name: "ts-node data ancestor", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].DataVolume = "/var/lib/terrascale" }},
+		{name: "ts-node data root", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].DataVolume = tsNodeStateDirectory }},
+		{name: "ts-node data descendant", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components[0].DataVolume = tsNodeStateDirectory + "/orchestrator"
 		}},
-		{name: "CPU profile", mutate: func(value *hostagent.HostManifest) { value.Components[0].CPUWeight++ }},
-		{name: "memory profile", mutate: func(value *hostagent.HostManifest) { value.Components[0].MemoryMaxBytes++ }},
-		{name: "IO profile", mutate: func(value *hostagent.HostManifest) { value.Components[0].IOWeight++ }},
-		{name: "netlink profile", mutate: func(value *hostagent.HostManifest) { value.Components[0].NeedsNetlink = true }},
-		{name: "artifact port", mutate: func(value *hostagent.HostManifest) {
+		{name: "CPU profile", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].CPUWeight++ }},
+		{name: "memory profile", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].MemoryMaxBytes++ }},
+		{name: "IO profile", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].IOWeight++ }},
+		{name: "netlink profile", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].NeedsNetlink = true }},
+		{name: "artifact port", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components[0].ArtifactURL = strings.Replace(value.Components[0].ArtifactURL, ":8443", ":9443", 1)
 		}},
-		{name: "artifact query", mutate: func(value *hostagent.HostManifest) { value.Components[0].ArtifactURL += "?token=secret" }},
-		{name: "signature query", mutate: func(value *hostagent.HostManifest) { value.Components[0].SignatureURL += "?token=secret" }},
-		{name: "artifact fragment", mutate: func(value *hostagent.HostManifest) { value.Components[0].ArtifactURL += "#fragment" }},
-		{name: "signature fragment", mutate: func(value *hostagent.HostManifest) { value.Components[0].SignatureURL += "#fragment" }},
-		{name: "artifact userinfo", mutate: func(value *hostagent.HostManifest) {
+		{name: "artifact query", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].ArtifactURL += "?token=secret" }},
+		{name: "signature query", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].SignatureURL += "?token=secret" }},
+		{name: "artifact fragment", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].ArtifactURL += "#fragment" }},
+		{name: "signature fragment", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].SignatureURL += "#fragment" }},
+		{name: "artifact userinfo", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components[0].ArtifactURL = strings.Replace(value.Components[0].ArtifactURL, "https://", "https://user:password@", 1)
 		}},
-		{name: "signature userinfo", mutate: func(value *hostagent.HostManifest) {
+		{name: "signature userinfo", mutate: func(value *hostmanifest.HostManifest) {
 			value.Components[0].SignatureURL = strings.Replace(value.Components[0].SignatureURL, "https://", "https://user:password@", 1)
 		}},
-		{name: "artifact path", mutate: func(value *hostagent.HostManifest) { value.Components[0].ArtifactURL += ".other" }},
-		{name: "signature path", mutate: func(value *hostagent.HostManifest) { value.Components[0].SignatureURL += ".other" }},
+		{name: "artifact path", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].ArtifactURL += ".other" }},
+		{name: "signature path", mutate: func(value *hostmanifest.HostManifest) { value.Components[0].SignatureURL += ".other" }},
 	}
 	for _, test := range tests {
 		test := test
@@ -563,7 +564,7 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 	if err != nil {
 		t.Fatal(err)
 	}
-	desiredManifest := marshalDesiredManifest(t, []hostagent.ComponentSpec{
+	desiredManifest := marshalDesiredManifest(t, []hostmanifest.ComponentSpec{
 		productionComponent("orchestrator", "3.0.0", digest(orchestratorBinary)),
 		productionComponent("terrabase", "3.0.0", digest(terrabaseBinary)),
 	})
@@ -572,7 +573,7 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = issuer.Close() })
-	admitted, err := hostagent.ParseHostManifest(desiredManifest)
+	admitted, err := hostmanifest.ParseHostManifest(desiredManifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,27 +634,27 @@ func cloneNoCloudSpec(input NoCloudSeedSpec) NoCloudSeedSpec {
 	return cloned
 }
 
-func productionComponent(name, version, sha256 string) hostagent.ComponentSpec {
+func productionComponent(name, version, sha256 string) hostmanifest.ComponentSpec {
 	artifactURL := "https://releases.terrascale.tech:8443/releases/" + name + "/" + version + "/" + name
-	return hostagent.ComponentSpec{
+	return hostmanifest.ComponentSpec{
 		Name: name, Version: version, ArtifactURL: artifactURL, SignatureURL: artifactURL + ".sig",
 		Sha256: sha256, User: "terrascale-" + name, DataVolume: "/var/lib/terrascale/" + name,
 		CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100,
 	}
 }
 
-func marshalDesiredManifest(t *testing.T, components []hostagent.ComponentSpec) []byte {
+func marshalDesiredManifest(t *testing.T, components []hostmanifest.ComponentSpec) []byte {
 	t.Helper()
-	data, err := json.Marshal(hostagent.HostManifest{Components: components})
+	data, err := json.Marshal(hostmanifest.HostManifest{Components: components})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return data
 }
 
-func mutateDesiredManifest(t *testing.T, data []byte, mutate func(*hostagent.HostManifest)) []byte {
+func mutateDesiredManifest(t *testing.T, data []byte, mutate func(*hostmanifest.HostManifest)) []byte {
 	t.Helper()
-	manifest, err := hostagent.ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
 		t.Fatal(err)
 	}

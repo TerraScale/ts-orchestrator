@@ -19,14 +19,21 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
+
+// Installation trust and download bounds belong to the live installer.
+var hostAgentEd25519PublicKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+const hostAgentMaximumArtifactBytes = 256 << 20
 
 // ArtifactDownloader fetches one bounded release file from its https URL;
 // http.Client-based DownloadClient is the live spelling and tests inject an
@@ -56,7 +63,7 @@ func (d DownloadClient) Download(ctx context.Context, url string, target string,
 	if d.Client == nil {
 		return &InvalidOperationError{Message: "The download client needs an HTTP client."}
 	}
-	if !safeAbsolutePath(target) {
+	if !hostmanifest.SafeAbsolutePath(target) {
 		return &errs.Argument{Param: "target", Message: "The download target must be an absolute safe path."}
 	}
 	parent := filepath.Dir(target)
@@ -145,7 +152,7 @@ func InstallClient() DownloadClient {
 }
 
 func parseReleaseURL(raw string) (*url.URL, error) {
-	if raw == "" || len(raw) > hostAgentMaximumUrlLength || strings.ContainsAny(raw, "\r\n\x00") {
+	if raw == "" || len(raw) > hostmanifest.MaximumURLLength || strings.ContainsAny(raw, "\r\n\x00") {
 		return nil, fmt.Errorf("invalid release URL")
 	}
 	parsed, err := url.Parse(raw)
@@ -203,22 +210,6 @@ type Installer struct {
 	allowedHosts []string
 }
 
-func safeAbsolutePath(value string) bool {
-	if value == "" || !filepath.IsAbs(value) || strings.ContainsAny(value, " \t\x00\r\n\\") {
-		return false
-	}
-	clean := filepath.Clean(value)
-	if clean == "." || clean == string(filepath.Separator) || clean != value {
-		return false
-	}
-	for _, part := range strings.Split(filepath.ToSlash(value), "/") {
-		if part == ".." {
-			return false
-		}
-	}
-	return true
-}
-
 func syncFile(path string) error {
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
@@ -246,7 +237,7 @@ func syncDir(path string) error {
 }
 
 func ensureDirectory(path string, mode os.FileMode) error {
-	if !safeAbsolutePath(path) {
+	if !hostmanifest.SafeAbsolutePath(path) {
 		return &InvalidOperationError{Message: "The directory path must be absolute and safe."}
 	}
 	clean := filepath.Clean(path)
@@ -325,7 +316,7 @@ func ensureDirectoryMode(path string, mode os.FileMode) error {
 // component lifecycle mutation. Existing path elements must be real
 // directories, and the target must be a strict descendant of root.
 func validateDirectoryWithin(root, target string) (string, error) {
-	if !safeAbsolutePath(root) || !safeAbsolutePath(target) {
+	if !hostmanifest.SafeAbsolutePath(root) || !hostmanifest.SafeAbsolutePath(target) {
 		return "", &InvalidOperationError{Message: "The data volume path must be absolute and safe."}
 	}
 	cleanRoot := filepath.Clean(root)
@@ -356,7 +347,7 @@ func validateDirectoryWithin(root, target string) (string, error) {
 
 // NewInstaller validates the configuration and composes the installer.
 func NewInstaller(config InstallerConfig) (*Installer, error) {
-	if !safeAbsolutePath(config.InstallRoot) {
+	if !hostmanifest.SafeAbsolutePath(config.InstallRoot) {
 		return nil, &errs.Argument{
 			Param:   "InstallRoot",
 			Message: "The install root must be an absolute path.",
@@ -396,13 +387,13 @@ func NewInstaller(config InstallerConfig) (*Installer, error) {
 // place only after both the sha256 and the ed25519 signature verify, so an
 // existing good version directory is never touched and a bad one never
 // exists. The returned path is the installed version directory.
-func (i *Installer) Install(spec ComponentSpec) (string, error) {
+func (i *Installer) Install(spec hostmanifest.ComponentSpec) (string, error) {
 	return i.InstallContext(context.Background(), spec)
 }
 
 // InstallContext is Install with cancellation propagated through lock waits
 // and HTTPS downloads so agent shutdown cannot hang behind an install.
-func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (installedPath string, result error) {
+func (i *Installer) InstallContext(ctx context.Context, spec hostmanifest.ComponentSpec) (installedPath string, result error) {
 	phase := "install-filesystem"
 	defer func() {
 		if result != nil {
@@ -415,7 +406,7 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (ins
 	if ctx == nil {
 		return "", &errs.Argument{Param: "ctx", Message: "The install context is required."}
 	}
-	validated, err := NewComponentSpec(spec)
+	validated, err := hostmanifest.NewComponentSpec(spec)
 	if err != nil {
 		return "", err
 	}
@@ -727,7 +718,7 @@ func (i *Installer) inspectInstalledRelease(versionDir, component, expectedSha25
 		if err := requireOwnedRegular(digestInfo, false, "release digest"); err != nil {
 			return false, false, err
 		}
-		if len(digestFile) != 64 || !hostAgentSha256Pattern.Match(digestFile) || string(digestFile) != digestHex {
+		if len(digestFile) != 64 || !hostmanifest.ValidDigest(string(digestFile)) || string(digestFile) != digestHex {
 			return false, false, &InvalidDataError{Message: "The installed release digest metadata is invalid."}
 		}
 	}
@@ -865,13 +856,13 @@ func (i *Installer) withVerifiedTransition(ctx context.Context, component, versi
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "The transition context is required."}
 	}
-	if _, err := requireHostAgentName(component, "component", "The component must be a canonical token."); err != nil {
+	if _, err := hostmanifest.RequireName(component, "component", "The component must be a canonical token."); err != nil {
 		return err
 	}
 	if err := requireVersion(version); err != nil {
 		return err
 	}
-	if expectedSha256 != "" && !hostAgentSha256Pattern.MatchString(expectedSha256) {
+	if expectedSha256 != "" && !hostmanifest.ValidDigest(expectedSha256) {
 		return &InvalidDataError{Message: "The expected release digest is invalid."}
 	}
 	componentDir := InstallDir(i.installRoot, component)
@@ -911,14 +902,14 @@ func (i *Installer) withVerifiedTransition(ctx context.Context, component, versi
 // component install lock, authenticates that exact version, and keeps the
 // lock held until the serving transition completes. A current version that
 // differs from the manifest uses its own durable digest/signature metadata.
-func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec ComponentSpec, transition func(version string) error) error {
+func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec hostmanifest.ComponentSpec, transition func(version string) error) error {
 	if i == nil || transition == nil {
 		return &InvalidOperationError{Message: "A verified current transition is required."}
 	}
 	if ctx == nil {
 		return &errs.Argument{Param: "ctx", Message: "The transition context is required."}
 	}
-	validated, err := NewComponentSpec(spec)
+	validated, err := hostmanifest.NewComponentSpec(spec)
 	if err != nil {
 		return err
 	}
@@ -991,6 +982,6 @@ func InstalledVersion(installRoot, component, version string) bool {
 }
 
 func requireVersion(version string) error {
-	_, err := requireHostAgentName(version, "version", "The version must be a canonical token.")
+	_, err := hostmanifest.RequireName(version, "version", "The version must be a canonical token.")
 	return err
 }

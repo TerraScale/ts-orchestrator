@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 )
 
 const (
@@ -45,7 +46,7 @@ type commandJournal struct {
 }
 
 func newCommandJournal(dir string) (*commandJournal, error) {
-	if !safeAbsolutePath(dir) {
+	if !hostmanifest.SafeAbsolutePath(dir) {
 		return nil, &InvalidOperationError{Message: "The command journal directory must be an absolute safe path."}
 	}
 	return &commandJournal{dir: dir, path: filepath.Join(dir, "commands.json")}, nil
@@ -393,7 +394,7 @@ func validateCommandJournal(document commandJournalDocument) error {
 	ids := make(map[string]struct{}, len(document.Records))
 	sequences := make(map[uint64]struct{}, len(document.Records))
 	for _, record := range document.Records {
-		if _, err := requireHostAgentToken(record.CommandId, "commandId", "The journal command ID is invalid."); err != nil {
+		if _, err := hostmanifest.RequireToken(record.CommandId, "commandId", "The journal command ID is invalid."); err != nil {
 			return &InvalidDataError{Message: "The command journal contains an invalid command ID."}
 		}
 		if !knownCommandKind(record.Kind) || record.Sequence == 0 || record.Sequence >= document.NextSequence ||
@@ -428,7 +429,7 @@ func validateCommandJournal(document commandJournalDocument) error {
 			return &InvalidDataError{Message: "The command journal transition plan is invalid."}
 		}
 		if record.Plan != nil {
-			if _, err := NewComponentSpec(record.Plan.Spec); err != nil {
+			if _, err := hostmanifest.NewComponentSpec(record.Plan.Spec); err != nil {
 				return &InvalidDataError{Message: "The command journal component spec is invalid."}
 			}
 			switch record.Kind {
@@ -486,7 +487,7 @@ func validateJournalRequest(record commandJournalRecord) error {
 			return &InvalidDataError{Message: "The journal rollback plan does not match its request."}
 		}
 	case commandKindManifest:
-		command, err := decodeApplyManifestCommand(record.Request)
+		command, err := hostmanifest.ParseApplyManifestCommand(record.Request)
 		if err != nil {
 			return &InvalidDataError{Message: "The journal apply-manifest request is invalid."}
 		}

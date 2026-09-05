@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
@@ -125,9 +126,9 @@ func TestProductionDefaultsMatchSharedBootstrapContract(t *testing.T) {
 		tsNodeDefaultDataVolumeRoot != production.DataVolumeRoot {
 		t.Fatalf("ts-node defaults drifted from bootstrap: %+v", production)
 	}
-	if hostagent.UnitName(hostagent.TsNodeComponentName) != tsnodebootstrap.UnitName {
+	if hostagent.UnitName(hostmanifest.TsNodeComponentName) != tsnodebootstrap.UnitName {
 		t.Fatalf("self unit = %q, bootstrap unit = %q",
-			hostagent.UnitName(hostagent.TsNodeComponentName), tsnodebootstrap.UnitName)
+			hostagent.UnitName(hostmanifest.TsNodeComponentName), tsnodebootstrap.UnitName)
 	}
 }
 

@@ -11,13 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
-func bootstrapTestGrant(t *testing.T, manifest HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
+func bootstrapTestGrant(t *testing.T, manifest hostmanifest.HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -56,17 +57,17 @@ func TestBootstrapReceiverInstallsActivatesRetriesAndRetires(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	spec.Arguments, spec.Configuration = "--config @config", `{"region":"gru"}`
-	manifest := HostManifest{Components: []ComponentSpec{spec}}
+	manifest := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}}
 	signer, public, wire, grant := bootstrapTestGrant(t, manifest)
 	authority, err := NewBootstrapAuthority(testCommandAuthorizer{}, "gru-1", public, wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(harness.dataVolume, TsNodeComponentName, "manifest.json")
+	manifestPath := filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "manifest.json")
 	if err = os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	canonical, err := CanonicalHostManifestJSON(manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestBootstrapManifestAdmissionPrecedesInstallAndRejectsEditedLaunch(t *test
 		t.Run(field, func(t *testing.T) {
 			harness := newTestHarness(t)
 			spec := harness.publish(t, "terrabase", "1.0.0")
-			_, public, wire, _ := bootstrapTestGrant(t, HostManifest{Components: []ComponentSpec{spec}})
+			_, public, wire, _ := bootstrapTestGrant(t, hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}})
 			authority, err := NewBootstrapAuthority(testCommandAuthorizer{}, "gru-1", public, wire)
 			if err != nil {
 				t.Fatal(err)
@@ -152,11 +153,11 @@ func TestBootstrapManifestAdmissionPrecedesInstallAndRejectsEditedLaunch(t *test
 			case "data-volume":
 				changed.DataVolume = filepath.Join(harness.dataVolume, "foreign")
 			}
-			path := filepath.Join(harness.dataVolume, TsNodeComponentName, "manifest.json")
+			path := filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "manifest.json")
 			if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
-			canonical, err := CanonicalHostManifestJSON(HostManifest{Components: []ComponentSpec{changed}})
+			canonical, err := hostmanifest.CanonicalHostManifestJSON(hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{changed}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -181,27 +182,27 @@ func TestBootstrapManifestAdmissionPrecedesInstallAndRejectsEditedLaunch(t *test
 func TestBootstrapStartupHydratesVerifiedManifestAndPinsSigner(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
-	manifest := HostManifest{Components: []ComponentSpec{spec}}
+	manifest := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}}
 	_, public, wire, grant := bootstrapTestGrant(t, manifest)
 	authority, err := NewBootstrapAuthority(testCommandAuthorizer{}, "gru-1", public, wire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(harness.dataVolume, TsNodeComponentName, "manifest.json")
+	path := filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "manifest.json")
 	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
-	canonical, _ := CanonicalHostManifestJSON(manifest)
+	canonical, _ := hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err = os.WriteFile(path, canonical, 0600); err != nil {
 		t.Fatal(err)
 	}
 	// Model a different first read before the authenticated startup read.
 	foreign := spec
 	foreign.Name = "foreign"
-	if err = harness.lifecycle.HydrateDesired([]ComponentSpec{foreign}); err != nil {
+	if err = harness.lifecycle.HydrateDesired([]hostmanifest.ComponentSpec{foreign}); err != nil {
 		t.Fatal(err)
 	}
-	journal, err := newCommandJournal(filepath.Join(harness.dataVolume, TsNodeComponentName, "command-journal"))
+	journal, err := newCommandJournal(filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "command-journal"))
 	if err != nil {
 		t.Fatal(err)
 	}

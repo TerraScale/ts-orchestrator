@@ -3,6 +3,7 @@ package hostagent
 import (
 	"context"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 )
 
@@ -12,15 +13,15 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 	if !t.requireManifestAdmission {
 		return nil
 	}
-	data, err := readRegularFileBounded(t.manifestPath, hostAgentMaximumManifestBytes)
+	data, err := readRegularFileBounded(t.manifestPath, hostmanifest.MaximumManifestBytes)
 	if err != nil {
 		return err
 	}
-	manifest, err := ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
 		return err
 	}
-	digest, err := HostManifestSha256(manifest)
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return err
 	}
@@ -51,7 +52,7 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 // reconcileAdmittedManifest serializes manifest admission and effects with
 // command execution and runtime handoff. A copied or edited manifest cannot
 // obtain install/unit privileges from a valid signature on its binary alone.
-func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest HostManifest) error {
+func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest hostmanifest.HostManifest) error {
 	t.commandMutex.Lock()
 	defer t.commandMutex.Unlock()
 	select {
@@ -59,7 +60,7 @@ func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest 
 		return errors.New("hostagent: receiver closed")
 	default:
 	}
-	digest, err := HostManifestSha256(manifest)
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return err
 	}
@@ -68,15 +69,15 @@ func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest 
 		return err
 	}
 	// The watcher can have read an older file before waiting for this mutex.
-	data, err := readRegularFileBounded(t.manifestPath, hostAgentMaximumManifestBytes)
+	data, err := readRegularFileBounded(t.manifestPath, hostmanifest.MaximumManifestBytes)
 	if err != nil {
 		return err
 	}
-	current, err := ParseHostManifest(data)
+	current, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
 		return err
 	}
-	currentDigest, err := HostManifestSha256(current)
+	currentDigest, err := hostmanifest.HostManifestSha256(current)
 	if err != nil || currentDigest != digest {
 		return errors.New("hostagent: desired manifest changed before reconciliation")
 	}
@@ -107,7 +108,7 @@ func (t *NatsTransport) admitBootstrapCommand(grantDigest, manifestDigest string
 	if !ok || bootstrap.digest != grantDigest || bootstrap.manifestDigest != manifestDigest {
 		return errors.New("hostagent: bootstrap authority differs from configured grant")
 	}
-	desiredDigest, err := HostManifestSha256(HostManifest{Components: t.lifecycle.Desired()})
+	desiredDigest, err := hostmanifest.HostManifestSha256(hostmanifest.HostManifest{Components: t.lifecycle.Desired()})
 	if err != nil || desiredDigest != manifestDigest {
 		return errors.New("hostagent: bootstrap desired manifest differs")
 	}

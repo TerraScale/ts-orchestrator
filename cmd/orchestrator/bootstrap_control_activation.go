@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"io"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
@@ -93,11 +94,11 @@ func (r *bootstrapActivationRuntime) Execute(ctx context.Context, request bootst
 			if !ok {
 				continue
 			}
-			desired, err := hostagent.HostManifestSha256(handoff.Manifest)
+			desired, err := hostmanifest.HostManifestSha256(handoff.Manifest)
 			if err != nil {
 				return bootstrap.ControlRuntimeEvidence{}, err
 			}
-			allowed, err := hostagent.HostManifestSha256(activation.grant.Manifest)
+			allowed, err := hostmanifest.HostManifestSha256(activation.grant.Manifest)
 			if err != nil {
 				return bootstrap.ControlRuntimeEvidence{}, err
 			}
@@ -119,7 +120,7 @@ func sendControlActivation(ctx context.Context, connection *nats.Conn, client *h
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	grant := activation.grant
-	desired, err := hostagent.HostManifestSha256(grant.Manifest)
+	desired, err := hostmanifest.HostManifestSha256(grant.Manifest)
 	if err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func decodeControlActivationReply(raw []byte, value any) error {
 	return nil
 }
 func activationReady(report hostagent.NodeStatusReport, grant hostagent.BootstrapGrant, running bool) bool {
-	desired, err := hostagent.HostManifestSha256(grant.Manifest)
+	desired, err := hostmanifest.HostManifestSha256(grant.Manifest)
 	if err != nil || report.Facts.ClockUnhealthy || report.Facts.ManifestSha256 != desired {
 		return false
 	}

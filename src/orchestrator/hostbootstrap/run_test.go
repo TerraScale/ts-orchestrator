@@ -19,6 +19,7 @@ import (
 
 	. "terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	. "terrascale.tech/orchestrator/src/orchestrator/hostbootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -90,7 +91,7 @@ func localBootstrapComponent(t *testing.T, component string) (LocalBootstrapConf
 	}
 	artifact := []byte("actual signed initial fixture artifact")
 	digest := sha256.Sum256(artifact)
-	spec := ComponentSpec{Name: component, Version: "1.0.0", ArtifactURL: "https://releases.terrascale.tech/terrabase", SignatureURL: "https://releases.terrascale.tech/terrabase.sig", Sha256: hex.EncodeToString(digest[:]), User: "terrascale-" + component, DataVolume: filepath.Join(dataRoot, component), CPUWeight: 100, MemoryMaxBytes: 67108864, IOWeight: 100, Arguments: "--config @config", Configuration: `{"region":"gru"}`}
+	spec := hostmanifest.ComponentSpec{Name: component, Version: "1.0.0", ArtifactURL: "https://releases.terrascale.tech/terrabase", SignatureURL: "https://releases.terrascale.tech/terrabase.sig", Sha256: hex.EncodeToString(digest[:]), User: "terrascale-" + component, DataVolume: filepath.Join(dataRoot, component), CPUWeight: 100, MemoryMaxBytes: 67108864, IOWeight: 100, Arguments: "--config @config", Configuration: `{"region":"gru"}`}
 	downloads := localDownloads{spec.ArtifactURL: artifact, spec.SignatureURL: ed25519.Sign(priv, artifact)}
 	installer, err := NewInstaller(InstallerConfig{InstallRoot: root, PublicKeyHex: hex.EncodeToString(pub), Downloader: downloads})
 	if err != nil {
@@ -101,13 +102,13 @@ func localBootstrapComponent(t *testing.T, component string) (LocalBootstrapConf
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := HostManifest{Components: []ComponentSpec{spec}}
+	manifest := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}}
 	_, public, grant, _ := bootstrapTestGrant(t, manifest)
-	path := filepath.Join(dataRoot, TsNodeComponentName, "manifest.json")
+	path := filepath.Join(dataRoot, hostmanifest.TsNodeComponentName, "manifest.json")
 	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
-	canonical, _ := CanonicalHostManifestJSON(manifest)
+	canonical, _ := hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err = os.WriteFile(path, canonical, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func TestOfflineInitialGrantRetriesInterruptedEffectAndBoundsReadiness(t *testin
 	}
 }
 
-func bootstrapTestGrant(t *testing.T, manifest HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
+func bootstrapTestGrant(t *testing.T, manifest hostmanifest.HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -195,7 +196,7 @@ func TestCredentialHandoffUsesSignedAccountBeforeAnyServiceStart(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		expected, err := HostManifestSha256(grant.Manifest)
+		expected, err := hostmanifest.HostManifestSha256(grant.Manifest)
 		if err != nil || expected != digest {
 			t.Fatal("handoff did not receive authenticated full manifest digest")
 		}

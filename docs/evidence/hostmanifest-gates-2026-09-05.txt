@@ -1,0 +1,38 @@
+Host manifest extraction, 2026-09-05.
+Base commit: cc1c3571.
+
+Moved component/launch/manifest validation and the exact ApplyManifest parser
+into hostmanifest. Host, bootstrap, control and VM consumers use it directly,
+without compatibility aliases. Canonical manifest bytes and digest regression
+tests preserve the existing signed wire format. Installer-only download and
+signature limits remain in hostagent. hostagent is now 9413 Go lines including
+tests; hostmanifest is 734.
+
+Verification ran sequentially with GOMAXPROCS=4 GOFLAGS=-p=2 and Go 1.27.1:
+make check
+  PASS exit 0: gofmt, vet, build, full race suite (-count=1).
+go test -race -count=1 -tags sandboxvm ./...
+  First run FAIL: TestGlobalWorkerExpiryCancelsBlockedConstructionAndCleansLateResult
+  timed out during fixture R3 readiness at runtime_global_session_test.go:267,
+  before its expiry assertions. No timeout or readiness condition was changed.
+go test -race -count=3 -tags sandboxvm ./cmd/orchestrator \
+  -run '^TestGlobalWorkerExpiryCancelsBlockedConstructionAndCleansLateResult$'
+  PASS exit 0, 41.445s.
+go test -race -count=1 -tags sandboxvm ./...
+  Complete repeat PASS exit 0.
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...
+  PASS exit 0.
+
+Earlier extraction checks caught two omitted external dot-import test consumers
+in hostbootstrap and nodebootstrap. Both now use explicit hostmanifest imports.
+
+No new guest qualification is claimed. Initial-R1 admission/runtime/host hooks
+remain staged separately. Production composition and actual TerraBase startup,
+six-host/fourth-region scenarios and real-provider qualification are unfinished.
+
+Local log SHA256:
+8c275fc53353f8f01fa0d6095b5cac0707cf0a666318fa17ca6fc918dd6952f6  /tmp/ts-orchestrator-hostmanifest-check.log
+1176f69dae41b3ab97c3b52c43c9f8c8ef27578dbbf634b4cd65387471885b66  /tmp/ts-orchestrator-hostmanifest-sandboxvm.log
+a5cb2676069d615e9b6f58ba0dba464e0aba86ac301fc567ec37b075a3225f66  /tmp/ts-orchestrator-hostmanifest-retry.log
+9f58c51c926cbd0612875144bf60a93a9f93761091fe67a2a6d7550036bc2a9d  /tmp/ts-orchestrator-hostmanifest-sandboxvm-repeat.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-orchestrator-hostmanifest-arm64.log

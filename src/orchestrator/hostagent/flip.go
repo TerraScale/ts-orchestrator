@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 )
 
 var flipMutex sync.Mutex
@@ -60,7 +61,7 @@ func FlipCurrent(installRoot, component, version string) error {
 	if err := validateInstallLocation(installRoot, component); err != nil {
 		return err
 	}
-	if _, err := requireHostAgentName(version, "version",
+	if _, err := hostmanifest.RequireName(version, "version",
 		"The version must be a canonical token."); err != nil {
 		return err
 	}
@@ -141,7 +142,7 @@ func rollbackCurrentUnlocked(installRoot, component string, before symlinkState)
 // stageSymlink points <dir>/<name> at <dir>/<version> through a staged
 // temporary symlink renamed over the destination.
 func stageSymlink(dir, name, version string) error {
-	if _, err := requireHostAgentName(version, "version", "The version must be a canonical token."); err != nil {
+	if _, err := hostmanifest.RequireName(version, "version", "The version must be a canonical token."); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(dir, version)); err != nil {
@@ -160,10 +161,10 @@ func stageSymlink(dir, name, version string) error {
 }
 
 func validateInstallLocation(installRoot, component string) error {
-	if !safeAbsolutePath(installRoot) {
+	if !hostmanifest.SafeAbsolutePath(installRoot) {
 		return &InvalidOperationError{Message: "The install root must be an absolute safe path."}
 	}
-	if _, err := requireHostAgentName(component, "component", "The component must be a canonical token."); err != nil {
+	if _, err := hostmanifest.RequireName(component, "component", "The component must be a canonical token."); err != nil {
 		return err
 	}
 	return nil
@@ -175,7 +176,7 @@ func validatedLinkTarget(target, dir, component string) (string, error) {
 	if filepath.IsAbs(target) || filepath.Dir(target) != "." {
 		return "", &InvalidDataError{Message: "The current version link target is unsafe."}
 	}
-	if _, err := requireHostAgentName(target, "version", "The version must be a canonical token."); err != nil {
+	if _, err := hostmanifest.RequireName(target, "version", "The version must be a canonical token."); err != nil {
 		return "", &InvalidDataError{Message: "The current version link target is unsafe."}
 	}
 	versionInfo, err := os.Lstat(filepath.Join(dir, target))

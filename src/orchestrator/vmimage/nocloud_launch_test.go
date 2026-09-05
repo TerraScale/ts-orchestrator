@@ -3,7 +3,8 @@ package vmimage
 import (
 	"encoding/base64"
 	"strings"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+
 	"testing"
 )
 
@@ -13,12 +14,12 @@ func TestTSNodeBootstrapRetainsImmutableReleaseIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := hostagent.ParseHostManifest(material.launchManifest)
+	manifest, err := hostmanifest.ParseHostManifest(material.launchManifest)
 	if err != nil || len(manifest.Components) != 1 {
 		t.Fatalf("launch metadata: %v", err)
 	}
 	component := manifest.Components[0]
-	if component.Name != hostagent.TsNodeComponentName || component.Version != spec.TSNode.Version || component.Sha256 != spec.TSNode.SHA256 || component.Configuration != "" || component.Arguments != "" {
+	if component.Name != hostmanifest.TsNodeComponentName || component.Version != spec.TSNode.Version || component.Sha256 != spec.TSNode.SHA256 || component.Configuration != "" || component.Arguments != "" {
 		t.Fatal("bootstrap metadata changed release or self launch ownership")
 	}
 	seed, err := BuildNoCloudSeed(spec)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -163,7 +164,7 @@ func TestControlMembershipReadVerifiesLivePinnedSignedRecord(t *testing.T) {
 }
 
 func TestControlLaunchManifestPreservesArtifactAndVersionsConfiguration(t *testing.T) {
-	input := hostagent.HostManifest{Components: []hostagent.ComponentSpec{{Name: "orchestrator", Version: "1.2.3", ArtifactURL: "https://releases.terrascale.tech/orchestrator/1.2.3/orchestrator", SignatureURL: "https://releases.terrascale.tech/orchestrator/1.2.3/orchestrator.sig", Sha256: strings.Repeat("ab", 32), User: "terrascale-orchestrator", DataVolume: "/var/lib/terrascale/orchestrator", CPUWeight: 200, MemoryMaxBytes: 1 << 30, IOWeight: 300, Arguments: "--config @config", Configuration: "revision = 1\n"}}}
+	input := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{{Name: "orchestrator", Version: "1.2.3", ArtifactURL: "https://releases.terrascale.tech/orchestrator/1.2.3/orchestrator", SignatureURL: "https://releases.terrascale.tech/orchestrator/1.2.3/orchestrator.sig", Sha256: strings.Repeat("ab", 32), User: "terrascale-orchestrator", DataVolume: "/var/lib/terrascale/orchestrator", CPUWeight: 200, MemoryMaxBytes: 1 << 30, IOWeight: 300, Arguments: "--config @config", Configuration: "revision = 1\n"}}}
 	first, err := PlanControlLaunchManifest(input)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +184,7 @@ func TestControlLaunchManifestPreservesArtifactAndVersionsConfiguration(t *testi
 	if first.Components[0].Version == second.Components[0].Version {
 		t.Fatal("configuration update reused immutable slot")
 	}
-	for _, component := range []hostagent.ComponentSpec{first.Components[0], second.Components[0]} {
+	for _, component := range []hostmanifest.ComponentSpec{first.Components[0], second.Components[0]} {
 		original := input.Components[0]
 		if component.ArtifactURL != original.ArtifactURL || component.SignatureURL != original.SignatureURL || component.Sha256 != original.Sha256 {
 			t.Fatal("artifact identity changed")

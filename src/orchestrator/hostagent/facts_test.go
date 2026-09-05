@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 )
@@ -61,7 +62,7 @@ func TestHeartbeatPayloadCarriesHostFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := source.Sample(context.Background(), NodeStateServing, []ComponentSpec{spec})
+	facts, err := source.Sample(context.Background(), NodeStateServing, []hostmanifest.ComponentSpec{spec})
 	if err != nil {
 		t.Fatalf("sample failed: %v", err)
 	}

@@ -6,12 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
@@ -30,7 +31,7 @@ func TestOrdinaryMutationNeverUsesBootstrapGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := hostagent.ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestOrdinaryMutationNeverUsesBootstrapGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	factory.services.(*qualificationRuntimeServices).bootstrapIssuer = issuer
-	digest, _ := hostagent.HostManifestSha256(manifest)
+	digest, _ := hostmanifest.HostManifestSha256(manifest)
 	options, err := authority.options(authority.guests[host])
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +117,7 @@ func TestInitialGrantUsesAuthenticatedTransportAndRealReceiverVerifier(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := hostagent.ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
 		t.Fatal(err)
 	}

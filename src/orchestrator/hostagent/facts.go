@@ -8,6 +8,7 @@ package hostagent
 import (
 	"context"
 	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 )
 
 // TsNodeVersion is stamped at build time by ts-deploy
@@ -119,13 +120,13 @@ func NewHostFactsSource(config HostFactsSourceConfig) (*HostFactsSource, error) 
 	if config.Statfs == nil {
 		return nil, &InvalidOperationError{Message: "A statfs function is required."}
 	}
-	if !safeAbsolutePath(config.DataVolumeRoot) {
+	if !hostmanifest.SafeAbsolutePath(config.DataVolumeRoot) {
 		return nil, &InvalidOperationError{Message: "The data volume root must be an absolute safe path."}
 	}
 	if config.Systemd == nil {
 		return nil, &InvalidOperationError{Message: "A systemd controller is required."}
 	}
-	if !safeAbsolutePath(config.InstallRoot) {
+	if !hostmanifest.SafeAbsolutePath(config.InstallRoot) {
 		return nil, &InvalidOperationError{Message: "The install root must be an absolute safe path."}
 	}
 	if config.Installer == nil {
@@ -148,7 +149,7 @@ func NewHostFactsSource(config HostFactsSourceConfig) (*HostFactsSource, error) 
 func (s *HostFactsSource) Sample(
 	ctx context.Context,
 	state string,
-	desired []ComponentSpec,
+	desired []hostmanifest.ComponentSpec,
 ) (HostFacts, error) {
 	if ctx == nil {
 		return HostFacts{}, &InvalidOperationError{Message: "The facts context must not be nil."}
@@ -160,7 +161,7 @@ func (s *HostFactsSource) Sample(
 		disk.TotalBytes, disk.AvailableBytes = total, available
 	}
 	components := make([]ComponentFact, 0, len(desired))
-	manifestSha256, err := HostManifestSha256(HostManifest{Components: desired})
+	manifestSha256, err := hostmanifest.HostManifestSha256(hostmanifest.HostManifest{Components: desired})
 	if err != nil {
 		return HostFacts{}, err
 	}

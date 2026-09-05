@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type ManifestWatcherConfig struct {
 // Polling, not inotify: a 30-second cadence is the contract the delivery
 // lane plans around and a poll survives manifest writes by any writer.
 type ManifestWatcher struct {
-	reconcile    func(context.Context, HostManifest) error
+	reconcile    func(context.Context, hostmanifest.HostManifest) error
 	manifestPath string
 	interval     time.Duration
 	lifecycle    *Lifecycle
@@ -39,7 +40,7 @@ type ManifestWatcher struct {
 
 // NewManifestWatcher validates the configuration and composes the watcher.
 func NewManifestWatcher(config ManifestWatcherConfig) (*ManifestWatcher, error) {
-	if !safeAbsolutePath(config.ManifestPath) {
+	if !hostmanifest.SafeAbsolutePath(config.ManifestPath) {
 		return nil, &InvalidOperationError{Message: "The manifest path must be an absolute safe path."}
 	}
 	if config.Interval <= 0 {
@@ -98,21 +99,21 @@ func (w *ManifestWatcher) HydrateOnce() error {
 	return w.lifecycle.HydrateDesired(manifest.Components)
 }
 
-func (w *ManifestWatcher) readManifest() (HostManifest, error) {
-	data, err := readRegularFileBounded(w.manifestPath, hostAgentMaximumManifestBytes)
+func (w *ManifestWatcher) readManifest() (hostmanifest.HostManifest, error) {
+	data, err := readRegularFileBounded(w.manifestPath, hostmanifest.MaximumManifestBytes)
 	if err != nil {
-		return HostManifest{}, fmt.Errorf("the manifest could not be read: %w", err)
+		return hostmanifest.HostManifest{}, fmt.Errorf("the manifest could not be read: %w", err)
 	}
-	manifest, err := ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
-		return HostManifest{}, err
+		return hostmanifest.HostManifest{}, err
 	}
 	return manifest, nil
 }
 
 // HydrateDesired records a validated manifest and discovers older managed
 // units without performing host mutations.
-func (l *Lifecycle) HydrateDesired(desired []ComponentSpec) error {
+func (l *Lifecycle) HydrateDesired(desired []hostmanifest.ComponentSpec) error {
 	validated, err := l.validateDesiredSet(desired)
 	if err != nil {
 		return err
@@ -141,7 +142,7 @@ func (l *Lifecycle) HydrateDesired(desired []ComponentSpec) error {
 // ApplyDesired converges the host on one desired component set: install,
 // provision, unit-file, enable, start, and retire. Per-component failures
 // are joined and reported; every other component still converges.
-func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []ComponentSpec) error {
+func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []hostmanifest.ComponentSpec) error {
 	validated, err := l.validateDesiredSet(desired)
 	if err != nil {
 		return err
@@ -189,22 +190,22 @@ func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []ComponentSpec) e
 			retainedStale = append(retainedStale, component)
 		}
 	}
-	l.desired = append([]ComponentSpec(nil), validated...)
+	l.desired = append([]hostmanifest.ComponentSpec(nil), validated...)
 	l.stale = retainedStale
 	return errors.Join(failures...)
 }
 
-func (l *Lifecycle) validateDesiredSet(desired []ComponentSpec) ([]ComponentSpec, error) {
-	validated, err := validateComponentSet(desired)
+func (l *Lifecycle) validateDesiredSet(desired []hostmanifest.ComponentSpec) ([]hostmanifest.ComponentSpec, error) {
+	validated, err := hostmanifest.ValidateComponentSet(desired)
 	if err != nil {
 		return nil, err
 	}
-	stateRoot := filepath.Join(l.dataRoot, TsNodeComponentName)
+	stateRoot := filepath.Join(l.dataRoot, hostmanifest.TsNodeComponentName)
 	for _, spec := range validated {
 		if _, err := validateDirectoryWithin(l.dataRoot, spec.DataVolume); err != nil {
 			return nil, err
 		}
-		if spec.Name != TsNodeComponentName && pathsOverlap(spec.DataVolume, stateRoot) {
+		if spec.Name != hostmanifest.TsNodeComponentName && hostmanifest.PathsOverlap(spec.DataVolume, stateRoot) {
 			return nil, &InvalidOperationError{Message: "Component data volumes must not overlap the root-owned ts-node state directory."}
 		}
 	}
@@ -230,10 +231,10 @@ func (l *Lifecycle) discoverManagedComponents() ([]string, error) {
 			continue
 		}
 		component := strings.TrimSuffix(strings.TrimPrefix(name, "terrascale-"), ".service")
-		if component == TsNodeComponentName {
+		if component == hostmanifest.TsNodeComponentName {
 			continue
 		}
-		if _, err := requireHostAgentName(component, "component", "The discovered component name is invalid."); err != nil {
+		if _, err := hostmanifest.RequireName(component, "component", "The discovered component name is invalid."); err != nil {
 			continue
 		}
 		unit, present, err := readUnitState(l.unitDir, component)
@@ -277,7 +278,7 @@ func (l *Lifecycle) discoverManagedComponents() ([]string, error) {
 // the unit file rendered, enable the unit, and start it while serving. The
 // ts-node self-component installs but never writes a unit or account — its
 // unit is the shared bootstrap unit, exactly one, and the flip is a deploy.
-func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpec) (result error) {
+func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec hostmanifest.ComponentSpec) (result error) {
 	phase := "validate-data-volume"
 	setPhase := func(next string) { phase = next; l.recordReconcileProgress(spec.Name, phase, "in-progress") }
 	setPhase(phase)
@@ -302,7 +303,7 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpe
 	if _, err := l.installer.InstallContext(ctx, spec); err != nil {
 		return err
 	}
-	if spec.Name != TsNodeComponentName {
+	if spec.Name != hostmanifest.TsNodeComponentName {
 		setPhase("ensure-user")
 		if err := l.users.EnsureUser(ctx, spec.User); err != nil {
 			return err
@@ -394,7 +395,7 @@ func (l *Lifecycle) retirementRecorded(component string) (bool, error) {
 // The data volume is deliberately kept — deleting a database's files is a
 // human decision (D-70 crypto-shred), never a reconcile side effect.
 func (l *Lifecycle) retireComponentLocked(ctx context.Context, component string) error {
-	if component == TsNodeComponentName {
+	if component == hostmanifest.TsNodeComponentName {
 		return &InvalidOperationError{Message: "ts-node cannot retire itself."}
 	}
 	unit := UnitName(component)

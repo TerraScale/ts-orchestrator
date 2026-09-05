@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+
 	"net"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"time"
@@ -27,7 +29,7 @@ func Activate(ctx context.Context, host string, material Material, status Status
 	if err != nil {
 		return err
 	}
-	digest, err := hostagent.HostManifestSha256(manifest)
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return err
 	}
@@ -127,7 +129,7 @@ func Activate(ctx context.Context, host string, material Material, status Status
 	return activatedStatus(report, manifest, digest)
 }
 
-func activatedStatus(report hostagent.NodeStatusReport, manifest hostagent.HostManifest, digest string) error {
+func activatedStatus(report hostagent.NodeStatusReport, manifest hostmanifest.HostManifest, digest string) error {
 	ready, err := initialActivationStatus(report, manifest, digest)
 	if err != nil {
 		return err
@@ -143,7 +145,7 @@ func activatedStatus(report hostagent.NodeStatusReport, manifest hostagent.HostM
 	return nil
 }
 
-func initialActivationStatus(report hostagent.NodeStatusReport, manifest hostagent.HostManifest, digest string) (bool, error) {
+func initialActivationStatus(report hostagent.NodeStatusReport, manifest hostmanifest.HostManifest, digest string) (bool, error) {
 	if report.Facts.ManifestSha256 != digest {
 		return false, errors.New("vmqual: guest initial manifest differs from the admitted seed")
 	}

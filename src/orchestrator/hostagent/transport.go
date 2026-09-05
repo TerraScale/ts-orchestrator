@@ -12,15 +12,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
@@ -182,28 +183,6 @@ func decodeCommandObjectBounded(data []byte, maximum int, required ...string) (m
 	return fields, nil
 }
 
-func decodeApplyManifestCommand(data []byte) (ApplyManifestCommand, error) {
-	fields, err := decodeCommandObjectBounded(data, hostAgentMaximumManifestBytes+4096,
-		"commandId", "expectedManifestSha256", "manifest")
-	if err != nil {
-		return ApplyManifestCommand{}, err
-	}
-	var commandId, expected string
-	if json.Unmarshal(fields["commandId"], &commandId) != nil ||
-		json.Unmarshal(fields["expectedManifestSha256"], &expected) != nil {
-		return ApplyManifestCommand{}, &InvalidDataError{Message: "The apply-manifest command has invalid field types."}
-	}
-	manifest, err := ParseHostManifest(fields["manifest"])
-	if err != nil {
-		return ApplyManifestCommand{}, err
-	}
-	canonical, err := CanonicalHostManifestJSON(manifest)
-	if err != nil || !bytes.Equal(canonical, fields["manifest"]) {
-		return ApplyManifestCommand{}, &InvalidDataError{Message: "The embedded manifest must use canonical compact JSON."}
-	}
-	return NewApplyManifestCommand(commandId, expected, manifest)
-}
-
 func decodeDrainCommand(data []byte) (DrainCommand, error) {
 	fields, err := decodeCommandObject(data, "commandId", "drain")
 	if err != nil {
@@ -341,7 +320,7 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		return nil, &errs.Argument{Param: "Now", Message: "A heartbeat clock is required."}
 	}
 	journalDir := config.CommandJournalDir
-	canonicalJournalDir := filepath.Join(config.Lifecycle.dataRoot, TsNodeComponentName, "command-journal")
+	canonicalJournalDir := filepath.Join(config.Lifecycle.dataRoot, hostmanifest.TsNodeComponentName, "command-journal")
 	if journalDir == "" {
 		journalDir = canonicalJournalDir
 	}
@@ -349,7 +328,7 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		return nil, &InvalidOperationError{Message: "The command journal must use the reserved ts-node state directory."}
 	}
 	manifestPath := config.ManifestPath
-	canonicalManifestPath := filepath.Join(config.Lifecycle.dataRoot, TsNodeComponentName, "manifest.json")
+	canonicalManifestPath := filepath.Join(config.Lifecycle.dataRoot, hostmanifest.TsNodeComponentName, "manifest.json")
 	if manifestPath == "" {
 		manifestPath = canonicalManifestPath
 	}
@@ -618,7 +597,7 @@ func (t *NatsTransport) handleRollback(message *nats.Msg) {
 }
 
 func (t *NatsTransport) handleApplyManifest(message *nats.Msg) {
-	command, err := decodeApplyManifestCommand(message.Data)
+	command, err := hostmanifest.ParseApplyManifestCommand(message.Data)
 	if err != nil {
 		t.replyEnvelopeError(message, err)
 		return
@@ -773,7 +752,7 @@ func (t *NatsTransport) executeJournalRecord(ctx context.Context, record command
 		cause := t.lifecycle.applyTransition(ctx, *record.Plan)
 		return t.transitionResponse(record.Kind, record.CommandId, record.Plan.Spec.Name, cause)
 	case commandKindManifest:
-		var command ApplyManifestCommand
+		var command hostmanifest.ApplyManifestCommand
 		if err := json.Unmarshal(record.Request, &command); err != nil {
 			return nil, err
 		}
@@ -842,28 +821,28 @@ func (t *NatsTransport) transitionResponse(kind, commandId, component string, ca
 	return json.Marshal(receipt)
 }
 
-func (t *NatsTransport) applyManifest(ctx context.Context, command ApplyManifestCommand) ([]byte, error) {
-	canonical, err := CanonicalHostManifestJSON(command.Manifest)
+func (t *NatsTransport) applyManifest(ctx context.Context, command hostmanifest.ApplyManifestCommand) ([]byte, error) {
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(command.Manifest)
 	if err != nil {
 		return nil, err
 	}
-	wantedSha256, err := HostManifestSha256(command.Manifest)
+	wantedSha256, err := hostmanifest.HostManifestSha256(command.Manifest)
 	if err != nil {
 		return nil, err
 	}
-	current, err := readRegularFileBounded(t.manifestPath, hostAgentMaximumManifestBytes)
+	current, err := readRegularFileBounded(t.manifestPath, hostmanifest.MaximumManifestBytes)
 	if err != nil {
 		return nil, err
 	}
-	currentManifest, err := ParseHostManifest(current)
+	currentManifest, err := hostmanifest.ParseHostManifest(current)
 	if err != nil {
 		return nil, err
 	}
-	currentCanonical, err := CanonicalHostManifestJSON(currentManifest)
+	currentCanonical, err := hostmanifest.CanonicalHostManifestJSON(currentManifest)
 	if err != nil || !bytes.Equal(current, currentCanonical) {
 		return nil, &InvalidDataError{Message: "The durable host manifest is not canonical."}
 	}
-	currentSha256, err := HostManifestSha256(currentManifest)
+	currentSha256, err := hostmanifest.HostManifestSha256(currentManifest)
 	if err != nil {
 		return nil, err
 	}
@@ -904,7 +883,7 @@ func (t *NatsTransport) applyManifest(ctx context.Context, command ApplyManifest
 }
 
 func writeDurableManifest(path string, data []byte) error {
-	if len(data) == 0 || len(data) > hostAgentMaximumManifestBytes {
+	if len(data) == 0 || len(data) > hostmanifest.MaximumManifestBytes {
 		return &InvalidDataError{Message: "The durable host manifest exceeds its size bound."}
 	}
 	dir := filepath.Dir(path)

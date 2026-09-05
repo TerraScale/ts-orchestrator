@@ -12,6 +12,7 @@ import (
 	"errors"
 	"strings"
 	. "terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"testing"
@@ -23,7 +24,7 @@ type unusedRegionalAuthority struct{}
 func (unusedRegionalAuthority) Authorize(context.Context, string, []byte) (nodeauthority.CommandAuthorization, error) {
 	return nodeauthority.CommandAuthorization{}, errors.New("not used by bootstrap crypto tests")
 }
-func bootstrapTestGrant(t *testing.T, manifest HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
+func bootstrapTestGrant(t *testing.T, manifest hostmanifest.HostManifest) (*security.CommandSignatureSigner, []byte, []byte, BootstrapGrant) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -46,8 +47,8 @@ func bootstrapTestGrant(t *testing.T, manifest HostManifest) (*security.CommandS
 	return signer, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public}), wire, grant
 }
 func TestBootstrapGrantBindsFullManifestHostAndFiniteCommands(t *testing.T) {
-	spec := ComponentSpec{Name: "terrabase", Version: "1.0.0", ArtifactURL: "https://releases.example/terrabase", SignatureURL: "https://releases.example/terrabase.sig", Sha256: strings.Repeat("a", 64), User: "terrabase", DataVolume: "/var/lib/terrascale/terrabase", CPUWeight: 100, MemoryMaxBytes: 67108864, IOWeight: 100}
-	signer, public, wire, grant := bootstrapTestGrant(t, HostManifest{Components: []ComponentSpec{spec}})
+	spec := hostmanifest.ComponentSpec{Name: "terrabase", Version: "1.0.0", ArtifactURL: "https://releases.example/terrabase", SignatureURL: "https://releases.example/terrabase.sig", Sha256: strings.Repeat("a", 64), User: "terrabase", DataVolume: "/var/lib/terrascale/terrabase", CPUWeight: 100, MemoryMaxBytes: 67108864, IOWeight: 100}
+	signer, public, wire, grant := bootstrapTestGrant(t, hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{spec}})
 	authority, err := NewBootstrapAuthority(unusedRegionalAuthority{}, "gru-1", public, wire)
 	if err != nil {
 		t.Fatal(err)

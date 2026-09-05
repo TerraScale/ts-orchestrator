@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -34,7 +35,7 @@ func provisionTsNodeSecrets(ctx context.Context, configPath string) error {
 	if config.DataVolumeRoot != "" && config.DataVolumeRoot != tsNodeDefaultDataVolumeRoot {
 		return errors.New("ts-node: initial credential state root differs")
 	}
-	directory := filepath.Join(tsNodeDefaultDataVolumeRoot, hostagent.TsNodeComponentName, "command-journal")
+	directory := filepath.Join(tsNodeDefaultDataVolumeRoot, hostmanifest.TsNodeComponentName, "command-journal")
 	return nodeauthority.WithInitialAuthority(directory, config.NodeId, func() error {
 		err := hostsecrets.BootstrapFile(ctx, hostsecrets.SeedPath)
 		if errors.Is(err, os.ErrNotExist) {

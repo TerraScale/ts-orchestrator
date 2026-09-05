@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
@@ -54,7 +55,7 @@ type Lifecycle struct {
 	reconcileProgress atomic.Pointer[reconcileProgress]
 	mutex             sync.Mutex
 	state             string
-	desired           []ComponentSpec
+	desired           []hostmanifest.ComponentSpec
 	stale             []string
 	enabledUnits      map[string]bool
 }
@@ -64,20 +65,20 @@ type Lifecycle struct {
 // version once; recovery never reads the possibly-swapped previous link and
 // accidentally rolls forward again.
 type transitionPlan struct {
-	Spec           ComponentSpec `json:"spec"`
-	ExpectedSha256 string        `json:"expectedSha256"`
+	Spec           hostmanifest.ComponentSpec `json:"spec"`
+	ExpectedSha256 string                     `json:"expectedSha256"`
 }
 
 // NewLifecycle validates the configuration and composes the lifecycle in
 // the serving state with an empty desired manifest.
 func NewLifecycle(config LifecycleConfig) (*Lifecycle, error) {
-	if !safeAbsolutePath(config.InstallRoot) {
+	if !hostmanifest.SafeAbsolutePath(config.InstallRoot) {
 		return nil, &InvalidOperationError{Message: "The install root must be an absolute path."}
 	}
-	if !safeAbsolutePath(config.UnitDir) {
+	if !hostmanifest.SafeAbsolutePath(config.UnitDir) {
 		return nil, &InvalidOperationError{Message: "The unit directory must be an absolute path."}
 	}
-	if !safeAbsolutePath(config.DataVolumeRoot) {
+	if !hostmanifest.SafeAbsolutePath(config.DataVolumeRoot) {
 		return nil, &InvalidOperationError{Message: "The data volume root must be an absolute path."}
 	}
 	if config.Installer == nil {
@@ -109,7 +110,7 @@ func (l *Lifecycle) State() string {
 }
 
 // Desired returns the current desired manifest snapshot.
-func (l *Lifecycle) Desired() []ComponentSpec {
+func (l *Lifecycle) Desired() []hostmanifest.ComponentSpec {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	return slices.Clone(l.desired)
@@ -123,7 +124,7 @@ func (l *Lifecycle) BeginDrain(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	for _, spec := range l.desired {
-		if spec.Name == TsNodeComponentName {
+		if spec.Name == hostmanifest.TsNodeComponentName {
 			continue
 		}
 		if err := l.systemd.StopUnit(ctx, UnitName(spec.Name)); err != nil {
@@ -164,7 +165,7 @@ func (l *Lifecycle) ReleaseDrain(ctx context.Context) error {
 
 func (l *Lifecycle) startUnitsLocked(ctx context.Context) error {
 	for _, spec := range l.desired {
-		if spec.Name == TsNodeComponentName {
+		if spec.Name == hostmanifest.TsNodeComponentName {
 			continue
 		}
 		active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name))
@@ -197,7 +198,7 @@ func (l *Lifecycle) quiescedObservationLocked(ctx context.Context) bool {
 		return false
 	}
 	for _, spec := range l.desired {
-		if spec.Name == TsNodeComponentName {
+		if spec.Name == hostmanifest.TsNodeComponentName {
 			continue
 		}
 		if active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name)); err != nil || active {
@@ -225,7 +226,7 @@ func (l *Lifecycle) quiescedObservationLocked(ctx context.Context) bool {
 // unit restart. The node stays draining; the orchestrator releases the
 // drain after its health gate passes.
 func (l *Lifecycle) Deploy(ctx context.Context, component, version string) error {
-	if _, err := requireHostAgentName(component, "component",
+	if _, err := hostmanifest.RequireName(component, "component",
 		"The component must be a canonical token."); err != nil {
 		return err
 	}
@@ -247,7 +248,7 @@ func (l *Lifecycle) prepareDeploy(ctx context.Context, component, version string
 }
 
 func (l *Lifecycle) prepareDeployLocked(ctx context.Context, component, version string) (transitionPlan, error) {
-	if _, err := requireHostAgentName(component, "component",
+	if _, err := hostmanifest.RequireName(component, "component",
 		"The component must be a canonical token."); err != nil {
 		return transitionPlan{}, err
 	}
@@ -276,7 +277,7 @@ func (l *Lifecycle) prepareDeployLocked(ctx context.Context, component, version 
 func (l *Lifecycle) prepareRollback(component string) (transitionPlan, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	if _, err := requireHostAgentName(component, "component",
+	if _, err := hostmanifest.RequireName(component, "component",
 		"The component must be a canonical token."); err != nil {
 		return transitionPlan{}, err
 	}
@@ -310,7 +311,7 @@ func (l *Lifecycle) applyTransition(ctx context.Context, plan transitionPlan) er
 }
 
 func (l *Lifecycle) applyTransitionLocked(ctx context.Context, plan transitionPlan) error {
-	if _, err := NewComponentSpec(plan.Spec); err != nil {
+	if _, err := hostmanifest.NewComponentSpec(plan.Spec); err != nil {
 		return err
 	}
 	if _, err := validateDirectoryWithin(l.dataRoot, plan.Spec.DataVolume); err != nil {
@@ -323,7 +324,7 @@ func (l *Lifecycle) applyTransitionLocked(ctx context.Context, plan transitionPl
 		if err := verifyExpectedLaunch(VersionDir(l.installRoot, plan.Spec.Name, plan.Spec.Version), plan.Spec); err != nil {
 			return err
 		}
-		if plan.Spec.Name == TsNodeComponentName {
+		if plan.Spec.Name == hostmanifest.TsNodeComponentName {
 			current, err := CurrentVersion(l.installRoot, plan.Spec.Name)
 			if err != nil {
 				return err
@@ -349,7 +350,7 @@ func (l *Lifecycle) restoreDrainMode(draining bool) {
 	l.state = NodeStateServing
 }
 
-func (l *Lifecycle) applyComponentTransitionLocked(ctx context.Context, deployed ComponentSpec) error {
+func (l *Lifecycle) applyComponentTransitionLocked(ctx context.Context, deployed hostmanifest.ComponentSpec) error {
 	rendered, err := RenderSystemdUnit(l.installRoot, deployed)
 	if err != nil {
 		return err
@@ -422,16 +423,16 @@ func (l *Lifecycle) applyComponentTransitionLocked(ctx context.Context, deployed
 // waited on. The new binary boots, reconciles from the manifest, and the
 // orchestrator's health gate watches the heartbeat return.
 func (l *Lifecycle) selfDeployLocked(ctx context.Context, version string) error {
-	links, err := captureSymlinkState(l.installRoot, TsNodeComponentName)
+	links, err := captureSymlinkState(l.installRoot, hostmanifest.TsNodeComponentName)
 	if err != nil {
 		return err
 	}
-	if err := FlipCurrent(l.installRoot, TsNodeComponentName, version); err != nil {
+	if err := FlipCurrent(l.installRoot, hostmanifest.TsNodeComponentName, version); err != nil {
 		return err
 	}
 	command := detachedCommand(context.Background(), "systemctl", "restart", tsnodebootstrap.UnitName)
 	if err := command.Start(); err != nil {
-		return errors.Join(fmt.Errorf("the ts-node self-restart could not be scheduled: %w", err), restoreSymlinkState(l.installRoot, TsNodeComponentName, links))
+		return errors.Join(fmt.Errorf("the ts-node self-restart could not be scheduled: %w", err), restoreSymlinkState(l.installRoot, hostmanifest.TsNodeComponentName, links))
 	}
 	go func() { _ = command.Wait() }()
 	return nil
@@ -443,7 +444,7 @@ func (l *Lifecycle) selfDeployLocked(ctx context.Context, version string) error 
 // failed its health gate and every second of writes through the bad version
 // is harm.
 func (l *Lifecycle) Rollback(ctx context.Context, component string) error {
-	if _, err := requireHostAgentName(component, "component",
+	if _, err := hostmanifest.RequireName(component, "component",
 		"The component must be a canonical token."); err != nil {
 		return err
 	}
@@ -457,7 +458,7 @@ func (l *Lifecycle) Rollback(ctx context.Context, component string) error {
 }
 
 func (l *Lifecycle) prepareRollbackLocked(component string) (transitionPlan, error) {
-	if _, err := requireHostAgentName(component, "component",
+	if _, err := hostmanifest.RequireName(component, "component",
 		"The component must be a canonical token."); err != nil {
 		return transitionPlan{}, err
 	}
@@ -484,7 +485,7 @@ func (l *Lifecycle) prepareRollbackLocked(component string) (transitionPlan, err
 
 // writeUnitLocked renders the D-69 unit file of one spec and writes it when
 // the on-disk content differs, followed by one daemon-reload.
-func (l *Lifecycle) writeUnitLocked(ctx context.Context, spec ComponentSpec) error {
+func (l *Lifecycle) writeUnitLocked(ctx context.Context, spec hostmanifest.ComponentSpec) error {
 	rendered, err := RenderSystemdUnit(l.installRoot, spec)
 	if err != nil {
 		return err
@@ -624,13 +625,13 @@ func restoreUnitState(dir, component string, data []byte, present bool) error {
 }
 
 // specLocked returns the desired spec of one component.
-func (l *Lifecycle) specLocked(component string) (ComponentSpec, bool) {
+func (l *Lifecycle) specLocked(component string) (hostmanifest.ComponentSpec, bool) {
 	for _, spec := range l.desired {
 		if spec.Name == component {
 			return spec, true
 		}
 	}
-	return ComponentSpec{}, false
+	return hostmanifest.ComponentSpec{}, false
 }
 
 // quiescedLocked is Quiesced without relocking.
@@ -639,7 +640,7 @@ func (l *Lifecycle) quiescedLocked(ctx context.Context) bool {
 		return false
 	}
 	for _, spec := range l.desired {
-		if spec.Name == TsNodeComponentName {
+		if spec.Name == hostmanifest.TsNodeComponentName {
 			continue
 		}
 		if active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name)); err != nil || active {

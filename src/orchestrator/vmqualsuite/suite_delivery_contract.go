@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
@@ -456,7 +457,7 @@ func cloneDeliveryArtifacts(input map[string]vmqual.DeliverySignedArtifact) map[
 }
 
 func deliveryContractSystemdUnit(artifact vmqual.DeliverySignedArtifact) (string, error) {
-	spec, err := hostagent.NewComponentSpec(hostagent.ComponentSpec{
+	spec, err := hostmanifest.NewComponentSpec(hostmanifest.ComponentSpec{
 		Name: "terrabase", Version: "qualification-candidate",
 		ArtifactURL: "https://forgejo.terrascale.invalid/releases/terrabase", SignatureURL: "https://forgejo.terrascale.invalid/releases/terrabase.sig",
 		Sha256: strings.TrimPrefix(artifact.Identity.Digest, "sha256:"), User: "terrabase", DataVolume: "/var/lib/terrascale/terrabase",

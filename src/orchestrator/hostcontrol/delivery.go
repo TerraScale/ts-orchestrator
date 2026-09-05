@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
@@ -18,7 +19,7 @@ import (
 // URL, signature URL, version, digest, architecture and configuration must come
 // from the authenticated release/catalog records, never from a status sample.
 type Release struct {
-	Manifest            hostagent.HostManifest
+	Manifest            hostmanifest.HostManifest
 	ExpectedManifestSHA string
 	Architecture        runtimeplan.HostArchitecture
 }
@@ -125,19 +126,19 @@ func (d *DeliveryControl) Converge(ctx context.Context, host string, encoded []b
 	if release.Architecture != admitted.Architecture {
 		return errors.New("hostcontrol: release architecture differs from admitted host")
 	}
-	canonical, err := hostagent.CanonicalHostManifestJSON(release.Manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(release.Manifest)
 	if err != nil {
 		return err
 	}
-	manifest, err := hostagent.ParseHostManifest(canonical)
+	manifest, err := hostmanifest.ParseHostManifest(canonical)
 	if err != nil {
 		return err
 	}
-	targetSHA, err := hostagent.HostManifestSha256(manifest)
+	targetSHA, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return err
 	}
-	var target *hostagent.ComponentSpec
+	var target *hostmanifest.ComponentSpec
 	for i := range manifest.Components {
 		spec := &manifest.Components[i]
 		if spec.Name == plan.AllocationId.Value {
@@ -148,7 +149,7 @@ func (d *DeliveryControl) Converge(ctx context.Context, host string, encoded []b
 	if target == nil || target.Sha256 != plan.ArtifactDigest.Value || hostagent.UnitName(target.Name) != plan.Systemd.UnitName {
 		return errors.New("hostcontrol: runtime plan has no exact admitted signed release mapping")
 	}
-	if _, err := hostagent.NewApplyManifestCommand("validate", release.ExpectedManifestSHA, manifest); err != nil {
+	if _, err := hostmanifest.NewApplyManifestCommand("validate", release.ExpectedManifestSHA, manifest); err != nil {
 		return err
 	}
 	report, err := d.config.Client.Status(ctx, host)
@@ -238,7 +239,7 @@ func (d *DeliveryControl) poll(ctx context.Context, host string, ready func(host
 	}
 }
 
-func exactActive(report hostagent.NodeStatusReport, manifestSHA string, target hostagent.ComponentSpec) bool {
+func exactActive(report hostagent.NodeStatusReport, manifestSHA string, target hostmanifest.ComponentSpec) bool {
 	if report.Facts.ManifestSha256 != manifestSHA {
 		return false
 	}

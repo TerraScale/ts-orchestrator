@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 )
 
@@ -63,7 +64,7 @@ func (s ChronyTrackingSource) Offset(ctx context.Context) (time.Duration, error)
 	if ctx == nil {
 		return 0, &InvalidOperationError{Message: "The chrony context is required."}
 	}
-	if !safeAbsolutePath(s.ChronycBinary) {
+	if !hostmanifest.SafeAbsolutePath(s.ChronycBinary) {
 		return 0, &InvalidOperationError{Message: "The chronyc binary must be an absolute safe path."}
 	}
 	if s.Timeout <= 0 {

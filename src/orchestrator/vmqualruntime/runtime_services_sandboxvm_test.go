@@ -12,10 +12,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
@@ -54,7 +54,7 @@ func TestDesiredHostManifestAndArtifactRoutesAreExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := hostagent.ParseHostManifest(manifestData)
+	manifest, err := hostmanifest.ParseHostManifest(manifestData)
 	if err != nil {
 		t.Fatal(err)
 	}

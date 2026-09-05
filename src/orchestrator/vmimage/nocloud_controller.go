@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 )
 
@@ -20,7 +20,7 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 	if m.HostID != input.Config.NodeID {
 		return nil, errors.New("vmimage: controller material belongs to another host")
 	}
-	manifest, err := hostagent.ParseHostManifest(input.DesiredHostManifest)
+	manifest, err := hostmanifest.ParseHostManifest(input.DesiredHostManifest)
 	if err != nil {
 		return nil, err
 	}

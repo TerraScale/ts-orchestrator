@@ -6,23 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
-func grantManifest(t *testing.T) hostagent.HostManifest {
+func grantManifest(t *testing.T) hostmanifest.HostManifest {
 	t.Helper()
-	var components []hostagent.ComponentSpec
+	var components []hostmanifest.ComponentSpec
 	for _, name := range []string{"orchestrator", "terrabase"} {
-		component, err := hostagent.NewComponentSpec(hostagent.ComponentSpec{Name: name, Version: "1.0.0", ArtifactURL: "https://releases.terrascale.tech/" + name, SignatureURL: "https://releases.terrascale.tech/" + name + ".sig", Sha256: strings.Repeat("a", 64), User: "terrascale-" + name, DataVolume: "/var/lib/terrascale/" + name, CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100})
+		component, err := hostmanifest.NewComponentSpec(hostmanifest.ComponentSpec{Name: name, Version: "1.0.0", ArtifactURL: "https://releases.terrascale.tech/" + name, SignatureURL: "https://releases.terrascale.tech/" + name + ".sig", Sha256: strings.Repeat("a", 64), User: "terrascale-" + name, DataVolume: "/var/lib/terrascale/" + name, CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
 		components = append(components, component)
 	}
-	return hostagent.HostManifest{Components: components}
+	return hostmanifest.HostManifest{Components: components}
 }
 func testIssuer(t *testing.T) *Issuer {
 	t.Helper()
@@ -64,7 +65,7 @@ func TestIssuerPinsStableHostManifestAndFiniteSteps(t *testing.T) {
 		t.Fatal("foreign host accepted")
 	}
 	changed := manifest
-	changed.Components = append([]hostagent.ComponentSpec(nil), manifest.Components...)
+	changed.Components = append([]hostmanifest.ComponentSpec(nil), manifest.Components...)
 	changed.Components[0].Version = "2.0.0"
 	if _, err := issuer.Grant("gru-1", changed); err == nil {
 		t.Fatal("seeded initial manifest changed")
@@ -113,7 +114,7 @@ func TestActivationAuthenticatesFiniteGrantAndResumesActualVersions(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			digest, _ := hostagent.HostManifestSha256(manifest)
+			digest, _ := hostmanifest.HostManifestSha256(manifest)
 			report := hostagent.NodeStatusReport{NodeId: host, State: hostagent.NodeStateServing, Facts: hostagent.HostFacts{ManifestSha256: digest, ClockMeasured: true}}
 			for _, spec := range manifest.Components {
 				report.Facts.Components = append(report.Facts.Components, hostagent.ComponentFact{Name: spec.Name, Desired: spec.Version, Installed: true})

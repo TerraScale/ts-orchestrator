@@ -8,19 +8,9 @@ import (
 	"testing"
 )
 
-func TestComponentLaunchRejectsInterpolationAndSecretKey(t *testing.T) {
-	for _, arguments := range []string{"--config $PATH", "--config %i", "--config `whoami`", "--config \"file\"", "--config /tmp/a\nb", "--config  /tmp/a", "@config", "@config @config"} {
-		spec := testComponentSpec()
-		spec.Arguments = arguments
-		if _, err := NewComponentSpec(spec); err == nil {
-			t.Errorf("unsafe arguments accepted: %q", arguments)
-		}
-	}
+func TestComponentLaunchConfigurationArgumentResolvesConfig(t *testing.T) {
 	spec := testComponentSpec()
-	spec.Arguments, spec.Configuration = "--config @config", "-----BEGIN PRIVATE KEY-----"
-	if _, err := NewComponentSpec(spec); err == nil {
-		t.Fatal("embedded key accepted")
-	}
+	spec.Arguments = "--config @config"
 	spec.Configuration = "mode = \"production\"\n"
 	unit, err := RenderSystemdUnit("/opt/terrascale", spec)
 	if err != nil || !strings.Contains(unit, " --config /opt/terrascale/terrabase/current/terrabase.config\n") {

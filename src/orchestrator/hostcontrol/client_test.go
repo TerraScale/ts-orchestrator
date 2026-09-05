@@ -9,15 +9,17 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"math/big"
 	"net"
 	"strings"
 	"sync/atomic"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 
 	server "github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
+
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -288,12 +290,12 @@ func TestClientManifestReceiptMustMatchExactDigest(t *testing.T) {
 	client := testClient(t, connection, nil)
 	id, _ := hostagent.NewNodeId("gru-1")
 	subject, _ := hostagent.NodeApplyManifestSubject(id)
-	manifest := hostagent.HostManifest{Components: []hostagent.ComponentSpec{}}
+	manifest := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{}}
 	var wrong atomic.Bool
 	subscribe(t, node, subject, func(message *nats.Msg) {
-		var command hostagent.ApplyManifestCommand
+		var command hostmanifest.ApplyManifestCommand
 		_ = json.Unmarshal(message.Data, &command)
-		digest, _ := hostagent.HostManifestSha256(command.Manifest)
+		digest, _ := hostmanifest.HostManifestSha256(command.Manifest)
 		if wrong.Load() {
 			digest = strings.Repeat("b", 64)
 		}

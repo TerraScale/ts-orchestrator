@@ -3,7 +3,8 @@ package vmimage
 import (
 	"bytes"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 	"testing"
@@ -21,7 +22,7 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	if bytes.Equal(m.Files[vmcontrolseed.CAPath], spec.TSNode.NATSIdentity.TLSCA) || bytes.Equal(m.Files[vmcontrolseed.NKeyPath], spec.TSNode.NATSIdentity.NKeySeed) {
 		t.Fatal("root transport credentials reused")
 	}
-	manifest, err := hostagent.ParseHostManifest(spec.TSNode.DesiredHostManifest)
+	manifest, err := hostmanifest.ParseHostManifest(spec.TSNode.DesiredHostManifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec.TSNode.DesiredHostManifest, err = hostagent.CanonicalHostManifestJSON(manifest)
+	spec.TSNode.DesiredHostManifest, err = hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,11 +2,12 @@ package hostagent
 
 import (
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 )
 
-func testComponentSpec() ComponentSpec {
-	return ComponentSpec{
+func testComponentSpec() hostmanifest.ComponentSpec {
+	return hostmanifest.ComponentSpec{
 		Name:           "terrabase",
 		Version:        "1.2.3",
 		ArtifactURL:    "https://releases.terrascale.tech/terrabase/1.2.3/terrabase",

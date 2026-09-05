@@ -19,7 +19,7 @@
 //	drain-status NodeStatusRequest -> NodeStatusReport  state, quiesce gate, facts
 //	deploy     DeployCommand   -> DeployReceipt       flip + restart, quiesced only
 //	rollback   RollbackCommand -> DeployReceipt       symlink back + restart, any state
-//	apply-manifest ApplyManifestCommand -> ManifestReceipt durable desired-state CAS
+//	apply-manifest hostmanifest.ApplyManifestCommand -> ManifestReceipt durable desired-state CAS
 //	heartbeat  (publish-only)  HostHeartbeat          facts every interval
 //
 // The rollout choreography the delivery lane drives: write the host's
@@ -30,8 +30,8 @@
 package hostagent
 
 import (
-	"regexp"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
@@ -51,22 +51,7 @@ type InvalidDataError struct {
 
 func (e *InvalidDataError) Error() string { return e.Message }
 
-var hostAgentTokenPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
-
-const (
-	hostAgentMaximumTokenLength  = 63
-	hostAgentMaximumDetailLength = 512
-)
-
-// requireHostAgentToken enforces the bounded canonical token vocabulary
-// shared by node identifiers and command identifiers.
-func requireHostAgentToken(value, param, message string) (string, error) {
-	if len(value) < 1 || len(value) > hostAgentMaximumTokenLength ||
-		!hostAgentTokenPattern.MatchString(value) {
-		return "", &errs.Argument{Param: param, Message: message}
-	}
-	return value, nil
-}
+const hostAgentMaximumDetailLength = 512
 
 // requireHostAgentDetail enforces a bounded, control-character-free detail
 // string so receipts stay log-safe.
@@ -108,7 +93,7 @@ type NodeId struct {
 
 // NewNodeId validates the DNS-style node token.
 func NewNodeId(value string) (NodeId, error) {
-	if _, err := requireHostAgentToken(value, "value",
+	if _, err := hostmanifest.RequireToken(value, "value",
 		"Node ID must be a lowercase DNS-style token."); err != nil {
 		return NodeId{}, err
 	}
@@ -215,7 +200,7 @@ type DrainCommand struct {
 
 // NewDrainCommand validates one drain command.
 func NewDrainCommand(commandId string, drain bool) (DrainCommand, error) {
-	validated, err := requireHostAgentToken(commandId, "commandId",
+	validated, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return DrainCommand{}, err
@@ -234,7 +219,7 @@ type DrainReceipt struct {
 
 // NewDrainReceipt validates one drain receipt.
 func NewDrainReceipt(commandId, nodeId string, draining, quiesced bool, detail string) (DrainReceipt, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return DrainReceipt{}, err
@@ -263,7 +248,7 @@ type NodeStatusRequest struct {
 
 // NewNodeStatusRequest validates one status request.
 func NewNodeStatusRequest(commandId string) (NodeStatusRequest, error) {
-	validated, err := requireHostAgentToken(commandId, "commandId",
+	validated, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return NodeStatusRequest{}, err
@@ -283,7 +268,7 @@ type NodeStatusReport struct {
 
 // NewNodeStatusReport validates one status report.
 func NewNodeStatusReport(commandId, nodeId, state string, quiesced bool, facts HostFacts) (NodeStatusReport, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return NodeStatusReport{}, err
@@ -317,17 +302,17 @@ type DeployCommand struct {
 
 // NewDeployCommand validates one deploy command.
 func NewDeployCommand(commandId, component, version string) (DeployCommand, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return DeployCommand{}, err
 	}
-	validatedComponent, err := requireHostAgentName(component, "component",
+	validatedComponent, err := hostmanifest.RequireName(component, "component",
 		"Component must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return DeployCommand{}, err
 	}
-	validatedVersion, err := requireHostAgentName(version, "version",
+	validatedVersion, err := hostmanifest.RequireName(version, "version",
 		"Version must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return DeployCommand{}, err
@@ -346,43 +331,14 @@ type RollbackCommand struct {
 	Component string `json:"component"`
 }
 
-// ApplyManifestCommand publishes the complete canonical desired manifest if
-// the currently durable manifest has the expected digest.
-type ApplyManifestCommand struct {
-	CommandId              string       `json:"commandId"`
-	ExpectedManifestSha256 string       `json:"expectedManifestSha256"`
-	Manifest               HostManifest `json:"manifest"`
-}
-
-// NewApplyManifestCommand validates one durable manifest compare-and-swap.
-func NewApplyManifestCommand(commandId, expectedManifestSha256 string, manifest HostManifest) (ApplyManifestCommand, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
-		"Command ID must be a lowercase DNS-style token.")
-	if err != nil {
-		return ApplyManifestCommand{}, err
-	}
-	if !hostAgentSha256Pattern.MatchString(expectedManifestSha256) {
-		return ApplyManifestCommand{}, &errs.Argument{Param: "expectedManifestSha256", Message: "Expected manifest sha256 must be canonical lowercase hex."}
-	}
-	components, err := validateComponentSet(manifest.Components)
-	if err != nil {
-		return ApplyManifestCommand{}, err
-	}
-	return ApplyManifestCommand{
-		CommandId:              validatedCommand,
-		ExpectedManifestSha256: expectedManifestSha256,
-		Manifest:               HostManifest{Components: components},
-	}, nil
-}
-
 // NewRollbackCommand validates one rollback command.
 func NewRollbackCommand(commandId, component string) (RollbackCommand, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return RollbackCommand{}, err
 	}
-	validatedComponent, err := requireHostAgentName(component, "component",
+	validatedComponent, err := hostmanifest.RequireName(component, "component",
 		"Component must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return RollbackCommand{}, err
@@ -411,7 +367,7 @@ type ManifestReceipt struct {
 
 // NewManifestReceipt validates one apply-manifest receipt.
 func NewManifestReceipt(commandId, nodeId string, accepted bool, manifestSha256, detail string) (ManifestReceipt, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return ManifestReceipt{}, err
@@ -420,7 +376,7 @@ func NewManifestReceipt(commandId, nodeId string, accepted bool, manifestSha256,
 	if err != nil {
 		return ManifestReceipt{}, err
 	}
-	if !hostAgentSha256Pattern.MatchString(manifestSha256) {
+	if !hostmanifest.ValidDigest(manifestSha256) {
 		return ManifestReceipt{}, &errs.Argument{Param: "manifestSha256", Message: "Manifest sha256 must be canonical lowercase hex."}
 	}
 	validatedDetail, err := requireHostAgentDetail(detail, "detail")
@@ -433,7 +389,7 @@ func NewManifestReceipt(commandId, nodeId string, accepted bool, manifestSha256,
 
 // NewDeployReceipt validates one deploy receipt.
 func NewDeployReceipt(commandId, nodeId string, accepted bool, current, detail string) (DeployReceipt, error) {
-	validatedCommand, err := requireHostAgentToken(commandId, "commandId",
+	validatedCommand, err := hostmanifest.RequireToken(commandId, "commandId",
 		"Command ID must be a lowercase DNS-style token.")
 	if err != nil {
 		return DeployReceipt{}, err
@@ -443,7 +399,7 @@ func NewDeployReceipt(commandId, nodeId string, accepted bool, current, detail s
 		return DeployReceipt{}, err
 	}
 	if current != "" {
-		if _, err := requireHostAgentName(current, "current",
+		if _, err := hostmanifest.RequireName(current, "current",
 			"Current version must be a lowercase token with dot or dash separators."); err != nil {
 			return DeployReceipt{}, err
 		}

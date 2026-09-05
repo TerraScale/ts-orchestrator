@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 )
 
@@ -65,7 +66,7 @@ func newTestHarness(t *testing.T) *testHarness {
 }
 
 // publish signs and serves one component release and returns its spec.
-func (h *testHarness) publish(t *testing.T, name, version string) ComponentSpec {
+func (h *testHarness) publish(t *testing.T, name, version string) hostmanifest.ComponentSpec {
 	t.Helper()
 	spec := testComponentSpec()
 	spec.Name = name
@@ -83,7 +84,7 @@ func (h *testHarness) publish(t *testing.T, name, version string) ComponentSpec 
 	return spec
 }
 
-func (h *testHarness) applyDesired(t *testing.T, specs ...ComponentSpec) {
+func (h *testHarness) applyDesired(t *testing.T, specs ...hostmanifest.ComponentSpec) {
 	t.Helper()
 	if err := h.lifecycle.ApplyDesired(context.Background(), specs); err != nil {
 		t.Fatalf("apply desired failed: %v", err)

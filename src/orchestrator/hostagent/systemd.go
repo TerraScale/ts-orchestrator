@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -52,7 +53,7 @@ type SystemctlController struct {
 
 // NewSystemctlController validates the controller configuration.
 func NewSystemctlController(systemctlBinary string, timeout time.Duration) (*SystemctlController, error) {
-	if !safeAbsolutePath(systemctlBinary) {
+	if !hostmanifest.SafeAbsolutePath(systemctlBinary) {
 		return nil, &InvalidOperationError{Message: "The systemctl binary path must be absolute and safe."}
 	}
 	if timeout <= 0 {
@@ -188,11 +189,11 @@ type UseraddProvisioner struct {
 // EnsureUser creates the dedicated system account of one component: system
 // account, no login shell, no home directory, matching group.
 func (p UseraddProvisioner) EnsureUser(ctx context.Context, user string) error {
-	if _, err := requireHostAgentName(user, "user",
+	if _, err := hostmanifest.RequireName(user, "user",
 		"The component user must be a canonical token."); err != nil {
 		return err
 	}
-	if user == hostAgentReservedSystemGroupName || user == TsNodeComponentName {
+	if user == hostmanifest.RootAccountName || user == hostmanifest.TsNodeComponentName {
 		return &InvalidOperationError{Message: "The component account must be dedicated and unprivileged."}
 	}
 	operationContext, cancel, err := p.invocationContext(ctx)
@@ -230,13 +231,13 @@ func (p UseraddProvisioner) OwnDirectory(ctx context.Context, name, path string)
 	if err := operationContext.Err(); err != nil {
 		return err
 	}
-	if !safeAbsolutePath(path) {
+	if !hostmanifest.SafeAbsolutePath(path) {
 		return &InvalidOperationError{Message: "The owned directory must be an absolute safe path."}
 	}
-	if _, err := requireHostAgentName(name, "name", "The component user must be a canonical token."); err != nil {
+	if _, err := hostmanifest.RequireName(name, "name", "The component user must be a canonical token."); err != nil {
 		return err
 	}
-	if name == hostAgentReservedSystemGroupName || name == TsNodeComponentName {
+	if name == hostmanifest.RootAccountName || name == hostmanifest.TsNodeComponentName {
 		return &InvalidOperationError{Message: "The component account must be dedicated and unprivileged."}
 	}
 	info, err := os.Lstat(path)
@@ -302,7 +303,7 @@ func (p UseraddProvisioner) invocationContext(ctx context.Context) (context.Cont
 	if ctx == nil {
 		return nil, nil, &InvalidOperationError{Message: "The user provisioner context is required."}
 	}
-	if !safeAbsolutePath(p.UseraddBinary) {
+	if !hostmanifest.SafeAbsolutePath(p.UseraddBinary) {
 		return nil, nil, &InvalidOperationError{Message: "The useradd binary path must be absolute and safe."}
 	}
 	if p.Timeout <= 0 {

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"io"
 	"net/url"
 	"os"
@@ -13,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -292,14 +293,14 @@ func loadBootstrapControl(lookup envLookup) (loadedBootstrapControl, error) {
 		if err != nil {
 			return result, err
 		}
-		allowed, err := hostagent.HostManifestSha256(activation.grant.Manifest)
+		allowed, err := hostmanifest.HostManifestSha256(activation.grant.Manifest)
 		if err != nil {
 			return result, err
 		}
 		matched := false
 		for _, plan := range result.actions {
 			for _, handoff := range plan.Handoffs {
-				desired, err := hostagent.HostManifestSha256(handoff.Manifest)
+				desired, err := hostmanifest.HostManifestSha256(handoff.Manifest)
 				if err != nil {
 					return result, err
 				}

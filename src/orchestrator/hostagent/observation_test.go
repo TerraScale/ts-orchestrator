@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
 )
@@ -29,13 +30,13 @@ func (d *stalledArtifactDownloader) Download(ctx context.Context, url, target st
 func TestStatusReportsUnknownDuringBlockedArtifactDownload(t *testing.T) {
 	h := newTestHarness(t)
 	spec := h.publish(t, "terrabase", "1.0.0")
-	if err := h.lifecycle.HydrateDesired([]ComponentSpec{spec}); err != nil {
+	if err := h.lifecycle.HydrateDesired([]hostmanifest.ComponentSpec{spec}); err != nil {
 		t.Fatal(err)
 	}
 	_, connection, _ := newTestTransport(t, h)
 	signature := h.releases[spec.SignatureURL]
 	h.releases[spec.SignatureURL] = []byte("invalid-signature-sensitive-provider-detail")
-	if err := h.lifecycle.ApplyDesired(context.Background(), []ComponentSpec{spec}); err == nil {
+	if err := h.lifecycle.ApplyDesired(context.Background(), []hostmanifest.ComponentSpec{spec}); err == nil {
 		t.Fatal("bad signature accepted")
 	}
 	h.releases[spec.SignatureURL] = signature
@@ -45,7 +46,7 @@ func TestStatusReportsUnknownDuringBlockedArtifactDownload(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	finished := make(chan error, 1)
-	go func() { finished <- h.lifecycle.ApplyDesired(ctx, []ComponentSpec{spec}) }()
+	go func() { finished <- h.lifecycle.ApplyDesired(ctx, []hostmanifest.ComponentSpec{spec}) }()
 	select {
 	case <-download.started:
 	case <-time.After(time.Second):

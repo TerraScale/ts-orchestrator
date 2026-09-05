@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"time"
 
@@ -779,7 +780,7 @@ func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (st
 	if err != nil {
 		return "", err
 	}
-	manifest, err := hostagent.CanonicalHostManifestJSON(grant.Manifest)
+	manifest, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
 	if err != nil || !bytes.Equal(manifest, seed.DesiredHostManifest) {
 		return "", errors.New("vmqual: recovery manifest differs from admitted grant")
 	}

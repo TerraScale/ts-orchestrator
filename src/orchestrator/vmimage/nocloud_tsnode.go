@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"github.com/nats-io/nkeys"
@@ -135,7 +136,7 @@ type tsNodeBootstrapMaterial struct {
 	ca                []byte
 	hostAddress       string
 	unit              string
-	desired           hostagent.HostManifest
+	desired           hostmanifest.HostManifest
 }
 
 type tsNodeConfigurationFile struct {
@@ -229,8 +230,8 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		return tsNodeBootstrapMaterial{}, fmt.Errorf("vmimage: render ts-node unit: %w", err)
 	}
 	baseURL := "https://" + artifactReleaseHost + ":" + artifactReleasePort + "/releases/ts-node/" + input.Version + "/ts-node"
-	launchManifest, err := hostagent.CanonicalHostManifestJSON(hostagent.HostManifest{Components: []hostagent.ComponentSpec{{
-		Name: hostagent.TsNodeComponentName, Version: input.Version, ArtifactURL: baseURL,
+	launchManifest, err := hostmanifest.CanonicalHostManifestJSON(hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{{
+		Name: hostmanifest.TsNodeComponentName, Version: input.Version, ArtifactURL: baseURL,
 		SignatureURL: baseURL + ".sig", Sha256: input.SHA256, User: "terrascale-ts-node",
 		DataVolume: tsNodeStateDirectory, CPUWeight: 100, MemoryMaxBytes: 512 << 20, IOWeight: 100,
 	}}})
@@ -296,45 +297,45 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 	return json.Marshal(wire)
 }
 
-func canonicalDesiredHostManifest(data []byte) ([]byte, hostagent.HostManifest, error) {
+func canonicalDesiredHostManifest(data []byte) ([]byte, hostmanifest.HostManifest, error) {
 	if len(data) == 0 || len(data) > maxDesiredManifestBytes {
-		return nil, hostagent.HostManifest{}, errors.New("vmimage: desired host manifest size is invalid")
+		return nil, hostmanifest.HostManifest{}, errors.New("vmimage: desired host manifest size is invalid")
 	}
-	manifest, err := hostagent.ParseHostManifest(data)
+	manifest, err := hostmanifest.ParseHostManifest(data)
 	if err != nil {
-		return nil, hostagent.HostManifest{}, fmt.Errorf("vmimage: desired host manifest is invalid: %w", err)
+		return nil, hostmanifest.HostManifest{}, fmt.Errorf("vmimage: desired host manifest is invalid: %w", err)
 	}
 	canonical, err := json.Marshal(manifest)
 	if err != nil || !bytes.Equal(data, canonical) {
-		return nil, hostagent.HostManifest{}, errors.New("vmimage: desired host manifest is not canonical JSON")
+		return nil, hostmanifest.HostManifest{}, errors.New("vmimage: desired host manifest is not canonical JSON")
 	}
 	wantNames := []string{"orchestrator", "terrabase"}
 	if len(manifest.Components) != len(wantNames) {
-		return nil, hostagent.HostManifest{}, errors.New("vmimage: desired host manifest must contain exactly orchestrator and terrabase")
+		return nil, hostmanifest.HostManifest{}, errors.New("vmimage: desired host manifest must contain exactly orchestrator and terrabase")
 	}
 	for index, component := range manifest.Components {
 		if component.Name != wantNames[index] || reservedReleaseVersion(component.Version) ||
 			component.User != "terrascale-"+component.Name ||
 			component.DataVolume != "/var/lib/terrascale/"+component.Name ||
 			component.CPUWeight != 100 || component.MemoryMaxBytes != 128<<20 || component.IOWeight != 100 || component.NeedsNetlink {
-			return nil, hostagent.HostManifest{}, errors.New("vmimage: desired host manifest does not match the production component profile")
+			return nil, hostmanifest.HostManifest{}, errors.New("vmimage: desired host manifest does not match the production component profile")
 		}
 		releaseVersion := component.Version
 		if strings.HasPrefix(component.Version, "ctl-") {
 			parts := strings.Split(component.ArtifactURL, "/")
 			if len(parts) != 7 || !namePattern.MatchString(parts[5]) || reservedReleaseVersion(parts[5]) {
-				return nil, hostagent.HostManifest{}, errors.New("vmimage: invalid configured artifact URL")
+				return nil, hostmanifest.HostManifest{}, errors.New("vmimage: invalid configured artifact URL")
 			}
 			releaseVersion = parts[5]
-			planned, err := bootstrap.PlanControlLaunchManifest(hostagent.HostManifest{Components: []hostagent.ComponentSpec{component}})
+			planned, err := bootstrap.PlanControlLaunchManifest(hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{component}})
 			if err != nil || planned.Components[0].Version != component.Version {
-				return nil, hostagent.HostManifest{}, errors.New("vmimage: invalid configured launch revision")
+				return nil, hostmanifest.HostManifest{}, errors.New("vmimage: invalid configured launch revision")
 			}
 		}
 		artifactPath := "/releases/" + component.Name + "/" + releaseVersion + "/" + component.Name
 		baseURL := "https://" + artifactReleaseHost + ":" + artifactReleasePort
 		if component.ArtifactURL != baseURL+artifactPath || component.SignatureURL != baseURL+artifactPath+".sig" {
-			return nil, hostagent.HostManifest{}, errors.New("vmimage: desired artifacts must use the canonical TerraScale release URLs")
+			return nil, hostmanifest.HostManifest{}, errors.New("vmimage: desired artifacts must use the canonical TerraScale release URLs")
 		}
 	}
 	return canonical, manifest, nil

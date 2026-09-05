@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 )
 
 var errHostObservationBusy = errors.New("host observation unavailable while lifecycle mutation is in progress")
 
 type lifecycleObservation struct {
 	state    string
-	desired  []ComponentSpec
+	desired  []hostmanifest.ComponentSpec
 	quiesced bool
 }
 

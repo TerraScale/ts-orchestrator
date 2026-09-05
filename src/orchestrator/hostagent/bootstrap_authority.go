@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
@@ -15,12 +16,12 @@ import (
 
 // BootstrapGrant admits every setting of the initial host manifest.
 type BootstrapGrant struct {
-	Version   int          `json:"version"`
-	GrantID   string       `json:"grantId"`
-	NodeID    string       `json:"nodeId"`
-	Manifest  HostManifest `json:"manifest"`
-	IssuedAt  time.Time    `json:"issuedAt"`
-	ExpiresAt time.Time    `json:"expiresAt"`
+	Version   int                       `json:"version"`
+	GrantID   string                    `json:"grantId"`
+	NodeID    string                    `json:"nodeId"`
+	Manifest  hostmanifest.HostManifest `json:"manifest"`
+	IssuedAt  time.Time                 `json:"issuedAt"`
+	ExpiresAt time.Time                 `json:"expiresAt"`
 }
 type BootstrapCommand = nodebootstrap.BootstrapCommand
 
@@ -34,7 +35,7 @@ type BootstrapAuthority struct {
 }
 
 func rawBootstrapGrant(grant BootstrapGrant) (nodebootstrap.BootstrapGrant, error) {
-	manifest, err := CanonicalHostManifestJSON(grant.Manifest)
+	manifest, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
 	if err != nil {
 		return nodebootstrap.BootstrapGrant{}, err
 	}
@@ -81,15 +82,15 @@ func parseBootstrapAuthority(node string, publicPEM, signedGrant []byte) (*Boots
 		return nil, err
 	}
 	raw := verifier.Grant()
-	manifest, err := ParseHostManifest(raw.Manifest)
+	manifest, err := hostmanifest.ParseHostManifest(raw.Manifest)
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := CanonicalHostManifestJSON(manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err != nil || !bytes.Equal(canonical, raw.Manifest) {
 		return nil, errors.New("hostagent: bootstrap manifest is not canonical")
 	}
-	digest, err := HostManifestSha256(manifest)
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return nil, err
 	}

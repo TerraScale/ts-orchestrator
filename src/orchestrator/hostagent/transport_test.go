@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"path/filepath"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 // fakeNatsConnection is the in-memory NatsConnection seam: it captures
@@ -410,7 +410,7 @@ func TestTransportRecoversPendingRollbackAtPinnedTarget(t *testing.T) {
 			if err := FlipCurrent(harness.root, "terrabase", "1.1.0"); err != nil {
 				t.Fatal(err)
 			}
-			journal, err := newCommandJournal(filepath.Join(harness.dataVolume, TsNodeComponentName, "command-journal"))
+			journal, err := newCommandJournal(filepath.Join(harness.dataVolume, hostmanifest.TsNodeComponentName, "command-journal"))
 			if err != nil || journal.initialize() != nil {
 				t.Fatalf("initialize journal: %v", err)
 			}

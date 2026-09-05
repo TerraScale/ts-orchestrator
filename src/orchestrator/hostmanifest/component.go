@@ -2,7 +2,7 @@
 // desired-state component spec of the local manifest, the pinned-release
 // manifest document ts-node watches, and the validation that keeps every
 // value safe to embed in filesystem paths and systemd units.
-package hostagent
+package hostmanifest
 
 import (
 	"bytes"
@@ -24,38 +24,33 @@ import (
 // the agent; only the current symlink flips under it.
 const TsNodeComponentName = "ts-node"
 
-// hostAgentNamePattern admits the canonical lowercase token with dot and dash
+// namePattern admits the canonical lowercase token with dot and dash
 // separators — component names, versions, and unit users share it. Dots keep
 // semver versions ("1.2.3") canonical; the pattern cannot produce a path
 // escape or a systemd directive injection.
-var hostAgentNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
+var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`)
 
-// hostAgentSha256Pattern is the canonical lowercase SHA-256 hex digest.
-var hostAgentSha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-// hostAgentEd25519PublicKeyPattern is the canonical lowercase hex ed25519
-// public key pinned in the agent configuration.
-var hostAgentEd25519PublicKeyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+// digestPattern is the canonical lowercase SHA-256 hex digest.
+var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 const (
-	hostAgentMaximumNameLength       = 63
-	hostAgentMaximumUrlLength        = 2048
-	hostAgentMaximumArtifactBytes    = 256 << 20
-	hostAgentMaximumManifestBytes    = 1 << 20
-	hostAgentMaximumManifestEntries  = 1024
-	hostAgentMinimumCpuWeight        = 1
-	hostAgentMaximumCpuWeight        = 10000
-	hostAgentMinimumIoWeight         = 1
-	hostAgentMaximumIoWeight         = 10000
-	hostAgentMinimumMemoryMaxBytes   = 1 << 20
-	hostAgentMaximumMemoryMaxBytes   = 1 << 46
-	hostAgentReservedSystemGroupName = "root"
+	hostAgentMaximumNameLength      = 63
+	MaximumURLLength                = 2048
+	MaximumManifestBytes            = 1 << 20
+	hostAgentMaximumManifestEntries = 1024
+	hostAgentMinimumCpuWeight       = 1
+	hostAgentMaximumCpuWeight       = 10000
+	hostAgentMinimumIoWeight        = 1
+	hostAgentMaximumIoWeight        = 10000
+	hostAgentMinimumMemoryMaxBytes  = 1 << 20
+	hostAgentMaximumMemoryMaxBytes  = 1 << 46
+	RootAccountName                 = "root"
 )
 
-// requireHostAgentName enforces the shared canonical name vocabulary.
-func requireHostAgentName(value, param, message string) (string, error) {
+// RequireName enforces the shared canonical name vocabulary.
+func RequireName(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > hostAgentMaximumNameLength ||
-		!hostAgentNamePattern.MatchString(value) {
+		!namePattern.MatchString(value) {
 		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
@@ -107,12 +102,12 @@ type ComponentSpec struct {
 // NewComponentSpec validates one component spec at the manifest trust
 // boundary.
 func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
-	name, err := requireHostAgentName(spec.Name, "name",
+	name, err := RequireName(spec.Name, "name",
 		"Component name must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return ComponentSpec{}, err
 	}
-	version, err := requireHostAgentName(spec.Version, "version",
+	version, err := RequireName(spec.Version, "version",
 		"Component version must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return ComponentSpec{}, err
@@ -123,24 +118,24 @@ func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
 	if err := requireHttpsArtifactURL(spec.SignatureURL, "signatureUrl"); err != nil {
 		return ComponentSpec{}, err
 	}
-	if !hostAgentSha256Pattern.MatchString(spec.Sha256) {
+	if !digestPattern.MatchString(spec.Sha256) {
 		return ComponentSpec{}, &errs.Argument{
 			Param:   "sha256",
 			Message: "Component sha256 must be canonical lowercase SHA-256 hex.",
 		}
 	}
-	user, err := requireHostAgentName(spec.User, "user",
+	user, err := RequireName(spec.User, "user",
 		"Component user must be a lowercase token with dot or dash separators.")
 	if err != nil {
 		return ComponentSpec{}, err
 	}
-	if user == hostAgentReservedSystemGroupName || user == TsNodeComponentName {
+	if user == RootAccountName || user == TsNodeComponentName {
 		return ComponentSpec{}, &errs.Argument{
 			Param:   "user",
 			Message: "Component user must be a dedicated account, never root or ts-node.",
 		}
 	}
-	if !safeAbsolutePath(spec.DataVolume) || strings.ContainsAny(spec.DataVolume, " \t\n\r\x00\\") ||
+	if !SafeAbsolutePath(spec.DataVolume) || strings.ContainsAny(spec.DataVolume, " \t\n\r\x00\\") ||
 		len(spec.DataVolume) > 4096 {
 		return ComponentSpec{}, &errs.Argument{
 			Param:   "dataVolume",
@@ -193,7 +188,7 @@ func NewComponentSpec(spec ComponentSpec) (ComponentSpec, error) {
 // info or embedded control characters, the shape ts-deploy release artifacts
 // are published at.
 func requireHttpsArtifactURL(value, param string) error {
-	if value == "" || len(value) > hostAgentMaximumUrlLength ||
+	if value == "" || len(value) > MaximumURLLength ||
 		strings.ContainsAny(value, "\r\n\x00") {
 		return &errs.Argument{
 			Param:   param,
@@ -222,7 +217,7 @@ type HostManifest struct {
 // CanonicalHostManifestJSON validates and returns the one compact JSON
 // spelling used for durable publication and digest comparison.
 func CanonicalHostManifestJSON(manifest HostManifest) ([]byte, error) {
-	components, err := validateComponentSet(manifest.Components)
+	components, err := ValidateComponentSet(manifest.Components)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +239,7 @@ func HostManifestSha256(manifest HostManifest) (string, error) {
 // reserved ts-node self-component is admitted: its artifact is installed and
 // its current symlink flipped like any other, but its unit is never written.
 func ParseHostManifest(data []byte) (HostManifest, error) {
-	if len(data) > hostAgentMaximumManifestBytes {
+	if len(data) > MaximumManifestBytes {
 		return HostManifest{}, &InvalidDataError{Message: "The manifest exceeds its size bound."}
 	}
 	if err := validateHostManifestJSON(data); err != nil {
@@ -266,17 +261,17 @@ func ParseHostManifest(data []byte) (HostManifest, error) {
 	if len(wire.Components) > hostAgentMaximumManifestEntries {
 		return HostManifest{}, &InvalidDataError{Message: "The manifest contains too many components."}
 	}
-	components, err := validateComponentSet(wire.Components)
+	components, err := ValidateComponentSet(wire.Components)
 	if err != nil {
 		return HostManifest{}, err
 	}
 	return HostManifest{Components: components}, nil
 }
 
-// validateComponentSet enforces the invariants that only exist across a
+// ValidateComponentSet enforces the invariants that only exist across a
 // whole manifest. Every component owns a distinct account and a disjoint
 // writable tree.
-func validateComponentSet(specs []ComponentSpec) ([]ComponentSpec, error) {
+func ValidateComponentSet(specs []ComponentSpec) ([]ComponentSpec, error) {
 	if len(specs) > hostAgentMaximumManifestEntries {
 		return nil, &InvalidDataError{Message: "The manifest contains too many components."}
 	}
@@ -297,7 +292,7 @@ func validateComponentSet(specs []ComponentSpec) ([]ComponentSpec, error) {
 				"Components %q and %q cannot share dedicated user %q.", owner, component.Name, component.User)}
 		}
 		for _, existing := range validated {
-			if pathsOverlap(existing.DataVolume, component.DataVolume) {
+			if PathsOverlap(existing.DataVolume, component.DataVolume) {
 				return nil, &InvalidDataError{Message: fmt.Sprintf(
 					"Component data volumes %q and %q overlap.", existing.DataVolume, component.DataVolume)}
 			}
@@ -309,7 +304,7 @@ func validateComponentSet(specs []ComponentSpec) ([]ComponentSpec, error) {
 	return validated, nil
 }
 
-func pathsOverlap(first, second string) bool {
+func PathsOverlap(first, second string) bool {
 	first = filepath.Clean(first)
 	second = filepath.Clean(second)
 	if first == second {
@@ -445,3 +440,11 @@ func validateHostManifestComponents(data []byte, path string) error {
 	}
 	return nil
 }
+
+// InvalidDataError reports malformed manifest or launch data.
+type InvalidDataError struct{ Message string }
+
+func (e *InvalidDataError) Error() string { return e.Message }
+
+// ValidDigest admits the canonical lowercase SHA-256 vocabulary.
+func ValidDigest(value string) bool { return digestPattern.MatchString(value) }

@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -47,13 +48,13 @@ func NewIssuer() (*Issuer, error) {
 	return &Issuer{signer: signer, public: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), issued: time.Now().UTC().Add(-time.Minute), grants: map[string]Material{}}, nil
 }
 
-func (i *Issuer) Grant(host string, manifest hostagent.HostManifest) (Material, error) {
+func (i *Issuer) Grant(host string, manifest hostmanifest.HostManifest) (Material, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.signer == nil {
 		return Material{}, errors.New("vmqual: bootstrap grant issuer is closed")
 	}
-	canonical, err := hostagent.CanonicalHostManifestJSON(manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(manifest)
 	if err != nil {
 		return Material{}, err
 	}
@@ -62,7 +63,7 @@ func (i *Issuer) Grant(host string, manifest hostagent.HostManifest) (Material, 
 		if err != nil {
 			return Material{}, err
 		}
-		previous, err := hostagent.CanonicalHostManifestJSON(grant.Manifest)
+		previous, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
 		if err != nil || !bytes.Equal(previous, canonical) {
 			return Material{}, errors.New("vmqual: initial grant cannot change its admitted manifest")
 		}

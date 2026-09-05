@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"github.com/nats-io/nkeys"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 )
@@ -130,7 +130,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			}
 		}
 
-		manifest, err := hostagent.CanonicalHostManifestJSON(activation.grant.Manifest)
+		manifest, err := hostmanifest.CanonicalHostManifestJSON(activation.grant.Manifest)
 		if err != nil {
 			return err
 		}

@@ -10,6 +10,7 @@ package hostagent
 import (
 	"fmt"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 )
 
 // UnitName returns the systemd unit name of one component.
@@ -43,11 +44,11 @@ func ExecStartPath(installRoot, component string) string {
 // node, and the Grafana agent all speak AF_UNIX/AF_INET/AF_INET6 only. The
 // switch exists for a future rtnetlink consumer; granting it to every unit
 // would widen the sandbox of components that never need it.
-func RenderSystemdUnit(installRoot string, spec ComponentSpec) (string, error) {
-	if !safeAbsolutePath(installRoot) {
+func RenderSystemdUnit(installRoot string, spec hostmanifest.ComponentSpec) (string, error) {
+	if !hostmanifest.SafeAbsolutePath(installRoot) {
 		return "", &InvalidOperationError{Message: "The install root must be an absolute safe path."}
 	}
-	if _, err := NewComponentSpec(spec); err != nil {
+	if _, err := hostmanifest.NewComponentSpec(spec); err != nil {
 		return "", err
 	}
 	restrictAddressFamilies := "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
@@ -86,7 +87,7 @@ func RenderSystemdUnit(installRoot string, spec ComponentSpec) (string, error) {
 // ValidateSystemdUnit checks that a rendered unit is exactly the hardened
 // unit for its validated spec. Keeping this separate makes callers validate
 // staged bytes before committing a symlink or unit-file transition.
-func ValidateSystemdUnit(installRoot string, spec ComponentSpec, rendered string) error {
+func ValidateSystemdUnit(installRoot string, spec hostmanifest.ComponentSpec, rendered string) error {
 	expected, err := RenderSystemdUnit(installRoot, spec)
 	if err != nil {
 		return err

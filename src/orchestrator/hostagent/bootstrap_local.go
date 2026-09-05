@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/nodebootstrap"
@@ -13,7 +14,7 @@ import (
 // OpenLocalBootstrap authenticates immutable initial state and prepares its
 // installation. handoff receives only the verified orchestrator user and full
 // manifest digest, after account creation and before any service can start.
-func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, public, grant []byte, path string, handoff func(context.Context, string, string) error) (session *nodebootstrap.InitialSession[HostManifest], result error) {
+func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, public, grant []byte, path string, handoff func(context.Context, string, string) error) (session *nodebootstrap.InitialSession[hostmanifest.HostManifest], result error) {
 	if ctx == nil || lifecycle == nil {
 		return nil, errors.New("hostagent: invalid local bootstrap configuration")
 	}
@@ -21,10 +22,10 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 	if err != nil {
 		return nil, err
 	}
-	if path != filepath.Join(lifecycle.dataRoot, TsNodeComponentName, "manifest.json") {
+	if path != filepath.Join(lifecycle.dataRoot, hostmanifest.TsNodeComponentName, "manifest.json") {
 		return nil, errors.New("hostagent: local bootstrap manifest path differs from reserved state")
 	}
-	journal, err := newCommandJournal(filepath.Join(lifecycle.dataRoot, TsNodeComponentName, "command-journal"))
+	journal, err := newCommandJournal(filepath.Join(lifecycle.dataRoot, hostmanifest.TsNodeComponentName, "command-journal"))
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +46,8 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 	if err = executor.initializeManifestAuthority(); err != nil {
 		return nil, err
 	}
-	manifest := HostManifest{Components: lifecycle.Desired()}
-	digest, err := HostManifestSha256(manifest)
+	manifest := hostmanifest.HostManifest{Components: lifecycle.Desired()}
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +55,7 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 	if err != nil {
 		return nil, err
 	}
-	session = &nodebootstrap.InitialSession[HostManifest]{Manifest: HostManifest{Components: append([]ComponentSpec(nil), manifest.Components...)}, ExpiresAt: authority.grant.ExpiresAt, Retired: retired, Close: epochs.Close}
+	session = &nodebootstrap.InitialSession[hostmanifest.HostManifest]{Manifest: hostmanifest.HostManifest{Components: append([]hostmanifest.ComponentSpec(nil), manifest.Components...)}, ExpiresAt: authority.grant.ExpiresAt, Retired: retired, Close: epochs.Close}
 	if retired {
 		return session, nil
 	}

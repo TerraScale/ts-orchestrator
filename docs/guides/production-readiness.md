@@ -35,6 +35,13 @@ continues.
 
 ## What the code establishes
 
+Canonical component, launch and manifest validation now lives in
+`src/orchestrator/hostmanifest`. Host installation, signed bootstrap grants,
+control handoff and VM preparation consume that package directly. The strict
+ApplyManifest parser also lives there so retirement can bind the same verified
+command bytes as host execution. This extraction does not establish initial
+R1 startup or production composition.
+
 | Area | Entry points inspected | Finding and next proof |
 | --- | --- | --- |
 | Runtime composition | `cmd/orchestrator/main.go`, `runtime_composition.go` | Production startup calls `admitProductionRuntime`. Its default returns `ErrProductionCompositionMissing`, and the search found no other assignment. Wire the concrete dependencies and prove startup through the real executable. |

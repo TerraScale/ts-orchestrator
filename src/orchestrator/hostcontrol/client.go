@@ -12,12 +12,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"io"
 	"reflect"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
@@ -282,7 +283,7 @@ func (c *Client) Status(ctx context.Context, host string) (hostagent.NodeStatusR
 			return report, errors.New("hostcontrol: invalid or duplicate component facts")
 		}
 		seen[fact.Name] = true
-		if report.Quiesced && fact.Name != hostagent.TsNodeComponentName && fact.UnitActive {
+		if report.Quiesced && fact.Name != hostmanifest.TsNodeComponentName && fact.UnitActive {
 			return report, errors.New("hostcontrol: quiesced report contains an active component")
 		}
 		for _, version := range []string{fact.Version, fact.Desired} {
@@ -296,12 +297,12 @@ func (c *Client) Status(ctx context.Context, host string) (hostagent.NodeStatusR
 	return report, nil
 }
 
-func (c *Client) ApplyManifest(ctx context.Context, host, commandID, expectedSHA string, manifest hostagent.HostManifest) (hostagent.ManifestReceipt, error) {
-	command, err := hostagent.NewApplyManifestCommand(commandID, expectedSHA, manifest)
+func (c *Client) ApplyManifest(ctx context.Context, host, commandID, expectedSHA string, manifest hostmanifest.HostManifest) (hostagent.ManifestReceipt, error) {
+	command, err := hostmanifest.NewApplyManifestCommand(commandID, expectedSHA, manifest)
 	if err != nil {
 		return hostagent.ManifestReceipt{}, err
 	}
-	digest, err := hostagent.HostManifestSha256(manifest)
+	digest, err := hostmanifest.HostManifestSha256(manifest)
 	if err != nil {
 		return hostagent.ManifestReceipt{}, err
 	}

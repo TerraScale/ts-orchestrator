@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -68,11 +69,11 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		granted, err := hostagent.CanonicalHostManifestJSON(grant.Manifest)
+		granted, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
 		if err != nil || !bytes.Equal(granted, result.DesiredHostManifest) {
 			t.Fatal("grant does not bind full configured manifest")
 		}
-		configured, err := hostagent.ParseHostManifest(result.DesiredHostManifest)
+		configured, err := hostmanifest.ParseHostManifest(result.DesiredHostManifest)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
@@ -28,7 +29,7 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
@@ -188,7 +189,7 @@ func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, e
 	for _, artifact := range artifacts {
 		byComponent[artifact.manifest.Component] = artifact
 	}
-	components := make([]hostagent.ComponentSpec, 0, 2)
+	components := make([]hostmanifest.ComponentSpec, 0, 2)
 	for _, name := range []string{"orchestrator", "terrabase"} {
 		artifact, ok := byComponent[name]
 		if !ok {
@@ -196,7 +197,7 @@ func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, e
 		}
 		artifactPath, signaturePath := releasePaths(name, artifact.manifest.Version)
 		baseURL := "https://" + artifactReleaseHostname + ":" + strconv.Itoa(int(port))
-		spec, err := hostagent.NewComponentSpec(hostagent.ComponentSpec{
+		spec, err := hostmanifest.NewComponentSpec(hostmanifest.ComponentSpec{
 			Name: name, Version: artifact.manifest.Version,
 			ArtifactURL: baseURL + artifactPath, SignatureURL: baseURL + signaturePath,
 			Sha256: artifact.manifest.SHA256, User: "terrascale-" + name,
@@ -208,12 +209,12 @@ func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, e
 		}
 		components = append(components, spec)
 	}
-	manifest := hostagent.HostManifest{Components: components}
+	manifest := hostmanifest.HostManifest{Components: components}
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := hostagent.ParseHostManifest(data); err != nil {
+	if _, err := hostmanifest.ParseHostManifest(data); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -342,7 +343,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if services.bootstrapIssuer == nil {
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: initial grant issuer is missing")
 	}
-	desired, err := hostagent.ParseHostManifest(services.manifest)
+	desired, err := hostmanifest.ParseHostManifest(services.manifest)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
@@ -356,7 +357,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
-	manifest, err := hostagent.CanonicalHostManifestJSON(desired)
+	manifest, err := hostmanifest.CanonicalHostManifestJSON(desired)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}

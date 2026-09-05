@@ -3,6 +3,7 @@ package vmimage
 import (
 	"bytes"
 	"encoding/json"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -36,7 +37,7 @@ func TestNoCloudInitialGrantMatchesReceiverAndFixedPrivateFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical, err := hostagent.CanonicalHostManifestJSON(admitted.Manifest)
+	canonical, err := hostmanifest.CanonicalHostManifestJSON(admitted.Manifest)
 	if err != nil || !bytes.Equal(canonical, spec.TSNode.DesiredHostManifest) {
 		t.Fatal("bootstrap grant did not admit exact launch manifest")
 	}
@@ -70,12 +71,12 @@ func TestNoCloudRejectsMissingForeignAndChangedInitialGrant(t *testing.T) {
 			case "foreign-host":
 				spec.TSNode.Config.NodeID = "other-host"
 			case "changed-launch":
-				manifest, err := hostagent.ParseHostManifest(spec.TSNode.DesiredHostManifest)
+				manifest, err := hostmanifest.ParseHostManifest(spec.TSNode.DesiredHostManifest)
 				if err != nil {
 					t.Fatal(err)
 				}
 				manifest.Components[0].Version = "9.0.0"
-				spec.TSNode.DesiredHostManifest, err = hostagent.CanonicalHostManifestJSON(manifest)
+				spec.TSNode.DesiredHostManifest, err = hostmanifest.CanonicalHostManifestJSON(manifest)
 				if err != nil {
 					t.Fatal(err)
 				}
