@@ -10,6 +10,8 @@ foreign signature domains, and receipt keys equal to the owner's key are refused
 The plan binds:
 
 - estate and transition identity, issue and expiry times, with at most 24 hours;
+- `preliminaryScopeSha256`, the canonical immutable preliminary-transfer scope
+  digest already defined by `preliminarytransfer.VerifiedScope.Digest`;
 - the source bootstrap grant, initial and capture manifests, original launch,
   store scope, profile, store/capture/archive directories, and receipt key;
 - the named destination cluster, route trust bundle, exact GRU/SFO/FRA hosts,
@@ -69,3 +71,31 @@ receipt checks, complete inventory/ownership observations, the source stop and
 seal protocol, and pre-NATS recovery in the order required by
 [the transition design](control-snapshot-transition.md). The existing manifest
 handoff must not use the plan pin as proof that all destinations are prepared.
+
+## Preliminary candidate evidence
+
+`candidatesync.VerifyScopedReceipt` verifies candidate attribution using the
+key in the owner-approved scope and matches the regional host, grants, manifest,
+source receipt, capture epoch, timestamps, and complete ordered object mappings.
+Every restore-evidence reference must be a canonical SHA-256 digest. The existing
+candidate worker uses this check when reopening a completed receipt, before
+comparing it with its newly observed local restore evidence.
+
+`candidatesync.VerifyTransitionCandidates` checks both SFO and FRA receipts
+against the scope named by the plan. It binds the scope owner and source identity,
+the complete source account/stream inventory, candidate identities/manifests,
+historical capture epoch, and byte limits. Aggregate transfer accounting includes
+all three regional object mappings. The immutable result returns the plan, scope,
+and exact signed receipt digests only while the plan remains live.
+
+Plans without `preliminaryScopeSha256` are refused. The draft plan format has no
+legacy reader; no deployed transition executor exists. The scope digest is over
+its canonical payload, while candidate receipt digests cover their exact signed
+bytes. These are different existing contracts and must not be interchanged.
+
+This check establishes attribution and scope for the preliminary synchronization
+prerequisite. It does not retrieve the restore evidence named by its hashes,
+compare final consumer/configuration state, prove current host health, publish
+receipts for independent reads, or establish the final cut. Durable host-plan
+preparation and source shutdown still require their own chained evidence before
+retirement can proceed.

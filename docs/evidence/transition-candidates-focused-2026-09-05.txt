@@ -1,0 +1,3 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	23.004s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	1.141s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	(cached)
