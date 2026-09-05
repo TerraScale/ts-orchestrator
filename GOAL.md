@@ -1,4 +1,4 @@
-# ts-orchestrator goal
+# ts-orchestrator production readiness and Firecracker qualification goal
 
 ## Authority
 
@@ -873,6 +873,147 @@ qualification evidence block production acceptance.
 Implementation findings and unresolved inputs belong in the
 [production readiness guide](docs/guides/production-readiness.md), not as
 progress claims in this goal.
+
+## Production completion plan
+
+Complete, integrate, and qualify the Go control plane so an operator can
+bootstrap GRU, admit SFO and FRA, promote embedded JetStream to permanent R3,
+and operate the declared OCI and Cloudflare estate through the real CLI and
+services. Prove that the orchestrator manages itself and the real TerraBase
+members through restart, replacement, release, rollback, and disaster recovery.
+Production acceptance requires both reproducible Firecracker evidence and the
+real-provider and launch gates defined above.
+
+The work packages below refine the refactoring order. Their IDs are stable
+acceptance references. Track implementation findings and results in the
+production readiness guide and qualification evidence, outside this goal.
+
+| ID | Required deliverable | Completion proof |
+| --- | --- | --- |
+| PR-01 | Inventory every launch operation, production dependency, durable record, authority check, and external contract. Pin the published TerraBase and delivery contracts. Declare recovery, resource, retry, and version-skew limits. | Every required operation maps to a real executable entry point, owning controller, adapter, persistence contract, failure test, and evidence record. Missing contracts and unspecified limits remain explicit blockers. |
+| PR-02 | Complete master, regional, and host identity admission and enforce fencing at each effect boundary. Separate global application authority from NATS storage leadership. | Competing controllers, expired grants, stale epochs, wrong-host commands, cross-Region commands, and delayed requests produce no unauthorized effect, including after restart and lease takeover. |
+| PR-03 | Complete empty-estate bootstrap, immutable signed host configuration, first-GRU R1, runtime handoff, SFO/FRA admission, and permanent R3 promotion. | Real commands reach six ready guests. Stream and consumer inventories, acknowledged records, pending operations, consumer checkpoints, and epochs survive promotion. The old seed and bootstrap credentials cannot mutate after retirement. |
+| PR-04 | Resolve and wire production configuration, OCI and Cloudflare clients, embedded NATS stores, regional dispatch, host control, TBEP, and operational workers. | The ordinary production executable starts with valid inputs and performs real work through each dependency. Missing dependencies fail before readiness with a named error. Lease loss cancels workers and prevents stale effects; worker failure reaches supervision. |
+| PR-05 | Complete TerraBase placement, admission, drain, catch-up, replacement, rejoin, backup, restore, branch, and removal integration using published TBEP contracts. | The actual TerraBase binary supplies durable operation status and readiness evidence. Timeout recovery observes the prior operation before retry. Same-host management, RF=2, and residency gates hold throughout each lifecycle. |
+| PR-06 | Complete provider drift repair, capacity changes, signed delivery, artifact mirrors, systemd activation, orchestrator upgrades, Worker/Snippet promotion, and rollback. | Indeterminate provider results converge without duplicate resources or unsafe deletion. Failed canaries and interrupted rollouts restore exact prior digests. Scaling admits only caught-up members and safely drains surplus capacity. |
+| PR-07 | Wire estate publication, telemetry, identity and capability rotation, Free database lifecycle, daily restore scheduling, control snapshots, and paging. | Each scheduled operation runs through the production composition, persists its intent and receipts, resumes after restart, and reports failure. Rotation proves consumer propagation; reaping honors product eligibility; restore verifies authoritative facts. |
+| PR-08 | Complete the pinned Firecracker runner, reproducible guest assets, provider endpoints, fault controls, diagnostics, and ownership-based cleanup. | All documented VM commands operate on real Ubuntu systemd guests. The complete scenario inventory executes, resource limits pass, and crash recovery removes only resources owned by the run. |
+| PR-09 | Complete release qualification, real OCI/Cloudflare drills, security review, recovery runbooks, and operational rehearsals. | G1 through G4 evidence identifies the release digests, measured objectives, all required passing scenarios, seven-day soak, fourteen consecutive daily restore drills, and owner launch sign-off. |
+
+PR-01 and PR-02 define the contracts used by subsequent effects. Implement
+PR-03 with the runtime dependencies it needs from PR-04. Complete PR-05 before
+claiming lifecycle, capacity, or rollout safety in PR-06. Build PR-08 alongside
+these paths so each receives guest validation as it becomes executable.
+PR-09 requires all preceding packages and the workspace launch checklist.
+
+### Production composition acceptance
+
+Maintain a dependency inventory covering configuration source, credential
+reference, identity scope, durable store, constructor, startup ordering,
+readiness probe, shutdown ownership, and restart behavior for each adapter.
+Include publication, identity issuance, capability distribution, member reload,
+rotation state, reaper effects, restore enumeration and verification, paging,
+release mirrors, and signed command dispatch.
+
+Start the same production entry points in qualification that production hosts
+run. Local provider endpoints may change the external destination and use a
+qualification trust root. They must not bypass production admission, replace
+durable stores with memory, construct runtime dependencies only in tests, or
+turn absent TerraBase lifecycle RPCs into successful operations. A service
+must prove its authenticated identity and operational health before the
+controller publishes it as ready.
+
+Keep bootstrap readiness, regional readiness, global R3 readiness, TerraBase
+readiness, and customer admission distinct. Report the failed dependency and
+the last durable operation when a gate fails. An active systemd unit, open
+port, or healthy NATS connection alone cannot satisfy these gates.
+
+### Firecracker scenario execution contract
+
+Give every required local VM test a stable scenario ID and record its
+preconditions, operation, fault location, expected refusal or recovery,
+deadline, observations, and cleanup assertions. Each scenario must verify
+both the intended change and forbidden side effects. A controller returning
+success does not establish success unless the guest, provider, durable journal,
+and relevant TerraBase observations agree.
+
+Establish the six-guest GRU/SFO/FRA baseline through bootstrap and `add-region`,
+with production services and persistent disks on every guest. Extend that
+baseline to eight guests for the fourth-Region test. Declare and measure a
+separate resource budget for that extension and for temporary replacement or
+surge guests. Do not report the eight-guest measurement as the six-guest idle
+budget, or remove a required Region to make the extension fit.
+
+Apply this fault matrix to the required local VM scenarios:
+
+| Boundary | Faults to inject | Required observations |
+| --- | --- | --- |
+| Bootstrap and promotion | Crash before and after intent persistence, provider creation, receipt persistence, candidate synchronization, authority handoff, replica promotion, and retirement. | Retry resumes the same operation; uncertain effects are observed; durable history and epochs survive; customer admission stays closed until all production gates pass. |
+| Master and regional authority | Race controllers; deliver expired, duplicate, reordered, and stale signed commands; isolate a quorum minority; resume an old controller after takeover. | Only the admitted owner mutates. Global workers stop on lost authority. NATS leader changes do not appoint a global master outside GRU. |
+| Service and host lifecycle | Restart local orchestrator and ts-node independently, kill TerraBase, terminate a whole VM, reboot with persistent disks, and interrupt replacement admission. | Independent services remain running where applicable. Authorized replacement installs both local services and passes TerraBase catch-up before routing. A restarted process cannot reuse retired authority. |
+| Provider effects | Return throttling, pagination, conflicts, eventual reads, partial work requests, and timeout after an accepted mutation. Exhaust A1 capacity and present foreign resources. | Bounded retries and re-observation converge; E5 fallback uses the declared policy; no duplicate resource, unowned deletion, or false healthy observation occurs. |
+| Delivery | Corrupt artifacts, reject signatures, fail a mirror, fail canary health, lose the master mid-rollout, and make the artifact registry unavailable after mirroring. | Invalid candidates never activate. Durable rollout resumes from receipts, uses regional mirrors, preserves RF=2 gates, and restores every touched host to its prior digest on rollback. |
+| Network and degraded mode | Partition each Region pair and heal; inject latency, loss, duplication, reordering, and bandwidth limits; stop GRU and then all control services. | Admitted data-plane traffic follows TerraBase's consistency and residency rules. Unavailable authority blocks new control mutations. Healing re-observes state and does not replay unsafe effects. |
+| Storage and recovery | Inject ENOSPC, I/O errors, read-only storage, missing disks at boot, stopped-disk corruption, and interrupted snapshot restore. | The controller follows the declared repair or refusal path, preserves the last proven copy, measures acknowledged-state loss and recovery time, and never admits corrupt or unverified state. |
+| Trust and clock | Expire certificates, interrupt trust/key propagation, revoke old credentials, skew time past the write-fencing limit, and restart during rotation. | Required overlap and consumer generation proofs hold. Old identities and wrong-scope commands fail. Writes resume only after the time gate recovers; logs and reports contain no secret material. |
+| Placement and publication | Race repair, drain, scale-in, restore, branch, reaping, and Region changes with stale membership, eligibility, or routing observations. | Residency never widens; paid or ineligible databases are not reaped; publication follows fresh engine and infrastructure evidence; no unsafe removal occurs. |
+| Test ownership | Interrupt after each host-resource allocation; crash the controller, Firecracker, or jailer; retain a namespace reference; run cleanup twice with unrelated resources present. | The persisted cleanup journal recovers owned processes, TAPs, namespaces, rules, mounts, disks, sockets, and credentials. Foreign resources remain intact, and incomplete cleanup fails qualification. |
+
+Run a bounded workload through the actual TerraBase public API before, during,
+and after control outages and fault recovery. Record request outcomes,
+acknowledgement classes, and engine-supported convergence evidence. Assert
+continued eligible service and preservation of acknowledged data according to
+the engine contract. Do not substitute process liveness for workload results
+or promise write availability that the engine's durability mode cannot provide.
+
+Measure the six-guest idle budget after all services, provider endpoints, and
+required background schedules reach steady state. Use a declared warm-up and
+sampling interval and retain raw samples. Include the VMMs, jailers, controller,
+provider endpoints, and test helpers in aggregate host accounting. Keep the
+existing limits of 512 MiB configured memory per baseline guest, 4 GiB total
+idle host RSS, and one average host CPU core. Report peaks and fault/recovery
+measurements separately; do not disable required workers to pass the budget.
+
+### Evidence and release decision
+
+Emit a machine-readable report plus a short human-readable result for each
+qualification run. Retain the following outside this goal:
+
+- source revision and dirty-worktree identity, exact executable and signed
+  artifact digests, configuration revision, published contract versions,
+  architecture, and Firecracker, jailer, kernel, and root-disk pins;
+- scenario inventory with passed, failed, blocked, and skipped outcomes,
+  fault seeds and injection points, expected and observed results, deadlines,
+  operation IDs, authority epochs, and relevant durable receipts;
+- boot and readiness durations, RSS and CPU samples, configured VM memory,
+  disk usage, convergence and recovery times, acknowledged-state loss,
+  rollout and rollback durations, and cleanup results;
+- bounded redacted service journals, serial output, provider traces,
+  network/disk observations, and pre/post-cleanup resource inventories; and
+- the exact commands and artifact references needed to reproduce failures,
+  with links from each acceptance ID to its evidence.
+
+Validate scenario completeness as part of the suite. `make vm-test` must exit
+unsuccessfully when a required scenario fails, is blocked, is skipped, has no
+assertions, exceeds a declared limit, or leaves cleanup incomplete. Preserve
+the original failure when diagnostic collection or cleanup also fails.
+Targeted reruns help diagnose a failure; qualification still requires the
+complete suite to pass on the intended artifacts.
+
+Release evidence must come from immutable published artifacts and a clean
+source revision. Development runs may record dirty inputs for diagnosis but
+cannot qualify a different candidate. CI owned by `ts-deploy` must enforce
+`make check` followed by full `make vm-test` on every `develop` push before
+candidate submission or deployment. Building local test executables for the
+VM gate is part of qualification; it does not authorize release publication.
+
+G1 closes local integration only. G2 proves supervised GRU bootstrap and real
+Cloudflare behavior without customers. G3 proves real SFO/FRA admission,
+permanent R3, residency, and the production fault matrix. G4 requires the exact
+launch digests, soak, restore history, security and operational evidence, and
+owner sign-off. Firecracker results cannot close provider availability,
+production performance, or untested architecture gates. Keep production
+acceptance open until every applicable requirement has passing evidence.
 
 ## Cross-repository and v1 acceptance
 
