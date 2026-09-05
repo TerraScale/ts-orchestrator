@@ -2,7 +2,6 @@ package delivery
 
 import (
 	"crypto/ed25519"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
@@ -51,8 +50,8 @@ func (t *TrustSet) IDs() []string {
 	return ids
 }
 
-// VerifySignature reports whether the detached signature over message
-// verifies under any active key. An empty set or malformed signature is a
+// VerifySignature checks the raw 64-byte detached Ed25519 signature
+// published by ts-deploy against every active key. An empty set or malformed signature is a
 // rejection, never an error: signature verification fails closed.
 func (t *TrustSet) VerifySignature(message, signature []byte) bool {
 	return t.verifyingKey(message, signature) != ""
@@ -72,22 +71,4 @@ func (t *TrustSet) verifyingKey(message, signature []byte) string {
 		}
 	}
 	return ""
-}
-
-// DecodeSignature accepts the detached signature exactly as ts-deploy
-// publishes it: base64 (standard or unpadded) of the 64-byte ed25519
-// signature. Anything else is invalid.
-func DecodeSignature(text string) ([]byte, error) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return nil, errors.New("delivery: release signature is empty")
-	}
-	if signature, err := base64.StdEncoding.DecodeString(trimmed); err == nil && len(signature) == ed25519.SignatureSize {
-		return signature, nil
-	}
-	signature, err := base64.RawStdEncoding.DecodeString(trimmed)
-	if err != nil || len(signature) != ed25519.SignatureSize {
-		return nil, errors.New("delivery: release signature is not a base64 ed25519 signature")
-	}
-	return signature, nil
 }

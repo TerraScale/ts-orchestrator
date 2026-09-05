@@ -3,9 +3,11 @@ package hostagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,8 +124,16 @@ func startHostAgentTestNats(t *testing.T, port int) *server.Server {
 
 func assertAgentStatusReply(t *testing.T, url, commandId string) {
 	t.Helper()
-	if err := requestAgentStatus(url, commandId); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		err := requestAgentStatus(url, commandId)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, errHostObservationBusy) || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -142,6 +152,10 @@ func requestAgentStatus(url, commandId string) error {
 		payload, 250*time.Millisecond)
 	if err != nil {
 		return err
+	}
+	var envelope CommandEnvelopeError
+	if json.Unmarshal(message.Data, &envelope) == nil && strings.HasPrefix(envelope.Detail, errHostObservationBusy.Error()) {
+		return errHostObservationBusy
 	}
 	var report NodeStatusReport
 	if err := json.Unmarshal(message.Data, &report); err != nil {

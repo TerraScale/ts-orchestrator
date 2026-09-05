@@ -44,6 +44,7 @@ func (factory *firecrackerFactory) activateAdmittedGuest(ctx context.Context, ho
 	activation, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var report hostagent.NodeStatusReport
+	var lastStatusError error
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -56,10 +57,13 @@ func (factory *firecrackerFactory) activateAdmittedGuest(ctx context.Context, ho
 			if ready {
 				break
 			}
+			lastStatusError = errors.New("guest reports desired signed artifacts not yet installed")
+		} else if activation.Err() == nil || !errors.Is(err, activation.Err()) {
+			lastStatusError = err
 		}
 		select {
 		case <-activation.Done():
-			return fmt.Errorf("vmqual: initial signed host installation unavailable: %w", errors.Join(activation.Err(), err))
+			return fmt.Errorf("vmqual: initial signed host installation unavailable: %w", errors.Join(activation.Err(), lastStatusError))
 		case <-ticker.C:
 		}
 	}

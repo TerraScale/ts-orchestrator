@@ -199,6 +199,34 @@ race suite passed after input admission and startup diagnostics; logs are
 `/tmp/ts-orchestrator-host-input-check.log` and
 `/tmp/ts-orchestrator-host-input-tagged.log`.
 
+## Detached release signatures and host observations
+
+The repeated installation failure had a concrete wire mismatch. `vm-artifacts`
+wrote Base64 signature sidecars, and qualification served those encoded bytes.
+The host installer accepted raw signatures, so each rejected pass discarded
+its staged binary and retried. The adjacent `ts-deploy` release writer emits
+raw 64-byte Ed25519 sidecars and verifies that exact representation.
+
+Qualification signing, input verification, HTTPS serving, host installation,
+and the production Forgejo delivery reader now use raw 64-byte detached
+signatures throughout. Encoded sidecars and added whitespace are rejected;
+a newline-valued byte inside the 64-byte signature is preserved. JSON command
+and proof encodings are separate and unchanged. A real HTTPS-handler-to-installer
+regression installs a signed artifact, revalidates its immutable slot on a
+second call, and observes only the original artifact/signature request pair.
+
+Host status previously waited behind the lifecycle lock held during downloads.
+It now reports bounded unknown/busy observations during mutation, with fixed
+current and last-failed phase labels. Filesystem and clock observations share
+a five-second deadline and recheck lifecycle coherence. No cached progress
+value substitutes for signature or artifact verification. Activation timeouts
+retain the last meaningful error rather than replacing it with cancellation.
+
+The complete portable gate and sandboxvm race suite passed after these fixes.
+Logs are `/tmp/ts-orchestrator-raw-signature-check.log` and
+`/tmp/ts-orchestrator-raw-signature-tagged.log`. Real VM qualification remains
+in progress; these code and HTTPS tests do not establish service readiness.
+
 ## Remaining production work
 
 Production startup still has an unconditional missing-composition error.

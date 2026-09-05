@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,9 +28,10 @@ type ReleaseArtifact struct {
 }
 
 // ArtifactFetcher retrieves the artifact bytes and detached signature named
-// by one request. Implementations must fail closed: no bytes, no delivery.
+// by one request. Signatures are raw 64-byte Ed25519 sidecars, with no text
+// decoding or whitespace normalization. Implementations must fail closed.
 type ArtifactFetcher interface {
-	Fetch(ctx context.Context, request *Request) (body []byte, signature string, err error)
+	Fetch(ctx context.Context, request *Request) (body []byte, signature []byte, err error)
 }
 
 // ForgejoArtifactFetcher downloads release artifacts from the Forgejo
@@ -88,33 +90,36 @@ func (f *ForgejoArtifactFetcher) client() *http.Client {
 
 // Fetch resolves the release for the request's commit and downloads the
 // artifact and signature assets.
-func (f *ForgejoArtifactFetcher) Fetch(ctx context.Context, request *Request) ([]byte, string, error) {
+func (f *ForgejoArtifactFetcher) Fetch(ctx context.Context, request *Request) ([]byte, []byte, error) {
 	if f == nil || strings.TrimSpace(f.BaseURL) == "" {
-		return nil, "", errors.New("delivery: artifact fetcher is not configured")
+		return nil, nil, errors.New("delivery: artifact fetcher is not configured")
 	}
 	if ctx == nil {
-		return nil, "", errors.New("delivery: artifact fetch requires a context")
+		return nil, nil, errors.New("delivery: artifact fetch requires a context")
 	}
 	if request == nil || request.Source == nil || request.Artifact == nil {
-		return nil, "", errors.New("delivery: artifact fetch requires source and artifact identity")
+		return nil, nil, errors.New("delivery: artifact fetch requires source and artifact identity")
 	}
 	release, err := f.releaseForCommit(ctx, request)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	asset, signatureAsset, err := releaseAssets(release, request)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	body, err := f.downloadAsset(ctx, asset.BrowserDownloadURL, MaxArtifactBytes, asset.Name)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	signature, err := f.downloadAsset(ctx, signatureAsset.BrowserDownloadURL, MaxDocumentBytes, signatureAsset.Name)
+	signature, err := f.downloadAsset(ctx, signatureAsset.BrowserDownloadURL, ed25519.SignatureSize, signatureAsset.Name)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	return body, string(signature), nil
+	if len(signature) != ed25519.SignatureSize {
+		return nil, nil, errors.New("delivery: detached artifact signature must be exactly 64 raw Ed25519 bytes")
+	}
+	return body, signature, nil
 }
 
 func (f *ForgejoArtifactFetcher) releaseForCommit(ctx context.Context, request *Request) (*forgejoRelease, error) {
@@ -338,7 +343,7 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	if fetcher == nil || trust == nil || request == nil || request.Artifact == nil || request.Target == nil {
 		return nil, errors.New("delivery: request carries no artifact identity")
 	}
-	body, signatureText, err := fetcher.Fetch(ctx, request)
+	body, signature, err := fetcher.Fetch(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -349,9 +354,8 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	if !SameDigest(computed, request.Artifact.Digest) {
 		return nil, errors.New("delivery: artifact sha256 does not match the request")
 	}
-	signature, err := DecodeSignature(signatureText)
-	if err != nil {
-		return nil, err
+	if len(signature) != ed25519.SignatureSize {
+		return nil, errors.New("delivery: detached artifact signature must be exactly 64 raw Ed25519 bytes")
 	}
 	if !trust.VerifySignature(body, signature) {
 		return nil, errors.New("delivery: artifact signature failed verification against the release trust set")

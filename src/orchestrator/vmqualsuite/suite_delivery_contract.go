@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -520,7 +519,7 @@ func validateDeliveryContractProviders(config DeliveryContractConfig) error {
 
 type deliveryContractFetch struct {
 	body      []byte
-	signature string
+	signature []byte
 }
 
 type deliveryContractFetcher struct {
@@ -530,24 +529,24 @@ type deliveryContractFetcher struct {
 
 func (f *deliveryContractFetcher) put(operation string, artifact vmqual.DeliverySignedArtifact) {
 	f.mu.Lock()
-	f.artifacts[operation] = deliveryContractFetch{body: append([]byte(nil), artifact.Body...), signature: base64.StdEncoding.EncodeToString(artifact.Signature)}
+	f.artifacts[operation] = deliveryContractFetch{body: append([]byte(nil), artifact.Body...), signature: append([]byte(nil), artifact.Signature...)}
 	f.mu.Unlock()
 }
 
-func (f *deliveryContractFetcher) Fetch(ctx context.Context, request *delivery.Request) ([]byte, string, error) {
+func (f *deliveryContractFetcher) Fetch(ctx context.Context, request *delivery.Request) ([]byte, []byte, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	if request == nil {
-		return nil, "", errors.New("vmqual: delivery fetch request is nil")
+		return nil, nil, errors.New("vmqual: delivery fetch request is nil")
 	}
 	f.mu.RLock()
 	artifact, ok := f.artifacts[request.OperationID]
 	f.mu.RUnlock()
 	if !ok {
-		return nil, "", fmt.Errorf("vmqual: no artifact for operation %s", request.OperationID)
+		return nil, nil, fmt.Errorf("vmqual: no artifact for operation %s", request.OperationID)
 	}
-	return append([]byte(nil), artifact.body...), artifact.signature, nil
+	return append([]byte(nil), artifact.body...), append([]byte(nil), artifact.signature...), nil
 }
 
 func deliveryContractRequest(operation, service, kind, architecture, digest, manifestDigest string, rollback *delivery.RollbackArtifact) *delivery.Request {

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
@@ -50,11 +51,12 @@ type Lifecycle struct {
 	systemd     SystemdController
 	users       UserProvisioner
 
-	mutex        sync.Mutex
-	state        string
-	desired      []ComponentSpec
-	stale        []string
-	enabledUnits map[string]bool
+	reconcileProgress atomic.Pointer[reconcileProgress]
+	mutex             sync.Mutex
+	state             string
+	desired           []ComponentSpec
+	stale             []string
+	enabledUnits      map[string]bool
 }
 
 // transitionPlan freezes every input needed to finish a deploy or rollback
@@ -187,6 +189,10 @@ func (l *Lifecycle) startUnitsLocked(ctx context.Context) error {
 func (l *Lifecycle) Quiesced(ctx context.Context) bool {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+	return l.quiescedObservationLocked(ctx)
+}
+
+func (l *Lifecycle) quiescedObservationLocked(ctx context.Context) bool {
 	if l.state != NodeStateDraining {
 		return false
 	}

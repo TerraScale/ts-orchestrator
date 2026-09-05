@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ const (
 	commandKindRollback          = "rollback"
 	commandKindManifest          = "apply-manifest"
 	hostAgentMaximumCommandBytes = 64 << 10
+	hostAgentStatusTimeout       = 5 * time.Second
 )
 
 // NatsConnection is the injectable NATS connection seam of the node
@@ -533,7 +535,10 @@ func (t *NatsTransport) handleDrainStatus(message *nats.Msg) {
 		t.replyEnvelopeError(message, err)
 		return
 	}
-	t.commandMutex.Lock()
+	if !t.commandMutex.TryLock() {
+		t.replyEnvelopeError(message, t.lifecycle.observationBusyError())
+		return
+	}
 	defer t.commandMutex.Unlock()
 	record, found, err := t.journal.find(commandKindStatus, request.CommandId, canonical)
 	if err != nil {
@@ -738,12 +743,28 @@ func (t *NatsTransport) statusResponse(request NodeStatusRequest) ([]byte, error
 	if ctx == nil {
 		return nil, &InvalidOperationError{Message: "The transport is not serving commands."}
 	}
-	facts, err := t.facts.Sample(ctx, t.lifecycle.State(), t.lifecycle.Desired())
+	ctx, cancel := context.WithTimeout(ctx, hostAgentStatusTimeout)
+	defer cancel()
+	before, err := t.lifecycle.tryObservation(ctx)
 	if err != nil {
 		return nil, err
 	}
+	facts, err := t.facts.Sample(ctx, before.state, before.desired)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	after, err := t.lifecycle.tryObservation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if before.state != after.state || before.quiesced != after.quiesced || !slices.Equal(before.desired, after.desired) {
+		return nil, errHostObservationBusy
+	}
 	report, err := NewNodeStatusReport(request.CommandId, t.nodeId.Value,
-		t.lifecycle.State(), t.lifecycle.Quiesced(ctx), facts)
+		after.state, after.quiesced, facts)
 	if err != nil {
 		return nil, err
 	}

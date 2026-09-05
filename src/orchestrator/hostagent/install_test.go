@@ -388,7 +388,7 @@ func assertNoPartialDir(t *testing.T, root, version string) {
 	}
 }
 
-// TestDecodeEd25519Signature covers both published spellings.
+// TestDecodeEd25519Signature enforces the published raw-file contract.
 func TestDecodeEd25519Signature(t *testing.T) {
 	signature := make([]byte, ed25519.SignatureSize)
 	for index := range signature {
@@ -398,15 +398,15 @@ func TestDecodeEd25519Signature(t *testing.T) {
 	if err != nil || string(raw) != string(signature) {
 		t.Fatalf("raw signature rejected: %v", err)
 	}
-	hexSignature := []byte(hex.EncodeToString(signature) + "\n")
-	raw, err = decodeEd25519Signature(hexSignature)
-	if err != nil || string(raw) != string(signature) {
-		t.Fatalf("hex signature rejected: %v", err)
+	for _, invalid := range [][]byte{
+		[]byte(hex.EncodeToString(signature)),
+		[]byte(hex.EncodeToString(signature) + "\n"),
+		append(append([]byte(nil), signature...), '\n'),
+		[]byte("junk"),
+	} {
+		if _, err := decodeEd25519Signature(invalid); err == nil {
+			t.Fatal("non-raw signature accepted")
+		}
 	}
-	if _, err := decodeEd25519Signature([]byte("junk")); err == nil {
-		t.Fatal("junk signature accepted")
-	}
-	if _, err := decodeEd25519Signature([]byte(strings.ToUpper(hex.EncodeToString(signature)))); err == nil {
-		t.Fatal("non-canonical uppercase signature accepted")
-	}
+
 }

@@ -74,7 +74,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		artifactPath, signaturePath := releasePaths(artifacts[index].manifest.Component, artifacts[index].manifest.Version)
 		artifacts[index].manifest.Source = "https://" + artifactReleaseHostname + ":" + strconv.Itoa(int(artifactListener.Port)) + artifactPath
 		resources[artifactPath] = artifacts[index].binary
-		resources[signaturePath] = artifacts[index].signatureFile
+		resources[signaturePath] = artifacts[index].signature
 	}
 	manifest, err := desiredHostManifest(artifacts, artifactListener.Port)
 	if err != nil {

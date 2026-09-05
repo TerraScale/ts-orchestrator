@@ -386,7 +386,13 @@ func (i *Installer) Install(spec ComponentSpec) (string, error) {
 
 // InstallContext is Install with cancellation propagated through lock waits
 // and HTTPS downloads so agent shutdown cannot hang behind an install.
-func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (string, error) {
+func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (installedPath string, result error) {
+	phase := "install-filesystem"
+	defer func() {
+		if result != nil {
+			result = &installPhaseFailure{phase: phase, cause: result}
+		}
+	}()
 	if i == nil {
 		return "", &InvalidOperationError{Message: "The installer is required."}
 	}
@@ -454,6 +460,7 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 		return "", err
 	}
 	versionDir := VersionDir(i.installRoot, validated.Name, validated.Version)
+	phase = "installed-verification"
 	installed, complete, err := i.inspectInstalledRelease(versionDir, validated.Name, validated.Sha256)
 	if err != nil {
 		return "", err
@@ -464,6 +471,7 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 	if installed {
 		return "", &InvalidDataError{Message: "The installed version is missing immutable release metadata."}
 	}
+	phase = "install-filesystem"
 	staging, err := os.MkdirTemp(componentDir, ".staging-"+validated.Version+"-")
 	if err != nil {
 		return "", err
@@ -476,16 +484,20 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 	binaryPath := staging + "/" + validated.Name
 	signaturePath := staging + "/" + validated.Name + ".sig"
 	digestPath := staging + "/" + validated.Name + ".sha256"
+	phase = "artifact-download"
 	if err := i.downloader.Download(ctx, validated.ArtifactURL, binaryPath, hostAgentMaximumArtifactBytes); err != nil {
 		return failClosed(fmt.Errorf("the artifact download failed: %w", err))
 	}
+	phase = "signature-download"
 	if err := i.downloader.Download(ctx, validated.SignatureURL, signaturePath, 1024); err != nil {
 		return failClosed(fmt.Errorf("the signature download failed: %w", err))
 	}
+	phase = "artifact-read"
 	artifact, err := readRegularFileBounded(binaryPath, hostAgentMaximumArtifactBytes)
 	if err != nil {
 		return failClosed(err)
 	}
+	phase = "signature-read"
 	signatureFile, err := readRegularFileBounded(signaturePath, 1024)
 	if err != nil {
 		return failClosed(err)
@@ -494,15 +506,18 @@ func (i *Installer) InstallContext(ctx context.Context, spec ComponentSpec) (str
 	if err != nil {
 		return failClosed(err)
 	}
+	phase = "artifact-digest"
 	digest := sha256.Sum256(artifact)
 	if hex.EncodeToString(digest[:]) != validated.Sha256 {
 		return failClosed(&InvalidDataError{Message: fmt.Sprintf(
 			"Component %s %s failed its sha256 check.", validated.Name, validated.Version)})
 	}
+	phase = "artifact-signature"
 	if !ed25519.Verify(i.publicKey, artifact, signature) {
 		return failClosed(&InvalidDataError{Message: fmt.Sprintf(
 			"Component %s %s failed its ed25519 signature check.", validated.Name, validated.Version)})
 	}
+	phase = "release-persistence"
 	if err := os.Chmod(binaryPath, 0o755); err != nil {
 		return failClosed(err)
 	}
@@ -947,33 +962,13 @@ func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec Comp
 	return transition(version)
 }
 
-// decodeEd25519Signature accepts the detached signature as raw 64 bytes or
-// as 128 hex characters with optional trailing whitespace. The raw spelling
-// is length-checked before any trimming: a raw signature byte may itself be
-// 0x0a.
+// decodeEd25519Signature admits the exact raw detached signature emitted by
+// ts-deploy. No trimming is allowed: every byte, including a newline, is data.
 func decodeEd25519Signature(signatureFile []byte) ([]byte, error) {
-	switch len(signatureFile) {
-	case ed25519.SignatureSize:
-		return signatureFile, nil
-	case 2*ed25519.SignatureSize + 1:
-		if signatureFile[len(signatureFile)-1] != '\n' {
-			break
-		}
-		signatureFile = signatureFile[:len(signatureFile)-1]
-		fallthrough
-	case 2 * ed25519.SignatureSize:
-		for _, character := range signatureFile {
-			if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-				return nil, &InvalidDataError{Message: "The release signature is not canonical lowercase hex."}
-			}
-		}
-		decoded, err := hex.DecodeString(string(signatureFile))
-		if err != nil || len(decoded) != ed25519.SignatureSize {
-			return nil, &InvalidDataError{Message: "The release signature is not canonical hex."}
-		}
-		return decoded, nil
+	if len(signatureFile) != ed25519.SignatureSize {
+		return nil, &InvalidDataError{Message: "The release signature must contain exactly 64 raw bytes."}
 	}
-	return nil, &InvalidDataError{Message: "The release signature is not 64 raw or hex-encoded bytes."}
+	return signatureFile, nil
 }
 
 // InstalledVersion reports whether one component version directory exists on

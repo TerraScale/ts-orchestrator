@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"os/exec"
@@ -70,12 +69,11 @@ func TestValidateAndSignExactStaticArtifacts(t *testing.T) {
 	}
 	seenVersions := map[string]bool{}
 	for _, item := range prepared.artifacts {
-		signatureText, err := os.ReadFile(item.signaturePath)
+		signature, err := os.ReadFile(item.signaturePath)
 		if err != nil {
 			t.Fatal(err)
 		}
-		signature, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSuffix(string(signatureText), "\n"))
-		if err != nil || !ed25519.Verify(ed25519.PublicKey(publicBytes), item.data, signature) {
+		if len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(publicBytes), item.data, signature) {
 			t.Fatalf("%s signature did not verify: %v", item.component, err)
 		}
 		wantVersion := "vmqual." + hex.EncodeToString(item.digest[:8])

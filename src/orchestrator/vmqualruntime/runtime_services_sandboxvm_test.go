@@ -94,19 +94,18 @@ func TestDesiredHostManifestAndArtifactRoutesAreExact(t *testing.T) {
 func TestQualificationServicesCloseZerosArtifactMaterial(t *testing.T) {
 	binary := []byte("verified artifact bytes")
 	signature := make([]byte, 64)
-	signatureFile := []byte("raw signature file")
 	publicKey := make([]byte, 32)
 	manifest := []byte("manifest")
 	ca := []byte("ca")
 	services := &qualificationRuntimeServices{
-		artifacts: []guestArtifactInput{{binary: binary, signature: signature, signatureFile: signatureFile}},
+		artifacts: []guestArtifactInput{{binary: binary, signature: signature}},
 		publicKey: publicKey, manifest: manifest, caCertificate: ca,
 		resources: map[string][]byte{"/artifact": binary},
 	}
 	if err := services.Close(nil); err != nil {
 		t.Fatal(err)
 	}
-	for name, data := range map[string][]byte{"binary": binary, "signature": signature, "signatureFile": signatureFile, "publicKey": publicKey, "manifest": manifest, "ca": ca} {
+	for name, data := range map[string][]byte{"binary": binary, "signature": signature, "publicKey": publicKey, "manifest": manifest, "ca": ca} {
 		for _, value := range data {
 			if value != 0 {
 				t.Fatalf("%s was not zeroed", name)

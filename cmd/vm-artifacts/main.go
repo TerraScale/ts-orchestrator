@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"debug/elf"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -209,14 +208,11 @@ func signArtifacts(directory string, validated []artifact, errOut io.Writer) (bu
 	for index := range validated {
 		validated[index].signaturePath = validated[index].path + ".sig"
 		signature := ed25519.Sign(privateKey, validated[index].data)
-		encoded := []byte(base64.StdEncoding.EncodeToString(signature) + "\n")
-		if err := writeExclusive(validated[index].signaturePath, encoded, 0o444); err != nil {
+		if err := writeExclusive(validated[index].signaturePath, signature, 0o444); err != nil {
 			zero(signature)
-			zero(encoded)
 			return bundle{}, fmt.Errorf("sign %s: %w", validated[index].component, err)
 		}
 		zero(signature)
-		zero(encoded)
 		validated[index].version = "vmqual." + hex.EncodeToString(validated[index].digest[:8])
 	}
 	_, _ = fmt.Fprintln(errOut, "vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)")

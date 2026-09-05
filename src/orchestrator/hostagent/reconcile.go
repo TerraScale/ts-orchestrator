@@ -273,26 +273,44 @@ func (l *Lifecycle) discoverManagedComponents() ([]string, error) {
 // the unit file rendered, enable the unit, and start it while serving. The
 // ts-node self-component installs but never writes a unit or account — its
 // unit is the shared bootstrap unit, exactly one, and the flip is a deploy.
-func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpec) error {
+func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpec) (result error) {
+	phase := "validate-data-volume"
+	setPhase := func(next string) { phase = next; l.recordReconcileProgress(spec.Name, phase, "in-progress") }
+	setPhase(phase)
+	defer func() {
+		if result == nil {
+			l.recordReconcileProgress(spec.Name, "complete", "succeeded")
+			return
+		}
+		var installFailure *installPhaseFailure
+		if errors.As(result, &installFailure) {
+			phase = installFailure.phase
+		}
+		l.recordReconcileProgress(spec.Name, phase, "failed")
+	}()
 	if _, err := validateDirectoryWithin(l.dataRoot, spec.DataVolume); err != nil {
 		return err
 	}
 	// Install is itself a cheap verified no-op when the immutable version
 	// slot already contains the exact requested digest. Do not decide from
 	// mere path presence here: a corrupt or substituted slot must fail closed.
+	setPhase("install")
 	if _, err := l.installer.InstallContext(ctx, spec); err != nil {
 		return err
 	}
 	if spec.Name != TsNodeComponentName {
+		setPhase("ensure-user")
 		if err := l.users.EnsureUser(ctx, spec.User); err != nil {
 			return err
 		}
+		setPhase("prepare-data-volume")
 		if err := ensureDirectoryWithin(l.dataRoot, spec.DataVolume, 0o750); err != nil {
 			return err
 		}
 		if err := l.users.OwnDirectory(ctx, spec.User, spec.DataVolume); err != nil {
 			return err
 		}
+		setPhase("write-unit")
 		unitSpec := spec
 		current, err := CurrentVersion(l.installRoot, spec.Name)
 		if err != nil {
@@ -318,12 +336,14 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpe
 		}
 		// systemctl enable resolves the unit name, so the unit must already be
 		// durably committed and daemon-reloaded before it is enabled.
+		setPhase("enable-unit")
 		if !l.enabledUnits[UnitName(spec.Name)] {
 			if err := l.systemd.EnableUnit(ctx, UnitName(spec.Name)); err != nil {
 				return err
 			}
 			l.enabledUnits[UnitName(spec.Name)] = true
 		}
+		setPhase("start-unit")
 		if l.state == NodeStateServing {
 			active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name))
 			if err != nil {

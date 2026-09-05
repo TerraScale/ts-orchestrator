@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"debug/elf"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -73,10 +72,9 @@ func newSandboxVMProvider(config vmqual.Config) (*sandboxvm.Provider, error) {
 }
 
 type guestArtifactInput struct {
-	manifest      vmimage.GuestArtifact
-	signature     []byte
-	binary        []byte
-	signatureFile []byte
+	manifest  vmimage.GuestArtifact
+	signature []byte
+	binary    []byte
 }
 
 type guestCredential struct {
@@ -803,24 +801,22 @@ func loadProductionArtifacts(config vmqual.Config, architecture vmimage.Architec
 			zeroBytes(publicKey)
 			return nil, nil, fmt.Errorf("vmqual: %s_VERSION is not a required safe artifact version", component.environment)
 		}
-		signatureData, _, err := readSecureInput(component.input.SignaturePath, 256, false)
+		signature, _, err := readSecureInput(component.input.SignaturePath, ed25519.SignatureSize, false)
 		if err != nil {
 			zeroBytes(data)
 			zeroArtifactInputs(artifacts)
 			zeroBytes(publicKey)
 			return nil, nil, fmt.Errorf("vmqual: %s_SIGNATURE: %w", component.environment, err)
 		}
-		signature, err := decodeDetachedSignature(signatureData)
-		if err != nil || !ed25519.Verify(publicKey, data, signature) {
+		if len(signature) != ed25519.SignatureSize || !ed25519.Verify(publicKey, data, signature) {
 			zeroBytes(data)
-			zeroBytes(signatureData)
 			zeroBytes(signature)
 			zeroArtifactInputs(artifacts)
 			zeroBytes(publicKey)
 			return nil, nil, fmt.Errorf("vmqual: %s detached Ed25519 signature is invalid", component.component)
 		}
 		artifact := vmimage.GuestArtifact{Component: component.component, Architecture: architecture, Version: version, Source: path, SHA256: digest, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
-		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, signature: signature, binary: data, signatureFile: signatureData}), append(infos, info)
+		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, signature: signature, binary: data}), append(infos, info)
 	}
 	return artifacts, publicKey, nil
 }
@@ -867,29 +863,10 @@ func readSecureInput(path string, maximum int64, executable bool) ([]byte, os.Fi
 	return data, info, nil
 }
 
-func decodeDetachedSignature(input []byte) ([]byte, error) {
-	if len(input) > 0 && input[len(input)-1] == '\n' {
-		input = input[:len(input)-1]
-	}
-	if len(input) == 0 || bytes.IndexAny(input, " \t\r\n") >= 0 {
-		return nil, errors.New("signature is not canonical base64")
-	}
-	if decoded, err := base64.StdEncoding.Strict().DecodeString(string(input)); err == nil && len(decoded) == ed25519.SignatureSize {
-		return decoded, nil
-	}
-	decoded, err := base64.RawStdEncoding.Strict().DecodeString(string(input))
-	if err != nil || len(decoded) != ed25519.SignatureSize {
-		zeroBytes(decoded)
-		return nil, errors.New("signature is not a base64 Ed25519 signature")
-	}
-	return decoded, nil
-}
-
 func zeroArtifactInputs(artifacts []guestArtifactInput) {
 	for index := range artifacts {
 		zeroBytes(artifacts[index].signature)
 		zeroBytes(artifacts[index].binary)
-		zeroBytes(artifacts[index].signatureFile)
 	}
 }
 

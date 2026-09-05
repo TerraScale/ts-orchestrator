@@ -1,9 +1,11 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,7 +24,7 @@ func testRelease(t *testing.T, mutate func(*Request)) (*Request, ArtifactFetcher
 	if err != nil {
 		t.Fatalf("generate signing key: %v", err)
 	}
-	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(private, body))
+	signature := ed25519.Sign(private, body)
 	request, err := ParseRequest(golden(t, goldenRequestPath))
 	if err != nil {
 		t.Fatalf("build request: %v", err)
@@ -42,13 +44,13 @@ func testRelease(t *testing.T, mutate func(*Request)) (*Request, ArtifactFetcher
 
 type staticFetcher struct {
 	body      []byte
-	signature string
+	signature []byte
 	err       error
 }
 
-func (f *staticFetcher) Fetch(context.Context, *Request) ([]byte, string, error) {
+func (f *staticFetcher) Fetch(context.Context, *Request) ([]byte, []byte, error) {
 	if f.err != nil {
-		return nil, "", f.err
+		return nil, nil, f.err
 	}
 	return f.body, f.signature, nil
 }
@@ -132,13 +134,13 @@ func TestVerifyArtifactFailsClosed(t *testing.T) {
 		t.Fatalf("generate stranger key: %v", err)
 	}
 	strangerFetcher := &staticFetcher{body: fetcher.(*staticFetcher).body,
-		signature: base64.StdEncoding.EncodeToString(ed25519.Sign(stranger, fetcher.(*staticFetcher).body))}
+		signature: ed25519.Sign(stranger, fetcher.(*staticFetcher).body)}
 	if _, err := verifyArtifact(ctx, strangerFetcher, trust, request); err == nil {
 		t.Fatal("an untrusted signature must fail closed")
 	}
 
-	// malformed signature text and fetch failure both fail closed.
-	if _, err := verifyArtifact(ctx, &staticFetcher{body: fetcher.(*staticFetcher).body, signature: "not-base64!!!"}, trust, request); err == nil {
+	// malformed signature bytes and fetch failure both fail closed.
+	if _, err := verifyArtifact(ctx, &staticFetcher{body: fetcher.(*staticFetcher).body, signature: []byte("not-a-raw-signature")}, trust, request); err == nil {
 		t.Fatal("a malformed signature must fail closed")
 	}
 	if _, err := verifyArtifact(ctx, &staticFetcher{err: fmt.Errorf("forgejo down")}, trust, request); err == nil {
@@ -154,7 +156,7 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(private, body))
+	signature := ed25519.Sign(private, body)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, incoming *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch incoming.URL.Path {
@@ -172,7 +174,7 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 		case "/download/terrabase-linux-arm64":
 			_, _ = writer.Write(body)
 		case "/download/terrabase-linux-arm64.sig":
-			_, _ = writer.Write([]byte(signature))
+			_, _ = writer.Write(signature)
 		default:
 			http.NotFound(writer, incoming)
 		}
@@ -185,7 +187,7 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if string(fetchedBody) != string(body) || fetchedSignature != signature {
+	if string(fetchedBody) != string(body) || !bytes.Equal(fetchedSignature, signature) {
 		t.Fatal("fetch returned the wrong asset pair")
 	}
 
@@ -206,4 +208,79 @@ func serverURL(request *http.Request) string {
 		scheme = "https"
 	}
 	return scheme + "://" + request.Host
+}
+
+func TestDetachedArtifactSignaturesAreRawEd25519Only(t *testing.T) {
+	request, original, trust, body := testRelease(t, nil)
+	signature := original.(*staticFetcher).signature
+	variants := []struct {
+		name      string
+		signature []byte
+		valid     bool
+	}{
+		{name: "raw64", signature: signature, valid: true},
+		{name: "base64", signature: []byte(base64.StdEncoding.EncodeToString(signature))},
+		{name: "unpadded-base64", signature: []byte(base64.RawStdEncoding.EncodeToString(signature))},
+		{name: "hex", signature: []byte(hex.EncodeToString(signature))},
+		{name: "raw-with-newline", signature: append(append([]byte(nil), signature...), '\n')},
+		{name: "truncated", signature: signature[:63]},
+		{name: "empty"},
+		{name: "invalid-raw64", signature: make([]byte, ed25519.SignatureSize)},
+	}
+	for _, variant := range variants {
+		t.Run(variant.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/repos/terrabase/releases":
+					_ = json.NewEncoder(w).Encode([]map[string]any{{
+						"target_commitish": request.Source.Commit,
+						"assets": []map[string]any{
+							{"name": "terrabase-linux-arm64", "browser_download_url": serverURL(r) + "/download/terrabase-linux-arm64"},
+							{"name": "terrabase-linux-arm64.sig", "browser_download_url": serverURL(r) + "/download/terrabase-linux-arm64.sig"},
+						},
+					}})
+				case "/download/terrabase-linux-arm64":
+					_, _ = w.Write(body)
+				case "/download/terrabase-linux-arm64.sig":
+					w.Header().Set("Content-Type", "application/octet-stream")
+					_, _ = w.Write(variant.signature)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			_, err := verifyArtifact(t.Context(), &ForgejoArtifactFetcher{BaseURL: server.URL}, trust, request)
+			if (err == nil) != variant.valid {
+				t.Fatalf("HTTP release verification valid=%t, err=%v", variant.valid, err)
+			}
+			_, err = verifyArtifact(t.Context(), &staticFetcher{body: body, signature: variant.signature}, trust, request)
+			if (err == nil) != variant.valid {
+				t.Fatalf("direct release verification valid=%t, err=%v", variant.valid, err)
+			}
+		})
+	}
+}
+
+func TestRawSignatureBytesAreNeverWhitespaceTrimmed(t *testing.T) {
+	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{1}, ed25519.SeedSize))
+	var body, signature []byte
+	for i := 0; i < 256; i++ {
+		body = []byte(fmt.Sprintf("raw-signature-%d", i))
+		signature = ed25519.Sign(private, body)
+		if signature[len(signature)-1] == '\n' {
+			break
+		}
+	}
+	if signature[len(signature)-1] != '\n' {
+		t.Fatal("test fixture needs a signature ending in a newline byte")
+	}
+	request, _, _, _ := testRelease(t, nil)
+	request.Artifact.Digest = SHA256Digest(body)
+	trust, err := NewTrustSet(map[string]ed25519.PublicKey{"raw-key": private.Public().(ed25519.PublicKey)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyArtifact(t.Context(), &staticFetcher{body: body, signature: signature}, trust, request); err != nil {
+		t.Fatalf("valid raw signature was altered: %v", err)
+	}
 }
