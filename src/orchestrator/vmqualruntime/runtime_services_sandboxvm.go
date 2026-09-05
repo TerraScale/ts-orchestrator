@@ -30,6 +30,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
@@ -52,6 +53,7 @@ type qualificationRuntimeServices struct {
 
 	natsAuthority      *qualificationNATSAuthority
 	controlConnections []*natsclient.Conn
+	controlSigners     []*security.CommandSignatureSigner
 	controlClients     map[string]*hostcontrol.Client
 	controlRegions     []bootstrap.ControlRegionBinding
 	controlRuntime     bootstrap.ControlRuntime
@@ -546,6 +548,11 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		connection.Close()
 	}
 	services.controlConnections = nil
+	for _, signer := range services.controlSigners {
+		errs = append(errs, signer.Close())
+	}
+	services.controlSigners = nil
+	services.controlClients = nil
 	if services.nats != nil {
 		services.nats.Shutdown()
 		services.nats.WaitForShutdown()
