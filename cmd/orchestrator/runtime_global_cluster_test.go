@@ -9,11 +9,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 	"testing"
 	"time"
 
@@ -26,14 +29,16 @@ import (
 )
 
 type rotationStateCluster struct {
-	servers       []*natsserver.Server
-	options       []*natsserver.Options
-	tls           *tls.Config
-	root          string
-	key           nkeys.KeyPair
-	public        string
-	sessionKey    nkeys.KeyPair
-	sessionPublic string
+	connectionPlan  *globalclient.Plan
+	authorityConfig *control.GlobalAuthorityNatsConfiguration
+	servers         []*natsserver.Server
+	options         []*natsserver.Options
+	tls             *tls.Config
+	root            string
+	key             nkeys.KeyPair
+	public          string
+	sessionKey      nkeys.KeyPair
+	sessionPublic   string
 }
 
 func newRotationStateCluster(t *testing.T) *rotationStateCluster {
@@ -61,7 +66,11 @@ func newRotationStateCluster(t *testing.T) *rotationStateCluster {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cluster := &rotationStateCluster{key: userKey, public: public, root: t.TempDir(), tls: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS13}}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster := &rotationStateCluster{key: userKey, public: public, root: root, tls: &tls.Config{RootCAs: roots, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS13}}
 	sessionKey, err := nkeys.CreateUser()
 	if err != nil {
 		t.Fatal(err)
@@ -107,6 +116,11 @@ func newRotationStateCluster(t *testing.T) *rotationStateCluster {
 			route, _ = url.Parse("nats-route://" + server.ClusterAddr().String())
 		}
 		cluster.options = append(cluster.options, options)
+	}
+	cluster.authorityConfig = cluster.workerConfiguration(t)
+	cluster.connectionPlan, err = globalclient.Admit(cluster.authorityConfig)
+	if err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(cluster.stop)
 	return cluster
@@ -193,9 +207,25 @@ func rotationTestQuorumReady(info *jetstream.StreamInfo) bool {
 	return true
 }
 
-func (cluster *rotationStateCluster) sessionConnect(ctx context.Context) (*nats.Conn, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+func (cluster *rotationStateCluster) workerConfiguration(t *testing.T) *control.GlobalAuthorityNatsConfiguration {
+	t.Helper()
+	write := func(name string, data []byte) string {
+		path := filepath.Join(cluster.root, name)
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
 	}
-	return nats.Connect(fmt.Sprintf("tls://127.0.0.1:%d", cluster.options[0].Port), nats.Secure(cluster.tls.Clone()), nats.Nkey(cluster.sessionPublic, cluster.sessionKey.Sign), nats.NoReconnect(), nats.ReconnectBufSize(-1), nats.Timeout(time.Second))
+	key, err := x509.MarshalPKCS8PrivateKey(cluster.tls.Certificates[0].PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := write("identity.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cluster.tls.Certificates[0].Certificate[0]}))
+	private := write("key.pem", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}))
+	seed, err := cluster.sessionKey.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedFile := write("user.seed", seed)
+	return &control.GlobalAuthorityNatsConfiguration{Cell: "gru", Replicas: 3, Url: fmt.Sprintf("tls://127.0.0.1:%d", cluster.options[0].Port), Authentication: &control.NatsAuthenticationFiles{NKeyFile: &seedFile, PublicKey: cluster.sessionPublic}, Tls: &control.NatsTlsFiles{CaFile: certificate, CertificateFile: certificate, KeyFile: private}}
 }

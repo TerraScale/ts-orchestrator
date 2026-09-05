@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
@@ -550,7 +551,9 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 			}
 			options := fakeOptions(control.OrchestratorCommandRun)
 			options.Cell = "gru"
-			options.GlobalNats = &control.GlobalAuthorityNatsConfiguration{}
+			if stage == "global" {
+				options.GlobalNats = newRotationStateCluster(t).authorityConfig
+			}
 			err := runCommand(context.Background(), options, nil)
 			if options.Delivery != nil {
 				t.Fatal("startup mutated caller options")
@@ -599,5 +602,30 @@ func TestMissingCompositionDiagnosticExcludesWrappedDetails(t *testing.T) {
 	}
 	if reported := commandFailure("run", errors.Join(missingEstate, privateDetail)); reported.Error() != errOCIEstateConfigurationMissing.Error() {
 		t.Fatal("estate diagnostic did not retain only its fixed configuration names")
+	}
+}
+
+func TestOperationalJWTModeRejectedBeforeListeners(t *testing.T) {
+	restoreHostSeams(t)
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+		return &admittedProductionRuntime{construct: func(context.Context) (*productionRuntime, error) {
+			t.Fatal("live production construction preceded connection admission")
+			return nil, nil
+		}}, nil
+	}
+	startEmbeddedNatsRuntime = func(context.Context, bootstrap.NatsServerConfig) (embeddedNatsRuntime, error) {
+		t.Fatal("listener started for unsupported operational identity")
+		return nil, nil
+	}
+	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
+		t.Fatal("regional client started before connection admission")
+		return nil, nil
+	}
+	credentials := "declared.creds"
+	options := fakeOptions(control.OrchestratorCommandRun)
+	options.Cell = "gru"
+	options.GlobalNats = &control.GlobalAuthorityNatsConfiguration{Cell: "gru", Replicas: 3, Url: "tls://127.0.0.1:4222", Authentication: &control.NatsAuthenticationFiles{CredentialsFile: &credentials}, Tls: &control.NatsTlsFiles{}}
+	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}); err == nil || !strings.Contains(err.Error(), "JWT credential-file mode") {
+		t.Fatalf("operational mode admission=%v", err)
 	}
 }

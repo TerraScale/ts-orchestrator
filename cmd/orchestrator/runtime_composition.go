@@ -10,9 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nats-io/nats.go"
 	"reflect"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
@@ -94,9 +94,8 @@ type productionMasterDeliveryConfig struct {
 // The admitted plan validates provider references before listeners, but builds
 // clients and lease-specific adapters only inside a proven global session.
 type productionGlobalWorkerPlan struct {
-	CandidateID    string
-	OpenConnection func(context.Context) (*nats.Conn, error)
-	Construct      func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
+	CandidateID string
+	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
 	// Close releases every client allocated by Construct, including partial
@@ -109,6 +108,7 @@ type productionGlobalWorkerConfig struct {
 	Restore        productionRestoreConfig
 }
 type productionRuntime struct {
+	connection     *globalclient.Plan
 	plan           *productionGlobalWorkerPlan
 	mirror         *delivery.ArtifactMirror
 	supervisor     *leaseOwnedGlobalWorkers
@@ -160,7 +160,7 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 	if config.Global != nil && config.Delivery.Master == nil {
 		return nil, errors.New("runtime global workers require GRU master configuration")
 	}
-	if config.Global != nil && (config.Global.Construct == nil || config.Global.OpenConnection == nil || config.Global.CandidateID == "") {
+	if config.Global != nil && (config.Global.Construct == nil || config.Global.CandidateID == "") {
 		return nil, errors.New("runtime global worker plan is incomplete")
 	}
 	return &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror}, nil
@@ -264,6 +264,9 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 	}
 	if config.Cell != "gru" || config.Authority == nil || config.Authority.Cell != "gru" {
 		return errors.New("runtime master delivery: global runtime must belong to GRU")
+	}
+	if r.plan != nil && !r.connection.Matches(config.Authority) {
+		return errors.New("runtime global worker connection differs from static admission")
 	}
 	if r.plan != nil && r.plan.CandidateID != "global-controller-"+config.Cell+"-"+config.Instance {
 		return errors.New("runtime global worker candidate differs from GRU election")
@@ -388,6 +391,9 @@ func (r *productionRuntime) StartGlobal(ctx context.Context, global component) e
 		}
 		return nil
 	}
+	if r.connection == nil {
+		return errors.New("global worker connection was not statically admitted")
+	}
 	source, ok := global.(interface {
 		AuthoritySnapshot() control.RegionalAuthoritySnapshot
 	})
@@ -395,7 +401,7 @@ func (r *productionRuntime) StartGlobal(ctx context.Context, global component) e
 		return errors.New("global workers require the live GRU election")
 	}
 	supervisor, err := startLeaseOwnedGlobalWorkers(ctx, globalWorkerSessionConfig{
-		CandidateID: r.plan.CandidateID, Snapshot: source.AuthoritySnapshot, OpenConnection: r.plan.OpenConnection,
+		CandidateID: r.plan.CandidateID, Snapshot: source.AuthoritySnapshot, OpenConnection: r.connection.Connect,
 		Start: r.constructGlobalWorkers,
 	})
 	if err != nil {

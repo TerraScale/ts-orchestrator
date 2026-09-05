@@ -64,6 +64,15 @@ boundaries. The default `admitProductionRuntime` still fails with
 `ErrProductionCompositionMissing`; concrete external adapter resolution is
 unfinished.
 
+The root now derives the [worker connection](../contracts/global-worker-connection.md)
+from admitted GRU endpoint and credential references. Each attempt captures
+bounded credential files, checks the admitted NKey and establishes verified
+TLS 1.3 without reconnect or publication buffering. DNS and handshake setup
+share an absolute deadline, and cancellation closes pending sockets. JWT
+credential-file mode is explicitly unsupported by these operational journals
+and is rejected before listeners. This removes the provider-supplied connection
+callback; it does not complete the external adapter resolver.
+
 Initial global topology provisioning also remains unwired. Static production
 admission currently rejects before the embedded broker starts, and bootstrap
 activation waits for running services before inspecting control stores. The
@@ -75,6 +84,15 @@ construction. Normal global runtime and operational workers remain R3-only.
 The [integrated verification](../evidence/global-worker-reaper-gates-2026-09-05.txt)
 records passing portable and sandboxvm-tagged race suites and a Linux arm64
 cross-build. These results do not establish guest startup or provider behavior.
+
+The subsequent [fresh guest run](../evidence/vm-test-global-worker-2026-09-05.txt)
+used clean commit `7d6b7a76` and passed the privileged VM doctor. Initial
+activation kept ts-node running, but orchestrator and TerraBase each exited 1
+and restarted with the missing OCI estate and TerraBase configuration
+categories. Peak host RSS was 434,671,616 bytes with 512 MiB configured.
+Automatic and explicit cleanup passed. No six-host baseline, fourth Region,
+fault scenario or idle budget passed. This run predates the concrete global
+worker connector and does not qualify the offline bootstrap path.
 
 ### Guest service startup
 
@@ -127,6 +145,12 @@ and returns `Membership: no durable orchestrator membership source is configured
 That same file maps production Regions only to GRU/SFO/FRA. These are unfinished
 producer paths, not missing VM credentials. A local-development engine observation
 does not satisfy production membership, RF=2, or fourth-Region acceptance.
+
+A [fresh read-only producer audit](../evidence/terrabase-contract-audit-2026-09-05.txt)
+confirmed those startup and Region restrictions after the global-worker VM run.
+The current producer protobuf files still match the orchestrator pins, with no
+new lifecycle mutation contract. The audit records working-tree source digests
+and the supplied binary digest separately; it does not establish release provenance.
 
 A [direct check of the pinned binary](../evidence/terrabase-missing-config-process-2026-09-05.txt)
 confirmed exit 1 with `Error: MissingConfigurationPath` when no configuration

@@ -1,0 +1,45 @@
+Concrete GRU operational connection integration, 2026-09-05.
+Base commit: 7d6b7a76bc55895734b6d97019082b7516d22b43.
+
+The root resolves the connection from admitted GRU URL, NKey seed and TLS file
+references. Provider plans no longer supply OpenConnection. A session requires
+verified TLS 1.3 and the original NKey, without reconnect or mutation buffering.
+Every attempt captures bounded regular credential files through Unix directory
+descriptors. DNS, TCP, INFO and TLS setup share a cancellation/deadline bound;
+setup watchers stop or join before transferring ownership of a live connection.
+Operational JWT credential-file mode is rejected before listeners because the
+three existing journal adapters require explicit NKey options. Other NATS JWT
+clients are unchanged.
+
+Independent review found and drove regressions for uncancellable pre-dial DNS,
+cancellation after TCP accept, total dial+handshake deadline overrun, and unsafe
+credential replacement after static admission. The revised connector passed
+review. Real NATS tests cover TLS downgrade, replaced NKey, all three journal
+transport admissions, no reconnect, and a successfully transferred connection
+surviving caller cancellation. Existing real R3 worker lifecycle tests now use
+the concrete connector. Focused race and Darwin arm64 package cross-build passed
+in staging; the following full gates passed after activation, sequentially.
+
+Environment:
+PATH=/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:$PATH
+GOMAXPROCS=4 GOFLAGS=-p=2
+
+PASS exit 0: make check
+  gofmt, go vet ./..., go build ./..., go test -race -count=1 ./...
+PASS exit 0: go test -race -count=1 -tags sandboxvm ./...
+PASS exit 0: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...
+
+cmd/orchestrator: 9837 Go lines including tests.
+globalclient: 851 Go lines including tests.
+
+The fresh vm-test-global-worker-2026-09-05 evidence predates this connector.
+It failed actual guest service readiness; no six-host, fourth-region or fault
+qualification passed. Production admission still unconditionally reports
+ErrProductionCompositionMissing. Initial R1, provider adapters, TerraBase
+membership/mutation contracts and real-provider/launch gates remain unfinished.
+The connector and portable gates do not establish production readiness.
+
+Full local gate log SHA256:
+114619c481bf7de10ff0815971b0d0fca4cb929fbce3bb13f6c3ed12054427d4  /tmp/ts-orchestrator-global-connection-check.log
+12a17c65cbcd7e4c93a21820ed4ea44f4423216e6e7983d2056c3a9f7af89ccc  /tmp/ts-orchestrator-global-connection-sandboxvm.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-orchestrator-global-connection-arm64.log

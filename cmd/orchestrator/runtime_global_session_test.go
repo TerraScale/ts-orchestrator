@@ -77,7 +77,7 @@ func TestGlobalWorkerLeaseLifecycle(t *testing.T) {
 	starts := make(chan started, 4)
 	releaseFirst := make(chan struct{})
 	count := 0
-	supervisor, err := startLeaseOwnedGlobalWorkers(ctx, globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: snapshot, OpenConnection: cluster.sessionConnect, Start: func(ctx context.Context, session globalWorkerSession) (component, error) {
+	supervisor, err := startLeaseOwnedGlobalWorkers(ctx, globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: snapshot, OpenConnection: cluster.connectionPlan.Connect, Start: func(ctx context.Context, session globalWorkerSession) (component, error) {
 		count++
 		worker := &globalTestWorker{done: make(chan struct{})}
 		if count == 1 {
@@ -163,7 +163,7 @@ func TestGlobalWorkerRefusesR1AndExpiredLease(t *testing.T) {
 	expiry := time.Now().Add(time.Minute)
 	worker := &leaseOwnedGlobalWorkers{config: globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: func() control.RegionalAuthoritySnapshot {
 		return control.RegionalAuthoritySnapshot{State: "leader", IsLeader: true, Epoch: 1, ObservedAt: time.Now(), LeaseExpiresAt: &expiry}
-	}, OpenConnection: cluster.sessionConnect, Start: func(context.Context, globalWorkerSession) (component, error) {
+	}, OpenConnection: cluster.connectionPlan.Connect, Start: func(context.Context, globalWorkerSession) (component, error) {
 		t.Error("R1 or expired session started constructor")
 		return nil, nil
 	}}}
@@ -190,7 +190,7 @@ func TestGlobalWorkerConstructorFailureCancelsBeforeJoin(t *testing.T) {
 			failure := errors.New("constructor failed")
 			worker := &leaseOwnedGlobalWorkers{config: globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: func() control.RegionalAuthoritySnapshot {
 				return control.RegionalAuthoritySnapshot{State: "leader", IsLeader: true, Epoch: 1, ObservedAt: time.Now(), LeaseExpiresAt: &expiry}
-			}, OpenConnection: cluster.sessionConnect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
+			}, OpenConnection: cluster.connectionPlan.Connect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
 				group := &globalTestWorker{done: make(chan struct{})}
 				go func() { <-ctx.Done(); close(group.done) }()
 				if mode == "canceled-and-failed" {
@@ -227,7 +227,7 @@ func TestGlobalWorkerCloseFailureAndUnexpectedCompletionRemainFatal(t *testing.T
 	expiry := time.Now().Add(time.Minute)
 	worker := &leaseOwnedGlobalWorkers{config: globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: func() control.RegionalAuthoritySnapshot {
 		return control.RegionalAuthoritySnapshot{State: "leader", IsLeader: true, Epoch: 1, ObservedAt: time.Now(), LeaseExpiresAt: &expiry}
-	}, OpenConnection: cluster.sessionConnect, Start: func(context.Context, globalWorkerSession) (component, error) {
+	}, OpenConnection: cluster.connectionPlan.Connect, Start: func(context.Context, globalWorkerSession) (component, error) {
 		return &globalTestWorker{done: done}, nil
 	}}}
 	session, err := worker.acquire(ctx)
@@ -273,7 +273,7 @@ func TestGlobalWorkerExpiryCancelsBlockedConstructionAndCleansLateResult(t *test
 	cleaned := make(chan struct{})
 	worker := &leaseOwnedGlobalWorkers{config: globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: func() control.RegionalAuthoritySnapshot {
 		return control.RegionalAuthoritySnapshot{State: "leader", IsLeader: true, Epoch: 1, ObservedAt: time.Now(), LeaseExpiresAt: &expiry}
-	}, OpenConnection: cluster.sessionConnect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
+	}, OpenConnection: cluster.connectionPlan.Connect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
 		entered <- ctx
 		<-release
 		done := make(chan struct{})
@@ -329,7 +329,7 @@ func TestGlobalWorkerMinorityCancelsLiveGroup(t *testing.T) {
 	started := make(chan context.Context, 1)
 	worker, err := startLeaseOwnedGlobalWorkers(ctx, globalWorkerSessionConfig{CandidateID: lease.CandidateId, Snapshot: func() control.RegionalAuthoritySnapshot {
 		return control.RegionalAuthoritySnapshot{State: "leader", IsLeader: true, Epoch: 1, ObservedAt: time.Now(), LeaseExpiresAt: &expiry}
-	}, OpenConnection: cluster.sessionConnect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
+	}, OpenConnection: cluster.connectionPlan.Connect, Start: func(ctx context.Context, _ globalWorkerSession) (component, error) {
 		group := &globalTestWorker{done: make(chan struct{})}
 		go func() { <-ctx.Done(); close(group.done) }()
 		started <- ctx

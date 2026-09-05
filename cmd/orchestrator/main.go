@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
@@ -367,6 +368,7 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 	}()
 
 	var admission *admittedProductionRuntime
+	var workerConnection *globalclient.Plan
 	if options.Cell != "local" {
 		admission, err = admitProductionRuntime(ctx, options)
 		if err != nil {
@@ -374,6 +376,12 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 		}
 		if admission == nil || admission.construct == nil {
 			return errors.New("production runtime admission is incomplete")
+		}
+	}
+	if admission != nil && options.GlobalNats != nil {
+		workerConnection, err = globalclient.Admit(options.GlobalNats)
+		if err != nil {
+			return fmt.Errorf("global worker connection admission: %w", err)
 		}
 	}
 	if serverConfig != nil {
@@ -399,6 +407,7 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 		if production == nil {
 			return errors.New("production runtime composition returned nil")
 		}
+		production.connection = workerConnection
 		if production.delivery == nil {
 			return errors.New("production runtime composition requires signed delivery")
 		}

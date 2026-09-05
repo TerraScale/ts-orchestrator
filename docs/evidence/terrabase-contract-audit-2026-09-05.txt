@@ -1,0 +1,32 @@
+Read-only TerraBase producer audit, 2026-09-05, after the global-worker VM run.
+Producer checkout: /home/mariogk/Projects/TerraScale/terrabase
+Producer HEAD: fb3aaa8c7c1fcef56966718b229bcd735b8eed79
+The inspected runtime, configuration, production, region and engine contract
+files have working-tree modifications. These are source observations, not
+published release provenance or proof of which source built the binary.
+No adjacent files were edited, built or executed for this audit.
+
+crates/terrabase-server/src/runtime.rs:218 drains the production member and
+line 222 returns "no durable orchestrator membership source is configured".
+runtime.rs:309 and crates/terrabase-server/src/config.rs:809 still restrict
+production Regions to GRU/SFO/FRA. src/regions.rs:316 supports generic in-process
+admission, but config.rs:245 initializes the three-Region production catalog.
+crates/terrabase-cluster/src/production.rs:329 defines DurableMembershipSource;
+line 601 exposes admit_membership. Repository-wide Rust search found only a
+test implementation at line 1003 and no .admit_membership( calls.
+
+contracts/proto/terrabase/v1/engine.proto:796 exposes TopologyRead, AdminStatus,
+SupervisionHealth and SupervisionShutdown under Maintenance. No database
+lifecycle, membership/placement-intent, backup/restore, scratch-branch or key-ring
+mutation contract appeared. Shutdown does not establish safe database drain
+or member replacement. Both producer proto copies still match the orchestrator
+pins byte-for-byte; no newly usable mutation contract was found.
+
+SHA256:
+866350008e820aabc3b0e0d90bdf524eaca562c7c04edff5ca518fdf48b291ed  engine.proto (both producer copies and orchestrator pin)
+cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec  family.proto (both producer copies and orchestrator pin)
+2b6d98adf4a37cdb1d8dea58ca6dee07c19abf181b68594c4cafadb669365270  crates/terrabase-server/src/runtime.rs
+981772331888c0036fcbf7714fd8ba96215aa4b4803a91834cdcddde8e17941e  crates/terrabase-server/src/config.rs
+b53a450ea3f9fa8407adebbd620e74d230f8a0b49b62f9b7ed38176cb4b93378  crates/terrabase-cluster/src/production.rs
+fd2eb9146331e74bbbdf6a320b979615b1aa2adbd5b2a9c8cf82cc0f333f2d50  src/regions.rs
+300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7  target/x86_64-unknown-linux-musl/release/terrabase-server
