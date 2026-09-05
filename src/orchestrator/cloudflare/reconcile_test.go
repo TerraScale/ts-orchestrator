@@ -121,13 +121,30 @@ func (m *miniCF) serve(call fakeCall) (int, string, http.Header) {
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return okEnvelope(mustJSON(out))
-	case method == http.MethodPut && strings.HasPrefix(path, "/zones/zone-1/snippets/") && strings.HasSuffix(path, "/rules"):
-		name := strings.TrimSuffix(strings.TrimPrefix(path, "/zones/zone-1/snippets/"), "/rules")
+	case method == http.MethodGet && path == "/zones/zone-1/snippets/snippet_rules":
+		names := make([]string, 0, len(m.snippets))
+		for name := range m.snippets {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		rules := []zoneSnippetRule{}
+		for _, name := range names {
+			for _, rule := range m.snippets[name] {
+				rules = append(rules, zoneSnippetRule{SnippetName: name, SnippetRuleWire: rule})
+			}
+		}
+		return okEnvelope(mustJSON(map[string]any{"rules": rules}))
+	case method == http.MethodPut && path == "/zones/zone-1/snippets/snippet_rules":
 		var body struct {
-			Rules []SnippetRuleWire `json:"rules"`
+			Rules []zoneSnippetRule `json:"rules"`
 		}
 		unmarshalOr500(call.Body, &body)
-		m.snippets[name] = body.Rules
+		for name := range m.snippets {
+			m.snippets[name] = nil
+		}
+		for _, rule := range body.Rules {
+			m.snippets[rule.SnippetName] = append(m.snippets[rule.SnippetName], rule.SnippetRuleWire)
+		}
 		return okEnvelope("null")
 
 	// Worker routes

@@ -24,10 +24,7 @@ type Config struct {
 	ZoneID    string
 	AccountID string
 	ZoneName  string
-	// AsyncPolls controls how many operation polls remain pending after an
-	// asynchronous mutation. Zero makes operations immediately ready.
-	AsyncPolls int
-	Faults     []Fault
+	Faults    []Fault
 }
 
 // Options is an alias retained for callers that prefer the provider-neutral
@@ -49,11 +46,8 @@ func NewServer(cfg Config) *Server {
 	if cfg.ZoneName == "" {
 		cfg.ZoneName = "terrascale.tech"
 	}
-	if cfg.AsyncPolls < 0 {
-		cfg.AsyncPolls = 0
-	}
-	s := &Server{cfg: cfg, faults: newFaultBook(cfg.Faults), idem: map[string]idempotentResponse{}, ops: map[string]*operation{}, nextID: 1,
-		rules: map[string][]wireRule{}, snippets: map[string]snippet{}, kv: map[string]map[string][]byte{}, workers: map[string]*workerScript{}, secrets: map[string]map[string]secret{}}
+	s := &Server{cfg: cfg, faults: newFaultBook(cfg.Faults), idem: map[string]idempotentResponse{}, nextID: 1,
+		rules: map[string][]wireRule{}, snippets: map[string]snippet{}, snippetRules: []snippetRule{}, kv: map[string]map[string][]byte{}, workers: map[string]*workerScript{}, secrets: map[string]map[string]secret{}}
 	s.settings = map[string]string{"ssl": "strict", "min_tls_version": "1.2", "tls_1_3": "on", "always_use_https": "on"}
 	return s
 }
@@ -64,20 +58,20 @@ type Server struct {
 	cfg Config
 	mu  sync.Mutex
 
-	dns        []dnsRecord
-	rules      map[string][]wireRule
-	snippets   map[string]snippet
-	routes     []workerRoute
-	namespaces []namespace
-	kv         map[string]map[string][]byte
-	settings   map[string]string
-	totalTLS   bool
-	tiered     bool
-	purges     [][]string
+	dns          []dnsRecord
+	rules        map[string][]wireRule
+	snippets     map[string]snippet
+	snippetRules []snippetRule
+	routes       []workerRoute
+	namespaces   []namespace
+	kv           map[string]map[string][]byte
+	settings     map[string]string
+	totalTLS     bool
+	tiered       bool
+	purges       [][]string
 
 	workers map[string]*workerScript
 	secrets map[string]map[string]secret
-	ops     map[string]*operation
 	nextID  uint64
 	idem    map[string]idempotentResponse
 	faults  *faultBook
@@ -147,10 +141,6 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, f
 	}
 	if len(parts) >= 2 && parts[0] == "accounts" && parts[1] == s.cfg.AccountID {
 		s.account(w, r, parts[2:], body, fault)
-		return
-	}
-	if len(parts) >= 2 && parts[0] == "operations" {
-		s.operation(w, r, parts[1])
 		return
 	}
 	s.writeError(w, http.StatusNotFound, 1000, "resource not found")
@@ -314,8 +304,7 @@ func (s *Server) remember(r *http.Request, requestBody []byte, status int, heade
 
 // writeMutation emits an enveloped mutation response and records it for an
 // Idempotency-Key replay. raw is used for Cloudflare endpoints that return a
-// non-envelope body (currently only asynchronous operation acknowledgements
-// are represented as envelopes, so raw is normally nil).
+// non-envelope body.
 func (s *Server) writeMutation(r *http.Request, w http.ResponseWriter, requestBody []byte, status int, result any, raw []byte, fault FaultStep) {
 	if fault.Status != 0 {
 		status = fault.Status
@@ -340,10 +329,6 @@ func (s *Server) writeMutation(r *http.Request, w http.ResponseWriter, requestBo
 	}
 	if result != nil {
 		w.Header().Set("ETag", etag(result))
-		if op, ok := result.(*operation); ok {
-			w.Header().Set("Location", "/operations/"+op.ID)
-			w.Header().Set("Retry-After", "1")
-		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -406,12 +391,12 @@ func (s *Server) Reset() {
 	s.dns = nil
 	s.rules = map[string][]wireRule{}
 	s.snippets = map[string]snippet{}
+	s.snippetRules = []snippetRule{}
 	s.routes = nil
 	s.namespaces = nil
 	s.kv = map[string]map[string][]byte{}
 	s.workers = map[string]*workerScript{}
 	s.secrets = map[string]map[string]secret{}
-	s.ops = map[string]*operation{}
 	s.idem = map[string]idempotentResponse{}
 	s.purges = nil
 	s.totalTLS = false

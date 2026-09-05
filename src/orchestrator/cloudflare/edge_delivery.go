@@ -1,22 +1,24 @@
 package cloudflare
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
-	"time"
 )
 
-const edgeOperationPollInterval = 250 * time.Millisecond
+const workerDigestAnnotationPrefix = "terrascale-artifact:"
 
 // EdgeArtifactSource retrieves the already verified bytes named by an edge
 // delivery digest. Production wires this to the durable regional artifact
@@ -27,10 +29,29 @@ type EdgeArtifactSource interface {
 
 // WorkerVersion is the provider identity of one uploaded Worker candidate.
 type WorkerVersion struct {
-	ID        string          `json:"id"`
-	Digest    string          `json:"digest"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt time.Time       `json:"created_at,omitempty"`
+	ID string `json:"id"`
+	// Digest is derived from our uploaded version annotation, not a provider hash.
+	Digest      string            `json:"-"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Metadata    json.RawMessage   `json:"metadata,omitempty"`
+}
+
+func (v *WorkerVersion) UnmarshalJSON(raw []byte) error {
+	type wire WorkerVersion
+	var value wire
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	*v = WorkerVersion(value)
+	message := v.Annotations["workers/message"]
+	if strings.HasPrefix(message, workerDigestAnnotationPrefix) {
+		digest := strings.TrimPrefix(message, workerDigestAnnotationPrefix)
+		decoded, err := hex.DecodeString(strings.TrimPrefix(digest, "sha256:"))
+		if err == nil && strings.HasPrefix(digest, "sha256:") && len(decoded) == sha256.Size {
+			v.Digest = digest
+		}
+	}
+	return nil
 }
 
 // WorkerDeploymentVersion assigns one version a percentage of traffic.
@@ -43,14 +64,13 @@ type WorkerDeploymentVersion struct {
 type WorkerDeployment struct {
 	ID       string                    `json:"id"`
 	Versions []WorkerDeploymentVersion `json:"versions"`
-	Status   string                    `json:"status"`
 }
 
 // SnippetCode is the provider-observed identity of deployed Snippet source.
-// Source bytes are accepted by PutSnippetCode but are never returned.
+// Digest is computed from the source bytes returned by the content endpoint.
 type SnippetCode struct {
 	Name   string `json:"snippet_name"`
-	Digest string `json:"digest"`
+	Digest string `json:"-"`
 }
 
 // EdgePromotionEvent records completed provider calls for bounded delivery
@@ -149,7 +169,7 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 	if err != nil {
 		return err
 	}
-	active, activeErr := p.client.ActiveWorkerVersion(ctx, service)
+	active, activeErr := p.client.workerPromotionBaseline(ctx, service)
 	if activeErr != nil && !errors.Is(activeErr, ErrNotFound) {
 		return activeErr
 	}
@@ -278,24 +298,30 @@ func (p *EdgeReleasePromoter) ensureWorkerVersion(ctx context.Context, service, 
 	return p.client.UploadWorkerVersion(ctx, service, digest, body)
 }
 
+// The wire contracts follow Cloudflare's Workers versions API and Wrangler's
+// ApiVersion type. Cloudflare returns release annotations, not source digests.
 func (c *Client) ListWorkerVersions(ctx context.Context, script string) ([]WorkerVersion, error) {
 	if c == nil || strings.TrimSpace(script) == "" {
 		return nil, errors.New("cloudflare: Worker script is required")
 	}
 	var result []WorkerVersion
 	for page := 1; ; page++ {
-		var batch []WorkerVersion
+		var batch struct {
+			Items []WorkerVersion `json:"items"`
+		}
 		path := c.accountPath("/workers/scripts/" + url.PathEscape(script) + "/versions?per_page=100&page=" + fmt.Sprint(page))
 		info, err := c.doPage(ctx, "list Worker versions", http.MethodGet, path, nil, &batch)
+		if isCloudflareNotFound(err) {
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, batch...)
+		result = append(result, batch.Items...)
 		if info == nil || info.TotalPages <= page {
 			break
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
 }
 
@@ -303,31 +329,74 @@ func (c *Client) UploadWorkerVersion(ctx context.Context, script, digest string,
 	if c == nil || strings.TrimSpace(script) == "" || len(source) == 0 || !sameEdgeDigest(edgeDigest(source), digest) {
 		return WorkerVersion{}, errors.New("cloudflare: Worker version identity is invalid")
 	}
-	body := map[string]any{
-		"digest":   digest,
-		"metadata": map[string]any{"main_module": "worker.js", "source_base64": base64.StdEncoding.EncodeToString(source)},
+	metadata := map[string]any{"main_module": "worker.js", "annotations": map[string]string{"workers/message": workerDigestAnnotationPrefix + edgeDigest(source)}}
+	payload, contentType, err := edgeMultipart("worker.js", "worker.js", metadata, source)
+	if err != nil {
+		return WorkerVersion{}, err
 	}
 	path := c.accountPath("/workers/scripts/" + url.PathEscape(script) + "/versions")
 	var version WorkerVersion
-	if err := c.doAsync(ctx, "upload Worker version", http.MethodPost, path, body, &version); err != nil {
+	if err := c.doEdgeMultipart(ctx, "upload Worker version", http.MethodPost, path, payload, contentType, &version); err != nil {
 		return WorkerVersion{}, err
 	}
-	if version.ID == "" || !sameEdgeDigest(version.Digest, digest) {
+	if version.ID == "" {
 		return WorkerVersion{}, errors.New("cloudflare: Worker upload response identity is invalid")
+	}
+	// Read the immutable version independently before making it eligible for traffic.
+	uploadedID := version.ID
+	if err := c.do(ctx, "read Worker version", http.MethodGet, path+"/"+url.PathEscape(uploadedID), nil, &version); err != nil {
+		return WorkerVersion{}, err
+	}
+	if version.ID != uploadedID {
+		return WorkerVersion{}, errors.New("cloudflare: Worker detail returned a different version")
+	}
+	if !sameEdgeDigest(version.Digest, digest) {
+		return WorkerVersion{}, errors.New("cloudflare: Worker version annotation does not match artifact")
 	}
 	return version, nil
 }
 
 func (c *Client) ActiveWorkerVersion(ctx context.Context, script string) (WorkerVersion, error) {
-	if c == nil || strings.TrimSpace(script) == "" {
-		return WorkerVersion{}, errors.New("cloudflare: Worker script is required")
+	deployments, err := c.ListWorkerDeployments(ctx, script)
+	if err != nil {
+		return WorkerVersion{}, err
 	}
-	var result WorkerVersion
-	err := c.do(ctx, "read active Worker version", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)), nil, &result)
-	if isCloudflareNotFound(err) {
+	if len(deployments) == 0 {
 		return WorkerVersion{}, ErrNotFound
 	}
-	return result, err
+	if len(deployments[0].Versions) != 1 || deployments[0].Versions[0].Percentage != 100 {
+		return WorkerVersion{}, errors.New("cloudflare: Worker has a partial deployment")
+	}
+	var version WorkerVersion
+	err = c.do(ctx, "read deployed Worker version", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/versions/"+url.PathEscape(deployments[0].Versions[0].VersionID)), nil, &version)
+	if err == nil && version.ID != deployments[0].Versions[0].VersionID {
+		return WorkerVersion{}, errors.New("cloudflare: Worker detail returned a different version")
+	}
+	return version, err
+}
+
+// A failed response can leave a partial deployment serving. The most recent
+// full deployment is the durable predecessor for retry or rollback.
+func (c *Client) workerPromotionBaseline(ctx context.Context, script string) (WorkerVersion, error) {
+	deployments, err := c.ListWorkerDeployments(ctx, script)
+	if err != nil {
+		return WorkerVersion{}, err
+	}
+	for _, deployment := range deployments {
+		if len(deployment.Versions) != 1 || deployment.Versions[0].Percentage != 100 {
+			continue
+		}
+		var version WorkerVersion
+		err := c.do(ctx, "read Worker promotion baseline", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/versions/"+url.PathEscape(deployment.Versions[0].VersionID)), nil, &version)
+		if err == nil && version.ID != deployment.Versions[0].VersionID {
+			return WorkerVersion{}, errors.New("cloudflare: Worker detail returned a different version")
+		}
+		return version, err
+	}
+	if len(deployments) != 0 {
+		return WorkerVersion{}, errors.New("cloudflare: partial deployment has no full predecessor")
+	}
+	return WorkerVersion{}, ErrNotFound
 }
 
 func (c *Client) CreateWorkerDeployment(ctx context.Context, script string, versions []WorkerDeploymentVersion) (WorkerDeployment, error) {
@@ -359,68 +428,172 @@ func (c *Client) CreateWorkerDeployment(ctx context.Context, script string, vers
 		return WorkerDeployment{}, err
 	}
 	if len(deployments) != 0 {
-		predecessor = deployments[len(deployments)-1].ID
+		predecessor = deployments[0].ID
 	}
 	path := c.accountPath("/workers/scripts/" + url.PathEscape(script) + "/deployments")
 	var deployment WorkerDeployment
-	body := map[string]any{"versions": versions, "annotations": map[string]string{"message": "terrascale-after-" + predecessor}}
-	if err := c.doAsync(ctx, "create Worker deployment", http.MethodPost, path, body, &deployment); err != nil {
+	body := map[string]any{"strategy": "percentage", "versions": versions, "annotations": map[string]string{"workers/message": "terrascale-after-" + predecessor}}
+	if err := c.do(ctx, "create Worker deployment", http.MethodPost, path, body, &deployment); err != nil {
 		return WorkerDeployment{}, err
 	}
-	if deployment.ID == "" || len(deployment.Versions) != len(versions) {
+	if deployment.ID == "" || !sameWorkerAllocation(deployment.Versions, versions) {
 		return WorkerDeployment{}, errors.New("cloudflare: Worker deployment response is invalid")
 	}
+	// A response is not proof that the requested allocation is serving.
+	observed, err := c.ListWorkerDeployments(ctx, script)
+	if err != nil {
+		return WorkerDeployment{}, err
+	}
+	if len(observed) == 0 || observed[0].ID != deployment.ID || !sameWorkerAllocation(observed[0].Versions, versions) {
+		return WorkerDeployment{}, errors.New("cloudflare: Worker deployment readback does not match requested traffic")
+	}
 	return deployment, nil
+}
+
+func sameWorkerAllocation(left, right []WorkerDeploymentVersion) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	allocations := make(map[string]int, len(left))
+	for _, item := range left {
+		if _, ok := allocations[item.VersionID]; ok {
+			return false
+		}
+		allocations[item.VersionID] = item.Percentage
+	}
+	for _, item := range right {
+		if allocations[item.VersionID] != item.Percentage {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) ListWorkerDeployments(ctx context.Context, script string) ([]WorkerDeployment, error) {
 	if c == nil || strings.TrimSpace(script) == "" {
 		return nil, errors.New("cloudflare: Worker script is required")
 	}
-	var result []WorkerDeployment
-	for page := 1; ; page++ {
-		var batch []WorkerDeployment
-		path := c.accountPath("/workers/scripts/" + url.PathEscape(script) + "/deployments?per_page=100&page=" + fmt.Sprint(page))
-		info, err := c.doPage(ctx, "list Worker deployments", http.MethodGet, path, nil, &batch)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, batch...)
-		if info == nil || info.TotalPages <= page {
-			break
-		}
+	var result struct {
+		Deployments []WorkerDeployment `json:"deployments"`
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
-	return result, nil
+	err := c.do(ctx, "list Worker deployments", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/deployments"), nil, &result)
+	if isCloudflareNotFound(err) {
+		return nil, nil
+	}
+	// The provider returns newest first. UUID lexical order is not chronology.
+	return result.Deployments, err
 }
 
 func (c *Client) PutSnippetCode(ctx context.Context, snippet, digest string, source []byte) error {
 	if c == nil || strings.TrimSpace(snippet) == "" || len(source) == 0 || !sameEdgeDigest(edgeDigest(source), digest) {
 		return errors.New("cloudflare: Snippet code identity is invalid")
 	}
-	predecessor := "initial"
-	current, err := c.SnippetCode(ctx, snippet)
-	if err == nil {
-		predecessor = current.Digest
-	} else if !errors.Is(err, ErrNotFound) {
+	payload, contentType, err := edgeMultipart("files", "snippet.js", map[string]string{"main_module": "snippet.js"}, source)
+	if err != nil {
 		return err
 	}
-	path := c.zonePath("/snippets/" + url.PathEscape(snippet))
-	return c.do(ctx, "deploy Snippet code", http.MethodPut, path, map[string]string{
-		"digest": digest, "source_base64": base64.StdEncoding.EncodeToString(source), "previous_digest": predecessor,
-	}, nil)
+	return c.doEdgeMultipart(ctx, "deploy Snippet code", http.MethodPut, c.zonePath("/snippets/"+url.PathEscape(snippet)), payload, contentType, nil)
 }
 
 func (c *Client) SnippetCode(ctx context.Context, snippet string) (SnippetCode, error) {
 	if c == nil || strings.TrimSpace(snippet) == "" {
 		return SnippetCode{}, errors.New("cloudflare: Snippet name is required")
 	}
-	var result SnippetCode
-	err := c.do(ctx, "read Snippet code", http.MethodGet, c.zonePath("/snippets/"+url.PathEscape(snippet)), nil, &result)
-	if isCloudflareNotFound(err) {
+	status, headers, raw, err := c.roundtripContent(ctx, "read Snippet content", http.MethodGet, c.zonePath("/snippets/"+url.PathEscape(snippet)+"/content"), nil, "", "multipart/form-data")
+	if err != nil {
+		return SnippetCode{}, err
+	}
+	if status == http.StatusNotFound {
 		return SnippetCode{}, ErrNotFound
 	}
-	return result, err
+	if status < 200 || status >= 300 {
+		return SnippetCode{}, apiErrorFromEnvelope("read Snippet content", status, raw)
+	}
+	source, err := singleEdgeModule(headers.Get("Content-Type"), raw, "snippet.js")
+	if err != nil {
+		return SnippetCode{}, err
+	}
+	return SnippetCode{Name: snippet, Digest: edgeDigest(source)}, nil
+}
+
+func edgeMultipart(field, filename string, metadata any, source []byte) ([]byte, string, error) {
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, "", err
+	}
+	header := textproto.MIMEHeader{"Content-Disposition": {`form-data; name="metadata"`}, "Content-Type": {"application/json"}}
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err = part.Write(encoded); err != nil {
+		return nil, "", err
+	}
+	header = textproto.MIMEHeader{"Content-Disposition": {fmt.Sprintf(`form-data; name="%s"; filename="%s"`, field, filename)}, "Content-Type": {"application/javascript+module"}}
+	part, err = writer.CreatePart(header)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err = part.Write(source); err != nil {
+		return nil, "", err
+	}
+	if err = writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return buffer.Bytes(), writer.FormDataContentType(), nil
+}
+
+func singleEdgeModule(contentType string, raw []byte, filename string) ([]byte, error) {
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
+		return nil, errors.New("cloudflare: expected multipart code content")
+	}
+	reader := multipart.NewReader(bytes.NewReader(raw), params["boundary"])
+	var source []byte
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, errors.New("cloudflare: malformed multipart code content")
+		}
+		body, err := io.ReadAll(part)
+		if err != nil {
+			return nil, errors.New("cloudflare: unreadable code module")
+		}
+		if part.FormName() == "metadata" && part.FileName() == "" {
+			continue
+		}
+		if part.FileName() != filename || source != nil {
+			return nil, errors.New("cloudflare: unexpected code module")
+		}
+		source = body
+	}
+	if len(source) == 0 {
+		return nil, errors.New("cloudflare: code module is missing")
+	}
+	return source, nil
+}
+
+func (c *Client) doEdgeMultipart(ctx context.Context, op, method, path string, payload []byte, contentType string, out any) error {
+	status, _, raw, err := c.roundtripContent(ctx, op, method, path, payload, contentType, "application/json")
+	if err != nil {
+		return err
+	}
+	var env envelope
+	if json.Unmarshal(raw, &env) != nil {
+		return &APIError{Op: op, Status: status, Message: "malformed response envelope"}
+	}
+	if status < 200 || status >= 300 || !env.Success {
+		return apiErrorFromEnvelope(op, status, raw)
+	}
+	if out != nil {
+		return json.Unmarshal(env.Result, out)
+	}
+	return nil
 }
 
 // ReconcileSnippetRules runs the production Snippet rule planner and applies
@@ -448,66 +621,6 @@ func ReconcileSnippetRules(ctx context.Context, client *Client, zone *Zone, snip
 		return err
 	}
 	return Apply(ctx, plan)
-}
-
-type asyncEdgeResult struct {
-	ID        string                    `json:"id"`
-	Status    string                    `json:"status"`
-	Digest    string                    `json:"digest,omitempty"`
-	Metadata  json.RawMessage           `json:"metadata,omitempty"`
-	CreatedAt time.Time                 `json:"created_at,omitempty"`
-	Versions  []WorkerDeploymentVersion `json:"versions,omitempty"`
-	Result    json.RawMessage           `json:"result,omitempty"`
-}
-
-func (c *Client) doAsync(ctx context.Context, op, method, path string, body, out any) error {
-	var result asyncEdgeResult
-	if err := c.do(ctx, op, method, path, body, &result); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("cloudflare %s: encode result: %w", op, err)
-	}
-	if result.Status == "pending" {
-		raw, err = c.pollEdgeOperation(ctx, result.ID)
-		if err != nil {
-			return fmt.Errorf("cloudflare %s: %w", op, err)
-		}
-	} else if len(result.Result) != 0 && string(result.Result) != "null" {
-		raw = result.Result
-	}
-	if out != nil {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return fmt.Errorf("cloudflare %s: decode result: %w", op, err)
-		}
-	}
-	return nil
-}
-
-func (c *Client) pollEdgeOperation(ctx context.Context, operation string) (json.RawMessage, error) {
-	if operation == "" {
-		return nil, errors.New("asynchronous operation identity is missing")
-	}
-	for {
-		if err := c.sleep(ctx, edgeOperationPollInterval); err != nil {
-			return nil, err
-		}
-		var result asyncEdgeResult
-		if err := c.do(ctx, "poll edge operation", http.MethodGet, "/operations/"+url.PathEscape(operation), nil, &result); err != nil {
-			return nil, err
-		}
-		switch result.Status {
-		case "complete":
-			if len(result.Result) == 0 || string(result.Result) == "null" {
-				return nil, errors.New("asynchronous operation result is missing")
-			}
-			return result.Result, nil
-		case "pending":
-		default:
-			return nil, errors.New("asynchronous operation status is invalid")
-		}
-	}
 }
 
 func edgeDigest(body []byte) string {

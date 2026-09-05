@@ -2,15 +2,16 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
 // SnippetRule declares the RULE that runs the sync.api gate Snippet (D-55).
-// The snippet code itself lives in ts-proxy and is deployed through the
-// Cloudflare API by ts-deploy (X-2); this reconciler only installs and
+// The snippet code itself lives in ts-proxy. ts-deploy submits the signed
+// candidate and the orchestrator uploads it. This reconciler installs and
 // updates the rule on the deployed snippet. Pro allows 25 snippets per zone
 // (D-63) — one gate is all we need.
 type SnippetRule struct {
@@ -28,9 +29,8 @@ type SnippetRuleWire struct {
 }
 
 type Snippet struct {
-	Name   string            `json:"snippet_name"`
-	Digest string            `json:"digest,omitempty"`
-	Rules  []SnippetRuleWire `json:"rules"`
+	Name  string            `json:"snippet_name"`
+	Rules []SnippetRuleWire `json:"-"`
 }
 
 // SnippetAPI is the snippet-rules surface.
@@ -41,15 +41,130 @@ type SnippetAPI interface {
 
 var _ SnippetAPI = (*Client)(nil)
 
-func (c *Client) ListSnippets(ctx context.Context) ([]Snippet, error) {
-	var out []Snippet
-	err := c.do(ctx, "list snippets", http.MethodGet, c.zonePath("/snippets"), nil, &out)
-	return out, err
+// zoneSnippetRule is Cloudflare's zone-wide snippet_rules wire contract.
+// Snippet.Rules above is a local join, never embedded in the metadata API.
+type zoneSnippetRule struct {
+	SnippetName string `json:"snippet_name"`
+	SnippetRuleWire
 }
 
+func (c *Client) ListSnippets(ctx context.Context) ([]Snippet, error) {
+	var out []Snippet
+	if err := c.do(ctx, "list snippets", http.MethodGet, c.zonePath("/snippets"), nil, &out); err != nil {
+		return nil, err
+	}
+	rules, _, err := c.snippetRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		for _, rule := range rules {
+			if rule.SnippetName == out[i].Name {
+				out[i].Rules = append(out[i].Rules, rule.SnippetRuleWire)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (c *Client) snippetRules(ctx context.Context) ([]zoneSnippetRule, string, error) {
+	status, headers, raw, err := c.roundtripContent(ctx, "list zone snippet rules", http.MethodGet, c.zonePath("/snippets/snippet_rules"), nil, "", "application/json")
+	if err != nil {
+		return nil, "", err
+	}
+	var env envelope
+	if json.Unmarshal(raw, &env) != nil {
+		return nil, "", &APIError{Op: "list zone snippet rules", Status: status, Message: "malformed response envelope"}
+	}
+	if status < 200 || status >= 300 || !env.Success {
+		return nil, "", apiErrorFromEnvelope("list zone snippet rules", status, raw)
+	}
+	var result struct {
+		Rules *[]zoneSnippetRule `json:"rules"`
+	}
+	if err := json.Unmarshal(env.Result, &result); err != nil {
+		return nil, "", err
+	}
+	if result.Rules == nil {
+		return nil, "", errors.New("cloudflare: zone snippet rules response is missing the rule list")
+	}
+	return *result.Rules, headers.Get("ETag"), nil
+}
+
+// PutSnippetRules replaces only rules owned by the named TerraScale snippet.
+// Cloudflare replaces the entire zone list, so retain unrelated rules and their
+// order. Use the provider ETag when supplied; a conflict must be re-observed by
+// the next reconciliation, never retried with a fresh tag and a stale payload.
 func (c *Client) PutSnippetRules(ctx context.Context, snippet string, rules []SnippetRuleWire) error {
-	path := c.zonePath("/snippets/" + url.PathEscape(snippet) + "/rules")
-	return c.do(ctx, "update snippet rules", http.MethodPut, path, map[string]any{"rules": rules}, nil)
+	if strings.TrimSpace(snippet) == "" {
+		return errors.New("cloudflare: snippet name is required")
+	}
+	for _, rule := range rules {
+		if rule.Description != refDescription(snippet) || strings.TrimSpace(rule.Expression) == "" {
+			return errors.New("cloudflare: snippet rule must carry the declared ownership description")
+		}
+	}
+	c.snippetMu.Lock()
+	defer c.snippetMu.Unlock()
+	current, etag, err := c.snippetRules(ctx)
+	if err != nil {
+		return err
+	}
+	desired := make([]zoneSnippetRule, 0, len(current)+len(rules))
+	inserted := false
+	insert := func() {
+		for _, rule := range rules {
+			desired = append(desired, zoneSnippetRule{SnippetName: snippet, SnippetRuleWire: rule})
+		}
+		inserted = true
+	}
+	for _, rule := range current {
+		if rule.SnippetName != snippet {
+			desired = append(desired, rule)
+			continue
+		}
+		if rule.Description != refDescription(snippet) {
+			return errors.New("cloudflare: refusing to replace an unowned snippet rule")
+		}
+		if !inserted {
+			insert()
+		}
+	}
+	if !inserted {
+		insert()
+	}
+	payload, err := json.Marshal(map[string]any{"rules": desired})
+	if err != nil {
+		return err
+	}
+	headers := http.Header{}
+	if etag != "" {
+		headers.Set("If-Match", etag)
+	}
+	status, _, raw, err := c.roundtripContent(ctx, "update zone snippet rules", http.MethodPut, c.zonePath("/snippets/snippet_rules"), payload, "application/json", "application/json", headers)
+	if err != nil {
+		return err
+	}
+	var env envelope
+	if json.Unmarshal(raw, &env) != nil {
+		return &APIError{Op: "update zone snippet rules", Status: status, Message: "malformed response envelope"}
+	}
+	if status < 200 || status >= 300 || !env.Success {
+		return apiErrorFromEnvelope("update zone snippet rules", status, raw)
+	}
+	observed, _, err := c.snippetRules(ctx)
+	if err != nil {
+		return err
+	}
+	if len(observed) != len(desired) {
+		return errors.New("cloudflare: snippet rule readback changed the zone list")
+	}
+	for i := range desired {
+		if observed[i] != desired[i] {
+			return errors.New("cloudflare: snippet rule readback differs from requested zone list")
+		}
+	}
+	return nil
 }
 
 func (z *Zone) reconcileSnippets(ctx context.Context, c *Client, p *Plan) error {

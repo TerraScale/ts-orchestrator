@@ -1,9 +1,7 @@
 package cloudflare
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -21,15 +19,16 @@ type secret struct {
 	UpdatedAt time.Time
 }
 type workerVersion struct {
-	ID        string          `json:"id"`
-	Digest    string          `json:"digest"`
-	Metadata  json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
+	Number      uint64            `json:"number"`
+	ID          string            `json:"id"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Metadata    map[string]string `json:"metadata"`
+	source      []byte
 }
 type workerDeployment struct {
+	sequence uint64
 	ID       string              `json:"id"`
 	Versions []deploymentVersion `json:"versions"`
-	Status   string              `json:"status"`
 }
 type deploymentVersion struct {
 	VersionID  string `json:"version_id"`
@@ -38,14 +37,6 @@ type deploymentVersion struct {
 type workerScript struct {
 	Versions    map[string]workerVersion
 	Deployments map[string]workerDeployment
-	Active      string
-}
-type operation struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Polls  int
-	Result any `json:"result,omitempty"`
-	Err    string
 }
 
 func (s *Server) kvEndpoint(w http.ResponseWriter, r *http.Request, p []string, body []byte, fault FaultStep) {
@@ -194,22 +185,6 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 		s.workers[scriptName] = script
 	}
 	if len(p) == 1 {
-		if r.Method == http.MethodPut || r.Method == http.MethodPost {
-			h := sha256.Sum256(body)
-			v := workerVersion{ID: id("version", &s.nextID), Digest: hex.EncodeToString(h[:]), CreatedAt: time.Now().UTC()}
-			script.Versions[v.ID] = v
-			script.Active = v.ID
-			s.writeMutation(r, w, body, 200, v, nil, fault)
-			return
-		}
-		if r.Method == http.MethodGet {
-			if script.Active == "" {
-				s.writeError(w, 404, 10004, "active Worker version not found")
-				return
-			}
-			s.envelope(w, 200, script.Versions[script.Active], nil)
-			return
-		}
 		s.writeError(w, 404, 1000, "Worker resource not found")
 		return
 	}
@@ -223,34 +198,31 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 			for _, v := range script.Versions {
 				out = append(out, v)
 			}
-			sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+			sort.Slice(out, func(i, j int) bool { return out[i].Number > out[j].Number })
 			start, end, number, total := page(r, len(out))
 			per := end - start
 			if per == 0 {
 				per = 20
 			}
-			s.listEnvelope(w, 200, out[start:end], resultInfo(number, per, total))
+			s.listEnvelope(w, 200, map[string]any{"items": out[start:end]}, resultInfo(number, per, total))
 			return
 		}
 		if len(p) == 2 && r.Method == http.MethodPost {
+			metadata, source, err := parseCodeUpload(r, body, "worker.js", "worker.js")
+			if err != nil {
+				s.writeError(w, 400, 1003, "invalid Worker multipart upload")
+				return
+			}
 			var in struct {
-				Digest   string          `json:"digest"`
-				Metadata json.RawMessage `json:"metadata"`
+				Annotations map[string]string `json:"annotations"`
 			}
-			_ = json.Unmarshal(body, &in)
-			if in.Digest == "" {
-				h := sha256.Sum256(body)
-				in.Digest = hex.EncodeToString(h[:])
+			if json.Unmarshal(metadata, &in) != nil {
+				s.writeError(w, 400, 1003, "invalid Worker metadata")
+				return
 			}
-			v := workerVersion{ID: id("version", &s.nextID), Digest: in.Digest, Metadata: in.Metadata, CreatedAt: time.Now().UTC()}
+			v := workerVersion{Number: uint64(len(script.Versions) + 1), ID: id("version", &s.nextID), Annotations: in.Annotations, Metadata: map[string]string{"created_on": time.Now().UTC().Format(time.RFC3339Nano)}, source: source}
 			script.Versions[v.ID] = v
-			result := map[string]any{"id": v.ID, "digest": v.Digest}
-			if s.cfg.AsyncPolls > 0 {
-				op := s.newOperation(result)
-				s.writeMutation(r, w, body, http.StatusAccepted, op, nil, fault)
-			} else {
-				s.writeMutation(r, w, body, 200, v, nil, fault)
-			}
+			s.writeMutation(r, w, body, 200, v, nil, fault)
 			return
 		}
 		if len(p) == 3 && r.Method == http.MethodGet {
@@ -270,28 +242,18 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 		for _, d := range script.Deployments {
 			out = append(out, d)
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-		start, end, number, total := page(r, len(out))
-		per := end - start
-		if per == 0 {
-			per = 20
-		}
-		s.listEnvelope(w, 200, out[start:end], resultInfo(number, per, total))
+		sort.Slice(out, func(i, j int) bool { return out[i].sequence > out[j].sequence })
+		s.envelope(w, 200, map[string]any{"deployments": out}, nil)
 		return
 	}
-	if len(p) == 2 && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
+	if len(p) == 2 && r.Method == http.MethodPost {
 		var in struct {
-			ID         string              `json:"id"`
-			Versions   []deploymentVersion `json:"versions"`
-			VersionID  string              `json:"version_id"`
-			Percentage int                 `json:"percentage"`
+			Strategy string              `json:"strategy"`
+			Versions []deploymentVersion `json:"versions"`
 		}
-		if json.Unmarshal(body, &in) != nil {
+		if json.Unmarshal(body, &in) != nil || in.Strategy != "percentage" {
 			s.writeError(w, 400, 1003, "invalid Worker deployment")
 			return
-		}
-		if len(in.Versions) == 0 && in.VersionID != "" {
-			in.Versions = []deploymentVersion{{VersionID: in.VersionID, Percentage: in.Percentage}}
 		}
 		for _, v := range in.Versions {
 			if _, ok := script.Versions[v.VersionID]; !ok {
@@ -299,20 +261,9 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 				return
 			}
 		}
-		d := workerDeployment{ID: in.ID, Versions: in.Versions, Status: "active"}
-		if d.ID == "" {
-			d.ID = id("deployment", &s.nextID)
-		}
+		d := workerDeployment{sequence: s.nextID, ID: id("deployment", &s.nextID), Versions: in.Versions}
 		script.Deployments[d.ID] = d
-		if len(in.Versions) == 1 && in.Versions[0].Percentage >= 100 {
-			script.Active = in.Versions[0].VersionID
-		}
-		if s.cfg.AsyncPolls > 0 {
-			op := s.newOperation(d)
-			s.writeMutation(r, w, body, 202, op, nil, fault)
-		} else {
-			s.writeMutation(r, w, body, 200, d, nil, fault)
-		}
+		s.writeMutation(r, w, body, 200, d, nil, fault)
 		return
 	}
 	if len(p) == 3 && r.Method == http.MethodGet {
@@ -325,40 +276,6 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 		return
 	}
 	s.writeError(w, 405, 1005, "method not allowed")
-}
-
-func (s *Server) newOperation(result any) *operation {
-	o := &operation{ID: id("op", &s.nextID), Status: "pending", Polls: s.cfg.AsyncPolls, Result: result}
-	s.ops[o.ID] = o
-	return o
-}
-func (s *Server) operation(w http.ResponseWriter, r *http.Request, opid string) {
-	if r.Method != http.MethodGet {
-		s.writeError(w, 405, 1005, "method not allowed")
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	o, ok := s.ops[pathUnescape(opid)]
-	if !ok {
-		s.writeError(w, 404, 10004, "operation not found")
-		return
-	}
-	if o.Polls > 0 {
-		o.Polls--
-	}
-	if o.Polls <= 0 {
-		o.Status = "complete"
-	}
-	if o.Status == "failed" {
-		s.writeError(w, 500, 1007, o.Err)
-		return
-	}
-	status := http.StatusOK
-	if o.Status != "complete" {
-		status = http.StatusAccepted
-	}
-	s.envelope(w, status, map[string]any{"id": o.ID, "status": o.Status, "result": o.Result}, nil)
 }
 
 func (s *Server) secretEndpoint(w http.ResponseWriter, r *http.Request, p []string, body []byte, fault FaultStep) {

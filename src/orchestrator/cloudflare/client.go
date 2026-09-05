@@ -83,6 +83,7 @@ type Client struct {
 	sleep       func(context.Context, time.Duration) error
 	now         func() time.Time
 
+	snippetMu sync.Mutex
 	mu        sync.Mutex
 	nextPurge time.Time
 }
@@ -191,8 +192,13 @@ func apiErrorFromEnvelope(op string, status int, raw []byte) *APIError {
 // roundtrip performs one logical request, retrying rate limits and transient
 // 5xx with backoff (Retry-After honored, capped).
 func (c *Client) roundtrip(ctx context.Context, op, method, path string, payload []byte) (int, []byte, error) {
+	status, _, raw, err := c.roundtripContent(ctx, op, method, path, payload, "application/json", "application/json")
+	return status, raw, err
+}
+
+func (c *Client) roundtripContent(ctx context.Context, op, method, path string, payload []byte, contentType, accept string, requestHeaders ...http.Header) (int, http.Header, []byte, error) {
 	if !strings.HasPrefix(path, "/") {
-		return 0, nil, fmt.Errorf("cloudflare %s: invalid path", op)
+		return 0, nil, nil, fmt.Errorf("cloudflare %s: invalid path", op)
 	}
 	attempts := c.maxAttempts
 	if attempts < 1 {
@@ -205,42 +211,51 @@ func (c *Client) roundtrip(ctx context.Context, op, method, path string, payload
 		}
 		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
 		if err != nil {
-			return 0, nil, fmt.Errorf("cloudflare %s: %w", op, err)
+			return 0, nil, nil, fmt.Errorf("cloudflare %s: %w", op, err)
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Token)
-		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Accept", accept)
+		for _, headers := range requestHeaders {
+			for key, values := range headers {
+				req.Header[key] = append([]string(nil), values...)
+			}
+		}
 		// Cloudflare mutations may commit while their response is lost. A
 		// stable key lets the provider replay the exact operation when the
 		// transient response is retried, including destructive operations.
 		if method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions {
-			req.Header.Set("Idempotency-Key", mutationKey(method, path, payload))
+			keyPath := path
+			if condition := req.Header.Get("If-Match"); condition != "" {
+				keyPath += "\x00" + condition
+			}
+			req.Header.Set("Idempotency-Key", mutationKey(method, keyPath, payload))
 		}
 		if payload != nil {
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 		}
 		resp, err := c.HTTP.RoundTrip(req)
 		if err != nil {
 			if attempt+1 < attempts {
 				if sleepErr := c.sleep(ctx, backoff("", attempt)); sleepErr != nil {
-					return 0, nil, fmt.Errorf("cloudflare %s: %w", op, sleepErr)
+					return 0, nil, nil, fmt.Errorf("cloudflare %s: %w", op, sleepErr)
 				}
 				continue
 			}
-			return 0, nil, fmt.Errorf("cloudflare %s: transport: %w", op, err)
+			return 0, nil, nil, fmt.Errorf("cloudflare %s: transport: %w", op, err)
 		}
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 		resp.Body.Close()
 		if readErr != nil {
-			return 0, nil, fmt.Errorf("cloudflare %s: read response: %w", op, readErr)
+			return 0, nil, nil, fmt.Errorf("cloudflare %s: read response: %w", op, readErr)
 		}
 		if len(raw) > maxBodyBytes {
-			return 0, nil, &APIError{Op: op, Status: resp.StatusCode, Message: "response too large"}
+			return 0, nil, nil, &APIError{Op: op, Status: resp.StatusCode, Message: "response too large"}
 		}
 		if !retryable(resp.StatusCode) || attempt+1 >= attempts {
-			return resp.StatusCode, raw, nil
+			return resp.StatusCode, resp.Header.Clone(), raw, nil
 		}
 		if err := c.sleep(ctx, backoff(resp.Header.Get("Retry-After"), attempt)); err != nil {
-			return 0, nil, fmt.Errorf("cloudflare %s: %w", op, err)
+			return 0, nil, nil, fmt.Errorf("cloudflare %s: %w", op, err)
 		}
 	}
 }

@@ -2,6 +2,8 @@ package cloudflare
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -68,13 +70,18 @@ func TestEndpointMatchesReconcilerContract(t *testing.T) {
 }
 
 func TestEndpointRulesKVWorkersAndSecrets(t *testing.T) {
-	s := NewServer(Config{ZoneID: "z", AccountID: "a", AsyncPolls: 1})
+	s := NewServer(Config{ZoneID: "z", AccountID: "a"})
 	ts, c := localClient(t, s)
 	if err := c.SetSmartTieredCache(t.Context(), true); err != nil {
 		t.Fatal(err)
 	}
 	if on, err := c.SmartTieredCache(t.Context()); err != nil || !on {
 		t.Fatalf("tiered = %v, %v", on, err)
+	}
+	snippetSource := []byte("export default {fetch(request){return fetch(request)}}")
+	snippetDigest := sha256.Sum256(snippetSource)
+	if err := c.PutSnippetCode(t.Context(), "ts-gate", "sha256:"+hex.EncodeToString(snippetDigest[:]), snippetSource); err != nil {
+		t.Fatal(err)
 	}
 	if err := c.PutSnippetRules(t.Context(), "ts-gate", []cf.SnippetRuleWire{{Expression: "true", Description: "terrascale:ts-gate", Enabled: true}}); err != nil {
 		t.Fatal(err)
@@ -99,36 +106,17 @@ func TestEndpointRulesKVWorkersAndSecrets(t *testing.T) {
 		t.Fatalf("health = %+v, %v", h, err)
 	}
 
-	// The edge version/deployment API is asynchronous but the mutation is
-	// applied before its acknowledgement, allowing an indeterminate response
-	// to be safely observed and reconciled.
-	create := doRequest(s, http.MethodPost, "/accounts/a/workers/scripts/ts-proxy/versions", []byte(`{"digest":"sha256:test"}`), nil)
-	if create.Code != http.StatusAccepted {
-		t.Fatalf("version status = %d", create.Code)
+	// Worker versions and deployments acknowledge synchronously. There is no
+	// Cloudflare /operations endpoint in these contracts.
+	source := []byte("export default {fetch(){return new Response('test')}}")
+	digest := sha256.Sum256(source)
+	version, err := c.UploadWorkerVersion(t.Context(), "ts-proxy", "sha256:"+hex.EncodeToString(digest[:]), source)
+	if err != nil || version.ID == "" {
+		t.Fatalf("upload: %+v, %v", version, err)
 	}
-	var ack struct {
-		Result struct {
-			ID string `json:"id"`
-		} `json:"result"`
+	if _, err := c.CreateWorkerDeployment(t.Context(), "ts-proxy", []cf.WorkerDeploymentVersion{{VersionID: version.ID, Percentage: 100}}); err != nil {
+		t.Fatal(err)
 	}
-	if json.Unmarshal(create.Body.Bytes(), &ack) != nil || ack.Result.ID == "" {
-		t.Fatalf("version ack = %s", create.Body)
-	}
-	opID := ack.Result.ID
-	// Result is an operation object; poll it through the public endpoint.
-	var op struct {
-		Result struct {
-			ID string `json:"id"`
-		} `json:"result"`
-	}
-	if json.Unmarshal(create.Body.Bytes(), &op) != nil || op.Result.ID == "" {
-		t.Fatalf("operation ack = %s", create.Body)
-	}
-	operation := doRequest(s, http.MethodGet, "/operations/"+op.Result.ID, nil, nil)
-	if operation.Code != http.StatusOK && operation.Code != http.StatusAccepted {
-		t.Fatalf("operation status = %d", operation.Code)
-	}
-	_ = opID
 
 	store := doRequest(s, http.MethodPost, "/accounts/a/secrets_store/stores", []byte(`{"name":"secret-test"}`), nil)
 	if store.Code != http.StatusOK {

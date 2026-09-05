@@ -192,7 +192,14 @@ func probeProviderReactivePath(ctx context.Context, endpoints *LocalProviderEndp
 	}
 	hasLiveGate := false
 	for _, snippet := range snippets {
-		if snippet.Name != cf.GateSnippetName || snippet.Digest == "" {
+		if snippet.Name != cf.GateSnippetName {
+			continue
+		}
+		code, err := edgeClient.SnippetCode(ctx, snippet.Name)
+		if err != nil {
+			return result, err
+		}
+		if code.Digest == "" {
 			continue
 		}
 		for _, rule := range snippet.Rules {

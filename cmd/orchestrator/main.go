@@ -121,6 +121,9 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	if err != nil {
 		return err
 	}
+	if name == "observe-member" {
+		return runObserveMember(ctx, args, output)
+	}
 	if name == "catalog" {
 		if err := renderCatalog(output); err != nil {
 			return commandFailure(name, err)
@@ -226,6 +229,9 @@ func requestedCommand(args []string) (string, error) {
 	if len(args) == 0 {
 		return "run", nil
 	}
+	if args[0] == "observe-member" {
+		return "observe-member", nil
+	}
 	if args[0] == "reconcile" {
 		if len(args) == 1 || len(args) == 2 && args[1] == dryRunFlag {
 			return "reconcile", nil
@@ -262,7 +268,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member":
 		return args[0]
 	default:
 		return "unsupported"

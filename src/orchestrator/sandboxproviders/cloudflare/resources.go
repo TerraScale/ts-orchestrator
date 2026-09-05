@@ -1,13 +1,9 @@
 package cloudflare
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"sort"
-	"strings"
 )
 
 type dnsRecord struct {
@@ -27,12 +23,11 @@ type wireRule struct {
 	Enabled          *bool           `json:"enabled,omitempty"`
 }
 type snippet struct {
-	Name   string        `json:"snippet_name"`
-	Digest string        `json:"digest,omitempty"`
-	Rules  []snippetRule `json:"rules"`
+	Name   string `json:"snippet_name"`
 	source []byte
 }
 type snippetRule struct {
+	SnippetName string `json:"snippet_name"`
 	Expression  string `json:"expression"`
 	Description string `json:"description"`
 	Enabled     bool   `json:"enabled"`
@@ -157,6 +152,40 @@ func (s *Server) rulesetEndpoint(w http.ResponseWriter, r *http.Request, p []str
 func (s *Server) snippetEndpoint(w http.ResponseWriter, r *http.Request, p []string, body []byte, fault FaultStep) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(p) == 1 && p[0] == "snippet_rules" {
+		current := map[string]any{"rules": s.snippetRules}
+		switch r.Method {
+		case http.MethodGet:
+			s.envelope(w, 200, current, nil)
+		case http.MethodPut:
+			if !checkMatch(r, etag(current)) {
+				s.writeError(w, http.StatusPreconditionFailed, 1008, "snippet rules changed")
+				return
+			}
+			var in struct {
+				Rules []snippetRule `json:"rules"`
+			}
+			if json.Unmarshal(body, &in) != nil || in.Rules == nil {
+				s.writeError(w, 400, 1003, "invalid snippet rules")
+				return
+			}
+			for _, rule := range in.Rules {
+				if _, exists := s.snippets[rule.SnippetName]; !exists {
+					s.writeError(w, 404, 10004, "Snippet code not found")
+					return
+				}
+				if rule.Expression == "" {
+					s.writeError(w, 400, 1003, "snippet expression required")
+					return
+				}
+			}
+			s.snippetRules = in.Rules
+			s.writeMutation(r, w, body, 200, map[string]any{"rules": s.snippetRules}, nil, fault)
+		default:
+			s.writeError(w, 405, 1005, "method not allowed")
+		}
+		return
+	}
 	if len(p) == 0 && r.Method == http.MethodGet {
 		names := make([]string, 0, len(s.snippets))
 		for n := range s.snippets {
@@ -170,38 +199,33 @@ func (s *Server) snippetEndpoint(w http.ResponseWriter, r *http.Request, p []str
 		s.envelope(w, 200, out, nil)
 		return
 	}
+	if len(p) == 2 && p[1] == "content" && r.Method == http.MethodGet {
+		snippet, ok := s.snippets[pathUnescape(p[0])]
+		if !ok || len(snippet.source) == 0 {
+			s.writeError(w, 404, 10004, "Snippet code not found")
+			return
+		}
+		writeCodeContent(w, "snippet.js", snippet.source)
+		return
+	}
 	if len(p) == 1 {
 		name := pathUnescape(p[0])
 		snippet, present := s.snippets[name]
 		switch r.Method {
 		case http.MethodGet:
-			if !present || snippet.Digest == "" {
+			if !present || len(snippet.source) == 0 {
 				s.writeError(w, 404, 10004, "Snippet code not found")
 				return
 			}
 			s.envelope(w, 200, snippet, nil)
 			return
 		case http.MethodPut:
-			var in struct {
-				Digest       string `json:"digest"`
-				SourceBase64 string `json:"source_base64"`
-			}
-			if json.Unmarshal(body, &in) != nil || in.Digest == "" || in.SourceBase64 == "" {
-				s.writeError(w, 400, 1003, "invalid Snippet code")
-				return
-			}
-			source, err := base64.StdEncoding.Strict().DecodeString(in.SourceBase64)
-			if err != nil || len(source) == 0 {
-				s.writeError(w, 400, 1003, "invalid Snippet code")
-				return
-			}
-			sum := sha256.Sum256(source)
-			if !strings.EqualFold(in.Digest, "sha256:"+hex.EncodeToString(sum[:])) {
-				s.writeError(w, 400, 1003, "Snippet digest does not match source")
+			_, source, err := parseCodeUpload(r, body, "files", "snippet.js")
+			if err != nil {
+				s.writeError(w, 400, 1003, "invalid Snippet multipart upload")
 				return
 			}
 			snippet.Name = name
-			snippet.Digest = in.Digest
 			snippet.source = append([]byte(nil), source...)
 			s.snippets[name] = snippet
 			s.writeMutation(r, w, body, 200, snippet, nil, fault)
@@ -211,27 +235,7 @@ func (s *Server) snippetEndpoint(w http.ResponseWriter, r *http.Request, p []str
 			return
 		}
 	}
-	if len(p) != 2 || p[1] != "rules" {
-		s.writeError(w, 404, 1000, "snippet not found")
-		return
-	}
-	name := pathUnescape(p[0])
-	if r.Method != http.MethodPut {
-		s.writeError(w, 405, 1005, "method not allowed")
-		return
-	}
-	var in struct {
-		Rules []snippetRule `json:"rules"`
-	}
-	if json.Unmarshal(body, &in) != nil {
-		s.writeError(w, 400, 1003, "invalid snippet rules")
-		return
-	}
-	current := s.snippets[name]
-	current.Name = name
-	current.Rules = in.Rules
-	s.snippets[name] = current
-	s.writeMutation(r, w, body, 200, nil, nil, fault)
+	s.writeError(w, 404, 1000, "snippet resource not found")
 }
 
 func (s *Server) routesEndpoint(w http.ResponseWriter, r *http.Request, p []string, body []byte, fault FaultStep) {
