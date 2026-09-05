@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 		return err
 	}
 	if err := preflightControlConsumers(ctx, js, update, pins); err != nil {
-		return err
+		return fmt.Errorf("control consumer preflight: %w", err)
 	}
 	for _, name := range update.Streams {
 		stream, err := js.Stream(ctx, name)
@@ -134,7 +135,7 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 	}
 	for _, consumer := range update.Consumers {
 		if err := promoteControlConsumer(ctx, js, update, consumer, pins); err != nil {
-			return err
+			return fmt.Errorf("control consumer promotion %s/%s: %w", consumer.Stream, consumer.Config.Name, err)
 		}
 	}
 	return nil
@@ -287,21 +288,27 @@ func validateControlConsumerReplicas(update ControlReplicaPlan) error {
 }
 
 func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, plan ControlConsumerReplicaPlan, pins []controlMutationPin) error {
+	// The stream update response can precede its R3 election and catch-up.
+	// Consumer assignment uses those peers, so require the complete admitted
+	// stream placement before any consumer update, including a resumed action.
+	if err := waitControlConsumerStream(ctx, js, update.Store, plan.Stream, pins); err != nil {
+		return err
+	}
 	if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
 		return err
 	}
 	consumer, err := js.Consumer(ctx, plan.Stream, plan.Config.Name)
 	if err != nil {
-		return err
+		return fmt.Errorf("read predecessor consumer: %w", err)
 	}
 	before, err := consumer.Info(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read predecessor consumer info: %w", err)
 	}
 	expected := plan.Config
 	expected.Replicas = before.Config.Replicas
 	if (expected.Replicas != 1 && expected.Replicas != update.Replicas) || !journal.NatsConsumerProfileMatches(before, expected, plan.Stream) {
-		return ErrControlRuntimeUnavailable
+		return fmt.Errorf("%w: predecessor consumer profile differs, replicas=%d", ErrControlRuntimeUnavailable, before.Config.Replicas)
 	}
 	if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
 		return err
@@ -311,7 +318,7 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		config.Replicas = update.Replicas
 		consumer, err = js.UpdateConsumer(ctx, plan.Stream, config)
 		if err != nil {
-			return err
+			return fmt.Errorf("update consumer replicas: %w", err)
 		}
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
 			return err
@@ -324,10 +331,13 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		}
 		info, err := consumer.Info(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("read promoted consumer info: %w", err)
 		}
-		if !journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream) || !info.Created.Equal(before.Created) || info.AckFloor.Consumer < before.AckFloor.Consumer || info.AckFloor.Stream < before.AckFloor.Stream || info.Delivered.Consumer < before.Delivered.Consumer || info.Delivered.Stream < before.Delivered.Stream {
-			return ErrControlRuntimeUnavailable
+		profileMatches := journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream)
+		createdMatches := info.Created.Equal(before.Created)
+		checkpointPreserved := info.AckFloor.Consumer >= before.AckFloor.Consumer && info.AckFloor.Stream >= before.AckFloor.Stream && info.Delivered.Consumer >= before.Delivered.Consumer && info.Delivered.Stream >= before.Delivered.Stream
+		if !profileMatches || !createdMatches || !checkpointPreserved {
+			return fmt.Errorf("%w: promoted consumer observation differs, profile=%t replicas=%d created=%t checkpoint=%t", ErrControlRuntimeUnavailable, profileMatches, info.Config.Replicas, createdMatches, checkpointPreserved)
 		}
 		servers, err := controlConsumerTargetServers(update.Store, plan.Stream, pins)
 		if err != nil {
@@ -339,7 +349,38 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			cluster, _ := json.Marshal(info.Cluster)
+			return fmt.Errorf("%w: waiting for current consumer replicas, cluster=%s", ctx.Err(), cluster)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func waitControlConsumerStream(ctx context.Context, js jetstream.JetStream, store, name string, pins []controlMutationPin) error {
+	servers, err := controlConsumerTargetServers(store, name, pins)
+	if err != nil {
+		return err
+	}
+	wanted := ControlStreamAssignment{Name: name, Replicas: 3, Servers: servers}
+	stream, err := js.Stream(ctx, name)
+	if err != nil {
+		return fmt.Errorf("open consumer source stream: %w", err)
+	}
+	for {
+		if err := checkControlMutation(ctx, js, store, pins); err != nil {
+			return err
+		}
+		info, err := stream.Info(ctx)
+		if err != nil {
+			return fmt.Errorf("read consumer source stream: %w", err)
+		}
+		if verifyControlStreamAssignmentMode(info, wanted, false) == nil {
+			return checkControlMutation(ctx, js, store, pins)
+		}
+		select {
+		case <-ctx.Done():
+			cluster, _ := json.Marshal(info.Cluster)
+			return fmt.Errorf("%w: waiting for current stream replicas before consumer promotion, replicas=%d cluster=%s", ctx.Err(), info.Config.Replicas, cluster)
 		case <-time.After(25 * time.Millisecond):
 		}
 	}

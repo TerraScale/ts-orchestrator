@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -71,6 +72,20 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 		t.Fatal(err)
 	}
 	if err := updateControlReplicaStreams(ctx, js, update, pins); err != nil {
+		diagnostic, stopDiagnostic := context.WithTimeout(t.Context(), 3*time.Second)
+		defer stopDiagnostic()
+		if info, readErr := stream.Info(diagnostic); readErr == nil {
+			cluster, _ := json.Marshal(info.Cluster)
+			t.Logf("stream replicas=%d cluster=%s", info.Config.Replicas, cluster)
+		} else {
+			t.Logf("stream observation: %v", readErr)
+		}
+		if info, readErr := consumer.Info(diagnostic); readErr == nil {
+			cluster, _ := json.Marshal(info.Cluster)
+			t.Logf("consumer replicas=%d created=%s ack=%+v delivered=%+v cluster=%s", info.Config.Replicas, info.Created, info.AckFloor, info.Delivered, cluster)
+		} else {
+			t.Logf("consumer observation: %v", readErr)
+		}
 		t.Fatal(err)
 	}
 	if err := updateControlReplicaStreams(ctx, js, update, pins); err != nil {
@@ -134,6 +149,79 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 	if err := message.DoubleAck(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *testing.T) {
+	cluster := newControlMutationStateCluster(t)
+	nc := cluster.connect(t)
+	kv := openControlMutationTestLeaseStore(t, t.Context(), nc, true)
+	lease := controlMutationTestLease(7, "global-controller-gru-one")
+	putControlMutationTestLease(t, t.Context(), kv, lease)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	topology, _ := messaging.NewGlobalNatsTopology(3)
+	streamConfig := topology.Streams()[0]
+	streamConfig.Replicas = 1
+	stream, err := js.CreateStream(ctx, streamConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _ := topology.CellSpecConsumer("gru")
+	target := config
+	config.Replicas = 1
+	if _, err := stream.CreateConsumer(ctx, config); err != nil {
+		t.Fatal(err)
+	}
+	pins := []controlMutationPin{{store: "global", check: ControlStoreCheck{AuthorityID: "global", LeaseKey: "authority.global", AuthorityTerm: uint64(lease.Epoch), AuthorityCandidateID: lease.CandidateId, AuthorityLeaseID: lease.LeaseId, Streams: []ControlStreamAssignment{{Name: "GLOBAL_SPEC", Replicas: 3, Servers: []string{"controlMutation-0", "controlMutation-1", "controlMutation-2"}}}}}}
+	update := ControlReplicaPlan{Store: "global", Streams: []string{streamConfig.Name}, Replicas: 3, Consumers: []ControlConsumerReplicaPlan{{Stream: streamConfig.Name, Config: target}}}
+	peerStopped, consumerEffect := make(chan struct{}), make(chan struct{}, 1)
+	traced, err := jetstream.New(nc, jetstream.WithClientTrace(&jetstream.ClientTrace{
+		ResponseReceived: func(subject string, _ []byte, _ nats.Header) {
+			if strings.Contains(subject, "STREAM.UPDATE.GLOBAL_SPEC") {
+				// The real update has committed its assignment, but one declared
+				// peer is now unavailable before any consumer effect can begin.
+				cluster.servers[2].Shutdown()
+				cluster.servers[2].WaitForShutdown()
+				close(peerStopped)
+			}
+		},
+		RequestSent: func(subject string, _ []byte) {
+			if strings.Contains(subject, "CONSUMER.CREATE.GLOBAL_SPEC") {
+				select {
+				case consumerEffect <- struct{}{}:
+				default:
+				}
+			}
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- updateControlReplicaStreams(ctx, traced, update, pins) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("promotion did not stop after cancellation")
+		}
+	})
+	select {
+	case <-peerStopped:
+	case <-ctx.Done():
+		t.Fatal("stream update never reached the peer-stop boundary")
+	}
+	select {
+	case <-consumerEffect:
+		t.Fatal("consumer update began before all declared stream peers were current")
+	case <-time.After(250 * time.Millisecond):
+	}
+	cancel()
 }
 
 func TestControlConsumerPromotionDeclarationIsClosed(t *testing.T) {
