@@ -15,6 +15,8 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualruntime"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualsuite"
 )
 
 func main() {
@@ -46,22 +48,22 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		}
 		return vmqual.WriteImageResult(out, artifacts.Image)
 	case "smoke":
-		factory, network, err := realComponents(ctx, config, false)
+		factory, network, err := realComponents(ctx, config, false, false)
 		if err != nil {
 			return err
 		}
 		report, err := vmqual.RunSmoke(ctx, factory, network, 5*time.Minute)
 		if err != nil {
-			return err
+			return errors.Join(err, vmqual.WriteSmokeFailureDiagnostics(out, report))
 		}
 		_, _ = fmt.Fprintf(out, "smoke boot=%s ready=%s cleanup=%s\n", report.Boot, report.Ready, report.Cleanup)
 		return nil
 	case "stack":
-		factory, network, err := realComponents(ctx, config, true)
+		factory, network, err := realComponents(ctx, config, true, false)
 		if err != nil {
 			return err
 		}
-		stack, err := vmqual.NewStack(vmqual.StackConfig{Guests: vmqual.LaunchGuests(config.MemoryMiB), VMFactory: factory, Network: network, JournalPath: config.JournalPath, StateRoot: config.StateRoot})
+		stack, err := vmqual.NewStack(vmqual.StackConfig{RequireResourceEvidence: true, Guests: vmqual.LaunchGuests(config.MemoryMiB), VMFactory: factory, Network: network, JournalPath: config.JournalPath, StateRoot: config.StateRoot})
 		if err != nil {
 			return err
 		}
@@ -74,22 +76,22 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		<-waitCtx.Done()
 		return stack.Cleanup(context.Background())
 	case "test":
-		factory, network, err := realComponents(ctx, config, true)
+		factory, network, err := realComponents(ctx, config, true, true)
 		if err != nil {
 			return err
 		}
-		stack, err := vmqual.NewStack(vmqual.StackConfig{Guests: vmqual.LaunchGuests(config.MemoryMiB), VMFactory: factory, Network: network, JournalPath: config.JournalPath, StateRoot: config.StateRoot})
+		stack, err := vmqual.NewStack(vmqual.StackConfig{RequireResourceEvidence: true, Guests: vmqual.LaunchGuests(config.MemoryMiB), VMFactory: factory, Network: network, JournalPath: config.JournalPath, StateRoot: config.StateRoot})
 		if err != nil {
 			return err
 		}
-		providers, driver, err := vmqual.NewLocalScenarioDriverFromConfig(vmqual.LocalProviderConfig{StateRoot: config.StateRoot})
+		providers, driver, err := vmqualsuite.NewLocalScenarioDriverFromConfig(vmqualsuite.LocalProviderConfig{StateRoot: config.StateRoot})
 		if err != nil {
 			_ = stack.Cleanup(context.Background())
 			return err
 		}
-		report, err := vmqual.RunSuite(ctx, stack, driver)
+		report, err := vmqualsuite.RunSuite(ctx, stack, driver)
 		_ = providers.Close()
-		_ = vmqual.WriteSuiteReport(out, report)
+		_ = vmqualsuite.WriteSuiteReport(out, report)
 		return err
 	case "clean":
 		runner, err := vmnet.DiscoverHostRunner()
@@ -102,15 +104,12 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	}
 }
 
-func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
+func realComponents(ctx context.Context, config vmqual.Config, full, fourthRegion bool) (vmqual.VMFactory, vmqual.NetworkController, error) {
 	config, err := vmqual.ResolveRuntimeIdentity(config)
 	if err != nil {
 		return nil, nil, err
 	}
-	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
-	if full {
-		networkConfig = vmnet.DefaultConfig()
-	}
+	networkConfig := qualificationNetworkConfig(full, fourthRegion)
 	runner, err := vmnet.DiscoverHostRunner()
 	if err != nil {
 		return nil, nil, err
@@ -128,9 +127,20 @@ func realComponents(ctx context.Context, config vmqual.Config, full bool) (vmqua
 	}
 	config = artifacts.Config
 	networkJournalPath := filepath.Join(config.Root, "network-cleanup-journal.json")
-	factory, network, err := vmqual.NewProductionComponents(config, artifacts.Image, networkConfig, runner, networkJournalPath)
+	factory, network, err := vmqualruntime.NewProductionComponents(config, artifacts.Image, networkConfig, runner, networkJournalPath)
 	if err != nil {
 		return nil, nil, err
 	}
 	return factory, network, nil
+}
+
+func qualificationNetworkConfig(full, fourthRegion bool) vmnet.Config {
+	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
+	if full {
+		networkConfig = vmnet.DefaultConfig()
+	}
+	if fourthRegion {
+		networkConfig.Regions = append(networkConfig.Regions, vmnet.RegionSpec{Code: vmqual.FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
+	}
+	return networkConfig
 }

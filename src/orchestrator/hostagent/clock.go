@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -49,7 +50,7 @@ type ClockSource interface {
 }
 
 // ChronyTrackingSource shells out to `chronyc tracking` and parses its
-// System time line.
+// synchronization state and System time line.
 type ChronyTrackingSource struct {
 	// ChronycBinary is the absolute path of chronyc.
 	ChronycBinary string
@@ -71,6 +72,7 @@ func (s ChronyTrackingSource) Offset(ctx context.Context) (time.Duration, error)
 	commandContext, cancel := context.WithTimeout(ctx, s.Timeout)
 	defer cancel()
 	command := exec.CommandContext(commandContext, s.ChronycBinary, "tracking")
+	command.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
 	command.WaitDelay = s.Timeout
 	output := &boundedCommandOutput{maximum: chronyMaximumOutputBytes}
 	command.Stdout = output
@@ -114,27 +116,98 @@ func (w *boundedCommandOutput) Write(data []byte) (int, error) {
 var chronySystemTimePattern = regexp.MustCompile(
 	`^System time\s*:\s*([0-9]+(?:\.[0-9]+)?) seconds (fast|slow) of NTP time$`)
 
-// ParseChronySystemTime extracts the signed system-time offset from one
-// chronyc tracking report: fast of NTP time is a positive offset, slow is
-// negative.
+// ParseChronySystemTime accepts a complete synchronized chronyc tracking report.
+// Leap insertion/deletion announcements remain synchronized states. See the
+// chrony 4.6 chronyc tracking manual for these spellings and local-mode refid.
 func ParseChronySystemTime(tracking string) (time.Duration, error) {
-	for _, line := range strings.Split(tracking, "\n") {
-		match := chronySystemTimePattern.FindStringSubmatch(strings.TrimSpace(line))
-		if match == nil {
-			continue
-		}
-		seconds, err := strconv.ParseFloat(match[1], 64)
-		if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) ||
-			seconds < 0 || seconds > chronyMaximumOffset.Seconds() {
-			break
-		}
-		offset := time.Duration(seconds * float64(time.Second))
-		if match[2] == "slow" {
-			offset = -offset
-		}
-		return offset, nil
+	invalid := func() (time.Duration, error) {
+		return 0, &InvalidDataError{Message: "The chrony tracking report is incomplete, invalid, or not externally synchronized."}
 	}
-	return 0, &InvalidDataError{Message: "The chrony tracking report carries no system-time line."}
+	if len(tracking) == 0 || len(tracking) > chronyMaximumOutputBytes || strings.ContainsRune(tracking, '\x00') {
+		return invalid()
+	}
+	fields := map[string]string{
+		"Reference ID": "", "Stratum": "", "Ref time (UTC)": "", "System time": "",
+		"Last offset": "", "RMS offset": "", "Frequency": "", "Residual freq": "",
+		"Skew": "", "Root delay": "", "Root dispersion": "", "Update interval": "", "Leap status": "",
+	}
+	lines := strings.Split(strings.TrimSpace(tracking), "\n")
+	if len(lines) != len(fields) {
+		return invalid()
+	}
+	for _, line := range lines {
+		if len(line) > 1024 {
+			return invalid()
+		}
+		name, value, found := strings.Cut(line, ":")
+		name, value = strings.TrimSpace(name), strings.TrimSpace(value)
+		previous, known := fields[name]
+		if !found || !known || previous != "" || value == "" {
+			return invalid()
+		}
+		fields[name] = value
+	}
+	switch fields["Leap status"] {
+	case "Normal", "Insert second", "Delete second":
+	default:
+		return invalid()
+	}
+	stratum, err := strconv.Atoi(fields["Stratum"])
+	if err != nil || stratum < 1 || stratum > 15 || strconv.Itoa(stratum) != fields["Stratum"] {
+		return invalid()
+	}
+	reference := strings.Fields(fields["Reference ID"])
+	if len(reference) == 0 || len(reference[0]) != 8 {
+		return invalid()
+	}
+	refID, err := strconv.ParseUint(reference[0], 16, 32)
+	if err != nil || refID == 0 {
+		return invalid()
+	}
+	// chrony's local reference deliberately claims synchronization without
+	// an external clock; it cannot establish the host write-health gate.
+	if refID == 0x7f7f0101 && (len(reference) == 1 || len(reference) == 2 && reference[1] == "()") {
+		return invalid()
+	}
+	refTime, err := time.Parse("Mon Jan _2 15:04:05 2006", fields["Ref time (UTC)"])
+	if err != nil || refTime.Unix() <= 0 {
+		return invalid()
+	}
+	for _, name := range []string{"Last offset", "RMS offset", "Root delay", "Root dispersion", "Update interval"} {
+		if !finiteChronyValue(fields[name], " seconds") {
+			return invalid()
+		}
+	}
+	for _, name := range []string{"Residual freq", "Skew"} {
+		if !finiteChronyValue(fields[name], " ppm") {
+			return invalid()
+		}
+	}
+	if !finiteChronyValue(fields["Frequency"], " ppm fast") && !finiteChronyValue(fields["Frequency"], " ppm slow") {
+		return invalid()
+	}
+	match := chronySystemTimePattern.FindStringSubmatch("System time : " + fields["System time"])
+	if match == nil {
+		return invalid()
+	}
+	seconds, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 || seconds > chronyMaximumOffset.Seconds() {
+		return invalid()
+	}
+	offset := time.Duration(seconds * float64(time.Second))
+	if match[2] == "slow" {
+		offset = -offset
+	}
+	return offset, nil
+}
+
+func finiteChronyValue(value, unit string) bool {
+	number, found := strings.CutSuffix(value, unit)
+	if !found || number == "" || strings.TrimSpace(number) != number {
+		return false
+	}
+	parsed, err := strconv.ParseFloat(number, 64)
+	return err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
 }
 
 // SampleClock turns one offset reading into the D-69 clock fact: the signed

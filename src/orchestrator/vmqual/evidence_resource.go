@@ -22,12 +22,12 @@ const (
 	maximumCgroupEvidenceBytes         = 4096
 )
 
-// stackResourceSampler records kernel-maintained cgroup memory high-water
+// StackResourceSampler records kernel-maintained cgroup memory high-water
 // marks and periodic aggregate memory/CPU observations while the suite is
 // running. It deliberately does not call VM.Inspect: doing that in the
 // background would reset the provider's CPU delta and could make the explicit
 // idle-budget sample depend on scheduler timing.
-type stackResourceSampler struct {
+type StackResourceSampler struct {
 	stack    *Stack
 	interval time.Duration
 	now      func() time.Time
@@ -80,14 +80,14 @@ type ResourceSamplingVM struct {
 	CPUSamples    uint64 `json:"cpuSamples"`
 }
 
-func newStackResourceSampler(stack *Stack, interval time.Duration) (*stackResourceSampler, error) {
+func newStackResourceSampler(stack *Stack, interval time.Duration) (*StackResourceSampler, error) {
 	if stack == nil {
 		return nil, errors.New("vmqual: resource sampler stack is nil")
 	}
 	if interval <= 0 {
 		interval = defaultStackResourceSampleInterval
 	}
-	return &stackResourceSampler{
+	return &StackResourceSampler{
 		stack:    stack,
 		interval: interval,
 		now:      time.Now,
@@ -97,9 +97,9 @@ func newStackResourceSampler(stack *Stack, interval time.Duration) (*stackResour
 	}, nil
 }
 
-// startStackResourceSampler begins suite-lifetime resource observation. Stop
+// StartStackResourceSampler begins suite-lifetime resource observation. Stop
 // must run before Stack.Cleanup removes the owned cgroups.
-func startStackResourceSampler(ctx context.Context, stack *Stack) (*stackResourceSampler, error) {
+func StartStackResourceSampler(ctx context.Context, stack *Stack) (*StackResourceSampler, error) {
 	if ctx == nil {
 		return nil, errors.New("vmqual: resource sampler context is nil")
 	}
@@ -114,7 +114,7 @@ func startStackResourceSampler(ctx context.Context, stack *Stack) (*stackResourc
 	return sampler, nil
 }
 
-func (s *stackResourceSampler) run(ctx context.Context) {
+func (s *StackResourceSampler) run(ctx context.Context) {
 	defer close(s.done)
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -135,7 +135,7 @@ func (s *stackResourceSampler) run(ctx context.Context) {
 
 // Stop is idempotent. It takes one last kernel sample after stopping the
 // ticker so a scenario-ending high-water mark is captured before cleanup.
-func (s *stackResourceSampler) Stop() error {
+func (s *StackResourceSampler) Stop() error {
 	if s == nil {
 		return nil
 	}
@@ -160,7 +160,7 @@ func (s *stackResourceSampler) Stop() error {
 	return s.err
 }
 
-func (s *stackResourceSampler) Report() ResourceSamplingReport {
+func (s *StackResourceSampler) Report() ResourceSamplingReport {
 	if s == nil {
 		return ResourceSamplingReport{}
 	}
@@ -202,7 +202,7 @@ func (r ResourceSamplingReport) Validate(guests []Guest) error {
 	return nil
 }
 
-func (s *stackResourceSampler) recordError(err error) {
+func (s *StackResourceSampler) recordError(err error) {
 	if err == nil {
 		return
 	}
@@ -211,7 +211,7 @@ func (s *stackResourceSampler) recordError(err error) {
 	s.mu.Unlock()
 }
 
-func (s *stackResourceSampler) sample(ctx context.Context) error {
+func (s *StackResourceSampler) sample(ctx context.Context) error {
 	if s == nil || s.stack == nil {
 		return errors.New("vmqual: resource sampler is not configured")
 	}
@@ -282,8 +282,9 @@ func (s *Stack) cgroupEvidenceTargets() []cgroupEvidenceTarget {
 	if s == nil {
 		return nil
 	}
-	memoryByID := make(map[string]int64, len(s.guests))
-	for _, guest := range s.guests {
+	guests := s.Guests()
+	memoryByID := make(map[string]int64, len(guests))
+	for _, guest := range guests {
 		memoryByID[guest.ID] = guest.MemoryMiB
 	}
 	s.journalMu.Lock()
@@ -293,7 +294,7 @@ func (s *Stack) cgroupEvidenceTargets() []cgroupEvidenceTarget {
 	}
 	targets := make([]cgroupEvidenceTarget, 0, len(s.journal.VMs))
 	for _, resource := range s.journal.VMs {
-		if resource.ID == "" || resource.CgroupPath == "" || resource.Cleaned {
+		if resource.ID == "" || resource.CgroupPath == "" || resource.Cleaned || memoryByID[resource.ID] == 0 {
 			continue
 		}
 		targets = append(targets, cgroupEvidenceTarget{

@@ -117,7 +117,7 @@ func acquireHostLease(coordinationRoot, runID, fingerprint string, uplinks []Reg
 }
 
 func hostResourceKeys(uplinks []RegionUplink) ([]string, error) {
-	if len(uplinks) == 0 || len(uplinks) > len(launchRegions) {
+	if len(uplinks) == 0 || len(uplinks) > MaxRegions {
 		return nil, errors.New("vmnet: host allocation has an invalid uplink count")
 	}
 	resources := make([]string, 0, 1+2*len(uplinks))
@@ -142,7 +142,7 @@ func hostResourceKeys(uplinks []RegionUplink) ([]string, error) {
 }
 
 func (c hostClaim) validate() error {
-	if c.Version != hostClaimVersion || !runIDPattern.MatchString(c.RunID) || !validSHA256Hex(c.Fingerprint) || len(c.Resources) == 0 || len(c.Resources) > 1+2*len(launchRegions) {
+	if c.Version != hostClaimVersion || !runIDPattern.MatchString(c.RunID) || !validSHA256Hex(c.Fingerprint) || len(c.Resources) == 0 || len(c.Resources) > 1+2*MaxRegions {
 		return errors.New("vmnet: invalid host allocation claim")
 	}
 	for index, resource := range c.Resources {

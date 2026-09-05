@@ -2,11 +2,8 @@
 
 package vmqual
 
-import (
-	"errors"
-	"time"
-)
+import "errors"
 
-func synchronizedHostTime() (time.Duration, error) {
-	return 0, errors.New("vmqual: host clock qualification requires Linux adjtimex")
+func SynchronizedHostTime() (HostTimeObservation, error) {
+	return HostTimeObservation{}, errors.New("vmqual: host clock qualification requires Linux adjtimex")
 }

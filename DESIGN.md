@@ -28,6 +28,9 @@ describe code that exists today; they do not preserve a retired topology.
 | Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
 | Host agent | `src/orchestrator/hostagent` | runtime |
 | CLI / process entry | `cmd/orchestrator` | control, provider |
+| VM qualification core | `src/orchestrator/vmqual` | shared configuration, lifecycle, journals, diagnostic/resource evidence, guest contracts |
+| Firecracker qualification runtime | `src/orchestrator/vmqualruntime` | vmqual, sandboxvm, vmnet, vmdisk, vmimage, production host/provider packages |
+| Qualification scenarios | `src/orchestrator/vmqualsuite` | vmqual, production controllers, sandboxproviders |
 
 Within `src/orchestrator/control`, use concise snake_case filenames named for
 the Go responsibility (`authority_engine.go`, `journal_store.go`). Package
@@ -88,3 +91,30 @@ proved only by in-process fakes.
    handling). Never log secret material.
 4. Keep the package graph acyclic: the `control` package absorbs anything
    that would otherwise cycle.
+
+The qualification command composes `vmqualruntime` factories and networks with
+`vmqual` stacks and `vmqualsuite` scenarios. Runtime and suite implementations
+both import the core; neither implementation package imports the other.
+Shared delivery/fault observations live in the core. Stack readers receive
+synchronized copies of topology and VM handles. The single-guest cleanup
+probe has its own validated constructor and fault lifecycle; the baseline
+constructor continues to require six guests. The command explicitly requires
+kernel resource evidence for real qualification runs.
+
+Startup failures capture bounded console and metrics evidence before automatic
+cleanup. The stack retains those observations for suite reporting after the
+owned guest paths and cleanup journal have been removed.
+
+Every qualification guest must report an active local orchestrator unit. The
+`Guest.Control` flag designates a global control replica and does not exempt
+other member hosts from local orchestrator health checks.
+
+The full `vm-qualify test` profile declares two IAD network slots alongside the
+six launch hosts. It starts only GRU/SFO/FRA before control admission. The
+fourth-region scenario first accepts the control proof, then commits both IAD
+resource plans to the cleanup journal before starting either guest. Both new
+hosts must return live identity and readiness observations; neither becomes a
+global control replica. The existing memory, disk, and idle budgets still apply
+to all eight hosts. Journal recovery accepts the two IAD identities only when
+the validated owned network journal contains that Region, and it preserves both
+host cleanup obligations together. The `stack` profile remains six guests.

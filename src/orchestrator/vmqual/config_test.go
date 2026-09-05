@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 )
 
 func TestDefaultConfigRejectsUnsupportedArchitectureWithoutFallback(t *testing.T) {
@@ -145,7 +147,7 @@ func TestLoadPinsRejectsAllZeroPlaceholderDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pins Pins
+	var pins vmimage.ToolchainManifest
 	if err := json.Unmarshal(data, &pins); err != nil {
 		t.Fatal(err)
 	}

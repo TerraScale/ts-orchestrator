@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -613,7 +614,7 @@ func TestPlanRejectsBroadcastAndNonPrivateSubnets(t *testing.T) {
 		{name: "public", cidr: "192.0.2.0/24", address: "192.0.2.10"},
 		{name: "loopback", cidr: "127.0.0.0/24", address: "127.0.0.10"},
 		{name: "link local transit", cidr: "169.254.240.0/24", address: "169.254.240.10"},
-		{name: "reserved private transit", cidr: "10.78.255.0/24", address: "10.78.255.10"},
+		{name: "reserved private transit", cidr: "10.78.252.0/24", address: "10.78.252.10"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -691,7 +692,7 @@ func TestTransitLinksAreRoutedAndGuestAddressesRemainGuestOwned(t *testing.T) {
 		t.Fatalf("routed /30 addresses cover %d/%d transit endpoints", len(transitAddresses), len(transit))
 	}
 	joined := joinedCommands(plan.Commands)
-	for _, address := range []string{"10.78.255.1/30", "10.78.255.2/30", "10.78.255.5/30", "10.78.255.6/30", "10.78.255.9/30", "10.78.255.10/30"} {
+	for _, address := range []string{"10.78.252.1/30", "10.78.252.2/30", "10.78.252.5/30", "10.78.252.6/30", "10.78.252.9/30", "10.78.252.10/30"} {
 		if !strings.Contains(joined, address) {
 			t.Errorf("transit plan lacks %s", address)
 		}
@@ -958,10 +959,14 @@ func TestPlanRejectsInvalidEndpointDeclarations(t *testing.T) {
 func TestPlanCommandBoundCoversMaximumAdmittedTopology(t *testing.T) {
 	config := qualifiedConfig(t)
 	config.Regions = nil
-	for _, region := range launchRegions {
+	regions := append([]RegionCode(nil), launchRegions...)
+	for i := 0; i < 17; i++ {
+		regions = append(regions, RegionCode(fmt.Sprintf("A%cA", byte('A'+i))))
+	}
+	for _, region := range regions {
 		spec := RegionSpec{Code: region, CIDR: StableCIDR(region)}
 		for guest := 0; guest < 32; guest++ {
-			spec.Guests = append(spec.Guests, GuestSpec{ID: fmt.Sprintf("member-%02d", guest)})
+			spec.Guests = append(spec.Guests, GuestSpec{ID: fmt.Sprintf("%s-member-%02d", strings.ToLower(string(region)), guest)})
 		}
 		config.Regions = append(config.Regions, spec)
 		for endpoint := 0; endpoint < 16; endpoint++ {
@@ -969,8 +974,8 @@ func TestPlanCommandBoundCoversMaximumAdmittedTopology(t *testing.T) {
 			config.Endpoints = append(config.Endpoints, EndpointSpec{Name: fmt.Sprintf("endpoint-%02d", endpoint), Region: region, Protocol: TCP, GuestPort: port, HostPort: port})
 		}
 	}
-	for _, from := range launchRegions {
-		for _, to := range launchRegions {
+	for _, from := range regions {
+		for _, to := range regions {
 			if from != to {
 				config.Faults = append(config.Faults, FaultSpec{From: from, To: to, Latency: time.Millisecond, Partition: true})
 			}
@@ -1632,5 +1637,70 @@ func TestOnlyBoundedNTPUDPAllowed(t *testing.T) {
 		if !ok || forward.Protocol != UDP || forward.GuestPort != 123 || forward.HostPort != 18123 || forward.GuestAddress != region.Gateway {
 			t.Fatalf("NTP mapping: %+v", forward)
 		}
+	}
+}
+
+func TestBenchmarkHostAddressPoolsAreDisjoint(t *testing.T) {
+	uplinkPool := netip.MustParsePrefix("198.18.0.0/16")
+	servicePool := netip.MustParsePrefix("198.19.0.0/16")
+	for run := 0; run < 1024; run++ {
+		id := fmt.Sprintf("%032x", run)
+		service := hostServiceAddress(id)
+		if !servicePool.Contains(service) || uplinkPool.Contains(service) {
+			t.Fatalf("service address outside dedicated pool: %s", service)
+		}
+		seen := make(map[string]bool)
+		for _, region := range launchRegions {
+			uplink := regionUplink("vmq", id, region, regionIndex(region), region == GRU)
+			cidr := netip.MustParsePrefix(uplink.CIDR)
+			if cidr.Bits() != 30 || !uplinkPool.Contains(cidr.Addr()) || !uplinkPool.Contains(netip.MustParseAddr(uplink.RegionAddress)) || !uplinkPool.Contains(netip.MustParseAddr(uplink.RootAddress)) || cidr.Contains(service) || seen[uplink.CIDR] {
+				t.Fatalf("invalid benchmark uplink: %+v", uplink)
+			}
+			seen[uplink.CIDR] = true
+		}
+	}
+}
+
+func TestHostClaimsProtectBenchmarkUplinkCollision(t *testing.T) {
+	config := qualifiedConfig(t)
+	seen := make(map[string]string)
+	firstID, secondID := "", ""
+	for run := 0; run < 20000; run++ {
+		id := fmt.Sprintf("%032x", run)
+		uplink := regionUplink(config.Prefix, id, GRU, 0, true)
+		if earlier, ok := seen[uplink.CIDR]; ok && hostServiceAddress(earlier) != hostServiceAddress(id) {
+			firstID, secondID = earlier, id
+			break
+		}
+		seen[uplink.CIDR] = id
+	}
+	if firstID == "" {
+		t.Fatal("failed to find bounded pool collision fixture")
+	}
+	config.RunID = firstID
+	first, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.RunID = secondID
+	second, err := Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.ApplyWithJournal(context.Background(), &fakeRunner{failAt: -1}, &fakeJournalWriter{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := first.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
+			t.Error(err)
+		}
+	}()
+	runner, writer := &fakeRunner{failAt: -1}, &fakeJournalWriter{}
+	err = second.ApplyWithJournal(context.Background(), runner, writer)
+	if err == nil || !strings.Contains(err.Error(), "uplink-cidr/") {
+		t.Fatalf("benchmark collision did not acquire exclusive CIDR claim: %v", err)
+	}
+	if len(runner.commands) != 0 || writer.writes != 0 {
+		t.Fatal("colliding run reached host mutation")
 	}
 }

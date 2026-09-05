@@ -143,8 +143,8 @@ func (c Command) copy() Command {
 	return c
 }
 
-// RegionCode is one of the launch Regions. The closed set is intentional:
-// changing an address allocation must be an explicit qualification decision.
+// RegionCode is an uppercase three-letter Region identifier. Non-launch
+// Regions must be explicitly declared in Config.Regions.
 type RegionCode string
 
 const (
@@ -155,9 +155,11 @@ const (
 
 var launchRegions = []RegionCode{GRU, SFO, FRA}
 
-var transitPrefix = netip.MustParsePrefix("10.78.255.0/24")
+var transitPrefix = netip.MustParsePrefix("10.78.252.0/22")
 
-const networkPlanVersion = 5
+const MaxRegions = 20
+
+const networkPlanVersion = 7
 
 // StableCIDR returns the deterministic qualification subnet for a launch
 // Region.
@@ -188,7 +190,7 @@ func StableGateway(region RegionCode) string {
 // ordinal in a launch Region. It is useful when constructing guest boot
 // configuration alongside this host-side plan.
 func StableGuestAddress(region RegionCode, ordinal int) (string, error) {
-	if !validRegion(region) || ordinal < 1 || ordinal > 32 {
+	if regionIndex(region) < 0 || regionIndex(region) >= 3 || ordinal < 1 || ordinal > 32 {
 		return "", fmt.Errorf("vmnet: guest ordinal %d is invalid for %s", ordinal, region)
 	}
 	prefix, _ := netip.ParsePrefix(StableCIDR(region))
@@ -201,7 +203,7 @@ func StableGuestAddress(region RegionCode, ordinal int) (string, error) {
 // guest ordinal. It is derived only from the closed launch-Region allocation.
 func StableGuestMAC(region RegionCode, ordinal int) (string, error) {
 	index := regionIndex(region)
-	if index < 0 || ordinal < 1 || ordinal > 32 {
+	if index < 0 || index >= 3 || ordinal < 1 || ordinal > 32 {
 		return "", fmt.Errorf("vmnet: guest ordinal %d is invalid for %s", ordinal, region)
 	}
 	return fmt.Sprintf("02:fc:77:%02x:%02x:01", index+1, ordinal), nil
@@ -217,6 +219,9 @@ type GuestSpec struct {
 }
 
 // RegionSpec declares one isolated network namespace and its guests.
+// Additional Regions retain declaration order after GRU/SFO/FRA and receive
+// slots 3..19. Append admissions to preserve existing slots. Empty CIDR selects
+// 10.77.<slot>.0/24. Additional Regions require at least two guests.
 type RegionSpec struct {
 	Code   RegionCode  `json:"code"`
 	CIDR   string      `json:"cidr"`
@@ -413,7 +418,7 @@ func (p CleanupPlan) Validate() error {
 	if err := validateHostTool("ip", p.Tools.IP); err != nil {
 		return err
 	}
-	if len(p.Regions) == 0 || len(p.Regions) > len(launchRegions) || len(p.Commands) != len(p.Regions) || len(p.Uplinks) != len(p.Regions) {
+	if len(p.Regions) == 0 || len(p.Regions) > MaxRegions || len(p.Commands) != len(p.Regions) || len(p.Uplinks) != len(p.Regions) {
 		return errors.New("vmnet: cleanup plan must contain one command per declared Region")
 	}
 	seen := make(map[RegionCode]bool, len(p.Commands))
@@ -429,7 +434,7 @@ func (p CleanupPlan) Validate() error {
 		seen[region] = true
 	}
 	for index := 1; index < len(p.Regions); index++ {
-		if regionIndex(p.Regions[index-1]) >= regionIndex(p.Regions[index]) {
+		if regionIndex(p.Regions[index]) < 3 && regionIndex(p.Regions[index-1]) >= regionIndex(p.Regions[index]) {
 			return errors.New("vmnet: cleanup Regions are not canonical")
 		}
 	}
@@ -577,10 +582,10 @@ type NetworkPlan struct {
 }
 
 const (
-	maxPlanCommands = 640
-	maxPlanGuests   = 96
-	maxPlanForwards = 48
-	maxDNSRecords   = 96
+	maxPlanCommands = 16000
+	maxPlanGuests   = MaxRegions * 32
+	maxPlanForwards = MaxRegions * 16
+	maxDNSRecords   = maxPlanForwards * maxEndpointDNS
 	maxEndpointDNS  = 8
 )
 
@@ -592,7 +597,7 @@ func (p NetworkPlan) Validate() error {
 	if p.Version != networkPlanVersion || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
 		return errors.New("vmnet: invalid network plan metadata")
 	}
-	if len(p.Regions) == 0 || len(p.Regions) > len(launchRegions) || len(p.Commands) == 0 || len(p.Commands) > maxPlanCommands {
+	if len(p.Regions) == 0 || len(p.Regions) > MaxRegions || len(p.Commands) == 0 || len(p.Commands) > maxPlanCommands {
 		return errors.New("vmnet: network plan exceeds topology bounds")
 	}
 	if err := validateHostCoordinationRoot(p.CoordinationRoot); err != nil {
@@ -1027,10 +1032,30 @@ func regionIndex(code RegionCode) int {
 			return i
 		}
 	}
+	if len(code) == 3 && code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z' && code[2] >= 'A' && code[2] <= 'Z' {
+		return 3 + int(code[0]-'A')*676 + int(code[1]-'A')*26 + int(code[2]-'A')
+	}
 	return -1
 }
 
 func validRegion(code RegionCode) bool { return regionIndex(code) >= 0 }
+
+func allocationIndex(codes []RegionCode, code RegionCode) int {
+	if index := regionIndex(code); index >= 0 && index < 3 {
+		return index
+	}
+	next := 3
+	for _, candidate := range codes {
+		if regionIndex(candidate) < 3 {
+			continue
+		}
+		if candidate == code {
+			return next
+		}
+		next++
+	}
+	return -1
+}
 
 func parseCIDR(value, field string) (netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(value)
@@ -1083,7 +1108,7 @@ func regionNetworkName(prefix, runID string, code RegionCode) string {
 func interfaceToken(runID string) string { return runToken(runID)[:4] }
 
 func regionBridgeName(prefix, runID string, code RegionCode) string {
-	return prefix + "b" + interfaceToken(runID) + strings.ToLower(string(code[:1]))
+	return prefix + "b" + interfaceToken(runID) + strings.ToLower(string(code))
 }
 
 func networkTable(prefix, runID string) string {
@@ -1095,7 +1120,7 @@ func faultChain(from, to RegionCode) string {
 }
 
 func linkDevice(prefix, runID string, from, to RegionCode) string {
-	return prefix + "v" + interfaceToken(runID) + strings.ToLower(string(from[:1])) + strings.ToLower(string(to[:1]))
+	return prefix + "v" + interfaceToken(runID)[:3] + strings.ToLower(string(from)) + strings.ToLower(string(to))
 }
 
 func uplinkDevice(prefix, runID string, region RegionCode, root bool) string {
@@ -1103,25 +1128,27 @@ func uplinkDevice(prefix, runID string, region RegionCode, root bool) string {
 	if root {
 		side = "h"
 	}
-	return prefix + side + runToken(runID)[:8] + strings.ToLower(string(region[:1]))
+	return prefix + side + runToken(runID)[:6] + strings.ToLower(string(region))
 }
 
 func hostServiceAddress(runID string) netip.Addr {
 	digest := sha256.Sum256([]byte("vmnet-service\x00" + runID))
-	// 198.18.0.0/15 is reserved for benchmark and test networks. A /32 keeps
+	// The service half of the benchmark range is 198.19.0.0/16. A /32 keeps
 	// the listener unreachable until a declared Region route and nft mapping
 	// have both been installed.
-	offset := binary.BigEndian.Uint32(digest[:4]) & ((1 << 17) - 1)
-	address, _ := addIPv4(netip.AddrFrom4([4]byte{198, 18, 0, 0}), offset)
+	offset := binary.BigEndian.Uint32(digest[:4]) & ((1 << 16) - 1)
+	address, _ := addIPv4(netip.AddrFrom4([4]byte{198, 19, 0, 0}), offset)
 	return address
 }
 
-func regionUplink(prefix, runID string, region RegionCode, ownsService bool) RegionUplink {
+func regionUplink(prefix, runID string, region RegionCode, allocation int, ownsService bool) RegionUplink {
 	digest := sha256.Sum256([]byte("vmnet-uplink\x00" + runID))
-	// 100.64.0.0/10 is shared address space. Each Region gets a deterministic
-	// /30 with no route outside the qualification host.
-	slot := (binary.BigEndian.Uint32(digest[:4]) + uint32(regionIndex(region))) & ((1 << 18) - 1)
-	base, _ := addIPv4(netip.AddrFrom4([4]byte{100, 64, 0, 0}), slot*4)
+	// Keep all uplinks in the other benchmark half, 198.18.0.0/16.
+	// This is disjoint from host service /32s and avoids ambient CGNAT
+	// policies (including Tailscale anti-spoof filtering). Each Region gets
+	// one of 16,384 deterministic /30s with no external route.
+	slot := (binary.BigEndian.Uint32(digest[:4]) + uint32(allocation)) & ((1 << 14) - 1)
+	base, _ := addIPv4(netip.AddrFrom4([4]byte{198, 18, 0, 0}), slot*4)
 	rootAddress, _ := addIPv4(base, 1)
 	regionAddress, _ := addIPv4(base, 2)
 	return RegionUplink{
@@ -1159,7 +1186,7 @@ func validateResolvedEndpoints(prefix, runID string, regions []RegionCode, uplin
 	serviceAddress := hostServiceAddress(runID).String()
 	for index, region := range regions {
 		declared[region] = true
-		expected := regionUplink(prefix, runID, region, index == 0)
+		expected := regionUplink(prefix, runID, region, allocationIndex(regions, region), index == 0)
 		if uplinks[index] != expected {
 			return fmt.Errorf("Region %s uplink is not run-owned", region)
 		}
@@ -1272,14 +1299,14 @@ func validateFault(fault FaultSpec, allowPartition bool) error {
 }
 
 func transitIP(index int, side int) (netip.Addr, netip.Addr, error) {
-	// 10.78.255.0/24 is reserved solely for deterministic cross-Region /30
+	// 10.78.252.0/22 is reserved solely for deterministic cross-Region /30
 	// links. Stable guest networks occupy 10.77.0.0/16.
 	base := index * 4
-	if base > 252 {
+	if index < 0 || base > 1020 {
 		return netip.Addr{}, netip.Addr{}, errors.New("vmnet: too many Region links")
 	}
-	a := netip.AddrFrom4([4]byte{10, 78, 255, byte(base + 1)})
-	b := netip.AddrFrom4([4]byte{10, 78, 255, byte(base + 2)})
+	a, _ := addIPv4(transitPrefix.Addr(), uint32(base+1))
+	b, _ := addIPv4(transitPrefix.Addr(), uint32(base+2))
 	if side == 0 {
 		return a, b, nil
 	}
@@ -1325,14 +1352,25 @@ func Plan(config Config) (NetworkPlan, error) {
 	if err := tools.Validate(); err != nil {
 		return NetworkPlan{}, err
 	}
-	if len(config.Regions) == 0 || len(config.Regions) > len(launchRegions) {
-		return NetworkPlan{}, errors.New("vmnet: 1-3 Regions are required")
+	if len(config.Regions) == 0 || len(config.Regions) > MaxRegions {
+		return NetworkPlan{}, errors.New("vmnet: 1-20 Regions are required")
 	}
 	regions := append([]RegionSpec(nil), config.Regions...)
-	sort.Slice(regions, func(i, j int) bool { return regionIndex(regions[i].Code) < regionIndex(regions[j].Code) })
+	sort.SliceStable(regions, func(i, j int) bool {
+		a, b := regionIndex(regions[i].Code), regionIndex(regions[j].Code)
+		if a >= 3 && b >= 3 {
+			return false
+		}
+		return a < b
+	})
+	codes := make([]RegionCode, len(regions))
+	for index, region := range regions {
+		codes[index] = region.Code
+	}
 	resolved := make([]RegionNetwork, 0, len(regions))
 	seenRegions := make(map[RegionCode]bool, len(regions))
 	seenTAPs := make(map[string]bool)
+	allGuests := make(map[string]bool)
 	seenCIDRs := make([]netip.Prefix, 0, len(regions))
 	for _, spec := range regions {
 		if !validRegion(spec.Code) {
@@ -1344,7 +1382,7 @@ func Plan(config Config) (NetworkPlan, error) {
 		seenRegions[spec.Code] = true
 		cidr := spec.CIDR
 		if cidr == "" {
-			cidr = StableCIDR(spec.Code)
+			cidr = fmt.Sprintf("10.77.%d.0/24", allocationIndex(codes, spec.Code))
 		}
 		prefixCIDR, err := parseCIDR(cidr, "Region CIDR")
 		if err != nil {
@@ -1359,6 +1397,19 @@ func Plan(config Config) (NetworkPlan, error) {
 			}
 		}
 		seenCIDRs = append(seenCIDRs, prefixCIDR)
+		if allocationIndex(codes, spec.Code) >= MaxRegions {
+			return NetworkPlan{}, errors.New("vmnet: at most17 additional Region slots are available")
+		}
+		if regionIndex(spec.Code) >= 3 && len(spec.Guests) < 2 {
+			return NetworkPlan{}, fmt.Errorf("vmnet: additional Region %s requires at least two guests", spec.Code)
+		}
+		if regionIndex(spec.Code) >= 3 {
+			for _, baseline := range launchRegions {
+				if prefixCIDR.Overlaps(netip.MustParsePrefix(StableCIDR(baseline))) {
+					return NetworkPlan{}, errors.New("vmnet: additional Region overlaps reserved launch subnet")
+				}
+			}
+		}
 		if len(spec.Guests) == 0 || len(spec.Guests) > 32 {
 			return NetworkPlan{}, fmt.Errorf("vmnet: Region %s must have 1-32 guests", spec.Code)
 		}
@@ -1375,13 +1426,14 @@ func Plan(config Config) (NetworkPlan, error) {
 			if err := validIdentifier(guest.ID, "guest ID", 32); err != nil {
 				return NetworkPlan{}, err
 			}
-			if seenGuests[guest.ID] {
+			if seenGuests[guest.ID] || allGuests[guest.ID] {
 				return NetworkPlan{}, fmt.Errorf("vmnet: duplicate guest %q in %s", guest.ID, spec.Code)
 			}
 			seenGuests[guest.ID] = true
+			allGuests[guest.ID] = true
 			tap := guest.TAP
 			if tap == "" {
-				tap = fmt.Sprintf("%st%s%s%02d", prefix, interfaceToken(runID), strings.ToLower(string(spec.Code[:1])), guestIndex+1)
+				tap = fmt.Sprintf("%st%s%s%02d", prefix, interfaceToken(runID), strings.ToLower(string(spec.Code)), guestIndex+1)
 			}
 			if err := validIdentifier(tap, "TAP", 15); err != nil {
 				return NetworkPlan{}, err
@@ -1404,14 +1456,14 @@ func Plan(config Config) (NetworkPlan, error) {
 				return NetworkPlan{}, fmt.Errorf("vmnet: guest %s address %q is outside %s", guest.ID, address, prefixCIDR)
 			}
 			seenAddresses[guestAddress] = true
-			mac, _ := StableGuestMAC(spec.Code, guestIndex+1)
+			mac := fmt.Sprintf("02:fc:77:%02x:%02x:01", allocationIndex(codes, spec.Code)+1, guestIndex+1)
 			resolvedGuests = append(resolvedGuests, GuestNetwork{ID: guest.ID, TAP: tap, Address: guestAddress.String(), MAC: mac})
 		}
 		namespace := regionNetworkName(prefix, runID, spec.Code)
 		resolved = append(resolved, RegionNetwork{Code: spec.Code, CIDR: prefixCIDR.String(), Namespace: namespace, NamespacePath: "/run/netns/" + namespace, Bridge: regionBridgeName(prefix, runID, spec.Code), Gateway: gateway.String(), Guests: resolvedGuests})
 	}
 	for index := range resolved {
-		resolved[index].Uplink = regionUplink(prefix, runID, resolved[index].Code, index == 0)
+		resolved[index].Uplink = regionUplink(prefix, runID, resolved[index].Code, allocationIndex(codes, resolved[index].Code), index == 0)
 	}
 
 	endpointSpecs := config.Endpoints
@@ -1586,9 +1638,8 @@ func Plan(config Config) (NetworkPlan, error) {
 		}
 	}
 
-	// Link pairs are sorted by Region code and are created after all namespace
-	// setup, so command order is independent of declaration order.
-	linkIndex := 0
+	// Link pairs follow canonical launch order then declared admission order;
+	// all namespaces exist before pair setup.
 	for i := range resolved {
 		for j := i + 1; j < len(resolved); j++ {
 			a, b := resolved[i], resolved[j]
@@ -1600,6 +1651,12 @@ func Plan(config Config) (NetworkPlan, error) {
 			if err := validIdentifier(vb, "veth", 15); err != nil {
 				return NetworkPlan{}, err
 			}
+			left, right := allocationIndex(codes, a.Code), allocationIndex(codes, b.Code)
+			if left > right {
+				left, right = right, left
+			}
+			// Triangular slot numbering preserves existing links when Regions append.
+			linkIndex := right*(right-1)/2 + left
 			ipA, ipB, err := transitIP(linkIndex, 0)
 			if err != nil {
 				return NetworkPlan{}, err
@@ -1628,7 +1685,6 @@ func Plan(config Config) (NetworkPlan, error) {
 				command(tools.IP, "netns", "exec", b.Namespace, tools.NFT, "add", "rule", "inet", table, "forward", "iifname", b.Bridge, "oifname", vb, "accept"),
 				command(tools.IP, "netns", "exec", b.Namespace, tools.NFT, "add", "rule", "inet", table, "forward", "iifname", vb, "oifname", b.Bridge, "accept"),
 			)
-			linkIndex++
 		}
 	}
 

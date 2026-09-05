@@ -120,3 +120,74 @@ func TestSampleClockEnforcesWriteRefusalThreshold(t *testing.T) {
 		})
 	}
 }
+
+// This is the exit-success tracking shape emitted before chrony has selected a
+// source. Its zero System time is an unmeasured clock, not a healthy offset.
+const chronyUnsynchronizedReport = `Reference ID    : 00000000 ()
+Stratum         : 0
+Ref time (UTC)  : Thu Jan  1 00:00:00 1970
+System time     : 0.000000000 seconds slow of NTP time
+Last offset     : +0.000000000 seconds
+RMS offset      : 0.000000000 seconds
+Frequency       : 0.000 ppm fast
+Residual freq   : +0.000 ppm
+Skew            : 0.000 ppm
+Root delay      : 1.000000000 seconds
+Root dispersion : 1.000000000 seconds
+Update interval : 0.0 seconds
+Leap status     : Not synchronised
+`
+
+func TestChronyRequiresCompleteExternalSynchronization(t *testing.T) {
+	for name, report := range map[string]string{
+		"nonfinite dispersion":      strings.Replace(chronyTrackingReport, "Root dispersion : 0.000234567 seconds", "Root dispersion : NaN seconds", 1),
+		"malformed update":          strings.Replace(chronyTrackingReport, "Update interval : 64.5 seconds", "Update interval : broken", 1),
+		"unsynchronized real shape": chronyUnsynchronizedReport,
+		"unsynchronized leap only":  strings.Replace(chronyTrackingReport, "Leap status     : Normal", "Leap status     : Not synchronised", 1),
+		"zero stratum":              strings.Replace(chronyTrackingReport, "Stratum         : 3", "Stratum         : 0", 1),
+		"unusable stratum":          strings.Replace(chronyTrackingReport, "Stratum         : 3", "Stratum         : 16", 1),
+		"malformed stratum":         strings.Replace(chronyTrackingReport, "Stratum         : 3", "Stratum         : +3", 1),
+		"zero reference":            strings.Replace(chronyTrackingReport, "C0A80101 (192.168.1.1)", "00000000 ()", 1),
+		"local mode":                strings.Replace(chronyTrackingReport, "C0A80101 (192.168.1.1)", "7F7F0101", 1),
+		"empty local name":          strings.Replace(chronyTrackingReport, "C0A80101 (192.168.1.1)", "7F7F0101 ()", 1),
+		"missing reference time":    strings.Replace(chronyTrackingReport, "Ref time (UTC)  : Thu Sep  3 10:00:00 2026\n", "", 1),
+		"missing leap":              strings.Replace(chronyTrackingReport, "Leap status     : Normal\n", "", 1),
+		"duplicate leap":            chronyTrackingReport + "Leap status : Not synchronised\n",
+		"duplicate system time":     chronyTrackingReport + "System time : 0.0 seconds fast of NTP time\n",
+		"truncated tail":            strings.TrimSuffix(chronyTrackingReport, "Normal\n"),
+		"oversized":                 strings.Repeat(" ", chronyMaximumOutputBytes) + chronyTrackingReport,
+	} {
+		t.Run(name, func(t *testing.T) {
+			offset, err := ParseChronySystemTime(report)
+			if err == nil {
+				t.Fatal("unusable report accepted")
+			}
+			sample := SampleClock(offset, err)
+			if sample.Measured || !sample.Unhealthy {
+				t.Fatalf("unmeasured clock did not fence writes: %+v", sample)
+			}
+		})
+	}
+	for _, leap := range []string{"Normal", "Insert second", "Delete second"} {
+		report := strings.Replace(chronyTrackingReport, "Leap status     : Normal", "Leap status     : "+leap, 1)
+		offset, err := ParseChronySystemTime(report)
+		if err != nil || offset != 12345*time.Nanosecond {
+			t.Fatalf("synchronized %q rejected: %v %v", leap, offset, err)
+		}
+	}
+}
+
+func TestChronyExitSuccessDoesNotProveSynchronization(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "chronyc")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\ncat <<'TRACKING'\n"+chronyUnsynchronizedReport+"TRACKING\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	offset, err := (ChronyTrackingSource{ChronycBinary: binary, Timeout: time.Second}).Offset(context.Background())
+	if err == nil {
+		t.Fatal("successful chronyc exit accepted an unsynchronized clock")
+	}
+	sample := SampleClock(offset, err)
+	if sample.Measured || !sample.Unhealthy {
+		t.Fatalf("unsafe clock fact: %+v", sample)
+	}
+}

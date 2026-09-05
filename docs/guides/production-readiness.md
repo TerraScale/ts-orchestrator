@@ -44,7 +44,7 @@ continues.
 | Regional resources | `src/orchestrator/estate`, `reconcile`, `provider`, `cloudflare` | Desired-estate and provider code exist. Verify global versus regional ownership and credential scopes, including duplicate and indeterminate provider operations. |
 | Host lifecycle | `src/orchestrator/hostagent`, `cmd/ts-node` | Signed install, lifecycle, transport, and recovery code exist. Qualify actual systemd operations and durable receipts in guests. |
 | Operational services | `src/orchestrator/estatepublisher`, `keyrotation`, `reaper`, `restoredrill`, `delivery` | Service constructors and adapters exist. Trace production scheduling, concrete clients, durable stores, error propagation, and restart recovery. |
-| Qualification | `Makefile`, `cmd/vm-qualify`, `src/orchestrator/vmqual` | Portable and Firecracker targets are separate. VM code and scenario tests are present; their presence does not establish a passing full-stack or real-provider result. |
+| Qualification | `Makefile`, `cmd/vm-qualify`, `src/orchestrator/vmqual`, `vmqualruntime`, `vmqualsuite` | Portable and Firecracker targets are separate. VM code and scenario tests are present; their presence does not establish a passing full-stack or real-provider result. |
 
 The package map in `DESIGN.md` is useful for orientation but is incomplete
 relative to the working tree. Update it alongside the eventual package

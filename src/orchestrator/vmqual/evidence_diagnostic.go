@@ -65,6 +65,13 @@ func (s *Stack) CollectFailureDiagnostics(ctx context.Context) ([]FailureDiagnos
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	s.diagnosticMu.Lock()
+	if s.failureDiagnosticsCaptured {
+		report, err := append([]FailureDiagnostic(nil), s.failureDiagnostics...), s.failureDiagnosticError
+		s.diagnosticMu.Unlock()
+		return report, err
+	}
+	s.diagnosticMu.Unlock()
 	targets := s.failureDiagnosticTargets()
 	if len(targets) == 0 {
 		return nil, errors.New("vmqual: cleanup journal contains no diagnostic targets")
@@ -202,4 +209,23 @@ func boundedDiagnosticObservation(err error) string {
 		return observation
 	}
 	return observation[:maximum-len("...[truncated]")] + "...[truncated]"
+}
+
+// preserveFailureDiagnostics runs at the first failure boundary, before any
+// VM deletion or journal completion. Suite reporting can then use the captured
+// observations even when stack startup has already cleaned all resources.
+func (s *Stack) preserveFailureDiagnostics() error {
+	if len(s.failureDiagnosticTargets()) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	report, err := s.CollectFailureDiagnostics(ctx)
+	s.diagnosticMu.Lock()
+	defer s.diagnosticMu.Unlock()
+	if !s.failureDiagnosticsCaptured {
+		s.failureDiagnostics, s.failureDiagnosticError = append([]FailureDiagnostic(nil), report...), err
+		s.failureDiagnosticsCaptured = true
+	}
+	return s.failureDiagnosticError
 }

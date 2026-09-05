@@ -271,20 +271,23 @@ func (r *HostRunner) admittedCleanup(executable string, args []string) bool {
 }
 
 func ownedNamespace(value string) (string, string, RegionCode, bool) {
-	for _, region := range launchRegions {
-		suffix := "-n-" + strings.ToLower(string(region))
-		if !strings.HasSuffix(value, suffix) {
-			continue
-		}
-		owner := strings.TrimSuffix(value, suffix)
-		separator := strings.LastIndexByte(owner, '-')
-		if separator <= 0 || separator == len(owner)-1 {
-			continue
-		}
-		prefix, token := owner[:separator], owner[separator+1:]
-		if validIdentifier(prefix, "prefix", 5) == nil && runTokenPattern.MatchString(token) {
-			return prefix, token, region, true
-		}
+	separator := strings.LastIndex(value, "-n-")
+	if separator < 0 {
+		return "", "", "", false
+	}
+	code := value[separator+3:]
+	region := RegionCode(strings.ToUpper(code))
+	if !validRegion(region) || strings.ToLower(string(region)) != code {
+		return "", "", "", false
+	}
+	owner := value[:separator]
+	split := strings.LastIndexByte(owner, '-')
+	if split <= 0 || split == len(owner)-1 {
+		return "", "", "", false
+	}
+	prefix, token := owner[:split], owner[split+1:]
+	if validIdentifier(prefix, "prefix", 5) == nil && runTokenPattern.MatchString(token) {
+		return prefix, token, region, true
 	}
 	return "", "", "", false
 }

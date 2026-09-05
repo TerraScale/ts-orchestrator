@@ -143,6 +143,7 @@ func (r *productionRuntime) Start(ctx context.Context) error {
 	}
 	go func() {
 		select {
+		case <-r.publisher.Completion():
 		case <-r.workers[0].Completion():
 		case <-r.workers[1].Completion():
 		case <-r.workers[2].Completion():

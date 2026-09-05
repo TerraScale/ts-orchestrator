@@ -29,10 +29,6 @@ const (
 	MaxIdleCPU        = 1.0
 )
 
-// Pins is the architecture-specific, source-backed Firecracker toolchain
-// manifest. Keep the alias here for the command package's public API.
-type Pins = vmimage.ToolchainManifest
-
 // ProductionArtifactInput names one exact signed binary used by the real
 // guest bootstrap. Versions are explicit so qualification cannot relabel an
 // arbitrary local build as a release.
@@ -351,7 +347,7 @@ func (c Config) Validate() error {
 		{"Firecracker", c.ExpectedFirecrackerSHA256},
 		{"jailer", c.ExpectedJailerSHA256},
 	} {
-		if digest.value != "" && !validPinnedSHA256(digest.value) {
+		if digest.value != "" && !ValidPinnedSHA256(digest.value) {
 			return fmt.Errorf("vmqual: %s checksum must be a non-zero lowercase SHA-256 digest", digest.name)
 		}
 	}
@@ -401,7 +397,7 @@ func ResolveRuntimeIdentity(config Config) (Config, error) {
 	return config, nil
 }
 
-func validPinnedSHA256(value string) bool {
+func ValidPinnedSHA256(value string) bool {
 	if len(value) != sha256.Size*2 || value != strings.ToLower(value) || value == strings.Repeat("0", sha256.Size*2) {
 		return false
 	}
@@ -423,22 +419,23 @@ func validateRequiredPorts(ports []int) error {
 	return nil
 }
 
-func LoadPins(path string) (Pins, error) {
+func LoadPins(path string) (vmimage.ToolchainManifest, error) {
 	if path == "" || !filepath.IsAbs(path) {
-		return Pins{}, errors.New("vmqual: pins path must be absolute")
+		return vmimage.ToolchainManifest{}, errors.New("vmqual: pins path must be absolute")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return Pins{}, fmt.Errorf("vmqual: read pins: %w", err)
+		return vmimage.ToolchainManifest{}, fmt.Errorf("vmqual: read pins: %w", err)
 	}
 	pins, err := vmimage.DecodeToolchainManifest(b)
 	if err != nil {
-		return Pins{}, fmt.Errorf("vmqual: decode pins: %w", err)
+		return vmimage.ToolchainManifest{}, fmt.Errorf("vmqual: decode pins: %w", err)
 	}
 	return pins, nil
 }
 
-func (c Config) applyPins(p Pins) Config {
+// ApplyPins fills unspecified configuration from the declared toolchain manifest.
+func (c Config) ApplyPins(p vmimage.ToolchainManifest) Config {
 	installer := vmimage.ToolchainInstaller{Root: c.Root}
 	location, locationErr := installer.Location(p)
 	if c.FirecrackerPath == "" {
@@ -483,10 +480,6 @@ func (c Config) applyPins(p Pins) Config {
 	}
 	return c
 }
-
-// ApplyPins returns a command-ready configuration using only values from the
-// declared pin file for fields the caller did not explicitly provide.
-func (c Config) ApplyPins(p Pins) Config { return c.applyPins(p) }
 
 // HostPlatform reports whether the current process can qualify Firecracker.
 // It is deliberately a fact, not a fallback selector.

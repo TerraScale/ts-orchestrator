@@ -22,7 +22,7 @@ type ImageResult struct {
 
 type ArtifactResult struct {
 	Config    Config
-	Pins      Pins
+	Pins      vmimage.ToolchainManifest
 	Toolchain vmimage.InstalledToolchain
 	Image     ImageResult
 }
@@ -68,7 +68,7 @@ func MaterializeArtifacts(ctx context.Context, config Config) (ArtifactResult, e
 	return ArtifactResult{Config: config, Pins: pins, Toolchain: toolchain, Image: image}, nil
 }
 
-func validateToolchainOverrides(config Config, pins Pins) error {
+func validateToolchainOverrides(config Config, pins vmimage.ToolchainManifest) error {
 	for name, configured := range map[string]string{
 		"Firecracker version":  config.ExpectedVersion,
 		"Firecracker checksum": config.ExpectedFirecrackerSHA256,
@@ -143,16 +143,16 @@ func materializeGuestControl(ctx context.Context, config Config) error {
 	if err := os.Chmod(tmp, 0500); err != nil {
 		return err
 	}
-	if err := syncPath(tmp); err != nil {
+	if err := SyncPath(tmp); err != nil {
 		return fmt.Errorf("vmqual: sync guest control: %w", err)
 	}
 	if err := os.Rename(tmp, config.GuestControlPath); err != nil {
 		return fmt.Errorf("vmqual: install guest control: %w", err)
 	}
-	return syncPath(directory)
+	return SyncPath(directory)
 }
 
-func syncPath(path string) error {
+func SyncPath(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err

@@ -41,14 +41,14 @@ func TestUnifiedCgroupPath(t *testing.T) {
 
 func TestUnifiedCgroupMount(t *testing.T) {
 	data := "36 29 0:32 / /run/cgroup2 rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw\n"
-	if got, err := unifiedCgroupMount(data); err != nil || got != "/run/cgroup2" {
+	if got, err := UnifiedCgroupMount(data); err != nil || got != "/run/cgroup2" {
 		t.Fatalf("unifiedCgroupMount() = %q, %v", got, err)
 	}
 	data = "36 29 0:32 / /run/cgroup\\040v2 rw - cgroup2 cgroup rw\n"
-	if got, err := unifiedCgroupMount(data); err != nil || got != "/run/cgroup v2" {
+	if got, err := UnifiedCgroupMount(data); err != nil || got != "/run/cgroup v2" {
 		t.Fatalf("escaped unifiedCgroupMount() = %q, %v", got, err)
 	}
-	if _, err := unifiedCgroupMount("36 29 0:32 / /run/cgroup2 rw - tmpfs tmpfs rw\n"); err == nil {
+	if _, err := UnifiedCgroupMount("36 29 0:32 / /run/cgroup2 rw - tmpfs tmpfs rw\n"); err == nil {
 		t.Fatal("non-cgroup2 mount accepted")
 	}
 }
@@ -323,7 +323,7 @@ func writeModuleFiles(t *testing.T, goMod, goSum string) string {
 	return root
 }
 
-func manifestBackedConfig(pins Pins, image vmimage.GuestImageManifest) Config {
+func manifestBackedConfig(pins vmimage.ToolchainManifest, image vmimage.GuestImageManifest) Config {
 	return Config{
 		ExpectedVersion:           pins.FirecrackerVersion,
 		ExpectedFirecrackerSHA256: pins.Firecracker.SHA256,

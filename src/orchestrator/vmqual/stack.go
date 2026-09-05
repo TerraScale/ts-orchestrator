@@ -119,11 +119,14 @@ type NetworkController interface {
 }
 
 type StackConfig struct {
-	Guests      []Guest
-	VMFactory   VMFactory
-	Network     NetworkController
-	JournalPath string
-	StateRoot   string
+	// RequireResourceEvidence makes the suite reject missing kernel samples.
+	// The real VM command enables it explicitly; controller fixtures may omit it.
+	RequireResourceEvidence bool
+	Guests                  []Guest
+	VMFactory               VMFactory
+	Network                 NetworkController
+	JournalPath             string
+	StateRoot               string
 	// ResourceRoot owns qualification artifacts outside StateRoot. When it is
 	// empty and StateRoot ends in "state", NewStack uses StateRoot's parent.
 	ResourceRoot string
@@ -165,18 +168,23 @@ type StackResourceReport struct {
 }
 
 type Stack struct {
-	config         StackConfig
-	lifecycleMu    sync.Mutex
-	mu             sync.Mutex
-	guests         []Guest
-	vms            map[string]VM
-	networkApplied bool
-	started        bool
-	runID          string
-	resource       map[string]VMResourceReport
-	peakRSSBytes   uint64
-	peakIdleCPU    float64
-	peakDiskBytes  uint64
+	diagnosticMu               sync.Mutex
+	failureDiagnostics         []FailureDiagnostic
+	failureDiagnosticError     error
+	failureDiagnosticsCaptured bool
+	cleanupProbe               bool
+	config                     StackConfig
+	lifecycleMu                sync.Mutex
+	mu                         sync.Mutex
+	guests                     []Guest
+	vms                        map[string]VM
+	networkApplied             bool
+	started                    bool
+	runID                      string
+	resource                   map[string]VMResourceReport
+	peakRSSBytes               uint64
+	peakIdleCPU                float64
+	peakDiskBytes              uint64
 
 	journalMu   sync.Mutex
 	journal     *Journal
@@ -184,6 +192,10 @@ type Stack struct {
 }
 
 func NewStack(config StackConfig) (*Stack, error) {
+	return newStack(config, false)
+}
+
+func newStack(config StackConfig, cleanupProbe bool) (*Stack, error) {
 	if config.VMFactory == nil {
 		return nil, errors.New("vmqual: VM factory is required")
 	}
@@ -219,7 +231,7 @@ func NewStack(config StackConfig) (*Stack, error) {
 	runID := config.RunID
 	if runID == "" {
 		var err error
-		runID, err = newRunID()
+		runID, err = NewRunID()
 		if err != nil {
 			return nil, err
 		}
@@ -228,7 +240,7 @@ func NewStack(config StackConfig) (*Stack, error) {
 		return nil, errors.New("vmqual: run ID must be an RFC 4122 UUID")
 	}
 	config.RunID = runID
-	if len(config.Guests) != 6 {
+	if !cleanupProbe && len(config.Guests) != 6 {
 		return nil, fmt.Errorf("vmqual: stack requires six guests, got %d", len(config.Guests))
 	}
 	seen := map[string]bool{}
@@ -251,6 +263,9 @@ func NewStack(config StackConfig) (*Stack, error) {
 		regions[guest.Region]++
 	}
 	for _, region := range []vmnet.RegionCode{vmnet.GRU, vmnet.SFO, vmnet.FRA} {
+		if cleanupProbe {
+			break
+		}
 		if regions[region] != 2 {
 			return nil, fmt.Errorf("vmqual: Region %s must have exactly two members", region)
 		}
@@ -258,7 +273,7 @@ func NewStack(config StackConfig) (*Stack, error) {
 			return nil, fmt.Errorf("vmqual: Region %s must have one co-hosted control replica", region)
 		}
 	}
-	return &Stack{config: config, guests: append([]Guest(nil), config.Guests...), vms: map[string]VM{}, runID: runID, resource: make(map[string]VMResourceReport)}, nil
+	return &Stack{cleanupProbe: cleanupProbe, config: config, guests: append([]Guest(nil), config.Guests...), vms: map[string]VM{}, runID: runID, resource: make(map[string]VMResourceReport)}, nil
 }
 
 func (s *Stack) Start(ctx context.Context) error {
@@ -462,7 +477,8 @@ func (s *Stack) startSelectedGuests(ctx context.Context, selected map[vmnet.Regi
 }
 
 func (s *Stack) cleanupAfterFailure() error {
-	return s.cleanup(context.WithValue(context.Background(), qualificationRunIDKey{}, s.runID))
+	diagnosticErr := s.preserveFailureDiagnostics()
+	return errors.Join(diagnosticErr, s.cleanup(context.WithValue(context.Background(), qualificationRunIDKey{}, s.runID)))
 }
 
 func (s *Stack) EnforceBudget(ctx context.Context) error {
@@ -503,7 +519,7 @@ func (s *Stack) EnforceBudget(ctx context.Context) error {
 		if observation.MemoryMiB != 0 && observation.MemoryMiB != guest.MemoryMiB {
 			return fmt.Errorf("vmqual: %s readiness memory mismatch: %d MiB", guest.ID, observation.MemoryMiB)
 		}
-		if !zeroProcessIdentity(observation.Process) && !observation.CPUSampled {
+		if !ZeroProcessIdentity(observation.Process) && !observation.CPUSampled {
 			return fmt.Errorf("vmqual: %s has no measured idle CPU sample", guest.ID)
 		}
 		var hostDiskBytes uint64
@@ -514,7 +530,7 @@ func (s *Stack) EnforceBudget(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("vmqual: measure %s host disk use: %w", guest.ID, err)
 			}
-		} else if !zeroProcessIdentity(observation.Process) {
+		} else if !ZeroProcessIdentity(observation.Process) {
 			return fmt.Errorf("vmqual: %s cannot report allocated host disk bytes", guest.ID)
 		}
 		if ^uint64(0)-diskBytes < hostDiskBytes {
@@ -692,13 +708,15 @@ func (s *Stack) Guests() []Guest {
 	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return append([]Guest(nil), s.guests...)
 }
 
 const (
 	cleanupJournalVersion = 2
 	runMarkerVersion      = 1
-	runMarkerName         = "vmqual-run.json"
+	RunMarkerName         = "vmqual-run.json"
 	runOwnershipMarker    = "terrascale-vmqual-run-v1"
 	runClaimMarker        = "terrascale-vmqual-claim-v1"
 
@@ -896,7 +914,7 @@ func (s *Stack) writeJournal(ctx context.Context, path string, network vmnet.Jou
 			}
 		}
 		if resources.StateDir != "" && resources.RunMarkerPath == "" {
-			resources.RunMarkerPath = filepath.Join(resources.StateDir, runMarkerName)
+			resources.RunMarkerPath = filepath.Join(resources.StateDir, RunMarkerName)
 		}
 		claimPath := filepath.Join(s.config.StateRoot, ".vmqual-runs", s.runID+".claims", guest.ID+".json")
 		vm := journalVMFromResources(s.runID, guest, claimPath, resources)
@@ -943,13 +961,13 @@ func (s *Stack) bindVMToRun(guest Guest) error {
 
 func (s *Stack) recordVMObservation(guest Guest, observation VMObservation) error {
 	process := observation.Process
-	if !zeroProcessIdentity(observation.Resources.Process) {
-		if !zeroProcessIdentity(process) && process != observation.Resources.Process {
+	if !ZeroProcessIdentity(observation.Resources.Process) {
+		if !ZeroProcessIdentity(process) && process != observation.Resources.Process {
 			return errors.New("VM observation has conflicting process identities")
 		}
 		process = observation.Resources.Process
 	}
-	if !zeroProcessIdentity(process) {
+	if !ZeroProcessIdentity(process) {
 		if err := validateProcessIdentity(process); err != nil {
 			return err
 		}
@@ -965,7 +983,7 @@ func (s *Stack) recordVMObservation(guest Guest, observation VMObservation) erro
 		if !sameResourcePaths(expected, observation.Resources, s.runID) {
 			return fmt.Errorf("VM %q observation does not match its cleanup plan", guest.ID)
 		}
-		if zeroProcessIdentity(process) {
+		if ZeroProcessIdentity(process) {
 			return fmt.Errorf("VM %q has no durable process identity", guest.ID)
 		}
 	}
@@ -974,7 +992,7 @@ func (s *Stack) recordVMObservation(guest Guest, observation VMObservation) erro
 			if journal.VMs[index].ID != guest.ID {
 				continue
 			}
-			if !zeroProcessIdentity(process) {
+			if !ZeroProcessIdentity(process) {
 				identity := process
 				journal.VMs[index].Process = &identity
 			}
@@ -1069,7 +1087,7 @@ func journalVMFromResources(runID string, guest Guest, claimPath string, resourc
 	return JournalVM{RunID: runID, ID: guest.ID, Region: string(guest.Region), Phase: vmPhasePlanned, ClaimPath: claimPath, StateDir: resource.StateDir, SandboxOwnershipPath: resource.SandboxOwnershipPath, RunMarkerPath: resource.RunMarkerPath, RuntimePath: resource.RuntimePath, JailRoot: resource.JailRoot, SocketPath: resource.SocketPath, LogPath: resource.LogPath, MetricsPath: resource.MetricsPath, CgroupRoot: resource.CgroupRoot, CgroupPath: resource.CgroupPath, JailerCgroupPath: resource.JailerCgroupPath, FirecrackerPath: resource.FirecrackerPath, DriveDir: resource.DriveDir, DrivePath: resource.DrivePath, DriveMetadataPath: resource.DriveMetadataPath, DriveOwnershipPath: resource.DriveOwnershipPath, SeedDir: resource.SeedDir}
 }
 
-func newRunID() (string, error) {
+func NewRunID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", fmt.Errorf("vmqual: generate run ID: %w", err)

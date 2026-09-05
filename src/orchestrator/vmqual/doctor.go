@@ -79,12 +79,12 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 		ctx = context.Background()
 	}
 	add("platform", runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"), HostPlatform(), "run on native Linux amd64 or arm64; software emulation is not supported")
-	clockError, clockErr := synchronizedHostTime()
-	clockDetail := fmt.Sprintf("host kernel synchronized; maximum error %s", clockError)
+	clockError, clockErr := SynchronizedHostTime()
+	clockDetail := fmt.Sprintf("host kernel synchronized; maximum error %s; NTP leap indicator %d", clockError.MaximumError, clockError.LeapIndicator)
 	if clockErr != nil {
 		clockDetail = clockErr.Error()
 	}
-	add("host-clock", clockErr == nil, clockDetail, "provide a synchronized host clock with adjtimex maximum error <=500ms; inspect the host time daemon and wait for its next synchronization sample")
+	add("host-clock", clockErr == nil, clockDetail, "provide a synchronized host clock with valid adjtimex uncertainty and leap state; inspect the host time daemon")
 	kvmOK, kvmDetail := writableKVM()
 	add("kvm", kvmOK, kvmDetail, "grant the qualification runner narrow writable access to /dev/kvm")
 	if err := config.Validate(); err != nil {
@@ -93,7 +93,7 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 		add("configuration", true, "paths and resource limits are valid", "")
 	}
 
-	var pins Pins
+	var pins vmimage.ToolchainManifest
 	pinsLoaded := false
 	pins, err := LoadPins(config.PinsPath)
 	if err != nil {
@@ -414,7 +414,7 @@ func validGoSum(value string) bool {
 	return false
 }
 
-func validateManifestConsistency(config Config, pins Pins, image vmimage.GuestImageManifest, architecture string) error {
+func validateManifestConsistency(config Config, pins vmimage.ToolchainManifest, image vmimage.GuestImageManifest, architecture string) error {
 	if string(pins.Architecture) != architecture || string(image.Architecture) != architecture || pins.Architecture != image.Architecture {
 		return fmt.Errorf("manifest architectures toolchain=%s image=%s do not match native %s", pins.Architecture, image.Architecture, architecture)
 	}
@@ -563,7 +563,7 @@ func cgroupV2Access() (bool, string) {
 	if err != nil {
 		return false, "cannot read cgroup mount information: " + err.Error()
 	}
-	mount, err := unifiedCgroupMount(string(mountInfo))
+	mount, err := UnifiedCgroupMount(string(mountInfo))
 	if err != nil {
 		return false, "cgroup v2 is unavailable: " + err.Error()
 	}
@@ -618,7 +618,7 @@ func unifiedCgroupPath(data string) (string, error) {
 
 // unifiedCgroupMount finds the cgroup2 mountpoint from mountinfo rather than
 // assuming a distribution-specific mount path.
-func unifiedCgroupMount(data string) (string, error) {
+func UnifiedCgroupMount(data string) (string, error) {
 	for _, line := range strings.Split(data, "\n") {
 		parts := strings.SplitN(line, " - ", 2)
 		if len(parts) != 2 {

@@ -44,7 +44,7 @@ func runReconcile(ctx context.Context, args []string, output io.Writer) error {
 	return runReconcileWithLookup(ctx, args, os.LookupEnv, output)
 }
 
-func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup, output io.Writer) error {
+func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup, output io.Writer) (result error) {
 	if len(args) == 2 && args[1] == dryRunFlag {
 		return printReconcilePlan(output)
 	}
@@ -55,10 +55,9 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
-	defer dependencies.close()
+	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
 	if err != nil {
-		dependencies.close()
 		return err
 	}
 	// A production reconcile process carries the admin projection and all
@@ -73,18 +72,9 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if production == nil {
 		return errors.New("reconcile: production runtime composition returned nil")
 	}
-	if err := production.Start(ctx); err != nil {
-		_ = production.Close()
-		return fmt.Errorf("reconcile: production runtime startup: %w", err)
-	}
 	dependencies.OCI.onChange = production.NotifyChange
 	dependencies.Cloudflare.onChange = production.NotifyChange
-	if err := dependencies.KVWriter.Start(ctx); err != nil {
-		_ = production.Close()
-		return err
-	}
-	defer production.Close()
-	return loop.Run(ctx)
+	return runSupervisedReconcile(ctx, loop.Run, production, dependencies.KVWriter)
 }
 
 // productionReconcileDependencies is the composition root for D-67. The
@@ -133,16 +123,18 @@ func newReconcileLoop(dependencies *productionReconcileDependencies, output io.W
 	})
 }
 
-func (d *productionReconcileDependencies) close() {
+func (d *productionReconcileDependencies) close() error {
 	if d == nil {
-		return
+		return nil
 	}
+	var result error
 	if d.KVWriter != nil {
-		_ = d.KVWriter.Close()
+		result = errors.Join(result, d.KVWriter.Close())
 	}
 	if d.Telemetry != nil {
-		_ = d.Telemetry.Close()
+		result = errors.Join(result, d.Telemetry.Close())
 	}
+	return result
 }
 
 // reconcileTelemetry is the command's concrete observability boundary. The

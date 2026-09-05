@@ -209,9 +209,9 @@ func initializeJournalFiles(path string, journal Journal, marker runOwnership) (
 	createdClaims := make([]string, 0, len(journal.VMs))
 	cleanupInit := func() {
 		for _, claim := range createdClaims {
-			_ = removeFileAndSync(claim)
+			_ = RemoveFileAndSync(claim)
 		}
-		_ = removeFileAndSync(journal.RunMarkerPath)
+		_ = RemoveFileAndSync(journal.RunMarkerPath)
 	}
 	for _, resource := range journal.VMs {
 		claim := claimForResource(resource, journal.CreatedAt)
@@ -257,10 +257,10 @@ func validateJournal(journal Journal) error {
 	if journal.Revision == 0 || journal.CreatedAt.IsZero() || journal.UpdatedAt.Before(journal.CreatedAt) {
 		return errors.New("vmqual: cleanup journal timestamps or revision are invalid")
 	}
-	if !canonicalAbsolute(journal.StateRoot) || filepath.Clean(journal.StateRoot) == string(filepath.Separator) {
+	if !CanonicalAbsolute(journal.StateRoot) || filepath.Clean(journal.StateRoot) == string(filepath.Separator) {
 		return errors.New("vmqual: cleanup state root is invalid")
 	}
-	if journal.ResourceRoot != "" && (!canonicalAbsolute(journal.ResourceRoot) || filepath.Clean(journal.ResourceRoot) == string(filepath.Separator)) {
+	if journal.ResourceRoot != "" && (!CanonicalAbsolute(journal.ResourceRoot) || filepath.Clean(journal.ResourceRoot) == string(filepath.Separator)) {
 		return errors.New("vmqual: cleanup resource root is invalid")
 	}
 	if journal.DiskStore != nil {
@@ -294,8 +294,12 @@ func validateJournal(journal Journal) error {
 	seenIDs := make(map[string]struct{}, len(journal.VMs))
 	seenPaths := make(map[string]string)
 	drivePlanned := false
+	admittedHosts := 0
 	for _, resource := range journal.VMs {
-		if resource.RunID != journal.RunID || !validGuestID(resource.ID) || !validRegion(resource.Region) {
+		if resource.Region == string(FourthRegion) {
+			admittedHosts++
+		}
+		if resource.RunID != journal.RunID || !validGuestID(resource.ID) || !journalOwnsGuestRegion(journal, resource) {
 			return fmt.Errorf("vmqual: cleanup resource %q has invalid identity", resource.ID)
 		}
 		if _, exists := seenIDs[resource.ID]; exists {
@@ -328,6 +332,9 @@ func validateJournal(journal Journal) error {
 			}
 		}
 	}
+	if admittedHosts != 0 && admittedHosts != 2 {
+		return errors.New("vmqual: fourth-region cleanup must retain both admitted host obligations")
+	}
 	if drivePlanned != (journal.DiskStore != nil) {
 		return errors.New("vmqual: disk resources and disk store identity are inconsistent")
 	}
@@ -353,21 +360,21 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 	stateFields := []string{resource.StateDir, resource.SandboxOwnershipPath, resource.RunMarkerPath, resource.RuntimePath, resource.JailRoot, resource.SocketPath, resource.LogPath, resource.MetricsPath, resource.CgroupRoot, resource.CgroupPath, resource.JailerCgroupPath, resource.FirecrackerPath}
 	stateEmpty := resource.StateDir == ""
 	for _, path := range stateFields {
-		if (path == "") != stateEmpty || path != "" && !canonicalAbsolute(path) {
+		if (path == "") != stateEmpty || path != "" && !CanonicalAbsolute(path) {
 			return fmt.Errorf("vmqual: cleanup resource %q has an incomplete state plan", resource.ID)
 		}
 	}
 	if !stateEmpty {
 		firecrackerName := filepath.Base(filepath.Dir(resource.StateDir))
-		if !pathWithin(journal.StateRoot, resource.StateDir) || filepath.Base(resource.StateDir) != resource.ID ||
+		if !PathWithin(journal.StateRoot, resource.StateDir) || filepath.Base(resource.StateDir) != resource.ID ||
 			resource.SandboxOwnershipPath != filepath.Join(resource.StateDir, "ownership.json") ||
-			resource.RunMarkerPath != filepath.Join(resource.StateDir, runMarkerName) ||
+			resource.RunMarkerPath != filepath.Join(resource.StateDir, RunMarkerName) ||
 			resource.RuntimePath != filepath.Join(resource.StateDir, "runtime.json") ||
 			resource.JailRoot != filepath.Join(resource.StateDir, "root") ||
 			resource.SocketPath != filepath.Join(resource.JailRoot, "api.sock") ||
 			resource.LogPath != filepath.Join(resource.StateDir, "firecracker.log") ||
 			resource.MetricsPath != filepath.Join(resource.StateDir, "firecracker.metrics") ||
-			!canonicalAbsolute(resource.CgroupRoot) || filepath.Clean(resource.CgroupRoot) == string(filepath.Separator) ||
+			!CanonicalAbsolute(resource.CgroupRoot) || filepath.Clean(resource.CgroupRoot) == string(filepath.Separator) ||
 			resource.CgroupPath != filepath.Join(resource.CgroupRoot, "terrascale-sandboxvm", resource.ID) ||
 			resource.JailerCgroupPath != filepath.Join(resource.CgroupRoot, firecrackerName, resource.ID) ||
 			resource.FirecrackerPath != filepath.Join(resource.JailRoot, firecrackerName) {
@@ -377,7 +384,7 @@ func validateResourcePaths(journal Journal, resource JournalVM) error {
 	driveFields := []string{resource.DriveDir, resource.DrivePath, resource.DriveMetadataPath, resource.DriveOwnershipPath}
 	driveEmpty := resource.DriveDir == ""
 	for _, path := range driveFields {
-		if (path == "") != driveEmpty || path != "" && !canonicalAbsolute(path) {
+		if (path == "") != driveEmpty || path != "" && !CanonicalAbsolute(path) {
 			return fmt.Errorf("vmqual: cleanup resource %q has an incomplete drive plan", resource.ID)
 		}
 	}
@@ -398,7 +405,7 @@ func validateJournalNetwork(journal vmnet.Journal) error {
 	if journal.Version == 0 && journal.Cleanup.Version == 0 && len(journal.Cleanup.Commands) == 0 {
 		return nil
 	}
-	if err := validateNetworkJournal(journal); err != nil {
+	if err := ValidateNetworkJournal(journal); err != nil {
 		return err
 	}
 	if !validNetworkRunID(journal.RunID) || journal.Cleanup.RunID != journal.RunID {
@@ -519,7 +526,7 @@ func validateDriveOwnership(resource JournalVM, createdAt time.Time, identity vm
 	if err != nil {
 		return fmt.Errorf("vmqual: verify drive ownership %s: %w", resource.ID, err)
 	}
-	if paths.DriveDir != resource.DriveDir || paths.Metadata != resource.DriveMetadataPath || paths.Ownership != resource.DriveOwnershipPath || !pathWithin(resource.DriveDir, paths.Artifact) {
+	if paths.DriveDir != resource.DriveDir || paths.Metadata != resource.DriveMetadataPath || paths.Ownership != resource.DriveOwnershipPath || !PathWithin(resource.DriveDir, paths.Artifact) {
 		return fmt.Errorf("vmqual: refusing unowned drive resource %s", resource.ID)
 	}
 	return nil
@@ -541,7 +548,7 @@ func cleanupJournalVMResource(ctx context.Context, resource JournalVM, createdAt
 			if err := stopJournaledProcess(resource); err != nil {
 				return err
 			}
-			if err := removeTreeAndSync(resource.StateDir); err != nil {
+			if err := RemoveTreeAndSync(resource.StateDir); err != nil {
 				return err
 			}
 		}
@@ -578,7 +585,7 @@ func cleanupJournalVMResource(ctx context.Context, resource JournalVM, createdAt
 			if info.ModTime().Before(createdAt) {
 				return fmt.Errorf("vmqual: seed resource %s predates its run", resource.ID)
 			}
-			if err := removeTreeAndSync(resource.SeedDir); err != nil {
+			if err := RemoveTreeAndSync(resource.SeedDir); err != nil {
 				return err
 			}
 		}
@@ -622,7 +629,7 @@ func removeEmptyOwnedCgroup(path string) error {
 	if path == "" {
 		return nil
 	}
-	if !canonicalAbsolute(path) || filepath.Clean(path) == string(filepath.Separator) {
+	if !CanonicalAbsolute(path) || filepath.Clean(path) == string(filepath.Separator) {
 		return errors.New("vmqual: cgroup cleanup path is invalid")
 	}
 	info, err := os.Lstat(path)
@@ -679,7 +686,7 @@ func stopJournaledProcess(resource JournalVM) error {
 		}
 		return nil
 	}
-	matched, err := processIdentityMatches(*process)
+	matched, err := ProcessIdentityMatches(*process)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if socketActive(resource.SocketPath) {
@@ -698,10 +705,10 @@ func stopJournaledProcess(resource JournalVM) error {
 	if err := syscall.Kill(process.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
-	if waitForProcessExit(*process, time.Second) {
+	if WaitForProcessExit(*process, time.Second) {
 		return nil
 	}
-	matched, err = processIdentityMatches(*process)
+	matched, err = ProcessIdentityMatches(*process)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -717,7 +724,7 @@ func stopJournaledProcess(resource JournalVM) error {
 	if err := syscall.Kill(process.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
-	if !waitForProcessExit(*process, time.Second) {
+	if !WaitForProcessExit(*process, time.Second) {
 		return errors.New("vmqual: VM process did not stop")
 	}
 	return nil
@@ -752,8 +759,8 @@ func verifyProcessCgroupOwnership(resource JournalVM, pid int) error {
 	return errors.New("vmqual: running process is absent from its owned cgroups")
 }
 
-func processIdentityMatches(identity VMProcessIdentity) (bool, error) {
-	start, err := procStartTime(identity.PID)
+func ProcessIdentityMatches(identity VMProcessIdentity) (bool, error) {
+	start, err := ProcStartTime(identity.PID)
 	if err != nil {
 		return false, err
 	}
@@ -764,7 +771,7 @@ func processIdentityMatches(identity VMProcessIdentity) (bool, error) {
 	return start == identity.StartTimeTicks && filepath.Clean(executable) == identity.Executable, nil
 }
 
-func procStartTime(pid int) (uint64, error) {
+func ProcStartTime(pid int) (uint64, error) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {
 		return 0, err
@@ -784,10 +791,10 @@ func procStartTime(pid int) (uint64, error) {
 	return start, nil
 }
 
-func waitForProcessExit(identity VMProcessIdentity, timeout time.Duration) bool {
+func WaitForProcessExit(identity VMProcessIdentity, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		matched, err := processIdentityMatches(identity)
+		matched, err := ProcessIdentityMatches(identity)
 		if errors.Is(err, os.ErrNotExist) || err == nil && !matched {
 			return true
 		}
@@ -809,13 +816,13 @@ func socketActive(path string) bool {
 }
 
 func validateProcessIdentity(process VMProcessIdentity) error {
-	if process.PID <= 0 || process.StartTimeTicks == 0 || !canonicalAbsolute(process.Executable) || filepath.Clean(process.Executable) == string(filepath.Separator) {
+	if process.PID <= 0 || process.StartTimeTicks == 0 || !CanonicalAbsolute(process.Executable) || filepath.Clean(process.Executable) == string(filepath.Separator) {
 		return errors.New("VM process identity is incomplete")
 	}
 	return nil
 }
 
-func zeroProcessIdentity(process VMProcessIdentity) bool {
+func ZeroProcessIdentity(process VMProcessIdentity) bool {
 	return process.PID == 0 && process.StartTimeTicks == 0 && process.Executable == ""
 }
 
@@ -988,7 +995,7 @@ func writeExclusiveJSON(path string, value any) error {
 	if err := os.Link(temporaryPath, path); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(path))
+	return SyncDirectory(filepath.Dir(path))
 }
 
 func ensureExclusiveJSON(path string, value any) error {
@@ -1037,7 +1044,7 @@ func writeAtomicJSON(path string, value any) error {
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(path))
+	return SyncDirectory(filepath.Dir(path))
 }
 
 func acquireJournalLock(path string) (*os.File, error) {
@@ -1079,7 +1086,7 @@ func removeJournalFile(path, runID string) error {
 	if journal.RunID != runID {
 		return errors.New("vmqual: refusing to remove another run's cleanup journal")
 	}
-	return removeFileAndSync(path)
+	return RemoveFileAndSync(path)
 }
 
 func removeRunMarker(stateRoot, runID, journalPath string) error {
@@ -1092,7 +1099,7 @@ func removeRunMarker(stateRoot, runID, journalPath string) error {
 		if marker.Version != runMarkerVersion || marker.Marker != runOwnershipMarker || marker.RunID != runID || marker.JournalPath != filepath.Clean(journalPath) || marker.StateRoot != filepath.Clean(stateRoot) {
 			return errors.New("vmqual: refusing to remove mismatched run marker")
 		}
-		if err := removeFileAndSync(markerPath); err != nil {
+		if err := RemoveFileAndSync(markerPath); err != nil {
 			return err
 		}
 	}
@@ -1113,14 +1120,14 @@ func removeRunMarker(stateRoot, runID, journalPath string) error {
 				return errors.New("vmqual: refusing mismatched run claim")
 			}
 		}
-		if err := removeTreeAndSync(claims); err != nil {
+		if err := RemoveTreeAndSync(claims); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func removeFileAndSync(path string) error {
+func RemoveFileAndSync(path string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -1134,10 +1141,10 @@ func removeFileAndSync(path string) error {
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(path))
+	return SyncDirectory(filepath.Dir(path))
 }
 
-func removeTreeAndSync(path string) error {
+func RemoveTreeAndSync(path string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -1151,10 +1158,10 @@ func removeTreeAndSync(path string) error {
 	if err := os.RemoveAll(path); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(path))
+	return SyncDirectory(filepath.Dir(path))
 }
 
-func syncDirectory(path string) error {
+func SyncDirectory(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {
 		return err
@@ -1206,15 +1213,15 @@ func existingOwnedDirectory(path string) (bool, error) {
 	return true, nil
 }
 
-func pathWithin(root, candidate string) bool {
-	if !canonicalAbsolute(root) || !canonicalAbsolute(candidate) {
+func PathWithin(root, candidate string) bool {
+	if !CanonicalAbsolute(root) || !CanonicalAbsolute(candidate) {
 		return false
 	}
 	relative, err := filepath.Rel(root, candidate)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
-func canonicalAbsolute(path string) bool {
+func CanonicalAbsolute(path string) bool {
 	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path
 }
 

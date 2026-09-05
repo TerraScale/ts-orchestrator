@@ -12,7 +12,7 @@ import (
 
 func TestValidateToolchainOverridesRejectsPinDrift(t *testing.T) {
 	t.Parallel()
-	pins := Pins{
+	pins := vmimage.ToolchainManifest{
 		FirecrackerVersion: "1.15.1",
 		Firecracker:        vmimage.ArchiveMember{SHA256: strings.Repeat("1", 64)},
 		Jailer:             vmimage.ArchiveMember{SHA256: strings.Repeat("2", 64)},

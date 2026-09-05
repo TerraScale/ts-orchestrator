@@ -549,21 +549,21 @@ func waitForComponents(ctx context.Context, regional component, global ...compon
 	if ctx == nil {
 		return errors.New("context is nil")
 	}
-	select {
-	case <-ctx.Done():
+	cases := []reflect.SelectCase{
+		{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
+		{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(completion(regional))},
+	}
+	for _, value := range global {
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(completion(value))})
+	}
+	selected, _, _ := reflect.Select(cases)
+	if selected == 0 {
 		return ctx.Err()
-	case <-completion(regional):
+	}
+	if selected == 1 {
 		return errors.New("regional runtime stopped unexpectedly")
-	case <-completion(firstComponent(global)):
-		return errors.New("global runtime stopped unexpectedly")
 	}
-}
-
-func firstComponent(values []component) component {
-	if len(values) == 0 {
-		return nil
-	}
-	return values[0]
+	return errors.New("global runtime stopped unexpectedly")
 }
 
 func completion(value component) <-chan struct{} {

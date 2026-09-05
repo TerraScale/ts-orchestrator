@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	smokeControlMemoryMiB = int64(256)
+	SmokeControlMemoryMiB = int64(256)
 	smokeOutputLimit      = 64 << 10
 	smokeUsagePoll        = 25 * time.Millisecond
 	maxSmokeUsageWait     = 2 * time.Second
@@ -80,10 +80,11 @@ type SmokeReport struct {
 	Ready   time.Duration
 	Cleanup time.Duration
 
-	Profiles      []SmokeProfileReport
-	PeakRSSBytes  uint64
-	PeakIdleCPU   float64
-	HostDiskBytes uint64
+	FailureDiagnostics []FailureDiagnostic `json:"failureDiagnostics,omitempty"`
+	Profiles           []SmokeProfileReport
+	PeakRSSBytes       uint64
+	PeakIdleCPU        float64
+	HostDiskBytes      uint64
 }
 
 // RunSmoke proves the minimum real guest path. The command supplies a
@@ -112,13 +113,14 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 	defer cancel()
 	networkAttempted := false
 	var active VM
+	var diagnosticTarget *failureDiagnosticTarget
 	cleanup := func() error {
 		started := time.Now()
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 		defer cleanupCancel()
 		var cleanupErr error
 		if active != nil {
-			cleanupErr = errors.Join(cleanupErr, active.Stop(cleanupCtx), active.Delete(cleanupCtx), verifyGuestCleanup(cleanupCtx, active))
+			cleanupErr = errors.Join(cleanupErr, active.Stop(cleanupCtx), active.Delete(cleanupCtx), VerifyGuestCleanup(cleanupCtx, active))
 			active = nil
 		}
 		if networkAttempted {
@@ -130,6 +132,11 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 		return cleanupErr
 	}
 	defer func() {
+		if resultErr != nil && diagnosticTarget != nil {
+			captured, diagnosticErr := collectSmokeFailureDiagnostic(context.WithoutCancel(ctx), *diagnosticTarget)
+			report.FailureDiagnostics = append(report.FailureDiagnostics, captured)
+			resultErr = errors.Join(resultErr, diagnosticErr)
+		}
 		resultErr = errors.Join(resultErr, cleanup())
 	}()
 
@@ -154,6 +161,13 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 			continue
 		}
 
+		if planner, ok := factory.(VMResourcePlanner); ok {
+			resources, err := planner.PlanResources(runCtx, profile.Guest)
+			if err != nil {
+				return report, fmt.Errorf("vm-smoke: plan %s profile: %w", profile.Name, err)
+			}
+			diagnosticTarget = &failureDiagnosticTarget{id: profile.Guest.ID, region: profile.Guest.Region, root: resources.StateDir, console: resources.LogPath, metrics: resources.MetricsPath}
+		}
 		vm, err := factory.Create(runCtx, profile.Guest)
 		if err != nil {
 			return report, fmt.Errorf("vm-smoke: create %s profile: %w", profile.Name, err)
@@ -184,13 +198,14 @@ func RunSmoke(ctx context.Context, factory VMFactory, network NetworkController,
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 		stopErr := active.Stop(cleanupCtx)
 		deleteErr := active.Delete(cleanupCtx)
-		verifyErr := verifyGuestCleanup(cleanupCtx, active)
+		verifyErr := VerifyGuestCleanup(cleanupCtx, active)
 		cleanupCancel()
 		report.Cleanup += time.Since(cleanupStarted)
 		if err := errors.Join(stopErr, deleteErr, verifyErr); err != nil {
 			return report, fmt.Errorf("vm-smoke: clean %s profile: %w", profile.Name, err)
 		}
 		active = nil
+		diagnosticTarget = nil
 	}
 	return report, nil
 }
@@ -201,13 +216,13 @@ func smokeProfiles() []SmokeProfile {
 		serviceMemory = MaxGuestMemoryMiB
 	}
 	return []SmokeProfile{
-		{Name: "control-only", Guest: Guest{ID: "gru-member-1", Region: vmnet.GRU, VCPU: 1, MemoryMiB: smokeControlMemoryMiB, Control: true}},
+		{Name: "control-only", Guest: Guest{ID: "gru-member-1", Region: vmnet.GRU, VCPU: 1, MemoryMiB: SmokeControlMemoryMiB, Control: true}},
 		{Name: "service", Guest: Guest{ID: "gru-member-1", Region: vmnet.GRU, VCPU: 1, MemoryMiB: serviceMemory, Control: true, Service: true}},
 	}
 }
 
 func supportsSmokeProfile(ctx context.Context, factory VMFactory, profile SmokeProfile) (bool, error) {
-	if profile.Guest.VCPU != 1 || profile.Guest.MemoryMiB < smokeControlMemoryMiB || profile.Guest.MemoryMiB > MaxGuestMemoryMiB {
+	if profile.Guest.VCPU != 1 || profile.Guest.MemoryMiB < SmokeControlMemoryMiB || profile.Guest.MemoryMiB > MaxGuestMemoryMiB {
 		return false, fmt.Errorf("vm-smoke: profile %s exceeds the 1 vCPU/512 MiB limit", profile.Name)
 	}
 	capabilities, ok := factory.(smokeProfileSupport)
@@ -415,7 +430,7 @@ func validateObservationIdentity(observation VMObservation, guest Guest) error {
 	return nil
 }
 
-func verifyGuestCleanup(ctx context.Context, vm VM) error {
+func VerifyGuestCleanup(ctx context.Context, vm VM) error {
 	verifier, ok := vm.(smokeOwnedResourceVerifier)
 	if !ok {
 		return errors.New("vm-smoke: guest cannot verify owned-resource cleanup")

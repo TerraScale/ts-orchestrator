@@ -71,7 +71,25 @@ namespace, where guest-subnet routes are intentionally absent. SSH now creates
 its socket in the exact validated guest namespace, restores the caller's
 namespace before connecting, and pins the observed guest host key. A real
 isolated namespace test proved connection, host-route isolation, namespace
-restoration, and cleanup. The full qualification command is being rerun.
+restoration, and cleanup. The full `make vm-test` invocation then reached GRU boot and namespace SSH but
+failed initial ts-node admission. No scenario ran; the machine report is
+[retained here](../evidence/vm-test-2026-09-04.json), with its
+[failure output](../evidence/vm-test-2026-09-04.txt). Root networking used
+100.64.0.0/10 uplinks, which this host's Tailscale input chain rejects.
+Qualification now uses disjoint 198.18.0.0/16 uplinks and 198.19.0.0/16 service
+addresses, with the existing ownership locks and collision refusal. No host
+firewall configuration was changed.
+
+A retry with the corrected address pool reached chrony startup, but
+`chronyc waitsync` returned `506 Cannot talk to daemon`. Setting the command
+socket directory to chrony's required mode 0750 fixed communication with the
+daemon. The next real smoke attempt still failed bootstrap: chrony reported
+zero received samples and `Not synchronised`. Read-only inspection showed
+that the host's NixOS INPUT chain drops fresh connections to all qualification
+listeners. The namespace forwarding and listener existed, but host input
+admission remains to be implemented. No host firewall or clock configuration
+was changed. Cleanup succeeded. Selected evidence is retained in
+[the input-path failure record](../evidence/vm-smoke-input-2026-09-04.txt).
 
 The Cloudflare wire changes and real TBEP observation client are committed as
 `52aeac50`. A later local `GOFLAGS=-p=4 make check` also passed after removing
@@ -99,11 +117,48 @@ The private guest receives a chrony service/config and uses a bounded local
 NTP endpoint, without a public guest route or general UDP allowance.
 
 The local NTP service checks the host kernel clock before every response and
-withholds time while its maximum uncertainty exceeds 500 ms or synchronization
-is lost. A read-only host observation returned TIME_OK, status 0x2001, and
-748500 microseconds maximum error. The host was synchronized but did not meet
-the uncertainty bound at that instant. No host clock or host time-service
-configuration was changed. Doctor now reports this prerequisite explicitly.
+withholds time when synchronization or the reported clock state is invalid.
+It advertises the observed kernel maximum error as NTP root dispersion, rounded
+up to the protocol precision, and preserves pending leap indicators. Doctor
+reports this uncertainty. Guest chrony selects the source and measures its
+clock correction; the goal's 500 ms write fence applies to measured offset.
+
+An earlier implementation incorrectly applied that 500 ms threshold to host
+kernel maximum error and withheld replies from a synchronized host reporting
+748.5 ms uncertainty. That inferred restriction has been removed. No host
+clock or host time-service configuration was changed.
+
+## Package and network verification
+
+Qualification code is separated into `vmqual` core/lifecycle,
+`vmqualruntime` guest execution, and `vmqualsuite` scenario contracts.
+Each package remains below 10,000 lines including tests and build variants.
+The full portable gate and `go test -p 4 -tags sandboxvm -race ./...` passed
+after the split. Early startup diagnostics are retained before cleanup, and
+readiness requires the local orchestrator on every member host.
+
+Network planning accepts explicit additional Regions through twenty total,
+while the default remains GRU/SFO/FRA with six guest slots. Admission keeps
+existing guest and cross-Region link addresses stable. A real four-namespace
+fixture created the topology, sent an actual packet from IAD to GRU, and
+successfully cleaned up its owned resources. This proves network behavior;
+it does not prove fourth-Region guest admission, TBEP management, or quorum.
+
+The fourth-Region scenario now creates and checks two IAD guests after control
+admission. It journals both host obligations before either create and requires
+the predeclared network slots. The three global control replicas remain in
+GRU/SFO/FRA. Tagged race tests cover duplicate admission, failed second-host
+readiness, budget refusal, and cleanup ownership. The real baseline has not
+yet passed, so this guest scenario has not executed successfully.
+
+Smoke failures now retain bounded console and metrics evidence before deleting
+resources, including canceled startup. Production reconciliation now cancels
+provider work when a required background service exits and retains shutdown
+errors. Command race tests cover failures during in-flight provider work.
+The full `GOFLAGS=-p=4 make check` and
+`go test -p 4 -tags sandboxvm -race ./...` passed after these changes.
+Logs are `/tmp/ts-orchestrator-integration-check.log` and
+`/tmp/ts-orchestrator-integration-tagged.log` on the qualification host.
 
 ## Remaining production work
 

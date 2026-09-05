@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,5 +150,59 @@ func TestFailureDiagnosticCaptureHonorsCancelledContext(t *testing.T) {
 	started := time.Now()
 	if _, err := stack.CollectFailureDiagnostics(ctx); err == nil || time.Since(started) > time.Second {
 		t.Fatalf("cancelled capture error = %v", err)
+	}
+}
+
+type diagnosticFailureVM struct {
+	root string
+}
+
+func (v *diagnosticFailureVM) StartReady(context.Context) error {
+	return errors.New("guest activation failed")
+}
+func (v *diagnosticFailureVM) Stop(context.Context) error   { return nil }
+func (v *diagnosticFailureVM) Delete(context.Context) error { return os.RemoveAll(v.root) }
+func (v *diagnosticFailureVM) Inspect(context.Context) (VMObservation, error) {
+	return VMObservation{}, nil
+}
+
+type diagnosticFailureFactory struct{ vm *diagnosticFailureVM }
+
+func (f diagnosticFailureFactory) Create(context.Context, Guest) (VM, error) { return f.vm, nil }
+
+func TestStartupFailureCapturesDiagnosticsBeforeAutomaticCleanup(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "vm")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	console, metrics := filepath.Join(root, "firecracker.log"), filepath.Join(root, "firecracker.metrics")
+	for path, body := range map[string]string{console: "systemd: activation failed\n", metrics: "{\"panic_count\":0}\n"} {
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	guest := LaunchGuests(DefaultMemoryMiB)[0]
+	stack := &Stack{
+		config: StackConfig{VMFactory: diagnosticFailureFactory{&diagnosticFailureVM{root}}, Network: &smokeFakeNetwork{}},
+		guests: []Guest{guest}, vms: make(map[string]VM),
+		journal: &Journal{VMs: []JournalVM{{ID: guest.ID, Region: string(guest.Region), StateDir: root, LogPath: console, MetricsPath: metrics}}},
+	}
+	err := stack.startSelectedGuests(context.Background(), map[vmnet.RegionCode]bool{vmnet.GRU: true})
+	if err == nil || !strings.Contains(err.Error(), "guest activation failed") {
+		t.Fatalf("start error = %v", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed guest was not cleaned: %v", err)
+	}
+	// Journal completion normally removes the targets as well as their files.
+	stack.journal = nil
+	report, err := stack.CollectFailureDiagnostics(context.Background())
+	if err != nil || len(report) != 1 || report[0].Console.Tail != "systemd: activation failed\n" || !report[0].Metrics.Present {
+		t.Fatalf("pre-cleanup evidence lost: %+v, %v", report, err)
+	}
+	report[0].Console.Tail = "caller mutation"
+	again, err := stack.CollectFailureDiagnostics(context.Background())
+	if err != nil || again[0].Console.Tail == "caller mutation" {
+		t.Fatal("caller changed retained diagnostic evidence")
 	}
 }
