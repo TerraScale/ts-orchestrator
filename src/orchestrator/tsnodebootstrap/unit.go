@@ -99,11 +99,12 @@ func ValidateConfig(config Config) error {
 // confines every DataVolume below the data root. User provisioning uses
 // --no-log-init, so it does not need to mutate lastlog or faillog. Those rules
 // let the root process update its files through normal DAC checks. CAP_CHOWN
-// is the one exception: hostagent.UseraddProvisioner.OwnDirectory assigns a
-// component's data directory to its dedicated uid and gid.
+// allows hostagent.UseraddProvisioner.OwnDirectory to assign a component's
+// data directory to its dedicated uid and gid. CAP_FOWNER permits subsequent
+// mode repair on that service-owned directory without granting DAC override.
 // SecureBits=noroot-locked stops uid 0 from regaining omitted capabilities on
-// exec, while ambient CAP_CHOWN keeps that one capability across the direct
-// useradd and systemctl child execs.
+// exec, while the ambient set preserves only those two capabilities across
+// the direct useradd and systemctl child execs.
 //
 // @system-service includes the file-system, chown, network I/O, process, and
 // signal syscall groups used by downloads, statfs, file replacement, child
@@ -132,8 +133,8 @@ func RenderSystemdUnit(config Config) (string, error) {
 	unit.WriteString("RestartSec=2s\n")
 	unit.WriteString("UMask=0022\n")
 	unit.WriteString("NoNewPrivileges=yes\n")
-	unit.WriteString("CapabilityBoundingSet=CAP_CHOWN\n")
-	unit.WriteString("AmbientCapabilities=CAP_CHOWN\n")
+	unit.WriteString("CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER\n")
+	unit.WriteString("AmbientCapabilities=CAP_CHOWN CAP_FOWNER\n")
 	unit.WriteString("SecureBits=noroot-locked\n")
 	unit.WriteString("ProtectSystem=strict\n")
 	unit.WriteString("ProtectHome=yes\n")

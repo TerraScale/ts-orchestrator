@@ -344,7 +344,9 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec ComponentSpe
 			l.enabledUnits[UnitName(spec.Name)] = true
 		}
 		setPhase("start-unit")
-		if l.state == NodeStateServing {
+		// Installation does not admit a serving release. Only journaled Deploy
+		// creates current, so there is no executable to start before admission.
+		if l.state == NodeStateServing && current != "" {
 			active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name))
 			if err != nil {
 				return err

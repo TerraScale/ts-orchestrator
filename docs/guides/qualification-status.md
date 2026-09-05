@@ -227,6 +227,37 @@ Logs are `/tmp/ts-orchestrator-raw-signature-check.log` and
 `/tmp/ts-orchestrator-raw-signature-tagged.log`. Real VM qualification remains
 in progress; these code and HTTPS tests do not establish service readiness.
 
+The next full `vm-test` reached the first 512 MiB GRU guest, synchronized chrony,
+and completed cloud-init. It failed admission while preparing service-owned
+data directories; the application units reported systemd 203/EXEC before an
+initial `current` link had been activated. The retained error identified
+`last-failed-phase=prepare-data-volume`. A real restricted-capability host
+probe reproduced the chmod denial under the ts-node unit's CAP_CHOWN-only
+contract. Peak guest host RSS was 446,885,888 bytes. No scenario ran and no idle
+budget passed. The [failure record](../evidence/vm-test-raw-signature-2026-09-04.txt)
+and [machine report](../evidence/vm-test-raw-signature-2026-09-04.json) retain
+that result; fixes require another real run.
+
+## Initial deployment admission and directory permissions
+
+ts-node now has CAP_CHOWN and CAP_FOWNER so it can repair modes after assigning
+service ownership. Unchanged directory modes avoid a privileged chmod.
+Application units retain empty capability sets. Reconciliation installs and
+enables a new unit but waits for explicit journaled Deploy to create `current`
+before starting it. ReleaseDrain cannot bypass that first admission.
+Qualification uses the production 10-second heartbeat and 30-second reconcile
+cadences instead of repeatedly revalidating binaries at subsecond intervals.
+
+The full portable gate and sandboxvm race suite passed. The next real VM run
+completed installation and activation on the first GRU host. Both application
+processes exited with status 1; ts-node remained active. The earlier data-volume
+permission failure and systemd 203/EXEC result were absent. Peak host RSS was
+414,494,720 bytes. No scenario, idle budget, six-host baseline, or fourth Region
+passed. Cleanup left no owned namespaces or qualification firewall rules.
+The [controller record](../evidence/vm-test-admission-2026-09-04.txt) and
+[machine report](../evidence/vm-test-admission-2026-09-04.json) retain the failure.
+Guest launch configuration and production composition still need completion.
+
 ## Remaining production work
 
 Production startup still has an unconditional missing-composition error.

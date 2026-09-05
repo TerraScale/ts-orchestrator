@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-// TestManifestReconciliationInstallsUnitsAndStarts asserts one manifest
+// TestManifestReconciliationInstallsUnitsWithoutActivation asserts one manifest
 // pass: release installed, dedicated user provisioned, data volume owned,
-// unit file rendered, unit enabled and started — and no symlink flip.
-func TestManifestReconciliationInstallsUnitsAndStarts(t *testing.T) {
+// unit file rendered and enabled; initial activation is a separate deploy.
+func TestManifestReconciliationInstallsUnitsWithoutActivation(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	manifest := `{"components":[` + componentJSON(t, spec) + `]}`
@@ -50,8 +50,8 @@ func TestManifestReconciliationInstallsUnitsAndStarts(t *testing.T) {
 	if err != nil || len(unit) == 0 {
 		t.Fatalf("unit file not written: %v", err)
 	}
-	if !harness.systemd.isActive(UnitName("terrabase")) {
-		t.Fatal("unit not started")
+	if harness.systemd.isActive(UnitName("terrabase")) {
+		t.Fatal("unadmitted unit started before current existed")
 	}
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "" {
 		t.Fatalf("reconciliation flipped current to %q", current)
@@ -59,7 +59,6 @@ func TestManifestReconciliationInstallsUnitsAndStarts(t *testing.T) {
 	wantOperations := []string{
 		"daemon-reload:",
 		"enable:" + UnitName("terrabase"),
-		"start:" + UnitName("terrabase"),
 	}
 	if got := harness.systemd.ops(); !slices.Equal(got, wantOperations) {
 		t.Fatalf("systemd operations = %v, want %v", got, wantOperations)
@@ -289,6 +288,16 @@ func TestManifestReadmissionCancelsFailedRetirement(t *testing.T) {
 	harness := newTestHarness(t)
 	spec := harness.publish(t, "terrabase", "1.0.0")
 	harness.applyDesired(t, spec)
+	if err := harness.lifecycle.BeginDrain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.Deploy(context.Background(), spec.Name, spec.Version); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.ReleaseDrain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
 	harness.systemd.failOn["stop"] = UnitName(spec.Name)
 	if err := harness.lifecycle.ApplyDesired(context.Background(), nil); err == nil {
 		t.Fatal("expected failed retirement")

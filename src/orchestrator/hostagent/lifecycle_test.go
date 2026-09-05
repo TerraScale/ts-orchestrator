@@ -100,14 +100,20 @@ func TestDrainLifecycleIsQuiescedRestartReady(t *testing.T) {
 	v2 := harness.publish(t, "terrabase", "1.1.0")
 	harness.applyDesired(t, v1)
 
-	// Reconciliation installed v1, rendered the unit, enabled and started it.
-	if !harness.systemd.isActive(UnitName("terrabase")) {
-		t.Fatal("unit not started by reconciliation")
+	// Reconciliation stages v1 without admitting it.
+	if harness.systemd.isActive(UnitName("terrabase")) {
+		t.Fatal("reconciliation started an unadmitted release")
 	}
 	if current, _ := CurrentVersion(harness.root, "terrabase"); current != "" {
 		t.Fatalf("reconciliation flipped current to %q; installs never flip", current)
 	}
-	if err := FlipCurrent(harness.root, "terrabase", "1.0.0"); err != nil {
+	if err := harness.lifecycle.BeginDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.Deploy(ctx, v1.Name, v1.Version); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.ReleaseDrain(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +225,24 @@ func TestRollbackWorksWithoutDrain(t *testing.T) {
 func TestDrainIsIdempotentAndReleasable(t *testing.T) {
 	harness := newTestHarness(t)
 	ctx := context.Background()
-	harness.applyDesired(t, harness.publish(t, "terrabase", "1.0.0"))
+	spec := harness.publish(t, "terrabase", "1.0.0")
+	harness.applyDesired(t, spec)
+	if err := harness.lifecycle.ReleaseDrain(ctx); err == nil {
+		t.Fatal("release started an unadmitted component")
+	}
+	if harness.systemd.isActive(UnitName(spec.Name)) {
+		t.Fatal("release ran without current")
+	}
+	if err := harness.lifecycle.BeginDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.Deploy(ctx, spec.Name, spec.Version); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.ReleaseDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := harness.lifecycle.ReleaseDrain(ctx); err != nil {
 		t.Fatalf("release from serving failed: %v", err)
 	}

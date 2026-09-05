@@ -268,9 +268,11 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		SHA256: tsNode.manifest.SHA256, Signature: append([]byte(nil), tsNode.signature...),
 		ReleasePublicKey: append(ed25519.PublicKey(nil), services.publicKey...),
 		Config: vmimage.TSNodeConfig{
-			NodeID:            guest.ID,
-			NATSURL:           "nats://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))),
-			HeartbeatInterval: 500 * time.Millisecond, ReconcileInterval: 250 * time.Millisecond,
+			NodeID:  guest.ID,
+			NATSURL: "nats://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))),
+			// Match the production ts-node cadences. Reauthenticating complete
+			// releases at subsecond intervals distorts idle CPU and status contention.
+			HeartbeatInterval: 10 * time.Second, ReconcileInterval: 30 * time.Second,
 		},
 		DesiredHostManifest:   append([]byte(nil), services.manifest...),
 		ArtifactCACertificate: append([]byte(nil), services.caCertificate...),

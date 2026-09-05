@@ -25,8 +25,8 @@ Restart=on-failure
 RestartSec=2s
 UMask=0022
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_CHOWN
-AmbientCapabilities=CAP_CHOWN
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER
+AmbientCapabilities=CAP_CHOWN CAP_FOWNER
 SecureBits=noroot-locked
 ProtectSystem=strict
 ProtectHome=yes
@@ -139,8 +139,8 @@ func TestPrivilegeExceptionsStayNarrowAndOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, exact := range []string{
-		"CapabilityBoundingSet=CAP_CHOWN\n",
-		"AmbientCapabilities=CAP_CHOWN\n",
+		"CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER\n",
+		"AmbientCapabilities=CAP_CHOWN CAP_FOWNER\n",
 		"SecureBits=noroot-locked\n",
 		"SystemCallFilter=@system-service\n",
 		"ProtectProc=invisible\n",
@@ -152,7 +152,7 @@ func TestPrivilegeExceptionsStayNarrowAndOrdered(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_KILL", "CAP_NET_ADMIN", "CAP_SETGID", "CAP_SETUID", "CAP_SYS_ADMIN", "AF_NETLINK", "AF_PACKET",
+		"CAP_DAC_OVERRIDE", "CAP_KILL", "CAP_NET_ADMIN", "CAP_SETGID", "CAP_SETUID", "CAP_SYS_ADMIN", "AF_NETLINK", "AF_PACKET",
 	} {
 		if strings.Contains(rendered, forbidden) {
 			t.Fatalf("unit gained unneeded privilege %q", forbidden)

@@ -282,7 +282,7 @@ func ensureDirectoryWithin(root, target string, mode os.FileMode) error {
 	if err := ensureDirectory(cleanRoot, 0o755); err != nil {
 		return err
 	}
-	if err := os.Chmod(cleanRoot, 0o755); err != nil {
+	if err := ensureDirectoryMode(cleanRoot, 0o755); err != nil {
 		return err
 	}
 	current := cleanRoot
@@ -302,7 +302,23 @@ func ensureDirectoryWithin(root, target string, mode os.FileMode) error {
 			return &InvalidOperationError{Message: "The data volume path must not contain symlinks."}
 		}
 	}
-	return os.Chmod(current, mode)
+	return ensureDirectoryMode(current, mode)
+}
+
+// Avoid a privileged chmod when the declared mode already matches. Drift still
+// requires CAP_FOWNER after the directory has been assigned to its service uid.
+func ensureDirectoryMode(path string, mode os.FileMode) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return &InvalidOperationError{Message: "The data volume must be a real directory."}
+	}
+	if info.Mode().Perm() == mode.Perm() && !hasSpecialMode(info.Mode()) {
+		return nil
+	}
+	return os.Chmod(path, mode)
 }
 
 // validateDirectoryWithin is the read-only admission check used before any
@@ -934,18 +950,7 @@ func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec Comp
 		return err
 	}
 	if version == "" {
-		// A newly admitted component has no current link until its first
-		// orchestrator-coordinated deploy. Preserve the existing reconciliation
-		// contract, but authenticate the only candidate before systemd sees it.
-		installed, complete, verifyErr := i.inspectInstalledRelease(
-			VersionDir(i.installRoot, validated.Name, validated.Version), validated.Name, validated.Sha256)
-		if verifyErr != nil {
-			return verifyErr
-		}
-		if !installed || !complete {
-			return &InvalidOperationError{Message: fmt.Sprintf("Component %s version %s is not fully authenticated.", validated.Name, validated.Version)}
-		}
-		return transition(validated.Version)
+		return &InvalidOperationError{Message: "The component has no activated current release; deploy it before starting the unit."}
 	}
 	expectedSha256 := ""
 	if version == validated.Version {

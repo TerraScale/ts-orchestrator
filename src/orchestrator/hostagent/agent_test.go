@@ -46,11 +46,14 @@ func TestAgentServesAndReconcilesFromTheManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for !harness.systemd.isActive(UnitName("terrabase")) && time.Now().Before(deadline) {
+	for !InstalledVersion(harness.root, spec.Name, spec.Version) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !harness.systemd.isActive(UnitName("terrabase")) {
-		t.Fatal("agent never reconciled the manifest to a running unit")
+	if !InstalledVersion(harness.root, spec.Name, spec.Version) {
+		t.Fatal("agent never installed the manifest release")
+	}
+	if harness.systemd.isActive(UnitName(spec.Name)) {
+		t.Fatal("agent started an unadmitted component")
 	}
 	if heartbeats := connection.heartbeatPayloads(t); len(heartbeats) == 0 {
 		t.Fatal("agent never published a heartbeat")

@@ -1,0 +1,26 @@
+Real make vm-test with raw detached signatures
+2026-09-04 America/Sao_Paulo; native linux/amd64
+
+FAILED during first GRU 512 MiB host startup. No scenario executed; the six-host
+baseline and fourth Region were not reached. The static TerraBase input stayed
+at SHA-256 300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7.
+Qualifier SHA-256 a701d9a74954cfba9b2d8028fd865b60eac23df70791993b99eb19c642269939.
+Artifact preparer SHA-256 e6e35cce28a45811a466abeb0ce8f0dc14832acc08f0b11ec2bd9687680d5ea3.
+
+Guest chrony synchronized and cloud-init completed. ts-node remained active;
+both application units were restarting with systemd status 203/EXEC. The
+retained status error identified last-failed-phase=prepare-data-volume.
+Peak observed host RSS for the one guest was 446885888 bytes. No idle or disk
+budget qualification was established. The machine report records unstarted
+VMs and unavailable diagnostics explicitly. Cleanup completed; no namespaces
+remained. Full local output: /tmp/ts-orchestrator-vm-test-raw-signature.log.
+
+Subsequent host reproduction isolated the data-directory permission failure:
+uid 0 with noroot securebits and CAP_CHOWN alone cannot chmod a service-owned
+directory. Adding CAP_FOWNER permits that authorized repair. The first-pass
+unit start also ran before the deployment current link existed. Both fixes
+are being tested separately; they are not claimed as verified by this run.
+
+Controller failure and fixed startup metadata:
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: initial signed host installation unavailable: context deadline exceeded
+vmqual: decode ts-node reply for gru-member-1: host observation unavailable while lifecycle mutation is in progress; reconcile component=orchestrator phase=install outcome=in-progress last-failed-component=terrabase last-failed-phase=prepare-data-volume; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2222,"activeState":"active","subState":"running","result":"success","journalEntries":20,"severityCounts":[0,0,0,0,0,0,20,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":203,"journalEntries":20,"severityCounts":[0,0,0,4,4,4,8,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":203,"journalEntries":20,"severityCounts":[0,0,0,4,4,4,8,0]}]

@@ -1,0 +1,22 @@
+Real make vm-test after host permission and initial deployment fixes
+2026-09-04 America/Sao_Paulo; native linux/amd64
+
+FAILED during first GRU 512 MiB host startup. Signed installation and explicit
+activation completed, then both application units exited with status 1.
+ts-node remained active. No scenario ran; six-host baseline and fourth Region
+were not reached. This does not establish production readiness.
+
+Qualifier SHA-256 be3791feec4ff27164bfb6cebfac28d80686ed5ec8a463439367a924cb91ab14.
+Artifact preparer SHA-256 e6e35cce28a45811a466abeb0ce8f0b11ec2bd9687680d5ea3.
+TerraBase SHA-256 300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7.
+Peak guest host RSS 414494720 bytes. No idle or disk budget qualification.
+Cleanup completed; subsequent ip netns list and qualification-rule search
+returned no owned resources. Full output: /tmp/ts-orchestrator-vm-test-admission.log.
+
+Portable make check and full sandboxvm race suite passed after the permission,
+initial admission, and production-cadence fixes. Logs:
+/tmp/ts-orchestrator-admission-check.log
+/tmp/ts-orchestrator-admission-tagged.log
+
+Controller failure and bounded service metadata:
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: activated orchestrator process is not running; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2224,"activeState":"active","subState":"running","result":"success","journalEntries":6,"severityCounts":[0,0,0,0,0,0,6,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":16,"severityCounts":[0,0,0,0,2,2,12,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":17,"severityCounts":[0,0,0,0,3,3,11,0]}]
