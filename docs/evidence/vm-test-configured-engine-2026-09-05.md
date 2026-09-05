@@ -22,7 +22,11 @@ active/running. TerraBase exited with status 1 and was awaiting automatic
 restart. Its 17 retained journal-entry counts produced no recognized fixed
 failure category. In particular, missing configuration was no longer reported;
 this alone does not prove parser, catalog, TLS, or membership acceptance. The
-next failure remains unidentified. No guest became ready and no scenario ran.
+failure was unidentified at capture time. The subsequent
+[binary comparison and guest rerun](engine-pem-rebuild-2026-09-05.md) reproduced
+TLS rejection in the old binary and reached the missing membership source with
+the producer's committed PEM decoder fix. No guest became ready and no scenario
+ran in this attempt.
 
 Automatic cleanup completed. Provider paths were absent and fixture listeners
 were unreachable in the retained report. A subsequent explicit `make vm-clean`

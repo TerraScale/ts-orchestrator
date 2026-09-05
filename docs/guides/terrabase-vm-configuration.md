@@ -104,5 +104,9 @@ unwired. SFO/FRA guest admission also remains separate from this GRU bootstrap
 integration. The renderer does not supply a key provider, engine admission,
 replication readiness, or a lifecycle mutation adapter. Portable tests cover
 declaration, certificate, signature, manifest, and image-material boundaries;
-they do not prove parser acceptance by the supplied engine binary or successful
-Firecracker service startup. Production and full VM acceptance remain open.
+they do not prove parser acceptance by an engine binary or successful
+Firecracker service startup. A subsequent
+[configured guest attempt](../evidence/engine-pem-rebuild-2026-09-05.md) using the
+producer's committed PEM decoder fix reached the missing durable membership
+source after catalog and transport construction. It did not become ready.
+Production and full VM acceptance remain open.

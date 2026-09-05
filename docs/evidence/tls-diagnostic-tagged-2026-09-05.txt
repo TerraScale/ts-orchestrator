@@ -1,0 +1,2 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/guestdiagnostic	4.146s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	12.860s

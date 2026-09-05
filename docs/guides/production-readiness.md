@@ -41,9 +41,11 @@ explicit production declarations into the owner-signed GRU host manifest and
 separately provisions exact member TLS material. It binds the supplied engine
 artifact and validated guest addresses. It still needs a published launch
 contract and engine membership integration. The latest
-[configured guest attempt](../evidence/vm-test-configured-engine-2026-09-05.md)
-booted the first GRU guest with ts-node and orchestrator running, but TerraBase
-exited with status 1 without a recognized diagnostic category. No scenario ran.
+[configured guest attempt](../evidence/engine-pem-rebuild-2026-09-05.md)
+uses an isolated build of the producer's committed PEM decoder fix. It booted
+the first GRU guest with ts-node and orchestrator running. TerraBase reached
+`membership-source-missing` after catalog and transport construction, then
+exited with status 1. No scenario ran.
 
 Canonical component, launch and manifest validation now lives in
 `src/orchestrator/hostmanifest`. Host installation, signed bootstrap grants,
