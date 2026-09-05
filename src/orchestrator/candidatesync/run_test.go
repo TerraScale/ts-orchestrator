@@ -79,6 +79,7 @@ type fixture struct {
 	owner       *security.CommandSignatureSigner
 	ownerPublic []byte
 	source      *security.CommandSignatureSigner
+	fraPrivate  []byte
 }
 
 func newFixture(t *testing.T) fixture {
@@ -86,7 +87,7 @@ func newFixture(t *testing.T) fixture {
 	owner, ownerPublic, _ := testSigner(t)
 	source, sourcePublic, _ := testSigner(t)
 	_, candidatePublic, candidatePrivate := testSigner(t)
-	_, fraPublic, _ := testSigner(t)
+	_, fraPublic, fraPrivate := testSigner(t)
 	now := time.Now().UTC()
 	h := func(s string) string { return strings.Repeat(s, 64) }
 	request := preliminarycapture.Request{Version: 1, TransitionID: "transition-1", SourceNodeID: "gru-1", InitialGrantSHA256: h("a"), StoreScopeSHA256: h("b"), ProfileSHA256: h("c"), Accounts: []preliminarycapture.AccountInventory{{Account: "GLOBAL", Streams: []string{"SPEC"}}, {Account: "REGIONAL", Streams: []string{"EVENTS"}}}, ControlEpoch: 5, IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
@@ -204,7 +205,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatal(e)
 	}
 	config := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: request.TransitionID, NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-candidate-1", StoreDir: filepath.Join(dir, "final-store"), GrantFile: filepath.Join(dir, "grant.json"), GrantPublicKeyFile: filepath.Join(dir, "owner.pem"), Sync: &transitiongrant.CandidateSyncConfig{AuthorityReaderSHA256: h("2"), RequestFile: filepath.Join(dir, "request.json"), StagingDir: filepath.Join(dir, "stage"), ReceiptDir: filepath.Join(dir, "receipts"), ReceiptPrivateKeyFile: privatePath, ReceiptPublicKeyPEM: string(candidatePublic), MaxSnapshotBytes: scope.MaxSnapshotBytes, MaxTotalBytes: scope.MaxTotalBytes, MaxRestoreBytes: scope.MaxRestoreBytes, Identity: ociinstance.Config{Region: "us-sanjose-1"}}}
-	return fixture{config, verified, objects, owner, ownerPublic, source}
+	return fixture{config, verified, objects, owner, ownerPublic, source, fraPrivate}
 }
 func mustScope(t *testing.T, s preliminarytransfer.Scope) []byte {
 	t.Helper()

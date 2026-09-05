@@ -37,7 +37,7 @@ func testPlan(t testing.TB) Plan {
 	t.Helper()
 	h := strings.Repeat("a", 64)
 	_, sourcePublic := testKey(t)
-	p := Plan{Version: 1, Mode: Mode, EstateID: "launch", TransitionID: "first-r3", IssuedAt: time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), ClusterName: "control-r3", TrustBundleSHA256: h, SourceTopologyEpoch: 1, TargetTopologyEpoch: 2, GlobalElectionFloor: 11, RegionalElectionFloor: 7,
+	p := Plan{Version: 1, Mode: Mode, PreliminaryScopeSHA256: h, EstateID: "launch", TransitionID: "first-r3", IssuedAt: time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), ClusterName: "control-r3", TrustBundleSHA256: h, SourceTopologyEpoch: 1, TargetTopologyEpoch: 2, GlobalElectionFloor: 11, RegionalElectionFloor: 7,
 		Source: Source{NodeID: "gru-one", ServerName: "source-r1", BootstrapGrantSHA256: h, InitialManifestSHA256: h, CaptureManifestSHA256: strings.Repeat("b", 64), LaunchSHA256: h, StoreScopeSHA256: h, ProfileSHA256: h, StoreDir: "/data/source", CaptureDir: "/data/capture", ArchiveDir: "/data/archives", ReceiptPublicKeyPEM: string(sourcePublic)},
 		Limits: Limits{MaxStoreBytes: 1 << 30, MaxStoreFiles: 10000, MaxSnapshotBytes: 1 << 20, MaxTransferBytes: 1 << 30, MaxRestoreBytes: 1 << 30}}
 	p.ExpiresAt = p.IssuedAt.Add(time.Hour)
@@ -141,6 +141,7 @@ func TestPlanSignatureLifetimeAndImmutableScope(t *testing.T) {
 
 func TestPlanRejectsIncompleteConflictingOrUnboundedEffects(t *testing.T) {
 	for name, mutate := range map[string]func(*Plan){
+		"missing preliminary scope":         func(p *Plan) { p.PreliminaryScopeSHA256 = "" },
 		"ordinary mode":                     func(p *Plan) { p.Mode = "run" },
 		"missing destination":               func(p *Plan) { p.Destinations = p.Destinations[:2] },
 		"reordered regions":                 func(p *Plan) { p.Destinations[1], p.Destinations[2] = p.Destinations[2], p.Destinations[1] },

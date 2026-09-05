@@ -286,7 +286,7 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 		return nil, err
 	}
 	if found {
-		prior, e := VerifyReceipt([]byte(sync.ReceiptPublicKeyPEM), existing)
+		prior, e := VerifyScopedReceipt(v.Scope, c.Region, existing, time.Now())
 		if e != nil {
 			return nil, e
 		}

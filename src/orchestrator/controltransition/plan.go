@@ -26,22 +26,23 @@ const Mode = "transition-control-r1-to-r3"
 // final archive digests are supplied by chained capture receipts, not guessed
 // before the final cut. All SHA256 fields use bare lower-case hexadecimal.
 type Plan struct {
-	Version               int           `json:"version"`
-	Mode                  string        `json:"mode"`
-	EstateID              string        `json:"estateId"`
-	TransitionID          string        `json:"transitionId"`
-	IssuedAt              time.Time     `json:"issuedAt"`
-	ExpiresAt             time.Time     `json:"expiresAt"`
-	Source                Source        `json:"source"`
-	ClusterName           string        `json:"clusterName"`
-	TrustBundleSHA256     string        `json:"trustBundleSha256"`
-	SourceTopologyEpoch   uint64        `json:"sourceTopologyEpoch"`
-	TargetTopologyEpoch   uint64        `json:"targetTopologyEpoch"`
-	GlobalElectionFloor   int64         `json:"globalElectionFloor"`
-	RegionalElectionFloor int64         `json:"regionalElectionFloor"`
-	Destinations          []Destination `json:"destinations"`
-	Accounts              []Account     `json:"accounts"`
-	Limits                Limits        `json:"limits"`
+	Version                int           `json:"version"`
+	Mode                   string        `json:"mode"`
+	EstateID               string        `json:"estateId"`
+	TransitionID           string        `json:"transitionId"`
+	PreliminaryScopeSHA256 string        `json:"preliminaryScopeSha256"`
+	IssuedAt               time.Time     `json:"issuedAt"`
+	ExpiresAt              time.Time     `json:"expiresAt"`
+	Source                 Source        `json:"source"`
+	ClusterName            string        `json:"clusterName"`
+	TrustBundleSHA256      string        `json:"trustBundleSha256"`
+	SourceTopologyEpoch    uint64        `json:"sourceTopologyEpoch"`
+	TargetTopologyEpoch    uint64        `json:"targetTopologyEpoch"`
+	GlobalElectionFloor    int64         `json:"globalElectionFloor"`
+	RegionalElectionFloor  int64         `json:"regionalElectionFloor"`
+	Destinations           []Destination `json:"destinations"`
+	Accounts               []Account     `json:"accounts"`
+	Limits                 Limits        `json:"limits"`
 }
 
 type Source struct {
@@ -157,6 +158,9 @@ func separatePaths(paths ...string) bool {
 
 func (p Plan) Validate() error {
 	bad := errors.New("controltransition: invalid finite transition plan")
+	if !validDigest(p.PreliminaryScopeSHA256) {
+		return bad
+	}
 	if p.Version != 1 || p.Mode != Mode || !token(p.EstateID) || !token(p.TransitionID) || p.IssuedAt.IsZero() || !p.ExpiresAt.After(p.IssuedAt) || p.ExpiresAt.Sub(p.IssuedAt) > 24*time.Hour || !token(p.ClusterName) || !validDigest(p.TrustBundleSHA256) || p.SourceTopologyEpoch == 0 || p.TargetTopologyEpoch <= p.SourceTopologyEpoch || p.GlobalElectionFloor <= 0 || p.GlobalElectionFloor == math.MaxInt64 || p.RegionalElectionFloor <= 0 || p.RegionalElectionFloor == math.MaxInt64 || len(p.Destinations) != 3 || len(p.Accounts) != 2 {
 		return bad
 	}
