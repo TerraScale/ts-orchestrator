@@ -49,7 +49,8 @@ type NATSJetStreamSnapshotterConfig struct {
 }
 
 // NATSJetStreamSnapshotter requests the server's binary stream snapshot and
-// uploads those exact bytes to the control Region's Object Storage bucket.
+// uploads a versioned envelope containing those exact bytes and the API metadata
+// needed to restore them to the control Region's Object Storage bucket.
 type NATSJetStreamSnapshotter struct {
 	connection *nats.Conn
 	stream     string
@@ -97,8 +98,7 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 		return ControlStateSnapshot{}, errors.New("restore drill: snapshot context is required")
 	}
 	if !validToken(request.RunID) || !validToken(request.ObjectKey) || !validToken(request.IdempotencyKey) ||
-		request.RunID != request.IdempotencyKey || request.ControlEpoch == 0 || request.RestoreEpoch == 0 ||
-		request.ControlEpoch != request.RestoreEpoch ||
+		request.RunID != request.IdempotencyKey || request.ControlEpoch == 0 ||
 		!strings.HasSuffix(request.ObjectKey, ".epoch-"+strconv.FormatUint(request.ControlEpoch, 10)+".snapshot") {
 		return ControlStateSnapshot{}, ErrInvalidSnapshotIdentity
 	}
@@ -117,17 +117,26 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 		if !bodyFound || int64(len(body)) != existing.Size || !delivery.SameDigest(delivery.SHA256Digest(body), existing.Digest) {
 			return ControlStateSnapshot{}, ErrSnapshotVerification
 		}
-		if err := validateJetStreamSnapshot(body, s.stream, s.maxBytes); err != nil {
+		manifest, _, err := decodeJetStreamSnapshotEnvelope(body, s.stream, s.maxBytes)
+		if err != nil {
 			return ControlStateSnapshot{}, err
 		}
-		return s.snapshotIdentity(request, existing)
+		if manifest.Request != request {
+			return ControlStateSnapshot{}, ErrSnapshotVerification
+		}
+		return s.snapshotIdentity(request, existing, manifest.CreatedAt)
 	}
 
-	data, err := s.streamSnapshot(operationCtx)
+	archive, response, err := s.streamSnapshot(operationCtx)
 	if err != nil {
 		return ControlStateSnapshot{}, err
 	}
-	if err := validateJetStreamSnapshot(data, s.stream, s.maxBytes); err != nil {
+	manifest := jetStreamSnapshotManifest{Version: 1, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
+	data, err := encodeJetStreamSnapshotEnvelope(manifest, archive, s.maxBytes)
+	if err != nil {
+		return ControlStateSnapshot{}, err
+	}
+	if _, _, err := decodeJetStreamSnapshotEnvelope(data, s.stream, s.maxBytes); err != nil {
 		return ControlStateSnapshot{}, err
 	}
 	if err := s.store.Put(operationCtx, s.region, s.bucket, request.ObjectKey, data); err != nil {
@@ -141,7 +150,14 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 	if !found || identity.Size != want.Size || !delivery.SameDigest(identity.Digest, want.Digest) || identity.ETag == "" {
 		return ControlStateSnapshot{}, ErrSnapshotVerification
 	}
-	return s.snapshotIdentity(request, identity)
+	stored, readable, err := s.store.GetSnapshot(operationCtx, s.region, s.bucket, request.ObjectKey)
+	if err != nil {
+		return ControlStateSnapshot{}, err
+	}
+	if !readable || !bytes.Equal(stored, data) {
+		return ControlStateSnapshot{}, ErrSnapshotVerification
+	}
+	return s.snapshotIdentity(request, identity, manifest.CreatedAt)
 }
 
 type natsSnapshotRequest struct {
@@ -158,9 +174,7 @@ type natsSnapshotResponse struct {
 	State  *natsSnapshotState `json:"state,omitempty"`
 }
 
-type natsSnapshotState struct {
-	Messages uint64 `json:"messages"`
-}
+type natsSnapshotState = nats.StreamState
 
 type natsAPIError struct {
 	Code        int    `json:"code"`
@@ -168,69 +182,69 @@ type natsAPIError struct {
 	Description string `json:"description"`
 }
 
-func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, error) {
+func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, natsSnapshotResponse, error) {
 	inbox := nats.NewInbox()
 	subscription, err := s.connection.SubscribeSync(inbox)
 	if err != nil {
-		return nil, err
+		return nil, natsSnapshotResponse{}, err
 	}
 	defer subscription.Unsubscribe()
 	if err := s.connection.FlushWithContext(ctx); err != nil {
-		return nil, err
+		return nil, natsSnapshotResponse{}, err
 	}
 	payload, err := json.Marshal(natsSnapshotRequest{
 		DeliverSubject: inbox, NoConsumers: false, ChunkSize: 1 << 20, CheckMessages: true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, natsSnapshotResponse{}, err
 	}
 	reply, err := s.connection.RequestWithContext(ctx, "$JS.API.STREAM.SNAPSHOT."+s.stream, payload)
 	if err != nil {
-		return nil, err
+		return nil, natsSnapshotResponse{}, err
 	}
 	var response natsSnapshotResponse
 	decoder := json.NewDecoder(bytes.NewReader(reply.Data))
 	if err := decoder.Decode(&response); err != nil {
-		return nil, errors.New("restore drill: JetStream snapshot response is malformed")
+		return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream snapshot response is malformed")
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, errors.New("restore drill: JetStream snapshot response has trailing data")
+		return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream snapshot response has trailing data")
 	}
 	if response.Error != nil {
-		return nil, fmt.Errorf("restore drill: JetStream snapshot request failed with code %d", response.Error.ErrCode)
+		return nil, natsSnapshotResponse{}, fmt.Errorf("restore drill: JetStream snapshot request failed with code %d", response.Error.ErrCode)
 	}
-	if response.Type != "io.nats.jetstream.api.v1.stream_snapshot_response" || len(response.Config) == 0 || response.State == nil || response.State.Messages == 0 {
-		return nil, errors.New("restore drill: JetStream snapshot response has no stream state")
+	if response.Type != "io.nats.jetstream.api.v1.stream_snapshot_response" || len(response.Config) == 0 || response.State == nil {
+		return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream snapshot response has no stream state")
 	}
 
 	var snapshot bytes.Buffer
 	for {
 		message, err := subscription.NextMsgWithContext(ctx)
 		if err != nil {
-			return nil, err
+			return nil, natsSnapshotResponse{}, err
 		}
 		if len(message.Data) == 0 {
 			break
 		}
 		if int64(snapshot.Len()) > s.maxBytes-int64(len(message.Data)) {
-			return nil, errors.New("restore drill: JetStream snapshot exceeds the configured limit")
+			return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream snapshot exceeds the configured limit")
 		}
 		if _, err := snapshot.Write(message.Data); err != nil {
-			return nil, err
+			return nil, natsSnapshotResponse{}, err
 		}
 		if message.Reply != "" {
 			if err := message.Respond(nil); err != nil {
-				return nil, err
+				return nil, natsSnapshotResponse{}, err
 			}
 		}
 	}
 	if snapshot.Len() == 0 {
-		return nil, errors.New("restore drill: JetStream returned an empty snapshot")
+		return nil, natsSnapshotResponse{}, errors.New("restore drill: JetStream returned an empty snapshot")
 	}
-	return snapshot.Bytes(), nil
+	return snapshot.Bytes(), response, nil
 }
 
-func (s *NATSJetStreamSnapshotter) snapshotIdentity(request SnapshotRequest, identity delivery.ObjectIdentity) (ControlStateSnapshot, error) {
+func (s *NATSJetStreamSnapshotter) snapshotIdentity(request SnapshotRequest, identity delivery.ObjectIdentity, createdAt time.Time) (ControlStateSnapshot, error) {
 	if identity.Size <= 0 || !snapshotSHA256Pattern.MatchString(identity.Digest) || identity.ETag == "" {
 		return ControlStateSnapshot{}, ErrSnapshotVerification
 	}
@@ -238,8 +252,8 @@ func (s *NATSJetStreamSnapshotter) snapshotIdentity(request SnapshotRequest, ide
 	return ControlStateSnapshot{
 		ID: "jetstream-" + digest[:16], ObjectKey: request.ObjectKey,
 		Checksum: identity.Digest, Size: identity.Size,
-		ControlEpoch: request.ControlEpoch, RestoreEpoch: request.RestoreEpoch,
-		CreatedAt: s.now().UTC(),
+		ControlEpoch: request.ControlEpoch,
+		CreatedAt:    createdAt,
 	}, nil
 }
 
@@ -256,22 +270,25 @@ func validNATSStreamName(value string) bool {
 	return true
 }
 
-func validateJetStreamSnapshot(data []byte, stream string, maximum int64) error {
-	if len(data) == 0 || int64(len(data)) > maximum {
+func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config json.RawMessage, state *natsSnapshotState) error {
+	if len(data) == 0 || int64(len(data)) > maximum || state == nil {
 		return ErrSnapshotVerification
 	}
 	archive := tar.NewReader(s2.NewReader(bytes.NewReader(data)))
 	meta, checksum, messages := false, false, false
+	seen := map[string]bool{}
+	consumers := map[string]map[string]bool{}
 	var expanded int64
 	for {
 		header, err := archive.Next()
 		if err == io.EOF {
 			break
 		}
-		if err != nil || header == nil || header.Name == "" || path.IsAbs(header.Name) || path.Clean(header.Name) != header.Name || header.Size < 0 ||
+		if err != nil || header == nil || header.Name == "" || path.IsAbs(header.Name) || path.Clean(header.Name) != header.Name || strings.HasPrefix(header.Name, "../") || header.Name == ".." || seen[header.Name] || header.Size < 0 ||
 			(header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) {
 			return ErrSnapshotVerification
 		}
+		seen[header.Name] = true
 		if expanded > maximum*8-header.Size {
 			return ErrSnapshotVerification
 		}
@@ -282,10 +299,18 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64) error 
 			if err != nil || int64(len(body)) != header.Size {
 				return ErrSnapshotVerification
 			}
-			var config struct {
-				Name string `json:"name"`
+			var archived, expected map[string]json.RawMessage
+			if json.Unmarshal(body, &archived) != nil || json.Unmarshal(config, &expected) != nil || archived == nil || expected == nil {
+				return ErrSnapshotVerification
 			}
-			if json.Unmarshal(body, &config) != nil || config.Name != stream {
+			delete(archived, "Created")
+			actualJSON, _ := json.Marshal(archived)
+			expectedJSON, _ := json.Marshal(expected)
+			if !bytes.Equal(actualJSON, expectedJSON) {
+				return ErrSnapshotVerification
+			}
+			var name string
+			if json.Unmarshal(expected["name"], &name) != nil || name != stream {
 				return ErrSnapshotVerification
 			}
 			meta = true
@@ -294,18 +319,41 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64) error 
 				return ErrSnapshotVerification
 			}
 			checksum = header.Size > 0
-		case strings.HasPrefix(header.Name, "msgs/") && header.Size > 0:
+		case strings.HasPrefix(header.Name, "msgs/") && strings.HasSuffix(header.Name, ".blk") && header.Size > 0:
 			if _, err := io.Copy(io.Discard, archive); err != nil {
 				return ErrSnapshotVerification
 			}
 			messages = true
+		case strings.HasPrefix(header.Name, "obs/"):
+			parts := strings.Split(header.Name, "/")
+			if len(parts) != 3 || !validNATSStreamName(parts[1]) || (parts[2] != "meta.inf" && parts[2] != "meta.sum" && parts[2] != "o.dat") || header.Size == 0 {
+				return ErrSnapshotVerification
+			}
+			if consumers[parts[1]] == nil {
+				consumers[parts[1]] = map[string]bool{}
+			}
+			consumers[parts[1]][parts[2]] = true
+			if _, err := io.Copy(io.Discard, archive); err != nil {
+				return ErrSnapshotVerification
+			}
 		default:
+			if !strings.HasPrefix(header.Name, "msgs/") {
+				return ErrSnapshotVerification
+			}
 			if _, err := io.Copy(io.Discard, archive); err != nil {
 				return ErrSnapshotVerification
 			}
 		}
 	}
-	if !meta || !checksum || !messages {
+	if len(consumers) != state.Consumers {
+		return ErrSnapshotVerification
+	}
+	for _, files := range consumers {
+		if len(files) != 3 {
+			return ErrSnapshotVerification
+		}
+	}
+	if !meta || !checksum || ((!messages) && (state.Msgs != 0 || state.FirstSeq != 0 || state.LastSeq != 0)) {
 		return ErrSnapshotVerification
 	}
 	return nil

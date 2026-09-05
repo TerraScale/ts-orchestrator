@@ -148,7 +148,7 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 	}
 	request := SnapshotRequest{
 		RunID: "restore-drill-2026-09-04", ObjectKey: "jetstream/control/restore-drill-2026-09-04.epoch-9.snapshot",
-		IdempotencyKey: "restore-drill-2026-09-04", ControlEpoch: 9, RestoreEpoch: 9,
+		IdempotencyKey: "restore-drill-2026-09-04", ControlEpoch: 9,
 	}
 	snapshot, err := snapshotter.Snapshot(ctx, request)
 	if err != nil {
@@ -159,7 +159,11 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 		t.Fatalf("snapshot identity = %+v, bytes=%d", snapshot, len(body))
 	}
 
-	archive := tar.NewReader(s2.NewReader(bytes.NewReader(body)))
+	manifest, inner, err := decodeJetStreamSnapshotEnvelope(body, "CONTROL_STATE", 8<<20)
+	if err != nil || manifest.Request != request || manifest.State.Msgs != before.State.Msgs {
+		t.Fatalf("snapshot envelope: %+v %v", manifest, err)
+	}
+	archive := tar.NewReader(s2.NewReader(bytes.NewReader(inner)))
 	entries := 0
 	for {
 		header, err := archive.Next()
@@ -182,8 +186,8 @@ func TestNATSJetStreamSnapshotterUploadsRestorableBinaryArchive(t *testing.T) {
 	}
 	// Restore the exact uploaded object into a separate broker/store. Parsing
 	// tar alone cannot prove NATS accepts the archive or preserves its checkpoint.
-	restoreSnapshotAndVerify(t, ctx, body, before, originals, checkpoint)
-	if retry, err := snapshotter.Snapshot(ctx, request); err != nil || retry.Checksum != snapshot.Checksum || retry.Size != snapshot.Size {
+	restoreSnapshotAndVerify(t, ctx, inner, before, originals, checkpoint)
+	if retry, err := snapshotter.Snapshot(ctx, request); err != nil || retry != snapshot {
 		t.Fatalf("uploaded snapshot readback retry: %+v %v", retry, err)
 	}
 	store.mu.Lock()

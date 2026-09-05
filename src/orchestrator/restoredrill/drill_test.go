@@ -286,7 +286,7 @@ func (f *fakeSnapshot) Snapshot(_ context.Context, request SnapshotRequest) (Con
 	if f.err != nil {
 		return ControlStateSnapshot{}, f.err
 	}
-	return ControlStateSnapshot{ID: "snapshot-1", ObjectKey: request.ObjectKey, Checksum: "sha", Size: 12, RestoreEpoch: request.RestoreEpoch}, nil
+	return ControlStateSnapshot{ID: "snapshot-1", ObjectKey: request.ObjectKey, Checksum: "sha", Size: 12, ControlEpoch: request.ControlEpoch}, nil
 }
 
 func (f *fakeSnapshot) Mirror(_ context.Context, snapshot ControlStateSnapshot, region string) error {
@@ -305,12 +305,12 @@ func TestSnapshotIsMirroredToEveryRegionWithStableIdentity(t *testing.T) {
 	drill.config.Snapshotter = snapshot
 	drill.config.SnapshotMirror = snapshot
 	drill.config.SnapshotRegions = []string{"gru", "sfo", "fra"}
-	drill.config.RestoreEpoch = func() uint64 { return 9 }
+	drill.config.ControlEpoch = func() uint64 { return 9 }
 	run, err := drill.Run(context.Background())
 	if err != nil || run.Status != RunSucceeded {
 		t.Fatalf("Run = status %s, err %v", run.Status, err)
 	}
-	if len(snapshot.requests) != 1 || snapshot.requests[0].IdempotencyKey != run.ID || snapshot.requests[0].RestoreEpoch != 9 {
+	if len(snapshot.requests) != 1 || snapshot.requests[0].IdempotencyKey != run.ID || snapshot.requests[0].ControlEpoch != 9 {
 		t.Fatalf("snapshot requests = %+v", snapshot.requests)
 	}
 	if got := len(snapshot.regions); got != 3 {
@@ -327,7 +327,7 @@ func TestSnapshotFailurePagesAndRetryUsesSameKey(t *testing.T) {
 	drill.config.Snapshotter = snapshot
 	drill.config.SnapshotMirror = snapshot
 	drill.config.SnapshotRegions = []string{"gru"}
-	drill.config.RestoreEpoch = func() uint64 { return 2 }
+	drill.config.ControlEpoch = func() uint64 { return 2 }
 	first, err := drill.Run(context.Background())
 	if err == nil || first.Status != RunFailed || len(pager.pages) != 1 {
 		t.Fatalf("first = status %s, err %v, pages=%d", first.Status, err, len(pager.pages))

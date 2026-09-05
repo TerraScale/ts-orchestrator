@@ -161,7 +161,7 @@ func TestOCIImmutableSnapshotsAndRegionalMirror(t *testing.T) {
 	if b.puts != 1 {
 		t.Fatalf("puts=%d", b.puts)
 	}
-	snapshot := restoredrill.ControlStateSnapshot{ObjectKey: key, Checksum: delivery.SHA256Digest(body), Size: int64(len(body)), ControlEpoch: 7, RestoreEpoch: 7}
+	snapshot := restoredrill.ControlStateSnapshot{ObjectKey: key, Checksum: delivery.SHA256Digest(body), Size: int64(len(body)), ControlEpoch: 7}
 	if err := s.Mirror(ctx, snapshot, "sfo"); err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestGlobalAuthorityReceivesDestinationAndSnapshotTerm(t *testing.T) {
 	if err := s.Put(ctx, "gru", "snapshots", key, body); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := restoredrill.ControlStateSnapshot{ObjectKey: key, Checksum: delivery.SHA256Digest(body), Size: int64(len(body)), ControlEpoch: globalTerm, RestoreEpoch: globalTerm}
+	snapshot := restoredrill.ControlStateSnapshot{ObjectKey: key, Checksum: delivery.SHA256Digest(body), Size: int64(len(body)), ControlEpoch: globalTerm}
 	if err := s.Mirror(ctx, snapshot, "sfo"); err == nil {
 		t.Fatal("mirrored outside global authority destination scope")
 	}

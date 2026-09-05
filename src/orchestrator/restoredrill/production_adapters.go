@@ -197,15 +197,8 @@ func (a *ProductionSnapshotAdapter) Snapshot(ctx context.Context, request Snapsh
 	if ctx == nil {
 		return ControlStateSnapshot{}, errors.New("restore drill: snapshot context is required")
 	}
-	if request.ControlEpoch == 0 {
-		request.ControlEpoch = request.RestoreEpoch
-	}
-	if request.RestoreEpoch == 0 {
-		request.RestoreEpoch = request.ControlEpoch
-	}
 	if !validToken(request.RunID) || !validToken(request.ObjectKey) ||
-		!validToken(request.IdempotencyKey) || request.ControlEpoch == 0 || request.RestoreEpoch == 0 ||
-		request.ControlEpoch != request.RestoreEpoch || strings.ContainsAny(request.ObjectKey, "\x00\r\n") {
+		!validToken(request.IdempotencyKey) || request.ControlEpoch == 0 || strings.ContainsAny(request.ObjectKey, "\x00\r\n") {
 		return ControlStateSnapshot{}, ErrInvalidSnapshotIdentity
 	}
 	if err := ctx.Err(); err != nil {
@@ -219,8 +212,7 @@ func (a *ProductionSnapshotAdapter) Snapshot(ctx context.Context, request Snapsh
 		return snapshot, err
 	}
 	if snapshot.ObjectKey != request.ObjectKey ||
-		(snapshot.ControlEpoch != 0 && snapshot.ControlEpoch != request.ControlEpoch) ||
-		(snapshot.RestoreEpoch != 0 && snapshot.RestoreEpoch != request.RestoreEpoch) {
+		snapshot.ControlEpoch != request.ControlEpoch {
 		return snapshot, ErrRestoreEpochFenced
 	}
 	return snapshot, nil
@@ -265,8 +257,7 @@ func (a *ProductionSnapshotMirrorAdapter) Mirror(ctx context.Context, snapshot C
 func validateSnapshotIdentity(snapshot ControlStateSnapshot) error {
 	if strings.TrimSpace(snapshot.ID) == "" || strings.TrimSpace(snapshot.ObjectKey) == "" ||
 		strings.TrimSpace(snapshot.Checksum) == "" || snapshot.Size < 0 ||
-		(snapshot.ControlEpoch == 0 && snapshot.RestoreEpoch == 0) ||
-		(snapshot.ControlEpoch != 0 && snapshot.RestoreEpoch != 0 && snapshot.ControlEpoch != snapshot.RestoreEpoch) {
+		snapshot.ControlEpoch == 0 {
 		return ErrInvalidSnapshotIdentity
 	}
 	return nil

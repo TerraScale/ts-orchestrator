@@ -357,13 +357,11 @@ func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (Contro
 	epoch := uint64(0)
 	if !isNil(d.config.ControlEpoch) {
 		epoch = d.config.ControlEpoch()
-	} else if !isNil(d.config.RestoreEpoch) {
-		epoch = d.config.RestoreEpoch()
 	} else {
 		epoch = d.config.AcceptedControlEpoch
 	}
 	if epoch == 0 {
-		return ControlStateSnapshot{}, nil, fmt.Errorf("%w: control-state snapshot has zero restore epoch", ErrRestoreEpochFenced)
+		return ControlStateSnapshot{}, nil, fmt.Errorf("%w: control-state snapshot has zero control epoch", ErrRestoreEpochFenced)
 	}
 	prefix := d.config.SnapshotPrefix
 	if prefix == "" {
@@ -371,18 +369,15 @@ func (d *Drill) snapshotControlState(ctx context.Context, run RunRecord) (Contro
 	}
 	prefix = strings.TrimSuffix(prefix, "/") + "/"
 	key := fmt.Sprintf("%s%s.epoch-%d.snapshot", prefix, run.ID, epoch)
-	request := SnapshotRequest{RunID: run.ID, ObjectKey: key, IdempotencyKey: run.ID, ControlEpoch: epoch, RestoreEpoch: epoch}
+	request := SnapshotRequest{RunID: run.ID, ObjectKey: key, IdempotencyKey: run.ID, ControlEpoch: epoch}
 	snapshot, err := d.config.Snapshotter.Snapshot(ctx, request)
 	if err != nil {
 		return ControlStateSnapshot{}, nil, sanitizeError(err)
 	}
-	if snapshot.ID == "" || snapshot.ObjectKey != key || snapshot.Checksum == "" || snapshot.Size < 0 || (snapshot.ControlEpoch == 0 && snapshot.RestoreEpoch == 0) {
+	if snapshot.ID == "" || snapshot.ObjectKey != key || snapshot.Checksum == "" || snapshot.Size < 0 || snapshot.ControlEpoch == 0 {
 		return snapshot, nil, fmt.Errorf("%w: invalid JetStream snapshot identity", ErrInvalidConfig)
 	}
-	if snapshot.ControlEpoch != 0 && snapshot.ControlEpoch != epoch {
-		return snapshot, nil, ErrRestoreEpochFenced
-	}
-	if snapshot.RestoreEpoch != 0 && snapshot.RestoreEpoch != epoch {
+	if snapshot.ControlEpoch != epoch {
 		return snapshot, nil, ErrRestoreEpochFenced
 	}
 	var mirrorErr error

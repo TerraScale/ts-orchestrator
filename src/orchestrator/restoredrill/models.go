@@ -139,16 +139,14 @@ func (f SnapshotMirrorFunc) Mirror(ctx context.Context, snapshot ControlStateSna
 }
 
 // SnapshotRequest identifies the one daily control-state snapshot. ObjectKey
-// is deterministic and RestoreEpoch is a fence: a stale snapshot may be
+// is deterministic and ControlEpoch is a fence: a stale snapshot may be
 // retained for evidence but must not become the active control state.
 type SnapshotRequest struct {
 	RunID          string
 	ObjectKey      string
 	IdempotencyKey string
-	// ControlEpoch is the accepted JetStream control epoch. RestoreEpoch is
-	// retained as a spelling alias for adapters that use restore terminology.
+	// ControlEpoch is the accepted JetStream control epoch.
 	ControlEpoch uint64
-	RestoreEpoch uint64
 }
 
 // ControlStateSnapshot is the verified identity of a JetStream snapshot.
@@ -160,7 +158,6 @@ type ControlStateSnapshot struct {
 	Checksum     string
 	Size         int64
 	ControlEpoch uint64
-	RestoreEpoch uint64
 	CreatedAt    time.Time
 }
 
@@ -251,7 +248,6 @@ type Config struct {
 	// preferred when fencing can advance while a run is in progress.
 	AcceptedControlEpoch uint64
 	ControlEpoch         func() uint64
-	RestoreEpoch         func() uint64
 }
 
 func (c Config) withDefaults() Config {
@@ -278,7 +274,7 @@ func (c Config) validate() error {
 		return ErrInvalidConfig
 	}
 	if !isNil(c.Snapshotter) {
-		if len(c.SnapshotRegions) == 0 || (isNil(c.ControlEpoch) && isNil(c.RestoreEpoch) && c.AcceptedControlEpoch == 0) {
+		if len(c.SnapshotRegions) == 0 || (isNil(c.ControlEpoch) && c.AcceptedControlEpoch == 0) {
 			return ErrInvalidConfig
 		}
 		seen := make(map[string]struct{}, len(c.SnapshotRegions))

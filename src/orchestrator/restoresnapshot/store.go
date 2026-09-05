@@ -275,5 +275,5 @@ func (s *Store) VerifyMirror(ctx context.Context, snapshot restoredrill.ControlS
 	return nil
 }
 func matches(s restoredrill.ControlStateSnapshot, body []byte) bool {
-	return s.ControlEpoch > 0 && s.RestoreEpoch == s.ControlEpoch && strings.HasSuffix(s.ObjectKey, ".epoch-"+strconv.FormatUint(s.ControlEpoch, 10)+".snapshot") && s.Size == int64(len(body)) && s.Checksum == delivery.SHA256Digest(body)
+	return s.ControlEpoch > 0 && strings.HasSuffix(s.ObjectKey, ".epoch-"+strconv.FormatUint(s.ControlEpoch, 10)+".snapshot") && s.Size == int64(len(body)) && s.Checksum == delivery.SHA256Digest(body)
 }
