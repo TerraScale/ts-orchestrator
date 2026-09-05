@@ -42,6 +42,23 @@ A separate package extraction moved startup diagnostics and their tests into
 is now 9,943 Go lines including tests. Its ordinary and sandboxvm-tagged
 focused race tests passed with unchanged errors, JSON, bounds and timing.
 
+The full `GOMAXPROCS=4 GOFLAGS=-p=2 make check` passed on the implementation
+recorded in `d04ccc7d`. Initial-control recovery took 18.608 seconds; the
+complete restore-drill package, including the large snapshot, took 23.414
+seconds. The run used the ordinary user in an isolated mount namespace with
+an executable tmpfs at `/tmp`, as in the preceding candidate verification.
+It changed neither the test target nor the host's real temporary filesystem.
+Physical storage latency remains a separate qualification requirement.
+Full-check log SHA256:
+`0b99d9fde1db844a92e3cefd2536ab13c5c2df452611262cbe63ad6717f833ba`.
+
+`GOMAXPROCS=4 GOFLAGS=-p=2 go test -race -tags sandboxvm ./...` passed in
+the same isolated temporary-filesystem environment. Log SHA256:
+`a46ccd9fd334228cbd56da8d86e77594da38a0d348917f95ef9a7b7b8ab3a9c0`.
+`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOMAXPROCS=4 GOFLAGS=-p=2 go build ./...`
+passed as the ordinary user outside the namespace, with empty output. Only
+this verification evidence changed after those gates.
+
 The prerequisite audit also re-read clean TerraBase `e1059e23` and ts-deploy
 `ae305798`. TerraBase still lacks a production durable-membership source and
 the required lifecycle mutation/status RPCs. The published protobuf source
