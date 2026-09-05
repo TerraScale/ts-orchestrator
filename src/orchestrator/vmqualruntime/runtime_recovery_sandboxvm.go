@@ -767,6 +767,7 @@ func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (st
 		defer seed.Controller.Clear()
 	}
 	defer clear(seed.MembershipIdentityPrivateKey)
+	defer seed.Engine.Clear()
 	if seed.NATSIdentity == nil || seed.InitialGrant == nil || seed.Config.NodeID != guest.ID {
 		return "", errors.New("vmqual: recovery guest seed is incomplete")
 	}

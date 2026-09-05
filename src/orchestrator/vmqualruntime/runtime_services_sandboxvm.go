@@ -29,6 +29,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -39,6 +40,7 @@ type qualificationRuntimeServices struct {
 	mu              sync.Mutex
 	bootstrapIssuer *vmqualbootstrap.Issuer
 	controlSeeds    map[string]vmcontrolseed.Material
+	engineSeeds     map[string]*vmengineconfig.Material
 
 	plan           vmnet.NetworkPlan
 	artifacts      []guestArtifactInput
@@ -97,6 +99,30 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
+	var engineSeeds map[string]*vmengineconfig.Material
+	if config.TerraBaseDeclarationFile != "" {
+		var bindings []vmengineconfig.Binding
+		for _, region := range plan.Regions {
+			for _, guest := range region.Guests {
+				bindings = append(bindings, vmengineconfig.Binding{NodeID: guest.ID, Region: string(region.Code), Address: guest.Address})
+			}
+		}
+		for _, artifact := range artifacts {
+			if artifact.manifest.Component == "terrabase" {
+				engineSeeds, err = vmengineconfig.Load(config.TerraBaseDeclarationFile, artifact.manifest.SHA256, artifact.manifest.Version, bindings)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		defer func() {
+			if cleanupArtifacts {
+				for _, seed := range engineSeeds {
+					seed.Clear()
+				}
+			}
+		}()
+	}
 	certificate, caCertificate, err := vmqualartifact.GenerateCertificate(artifactReleaseHostname, time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -151,7 +177,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		return nil, err
 	}
 	services := &qualificationRuntimeServices{
-		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest, controlSeeds: controlSeeds,
+		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest, controlSeeds: controlSeeds, engineSeeds: engineSeeds,
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
 		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
 	}
@@ -288,7 +314,19 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if services.bootstrapIssuer == nil {
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: initial grant issuer is missing")
 	}
-	desired, err := controlSeed.LaunchManifest(services.manifest)
+	baseManifest := services.manifest
+	engineSeed := services.engineSeeds[guest.ID]
+	if engineSeed != nil {
+		base, err := hostmanifest.ParseHostManifest(baseManifest)
+		if err != nil { return vmimage.TSNodeBootstrap{}, nil, err }
+		base, err = engineSeed.Apply(base)
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
+		baseManifest, err = hostmanifest.CanonicalHostManifestJSON(base)
+		if err != nil { return vmimage.TSNodeBootstrap{}, nil, err }
+	}
+	desired, err := controlSeed.LaunchManifest(baseManifest)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
@@ -306,6 +344,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
 	bootstrap := vmimage.TSNodeBootstrap{
+		Engine:                       engineSeed.Clone(),
 		Controller:                   &controlSeed,
 		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: initialGrant.PublicKeyPEM, SignedGrant: initialGrant.SignedGrant},
 		MembershipIdentityPrivateKey: append([]byte(nil), membership.PrivatePEM...), MembershipPins: pins,
@@ -455,6 +494,10 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		seed.Clear()
 	}
 	services.controlSeeds = nil
+	for _, seed := range services.engineSeeds {
+		seed.Clear()
+	}
+	services.engineSeeds = nil
 	services.started = false
 	if services.bootstrapIssuer != nil {
 		_ = services.bootstrapIssuer.Close()

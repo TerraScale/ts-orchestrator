@@ -77,6 +77,7 @@ type Config struct {
 	PreliminaryCaptureMaxSnapshotBytes int64
 	PreliminaryCaptureMaxTotalBytes    int64
 	PreliminaryPublicationFile         string
+	TerraBaseDeclarationFile           string
 	configurationError                 string
 }
 
@@ -125,6 +126,7 @@ func defaultConfigForArchitecture(architecture string) Config {
 		StopTimeout:                30 * time.Second,
 		MaxDiskBytes:               8 << 30,
 		PreliminaryPublicationFile: os.Getenv("TS_VM_PRELIMINARY_PUBLICATION_FILE"),
+		TerraBaseDeclarationFile:   os.Getenv("TS_VM_TERRABASE_DECLARATION_FILE"),
 	}
 	snapshotText, snapshotSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_SNAPSHOT_BYTES")
 	totalText, totalSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_TOTAL_BYTES")
@@ -193,6 +195,7 @@ func defaultConfigForArchitecture(architecture string) Config {
 	c.GuestControlPath = absoluteIfSet(c.GuestControlPath, repoRoot)
 	c.ReleasePublicKeyPath = absoluteIfSet(c.ReleasePublicKeyPath, repoRoot)
 	c.PreliminaryPublicationFile = absoluteIfSet(c.PreliminaryPublicationFile, repoRoot)
+	c.TerraBaseDeclarationFile = absoluteIfSet(c.TerraBaseDeclarationFile, repoRoot)
 	c.TSNode = absoluteProductionArtifact(c.TSNode, repoRoot)
 	c.Orchestrator = absoluteProductionArtifact(c.Orchestrator, repoRoot)
 	c.TerraBase = absoluteProductionArtifact(c.TerraBase, repoRoot)
@@ -321,6 +324,9 @@ func findGoModuleRoot(start string) string {
 }
 
 func (c Config) Validate() error {
+	if c.TerraBaseDeclarationFile != "" && (!filepath.IsAbs(c.TerraBaseDeclarationFile) || filepath.Clean(c.TerraBaseDeclarationFile) != c.TerraBaseDeclarationFile) {
+		return errors.New("vmqual: TerraBase declaration requires an absolute protected file path")
+	}
 	if c.configurationError != "" {
 		return errors.New("vmqual: " + c.configurationError)
 	}

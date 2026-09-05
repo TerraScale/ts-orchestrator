@@ -27,6 +27,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 )
 
 const (
@@ -88,6 +89,7 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	script.WriteString(chronyBootstrapScript())
 	script.WriteString(membershipOwnershipBootstrap())
 	script.WriteString(controllerOwnershipBootstrap(tsNode.commandTrustFiles))
+	script.WriteString(engineOwnershipBootstrap(tsNode.commandTrustFiles))
 	script.WriteString("/usr/bin/systemctl enable --now " + tsnodebootstrap.UnitName + "\n")
 	script.WriteString("/usr/bin/rm -f " + tsNodeBootstrapBinaryPath + " " + tsNodeBootstrapSigPath + " " + tsNodeBootstrapKeyPath + " " + tsNodeBootstrapDigestPath + " " + tsNodeBootstrapManifestPath + " " + tsNodeBootstrapScriptPath + "\n")
 	script.WriteString("/usr/bin/rmdir " + tsNodeBootstrapDirectory + "\n")
@@ -107,6 +109,7 @@ type TSNodeNATSIdentity struct {
 // NoCloud seed. Orchestrator and TerraBase remain desired-manifest artifacts
 // fetched and reconciled by the running ts-node.
 type TSNodeBootstrap struct {
+	Engine                       *vmengineconfig.Material
 	Controller                   *vmcontrolseed.Material
 	Candidate                    *vmcandidateseed.Material
 	InitialGrant                 *TSNodeInitialGrant
@@ -207,6 +210,11 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		return tsNodeBootstrapMaterial{}, err
 	}
 	commandFiles = append(commandFiles, candidateFiles...)
+	engineFiles, err := canonicalEngineBootstrap(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	commandFiles = append(commandFiles, engineFiles...)
 	memberPrivate, memberPins, err := canonicalMembershipBootstrap(input)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 
 	"golang.org/x/crypto/ssh"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
@@ -68,11 +69,14 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
-	if file.Owner != "" && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path)) || file.Owner != membershipServiceUser) {
+	engineOwner := vmengineconfig.IsTLSPath(file.Path) && file.Owner == vmengineconfig.ServiceUser
+	if file.Owner != "" && !engineOwner && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
 	}
 	limit := 0
 	switch {
+	case engineOwner && file.Mode == 0400:
+		limit = 64 << 10
 	case vmcandidateseed.IsServiceFile(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:
 		limit = 64 << 10
 	case vmcontrolseed.IsAuthorityFilePath(file.Path) && file.Mode == 0400 && file.Owner == "":
@@ -169,6 +173,9 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	}
 	if spec.TSNode.Controller != nil && (spec.TSNode.Controller.Address != spec.Address || spec.Region != "gru") {
 		return NoCloudSeed{}, errors.New("vmimage: controller seed must match the declared GRU guest address")
+	}
+	if spec.TSNode.Engine != nil && spec.TSNode.Engine.Address() != spec.Address {
+		return NoCloudSeed{}, errors.New("vmimage: engine material belongs to another guest address")
 	}
 	tsNode, err := canonicalTSNodeBootstrap(spec.TSNode, guestSeed.Image.Architecture)
 	if err != nil {
