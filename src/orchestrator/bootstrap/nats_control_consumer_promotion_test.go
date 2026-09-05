@@ -153,12 +153,20 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 }
 
 func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *testing.T) {
+	t.Run("resume-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, false) })
+	t.Run("lease-replaced-after-lost-observation", func(t *testing.T) { testControlConsumerStreamReadiness(t, true) })
+}
+
+func testControlConsumerStreamReadiness(t *testing.T, replaceLease bool) {
+	t.Helper()
 	cluster := newControlMutationStateCluster(t)
 	nc := cluster.connect(t)
 	kv := openControlMutationTestLeaseStore(t, t.Context(), nc, true)
 	lease := controlMutationTestLease(7, "global-controller-gru-one")
 	putControlMutationTestLease(t, t.Context(), kv, lease)
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	// This verifies ordering and retained state, not a ten-second SLO. NATS
+	// elections use 4–9s timers and promotion forms two successive Raft groups.
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
 	js, err := jetstream.New(nc)
 	if err != nil {
@@ -198,7 +206,14 @@ func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *t
 	// current observation until the caller has demonstrably checked it.
 	// This controls the observation order without racing a wall-clock sleep.
 	observed := &withheldStreamReadiness{JetStream: js, waiting: make(chan struct{}, 1), consumerEffect: make(chan struct{}, 1)}
+	if replaceLease {
+		observed.afterLostObservation = func() {
+			lease.LeaseId = "replacement-after-lost-observation"
+			putControlMutationTestLease(t, t.Context(), kv, lease)
+		}
+	}
 	observed.hold.Store(true)
+	promotionStarted := time.Now()
 	done, finished := make(chan error, 1), make(chan struct{})
 	go func() {
 		defer close(finished)
@@ -210,6 +225,9 @@ func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *t
 		case <-finished:
 		case <-time.After(5 * time.Second):
 			t.Error("promotion did not stop after cancellation")
+		}
+		if updates := observed.consumerUpdates.Load(); updates != 1 {
+			t.Errorf("consumer update count=%d, want exactly one", updates)
 		}
 	})
 	select {
@@ -231,13 +249,33 @@ func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *t
 		t.Fatalf("consumer changed while stream readiness was withheld: %+v %v", blocked, err)
 	}
 	observed.hold.Store(false)
+	releasedAt := time.Now()
 	select {
 	case err := <-done:
+		if replaceLease {
+			if !errors.Is(err, ErrControlRuntimeUnavailable) {
+				t.Fatalf("replacement lease allowed another readiness read: %v", err)
+			}
+			if observed.resumedReads.Load() != 0 {
+				t.Fatal("readiness read resumed after the admitted lease changed")
+			}
+			return
+		}
 		if err != nil {
+			logControlPromotionState(t, stream, consumer)
 			t.Fatal(err)
 		}
 	case <-ctx.Done():
-		t.Fatal("promotion did not resume after stream replicas became current")
+		// Cancellation can win this select while the producer is returning
+		// the error that identifies the failed RPC or replica wait.
+		var result error
+		select {
+		case result = <-done:
+		case <-time.After(3 * time.Second):
+			result = errors.New("promotion did not return after cancellation")
+		}
+		logControlPromotionState(t, stream, consumer)
+		t.Fatalf("promotion did not resume after readiness release: total=%s after-release=%s result=%v context=%v", time.Since(promotionStarted), time.Since(releasedAt), result, ctx.Err())
 	}
 	select {
 	case <-observed.consumerEffect:
@@ -250,10 +288,31 @@ func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *t
 	}
 }
 
+func logControlPromotionState(t *testing.T, stream jetstream.Stream, consumer jetstream.Consumer) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if info, err := stream.Info(ctx); err == nil {
+		cluster, _ := json.Marshal(info.Cluster)
+		t.Logf("fresh stream replicas=%d cluster=%s", info.Config.Replicas, cluster)
+	} else {
+		t.Logf("fresh stream observation: %v", err)
+	}
+	if info, err := consumer.Info(ctx); err == nil {
+		cluster, _ := json.Marshal(info.Cluster)
+		t.Logf("fresh consumer replicas=%d created=%s ack=%+v delivered=%+v cluster=%s", info.Config.Replicas, info.Created, info.AckFloor, info.Delivered, cluster)
+	} else {
+		t.Logf("fresh consumer observation: %v", err)
+	}
+}
+
 type withheldStreamReadiness struct {
 	jetstream.JetStream
 	hold                    atomic.Bool
 	waiting, consumerEffect chan struct{}
+	afterLostObservation    func()
+	resumedReads            atomic.Int32
+	consumerUpdates         atomic.Int32
 }
 
 func (w *withheldStreamReadiness) Stream(ctx context.Context, name string) (jetstream.Stream, error) {
@@ -265,11 +324,37 @@ func (w *withheldStreamReadiness) Stream(ctx context.Context, name string) (jets
 }
 
 func (w *withheldStreamReadiness) UpdateConsumer(ctx context.Context, stream string, config jetstream.ConsumerConfig) (jetstream.Consumer, error) {
+	w.consumerUpdates.Add(1)
 	select {
 	case w.consumerEffect <- struct{}{}:
 	default:
 	}
-	return w.JetStream.UpdateConsumer(ctx, stream, config)
+	consumer, err := w.JetStream.UpdateConsumer(ctx, stream, config)
+	if err != nil {
+		return nil, err
+	}
+	return &unansweredFirstConsumerObservation{Consumer: consumer, owner: w}, nil
+}
+
+// A consumer-info request sent during election can go unanswered despite
+// subsequent healthy leadership. The production poll must retry a bounded
+// read while its original action context and authority lease remain valid.
+type unansweredFirstConsumerObservation struct {
+	jetstream.Consumer
+	dropped atomic.Bool
+	owner   *withheldStreamReadiness
+}
+
+func (c *unansweredFirstConsumerObservation) Info(ctx context.Context) (*jetstream.ConsumerInfo, error) {
+	if c.dropped.CompareAndSwap(false, true) {
+		<-ctx.Done()
+		if c.owner.afterLostObservation != nil {
+			c.owner.afterLostObservation()
+		}
+		return nil, ctx.Err()
+	}
+	c.owner.resumedReads.Add(1)
+	return c.Consumer.Info(ctx)
 }
 
 type withheldStreamObservation struct {

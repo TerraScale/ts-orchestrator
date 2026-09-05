@@ -23,6 +23,8 @@ type controlMutationPin struct {
 	check ControlStoreCheck
 }
 
+const controlReadinessReadTimeout = time.Second
+
 func (r *NATSControlRuntime) controlMutationPins(plan ControlRuntimeActionPlan) ([]controlMutationPin, error) {
 	targets := map[string]bool{}
 	for _, m := range plan.MirrorUpdates {
@@ -329,8 +331,16 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
 			return err
 		}
-		info, err := consumer.Info(ctx)
+		// A request sent during the R1-to-R3 consumer election can receive no
+		// response even after the group becomes healthy. Bound each read so
+		// that one lost observation cannot consume the action's whole deadline.
+		observation, cancel := context.WithTimeout(ctx, controlReadinessReadTimeout)
+		info, err := consumer.Info(observation)
+		cancel()
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				continue // Recheck the live lease before another read.
+			}
 			return fmt.Errorf("read promoted consumer info: %w", err)
 		}
 		profileMatches := journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream)

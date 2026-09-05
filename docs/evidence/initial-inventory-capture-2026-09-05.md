@@ -13,7 +13,27 @@ GRU/SFO/FRA cluster. Existing checks still cover exact stream/consumer R3
 membership, GRU outage reads, full retained-directory restart, three consumer
 resumptions, and the unchanged stopped source directory.
 
-The focused normal and race runs passed. Full portable verification is pending.
+The focused normal and race runs passed. The first full portable run failed
+`TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect` while
+resuming promotion; the initial-inventory integration test passed. The failed
+fixture allowed ten seconds for sequential stream and consumer convergence.
+Pinned NATS uses four-to-nine-second elections and a two-second consumer-leader
+lookup. The fixture budget is being aligned with the existing 25-second
+promotion test, with fresh replica diagnostics and strict checkpoints retained.
+These timer bounds do not prove the precise cause of the failed run. A repeated
+ten-second fixture reproduced an unanswered promoted-consumer info request
+consuming the operation deadline. Fresh bounded diagnostic queries then showed
+exact healthy R3 and preserved creation, delivered and acknowledged state.
+Promoted-consumer readiness now uses one-second read attempts within the
+unchanged operation deadline. Only an attempt deadline with a live parent
+context permits retry; each retry first rechecks the lease. Stream/consumer
+mutation requests are not replayed. A deterministic lost-read regression
+recovers with exactly one consumer update. Replacing the real lease after the
+lost read prevents any subsequent readiness observation. Three focused runs
+passed. Removing the bounded-read change via overlay consumes the entire
+25-second test budget and fails while fresh queries still show healthy R3 and
+intact checkpoints. Raising the fixture deadline alone does not fix that case.
+Final portable verification is pending.
 This is an integration test with controlled writers and an in-memory immutable
 object-store fixture. It does not establish a production writer fence,
 consistent multi-account final cut, OCI availability, transition admission,

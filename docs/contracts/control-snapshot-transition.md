@@ -155,6 +155,14 @@ The required durable order is:
    are preliminary because GRU can still advance; they cannot replace final
    source inventory and checkpoint evidence. Keep ordinary authority workers
    and customer admission closed on the transitional destination storage.
+   Stage and verify preliminary snapshot objects under separate transition
+   keys. The standalone source has no admitted route/leaf connection to those
+   candidates; declaring a mirror does not create that transport. Keep staged
+   preliminary copies separate from the authoritative destination namespace,
+   so final restoration never needs to overwrite a provisional stream. Name
+   the actual GRU destination host in the grant and respect one orchestrator
+   process per host; preparation cannot assume a second concurrent process on
+   the source host.
 
 3. Persist source retirement under the existing verified host command. Refuse
    old managed launches, quiesce admitted local effects and wait for the source
