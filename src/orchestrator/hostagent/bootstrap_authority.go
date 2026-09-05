@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"time"
@@ -117,4 +118,11 @@ func (a *BootstrapAuthority) Authorize(ctx context.Context, subject string, wire
 		return a.runtime.Authorize(ctx, subject, wire)
 	}
 	return a.verifier.Authorize(ctx, subject, wire)
+}
+
+func (a *BootstrapAuthority) Close() error {
+	if closer, ok := a.runtime.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }

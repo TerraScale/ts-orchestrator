@@ -23,6 +23,10 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	m := materials[spec.InstanceID]
 	defer m.Clear()
 	spec.TSNode.Controller = &m
+	spec.TSNode.Config.AuthorityReader, err = m.AuthorityReader()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Equal(m.Files[vmcontrolseed.CAPath], spec.TSNode.NATSIdentity.TLSCA) || bytes.Equal(m.Files[vmcontrolseed.NKeyPath], spec.TSNode.NATSIdentity.NKeySeed) {
 		t.Fatal("root transport credentials reused")
 	}
@@ -56,11 +60,15 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	}
 	count := 0
 	for _, file := range seed.RootFiles {
-		if !vmcontrolseed.IsFilePath(file.Path) {
+		if !vmcontrolseed.IsFilePath(file.Path) && !vmcontrolseed.IsAuthorityFilePath(file.Path) {
 			continue
 		}
 		count++
-		if file.Owner != vmcontrolseed.ServiceUser || file.Mode != 0400 || file.Validate() != nil {
+		wantOwner := vmcontrolseed.ServiceUser
+		if vmcontrolseed.IsAuthorityFilePath(file.Path) {
+			wantOwner = ""
+		}
+		if file.Owner != wantOwner || file.Mode != 0400 || file.Validate() != nil {
 			t.Fatalf("unbound controller file %s", file.Path)
 		}
 		if !bytes.Equal(file.Content, m.Files[file.Path]) || bytes.Contains(seed.UserData, file.Content) {
@@ -72,6 +80,9 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 		}
 		file.Mode = 0400
 		file.Owner = ""
+		if vmcontrolseed.IsAuthorityFilePath(file.Path) {
+			file.Owner = vmcontrolseed.ServiceUser
+		}
 		if file.Validate() == nil {
 			t.Fatal("root-owned controller credentials accepted")
 		}

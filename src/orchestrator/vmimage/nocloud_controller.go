@@ -20,6 +20,13 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 	if err := m.ValidateMembership(input.MembershipIdentityPrivateKey, input.MembershipPins); err != nil {
 		return nil, err
 	}
+	reader, err := m.AuthorityReader()
+	if err != nil {
+		return nil, err
+	}
+	if reader != input.Config.AuthorityReader {
+		return nil, errors.New("vmimage: authority reader differs from signed grant")
+	}
 	if m.HostID != input.Config.NodeID {
 		return nil, errors.New("vmimage: controller material belongs to another host")
 	}
@@ -43,7 +50,11 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 	sort.Strings(paths)
 	files := make([]NoCloudRootFile, 0, len(paths))
 	for _, path := range paths {
-		files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: vmcontrolseed.ServiceUser, Content: append([]byte(nil), m.Files[path]...)})
+		owner := vmcontrolseed.ServiceUser
+		if vmcontrolseed.IsAuthorityFilePath(path) {
+			owner = ""
+		}
+		files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: owner, Content: append([]byte(nil), m.Files[path]...)})
 	}
 	return files, nil
 }

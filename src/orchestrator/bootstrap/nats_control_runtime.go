@@ -80,10 +80,16 @@ type ControlStoreCheck struct {
 	Mirrors              []ControlMirrorPlan
 }
 
+type ControlConsumerReplicaPlan struct {
+	Stream string
+	Config jetstream.ConsumerConfig // Exact admitted target profile, including durable name and Replicas.
+}
+
 type ControlReplicaPlan struct {
-	Store    string
-	Streams  []string
-	Replicas int
+	Consumers []ControlConsumerReplicaPlan
+	Store     string
+	Streams   []string
+	Replicas  int
 }
 
 type ControlRuntimeActionPlan struct {
@@ -410,6 +416,9 @@ func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
 			if !admitted {
 				return ErrControlProviderInvalid
 			}
+		}
+		if err := validateControlConsumerReplicas(update); err != nil {
+			return err
 		}
 		if _, ok := r.config.Stores[update.Store]; !ok || update.Replicas != 3 || len(update.Streams) == 0 || (plan.Kind != ControlActionPromoteR3 && plan.Kind != ControlActionStartRegionalR3) {
 			return ErrControlProviderInvalid

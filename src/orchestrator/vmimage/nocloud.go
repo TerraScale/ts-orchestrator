@@ -72,6 +72,8 @@ func (file NoCloudRootFile) Validate() error {
 	}
 	limit := 0
 	switch {
+	case vmcontrolseed.IsAuthorityFilePath(file.Path) && file.Mode == 0400 && file.Owner == "":
+		limit = 64 << 10
 	case vmcontrolseed.IsFilePath(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:
 		limit = 64 << 10
 	case file.Path == BootstrapGrantPath && file.Mode == 0400:

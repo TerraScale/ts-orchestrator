@@ -105,8 +105,10 @@ remain R3-only. No guest readiness, OCI effects, TerraBase membership or
 production readiness result follows from this slice.
 
 The current qualification host-control binding has no caller and omits the
-required command signer. Its sender and ts-node receiver also need the same
-actual guest regional authority source. The initial GRU broker forbids routes
+required command signer. ts-node now has a separate read-only guest-authority
+connection, opened lazily so initial activation can start the broker. The sender
+binding still needs the matching signer and actual guest lease resolver.
+The initial GRU broker forbids routes
 and stops when its admission retires; the promotion path therefore needs an
 admitted successor that preserves GRU's store while forming the three-server
 cluster. Candidate mirrors alone do not establish Raft replicas.
@@ -117,6 +119,20 @@ around every stream mutation. Global authority must belong to GRU. Candidate
 mirrors require finite source retention limits and an exact, unfiltered source
 declaration. NATS has no lease CAS for stream administration, so credential
 revocation and serialized promotion remain necessary.
+
+The [pinned storage experiment](../evidence/nats-snapshot-promotion-audit-2026-09-05.md)
+found that direct standalone-store restart does not register the retained streams
+with the new cluster. Public snapshot/restore into a separate clustered store
+preserves records and consumer checkpoints, but resets public stream creation
+timestamps. A subsequent integrated restart also exposed changed consumer
+creation metadata despite retained checkpoints; original consumer creation
+identity is not qualified. Stream and consumer replicas must both be promoted.
+The runtime now requires the complete declared consumer inventory and verifies its exact replica
+servers. Signed preparation, authority-source cutover and a verified post-transition
+snapshot still need integration before the initial seed can be safely replaced.
+The [integrated verification](../evidence/receiver-promotion-gates-2026-09-05.txt)
+records passing portable/tagged race suites, arm64 build and isolated privileged
+receiver tests, along with both earlier failures and their diagnoses.
 
 The [first R1 guest attempt](../evidence/vm-test-initial-r1-2026-09-05.txt)
 used fresh binaries from `a3d38c46` and failed first-guest service readiness.

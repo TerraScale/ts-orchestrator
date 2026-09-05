@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
+	"terrascale.tech/orchestrator/src/orchestrator/memberobserve"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
@@ -130,7 +131,7 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		return runInitialGRUR1(ctx, args[2])
 	}
 	if name == "observe-member" {
-		return runObserveMember(ctx, args, output)
+		return memberobserve.Run(ctx, args, output)
 	}
 	if name == "catalog" {
 		if err := renderCatalog(output); err != nil {

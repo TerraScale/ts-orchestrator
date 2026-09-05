@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 // Resolve the signed TLS declaration against the admitted file pins, then
@@ -151,6 +152,14 @@ func validateBrokerOptions(cfg initialgrant.Config, expectedTLS *tls.Config) fun
 			return err
 		}
 		for _, peer := range cfg.Peers {
+			if _, exists := users[peer.AuthorityReaderPublicNKey]; exists {
+				return invalid
+			}
+			pub, sub, err := nodeauthority.ReaderPermissions("ORCH_LEADERS")
+			if err != nil {
+				return err
+			}
+			users[peer.AuthorityReaderPublicNKey] = userPlan{cfg.Regional.Account, pub, sub}
 			if err = add(peer.RegionalPublicNKey, cfg.Regional.Account, peer.Instance, false, false); err != nil {
 				return err
 			}

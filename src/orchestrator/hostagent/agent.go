@@ -228,6 +228,9 @@ func (a *HostAgent) Start(ctx context.Context) error {
 		CloseConnection: a.ownsConnection,
 	})
 	if err != nil {
+		if closer, ok := authorizer.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
 		ticker.Stop()
 		a.releaseDialed(connection)
 		return err
@@ -237,14 +240,12 @@ func (a *HostAgent) Start(ctx context.Context) error {
 	// drain or release must never be completed against a fresh empty lifecycle.
 	if err := transport.prepareLifecycleForStartup(); err != nil {
 		runCancel()
-		ticker.Stop()
-		a.releaseDialed(connection)
+		_ = transport.Close()
 		return err
 	}
 	if err := a.watcher.HydrateOnce(); err != nil {
 		runCancel()
-		ticker.Stop()
-		a.releaseDialed(connection)
+		_ = transport.Close()
 		return err
 	}
 	if err := transport.Start(runContext); err != nil {

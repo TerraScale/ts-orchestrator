@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -92,6 +94,57 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 	}
 	runtimePath := write("runtime.pub", pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: runtimeDER}))
 	hostSeed := bootstrapControlHostSeed{HostID: "gru-1", NATS: bootstrapControlCredentials{URL: "tls://nats.example:4222", CAFile: write("ca.pem", certificatePEM), CertificateFile: write("client.pem", certificatePEM), PrivateKeyFile: write("client.key", privatePEM), NKeySeedFile: write("user.seed", seed)}, PrivateKeySecretID: "ocid1.vaultsecret.oc1.test.client", PrivateKeyVersion: 1, NKeySecretID: "ocid1.vaultsecret.oc1.test.user", NKeyVersion: 2, CommandTrust: []bootstrapHostTrustReference{{CandidateID: "gru-controller-gru-1", PublicKeyFile: runtimePath}}}
+
+	readerKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	readerDER, _ := x509.MarshalPKCS8PrivateKey(readerKey)
+	readerPrivate := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: readerDER})
+	readerCertificate, _ := x509.CreateCertificate(rand.Reader, template, template, &readerKey.PublicKey, key)
+	readerPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: readerCertificate})
+	readerPair, _ := nkeys.CreateUser()
+	defer readerPair.Wipe()
+	readerSeed, _ := readerPair.Seed()
+	readerPublic, _ := readerPair.PublicKey()
+	caHash, certHash := sha256.Sum256(certificatePEM), sha256.Sum256(readerPEM)
+	const readerRoot = "/etc/terrascale/ts-node-authority/"
+	hostSeed.AuthorityReader = nodeauthority.ReaderConfig{Endpoint: "tls://guest.example:4222", ServerName: "gru-1", Account: "GRU_REGIONAL", NKeySeedFile: readerRoot + "user.seed", PublicNKey: readerPublic, CAFile: readerRoot + "ca.pem", CASHA256: hex.EncodeToString(caHash[:]), CertificateFile: readerRoot + "client.pem", CertificateSHA256: hex.EncodeToString(certHash[:]), KeyFile: readerRoot + "client.key"}
+	hostSeed.Files = []bootstrapHostFileReference{{SourceFile: write("reader-ca.pem", certificatePEM), Path: readerRoot + "ca.pem"}, {SourceFile: write("reader-client.pem", readerPEM), Path: readerRoot + "client.pem"}, {SourceFile: write("reader-client.key", readerPrivate), Path: readerRoot + "client.key", Private: true, SecretID: "ocid1.vaultsecret.oc1.test.readerkey", VersionNumber: 1}, {SourceFile: write("reader-user.seed", readerSeed), Path: readerRoot + "user.seed", Private: true, SecretID: "ocid1.vaultsecret.oc1.test.readeruser", VersionNumber: 1}}
+
+	for _, name := range []string{"copied NKey", "reissued TLS same key"} {
+		t.Run(name, func(t *testing.T) {
+			bad := hostSeed
+			bad.Files = append([]bootstrapHostFileReference(nil), hostSeed.Files...)
+			if name == "copied NKey" {
+				public, _ := pair.PublicKey()
+				bad.AuthorityReader.PublicNKey = public
+				for i := range bad.Files {
+					if bad.Files[i].Path == readerRoot+"user.seed" {
+						bad.Files[i].SourceFile = write("copied-reader.seed", seed)
+					}
+				}
+			} else {
+				reissue := *template
+				reissue.SerialNumber = big.NewInt(99)
+				der, err := x509.CreateCertificate(rand.Reader, &reissue, template, &key.PublicKey, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				renewed := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+				hash := sha256.Sum256(renewed)
+				bad.AuthorityReader.CertificateSHA256 = hex.EncodeToString(hash[:])
+				for i := range bad.Files {
+					switch bad.Files[i].Path {
+					case readerRoot + "client.pem":
+						bad.Files[i].SourceFile = write("reissued-reader.pem", renewed)
+					case readerRoot + "client.key":
+						bad.Files[i].SourceFile = write("copied-reader.key", privatePEM)
+					}
+				}
+			}
+			if err := validateBootstrapAuthorityReader(bad, activation); err == nil {
+				t.Fatal("copied public identity accepted under different credential files")
+			}
+		})
+	}
 	loaded := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "gru", OCIRegion: "sa-saopaulo-1", MemberCount: 1, CommandCandidateID: "gru-controller-gru-1"}}, Members: []bootstrapControlMember{{HostID: "gru-1", Region: "gru", Index: 1}}, Seeds: []bootstrapControlHostSeed{hostSeed}, Activations: []bootstrapControlActivation{{HostID: "gru-1", OwnerPublicKeyFile: publicPath}}}, activations: map[string]loadedControlActivation{"gru-1": activation}, signers: map[string]*security.CommandSignatureSigner{"gru": runtimeSigner}}
 	lookup := func(key string) (string, bool) {
 		values := map[string]string{ocireconcile.TSNodeVersionEnvironment: "1.2.3", ocireconcile.TSNodeSHA256Environment: strings.Repeat("ab", 32), ocireconcile.TSNodeURLEnvironment: "https://releases.terrascale.tech/ts-node", bootstrapReleaseKeyEnvironment: hex.EncodeToString(bytes.Repeat([]byte{1}, 32))}
@@ -105,7 +158,7 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(raw, privatePEM) || bytes.Contains(raw, seed) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(privatePEM))) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(seed))) {
+	if bytes.Contains(raw, readerSeed) || bytes.Contains(raw, readerPrivate) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(readerSeed))) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(readerPrivate))) || bytes.Contains(raw, privatePEM) || bytes.Contains(raw, seed) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(privatePEM))) || bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(seed))) {
 		t.Fatal("private credential leaked into OCI user-data")
 	}
 	if !bytes.Contains(raw, []byte("/etc/terrascale/host-secrets.json")) || !bytes.Contains(raw, []byte("User=root")) {

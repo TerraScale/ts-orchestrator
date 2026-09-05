@@ -49,7 +49,7 @@ var operationPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 func allowedDestination(path string) bool {
 	switch path {
-	case "/etc/terrascale/ts-node-bootstrap/client.key", "/etc/terrascale/ts-node-bootstrap/user.seed", "/etc/terrascale/orchestrator/membership.key", "/etc/terrascale/orchestrator/command.key":
+	case "/etc/terrascale/ts-node-authority/user.seed", "/etc/terrascale/ts-node-authority/client.key", "/etc/terrascale/ts-node-bootstrap/client.key", "/etc/terrascale/ts-node-bootstrap/user.seed", "/etc/terrascale/orchestrator/membership.key", "/etc/terrascale/orchestrator/command.key":
 		return true
 	}
 	for _, scope := range []string{"global", "regional"} {

@@ -57,3 +57,36 @@ across runtime reconstruction, renewal, expiry after the first actual replica
 update, refusal of the next update/retry, finite mirror creation/readback, and
 unbounded or fenced mirror rejection. CLI tests preserve the fields through
 projection and reject same-generation declaration changes.
+
+## Durable consumer promotion
+
+Each `ReplicaUpdates` entry declares `Consumers`, containing the stream name
+and complete target `jetstream.ConsumerConfig`. Targets must be durable pull
+consumers with explicit acknowledgements and three file-backed replicas.
+Declarations are capped at 64 streams and 64 consumers per update. Promoted
+`GLOBAL_SPEC`, `CELL_SPEC` and `CELL_EVENTS` streams require consumer declarations.
+
+Before any stream mutation, a bounded `CONSUMER.LIST` read compares the actual
+inventory with the declared names and profiles. Missing or extra consumers stop
+the action. Listing verifies the declaration; it never supplies mutation targets.
+The bootstrap administrative identity needs that read permission on the declared
+streams. Ordinary runtime credentials gain no new permissions.
+
+The existing consumer is updated in place, changing only its replica count.
+Authority checks surround each update and readback, including retries. Completion
+requires the exact admitted leader/replica server set, current replicas, unchanged
+consumer creation identity and non-regressing delivery/acknowledgement checkpoints.
+Mirrors and sourced streams cannot enter this replica-promotion path.
+
+The [storage experiment](../evidence/nats-snapshot-promotion-audit-2026-09-05.md)
+found that promoting streams alone leaves the three initial consumers at R1.
+Real broker tests now verify consumer promotion, preserved acknowledgement state
+and pending-message delivery after the original hosting server stops. This does
+not complete the signed host cutover or its post-transition snapshot requirement.
+
+For consumers restored from snapshots, the pinned server has a separate
+[creation-metadata persistence defect](../evidence/nats-snapshot-promotion-limits-2026-09-05.md).
+The immediate API checks above can pass while a later restart exposes a changed
+consumer creation timestamp. They do not qualify unchanged original creation
+identity across restore, promotion and restart. Exact checkpoint/content recovery
+has separate coverage; production restoration identity remains an open gate.

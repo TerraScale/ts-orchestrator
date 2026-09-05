@@ -65,6 +65,8 @@ func initialHostFixture(t *testing.T) (*testHarness, hostmanifest.HostManifest, 
 		Regional: initialgrant.Store{Account: "GRU_CONTROL", Provisioner: &rp, Runtime: regional}, Global: &initialgrant.Store{Account: "GLOBAL_CONTROL", Provisioner: &gp, Runtime: global},
 		Membership: initialgrant.Membership{SigningKeyFile: "/keys/member.key", PublicKey: membership, PinsFile: "/keys/pins.json", PinsSHA256: digest},
 		Peers:      []initialgrant.Peer{{Instance: "gru-1", RegionalPublicNKey: regional.PublicNKey, GlobalPublicNKey: global.PublicNKey, MembershipPublicKey: membership}}}
+	config.AuthorityReader = nodeauthority.ReaderConfig{Endpoint: config.Broker.Endpoint, ServerName: config.Broker.ServerName, Account: config.Regional.Account, NKeySeedFile: "/reader/user.seed", PublicNKey: publicKey(), CAFile: "/reader/ca.pem", CASHA256: digest, CertificateFile: "/reader/client.pem", CertificateSHA256: digest, KeyFile: "/reader/client.key"}
+	config.Peers[0].AuthorityReaderPublicNKey = config.AuthorityReader.PublicNKey
 	if err = config.Validate(); err != nil {
 		t.Fatal(err)
 	}

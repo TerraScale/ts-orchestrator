@@ -56,6 +56,9 @@ func configFixture(t *testing.T) Config {
 		Regional: Store{Account: "GRU_CONTROL", Provisioner: &rp, Runtime: regional}, Global: &Store{Account: "GLOBAL_CONTROL", Provisioner: &gp, Runtime: global},
 		Membership: Membership{SigningKeyFile: "/keys/member.key", PublicKey: membership, PinsFile: "/keys/pins.json", PinsSHA256: digest},
 		Peers:      []Peer{{Instance: "gru-1", RegionalPublicNKey: regional.PublicNKey, GlobalPublicNKey: global.PublicNKey, MembershipPublicKey: membership}}}
+	reader := nodeauthority.ReaderConfig{Endpoint: config.Broker.Endpoint, ServerName: config.Broker.ServerName, Account: config.Regional.Account, NKeySeedFile: "/reader/user.seed", PublicNKey: publicKey(), CAFile: "/reader/ca.pem", CASHA256: digest, CertificateFile: "/reader/client.pem", CertificateSHA256: digest, KeyFile: "/reader/client.key"}
+	config.AuthorityReader = reader
+	config.Peers[0].AuthorityReaderPublicNKey = reader.PublicNKey
 	if err = config.Validate(); err != nil {
 		t.Fatal(err)
 	}

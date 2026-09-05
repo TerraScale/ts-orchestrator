@@ -60,7 +60,7 @@ func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
 			t.Fatal("flat production configuration retained")
 		}
 		if !m.Selected {
-			if config.Role != "participant" || config.Global != nil || config.Regional.Provisioner != nil || config.Broker.Configuration != "" || len(m.Files) != 4 {
+			if config.Role != "participant" || config.Global != nil || config.Regional.Provisioner != nil || config.Broker.Configuration != "" || len(m.Files) != 8 {
 				t.Fatal("participant received seed authority")
 			}
 			continue
@@ -87,7 +87,7 @@ func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
 		if options.Host != "10.77.0.10" || options.Port != 4222 || !options.JetStream || options.StoreDir != StorePath || options.MaxPayload != 4<<20 || options.TLSConfig.MinVersion != tls.VersionTLS13 || options.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert || options.JetStreamMaxStore != config.Broker.StorageBudgetBytes {
 			t.Fatal("broker production settings lost")
 		}
-		if len(options.Accounts) != 2 || len(options.Nkeys) != 5 {
+		if len(options.Accounts) != 2 || len(options.Nkeys) != 7 {
 			t.Fatal("account or candidate identity inventory differs")
 		}
 		counts := map[string]int{}
@@ -97,7 +97,7 @@ func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
 				t.Fatal("broker user unrestricted")
 			}
 		}
-		if counts[RegionalAccount] != 3 || counts[GlobalAccount] != 2 {
+		if counts[RegionalAccount] != 5 || counts[GlobalAccount] != 2 {
 			t.Fatal("cross-account user assignment")
 		}
 	}

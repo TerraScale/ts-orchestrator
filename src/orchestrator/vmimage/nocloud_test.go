@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 
@@ -596,7 +597,7 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 			NATSIdentity:                 testTSNodeNATSIdentity(t, privateKey, caCertificate),
 			MembershipIdentityPrivateKey: membershipPEM,
 			MembershipPins:               map[string]string{"gru-member-1": membershipPublic},
-			Config:                       TSNodeConfig{AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: []TSNodeCommandTrust{{CandidateID: "gru-controller-gru-member-1", PublicKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: mustDecodeBase64(t, membershipPublic)})}}, NodeID: "gru-member-1", NATSURL: "tls://10.77.0.1:4222", HeartbeatInterval: time.Second, ReconcileInterval: 250 * time.Millisecond},
+			Config:                       TSNodeConfig{AuthorityReader: testAuthorityReader(t), AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: []TSNodeCommandTrust{{CandidateID: "gru-controller-gru-member-1", PublicKeyPEM: pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: mustDecodeBase64(t, membershipPublic)})}}, NodeID: "gru-member-1", NATSURL: "tls://10.77.0.1:4222", HeartbeatInterval: time.Second, ReconcileInterval: 250 * time.Millisecond},
 			DesiredHostManifest:          desiredManifest,
 			ArtifactCACertificate:        caCertificate, ArtifactHostAddress: "10.77.0.1",
 		},
@@ -824,4 +825,18 @@ func mustDecodeBase64(t *testing.T, value string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func testAuthorityReader(t *testing.T) nodeauthority.ReaderConfig {
+	t.Helper()
+	pair, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pair.Wipe()
+	public, err := pair.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nodeauthority.ReaderConfig{Endpoint: "tls://10.77.0.10:4222", ServerName: "gru-member-1", Account: "GRU_REGIONAL", NKeySeedFile: "/etc/terrascale/ts-node-authority/user.seed", PublicNKey: public, CAFile: "/etc/terrascale/ts-node-authority/ca.pem", CASHA256: strings.Repeat("a", 64), CertificateFile: "/etc/terrascale/ts-node-authority/client.pem", CertificateSHA256: strings.Repeat("b", 64), KeyFile: "/etc/terrascale/ts-node-authority/client.key"}
 }

@@ -6,6 +6,14 @@ provisions the complete initial regional and global inventories, then opens
 restricted runtime connections. The participant runs its own regional
 coordinator and signed membership against that same broker.
 
+The signed configuration also binds each host's distinct `authorityReader`
+identity to the regional account and guest broker. ts-node opens this read-only
+TLS/NKey connection on demand; its command transport remains separate. Reader
+credentials stay root-owned under `/etc/terrascale/ts-node-authority` and are
+not given to the orchestrator. The broker admits only leader-routed lease-bucket
+reads and reply subscriptions for these identities. Receiver startup therefore
+does not depend on the broker that finite initial activation must start.
+
 Host proof publication requires Linux. This command is a separate initial role. Ordinary `run`, production admission,
 signed delivery requirements and global R3 validators keep their existing
 requirements. The initial runtime does not construct global operational
@@ -195,3 +203,8 @@ and host-recovery tests does not establish successful guest activation, OCI
 resource operations, TerraBase production membership, fourth-Region behavior
 or production readiness. Those require their own executable integration and
 qualification evidence.
+
+Receiver/transport separation compares derived NKey public identities and TLS
+public keys. Copying credentials into different files or reissuing a certificate
+for the same key does not create a separate identity. Credential validation
+rejects those cases before ts-node connects.

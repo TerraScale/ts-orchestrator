@@ -486,6 +486,9 @@ func (t *NatsTransport) Close() error {
 				_ = subscription.Drain()
 			}
 		}
+		if closer, ok := t.authorizer.(interface{ Close() error }); ok {
+			t.closeErr = errors.Join(t.closeErr, closer.Close())
+		}
 		t.commandMutex.Lock()
 		if t.epochs != nil {
 			t.closeErr = errors.Join(t.closeErr, t.epochs.Close())

@@ -1,4 +1,5 @@
-package main
+// Package memberobserve runs the read-only observe-member diagnostic.
+package memberobserve
 
 import (
 	"bytes"
@@ -164,7 +165,8 @@ type memberObservationFacts struct {
 	Admin          memberAdminFacts    `json:"admin"`
 }
 
-func runObserveMember(ctx context.Context, args []string, output io.Writer) error {
+// Run executes observe-member with its command name followed by --config FILE.
+func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) != 3 || args[1] != "--config" || args[2] == "" {
 		return observationFailure("usage: orchestrator observe-member --config FILE", nil)
 	}

@@ -52,7 +52,34 @@ func (m Material) Validate() error {
 	if err != nil || digest(raw) != config.Membership.PinsSHA256 {
 		return bad()
 	}
-	expected := map[string]bool{}
+
+	reader := config.AuthorityReader
+	if reader.NKeySeedFile != AuthorityNKeyPath || reader.CAFile != AuthorityCAPath || reader.CertificateFile != AuthorityCertificatePath || reader.KeyFile != AuthorityPrivateKeyPath || digest(m.Files[AuthorityCAPath]) != reader.CASHA256 || digest(m.Files[AuthorityCertificatePath]) != reader.CertificateSHA256 {
+		return bad()
+	}
+	readerPair, err := nkeys.FromSeed(m.Files[AuthorityNKeyPath])
+	if err != nil {
+		return bad()
+	}
+	readerPublic, err := readerPair.PublicKey()
+	readerPair.Wipe()
+	if err != nil || readerPublic != reader.PublicNKey {
+		return bad()
+	}
+	readerTLS, err := tls.X509KeyPair(m.Files[AuthorityCertificatePath], m.Files[AuthorityPrivateKeyPath])
+	if err != nil {
+		return bad()
+	}
+	readerCert, err := x509.ParseCertificate(readerTLS.Certificate[0])
+	if err != nil {
+		return bad()
+	}
+	tlsPublic := map[string][]byte{}
+	if !bytes.Equal(m.Files[AuthorityCAPath], m.Files[CAPath]) {
+		return bad()
+	}
+	expected := map[string]bool{AuthorityNKeyPath: true, AuthorityCAPath: true, AuthorityCertificatePath: true, AuthorityPrivateKeyPath: true}
+
 	checkTLS := func(t initialgrant.TLSFiles, certPath, keyPath string, server bool) error {
 		if t.CAFile != CAPath || t.CertificateFile != certPath || t.KeyFile != keyPath || digest(m.Files[CAPath]) != t.CASHA256 || digest(m.Files[certPath]) != t.CertificateSHA256 {
 			return bad()
@@ -66,6 +93,10 @@ func (m Material) Validate() error {
 		if err != nil {
 			return bad()
 		}
+		if bytes.Equal(readerCert.RawSubjectPublicKeyInfo, cert.RawSubjectPublicKeyInfo) {
+			return bad()
+		}
+		tlsPublic[certPath] = cert.RawSubjectPublicKeyInfo
 		roots := x509.NewCertPool()
 		if !roots.AppendCertsFromPEM(m.Files[CAPath]) {
 			return bad()
@@ -116,7 +147,7 @@ func (m Material) Validate() error {
 				return err
 			}
 		}
-		if bytes.Equal(m.Files[CertificatePath], m.Files[ProvisionerCertificatePath]) || bytes.Equal(m.Files[PrivateKeyPath], m.Files[ProvisionerPrivateKeyPath]) {
+		if bytes.Equal(tlsPublic[CertificatePath], tlsPublic[ProvisionerCertificatePath]) {
 			return bad()
 		}
 		if err := checkTLS(config.Broker.TLS, ServerCertificatePath, ServerPrivateKeyPath, true); err != nil {
@@ -131,7 +162,7 @@ func (m Material) Validate() error {
 		return bad()
 	}
 	for path, data := range m.Files {
-		if !expected[path] || !IsFilePath(path) || len(data) == 0 || len(data) > 64<<10 {
+		if !expected[path] || (!IsFilePath(path) && !IsAuthorityFilePath(path)) || len(data) == 0 || len(data) > 64<<10 {
 			return bad()
 		}
 	}

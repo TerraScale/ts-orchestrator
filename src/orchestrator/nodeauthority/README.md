@@ -122,3 +122,20 @@ digest before reconciliation can start any service. The handoff admits only
 the declared orchestrator credential leaves to that service account; ts-node
 credentials remain root-only. An interrupted handoff stops activation and
 resumes under the same initial grant and credential journal on retry.
+
+Runtime command admission uses a separate, lazy authority connection. The
+signed `authorityReader` configuration pins the guest regional broker and a
+distinct NKey and TLS client identity. Its broker permissions permit only
+`$JS.API.STREAM.MSG.GET.KV_ORCH_LEADERS` and reply inbox subscriptions. This
+is a bucket-level read grant; the verifier selects and validates the exact
+`authority.regional` lease. The command transport never supplies that lease.
+
+Reader credentials remain owned by root under
+`/etc/terrascale/ts-node-authority`. Credential reads reject symlink ancestors,
+non-root or writable ancestor directories, nonregular files and multiple hard
+links. The authority connection opens on the first runtime authorization, so
+finite owner commands can activate the guest before its broker exists. Each
+runtime command reads the current lease, with a five-second connection and
+request bound. Closing the receiver cancels any pending authority connection
+and closes its session. Guest authority loss refuses runtime mutations while
+the existing command transport can continue serving status.

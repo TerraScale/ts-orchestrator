@@ -18,6 +18,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 )
 
@@ -33,6 +34,7 @@ type bootstrapHostFileReference struct {
 	VersionNumber int64  `json:"versionNumber,omitempty"`
 }
 type bootstrapControlHostSeed struct {
+	AuthorityReader    nodeauthority.ReaderConfig    `json:"authorityReader"`
 	HostID             string                        `json:"hostId"`
 	PrivateKeySecretID string                        `json:"privateKeySecretId"`
 	PrivateKeyVersion  int64                         `json:"privateKeyVersion"`
@@ -89,6 +91,9 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			return errors.New("control: seed requires declared host and signed owner grant")
 		}
 		if _, err := loadBootstrapControlCredentials(seed.NATS); err != nil {
+			return err
+		}
+		if err := validateBootstrapAuthorityReader(seed, activation); err != nil {
 			return err
 		}
 		var files []ocireconcile.BootstrapHostFile
@@ -199,7 +204,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 				return err
 			}
 		}
-		config := map[string]any{"nodeId": seed.HostID, "natsUrl": seed.NATS.URL, "natsNkeyFile": root + "user.seed", "natsTlsCaFile": root + "ca.pem", "natsTlsCertFile": root + "client.pem", "natsTlsKeyFile": root + "client.key", "authorityBucket": "ORCH_LEADERS", "commandTrustKeys": trust, "bootstrapBeforeNats": true, "bootstrapGrantFile": root + "grant.json", "bootstrapPublicKeyFile": root + "authority.pem", "releasePublicKey": release, "manifestPath": "/var/lib/terrascale/ts-node/manifest.json", "installRoot": "/opt/terrascale", "unitDir": "/etc/systemd/system", "dataVolumeRoot": "/var/lib/terrascale", "chronycBinary": "/usr/bin/chronyc", "systemctlBinary": "/usr/bin/systemctl", "useraddBinary": "/usr/sbin/useradd", "heartbeatIntervalMilliseconds": 1000, "reconcileIntervalMilliseconds": 1000}
+		config := map[string]any{"authorityReader": seed.AuthorityReader, "nodeId": seed.HostID, "natsUrl": seed.NATS.URL, "natsNkeyFile": root + "user.seed", "natsTlsCaFile": root + "ca.pem", "natsTlsCertFile": root + "client.pem", "natsTlsKeyFile": root + "client.key", "authorityBucket": "ORCH_LEADERS", "commandTrustKeys": trust, "bootstrapBeforeNats": true, "bootstrapGrantFile": root + "grant.json", "bootstrapPublicKeyFile": root + "authority.pem", "releasePublicKey": release, "manifestPath": "/var/lib/terrascale/ts-node/manifest.json", "installRoot": "/opt/terrascale", "unitDir": "/etc/systemd/system", "dataVolumeRoot": "/var/lib/terrascale", "chronycBinary": "/usr/bin/chronyc", "systemctlBinary": "/usr/bin/systemctl", "useraddBinary": "/usr/sbin/useradd", "heartbeatIntervalMilliseconds": 1000, "reconcileIntervalMilliseconds": 1000}
 		wire, err := json.Marshal(config)
 		if err != nil {
 			return err

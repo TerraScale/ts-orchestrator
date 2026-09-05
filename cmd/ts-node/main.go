@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -30,9 +32,11 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
@@ -63,31 +67,33 @@ type tsNodeCommandTrustFile struct {
 }
 
 type tsNodeConfigurationFile struct {
-	BootstrapBeforeNATS    bool                     `json:"bootstrapBeforeNats"`
-	BootstrapGrantFile     string                   `json:"bootstrapGrantFile"`
-	BootstrapPublicKeyFile string                   `json:"bootstrapPublicKeyFile"`
-	AuthorityBucket        string                   `json:"authorityBucket"`
-	CommandTrustKeys       []tsNodeCommandTrustFile `json:"commandTrustKeys"`
-	NodeId                 string                   `json:"nodeId"`
-	NatsURL                string                   `json:"natsUrl"`
-	NatsNkeyFile           string                   `json:"natsNkeyFile"`
-	NatsTlsCaFile          string                   `json:"natsTlsCaFile"`
-	NatsTlsCertFile        string                   `json:"natsTlsCertFile"`
-	NatsTlsKeyFile         string                   `json:"natsTlsKeyFile"`
-	ReleasePublicKey       string                   `json:"releasePublicKey"`
-	ManifestPath           string                   `json:"manifestPath"`
-	InstallRoot            string                   `json:"installRoot"`
-	UnitDir                string                   `json:"unitDir"`
-	DataVolumeRoot         string                   `json:"dataVolumeRoot"`
-	ChronycBinary          string                   `json:"chronycBinary"`
-	SystemctlBinary        string                   `json:"systemctlBinary"`
-	UseraddBinary          string                   `json:"useraddBinary"`
-	HeartbeatIntervalMs    int64                    `json:"heartbeatIntervalMilliseconds"`
-	ReconcileIntervalMs    int64                    `json:"reconcileIntervalMilliseconds"`
+	AuthorityReader        nodeauthority.ReaderConfig `json:"authorityReader"`
+	BootstrapBeforeNATS    bool                       `json:"bootstrapBeforeNats"`
+	BootstrapGrantFile     string                     `json:"bootstrapGrantFile"`
+	BootstrapPublicKeyFile string                     `json:"bootstrapPublicKeyFile"`
+	AuthorityBucket        string                     `json:"authorityBucket"`
+	CommandTrustKeys       []tsNodeCommandTrustFile   `json:"commandTrustKeys"`
+	NodeId                 string                     `json:"nodeId"`
+	NatsURL                string                     `json:"natsUrl"`
+	NatsNkeyFile           string                     `json:"natsNkeyFile"`
+	NatsTlsCaFile          string                     `json:"natsTlsCaFile"`
+	NatsTlsCertFile        string                     `json:"natsTlsCertFile"`
+	NatsTlsKeyFile         string                     `json:"natsTlsKeyFile"`
+	ReleasePublicKey       string                     `json:"releasePublicKey"`
+	ManifestPath           string                     `json:"manifestPath"`
+	InstallRoot            string                     `json:"installRoot"`
+	UnitDir                string                     `json:"unitDir"`
+	DataVolumeRoot         string                     `json:"dataVolumeRoot"`
+	ChronycBinary          string                     `json:"chronycBinary"`
+	SystemctlBinary        string                     `json:"systemctlBinary"`
+	UseraddBinary          string                     `json:"useraddBinary"`
+	HeartbeatIntervalMs    int64                      `json:"heartbeatIntervalMilliseconds"`
+	ReconcileIntervalMs    int64                      `json:"reconcileIntervalMilliseconds"`
 }
 
 // tsNodeConfiguration is the validated runtime configuration.
 type tsNodeConfiguration struct {
+	AuthorityReader        nodeauthority.ReaderConfig
 	BootstrapBeforeNATS    bool
 	BootstrapGrantFile     string
 	BootstrapPublicKeyFile string
@@ -168,6 +174,12 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 	if (file.BootstrapGrantFile == "") != (file.BootstrapPublicKeyFile == "") || file.BootstrapGrantFile != "" && (!isAbsolute(file.BootstrapGrantFile) || !isAbsolute(file.BootstrapPublicKeyFile)) {
 		return tsNodeConfiguration{}, errors.New("ts-node: bootstrapGrantFile and bootstrapPublicKeyFile must be absolute paths supplied together")
 	}
+	if err := file.AuthorityReader.Validate(); err != nil {
+		return tsNodeConfiguration{}, err
+	}
+	if file.AuthorityReader.NKeySeedFile == file.NatsNkeyFile || file.AuthorityReader.KeyFile == file.NatsTlsKeyFile {
+		return tsNodeConfiguration{}, errors.New("ts-node: authority reader credentials must be separate from transport")
+	}
 	var options []nats.Option
 	credentials := []string{file.NatsNkeyFile, file.NatsTlsCaFile, file.NatsTlsCertFile, file.NatsTlsKeyFile}
 	supplied := 0
@@ -194,6 +206,9 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 			}
 			return tsNodeConfiguration{}, fmt.Errorf("ts-node: NATS TLS is invalid: %s", err.Error())
 		}
+		if err := validateTsNodeReaderIdentity(file.AuthorityReader, authentication.PublicKey, tlsFiles.CertificateFile); err != nil {
+			return tsNodeConfiguration{}, err
+		}
 		options = append(options, authentication.Options()...)
 		options = append(options, tlsFiles.Options()...)
 	case strings.HasPrefix(file.NatsURL, "nats://"):
@@ -206,7 +221,7 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 			"ts-node: natsUrl must use nats:// for local use or tls:// for production")
 	}
 	options = append(options, nats.ReconnectBufSize(-1))
-	configuration := tsNodeConfiguration{
+	configuration := tsNodeConfiguration{AuthorityReader: file.AuthorityReader,
 		BootstrapBeforeNATS: file.BootstrapBeforeNATS,
 		BootstrapGrantFile:  file.BootstrapGrantFile, BootstrapPublicKeyFile: file.BootstrapPublicKeyFile,
 		AuthorityBucket: file.AuthorityBucket, CommandTrustKeys: file.CommandTrustKeys,
@@ -303,7 +318,7 @@ func readTsNodeConfigurationFile(path string) ([]byte, error) {
 
 func validateTsNodeConfigurationJSON(data []byte) error {
 	allowed := map[string]struct{}{
-		"authorityBucket": {}, "commandTrustKeys": {}, "bootstrapGrantFile": {}, "bootstrapPublicKeyFile": {}, "bootstrapBeforeNats": {},
+		"authorityReader": {}, "authorityBucket": {}, "commandTrustKeys": {}, "bootstrapGrantFile": {}, "bootstrapPublicKeyFile": {}, "bootstrapBeforeNats": {},
 		"nodeId": {}, "natsUrl": {}, "natsNkeyFile": {}, "natsTlsCaFile": {},
 		"natsTlsCertFile": {}, "natsTlsKeyFile": {}, "releasePublicKey": {},
 		"manifestPath": {}, "installRoot": {}, "unitDir": {}, "dataVolumeRoot": {},
@@ -350,7 +365,7 @@ func validateTsNodeConfigurationJSON(data []byte) error {
 	if delimiter, ok := closing.(json.Delim); !ok || delimiter != '}' {
 		return errors.New("configuration object is incomplete")
 	}
-	for _, required := range []string{"nodeId", "natsUrl", "releasePublicKey"} {
+	for _, required := range []string{"nodeId", "natsUrl", "releasePublicKey", "authorityReader"} {
 		if !seen[required] {
 			return fmt.Errorf("configuration is missing field %q", required)
 		}
@@ -453,20 +468,28 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		if _, err = hostagent.VerifyBootstrapGrant(configuration.NodeId, bootstrapPublic, bootstrapGrant); err != nil {
 			return nil, err
 		}
+		proof, err := initialgrant.VerifyProof(configuration.NodeId, bootstrapPublic, bootstrapGrant)
+		if err != nil {
+			return nil, err
+		}
+		if proof != nil && proof.Config().AuthorityReader != configuration.AuthorityReader {
+			return nil, errors.New("ts-node: authority reader differs from owner-granted scope")
+		}
 	}
 	return hostagent.NewHostAgent(hostagent.HostAgentConfig{
 		RequireManifestAdmission: true,
 		CommandAuthorityFactory: func(connection hostagent.NatsConnection) (nodeauthority.CommandAuthorizer, error) {
-			live, ok := connection.(hostagent.LiveNatsConnection)
-			if !ok {
-				return nil, errors.New("ts-node: receiver authority requires a live authenticated NATS connection")
-			}
-			regional, err := nodeauthority.NewRegionalCommandAuthorizer(nodeauthority.CommandAuthorityConfig{Connection: live.Connection, NodeID: configuration.NodeId, Bucket: configuration.AuthorityBucket, Trust: trust, SignerCandidates: candidates})
+			regional, err := nodeauthority.NewLazyRegionalCommandAuthorizer(configuration.AuthorityReader, configuration.NodeId, configuration.AuthorityBucket, trust, candidates)
 			if err != nil {
 				return nil, err
 			}
 			if len(bootstrapGrant) > 0 {
-				return hostagent.NewBootstrapAuthority(regional, configuration.NodeId, bootstrapPublic, bootstrapGrant)
+				wrapped, err := hostagent.NewBootstrapAuthority(regional, configuration.NodeId, bootstrapPublic, bootstrapGrant)
+				if err != nil {
+					regional.Close()
+					return nil, err
+				}
+				return wrapped, nil
 			}
 			return regional, nil
 		},
@@ -549,4 +572,64 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(exitCode(err))
 	}
+}
+
+// Compare public identities, not paths or certificate encodings. A renewed
+// certificate can carry the same private key under different PEM bytes.
+func validateTsNodeReaderIdentity(reader nodeauthority.ReaderConfig, transportNKey, transportCertificate string) error {
+	invalid := errors.New("ts-node: authority reader key identities must be separate from transport")
+	seed, err := initialgrant.ReadMaterialFile(reader.NKeySeedFile, 4096, true)
+	if err != nil {
+		return invalid
+	}
+	defer clear(seed)
+	pair, err := nkeys.FromSeed(bytes.TrimSpace(seed))
+	if err != nil {
+		return invalid
+	}
+	defer pair.Wipe()
+	publicNKey, err := pair.PublicKey()
+	if err != nil || publicNKey != reader.PublicNKey {
+		return invalid
+	}
+	if publicNKey == transportNKey {
+		return invalid
+	}
+	var public [][]byte
+	for index, entry := range []struct{ path, digest string }{{reader.CertificateFile, reader.CertificateSHA256}, {transportCertificate, ""}} {
+		data, err := initialgrant.ReadMaterialFile(entry.path, 64<<10, false)
+		if err != nil {
+			return invalid
+		}
+		if entry.digest != "" {
+			sum := sha256.Sum256(data)
+			if hex.EncodeToString(sum[:]) != entry.digest {
+				return invalid
+			}
+		}
+		if index == 0 {
+			key, err := initialgrant.ReadMaterialFile(reader.KeyFile, 64<<10, true)
+			if err != nil {
+				return invalid
+			}
+			_, err = tls.X509KeyPair(data, key)
+			clear(key)
+			if err != nil {
+				return invalid
+			}
+		}
+		block, _ := pem.Decode(data)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return invalid
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return invalid
+		}
+		public = append(public, cert.RawSubjectPublicKeyInfo)
+	}
+	if bytes.Equal(public[0], public[1]) {
+		return invalid
+	}
+	return nil
 }

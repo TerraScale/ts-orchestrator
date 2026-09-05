@@ -1,0 +1,77 @@
+Receiver authority and consumer promotion validation, base 1f011478.
+
+Scope: separate lazy read-only receiver authority credentials; explicit durable
+consumer inventory and R3 promotion; actual snapshotter archive restoration;
+full initial-profile content recovery with metadata limitations recorded.
+
+Initial combined make check: FAIL exit 2.
+TestInitialProfilesSnapshotRestoreR3Recovery failed after the full cluster restart:
+consumer CELL_EVENTS/runtime_startup identity or replicas differ. Diagnostic
+repeats isolated a changed consumer creation timestamp with R3 and delivery/ack
+checkpoints intact. See nats-snapshot-promotion-limits-2026-09-05.md.
+Log SHA256 f546fa4a798128c738952d54130e7dcc00b54f89cf386e644e540f9cdfa51e7e
+/tmp/ts-receiver-promotion-check.log
+
+Initial integrated receiver privileged race tests: PASS exit 0.
+Actual independent host transport/authority brokers, signed owner activation,
+live regional lease, cancelled handshake, and unsafe material refusal.
+Log SHA256 599f8cbb38d1134a7dd34e2f9a922394211bf6af2a995467d00076c9ddb3b2a9
+/tmp/ts-receiver-integrated-root.log
+
+Expanded initialcontrol privileged race tests: FAIL exit 1.
+Both participant cases could not read inherited credentials because the child
+mounted a new tmpfs over all /var/lib. The fixture now isolates only its own
+/var/lib/terrascale admission paths, retaining protected inherited credentials.
+Staged participant and receiver regression passed; final integrated gates below.
+Log SHA256 3467e0a4fb0bf2e6d7f249c15919b66478c565ebad081063d491f1e6a2affaf1
+/tmp/ts-initialcontrol-integrated-root.log
+
+Root tests use private mount and network namespaces. The launcher mounts tmpfs
+over /var/lib before starting the binary; fixtures use further private layers.
+These are isolated real-broker tests with a systemd seam and signed executable
+fixture. They do not establish actual guest binary/systemd qualification.
+
+Intermediate integrated gates, before member diagnostic extraction:
+make check: PASS exit 0 (/tmp/ts-receiver-promotion-final-check.log).
+go test -race -count=1 -tags sandboxvm ./...: PASS exit 0
+(/tmp/ts-receiver-promotion-sandboxvm.log).
+Final initialcontrol/receiver privileged race tests: PASS exit 0
+(/tmp/ts-receiver-final-root.log). Includes both participant lifecycle cases,
+blank-disk/restart/retirement, conflicting profile, budget, plaintext and swapped
+material rejection, independent receiver authority, cancellation and unsafe paths.
+
+Credential separation now compares actual public NKeys and TLS public keys.
+Copied credentials or reissued certificates for the same key are rejected.
+Focused regression covers distinct paths and different PEM representations.
+
+A package audit found cmd/orchestrator at 10,134 lines including tests. The
+self-contained observe-member implementation and command tests now live in
+memberobserve, with direct CLI dispatch and its CLI regression retained.
+cmd/orchestrator is 9,757 lines; memberobserve is 388. No compatibility wrapper
+or diagnostic behavior change was introduced. Final checks follow this extraction.
+
+Final integrated gates, Go 1.27.1, GOMAXPROCS=4 GOFLAGS=-p=2,
+run sequentially on frozen source:
+make check: PASS exit 0.
+go test -race -count=1 -tags sandboxvm ./...: PASS exit 0.
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...: PASS exit 0.
+The final root test binary used the same initialcontrol/receiver source; the
+later extraction changed only the member diagnostic and its CLI dispatch/tests.
+
+Root invocation:
+sudo -n unshare --mount --net --propagation private /bin/sh -c
+'mount -t tmpfs -o mode=0755 tmpfs /var/lib &&
+TS_INITIALCONTROL_TEST_NAMESPACE=1 GOMAXPROCS=4 /tmp/ts-receiver-final.test
+-test.v -test.timeout=180s
+-test.run="^(TestInitialRuntime.*|TestInitialSeedAndParticipantUseOneBroker|TestInitialSignedBrokerRejectsPlaintextBeforeListener|TestInitialSwappedMaterialAfterAdmissionBeforeEffects|TestReceiverSeparateAuthorityOwnerActivationAndLiveLease|TestLazyAuthorityCloseInterruptsHandshake|TestLazyAuthorityRejectsUnsafeMaterial)$"'
+
+All Go packages including commands and tests are below 10,000 lines. No new
+Firecracker result is claimed here. The separate fresh-VM evidence must identify
+its committed source and actual service/cleanup result.
+
+Final log SHA256:
+
+bc4d3b25657c6fc722b31b71591fdf538ad15f926af705ae0e92166f1a2334b5  /tmp/ts-receiver-memberobserve-check.log
+d54e76ebffeeb31651b917a452b9f7aa9ff11e5d93d719f546da685726cb16ec  /tmp/ts-receiver-memberobserve-sandboxvm.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-receiver-memberobserve-arm64.log
+5882a7be93edd90bab32422f9ab6d4f6a403ecb018193ce501d93dacdc70044a  /tmp/ts-receiver-final-root.log

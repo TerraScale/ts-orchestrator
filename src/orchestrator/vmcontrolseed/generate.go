@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/initialcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -110,7 +111,20 @@ func GenerateGRU(runID string, guests []Guest) (map[string]Material, error) {
 			return nil, err
 		}
 		config := initialgrant.Config{Version: 1, Mode: "initial-gru-r1", Role: "participant", NodeID: guest.ID, Cell: "gru", Instance: guest.ID, SeedInstance: ordered[0].ID, ProfileSHA256: profile, Regional: initialgrant.Store{Account: RegionalAccount, Runtime: runtime}, Membership: initialgrant.Membership{SigningKeyFile: MembershipKeyPath, PublicKey: guest.MembershipPublicKey, PinsFile: MembershipPinsPath, PinsSHA256: digest(pinsJSON)}, Broker: initialgrant.Broker{ServerName: ordered[0].ID, StoreDir: StorePath, Endpoint: "tls://" + net.JoinHostPort(ordered[0].Address, "4222"), StorageBudgetBytes: budget}}
-		peer := initialgrant.Peer{Instance: guest.ID, RegionalPublicNKey: runtime.PublicNKey, MembershipPublicKey: guest.MembershipPublicKey}
+
+		readerGuest := guest
+		readerGuest.ID += "-authority-reader"
+		readerCert, readerKey, err := issue(readerGuest, false)
+		if err != nil {
+			return nil, err
+		}
+		files[AuthorityCAPath], files[AuthorityCertificatePath], files[AuthorityPrivateKeyPath] = append([]byte(nil), ca...), readerCert, readerKey
+		readerUser, err := newUser(files, AuthorityNKeyPath, initialgrant.TLSFiles{})
+		if err != nil {
+			return nil, err
+		}
+		config.AuthorityReader = nodeauthority.ReaderConfig{Endpoint: config.Broker.Endpoint, ServerName: config.Broker.ServerName, Account: RegionalAccount, NKeySeedFile: AuthorityNKeyPath, PublicNKey: readerUser.PublicNKey, CAFile: AuthorityCAPath, CASHA256: digest(ca), CertificateFile: AuthorityCertificatePath, CertificateSHA256: digest(readerCert), KeyFile: AuthorityPrivateKeyPath}
+		peer := initialgrant.Peer{AuthorityReaderPublicNKey: readerUser.PublicNKey, Instance: guest.ID, RegionalPublicNKey: runtime.PublicNKey, MembershipPublicKey: guest.MembershipPublicKey}
 		if index == 0 {
 			config.Role = "seed"
 			provisionerGuest := guest
@@ -187,6 +201,11 @@ func renderBroker(config initialgrant.Config) (string, error) {
 			return "", err
 		}
 		regionalUsers = append(regionalUsers, user)
+		pub, sub, err := nodeauthority.ReaderPermissions("ORCH_LEADERS")
+		if err != nil {
+			return "", err
+		}
+		regionalUsers = append(regionalUsers, map[string]any{"nkey": peer.AuthorityReaderPublicNKey, "permissions": map[string]any{"publish": map[string]any{"allow": pub}, "subscribe": map[string]any{"allow": sub}}})
 	}
 	for _, entry := range []struct {
 		global, provisioner bool

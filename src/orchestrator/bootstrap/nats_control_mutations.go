@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
+	"terrascale.tech/orchestrator/src/orchestrator/control/journal"
 )
 
 // Mutation identity comes from the admitted action declaration, not a first
@@ -97,6 +99,12 @@ func (r *NATSControlRuntime) updateControlReplicas(ctx context.Context, update C
 	return updateControlReplicaStreams(ctx, js, update, pins)
 }
 func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, pins []controlMutationPin) error {
+	if err := validateControlConsumerReplicas(update); err != nil {
+		return err
+	}
+	if err := preflightControlConsumers(ctx, js, update, pins); err != nil {
+		return err
+	}
 	for _, name := range update.Streams {
 		stream, err := js.Stream(ctx, name)
 		if err != nil {
@@ -106,7 +114,7 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 		if err != nil {
 			return err
 		}
-		if info.Config.Storage != jetstream.FileStorage || (info.Config.Replicas != 1 && info.Config.Replicas != update.Replicas) {
+		if info.Config.Storage != jetstream.FileStorage || info.Config.Mirror != nil || len(info.Config.Sources) != 0 || (info.Config.Replicas != 1 && info.Config.Replicas != update.Replicas) {
 			return ErrControlRuntimeUnavailable
 		}
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
@@ -121,6 +129,11 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 			return err
 		}
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+			return err
+		}
+	}
+	for _, consumer := range update.Consumers {
+		if err := promoteControlConsumer(ctx, js, update, consumer, pins); err != nil {
 			return err
 		}
 	}
@@ -244,4 +257,196 @@ func (r *NATSControlRuntime) admittedControlAuthority(check ControlStoreCheck, c
 		}
 	}
 	return false
+}
+
+func validateControlConsumerReplicas(update ControlReplicaPlan) error {
+	if len(update.Consumers) > 64 || len(update.Streams) > 64 {
+		return ErrControlProviderInvalid
+	}
+	streams := map[string]bool{}
+	for _, name := range update.Streams {
+		streams[name] = true
+	}
+	seen := map[string]bool{}
+	covered := map[string]bool{}
+	for _, consumer := range update.Consumers {
+		c := consumer.Config
+		key := consumer.Stream + "/" + c.Name
+		if !streams[consumer.Stream] || seen[key] || c.Name == "" || len(c.Name) > 255 || strings.ContainsAny(c.Name, ".*> /\\\t\r\n") || c.Durable != c.Name || c.Replicas != update.Replicas || c.FilterSubject == "" || c.DeliverSubject != "" || c.DeliverGroup != "" || c.AckPolicy != jetstream.AckExplicitPolicy || c.InactiveThreshold != 0 || c.MemoryStorage {
+			return ErrControlProviderInvalid
+		}
+		seen[key] = true
+		covered[consumer.Stream] = true
+	}
+	for _, name := range []string{"GLOBAL_SPEC", "CELL_SPEC", "CELL_EVENTS"} {
+		if streams[name] && !covered[name] {
+			return ErrControlProviderInvalid
+		}
+	}
+	return nil
+}
+
+func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, plan ControlConsumerReplicaPlan, pins []controlMutationPin) error {
+	if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+		return err
+	}
+	consumer, err := js.Consumer(ctx, plan.Stream, plan.Config.Name)
+	if err != nil {
+		return err
+	}
+	before, err := consumer.Info(ctx)
+	if err != nil {
+		return err
+	}
+	expected := plan.Config
+	expected.Replicas = before.Config.Replicas
+	if (expected.Replicas != 1 && expected.Replicas != update.Replicas) || !journal.NatsConsumerProfileMatches(before, expected, plan.Stream) {
+		return ErrControlRuntimeUnavailable
+	}
+	if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+		return err
+	}
+	if before.Config.Replicas != update.Replicas {
+		config := before.Config
+		config.Replicas = update.Replicas
+		consumer, err = js.UpdateConsumer(ctx, plan.Stream, config)
+		if err != nil {
+			return err
+		}
+		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+			return err
+		}
+	}
+	// Even an already-applied retry must prove the durable replica quorum.
+	for {
+		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+			return err
+		}
+		info, err := consumer.Info(ctx)
+		if err != nil {
+			return err
+		}
+		if !journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream) || !info.Created.Equal(before.Created) || info.AckFloor.Consumer < before.AckFloor.Consumer || info.AckFloor.Stream < before.AckFloor.Stream || info.Delivered.Consumer < before.Delivered.Consumer || info.Delivered.Stream < before.Delivered.Stream {
+			return ErrControlRuntimeUnavailable
+		}
+		servers, err := controlConsumerTargetServers(update.Store, plan.Stream, pins)
+		if err != nil {
+			return err
+		}
+		ready := controlConsumerReplicaAssignment(info.Cluster, servers)
+		if ready {
+			return checkControlMutation(ctx, js, update.Store, pins)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// Listing verifies the admitted set only; mutations always use declared names.
+func preflightControlConsumers(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, pins []controlMutationPin) error {
+	for _, name := range update.Streams {
+		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+			return err
+		}
+		expected := map[string]jetstream.ConsumerConfig{}
+		for _, c := range update.Consumers {
+			if c.Stream == name {
+				expected[c.Config.Name] = c.Config
+			}
+		}
+		if len(expected) > 0 {
+			if _, err := controlConsumerTargetServers(update.Store, name, pins); err != nil {
+				return err
+			}
+		}
+		stream, err := js.Stream(ctx, name)
+		if err != nil {
+			return err
+		}
+		listing, cancel := context.WithCancel(ctx)
+		consumers := stream.ListConsumers(listing)
+		seen := map[string]bool{}
+		for observed := range consumers.Info() {
+			wanted, ok := expected[observed.Name]
+			if len(seen) >= len(expected) || !ok || seen[observed.Name] {
+				cancel()
+				return ErrControlRuntimeUnavailable
+			}
+			wanted.Replicas = observed.Config.Replicas
+			if (wanted.Replicas != 1 && wanted.Replicas != update.Replicas) || !journal.NatsConsumerProfileMatches(observed, wanted, name) {
+				cancel()
+				return ErrControlRuntimeUnavailable
+			}
+			seen[observed.Name] = true
+		}
+		err = consumers.Err()
+		cancel()
+		if err != nil {
+			return err
+		}
+		if len(seen) != len(expected) {
+			return ErrControlRuntimeUnavailable
+		}
+		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func controlConsumerTargetServers(store, stream string, pins []controlMutationPin) ([]string, error) {
+	var result []string
+	for _, pin := range pins {
+		if pin.store == store {
+			for _, assignment := range pin.check.Streams {
+				if assignment.Name == stream {
+					if assignment.Replicas != 3 || len(assignment.Servers) != 3 {
+						return nil, ErrControlProviderInvalid
+					}
+					if result != nil && !reflect.DeepEqual(result, assignment.Servers) {
+						return nil, ErrControlProviderInvalid
+					}
+					result = assignment.Servers
+				}
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, name := range result {
+		if name == "" || seen[name] {
+			return nil, ErrControlProviderInvalid
+		}
+		seen[name] = true
+	}
+	if len(result) != 3 {
+		return nil, ErrControlProviderInvalid
+	}
+	return result, nil
+}
+
+func controlConsumerReplicaAssignment(cluster *jetstream.ClusterInfo, servers []string) bool {
+	if cluster == nil || len(servers) != 3 || len(cluster.Replicas) != 2 {
+		return false
+	}
+	expected := map[string]bool{}
+	for _, name := range servers {
+		if name == "" || expected[name] {
+			return false
+		}
+		expected[name] = true
+	}
+	if !expected[cluster.Leader] {
+		return false
+	}
+	delete(expected, cluster.Leader)
+	for _, replica := range cluster.Replicas {
+		if replica == nil || !expected[replica.Name] || !replica.Current || replica.Offline {
+			return false
+		}
+		delete(expected, replica.Name)
+	}
+	return len(expected) == 0
 }

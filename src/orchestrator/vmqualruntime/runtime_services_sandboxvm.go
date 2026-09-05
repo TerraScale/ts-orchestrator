@@ -355,6 +355,10 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
 	controlSeed = controlSeed.Clone()
+	reader, err := controlSeed.AuthorityReader()
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
 	bootstrap := vmimage.TSNodeBootstrap{
 		Controller:                   &controlSeed,
 		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: initialGrant.PublicKeyPEM, SignedGrant: initialGrant.SignedGrant},
@@ -362,7 +366,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		Version: tsNode.manifest.Version, Binary: append([]byte(nil), tsNode.binary...),
 		SHA256: tsNode.manifest.SHA256, Signature: append([]byte(nil), tsNode.signature...),
 		ReleasePublicKey: append(ed25519.PublicKey(nil), services.publicKey...),
-		Config: vmimage.TSNodeConfig{
+		Config: vmimage.TSNodeConfig{AuthorityReader: reader,
 			AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: commandTrust,
 			NodeID:  guest.ID,
 			NATSURL: "tls://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))),

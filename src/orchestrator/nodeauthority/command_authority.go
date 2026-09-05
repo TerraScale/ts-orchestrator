@@ -61,11 +61,8 @@ type CommandAuthorityConfig struct {
 type RegionalCommandAuthorizer struct{ config CommandAuthorityConfig }
 
 func NewRegionalCommandAuthorizer(config CommandAuthorityConfig) (*RegionalCommandAuthorizer, error) {
-	if config.Connection == nil || config.Trust == nil || len(config.SignerCandidates) == 0 || len(config.SignerCandidates) > 4 || !authorityBucket(config.Bucket) {
-		return nil, errors.New("nodeauthority: command trust, candidate bindings and authority bucket are required")
-	}
-	if len(config.NodeID) > 63 || !regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`).MatchString(config.NodeID) {
-		return nil, errors.New("nodeauthority: invalid host identity")
+	if err := validateCommandAuthorityConfig(config); err != nil {
+		return nil, err
 	}
 	copied := make(map[string]string, len(config.SignerCandidates))
 	for key, candidate := range config.SignerCandidates {
@@ -210,4 +207,20 @@ func decodeObject(data []byte, required ...string) (map[string]json.RawMessage, 
 		return nil, errors.New("nodeauthority: trailing or missing data")
 	}
 	return fields, nil
+}
+
+func validateCommandAuthorityConfig(config CommandAuthorityConfig) error {
+	if config.Trust == nil || len(config.SignerCandidates) == 0 || len(config.SignerCandidates) > 4 || !authorityBucket(config.Bucket) {
+		return errors.New("nodeauthority: command trust, candidate bindings and authority bucket are required")
+	}
+	if len(config.NodeID) > 63 || !regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`).MatchString(config.NodeID) {
+		return errors.New("nodeauthority: invalid host identity")
+	}
+	for key, candidate := range config.SignerCandidates {
+		_, err := hex.DecodeString(key)
+		if len(key) != 64 || err != nil || key != strings.ToLower(key) || candidate == "" || len(candidate) > 256 {
+			return errors.New("nodeauthority: invalid command signer candidate binding")
+		}
+	}
+	return nil
 }

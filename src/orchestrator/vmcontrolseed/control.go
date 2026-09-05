@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 const Directory = "/etc/terrascale/orchestrator"
@@ -79,4 +80,18 @@ func (m Material) DataDriveBytes() (int64, error) {
 		return 0, fmt.Errorf("vmcontrolseed: invalid admitted disk capacity")
 	}
 	return config.Broker.StorageBudgetBytes + filesystemAllowance, nil
+}
+
+const AuthorityDirectory = "/etc/terrascale/ts-node-authority"
+const AuthorityNKeyPath = AuthorityDirectory + "/user.seed"
+const AuthorityCAPath = AuthorityDirectory + "/ca.pem"
+const AuthorityCertificatePath = AuthorityDirectory + "/client.pem"
+const AuthorityPrivateKeyPath = AuthorityDirectory + "/client.key"
+
+func IsAuthorityFilePath(path string) bool {
+	return path == AuthorityNKeyPath || path == AuthorityCAPath || path == AuthorityCertificatePath || path == AuthorityPrivateKeyPath
+}
+func (m Material) AuthorityReader() (nodeauthority.ReaderConfig, error) {
+	c, e := initialgrant.ParseConfig([]byte(m.Settings))
+	return c.AuthorityReader, e
 }

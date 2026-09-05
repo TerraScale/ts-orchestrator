@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"time"
 
 	"github.com/nats-io/nkeys"
@@ -56,6 +57,7 @@ const (
 // host agent. Paths and the release key are derived by vmimage and cannot be
 // redirected by a caller.
 type TSNodeConfig struct {
+	AuthorityReader   nodeauthority.ReaderConfig
 	AuthorityBucket   string
 	CommandTrustKeys  []TSNodeCommandTrust
 	NodeID            string
@@ -140,26 +142,27 @@ type tsNodeBootstrapMaterial struct {
 }
 
 type tsNodeConfigurationFile struct {
-	BootstrapGrantFile            string                   `json:"bootstrapGrantFile"`
-	BootstrapPublicKeyFile        string                   `json:"bootstrapPublicKeyFile"`
-	AuthorityBucket               string                   `json:"authorityBucket"`
-	CommandTrustKeys              []tsNodeCommandTrustFile `json:"commandTrustKeys"`
-	NodeID                        string                   `json:"nodeId"`
-	NATSURL                       string                   `json:"natsUrl"`
-	NATSNKeyFile                  string                   `json:"natsNkeyFile"`
-	NATSTLSCAFile                 string                   `json:"natsTlsCaFile"`
-	NATSTLSCertFile               string                   `json:"natsTlsCertFile"`
-	NATSTLSKeyFile                string                   `json:"natsTlsKeyFile"`
-	ReleasePublicKey              string                   `json:"releasePublicKey"`
-	ManifestPath                  string                   `json:"manifestPath"`
-	InstallRoot                   string                   `json:"installRoot"`
-	UnitDir                       string                   `json:"unitDir"`
-	DataVolumeRoot                string                   `json:"dataVolumeRoot"`
-	ChronycBinary                 string                   `json:"chronycBinary"`
-	SystemctlBinary               string                   `json:"systemctlBinary"`
-	UseraddBinary                 string                   `json:"useraddBinary"`
-	HeartbeatIntervalMilliseconds int64                    `json:"heartbeatIntervalMilliseconds"`
-	ReconcileIntervalMilliseconds int64                    `json:"reconcileIntervalMilliseconds"`
+	AuthorityReader               nodeauthority.ReaderConfig `json:"authorityReader"`
+	BootstrapGrantFile            string                     `json:"bootstrapGrantFile"`
+	BootstrapPublicKeyFile        string                     `json:"bootstrapPublicKeyFile"`
+	AuthorityBucket               string                     `json:"authorityBucket"`
+	CommandTrustKeys              []tsNodeCommandTrustFile   `json:"commandTrustKeys"`
+	NodeID                        string                     `json:"nodeId"`
+	NATSURL                       string                     `json:"natsUrl"`
+	NATSNKeyFile                  string                     `json:"natsNkeyFile"`
+	NATSTLSCAFile                 string                     `json:"natsTlsCaFile"`
+	NATSTLSCertFile               string                     `json:"natsTlsCertFile"`
+	NATSTLSKeyFile                string                     `json:"natsTlsKeyFile"`
+	ReleasePublicKey              string                     `json:"releasePublicKey"`
+	ManifestPath                  string                     `json:"manifestPath"`
+	InstallRoot                   string                     `json:"installRoot"`
+	UnitDir                       string                     `json:"unitDir"`
+	DataVolumeRoot                string                     `json:"dataVolumeRoot"`
+	ChronycBinary                 string                     `json:"chronycBinary"`
+	SystemctlBinary               string                     `json:"systemctlBinary"`
+	UseraddBinary                 string                     `json:"useraddBinary"`
+	HeartbeatIntervalMilliseconds int64                      `json:"heartbeatIntervalMilliseconds"`
+	ReconcileIntervalMilliseconds int64                      `json:"reconcileIntervalMilliseconds"`
 }
 
 func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) (tsNodeBootstrapMaterial, error) {
@@ -283,7 +286,10 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 	if err != nil {
 		return nil, err
 	}
-	wire := tsNodeConfigurationFile{
+	if err := config.AuthorityReader.Validate(); err != nil {
+		return nil, err
+	}
+	wire := tsNodeConfigurationFile{AuthorityReader: config.AuthorityReader,
 		BootstrapGrantFile: BootstrapGrantPath, BootstrapPublicKeyFile: BootstrapPublicKeyPath,
 		AuthorityBucket: config.AuthorityBucket, CommandTrustKeys: trustRefs,
 		NodeID: config.NodeID, NATSURL: config.NATSURL,

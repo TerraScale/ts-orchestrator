@@ -17,6 +17,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 )
 
 const Arguments = "initial-gru-r1 --config @config"
@@ -55,25 +56,27 @@ type Membership struct {
 	PinsSHA256     string `json:"pinsSha256"`
 }
 type Peer struct {
-	Instance            string `json:"instance"`
-	RegionalPublicNKey  string `json:"regionalPublicNkey"`
-	GlobalPublicNKey    string `json:"globalPublicNkey"`
-	MembershipPublicKey string `json:"membershipPublicKey"`
+	AuthorityReaderPublicNKey string `json:"authorityReaderPublicNkey"`
+	Instance                  string `json:"instance"`
+	RegionalPublicNKey        string `json:"regionalPublicNkey"`
+	GlobalPublicNKey          string `json:"globalPublicNkey"`
+	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
-	Version       int        `json:"version"`
-	Mode          string     `json:"mode"`
-	Role          string     `json:"role"`
-	NodeID        string     `json:"nodeId"`
-	Cell          string     `json:"cell"`
-	Instance      string     `json:"instance"`
-	SeedInstance  string     `json:"seedInstance"`
-	Peers         []Peer     `json:"peers"`
-	Broker        Broker     `json:"broker"`
-	Regional      Store      `json:"regional"`
-	Global        *Store     `json:"global"`
-	Membership    Membership `json:"membership"`
-	ProfileSHA256 string     `json:"profileSha256"`
+	AuthorityReader nodeauthority.ReaderConfig `json:"authorityReader"`
+	Version         int                        `json:"version"`
+	Mode            string                     `json:"mode"`
+	Role            string                     `json:"role"`
+	NodeID          string                     `json:"nodeId"`
+	Cell            string                     `json:"cell"`
+	Instance        string                     `json:"instance"`
+	SeedInstance    string                     `json:"seedInstance"`
+	Peers           []Peer                     `json:"peers"`
+	Broker          Broker                     `json:"broker"`
+	Regional        Store                      `json:"regional"`
+	Global          *Store                     `json:"global"`
+	Membership      Membership                 `json:"membership"`
+	ProfileSHA256   string                     `json:"profileSha256"`
 }
 
 func ParseConfig(raw []byte) (Config, error) {
@@ -118,6 +121,12 @@ func (c Config) Validate() error {
 	bad := func() error {
 		return errors.New("initialgrant: invalid initial GRU role, identity or finite configuration")
 	}
+	if err := c.AuthorityReader.Validate(); err != nil {
+		return err
+	}
+	if c.AuthorityReader.Endpoint != c.Broker.Endpoint || c.AuthorityReader.ServerName != c.Broker.ServerName || c.AuthorityReader.Account != c.Regional.Account {
+		return bad()
+	}
 	if c.Version != 1 || c.Mode != Mode || (c.Role != "seed" && c.Role != "participant") || c.Cell != "gru" || !token(c.NodeID) || !strings.HasPrefix(c.NodeID, "gru-") || !token(c.Instance) || !token(c.SeedInstance) || !hostmanifest.ValidDigest(c.ProfileSHA256) || !token(c.Broker.ServerName) || !cleanPath(c.Broker.StoreDir) || c.Broker.StorageBudgetBytes <= 0 {
 		return bad()
 	}
@@ -146,6 +155,10 @@ func (c Config) Validate() error {
 		if !token(p.Instance) || seen[p.Instance] || index > 0 && c.Peers[index-1].Instance >= p.Instance || !nkeys.IsValidPublicUserKey(p.RegionalPublicNKey) || keys[p.RegionalPublicNKey] || !validMembershipPublic(p.MembershipPublicKey) || membershipKeys[p.MembershipPublicKey] {
 			return bad()
 		}
+		if !nkeys.IsValidPublicUserKey(p.AuthorityReaderPublicNKey) || keys[p.AuthorityReaderPublicNKey] || p.AuthorityReaderPublicNKey == p.RegionalPublicNKey {
+			return bad()
+		}
+		keys[p.AuthorityReaderPublicNKey] = true
 		seen[p.Instance] = true
 		membershipKeys[p.MembershipPublicKey] = true
 		keys[p.RegionalPublicNKey] = true
@@ -159,7 +172,7 @@ func (c Config) Validate() error {
 			return bad()
 		}
 		if p.Instance == c.Instance {
-			self = p.RegionalPublicNKey == c.Regional.Runtime.PublicNKey && p.MembershipPublicKey == c.Membership.PublicKey
+			self = p.AuthorityReaderPublicNKey == c.AuthorityReader.PublicNKey && p.RegionalPublicNKey == c.Regional.Runtime.PublicNKey && p.MembershipPublicKey == c.Membership.PublicKey
 			if c.Role == "seed" && p.GlobalPublicNKey != c.Global.Runtime.PublicNKey {
 				return bad()
 			}

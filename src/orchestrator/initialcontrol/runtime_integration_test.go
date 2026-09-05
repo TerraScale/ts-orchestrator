@@ -46,7 +46,17 @@ func namespace(t *testing.T) {
 	if self == init {
 		t.Fatal("refusing to mount over the host namespace")
 	}
-	if err := unix.Mount("tmpfs", "/var/lib", "tmpfs", 0, "mode=0755"); err != nil {
+	// The participant inherits the parent's protected credentials under /var/lib.
+	// Isolate only its own admission publication; mounting all of /var/lib
+	// would hide those credentials before initialcontrol.Start can read them.
+	mountPath := "/var/lib"
+	if os.Getenv("TS_INITIALCONTROL_PARTICIPANT_CONFIG") != "" {
+		mountPath = "/var/lib/terrascale"
+		if err := os.MkdirAll(mountPath, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := unix.Mount("tmpfs", mountPath, "tmpfs", 0, "mode=0755"); err != nil {
 		t.Fatal(err)
 	}
 	network, _ := os.Readlink("/proc/self/ns/net")
@@ -60,7 +70,7 @@ func namespace(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		if err := unix.Unmount("/var/lib", 0); err != nil {
+		if err := unix.Unmount(mountPath, 0); err != nil {
 			t.Error(err)
 		}
 	})
@@ -117,15 +127,19 @@ func fixtureConfig(t *testing.T) (initialgrant.Config, initialgrant.Config) {
 	}
 	endpoint := "tls://" + listener.Addr().String()
 	listener.Close()
-	root := t.TempDir()
+	root, err := os.MkdirTemp("/var/lib", "receiver-fixture-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
 	var output []initialgrant.Config
 	for _, id := range []string{"gru-one", "gru-two"} {
 		material := materials[id]
 		directory := filepath.Join(root, id)
 		for path, data := range material.Files {
-			write(t, strings.ReplaceAll(path, vmcontrolseed.Directory, directory), data)
+			write(t, strings.NewReplacer(vmcontrolseed.Directory, directory, vmcontrolseed.AuthorityDirectory, directory+"/reader").Replace(path), data)
 		}
-		settings := strings.ReplaceAll(material.Settings, vmcontrolseed.Directory, directory)
+		settings := strings.NewReplacer(vmcontrolseed.Directory, directory, vmcontrolseed.AuthorityDirectory, directory+"/reader").Replace(material.Settings)
 		settings = strings.ReplaceAll(settings, vmcontrolseed.StorePath, filepath.Join(root, "nats"))
 		settings = strings.ReplaceAll(settings, "tls://10.77.0.10:4222", endpoint)
 		var c initialgrant.Config

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"github.com/nats-io/nkeys"
 	"os"
 	"path/filepath"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"testing"
 	"time"
 
@@ -39,13 +42,20 @@ func TestParseTsNodeArguments(t *testing.T) {
 	}
 }
 
-const minimalConfig = `{
+var minimalConfig = func() string {
+	pair, _ := nkeys.CreateUser()
+	defer pair.Wipe()
+	public, _ := pair.PublicKey()
+	reader := nodeauthority.ReaderConfig{Endpoint: "tls://127.0.0.1:4223", ServerName: "guest-authority", Account: "GRU_REGIONAL", NKeySeedFile: "/reader/user.seed", PublicNKey: public, CAFile: "/reader/ca.pem", CASHA256: strings.Repeat("a", 64), CertificateFile: "/reader/client.pem", CertificateSHA256: strings.Repeat("b", 64), KeyFile: "/reader/client.key"}
+	encoded, _ := json.Marshal(reader)
+	return strings.Replace(`{
   "nodeId": "gru-1",
   "natsUrl": "nats://127.0.0.1:4222",
  "authorityBucket":"ORCH_GRU_LEADERS",
  "commandTrustKeys":[{"candidateId":"gru-controller-test","publicKeyFile":"/etc/terrascale/command-public.pem"}],
   "releasePublicKey": "0000000000000000000000000000000000000000000000000000000000000000"
-}`
+}`, `"authorityBucket"`, `"authorityReader":`+string(encoded)+`,"authorityBucket"`, 1)
+}()
 
 func TestLoadTsNodeConfigurationAppliesDefaults(t *testing.T) {
 	configuration, err := loadTsNodeConfiguration(writeConfig(t, minimalConfig))

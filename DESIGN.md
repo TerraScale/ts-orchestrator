@@ -43,6 +43,7 @@ describe code that exists today; they do not preserve a retired topology.
 | OCI control snapshot storage | `src/orchestrator/restoresnapshot` | restoredrill, provider, delivery |
 | CLI / process entry | `cmd/orchestrator` | control, provider, ocireconcile |
 | VM qualification core | `src/orchestrator/vmqual` | shared configuration, lifecycle, journals, diagnostic/resource evidence, guest contracts |
+| Read-only member diagnostic | `src/orchestrator/memberobserve` | tbep |
 | Guest startup diagnostic parsing | `src/orchestrator/guestdiagnostic` | standard library only |
 | Firecracker qualification runtime | `src/orchestrator/vmqualruntime` | vmqual, sandboxvm, vmnet, vmdisk, vmimage, guestdiagnostic, production host/provider packages |
 | Qualification grant issuer and activation | `src/orchestrator/vmqualbootstrap` | hostagent, security |

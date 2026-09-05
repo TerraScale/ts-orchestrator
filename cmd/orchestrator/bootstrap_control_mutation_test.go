@@ -10,7 +10,7 @@ import (
 )
 
 func TestBootstrapControlMutationIdentitySurvivesDecodeProjectionAndIntent(t *testing.T) {
-	raw := `{"version":1,"generation":1,"regions":[{"code":"gru"}],"actions":[{"Kind":"promote-global-r3","Region":"gru","ExpectedEpoch":1,"TargetEpoch":2,"ReplicaUpdates":[{"Store":"global","Streams":["GLOBAL_SPEC"],"Replicas":3}],"Checks":[{"Store":"global","Region":"gru","AuthorityID":"global","LeaseKey":"authority.global","AuthorityTerm":7,"AuthorityCandidateID":"global-controller-gru-one","AuthorityLeaseID":"lease-original"}]}]}`
+	raw := `{"version":1,"generation":1,"regions":[{"code":"gru"}],"actions":[{"Kind":"promote-global-r3","Region":"gru","ExpectedEpoch":1,"TargetEpoch":2,"ReplicaUpdates":[{"Store":"global","Streams":["GLOBAL_SPEC"],"Replicas":3,"Consumers":[{"Stream":"GLOBAL_SPEC","Config":{"name":"global_cell_spec_gru","durable_name":"global_cell_spec_gru","filter_subject":"ts.orch.v1.global.desired.gitops.gru","num_replicas":3}}]}],"Checks":[{"Store":"global","Region":"gru","AuthorityID":"global","LeaseKey":"authority.global","AuthorityTerm":7,"AuthorityCandidateID":"global-controller-gru-one","AuthorityLeaseID":"lease-original"}]}]}`
 	var declaration bootstrapControlConfig
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -29,10 +29,21 @@ func TestBootstrapControlMutationIdentitySurvivesDecodeProjectionAndIntent(t *te
 	if _, err := selectBootstrapControlStage(&loaded, "gru"); err != nil {
 		t.Fatal(err)
 	}
+	consumer := loaded.actions[0].ReplicaUpdates[0].Consumers[0]
+	if consumer.Stream != "GLOBAL_SPEC" || consumer.Config.Name != "global_cell_spec_gru" || consumer.Config.Durable != consumer.Config.Name || consumer.Config.Replicas != 3 {
+		t.Fatalf("consumer projection lost: %+v", consumer)
+	}
 	check := loaded.actions[0].Checks[0]
 	if check.AuthorityCandidateID != "global-controller-gru-one" || check.AuthorityLeaseID != "lease-original" || check.AuthorityTerm != 7 {
 		t.Fatalf("projected identity changed: %+v", check)
 	}
+	declarationConsumer := &loaded.declaration.Actions[0].ReplicaUpdates[0].Consumers[0]
+	declarationConsumer.Config.MaxDeliver++
+	changedConsumer, err := bootstrapControlIntentDigest(loaded)
+	if err != nil || changedConsumer == before {
+		t.Fatal("consumer profile omitted from admitted digest")
+	}
+	declarationConsumer.Config.MaxDeliver--
 	// The persisted CLI admission digest prevents replacing an exact lease pin
 	// inside the same generation, including when the process is reconstructed.
 	if err := persistBootstrapControlReceipt(declaration.ReceiptFile, bootstrapControlReceipt{Generation: 1, DeclarationSHA256: before, Regions: []bootstrap.ControlRegionBinding{{Code: "gru"}}}); err != nil {
