@@ -222,14 +222,14 @@ func newScenarioHarness(t *testing.T, factory *scenarioTestFactory, network *sce
 	networkConfig.CoordinationRoot = filepath.Join(stateRoot, "network-locks")
 	toolsRoot := t.TempDir()
 	toolPaths := map[string]string{}
-	for _, name := range []string{"ip", "nft", "tc", "sysctl"} {
+	for _, name := range []string{"ip", "nft", "tc", "sysctl", "iptables"} {
 		path := filepath.Join(toolsRoot, name)
 		if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		toolPaths[name] = path
 	}
-	networkConfig.Tools = vmnet.ToolPaths{IP: toolPaths["ip"], NFT: toolPaths["nft"], TC: toolPaths["tc"], Sysctl: toolPaths["sysctl"]}
+	networkConfig.Tools = vmnet.ToolPaths{IP: toolPaths["ip"], NFT: toolPaths["nft"], TC: toolPaths["tc"], Sysctl: toolPaths["sysctl"], IPTables: toolPaths["iptables"]}
 	networkConfig.Regions = append(networkConfig.Regions, vmnet.RegionSpec{Code: vmqual.FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
 	plan, err := vmnet.Plan(networkConfig)
 	if err != nil {

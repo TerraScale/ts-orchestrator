@@ -46,7 +46,7 @@ func admissionFixture(t *testing.T, fourth bool) (*Stack, *admissionFactory, *ad
 	t.Helper()
 	root, toolsRoot := t.TempDir(), t.TempDir()
 	tools := map[string]string{}
-	for _, name := range []string{"ip", "nft", "tc", "sysctl"} {
+	for _, name := range []string{"ip", "nft", "tc", "sysctl", "iptables"} {
 		path := filepath.Join(toolsRoot, name)
 		if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
 			t.Fatal(err)
@@ -57,7 +57,7 @@ func admissionFixture(t *testing.T, fourth bool) (*Stack, *admissionFactory, *ad
 	sum := sha256.Sum256([]byte(root))
 	config.RunID = hex.EncodeToString(sum[:16])
 	config.CoordinationRoot = filepath.Join(root, "coordination")
-	config.Tools = vmnet.ToolPaths{IP: tools["ip"], NFT: tools["nft"], TC: tools["tc"], Sysctl: tools["sysctl"]}
+	config.Tools = vmnet.ToolPaths{IP: tools["ip"], NFT: tools["nft"], TC: tools["tc"], Sysctl: tools["sysctl"], IPTables: tools["iptables"]}
 	if fourth {
 		config.Regions = append(config.Regions, vmnet.RegionSpec{Code: FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
 	}

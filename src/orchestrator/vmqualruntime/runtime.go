@@ -57,19 +57,16 @@ func (v *sandboxVM) StartReady(ctx context.Context) error {
 	}
 	if bootstrapper, ok := v.executor.(interface{ Bootstrap(context.Context) error }); ok {
 		if err := bootstrapper.Bootstrap(ctx); err != nil {
-			_ = v.provider.Stop(context.Background(), v.id)
-			return fmt.Errorf("vmqual: bootstrap guest artifacts: %w", err)
+			return v.failStartup(ctx, fmt.Errorf("vmqual: bootstrap guest artifacts: %w", err))
 		}
 	}
 	if v.factory != nil {
 		if err := v.factory.activateGuest(ctx, v.id); err != nil {
-			_ = v.provider.Stop(context.Background(), v.id)
-			return fmt.Errorf("vmqual: activate guest services: %w", err)
+			return v.failStartup(ctx, fmt.Errorf("vmqual: activate guest services: %w", err))
 		}
 	}
 	if err := v.provider.WaitReady(ctx, v.id); err != nil {
-		_ = v.provider.Stop(context.Background(), v.id)
-		return err
+		return v.failStartup(ctx, err)
 	}
 	return nil
 }

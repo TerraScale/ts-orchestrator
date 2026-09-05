@@ -164,13 +164,6 @@ type ControlStateSnapshot struct {
 	CreatedAt    time.Time
 }
 
-// Aliases keep the port names useful to callers that think of this operation
-// as a generic control-state snapshot rather than a JetStream implementation.
-type SnapshotPort = JetStreamSnapshotter
-type SnapshotMirrorPort = JetStreamSnapshotMirror
-type JetStreamSnapshotPort = JetStreamSnapshotter
-type JetStreamSnapshotMirrorPort = JetStreamSnapshotMirror
-
 type Page struct {
 	RunID   string
 	Reason  string

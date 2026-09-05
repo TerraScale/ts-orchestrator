@@ -15,10 +15,11 @@ import (
 // HostTools are the exact absolute host executables admitted by HostRunner and
 // serialized into setup and cleanup plans.
 type HostTools struct {
-	IP     string
-	NFT    string
-	TC     string
-	Sysctl string
+	IP       string
+	NFT      string
+	TC       string
+	Sysctl   string
+	IPTables string
 }
 
 // ToolPaths is the canonical name used by network declarations and journals.
@@ -26,11 +27,11 @@ type HostTools struct {
 // the qualification package.
 type ToolPaths = HostTools
 
-// DiscoverHostTools resolves the four host-network tools required by a
+// DiscoverHostTools resolves the host-network tools required by a
 // qualification plan. NewHostRunner performs the final path and mode checks.
 func DiscoverHostTools() (HostTools, error) {
-	paths := make(map[string]string, 4)
-	for _, name := range []string{"ip", "nft", "tc", "sysctl"} {
+	paths := make(map[string]string, 5)
+	for _, name := range []string{"ip", "nft", "tc", "sysctl", "iptables"} {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			return HostTools{}, fmt.Errorf("vmnet: resolve %s: %w", name, err)
@@ -47,7 +48,7 @@ func DiscoverHostTools() (HostTools, error) {
 		}
 		paths[name] = filepath.Clean(path)
 	}
-	tools := HostTools{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"]}
+	tools := HostTools{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"], IPTables: paths["iptables"]}
 	if err := tools.Validate(); err != nil {
 		return HostTools{}, err
 	}
@@ -58,7 +59,7 @@ func DiscoverHostTools() (HostTools, error) {
 func DiscoverToolPaths() (ToolPaths, error) { return DiscoverHostTools() }
 
 // HostRunner executes a NetworkPlan without a shell. It accepts only the exact
-// validated paths for ip and tools run inside a network namespace.
+// validated paths for ip, tools inside a namespace, and exact host INPUT rules.
 type HostRunner struct {
 	tools HostTools
 }
@@ -107,6 +108,7 @@ func (tools HostTools) entries() []struct{ name, path string } {
 		{name: "nft", path: tools.NFT},
 		{name: "tc", path: tools.TC},
 		{name: "sysctl", path: tools.Sysctl},
+		{name: "iptables", path: tools.IPTables},
 	}
 }
 
@@ -174,7 +176,7 @@ func validateHostToolPath(name, path string) error {
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return fmt.Errorf("vmnet: %s path must be clean and absolute", name)
 	}
-	if filepath.Base(path) != name {
+	if filepath.Base(path) != name && !(name == "iptables" && iptablesMulticall(path)) {
 		return fmt.Errorf("vmnet: %s path basename must be %q", name, name)
 	}
 	return nil
@@ -208,6 +210,9 @@ func (r *HostRunner) RunCleanup(ctx context.Context, executable string, args []s
 }
 
 func (r *HostRunner) execute(ctx context.Context, executable string, args []string, cleanup bool) error {
+	if r != nil && executable == r.tools.IPTables {
+		return r.executeHostInput(ctx, args, cleanup)
+	}
 	path, argv, err := r.resolve(executable, args)
 	if err != nil {
 		return err
@@ -242,6 +247,12 @@ func (r *HostRunner) resolve(executable string, args []string) (string, []string
 	if r == nil {
 		return "", nil, errors.New("vmnet: nil host runner")
 	}
+	if executable == r.tools.IPTables {
+		if !admittedHostInput(args) {
+			return "", nil, errors.New("vmnet: host input command is not admitted")
+		}
+		return executable, iptablesArguments(executable, args), nil
+	}
 	if executable != r.tools.IP {
 		return "", nil, fmt.Errorf("vmnet: host executable %q is not admitted", executable)
 	}
@@ -260,6 +271,9 @@ func (r *HostRunner) resolve(executable string, args []string) (string, []string
 }
 
 func (r *HostRunner) admittedCleanup(executable string, args []string) bool {
+	if r != nil && executable == r.tools.IPTables {
+		return admittedHostInput(args) && args[4] == "-D"
+	}
 	if r == nil || executable != r.tools.IP {
 		return false
 	}

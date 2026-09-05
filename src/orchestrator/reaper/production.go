@@ -25,10 +25,6 @@ type DatabaseAdapter interface {
 	DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error
 }
 
-// ProductionDatabaseAdapter is the explicit production spelling for callers
-// that keep generic and production adapter registries separate.
-type ProductionDatabaseAdapter = DatabaseAdapter
-
 // KeyAdapter owns the final destruction of a database DEK. It is required in
 // production even though the generic Executor seam has a DestroyDEK method;
 // keeping it explicit prevents a database adapter from silently becoming a
@@ -37,16 +33,12 @@ type KeyAdapter interface {
 	DestroyDEK(ctx context.Context, databaseID, operationKey string) error
 }
 
-type ProductionKeyAdapter = KeyAdapter
-
 // MailAdapter is the production email delivery boundary. Templates contain
 // metadata only; implementations must not infer a successful send from a
 // queued-but-unacknowledged request.
 type MailAdapter interface {
 	Send(ctx context.Context, email Email) error
 }
-
-type ProductionMailAdapter = MailAdapter
 
 // ProductionConfig contains every authority needed by the D-76 production
 // reaper. Missing adapters fail closed before a reconciler is returned.

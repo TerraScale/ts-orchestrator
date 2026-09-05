@@ -185,14 +185,14 @@ func testHostTools(t *testing.T) HostTools {
 	t.Helper()
 	directory := t.TempDir()
 	paths := make(map[string]string, 4)
-	for _, name := range []string{"ip", "nft", "tc", "sysctl"} {
+	for _, name := range []string{"ip", "nft", "tc", "sysctl", "iptables"} {
 		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		paths[name] = path
 	}
-	return HostTools{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"]}
+	return HostTools{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"], IPTables: paths["iptables"]}
 }
 
 var _ Runner = (*HostRunner)(nil)

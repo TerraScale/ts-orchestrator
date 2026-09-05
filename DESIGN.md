@@ -118,3 +118,11 @@ global control replica. The existing memory, disk, and idle budgets still apply
 to all eight hosts. Journal recovery accepts the two IAD identities only when
 the validated owned network journal contains that Region, and it preserves both
 host cleanup obligations together. The `stack` profile remains six guests.
+
+Qualification networks journal temporary host INPUT rules before applying
+them. Each rule accepts one declared endpoint on its exact root veth, from the
+Region uplink /32 to the listener /32, with the declared protocol and port.
+Full run ownership comments and exact rule specifications identify cleanup
+targets. Cleanup preserves unrelated firewall rules and retains the host
+allocation lease if deletion fails. Qualification requires a trusted iptables
+executable; it never changes host firewall policies or flushes host chains.

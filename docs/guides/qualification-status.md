@@ -86,8 +86,8 @@ socket directory to chrony's required mode 0750 fixed communication with the
 daemon. The next real smoke attempt still failed bootstrap: chrony reported
 zero received samples and `Not synchronised`. Read-only inspection showed
 that the host's NixOS INPUT chain drops fresh connections to all qualification
-listeners. The namespace forwarding and listener existed, but host input
-admission remains to be implemented. No host firewall or clock configuration
+listeners. The namespace forwarding and listener existed, but the run had no host input
+admission rules. No host firewall or clock configuration
 was changed. Cleanup succeeded. Selected evidence is retained in
 [the input-path failure record](../evidence/vm-smoke-input-2026-09-04.txt).
 
@@ -159,6 +159,45 @@ The full `GOFLAGS=-p=4 make check` and
 `go test -p 4 -tags sandboxvm -race ./...` passed after these changes.
 Logs are `/tmp/ts-orchestrator-integration-check.log` and
 `/tmp/ts-orchestrator-integration-tagged.log` on the qualification host.
+
+## Qualification host input
+
+Network journal version 8 includes temporary INPUT allowances for each exact
+owned root veth, source /32, listener /32, protocol, and declared port. Rules
+carry the full run identity and are journaled before insertion. Cleanup deletes
+full matching specifications and retains its allocation lease if deletion
+fails. It never changes a firewall policy or flushes a chain. The host now
+requires `iptables` alongside the existing networking tools.
+
+Real privileged tests passed on this NixOS host. A fixture DROP restricted to
+the unique owned veth blocked undeclared TCP/UDP ports and an alternate source,
+while the declared tuples passed. Cleanup removed qualification allowances and
+preserved the fixture rule until its own teardown. A second test received real
+48-byte NTP replies through both the direct Region path and a guest-side veth,
+bridge, gateway port 123, DNAT/SNAT, and host INPUT. The observed stratum was 14,
+leap indicator 0, and root dispersion 0.372009 seconds; round trips were below
+0.3 ms. This measures packet exchange, not guest chrony synchronization.
+
+The NTP-only fixture exposed an empty-DNS cleanup validation bug. The fix passed
+a serialized-journal regression, and the exact interrupted run was recovered.
+Both fixtures then passed, with no owned namespaces or INPUT rules remaining.
+Normalized `iptables-save` output before and after the fixtures was identical,
+excluding timestamps and counters. Affected packages passed tagged race tests
+in `/tmp/ts-host-input-race-final.log`.
+
+The subsequent real smoke run synchronized guest chrony, completed cloud-init,
+and kept ts-node running. Initial signed host installation admission still
+exceeded its two-minute deadline; neither application service was activated.
+The final request error does not identify whether subscriptions were absent
+or a handler blocked. Sanitized systemd states and bounded console/metrics
+survived cleanup. Evidence is retained as
+[the controller record](../evidence/vm-smoke-host-input-2026-09-04.txt) and
+[the diagnostic report](../evidence/vm-smoke-host-input-2026-09-04.json).
+No namespaces or qualification firewall rules remained, and the ambient rule
+set matched its pre-test snapshot. The full portable gate and full sandboxvm
+race suite passed after input admission and startup diagnostics; logs are
+`/tmp/ts-orchestrator-host-input-check.log` and
+`/tmp/ts-orchestrator-host-input-tagged.log`.
 
 ## Remaining production work
 

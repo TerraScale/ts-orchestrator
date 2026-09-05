@@ -169,6 +169,7 @@ func RunDoctor(ctx context.Context, config Config) DoctorReport {
 	}{
 		{"ip", "install iproute2", "network namespaces, TAPs, bridges, and stable guest addresses"},
 		{"nft", "install nftables", "deterministic cross-Region partitions"},
+		{"iptables", "install iptables", "temporary host INPUT admission for owned qualification endpoints"},
 		{"tc", "install iproute2", "netem fault profiles"},
 		{"qemu-img", "install qemu-utils", "pinned QCOW2 conversion"},
 		{"mkfs.ext4", "install e2fsprogs", "persistent guest data disks"},

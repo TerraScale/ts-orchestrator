@@ -56,11 +56,6 @@ type DeliveryRegionStoreConfig struct {
 	OwnershipCheck func(context.Context, DeliveryRegionStoreRegion) error
 }
 
-// RegionObjectStoreConfig and RegionObjectStoreRegion are descriptive aliases
-// for callers that prefer the delivery vocabulary.
-type RegionObjectStoreConfig = DeliveryRegionStoreConfig
-type RegionObjectStoreRegion = DeliveryRegionStoreRegion
-
 // DeliveryRegionStore implements delivery.RegionObjectStore and its optional
 // identity/fenced seams. Its maps are copied at construction and never mutate,
 // making concurrent MirrorAll calls deterministic and race-safe.
@@ -118,16 +113,6 @@ func NewDeliveryRegionStore(config DeliveryRegionStoreConfig) (*DeliveryRegionSt
 		regions[name] = input
 	}
 	return &DeliveryRegionStore{regions: regions, journal: config.Journal, ownershipCheck: config.OwnershipCheck}, nil
-}
-
-// NewDeliveryRegionObjectStore is the explicit integration name.
-func NewDeliveryRegionObjectStore(config DeliveryRegionStoreConfig) (*DeliveryRegionStore, error) {
-	return NewDeliveryRegionStore(config)
-}
-
-// NewRegionObjectStore is retained as a short composition helper.
-func NewRegionObjectStore(config RegionObjectStoreConfig) (*DeliveryRegionStore, error) {
-	return NewDeliveryRegionStore(config)
 }
 
 // NewScopedDeliveryRegionStore composes the common single-Region case.

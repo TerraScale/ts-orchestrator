@@ -30,7 +30,7 @@ const (
 	maxActionBytes    = 16
 	maxPathBytes      = 240
 	maxArgumentBytes  = 4096
-	maxRequestArgs    = 3
+	maxRequestArgs    = 7
 	maxIntegerBytes   = 20
 )
 
@@ -900,7 +900,9 @@ func admittedDiagnostic(path string, args []string) bool {
 		if len(args) == 2 && args[0] == "is-active" && admittedUnit(args[1]) {
 			return true
 		}
-		return len(args) == 3 && args[0] == "show" && admittedUnit(args[1]) && args[2] == "--property=MainPID,ActiveState,SubState"
+		return len(args) == 3 && args[0] == "show" && admittedUnit(args[1]) && (args[2] == "--property=MainPID,ActiveState,SubState" || args[2] == "--property=MainPID,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus")
+	case "/usr/bin/journalctl":
+		return len(args) == 7 && args[0] == "--unit" && admittedUnit(args[1]) && strings.Join(args[2:], "\x00") == "--lines=20\x00--no-pager\x00--output=json\x00--output-fields=MESSAGE,PRIORITY\x00--boot"
 	case "/usr/bin/readlink":
 		return key == "/proc/1/exe"
 	case "/usr/bin/stat":

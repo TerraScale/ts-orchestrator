@@ -42,14 +42,14 @@ func testToolPaths(t *testing.T) ToolPaths {
 	t.Helper()
 	directory := t.TempDir()
 	paths := make(map[string]string, 4)
-	for _, name := range []string{"ip", "tc", "nft", "sysctl"} {
+	for _, name := range []string{"ip", "tc", "nft", "sysctl", "iptables"} {
 		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		paths[name] = path
 	}
-	return ToolPaths{IP: paths["ip"], TC: paths["tc"], NFT: paths["nft"], Sysctl: paths["sysctl"]}
+	return ToolPaths{IP: paths["ip"], TC: paths["tc"], NFT: paths["nft"], Sysctl: paths["sysctl"], IPTables: paths["iptables"]}
 }
 
 type fakeRunner struct {
@@ -552,11 +552,12 @@ func TestPlanPinsEveryHostExecutable(t *testing.T) {
 	seenNested := map[string]bool{}
 	commands := append([]Command(nil), plan.Commands...)
 	commands = append(commands, plan.Cleanup.Commands...)
+	commands = append(commands, plan.Cleanup.HostInput...)
 	for _, command := range commands {
 		if !filepath.IsAbs(command.Executable) || filepath.Clean(command.Executable) != command.Executable {
 			t.Fatalf("command executable is not clean and absolute: %+v", command)
 		}
-		if command.Executable != config.Tools.IP {
+		if command.Executable != config.Tools.IP && command.Executable != config.Tools.IPTables {
 			t.Fatalf("command uses unpinned top-level executable %q", command.Executable)
 		}
 		if len(command.Args) >= 4 && command.Args[0] == "netns" && command.Args[1] == "exec" {
@@ -789,7 +790,7 @@ func TestCleanupIsBoundedReplaySafeAndIgnoresCallerCancellation(t *testing.T) {
 	if runner.missingDeadline {
 		t.Fatal("a cleanup command ran without a deadline")
 	}
-	want := 2 * len(plan.Cleanup.Commands)
+	want := 2 * (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput))
 	if len(runner.cleanups) != want {
 		t.Fatalf("cleanup commands across two replays = %d, want %d", len(runner.cleanups), want)
 	}
@@ -1032,7 +1033,7 @@ func TestPlanRejectsRunnerWithDifferentPinnedTools(t *testing.T) {
 	}
 }
 
-func TestCleanupNeedsOnlyItsPinnedIPBinary(t *testing.T) {
+func TestCleanupNeedsOnlyItsPinnedCleanupBinaries(t *testing.T) {
 	config := qualifiedConfig(t)
 	plan, err := Plan(config)
 	if err != nil {
@@ -1045,8 +1046,8 @@ func TestCleanupNeedsOnlyItsPinnedIPBinary(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err != nil {
 		t.Fatalf("cleanup depended on an unrelated removed tc binary: %v", err)
 	}
-	if runner.cleanups != len(plan.Regions) {
-		t.Fatalf("cleanup commands = %d, want %d", runner.cleanups, len(plan.Regions))
+	if runner.cleanups != len(plan.Regions)+len(plan.Cleanup.HostInput) {
+		t.Fatalf("cleanup commands = %d, want %d", runner.cleanups, len(plan.Regions)+len(plan.Cleanup.HostInput))
 	}
 }
 
@@ -1129,13 +1130,13 @@ func TestApplyFailureRunsBestEffortCleanup(t *testing.T) {
 	if err := plan.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply succeeded despite injected failure")
 	}
-	if len(runner.commands) != 4+len(plan.Cleanup.Commands) {
-		t.Fatalf("commands after failed apply = %d, want %d", len(runner.commands), 4+len(plan.Cleanup.Commands))
+	if len(runner.commands) != 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
+		t.Fatalf("commands after failed apply = %d, want %d", len(runner.commands), 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)))
 	}
 	// Cleanup proceeds in reverse ownership order and can be replayed.
 	before := len(runner.commands)
 	_ = plan.Rollback(context.Background(), runner)
-	if len(runner.commands) != before+len(plan.Cleanup.Commands) {
+	if len(runner.commands) != before+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
 		t.Fatal("rollback did not replay the complete idempotent cleanup plan")
 	}
 }
@@ -1151,8 +1152,8 @@ func TestCancellationUsesCleanupContext(t *testing.T) {
 	if err := plan.ApplyWithJournal(ctx, runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply did not report cancellation")
 	}
-	if len(runner.commands) != len(plan.Cleanup.Commands) {
-		t.Fatalf("cancellation cleanup commands = %d, want %d", len(runner.commands), len(plan.Cleanup.Commands))
+	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)) {
+		t.Fatalf("cancellation cleanup commands = %d, want %d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)))
 	}
 	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
 		t.Fatal(err)
@@ -1541,8 +1542,8 @@ func TestCleanupContinuesAfterError(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err == nil {
 		t.Fatal("cleanup hid runner error")
 	}
-	if len(runner.commands) != len(plan.Cleanup.Commands) {
-		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), len(plan.Cleanup.Commands))
+	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)) {
+		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)))
 	}
 	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
 		t.Fatal(err)
@@ -1558,7 +1559,7 @@ func TestCleanupUsesIdempotentRunnerWhenAvailable(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err != nil {
 		t.Fatal(err)
 	}
-	if runner.runs != 0 || runner.cleanups != len(plan.Cleanup.Commands) {
+	if runner.runs != 0 || runner.cleanups != (len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
 		t.Fatalf("cleanup dispatch runs=%d cleanups=%d", runner.runs, runner.cleanups)
 	}
 }

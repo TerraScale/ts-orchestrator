@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -159,7 +160,7 @@ var transitPrefix = netip.MustParsePrefix("10.78.252.0/22")
 
 const MaxRegions = 20
 
-const networkPlanVersion = 7
+const networkPlanVersion = 8
 
 // StableCIDR returns the deterministic qualification subnet for a launch
 // Region.
@@ -370,8 +371,8 @@ type GuestNetwork struct {
 	MAC     string `json:"mac"`
 }
 
-// CleanupPlan is safe to replay. A CleanupRunner normalizes only an explicitly
-// absent owned namespace, making privileged cleanup idempotent after a crash.
+// CleanupPlan is safe to replay. A CleanupRunner normalizes only explicitly
+// absent owned namespaces and exact host INPUT rules after a crash.
 type CleanupPlan struct {
 	Version          int                `json:"version"`
 	Prefix           string             `json:"prefix"`
@@ -385,14 +386,19 @@ type CleanupPlan struct {
 	Listeners        []EndpointListener `json:"listeners,omitempty"`
 	DNSRecords       []DNSRecord        `json:"dns_records,omitempty"`
 	Commands         []Command          `json:"commands"`
+	HostInput        []Command          `json:"host_input,omitempty"`
 }
 
 func (p CleanupPlan) copy() CleanupPlan {
+	p.HostInput = append([]Command(nil), p.HostInput...)
+	for i := range p.HostInput {
+		p.HostInput[i] = p.HostInput[i].copy()
+	}
 	p.Regions = append([]RegionCode(nil), p.Regions...)
 	p.Uplinks = append([]RegionUplink(nil), p.Uplinks...)
 	p.Forwards = copyForwards(p.Forwards)
 	p.Listeners = append([]EndpointListener(nil), p.Listeners...)
-	p.DNSRecords = append([]DNSRecord(nil), p.DNSRecords...)
+	p.DNSRecords = slices.Clone(p.DNSRecords)
 	p.Commands = append([]Command(nil), p.Commands...)
 	for i := range p.Commands {
 		p.Commands[i] = p.Commands[i].copy()
@@ -401,8 +407,8 @@ func (p CleanupPlan) copy() CleanupPlan {
 }
 
 // Validate proves that every cleanup target belongs to exactly this run. The
-// plan deliberately admits namespace deletion only; all subordinate network
-// resources are created inside those namespaces.
+// plan admits namespace deletion and exact host INPUT rule deletion only.
+// Subordinate network resources are created inside the owned namespaces.
 func (p CleanupPlan) Validate() error {
 	if p.Version != networkPlanVersion || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
 		return errors.New("vmnet: invalid cleanup plan metadata")
@@ -410,13 +416,17 @@ func (p CleanupPlan) Validate() error {
 	if err := validateHostCoordinationRoot(p.CoordinationRoot); err != nil {
 		return err
 	}
-	// Namespace deletion uses only ip. The other paths remain bound into the
-	// journal but their binaries need not survive until crash recovery.
+	// Namespace and host INPUT cleanup use the exact journaled executables.
 	if err := p.Tools.validatePaths(); err != nil {
 		return err
 	}
 	if err := validateHostTool("ip", p.Tools.IP); err != nil {
 		return err
+	}
+	if len(p.HostInput) != 0 {
+		if err := validateHostTool("iptables", p.Tools.IPTables); err != nil {
+			return err
+		}
 	}
 	if len(p.Regions) == 0 || len(p.Regions) > MaxRegions || len(p.Commands) != len(p.Regions) || len(p.Uplinks) != len(p.Regions) {
 		return errors.New("vmnet: cleanup plan must contain one command per declared Region")
@@ -440,6 +450,9 @@ func (p CleanupPlan) Validate() error {
 	}
 	if err := validateResolvedEndpoints(p.Prefix, p.RunID, p.Regions, p.Uplinks, p.Forwards, p.Listeners, p.DNSRecords); err != nil {
 		return fmt.Errorf("vmnet: invalid cleanup endpoint manifest: %w", err)
+	}
+	if !reflect.DeepEqual(p.HostInput, hostInputCommands(p.Tools, p.Prefix, p.RunID, p.Uplinks, p.Forwards, true)) {
+		return errors.New("vmnet: cleanup host input rules differ from the owned endpoint manifest")
 	}
 	return nil
 }
@@ -527,7 +540,7 @@ func (p CleanupPlan) runLocked(ctx context.Context, runner Runner) error {
 	cleanupContext, cleanupCancel := context.WithTimeout(baseContext, 45*time.Second)
 	defer cleanupCancel()
 	var first error
-	for _, c := range p.Commands {
+	for _, c := range append(append([]Command(nil), p.HostInput...), p.Commands...) {
 		commandContext, cancel := context.WithTimeout(cleanupContext, 10*time.Second)
 		var err error
 		if cleanupRunner, ok := runner.(CleanupRunner); ok {
@@ -765,7 +778,7 @@ func (p NetworkPlan) copy() NetworkPlan {
 	p.Faults = append([]FaultSpec(nil), p.Faults...)
 	p.Forwards = copyForwards(p.Forwards)
 	p.Listeners = append([]EndpointListener(nil), p.Listeners...)
-	p.DNSRecords = append([]DNSRecord(nil), p.DNSRecords...)
+	p.DNSRecords = slices.Clone(p.DNSRecords)
 	p.Commands = append([]Command(nil), p.Commands...)
 	for i := range p.Commands {
 		p.Commands[i] = p.Commands[i].copy()
@@ -880,6 +893,15 @@ func (p NetworkPlan) ApplyWithJournal(ctx context.Context, runner Runner, writer
 		if recovered {
 			coordinator.cleanupRequired = true
 			return errors.New("vmnet: recovered host allocation requires cleanup before apply")
+		}
+	}
+	if host, ok := runner.(interface {
+		checkHostInputCollision(context.Context, []Command) error
+	}); ok {
+		if err := host.checkHostInputCollision(ctx, p.Commands); err != nil {
+			coordinator.hostLease.unlock()
+			coordinator.hostLease = nil
+			return err
 		}
 	}
 	if err := writer.WriteJournal(ctx, p.Journal.copy()); err != nil {
@@ -1261,7 +1283,7 @@ func validateResolvedEndpoints(prefix, runID string, regions []RegionCode, uplin
 		wantedListenerSlice = nil
 		wantedRecords = nil
 	}
-	if !reflect.DeepEqual(listeners, wantedListenerSlice) || !reflect.DeepEqual(records, wantedRecords) {
+	if !slices.Equal(listeners, wantedListenerSlice) || !slices.Equal(records, wantedRecords) {
 		return errors.New("listener or DNS manifest does not match endpoint forwards")
 	}
 	return nil
@@ -1756,6 +1778,7 @@ func Plan(config Config) (NetworkPlan, error) {
 			commands = append(commands, command(tools.IP, args...))
 		}
 	}
+	commands = append(commands, hostInputCommands(tools, prefix, runID, uplinks, forwards, false)...)
 	if len(commands) > maxPlanCommands {
 		return NetworkPlan{}, fmt.Errorf("vmnet: generated command count %d exceeds %d", len(commands), maxPlanCommands)
 	}
@@ -1788,6 +1811,7 @@ func Plan(config Config) (NetworkPlan, error) {
 		Regions: cleanupRegions, Uplinks: append([]RegionUplink(nil), uplinks...),
 		Forwards: copyForwards(forwards), Listeners: append([]EndpointListener(nil), listeners...),
 		DNSRecords: append([]DNSRecord(nil), dnsRecords...), Commands: cleanup,
+		HostInput: hostInputCommands(tools, prefix, runID, uplinks, forwards, true),
 	}
 	journal := Journal{Version: networkPlanVersion, Prefix: prefix, RunID: runID, CoordinationRoot: coordinationRoot, Tools: tools, Fingerprint: fingerprint, Cleanup: cleanupPlan.copy()}
 	plan := NetworkPlan{

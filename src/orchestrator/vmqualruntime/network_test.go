@@ -223,8 +223,9 @@ func TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands(t *t
 	if err := controller.Cleanup(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.Calls()) != len(concrete.Plan().Cleanup.Commands) {
-		t.Fatalf("cleanup calls = %d, want %d", len(runner.Calls()), len(concrete.Plan().Cleanup.Commands))
+	want := len(concrete.Plan().Cleanup.Commands) + len(concrete.Plan().Cleanup.HostInput)
+	if len(runner.Calls()) != want {
+		t.Fatalf("cleanup calls = %d, want %d", len(runner.Calls()), want)
 	}
 	for _, call := range runner.Calls() {
 		if !call.Cleanup {
@@ -243,7 +244,7 @@ func networkTestConfig(t *testing.T) vmnet.Config {
 	t.Helper()
 	directory := t.TempDir()
 	paths := make(map[string]string, 4)
-	for _, name := range []string{"ip", "nft", "tc", "sysctl"} {
+	for _, name := range []string{"ip", "nft", "tc", "sysctl", "iptables"} {
 		path := filepath.Join(directory, name)
 		if err := os.WriteFile(path, []byte("fake executable"), 0700); err != nil {
 			t.Fatal(err)
@@ -254,7 +255,7 @@ func networkTestConfig(t *testing.T) vmnet.Config {
 	digest := sha256.Sum256([]byte(t.Name()))
 	config.RunID = hex.EncodeToString(digest[:16])
 	config.CoordinationRoot = filepath.Join(directory, "coordination")
-	config.Tools = vmnet.ToolPaths{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"]}
+	config.Tools = vmnet.ToolPaths{IP: paths["ip"], NFT: paths["nft"], TC: paths["tc"], Sysctl: paths["sysctl"], IPTables: paths["iptables"]}
 	return config
 }
 

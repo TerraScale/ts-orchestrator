@@ -19,46 +19,32 @@ import (
 // Config is the production dependency graph.  All provider and authority
 // seams are intentionally explicit: a missing seam must stop startup rather
 // than cause the composition root to manufacture a key or a proof.
-//
-// Issuer/Vault/Secrets are the names used by security.Config. Identity,
-// CapabilityVault, and Cloudflare are descriptive aliases for callers wiring
-// the production graph. At most one spelling for each seam should be used.
 type Config struct {
-	Issuer          security.IdentityIssuer
-	Identity        security.IdentityIssuer
-	Vault           security.CapabilityVault
-	CapabilityVault security.CapabilityVault
-	Members         security.MemberGateway
-	Secrets         security.SecretsStore
-	Cloudflare      security.SecretsStore
-	Publisher       security.AtomicPublisher
-	Reloader        security.Reloader
-	State           security.StateStore
-	Audit           security.AuditSink
-	Regions         []string
-	Clock           func() time.Time
-	ExpirySafety    time.Duration
+	Issuer       security.IdentityIssuer
+	Vault        security.CapabilityVault
+	Members      security.MemberGateway
+	Secrets      security.SecretsStore
+	Publisher    security.AtomicPublisher
+	Reloader     security.Reloader
+	State        security.StateStore
+	Audit        security.AuditSink
+	Regions      []string
+	Clock        func() time.Time
+	ExpirySafety time.Duration
 }
-
-// Coordinator is kept as an alias so callers do not need to import the
-// implementation package merely to retain the returned handle.
-type Coordinator = security.Coordinator
 
 // NewProduction is the one parent wiring hook. It validates that all
 // authority/provider seams are present and then delegates to the tested,
 // durable security coordinator. No key material is accepted in Config.
 func NewProduction(config Config) (*security.Coordinator, error) {
-	issuer, err := chooseIssuer(config.Issuer, config.Identity)
-	if err != nil {
-		return nil, err
+	if isNil(config.Issuer) {
+		return nil, configurationError("identity authority is missing")
 	}
-	vault, err := chooseVault(config.Vault, config.CapabilityVault)
-	if err != nil {
-		return nil, err
+	if isNil(config.Vault) {
+		return nil, configurationError("capability authority is missing")
 	}
-	secrets, err := chooseSecrets(config.Secrets, config.Cloudflare)
-	if err != nil {
-		return nil, err
+	if isNil(config.Secrets) {
+		return nil, configurationError("Cloudflare Secrets Store authority is missing")
 	}
 	if isNil(config.Members) {
 		return nil, configurationError("member authority is missing")
@@ -85,74 +71,11 @@ func NewProduction(config Config) (*security.Coordinator, error) {
 		clock = nil
 	}
 	return security.NewCoordinator(security.Config{
-		Issuer: issuer, Vault: vault, Members: config.Members, Secrets: secrets,
+		Issuer: config.Issuer, Vault: config.Vault, Members: config.Members, Secrets: config.Secrets,
 		Publisher: publisher, Reloader: config.Reloader, State: config.State,
 		Audit: audit, Regions: append([]string(nil), config.Regions...),
 		Clock: clock, ExpirySafety: config.ExpirySafety,
 	})
-}
-
-// NewProductionCoordinator is a descriptive constructor alias for parent
-// runtimes that name their dependency hook after the returned component.
-func NewProductionCoordinator(config Config) (*security.Coordinator, error) {
-	return NewProduction(config)
-}
-
-func chooseIssuer(primary, alias security.IdentityIssuer) (security.IdentityIssuer, error) {
-	if isNil(primary) && primary != nil {
-		primary = nil
-	}
-	if isNil(alias) && alias != nil {
-		alias = nil
-	}
-	if primary != nil && alias != nil {
-		return nil, configurationError("identity authorities conflict")
-	}
-	if primary != nil {
-		return primary, nil
-	}
-	if alias != nil {
-		return alias, nil
-	}
-	return nil, configurationError("identity authority is missing")
-}
-
-func chooseVault(primary, alias security.CapabilityVault) (security.CapabilityVault, error) {
-	if isNil(primary) && primary != nil {
-		primary = nil
-	}
-	if isNil(alias) && alias != nil {
-		alias = nil
-	}
-	if primary != nil && alias != nil {
-		return nil, configurationError("capability authorities conflict")
-	}
-	if primary != nil {
-		return primary, nil
-	}
-	if alias != nil {
-		return alias, nil
-	}
-	return nil, configurationError("capability authority is missing")
-}
-
-func chooseSecrets(primary, alias security.SecretsStore) (security.SecretsStore, error) {
-	if isNil(primary) && primary != nil {
-		primary = nil
-	}
-	if isNil(alias) && alias != nil {
-		alias = nil
-	}
-	if primary != nil && alias != nil {
-		return nil, configurationError("Secrets Store authorities conflict")
-	}
-	if primary != nil {
-		return primary, nil
-	}
-	if alias != nil {
-		return alias, nil
-	}
-	return nil, configurationError("Cloudflare Secrets Store authority is missing")
 }
 
 func isNil(value any) bool {

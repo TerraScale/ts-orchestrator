@@ -139,7 +139,7 @@ func TestDecodeRequestCapsScalarsAndListsBeforeReadingTheirTails(t *testing.T) {
 		"operation":  `{"schemaVersion":1,"operation":"` + strings.Repeat("x", maxOperationBytes+1),
 		"path":       `{"schemaVersion":1,"operation":"data-read","path":"` + strings.Repeat("x", maxPathBytes+1),
 		"argument":   `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/systemctl","args":["` + strings.Repeat("x", maxArgumentBytes+1),
-		"arguments":  `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/findmnt","args":["a","b","c",`,
+		"arguments":  `{"schemaVersion":1,"operation":"execute","path":"/usr/bin/findmnt","args":[` + strings.Repeat(`"a",`, maxRequestArgs),
 		"integer":    `{"schemaVersion":` + strings.Repeat("1", maxIntegerBytes+1),
 		"action":     `{"schemaVersion":1,"operation":"storage-diagnostic","action":"` + strings.Repeat("x", maxActionBytes+1),
 	}
