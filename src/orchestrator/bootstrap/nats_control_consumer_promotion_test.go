@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,55 +174,127 @@ func TestControlConsumerPromotionWaitsForStreamReplicasBeforeConsumerEffect(t *t
 	config, _ := topology.CellSpecConsumer("gru")
 	target := config
 	config.Replicas = 1
-	if _, err := stream.CreateConsumer(ctx, config); err != nil {
+	consumer, err := stream.CreateConsumer(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.Publish(ctx, config.FilterSubject, []byte("acknowledged before promotion")); err != nil {
+		t.Fatal(err)
+	}
+	message, err := consumer.Next(jetstream.FetchMaxWait(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := message.DoubleAck(ctx); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := consumer.Info(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	pins := []controlMutationPin{{store: "global", check: ControlStoreCheck{AuthorityID: "global", LeaseKey: "authority.global", AuthorityTerm: uint64(lease.Epoch), AuthorityCandidateID: lease.CandidateId, AuthorityLeaseID: lease.LeaseId, Streams: []ControlStreamAssignment{{Name: "GLOBAL_SPEC", Replicas: 3, Servers: []string{"controlMutation-0", "controlMutation-1", "controlMutation-2"}}}}}}
 	update := ControlReplicaPlan{Store: "global", Streams: []string{streamConfig.Name}, Replicas: 3, Consumers: []ControlConsumerReplicaPlan{{Stream: streamConfig.Name, Config: target}}}
-	peerStopped, consumerEffect := make(chan struct{}), make(chan struct{}, 1)
-	traced, err := jetstream.New(nc, jetstream.WithClientTrace(&jetstream.ClientTrace{
-		ResponseReceived: func(subject string, _ []byte, _ nats.Header) {
-			if strings.Contains(subject, "STREAM.UPDATE.GLOBAL_SPEC") {
-				// The real update has committed its assignment, but one declared
-				// peer is now unavailable before any consumer effect can begin.
-				cluster.servers[2].Shutdown()
-				cluster.servers[2].WaitForShutdown()
-				close(peerStopped)
-			}
-		},
-		RequestSent: func(subject string, _ []byte) {
-			if strings.Contains(subject, "CONSUMER.CREATE.GLOBAL_SPEC") {
-				select {
-				case consumerEffect <- struct{}{}:
-				default:
-				}
-			}
-		},
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- updateControlReplicaStreams(ctx, traced, update, pins) }()
+	// Keep the actual broker and all updates, but withhold one replica's
+	// current observation until the caller has demonstrably checked it.
+	// This controls the observation order without racing a wall-clock sleep.
+	observed := &withheldStreamReadiness{JetStream: js, waiting: make(chan struct{}, 1), consumerEffect: make(chan struct{}, 1)}
+	observed.hold.Store(true)
+	done, finished := make(chan error, 1), make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- updateControlReplicaStreams(ctx, observed, update, pins)
+	}()
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case <-finished:
 		case <-time.After(5 * time.Second):
 			t.Error("promotion did not stop after cancellation")
 		}
 	})
 	select {
-	case <-peerStopped:
+	case <-observed.waiting:
+	case <-observed.consumerEffect:
+		t.Fatal("consumer update began before all declared stream peers were current")
+	case err := <-done:
+		t.Fatalf("promotion stopped before consulting stream readiness: %v", err)
 	case <-ctx.Done():
-		t.Fatal("stream update never reached the peer-stop boundary")
+		t.Fatal("promotion did not consult stream readiness")
 	}
 	select {
-	case <-consumerEffect:
-		t.Fatal("consumer update began before all declared stream peers were current")
-	case <-time.After(250 * time.Millisecond):
+	case <-observed.consumerEffect:
+		t.Fatal("consumer update began while stream readiness was withheld")
+	default:
 	}
-	cancel()
+	blocked, err := consumer.Info(ctx)
+	if err != nil || blocked.Config.Replicas != 1 || blocked.AckFloor.Consumer != checkpoint.AckFloor.Consumer || blocked.AckFloor.Stream != checkpoint.AckFloor.Stream {
+		t.Fatalf("consumer changed while stream readiness was withheld: %+v %v", blocked, err)
+	}
+	observed.hold.Store(false)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("promotion did not resume after stream replicas became current")
+	}
+	select {
+	case <-observed.consumerEffect:
+	default:
+		t.Fatal("promotion never updated the real consumer")
+	}
+	promoted, err := consumer.Info(ctx)
+	if err != nil || promoted.Config.Replicas != 3 || !promoted.Created.Equal(checkpoint.Created) || promoted.AckFloor.Consumer != checkpoint.AckFloor.Consumer || promoted.AckFloor.Stream != checkpoint.AckFloor.Stream || promoted.Delivered.Consumer != checkpoint.Delivered.Consumer || promoted.Delivered.Stream != checkpoint.Delivered.Stream {
+		t.Fatalf("promotion changed the retained consumer checkpoint: %+v %v", promoted, err)
+	}
+}
+
+type withheldStreamReadiness struct {
+	jetstream.JetStream
+	hold                    atomic.Bool
+	waiting, consumerEffect chan struct{}
+}
+
+func (w *withheldStreamReadiness) Stream(ctx context.Context, name string) (jetstream.Stream, error) {
+	stream, err := w.JetStream.Stream(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return withheldStreamObservation{Stream: stream, owner: w}, nil
+}
+
+func (w *withheldStreamReadiness) UpdateConsumer(ctx context.Context, stream string, config jetstream.ConsumerConfig) (jetstream.Consumer, error) {
+	select {
+	case w.consumerEffect <- struct{}{}:
+	default:
+	}
+	return w.JetStream.UpdateConsumer(ctx, stream, config)
+}
+
+type withheldStreamObservation struct {
+	jetstream.Stream
+	owner *withheldStreamReadiness
+}
+
+func (w withheldStreamObservation) Info(ctx context.Context, opts ...jetstream.StreamInfoOpt) (*jetstream.StreamInfo, error) {
+	info, err := w.Stream.Info(ctx, opts...)
+	if err != nil || info.Config.Replicas != 3 || info.Cluster == nil || len(info.Cluster.Replicas) == 0 || !w.owner.hold.Load() {
+		return info, err
+	}
+	// A detached observation avoids changing nats.go's cached response.
+	copyInfo := *info
+	copyCluster := *info.Cluster
+	copyCluster.Replicas = append([]*jetstream.PeerInfo(nil), info.Cluster.Replicas...)
+	copyPeer := *copyCluster.Replicas[0]
+	copyPeer.Current = false
+	copyCluster.Replicas[0] = &copyPeer
+	copyInfo.Cluster = &copyCluster
+	select {
+	case w.owner.waiting <- struct{}{}:
+	default:
+	}
+	return &copyInfo, nil
 }
 
 func TestControlConsumerPromotionDeclarationIsClosed(t *testing.T) {

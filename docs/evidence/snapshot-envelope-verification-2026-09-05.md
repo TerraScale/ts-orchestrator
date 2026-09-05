@@ -23,7 +23,7 @@ The connection now checks the absolute deadline while preserving cancellation
 precedence. Both connection packages passed five race runs and the stalled
 handshake test passed twenty repetitions after the fix.
 
-The tagged suite has not passed this verification attempt. Its first run
+The initial tagged attempts failed. The first run
 failed `TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss`
 at the replica update with `context deadline exceeded` after 28.56 seconds.
 Five focused tagged race repetitions then passed. A sequential full rerun with
@@ -40,6 +40,37 @@ waiting for the exact healthy stream assignment before consumer promotion.
 It does not establish the root cause of every observed failure. Diagnostic
 errors now distinguish consumer preflight, promotion and state validation
 without relaxing the accepted profile or checkpoint invariants.
+
+`eaa2acf8` adds the stream readiness barrier before consumer promotion,
+including retries. It reuses the exact stream-assignment check and requires
+all three admitted peers current, online and without lag, with live lease
+checks during the wait and after readiness. The initial peer-stop regression
+used an unreliable 250 ms observation window and was replaced. Its replacement
+uses real NATS operations while withholding one replica's readiness in a
+controlled stream-info wrapper. It checks that consumer mutation remains
+blocked and resumes after releasing the observation. The controlled test
+passed three repetitions; an overlay removing only the production barrier
+failed all three repetitions at the consumer-effect-before-readiness assertion.
+Further assertions preserve the real consumer's R1 configuration and checkpoint
+while blocked, then verify R3 and original creation, delivered and acknowledged
+positions after release. The checkpoint and readiness pair passed five
+repetitions. The final controlled regression passed three repetitions, and the
+negative overlay failed all three at the intended assertion.
+
+After the production barrier, these checks passed:
+
+```sh
+GOMAXPROCS=4 GOFLAGS=-p=2 make check
+GOMAXPROCS=4 GOFLAGS=-p=2 go test -race -tags sandboxvm ./...
+GOOS=linux GOARCH=arm64 GOMAXPROCS=4 GOFLAGS=-p=2 go build ./...
+```
+
+The portable gate began before the last test-only refinement. The refined
+test passed targeted race runs, formatting and package vet checks; the tagged
+suite also passed. The tagged command allows Go's successful package cache.
+These passing reruns establish the checked revision's results, not the precise
+cause of every earlier intermittent failure. The production barrier adds a
+required ordering check; it does not relax any creation or checkpoint rule.
 
 The full Firecracker suite was not rerun for this snapshot slice. The
 [previous guest attempt](vm-test-command-binding-2026-09-05.txt) remains failed
