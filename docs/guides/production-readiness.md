@@ -104,6 +104,20 @@ production admission and signed delivery requirements remain; global workers
 remain R3-only. No guest readiness, OCI effects, TerraBase membership or
 production readiness result follows from this slice.
 
+The current qualification host-control binding has no caller and omits the
+required command signer. Its sender and ts-node receiver also need the same
+actual guest regional authority source. The initial GRU broker forbids routes
+and stops when its admission retires; the promotion path therefore needs an
+admitted successor that preserves GRU's store while forming the three-server
+cluster. Candidate mirrors alone do not establish Raft replicas.
+
+[NATS mutation admission](../contracts/bootstrap-nats-mutations.md) now pins the
+candidate, term and LeaseID in each mutating action declaration and checks them
+around every stream mutation. Global authority must belong to GRU. Candidate
+mirrors require finite source retention limits and an exact, unfiltered source
+declaration. NATS has no lease CAS for stream administration, so credential
+revocation and serialized promotion remain necessary.
+
 The [first R1 guest attempt](../evidence/vm-test-initial-r1-2026-09-05.txt)
 used fresh binaries from `a3d38c46` and failed first-guest service readiness.
 ts-node remained active; orchestrator restarted without a matched diagnostic,

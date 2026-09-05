@@ -33,7 +33,7 @@ type reaperStateCluster struct {
 	public  string
 }
 
-func newReaperStateCluster(t *testing.T) *reaperStateCluster {
+func newReaperStateCluster(t *testing.T, additionalUsers ...*natsserver.NkeyUser) *reaperStateCluster {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -68,7 +68,7 @@ func newReaperStateCluster(t *testing.T) *reaperStateCluster {
 	listener.Close()
 	route, _ := url.Parse(fmt.Sprintf("nats-route://127.0.0.1:%d", firstClusterPort))
 	for index := 0; index < 3; index++ {
-		options := &natsserver.Options{ServerName: fmt.Sprintf("reaper-%d", index), Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: filepath.Join(cluster.root, fmt.Sprint(index)), NoLog: true, NoSigs: true, SystemAccount: "$SYS", Accounts: []*natsserver.Account{natsserver.NewAccount("$SYS")}, Nkeys: []*natsserver.NkeyUser{{Nkey: public}}, TLSConfig: &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS13}, Cluster: natsserver.ClusterOpts{Name: "reaper-state", Host: "127.0.0.1", Port: -1}}
+		options := &natsserver.Options{ServerName: fmt.Sprintf("reaper-%d", index), Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: filepath.Join(cluster.root, fmt.Sprint(index)), NoLog: true, NoSigs: true, SystemAccount: "$SYS", Accounts: []*natsserver.Account{natsserver.NewAccount("$SYS")}, Nkeys: append([]*natsserver.NkeyUser{{Nkey: public}}, additionalUsers...), TLSConfig: &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS13}, Cluster: natsserver.ClusterOpts{Name: "reaper-state", Host: "127.0.0.1", Port: -1}}
 		if index == 0 {
 			options.Cluster.Port = firstClusterPort
 		}

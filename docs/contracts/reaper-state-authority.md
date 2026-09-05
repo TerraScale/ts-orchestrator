@@ -59,6 +59,8 @@ capacity errors refuse progress; no receipt or pending obligation is trimmed.
 
 Entries and completed operations cannot be removed. Consequently the limits bound
 lifetime database population and reactivation history, not just concurrent work.
+The scanner inserts observed databases before eligibility checks, so active,
+paid and exempt databases also consume that lifetime capacity.
 This checkpoint is not launch-scale capacity. Sharding and a proven retention or
 archival scheme remain necessary before an unbounded production lifecycle can run.
 They must preserve global fencing, complete recovery, and immutable obligations.
@@ -68,3 +70,7 @@ receipts/cursors, lost acknowledgements, exact LeaseID replacement, minority Loa
 and identical Save refusal, expired writes with history one, and prior absence
 recovery. Production lifecycle tests exercise day 30/60/90 and reactivation using
 the concrete store. Capacity rejection is tested before any provider or mail call.
+An actual restricted R3 session also exercises Load/Save, intent and receipt
+recovery, identical-save barriers and LeaseID replacement under the production
+global authority ACL. It rejects stream/consumer provisioning, deletion, purge
+and foreign-key writes. The infrastructure owner provisions the store separately.

@@ -72,9 +72,12 @@ type ControlStoreCheck struct {
 	LeaseKey    string
 	// AuthorityTerm is the real election term, distinct from topology epochs.
 	AuthorityTerm uint64
-	Members       []string // exact OCI member identities whose signed records must be live
-	Streams       []ControlStreamAssignment
-	Mirrors       []ControlMirrorPlan
+	// Mutation actions bind this exact election identity in the admitted declaration.
+	AuthorityCandidateID string   `json:",omitempty"`
+	AuthorityLeaseID     string   `json:",omitempty"`
+	Members              []string // exact OCI member identities whose signed records must be live
+	Streams              []ControlStreamAssignment
+	Mirrors              []ControlMirrorPlan
 }
 
 type ControlReplicaPlan struct {
@@ -412,6 +415,9 @@ func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
 			return ErrControlProviderInvalid
 		}
 	}
+	if _, err := r.controlMutationPins(plan); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -496,51 +502,17 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 			return ControlRuntimeEvidence{}, err
 		}
 	}
+	pins, err := r.controlMutationPins(plan)
+	if err != nil {
+		return ControlRuntimeEvidence{}, err
+	}
 	for _, mirror := range plan.MirrorUpdates {
-		if err := r.createMirror(ctx, mirror); err != nil {
+		if err := r.createMirror(ctx, mirror, pins); err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
 	}
 	for _, update := range plan.ReplicaUpdates {
-		connection, err := openControlNATS(ctx, r.config.Stores[update.Store])
-		if err != nil {
-			return ControlRuntimeEvidence{}, err
-		}
-		js, err := jetstream.New(connection)
-		if err == nil {
-			for _, check := range plan.Checks {
-				if check.Store == update.Store {
-					if err = verifyControlMutationLease(ctx, js, check); err != nil {
-						break
-					}
-				}
-			}
-		}
-		if err == nil {
-			for _, name := range update.Streams {
-				stream, readErr := js.Stream(ctx, name)
-				if readErr != nil {
-					err = readErr
-					break
-				}
-				info, readErr := stream.Info(ctx)
-				if readErr != nil {
-					err = readErr
-					break
-				}
-				if info.Config.Storage != jetstream.FileStorage || (info.Config.Replicas != 1 && info.Config.Replicas != update.Replicas) {
-					err = ErrControlRuntimeUnavailable
-					break
-				}
-				config := info.Config
-				config.Replicas = update.Replicas
-				if _, err = js.UpdateStream(ctx, config); err != nil {
-					break
-				}
-			}
-		}
-		connection.Close()
-		if err != nil {
+		if err := r.updateControlReplicas(ctx, update, pins); err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
 	}
@@ -663,49 +635,6 @@ func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlAc
 	}
 }
 
-func (r *NATSControlRuntime) createMirror(ctx context.Context, plan ControlMirrorPlan) error {
-	connection, err := openControlNATS(ctx, r.config.Stores[plan.Store])
-	if err != nil {
-		return err
-	}
-	defer connection.Close()
-	js, err := jetstream.New(connection)
-	if err != nil {
-		return err
-	}
-	stream, err := js.Stream(ctx, plan.Name)
-	if err == nil {
-		info, err := stream.Info(ctx)
-		if err != nil {
-			return err
-		}
-		if !matchesControlMirror(info.Config, plan) {
-			return errors.New("bootstrap: existing candidate mirror has a different source")
-		}
-		return nil
-	}
-	if !errors.Is(err, jetstream.ErrStreamNotFound) {
-		return err
-	}
-	source := &jetstream.StreamSource{Name: plan.SourceStream}
-	if plan.ExternalAPIPrefix != "" {
-		source.External = &jetstream.ExternalStream{APIPrefix: plan.ExternalAPIPrefix}
-	}
-	_, err = js.CreateStream(ctx, jetstream.StreamConfig{Name: plan.Name, Storage: jetstream.FileStorage, Replicas: 1, Mirror: source})
-	return err
-}
-
-func matchesControlMirror(config jetstream.StreamConfig, plan ControlMirrorPlan) bool {
-	if config.Storage != jetstream.FileStorage || config.Replicas != 1 || config.Mirror == nil || config.Mirror.Name != plan.SourceStream {
-		return false
-	}
-	prefix := ""
-	if config.Mirror.External != nil {
-		prefix = config.Mirror.External.APIPrefix
-	}
-	return prefix == plan.ExternalAPIPrefix
-}
-
 type controlStoreSnapshot struct {
 	Lease         authority.RegionalAuthorityLeaseDocument
 	LeaseRevision uint64
@@ -737,28 +666,10 @@ func (r *NATSControlRuntime) checkStoreMode(ctx context.Context, check ControlSt
 		return nil, nil, nil, err
 	}
 	var lease authority.RegionalAuthorityLeaseDocument
-	if json.Unmarshal(entry.Data, &lease) != nil || lease.Validate() != nil || lease.AuthorityId != check.AuthorityID || lease.Epoch <= 0 || uint64(lease.Epoch) != check.AuthorityTerm || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
+	if json.Unmarshal(entry.Data, &lease) != nil || lease.Validate() != nil || lease.AuthorityId != check.AuthorityID || lease.Epoch <= 0 || uint64(lease.Epoch) != check.AuthorityTerm || check.AuthorityCandidateID != "" && lease.CandidateId != check.AuthorityCandidateID || check.AuthorityLeaseID != "" && lease.LeaseId != check.AuthorityLeaseID || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
 		return nil, nil, nil, ErrControlRuntimeUnavailable
 	}
-	holderAdmitted := false
-	for _, member := range r.members {
-		candidate := member.Region + "-controller-" + member.Instance
-		if check.AuthorityID == "global" {
-			candidate = "global-controller-" + member.Region + "-" + member.Instance
-		}
-		assigned := false
-		for _, stream := range check.Streams {
-			for _, server := range stream.Servers {
-				if server == member.ServerName {
-					assigned = true
-				}
-			}
-		}
-		if assigned && candidate == lease.CandidateId && (check.AuthorityID == "global" || (member.Region == check.Region && member.Store == check.Store)) {
-			holderAdmitted = true
-		}
-	}
-	if !holderAdmitted {
+	if !r.admittedControlAuthority(check, lease.CandidateId) {
 		return nil, nil, nil, ErrControlRuntimeUnavailable
 	}
 	snapshot := controlStoreSnapshot{Lease: lease, LeaseRevision: entry.Sequence}
@@ -911,7 +822,7 @@ func (r *NATSControlRuntime) checkMirror(ctx context.Context, plan ControlMirror
 	if err != nil {
 		return result, err
 	}
-	if !matchesControlMirror(observed.Config, plan) || observed.State.LastSeq < before.State.LastSeq || observed.Mirror == nil || observed.Mirror.Lag != 0 {
+	if !matchesControlMirror(observed.Config, plan, before.Config) || observed.State.LastSeq < before.State.LastSeq || observed.Mirror == nil || observed.Mirror.Lag != 0 {
 		return result, ErrControlRuntimeUnavailable
 	}
 	if before.State.Msgs == 0 {
@@ -1089,20 +1000,6 @@ func PlanControlLaunchManifest(input hostmanifest.HostManifest) (hostmanifest.Ho
 		manifest.Components[i] = validated
 	}
 	return manifest, nil
-}
-
-// verifyControlMutationLease checks the admitted term before a replica change.
-// The NATS stream API has no lease CAS; this is a precondition, not an atomic fence.
-func verifyControlMutationLease(ctx context.Context, js jetstream.JetStream, check ControlStoreCheck) error {
-	entry, err := readControlLeaseFromLeader(ctx, js.Conn(), check.LeaseKey)
-	if err != nil {
-		return err
-	}
-	var lease authority.RegionalAuthorityLeaseDocument
-	if json.Unmarshal(entry.Data, &lease) != nil || lease.Validate() != nil || lease.AuthorityId != check.AuthorityID || lease.Epoch <= 0 || uint64(lease.Epoch) != check.AuthorityTerm || lease.IssuedAt.After(time.Now().UTC().Add(time.Second)) || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
-		return ErrControlRuntimeUnavailable
-	}
-	return nil
 }
 
 func verifyEmptyControlMirror(before, after, mirror *jetstream.StreamInfo) (string, error) {
