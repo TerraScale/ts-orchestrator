@@ -87,104 +87,149 @@ The current callers expose an ordering gap:
 | `cmd/orchestrator/bootstrap_control_config.go` | Loads action declarations using an embedded `ControlRuntimeActionPlan`. | Admit the signed preparation and transition declarations, with explicit credentials, identities, bounds, and complete inventory. |
 | `src/orchestrator/bootstrap/nats_control_runtime.go` | `Execute` applies all handoffs, creates mirrors, updates replicas, and gathers store checks. `applyHandoff` waits for component readiness. | Separate broker preparation from runtime activation. Capture and restore must occur in the appropriate phases before runtime readiness is required. Update the constructor's manual action-plan clone when adding fields. |
 | `src/orchestrator/hostagent/transport.go` | `applyManifest` uses the existing command journal and invokes `initialgrant.RetireForReplacement` before replacement manifest effects. | Bind preparation and activation to the existing signed command and journal authority. Preserve recoverable progress without authorizing the retired launch. |
-| `src/orchestrator/initialgrant/proof.go` | `RetireForReplacement` durably retires an initial launch when replacing it with a non-initial launch. | Keep this retirement invariant. A separate capture phase must finish before an effect that stops its only source broker. |
-| `src/orchestrator/initialcontrol/runtime.go` | `supervise` detects retirement and closes the initial runtime and embedded broker. | Support an explicitly admitted capture lifecycle that can quiesce writers while retaining the source broker long enough to take the final cut. This lifecycle does not exist today. |
+| `src/orchestrator/initialgrant/proof.go` | `RetireForReplacement` durably retires an initial launch when replacing it with a non-initial launch. | Keep this retirement invariant. Pre-admit capture, then stop and seal the original store before opening a separate capture copy. |
+| `src/orchestrator/initialcontrol/runtime.go` | `supervise` detects retirement and closes the initial runtime and embedded broker. | Keep retirement shutdown. A separate restricted capture launch must use a verified copy of the stopped store; that lifecycle does not exist today. |
 | `src/orchestrator/initialcontrol/broker.go` | The admitted initial broker is standalone and forbids routes and a system account. | Prepare a separately admitted cluster with a fresh GRU destination directory. Do not widen the initial broker's grant or reuse its standalone directory as cluster state. |
-| `src/orchestrator/bootstrap/nats_control_mutations.go` | Replica changes require a live, exact target lease and separately promote admitted consumers. | Establish fresh target authority under the transition before ordinary lease-fenced replica mutations can run. A restored expired lease is insufficient. |
+| `src/orchestrator/bootstrap/nats_control_mutations.go` | Replica changes require a live, exact target lease and separately promote admitted consumers. | Add a separate finite transition-grant path for declared storage promotion. Keep ordinary mutation guards unchanged; start ordinary election only after verified R3. |
 
-Applying the existing full handoff before restoration can wait forever for a
-runtime whose authority store has not been restored. Moving restoration after
-that handoff does not break the cycle. Retiring the initial launch first also
-stops the broker needed by the public snapshot API. The implementation must
-resolve both dependencies explicitly.
+The planned admission architecture is asymmetric. SFO and FRA have no
+regional runtime lease at first boot; GRU runtime commands cannot authorize
+cross-Region manifest changes. Their broker-preparation component must be in
+each host's first owner-signed initial manifest. The existing local chain is
+`cmd/ts-node.activateTsNodeBeforeNATS` → `hostbootstrap.RunLocalBootstrap` →
+`hostagent.OpenLocalBootstrap`. It uses that host's existing journal and zero
+local epoch floor without connecting to NATS. GRU's capture replacement is
+instead admitted through its live GRU runtime-signed `ApplyManifest` command.
+Existing bootstrap commands permit only exact initial drain/deploy/release;
+this design does not add general bootstrap-authorized `ApplyManifest`.
+
+A finite, domain-separated owner-signed storage transition grant will bridge
+the source shutdown. This is planned and unimplemented. Verification uses the
+existing ts-node `bootstrapPublicKeyFile`, together with the original verified
+`bootstrapGrantFile`; the VM image currently provisions the public key at
+`/etc/terrascale/ts-node-bootstrap/authority.pem` with mode `0400`. The key is
+independent of runtime command keys. GRU's `initialgrant` proof publication is
+not a generic destination trust root. The owner private key stays off-host.
+
+Binding must be noncircular: component configurations reference a transition
+ID and an exact grant delivery location, not a grant embedded in its own
+manifest. The separate grant signs the already prepared manifest hashes and
+original bootstrap-grant digests. The trusted host executor verifies and pins
+that grant once in the existing host journal. If final identities become known
+only after initial provisioning, the initial signed configuration authorizes
+reading one bounded grant at that exact location; the source cannot retire
+until all hosts have pinned the same completed transition. This document-read
+and admission path also requires implementation.
+
+The grant binds the estate/transition identity, original source admission and
+store scope, exact destination hosts and named peers, certificates and receipt
+signer keys, source/capture/destination directories, both accounts and the full
+stream/consumer inventory, prepared and final activation manifest hashes,
+accepted election floors, topology epochs, object locations, transfer bounds
+and an expiration. Its closed roles permit only capture, broker preparation,
+restoration and promotion to exactly R3. Receipt keys are separate host-held
+keys pinned by the grant. Grant possession does not permit ordinary application
+mutations, an R1 election, arbitrary host manifests or customer admission.
+
+Typed local recovery must run before NATS dialing and before the existing
+bootstrap runner returns for an already admitted runtime host. It resumes only
+the pinned transition phases within the grant's lifetime, under existing
+receiver/journal ownership. It never calls `AdmitBootstrap` after a runtime
+epoch or treats an old runtime lease as fresh. Ordinary pending commands retain
+their fresh-authorization requirement. Expiration refuses unfinished effects;
+it cannot restore the old authoritative R1. Completed runtime service uses
+ordinary authority, not the expired transition grant.
 
 The required durable order is:
 
-1. Persist the transition intent under the existing control action journal.
-   Bind its operation identity, source topology epoch, target epoch, exact
-   GRU/SFO/FRA host and server identities, predecessor manifests, signed
-   preparation and activation manifests, and distinct source/destination
-   directories. Persist the authorized inventory and finite transfer limits.
-   A retry resumes this intent; it must not mint a second transition.
+1. Prepare the signed manifests, separately signed grant and control action
+   intent. Admit GRU through its live local authority and SFO/FRA through their
+   initial local bootstrap. Pin the grant and collect authenticated durable
+   preparation receipts from every destination before source retirement.
+   Bind actual OCI ownership observations when available; do not invent
+   instance identifiers before provider creation. A retry resumes this same
+   transition and cannot replace its identity or accepted inventory.
 
-2. Prepare the SFO and FRA candidates and synchronize them as required by
-   `GOAL.md`. Record what was synchronized and verified before the final cut.
-   Candidate observations are preliminary evidence because GRU can still
-   advance. They cannot substitute for the final source inventory.
+2. Start the SFO/FRA candidates and synchronize them as required by `GOAL.md`.
+   Verify identity, storage and health before the final cut. These observations
+   are preliminary because GRU can still advance; they cannot replace final
+   source inventory and checkpoint evidence. Keep ordinary authority workers
+   and customer admission closed on the transitional destination storage.
 
-3. Persist and apply a writer fence. Quiesce every application writer to the
-   captured accounts, including election renewals, membership, acknowledgements,
-   KV updates, and provisioning. Wait for admitted in-flight effects to finish.
-   Record receiver and runtime receipts. Keep only the explicitly authorized
-   capture capability available. A stopped process, expired client connection,
-   or provider tag alone does not prove the fence.
+3. Persist source retirement under the existing verified host command. Refuse
+   old managed launches, quiesce admitted local effects and wait for the source
+   service and embedded broker to stop fully. Shutdown closes all seed,
+   participant and provisioner client access; a local guard alone cannot fence
+   those remote clients. Persist the stop evidence, seal the original store,
+   and record its digest. Preserve the original directory unchanged thereafter.
+   A crash before a receipt requires observation of the existing effect.
 
-4. Capture the final cut while the source broker is available and writers are
-   fenced. Capture every admitted stream in both account namespaces, including
-   KV and object-store streams and durable consumers. Use the public snapshot
-   API with consumers and message checking. Persist the exact archives and
-   their digests with the source inventory and checkpoint evidence. Verify
-   durable readback before admitting the cut. Account for server-driven expiry
-   and retention during capture; sequential archives are not automatically an
-   atomic application cut. The capture protocol must prove a consistent cut
-   or reject the observation.
+4. Make and durably verify a bounded copy in the grant's distinct capture
+   directory. Launch an embedded broker only on that copy, with all old NKeys
+   removed and dedicated identities restricted to inventory/info/snapshot
+   requests, snapshot chunk acknowledgements and reply subscriptions. Compose
+   no provisioning, membership, election or application workers. The trusted
+   host owns stop/seal/copy effects; the capture service cannot reopen the
+   original source as an authoritative R1.
 
-5. Persist source retirement and stop receipts. Prevent the original launch,
-   bootstrap provisioners, and prior application credentials from resuming
-   writes. Preserve the source directory unchanged. No automatic retry may
-   restart it as an authoritative R1. A crash before a receipt requires
-   observation of the existing effect, rather than a replacement operation.
+5. Capture every admitted stream in both account namespaces, including KV,
+   object stores and durable consumers. Persist verified envelopes and a
+   source-host-signed receipt binding the grant, retirement, original store
+   digest, inventory, archive identities, checkpoints and accepted epoch
+   floors. Reopening the copy still runs NATS TTL and retention machinery.
+   Preserving the original bytes does not prove envelope equivalence to the
+   final cut: compare the captured/recovered state against source evidence and
+   refuse completion if expiry or insufficient evidence prevents that proof.
+   Sequential archives do not automatically form an atomic application cut.
 
-6. Activate the signed broker preparation on the three destination hosts.
-   Start only the services needed for authenticated cluster formation and
-   restoration. Require one named cluster, unique admitted server names,
-   mutually authenticated route policy, account isolation, finite file-backed
-   storage, and exact healthy metadata membership. A listening socket or
-   `AccountInfo` response alone does not establish restore placement readiness.
-   Preparation must remain restartable using the existing durable host journal
-   after source authority stops; the finite authorization for this is an
-   unresolved contract, not permission to bypass live command verification.
+6. Resume the admitted destination broker preparation without a new source
+   lease. Require the source retirement/capture receipt, exact named cluster,
+   mutually authenticated routes, isolated accounts, bounded file storage and
+   healthy metadata membership. Open only the grant's restricted restoration
+   capabilities. A listening socket or `AccountInfo` response does not prove
+   restore placement readiness. Use independent durable receipt reads for
+   progress; polling host status through the stopped source broker cannot be
+   the completion gate in `NATSControlRuntime.applyHandoff`.
 
-7. Restore the admitted archives into the fresh cluster as R1 streams placed
-   on GRU, then remove temporary placement using the original configuration.
-   Persist each restoration receipt with its archive digest, account, stream,
-   original metadata, observed restored metadata, and verified retained state.
-   On retry, verify an existing restored stream against that evidence or
-   resume a missing restoration. Never delete an existing stream to force a
-   retry. Restored bytes remain closed to application writers until the full
-   inventory has passed verification.
+7. Restore into the fresh destination cluster as temporary R1 streams placed
+   on GRU, then remove temporary placement using the admitted configuration.
+   Persist per-stream receipts with archive digest, original/restored metadata
+   and verified records, allocator/deletion state and checkpoints. Verify an
+   existing restored stream on retry; never delete it to force a retry. The
+   finite transition capability permits only these declared storage effects.
+   No ordinary lease or application writer runs on this transitional R1.
 
-8. Establish target authority through the admitted transition. Preserve
-   accepted epoch floors and all host journal history. The exact one-time
-   authority needed to cross the source-stop interval must be specified and
-   verified before implementation; neither a copied lease nor desired
-   configuration establishes a live election. Keep customer admission and
-   ordinary global mutations closed while the topology remains transitional.
-   Obtain the fresh lease required by the existing mutation guards without
-   reopening unrestricted production R1 authority.
+8. Promote every admitted stream and durable consumer to R3 through the
+   separate grant-guarded storage path. Wait for each stream's exact current
+   peer assignment before promoting its consumers; prove their assignments and
+   preserved state independently. Keep ordinary lease-based mutation guards
+   unchanged. Persist a quorum receipt only after the complete inventory has
+   passed, including exact current GRU/SFO/FRA placement and nonregressing
+   accepted floors. A topology epoch is not an election term.
 
-9. Promote every admitted stream and durable consumer to R3 under that
-   authority. Verify exact current GRU/SFO/FRA assignments and unchanged
-   application state. Updating a stream does not upgrade an explicitly R1
-   consumer. Verify acknowledgements and consumer checkpoints independently.
-   Persist promotion evidence only after the entire inventory passes.
+9. Only after verified R3 and source retirement, start the admitted ordinary
+   authority coordinator. Require its actual election above the captured
+   accepted source/restored floors while preserving host journal history.
+   The grant authorizes this gated launch; it does not fabricate an election
+   lease. Activate the final runtime manifests under the admitted phase gates
+   and normal target authority. Keep customer admission closed.
 
-10. Activate the normal runtime and verify regional and global readiness.
-    Prove a new committed write and acknowledgement with one replica absent,
-    restore the replica, and verify recovery. Take and verify the required
-    post-transition snapshot. Prove bootstrap credentials are rejected by
-    authentication, and that old seed commands and launches cannot mutate.
+10. Verify regional/global readiness and a new committed write and
+    acknowledgement with one replica absent, then recovery. Take and verify
+    the post-transition snapshot. Prove old seed/bootstrap credentials fail
+    authentication and old launches/commands cannot mutate. Revoke temporary
+    transition credentials and durably mark the grant consumed on every host.
     Record permanent R3 and completion only after these receipts exist.
     Customer admission still depends on all remaining production gates.
 
-Each persisted receipt must bind the same transition intent and its immediate
-predecessor. Admission must reject omitted accounts, duplicate stream names,
-unexpected consumers, altered archive digests, changed host identities, and
-conflicting receipts. The transition journal must survive the interval when
-the source is stopped and the target is incomplete. Its storage location,
-ownership, and replay authorization need an explicit design using the existing
-action and host journals. No new journal should silently become another
-authoritative master.
+Every receipt must bind the same grant and its immediate predecessor. Reject
+omitted accounts, duplicate streams, unexpected consumers, altered archives,
+changed identities and conflicting receipts. Existing control action and
+host command journals retain authority through source shutdown; signed object
+receipts provide independently readable evidence, not another master. Journal
+record types, privileged phase execution and the pre-NATS recovery composition
+remain to be implemented and crash-tested. Neither the current handoff loop nor
+the single-stream snapshot transport already supplies this architecture.
 
 Restoration changes metadata identity. Public clustered restore changes
 `StreamInfo.Created`; a receipt must retain both source and observed restored

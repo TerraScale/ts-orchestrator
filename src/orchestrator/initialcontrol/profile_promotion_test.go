@@ -331,6 +331,24 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 		if e = provision(ctx, js, profile, account == "GRU_CONTROL", "gru", "gru-1"); e != nil {
 			t.Fatal(e)
 		}
+		// Exercise the production adapter before fixture writes as well: most
+		// initial streams are empty, some already own durable consumers, and the
+		// regional protocol object is the only provisioned retained payload.
+		initial := profilePromotionRead(t, ctx, js)
+		empty := 0
+		for name, snapshot := range initial {
+			archive := profilePromotionBackup(t, ctx, nc, name)
+			if archive.state.Msgs != snapshot.info.State.Msgs || archive.state.FirstSeq != snapshot.info.State.FirstSeq || archive.state.LastSeq != snapshot.info.State.LastSeq || archive.state.Consumers != len(snapshot.consumers) {
+				t.Fatalf("initial production snapshot state changed %s/%s", account, name)
+			}
+			if archive.state.Msgs == 0 {
+				empty++
+			}
+		}
+		if empty == 0 {
+			t.Fatalf("initial empty inventory was not exercised: %s", account)
+		}
+		t.Logf("production snapshotter initial %s inventory=%d empty=%d", account, len(initial), empty)
 		for _, config := range profile.Streams {
 			subject := config.Subjects[0]
 			for _, c := range profile.Consumers {
@@ -410,14 +428,14 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 			if e = os.MkdirAll(directory, 0700); e != nil {
 				t.Fatal(e)
 			}
-			if e = os.WriteFile(filepath.Join(directory, name+".snapshot"), archive.data, 0600); e != nil {
+			if e = os.WriteFile(filepath.Join(directory, name+".snapshot"), archive.envelope, 0600); e != nil {
 				t.Fatal(e)
 			}
 			metadata, _ := json.Marshal(server.JSApiStreamRestoreRequest{Config: archive.config, State: archive.state})
 			if e = os.WriteFile(filepath.Join(directory, name+".json"), metadata, 0600); e != nil {
 				t.Fatal(e)
 			}
-			t.Logf("SNAPSHOT %s/%s bytes=%d sha256=%x", account, name, len(archive.data), sha256.Sum256(archive.data))
+			t.Logf("SNAPSHOT %s/%s envelope_bytes=%d envelope_sha256=%x archive_bytes=%d archive_sha256=%x", account, name, len(archive.envelope), sha256.Sum256(archive.envelope), len(archive.data), sha256.Sum256(archive.data))
 		}
 
 		count := 0
@@ -679,49 +697,12 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 }
 
 type profilePromotionArchive struct {
-	config server.StreamConfig
-	state  server.StreamState
-	data   []byte
+	config   server.StreamConfig
+	state    server.StreamState
+	data     []byte
+	envelope []byte
 }
 
-func profilePromotionBackup(t *testing.T, ctx context.Context, nc *nats.Conn, name string) profilePromotionArchive {
-	t.Helper()
-	subject := nats.NewInbox()
-	sub, e := nc.SubscribeSync(subject)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer sub.Unsubscribe()
-	request, _ := json.Marshal(server.JSApiStreamSnapshotRequest{DeliverSubject: subject, ChunkSize: 128 << 10, CheckMsgs: true})
-	reply, e := nc.RequestWithContext(ctx, fmt.Sprintf(server.JSApiStreamSnapshotT, name), request)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var response server.JSApiStreamSnapshotResponse
-	if e = json.Unmarshal(reply.Data, &response); e != nil || response.Error != nil || response.Config == nil || response.State == nil {
-		t.Fatalf("snapshot %s: %s %v", name, reply.Data, e)
-	}
-	archive := profilePromotionArchive{config: *response.Config, state: *response.State}
-	for {
-		msg, e := sub.NextMsgWithContext(ctx)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if len(msg.Data) == 0 {
-			break
-		}
-		if len(archive.data)+len(msg.Data) > 16<<20 {
-			t.Fatal("snapshot exceeds profilePromotion bound")
-		}
-		archive.data = append(archive.data, msg.Data...)
-		if msg.Reply != "" {
-			if e = msg.Respond(nil); e != nil {
-				t.Fatal(e)
-			}
-		}
-	}
-	return archive
-}
 func profilePromotionRestore(t *testing.T, ctx context.Context, nc *nats.Conn, archive profilePromotionArchive) {
 	t.Helper()
 	config := archive.config
