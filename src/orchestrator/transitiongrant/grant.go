@@ -101,9 +101,6 @@ func (c Config) Validate() error {
 	// Admission material must remain separate even when no sync worker exists.
 	paths := []string{c.StoreDir, c.GrantFile, c.GrantPublicKeyFile}
 	for i, path := range paths {
-		if path == "/" {
-			return errors.New("transitiongrant: candidate path cannot be filesystem root")
-		}
 		for _, prior := range paths[:i] {
 			if hostmanifest.PathsOverlap(path, prior) {
 				return errors.New("transitiongrant: candidate storage and admission paths overlap")

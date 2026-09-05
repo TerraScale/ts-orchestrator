@@ -230,3 +230,60 @@ func TestGrantRejectsInvalidPeerInventoryAndBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidatePreparationProtectsAdmissionPathsWithoutSync(t *testing.T) {
+	for name, mutate := range map[string]func(*transitiongrant.Config){
+		"grant in store":    func(c *transitiongrant.Config) { c.GrantFile = c.StoreDir + "/grant.json" },
+		"key in store":      func(c *transitiongrant.Config) { c.GrantPublicKeyFile = c.StoreDir + "/owner.pem" },
+		"grant is store":    func(c *transitiongrant.Config) { c.GrantFile = c.StoreDir },
+		"key is store":      func(c *transitiongrant.Config) { c.GrantPublicKeyFile = c.StoreDir },
+		"store below grant": func(c *transitiongrant.Config) { c.StoreDir = c.GrantFile + "/store" },
+		"store below key":   func(c *transitiongrant.Config) { c.StoreDir = c.GrantPublicKeyFile + "/store" },
+		"grant below key":   func(c *transitiongrant.Config) { c.GrantFile = c.GrantPublicKeyFile + "/grant.json" },
+		"key below grant":   func(c *transitiongrant.Config) { c.GrantPublicKeyFile = c.GrantFile + "/owner.pem" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, config := grantFixture()
+			mutate(&config)
+			if err := config.Validate(); err == nil {
+				t.Fatal("overlapping admission and storage paths accepted")
+			}
+		})
+	}
+}
+
+func TestCandidateManifestKeepsOwnerMaterialOutsideWritableVolume(t *testing.T) {
+	const volume = "/var/lib/terrascale/orchestrator"
+	for _, field := range []string{"grant", "owner"} {
+		for _, path := range []string{volume, volume + "/admission/material", "/var/lib/terrascale"} {
+			t.Run(field+path, func(t *testing.T) {
+				_, config := grantFixture()
+				if field == "grant" {
+					config.GrantFile = path
+				} else {
+					config.GrantPublicKeyFile = path
+				}
+				raw, err := json.Marshal(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				spec := hostmanifest.ComponentSpec{Name: "orchestrator", User: "terrascale-orchestrator", Arguments: transitiongrant.Arguments, Configuration: string(raw), DataVolume: volume}
+				if _, found, err := transitiongrant.ComponentConfig(spec); !found || err == nil {
+					t.Fatal("owner material admitted within writable volume")
+				}
+			})
+		}
+	}
+	// Lexically similar sibling paths do not overlap the writable directory.
+	_, config := grantFixture()
+	config.GrantFile = volume + "-admission/grant.json"
+	config.GrantPublicKeyFile = volume + "-admission/owner.pem"
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := hostmanifest.ComponentSpec{Name: "orchestrator", User: "terrascale-orchestrator", Arguments: transitiongrant.Arguments, Configuration: string(raw), DataVolume: volume}
+	if _, found, err := transitiongrant.ComponentConfig(spec); !found || err != nil {
+		t.Fatalf("separate admission directory refused: %v", err)
+	}
+}
