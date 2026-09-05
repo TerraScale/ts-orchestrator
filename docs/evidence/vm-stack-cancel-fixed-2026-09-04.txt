@@ -1,0 +1,50 @@
+Real make vm-stack interrupted during first GRU boot after root-veth fix
+2026-09-04 America/Sao_Paulo; native linux/amd64
+
+Cancellation cleanup observation PASSED. SIGTERM was sent to the exact qualifier
+PID 525800 after Firecracker started, before guest readiness. The process returned
+the expected startup cancellation error. Following process exit, ip netns list,
+owned root-veth inspection, and owned firewall-rule search were empty. A subsequent
+make vm-clean completed successfully. This is cancellation cleanup evidence only;
+it does not qualify service readiness, the six-host stack, or fault scenarios.
+
+Qualifier SHA-256 eb045d59d299400a3300a0191610e81fb089d9ce2de05c653f39e7bdc37127f0.
+Artifact preparer SHA-256 e3c018d49c115f08a1f6370995c0e19110a47dae74bd62fae1491012308f9fbc.
+Guest binary digests and sizes appear in the retained controller lines below.
+Full local log: /tmp/ts-orchestrator-vm-stack-cancel-fixed.log.
+
+The independent retained-namespace-fd regression passed in 0.30 seconds.
+Fixture SHA-256 2151a9741fa07a19092f20892175d54125121d09f65ceae18077e1ea19b4efdd.
+Fixture log: /tmp/ts-root-link-real-final.log.
+
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.228756e9f63d9f7c sha256=228756e9f63d9f7c95346d693c46dc352c6f5bb3bcf655404efc42cccfe4ec3a bytes=8528032
+vm-artifacts: component=orchestrator version=vmqual.34c51dc7cfa934f0 sha256=34c51dc7cfa934f05700fc4fa0ca0b934de229d38e62f36be4f239a39d2d5314 bytes=27304096
+vm-artifacts: component=terrabase version=vmqual.300d71b2c6e44655 sha256=300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7 bytes=17787952
+time="2026-09-04T23:16:30-03:00" level=info msg="Called startVMM(), setting up a VMM on /var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-1/root/api.sock"
+time="2026-09-04T23:16:30-03:00" level=info msg="refreshMachineConfiguration: [GET /machine-config][200] getMachineConfigurationOK  &{CPUTemplate: MemSizeMib:0x2e687a010550 Smt:0x2e687a010558 TrackDirtyPages:false VcpuCount:0x2e687a010548}"
+time="2026-09-04T23:16:30-03:00" level=info msg="PutGuestBootSource: [PUT /boot-source][204] putGuestBootSourceNoContent "
+time="2026-09-04T23:16:30-03:00" level=info msg="Attaching drive rootfs.ext4, slot rootfs, root true."
+time="2026-09-04T23:16:30-03:00" level=info msg="Attached drive rootfs.ext4: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-04T23:16:30-03:00" level=info msg="Attaching drive artifact-00000000000000000001.img, slot data, root false."
+time="2026-09-04T23:16:30-03:00" level=info msg="Attached drive artifact-00000000000000000001.img: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-04T23:16:30-03:00" level=info msg="Attaching NIC tst2caagru01 (hwaddr 02:fc:77:01:01:01) at index 1"
+time="2026-09-04T23:16:30-03:00" level=info msg="No interfaces are allowed to access MMDS, skipping MMDS config"
+time="2026-09-04T23:16:30-03:00" level=info msg="startInstance successful: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-04T23:16:30-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-04T23:16:41-03:00" level=warning msg="firecracker exited: signal: terminated"
+time="2026-09-04T23:16:44-03:00" level=error msg="Unable to send CtrlAltDel: Put \"http://localhost/actions\": dial unix /var/lib/terrascale-qualification/ts-orchestrator/state/firecracker/gru-member-1/root/api.sock: connect: no such file or directory"
+vm-qualify: start gru-member-1: vmqual: bootstrap guest artifacts: guest control unavailable: context canceled
+vmqual: connect guest namespace socket: connection refused; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"unavailable","journalEntries":0,"severityCounts":[0,0,0,0,0,0,0,0]},{"unit":"terrascale-orchestrator.service","observation":"unavailable","journalEntries":0,"severityCounts":[0,0,0,0,0,0,0,0]},{"unit":"terrascale-terrabase.service","observation":"unavailable","journalEntries":0,"severityCounts":[0,0,0,0,0,0,0,0]}]
+vmqual: observe fra-member-1 console: file was not created
+vmqual: observe fra-member-1 metrics: file was not created
+vmqual: observe fra-member-2 console: file was not created
+vmqual: observe fra-member-2 metrics: file was not created
+vmqual: observe gru-member-2 console: file was not created
+vmqual: observe gru-member-2 metrics: file was not created
+vmqual: observe sfo-member-1 console: file was not created
+vmqual: observe sfo-member-1 metrics: file was not created
+vmqual: observe sfo-member-2 console: file was not created
+vmqual: observe sfo-member-2 metrics: file was not created
+vm-artifacts: exit status 1
+make: *** [Makefile:33: vm-stack] Error 1

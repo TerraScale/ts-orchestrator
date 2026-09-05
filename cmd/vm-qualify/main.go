@@ -20,7 +20,9 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "vm-qualify:", err)
 		os.Exit(1)
 	}
@@ -71,9 +73,7 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return err
 		}
 		_, _ = fmt.Fprintln(out, "Firecracker qualification stack is ready; press Ctrl-C to stop")
-		waitCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		<-waitCtx.Done()
+		<-ctx.Done()
 		return stack.Cleanup(context.Background())
 	case "test":
 		factory, network, err := realComponents(ctx, config, true, true)

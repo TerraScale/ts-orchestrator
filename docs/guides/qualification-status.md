@@ -258,6 +258,55 @@ The [controller record](../evidence/vm-test-admission-2026-09-04.txt) and
 [machine report](../evidence/vm-test-admission-2026-09-04.json) retain the failure.
 Guest launch configuration and production composition still need completion.
 
+The focused smoke run also failed after application launch with status 1 in
+the control-only profile. The [smoke record](../evidence/vm-smoke-admission-2026-09-04.txt)
+and [diagnostics](../evidence/vm-smoke-admission-2026-09-04.json) retain that
+result. Neither smoke profile is qualified.
+
+## Cancellation during stack startup
+
+The qualifier now installs its interrupt/SIGTERM context before executing any
+command, so cancellation during boot and tests can reach cleanup. A real
+`vm-stack` run interrupted during the first GRU boot stopped Firecracker and
+removed named namespaces, but failed cleanup verification because the owned
+root veth remained. It disappeared several minutes later without manual
+deletion. The [cancellation record](../evidence/vm-stack-cancel-2026-09-04.txt)
+retains the exact qualifier digest and failure. This is a failed cleanup gate,
+not a passing stack result.
+
+Network journal version 9 now includes an explicit root-veth cleanup obligation.
+Creation supplies a locally administered MAC derived from the full run identity.
+Cleanup verifies the exact device name, veth type, and expected MAC before
+deleting the root peer, and observes removal before releasing the allocation
+lease. Preflight rejects an existing root link; a changed identity or failed
+delete retains the lease. The host omitted aliases supplied during creation,
+so the final contract uses the verified MAC and has no alias fallback.
+
+A privileged regression held the namespace file descriptor open after deleting
+its name, then proved that journaled cleanup removed the root veth while that
+reference remained open. The test passed in 0.30 seconds. Portable regressions
+also cover foreign identities, malformed cleanup obligations, and retained
+leases. The [next interrupted VM run](../evidence/vm-stack-cancel-fixed-2026-09-04.txt)
+stopped during the first GRU boot and left no owned namespaces, root veths, or
+firewall rules when the process returned. `make vm-clean` then passed. This
+establishes cancellation cleanup for that boot boundary, not stack readiness.
+
+The complete portable gate and sandboxvm race suite passed after these changes.
+Logs are `/tmp/ts-orchestrator-cleanup-final-check.log` and
+`/tmp/ts-orchestrator-cleanup-final-tagged.log`.
+
+The artifact helper now writes each guest component's exact SHA-256, version,
+and size to the run log before launching qualification. It emits no signing
+key material or configuration contents.
+
+The final full VM suite again completed installation and activation on the
+first GRU host, then failed because the orchestrator and TerraBase processes
+exited with status 1. ts-node remained active. Peak host RSS was 416,219,136 bytes.
+No scenario ran. Cleanup left no owned namespaces, root veths, or firewall
+rules. The [final controller record](../evidence/vm-test-cleanup-final-2026-09-04.txt)
+and [machine report](../evidence/vm-test-cleanup-final-2026-09-04.json) preserve
+all guest binary digests and the failed qualification result.
+
 ## Remaining production work
 
 Production startup still has an unconditional missing-composition error.

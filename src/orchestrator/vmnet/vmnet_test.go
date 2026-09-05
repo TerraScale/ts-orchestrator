@@ -450,7 +450,7 @@ func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
 			serviceAssignments++
 		}
 		for _, uplink := range plan.Uplinks {
-			if contains(args, "link") && contains(args, "add") && contains(args, uplink.RegionDevice) && contains(args, uplink.RootDevice) && contains(args, "netns") && contains(args, "1") {
+			if contains(args, "link") && contains(args, "add") && contains(args, uplink.RegionDevice) && contains(args, uplink.RootDevice) && contains(args, "netns") && contains(args, uplink.RegionNamespace) && contains(args, rootLinkAddress(plan.Prefix, plan.RunID, uplink.Region)) {
 				uplinkCreations++
 			}
 		}
@@ -790,7 +790,7 @@ func TestCleanupIsBoundedReplaySafeAndIgnoresCallerCancellation(t *testing.T) {
 	if runner.missingDeadline {
 		t.Fatal("a cleanup command ran without a deadline")
 	}
-	want := 2 * (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput))
+	want := 2 * (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput) + len(plan.Cleanup.RootLinks))
 	if len(runner.cleanups) != want {
 		t.Fatalf("cleanup commands across two replays = %d, want %d", len(runner.cleanups), want)
 	}
@@ -1046,8 +1046,8 @@ func TestCleanupNeedsOnlyItsPinnedCleanupBinaries(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err != nil {
 		t.Fatalf("cleanup depended on an unrelated removed tc binary: %v", err)
 	}
-	if runner.cleanups != len(plan.Regions)+len(plan.Cleanup.HostInput) {
-		t.Fatalf("cleanup commands = %d, want %d", runner.cleanups, len(plan.Regions)+len(plan.Cleanup.HostInput))
+	if runner.cleanups != len(plan.Regions)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks) {
+		t.Fatalf("cleanup commands = %d, want %d", runner.cleanups, len(plan.Regions)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks))
 	}
 }
 
@@ -1130,13 +1130,13 @@ func TestApplyFailureRunsBestEffortCleanup(t *testing.T) {
 	if err := plan.ApplyWithJournal(context.Background(), runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply succeeded despite injected failure")
 	}
-	if len(runner.commands) != 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
-		t.Fatalf("commands after failed apply = %d, want %d", len(runner.commands), 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)))
+	if len(runner.commands) != 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks)) {
+		t.Fatalf("commands after failed apply = %d, want %d", len(runner.commands), 4+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks)))
 	}
 	// Cleanup proceeds in reverse ownership order and can be replayed.
 	before := len(runner.commands)
 	_ = plan.Rollback(context.Background(), runner)
-	if len(runner.commands) != before+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
+	if len(runner.commands) != before+(len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks)) {
 		t.Fatal("rollback did not replay the complete idempotent cleanup plan")
 	}
 }
@@ -1152,8 +1152,8 @@ func TestCancellationUsesCleanupContext(t *testing.T) {
 	if err := plan.ApplyWithJournal(ctx, runner, &fakeJournalWriter{}); err == nil {
 		t.Fatal("Apply did not report cancellation")
 	}
-	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)) {
-		t.Fatalf("cancellation cleanup commands = %d, want %d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)))
+	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput) + len(plan.Cleanup.RootLinks)) {
+		t.Fatalf("cancellation cleanup commands = %d, want %d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput) + len(plan.Cleanup.RootLinks)))
 	}
 	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
 		t.Fatal(err)
@@ -1542,8 +1542,8 @@ func TestCleanupContinuesAfterError(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err == nil {
 		t.Fatal("cleanup hid runner error")
 	}
-	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)) {
-		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput)))
+	if len(runner.commands) != (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput) + len(plan.Cleanup.RootLinks)) {
+		t.Fatalf("cleanup stopped after first error: %d/%d", len(runner.commands), (len(plan.Cleanup.Commands) + len(plan.Cleanup.HostInput) + len(plan.Cleanup.RootLinks)))
 	}
 	if err := plan.Cleanup.Run(context.Background(), &fakeCleanupRunner{}); err != nil {
 		t.Fatal(err)
@@ -1559,7 +1559,7 @@ func TestCleanupUsesIdempotentRunnerWhenAvailable(t *testing.T) {
 	if err := plan.Cleanup.Run(context.Background(), runner); err != nil {
 		t.Fatal(err)
 	}
-	if runner.runs != 0 || runner.cleanups != (len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)) {
+	if runner.runs != 0 || runner.cleanups != (len(plan.Cleanup.Commands)+len(plan.Cleanup.HostInput)+len(plan.Cleanup.RootLinks)) {
 		t.Fatalf("cleanup dispatch runs=%d cleanups=%d", runner.runs, runner.cleanups)
 	}
 }
@@ -1579,7 +1579,7 @@ func transitNames(commands []Command) map[string]bool {
 		args := command.Args
 		for index := 0; index+9 < len(args); index++ {
 			if args[index] == "link" && args[index+1] == "add" && args[index+3] == "type" && args[index+4] == "veth" && args[index+5] == "peer" && args[index+6] == "name" {
-				if args[index+8] == "netns" && args[index+9] == "1" {
+				if len(args) >= 2 && args[len(args)-2] == "netns" && args[len(args)-1] == "1" {
 					continue
 				}
 				result[args[index+2]] = true

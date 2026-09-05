@@ -160,7 +160,7 @@ var transitPrefix = netip.MustParsePrefix("10.78.252.0/22")
 
 const MaxRegions = 20
 
-const networkPlanVersion = 8
+const networkPlanVersion = 9
 
 // StableCIDR returns the deterministic qualification subnet for a launch
 // Region.
@@ -372,7 +372,7 @@ type GuestNetwork struct {
 }
 
 // CleanupPlan is safe to replay. A CleanupRunner normalizes only explicitly
-// absent owned namespaces and exact host INPUT rules after a crash.
+// absent owned namespaces, root veths, and exact host INPUT rules after a crash.
 type CleanupPlan struct {
 	Version          int                `json:"version"`
 	Prefix           string             `json:"prefix"`
@@ -387,9 +387,14 @@ type CleanupPlan struct {
 	DNSRecords       []DNSRecord        `json:"dns_records,omitempty"`
 	Commands         []Command          `json:"commands"`
 	HostInput        []Command          `json:"host_input,omitempty"`
+	RootLinks        []RootLinkCleanup  `json:"root_links"`
 }
 
 func (p CleanupPlan) copy() CleanupPlan {
+	p.RootLinks = append([]RootLinkCleanup(nil), p.RootLinks...)
+	for i := range p.RootLinks {
+		p.RootLinks[i].Command = p.RootLinks[i].Command.copy()
+	}
 	p.HostInput = append([]Command(nil), p.HostInput...)
 	for i := range p.HostInput {
 		p.HostInput[i] = p.HostInput[i].copy()
@@ -407,7 +412,7 @@ func (p CleanupPlan) copy() CleanupPlan {
 }
 
 // Validate proves that every cleanup target belongs to exactly this run. The
-// plan admits namespace deletion and exact host INPUT rule deletion only.
+// plan admits owned namespace, root veth, and exact host INPUT rule deletion only.
 // Subordinate network resources are created inside the owned namespaces.
 func (p CleanupPlan) Validate() error {
 	if p.Version != networkPlanVersion || validIdentifier(p.Prefix, "prefix", 5) != nil || !runIDPattern.MatchString(p.RunID) || !validSHA256Hex(p.Fingerprint) {
@@ -453,6 +458,14 @@ func (p CleanupPlan) Validate() error {
 	}
 	if !reflect.DeepEqual(p.HostInput, hostInputCommands(p.Tools, p.Prefix, p.RunID, p.Uplinks, p.Forwards, true)) {
 		return errors.New("vmnet: cleanup host input rules differ from the owned endpoint manifest")
+	}
+	if len(p.RootLinks) != len(p.Uplinks) {
+		return errors.New("vmnet: cleanup omits owned root links")
+	}
+	for i, uplink := range p.Uplinks {
+		if !reflect.DeepEqual(p.RootLinks[i], rootLinkCleanup(p.Tools, p.Prefix, p.RunID, uplink)) {
+			return errors.New("vmnet: root link cleanup differs from its owned uplink")
+		}
 	}
 	return nil
 }
@@ -547,6 +560,27 @@ func (p CleanupPlan) runLocked(ctx context.Context, runner Runner) error {
 			err = cleanupRunner.RunCleanup(commandContext, c.Executable, append([]string(nil), c.Args...))
 		} else {
 			err = runner.Run(commandContext, c.Executable, append([]string(nil), c.Args...))
+		}
+		cancel()
+		if err != nil && first == nil {
+			first = err
+		}
+	}
+	for _, link := range p.RootLinks {
+		commandContext, cancel := context.WithTimeout(cleanupContext, 10*time.Second)
+		var err error
+		if host, ok := runner.(interface {
+			cleanupRootLink(context.Context, RootLinkCleanup) error
+		}); ok {
+			err = host.cleanupRootLink(commandContext, link)
+		} else if _, ok := runner.(interface{ vmnetNonHostRunner() }); ok {
+			if cleanupRunner, ok := runner.(CleanupRunner); ok {
+				err = cleanupRunner.RunCleanup(commandContext, link.Command.Executable, append([]string(nil), link.Command.Args...))
+			} else {
+				err = runner.Run(commandContext, link.Command.Executable, append([]string(nil), link.Command.Args...))
+			}
+		} else {
+			err = errors.New("vmnet: root link cleanup requires an ownership-verifying runner")
 		}
 		cancel()
 		if err != nil && first == nil {
@@ -899,6 +933,15 @@ func (p NetworkPlan) ApplyWithJournal(ctx context.Context, runner Runner, writer
 		checkHostInputCollision(context.Context, []Command) error
 	}); ok {
 		if err := host.checkHostInputCollision(ctx, p.Commands); err != nil {
+			coordinator.hostLease.unlock()
+			coordinator.hostLease = nil
+			return err
+		}
+	}
+	if host, ok := runner.(interface {
+		checkRootLinkCollisions(context.Context, []RootLinkCleanup) error
+	}); ok {
+		if err := host.checkRootLinkCollisions(ctx, p.Cleanup.RootLinks); err != nil {
 			coordinator.hostLease.unlock()
 			coordinator.hostLease = nil
 			return err
@@ -1613,7 +1656,7 @@ func Plan(config Config) (NetworkPlan, error) {
 			command(tools.IP, "-n", region.Namespace, "link", "set", region.Bridge, "up"),
 			command(tools.IP, "-n", region.Namespace, "addr", "add", region.Gateway+"/"+strconv.Itoa(netip.MustParsePrefix(region.CIDR).Bits()), "dev", region.Bridge),
 			command(tools.IP, "netns", "exec", region.Namespace, tools.Sysctl, "-q", "-w", "net.ipv4.ip_forward=1"),
-			command(tools.IP, "-n", region.Namespace, "link", "add", region.Uplink.RegionDevice, "type", "veth", "peer", "name", region.Uplink.RootDevice, "netns", "1"),
+			command(tools.IP, "link", "add", region.Uplink.RootDevice, "address", rootLinkAddress(prefix, runID, region.Code), "type", "veth", "peer", "name", region.Uplink.RegionDevice, "netns", region.Namespace),
 			command(tools.IP, "-n", region.Namespace, "addr", "add", region.Uplink.RegionAddress+"/"+strconv.Itoa(uplinkPrefix.Bits()), "dev", region.Uplink.RegionDevice),
 			command(tools.IP, "-n", region.Namespace, "link", "set", region.Uplink.RegionDevice, "up"),
 			command(tools.IP, "addr", "add", region.Uplink.RootAddress+"/"+strconv.Itoa(uplinkPrefix.Bits()), "dev", region.Uplink.RootDevice),
@@ -1783,8 +1826,8 @@ func Plan(config Config) (NetworkPlan, error) {
 		return NetworkPlan{}, fmt.Errorf("vmnet: generated command count %d exceeds %d", len(commands), maxPlanCommands)
 	}
 	// Every bridge, TAP, nft chain, qdisc, route, and Region-side veth lives in a
-	// run-scoped namespace. Each root uplink is the peer of one of those veths,
-	// so namespace deletion also removes its root addresses and interface.
+	// run-scoped namespace. Root peers are separately journaled: open sockets
+	// can retain a namespace and its links after its name has been deleted.
 	for i := len(resolved) - 1; i >= 0; i-- {
 		region := resolved[i]
 		cleanup = append(cleanup, command(tools.IP, "netns", "del", region.Namespace))
@@ -1812,6 +1855,9 @@ func Plan(config Config) (NetworkPlan, error) {
 		Forwards: copyForwards(forwards), Listeners: append([]EndpointListener(nil), listeners...),
 		DNSRecords: append([]DNSRecord(nil), dnsRecords...), Commands: cleanup,
 		HostInput: hostInputCommands(tools, prefix, runID, uplinks, forwards, true),
+	}
+	for _, uplink := range uplinks {
+		cleanupPlan.RootLinks = append(cleanupPlan.RootLinks, rootLinkCleanup(tools, prefix, runID, uplink))
 	}
 	journal := Journal{Version: networkPlanVersion, Prefix: prefix, RunID: runID, CoordinationRoot: coordinationRoot, Tools: tools, Fingerprint: fingerprint, Cleanup: cleanupPlan.copy()}
 	plan := NetworkPlan{

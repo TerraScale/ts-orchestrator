@@ -92,6 +92,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) (result erro
 		}
 	}()
 
+	for _, item := range prepared.artifacts {
+		if _, err := fmt.Fprintf(errOut, "vm-artifacts: component=%s version=%s sha256=%x bytes=%d\n", item.component, item.version, item.digest, len(item.data)); err != nil {
+			return fmt.Errorf("write qualification artifact evidence: %w", err)
+		}
+	}
 	environment := bundleEnvironment(os.Environ(), prepared)
 	return runChild(ctx, config.command, environment, out, errOut)
 }
@@ -334,7 +339,7 @@ func validateArtifact(path string) ([]byte, os.FileInfo, [sha256.Size]byte, erro
 		return nil, nil, empty, err
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o755 || info.Size() <= 0 || info.Size() > artifactLimit {
-		return nil, nil, empty, errors.New("file must be a nonempty regular 0755 binary no larger than 16 MiB")
+		return nil, nil, empty, fmt.Errorf("file must be a nonempty regular 0755 binary no larger than %d bytes", artifactLimit)
 	}
 	file, err := os.Open(path)
 	if err != nil {

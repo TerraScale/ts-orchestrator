@@ -223,7 +223,7 @@ func TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands(t *t
 	if err := controller.Cleanup(ctx); err != nil {
 		t.Fatal(err)
 	}
-	want := len(concrete.Plan().Cleanup.Commands) + len(concrete.Plan().Cleanup.HostInput)
+	want := len(concrete.Plan().Cleanup.Commands) + len(concrete.Plan().Cleanup.HostInput) + len(concrete.Plan().Cleanup.RootLinks)
 	if len(runner.Calls()) != want {
 		t.Fatalf("cleanup calls = %d, want %d", len(runner.Calls()), want)
 	}
