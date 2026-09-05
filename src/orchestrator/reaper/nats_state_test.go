@@ -19,6 +19,52 @@ import (
 func reaperTestState() State {
 	return State{Version: 1, Cursor: "page-2", Entries: map[string]Entry{"db-1": {DatabaseID: "db-1", Plan: PlanFree, Phase: PhaseActive, LastRequest: time.Now().UTC().Add(-DefaultPauseAfter), Operations: map[string]Operation{}, Audits: map[string]bool{}}}}
 }
+
+func TestNATSReaperRefusesLegacyBackupJournalWithoutOverwriting(t *testing.T) {
+	cluster := newReaperStateCluster(t)
+	ctx := t.Context()
+	nc := cluster.connect(t)
+	kv := openReaperTestLeaseStore(t, ctx, nc, true)
+	lease := reaperTestLease(1, "global-controller-gru-one")
+	putReaperTestLease(t, ctx, kv, lease)
+	session := newReaperTestSession(t, nc, lease)
+	snapshot, err := session.snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := reaperTestState()
+	// Even an old active entry with no stop operation cannot silently acquire
+	// native-backup semantics just because its state otherwise looks valid.
+	raw, err := json.Marshal(reaperEnvelope{SchemaVersion: 1, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision, State: &state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack, err := session.js.Publish(ctx, reaperStateSubject, raw, jetstream.WithExpectStream(reaperStream), jetstream.WithExpectLastSequence(snapshot.sequence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Load(ctx); !errors.Is(err, ErrStateUnavailable) {
+		t.Fatalf("legacy journal admitted: %v", err)
+	}
+	if err := session.Save(ctx, state); !errors.Is(err, ErrStateNotLoaded) {
+		t.Fatalf("refused state was overwritten: %v", err)
+	}
+	retained, found, err := session.rawGet(ctx, reaperStateSubject, 0)
+	if err != nil || !found || retained.Sequence != ack.Sequence || !bytes.Equal(retained.Data, raw) {
+		t.Fatal("legacy evidence changed", err)
+	}
+	// Relabeling a legacy operation inside a current envelope is also refused.
+	for _, name := range []string{"pause/litestream", "pause/litestream/cycle-1"} {
+		legacy := reaperTestState()
+		entry := legacy.Entries["db-1"]
+		entry.Cycle = 1
+		entry.Operations[name] = Operation{Status: operationDone, Attempts: 1, StartedAt: time.Now().UTC(), CompletedAt: time.Now().UTC()}
+		legacy.Entries["db-1"] = entry
+		if _, err := reaperStateBytes(&legacy); !errors.Is(err, ErrStateUnavailable) {
+			t.Fatalf("legacy operation %q accepted: %v", name, err)
+		}
+	}
+}
 func newReaperTestSession(t *testing.T, nc *nats.Conn, lease authority.RegionalAuthorityLeaseDocument) *NATSStateStore {
 	t.Helper()
 	session, err := NewNATSStateStore(NATSStateStoreConfig{Connection: nc, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId})
@@ -53,7 +99,7 @@ func TestNATSReaperRecoveryCASReceiptsAndQuorum(t *testing.T) {
 	current := cloneState(initial)
 	entry := current.Entries["db-1"]
 	now := time.Now().UTC()
-	for _, name := range []string{"pause/snapshot", "pause/close", "pause/litestream"} {
+	for _, name := range []string{"pause/snapshot", "pause/close", "pause/native-backup"} {
 		entry.Operations[name] = Operation{Status: operationStarted, Attempts: 1, StartedAt: now}
 		current.Version++
 		if err := one.Save(ctx, current); err != nil {
@@ -113,7 +159,7 @@ func TestNATSReaperRecoveryCASReceiptsAndQuorum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(reaperEnvelope{SchemaVersion: 1, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision, State: &proposed, PriorState: snapshot.state, PriorRevision: snapshot.revision})
+	payload, _ := json.Marshal(reaperEnvelope{SchemaVersion: reaperEnvelopeSchemaVersion, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision, State: &proposed, PriorState: snapshot.state, PriorRevision: snapshot.revision})
 	message := nats.NewMsg(reaperStateSubject)
 	message.Data = payload
 	message.Reply = nats.NewInbox()
@@ -204,7 +250,7 @@ func TestNATSReaperLateCommitRecoversPriorIncludingAbsence(t *testing.T) {
 			proposed := cloneState(valid)
 			proposed.Version++
 			proposed.Cursor = "late-page"
-			raw, _ := json.Marshal(reaperEnvelope{SchemaVersion: 1, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision, State: &proposed, PriorState: snapshot.state, PriorRevision: snapshot.revision})
+			raw, _ := json.Marshal(reaperEnvelope{SchemaVersion: reaperEnvelopeSchemaVersion, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision, State: &proposed, PriorState: snapshot.state, PriorRevision: snapshot.revision})
 			timer := time.NewTimer(time.Until(lease.IssuedAt.Add(220 * time.Millisecond)))
 			defer timer.Stop()
 			select {

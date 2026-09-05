@@ -4,7 +4,7 @@
 // it gets there; it never reimplements a reconciler.
 //
 // With --dry-run it renders the runbook (stages, members, co-hosted
-// control, object storage with lifecycle rules, Litestream targets, routes,
+// control, object storage with lifecycle rules, native backup targets, routes,
 // probes, and the region-scoped reconcile actions) and changes nothing.
 // Without --dry-run it validates the same estate slice, admits the region,
 // and runs every stage in order. Missing composition is a refusal before the
@@ -31,10 +31,10 @@ import (
 	runtimeprobe "terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
-// addRegionLitestreamPurpose is the estate bucket purpose carrying
-// Litestream segments. The D-29 tiering (24 h to Infrequent Access, 7 days
+// addRegionBackupPurpose is the estate bucket purpose carrying
+// Native backup segments. The D-29 tiering (24 h to Infrequent Access, 7 days
 // to Archive) rides that bucket's lifecycle rules.
-const addRegionLitestreamPurpose = "database-backup"
+const addRegionBackupPurpose = "database-backup"
 
 // addRegionStages is the converge order one add-region run follows. The OCI
 // provider seam internally converges network, vault, buckets, hosts and
@@ -344,20 +344,20 @@ func addRegionProbesFromHost(ctx context.Context, _ envLookup, _ estate.Spec, _ 
 // one region. Buckets, routes, and certificates reuse the estate types
 // verbatim so the runbook cannot drift from the declaration.
 type addRegionRunbook struct {
-	Command           string             `json:"command"`
-	Region            string             `json:"region"`
-	OCIRegion         string             `json:"ociRegion"`
-	EstateVersion     uint32             `json:"estateVersion"`
-	Stages            []string           `json:"stages"`
-	Members           addRegionMembers   `json:"members"`
-	Control           addRegionControl   `json:"control"`
-	ObjectStorage     []estate.Bucket    `json:"objectStorage"`
-	LitestreamTargets []estate.Bucket    `json:"litestreamTargets"`
-	Routes            addRegionRoutes    `json:"routes"`
-	Probes            addRegionProbes    `json:"probes"`
-	Admission         addRegionAdmission `json:"admission"`
-	Placement         addRegionPlacement `json:"placement"`
-	Actions           []reconcile.Action `json:"actions"`
+	Command       string             `json:"command"`
+	Region        string             `json:"region"`
+	OCIRegion     string             `json:"ociRegion"`
+	EstateVersion uint32             `json:"estateVersion"`
+	Stages        []string           `json:"stages"`
+	Members       addRegionMembers   `json:"members"`
+	Control       addRegionControl   `json:"control"`
+	ObjectStorage []estate.Bucket    `json:"objectStorage"`
+	BackupTargets []estate.Bucket    `json:"backupTargets"`
+	Routes        addRegionRoutes    `json:"routes"`
+	Probes        addRegionProbes    `json:"probes"`
+	Admission     addRegionAdmission `json:"admission"`
+	Placement     addRegionPlacement `json:"placement"`
+	Actions       []reconcile.Action `json:"actions"`
 }
 
 type addRegionMembers struct {
@@ -784,7 +784,7 @@ func addRegionControlAdmitted(ctx context.Context, lookup envLookup, region esta
 
 // renderAddRegionRunbook writes the deterministic I-5 runbook for one
 // region: stages, serving members, co-hosted control, object storage with
-// lifecycle rules, Litestream targets, routes, probes, and the
+// lifecycle rules, native backup targets, routes, probes, and the
 // region-scoped reconcile actions an empty OCI region needs. It resolves no
 // credentials and makes no provider calls.
 func renderAddRegionRunbook(spec estate.Spec, region estate.Region, output io.Writer) error {
@@ -836,10 +836,10 @@ func buildAddRegionRunbook(spec estate.Spec, region estate.Region) (addRegionRun
 	if len(actions) == 0 {
 		return addRegionRunbook{}, errors.New("add-region: declared estate has no resources for region " + region.Code)
 	}
-	var litestream []estate.Bucket
+	var backup []estate.Bucket
 	for _, bucket := range region.Buckets {
-		if bucket.Purpose == addRegionLitestreamPurpose {
-			litestream = append(litestream, bucket)
+		if bucket.Purpose == addRegionBackupPurpose {
+			backup = append(backup, bucket)
 		}
 	}
 	book := addRegionRunbook{
@@ -857,11 +857,11 @@ func buildAddRegionRunbook(spec estate.Spec, region estate.Region) (addRegionRun
 			BootVolumeGiB: region.Members.BootVolumeGiB,
 			DataVolumeGiB: region.Members.DataVolumeGiB,
 		},
-		Control:           addRegionControlFor(region),
-		ObjectStorage:     append([]estate.Bucket(nil), region.Buckets...),
-		LitestreamTargets: litestream,
-		Routes:            addRegionRoutesFor(spec, region.Code),
-		Probes:            addRegionProbesFor(spec, region),
+		Control:       addRegionControlFor(region),
+		ObjectStorage: append([]estate.Bucket(nil), region.Buckets...),
+		BackupTargets: backup,
+		Routes:        addRegionRoutesFor(spec, region.Code),
+		Probes:        addRegionProbesFor(spec, region),
 		Admission: addRegionAdmission{
 			ResidencyRegion:    region.Code,
 			MemberHosts:        int(region.Members.Count),

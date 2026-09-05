@@ -34,7 +34,7 @@ This map is an index, not a substitute for the requirements below.
 | --- | --- |
 | D-01, D-03, D-06, D-33 | Implement the control plane, CLI, host agent, provider code, and test controller in Go, with embedded NATS JetStream and no Kubernetes-compatible API. |
 | D-02, D-34..D-38, D-45, D-46 | Use TBEP only for private placement, health, drain, administration, and test faults. Keep the orchestrator and NATS out of customer data, replication, query, and reactive paths. |
-| D-04, D-05, D-52, D-63, D-65..D-67 | Reconcile the OCI and Cloudflare launch estate, bootstrap GRU, expand to GRU/SFO/FRA, support 20 Regions, enforce placement, and keep OCI as the only durable production cloud. |
+| D-04, D-05, D-52, D-63, D-65..D-67 | Reconcile the OCI and Cloudflare launch estate, bootstrap GRU, expand to GRU/SFO/FRA, support 20 Regions, enforce placement, and keep live production data on OCI with encrypted backups on OCI Object Storage, Tigris, or both according to plan/user policy. |
 | D-07, D-47, D-59, D-68, D-69, D-71 | Accept signed candidates from `ts-deploy`, mirror them, and own systemd, Worker, and Snippet activation, health gates, rollback, and release recovery. CI logic remains in `ts-deploy`. |
 | D-14, D-20, D-24, D-55, D-58, D-63 | Reconcile DNS, Cache Rules, Snippets, Workers KV, WAF, and capability keys without putting a Worker or the orchestrator on the reactive hot path. |
 | D-16, D-21, D-25, D-44, D-51, D-61, D-64, D-76 | Keep free dimensions unbilled within published guards, enforce infrastructure-side limits without inventing usage truth, preserve near-zero idle cost, and automate the Free database lifecycle. |
@@ -243,7 +243,8 @@ Control and reactive data paths retain their separate ownership.
   Provider prices, quotas, plan limits, and terms are planning assumptions that
   must be reverified against current publications at G1 and G4.
 - Cloudflare never carries database replication, backups, or control traffic.
-  Those paths stay on OCI or direct member-to-member links.
+  Those paths use OCI, direct member-to-member links, or direct S3-compatible
+  uploads from TerraBase to the Tigris backup destination when selected by policy.
 
 ## Declared estate and reconciliation
 
@@ -1104,7 +1105,24 @@ Firecracker result must not claim arm64 coverage.
 
 TerraBase will rebuild [Litestream](https://github.com/benbjohnson/litestream)
 as an internal native Rust backup subsystem after reviewing a pinned upstream
-revision. The orchestrator provisions regional buckets, lifecycle rules and
+revision. Completely remove the external Litestream runtime, dependencies,
+packaging, configuration, and supervision in the native replacement series.
+Every database selects OCI Object Storage, Tigris, or both through plan
+policy with operator-managed overrides for specific users. Resolve by owning
+account, persist the effective policy revision, and reject empty destination
+sets. Audit changes; bootstrap added destinations before declaring protection,
+and verify a surviving restore chain before retiring a destination according
+to retention/deletion policy. The orchestrator provisions and
+verifies selected destinations, scoped credentials, retention/deletion policies,
+and provider-specific locations allowed by the database residency policy.
+When Tigris is selected, unverified or incompatible placement fails admission; do not silently
+widen residency or reduce the required destination count. Backup readiness
+requires verified recoverable progress on every selected provider. Daily restore drills
+exercise selected providers independently; qualification covers all three
+policies and transitions, including loss of either provider in the dual policy.
+Track provider lag, retries, storage/request costs, and OCI outbound costs for
+Tigris uploads. TerraBase streams directly to selected providers outside the write
+acknowledgement path. The orchestrator provisions regional lifecycle rules and
 key authority, requests lifecycle operations over TBEP, and verifies backup
 readiness and daily restore drills. TerraBase owns WAL capture, checkpoint
 coordination, bounded shared workers, uploads, PITR, restore, and branching.

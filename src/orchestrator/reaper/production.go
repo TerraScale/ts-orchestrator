@@ -14,12 +14,16 @@ import (
 // production implementation must verify the immutable placement lock before
 // making the retained snapshot visible, and must enforce that same lock while
 // creating it. The reaper never chooses a backup Region itself.
+// Snapshot, close, backup-stop and reactivation operations belong to TerraBase
+// and must use its admitted TBEP lifecycle contract. StopNativeBackup stops the
+// selected database's native backup stream; it must not stop shared engine
+// workers, supervise an external process, or delete the retained snapshot.
 type DatabaseAdapter interface {
 	Catalog
 	EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error
 	VerifySnapshotPlacement(ctx context.Context, databaseID string) error
 	CloseDatabase(ctx context.Context, databaseID, operationKey string) error
-	StopLitestream(ctx context.Context, databaseID, operationKey string) error
+	StopNativeBackup(ctx context.Context, databaseID, operationKey string) error
 	Reactivate(ctx context.Context, databaseID, operationKey string) error
 	PurgeCDN(ctx context.Context, databaseID, operationKey string) error
 	DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error
@@ -83,11 +87,11 @@ func (e productionExecutor) CloseDatabase(ctx context.Context, databaseID, opera
 	return e.database.CloseDatabase(ctx, databaseID, operationKey)
 }
 
-func (e productionExecutor) StopLitestream(ctx context.Context, databaseID, operationKey string) error {
+func (e productionExecutor) StopNativeBackup(ctx context.Context, databaseID, operationKey string) error {
 	if err := checkReaperEffect(ctx, e.check); err != nil {
 		return err
 	}
-	return e.database.StopLitestream(ctx, databaseID, operationKey)
+	return e.database.StopNativeBackup(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) Reactivate(ctx context.Context, databaseID, operationKey string) error {

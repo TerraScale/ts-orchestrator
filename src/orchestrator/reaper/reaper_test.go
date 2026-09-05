@@ -50,8 +50,8 @@ func (e *testExecutor) EnsureSnapshot(_ context.Context, id, _ string) error {
 func (e *testExecutor) CloseDatabase(_ context.Context, id, _ string) error {
 	return e.call("close", id)
 }
-func (e *testExecutor) StopLitestream(_ context.Context, id, _ string) error {
-	return e.call("litestream", id)
+func (e *testExecutor) StopNativeBackup(_ context.Context, id, _ string) error {
+	return e.call("backup", id)
 }
 func (e *testExecutor) Reactivate(_ context.Context, id, _ string) error {
 	return e.call("reactivate", id)
@@ -154,7 +154,7 @@ func TestPartialFailureRetriesSameOperationAndPauseEmail(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(30 * 24 * time.Hour)}
 	catalog := &testCatalog{databases: []Database{freeDatabase(base)}}
-	executor := &testExecutor{fail: map[string]int{"litestream": 1}}
+	executor := &testExecutor{fail: map[string]int{"backup": 1}}
 	mailer := &testMailer{fail: 1}
 	audit, store := &testAudit{}, &MemoryStore{}
 	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
@@ -168,7 +168,7 @@ func TestPartialFailureRetriesSameOperationAndPauseEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(executor.calls) != 4 {
-		t.Fatalf("expected snapshot, close, failed+retry litestream, got %v", executor.calls)
+		t.Fatalf("expected snapshot, close, failed+retry backup, got %v", executor.calls)
 	}
 	state := store.Snapshot().Entries["db-1"]
 	if state.Phase != PhasePaused || state.Operations["notice/pause/db-1"].Status != operationDone {

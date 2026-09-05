@@ -51,7 +51,7 @@ func TestDefaultEstateMatchesLaunchDecisions(t *testing.T) {
 	}
 }
 
-// TestDefaultEstateTiersBackupSegmentsPerD29 pins the Litestream segment
+// TestDefaultEstateTiersBackupSegmentsPerD29 pins the Native backup segment
 // lifecycle: 24 h to Infrequent Access, 7 days to Archive (D-29).
 func TestDefaultEstateTiersBackupSegmentsPerD29(t *testing.T) {
 	for _, region := range Default().Regions {

@@ -13,6 +13,10 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 )
 
+// Version 2 requires native-backup lifecycle evidence. Version 1 belongs to
+// the retired external-backup contract and must never be replayed as native work.
+const reaperEnvelopeSchemaVersion = 2
+
 type reaperEnvelope struct {
 	SchemaVersion int
 	Lease         authority.RegionalAuthorityLeaseDocument
@@ -126,7 +130,7 @@ func (s *NATSStateStore) snapshot(ctx context.Context) (reaperSnapshot, error) {
 			return snapshot, ErrStateUnavailable
 		}
 	}
-	if strictReaperJSON(stored.Data, &envelope) != nil || envelope.SchemaVersion != 1 || envelope.PriorState != nil && envelope.PriorRevision == 0 || envelope.Lease.Epoch > lease.Epoch || envelope.LeaseRevision == 0 || envelope.LeaseRevision >= stored.Sequence || envelope.PriorRevision >= stored.Sequence || envelope.Lease.Validate() != nil || envelope.Lease.AuthorityId != "global" {
+	if strictReaperJSON(stored.Data, &envelope) != nil || envelope.SchemaVersion != reaperEnvelopeSchemaVersion || envelope.PriorState != nil && envelope.PriorRevision == 0 || envelope.Lease.Epoch > lease.Epoch || envelope.LeaseRevision == 0 || envelope.LeaseRevision >= stored.Sequence || envelope.PriorRevision >= stored.Sequence || envelope.Lease.Validate() != nil || envelope.Lease.AuthorityId != "global" {
 		return snapshot, ErrStateUnavailable
 	}
 	if _, err := reaperStateBytes(envelope.State); err != nil {
@@ -156,7 +160,7 @@ func (s *NATSStateStore) snapshot(ctx context.Context) (reaperSnapshot, error) {
 }
 
 func (s *NATSStateStore) commit(ctx context.Context, snapshot reaperSnapshot, state *State, write bool) (uint64, error) {
-	envelope := reaperEnvelope{SchemaVersion: 1, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision}
+	envelope := reaperEnvelope{SchemaVersion: reaperEnvelopeSchemaVersion, Lease: snapshot.lease, LeaseRevision: snapshot.leaseRevision}
 	subject := reaperBarrierSubject
 	if write {
 		envelope.State = state

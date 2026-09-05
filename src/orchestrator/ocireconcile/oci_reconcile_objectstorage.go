@@ -14,7 +14,7 @@ import (
 )
 
 // The object storage reconciler creates and repairs each Region's buckets
-// and their lifecycle policies (D-29): Litestream segments older than 24 h
+// and their lifecycle policies (D-29): Native backup segments older than 24 h
 // move to Infrequent Access and older than 7 days to Archive. Buckets are
 // per Region; D-04 keeps every durable copy inside OCI.
 

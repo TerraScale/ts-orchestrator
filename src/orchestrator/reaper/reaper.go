@@ -102,11 +102,11 @@ type Catalog interface {
 
 // Executor is the infrastructure seam. Every method must be idempotent for
 // the supplied operation key. EnsureSnapshot must leave the retained
-// Litestream snapshot available before CloseDatabase is allowed to complete.
+// TerraBase native backup snapshot available before CloseDatabase is allowed to complete.
 type Executor interface {
 	EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error
 	CloseDatabase(ctx context.Context, databaseID, operationKey string) error
-	StopLitestream(ctx context.Context, databaseID, operationKey string) error
+	StopNativeBackup(ctx context.Context, databaseID, operationKey string) error
 	Reactivate(ctx context.Context, databaseID, operationKey string) error
 	PurgeCDN(ctx context.Context, databaseID, operationKey string) error
 	DestroyDEK(ctx context.Context, databaseID, operationKey string) error
@@ -563,7 +563,7 @@ func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Dat
 	}{
 		{r.operationName(entry, "pause/snapshot"), func(ctx context.Context, key string) error { return r.executor.EnsureSnapshot(ctx, database.ID, key) }},
 		{r.operationName(entry, "pause/close"), func(ctx context.Context, key string) error { return r.executor.CloseDatabase(ctx, database.ID, key) }},
-		{r.operationName(entry, "pause/litestream"), func(ctx context.Context, key string) error { return r.executor.StopLitestream(ctx, database.ID, key) }},
+		{r.operationName(entry, "pause/native-backup"), func(ctx context.Context, key string) error { return r.executor.StopNativeBackup(ctx, database.ID, key) }},
 	} {
 		if err := r.operationLocked(ctx, state, database.ID, operation.name, operation.run, now); err != nil {
 			return err

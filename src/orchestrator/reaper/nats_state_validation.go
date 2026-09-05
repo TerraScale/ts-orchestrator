@@ -38,15 +38,15 @@ func reaperOperationName(entry Entry, name string) bool {
 		return false
 	}
 	base := name
-	if index := strings.LastIndex(base, "/cycle-"); index >= 0 {
-		cycle, err := strconv.ParseUint(base[index+7:], 10, 64)
-		if err != nil || cycle == 0 || cycle > entry.Cycle || strconv.FormatUint(cycle, 10) != base[index+7:] {
+	if before, suffix, found := strings.CutLast(base, "/cycle-"); found {
+		cycle, err := strconv.ParseUint(suffix, 10, 64)
+		if err != nil || cycle == 0 || cycle > entry.Cycle || strconv.FormatUint(cycle, 10) != suffix {
 			return false
 		}
-		base = base[:index]
+		base = before
 	}
 	switch base {
-	case "pause/snapshot", "pause/close", "pause/litestream", "notice/pause/" + entry.DatabaseID, "notice/second/" + entry.DatabaseID, "notice/final/" + entry.DatabaseID:
+	case "pause/snapshot", "pause/close", "pause/native-backup", "notice/pause/" + entry.DatabaseID, "notice/second/" + entry.DatabaseID, "notice/final/" + entry.DatabaseID:
 		return true
 	case "delete/cdn-purge", "delete/crypto-shred", "delete/data":
 		return base == name
@@ -125,7 +125,7 @@ func reaperStateBytes(state *State) ([]byte, error) {
 			if entry.PausedAt.IsZero() {
 				return nil, ErrStateUnavailable
 			}
-			for _, base := range []string{"pause/snapshot", "pause/close", "pause/litestream"} {
+			for _, base := range []string{"pause/snapshot", "pause/close", "pause/native-backup"} {
 				if !reaperDone(entry, reaperCycleName(entry, base)) {
 					return nil, ErrStateUnavailable
 				}
@@ -271,7 +271,7 @@ func reaperNewOperations(old, entry Entry) bool {
 			if phase != PhaseActive || !reaperDone(old, reaperCycleName(entry, "pause/snapshot")) {
 				return false
 			}
-		case reaperCycleName(entry, "pause/litestream"):
+		case reaperCycleName(entry, "pause/native-backup"):
 			if phase != PhaseActive || !reaperDone(old, reaperCycleName(entry, "pause/close")) {
 				return false
 			}

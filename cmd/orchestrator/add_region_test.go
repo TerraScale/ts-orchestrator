@@ -84,7 +84,7 @@ func TestAddRegionDryRunOutputsTheRunbook(t *testing.T) {
 		`"backups"`,
 		`"infrequent-access"`,
 		`"archive"`,
-		`"litestreamTargets"`,
+		`"backupTargets"`,
 		`sfo.api.terrascale.tech`,
 		`regions/sfo`,
 		`member-control`,

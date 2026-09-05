@@ -49,8 +49,8 @@ func (d *productionDatabase) CloseDatabase(_ context.Context, id, _ string) erro
 	return nil
 }
 
-func (d *productionDatabase) StopLitestream(_ context.Context, id, _ string) error {
-	d.record("litestream/" + id)
+func (d *productionDatabase) StopNativeBackup(_ context.Context, id, _ string) error {
+	d.record("backup/" + id)
 	return nil
 }
 
@@ -229,7 +229,7 @@ func TestProductionEffectAdmissionCoversAllCallsAndDetachedFailureAudit(t *testi
 	audit := &testAudit{}
 	fenced := func(context.Context) error { return ErrStateFenced }
 	executor := productionExecutor{database: database, key: key, check: fenced}
-	for _, call := range []func(context.Context, string, string) error{executor.EnsureSnapshot, executor.CloseDatabase, executor.StopLitestream, executor.Reactivate, executor.PurgeCDN, executor.DestroyDEK, executor.DeleteOwnedData} {
+	for _, call := range []func(context.Context, string, string) error{executor.EnsureSnapshot, executor.CloseDatabase, executor.StopNativeBackup, executor.Reactivate, executor.PurgeCDN, executor.DestroyDEK, executor.DeleteOwnedData} {
 		if err := call(t.Context(), "db-1", "op"); !errors.Is(err, ErrStateFenced) {
 			t.Fatalf("fenced method: %v", err)
 		}

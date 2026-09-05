@@ -99,7 +99,7 @@ func defaultRegion(code, ociName, cidr string) Region {
 		},
 		Buckets: []Bucket{
 			{
-				// Litestream segment tiering per D-29: segments older than 24 h
+				// Native backup segment tiering per D-29: segments older than 24 h
 				// move to Infrequent Access, older than 7 days to Archive, and
 				// history expires after 35 days.
 				Name: "backups", Purpose: "database-backup", Versioning: true,

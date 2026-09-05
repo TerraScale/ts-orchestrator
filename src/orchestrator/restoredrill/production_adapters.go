@@ -24,7 +24,7 @@ var (
 	ErrInvalidSnapshotRegion   = errors.New("restore drill: invalid snapshot Region")
 )
 
-// ProductionBackupAdapter guards the TerraBase/Litestream boundary.  The
+// ProductionBackupAdapter guards the TerraBase native-backup boundary.  The
 // underlying client is deliberately a port: this package must not carry
 // customer data or know the TerraBase protocol.
 type ProductionBackupAdapter struct{ Port BackupPort }

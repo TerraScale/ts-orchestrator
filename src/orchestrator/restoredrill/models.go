@@ -63,7 +63,7 @@ type ScratchBranch struct {
 	ID string
 }
 
-// BackupPort lists source databases and restores a Litestream backup into an
+// BackupPort lists source databases and restores a TerraBase native backup into an
 // already-created isolated branch. Restore must honor IdempotencyKey.
 type BackupPort interface {
 	ListDatabases(context.Context) ([]Database, error)
