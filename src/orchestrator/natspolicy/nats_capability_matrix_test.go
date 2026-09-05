@@ -114,7 +114,6 @@ func TestEveryOwnerIsOneOfTheKnownResponsibilityRoles(t *testing.T) {
 		NatsCapabilityOwnerGlobalDirectoryRuntime,
 		NatsCapabilityOwnerMessagingContracts,
 		NatsCapabilityOwnerDeliveryContracts,
-		NatsCapabilityOwnerCiRuntime,
 		NatsCapabilityOwnerSecurityAndIdentity,
 		NatsCapabilityOwnerInfrastructureBootstrap,
 		NatsCapabilityOwnerObservability,

@@ -292,7 +292,7 @@ func TestCellScopeExtractionCoversRegionalAndGlobalPerCellShapesOnly(t *testing.
 	// Global subjects without a per-cell shape carry no cell scope.
 	for _, subject := range []string{
 		natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
-		natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
+		natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(),
 		natspolicy.NatsSubjectTaxonomy.GlobalAcceptedReleasePrefix() + ".ledger",
 		mustT(t, func() (string, error) { return natspolicy.NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") }) + ".extra",
 	} {

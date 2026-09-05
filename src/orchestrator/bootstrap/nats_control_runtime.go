@@ -1002,10 +1002,9 @@ func globalControlStreamNames() []string {
 	for _, stream := range topology.Streams() {
 		names = append(names, stream.Name)
 	}
-	for _, bucket := range []jetstream.KeyValueConfig{topology.Leaders(), topology.Cells(), topology.Releases(), topology.MasterDeliveries(), topology.RunnerJobs()} {
+	for _, bucket := range []jetstream.KeyValueConfig{topology.Leaders(), topology.Cells(), topology.MasterDeliveries()} {
 		names = append(names, "KV_"+bucket.Bucket)
 	}
-	names = append(names, "OBJ_"+topology.Bundles().Bucket, "OBJ_"+topology.RunnerBundles().Bucket)
 	sort.Strings(names)
 	return names
 }

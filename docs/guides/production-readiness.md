@@ -81,6 +81,16 @@ separate infrastructure identity or required global storage budget. Complete
 signed R1 admission and provisioning between broker readiness and live-store
 construction. Normal global runtime and operational workers remain R3-only.
 
+The global runtime no longer opens CI stores, issues runner credentials or
+constructs a runner reconciler. CI belongs to `ts-deploy`; signed delivery
+continues through `GLOBAL_DELIVERIES` and per-Region OCI mirrors. The retained
+global profiles total 1,352 MiB per replica before overhead and regional
+stores, so the guest broker's 256 MiB limit remains insufficient. Runtime
+identities can read profiles, consume desired state and update admitted
+control records, but cannot provision streams, buckets or consumers.
+The [global storage contract](../contracts/global-control-storage.md) records
+the final inventory and permission boundary.
+
 The [integrated verification](../evidence/global-worker-reaper-gates-2026-09-05.txt)
 records passing portable and sandboxvm-tagged race suites and a Linux arm64
 cross-build. These results do not establish guest startup or provider behavior.

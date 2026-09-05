@@ -22,35 +22,12 @@ const (
 	globalNatsRuntimeCheckTimeout   = 15 * time.Second
 )
 
-// GlobalNatsRuntimeComponent is the narrow lifecycle seam for a component
-// which is not implemented in this package.  In particular, Forgejo, OCI,
-// and provider behavior must be supplied by a separately reviewed adapter.
+// GlobalNatsRuntimeComponent is the lifecycle owned by the global runtime
+// for signed delivery and its required provider adapters.
 type GlobalNatsRuntimeComponent interface {
 	Completion() <-chan struct{}
 	Close() error
 }
-
-// GlobalNatsRuntimeDependencies are safe, already-validated dependencies
-// passed to optional components.  They contain no credential bytes.
-type GlobalNatsRuntimeDependencies struct {
-	Client        *nats.Conn
-	JetStream     jetstream.JetStream
-	Topology      *GlobalNatsTopology
-	Authority     func() RegionalAuthoritySnapshot
-	Leaders       jetstream.KeyValue
-	Cells         jetstream.KeyValue
-	Releases      jetstream.KeyValue
-	RunnerJobs    jetstream.KeyValue
-	Bundles       jetstream.ObjectStore
-	RunnerBundles jetstream.ObjectStore
-	CiConsumer    jetstream.Consumer
-	RuntimeProof  jetstream.Consumer
-	CellSpec      jetstream.Consumer
-}
-
-// GlobalNatsRuntimeComponentStarter is an explicit composition seam.  A nil
-// starter means that the corresponding role is not requested.
-type GlobalNatsRuntimeComponentStarter func(context.Context, GlobalNatsRuntimeDependencies) (GlobalNatsRuntimeComponent, error)
 
 // GlobalNatsRuntimeConfiguration describes one global-authority process.
 // Authority is mandatory and must be the GRU global-authority identity.
@@ -66,28 +43,16 @@ type GlobalNatsRuntimeConfiguration struct {
 	DirectoryAuthority func() RegionalAuthoritySnapshot
 	DirectoryPublish   bool
 
-	CiRunnerSigner   INatsAccountJwtSigner
-	CiRunnerIdentity *CiRunnerNatsIdentityConfiguration
-	// CiRunnerNatsIdentity is the options-compatible spelling.
-	CiRunnerNatsIdentity        *CiRunnerNatsIdentityConfiguration
-	CiRuntime                   GlobalNatsRuntimeComponentStarter
-	CiRuntimeEnabled            bool
 	Delivery                    *MasterDeliveryRuntimeConfig
 	DeliveryEnabled             bool
-	NativeGitOpsConsumerEnabled bool
+	DesiredStateConsumerEnabled bool
 }
 
 type globalNatsRuntimeState struct {
-	js            jetstream.JetStream
-	leaders       jetstream.KeyValue
-	cells         jetstream.KeyValue
-	releases      jetstream.KeyValue
-	runnerJobs    jetstream.KeyValue
-	bundles       jetstream.ObjectStore
-	runnerBundles jetstream.ObjectStore
-	ciConsumer    jetstream.Consumer
-	runtimeProof  jetstream.Consumer
-	cellSpec      jetstream.Consumer
+	js       jetstream.JetStream
+	leaders  jetstream.KeyValue
+	cells    jetstream.KeyValue
+	cellSpec jetstream.Consumer
 }
 
 // GlobalNatsRuntime owns the global authority connection and all components
@@ -95,16 +60,12 @@ type globalNatsRuntimeState struct {
 // supervised independently: a WAN failure degrades directory publication but
 // does not revoke a regional controller's local authority.
 type GlobalNatsRuntime struct {
-	client        *nats.Conn
-	topology      *GlobalNatsTopology
-	authority     *RegionalAuthorityCoordinator
-	directory     *GlobalCellDirectoryLifecycle
-	ciRunners     *CiRunnerConsumerReconciler
-	ciCredentials *CiRunnerNatsCredentialIssuer
-	ciSigner      *NatsAccountJwtSigner
-	ciRuntime     GlobalNatsRuntimeComponent
-	delivery      GlobalNatsRuntimeComponent
-	state         globalNatsRuntimeState
+	client    *nats.Conn
+	topology  *GlobalNatsTopology
+	authority *RegionalAuthorityCoordinator
+	directory *GlobalCellDirectoryLifecycle
+	delivery  GlobalNatsRuntimeComponent
+	state     globalNatsRuntimeState
 
 	cell         string
 	instance     string
@@ -143,7 +104,7 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 		return nil, err
 	}
 	checkCtx, checkCancel := context.WithTimeout(lifetime, globalNatsRuntimeCheckTimeout)
-	state, err := globalNatsRuntimeOpenAndValidate(checkCtx, client, topology, configuration.NativeGitOpsConsumerEnabled, configuration.Cell)
+	state, err := globalNatsRuntimeOpenAndValidate(checkCtx, client, topology, configuration.DesiredStateConsumerEnabled, configuration.Cell)
 	checkCancel()
 	if err != nil {
 		cleanup()
@@ -170,57 +131,6 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 		cell: configuration.Cell, instance: configuration.Instance,
 		startedAt: time.Now().UTC(), lifetime: lifetime, cancel: cancel,
 		complete: make(chan struct{}),
-	}
-	runtime.ciRunners, err = NewCiRunnerConsumerReconciler(state.js, topology)
-	if err != nil {
-		_ = runtime.Close()
-		return nil, err
-	}
-	ciIdentity := configuration.CiRunnerIdentity
-	if ciIdentity != nil && configuration.CiRunnerNatsIdentity != nil {
-		_ = runtime.Close()
-		return nil, errors.New("CI runner identity configuration was supplied twice")
-	}
-	if ciIdentity == nil {
-		ciIdentity = configuration.CiRunnerNatsIdentity
-	}
-	ciSigner := configuration.CiRunnerSigner
-	if ciSigner != nil && ciIdentity != nil {
-		_ = runtime.Close()
-		return nil, errors.New("CI runner signer and identity configuration cannot both be supplied")
-	}
-	if ciIdentity != nil {
-		runtime.ciSigner, err = ciIdentity.Open()
-		if err != nil {
-			_ = runtime.Close()
-			return nil, err
-		}
-		ciSigner = runtime.ciSigner
-	}
-	if ciSigner != nil {
-		runtime.ciCredentials, err = NewCiRunnerNatsCredentialIssuer(topology, ciSigner)
-		if err != nil {
-			_ = runtime.Close()
-			return nil, err
-		}
-	}
-
-	deps := GlobalNatsRuntimeDependencies{
-		Client: client, JetStream: state.js, Topology: topology,
-		Authority: authority.Snapshot, Leaders: state.leaders, Cells: state.cells,
-		Releases: state.releases, RunnerJobs: state.runnerJobs, Bundles: state.bundles,
-		RunnerBundles: state.runnerBundles, CiConsumer: state.ciConsumer,
-		RuntimeProof: state.runtimeProof, CellSpec: state.cellSpec,
-	}
-	if configuration.CiRuntimeEnabled && configuration.CiRuntime != nil {
-		runtime.ciRuntime, err = configuration.CiRuntime(lifetime, deps)
-		if err != nil || runtime.ciRuntime == nil {
-			if err == nil {
-				err = errors.New("the global CI runtime starter returned a nil component")
-			}
-			_ = runtime.Close()
-			return nil, err
-		}
 	}
 	if configuration.DeliveryEnabled {
 		if err := runtime.startMasterDelivery(configuration.Delivery); err != nil {
@@ -292,9 +202,6 @@ func validateGlobalNatsRuntimeConfiguration(ctx context.Context, configuration *
 			return errors.New("complete GRU global directory service authentication and TLS credentials are required")
 		}
 	}
-	if configuration.CiRuntimeEnabled && configuration.CiRuntime == nil {
-		return errors.New("global CI runtime was requested but no reviewed starter was supplied")
-	}
 	if configuration.DeliveryEnabled {
 		if err := configuration.Delivery.Validate(); err != nil {
 			return err
@@ -302,12 +209,6 @@ func validateGlobalNatsRuntimeConfiguration(ctx context.Context, configuration *
 	}
 	if !configuration.DeliveryEnabled && configuration.Delivery != nil {
 		return errors.New("global delivery configuration supplied while delivery is disabled")
-	}
-	if configuration.CiRunnerSigner != nil && (configuration.CiRunnerIdentity != nil || configuration.CiRunnerNatsIdentity != nil) {
-		return errors.New("CI runner signer and identity configuration cannot both be supplied")
-	}
-	if configuration.CiRunnerIdentity != nil && configuration.CiRunnerNatsIdentity != nil {
-		return errors.New("CI runner identity configuration was supplied twice")
 	}
 	type identity struct {
 		name, public string
@@ -361,7 +262,7 @@ func globalNatsRuntimeConnect(ctx context.Context, rawURL string, authentication
 	}
 }
 
-func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology *GlobalNatsTopology, cellSpecEnabled bool, cell string) (*globalNatsRuntimeState, error) {
+func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology *GlobalNatsTopology, desiredStateConsumerEnabled bool, cell string) (*globalNatsRuntimeState, error) {
 	if client == nil || topology == nil {
 		return nil, errors.New("global NATS client and topology are required")
 	}
@@ -408,40 +309,6 @@ func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, to
 	if err != nil {
 		return nil, err
 	}
-	releases, err := openKV(topology.Releases())
-	if err != nil {
-		return nil, err
-	}
-	runnerJobs, err := openKV(topology.RunnerJobs())
-	if err != nil {
-		return nil, err
-	}
-	openObject := func(expected jetstream.ObjectStoreConfig) (jetstream.ObjectStore, error) {
-		store, err := js.ObjectStore(ctx, expected.Bucket)
-		if err != nil {
-			return nil, err
-		}
-		stream, err := js.Stream(ctx, "OBJ_"+expected.Bucket)
-		if err != nil {
-			return nil, err
-		}
-		info, err := stream.Info(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := NatsOperationJournalStore.ValidateExactObjectConfiguration(info.Config, expected); err != nil {
-			return nil, err
-		}
-		return store, nil
-	}
-	bundles, err := openObject(topology.Bundles())
-	if err != nil {
-		return nil, err
-	}
-	runnerBundles, err := openObject(topology.RunnerBundles())
-	if err != nil {
-		return nil, err
-	}
 	openConsumer := func(streamName string, expected jetstream.ConsumerConfig) (jetstream.Consumer, error) {
 		stream, err := js.Stream(ctx, streamName)
 		if err != nil {
@@ -455,21 +322,13 @@ func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, to
 		if err != nil {
 			return nil, err
 		}
-		if !CiRunnerConsumerReconcilerMatches(info, expected, streamName) {
+		if !NatsConsumerProfileMatches(info, expected, streamName) {
 			return nil, errors.New("an infrastructure-provisioned global NATS consumer does not match its closed profile")
 		}
 		return consumer, nil
 	}
-	ci, err := openConsumer(GlobalNatsTopologyCiStream, topology.CiConsumer())
-	if err != nil {
-		return nil, err
-	}
-	proof, err := openConsumer(GlobalNatsTopologyCiStream, topology.CiRuntimeProofConsumer())
-	if err != nil {
-		return nil, err
-	}
 	var cellSpec jetstream.Consumer
-	if cellSpecEnabled {
+	if desiredStateConsumerEnabled {
 		expected, err := topology.CellSpecConsumer(cell)
 		if err != nil {
 			return nil, err
@@ -479,16 +338,13 @@ func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, to
 			return nil, err
 		}
 	}
-	return &globalNatsRuntimeState{js: js, leaders: leaders, cells: cells, releases: releases, runnerJobs: runnerJobs, bundles: bundles, runnerBundles: runnerBundles, ciConsumer: ci, runtimeProof: proof, cellSpec: cellSpec}, nil
+	return &globalNatsRuntimeState{js: js, leaders: leaders, cells: cells, cellSpec: cellSpec}, nil
 }
 
 func (r *GlobalNatsRuntime) watchCompletion() {
 	channels := []<-chan struct{}{r.authority.Completion()}
 	if r.directory != nil {
 		channels = append(channels, r.directory.Completion())
-	}
-	if r.ciRuntime != nil {
-		channels = append(channels, r.ciRuntime.Completion())
 	}
 	if r.delivery != nil {
 		channels = append(channels, r.delivery.Completion())
@@ -537,36 +393,14 @@ func (r *GlobalNatsRuntime) DirectorySnapshot() GlobalCellDirectorySnapshot {
 	}
 	return r.directory.Snapshot()
 }
-func (r *GlobalNatsRuntime) CiRunners() *CiRunnerConsumerReconciler {
-	if r == nil {
-		return nil
-	}
-	return r.ciRunners
-}
-func (r *GlobalNatsRuntime) CiRunnerCredentials() *CiRunnerNatsCredentialIssuer {
-	if r == nil {
-		return nil
-	}
-	return r.ciCredentials
-}
+
 func (r *GlobalNatsRuntime) Directory() *GlobalCellDirectoryLifecycle {
 	if r == nil {
 		return nil
 	}
 	return r.directory
 }
-func (r *GlobalNatsRuntime) CiConsumer() jetstream.Consumer {
-	if r == nil {
-		return nil
-	}
-	return r.state.ciConsumer
-}
-func (r *GlobalNatsRuntime) CiRuntimeProofConsumer() jetstream.Consumer {
-	if r == nil {
-		return nil
-	}
-	return r.state.runtimeProof
-}
+
 func (r *GlobalNatsRuntime) CellSpecConsumer() jetstream.Consumer {
 	if r == nil {
 		return nil
@@ -613,7 +447,7 @@ func (r *GlobalNatsRuntime) Snapshot() GlobalNatsRuntimeSnapshot {
 	if r.directory != nil && directory.Condition != GlobalCellDirectoryConditionHealthy {
 		health = GlobalNatsRuntimeHealthDegraded
 	}
-	if globalNatsRuntimeComponentDone(r.ciRuntime) || globalNatsRuntimeComponentDone(r.delivery) || atomic.LoadInt32(&r.closed) != 0 {
+	if globalNatsRuntimeComponentDone(r.delivery) || atomic.LoadInt32(&r.closed) != 0 {
 		health = GlobalNatsRuntimeHealthUnavailable
 	}
 	ready := authority.Ready() && health != GlobalNatsRuntimeHealthUnavailable
@@ -665,14 +499,6 @@ func (r *GlobalNatsRuntime) Close() error {
 			if err := r.delivery.Close(); err != nil {
 				r.closeErr = err
 			}
-		}
-		if r.ciRuntime != nil {
-			if err := r.ciRuntime.Close(); err != nil && r.closeErr == nil {
-				r.closeErr = err
-			}
-		}
-		if r.ciSigner != nil {
-			r.ciSigner.Dispose()
 		}
 		if r.authority != nil {
 			r.authority.Dispose()

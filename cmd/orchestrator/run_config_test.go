@@ -33,8 +33,10 @@ func TestRunConfigurationStrictParsing(t *testing.T) {
 	for key, value := range map[string]string{
 		"TS_ORCH_CELL": "local", "TS_ORCH_PROVIDER": "local", "TS_ORCH_INSTANCE": " secret ",
 		"TS_ORCH_NATS_URL": "tls://token@nats.internal:4222", "TS_ORCH_NATS_TLS_KEY_FILE": "INLINEKEY",
-		"TS_ORCH_COMMAND_SIGNING_KEY_FILE": "-----BEGIN PRIVATE KEY-----",
-		"TS_ORCH_CLOUDFLARE_API_TOKEN":     "secret", "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS": "https://token@host:443",
+		"TS_ORCH_COMMAND_SIGNING_KEY_FILE":                "-----BEGIN PRIVATE KEY-----",
+		"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE": "/private/obsolete-account.seed",
+		"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY":       "obsolete-account",
+		"TS_ORCH_CLOUDFLARE_API_TOKEN":                    "secret", "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS": "https://token@host:443",
 	} {
 		modified := map[string]string{}
 		for k, v := range base {

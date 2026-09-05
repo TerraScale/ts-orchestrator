@@ -56,7 +56,6 @@ const (
 	NatsStreamClassCellOperations NatsStreamClass = 2
 	NatsStreamClassCellEvents     NatsStreamClass = 3
 	NatsStreamClassGlobalSpec     NatsStreamClass = 4
-	NatsStreamClassGlobalCi       NatsStreamClass = 5
 	NatsStreamClassKeyValue       NatsStreamClass = 6
 	NatsStreamClassObjectStore    NatsStreamClass = 7
 	NatsStreamClassUnknown        NatsStreamClass = 8
@@ -72,8 +71,6 @@ func (c NatsStreamClass) String() string {
 		return "CellEvents"
 	case NatsStreamClassGlobalSpec:
 		return "GlobalSpec"
-	case NatsStreamClassGlobalCi:
-		return "GlobalCi"
 	case NatsStreamClassKeyValue:
 		return "KeyValue"
 	case NatsStreamClassObjectStore:
@@ -90,7 +87,6 @@ type NatsConsumerClass int
 const (
 	NatsConsumerClassStartupEvent   NatsConsumerClass = 1
 	NatsConsumerClassCellSpec       NatsConsumerClass = 2
-	NatsConsumerClassGlobalCi       NatsConsumerClass = 3
 	NatsConsumerClassEphemeralWatch NatsConsumerClass = 4
 	NatsConsumerClassUnknown        NatsConsumerClass = 5
 )
@@ -101,8 +97,6 @@ func (c NatsConsumerClass) String() string {
 		return "StartupEvent"
 	case NatsConsumerClassCellSpec:
 		return "CellSpec"
-	case NatsConsumerClassGlobalCi:
-		return "GlobalCi"
 	case NatsConsumerClassEphemeralWatch:
 		return "EphemeralWatch"
 	case NatsConsumerClassUnknown:
@@ -820,8 +814,6 @@ func (natsMonitoringClassifier) ClassifyStream(streamName string) NatsStreamClas
 		return NatsStreamClassCellEvents
 	case "GLOBAL_SPEC":
 		return NatsStreamClassGlobalSpec
-	case "GLOBAL_CI":
-		return NatsStreamClassGlobalCi
 	default:
 		return NatsStreamClassUnknown
 	}
@@ -841,10 +833,6 @@ func (natsMonitoringClassifier) ClassifyConsumer(consumerName string) NatsConsum
 
 	if stringsHasPrefixOrdinal(consumerName, "runtime_startup") {
 		return NatsConsumerClassStartupEvent
-	}
-
-	if stringsHasPrefixOrdinal(consumerName, "ci_") {
-		return NatsConsumerClassGlobalCi
 	}
 
 	if len(consumerName) == 22 || len(consumerName) == 23 {

@@ -72,24 +72,6 @@ func (natsSubjectTaxonomy) GlobalDeliverySubject() string {
 	return NatsSubjectTaxonomy.GlobalRoot() + ".release.delivery"
 }
 
-// CiForgejoTriggerSubject mirrors the normalized Forgejo trigger decisions
-// subject consumed by the leader-only global CI consumer.
-func (natsSubjectTaxonomy) CiForgejoTriggerSubject() string {
-	return NatsSubjectTaxonomy.GlobalRoot() + ".release.ci.forgejo"
-}
-
-// CiRuntimeProofSubject mirrors the native CI runtime observations subject
-// verified by the global authority.
-func (natsSubjectTaxonomy) CiRuntimeProofSubject() string {
-	return NatsSubjectTaxonomy.GlobalRoot() + ".release.ci.runtime-proof"
-}
-
-// CiJobSubjectPrefix mirrors the prefix for fenced per-runner CI command
-// inboxes (zone + identity hash).
-func (natsSubjectTaxonomy) CiJobSubjectPrefix() string {
-	return NatsSubjectTaxonomy.GlobalRoot() + ".release.ci.job"
-}
-
 // DesiredFamilySegment mirrors the desired-state family segment, shared by the
 // global and regional scopes.
 func (natsSubjectTaxonomy) DesiredFamilySegment() string { return "desired" }
@@ -145,12 +127,6 @@ func (natsSubjectTaxonomy) RegionalCellSpecTemplate() string {
 // all regional runtime-startup observations.
 func (natsSubjectTaxonomy) RegionalRuntimeStartupTemplate() string {
 	return NatsSubjectTaxonomy.Root() + ".{cell}.observation.runtime.started.>"
-}
-
-// GlobalCiFamilyPattern mirrors the complete global CI family under the closed
-// release namespace.
-func (natsSubjectTaxonomy) GlobalCiFamilyPattern() string {
-	return NatsSubjectTaxonomy.GlobalRoot() + ".release.ci.>"
 }
 
 // AgentHashTokenLength is the length of the truncated
@@ -587,10 +563,6 @@ func (natsSubjectTaxonomy) Classify(subject string) NatsSubjectNamespace {
 			return NatsSubjectNamespaceGlobalDirectory
 		}
 
-		if tokens[4] == NatsSubjectTaxonomy.ReleaseFamilySegment() && len(tokens) > 5 && tokens[5] == "ci" {
-			return NatsSubjectNamespaceContinuousIntegration
-		}
-
 		switch tokens[4] {
 		case NatsSubjectTaxonomy.DesiredFamilySegment(),
 			NatsSubjectTaxonomy.ReleaseFamilySegment(),
@@ -641,7 +613,6 @@ func (natsSubjectTaxonomy) IsControlNamespace(ns NatsSubjectNamespace) bool {
 		NatsSubjectNamespaceGlobalDirectory,
 		NatsSubjectNamespaceRegionalControl,
 		NatsSubjectNamespaceAgent,
-		NatsSubjectNamespaceContinuousIntegration,
 		NatsSubjectNamespaceOperations,
 		NatsSubjectNamespaceAudit:
 		return true
@@ -1001,17 +972,16 @@ func createGrammarLimits() *SubjectGrammarLimits {
 type NatsSubjectNamespace int
 
 const (
-	NatsSubjectNamespaceUnspecified           NatsSubjectNamespace = 0
-	NatsSubjectNamespaceGlobalAuthority       NatsSubjectNamespace = 1
-	NatsSubjectNamespaceGlobalDirectory       NatsSubjectNamespace = 2
-	NatsSubjectNamespaceRegionalControl       NatsSubjectNamespace = 3
-	NatsSubjectNamespaceAgent                 NatsSubjectNamespace = 4
-	NatsSubjectNamespaceContinuousIntegration NatsSubjectNamespace = 5
-	NatsSubjectNamespaceOperations            NatsSubjectNamespace = 6
-	NatsSubjectNamespaceAudit                 NatsSubjectNamespace = 7
-	NatsSubjectNamespaceProductPlane          NatsSubjectNamespace = 8
-	NatsSubjectNamespacePlatformReserved      NatsSubjectNamespace = 9
-	NatsSubjectNamespaceUnknown               NatsSubjectNamespace = 10
+	NatsSubjectNamespaceUnspecified      NatsSubjectNamespace = 0
+	NatsSubjectNamespaceGlobalAuthority  NatsSubjectNamespace = 1
+	NatsSubjectNamespaceGlobalDirectory  NatsSubjectNamespace = 2
+	NatsSubjectNamespaceRegionalControl  NatsSubjectNamespace = 3
+	NatsSubjectNamespaceAgent            NatsSubjectNamespace = 4
+	NatsSubjectNamespaceOperations       NatsSubjectNamespace = 6
+	NatsSubjectNamespaceAudit            NatsSubjectNamespace = 7
+	NatsSubjectNamespaceProductPlane     NatsSubjectNamespace = 8
+	NatsSubjectNamespacePlatformReserved NatsSubjectNamespace = 9
+	NatsSubjectNamespaceUnknown          NatsSubjectNamespace = 10
 )
 
 func (ns NatsSubjectNamespace) String() string {
@@ -1024,8 +994,6 @@ func (ns NatsSubjectNamespace) String() string {
 		return "RegionalControl"
 	case NatsSubjectNamespaceAgent:
 		return "Agent"
-	case NatsSubjectNamespaceContinuousIntegration:
-		return "ContinuousIntegration"
 	case NatsSubjectNamespaceOperations:
 		return "Operations"
 	case NatsSubjectNamespaceAudit:

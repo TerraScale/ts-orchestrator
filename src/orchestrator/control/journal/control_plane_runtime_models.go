@@ -239,7 +239,6 @@ const (
 	RuntimeRoleNatsServer     RuntimeRole = 6
 	RuntimeRoleTelemetry      RuntimeRole = 7
 	RuntimeRoleGrafana        RuntimeRole = 8
-	RuntimeRoleTrustedCi      RuntimeRole = 9
 )
 
 func runtimeRoleIsDefined(value RuntimeRole) bool {

@@ -6,11 +6,7 @@ import "terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 
 const (
 	GlobalNatsTopologyCellSpecStream             = messaging.GlobalNatsTopologyCellSpecStream
-	GlobalNatsTopologyCiStream                   = messaging.GlobalNatsTopologyCiStream
 	GlobalNatsTopologyCellsBucket                = messaging.GlobalNatsTopologyCellsBucket
-	GlobalNatsTopologyRunnerJobsBucket           = messaging.GlobalNatsTopologyRunnerJobsBucket
-	GlobalNatsTopologyRunnerBundlesBucket        = messaging.GlobalNatsTopologyRunnerBundlesBucket
-	GlobalNatsTopologyCiRunnerJournalKeyPrefix   = messaging.GlobalNatsTopologyCiRunnerJournalKeyPrefix
 	NatsServiceStatsDocumentCurrentSchemaVersion = messaging.NatsServiceStatsDocumentCurrentSchemaVersion
 	NatsMessageIdDeduplicationDefaultCapacity    = messaging.NatsMessageIdDeduplicationDefaultCapacity
 	MessagingGroupAny                            = messaging.MessagingGroupAny
@@ -29,20 +25,12 @@ var (
 	NewNatsMessageIdentity                     = messaging.NewNatsMessageIdentity
 	NewNatsTopology                            = messaging.NewNatsTopology
 	NewGlobalNatsTopology                      = messaging.NewGlobalNatsTopology
-	GlobalNatsTopologyCiSubject                = messaging.GlobalNatsTopologyCiSubject
-	GlobalNatsTopologyCiJobSubjectPrefix       = messaging.GlobalNatsTopologyCiJobSubjectPrefix
-	GlobalNatsTopologyCiRuntimeProofSubject    = messaging.GlobalNatsTopologyCiRuntimeProofSubject
 	GlobalNatsTopologyCellDirectorySubject     = messaging.GlobalNatsTopologyCellDirectorySubject
 	GlobalNatsTopologyCellSpecSubjectPrefix    = messaging.GlobalNatsTopologyCellSpecSubjectPrefix
-	GlobalNatsTopologyCiJobSubject             = messaging.GlobalNatsTopologyCiJobSubject
 	GlobalNatsTopologyCellSpecSubject          = messaging.GlobalNatsTopologyCellSpecSubject
 	GlobalNatsTopologyIsCellToken              = messaging.GlobalNatsTopologyIsCellToken
 	GlobalNatsTopologyCellAdvertisementKey     = messaging.GlobalNatsTopologyCellAdvertisementKey
-	GlobalNatsTopologyCiRunnerJournalPrefix    = messaging.GlobalNatsTopologyCiRunnerJournalPrefix
-	GlobalNatsTopologyCiRunnerIdentityHash     = messaging.GlobalNatsTopologyCiRunnerIdentityHash
 	GlobalNatsTopologyBucketName               = messaging.GlobalNatsTopologyBucketName
-	NewCiRunnerNatsPermissionPlan              = messaging.NewCiRunnerNatsPermissionPlan
-	CiRunnerNatsPermissions                    = messaging.CiRunnerNatsPermissions
 	GlobalNatsPermissions                      = messaging.GlobalNatsPermissions
 	NewGlobalNatsPermissionPlan                = messaging.NewGlobalNatsPermissionPlan
 	GlobalNatsPermissionsCreate                = messaging.GlobalNatsPermissionsCreate
@@ -63,7 +51,6 @@ var (
 
 type (
 	GlobalNatsTopology                 = messaging.GlobalNatsTopology
-	CiRunnerNatsPermissionPlan         = messaging.CiRunnerNatsPermissionPlan
 	GlobalNatsRole                     = messaging.GlobalNatsRole
 	GlobalNatsPermissionPlan           = messaging.GlobalNatsPermissionPlan
 	NatsTlsFiles                       = messaging.NatsTlsFiles

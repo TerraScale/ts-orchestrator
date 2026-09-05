@@ -77,14 +77,11 @@
       "regionScoped": false,
       "publish": [
         "ts.orch.v1.global.desired.>",
-        "ts.orch.v1.global.release.accepted.>",
-        "ts.orch.v1.global.release.ci.job.>"
+        "ts.orch.v1.global.release.accepted.>"
       ],
       "subscribe": [
         "ts.orch.v1.global.desired.>",
-        "ts.orch.v1.global.release.accepted.>",
-        "ts.orch.v1.global.release.ci.forgejo",
-        "ts.orch.v1.global.release.ci.runtime-proof.>"
+        "ts.orch.v1.global.release.accepted.>"
       ]
     },
     {
@@ -129,18 +126,6 @@
       "subscribe": [
         "ts.orch.v1.<region>.agent.<agent-hash>.command.>"
       ]
-    },
-    {
-      "kind": "ci-coordinator",
-      "regionScoped": false,
-      "publish": ["ts.orch.v1.global.release.ci.forgejo"],
-      "subscribe": []
-    },
-    {
-      "kind": "ci-isolated-runner",
-      "regionScoped": false,
-      "publish": ["ts.orch.v1.global.release.ci.runtime-proof.>"],
-      "subscribe": ["ts.orch.v1.global.release.ci.job.>"]
     },
     {
       "kind": "read-only-monitoring",

@@ -54,7 +54,7 @@ func TestEveryDurableStreamDeclaresTheFullPolicySurface(t *testing.T) {
 	}
 
 	slices.Sort(names)
-	if !slices.Equal(names, []string{"CELL_EVENTS", "CELL_OPERATIONS", "CELL_SPEC", "GLOBAL_CI", "GLOBAL_SPEC"}) {
+	if !slices.Equal(names, []string{"CELL_EVENTS", "CELL_OPERATIONS", "CELL_SPEC", "GLOBAL_SPEC"}) {
 		t.Fatalf("stream names = %v", names)
 	}
 
@@ -66,15 +66,6 @@ func TestEveryDurableStreamDeclaresTheFullPolicySurface(t *testing.T) {
 			!stream.DuplicateWindow.IsWellFormed() {
 			t.Fatalf("stream %q violates the frozen policy surface", stream.Stream)
 		}
-	}
-
-	global := findInventoryEntry(t, "GLOBAL_CI")
-	if !strings.Contains(global.TerminalEvidenceBehavior, "terminate") ||
-		global.Domain != DurableWorkDomainGlobalControl ||
-		global.SemanticClass != MessagingSemanticClassWorkQueue ||
-		global.DuplicateWindow.Window != 24*time.Hour ||
-		global.MaximumBytes != int64(1024*1024*1024) {
-		t.Fatal("GLOBAL_CI stream policy mismatch")
 	}
 
 	regional := findInventoryEntry(t, "CELL_SPEC")
@@ -134,18 +125,9 @@ func TestEveryDurableConsumerSatisfiesTheBoundedRedeliveryContract(t *testing.T)
 		}
 	}
 
-	runners := findInventoryConsumer(t, "ci_runner_{zone}_{runner}")
-	if runners.Ownership != DurableWorkOwnershipReconciledRunnerIdentity ||
-		runners.MaximumAckPending != 1 ||
-		runners.MaximumBatch == nil || *runners.MaximumBatch != 1 ||
-		runners.MaximumExpires == nil || *runners.MaximumExpires != 30*time.Second ||
-		runners.MaximumWaiting == nil || *runners.MaximumWaiting != 4 {
-		t.Fatal("runner inbox profile mismatch")
-	}
-
-	trigger := findInventoryConsumer(t, "global_ci_trigger")
-	if trigger.Ownership != DurableWorkOwnershipGlobalFencedAuthority {
-		t.Fatal("trigger ownership mismatch")
+	global := findInventoryConsumer(t, "global_cell_spec_{cell}")
+	if global.Ownership != DurableWorkOwnershipGlobalFencedAuthority {
+		t.Fatal("global desired consumer ownership mismatch")
 	}
 
 	startup := findInventoryConsumer(t, "runtime_startup")

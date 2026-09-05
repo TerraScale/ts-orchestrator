@@ -54,11 +54,6 @@ type OrchestratorOptions struct {
 	GlobalNats                 *GlobalAuthorityNatsConfiguration
 	GlobalDirectoryNats        *GlobalDirectoryNatsConfiguration
 	GlobalDirectoryServiceNats *GlobalDirectoryServiceNatsConfiguration
-	// CiRunnerNatsIdentity is the controller-owned account signer used to
-	// issue short-lived runner inbox credentials. The private seed remains in
-	// its owner-private file; this value retains only its resolved path and an
-	// optional public account identity.
-	CiRunnerNatsIdentity       *CiRunnerNatsIdentityConfiguration
 	InfrastructureNatsNKeyFile *string
 	InfrastructureNatsTls      *NatsTlsFiles
 	AuthoritativeJournal       *NatsAuthoritativeJournalConfiguration
@@ -154,8 +149,6 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 	journalReply := lookup("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE")
 	journalControllers := lookup("TS_ORCH_JOURNAL_CONTROLLER_NKEYS")
 
-	ciRunnerSigningKey := lookup("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE")
-	ciRunnerAccountPublicKey := lookup("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY")
 	commandSigningKey := lookup("TS_ORCH_COMMAND_SIGNING_KEY_FILE")
 	commandTrustKeys := lookup("TS_ORCH_COMMAND_TRUST_KEY_FILES")
 	commandAggregate := defaultValue("TS_ORCH_COMMAND_AGGREGATE_ID", "delivery")
@@ -169,7 +162,6 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		},
 		infrastructure: []string{infrastructureNKey, infrastructureCA, infrastructureCert, infrastructureKey},
 		journal:        []string{journalNKey, journalCA, journalCert, journalKey, journalAuthority, journalReply, journalControllers},
-		ciRunner:       []string{ciRunnerSigningKey, ciRunnerAccountPublicKey},
 		command:        []string{commandSigningKey, commandTrustKeys},
 	}); err != nil {
 		return nil, err
@@ -269,17 +261,6 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		return nil, err
 	}
 
-	var ciRunnerIdentity *CiRunnerNatsIdentityConfiguration
-	if command == OrchestratorCommandRun || command == OrchestratorCommandCheck {
-		ciRunnerIdentity, err = resolveCiRunnerNatsIdentityForOptions(ciRunnerSigningKey, ciRunnerAccountPublicKey)
-		if err != nil {
-			return nil, err
-		}
-		if ciRunnerIdentity != nil && global == nil {
-			return nil, errors.New("CI runner NATS identity issuance requires configured global control authority.")
-		}
-	}
-
 	var commandIdentity *security.CommandIdentityConfiguration
 	if command == OrchestratorCommandRun || command == OrchestratorCommandCheck {
 		commandIdentity, err = security.CommandIdentityConfigurationResolve(commandSigningKey, commandTrustKeys)
@@ -328,7 +309,6 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		GlobalNats:                 global,
 		GlobalDirectoryNats:        directory,
 		GlobalDirectoryServiceNats: service,
-		CiRunnerNatsIdentity:       ciRunnerIdentity,
 		InfrastructureNatsNKeyFile: infrastructureNKeyPath,
 		InfrastructureNatsTls:      infrastructureTLS,
 		AuthoritativeJournal:       journal,
@@ -383,7 +363,6 @@ type orchestratorCredentialFamilies struct {
 	controller     []string
 	infrastructure []string
 	journal        []string
-	ciRunner       []string
 	command        []string
 }
 
@@ -396,9 +375,6 @@ func rejectUnownedCredentials(command OrchestratorCommand, families orchestrator
 	}
 	if anyOptionSupplied(families.journal) && command != OrchestratorCommandJournalWriter {
 		return fmt.Errorf("The %s role must not receive journal-writer credentials.", command.String())
-	}
-	if anyOptionSupplied(families.ciRunner) && command != OrchestratorCommandRun && command != OrchestratorCommandCheck {
-		return fmt.Errorf("The %s role must not receive CI runner NATS identity credentials.", command.String())
 	}
 	if anyOptionSupplied(families.command) && command != OrchestratorCommandRun && command != OrchestratorCommandCheck {
 		return fmt.Errorf("The %s role must not receive command identity credentials.", command.String())

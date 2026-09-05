@@ -13,10 +13,6 @@ const (
 	ArtifactVerificationStatusMissing                                 = journal.ArtifactVerificationStatusMissing
 	ArtifactVerificationStatusUnknown                                 = journal.ArtifactVerificationStatusUnknown
 	ArtifactVerificationStatusVerified                                = journal.ArtifactVerificationStatusVerified
-	CiRunnerNatsCredentialIssuerMaximumLifetime                       = journal.CiRunnerNatsCredentialIssuerMaximumLifetime
-	CiRunnerNatsCredentialIssuerMaximumPayloadBytes                   = journal.CiRunnerNatsCredentialIssuerMaximumPayloadBytes
-	CiRunnerNatsCredentialIssuerMaximumSubscriptions                  = journal.CiRunnerNatsCredentialIssuerMaximumSubscriptions
-	CiRunnerNatsCredentialIssuerMinimumLifetime                       = journal.CiRunnerNatsCredentialIssuerMinimumLifetime
 	CompatibilityStatusCompatible                                     = journal.CompatibilityStatusCompatible
 	CompatibilityStatusIncompatible                                   = journal.CompatibilityStatusIncompatible
 	CompatibilityStatusMissing                                        = journal.CompatibilityStatusMissing
@@ -164,7 +160,6 @@ const (
 	RuntimeRolePlatform                                               = journal.RuntimeRolePlatform
 	RuntimeRoleTelemetry                                              = journal.RuntimeRoleTelemetry
 	RuntimeRoleTerraBase                                              = journal.RuntimeRoleTerraBase
-	RuntimeRoleTrustedCi                                              = journal.RuntimeRoleTrustedCi
 	RuntimeTechnicalLimitsMaximumCapturedItems                        = journal.RuntimeTechnicalLimitsMaximumCapturedItems
 	UpdateCompatibilityWindowNAndNMinusOne                            = journal.UpdateCompatibilityWindowNAndNMinusOne
 	UpdatePhaseArtifactVerified                                       = journal.UpdatePhaseArtifactVerified
@@ -187,9 +182,7 @@ const (
 )
 
 var (
-	CiRunnerConsumerReconcilerMatches                           = journal.CiRunnerConsumerReconcilerMatches
-	CiRunnerNatsIdentityConfigurationResolve                    = journal.CiRunnerNatsIdentityConfigurationResolve
-	NatsAccountJwtSignerOpen                                    = journal.NatsAccountJwtSignerOpen
+	NatsConsumerProfileMatches                                  = journal.NatsConsumerProfileMatches
 	NatsAuthoritativeJournalConfigurationResolve                = journal.NatsAuthoritativeJournalConfigurationResolve
 	NatsOperationJournalMutationProofConsumptionConsumeAsync    = journal.NatsOperationJournalMutationProofConsumptionConsumeAsync
 	NatsOperationJournalMutationProofConsumptionKey             = journal.NatsOperationJournalMutationProofConsumptionKey
@@ -200,14 +193,9 @@ var (
 	NatsOperationJournalMutationRequestDigestCreate             = journal.NatsOperationJournalMutationRequestDigestCreate
 	NatsOperationJournalMutationServiceStartAsync               = journal.NatsOperationJournalMutationServiceStartAsync
 	NatsRuntimeLifecycleAuthorityGateMap                        = journal.NatsRuntimeLifecycleAuthorityGateMap
-	NatsUserJwtCodecEncodeAsync                                 = journal.NatsUserJwtCodecEncodeAsync
 	NewArmRollbackIntent                                        = journal.NewArmRollbackIntent
 	NewCheckRuntimeHealthIntent                                 = journal.NewCheckRuntimeHealthIntent
 	NewCheckRuntimeHealthIntentFromSelfUpdate                   = journal.NewCheckRuntimeHealthIntentFromSelfUpdate
-	NewCiRunnerConsumerReconciler                               = journal.NewCiRunnerConsumerReconciler
-	NewCiRunnerConsumerRegistration                             = journal.NewCiRunnerConsumerRegistration
-	NewCiRunnerNatsCredentialIssuer                             = journal.NewCiRunnerNatsCredentialIssuer
-	NewCiRunnerNatsCredentialLease                              = journal.NewCiRunnerNatsCredentialLease
 	NewCleanupRuntimeIntent                                     = journal.NewCleanupRuntimeIntent
 	NewCommitUpdateSlotIntent                                   = journal.NewCommitUpdateSlotIntent
 	NewCompleteSelfUpdateIntent                                 = journal.NewCompleteSelfUpdateIntent
@@ -284,7 +272,6 @@ var (
 	NatsOperationJournalMutationProofConsumption                = journal.NatsOperationJournalMutationProofConsumption
 	NatsOperationJournalMutationRequestDigest                   = journal.NatsOperationJournalMutationRequestDigest
 	NatsOperationJournalStore                                   = journal.NatsOperationJournalStore
-	NatsUserJwtCodec                                            = journal.NatsUserJwtCodec
 	RuntimeDecisionEngine                                       = journal.RuntimeDecisionEngine
 	RuntimeInputSnapshot                                        = journal.RuntimeInputSnapshot
 	RuntimeLifecycleContract                                    = journal.RuntimeLifecycleContract
@@ -297,11 +284,6 @@ type (
 	ArtifactAvailability                               = journal.ArtifactAvailability
 	ArtifactVerificationStatus                         = journal.ArtifactVerificationStatus
 	CheckRuntimeHealthIntent                           = journal.CheckRuntimeHealthIntent
-	CiRunnerConsumerReconciler                         = journal.CiRunnerConsumerReconciler
-	CiRunnerConsumerRegistration                       = journal.CiRunnerConsumerRegistration
-	CiRunnerNatsCredentialIssuer                       = journal.CiRunnerNatsCredentialIssuer
-	CiRunnerNatsCredentialLease                        = journal.CiRunnerNatsCredentialLease
-	CiRunnerNatsIdentityConfiguration                  = journal.CiRunnerNatsIdentityConfiguration
 	CleanupRuntimeIntent                               = journal.CleanupRuntimeIntent
 	CommitUpdateSlotIntent                             = journal.CommitUpdateSlotIntent
 	CompatibilityStatus                                = journal.CompatibilityStatus
@@ -315,7 +297,6 @@ type (
 	HoldRuntimeIntent                                  = journal.HoldRuntimeIntent
 	INativeSystemdRuntimeLifecycleAdmission            = journal.INativeSystemdRuntimeLifecycleAdmission
 	INativeSystemdRuntimeLifecycleAdmissionFactory     = journal.INativeSystemdRuntimeLifecycleAdmissionFactory
-	INatsAccountJwtSigner                              = journal.INatsAccountJwtSigner
 	IRuntimeLifecycleAuthorityGate                     = journal.IRuntimeLifecycleAuthorityGate
 	IRuntimeLifecycleHostExecutor                      = journal.IRuntimeLifecycleHostExecutor
 	IRuntimeLifecycleJournal                           = journal.IRuntimeLifecycleJournal
@@ -327,7 +308,6 @@ type (
 	NativeSystemdRuntimeLifecycleAdmissionFactory      = journal.NativeSystemdRuntimeLifecycleAdmissionFactory
 	NativeSystemdRuntimeLifecycleExecutor              = journal.NativeSystemdRuntimeLifecycleExecutor
 	NativeUnitDescriptor                               = journal.NativeUnitDescriptor
-	NatsAccountJwtSigner                               = journal.NatsAccountJwtSigner
 	NatsAuthoritativeJournalConfiguration              = journal.NatsAuthoritativeJournalConfiguration
 	NatsOperationJournalCreateRequest                  = journal.NatsOperationJournalCreateRequest
 	NatsOperationJournalMutationAuthorityProof         = journal.NatsOperationJournalMutationAuthorityProof
@@ -345,7 +325,6 @@ type (
 	NatsRuntimeLifecycleJournalReadRequest             = journal.NatsRuntimeLifecycleJournalReadRequest
 	NatsRuntimeLifecycleJournalReply                   = journal.NatsRuntimeLifecycleJournalReply
 	NatsRuntimeLifecycleJournalWriteRequest            = journal.NatsRuntimeLifecycleJournalWriteRequest
-	NatsUserJwtCodecToken                              = journal.NatsUserJwtCodecToken
 	ObserveExecutorIntent                              = journal.ObserveExecutorIntent
 	ObserveUpdateIntent                                = journal.ObserveUpdateIntent
 	PositiveRuntimeNumber                              = journal.PositiveRuntimeNumber

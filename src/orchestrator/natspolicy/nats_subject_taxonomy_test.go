@@ -226,9 +226,6 @@ func TestClassificationSeparatesEveryNamespaceOfTheClosedTaxonomy(t *testing.T) 
 		{must(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }), NatsSubjectNamespaceRegionalControl},
 		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read") }), NatsSubjectNamespaceRegionalControl},
 		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".operation.created", NatsSubjectNamespaceOperations},
-		{NatsSubjectTaxonomy.CiForgejoTriggerSubject(), NatsSubjectNamespaceContinuousIntegration},
-		{NatsSubjectTaxonomy.CiRuntimeProofSubject(), NatsSubjectNamespaceContinuousIntegration},
-		{NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".trusted-build.abcd", NatsSubjectNamespaceContinuousIntegration},
 		{must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) }), NatsSubjectNamespaceAgent},
 		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".audit.event.7", NatsSubjectNamespaceAudit},
 		{"ts.product.v1.queue.default", NatsSubjectNamespaceProductPlane},
@@ -275,7 +272,6 @@ func TestProductPlaneAndUnknownNamespacesAreNotControlNamespaces(t *testing.T) {
 		NatsSubjectNamespaceGlobalDirectory,
 		NatsSubjectNamespaceRegionalControl,
 		NatsSubjectNamespaceAgent,
-		NatsSubjectNamespaceContinuousIntegration,
 		NatsSubjectNamespaceOperations,
 		NatsSubjectNamespaceAudit,
 	} {
@@ -352,7 +348,6 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 		"ts.orch.v1.gru.audit.>",
 		"ts.orch.v1.gru.agent." + agentToken + ".command.>",
 		"ts.orch.v1.global.desired.>",
-		"ts.orch.v1.global.release.ci.job.>",
 		"ts.orch.v1.global.query.cells",
 	} {
 		if ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(pattern); !ok || err != NatsSubjectPermissionErrorNone {

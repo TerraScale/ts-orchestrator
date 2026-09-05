@@ -18,7 +18,6 @@ const (
 	NatsClusterRoleRegional                                   = monitoring.NatsClusterRoleRegional
 	NatsConsumerClassCellSpec                                 = monitoring.NatsConsumerClassCellSpec
 	NatsConsumerClassEphemeralWatch                           = monitoring.NatsConsumerClassEphemeralWatch
-	NatsConsumerClassGlobalCi                                 = monitoring.NatsConsumerClassGlobalCi
 	NatsConsumerClassStartupEvent                             = monitoring.NatsConsumerClassStartupEvent
 	NatsConsumerClassUnknown                                  = monitoring.NatsConsumerClassUnknown
 	NatsMeshCellStateConflicting                              = monitoring.NatsMeshCellStateConflicting
@@ -59,7 +58,6 @@ const (
 	NatsStreamClassCellEvents                                 = monitoring.NatsStreamClassCellEvents
 	NatsStreamClassCellOperations                             = monitoring.NatsStreamClassCellOperations
 	NatsStreamClassCellSpec                                   = monitoring.NatsStreamClassCellSpec
-	NatsStreamClassGlobalCi                                   = monitoring.NatsStreamClassGlobalCi
 	NatsStreamClassGlobalSpec                                 = monitoring.NatsStreamClassGlobalSpec
 	NatsStreamClassKeyValue                                   = monitoring.NatsStreamClassKeyValue
 	NatsStreamClassObjectStore                                = monitoring.NatsStreamClassObjectStore

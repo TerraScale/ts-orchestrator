@@ -42,8 +42,8 @@ func (p DurableEffectAcknowledgementPolicy) IsWellFormed() bool {
 // interval, so the declared ack wait must equal it. Exhaustion stops
 // redelivery only with terminal evidence — no message may disappear silently.
 // The pinned maximum ack-pending is the landed CellSpec consumer profile;
-// per-consumer flow control may tighten it further (the fenced CI runner
-// inbox pins 1) but never loosens the redelivery contract.
+// per-consumer flow control may tighten it further but never loosens the
+// redelivery contract.
 type BoundedRedeliveryPolicy struct {
 	MaximumDeliveries                  int
 	BackoffLadder                      []time.Duration
@@ -246,13 +246,6 @@ const NoExactlyOnceClaim = "Duplicate windows suppress transport-level replays o
 var DuplicateWindowPolicyCellStreams = DuplicateWindowPolicy{
 	Window:  2 * time.Minute,
 	Channel: "regional-cell-streams",
-}
-
-// DuplicateWindowPolicyGlobalCiStream is the duplicate-window policy of the
-// global CI stream.
-var DuplicateWindowPolicyGlobalCiStream = DuplicateWindowPolicy{
-	Window:  24 * time.Hour,
-	Channel: "global-ci-stream",
 }
 
 // IsWellFormed reports whether the policy is well formed.

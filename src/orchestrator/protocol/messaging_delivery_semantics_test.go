@@ -180,10 +180,6 @@ func TestDuplicateWindowsAreTransportSuppressionOnlyAndNeverClaimExactlyOnce(t *
 		t.Fatal("cell stream window must be two minutes")
 	}
 
-	if DuplicateWindowPolicyGlobalCiStream.Window != 24*time.Hour {
-		t.Fatal("global CI stream window must be twenty-four hours")
-	}
-
 	if !strings.Contains(NoExactlyOnceClaim, "exactly-once") {
 		t.Fatal("the no-exactly-once claim must name exactly-once")
 	}

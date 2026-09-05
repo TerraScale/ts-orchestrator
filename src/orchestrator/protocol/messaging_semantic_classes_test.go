@@ -35,8 +35,7 @@ func TestEveryLandedSubjectShapeMapsToExactlyOneDeclaredSemanticClass(t *testing
 			return natspolicy.NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")
 		}), MessagingSemanticClassReplayable},
 		{natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), MessagingSemanticClassLossy},
-		{natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(), MessagingSemanticClassWorkQueue},
-		{natspolicy.NatsSubjectTaxonomy.CiRuntimeProofSubject(), MessagingSemanticClassReplayable},
+		{natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), MessagingSemanticClassLossy},
 		{mustT(t, func() (string, error) { return natspolicy.NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }), MessagingSemanticClassAuthoritativeJournal},
 		{mustT(t, func() (string, error) {
 			return natspolicy.NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start")
@@ -58,6 +57,9 @@ func TestEveryLandedSubjectShapeMapsToExactlyOneDeclaredSemanticClass(t *testing
 func TestUnknownAndForeignSubjectsFailClosedInsteadOfGuessingAClass(t *testing.T) {
 	for _, subject := range []string{
 		"ts.orch.v1.gru.unknown.channel",
+		"ts.orch.v1.global.release.ci.forgejo",
+		"ts.orch.v1.global.release.ci.runtime-proof",
+		"ts.orch.v1.global.release.ci.job.gru.runner-1",
 		"ts.product.v1.queue",
 		"$JS.API.STREAM.INFO",
 		"",

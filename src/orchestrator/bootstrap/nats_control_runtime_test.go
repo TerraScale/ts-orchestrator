@@ -272,8 +272,8 @@ func TestControlCandidateSynchronizationRequiresExactFullTopology(t *testing.T) 
 }
 
 func TestEmptyControlMirrorRequiresStableDurableMetadata(t *testing.T) {
-	source := jetstream.StreamInfo{Config: jetstream.StreamConfig{Name: "GLOBAL_CI", Storage: jetstream.FileStorage, Replicas: 1}, State: jetstream.StreamState{FirstSeq: 1}}
-	mirror := jetstream.StreamInfo{Config: jetstream.StreamConfig{Name: "MIRROR_GLOBAL_CI", Storage: jetstream.FileStorage, Replicas: 1, Mirror: &jetstream.StreamSource{Name: "GLOBAL_CI"}}, State: source.State}
+	source := jetstream.StreamInfo{Config: jetstream.StreamConfig{Name: "GLOBAL_SPEC", Storage: jetstream.FileStorage, Replicas: 1}, State: jetstream.StreamState{FirstSeq: 1}}
+	mirror := jetstream.StreamInfo{Config: jetstream.StreamConfig{Name: "MIRROR_GLOBAL_SPEC", Storage: jetstream.FileStorage, Replicas: 1, Mirror: &jetstream.StreamSource{Name: "GLOBAL_SPEC"}}, State: source.State}
 	digest, err := verifyEmptyControlMirror(&source, &source, &mirror)
 	if err != nil || !canonicalControlDigest(digest) {
 		t.Fatalf("empty store metadata not proved: %s %v", digest, err)
@@ -295,5 +295,13 @@ func TestEmptyControlMirrorRequiresStableDurableMetadata(t *testing.T) {
 	mirror.State.LastSeq = 10
 	if _, err := verifyEmptyControlMirror(&source, &source, &mirror); err == nil {
 		t.Fatal("different mirror watermark accepted")
+	}
+}
+
+func TestGlobalControlInventoryContainsOnlyCurrentControlAndDeliveryStores(t *testing.T) {
+	expected := []string{"GLOBAL_SPEC", "KV_GLOBAL_CELLS", "KV_GLOBAL_DELIVERIES", "KV_ORCH_LEADERS"}
+	actual := globalControlStreamNames()
+	if strings.Join(actual, ",") != strings.Join(expected, ",") {
+		t.Fatalf("bootstrap global inventory=%v", actual)
 	}
 }

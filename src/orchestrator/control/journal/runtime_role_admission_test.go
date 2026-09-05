@@ -20,7 +20,7 @@ func TestRemovedAndReducedRuntimeRoleValuesAreRefused(t *testing.T) {
 	for _, value := range []RuntimeRole{
 		// 5 is the retired Dashboard role; it must stay refused forever.
 		0, RuntimeRolePlatform, RuntimeRoleAuthentication, 5, RuntimeRoleTelemetry,
-		RuntimeRoleGrafana, RuntimeRoleTrustedCi, 16, 17, 99,
+		RuntimeRoleGrafana, 9, 16, 17, 99,
 	} {
 		if runtimeRoleIsDefined(value) {
 			t.Fatalf("removed or unrelated runtime role %d is still admissible", value)

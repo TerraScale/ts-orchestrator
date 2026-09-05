@@ -73,9 +73,6 @@ const (
 	// DurableWorkOwnershipGlobalFencedAuthority: only the live fenced global
 	// lease holder (epoch plus KV revision) may process or write.
 	DurableWorkOwnershipGlobalFencedAuthority DurableWorkOwnership = 3
-	// DurableWorkOwnershipReconciledRunnerIdentity: only the exact reconciled
-	// CI runner identity may pull its per-runner fenced inbox.
-	DurableWorkOwnershipReconciledRunnerIdentity DurableWorkOwnership = 4
 )
 
 // DurableStreamPlan is one durable stream of the work inventory — every
@@ -365,7 +362,6 @@ func (durableWorkInventory) CompletenessViolations() []string {
 
 func createDurableStreams() []DurableStreamPlan {
 	cell := DuplicateWindowPolicyCellStreams
-	global := DuplicateWindowPolicyGlobalCiStream
 	return []DurableStreamPlan{
 		{
 			Stream: "CELL_SPEC",
@@ -427,35 +423,17 @@ func createDurableStreams() []DurableStreamPlan {
 			DuplicateWindow:          cell,
 			TerminalEvidenceBehavior: "Accepted global revisions; deterministic conflicts terminate with terminal evidence.",
 		},
-		{
-			Stream: "GLOBAL_CI",
-			Subjects: []string{
-				natspolicy.NatsSubjectTaxonomy.GlobalCiFamilyPattern(),
-			},
-			Domain:                   DurableWorkDomainGlobalControl,
-			SemanticClass:            MessagingSemanticClassWorkQueue,
-			Replicas:                 3,
-			Retention:                DurableStreamRetentionLimits,
-			MaximumAge:               30 * 24 * time.Hour,
-			MaximumBytes:             1024 * 1024 * 1024,
-			Discard:                  DurableStreamDiscardOld,
-			DuplicateWindow:          global,
-			TerminalEvidenceBehavior: "Normalized CI events and fenced runner commands; trigger conflicts terminate, runner identity conflicts terminate, exhaustion warns on the final delivery.",
-		},
 	}
 }
 
 func createDurableConsumers() []DurableConsumerPlan {
 	ladder := BoundedRedeliveryPolicyLanded.BackoffLadder
-	triggerTerminal :=
-		"Deterministic conflicts AckTerminate loudly; retry exhaustion warns on the final delivery before its nak."
 	cellspecTerminal :=
 		"Deterministic conflicts and identity conflicts AckTerminate loudly; authority loss withholds the acknowledgement."
 	batchOne := 1
 	expiresThirty := 30 * time.Second
 	waitingEight := 8
 	waitingSixteen := 16
-	waitingFour := 4
 	return []DurableConsumerPlan{
 		{
 			Stream:                   "CELL_EVENTS",
@@ -491,7 +469,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		},
 		{
 			Stream:                   "GLOBAL_SPEC",
-			Consumer:                 "gitops_global_cell_spec_{cell}",
+			Consumer:                 "global_cell_spec_{cell}",
 			FilterSubject:            natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".{cell}",
 			Domain:                   DurableWorkDomainGlobalControl,
 			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
@@ -504,54 +482,6 @@ func createDurableConsumers() []DurableConsumerPlan {
 			MaximumWaiting:           &waitingEight,
 			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: cellspecTerminal,
-		},
-		{
-			Stream:                   "GLOBAL_CI",
-			Consumer:                 "global_ci_trigger",
-			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
-			Domain:                   DurableWorkDomainGlobalControl,
-			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
-			Acknowledgement:          DurableAcknowledgementExplicit,
-			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:            ladder,
-			MaximumAckPending:        32,
-			MaximumBatch:             nil,
-			MaximumExpires:           nil,
-			MaximumWaiting:           &waitingSixteen,
-			FlowControlBasis:         pullFlowControlBasis,
-			TerminalEvidenceBehavior: triggerTerminal,
-		},
-		{
-			Stream:                   "GLOBAL_CI",
-			Consumer:                 "global_ci_runtime_proof",
-			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiRuntimeProofSubject(),
-			Domain:                   DurableWorkDomainGlobalControl,
-			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
-			Acknowledgement:          DurableAcknowledgementExplicit,
-			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:            ladder,
-			MaximumAckPending:        32,
-			MaximumBatch:             &batchOne,
-			MaximumExpires:           &expiresThirty,
-			MaximumWaiting:           &waitingSixteen,
-			FlowControlBasis:         pullFlowControlBasis,
-			TerminalEvidenceBehavior: "Leader-verified observations double-ack after the durable pointer wins; deterministic failures terminate loudly.",
-		},
-		{
-			Stream:                   "GLOBAL_CI",
-			Consumer:                 "ci_runner_{zone}_{runner}",
-			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".{zone}.{runner}",
-			Domain:                   DurableWorkDomainGlobalControl,
-			Ownership:                DurableWorkOwnershipReconciledRunnerIdentity,
-			Acknowledgement:          DurableAcknowledgementExplicit,
-			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:            ladder,
-			MaximumAckPending:        1,
-			MaximumBatch:             &batchOne,
-			MaximumExpires:           &expiresThirty,
-			MaximumWaiting:           &waitingFour,
-			FlowControlBasis:         pullFlowControlBasis,
-			TerminalEvidenceBehavior: "Fenced per-runner inbox (MaxAckPending 1); a message-id/payload identity conflict AckTerminates loudly; progress acks keep long executions leased.",
 		},
 	}
 }
@@ -585,8 +515,7 @@ type boundedRedeliveryContract struct{}
 // redelivery contract — the delivery cap, the backoff ladder, and the derived
 // ack wait must equal the policy. The
 // ack-pending bound is per-consumer flow control — a profile may tighten it
-// (the fenced runner inbox pins 1) or widen it within its own declared pull
-// shape.
+// or widen it within its own declared pull shape.
 func (boundedRedeliveryContract) BoundedBy(policy BoundedRedeliveryPolicy, consumer DurableConsumerPlan) bool {
 	if consumer.MaximumDeliveries != policy.MaximumDeliveries {
 		return false

@@ -123,7 +123,7 @@ func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.
 		t.Fatal(err)
 	}
 	permitted := map[string]struct{}{"global-cell-directory-snapshot": {}}
-	if _, _, err := UnmarshalMessagingEnvelope(document, natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(), permitted); err == nil {
+	if _, _, err := UnmarshalMessagingEnvelope(document, natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), permitted); err == nil {
 		t.Fatal("subject substitution was accepted")
 	}
 	foreignRoot := bytes.Replace(document, []byte(`"ts.orch.v1"`), []byte(`"ts.orch.old"`), 1)

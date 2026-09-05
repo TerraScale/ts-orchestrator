@@ -406,7 +406,7 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 		if err != nil {
 			return nil, err
 		}
-		if !CiRunnerConsumerReconcilerMatches(info, expected, streamName) {
+		if !NatsConsumerProfileMatches(info, expected, streamName) {
 			return nil, errors.New("An infrastructure-provisioned NATS consumer does not match its closed profile.")
 		}
 		return consumer, nil

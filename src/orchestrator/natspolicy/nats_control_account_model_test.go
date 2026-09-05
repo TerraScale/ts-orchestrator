@@ -27,8 +27,6 @@ func TestTheClosedAccountKindsAreExactlyTheGoalKindsInBothDirections(t *testing.
 		NatsControlAccountKindGlobalDirectoryReadService,
 		NatsControlAccountKindRegionalController,
 		NatsControlAccountKindHostAgent,
-		NatsControlAccountKindCiCoordinator,
-		NatsControlAccountKindCiIsolatedRunner,
 		NatsControlAccountKindReadOnlyMonitoring,
 		NatsControlAccountKindBreakGlassRecovery,
 	}
@@ -55,8 +53,6 @@ func TestTheClosedAccountKindsAreExactlyTheGoalKindsInBothDirections(t *testing.
 		"global-directory-read-service",
 		"regional-controller",
 		"host-agent",
-		"ci-coordinator",
-		"ci-isolated-runner",
 		"read-only-monitoring",
 		"break-glass-recovery",
 	}
@@ -74,8 +70,6 @@ func allTestScopes(t *testing.T) []*NatsControlAccountScope {
 		mustScope(t, NatsControlAccountKindInfrastructureAdministration, "", ""),
 		mustScope(t, NatsControlAccountKindGlobalAuthority, "", ""),
 		mustScope(t, NatsControlAccountKindGlobalDirectoryReadService, "", ""),
-		mustScope(t, NatsControlAccountKindCiCoordinator, "", ""),
-		mustScope(t, NatsControlAccountKindCiIsolatedRunner, "", ""),
 		mustScope(t, NatsControlAccountKindBreakGlassRecovery, "", ""),
 	}
 
@@ -139,13 +133,9 @@ func controlSubjectCorpus(t *testing.T) []string {
 			"ts.orch.v1."+region+".agent."+token+".ack.42")
 	}
 
-	runnerToken := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken("runner-7") })
 	return append(corpus,
 		"ts.orch.v1.global.desired.gitops.gru",
 		"ts.orch.v1.global.release.accepted.r7",
-		"ts.orch.v1.global.release.ci.forgejo",
-		"ts.orch.v1.global.release.ci.job.zone-1."+runnerToken[:NatsSubjectTaxonomy.AgentHashTokenLength()],
-		"ts.orch.v1.global.release.ci.runtime-proof.build-9",
 		"ts.orch.v1.global.query.cells",
 		"$SYS.REQ.SERVER.PING")
 }
@@ -292,5 +282,21 @@ func TestScopeCreationFailsClosedOnMismatchedScopeInputs(t *testing.T) {
 
 	if _, err := NatsControlAccountScopeCreate(NatsControlAccountKindUnspecified, "", ""); err == nil {
 		t.Fatal("unspecified kind must fail")
+	}
+}
+
+func TestRetiredRunnerSubjectsHaveNoStandingAccountGrants(t *testing.T) {
+	for _, subject := range []string{
+		"ts.orch.v1.global.release.ci.forgejo",
+		"ts.orch.v1.global.release.ci.runtime-proof.build-9",
+		"ts.orch.v1.global.release.ci.job.trusted-build.runner-7",
+	} {
+		for _, grants := range ProtocolManifestLoaded().AccountKinds {
+			for _, pattern := range append(append([]string{}, grants.Publish...), grants.Subscribe...) {
+				if corpusMatches(materializeGrantTemplate(pattern, sampleRegionToken, sampleAgentHashToken), subject) {
+					t.Fatalf("retired subject %q remains granted to %s", subject, grants.Kind)
+				}
+			}
+		}
 	}
 }

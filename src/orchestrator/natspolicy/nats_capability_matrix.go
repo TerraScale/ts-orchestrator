@@ -126,7 +126,6 @@ const (
 	NatsCapabilityOwnerGlobalDirectoryRuntime  NatsCapabilityOwner = 3
 	NatsCapabilityOwnerMessagingContracts      NatsCapabilityOwner = 4
 	NatsCapabilityOwnerDeliveryContracts       NatsCapabilityOwner = 5
-	NatsCapabilityOwnerCiRuntime               NatsCapabilityOwner = 6
 	NatsCapabilityOwnerSecurityAndIdentity     NatsCapabilityOwner = 7
 	NatsCapabilityOwnerInfrastructureBootstrap NatsCapabilityOwner = 8
 	NatsCapabilityOwnerObservability           NatsCapabilityOwner = 9
@@ -432,7 +431,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Transport-level suppression only, bounded by each stream's duplicate window; never an exactly-once claim.",
 			"A duplicate outside the window is admitted; operation-level idempotency keys remain the authority.",
 			"Duplicate-suppression counters next to idempotency-replay counters so the two layers stay distinguishable.",
-			"MsgId on every JetStream publish (ForgejoEventPublisher, NativeGitOps publishers, NatsRuntime startup) with 2m/24h duplicate windows in NatsTopology/GlobalNatsTopology."),
+			"MsgId on every JetStream publish (NativeGitOps publishers, NatsRuntime startup) with 2m duplicate windows in NatsTopology/GlobalNatsTopology."),
 		acceptedNatsCapability(
 			NatsCapabilityJetStreamStreams,
 			NatsCapabilityOwnerInfrastructureBootstrap,
@@ -442,7 +441,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Streams are infrastructure-provisioned; controllers validate exact configuration and never create/update streams at runtime.",
 			"Controller start fails closed on any stream configuration mismatch; limits retention bounds age and bytes.",
 			"Stream depth, age, bytes, discarded counts, and replica health per critical stream.",
-			"NatsTopology Streams (CELL_SPEC, CELL_OPERATIONS, CELL_EVENTS) and GlobalNatsTopology Streams (GLOBAL_SPEC, GLOBAL_CI) validated by NatsOperationJournalStore."),
+			"NatsTopology Streams (CELL_SPEC, CELL_OPERATIONS, CELL_EVENTS) and GlobalNatsTopology Streams (GLOBAL_SPEC) validated by NatsOperationJournalStore."),
 		acceptedNatsCapability(
 			NatsCapabilityDurableConsumers,
 			NatsCapabilityOwnerInfrastructureBootstrap,
@@ -452,7 +451,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Consumers are provisioned with closed profiles; controllers may only create/open/ack their named consumer.",
 			"A missing or mismatched consumer fails controller check/run closed rather than being created at runtime.",
 			"Consumer lag, pending, redelivery counts, and exact-profile validation failures.",
-			"StartupConsumer, CellSpecConsumer, CiConsumer, CiRuntimeProofConsumer, CiJobConsumer profiles with exact-match startup validation (NatsRuntime.OpenExactConsumerAsync)."),
+			"StartupConsumer and CellSpecConsumer profiles with exact-match startup validation (NatsRuntime.OpenExactConsumerAsync)."),
 		acceptedNatsCapability(
 			NatsCapabilityAcknowledgement,
 			NatsCapabilityOwnerDeliveryContracts,
@@ -462,7 +461,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Explicit-ack consumers only; a worker acknowledges only after the durable effect is journaled or an idempotent replay is proven; long work sends progress.",
 			"A crash before ack means redelivery; the idempotency key makes the replay safe; authority loss after acceptance withholds the ack.",
 			"Ack latency after durable effect, progress-heartbeat age, and authority-lost-after-acceptance counts.",
-			"NativeGitOpsCellInbox double-acks after journal acceptance; RepositoryCiJobNatsConsumer sends AckProgressAsync; ForgejoCiEventConsumer terminally acks deterministic conflicts."),
+			"NativeGitOpsCellInbox double-acks after journal acceptance and terminally acknowledges deterministic conflicts."),
 		acceptedNatsCapability(
 			NatsCapabilityRedeliveryAndBackoff,
 			NatsCapabilityOwnerDeliveryContracts,
@@ -472,7 +471,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Bounded by the consumer profile: at most 5 deliveries with a 1s/5s/15s/30s backoff ladder; ack wait is derived from the first backoff interval.",
 			"Exhaustion stops redelivery only with terminal evidence; no message may disappear silently.",
 			"Redelivery histograms, exhaustion counts, and final-delivery warnings by subject.",
-			"Consumer profiles in NatsTopology/GlobalNatsTopology; final-delivery warning and Nak-with-delay in ForgejoCiEventConsumer."),
+			"Consumer profiles in NatsTopology/GlobalNatsTopology bound deliveries and backoff."),
 		acceptedNatsCapability(
 			NatsCapabilityFlowControl,
 			NatsCapabilityOwnerInfrastructureBootstrap,
@@ -502,14 +501,14 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Small signed bundles, protocol packages, and evidence only; never the build registry or backup system; secrets never enter objects.",
 			"Missing or byte-unequal protocol package fails startup closed; bundle digests are content-addressed.",
 			"Object counts/bytes per bucket and integrity-check failures.",
-			"CELL_BUNDLES, GLOBAL_BUNDLES, CI_RUNNER_BUNDLES, ORCH_PROTOCOL_PACKAGE with byte-exact verification in NatsRuntime."),
+			"CELL_BUNDLES and ORCH_PROTOCOL_PACKAGE with byte-exact verification in NatsRuntime."),
 		acceptedNatsCapability(
 			NatsCapabilityAccounts,
 			NatsCapabilityOwnerSecurityAndIdentity,
 			NatsDataClassCoordinationRecord,
 			NatsDurabilityClassReplicatedDurableFile,
 			NatsOrderingClassUnordered,
-			"Hard namespaces: system, global authority, global directory, regional control, CI, audit/export, operator, product, test; capability determines the account, never caller-supplied credentials.",
+			"Hard namespaces: system, global authority, global directory, regional control, audit/export, operator, product, test; capability determines the account, never caller-supplied credentials.",
 			"An identity in the wrong account simply lacks permissions; cross-plane authorization is structurally impossible.",
 			"Account-scoped auth failures and permission denials feed security alerts.",
 			"GlobalNatsAccountNames and GlobalNatsAccessContract account split; distinct control/product planes in the NatsSubjectTaxonomy account model."),
@@ -526,7 +525,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"NKey authentication for controllers, writer, infrastructure, directory, and operator identities; every command rejects every NATS credential family it does not own before file resolution.",
 			"Anonymous connections must be denied (startup verifies); a missing NKey fails closed.",
 			"Authentication failure counts by identity family; anonymous-denial verification at startup.",
-			"OrchestratorOptions.NatsNKeyFile, NatsRuntime.VerifyAnonymousDeniedAsync, CiRunnerNatsCredentialIssuer, GlobalNatsAccessContract identity separation."),
+			"OrchestratorOptions.NatsNKeyFile, NatsRuntime.VerifyAnonymousDeniedAsync, GlobalNatsAccessContract identity separation."),
 		acceptedNatsCapability(
 			NatsCapabilityMtls,
 			NatsCapabilityOwnerSecurityAndIdentity,
@@ -597,6 +596,6 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"N and N-1 interoperate for commands, snapshots, schema reads, and leadership transfer; upgrades proceed one plane and one failure domain at a time and cannot remove the last candidate or drop either plane below its disruption budget.",
 			"An upgrade cannot proceed without current and rollback artifacts in the regional survival bundle; N-1 nodes fail closed on N-major documents.",
 			"Per-version interop matrix results and rollback outcomes per failure domain.",
-			"MessagingPolicyEngine.DecideCompatibility (Commands, Snapshots, SchemaReads, LeadershipTransfer); forward-only schema migration discipline in RepositoryCiJobJournal."),
+			"MessagingPolicyEngine.DecideCompatibility (Commands, Snapshots, SchemaReads, LeadershipTransfer)."),
 	}
 }

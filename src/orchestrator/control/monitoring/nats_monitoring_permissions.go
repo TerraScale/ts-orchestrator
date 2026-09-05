@@ -179,7 +179,7 @@ func (natsMonitoringPermissionsForbidden) ControlPublish(cell string) []string {
 func (natsMonitoringPermissionsForbidden) GlobalControlPublish() []string {
 	return []string{
 		natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>",
-		natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".>",
+		natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(),
 		natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
 	}
 }

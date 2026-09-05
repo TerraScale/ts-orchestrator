@@ -263,7 +263,7 @@ func natsOperationJournalCreateOrUpdateAndValidateConsumer(
 		return err
 	}
 
-	if !CiRunnerConsumerReconcilerMatches(info, configuration, stream) {
+	if !NatsConsumerProfileMatches(info, configuration, stream) {
 		return errors.New(
 			"An infrastructure-provisioned NATS consumer does not match its closed profile.")
 	}

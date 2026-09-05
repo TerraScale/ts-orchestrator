@@ -10,8 +10,8 @@ import (
 // NatsControlAccountKind is the closed set of account kinds of the NATS
 // control network. The kinds separate infrastructure
 // administration, global authority, the global directory read service, one
-// regional controller scope per Region, per-host-agent scopes, CI
-// coordinators, isolated CI runners, read-only monitoring, and break-glass
+// regional controller scope per Region, per-host-agent scopes,
+// read-only monitoring, and break-glass
 // recovery. Standing write permissions are disjoint: no control subject may be
 // published by two different account kinds.
 type NatsControlAccountKind int
@@ -23,8 +23,6 @@ const (
 	NatsControlAccountKindGlobalDirectoryReadService   NatsControlAccountKind = 3
 	NatsControlAccountKindRegionalController           NatsControlAccountKind = 4
 	NatsControlAccountKindHostAgent                    NatsControlAccountKind = 5
-	NatsControlAccountKindCiCoordinator                NatsControlAccountKind = 6
-	NatsControlAccountKindCiIsolatedRunner             NatsControlAccountKind = 7
 	NatsControlAccountKindReadOnlyMonitoring           NatsControlAccountKind = 8
 	NatsControlAccountKindBreakGlassRecovery           NatsControlAccountKind = 9
 )
@@ -41,10 +39,6 @@ func (k NatsControlAccountKind) String() string {
 		return "RegionalController"
 	case NatsControlAccountKindHostAgent:
 		return "HostAgent"
-	case NatsControlAccountKindCiCoordinator:
-		return "CiCoordinator"
-	case NatsControlAccountKindCiIsolatedRunner:
-		return "CiIsolatedRunner"
 	case NatsControlAccountKindReadOnlyMonitoring:
 		return "ReadOnlyMonitoring"
 	case NatsControlAccountKindBreakGlassRecovery:
@@ -317,8 +311,6 @@ func enumerateAccountKinds() []NatsControlAccountKind {
 		NatsControlAccountKindGlobalDirectoryReadService,
 		NatsControlAccountKindRegionalController,
 		NatsControlAccountKindHostAgent,
-		NatsControlAccountKindCiCoordinator,
-		NatsControlAccountKindCiIsolatedRunner,
 		NatsControlAccountKindReadOnlyMonitoring,
 		NatsControlAccountKindBreakGlassRecovery,
 	}
@@ -336,10 +328,6 @@ func tryMapAccountKindName(kindName string) (NatsControlAccountKind, bool) {
 		return NatsControlAccountKindRegionalController, true
 	case "host-agent":
 		return NatsControlAccountKindHostAgent, true
-	case "ci-coordinator":
-		return NatsControlAccountKindCiCoordinator, true
-	case "ci-isolated-runner":
-		return NatsControlAccountKindCiIsolatedRunner, true
 	case "read-only-monitoring":
 		return NatsControlAccountKindReadOnlyMonitoring, true
 	case "break-glass-recovery":
@@ -361,10 +349,6 @@ func accountKindName(kind NatsControlAccountKind) string {
 		return "regional-controller"
 	case NatsControlAccountKindHostAgent:
 		return "host-agent"
-	case NatsControlAccountKindCiCoordinator:
-		return "ci-coordinator"
-	case NatsControlAccountKindCiIsolatedRunner:
-		return "ci-isolated-runner"
 	case NatsControlAccountKindReadOnlyMonitoring:
 		return "read-only-monitoring"
 	case NatsControlAccountKindBreakGlassRecovery:
