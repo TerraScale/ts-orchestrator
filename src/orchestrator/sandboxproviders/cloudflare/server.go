@@ -47,7 +47,7 @@ func NewServer(cfg Config) *Server {
 		cfg.ZoneName = "terrascale.tech"
 	}
 	s := &Server{cfg: cfg, faults: newFaultBook(cfg.Faults), idem: map[string]idempotentResponse{}, nextID: 1,
-		rules: map[string][]wireRule{}, snippets: map[string]snippet{}, snippetRules: []snippetRule{}, kv: map[string]map[string][]byte{}, workers: map[string]*workerScript{}, secrets: map[string]map[string]secret{}}
+		rules: map[string][]wireRule{}, snippets: map[string]snippet{}, snippetRules: []snippetRule{}, kv: map[string]map[string][]byte{}, workers: map[string]*workerScript{}, secrets: map[string]map[string]secret{}, secretStores: map[string]secretStore{}}
 	s.settings = map[string]string{"ssl": "strict", "min_tls_version": "1.2", "tls_1_3": "on", "always_use_https": "on"}
 	return s
 }
@@ -70,11 +70,12 @@ type Server struct {
 	tiered       bool
 	purges       [][]string
 
-	workers map[string]*workerScript
-	secrets map[string]map[string]secret
-	nextID  uint64
-	idem    map[string]idempotentResponse
-	faults  *faultBook
+	workers      map[string]*workerScript
+	secrets      map[string]map[string]secret
+	secretStores map[string]secretStore
+	nextID       uint64
+	idem         map[string]idempotentResponse
+	faults       *faultBook
 }
 
 // Handler returns the endpoint as an http.Handler. Server itself implements
@@ -261,6 +262,9 @@ func (s *Server) writeFault(w http.ResponseWriter, f FaultStep) {
 }
 
 func (s *Server) replayIdempotent(w http.ResponseWriter, r *http.Request, body []byte) (idempotentResponse, bool) {
+	if strings.Contains(r.URL.Path, "/secrets_store/") {
+		return idempotentResponse{}, false
+	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Header.Get("Idempotency-Key") == "" {
 		return idempotentResponse{}, false
 	}
@@ -293,6 +297,9 @@ type idempotentResponse struct {
 }
 
 func (s *Server) remember(r *http.Request, requestBody []byte, status int, headers http.Header, body []byte) {
+	if strings.Contains(r.URL.Path, "/secrets_store/") {
+		return
+	}
 	key := r.Header.Get("Idempotency-Key")
 	if key == "" {
 		return
@@ -397,6 +404,7 @@ func (s *Server) Reset() {
 	s.kv = map[string]map[string][]byte{}
 	s.workers = map[string]*workerScript{}
 	s.secrets = map[string]map[string]secret{}
+	s.secretStores = map[string]secretStore{}
 	s.idem = map[string]idempotentResponse{}
 	s.purges = nil
 	s.totalTLS = false

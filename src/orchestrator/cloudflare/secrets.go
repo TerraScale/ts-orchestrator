@@ -2,163 +2,210 @@ package cloudflare
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
-// SecretStoreDecl declares references to material held by Cloudflare Secrets
-// Store. Values are intentionally absent: rotation writes are owned by the
-// security coordinator, while this reconciler only verifies that references
-// required by the deployed Snippet exist.
+// SecretStoreDecl contains public references; zone reconciliation cannot supply values.
 type SecretStoreDecl struct {
 	Name        string
 	SecretNames []string
 }
-
 type SecretStore struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Created  time.Time `json:"created"`
+	Modified time.Time `json:"modified"`
 }
 
+// SecretMetadata contains the documented write-only secret's public metadata.
+// Cloudflare does not expose numbered versions or an activation operation.
 type SecretMetadata struct {
-	Name      string `json:"name"`
-	Version   int    `json:"version,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	// ID and Active are provider metadata only. Values are intentionally not
-	// represented by this type.
-	ID     string `json:"id,omitempty"`
-	Active bool   `json:"active,omitempty"`
+	ID       string    `json:"id"`
+	StoreID  string    `json:"store_id"`
+	Name     string    `json:"name"`
+	Status   string    `json:"status"`
+	Created  time.Time `json:"created"`
+	Modified time.Time `json:"modified"`
+	Scopes   []string  `json:"scopes,omitempty"`
+	Comment  string    `json:"comment,omitempty"`
+}
+type SecretInput struct {
+	Name    string   `json:"name"`
+	Value   string   `json:"value"`
+	Scopes  []string `json:"scopes"`
+	Comment string   `json:"comment,omitempty"`
+}
+type SecretUpdate struct {
+	Value   *string  `json:"value,omitempty"`
+	Scopes  []string `json:"scopes,omitempty"`
+	Comment *string  `json:"comment,omitempty"`
 }
 
+// SecretsAPI mutates resources by provider ID, without pretending that updating
+// an existing secret stages its value: consumers of that secret receive the update.
+type SecretsAPI interface {
+	CreateSecret(context.Context, string, SecretInput) (SecretMetadata, error)
+	UpdateSecret(context.Context, string, string, SecretUpdate) (SecretMetadata, error)
+	DeleteSecret(context.Context, string, string) error
+	GetSecretMetadata(context.Context, string, string) (SecretMetadata, error)
+}
 type SecretsStoreAPI interface {
 	ListSecretStores(context.Context) ([]SecretStore, error)
 	CreateSecretStore(context.Context, string) error
 	ListSecretMetadata(context.Context, string) ([]SecretMetadata, error)
 }
 
-// SecretValueAPI is the write/activation/retirement boundary for a Secrets
-// Store. Every method accepts the value only transiently and returns metadata;
-// values are never decoded from responses, logged, or put in plans.
-type SecretValueAPI interface {
-	WriteSecretValue(context.Context, string, string, []byte) (SecretMetadata, error)
-	ActivateSecretVersion(context.Context, string, string, int) error
-	RetireSecretVersion(context.Context, string, string, int) error
-}
-
-// SecretsStoreValuesAPI is the descriptive alias used by rotation wiring.
-type SecretsStoreValuesAPI = SecretValueAPI
-
+var _ SecretsAPI = (*Client)(nil)
 var _ SecretsStoreAPI = (*Client)(nil)
-var _ SecretValueAPI = (*Client)(nil)
 
 func (c *Client) ListSecretStores(ctx context.Context) ([]SecretStore, error) {
-	var out []SecretStore
-	err := c.do(ctx, "list secrets stores", http.MethodGet, c.accountPath("/secrets_store/stores"), nil, &out)
-	return out, err
+	if !validSecretID(c.AccountID) {
+		return nil, errors.New("cloudflare: invalid account ID")
+	}
+	return readSecretsPages[SecretStore](ctx, c, "list secrets stores", c.accountPath("/secrets_store/stores"), func(v SecretStore) (string, string, bool) {
+		return v.ID, v.Name, validSecretID(v.ID) && validSecretName(v.Name) && !v.Created.IsZero() && !v.Modified.Before(v.Created)
+	})
 }
-
 func (c *Client) CreateSecretStore(ctx context.Context, name string) error {
-	return c.do(ctx, "create secrets store", http.MethodPost, c.accountPath("/secrets_store/stores"), map[string]string{"name": name}, nil)
+	if !validSecretID(c.AccountID) || !validSecretName(name) {
+		return errors.New("cloudflare: invalid secret store declaration")
+	}
+	var out SecretStore
+	if _, err := c.secretsRequest(ctx, "create secrets store", http.MethodPost, c.accountPath("/secrets_store/stores"), map[string]string{"name": name}, &out); err != nil {
+		return err
+	}
+	if !validSecretID(out.ID) || out.Name != name || out.Created.IsZero() || out.Modified.Before(out.Created) {
+		return ErrSecretMutationOutcomeUnknown
+	}
+	return nil
 }
-
-func (c *Client) ListSecretMetadata(ctx context.Context, store string) ([]SecretMetadata, error) {
-	if strings.TrimSpace(store) == "" {
-		return nil, errors.New("cloudflare: secrets store name is required")
+func (c *Client) ListSecretMetadata(ctx context.Context, storeID string) ([]SecretMetadata, error) {
+	path, err := c.secretPath(storeID, "")
+	if err != nil {
+		return nil, err
+	}
+	return readSecretsPages[SecretMetadata](ctx, c, "list secrets metadata", path, func(v SecretMetadata) (string, string, bool) {
+		return v.ID, v.Name, validSecretMetadata(v, storeID, "")
+	})
+}
+func (c *Client) CreateSecret(ctx context.Context, storeID string, input SecretInput) (SecretMetadata, error) {
+	path, err := c.secretPath(storeID, "")
+	if err != nil {
+		return SecretMetadata{}, err
+	}
+	if !validSecretName(input.Name) || !validSecretValue(input.Value) || !validSecretScopes(input.Scopes) || !validSecretComment(input.Comment) {
+		return SecretMetadata{}, errors.New("cloudflare: invalid secret input")
 	}
 	var out []SecretMetadata
-	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets")
-	err := c.do(ctx, "list secrets metadata", http.MethodGet, path, nil, &out)
-	return out, err
-}
-
-// WriteSecretValue creates a new provider version. Base64 keeps arbitrary key
-// bytes out of JSON string escaping and the API response is metadata-only.
-func (c *Client) WriteSecretValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
-	if err := validateSecretCoordinates(store, name); err != nil {
+	if _, err := c.secretsRequest(ctx, "create secret", http.MethodPost, path, []SecretInput{input}, &out); err != nil {
 		return SecretMetadata{}, err
 	}
-	payload := map[string]string{
-		"value_base64": base64.StdEncoding.EncodeToString(value),
+	if len(out) != 1 || !validSecretMetadata(out[0], storeID, "") || out[0].Name != input.Name || out[0].Status == "deleted" || !sameSecretScopes(out[0].Scopes, input.Scopes) || out[0].Comment != input.Comment {
+		return SecretMetadata{}, ErrSecretMutationOutcomeUnknown
+	}
+	return out[0], nil
+}
+func (c *Client) UpdateSecret(ctx context.Context, storeID, secretID string, input SecretUpdate) (SecretMetadata, error) {
+	path, err := c.secretPath(storeID, secretID)
+	if err != nil {
+		return SecretMetadata{}, err
+	}
+	if secretID == "" || input.Value == nil && input.Scopes == nil && input.Comment == nil || input.Value != nil && !validSecretValue(*input.Value) || input.Scopes != nil && !validSecretScopes(input.Scopes) || input.Comment != nil && !validSecretComment(*input.Comment) {
+		return SecretMetadata{}, errors.New("cloudflare: invalid secret update")
 	}
 	var out SecretMetadata
-	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions")
-	if err := c.do(ctx, "write secret value", http.MethodPost, path, payload, &out); err != nil {
+	if _, err := c.secretsRequest(ctx, "update secret", http.MethodPatch, path, input, &out); err != nil {
 		return SecretMetadata{}, err
 	}
-	// Some Cloudflare responses omit the logical name; retaining the caller's
-	// non-secret identifier makes the receipt useful without exposing bytes.
-	if out.Name == "" {
-		out.Name = name
+	if !validSecretMetadata(out, storeID, secretID) || out.Status == "deleted" || input.Scopes != nil && !sameSecretScopes(out.Scopes, input.Scopes) || input.Comment != nil && out.Comment != *input.Comment {
+		return SecretMetadata{}, ErrSecretMutationOutcomeUnknown
 	}
 	return out, nil
 }
-
-// PutSecretValue is a compatibility spelling for WriteSecretValue.
-func (c *Client) PutSecretValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
-	return c.WriteSecretValue(ctx, store, name, value)
-}
-
-// ActivateSecretVersion selects a staged version for Snippet reads. The
-// version number is the only value carried in the request.
-func (c *Client) ActivateSecretVersion(ctx context.Context, store, name string, version int) error {
-	if err := validateSecretCoordinates(store, name); err != nil {
+func (c *Client) DeleteSecret(ctx context.Context, storeID, secretID string) error {
+	path, err := c.secretPath(storeID, secretID)
+	if err != nil {
 		return err
 	}
-	if version <= 0 {
-		return errors.New("cloudflare: secret version is required")
+	if secretID == "" {
+		return errors.New("cloudflare: secret ID required")
 	}
-	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions/" + fmt.Sprint(version) + "/activate")
-	return c.do(ctx, "activate secret version", http.MethodPost, path, nil, nil)
+	_, err = c.secretsRequest(ctx, "delete secret", http.MethodDelete, path, nil, nil)
+	return err
 }
-
-// RetireSecretVersion removes a no-longer-accepted version after overlap.
-func (c *Client) RetireSecretVersion(ctx context.Context, store, name string, version int) error {
-	if err := validateSecretCoordinates(store, name); err != nil {
-		return err
+func (c *Client) GetSecretMetadata(ctx context.Context, storeID, secretID string) (SecretMetadata, error) {
+	path, err := c.secretPath(storeID, secretID)
+	if err != nil {
+		return SecretMetadata{}, err
 	}
-	if version <= 0 {
-		return errors.New("cloudflare: secret version is required")
+	if secretID == "" {
+		return SecretMetadata{}, errors.New("cloudflare: secret ID required")
 	}
-	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(store) + "/secrets/" + url.PathEscape(name) + "/versions/" + fmt.Sprint(version))
-	return c.do(ctx, "retire secret version", http.MethodDelete, path, nil, nil)
-}
-
-// WriteValue, ActivateVersion, and RetireVersion keep provider adapters terse
-// while preserving the explicit SecretValueAPI contract.
-func (c *Client) WriteValue(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
-	return c.WriteSecretValue(ctx, store, name, value)
-}
-func (c *Client) ActivateVersion(ctx context.Context, store, name string, version int) error {
-	return c.ActivateSecretVersion(ctx, store, name, version)
-}
-func (c *Client) RetireVersion(ctx context.Context, store, name string, version int) error {
-	return c.RetireSecretVersion(ctx, store, name, version)
-}
-
-// Short method names used by provider composition code.
-func (c *Client) WriteSecret(ctx context.Context, store, name string, value []byte) (SecretMetadata, error) {
-	return c.WriteSecretValue(ctx, store, name, value)
-}
-func (c *Client) ActivateSecret(ctx context.Context, store, name string, version int) error {
-	return c.ActivateSecretVersion(ctx, store, name, version)
-}
-func (c *Client) RetireSecret(ctx context.Context, store, name string, version int) error {
-	return c.RetireSecretVersion(ctx, store, name, version)
-}
-
-func validateSecretCoordinates(store, name string) error {
-	if strings.TrimSpace(store) == "" {
-		return errors.New("cloudflare: secrets store name is required")
+	var out SecretMetadata
+	if _, err := c.secretsRequest(ctx, "get secret metadata", http.MethodGet, path, nil, &out); err != nil {
+		return SecretMetadata{}, err
 	}
-	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "/\\\r\n\x00") {
-		return errors.New("cloudflare: secret name is required")
+	if !validSecretMetadata(out, storeID, secretID) {
+		return SecretMetadata{}, errors.New("cloudflare: invalid secret metadata")
 	}
-	return nil
+	return out, nil
+}
+func (c *Client) secretPath(storeID, secretID string) (string, error) {
+	if !validSecretID(c.AccountID) || !validSecretID(storeID) || secretID != "" && !validSecretID(secretID) {
+		return "", errors.New("cloudflare: invalid secrets resource ID")
+	}
+	path := c.accountPath("/secrets_store/stores/" + url.PathEscape(storeID) + "/secrets")
+	if secretID != "" {
+		path += "/" + url.PathEscape(secretID)
+	}
+	return path, nil
+}
+func validSecretID(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+func validSecretName(value string) bool {
+	return len(value) > 0 && len(value) <= 255 && utf8.ValidString(value) && strings.TrimSpace(value) == value && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+func validSecretValue(value string) bool { return len(value) <= 65536 && utf8.ValidString(value) }
+func validSecretComment(value string) bool {
+	return len(value) <= 4096 && utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+func validSecretScopes(scopes []string) bool {
+	if len(scopes) == 0 || len(scopes) > 6 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		switch scope {
+		case "workers", "ai_gateway", "dex", "access", "containers", "websearch":
+		default:
+			return false
+		}
+		if seen[scope] {
+			return false
+		}
+		seen[scope] = true
+	}
+	return true
+}
+func validSecretMetadata(v SecretMetadata, storeID, secretID string) bool {
+	return validSecretID(v.ID) && v.StoreID == storeID && (secretID == "" || v.ID == secretID) && validSecretName(v.Name) && !v.Created.IsZero() && !v.Modified.Before(v.Created) && (v.Status == "pending" || v.Status == "active" || v.Status == "deleted") && (len(v.Scopes) == 0 || validSecretScopes(v.Scopes)) && validSecretComment(v.Comment)
 }
 
 func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
@@ -167,7 +214,7 @@ func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
 	}
 	seen := make(map[string]struct{}, len(z.SecretStores))
 	for _, want := range z.SecretStores {
-		if strings.TrimSpace(want.Name) == "" {
+		if !validSecretName(want.Name) {
 			return errors.New("cloudflare: secrets store name is required")
 		}
 		if _, ok := seen[want.Name]; ok {
@@ -175,7 +222,7 @@ func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
 		}
 		seen[want.Name] = struct{}{}
 		for _, name := range want.SecretNames {
-			if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\r\n\x00") {
+			if !validSecretName(name) {
 				return fmt.Errorf("cloudflare: invalid secret reference in store %q", want.Name)
 			}
 		}
@@ -187,13 +234,7 @@ func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
 	}
 	byName := make(map[string]SecretStore, len(live))
 	for _, store := range live {
-		name := store.Name
-		if name == "" {
-			name = store.ID
-		}
-		if name != "" {
-			byName[name] = store
-		}
+		byName[store.Name] = store
 	}
 	for _, want := range z.SecretStores {
 		store, ok := byName[want.Name]
@@ -209,7 +250,7 @@ func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
 		}
 		present := make(map[string]bool, len(metadata))
 		for _, item := range metadata {
-			present[item.Name] = true
+			present[item.Name] = item.Status == "active"
 		}
 		missing := make([]string, 0)
 		for _, name := range want.SecretNames {
@@ -226,4 +267,20 @@ func (z *Zone) reconcileSecrets(ctx context.Context, c *Client, p *Plan) error {
 		}
 	}
 	return nil
+}
+
+func sameSecretScopes(first, second []string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, scope := range first {
+		seen[scope] = true
+	}
+	for _, scope := range second {
+		if !seen[scope] {
+			return false
+		}
+	}
+	return true
 }

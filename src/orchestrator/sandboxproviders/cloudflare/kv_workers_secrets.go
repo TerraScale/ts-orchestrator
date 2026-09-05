@@ -1,7 +1,6 @@
 package cloudflare
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -12,11 +11,22 @@ type namespace struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 }
+type secretStore struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Created  time.Time `json:"created"`
+	Modified time.Time `json:"modified"`
+}
 type secret struct {
-	Name      string
-	Value     []byte
-	Version   int
-	UpdatedAt time.Time
+	ID       string    `json:"id"`
+	StoreID  string    `json:"store_id"`
+	Name     string    `json:"name"`
+	Value    []byte    `json:"-"`
+	Status   string    `json:"status"`
+	Created  time.Time `json:"created"`
+	Modified time.Time `json:"modified"`
+	Scopes   []string  `json:"scopes"`
+	Comment  string    `json:"comment,omitempty"`
 }
 type workerVersion struct {
 	Number      uint64            `json:"number"`
@@ -273,166 +283,6 @@ func (s *Server) workerEndpoint(w http.ResponseWriter, r *http.Request, p []stri
 			return
 		}
 		s.envelope(w, 200, d, nil)
-		return
-	}
-	s.writeError(w, 405, 1005, "method not allowed")
-}
-
-func (s *Server) secretEndpoint(w http.ResponseWriter, r *http.Request, p []string, body []byte, fault FaultStep) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(p) == 1 && p[0] == "stores" {
-		if r.Method == http.MethodGet {
-			names := make([]string, 0, len(s.secrets))
-			for n := range s.secrets {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			out := make([]map[string]any, 0, len(names))
-			for _, n := range names {
-				out = append(out, map[string]any{"id": n, "name": n})
-			}
-			s.envelope(w, 200, out, nil)
-			return
-		}
-		if r.Method == http.MethodPost {
-			var in struct {
-				Name string `json:"name"`
-			}
-			if json.Unmarshal(body, &in) != nil || in.Name == "" {
-				s.writeError(w, 400, 1003, "invalid secret store")
-				return
-			}
-			if s.secrets[in.Name] != nil {
-				s.writeError(w, 409, 1006, "secret store exists")
-				return
-			}
-			s.secrets[in.Name] = map[string]secret{}
-			s.writeMutation(r, w, body, 200, map[string]string{"id": in.Name, "name": in.Name}, nil, fault)
-			return
-		}
-	}
-	if len(p) < 2 || p[0] != "stores" {
-		s.writeError(w, 404, 1000, "secret store not found")
-		return
-	}
-	store := pathUnescape(p[1])
-	if s.secrets[store] == nil {
-		s.writeError(w, 404, 10004, "secret store not found")
-		return
-	}
-	if len(p) == 2 && r.Method == http.MethodGet {
-		out := make([]map[string]any, 0, len(s.secrets[store]))
-		for n, v := range s.secrets[store] {
-			out = append(out, map[string]any{"name": n, "version": v.Version, "updated_at": v.UpdatedAt})
-		}
-		sort.Slice(out, func(i, j int) bool { return out[i]["name"].(string) < out[j]["name"].(string) })
-		s.envelope(w, 200, out, nil)
-		return
-	}
-	if len(p) == 2 && r.Method == http.MethodDelete {
-		delete(s.secrets, store)
-		s.writeMutation(r, w, body, 200, nil, nil, fault)
-		return
-	}
-	if len(p) == 3 && p[2] == "secrets" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
-		var in struct {
-			Name        string `json:"name"`
-			Value       string `json:"value"`
-			ValueBase64 string `json:"value_base64"`
-		}
-		if json.Unmarshal(body, &in) != nil || in.Name == "" {
-			s.writeError(w, 400, 1003, "invalid secret")
-			return
-		}
-		value := []byte(in.Value)
-		if in.ValueBase64 != "" {
-			value, _ = base64.StdEncoding.DecodeString(in.ValueBase64)
-		}
-		v := s.secrets[store][in.Name]
-		v.Name, v.Value, v.Version, v.UpdatedAt = in.Name, append([]byte(nil), value...), v.Version+1, time.Now().UTC()
-		s.secrets[store][in.Name] = v
-		s.writeMutation(r, w, body, 200, map[string]any{"name": in.Name, "version": v.Version, "updated_at": v.UpdatedAt}, nil, fault)
-		return
-	}
-	nameIndex := 2
-	if len(p) > 2 && p[2] == "secrets" {
-		nameIndex = 3
-	}
-	// Cloudflare's rotation form appends /versions to a named secret. The
-	// response intentionally contains metadata only; secret bytes never leave
-	// this process.
-	rotation := len(p) == 5 && p[2] == "secrets" && p[4] == "versions"
-	if rotation {
-		nameIndex = 3
-	}
-	if rotation && r.Method != http.MethodPost {
-		s.writeError(w, 405, 1005, "method not allowed")
-		return
-	}
-	if rotation {
-		name := pathUnescape(p[nameIndex])
-		var in struct {
-			Value       string `json:"value"`
-			ValueBase64 string `json:"value_base64"`
-		}
-		if json.Unmarshal(body, &in) != nil {
-			s.writeError(w, 400, 1003, "invalid secret")
-			return
-		}
-		value := []byte(in.Value)
-		if in.ValueBase64 != "" {
-			value, _ = base64.StdEncoding.DecodeString(in.ValueBase64)
-		}
-		v := s.secrets[store][name]
-		v.Name, v.Value, v.Version, v.UpdatedAt = name, append([]byte(nil), value...), v.Version+1, time.Now().UTC()
-		s.secrets[store][name] = v
-		s.writeMutation(r, w, body, 200, map[string]any{"name": name, "version": v.Version, "updated_at": v.UpdatedAt}, nil, fault)
-		return
-	}
-	if len(p) != nameIndex+1 {
-		s.writeError(w, 404, 1000, "secret not found")
-		return
-	}
-	name := pathUnescape(p[nameIndex])
-	if r.Method == http.MethodGet {
-		v, ok := s.secrets[store][name]
-		if !ok {
-			s.writeError(w, 404, 10004, "secret not found")
-			return
-		}
-		s.envelope(w, 200, map[string]any{"name": name, "version": v.Version, "updated_at": v.UpdatedAt}, nil)
-		return
-	}
-	if r.Method == http.MethodDelete {
-		delete(s.secrets[store], name)
-		s.writeMutation(r, w, body, 200, nil, nil, fault)
-		return
-	}
-	if r.Method == http.MethodPost || r.Method == http.MethodPut {
-		var in struct {
-			Name        string `json:"name"`
-			Value       string `json:"value"`
-			ValueBase64 string `json:"value_base64"`
-		}
-		if json.Unmarshal(body, &in) != nil {
-			s.writeError(w, 400, 1003, "invalid secret")
-			return
-		}
-		if in.Name != "" {
-			name = in.Name
-		}
-		value := []byte(in.Value)
-		if in.ValueBase64 != "" {
-			value, _ = base64.StdEncoding.DecodeString(in.ValueBase64)
-		}
-		old := s.secrets[store][name]
-		old.Name = name
-		old.Value = append([]byte(nil), value...)
-		old.Version++
-		old.UpdatedAt = time.Now().UTC()
-		s.secrets[store][name] = old
-		s.writeMutation(r, w, body, 200, map[string]any{"name": name, "version": old.Version, "updated_at": old.UpdatedAt}, nil, fault)
 		return
 	}
 	s.writeError(w, 405, 1005, "method not allowed")

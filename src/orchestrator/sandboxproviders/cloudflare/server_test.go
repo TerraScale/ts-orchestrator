@@ -118,15 +118,39 @@ func TestEndpointRulesKVWorkersAndSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := doRequest(s, http.MethodPost, "/accounts/a/secrets_store/stores", []byte(`{"name":"secret-test"}`), nil)
-	if store.Code != http.StatusOK {
-		t.Fatalf("secret store status = %d", store.Code)
+	if err := c.CreateSecretStore(t.Context(), "secret-test"); err != nil {
+		t.Fatal(err)
 	}
-	secretBody := []byte(`{"name":"capability-current","value":"never-return-this"}`)
-	secret := doRequest(s, http.MethodPost, "/accounts/a/secrets_store/stores/secret-test/secrets/capability-current", secretBody, nil)
-	if secret.Code != http.StatusOK || strings.Contains(secret.Body.String(), "never-return-this") {
-		t.Fatalf("secret response leaked material: %s", secret.Body)
+	stores, err := c.ListSecretStores(t.Context())
+	if err != nil || len(stores) != 1 {
+		t.Fatalf("stores=%v err=%v", stores, err)
 	}
+	metadata, err := c.CreateSecret(t.Context(), stores[0].ID, cf.SecretInput{Name: "capability-current", Value: "never-return-this", Scopes: []string{"workers"}})
+	if err != nil || metadata.ID == "" || metadata.Name != "capability-current" {
+		t.Fatalf("secret create=%+v err=%v", metadata, err)
+	}
+	replacement := "replacement-private-material"
+	if _, err := c.UpdateSecret(t.Context(), stores[0].ID, metadata.ID, cf.SecretUpdate{Value: &replacement}); err != nil {
+		t.Fatal(err)
+	}
+	secrets, err := c.ListSecretMetadata(t.Context(), stores[0].ID)
+	if err != nil || len(secrets) != 1 {
+		t.Fatalf("secrets=%+v err=%v", secrets, err)
+	}
+	for _, legacy := range []string{"/secrets/capability-current", "/secrets/capability-current/versions", "/secrets/capability-current/versions/1/activate"} {
+		response := doRequest(s, http.MethodPost, "/accounts/a/secrets_store/stores/"+stores[0].ID+legacy, []byte(`{"value_base64":"ignored"}`), nil)
+		if response.Code < 400 {
+			t.Fatal("legacy fake endpoint remains supported")
+		}
+	}
+	if err := c.DeleteSecret(t.Context(), stores[0].ID, metadata.ID); err != nil {
+		t.Fatal(err)
+	}
+	secrets, err = c.ListSecretMetadata(t.Context(), stores[0].ID)
+	if err != nil || len(secrets) != 0 {
+		t.Fatalf("secret delete=%+v err=%v", secrets, err)
+	}
+
 	_ = ts
 }
 
