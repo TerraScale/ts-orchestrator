@@ -42,9 +42,10 @@ type Declaration struct {
 
 // PrivateArtifact stays in a protected per-host directory, never the public bundle.
 type PrivateArtifact struct {
-	Config transitiongrant.Config     `json:"config"`
-	Reader nodeauthority.ReaderConfig `json:"reader"`
-	Files  map[string][]byte          `json:"files"`
+	PlanSHA256 string                     `json:"planSha256"`
+	Config     transitiongrant.Config     `json:"config"`
+	Reader     nodeauthority.ReaderConfig `json:"reader"`
+	Files      map[string][]byte          `json:"files"`
 }
 type Material struct {
 	PrivateArtifact
@@ -65,6 +66,10 @@ func hash(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToStr
 func (p PrivateArtifact) Validate() error {
 	bad := errors.New("vmcandidateseed: candidate private material differs from pinned configuration")
 	c, r := p.Config, p.Reader
+	pin, err := hex.DecodeString(p.PlanSHA256)
+	if err != nil || len(pin) != 32 || hex.EncodeToString(pin) != p.PlanSHA256 {
+		return bad
+	}
 	if c.Validate() != nil || c.Sync == nil || r.Validate() != nil || c.GrantFile != GrantPath || c.GrantPublicKeyFile != OwnerPath || c.Sync.ReceiptPrivateKeyFile != ReceiptKeyPath {
 		return bad
 	}

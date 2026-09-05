@@ -46,12 +46,12 @@ type Store struct {
 // PreliminaryCaptureConfig admits a source-owned local worker. Its credentials
 // are privileged broker credentials, never an externally usable read-only role.
 type PreliminaryCaptureConfig struct {
-	RequestFile      string     `json:"requestFile"`
-	OutputDir        string     `json:"outputDir"`
-	MaxSnapshotBytes int64      `json:"maxSnapshotBytes"`
-	MaxTotalBytes    int64      `json:"maxTotalBytes"`
-	Regional         Connection `json:"regional"`
-	Global           Connection `json:"global"`
+	RequestFile      string                        `json:"requestFile"`
+	OutputDir        string                        `json:"outputDir"`
+	MaxSnapshotBytes int64                         `json:"maxSnapshotBytes"`
+	MaxTotalBytes    int64                         `json:"maxTotalBytes"`
+	Regional         Connection                    `json:"regional"`
+	Global           Connection                    `json:"global"`
 	Publication      *PreliminaryPublicationConfig `json:"publication,omitempty"`
 }
 

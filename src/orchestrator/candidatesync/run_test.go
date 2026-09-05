@@ -23,6 +23,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/preliminarytransfer"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
+	ocifixture "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/ociinstance"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
@@ -77,6 +78,7 @@ type fixture struct {
 	objects     *memoryObjects
 	owner       *security.CommandSignatureSigner
 	ownerPublic []byte
+	source      *security.CommandSignatureSigner
 }
 
 func newFixture(t *testing.T) fixture {
@@ -202,7 +204,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatal(e)
 	}
 	config := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: request.TransitionID, NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-candidate-1", StoreDir: filepath.Join(dir, "final-store"), GrantFile: filepath.Join(dir, "grant.json"), GrantPublicKeyFile: filepath.Join(dir, "owner.pem"), Sync: &transitiongrant.CandidateSyncConfig{AuthorityReaderSHA256: h("2"), RequestFile: filepath.Join(dir, "request.json"), StagingDir: filepath.Join(dir, "stage"), ReceiptDir: filepath.Join(dir, "receipts"), ReceiptPrivateKeyFile: privatePath, ReceiptPublicKeyPEM: string(candidatePublic), MaxSnapshotBytes: scope.MaxSnapshotBytes, MaxTotalBytes: scope.MaxTotalBytes, MaxRestoreBytes: scope.MaxRestoreBytes, Identity: ociinstance.Config{Region: "us-sanjose-1"}}}
-	return fixture{config, verified, objects, owner, ownerPublic}
+	return fixture{config, verified, objects, owner, ownerPublic, source}
 }
 func mustScope(t *testing.T, s preliminarytransfer.Scope) []byte {
 	t.Helper()
@@ -224,7 +226,7 @@ func TestCandidateRestoresAndReverifiesReceipt(t *testing.T) {
 		t.Fatal(e)
 	}
 	r, e := VerifyReceipt([]byte(f.config.Sync.ReceiptPublicKeyPEM), raw)
-	if e != nil || len(r.Objects) != 2 || r.Objects[0].Restore.Consumers[0].AckPending != 1 {
+	if e != nil || len(r.Objects) != 2 || len(r.Objects[0].RestoreSHA256) != 64 {
 		t.Fatalf("receipt %+v %v", r, e)
 	}
 	if _, e = os.Stat(f.config.StoreDir); !os.IsNotExist(e) {
@@ -248,5 +250,238 @@ func TestCandidateRestoresAndReverifiesReceipt(t *testing.T) {
 	}
 	if _, e = run(ctx, f.config, f.verified, f.factory); e == nil {
 		t.Fatal("corrupt immutable staged object accepted")
+	}
+}
+
+func TestCandidateRenewalRetainsReceiptAndRejectsChangedCheckpoint(t *testing.T) {
+	f := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	raw, e := run(ctx, f.config, f.verified, f.factory)
+	if e != nil {
+		t.Fatal(e)
+	}
+	authorization := f.verified.Authorization
+	authorization.IssuedAt = time.Now().UTC()
+	authorization.ExpiresAt = authorization.ExpiresAt.Add(time.Minute)
+	signed, e := preliminarytransfer.SignCandidateAuthorization(f.owner, authorization)
+	if e != nil {
+		t.Fatal(e)
+	}
+	request, e := preliminarytransfer.MarshalRequest(f.verified.Scope.Signed, signed)
+	if e != nil {
+		t.Fatal(e)
+	}
+	renewed, e := preliminarytransfer.VerifyCandidateRequest(f.ownerPublic, request, time.Now())
+	if e != nil {
+		t.Fatal(e)
+	}
+	replay, e := run(ctx, f.config, renewed, f.factory)
+	if e != nil || !bytes.Equal(raw, replay) {
+		t.Fatalf("renewed authorization changed receipt: %v", e)
+	}
+	mappings := []preliminarytransfer.ObjectMapping{}
+	for _, o := range f.verified.Scope.Scope.Objects {
+		if o.Region == "sfo" {
+			mappings = append(mappings, o)
+		}
+	}
+	b, e := startBroker(ctx, filepath.Join(f.config.Sync.StagingDir, "target"), f.config.Sync.MaxRestoreBytes, mappings)
+	if e != nil {
+		t.Fatal(e)
+	}
+	js, _ := jetstream.New(b.connections[mappings[0].Account])
+	stream, e := js.Stream(ctx, mappings[0].Stream)
+	if e != nil {
+		b.close()
+		t.Fatal(e)
+	}
+	consumer, e := stream.Consumer(ctx, "CHECKPOINT")
+	if e != nil {
+		b.close()
+		t.Fatal(e)
+	}
+	batch, e := consumer.Fetch(1, jetstream.FetchMaxWait(time.Second))
+	if e != nil {
+		b.close()
+		t.Fatal(e)
+	}
+	for msg := range batch.Messages() {
+		if e = msg.DoubleAck(ctx); e != nil {
+			b.close()
+			t.Fatal(e)
+		}
+	}
+	b.close()
+	if _, e = run(ctx, f.config, renewed, f.factory); e == nil {
+		t.Fatal("changed persistent consumer checkpoint accepted")
+	}
+	retained, e := os.ReadFile(filepath.Join(f.config.Sync.ReceiptDir, "receipt.json"))
+	if e != nil || !bytes.Equal(retained, raw) {
+		t.Fatal("conflicting replay replaced receipt")
+	}
+}
+func TestCandidateRefusesWrongOwnershipAndMissingPublication(t *testing.T) {
+	for _, test := range []string{"bucket", "publication"} {
+		t.Run(test, func(t *testing.T) {
+			f := newFixture(t)
+			if test == "bucket" {
+				f.objects.bucket.ID = "ocid1.bucket.foreign"
+			} else {
+				delete(f.objects.objects, preliminarytransfer.PublicationKey(f.verified.Scope.Scope))
+			}
+			if _, e := run(context.Background(), f.config, f.verified, f.factory); e == nil {
+				t.Fatal("unproven object store accepted")
+			}
+			if _, e := os.Stat(filepath.Join(f.config.Sync.StagingDir, "target")); !os.IsNotExist(e) {
+				t.Fatal("broker started before publication was proven")
+			}
+		})
+	}
+}
+func TestCandidateRecoversOnlyOwnedTemporaryState(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, e := run(ctx, f.config, f.verified, f.factory); e != nil {
+		t.Fatal(e)
+	}
+	s, e := newStage(f.config.Sync.StagingDir, func() error { return nil })
+	if e != nil {
+		t.Fatal(e)
+	}
+	pin := mustScope(t, f.verified.Scope.Scope)
+	reference, e := newReference(ctx, s, pin)
+	if e != nil {
+		s.close()
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(reference, "interrupted"), []byte("temporary"), 0600); e != nil {
+		s.close()
+		t.Fatal(e)
+	}
+	temporary := filepath.Join(f.config.Sync.StagingDir, ".staging-"+strings.Repeat("a", 32))
+	if e = os.WriteFile(temporary, []byte("incomplete"), 0600); e != nil {
+		s.close()
+		t.Fatal(e)
+	}
+	s.close()
+	if _, e = run(ctx, f.config, f.verified, f.factory); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = os.Stat(temporary); !os.IsNotExist(e) {
+		t.Fatal("owned temporary file was not recovered")
+	}
+	unknown := filepath.Join(f.config.Sync.StagingDir, ".reference-"+strings.Repeat("b", 32))
+	if e = os.Mkdir(unknown, 0700); e != nil {
+		t.Fatal(e)
+	}
+	foreign := filepath.Join(unknown, "foreign")
+	if e = os.WriteFile(foreign, []byte("keep"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = run(ctx, f.config, f.verified, f.factory); e == nil {
+		t.Fatal("unknown reference state accepted")
+	}
+	if raw, e := os.ReadFile(foreign); e != nil || string(raw) != "keep" {
+		t.Fatal("unknown reference state deleted")
+	}
+}
+
+func TestCandidateProductionSDKMTLSReadAndPrivateRestore(t *testing.T) {
+	f := newFixture(t)
+	destination := f.verified.Scope.Scope.Destinations[1]
+	server, e := ocifixture.New(ocifixture.Config{Buckets: []ocifixture.Bucket{{OCIRegion: destination.OCIRegion, Observation: f.objects.bucket}}, MaxObjectBytes: f.config.Sync.MaxSnapshotBytes})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	uploadConfig, uploadKey, e := server.Identity("source-uploader", destination.OCIRegion, "/qualification/source.key")
+	if e != nil {
+		t.Fatal(e)
+	}
+	uploader, e := ociinstance.NewFromConfig(ctx, uploadConfig, func(string) ([]byte, error) { return bytes.Clone(uploadKey), nil })
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer uploader.Close()
+	transport, e := uploader.NewTransport(provider.OCIServiceObjectStorage, f.config.Sync.MaxSnapshotBytes)
+	if e != nil {
+		t.Fatal(e)
+	}
+	put := func(name string, raw []byte) string {
+		t.Helper()
+		response, e := transport.PutObjectBody(ctx, provider.ObjectRef{Namespace: destination.Namespace, Bucket: destination.Bucket, Name: name}, bytes.NewReader(raw), map[string]string{"Content-Type": "application/octet-stream", "If-None-Match": "*", "opc-meta-terrascale-sha256": strings.TrimPrefix(delivery.SHA256Digest(raw), "sha256:")})
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != 200 {
+			body, _ := io.ReadAll(response.Body)
+			t.Fatalf("fixture upload status %d: %s", response.StatusCode, body)
+		}
+		io.Copy(io.Discard, response.Body)
+		return response.Header.Get("ETag")
+	}
+	publicationKey := preliminarytransfer.PublicationKey(f.verified.Scope.Scope)
+	publication, e := preliminarytransfer.CheckPublicationForScope(f.verified.Scope, f.objects.objects[publicationKey])
+	if e != nil {
+		t.Fatal(e)
+	}
+	for i, o := range publication.Objects {
+		if o.Region == "sfo" {
+			publication.Objects[i].ETag = put(o.ObjectKey, f.objects.objects[o.ObjectKey])
+		}
+	}
+	publication.CreatedAt = time.Now().UTC()
+	publicationRaw, e := preliminarytransfer.SignPublicationReceipt(f.source, publication)
+	if e != nil {
+		t.Fatal(e)
+	}
+	put(publicationKey, publicationRaw)
+	uploader.Close()
+	clientKeyFile := filepath.Join(filepath.Dir(f.config.Sync.StagingDir), "oci-client.key")
+	identity, key, e := server.Identity(f.config.NodeID, destination.OCIRegion, clientKeyFile)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(clientKeyFile, key, 0600); e != nil {
+		t.Fatal(e)
+	}
+	f.config.Sync.Identity = identity
+	before := len(server.Requests())
+	raw, e := Run(ctx, f.config, f.verified)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = VerifyReceipt([]byte(f.config.Sync.ReceiptPublicKeyPEM), raw); e != nil {
+		t.Fatal(e)
+	}
+	federation, head, get := 0, 0, 0
+	for _, request := range server.Requests()[before:] {
+		if request.Failure != "" {
+			t.Fatalf("candidate HTTP qualification failure: %+v", request)
+		}
+		if request.Method == "PUT" || request.Method == "DELETE" {
+			t.Fatalf("candidate mutated OCI: %+v", request)
+		}
+		if strings.HasPrefix(request.Host, "auth.") {
+			federation++
+		}
+		if strings.HasPrefix(request.Host, "objectstorage.") {
+			switch request.Method {
+			case "HEAD":
+				head++
+			case "GET":
+				get++
+			}
+		}
+	}
+	if federation != 1 || head != 3 || get != 4 {
+		t.Fatalf("candidate SDK traffic federation=%d HEAD=%d GET=%d", federation, head, get)
+	}
+	if _, e = os.Stat(f.config.StoreDir); !os.IsNotExist(e) {
+		t.Fatal("production sync touched final runtime store")
 	}
 }

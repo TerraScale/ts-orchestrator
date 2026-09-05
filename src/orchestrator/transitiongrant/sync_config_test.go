@@ -30,14 +30,16 @@ func TestCandidateSyncConfigRequiresPinnedIsolatedBoundedInputs(t *testing.T) {
 		t.Fatal("valid candidate sync component rejected")
 	}
 	for name, mutate := range map[string]func(*transitiongrant.CandidateSyncConfig){
-		"reader pin":              func(s *transitiongrant.CandidateSyncConfig) { s.AuthorityReaderSHA256 = "" },
-		"reused ingress":          func(s *transitiongrant.CandidateSyncConfig) { s.RequestFile = s.ReceiptPrivateKeyFile },
-		"staging final overlap":   func(s *transitiongrant.CandidateSyncConfig) { s.StagingDir = config.StoreDir + "/staging" },
-		"receipt staging overlap": func(s *transitiongrant.CandidateSyncConfig) { s.ReceiptDir = s.StagingDir },
-		"receipt public":          func(s *transitiongrant.CandidateSyncConfig) { s.ReceiptPublicKeyPEM = "not a key" },
-		"unbounded restore":       func(s *transitiongrant.CandidateSyncConfig) { s.MaxRestoreBytes = 1 << 40 },
-		"small total":             func(s *transitiongrant.CandidateSyncConfig) { s.MaxTotalBytes = 1 },
-		"unknown OCI region":      func(s *transitiongrant.CandidateSyncConfig) { s.Identity.Region = "unknown" },
+		"preparation grant collision": func(s *transitiongrant.CandidateSyncConfig) { s.RequestFile = config.GrantFile },
+		"preparation owner collision": func(s *transitiongrant.CandidateSyncConfig) { s.ReceiptPrivateKeyFile = config.GrantPublicKeyFile },
+		"reader pin":                  func(s *transitiongrant.CandidateSyncConfig) { s.AuthorityReaderSHA256 = "" },
+		"reused ingress":              func(s *transitiongrant.CandidateSyncConfig) { s.RequestFile = s.ReceiptPrivateKeyFile },
+		"staging final overlap":       func(s *transitiongrant.CandidateSyncConfig) { s.StagingDir = config.StoreDir + "/staging" },
+		"receipt staging overlap":     func(s *transitiongrant.CandidateSyncConfig) { s.ReceiptDir = s.StagingDir },
+		"receipt public":              func(s *transitiongrant.CandidateSyncConfig) { s.ReceiptPublicKeyPEM = "not a key" },
+		"unbounded restore":           func(s *transitiongrant.CandidateSyncConfig) { s.MaxRestoreBytes = 1 << 40 },
+		"small total":                 func(s *transitiongrant.CandidateSyncConfig) { s.MaxTotalBytes = 1 },
+		"unknown OCI region":          func(s *transitiongrant.CandidateSyncConfig) { s.Identity.Region = "unknown" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := config
@@ -60,6 +62,13 @@ func TestCandidateSyncConfigRequiresPinnedIsolatedBoundedInputs(t *testing.T) {
 	component.Configuration = string(badRaw)
 	if _, _, err := transitiongrant.ComponentConfig(component); err == nil {
 		t.Fatal("staging escaped component data volume")
+	}
+	changed.Sync.StagingDir = config.Sync.StagingDir
+	changed.Sync.ReceiptPrivateKeyFile = component.DataVolume + "/receipt.key"
+	badRaw, _ = json.Marshal(changed)
+	component.Configuration = string(badRaw)
+	if _, _, err := transitiongrant.ComponentConfig(component); err == nil {
+		t.Fatal("private receipt key entered writable component data volume")
 	}
 	// A disabled existing declaration retains byte-identical canonical fields.
 	config.Sync = nil

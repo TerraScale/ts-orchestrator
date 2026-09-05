@@ -40,8 +40,12 @@ type Config struct {
 	Buckets        []Bucket
 	MaxObjectBytes int64
 	TokenLifetime  time.Duration
+	BeforeRequest  func(*http.Request)
 }
-type Request struct{ Node, Method, Host, Path string }
+type Request struct {
+	Node, Method, Host, Path string
+	Failure                  string
+}
 type credential struct {
 	region, certificate, key string
 	public                   *rsa.PublicKey
@@ -179,6 +183,12 @@ func (s *Server) issue(name string, server bool) (string, []byte, *rsa.PublicKey
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.BeforeRequest != nil {
+		s.cfg.BeforeRequest(r)
+	}
+	if r.Context().Err() != nil {
+		return
+	}
 	if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 || len(r.TLS.PeerCertificates) == 0 {
 		http.Error(w, "identity required", 403)
 		return
@@ -211,7 +221,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Host == "auth."+credential.region+".oraclecloud.com" && r.URL.Path == "/v1/x509" && r.Method == "POST" {
 		body, err := io.ReadAll(io.LimitReader(r.Body, (256<<10)+1))
-		if err != nil || len(body) > 256<<10 || !verifySignature(r, body, credential.public) {
+		if err != nil || len(body) > 256<<10 || !verifySignature(r, body, credential.public, false) {
+			s.requests[len(s.requests)-1].Failure = "federation signature rejected"
 			http.Error(w, "invalid federation", 403)
 			return
 		}
@@ -219,21 +230,25 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			PublicKey string `json:"publicKey"`
 		}
 		if json.Unmarshal(body, &payload) != nil {
+			s.requests[len(s.requests)-1].Failure = "federation rejected"
 			http.Error(w, "invalid federation payload", 400)
 			return
 		}
 		der, err := base64.StdEncoding.DecodeString(payload.PublicKey)
 		if err != nil {
+			s.requests[len(s.requests)-1].Failure = "federation key rejected"
 			http.Error(w, "invalid federation key", 400)
 			return
 		}
 		parsed, err := x509.ParsePKIXPublicKey(der)
 		if err != nil {
+			s.requests[len(s.requests)-1].Failure = "federation key rejected"
 			http.Error(w, "invalid federation key", 400)
 			return
 		}
 		key, ok := parsed.(*rsa.PublicKey)
 		if !ok {
+			s.requests[len(s.requests)-1].Failure = "federation key rejected"
 			http.Error(w, "invalid federation key", 400)
 			return
 		}
@@ -246,7 +261,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	key := s.sessions[signatureFields(r.Header.Get("Authorization"))["keyId"]]
 	body, err := io.ReadAll(io.LimitReader(r.Body, s.cfg.MaxObjectBytes+1))
-	if err != nil || int64(len(body)) > s.cfg.MaxObjectBytes || key == nil || !verifySignature(r, body, key) {
+	if err != nil || int64(len(body)) > s.cfg.MaxObjectBytes || key == nil || !verifySignature(r, body, key, true) {
 		http.Error(w, "invalid object request", 403)
 		return
 	}
@@ -322,7 +337,7 @@ func signatureFields(value string) map[string]string {
 	}
 	return out
 }
-func verifySignature(r *http.Request, body []byte, key *rsa.PublicKey) bool {
+func verifySignature(r *http.Request, body []byte, key *rsa.PublicKey, requireHost bool) bool {
 	fields := signatureFields(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") || fields["algorithm"] != "rsa-sha256" || fields["version"] != "1" {
 		return false
@@ -349,7 +364,7 @@ func verifySignature(r *http.Request, body []byte, key *rsa.PublicKey) bool {
 		}
 		canonical = append(canonical, name+": "+value)
 	}
-	if !seen["(request-target)"] || !seen["host"] || !seen["date"] {
+	if !seen["(request-target)"] || (requireHost && !seen["host"]) || !seen["date"] {
 		return false
 	}
 	if len(body) > 0 {

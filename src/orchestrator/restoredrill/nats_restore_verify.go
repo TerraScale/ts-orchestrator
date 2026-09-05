@@ -194,7 +194,7 @@ func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstrea
 	}
 	for _, identity := range observed {
 		expected, ok := expectedConsumers[identity.Name]
-		if !ok || identity.MemoryStorage || identity.Durable != expected.Durable {
+		if !ok || identity.MemoryStorage || identity.Durable != expected.Durable || !identity.Created.Equal(expected.Created) {
 			return fail("consumer identity differs")
 		}
 		consumer, err := target.Consumer(ctx, identity.Name)

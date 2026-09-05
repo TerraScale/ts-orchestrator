@@ -99,6 +99,15 @@ func (c Config) Validate() error {
 		return errors.New("transitiongrant: invalid candidate configuration")
 	}
 	if c.Sync != nil {
+		paths := []string{c.Sync.RequestFile, c.Sync.StagingDir, c.Sync.ReceiptDir, c.Sync.ReceiptPrivateKeyFile, c.StoreDir}
+		if c.Sync.Identity.Qualification != nil {
+			paths = append(paths, c.Sync.Identity.Qualification.ClientPrivateKeyFile)
+		}
+		for _, path := range paths {
+			if hostmanifest.PathsOverlap(path, c.GrantFile) || hostmanifest.PathsOverlap(path, c.GrantPublicKeyFile) {
+				return errors.New("transitiongrant: candidate sync path overlaps preparation admission")
+			}
+		}
 		return c.Sync.Validate(c.StoreDir)
 	}
 	return nil

@@ -102,13 +102,55 @@ func matchesMetadataRegion(observed, expected string) bool {
 }
 
 // The signed destination vocabulary is limited to the SDK-pinned commercial
-// realm; other OCI realms require distinct endpoint contracts.
-func validHomeRegion(region string) bool {
-	for _, known := range metadataAliases {
-		if string(known) == region {
-			realm, err := known.RealmID()
-			return err == nil && realm == "oc1"
-		}
-	}
-	return false
+// realm; other OCI realms require distinct endpoint contracts. This static map
+// deliberately avoids SDK region globals, which environment discovery mutates.
+var commercialRegions = map[common.Region]bool{
+	common.RegionAPChuncheon1:    true,
+	common.RegionAPHyderabad1:    true,
+	common.RegionAPMelbourne1:    true,
+	common.RegionAPMumbai1:       true,
+	common.RegionAPOsaka1:        true,
+	common.RegionAPSeoul1:        true,
+	common.RegionAPSydney1:       true,
+	common.RegionAPTokyo1:        true,
+	common.RegionCAMontreal1:     true,
+	common.RegionCAToronto1:      true,
+	common.RegionEUAmsterdam1:    true,
+	common.RegionFRA:             true,
+	common.RegionEUZurich1:       true,
+	common.RegionMEJeddah1:       true,
+	common.RegionMEDubai1:        true,
+	common.RegionSASaopaulo1:     true,
+	common.RegionUKCardiff1:      true,
+	common.RegionLHR:             true,
+	common.RegionIAD:             true,
+	common.RegionPHX:             true,
+	common.RegionSJC1:            true,
+	common.RegionSAVinhedo1:      true,
+	common.RegionSASantiago1:     true,
+	common.RegionILJerusalem1:    true,
+	common.RegionEUMarseille1:    true,
+	common.RegionAPSingapore1:    true,
+	common.RegionMEAbudhabi1:     true,
+	common.RegionEUMilan1:        true,
+	common.RegionEUStockholm1:    true,
+	common.RegionAFJohannesburg1: true,
+	common.RegionEUParis1:        true,
+	common.RegionMXQueretaro1:    true,
+	common.RegionEUMadrid1:       true,
+	common.RegionUSChicago1:      true,
+	common.RegionMXMonterrey1:    true,
+	common.RegionUSSaltlake2:     true,
+	common.RegionSABogota1:       true,
+	common.RegionSAValparaiso1:   true,
+	common.RegionAPSingapore2:    true,
+	common.RegionMERiyadh1:       true,
+	common.RegionAPDelhi1:        true,
+	common.RegionAPBatam1:        true,
+	common.RegionEUMadrid3:       true,
+	common.RegionEUTurin1:        true,
+	common.RegionAPKulai2:        true,
+	common.RegionAFCasablanca1:   true,
 }
+
+func validHomeRegion(region string) bool { return commercialRegions[common.Region(region)] }

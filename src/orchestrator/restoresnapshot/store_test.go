@@ -57,10 +57,11 @@ type roundtrip func(*http.Request) (*http.Response, error)
 func (f roundtrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 type backend struct {
-	mu      sync.Mutex
-	bodies  map[string][]byte
-	puts    int
-	corrupt bool
+	mu       sync.Mutex
+	bodies   map[string][]byte
+	puts     int
+	corrupt  bool
+	afterPut func()
 }
 
 func (b *backend) serve(r *http.Request) (*http.Response, error) {
@@ -87,6 +88,9 @@ func (b *backend) serve(r *http.Request) (*http.Response, error) {
 			}
 			b.bodies[key] = body
 			b.puts++
+			if b.afterPut != nil {
+				b.afterPut()
+			}
 		}
 	case "HEAD", "GET":
 		if !found {

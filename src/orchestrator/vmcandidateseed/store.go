@@ -27,7 +27,7 @@ var invalidStore = errors.New("vmcandidateseed: protected immutable candidate ma
 
 // Generate persists an identity before the owner signs any candidate manifest.
 // A retry reuses the complete prior artifact only when every input still agrees.
-func Generate(directory string, config transitiongrant.Config, d Declaration) (PrivateArtifact, error) {
+func Generate(directory string, config transitiongrant.Config, d Declaration, planSHA256 string) (PrivateArtifact, error) {
 	if config.Sync == nil || config.Sync.ReceiptPublicKeyPEM != "" || config.Sync.AuthorityReaderSHA256 != "" || d.Reader.Validate() != nil {
 		return PrivateArtifact{}, invalidStore
 	}
@@ -38,7 +38,7 @@ func Generate(directory string, config transitiongrant.Config, d Declaration) (P
 	config.Sync = &copied
 	readerRaw, _ := json.Marshal(d.Reader)
 	config.Sync.AuthorityReaderSHA256 = hash(readerRaw)
-	p := PrivateArtifact{Config: config, Reader: d.Reader, Files: map[string][]byte{}}
+	p := PrivateArtifact{PlanSHA256: planSHA256, Config: config, Reader: d.Reader, Files: map[string][]byte{}}
 	defer func() { p.Clear() }()
 	for _, source := range []struct {
 		guest, runner string
@@ -83,6 +83,9 @@ func Generate(directory string, config transitiongrant.Config, d Declaration) (P
 	if err := unix.Mkdirat(root, config.NodeID, 0700); err != nil && !errors.Is(err, unix.EEXIST) {
 		return PrivateArtifact{}, invalidStore
 	}
+	if err := unix.Fsync(root); err != nil {
+		return PrivateArtifact{}, err
+	}
 	dir, err := unix.Openat(root, config.NodeID, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return PrivateArtifact{}, invalidStore
@@ -95,7 +98,7 @@ func Generate(directory string, config transitiongrant.Config, d Declaration) (P
 	if errors.Is(err, unix.ENOENT) {
 		raw, _ := json.Marshal(p)
 		defer clear(raw)
-		if err = installArtifact(dir, raw); err != nil && !errors.Is(err, unix.EEXIST) {
+		if err = installArtifact(dir, artifactName, raw); err != nil && !errors.Is(err, unix.EEXIST) {
 			return PrivateArtifact{}, err
 		}
 		existing, err = readArtifact(dir)
@@ -116,7 +119,7 @@ func sameDeclaration(a, b PrivateArtifact) bool {
 	sb.ReceiptPublicKeyPEM = ""
 	a.Config.Sync = &sa
 	b.Config.Sync = &sb
-	if !a.Config.Equal(b.Config) || a.Reader != b.Reader || len(a.Files) != len(b.Files) {
+	if a.PlanSHA256 != b.PlanSHA256 || !a.Config.Equal(b.Config) || a.Reader != b.Reader || len(a.Files) != len(b.Files) {
 		return false
 	}
 	for path, raw := range a.Files {
@@ -149,6 +152,12 @@ func privateDirectory(path string, create bool) (int, error) {
 			if err := unix.Mkdirat(fd, name, 0700); err != nil && !errors.Is(err, unix.EEXIST) {
 				unix.Close(fd)
 				return -1, invalidStore
+			}
+		}
+		if i == len(parts)-1 && create {
+			if err := unix.Fsync(fd); err != nil {
+				unix.Close(fd)
+				return -1, err
 			}
 		}
 		next, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
@@ -192,7 +201,7 @@ func readArtifact(dir int) (PrivateArtifact, error) {
 	}
 	return p, nil
 }
-func installArtifact(dir int, raw []byte) error {
+func installArtifact(dir int, destination string, raw []byte) error {
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
 		return err
@@ -218,7 +227,7 @@ func installArtifact(dir int, raw []byte) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if err := unix.Renameat2(dir, name, dir, artifactName, unix.RENAME_NOREPLACE); err != nil {
+	if err := unix.Renameat2(dir, name, dir, destination, unix.RENAME_NOREPLACE); err != nil {
 		return err
 	}
 	return unix.Fsync(dir)

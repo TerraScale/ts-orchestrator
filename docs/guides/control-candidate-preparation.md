@@ -28,9 +28,10 @@ configuration, then derives its immutable configuration version. Other
 components retain their independently owner-authorized initial bootstrap
 behavior. The planner neither allocates hosts nor invents artifact identities.
 
-Candidate `config` contains exactly `version` set to `1`, `mode` set to
+Candidate `config` contains `version` set to `1`, `mode` set to
 `prepare-control-candidate`, `transitionId`, `nodeId`, `region`, `serverName`,
-`storeDir`, `grantFile`, and `grantPublicKeyFile`. The Region must be `sfo` or
+`storeDir`, `grantFile`, and `grantPublicKeyFile`, with optional `sync`.
+The Region must be `sfo` or
 `fra`, match its candidate entry, and match the node identity prefix. All paths
 are absolute. The store must be inside the orchestrator component's data
 volume. The grant paths identify host-owned files that will be delivered before
@@ -59,7 +60,10 @@ The unprivileged candidate trusts this fixed root-owned publication. A caller
 cannot replace that trust root with a key path in the component config.
 
 The installed launch is `prepare-control-candidate --config @config`.
-It prints one admission receipt and remains inert. It exits on expiry or
+It prints one admission receipt. With no `sync` configuration it remains inert.
+An owner-signed `sync` configuration permits the separate
+[preliminary download and verification flow](control-preliminary-transfer.md).
+It exits on expiry or
 changed, missing, or invalid published evidence. The receipt proves admitted
 preparation only. It is not broker health or transition completion evidence.
 
@@ -70,7 +74,7 @@ component; it cannot recover unrelated pending commands or extend authority
 for other components. An ordinary runtime epoch permanently retires candidate
 preparation and revokes its public evidence.
 
-Source fencing, consistent inventory capture, independent storage receipts,
-grant-authorized restore and R3 promotion, and final runtime activation remain
+Source fencing, a consistent final cut, grant-authorized authoritative restore
+and R3 promotion, and final runtime activation remain
 separate acceptance work. The preparation command must not be used as a
 successful `add-region` or production qualification result.

@@ -15,15 +15,14 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/preliminarytransfer"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
-	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 const receiptDomain = "TS-CANDIDATE-PRELIMINARY-VERIFICATION-V1\x00"
 
 type ObjectEvidence struct {
-	Object  preliminarytransfer.ObjectMapping    `json:"object"`
-	Restore restoredrill.SnapshotRestoreEvidence `json:"restore"`
+	Object        preliminarytransfer.ObjectMapping `json:"object"`
+	RestoreSHA256 string                            `json:"restoreSha256"`
 }
 type Receipt struct {
 	Version                int              `json:"version"`
@@ -53,7 +52,11 @@ func signReceipt(s *security.CommandSignatureSigner, r Receipt) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(signedReceipt{raw, sig.Bytes()})
+	signed, err := json.Marshal(signedReceipt{raw, sig.Bytes()})
+	if err != nil || len(signed) > preliminarytransfer.MaximumBytes {
+		return nil, errors.New("candidatesync: signed receipt exceeds bound")
+	}
+	return signed, nil
 }
 func canonical(raw []byte, v any) error {
 	if len(raw) == 0 || len(raw) > preliminarytransfer.MaximumBytes {

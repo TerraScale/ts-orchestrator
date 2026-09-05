@@ -1,8 +1,10 @@
 # Control snapshot transition design
 
 Status: the end-to-end transition remains design input and is not implemented
-or production-qualified. The single-stream snapshot envelope and source-local
-preliminary capture described below are implemented. Audited on
+or production-qualified. The single-stream snapshot envelope, preliminary
+capture, OCI publication, and isolated candidate synchronization have executable
+implementations. Their existence does not establish provider or VM qualification.
+The original transition design was audited on
 2026-09-05 against PR-03 in `GOAL.md`. This document describes the required
 end-to-end transition from the temporary GRU standalone R1 to permanent
 GRU/SFO/FRA R3. A snapshot transport helper or an optional restore field alone
@@ -95,8 +97,9 @@ submit its configuration/state to the public restore API, transmit the inner
 archive, and compare the recovered records, allocator/deletion state and
 consumer checkpoints against the admitted manifest and source evidence.
 Envelope acceptance alone cannot satisfy that comparison. Sending the outer
-envelope to NATS is incorrect. The private codec and test restore calls are not
-an executable production transition.
+envelope to NATS is incorrect. The preliminary restore worker described below
+supplies isolated verification copies; it is not an executable production
+transition.
 
 A separate [single-metadata-seed experiment](../evidence/nats-single-metadata-seed-2026-09-05.md)
 did not establish clustered startup with one metadata member on the pinned
@@ -198,11 +201,32 @@ joins the worker before closing the broker. See
 configuration, request planning, status, and retry limits.
 
 These sequential snapshots describe a still-running source. They do not fence
-writers or establish an atomic final cut. The implementation supplies no OCI
-publication, candidate transfer or restore, independently hosted receipt
-channel, or R3 readiness. Candidates still need immutable object identities and
-separately bounded object-read authority through the future transfer path.
-The full storage transition grant and its post-retirement capture lifecycle
+writers or establish an atomic final cut. `plan-preliminary-transfer` signs an
+immutable scope for completed capture bytes, exact GRU/SFO/FRA OCI destinations,
+and the original SFO/FRA preparations. Separate finite authorizations admit
+source publication and each candidate's preliminary download and restore.
+The historical capture epoch remains in every archive. Publication can resume
+under renewed upload authority for the same scope and a nonregressing live
+global epoch, without recapturing or relabeling those bytes.
+
+The optional initial source publication worker observes exact bucket ownership,
+journals provider mutations in GRU's admitted `ORCH_OPERATIONS` store, verifies
+remote bytes, and publishes the source-signed publication receipt to all three
+destinations. Candidates read their own regional bucket through separately
+admitted instance-principal identity. They do not receive the source capture
+credentials or need a source-broker status request to read the publication.
+The source publication journal still resides on the live source; this is not
+the post-retirement mutation or recovery protocol.
+
+An admitted candidate restores each archive into a persistent local target and
+a separate temporary reference broker, with account isolation and no network
+listeners, routes, authority workers, or membership publication. Both brokers
+stop before its signed preliminary receipt is published. Comparing those two
+restores proves consistency with the same archive. It does not independently
+prove equality to the live source API's consumer checkpoints or a final cut.
+See [the transfer guide](../guides/control-preliminary-transfer.md) for the
+actual request and material flow. The full storage transition grant,
+post-retirement capture, authoritative destination activation, and R3 readiness
 remain separate work.
 
 The required durable order is:

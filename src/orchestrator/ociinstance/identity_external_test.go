@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -95,5 +98,69 @@ func TestOfficialInstanceFederationAndLargeScopedObjectsOverMutualTLS(t *testing
 	}
 	if len(server.Requests()) != before {
 		t.Fatal("post-close request reached network")
+	}
+}
+
+func TestFederationRefreshHonorsRequestAndIdentityCancellation(t *testing.T) {
+	for _, cancelIdentity := range []bool{false, true} {
+		t.Run(fmt.Sprint("identity-", cancelIdentity), func(t *testing.T) {
+			var block atomic.Bool
+			entered := make(chan struct{}, 1)
+			server, err := fixture.New(fixture.Config{TokenLifetime: 5*time.Minute + 2*time.Second, BeforeRequest: func(r *http.Request) {
+				if block.Load() && r.Host == "169.254.169.254" {
+					select {
+					case entered <- struct{}{}:
+					default:
+					}
+					<-r.Context().Done()
+				}
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			cfg, key, err := server.Identity("refresh", "sa-saopaulo-1", "/var/lib/qualification/client.key")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lifetime, cancelLife := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelLife()
+			instance, err := ociinstance.NewFromConfig(lifetime, cfg, func(string) ([]byte, error) { return append([]byte(nil), key...), nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer instance.Close()
+			// Cross the SDK's documented five-minute early-refresh threshold.
+			time.Sleep(2100 * time.Millisecond)
+			block.Store(true)
+			requestCtx, cancelRequest := context.WithCancel(context.Background())
+			defer cancelRequest()
+			request, _ := http.NewRequestWithContext(requestCtx, http.MethodGet, "https://objectstorage.sa-saopaulo-1.oraclecloud.com/n/ns/b/bucket", nil)
+			done := make(chan error, 1)
+			go func() { done <- instance.Sign(request) }()
+			select {
+			case <-entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("signing did not refresh expired federation")
+			}
+			if cancelIdentity {
+				cancelLife()
+			} else {
+				cancelRequest()
+			}
+			select {
+			case err := <-done:
+				if err == nil || request.Header.Get("Authorization") != "" {
+					t.Fatal("canceled signing returned credentials")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("federation refresh ignored cancellation")
+			}
+			for _, r := range server.Requests() {
+				if strings.HasPrefix(r.Host, "objectstorage.") {
+					t.Fatal("canceled refresh reached objects")
+				}
+			}
+		})
 	}
 }

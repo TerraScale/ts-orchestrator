@@ -70,3 +70,40 @@ func TestImmutablePublicationReceiptScope(t *testing.T) {
 		}
 	}
 }
+
+func TestRetrySettlesJournalAfterAcceptedUploadLostCompletion(t *testing.T) {
+	store, backend, state, epoch := fixture(t)
+	backend.afterPut = func() { state.mu.Lock(); state.fail = true; state.mu.Unlock() }
+	body := []byte("archive")
+	key := "jetstream/control/archive.epoch-7.snapshot"
+	if err := store.PutAtEpoch(context.Background(), "gru", "snapshots", key, body, 7); err == nil {
+		t.Fatal("lost journal completion reported success")
+	}
+	if backend.puts != 1 {
+		t.Fatal("upload did not reach provider")
+	}
+	state.mu.Lock()
+	state.fail = false
+	state.mu.Unlock()
+	backend.afterPut = nil
+	*epoch = 19
+	if err := store.PutAtEpoch(context.Background(), "gru", "snapshots", key, body, 19); err != nil {
+		t.Fatal(err)
+	}
+	if backend.puts != 1 {
+		t.Fatal("retry rewrote immutable snapshot")
+	}
+	settled := false
+	for _, raw := range state.values {
+		var record provider.ProviderMutationRecord
+		if json.Unmarshal(raw, &record) == nil && record.Intent.Action == "object.put" {
+			settled = true
+			if record.State != provider.MutationSucceeded || record.Intent.Epoch.Value != 19 {
+				t.Fatalf("unsettled journal %+v", record)
+			}
+		}
+	}
+	if !settled {
+		t.Fatal("journal disappeared")
+	}
+}

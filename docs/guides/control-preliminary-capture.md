@@ -2,9 +2,11 @@
 
 The admitted initial GRU seed can capture both control accounts into a bounded
 local staging directory while its ordinary authority remains live. A signed
-receipt identifies the captured envelopes. This is preliminary source evidence.
-It does not synchronize SFO/FRA, upload to OCI, stop source writers, establish a
-final cut, restore a candidate, or qualify R3 or production readiness.
+receipt identifies the captured envelopes. The separate
+[preliminary transfer path](control-preliminary-transfer.md) can publish those
+completed bytes to OCI and restore isolated SFO/FRA verification copies.
+Capture does not stop source writers or establish a final cut. Neither phase
+qualifies R3 or production readiness.
 
 Enable capture in a newly owner-signed seed configuration through the optional
 `preliminaryCapture` object. Existing signed launches gain no new permissions,
@@ -17,6 +19,7 @@ and participants reject this field.
 | `maxSnapshotBytes` | Complete-envelope limit, 1 KiB through 1 GiB |
 | `maxTotalBytes` | Total retained envelope limit, at least `maxSnapshotBytes` and at most 256 GiB |
 | `regional`, `global` | Separate source-held NKey and TLS connection declarations for the two accounts |
+| `publication` | Optional source publication declaration described in the [transfer guide](control-preliminary-transfer.md) |
 
 The broker's exact signed user configuration must admit the capture identities.
 These credentials are privileged. Keep them on the source and never distribute
@@ -127,4 +130,4 @@ GRU can advance between stream captures. Full inventory checks and archive
 readback do not make sequential snapshots an atomic application cut. Preserve
 these artifacts as preliminary evidence and follow the remaining requirements
 in [the control snapshot transition contract](../contracts/control-snapshot-transition.md)
-before claiming final source capture, transfer, restoration, or promotion.
+before claiming final source capture, authoritative restoration, or promotion.

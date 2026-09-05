@@ -55,47 +55,67 @@ func (w *preliminaryPublicationWorker) setStatus(status PreliminaryPublicationSt
 
 func startPreliminaryPublicationWorker(ctx context.Context, admission *initialgrant.Admission, global func() authority.RegionalAuthoritySnapshot) *preliminaryPublicationWorker {
 	w := &preliminaryPublicationWorker{done: make(chan struct{}), status: PreliminaryPublicationStatus{State: "idle"}}
-	go func() {
-		defer close(w.done)
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		var completed []byte
-		var completeStatus PreliminaryPublicationStatus
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			raw, err := initialgrant.ReadPreliminaryUpload(admission.Config().PreliminaryCapture.Publication.RequestFile)
-			if err == nil {
-				if bytes.Equal(raw, completed) {
-					_, err = publicationAuthority(ctx, admission, global, raw)
-					if err == nil {
-						w.setStatus(completeStatus)
-					}
+	go w.run(ctx, time.Second,
+		func() ([]byte, error) {
+			return initialgrant.ReadPreliminaryUpload(admission.Config().PreliminaryCapture.Publication.RequestFile)
+		},
+		func(raw []byte) error { _, err := publicationAuthority(ctx, admission, global, raw); return err },
+		func(raw []byte) error { return w.publish(ctx, admission, global, raw) })
+	return w
+}
+
+// Each verified request gets at most three attempts in this runtime. A fresh
+// signed authorization starts a new budget; missing ingress does not reset it.
+func (w *preliminaryPublicationWorker) run(ctx context.Context, interval time.Duration, read func() ([]byte, error), authorize func([]byte) error, publish func([]byte) error) {
+	defer close(w.done)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var completed []byte
+	var completeStatus PreliminaryPublicationStatus
+	var attempted string
+	var attempts int
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		raw, err := read()
+		if err == nil {
+			err = authorize(raw)
+		}
+		if err == nil {
+			if bytes.Equal(raw, completed) {
+				w.setStatus(completeStatus)
+			} else {
+				digest := preliminarytransfer.Digest(raw)
+				if digest != attempted {
+					attempted, attempts = digest, 0
+				}
+				if attempts >= 3 {
+					err = errors.New("initial control: publication retry budget exhausted")
 				} else {
-					err = w.publish(ctx, admission, global, raw)
+					attempts++
+					err = publish(raw)
 					if err == nil {
 						completed = append([]byte(nil), raw...)
 						completeStatus = w.snapshot()
 					}
 				}
 			}
-			if errors.Is(err, os.ErrNotExist) {
-				w.setStatus(PreliminaryPublicationStatus{State: "idle"})
-			} else if err != nil && ctx.Err() == nil {
-				status := w.snapshot()
-				status.State = "failed"
-				status.Error = "preliminary publication refused or incomplete"
-				w.setStatus(status)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
 		}
-	}()
-	return w
+		if errors.Is(err, os.ErrNotExist) {
+			w.setStatus(PreliminaryPublicationStatus{State: "idle"})
+		} else if err != nil && ctx.Err() == nil {
+			status := w.snapshot()
+			status.State = "failed"
+			status.Error = "preliminary publication refused or incomplete"
+			w.setStatus(status)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func publicationAuthority(ctx context.Context, admission *initialgrant.Admission, global func() authority.RegionalAuthoritySnapshot, raw []byte) (preliminarytransfer.VerifiedUpload, error) {
@@ -109,7 +129,24 @@ func publicationAuthority(ctx context.Context, admission *initialgrant.Admission
 	if err := captureAuthority(global, upload.Authorization.ControlEpoch); err != nil {
 		return preliminarytransfer.VerifiedUpload{}, err
 	}
+	if err := publicationRequestUnchanged(ctx, admission.Config().PreliminaryCapture.Publication.RequestFile, raw); err != nil {
+		return preliminarytransfer.VerifiedUpload{}, err
+	}
 	return upload, nil
+}
+
+func publicationRequestUnchanged(ctx context.Context, path string, raw []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := initialgrant.ReadPreliminaryUpload(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, raw) {
+		return errors.New("initial control: publication request changed")
+	}
+	return ctx.Err()
 }
 
 func (w *preliminaryPublicationWorker) publish(ctx context.Context, admission *initialgrant.Admission, global func() authority.RegionalAuthoritySnapshot, raw []byte) error {

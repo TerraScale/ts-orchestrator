@@ -3,7 +3,10 @@ package candidateplan
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"reflect"
@@ -73,6 +76,11 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 	if len(input.Candidates) != 2 {
 		return bad
 	}
+	canonicalInput, err := json.Marshal(input)
+	if err != nil {
+		return bad
+	}
+	defer clear(canonicalInput)
 	now := time.Now().UTC()
 	if input.IssuedAt.IsZero() || now.Before(input.IssuedAt) || !now.Before(input.ExpiresAt) || !input.BootstrapExpiresAt.After(input.IssuedAt) || input.BootstrapExpiresAt.After(input.ExpiresAt) || !now.Before(input.BootstrapExpiresAt) {
 		return bad
@@ -85,6 +93,11 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 	if err != nil {
 		return bad
 	}
+	planHash := sha256.New()
+	_, _ = planHash.Write(canonicalInput)
+	_, _ = planHash.Write(public)
+	_, _ = planHash.Write(sourceSigned)
+	planSHA256 := hex.EncodeToString(planHash.Sum(nil))
 	proof, err := initialgrant.VerifyProof(input.SourceNodeID, public, sourceSigned)
 	if err != nil || proof == nil || proof.Config().Role != "seed" {
 		return bad
@@ -107,6 +120,14 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 		return bad
 	}
 	defer signer.Close()
+	ownerBlock, _ := pem.Decode(public)
+	if ownerBlock == nil {
+		return bad
+	}
+	ownerSum := sha256.Sum256(ownerBlock.Bytes)
+	if signer.PublicKeyID() != hex.EncodeToString(ownerSum[:]) {
+		return bad
+	}
 	sourceConfig := proof.Config()
 	grant := transitiongrant.Grant{Version: 1, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, Source: transitiongrant.SourceIdentity{NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, InitialGrantSHA256: source.Digest(), StoreScopeSHA256: identity.StoreScopeSHA256}, Peers: []transitiongrant.Peer{{Region: "gru", NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, BootstrapGrantSHA256: source.Digest(), PreparedManifestSHA256: identity.ManifestSHA256}}}
 	bundle := candidatePlanBundle{PublicKeyPEM: string(public)}
@@ -122,7 +143,7 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 			if input.PrivateMaterialDirectory == "" {
 				return bad
 			}
-			material, err := vmcandidateseed.Generate(input.PrivateMaterialDirectory, entry.Config, *entry.SyncGeneration)
+			material, err := vmcandidateseed.Generate(input.PrivateMaterialDirectory, entry.Config, *entry.SyncGeneration, planSHA256)
 			if err != nil {
 				return err
 			}
@@ -174,6 +195,12 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if input.PrivateMaterialDirectory != "" {
+		encoded, err = vmcandidateseed.PersistBundle(input.PrivateMaterialDirectory, planSHA256, encoded)
+		if err != nil {
+			return err
+		}
 	}
 	encoded = append(encoded, '\n')
 	if n, err := output.Write(encoded); err != nil || n != len(encoded) {

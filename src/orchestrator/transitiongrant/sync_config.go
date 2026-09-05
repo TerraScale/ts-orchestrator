@@ -36,6 +36,9 @@ func (s CandidateSyncConfig) Validate(storeDir string) error {
 		return bad
 	}
 	paths := []string{s.RequestFile, s.StagingDir, s.ReceiptDir, s.ReceiptPrivateKeyFile, storeDir}
+	if s.Identity.Qualification != nil {
+		paths = append(paths, s.Identity.Qualification.ClientPrivateKeyFile)
+	}
 	for i, path := range paths {
 		if !hostmanifest.SafeAbsolutePath(path) || path == "/" {
 			return bad
@@ -66,6 +69,15 @@ func (s CandidateSyncConfig) Validate(storeDir string) error {
 
 func (s CandidateSyncConfig) validateComponent(dataVolume string) error {
 	prefix := strings.TrimSuffix(dataVolume, "/") + "/"
+	privatePaths := []string{s.RequestFile, s.ReceiptPrivateKeyFile}
+	if s.Identity.Qualification != nil {
+		privatePaths = append(privatePaths, s.Identity.Qualification.ClientPrivateKeyFile)
+	}
+	for _, path := range privatePaths {
+		if hostmanifest.PathsOverlap(dataVolume, path) {
+			return errors.New("transitiongrant: candidate sync protected file overlaps writable data volume")
+		}
+	}
 	if !strings.HasPrefix(s.StagingDir, prefix) || !strings.HasPrefix(s.ReceiptDir, prefix) {
 		return errors.New("transitiongrant: candidate sync storage escapes dedicated data volume")
 	}

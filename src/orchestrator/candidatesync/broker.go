@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
@@ -15,6 +17,7 @@ import (
 )
 
 type privateBroker struct {
+	once        sync.Once
 	server      *natsserver.Server
 	connections map[string]*nats.Conn
 }
@@ -23,11 +26,13 @@ func (b *privateBroker) close() {
 	if b == nil {
 		return
 	}
-	for _, c := range b.connections {
-		c.Close()
-	}
-	b.server.Shutdown()
-	b.server.WaitForShutdown()
+	b.once.Do(func() {
+		for _, c := range b.connections {
+			c.Close()
+		}
+		b.server.Shutdown()
+		b.server.WaitForShutdown()
+	})
 }
 func startBroker(ctx context.Context, path string, maximum int64, objects []preliminarytransfer.ObjectMapping) (result *privateBroker, err error) {
 	if err = ctx.Err(); err != nil {
@@ -48,6 +53,9 @@ func startBroker(ctx context.Context, path string, maximum int64, objects []prel
 		accounts[o.Account] = a
 		options.Accounts = append(options.Accounts, a)
 		options.Users = append(options.Users, &natsserver.User{Username: o.Account, Password: password, Account: a})
+	}
+	if err = knownBrokerLayout(path, accounts); err != nil {
+		return nil, err
 	}
 	s, err := natsserver.NewServer(options)
 	if err != nil {
@@ -100,4 +108,37 @@ func startBroker(ctx context.Context, path string, maximum int64, objects []prel
 		}
 	}
 	return b, nil
+}
+
+func knownBrokerLayout(path string, accounts map[string]*natsserver.Account) error {
+	levels := []struct {
+		path    string
+		allowed map[string]bool
+	}{
+		{path, map[string]bool{"scope.json": true, "data": true}},
+		{filepath.Join(path, "data"), map[string]bool{"jetstream": true}},
+	}
+	allowed := map[string]bool{}
+	for name := range accounts {
+		allowed[name] = true
+	}
+	levels = append(levels, struct {
+		path    string
+		allowed map[string]bool
+	}{filepath.Join(path, "data", "jetstream"), allowed})
+	for _, level := range levels {
+		entries, e := os.ReadDir(level.path)
+		if os.IsNotExist(e) {
+			continue
+		}
+		if e != nil {
+			return e
+		}
+		for _, entry := range entries {
+			if !level.allowed[entry.Name()] {
+				return errors.New("candidatesync: unknown persistent broker account or layout")
+			}
+		}
+	}
+	return nil
 }

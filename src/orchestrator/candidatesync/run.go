@@ -135,6 +135,15 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 		return nil, err
 	}
 	needed := uint64(scope.MaxRestoreBytes)*2 + uint64(total) + uint64(scope.MaxSnapshotBytes) + (16 << 20)
+	occupied, err := allocatedStageBytes(stage)
+	if err != nil {
+		return nil, err
+	}
+	if occupied < needed {
+		needed -= occupied
+	} else {
+		needed = 0
+	}
 	if stat.Bsize <= 0 || stat.Bavail < needed/uint64(stat.Bsize)+1 {
 		return nil, errors.New("candidatesync: physical staging reservation unavailable")
 	}
@@ -153,7 +162,7 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 		return nil, errors.New("candidatesync: publication HEAD unavailable")
 	}
 	publicationBody, publicationMeta, err := reader.GetObject(ctx, publicationRef)
-	if err != nil {
+	if err != nil || publicationBody == nil {
 		return nil, errors.New("candidatesync: publication GET unavailable")
 	}
 	publicationRaw, err := io.ReadAll(io.LimitReader(publicationBody, preliminarytransfer.MaximumBytes+1))
@@ -192,7 +201,7 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 			return nil, errors.New("candidatesync: exact object HEAD differs")
 		}
 		body, meta, e := reader.GetObject(ctx, ref)
-		if e != nil {
+		if e != nil || body == nil {
 			return nil, errors.New("candidatesync: exact object GET unavailable")
 		}
 		raw, e := io.ReadAll(io.LimitReader(body, o.Size+1))
@@ -219,7 +228,7 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 	if err = ensureTarget(stage, targetPath, check); err != nil {
 		return nil, err
 	}
-	referencePath, err := os.MkdirTemp(fmt.Sprintf("/proc/self/fd/%d", stage.dir.Fd()), ".reference-")
+	referencePath, err := newReference(ctx, stage, scopePin)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +263,11 @@ func run(ctx context.Context, c transitiongrant.Config, v preliminarytransfer.Ve
 		if !restoredrill.SameSnapshotRestoreEvidence(expected, actual) {
 			return nil, errors.New("candidatesync: persistent target restore differs from reference")
 		}
-		receipt.Objects = append(receipt.Objects, ObjectEvidence{o, actual})
+		evidenceRaw, e := json.Marshal(actual)
+		if e != nil {
+			return nil, e
+		}
+		receipt.Objects = append(receipt.Objects, ObjectEvidence{o, preliminarytransfer.Digest(evidenceRaw)})
 	}
 	// No signature or completed receipt is possible while either broker runs.
 	target.close()
@@ -334,7 +347,26 @@ func pinStage(ctx context.Context, s *stage, pin []byte, allowed map[string]bool
 	if err != nil {
 		return err
 	}
+	if !found {
+		for _, entry := range entries {
+			if entry.Name() != ".lock" && !temporaryName(entry.Name(), ".staging-") {
+				return errors.New("candidatesync: unpinned staging state retained")
+			}
+		}
+	}
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".staging-") {
+			if err := recoverTemporary(ctx, s, entry.Name()); err != nil {
+				return err
+			}
+			continue
+		}
+		if found && allowed["target"] && strings.HasPrefix(entry.Name(), ".reference-") {
+			if err := recoverReference(ctx, s, entry.Name(), pin); err != nil {
+				return err
+			}
+			continue
+		}
 		if !allowed[entry.Name()] || (!found && entry.Name() != ".lock") {
 			return errors.New("candidatesync: unknown or unpinned staging state")
 		}
