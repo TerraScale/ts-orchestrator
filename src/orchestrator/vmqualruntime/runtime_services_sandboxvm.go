@@ -101,12 +101,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	}
 	var engineSeeds map[string]*vmengineconfig.Material
 	if config.TerraBaseDeclarationFile != "" {
-		var bindings []vmengineconfig.Binding
-		for _, region := range plan.Regions {
-			for _, guest := range region.Guests {
-				bindings = append(bindings, vmengineconfig.Binding{NodeID: guest.ID, Region: string(region.Code), Address: guest.Address})
-			}
-		}
+		bindings := launchEngineBindings(plan)
 		for _, artifact := range artifacts {
 			if artifact.manifest.Component == "terrabase" {
 				engineSeeds, err = vmengineconfig.Load(config.TerraBaseDeclarationFile, artifact.manifest.SHA256, artifact.manifest.Version, bindings)
@@ -183,6 +178,22 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	}
 	cleanupArtifacts = false
 	return services, nil
+}
+
+// launchEngineBindings excludes the reserved fourth-Region fault network.
+func launchEngineBindings(plan vmnet.NetworkPlan) []vmengineconfig.Binding {
+	var bindings []vmengineconfig.Binding
+	for _, region := range plan.Regions {
+		// The full suite reserves IAD networking for a later expansion
+		// scenario. It is not part of the initial engine placement.
+		if region.Code == vmqual.FourthRegion {
+			continue
+		}
+		for _, guest := range region.Guests {
+			bindings = append(bindings, vmengineconfig.Binding{NodeID: guest.ID, Region: string(region.Code), Address: guest.Address})
+		}
+	}
+	return bindings
 }
 
 func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {

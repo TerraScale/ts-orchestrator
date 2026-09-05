@@ -20,7 +20,9 @@ import (
 )
 
 func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
-	plan, err := vmnet.Plan(vmnet.DefaultConfig())
+	networkConfig := vmnet.DefaultConfig()
+	networkConfig.Regions = append(networkConfig.Regions, vmnet.RegionSpec{Code: vmqual.FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
+	plan, err := vmnet.Plan(networkConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +59,9 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer issuer.Close()
-	var bindings []vmengineconfig.Binding
-	for _, region := range plan.Regions {
-		for _, guest := range region.Guests {
-			bindings = append(bindings, vmengineconfig.Binding{NodeID: guest.ID, Region: string(region.Code), Address: guest.Address})
-		}
+	bindings := launchEngineBindings(plan)
+	if len(bindings) != 6 {
+		t.Fatal("reserved expansion network changed launch placement")
 	}
 	_, declaration := testengineconfig.Declaration(t, bindings, strings.Repeat("b", 64), "1.0.0")
 	engineSeeds, err := vmengineconfig.Load(declaration, strings.Repeat("b", 64), "1.0.0", bindings)
