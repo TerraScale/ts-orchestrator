@@ -16,10 +16,6 @@ const NKeyPath = Directory + "/regional/user.seed"
 const GlobalNKeyPath = Directory + "/global/user.seed"
 const RegionalProvisionerNKeyPath = Directory + "/regional/provisioner.seed"
 const GlobalProvisionerNKeyPath = Directory + "/global/provisioner.seed"
-const RegionalSnapshotNKeyPath = Directory + "/regional/snapshot-reader.seed"
-const GlobalSnapshotNKeyPath = Directory + "/global/snapshot-reader.seed"
-const SnapshotCertificatePath = Directory + "/snapshot/client.pem"
-const SnapshotPrivateKeyPath = Directory + "/snapshot/client.key"
 const CAPath = Directory + "/regional/ca.pem"
 const CertificatePath = Directory + "/regional/client.pem"
 const PrivateKeyPath = Directory + "/regional/client.key"
@@ -37,7 +33,7 @@ const RegionalAccount = "GRU_REGIONAL"
 
 func IsFilePath(path string) bool {
 	switch path {
-	case RegionalSnapshotNKeyPath, GlobalSnapshotNKeyPath, SnapshotCertificatePath, SnapshotPrivateKeyPath, NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
+	case NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
 		return true
 	}
 	return false

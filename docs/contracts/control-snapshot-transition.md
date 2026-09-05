@@ -48,6 +48,15 @@ original capture time. Missing, corrupt or unreadable bodies fail even when
 HEAD claims success. The returned snapshot identity therefore describes a
 verified stored envelope, not merely an acknowledged upload.
 
+The snapshot client validates the pinned server's chunk protocol before
+publishing an acknowledgement. Full 1 MiB chunks require the exact stream,
+one stable 22-character nonce, matching byte count, and increasing index in
+`$JS.SNAPSHOT.ACK.<stream>.<nonce>.<bytes>.<index>`. A short final chunk has no
+reply. Completion after full chunks requires status 204; small snapshots end
+with an empty message without headers. Error statuses, reply substitution,
+changed nonces, malformed counters, and data after a short tail fail before
+an object is published. Envelope validation remains a separate requirement.
+
 Fresh empty streams and purged streams with a nonzero sequence allocator are
 supported. `TestNATSSnapshotEmptyStreamsPreserveAllocatorAndConsumer` restores
 both through the public NATS API into an independent file-backed broker using
@@ -139,6 +148,24 @@ epoch or treats an old runtime lease as fresh. Ordinary pending commands retain
 their fresh-authorization requirement. Expiration refuses unfinished effects;
 it cannot restore the old authoritative R1. Completed runtime service uses
 ordinary authority, not the expired transition grant.
+
+Raw NATS snapshot permission is not a read-only capability. In the pinned
+server, `jsStreamSnapshotRequest` checks that `deliver_subject` is a valid
+publish subject, then `streamSnapshot` publishes archive chunks internally
+to that subject. A client's publish allowlist does not constrain this request
+field. Do not issue candidate-held source-account snapshot credentials on the
+assumption that denying ordinary publication makes them nonmutating.
+The proposed snapshot-reader fields and generated credentials were removed.
+Existing signed source configurations retain their original rights.
+
+A source-owned snapshot worker must keep its explicitly admitted privileged
+credentials private, accept a typed transition request, derive the admitted
+inventory, and choose its own reserved delivery inbox. Its ingress must not
+forward caller-selected source-account reply or delivery subjects. Candidates
+receive immutable object identities and separately bounded object-read
+authority. The worker, isolated ingress, transfer declarations, and independent
+receipt path remain to be implemented. Client chunk validation alone does not
+provide this source-side authorization boundary.
 
 The required durable order is:
 

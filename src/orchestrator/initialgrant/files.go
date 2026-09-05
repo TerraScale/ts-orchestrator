@@ -286,13 +286,6 @@ func verifyMaterial(c Config) error {
 				return err
 			}
 		}
-		for _, conn := range []*Connection{c.Regional.SnapshotReader, c.Global.SnapshotReader} {
-			if conn != nil {
-				if err := verifyConnection(*conn); err != nil {
-					return err
-				}
-			}
-		}
 	}
 	raw, err := readMaterial(c.Membership.PinsFile, 64<<10, false)
 	if err != nil {

@@ -129,9 +129,6 @@ func (m Material) Validate() error {
 		if provisioner {
 			cert, key = ProvisionerCertificatePath, ProvisionerPrivateKeyPath
 		}
-		if path == RegionalSnapshotNKeyPath || path == GlobalSnapshotNKeyPath {
-			cert, key = SnapshotCertificatePath, SnapshotPrivateKeyPath
-		}
 		return checkTLS(c.TLS, cert, key, false)
 	}
 	if err := checkConnection(config.Regional.Runtime, NKeyPath, false); err != nil {
@@ -148,19 +145,6 @@ func (m Material) Validate() error {
 		}{{*config.Regional.Provisioner, RegionalProvisionerNKeyPath, true}, {*config.Global.Provisioner, GlobalProvisionerNKeyPath, true}, {config.Global.Runtime, GlobalNKeyPath, false}} {
 			if err := checkConnection(entry.connection, entry.path, entry.provisioner); err != nil {
 				return err
-			}
-		}
-		if config.Regional.SnapshotReader != nil {
-			for _, entry := range []struct {
-				connection initialgrant.Connection
-				path       string
-			}{{*config.Regional.SnapshotReader, RegionalSnapshotNKeyPath}, {*config.Global.SnapshotReader, GlobalSnapshotNKeyPath}} {
-				if err := checkConnection(entry.connection, entry.path, false); err != nil {
-					return err
-				}
-			}
-			if bytes.Equal(tlsPublic[SnapshotCertificatePath], tlsPublic[CertificatePath]) || bytes.Equal(tlsPublic[SnapshotCertificatePath], tlsPublic[ProvisionerCertificatePath]) {
-				return bad()
 			}
 		}
 		if bytes.Equal(tlsPublic[CertificatePath], tlsPublic[ProvisionerCertificatePath]) {

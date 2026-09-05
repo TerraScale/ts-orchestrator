@@ -40,9 +40,6 @@ type Store struct {
 	Account     string      `json:"account"`
 	Provisioner *Connection `json:"provisioner"`
 	Runtime     Connection  `json:"runtime"`
-	// SnapshotReader is an explicit seed-only capability. Omitting it preserves
-	// the original signed broker's user set and permissions.
-	SnapshotReader *Connection `json:"snapshotReader,omitempty"`
 }
 type Broker struct {
 	Configuration      string   `json:"configuration"`
@@ -144,13 +141,7 @@ func (c Config) Validate() error {
 		if c.Instance != c.SeedInstance || c.Global == nil || c.Regional.Provisioner == nil || c.Global.Provisioner == nil || !c.Regional.Provisioner.valid() || !c.Global.Provisioner.valid() || !c.Global.Runtime.valid() || c.Global.Account == "" || c.Global.Account == c.Regional.Account || !c.Broker.TLS.valid() || !json.Valid([]byte(c.Broker.Configuration)) || len(c.Broker.Configuration) > 32<<10 {
 			return bad()
 		}
-		if (c.Regional.SnapshotReader == nil) != (c.Global.SnapshotReader == nil) {
-			return bad()
-		}
-		if c.Regional.SnapshotReader != nil && (!c.Regional.SnapshotReader.valid() || !c.Global.SnapshotReader.valid()) {
-			return bad()
-		}
-	} else if c.Instance == c.SeedInstance || c.Global != nil || c.Regional.Provisioner != nil || c.Regional.SnapshotReader != nil || c.Broker.Configuration != "" || c.Broker.TLS != (TLSFiles{}) {
+	} else if c.Instance == c.SeedInstance || c.Global != nil || c.Regional.Provisioner != nil || c.Broker.Configuration != "" || c.Broker.TLS != (TLSFiles{}) {
 		return bad()
 	}
 	if len(c.Peers) < 1 || len(c.Peers) > 3 {
@@ -191,10 +182,7 @@ func (c Config) Validate() error {
 		return bad()
 	}
 	if c.Role == "seed" {
-		for _, conn := range []*Connection{c.Regional.Provisioner, c.Global.Provisioner, c.Regional.SnapshotReader, c.Global.SnapshotReader} {
-			if conn == nil {
-				continue
-			}
+		for _, conn := range []*Connection{c.Regional.Provisioner, c.Global.Provisioner} {
 			if keys[conn.PublicNKey] {
 				return bad()
 			}

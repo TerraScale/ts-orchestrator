@@ -196,7 +196,7 @@ func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, 
 		return nil, natsSnapshotResponse{}, err
 	}
 	payload, err := json.Marshal(natsSnapshotRequest{
-		DeliverSubject: inbox, NoConsumers: false, ChunkSize: 1 << 20, CheckMessages: true,
+		DeliverSubject: inbox, NoConsumers: false, ChunkSize: snapshotChunkBytes, CheckMessages: true,
 	})
 	if err != nil {
 		return nil, natsSnapshotResponse{}, err
@@ -221,12 +221,17 @@ func (s *NATSJetStreamSnapshotter) streamSnapshot(ctx context.Context) ([]byte, 
 	}
 
 	var snapshot bytes.Buffer
+	transfer := snapshotTransfer{stream: s.stream}
 	for {
 		message, err := subscription.NextMsgWithContext(ctx)
 		if err != nil {
 			return nil, natsSnapshotResponse{}, err
 		}
-		if len(message.Data) == 0 {
+		complete, err := transfer.accept(message)
+		if err != nil {
+			return nil, natsSnapshotResponse{}, err
+		}
+		if complete {
 			break
 		}
 		if int64(snapshot.Len()) > s.maxBytes-int64(len(message.Data)) {

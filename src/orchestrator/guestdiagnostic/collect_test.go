@@ -1,4 +1,4 @@
-package vmqualruntime
+package guestdiagnostic
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func TestStartupDiagnosticsCaptureBeforeStopAndNeverRetainRawText(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	cause := errors.New("startup failed")
-	err := retainStartupFailure(ctx, runner, cause, func(stopCtx context.Context) error {
+	err := RetainStartupFailure(ctx, runner, cause, func(stopCtx context.Context) error {
 		if stopCtx.Err() != nil {
 			t.Fatal("stop inherited cancellation")
 		}
@@ -78,7 +78,7 @@ func TestStartupDiagnosticsUnavailableStillStops(t *testing.T) {
 			}
 			stopped := false
 			started := time.Now()
-			err := retainStartupFailure(context.Background(), runner, errors.New("not ready"), func(context.Context) error { stopped = true; return nil })
+			err := RetainStartupFailure(context.Background(), runner, errors.New("not ready"), func(context.Context) error { stopped = true; return nil })
 			if !stopped || calls > 1 || time.Since(started) > time.Second {
 				t.Fatal("unavailable channel blocked cleanup")
 			}
@@ -93,7 +93,7 @@ func TestStartupDiagnosticTimeoutStillStops(t *testing.T) {
 	stopped := false
 	runner := startupDiagnosticRunner(func(ctx context.Context, _ sandboxvm.Command) error { <-ctx.Done(); return ctx.Err() })
 	started := time.Now()
-	_ = retainStartupFailure(context.Background(), runner, errors.New("not ready"), func(ctx context.Context) error { stopped = true; return ctx.Err() })
+	_ = RetainStartupFailure(context.Background(), runner, errors.New("not ready"), func(ctx context.Context) error { stopped = true; return ctx.Err() })
 	elapsed := time.Since(started)
 	if !stopped || elapsed > 4*time.Second {
 		t.Fatalf("diagnostics exceeded cleanup delay bound: %s", elapsed)
