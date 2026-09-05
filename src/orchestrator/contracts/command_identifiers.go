@@ -1,5 +1,4 @@
-// Package contracts defines the frozen command identifiers shared by the
-// protocol and control packages.
+// Package contracts defines shared command identifiers and wire text bounds.
 package contracts
 
 import "strings"

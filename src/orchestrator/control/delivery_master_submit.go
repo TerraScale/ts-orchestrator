@@ -11,6 +11,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
@@ -135,7 +136,7 @@ func (m *MasterDelivery) Submit(ctx context.Context, wire []byte) (*MasterDelive
 		if err := m.checkMaster(ctx, record, epoch); err != nil {
 			return receipt(), err
 		}
-		subject, err := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(child.Cell)
+		subject, err := natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject(child.Cell)
 		if err != nil {
 			return receipt(), err
 		}

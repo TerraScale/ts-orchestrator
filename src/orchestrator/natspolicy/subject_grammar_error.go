@@ -1,4 +1,6 @@
-package protocol
+package natspolicy
+
+import "terrascale.tech/orchestrator/src/orchestrator/contracts"
 
 import (
 	"strconv"
@@ -72,7 +74,7 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 		return nil, SubjectGrammarErrorEmpty
 	}
 
-	if utf16CodeUnitCount(value) > limits.MaximumSubjectLength {
+	if contracts.UTF16CodeUnitCount(value) > limits.MaximumSubjectLength {
 		return nil, SubjectGrammarErrorSubjectTooLong
 	}
 

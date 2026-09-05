@@ -34,7 +34,7 @@ import (
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // InvalidOperationError reports an operation invalid for the current state.
@@ -162,7 +162,7 @@ func nodeCommandSubject(nodeId NodeId, leaf string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return protocol.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, identity, leaf)
+	return natspolicy.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, identity, leaf)
 }
 
 // nodeObservationSubject builds one v1 observation subject published by one
@@ -172,7 +172,7 @@ func nodeObservationSubject(nodeId NodeId, leaf string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return protocol.NatsSubjectTaxonomy.HostAgentObservationSubject(cell, identity, leaf)
+	return natspolicy.NatsSubjectTaxonomy.HostAgentObservationSubject(cell, identity, leaf)
 }
 
 // NodeDrainSubject builds the request-reply drain subject of a node.

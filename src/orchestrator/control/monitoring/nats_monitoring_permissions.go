@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // NatsMonitoringSubjects lists the exact, minimum $SYS read subjects the
@@ -165,22 +165,22 @@ type natsMonitoringPermissionsForbidden struct{}
 // ControlPublish returns the control-work subjects — regional command and
 // internal journal subjects for every cell.
 func (natsMonitoringPermissionsForbidden) ControlPublish(cell string) []string {
-	direct, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(cell)
-	create, _ := protocol.NatsSubjectTaxonomy.OperationJournalCreateSubject(cell)
-	update, _ := protocol.NatsSubjectTaxonomy.OperationJournalUpdateSubject(cell)
-	desired, _ := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
-		cell, protocol.NatsSubjectTaxonomy.DesiredFamilySegment())
-	observation, _ := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
-		cell, protocol.NatsSubjectTaxonomy.ObservationFamilySegment())
+	direct, _ := natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject(cell)
+	create, _ := natspolicy.NatsSubjectTaxonomy.OperationJournalCreateSubject(cell)
+	update, _ := natspolicy.NatsSubjectTaxonomy.OperationJournalUpdateSubject(cell)
+	desired, _ := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern(
+		cell, natspolicy.NatsSubjectTaxonomy.DesiredFamilySegment())
+	observation, _ := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern(
+		cell, natspolicy.NatsSubjectTaxonomy.ObservationFamilySegment())
 
 	return []string{direct, create, update, desired, observation}
 }
 
 func (natsMonitoringPermissionsForbidden) GlobalControlPublish() []string {
 	return []string{
-		protocol.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>",
-		protocol.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".>",
-		protocol.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
+		natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>",
+		natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".>",
+		natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
 	}
 }
 
@@ -212,10 +212,10 @@ func (natsMonitoringPermissionsForbidden) SecretAndJournalReads() []string {
 func (natsMonitoringPermissionsForbidden) ProductPlane() []string {
 	return []string{
 		"product.>",
-		protocol.NatsSubjectTaxonomy.Root() + "." +
-			protocol.NatsSubjectTaxonomy.RegionalAuditPrefixSegment() + ".>",
-		protocol.NatsSubjectTaxonomy.Root() + "." +
-			protocol.NatsSubjectTaxonomy.RegionalAgentPrefixSegment() + ".>",
+		natspolicy.NatsSubjectTaxonomy.Root() + "." +
+			natspolicy.NatsSubjectTaxonomy.RegionalAuditPrefixSegment() + ".>",
+		natspolicy.NatsSubjectTaxonomy.Root() + "." +
+			natspolicy.NatsSubjectTaxonomy.RegionalAgentPrefixSegment() + ".>",
 	}
 }
 

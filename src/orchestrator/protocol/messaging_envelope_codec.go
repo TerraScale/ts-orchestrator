@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"bytes"
 	"encoding/json"
@@ -26,9 +28,9 @@ type messagingSourceDocument struct {
 }
 
 type messagingTargetDocument struct {
-	Namespace NatsSubjectNamespace `json:"namespace"`
-	Subject   string               `json:"subject"`
-	Cell      *string              `json:"cell,omitempty"`
+	Namespace natspolicy.NatsSubjectNamespace `json:"namespace"`
+	Subject   string                          `json:"subject"`
+	Cell      *string                         `json:"cell,omitempty"`
 }
 
 type messagingTraceContextDocument struct {
@@ -69,7 +71,7 @@ func MarshalMessagingEnvelope(envelope *MessagingEnvelope, payload any) ([]byte,
 		return nil, errors.New("messaging envelope payload is invalid")
 	}
 	document := messagingEnvelopeDocument{
-		ProtocolRoot: NatsSubjectTaxonomy.Root(),
+		ProtocolRoot: natspolicy.NatsSubjectTaxonomy.Root(),
 		SchemaVersion: messagingSchemaVersionDocument{
 			Major: envelope.SchemaVersion.Major,
 			Minor: envelope.SchemaVersion.Minor,
@@ -127,7 +129,7 @@ func UnmarshalMessagingEnvelope(document []byte, subject string, permittedPayloa
 	if err := ensureMessagingEnvelopeEOF(decoder); err != nil {
 		return nil, nil, errors.New("messaging envelope document is invalid")
 	}
-	if decoded.ProtocolRoot != NatsSubjectTaxonomy.Root() || decoded.Target.Subject != subject ||
+	if decoded.ProtocolRoot != natspolicy.NatsSubjectTaxonomy.Root() || decoded.Target.Subject != subject ||
 		len(decoded.Payload) == 0 || bytes.Equal(decoded.Payload, []byte("null")) {
 		return nil, nil, errors.New("messaging envelope protocol binding is invalid")
 	}

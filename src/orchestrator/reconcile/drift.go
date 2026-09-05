@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // CellEventsStream is the regional replayable observation history the drift
@@ -40,7 +40,7 @@ func NewNatsDriftSink(cell string, publisher JetStreamPublisher) (*NatsDriftSink
 	if publisher == nil {
 		return nil, fmt.Errorf("reconcile: drift publisher is nil")
 	}
-	subject, err := protocol.NatsSubjectTaxonomy.EstateDriftSubject(cell)
+	subject, err := natspolicy.NatsSubjectTaxonomy.EstateDriftSubject(cell)
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: estate drift subject for %q: %w", cell, err)
 	}

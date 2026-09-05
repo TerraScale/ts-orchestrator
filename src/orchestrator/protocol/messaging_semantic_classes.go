@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import "strconv"
 
 // MessagingSemanticClass is the set of five message semantic classes of the
@@ -46,15 +48,15 @@ func (c MessagingSemanticClass) String() string {
 // SemanticClassRule is one declarative subject-to-semantic-class mapping.
 type SemanticClassRule struct {
 	SubjectPattern string
-	Namespace      NatsSubjectNamespace
+	Namespace      natspolicy.NatsSubjectNamespace
 	SemanticClass  MessagingSemanticClass
 	LossMeaning    string
 
-	compiled *SubjectPermissionPattern
+	compiled *natspolicy.SubjectPermissionPattern
 }
 
 // Matches reports whether the concrete subject matches the rule's pattern.
-func (r *SemanticClassRule) Matches(subject *ConcreteSubject) bool {
+func (r *SemanticClassRule) Matches(subject *natspolicy.ConcreteSubject) bool {
 	return r.compiled != nil && r.compiled.Matches(subject)
 }
 
@@ -82,11 +84,11 @@ func (messagingSemanticClasses) StoreRules() []StoreClassRule { return semanticC
 
 // TryClassifySubject classifies one concrete subject; unknown shapes fail
 // closed with false.
-func (messagingSemanticClasses) TryClassifySubject(subject string) (MessagingSemanticClass, NatsSubjectNamespace, bool) {
+func (messagingSemanticClasses) TryClassifySubject(subject string) (MessagingSemanticClass, natspolicy.NatsSubjectNamespace, bool) {
 	semanticClass := MessagingSemanticClassUnspecified
-	ns := NatsSubjectTaxonomy.Classify(subject)
-	concrete, err := ConcreteSubjectTryParse(subject, NatsSubjectTaxonomy.GrammarLimits())
-	if err != SubjectGrammarErrorNone || concrete == nil {
+	ns := natspolicy.NatsSubjectTaxonomy.Classify(subject)
+	concrete, err := natspolicy.ConcreteSubjectTryParse(subject, natspolicy.NatsSubjectTaxonomy.GrammarLimits())
+	if err != natspolicy.SubjectGrammarErrorNone || concrete == nil {
 		return semanticClass, ns, false
 	}
 
@@ -103,9 +105,9 @@ func (messagingSemanticClasses) TryClassifySubject(subject string) (MessagingSem
 // closed NATS permission grammar: * is one token and a terminal > is a
 // multi-token prefix.
 func (messagingSemanticClasses) Matches(pattern, subject string) bool {
-	compiled, patternErr := SubjectPermissionPatternTryParse(pattern, NatsSubjectTaxonomy.GrammarLimits())
-	concrete, subjectErr := ConcreteSubjectTryParse(subject, NatsSubjectTaxonomy.GrammarLimits())
-	if patternErr != SubjectGrammarErrorNone || subjectErr != SubjectGrammarErrorNone ||
+	compiled, patternErr := natspolicy.SubjectPermissionPatternTryParse(pattern, natspolicy.NatsSubjectTaxonomy.GrammarLimits())
+	concrete, subjectErr := natspolicy.ConcreteSubjectTryParse(subject, natspolicy.NatsSubjectTaxonomy.GrammarLimits())
+	if patternErr != natspolicy.SubjectGrammarErrorNone || subjectErr != natspolicy.SubjectGrammarErrorNone ||
 		compiled == nil || concrete == nil {
 		return false
 	}
@@ -114,41 +116,41 @@ func (messagingSemanticClasses) Matches(pattern, subject string) bool {
 }
 
 var semanticClassSubjectRules = compileSemanticClassRules([]SemanticClassRule{
-	{SubjectPattern: NatsSubjectTaxonomy.GlobalDeliverySubject(), Namespace: NatsSubjectNamespaceGlobalAuthority, SemanticClass: MessagingSemanticClassLossy, LossMeaning: "Signed request/reply admission; GLOBAL_DELIVERIES journals durable intent and retries preserve lineage."},
-	{SubjectPattern: NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), Namespace: NatsSubjectNamespaceGlobalDirectory,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), Namespace: natspolicy.NatsSubjectNamespaceGlobalAuthority, SemanticClass: MessagingSemanticClassLossy, LossMeaning: "Signed request/reply admission; GLOBAL_DELIVERIES journals durable intent and retries preserve lineage."},
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), Namespace: natspolicy.NatsSubjectNamespaceGlobalDirectory,
 		SemanticClass: MessagingSemanticClassLossy,
 		LossMeaning:   "Request/reply over the durable directory snapshot; callers retry."},
-	{SubjectPattern: NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>", Namespace: NatsSubjectNamespaceGlobalAuthority,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".>", Namespace: natspolicy.NatsSubjectNamespaceGlobalAuthority,
 		SemanticClass: MessagingSemanticClassAuthoritativeJournal,
 		LossMeaning:   "GLOBAL_SPEC is the authority for accepted global revisions; never lost by policy."},
-	{SubjectPattern: NatsSubjectTaxonomy.CiForgejoTriggerSubject(), Namespace: NatsSubjectNamespaceContinuousIntegration,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(), Namespace: natspolicy.NatsSubjectNamespaceContinuousIntegration,
 		SemanticClass: MessagingSemanticClassWorkQueue,
 		LossMeaning:   "Leader-only trigger decisions; exhaustion requires terminal evidence."},
-	{SubjectPattern: NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".>", Namespace: NatsSubjectNamespaceContinuousIntegration,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".>", Namespace: natspolicy.NatsSubjectNamespaceContinuousIntegration,
 		SemanticClass: MessagingSemanticClassWorkQueue,
 		LossMeaning:   "Per-runner fenced inbox; one active job per runner (MaxAckPending 1)."},
-	{SubjectPattern: NatsSubjectTaxonomy.CiRuntimeProofSubject(), Namespace: NatsSubjectNamespaceContinuousIntegration,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.CiRuntimeProofSubject(), Namespace: natspolicy.NatsSubjectNamespaceContinuousIntegration,
 		SemanticClass: MessagingSemanticClassReplayable,
 		LossMeaning:   "Bounded durable observations; replayable from the beginning."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.query.>", Namespace: NatsSubjectNamespaceRegionalControl,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.query.>", Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 		SemanticClass: MessagingSemanticClassLossy,
 		LossMeaning:   "Typed control queries; no-responder is caller-visible."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.command.>", Namespace: NatsSubjectNamespaceRegionalControl,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.command.>", Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 		SemanticClass: MessagingSemanticClassLossy,
 		LossMeaning:   "Signed admission requests; the durable effect is journaled separately and retries use the idempotency key."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.observation.>", Namespace: NatsSubjectNamespaceRegionalControl,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.observation.>", Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 		SemanticClass: MessagingSemanticClassReplayable,
 		LossMeaning:   "CELL_EVENTS bounded durable history; replayable."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.desired.>", Namespace: NatsSubjectNamespaceRegionalControl,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.desired.>", Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 		SemanticClass: MessagingSemanticClassAuthoritativeJournal,
 		LossMeaning:   "The cell's accepted CellSpec history (CELL_SPEC)."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.operation.>", Namespace: NatsSubjectNamespaceOperations,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.operation.>", Namespace: natspolicy.NatsSubjectNamespaceOperations,
 		SemanticClass: MessagingSemanticClassAuthoritativeJournal,
 		LossMeaning:   "CELL_OPERATIONS authoritative regional history."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.agent.>", Namespace: NatsSubjectNamespaceAgent,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.agent.>", Namespace: natspolicy.NatsSubjectNamespaceAgent,
 		SemanticClass: MessagingSemanticClassWorkQueue,
 		LossMeaning:   "Reserved: host-agent command/ack channels will be work queues."},
-	{SubjectPattern: NatsSubjectTaxonomy.Root() + ".*.audit.>", Namespace: NatsSubjectNamespaceAudit,
+	{SubjectPattern: natspolicy.NatsSubjectTaxonomy.Root() + ".*.audit.>", Namespace: natspolicy.NatsSubjectNamespaceAudit,
 		SemanticClass: MessagingSemanticClassAuthoritativeJournal,
 		LossMeaning:   "Reserved: audit history is authoritative and export-only."},
 })
@@ -186,8 +188,8 @@ var semanticClassStoreRules = []StoreClassRule{
 
 func compileSemanticClassRules(rules []SemanticClassRule) []SemanticClassRule {
 	for index := range rules {
-		compiled, err := SubjectPermissionPatternTryParse(rules[index].SubjectPattern, NatsSubjectTaxonomy.GrammarLimits())
-		if err != SubjectGrammarErrorNone || compiled == nil {
+		compiled, err := natspolicy.SubjectPermissionPatternTryParse(rules[index].SubjectPattern, natspolicy.NatsSubjectTaxonomy.GrammarLimits())
+		if err != natspolicy.SubjectGrammarErrorNone || compiled == nil {
 			panic("The semantic-class subject pattern is invalid: " + rules[index].SubjectPattern)
 		}
 

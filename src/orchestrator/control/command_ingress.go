@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -176,11 +177,11 @@ func commandIngressSubjectIsExact(subject, cell string) bool {
 	if strings.TrimSpace(subject) != subject || cell == "" {
 		return false
 	}
-	parsed, grammarError := protocol.ConcreteSubjectTryParse(subject, protocol.NatsSubjectTaxonomy.GrammarLimits())
-	if grammarError != protocol.SubjectGrammarErrorNone || parsed == nil {
+	parsed, grammarError := natspolicy.ConcreteSubjectTryParse(subject, natspolicy.NatsSubjectTaxonomy.GrammarLimits())
+	if grammarError != natspolicy.SubjectGrammarErrorNone || parsed == nil {
 		return false
 	}
-	root, err := protocol.NatsSubjectTaxonomy.RegionalRoot(cell)
+	root, err := natspolicy.NatsSubjectTaxonomy.RegionalRoot(cell)
 	if err != nil {
 		return false
 	}

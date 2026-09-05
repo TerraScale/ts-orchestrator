@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // GlobalNatsTopology is the GRU global-authority JetStream topology (streams,
@@ -32,23 +32,23 @@ const (
 )
 
 func GlobalNatsTopologyCiSubject() string {
-	return protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject()
+	return natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject()
 }
 
 func GlobalNatsTopologyCiJobSubjectPrefix() string {
-	return protocol.NatsSubjectTaxonomy.CiJobSubjectPrefix()
+	return natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix()
 }
 
 func GlobalNatsTopologyCiRuntimeProofSubject() string {
-	return protocol.NatsSubjectTaxonomy.CiRuntimeProofSubject()
+	return natspolicy.NatsSubjectTaxonomy.CiRuntimeProofSubject()
 }
 
 func GlobalNatsTopologyCellDirectorySubject() string {
-	return protocol.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
+	return natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
 }
 
 func GlobalNatsTopologyCellSpecSubjectPrefix() string {
-	return protocol.NatsSubjectTaxonomy.GlobalCellSpecPrefix()
+	return natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix()
 }
 
 // NewGlobalNatsTopology validates the replica count (R3 only).
@@ -66,8 +66,8 @@ func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 		{
 			Name:        GlobalNatsTopologyCellSpecStream,
 			Description: "Accepted global revisions and compiled cell handoffs",
-			Subjects: []string{protocol.NatsSubjectTaxonomy.GlobalFamilyPattern(
-				protocol.NatsSubjectTaxonomy.DesiredFamilySegment())},
+			Subjects: []string{natspolicy.NatsSubjectTaxonomy.GlobalFamilyPattern(
+				natspolicy.NatsSubjectTaxonomy.DesiredFamilySegment())},
 			MaxBytes:   256 * 1024 * 1024,
 			MaxAge:     30 * 24 * time.Hour,
 			Duplicates: 2 * time.Minute,
@@ -79,7 +79,7 @@ func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 		{
 			Name:        GlobalNatsTopologyCiStream,
 			Description: "Durable normalized CI events and fenced runner commands",
-			Subjects:    []string{protocol.NatsSubjectTaxonomy.GlobalCiFamilyPattern()},
+			Subjects:    []string{natspolicy.NatsSubjectTaxonomy.GlobalCiFamilyPattern()},
 			MaxBytes:    1024 * 1024 * 1024,
 			MaxAge:      30 * 24 * time.Hour,
 			Duplicates:  24 * time.Hour,

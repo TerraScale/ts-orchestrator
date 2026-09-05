@@ -8,7 +8,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 type capturePublisher struct {
@@ -29,7 +29,7 @@ func TestNatsDriftSinkPublishesOnTheV2ObservationSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sink creation failed: %v", err)
 	}
-	wantSubject, err := protocol.NatsSubjectTaxonomy.EstateDriftSubject("gru")
+	wantSubject, err := natspolicy.NatsSubjectTaxonomy.EstateDriftSubject("gru")
 	if err != nil {
 		t.Fatalf("subject derivation failed: %v", err)
 	}

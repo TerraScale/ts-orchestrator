@@ -19,6 +19,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -261,7 +262,7 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				generation, _ := protocol.DesiredGenerationTryCreate(1)
 				minimumEpoch, _ := protocol.WriterEpochTryCreate(1)
 				version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
-				subject, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(cellName)
+				subject, _ := natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject(cellName)
 				ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{Connection: nc, Subject: subject, Boundary: boundary, Replay: replay, ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation, MinimumWriterEpoch: minimumEpoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version}, PayloadDigestVerifier: ingressDigestVerifier{}, Dispatch: d.dispatch, MultiInstance: true})
 				if err != nil {
 					t.Fatal(err)

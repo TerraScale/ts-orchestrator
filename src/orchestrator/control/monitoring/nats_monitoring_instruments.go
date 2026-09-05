@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 type NatsMonitoringInstrumentKind int
@@ -253,7 +253,7 @@ var (
 
 // natsSubjectTaxonomyGlobalDirectoryQuerySubject re-exports the protocol
 // taxonomy subject used by the mesh.cells catalog entry.
-var natsSubjectTaxonomyGlobalDirectoryQuerySubject = protocol.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
+var natsSubjectTaxonomyGlobalDirectoryQuerySubject = natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
 
 func natsMonitoringInstruments() []NatsMonitoringInstrument {
 	natsMonitoringInstrumentsOnce.Do(func() {

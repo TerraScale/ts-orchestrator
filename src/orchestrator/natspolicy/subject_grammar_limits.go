@@ -1,4 +1,4 @@
-package protocol
+package natspolicy
 
 // SubjectGrammarLimits is the bounded subject-grammar policy: maximum subject
 // length, token count, token length, and permission-pattern count. The zero

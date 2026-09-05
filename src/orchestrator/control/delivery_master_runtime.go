@@ -10,7 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
@@ -92,7 +92,7 @@ func startMasterDeliveryRuntime(ctx context.Context, config MasterDeliveryConfig
 		return nil, err
 	}
 	lifetime, cancel := context.WithCancel(ctx)
-	sub, err := config.Connection.SubscribeSync(protocol.NatsSubjectTaxonomy.GlobalDeliverySubject())
+	sub, err := config.Connection.SubscribeSync(natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject())
 	if err != nil {
 		cancel()
 		return nil, err

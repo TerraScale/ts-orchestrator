@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
@@ -379,10 +380,10 @@ func bootstrapSubjects(node string) (string, string, error) {
 			break
 		}
 	}
-	drain, err := protocol.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, node, "drain")
+	drain, err := natspolicy.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, node, "drain")
 	if err != nil {
 		return "", "", err
 	}
-	deploy, err := protocol.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, node, "deploy")
+	deploy, err := natspolicy.NatsSubjectTaxonomy.HostAgentCommandSubject(cell, node, "deploy")
 	return drain, deploy, err
 }

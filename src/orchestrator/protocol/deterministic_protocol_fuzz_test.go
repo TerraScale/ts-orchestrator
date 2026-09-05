@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"strconv"
 	"testing"
@@ -256,42 +258,42 @@ func runSubjectFuzz(seed uint64) subjectSummary {
 	limits := fuzzLimits()
 	subjectAccepted, subjectRejected := 0, 0
 	patternAccepted, patternRejected := 0, 0
-	subjectErrors := map[SubjectGrammarError]struct{}{}
-	patternErrors := map[SubjectGrammarError]struct{}{}
+	subjectErrors := map[natspolicy.SubjectGrammarError]struct{}{}
+	patternErrors := map[natspolicy.SubjectGrammarError]struct{}{}
 	digest := uint64(0)
 	for index := 0; index < casesPerFamily; index++ {
 		token := "a" + strconv.Itoa(generator.nextInt(1000))
 		var subjectText string
-		var expectedSubjectError SubjectGrammarError
+		var expectedSubjectError natspolicy.SubjectGrammarError
 		switch index % 8 {
 		case 0:
 			subjectText = token + ".b"
-			expectedSubjectError = SubjectGrammarErrorNone
+			expectedSubjectError = natspolicy.SubjectGrammarErrorNone
 		case 1:
 			subjectText = token + ".*"
-			expectedSubjectError = SubjectGrammarErrorWildcardNotAllowed
+			expectedSubjectError = natspolicy.SubjectGrammarErrorWildcardNotAllowed
 		case 2:
 			subjectText = "a..b"
-			expectedSubjectError = SubjectGrammarErrorEmptyToken
+			expectedSubjectError = natspolicy.SubjectGrammarErrorEmptyToken
 		case 3:
 			subjectText = string(bytesOf('x', 65))
-			expectedSubjectError = SubjectGrammarErrorSubjectTooLong
+			expectedSubjectError = natspolicy.SubjectGrammarErrorSubjectTooLong
 		case 4:
 			subjectText = "a. b"
-			expectedSubjectError = SubjectGrammarErrorWhitespaceNotAllowed
+			expectedSubjectError = natspolicy.SubjectGrammarErrorWhitespaceNotAllowed
 		case 5:
 			subjectText = "a.\xed\xa0\x80"
-			expectedSubjectError = SubjectGrammarErrorInvalidUnicodeScalarSequence
+			expectedSubjectError = natspolicy.SubjectGrammarErrorInvalidUnicodeScalarSequence
 		case 6:
 			subjectText = "alpha.\U0001F680"
-			expectedSubjectError = SubjectGrammarErrorNone
+			expectedSubjectError = natspolicy.SubjectGrammarErrorNone
 		default:
 			subjectText = string(bytesOf('x', 16)) + ".z"
-			expectedSubjectError = SubjectGrammarErrorNone
+			expectedSubjectError = natspolicy.SubjectGrammarErrorNone
 		}
 
-		subject, subjectError := ConcreteSubjectTryParse(subjectText, limits)
-		replaySubject, replayError := ConcreteSubjectTryParse(subjectText, limits)
+		subject, subjectError := natspolicy.ConcreteSubjectTryParse(subjectText, limits)
+		replaySubject, replayError := natspolicy.ConcreteSubjectTryParse(subjectText, limits)
 		if subjectError != replayError || subjectError != expectedSubjectError ||
 			(subject != nil) != (replaySubject != nil) ||
 			(subject != nil && !subject.Equal(replaySubject)) {
@@ -307,36 +309,36 @@ func runSubjectFuzz(seed uint64) subjectSummary {
 		subjectErrors[subjectError] = struct{}{}
 
 		var patternText string
-		var expectedPatternError SubjectGrammarError
+		var expectedPatternError natspolicy.SubjectGrammarError
 		switch index % 8 {
 		case 0:
 			patternText = token + ".*"
-			expectedPatternError = SubjectGrammarErrorNone
+			expectedPatternError = natspolicy.SubjectGrammarErrorNone
 		case 1:
 			patternText = token + ".>"
-			expectedPatternError = SubjectGrammarErrorNone
+			expectedPatternError = natspolicy.SubjectGrammarErrorNone
 		case 2:
 			patternText = "a.>.b"
-			expectedPatternError = SubjectGrammarErrorTerminalWildcardMustBeFinal
+			expectedPatternError = natspolicy.SubjectGrammarErrorTerminalWildcardMustBeFinal
 		case 3:
 			patternText = "a.**"
-			expectedPatternError = SubjectGrammarErrorInvalidWildcard
+			expectedPatternError = natspolicy.SubjectGrammarErrorInvalidWildcard
 		case 4:
 			patternText = "a..b"
-			expectedPatternError = SubjectGrammarErrorEmptyToken
+			expectedPatternError = natspolicy.SubjectGrammarErrorEmptyToken
 		case 5:
 			patternText = string(bytesOf('x', 65))
-			expectedPatternError = SubjectGrammarErrorSubjectTooLong
+			expectedPatternError = natspolicy.SubjectGrammarErrorSubjectTooLong
 		case 6:
 			patternText = "alpha.\U0001F680"
-			expectedPatternError = SubjectGrammarErrorNone
+			expectedPatternError = natspolicy.SubjectGrammarErrorNone
 		default:
 			patternText = ">"
-			expectedPatternError = SubjectGrammarErrorNone
+			expectedPatternError = natspolicy.SubjectGrammarErrorNone
 		}
 
-		pattern, patternError := SubjectPermissionPatternTryParse(patternText, limits)
-		replayPattern, replayPatternError := SubjectPermissionPatternTryParse(patternText, limits)
+		pattern, patternError := natspolicy.SubjectPermissionPatternTryParse(patternText, limits)
+		replayPattern, replayPatternError := natspolicy.SubjectPermissionPatternTryParse(patternText, limits)
 		if patternError != replayPatternError || patternError != expectedPatternError ||
 			(pattern != nil) != (replayPattern != nil) ||
 			(pattern != nil && !pattern.Equal(replayPattern)) {
@@ -390,7 +392,7 @@ func runPolicyFuzz(seed uint64) policySummary {
 	generator := &deterministicGenerator{state: seed}
 	accepted, rejected := 0, 0
 	digest := uint64(0)
-	reasons := map[SubjectPermissionPolicyError]struct{}{}
+	reasons := map[natspolicy.SubjectPermissionPolicyError]struct{}{}
 	for index := 0; index < casesPerFamily; index++ {
 		maxSubject := generator.nextInt(80) + 1
 		maxToken := generator.nextInt(20) + 1
@@ -400,7 +402,7 @@ func runPolicyFuzz(seed uint64) policySummary {
 		}
 
 		shouldCreateLimits := tokenLimit <= maxSubject
-		limits, limitsOk := SubjectGrammarLimitsTryCreate(maxSubject, 8, tokenLimit, 3)
+		limits, limitsOk := natspolicy.SubjectGrammarLimitsTryCreate(maxSubject, 8, tokenLimit, 3)
 		if limitsOk != shouldCreateLimits {
 			return policySummary{}
 		}
@@ -415,34 +417,34 @@ func runPolicyFuzz(seed uint64) policySummary {
 		alpha := testPattern("alpha"+strconv.Itoa(index%10)+".*", fixed)
 		beta := testPattern("beta.*", fixed)
 		blocked := testPattern("blocked.>", fixed)
-		var allow []*SubjectPermissionPattern
-		var deny []*SubjectPermissionPattern
-		var expectedError SubjectPermissionPolicyError
+		var allow []*natspolicy.SubjectPermissionPattern
+		var deny []*natspolicy.SubjectPermissionPattern
+		var expectedError natspolicy.SubjectPermissionPolicyError
 		switch index % 5 {
 		case 0:
-			allow = []*SubjectPermissionPattern{alpha, beta}
-			deny = []*SubjectPermissionPattern{blocked}
-			expectedError = SubjectPermissionPolicyErrorNone
+			allow = []*natspolicy.SubjectPermissionPattern{alpha, beta}
+			deny = []*natspolicy.SubjectPermissionPattern{blocked}
+			expectedError = natspolicy.SubjectPermissionPolicyErrorNone
 		case 1:
-			allow = []*SubjectPermissionPattern{alpha, alpha}
-			expectedError = SubjectPermissionPolicyErrorDuplicatePattern
+			allow = []*natspolicy.SubjectPermissionPattern{alpha, alpha}
+			expectedError = natspolicy.SubjectPermissionPolicyErrorDuplicatePattern
 		case 2:
-			allow = []*SubjectPermissionPattern{alpha}
-			deny = []*SubjectPermissionPattern{alpha}
-			expectedError = SubjectPermissionPolicyErrorPatternInAllowAndDeny
+			allow = []*natspolicy.SubjectPermissionPattern{alpha}
+			deny = []*natspolicy.SubjectPermissionPattern{alpha}
+			expectedError = natspolicy.SubjectPermissionPolicyErrorPatternInAllowAndDeny
 		case 3:
-			allow = []*SubjectPermissionPattern{alpha, beta, blocked}
-			deny = []*SubjectPermissionPattern{testPattern("extra.*", fixed)}
-			expectedError = SubjectPermissionPolicyErrorTooManyPatterns
+			allow = []*natspolicy.SubjectPermissionPattern{alpha, beta, blocked}
+			deny = []*natspolicy.SubjectPermissionPattern{testPattern("extra.*", fixed)}
+			expectedError = natspolicy.SubjectPermissionPolicyErrorTooManyPatterns
 		default:
-			allow = []*SubjectPermissionPattern{alpha, nil}
-			expectedError = SubjectPermissionPolicyErrorNullPattern
+			allow = []*natspolicy.SubjectPermissionPattern{alpha, nil}
+			expectedError = natspolicy.SubjectPermissionPolicyErrorNullPattern
 		}
 
-		policy, policyError := SubjectPermissionPolicyTryCreate(allow, deny, limits)
-		replayPolicy, replayError := SubjectPermissionPolicyTryCreate(reversedPatterns(allow), reversedPatterns(deny), limits)
+		policy, policyError := natspolicy.SubjectPermissionPolicyTryCreate(allow, deny, limits)
+		replayPolicy, replayError := natspolicy.SubjectPermissionPolicyTryCreate(reversedPatterns(allow), reversedPatterns(deny), limits)
 		if policyError != replayError || policyError != expectedError ||
-			(policyError == SubjectPermissionPolicyErrorNone) != (policy != nil) {
+			(policyError == natspolicy.SubjectPermissionPolicyErrorNone) != (policy != nil) {
 			return policySummary{}
 		}
 
@@ -454,8 +456,8 @@ func runPolicyFuzz(seed uint64) policySummary {
 			}
 
 			allowed := testConcreteSubject("alpha"+strconv.Itoa(index%10)+".one", fixed)
-			if policy.Authorize(allowed).Reason != SubjectPermissionReasonAllowedByPattern ||
-				policy.Authorize(testConcreteSubject("blocked.one", fixed)).Reason != SubjectPermissionReasonDeniedByPattern ||
+			if policy.Authorize(allowed).Reason != natspolicy.SubjectPermissionReasonAllowedByPattern ||
+				policy.Authorize(testConcreteSubject("blocked.one", fixed)).Reason != natspolicy.SubjectPermissionReasonDeniedByPattern ||
 				policy.Authorize(nil).IsAllowed() {
 				return policySummary{}
 			}
@@ -471,8 +473,8 @@ func runPolicyFuzz(seed uint64) policySummary {
 	return policySummary{cases: casesPerFamily, accepted: accepted, rejected: rejected, reasons: len(reasons), digest: digest}
 }
 
-func reversedPatterns(patterns []*SubjectPermissionPattern) []*SubjectPermissionPattern {
-	reversed := make([]*SubjectPermissionPattern, len(patterns))
+func reversedPatterns(patterns []*natspolicy.SubjectPermissionPattern) []*natspolicy.SubjectPermissionPattern {
+	reversed := make([]*natspolicy.SubjectPermissionPattern, len(patterns))
 	for index, pattern := range patterns {
 		reversed[len(patterns)-1-index] = pattern
 	}
@@ -480,7 +482,7 @@ func reversedPatterns(patterns []*SubjectPermissionPattern) []*SubjectPermission
 	return reversed
 }
 
-func patternsEqual(left, right []*SubjectPermissionPattern) bool {
+func patternsEqual(left, right []*natspolicy.SubjectPermissionPattern) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -612,12 +614,12 @@ func runDecisionFuzz(seed uint64) decisionSummary {
 	generator := &deterministicGenerator{state: seed}
 	allowed, denied := 0, 0
 	digest := uint64(0)
-	reasons := map[SubjectPermissionReason]struct{}{}
+	reasons := map[natspolicy.SubjectPermissionReason]struct{}{}
 	limits := fuzzLimits()
 	for index := 0; index < casesPerFamily; index++ {
 		suffix := strconv.Itoa(generator.nextInt(1000))
 		category := index % 7
-		var pattern *SubjectPermissionPattern
+		var pattern *natspolicy.SubjectPermissionPattern
 		switch category {
 		case 0:
 			pattern = testPattern("alpha"+suffix+".value", limits)
@@ -645,47 +647,47 @@ func runDecisionFuzz(seed uint64) decisionSummary {
 			return decisionSummary{}
 		}
 
-		var allow []*SubjectPermissionPattern
-		var deny []*SubjectPermissionPattern
+		var allow []*natspolicy.SubjectPermissionPattern
+		var deny []*natspolicy.SubjectPermissionPattern
 		switch category {
 		case 3:
-			allow = []*SubjectPermissionPattern{testPattern(">", limits)}
-			deny = []*SubjectPermissionPattern{testPattern("alpha"+suffix+".>", limits)}
+			allow = []*natspolicy.SubjectPermissionPattern{testPattern(">", limits)}
+			deny = []*natspolicy.SubjectPermissionPattern{testPattern("alpha"+suffix+".>", limits)}
 		case 4:
 			allow = nil
 		case 5:
-			allow = []*SubjectPermissionPattern{testPattern("other"+suffix+".>", limits)}
+			allow = []*natspolicy.SubjectPermissionPattern{testPattern("other"+suffix+".>", limits)}
 		default:
-			allow = []*SubjectPermissionPattern{testPattern("alpha"+suffix+".>", limits)}
+			allow = []*natspolicy.SubjectPermissionPattern{testPattern("alpha"+suffix+".>", limits)}
 		}
 
-		policy, err := SubjectPermissionPolicyTryCreate(allow, deny, limits)
-		if err != SubjectPermissionPolicyErrorNone {
+		policy, err := natspolicy.SubjectPermissionPolicyTryCreate(allow, deny, limits)
+		if err != natspolicy.SubjectPermissionPolicyErrorNone {
 			return decisionSummary{}
 		}
 
-		var target *ConcreteSubject
+		var target *natspolicy.ConcreteSubject
 		if category != 6 {
 			target = subject
 		}
 
 		decision := policy.Authorize(target)
-		var expectedReason SubjectPermissionReason
+		var expectedReason natspolicy.SubjectPermissionReason
 		switch category {
 		case 0, 1, 2:
-			expectedReason = SubjectPermissionReasonAllowedByPattern
+			expectedReason = natspolicy.SubjectPermissionReasonAllowedByPattern
 		case 3:
-			expectedReason = SubjectPermissionReasonDeniedByPattern
+			expectedReason = natspolicy.SubjectPermissionReasonDeniedByPattern
 		case 4:
-			expectedReason = SubjectPermissionReasonDeniedEmptyAllowSet
+			expectedReason = natspolicy.SubjectPermissionReasonDeniedEmptyAllowSet
 		case 5:
-			expectedReason = SubjectPermissionReasonDeniedNoAllowMatch
+			expectedReason = natspolicy.SubjectPermissionReasonDeniedNoAllowMatch
 		default:
-			expectedReason = SubjectPermissionReasonDeniedInvalidSubject
+			expectedReason = natspolicy.SubjectPermissionReasonDeniedInvalidSubject
 		}
 
 		if decision.Reason != expectedReason ||
-			decision.IsAllowed() != (expectedReason == SubjectPermissionReasonAllowedByPattern) {
+			decision.IsAllowed() != (expectedReason == natspolicy.SubjectPermissionReasonAllowedByPattern) {
 			return decisionSummary{}
 		}
 
@@ -789,13 +791,13 @@ func replayCorpusEntry(t *testing.T, entry ProtocolCorpusEntry) {
 	for replay := 0; replay < repetitions; replay++ {
 		switch entry.Family {
 		case "concrete-subject":
-			_, subjectError := ConcreteSubjectTryParse(entry.Input, fuzzLimits())
-			if subjectError == SubjectGrammarErrorNone || subjectError.String() != entry.Expected {
+			_, subjectError := natspolicy.ConcreteSubjectTryParse(entry.Input, fuzzLimits())
+			if subjectError == natspolicy.SubjectGrammarErrorNone || subjectError.String() != entry.Expected {
 				t.Fatalf("corpus subject replay mismatch at seed %d", entry.Seed)
 			}
 		case "permission-pattern":
-			_, patternError := SubjectPermissionPatternTryParse(entry.Input, fuzzLimits())
-			if patternError == SubjectGrammarErrorNone || patternError.String() != entry.Expected {
+			_, patternError := natspolicy.SubjectPermissionPatternTryParse(entry.Input, fuzzLimits())
+			if patternError == natspolicy.SubjectGrammarErrorNone || patternError.String() != entry.Expected {
 				t.Fatalf("corpus pattern replay mismatch at seed %d", entry.Seed)
 			}
 		case "command-envelope":

@@ -1,6 +1,5 @@
-// Package protocol owns the signed command envelope, NATS subject grammar and
-// taxonomy, checked-in manifest, and messaging contract tables. It knows
-// subjects and policy, not NATS clients.
+// Package protocol owns signed command and messaging envelopes, codecs,
+// delivery semantics, and durable work contracts. Subject policy lives in natspolicy.
 package protocol
 
 // ProtocolVersion exposes the one admitted control protocol version.

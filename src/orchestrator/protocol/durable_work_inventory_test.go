@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"os"
 	"path/filepath"
@@ -86,7 +88,7 @@ func TestEveryDurableStreamDeclaresTheFullPolicySurface(t *testing.T) {
 func TestRegionalStreamTemplatesInstantiateOnlyValidCellTokens(t *testing.T) {
 	regional := findInventoryEntry(t, "CELL_EVENTS")
 
-	pattern, err := NatsSubjectTaxonomy.RegionalFamilyPattern("gru", NatsSubjectTaxonomy.ObservationFamilySegment())
+	pattern, err := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern("gru", natspolicy.NatsSubjectTaxonomy.ObservationFamilySegment())
 	if err != nil {
 		t.Fatalf("family pattern failed: %v", err)
 	}
@@ -106,7 +108,7 @@ func TestRegionalStreamTemplatesInstantiateOnlyValidCellTokens(t *testing.T) {
 
 	consumer := findInventoryConsumer(t, "gitops_cell_spec_{instance}")
 	filter, err := consumer.FilterSubjectFor("sfo")
-	cellSpec, cellSpecErr := NatsSubjectTaxonomy.CellSpecSubject("sfo")
+	cellSpec, cellSpecErr := natspolicy.NatsSubjectTaxonomy.CellSpecSubject("sfo")
 	if err != nil || cellSpecErr != nil || filter != cellSpec {
 		t.Fatalf("filter subject = %q, err = %v", filter, err)
 	}

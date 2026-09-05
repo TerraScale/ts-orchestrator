@@ -5,7 +5,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // NatsTopology is the regional controller's JetStream topology for one cell.
@@ -25,41 +25,41 @@ func NewNatsTopology(cell string, replicas int, instance string) *NatsTopology {
 }
 
 func (t *NatsTopology) HealthSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.ControllerHealthSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.ControllerHealthSubject(t.Cell)
 }
 
 func (t *NatsTopology) InstanceHealthSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.ControllerInstanceHealthSubject(t.Cell, t.Instance)
+	return natspolicy.NatsSubjectTaxonomy.ControllerInstanceHealthSubject(t.Cell, t.Instance)
 }
 
 func (t *NatsTopology) StatusSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.ControllerStatusSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.ControllerStatusSubject(t.Cell)
 }
 
 func (t *NatsTopology) MembersSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.ControllerMembersSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.ControllerMembersSubject(t.Cell)
 }
 
 // StatsSubject is the read-only service statistics endpoint subject: version,
 // schema, health, request/error/latency aggregates.
 func (t *NatsTopology) StatsSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.ControllerStatsSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.ControllerStatsSubject(t.Cell)
 }
 
 func (t *NatsTopology) DirectDeliverySubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.DirectDeliverySubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject(t.Cell)
 }
 
 func (t *NatsTopology) OperationJournalCreateSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.OperationJournalCreateSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.OperationJournalCreateSubject(t.Cell)
 }
 
 func (t *NatsTopology) OperationJournalUpdateSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.OperationJournalUpdateSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.OperationJournalUpdateSubject(t.Cell)
 }
 
 func (t *NatsTopology) OperationJournalReplySubject(callerIdentity, nonce string) (string, error) {
-	return protocol.NatsSubjectTaxonomy.OperationJournalReplySubject(t.Cell, callerIdentity, nonce)
+	return natspolicy.NatsSubjectTaxonomy.OperationJournalReplySubject(t.Cell, callerIdentity, nonce)
 }
 
 func (t *NatsTopology) OperationJournalWriterQueueGroup() string {
@@ -67,11 +67,11 @@ func (t *NatsTopology) OperationJournalWriterQueueGroup() string {
 }
 
 func (t *NatsTopology) CellSpecSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.CellSpecSubject(t.Cell)
+	return natspolicy.NatsSubjectTaxonomy.CellSpecSubject(t.Cell)
 }
 
 func (t *NatsTopology) StartupSubject() (string, error) {
-	return protocol.NatsSubjectTaxonomy.RuntimeStartupSubject(t.Cell, t.Instance)
+	return natspolicy.NatsSubjectTaxonomy.RuntimeStartupSubject(t.Cell, t.Instance)
 }
 
 func (t *NatsTopology) ProtocolObject() string { return "orchestrator-protocol-v1" }
@@ -82,20 +82,20 @@ func (t *NatsTopology) ServiceQueueGroup() string { return "orchestrator_" + t.C
 
 // Streams returns the regional stream configurations.
 func (t *NatsTopology) Streams() ([]jetstream.StreamConfig, error) {
-	cellSpecFamily, err := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
-		t.Cell, protocol.NatsSubjectTaxonomy.DesiredFamilySegment())
+	cellSpecFamily, err := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern(
+		t.Cell, natspolicy.NatsSubjectTaxonomy.DesiredFamilySegment())
 	if err != nil {
 		return nil, err
 	}
 
-	cellOperationsFamily, err := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
-		t.Cell, protocol.NatsSubjectTaxonomy.OperationFamilySegment())
+	cellOperationsFamily, err := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern(
+		t.Cell, natspolicy.NatsSubjectTaxonomy.OperationFamilySegment())
 	if err != nil {
 		return nil, err
 	}
 
-	cellEventsFamily, err := protocol.NatsSubjectTaxonomy.RegionalFamilyPattern(
-		t.Cell, protocol.NatsSubjectTaxonomy.ObservationFamilySegment())
+	cellEventsFamily, err := natspolicy.NatsSubjectTaxonomy.RegionalFamilyPattern(
+		t.Cell, natspolicy.NatsSubjectTaxonomy.ObservationFamilySegment())
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (t *NatsTopology) ProtocolPackage() jetstream.ObjectStoreConfig {
 
 // StartupConsumer returns the runtime startup consumer configuration.
 func (t *NatsTopology) StartupConsumer() (jetstream.ConsumerConfig, error) {
-	filter, err := protocol.NatsSubjectTaxonomy.RuntimeStartupPattern(t.Cell)
+	filter, err := natspolicy.NatsSubjectTaxonomy.RuntimeStartupPattern(t.Cell)
 	if err != nil {
 		return jetstream.ConsumerConfig{}, err
 	}

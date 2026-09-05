@@ -23,6 +23,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -552,7 +553,7 @@ func natsRuntimeVerifyDurableProof(ctx context.Context, consumer jetstream.Consu
 			Cluster:  "orchestrator-control-" + topology.Cell,
 		},
 		Target: protocol.MessagingTargetScope{
-			Namespace: protocol.NatsSubjectNamespaceRegionalControl,
+			Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 			Subject:   subject,
 			Cell:      &targetCell,
 		},
@@ -624,7 +625,7 @@ func (r *NatsRuntime) startService() error {
 				Cluster:  "orchestrator-control-" + cell,
 			},
 			Target: protocol.MessagingTargetScope{
-				Namespace: protocol.NatsSubjectNamespaceRegionalControl,
+				Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 				Subject:   subject,
 				Cell:      &cell,
 			},

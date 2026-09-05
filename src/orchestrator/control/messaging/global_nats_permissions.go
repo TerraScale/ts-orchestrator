@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // GlobalNatsRole identifies one global-control role.
@@ -146,7 +146,7 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 	publish = append(publish, globalNatsKeyValueWatchPermissions(topology.Releases().Bucket)...)
 	publish = append(publish, globalNatsCiRunnerConsumerPermissions()...)
 
-	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", protocol.NatsSubjectTaxonomy.GlobalDeliverySubject()}), nil
+	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject()}), nil
 }
 
 func globalNatsStreamManagement(stream string) []string {

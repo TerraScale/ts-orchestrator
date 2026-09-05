@@ -1,5 +1,8 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/contracts"
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"strconv"
 	"strings"
@@ -37,7 +40,7 @@ type MessageIdentityToken struct {
 // IsValid reports whether the token is nonempty, valid UTF-8, at most 128 v1
 // UTF-16 code units, and free of NUL and control characters.
 func (t MessageIdentityToken) IsValid() bool {
-	if t.Value == "" || !utf8.ValidString(t.Value) || utf16CodeUnitCount(t.Value) > 128 {
+	if t.Value == "" || !utf8.ValidString(t.Value) || contracts.UTF16CodeUnitCount(t.Value) > 128 {
 		return false
 	}
 
@@ -61,7 +64,7 @@ func MessageIdentityTokenTryCreate(value string) (MessageIdentityToken, bool) {
 		return MessageIdentityToken{Value: value}, true
 	}
 
-	if !utf8.ValidString(value) || utf16CodeUnitCount(value) > 128 ||
+	if !utf8.ValidString(value) || contracts.UTF16CodeUnitCount(value) > 128 ||
 		strings.ContainsRune(value, '\x00') || hasControlRune(value) {
 		return MessageIdentityToken{}, false
 	}
@@ -147,7 +150,7 @@ func isMessagingSourceToken(value string, maximumLength int) bool {
 // against the subject's derived classification, so it can never drift into an
 // ignored decorative field.
 type MessagingTargetScope struct {
-	Namespace NatsSubjectNamespace
+	Namespace natspolicy.NatsSubjectNamespace
 	Subject   string
 	Cell      *string
 }
@@ -345,12 +348,12 @@ func (messagingEnvelopeValidator) Validate(
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSourceCellMismatch, CommandValidationErrorUninitialized)
 	}
 
-	if _, err := ConcreteSubjectTryParse(envelope.Target.Subject, NatsSubjectTaxonomy.GrammarLimits()); err != SubjectGrammarErrorNone {
+	if _, err := natspolicy.ConcreteSubjectTryParse(envelope.Target.Subject, natspolicy.NatsSubjectTaxonomy.GrammarLimits()); err != natspolicy.SubjectGrammarErrorNone {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorMalformedSubject, CommandValidationErrorUninitialized)
 	}
 
-	ns := NatsSubjectTaxonomy.Classify(envelope.Target.Subject)
-	if !NatsSubjectTaxonomy.IsControlNamespace(ns) {
+	ns := natspolicy.NatsSubjectTaxonomy.Classify(envelope.Target.Subject)
+	if !natspolicy.NatsSubjectTaxonomy.IsControlNamespace(ns) {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSubjectOutsideClosedTaxonomy, CommandValidationErrorUninitialized)
 	}
 
@@ -394,7 +397,7 @@ func (messagingEnvelopeValidator) Validate(
 // global subject carries no cell scope.
 func extractCellScope(subject string) (string, bool) {
 	tokens := strings.Split(subject, ".")
-	if len(tokens) >= 4 && strings.HasPrefix(subject, NatsSubjectTaxonomy.Root()+".") {
+	if len(tokens) >= 4 && strings.HasPrefix(subject, natspolicy.NatsSubjectTaxonomy.Root()+".") {
 		if tokens[3] == "global" {
 			if len(tokens) == 7 && tokens[4] == "desired" && tokens[5] == "gitops" {
 				return tokens[6], true
@@ -407,18 +410,4 @@ func extractCellScope(subject string) (string, bool) {
 	}
 
 	return "", false
-}
-
-// utf16CodeUnitCount counts UTF-16 code units: protocol length bounds are
-// specified in code units, so scalar values outside the basic multilingual
-// plane occupy two.
-func utf16CodeUnitCount(value string) int {
-	count := 0
-	for _, character := range value {
-		count++
-		if character > 0xFFFF {
-			count++
-		}
-	}
-	return count
 }

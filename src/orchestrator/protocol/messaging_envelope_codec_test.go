@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"bytes"
 	"encoding/json"
@@ -9,7 +11,7 @@ import (
 )
 
 func TestMessagingEnvelopeCodecRoundTripsTheBoundV1Document(t *testing.T) {
-	subject, err := NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")
+	subject, err := natspolicy.NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +33,7 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV1Document(t *testing.T) {
 			Cluster:  "orchestrator-control-gru",
 		},
 		Target: MessagingTargetScope{
-			Namespace: NatsSubjectNamespaceRegionalControl,
+			Namespace: natspolicy.NatsSubjectNamespaceRegionalControl,
 			Subject:   subject,
 			Cell:      &cell,
 		},
@@ -71,7 +73,7 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV1Document(t *testing.T) {
 }
 
 func TestMessagingEnvelopeCodecRejectsPayloadBeyondTheNestingBound(t *testing.T) {
-	subject := NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
+	subject := natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
 	messageId, _ := MessageIdentityTokenTryCreate("message-deep")
 	deepPayload := json.RawMessage(
 		strings.Repeat("[", messagingEnvelopeMaximumNestingDepth) + "0" +
@@ -87,7 +89,7 @@ func TestMessagingEnvelopeCodecRejectsPayloadBeyondTheNestingBound(t *testing.T)
 			Cluster:  "orchestrator-control-global",
 		},
 		Target: MessagingTargetScope{
-			Namespace: NatsSubjectNamespaceGlobalDirectory,
+			Namespace: natspolicy.NatsSubjectNamespaceGlobalDirectory,
 			Subject:   subject,
 		},
 		PayloadType: "global-cell-directory-snapshot",
@@ -99,7 +101,7 @@ func TestMessagingEnvelopeCodecRejectsPayloadBeyondTheNestingBound(t *testing.T)
 }
 
 func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.T) {
-	subject := NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
+	subject := natspolicy.NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
 	messageId, _ := MessageIdentityTokenTryCreate("message-2")
 	document, err := MarshalMessagingEnvelope(&MessagingEnvelope{
 		SchemaVersion: MessagingSchemaVersionCurrent,
@@ -111,7 +113,7 @@ func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.
 			Cluster:  "orchestrator-control-global",
 		},
 		Target: MessagingTargetScope{
-			Namespace: NatsSubjectNamespaceGlobalDirectory,
+			Namespace: natspolicy.NatsSubjectNamespaceGlobalDirectory,
 			Subject:   subject,
 		},
 		PayloadType: "global-cell-directory-snapshot",
@@ -121,7 +123,7 @@ func TestMessagingEnvelopeCodecRejectsProtocolAndSubjectSubstitution(t *testing.
 		t.Fatal(err)
 	}
 	permitted := map[string]struct{}{"global-cell-directory-snapshot": {}}
-	if _, _, err := UnmarshalMessagingEnvelope(document, NatsSubjectTaxonomy.CiForgejoTriggerSubject(), permitted); err == nil {
+	if _, _, err := UnmarshalMessagingEnvelope(document, natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(), permitted); err == nil {
 		t.Fatal("subject substitution was accepted")
 	}
 	foreignRoot := bytes.Replace(document, []byte(`"ts.orch.v1"`), []byte(`"ts.orch.old"`), 1)

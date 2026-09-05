@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
-	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
 // RuntimeLifecycleNatsProtocol is the closed, redacted wire contract for
@@ -30,7 +30,7 @@ func (runtimeLifecycleNatsProtocol) Subject(cell, operation string) (string, err
 	if err != nil {
 		return "", err
 	}
-	return protocol.NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(required, operation)
+	return natspolicy.NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(required, operation)
 }
 
 func (runtimeLifecycleNatsProtocol) ReplySubject(cell, callerIdentity, nonce string) (string, error) {
@@ -38,7 +38,7 @@ func (runtimeLifecycleNatsProtocol) ReplySubject(cell, callerIdentity, nonce str
 	if err != nil {
 		return "", err
 	}
-	return protocol.NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject(required, callerIdentity, nonce)
+	return natspolicy.NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject(required, callerIdentity, nonce)
 }
 
 func (runtimeLifecycleNatsProtocol) Key(operationKey RuntimeLifecycleOperationKey) string {

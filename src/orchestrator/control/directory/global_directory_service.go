@@ -11,6 +11,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
 	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -98,7 +99,7 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 					Cluster:  "orchestrator-control-global",
 				},
 				Target: protocol.MessagingTargetScope{
-					Namespace: protocol.NatsSubjectNamespaceGlobalDirectory,
+					Namespace: natspolicy.NatsSubjectNamespaceGlobalDirectory,
 					Subject:   subject,
 				},
 				PayloadType: "global-cell-directory-snapshot",

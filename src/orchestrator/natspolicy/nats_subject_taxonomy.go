@@ -1,4 +1,6 @@
-package protocol
+// Package natspolicy defines bounded NATS subjects, permission policies,
+// namespace taxonomy, account grants, and the embedded capability contract.
+package natspolicy
 
 import (
 	"crypto/sha256"
@@ -184,7 +186,7 @@ var (
 // RegionalRoot returns the regional control
 // namespace root for one Region (ts.orch.v1.<region>).
 func (natsSubjectTaxonomy) RegionalRoot(cell string) (string, error) {
-	if cellTokenRuleIsValid(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
+	if ValidCellToken(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
 		return NatsSubjectTaxonomy.Root() + "." + cell, nil
 	}
 
@@ -538,7 +540,7 @@ func (natsSubjectTaxonomy) RegionCodeFromSubjectToken(subjectToken string) (stri
 // GlobalCellSpecSubject returns the durable globally
 // signed CellSpec subject for one Region.
 func (natsSubjectTaxonomy) GlobalCellSpecSubject(cell string) (string, error) {
-	if cellTokenRuleIsValid(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
+	if ValidCellToken(cell) && cell != NatsSubjectTaxonomy.GlobalScopeToken() {
 		return NatsSubjectTaxonomy.GlobalCellSpecPrefix() + "." + cell, nil
 	}
 
@@ -599,7 +601,7 @@ func (natsSubjectTaxonomy) Classify(subject string) NatsSubjectNamespace {
 		}
 	}
 
-	if !cellTokenRuleIsValid(tokens[3]) {
+	if !ValidCellToken(tokens[3]) {
 		return NatsSubjectNamespaceUnknown
 	}
 
@@ -678,7 +680,7 @@ func (natsSubjectTaxonomy) TryValidatePermissionPattern(pattern string) (bool, N
 	}
 
 	isGlobal := scope == NatsSubjectTaxonomy.GlobalScopeToken()
-	if !isGlobal && !cellTokenRuleIsValid(scope) {
+	if !isGlobal && !ValidCellToken(scope) {
 		return false, NatsSubjectPermissionErrorInvalidRegionToken
 	}
 
@@ -807,10 +809,6 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 	return violations
 }
 
-// isValidCellToken reports whether cell is a valid cell token. It exists so
-// this package does not import the control package that owns the root files.
-func isValidCellToken(cell string) bool { return cellTokenRuleIsValid(cell) }
-
 // isAgentHashToken reports whether token is a fixed-length lowercase hex
 // agent-hash token.
 func isAgentHashToken(token string) bool {
@@ -834,10 +832,10 @@ func isPlatformReservedRoot(token string) bool {
 	return len(token) > 0 && (token[0] == '$' || token[0] == '_' || token[0] == '#')
 }
 
-// cellTokenRuleIsValid reports whether cell is
+// ValidCellToken reports whether cell is
 // a 1..63 character lowercase DNS-style token that neither
 // starts nor ends with a dash.
-func cellTokenRuleIsValid(cell string) bool {
+func ValidCellToken(cell string) bool {
 	if len(cell) < 1 || len(cell) > 63 {
 		return false
 	}

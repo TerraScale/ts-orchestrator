@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/natspolicy"
+
 import (
 	"errors"
 	"strings"
@@ -126,7 +128,7 @@ func (p DurableStreamPlan) SubjectFor(cell string) ([]string, error) {
 }
 
 func durablePlanSubjectFor(template, cell string) (string, error) {
-	if !isValidCellToken(cell) {
+	if !natspolicy.ValidCellToken(cell) {
 		return "", errors.New(
 			"The regional cell is not a lowercase DNS-style token. (Parameter 'cell')")
 	}
@@ -368,7 +370,7 @@ func createDurableStreams() []DurableStreamPlan {
 		{
 			Stream: "CELL_SPEC",
 			Subjects: []string{
-				NatsSubjectTaxonomy.RegionalDesiredFamilyTemplate(),
+				natspolicy.NatsSubjectTaxonomy.RegionalDesiredFamilyTemplate(),
 			},
 			Domain:                   DurableWorkDomainRegionalCell,
 			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
@@ -383,7 +385,7 @@ func createDurableStreams() []DurableStreamPlan {
 		{
 			Stream: "CELL_OPERATIONS",
 			Subjects: []string{
-				NatsSubjectTaxonomy.RegionalOperationFamilyTemplate(),
+				natspolicy.NatsSubjectTaxonomy.RegionalOperationFamilyTemplate(),
 			},
 			Domain:                   DurableWorkDomainRegionalCell,
 			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
@@ -398,7 +400,7 @@ func createDurableStreams() []DurableStreamPlan {
 		{
 			Stream: "CELL_EVENTS",
 			Subjects: []string{
-				NatsSubjectTaxonomy.RegionalObservationFamilyTemplate(),
+				natspolicy.NatsSubjectTaxonomy.RegionalObservationFamilyTemplate(),
 			},
 			Domain:                   DurableWorkDomainRegionalCell,
 			SemanticClass:            MessagingSemanticClassReplayable,
@@ -413,7 +415,7 @@ func createDurableStreams() []DurableStreamPlan {
 		{
 			Stream: "GLOBAL_SPEC",
 			Subjects: []string{
-				NatsSubjectTaxonomy.GlobalRoot() + ".desired.>",
+				natspolicy.NatsSubjectTaxonomy.GlobalRoot() + ".desired.>",
 			},
 			Domain:                   DurableWorkDomainGlobalControl,
 			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
@@ -428,7 +430,7 @@ func createDurableStreams() []DurableStreamPlan {
 		{
 			Stream: "GLOBAL_CI",
 			Subjects: []string{
-				NatsSubjectTaxonomy.GlobalCiFamilyPattern(),
+				natspolicy.NatsSubjectTaxonomy.GlobalCiFamilyPattern(),
 			},
 			Domain:                   DurableWorkDomainGlobalControl,
 			SemanticClass:            MessagingSemanticClassWorkQueue,
@@ -458,7 +460,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "CELL_EVENTS",
 			Consumer:                 "runtime_startup",
-			FilterSubject:            NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
 			Domain:                   DurableWorkDomainRegionalCell,
 			Ownership:                DurableWorkOwnershipRegionalEquivalentWorkers,
 			Acknowledgement:          DurableAcknowledgementExplicit,
@@ -474,7 +476,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "CELL_SPEC",
 			Consumer:                 "gitops_cell_spec_{instance}",
-			FilterSubject:            NatsSubjectTaxonomy.RegionalCellSpecTemplate(),
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.RegionalCellSpecTemplate(),
 			Domain:                   DurableWorkDomainRegionalCell,
 			Ownership:                DurableWorkOwnershipRegionalFencedAuthority,
 			Acknowledgement:          DurableAcknowledgementExplicit,
@@ -490,7 +492,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "GLOBAL_SPEC",
 			Consumer:                 "gitops_global_cell_spec_{cell}",
-			FilterSubject:            NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".{cell}",
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".{cell}",
 			Domain:                   DurableWorkDomainGlobalControl,
 			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
 			Acknowledgement:          DurableAcknowledgementExplicit,
@@ -506,7 +508,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "GLOBAL_CI",
 			Consumer:                 "global_ci_trigger",
-			FilterSubject:            NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
 			Domain:                   DurableWorkDomainGlobalControl,
 			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
 			Acknowledgement:          DurableAcknowledgementExplicit,
@@ -522,7 +524,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "GLOBAL_CI",
 			Consumer:                 "global_ci_runtime_proof",
-			FilterSubject:            NatsSubjectTaxonomy.CiRuntimeProofSubject(),
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiRuntimeProofSubject(),
 			Domain:                   DurableWorkDomainGlobalControl,
 			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
 			Acknowledgement:          DurableAcknowledgementExplicit,
@@ -538,7 +540,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 		{
 			Stream:                   "GLOBAL_CI",
 			Consumer:                 "ci_runner_{zone}_{runner}",
-			FilterSubject:            NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".{zone}.{runner}",
+			FilterSubject:            natspolicy.NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".{zone}.{runner}",
 			Domain:                   DurableWorkDomainGlobalControl,
 			Ownership:                DurableWorkOwnershipReconciledRunnerIdentity,
 			Acknowledgement:          DurableAcknowledgementExplicit,

@@ -18,7 +18,8 @@ describe code that exists today; they do not preserve a retired topology.
 | Area | Go package | Imports |
 | --- | --- | --- |
 | Contracts | `src/orchestrator/contracts` | — |
-| Protocol | `src/orchestrator/protocol` | contracts |
+| NATS subjects, accounts and capability policy | `src/orchestrator/natspolicy` | contracts |
+| Protocol envelopes and delivery semantics | `src/orchestrator/protocol` | contracts, natspolicy |
 | Runtime | `src/orchestrator/runtime` | — (leaf) |
 | Security | `src/orchestrator/security` | — (leaf) |
 | Scheduling | `src/orchestrator/scheduling` | — (leaf) |

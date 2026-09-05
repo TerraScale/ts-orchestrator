@@ -1,5 +1,7 @@
 package protocol
 
+import "terrascale.tech/orchestrator/src/orchestrator/contracts"
+
 import (
 	"crypto/sha256"
 	"encoding/binary"
@@ -148,7 +150,7 @@ func (w *bigEndianWriter) writeString(value string) error {
 		return invalidData("A command signing identity is not valid UTF-8.")
 	}
 
-	if utf16CodeUnitCount(value) > maximumIdentifierCharacters {
+	if contracts.UTF16CodeUnitCount(value) > maximumIdentifierCharacters {
 		return invalidData("A command signing identity exceeded its bound.")
 	}
 

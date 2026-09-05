@@ -1,5 +1,5 @@
 // The checked-in manifest bytes are embedded from protocol-manifest.json.
-package protocol
+package natspolicy
 
 import (
 	_ "embed"

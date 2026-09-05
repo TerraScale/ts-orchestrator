@@ -390,3 +390,15 @@ Both packages are below 10,000 Go lines including tests. Consumers use the
 extracted APIs directly; no forwarding compatibility layer remains.
 The [split verification](../evidence/oci-package-split-gates-2026-09-05.txt)
 records passing portable and tagged race suites plus a Linux arm64 cross-build.
+
+NATS subject grammar, taxonomy, account grants, capability policy and the
+embedded manifest now live in `natspolicy`. `protocol` retains signed
+envelopes, codecs and delivery semantics. Consumers call the extracted APIs
+directly. The manifest bytes and protocol test corpus are unchanged, and all
+148 existing test and fuzz entry points remain. `protocol` has 7,373 Go lines
+including tests; `natspolicy` has 4,526. Every package under `src/orchestrator`
+is below 10,000 Go lines, though `hostagent` and `vmqualruntime` have fewer
+than 20 lines of room and need extraction before further additions.
+The [NATS policy verification](../evidence/natspolicy-split-gates-2026-09-05.txt)
+records passing portable and tagged race suites and a Linux arm64 cross-build.
+These checks do not establish guest readiness or production composition.

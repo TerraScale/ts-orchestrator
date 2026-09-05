@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -79,7 +80,7 @@ func marshalJournalEnvelope(
 			Cluster:  "orchestrator-control-" + cell,
 		},
 		Target: protocol.MessagingTargetScope{
-			Namespace: protocol.NatsSubjectTaxonomy.Classify(subject),
+			Namespace: natspolicy.NatsSubjectTaxonomy.Classify(subject),
 			Subject:   subject,
 			Cell:      &targetCell,
 		},

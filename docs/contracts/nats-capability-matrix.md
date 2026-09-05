@@ -12,7 +12,7 @@
 | --- | --- |
 | Contract version | 1 (frozen) |
 | Ratified by | `TerraScale.Orchestrator` contract review |
-| Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go` and `messaging_regional_autonomy.go` |
+| Machine-readable definitions | `src/orchestrator/natspolicy` contains the capability matrix, subject taxonomy and embedded `protocol-manifest.json`; `src/orchestrator/protocol` contains message envelopes, semantic classes, delivery semantics and regional autonomy. |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
 | Canonicality | Canonical for the checked-in `ts.orch.v1` implementation. The repository `GOAL.md` remains the authority for architecture beyond this adapter. |
@@ -49,7 +49,7 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 
 ## 2. Closed subject taxonomy
 
-Canonical definitions: `src/orchestrator/protocol/nats_subject_taxonomy.go`. Production adapters compose subjects only through the taxonomy; the protocol tests reject `ts.orch` and `ts.product` literals outside the canonical package.
+Canonical definitions: `src/orchestrator/natspolicy/nats_subject_taxonomy.go`. Production adapters compose subjects only through the taxonomy; the tests reject `ts.orch` and `ts.product` literals outside the canonical package.
 
 | Namespace | Root / pattern | Status | Notes |
 | --- | --- | --- | --- |

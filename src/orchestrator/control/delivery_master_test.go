@@ -32,6 +32,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/messaging"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -249,7 +250,7 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 		generation, _ := protocol.DesiredGenerationTryCreate(1)
 		epoch, _ := protocol.WriterEpochTryCreate(1)
 		version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
-		subject, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(region)
+		subject, _ := natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject(region)
 		ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{Connection: nc, Subject: subject, Boundary: boundary, Replay: replay, MultiInstance: true, ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation, MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version}, PayloadDigestVerifier: masterDeliveryDigestVerifier{}, Dispatch: func(callCtx context.Context, envelope protocol.CommandEnvelope) error {
 			err := d.dispatch(callCtx, envelope)
 			if err == nil && cellName == "gru" && loseAfterCommit.CompareAndSwap(true, false) {
@@ -388,7 +389,7 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 	if successor.Snapshot().Epoch <= oldLease.Epoch {
 		t.Fatal("global takeover did not advance epoch")
 	}
-	staleSubject, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject("sfo")
+	staleSubject, _ := natspolicy.NatsSubjectTaxonomy.DirectDeliverySubject("sfo")
 	staleReply, err := nc.Request(staleSubject, delayedWire, time.Second)
 	if err != nil || string(staleReply.Data) != string(CommandIngressCodeDispatchFailed) {
 		t.Fatalf("delayed old master passed unchanged regional lease: reply=%v err=%v", staleReply, err)
@@ -510,7 +511,7 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 	if err := nc.FlushTimeout(time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := nc.Request(protocol.NatsSubjectTaxonomy.GlobalDeliverySubject(), nextWire, time.Second); !errors.Is(err, nats.ErrNoResponders) {
+	if _, err := nc.Request(natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), nextWire, time.Second); !errors.Is(err, nats.ErrNoResponders) {
 		t.Fatalf("closed master retained subscription: %v", err)
 	}
 
@@ -542,7 +543,7 @@ func masterGenerationWire(t *testing.T, signer *security.CommandSignatureSigner,
 func submitMasterNATS(ctx context.Context, nc *nats.Conn, wire []byte) (*MasterDeliveryReceipt, error) {
 	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	reply, err := nc.RequestWithContext(callCtx, protocol.NatsSubjectTaxonomy.GlobalDeliverySubject(), wire)
+	reply, err := nc.RequestWithContext(callCtx, natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), wire)
 	if err != nil {
 		return nil, err
 	}
