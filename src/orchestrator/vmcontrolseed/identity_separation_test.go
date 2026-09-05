@@ -16,7 +16,7 @@ func TestMaterialRejectsSameTLSKeyWithDifferentPEM(t *testing.T) {
 			m.Clear()
 		}
 	}()
-	for _, role := range []string{"reader", "provisioner"} {
+	for _, role := range []string{"reader", "provisioner", "snapshot"} {
 		t.Run(role, func(t *testing.T) {
 			m := materials["gru-one"].Clone()
 			defer m.Clear()
@@ -30,6 +30,11 @@ func TestMaterialRejectsSameTLSKeyWithDifferentPEM(t *testing.T) {
 				m.Files[AuthorityCertificatePath] = certificate
 				m.Files[AuthorityPrivateKeyPath] = key
 				c.AuthorityReader.CertificateSHA256 = digest(certificate)
+			} else if role == "snapshot" {
+				m.Files[SnapshotCertificatePath] = certificate
+				m.Files[SnapshotPrivateKeyPath] = key
+				c.Regional.SnapshotReader.TLS.CertificateSHA256 = digest(certificate)
+				c.Global.SnapshotReader.TLS.CertificateSHA256 = digest(certificate)
 			} else {
 				m.Files[ProvisionerCertificatePath] = certificate
 				m.Files[ProvisionerPrivateKeyPath] = key

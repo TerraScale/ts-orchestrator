@@ -150,6 +150,24 @@ func GenerateGRU(runID string, guests []Guest) (map[string]Material, error) {
 			}
 			config.Global = &initialgrant.Store{Account: GlobalAccount, Provisioner: &globalProvisioner, Runtime: globalRuntime}
 			peer.GlobalPublicNKey = globalRuntime.PublicNKey
+			snapshotGuest := guest
+			snapshotGuest.ID += "-snapshot-reader"
+			snapshotCert, snapshotKey, err := issue(snapshotGuest, false)
+			if err != nil {
+				return nil, err
+			}
+			files[SnapshotCertificatePath], files[SnapshotPrivateKeyPath] = snapshotCert, snapshotKey
+			snapshotTLS := tlsFiles(files, SnapshotCertificatePath, SnapshotPrivateKeyPath)
+			regionalSnapshot, err := newUser(files, RegionalSnapshotNKeyPath, snapshotTLS)
+			if err != nil {
+				return nil, err
+			}
+			globalSnapshot, err := newUser(files, GlobalSnapshotNKeyPath, snapshotTLS)
+			if err != nil {
+				return nil, err
+			}
+			config.Regional.SnapshotReader, config.Global.SnapshotReader = &regionalSnapshot, &globalSnapshot
+
 			cert, key, err = issue(guest, true)
 			if err != nil {
 				return nil, err
@@ -215,6 +233,24 @@ func renderBroker(config initialgrant.Config) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if entry.global {
+			globalUsers = append(globalUsers, user)
+		} else {
+			regionalUsers = append(regionalUsers, user)
+		}
+	}
+	for _, entry := range []struct {
+		global bool
+		reader *initialgrant.Connection
+	}{{false, config.Regional.SnapshotReader}, {true, config.Global.SnapshotReader}} {
+		if entry.reader == nil {
+			continue
+		}
+		publish, subscribe, err := initialcontrol.SnapshotPermissions("gru", config.Instance, entry.global)
+		if err != nil {
+			return "", err
+		}
+		user := map[string]any{"nkey": entry.reader.PublicNKey, "permissions": map[string]any{"publish": map[string]any{"allow": publish}, "subscribe": map[string]any{"allow": subscribe}}}
 		if entry.global {
 			globalUsers = append(globalUsers, user)
 		} else {

@@ -151,6 +151,20 @@ func validateBrokerOptions(cfg initialgrant.Config, expectedTLS *tls.Config) fun
 		if err = add(cfg.Global.Provisioner.PublicNKey, cfg.Global.Account, cfg.SeedInstance, true, true); err != nil {
 			return err
 		}
+		for index, store := range []*initialgrant.Store{&cfg.Regional, cfg.Global} {
+			if store.SnapshotReader == nil {
+				continue
+			}
+			key := store.SnapshotReader.PublicNKey
+			if _, exists := users[key]; exists {
+				return invalid
+			}
+			pub, sub, err := SnapshotPermissions(cfg.Cell, cfg.SeedInstance, index == 1)
+			if err != nil {
+				return err
+			}
+			users[key] = userPlan{store.Account, pub, sub}
+		}
 		for _, peer := range cfg.Peers {
 			if _, exists := users[peer.AuthorityReaderPublicNKey]; exists {
 				return invalid
