@@ -76,6 +76,12 @@ The existing consumer is updated in place, changing only its replica count.
 Authority checks surround each update and readback, including retries. Completion
 requires the exact admitted leader/replica server set, current replicas, unchanged
 consumer creation identity and non-regressing delivery/acknowledgement checkpoints.
+During election, a response may retain the correct profile and creation identity
+while reporting a provisional zero checkpoint. The bounded read loop continues
+until the exact admitted replicas are current before comparing checkpoints.
+A regressed checkpoint from that current group still fails the action. Every
+observation attempt rechecks the original authority lease; no update is replayed
+to repair an incomplete observation.
 Mirrors and sourced streams cannot enter this replica-promotion path.
 
 The [storage experiment](../evidence/nats-snapshot-promotion-audit-2026-09-05.md)
