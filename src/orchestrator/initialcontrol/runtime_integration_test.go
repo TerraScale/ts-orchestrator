@@ -8,12 +8,16 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"io/fs"
+	"maps"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -356,6 +360,24 @@ func TestInitialRuntimeBlankDiskRetryAndRetirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	replacementHash, _ := hostmanifest.HostManifestSha256(replacement)
+	// Keep both accounts' privileged remote clients connected across retirement.
+	// A local admission lock alone cannot fence these broker capabilities.
+	provisioners := []*nats.Conn{
+		client(t, config, *config.Regional.Provisioner),
+		client(t, config, *config.Global.Provisioner),
+	}
+	for _, connection := range provisioners {
+		store, e := jetstream.New(connection)
+		if e != nil {
+			t.Fatal(e)
+		}
+		probe, cancel := context.WithTimeout(t.Context(), time.Second)
+		_, e = store.AccountInfo(probe)
+		cancel()
+		if e != nil {
+			t.Fatalf("privileged client was not live before retirement: %v", e)
+		}
+	}
 	if err = f.epochs.RetireInitialR1(t.Context(), nodeauthority.InitialR1AdmissionDirectory, f.proof.Identity(), authorization, command.CommandId, f.proof.Identity().ManifestSHA256, replacementHash); err != nil {
 		t.Fatal(err)
 	}
@@ -364,9 +386,59 @@ func TestInitialRuntimeBlankDiskRetryAndRetirement(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("retirement did not shut down runtime")
 	}
+	stopped := retainedStoreDigests(t, config.Broker.StoreDir)
+	for _, connection := range append(provisioners, nc) {
+		if err := connection.FlushTimeout(time.Second); err == nil {
+			t.Fatal("retired broker still accepts remote client traffic")
+		}
+	}
+	endpoint, err := url.Parse(config.Broker.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection, err := net.DialTimeout("tcp", endpoint.Host, time.Second); err == nil {
+		connection.Close()
+		t.Fatal("runtime completed before the broker listener stopped")
+	}
 	if _, err = initialcontrol.Start(t.Context(), f.admission); err == nil {
 		t.Fatal("retired admission restarted initial control")
 	}
+	// Cross a supervision tick after the refused restart and remote requests.
+	// This is a bounded regression observation, not a durable store-seal receipt.
+	select {
+	case <-time.After(150 * time.Millisecond):
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	if !maps.Equal(stopped, retainedStoreDigests(t, config.Broker.StoreDir)) {
+		t.Fatal("retired store changed after runtime completion")
+	}
+}
+
+func retainedStoreDigests(t *testing.T, root string) map[string][sha256.Size]byte {
+	t.Helper()
+	digests := make(map[string][sha256.Size]byte)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		if !entry.Type().IsRegular() {
+			t.Fatalf("unexpected retained store entry: %s", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		digests[path] = sha256.Sum256(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(digests) == 0 {
+		t.Fatal("retired broker has no retained store files")
+	}
+	return digests
 }
 
 func TestInitialRuntimeInsufficientBudgetBeforeBroker(t *testing.T) {
