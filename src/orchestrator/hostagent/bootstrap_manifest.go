@@ -103,7 +103,7 @@ func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest 
 		if !ok || runtime {
 			return errors.New("hostagent: candidate preparation retired or lacks bootstrap proof")
 		}
-		if time.Now().Before(bootstrap.grant.ExpiresAt) {
+		if bootstrap.verifier.CheckAt(time.Now()) == nil {
 			if err := t.validateBootstrapInitialState(bootstrap); err != nil {
 				return err
 			}

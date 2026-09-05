@@ -92,16 +92,31 @@ func (c *ProviderOperationsContract) cloudflareClient() *cf.Client {
 }
 
 type providerKVSource struct {
-	stack         *vmqual.Stack
-	registryPath  string
-	placementPath string
+	mu                    sync.Mutex
+	observedPlacementPath string
+	stack                 *vmqual.Stack
+	registryPath          string
+	placementPath         string
+}
+
+// selectRevision admits an already persisted pair without filesystem work while
+// the real health ticker is running. Each observation pass pins the pair so a
+// notification cannot mix an old health catalog with a new placement revision.
+func (s *providerKVSource) selectRevision(registryPath, placementPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registryPath, s.placementPath = registryPath, placementPath
 }
 
 func (s *providerKVSource) ObserveRegionHealth(ctx context.Context) (map[string]cf.RegionHealth, error) {
+	s.mu.Lock()
+	registryPath := s.registryPath
+	s.observedPlacementPath = s.placementPath
+	s.mu.Unlock()
 	var registry struct {
 		Regions []string `json:"regions"`
 	}
-	if err := readStrictProviderJSON(s.registryPath, &registry); err != nil {
+	if err := readStrictProviderJSON(registryPath, &registry); err != nil {
 		return nil, fmt.Errorf("vmqual: read registered Regions: %w", err)
 	}
 	if len(registry.Regions) == 0 || len(registry.Regions) > 20 {
@@ -133,8 +148,14 @@ func (s *providerKVSource) ObserveDBPlacement(ctx context.Context) (map[string]c
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	placementPath := s.observedPlacementPath
+	s.mu.Unlock()
+	if placementPath == "" {
+		return nil, errors.New("vmqual: placement observation requires a pinned health revision")
+	}
 	result := map[string]cf.DBPlacement{}
-	if err := readStrictProviderJSON(s.placementPath, &result); err != nil {
+	if err := readStrictProviderJSON(placementPath, &result); err != nil {
 		return nil, fmt.Errorf("vmqual: read durable placement projection: %w", err)
 	}
 	if len(result) == 0 || len(result) > 4096 {
@@ -256,6 +277,18 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 	if err := ensureKVNamespaces(ctx, client); err != nil {
 		return result, err
 	}
+	// Prepare immutable source revisions before starting the real ticker. Disk
+	// synchronization is setup work, not part of notification latency or cadence.
+	nextRegistryPath := filepath.Join(c.stateRoot, "regions-next.json")
+	nextPlacementPath := filepath.Join(c.stateRoot, "placement-next.json")
+	if err := writeProviderJSON(nextRegistryPath, map[string]any{"regions": []string{"fra", "gru", "sfo"}}); err != nil {
+		return result, err
+	}
+	if err := writeProviderJSON(nextPlacementPath, map[string]cf.DBPlacement{
+		"qualification-live": {Regions: []string{"gru"}, PlacementLock: "explicit", Generation: 2},
+	}); err != nil {
+		return result, err
+	}
 	source := &providerKVSource{stack: c.stack, registryPath: registryPath, placementPath: placementPath}
 	store := &providerKVStore{delegate: client, changed: make(chan struct{}, 1)}
 	var budgetMu sync.Mutex
@@ -294,14 +327,7 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 	if elapsed < providerTickLowerBound || elapsed > providerTickUpperBound {
 		return result, fmt.Errorf("vmqual: observed KV refresh after %s, want one real 10s tick", elapsed)
 	}
-	if err := writeProviderJSON(registryPath, map[string]any{"regions": []string{"fra", "gru", "sfo"}}); err != nil {
-		return result, err
-	}
-	if err := writeProviderJSON(placementPath, map[string]cf.DBPlacement{
-		"qualification-live": {Regions: []string{"gru"}, PlacementLock: "explicit", Generation: 2},
-	}); err != nil {
-		return result, err
-	}
+	source.selectRevision(nextRegistryPath, nextPlacementPath)
 	writer.NotifyChange()
 	if err := awaitProviderKVEvents(ctx, store, 16, 3*time.Second); err != nil {
 		return result, fmt.Errorf("vmqual: notified provider KV pass: %w", err)

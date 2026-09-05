@@ -135,7 +135,7 @@ func ResumeLocalCandidatePreparation(ctx context.Context, lifecycle *Lifecycle, 
 	if e != nil || !found {
 		return found, e
 	}
-	if time.Now().Before(authority.grant.ExpiresAt) {
+	if authority.verifier.CheckAt(time.Now()) == nil {
 		return false, nil
 	}
 	if manifestPath != filepath.Join(lifecycle.dataRoot, hostmanifest.TsNodeComponentName, "manifest.json") {
@@ -274,7 +274,7 @@ func (t *NatsTransport) resumeExpiredCandidateStartup(ctx context.Context) (bool
 	if runtime {
 		return true, nil
 	}
-	if time.Now().Before(bootstrap.grant.ExpiresAt) {
+	if bootstrap.verifier.CheckAt(time.Now()) == nil {
 		bounded, cancel := context.WithDeadline(ctx, bootstrap.grant.ExpiresAt)
 		defer cancel()
 		return true, t.restoreRecordedDrain(bounded)
