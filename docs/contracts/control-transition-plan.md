@@ -72,6 +72,46 @@ seal protocol, and pre-NATS recovery in the order required by
 [the transition design](control-snapshot-transition.md). The existing manifest
 handoff must not use the plan pin as proof that all destinations are prepared.
 
+## Host acknowledgements
+
+`EpochStore.AcknowledgeStorageTransitionPlan` validates the existing private pin,
+current manifest binding, and nonregressing host authority floor under receiver
+ownership. It fsyncs the journal directory before signing the pin's exact digest.
+It uses the host receipt key from the plan, never the owner key. The first signed
+acknowledgement is retained in the private
+`storage-transition-pin-receipt.json` file through fsync, rename, and directory
+fsync. Retries validate and return those exact bytes without a signer. A failed
+rename-directory sync can therefore recover without producing a second signature.
+
+The receipt has only the `plan-pinned` phase and uses signature domain
+`TS-CONTROL-STORAGE-PLAN-PIN-RECEIPT-V1\x00`. It binds the plan as its immediate
+predecessor, the private pin digest, host and role, bootstrap/manifest hashes,
+original admission time, and receipt publication time. Source receipts also
+retain the admitted regional command digest and authority identity. Destination
+receipts require all ordinary-authority fields to remain empty or zero. The
+complete signed receipt is bounded to 8 KiB.
+
+`controltransition.VerifyPinReceipt` validates historical acknowledgement
+evidence against the key and identities in the verified owner plan. It does not
+claim that the plan remains live. `VerifyPlanPins` requires a live plan and one
+receipt per distinct host in source-first, then GRU/SFO/FRA order, skipping the
+source node if it is also the GRU destination. It rejects missing, additional,
+reordered, duplicate, conflicting, or future receipts. A source receipt on a
+shared source/GRU host acknowledges that host's complete plan pin; it does not
+assert that the GRU destination broker or directory has been prepared.
+
+Acknowledgement recovery can run after source retirement without renewing the
+old command or re-admitting R1. Ordinary runtime admission on a destination and
+plan expiry close this preliminary recovery API. Historical signed bytes remain
+verifiable for audit. Corrupt, unsafe, or conflicting acknowledgement files are
+retained and refused, never replaced to force a retry.
+
+These acknowledgements are stored locally and returned to the trusted caller.
+No external publication or independent receipt-delivery transport is wired yet.
+The complete preparation barrier must combine them with synchronization,
+identity, storage and health evidence before retirement. The first private
+acknowledgement is not a general phase journal or permission to execute effects.
+
 ## Preliminary candidate evidence
 
 `candidatesync.VerifyScopedReceipt` verifies candidate attribution using the
