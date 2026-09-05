@@ -104,15 +104,22 @@ SHA-256, size, and capture time. It explicitly marks the result preliminary and
 uses a signature domain distinct from the owner request. Its signer is the
 source membership identity already pinned by the original grant.
 
-Each version-2 snapshot envelope records the stream's consumer inventory before
+Each version-3 snapshot envelope records the stream's consumer inventory before
 and after capture. Consumer identities must match across those observations.
+File-backed consumers also require an unchanged configuration digest, delivered
+and acknowledgement-floor sequences, and pending/redelivery counts. Public
+restore verification compares those values directly to the source envelope.
 The file archive must contain metadata, checksum, and checkpoint files for
 every file-backed consumer. Memory-backed ephemeral watchers appear in the
 inventory but are absent from the NATS file archive; their later recreation is
 outside this capture path. A memory-backed durable consumer refuses capture.
-Version-1 envelopes lack this inventory and are rejected. These checks preserve
+Version-1 and version-2 envelopes lack the required evidence and are rejected. These checks preserve
 the distinction between an omitted watcher and a missing durable checkpoint;
-they do not prove an atomic consumer checkpoint or restored state equivalence.
+they do not prove an atomic cut across streams or decode every per-message
+pending-acknowledgement entry in the archived checkpoint. A prior version's
+immutable snapshot cannot be upgraded in place. A new capture needs a newly
+authorized request, output scope, and object keys; retain conflicting old state
+for investigation rather than overwriting a pinned capture or candidate store.
 
 The first accepted signed request pins the output directory. Retrying the same
 bytes within the same live term reuses verified immutable snapshots and the

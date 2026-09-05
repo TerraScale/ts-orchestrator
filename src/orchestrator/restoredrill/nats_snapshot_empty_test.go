@@ -217,7 +217,7 @@ func TestSnapshotEnvelopeRejectsIncompleteNonemptyArchive(t *testing.T) {
 	if writer.Close() != nil || compressed.Close() != nil {
 		t.Fatal("archive close")
 	}
-	manifest := jetStreamSnapshotManifest{Version: 2, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(incomplete.Len()), ArchiveSHA256: delivery.SHA256Digest(incomplete.Bytes())}
+	manifest := jetStreamSnapshotManifest{Version: 3, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(incomplete.Len()), ArchiveSHA256: delivery.SHA256Digest(incomplete.Bytes())}
 	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, incomplete.Bytes(), defaultJetStreamSnapshotBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestSnapshotEnvelopeRejectsMissingConsumerAndTrailingData(t *testing.T) {
 			}
 		})
 	}
-	manifest := jetStreamSnapshotManifest{Version: 2, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
+	manifest := jetStreamSnapshotManifest{Version: 3, Stream: "STATE", CreatedAt: time.Now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSize: int64(len(inner)), ArchiveSHA256: delivery.SHA256Digest(inner)}
 	envelope, err := encodeJetStreamSnapshotEnvelope(manifest, inner, defaultJetStreamSnapshotBytes)
 	if err != nil {
 		t.Fatal(err)

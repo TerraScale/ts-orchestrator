@@ -134,7 +134,7 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 	if err != nil {
 		return ControlStateSnapshot{}, err
 	}
-	manifest := jetStreamSnapshotManifest{Version: 2, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
+	manifest := jetStreamSnapshotManifest{Version: 3, Stream: s.stream, Request: request, CreatedAt: s.now().UTC(), Config: response.Config, State: response.State, Consumers: response.Consumers, ArchiveSHA256: delivery.SHA256Digest(archive), ArchiveSize: int64(len(archive))}
 	data, err := encodeJetStreamSnapshotEnvelope(manifest, archive, s.maxBytes)
 	if err != nil {
 		return ControlStateSnapshot{}, err
@@ -315,6 +315,9 @@ func validateJetStreamSnapshot(data []byte, stream string, maximum int64, config
 	for i, c := range inventory {
 		if !validNATSStreamName(c.Name) || c.Created.IsZero() || (i > 0 && c.Name <= inventory[i-1].Name) || c.MemoryStorage && c.Durable != "" {
 			return fmt.Errorf("%w: consumer inventory invalid", ErrSnapshotVerification)
+		}
+		if c.MemoryStorage && c.Checkpoint != nil || !c.MemoryStorage && (c.Checkpoint == nil || !validSnapshotCheckpoint(*c.Checkpoint, c.Name)) {
+			return fmt.Errorf("%w: consumer checkpoint evidence invalid", ErrSnapshotVerification)
 		}
 		if !c.MemoryStorage {
 			expectedConsumers[c.Name] = c

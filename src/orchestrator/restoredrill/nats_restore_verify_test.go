@@ -44,6 +44,20 @@ func verifyPreliminaryRestore(t *testing.T, ctx context.Context, body []byte) {
 	if !SameSnapshotRestoreEvidence(a, b) {
 		t.Fatalf("independent restore differs: %+v %+v", a, b)
 	}
+	// Two restores can agree with each other while an archive disagrees with
+	// the source evidence. A structurally valid changed checkpoint must fail.
+	manifest, archive, err := decodeJetStreamSnapshotEnvelope(body, "CONTROL_STATE", 8<<20)
+	if err != nil || len(manifest.Consumers) == 0 || manifest.Consumers[0].Checkpoint == nil {
+		t.Fatalf("source checkpoint missing: %v", err)
+	}
+	manifest.Consumers[0].Checkpoint.AckPending++
+	changedSource, err := encodeJetStreamSnapshotEnvelope(manifest, archive, 8<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RestorePreliminarySnapshot(ctx, privateRestoreBroker(t), "CONTROL_STATE", changedSource, 8<<20); err == nil {
+		t.Fatal("archive accepted despite disagreement with source checkpoint")
+	}
 	replay, err := RestorePreliminarySnapshot(ctx, target, "CONTROL_STATE", body, 8<<20)
 	if err != nil || !SameSnapshotRestoreEvidence(a, replay) {
 		t.Fatalf("restore replay differs: %+v %v", replay, err)
@@ -69,12 +83,8 @@ func verifyPreliminaryRestore(t *testing.T, ctx context.Context, body []byte) {
 			t.Fatal(err)
 		}
 	}
-	changed, err := RestorePreliminarySnapshot(ctx, target, "CONTROL_STATE", body, 8<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if SameSnapshotRestoreEvidence(a, changed) {
-		t.Fatal("changed consumer checkpoint accepted")
+	if _, err := RestorePreliminarySnapshot(ctx, target, "CONTROL_STATE", body, 8<<20); err == nil {
+		t.Fatal("changed consumer checkpoint accepted against source envelope")
 	}
 	if _, err := js.Publish(ctx, "control.extra", []byte("conflict")); err != nil {
 		t.Fatal(err)

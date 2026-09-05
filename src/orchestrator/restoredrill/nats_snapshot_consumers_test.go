@@ -66,6 +66,11 @@ func TestSnapshotEnvelopeRequiresExplicitConsumerInventory(t *testing.T) {
 	}
 	for _, mutate := range []func(*jetStreamSnapshotManifest){
 		func(m *jetStreamSnapshotManifest) { m.Version = 1 },
+		func(m *jetStreamSnapshotManifest) { m.Version = 2 },
+		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint = nil },
+		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint.ConfigSHA256 = "invalid" },
+		func(m *jetStreamSnapshotManifest) { m.Consumers[0].Checkpoint.AckFloorConsumer = 1 },
+		func(m *jetStreamSnapshotManifest) { m.Consumers[1].Checkpoint = m.Consumers[0].Checkpoint },
 		func(m *jetStreamSnapshotManifest) { m.Consumers = nil },
 		func(m *jetStreamSnapshotManifest) { m.Consumers = m.Consumers[:1] },
 		func(m *jetStreamSnapshotManifest) { m.Consumers[1].Durable = "MEMORY" },
@@ -90,7 +95,7 @@ func TestSnapshotEnvelopeRequiresExplicitConsumerInventory(t *testing.T) {
 }
 
 func TestSnapshotRequiresStableAndCompleteConsumerAPIIdentity(t *testing.T) {
-	for _, mode := range []string{"null-config", "changed-identity", "missing-total", "oversized-inventory"} {
+	for _, mode := range []string{"null-config", "changed-identity", "changed-checkpoint", "missing-checkpoint", "missing-total", "oversized-inventory"} {
 		t.Run(mode, func(t *testing.T) {
 			broker, err := natsserver.NewServer(&natsserver.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
 			if err != nil {
@@ -128,6 +133,17 @@ func TestSnapshotRequiresStableAndCompleteConsumerAPIIdentity(t *testing.T) {
 				case strings.HasPrefix(m.Subject, "$JS.API.CONSUMER.INFO.STATE."):
 					name := strings.TrimPrefix(m.Subject, "$JS.API.CONSUMER.INFO.STATE.")
 					response := map[string]any{"type": "io.nats.jetstream.api.v1.consumer_info_response", "stream_name": "STATE", "name": name, "created": "2026-01-01T00:00:00Z", "config": map[string]any{"mem_storage": true}}
+					if mode == "changed-checkpoint" || mode == "missing-checkpoint" {
+						response["config"] = map[string]any{"durable_name": "WATCH"}
+						response["delivered"] = map[string]any{"consumer_seq": namesCalls.Load(), "stream_seq": namesCalls.Load()}
+						response["ack_floor"] = map[string]any{"consumer_seq": 0, "stream_seq": 0}
+						response["num_ack_pending"] = 0
+						response["num_pending"] = 0
+						response["num_redelivered"] = 0
+						if mode == "missing-checkpoint" {
+							delete(response, "ack_floor")
+						}
+					}
 					if mode == "null-config" {
 						response["config"] = nil
 					}
@@ -156,7 +172,7 @@ func TestSnapshotRequiresStableAndCompleteConsumerAPIIdentity(t *testing.T) {
 			if _, _, err := snapshotter.streamSnapshot(ctx); !errors.Is(err, ErrSnapshotVerification) || ctx.Err() != nil {
 				t.Fatalf("malformed/changing inventory was not rejected immediately: %v", err)
 			}
-			if mode == "changed-identity" {
+			if mode == "changed-identity" || mode == "changed-checkpoint" {
 				if namesCalls.Load() != 2 || snapshots.Load() != 1 {
 					t.Fatal("fixture did not cross capture boundary")
 				}

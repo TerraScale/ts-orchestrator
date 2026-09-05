@@ -41,7 +41,7 @@ type SnapshotConsumerEvidence struct {
 	Redelivered       int    `json:"redelivered"`
 }
 
-// RestorePreliminarySnapshot validates the exact v2 envelope, observes an
+// RestorePreliminarySnapshot validates the exact v3 envelope, observes an
 // existing stream or restores an absent one, and reads all retained content.
 // A caller compares this result to a separate reference restore of the same
 // archive before accepting a replay. Conflicting existing streams are never
@@ -205,12 +205,14 @@ func observeRestoredSnapshot(ctx context.Context, nc *nats.Conn, target jetstrea
 		if err != nil {
 			return SnapshotRestoreEvidence{}, err
 		}
-		raw, err := json.Marshal(info.Config)
+		checkpoint, err := snapshotConsumerEvidence(*info)
 		if err != nil {
 			return SnapshotRestoreEvidence{}, err
 		}
-		sum := sha256.Sum256(raw)
-		evidence.Consumers = append(evidence.Consumers, SnapshotConsumerEvidence{Name: identity.Name, ConfigSHA256: hex.EncodeToString(sum[:]), DeliveredConsumer: info.Delivered.Consumer, DeliveredStream: info.Delivered.Stream, AckFloorConsumer: info.AckFloor.Consumer, AckFloorStream: info.AckFloor.Stream, AckPending: info.NumAckPending, Pending: info.NumPending, Redelivered: info.NumRedelivered})
+		if expected.Checkpoint == nil || checkpoint != *expected.Checkpoint {
+			return fail("consumer checkpoint differs from source")
+		}
+		evidence.Consumers = append(evidence.Consumers, checkpoint)
 	}
 	after, err := target.Info(ctx)
 	if err != nil {

@@ -89,7 +89,7 @@ func decodeJetStreamSnapshotEnvelope(data []byte, stream string, maximum int64) 
 	if _, err := archive.Next(); err != io.EOF {
 		return fail()
 	}
-	if manifest.Version != 2 || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
+	if manifest.Version != 3 || manifest.Stream != stream || manifest.CreatedAt.IsZero() || manifest.State == nil || manifest.ArchiveSize != int64(len(body)) || !snapshotSHA256Pattern.MatchString(manifest.ArchiveSHA256) || !delivery.SameDigest(manifest.ArchiveSHA256, delivery.SHA256Digest(body)) {
 		return fail()
 	}
 	// Comparing the canonical envelope also rejects duplicate JSON fields,
