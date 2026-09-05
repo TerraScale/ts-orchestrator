@@ -63,6 +63,23 @@ The snapshot package took 18.056 seconds and the complete VM qualification
 scenario package took 25.561 seconds. Its log SHA256 is
 `205f1a69dc45cdb72f03b5034a2175d6f805979eede762a9b6e66dd314e9d27e`.
 
+The final `GOMAXPROCS=4 GOFLAGS=-p=2 go test -race -tags sandboxvm ./...`
+also passed in that isolated temporary-filesystem environment. Log SHA256:
+`5d7bf49e0ed3283bce5fc3916f39a89755efab669a8e55ff551c47c39e898666`.
+`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 GOMAXPROCS=4 GOFLAGS=-p=2 go build ./...`
+passed with empty output. These gates cover the source recorded in
+`61823b5b`; only this evidence was updated afterward.
+
+The full-check namespace invocation was:
+
+```sh
+sudo -n --preserve-env=PATH unshare -m --propagation private bash -c 'mount -t tmpfs -o mode=1777,size=8G tmpfs /tmp && exec runuser -u mariogk -- env PATH="$PATH" GOMAXPROCS=4 GOFLAGS=-p=2 make check'
+```
+
+The tagged run used the same invocation with `make check` replaced by
+`go test -race -tags sandboxvm ./...`. The arm64 build ran as the ordinary
+user outside the namespace.
+
 This evidence does not qualify source fencing, consistent capture, broker
 synchronization, restoration, R3 promotion, or the final authority election.
 No new Firecracker or OCI qualification result is claimed. The last real VM
