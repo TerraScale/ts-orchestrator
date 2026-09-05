@@ -27,7 +27,7 @@ func TestOCIObserveParsesAndValidatesRunnerIdentityTags(t *testing.T) {
 	tags := RunnerTags(demand, template.Generation)
 	responseTags := tags
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		body := `{"items":[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING","timeCreated":"2026-08-30T12:00:00Z","freeformTags":` + string(mustJSON(responseTags)) + `}]}`
+		body := `[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING","timeCreated":"2026-08-30T12:00:00Z","freeformTags":` + string(mustJSON(responseTags)) + `}]`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
 	cfg, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")

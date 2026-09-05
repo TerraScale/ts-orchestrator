@@ -23,6 +23,7 @@ type signedDeliveryDispatcher struct {
 	authority      *RegionalAuthorityCoordinator
 	leaders, store jetstream.KeyValue
 	executor       *delivery.Executor
+	delegation     *MasterDeliveryAdmissionConfig
 }
 
 type deliveryAdmission struct {
@@ -43,7 +44,10 @@ func (d *signedDeliveryDispatcher) dispatch(ctx context.Context, envelope protoc
 	if ctx == nil || envelope.Cell.Value != d.cell || envelope.AggregateId.Value != "delivery" || envelope.WriterEpoch.Value <= 0 || envelope.DesiredGeneration.Value <= 0 {
 		return errors.New("signed delivery: envelope scope is invalid")
 	}
-	request, err := delivery.ParseRequest(string(envelope.Payload.Bytes()))
+	if d.delegation == nil {
+		return errors.New("signed delivery: global master delegation is required")
+	}
+	ctx, request, payloadIdentity, err := d.delegation.resolve(ctx, envelope)
 	if err != nil {
 		return errors.New("signed delivery: invalid delivery request")
 	}
@@ -64,7 +68,7 @@ func (d *signedDeliveryDispatcher) dispatch(ctx context.Context, envelope protoc
 	if err := d.checkLeader(ctx, envelope.WriterEpoch.Value); err != nil {
 		return err
 	}
-	payload := sha256.Sum256(envelope.Payload.Bytes())
+	payload := sha256.Sum256(payloadIdentity)
 	idempotency := sha256.Sum256([]byte(envelope.IdempotencyKey.Value))
 	admission := deliveryAdmission{Version: 1, OperationID: request.OperationID, PayloadDigest: hex.EncodeToString(payload[:]), IdempotencyDigest: hex.EncodeToString(idempotency[:]), Generation: envelope.DesiredGeneration.Value}
 	if err := d.admit(ctx, admission, envelope.WriterEpoch.Value); err != nil {
@@ -105,6 +109,14 @@ func (d *signedDeliveryDispatcher) readLeader(ctx context.Context, epoch int64) 
 	}
 	if err := ctx.Err(); err != nil {
 		return authority.RegionalAuthorityLeaseDocument{}, err
+	}
+	if proof, ok := ctx.Value(masterDeliveryProofKey{}).(authority.RegionalAuthorityLeaseDocument); ok {
+		if d.delegation == nil {
+			return authority.RegionalAuthorityLeaseDocument{}, errors.New("signed delivery: global delegation reader is missing")
+		}
+		if err := d.delegation.checkGlobal(ctx, proof); err != nil {
+			return authority.RegionalAuthorityLeaseDocument{}, err
+		}
 	}
 	snapshot := d.authority.Snapshot()
 	if !snapshot.Ready() || !snapshot.IsLeader || snapshot.State != "leader" || snapshot.Epoch != epoch {

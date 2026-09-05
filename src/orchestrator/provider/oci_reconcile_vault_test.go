@@ -268,8 +268,8 @@ func vaultTestVault() ObservedVault {
 
 func TestOCIVaultGatewayListKeysParsesShape(t *testing.T) {
 	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
-		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED",`+
-			`"keyShape":{"algorithm":"AES","length":256,"protectionMode":"SOFTWARE"}}]}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED",`+
+			`"keyShape":{"algorithm":"AES","length":256,"protectionMode":"SOFTWARE"}}]`, nil), nil
 	})
 	keys, err := gateway.ListKeys(context.Background(), vaultTestVault())
 	if err != nil {
@@ -282,7 +282,7 @@ func TestOCIVaultGatewayListKeysParsesShape(t *testing.T) {
 
 func TestOCIVaultGatewayListKeysRequiresShape(t *testing.T) {
 	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
-		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED"}]}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.key.oc1.x.1","displayName":"database-kek","lifecycleState":"ENABLED"}]`, nil), nil
 	})
 	_, err := gateway.ListKeys(context.Background(), vaultTestVault())
 	if err == nil {
@@ -311,7 +311,7 @@ func TestOCIVaultGatewayCreateKeyRefusesForeignShape(t *testing.T) {
 
 func TestOCIVaultGatewayListVaultsRequiresKnownType(t *testing.T) {
 	gateway := vaultTestGateway(t, func(*http.Request) (*http.Response, error) {
-		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.vault.oc1.x","displayName":"terrascale-gru-vault","lifecycleState":"ACTIVE"}]}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.vault.oc1.x","displayName":"terrascale-gru-vault","lifecycleState":"ACTIVE"}]`, nil), nil
 	})
 	_, err := gateway.ListVaults(context.Background())
 	if err == nil {

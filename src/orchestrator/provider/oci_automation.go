@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -24,20 +23,6 @@ const maximumOCIListResults = 1000
 func fingerprintJSON(action string, value any) string {
 	raw, _ := json.Marshal(value)
 	return ProviderMutationFingerprint(action, string(raw))
-}
-
-func decodeOCIList[T any](raw []byte) ([]T, error) {
-	var direct []T
-	if json.Unmarshal(raw, &direct) == nil {
-		return direct, nil
-	}
-	var wrapped struct {
-		Items []T `json:"items"`
-	}
-	if json.Unmarshal(raw, &wrapped) != nil || wrapped.Items == nil {
-		return nil, errors.New("invalid OCI list")
-	}
-	return wrapped.Items, nil
 }
 
 func expectJSONMutation(intent ProviderMutationIntent, action, scope string, value any) error {
@@ -367,19 +352,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 
 func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances?"+query.Encode(), nil)
-	if err != nil {
-		return ComputeInstance{}, false, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = ReadBoundedBody(resp, 64<<10)
-		return ComputeInstance{}, false, &InvalidOperationError{Message: "OCI instance reconciliation failed"}
-	}
-	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
-	if err != nil {
-		return ComputeInstance{}, false, err
-	}
-	items, err := decodeOCIList[ociAutomatedInstance](body)
+	items, err := readOCIResourceList[ociAutomatedInstance](ctx, a.Core, "/20160918/instances", query, func(item ociAutomatedInstance) string { return item.ID })
 	if err != nil || len(items) > maximumOCIListResults {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation response is invalid"}
 	}

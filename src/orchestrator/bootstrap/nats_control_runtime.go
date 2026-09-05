@@ -463,7 +463,7 @@ func openControlNATS(ctx context.Context, store ControlNATSStore) (*nats.Conn, e
 	}
 	state, err := connection.TLSConnectionState()
 	config = connection.Opts.TLSConfig
-	if err != nil || state.Version < tls.VersionTLS13 || len(state.VerifiedChains) == 0 || connection.Opts.SignatureCB == nil || (connection.Opts.Nkey == "" && connection.Opts.UserJWT == nil) || config == nil || config.InsecureSkipVerify || (config.ServerName != "" && config.ServerName != parsed.Hostname()) || (len(config.Certificates) == 0 && config.GetClientCertificate == nil) {
+	if err != nil || !connection.AuthRequired() || state.Version < tls.VersionTLS13 || len(state.VerifiedChains) == 0 || connection.Opts.SignatureCB == nil || (connection.Opts.Nkey == "" && connection.Opts.UserJWT == nil) || config == nil || config.InsecureSkipVerify || (config.ServerName != "" && config.ServerName != parsed.Hostname()) || (len(config.Certificates) == 0 && config.GetClientCertificate == nil) {
 		connection.Close()
 		return nil, ErrControlRuntimeUnavailable
 	}
@@ -632,19 +632,21 @@ func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlAc
 				return "control-" + hex.EncodeToString(sum[:20])
 			}
 			client := r.config.Hosts[member.Region]
-			if !versionsMatch && report.State != hostagent.NodeStateDraining {
-				if _, err := client.SetDrain(bounded, member.HostID, commandID("drain"), true); err != nil {
-					return err
-				}
-			} else if report.Quiesced {
+			if !versionsMatch {
 				for _, component := range handoff.Manifest.Components {
 					if component.Name == hostagent.TsNodeComponentName || byName[component.Name].Version == component.Version {
 						continue
 					}
-					if _, err := client.Deploy(bounded, member.HostID, commandID("deploy/"+component.Name), component.Name, component.Version); err != nil {
+					if !report.Quiesced {
+						if _, err := client.SetDrain(bounded, member.HostID, commandID("drain/"+component.Name), true); err != nil {
+							return err
+						}
+					} else if _, err := client.Deploy(bounded, member.HostID, commandID("deploy/"+component.Name), component.Name, component.Version); err != nil {
 						return err
 					}
+					break
 				}
+			} else if report.State == hostagent.NodeStateDraining {
 				if _, err := client.SetDrain(bounded, member.HostID, commandID("release"), false); err != nil {
 					return err
 				}
@@ -1000,7 +1002,7 @@ func globalControlStreamNames() []string {
 	for _, stream := range topology.Streams() {
 		names = append(names, stream.Name)
 	}
-	for _, bucket := range []jetstream.KeyValueConfig{topology.Leaders(), topology.Cells(), topology.Releases(), topology.RunnerJobs()} {
+	for _, bucket := range []jetstream.KeyValueConfig{topology.Leaders(), topology.Cells(), topology.Releases(), topology.MasterDeliveries(), topology.RunnerJobs()} {
 		names = append(names, "KV_"+bucket.Bucket)
 	}
 	names = append(names, "OBJ_"+topology.Bundles().Bucket, "OBJ_"+topology.RunnerBundles().Bucket)

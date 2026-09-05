@@ -361,14 +361,12 @@ func observedVault(document ociVaultDocument) (ObservedVault, error) {
 func (g *OCIVaultGateway) ListVaults(ctx context.Context) ([]ObservedVault, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []ociVaultDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Vaults, http.MethodGet, "/20180608/vaults?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociVaultDocument](ctx, g.Vaults, "/20180608/vaults", query, func(item ociVaultDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	vaults := make([]ObservedVault, 0, len(list.Items))
-	for _, item := range list.Items {
+	vaults := make([]ObservedVault, 0, len(list))
+	for _, item := range list {
 		vault, err := observedVault(item)
 		if err != nil {
 			return nil, err
@@ -446,14 +444,12 @@ func (g *OCIVaultGateway) ListKeys(ctx context.Context, vault ObservedVault) ([]
 	}
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []ociKeyDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, transport, http.MethodGet, "/20180608/keys?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociKeyDocument](ctx, transport, "/20180608/keys", query, func(item ociKeyDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	keys := make([]ObservedKey, 0, len(list.Items))
-	for _, item := range list.Items {
+	keys := make([]ObservedKey, 0, len(list))
+	for _, item := range list {
 		key, err := observedKey(item)
 		if err != nil {
 			return nil, err

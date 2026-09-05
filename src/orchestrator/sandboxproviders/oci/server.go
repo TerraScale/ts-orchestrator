@@ -432,7 +432,7 @@ func (s *Server) coreRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	}
 	if p[0] == "availabilityDomains" {
 		if r.Method == http.MethodGet {
-			writeJSON(w, 200, map[string]any{"items": []map[string]string{{"name": "AD-1"}, {"name": "AD-2"}}})
+			writeJSON(w, 200, []map[string]string{{"name": "AD-1"}, {"name": "AD-2"}})
 			return
 		}
 		writeError(w, 405, "MethodNotAllowed")
@@ -593,6 +593,10 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request, kind stri
 	if next != "" {
 		w.Header().Set("opc-next-page", next)
 	}
+	if kind != "certificate" {
+		writeJSON(w, 200, out)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"items": out})
 }
 func matchesQuery(x *resource, q url.Values) bool {
@@ -719,7 +723,7 @@ func (s *Server) rulesRoute(w http.ResponseWriter, r *http.Request, id string) {
 			rules[i] = m
 			items = append(items, m)
 		}
-		writeJSON(w, 200, map[string]any{"items": items})
+		writeJSON(w, 200, items)
 		return
 	}
 	body, err := readJSON(r, s.cfg.MaxBodyBytes)
@@ -885,7 +889,7 @@ func (s *Server) listBuckets(w http.ResponseWriter, r *http.Request, ns string) 
 		limit = 1000
 	}
 	if start >= len(items) {
-		items = nil
+		items = []map[string]string{}
 	} else {
 		end := start + limit
 		if end > len(items) {
@@ -896,7 +900,7 @@ func (s *Server) listBuckets(w http.ResponseWriter, r *http.Request, ns string) 
 		}
 		items = items[start:end]
 	}
-	writeJSON(w, 200, map[string]any{"items": items})
+	writeJSON(w, 200, items)
 }
 func (s *Server) createBucket(w http.ResponseWriter, r *http.Request, ns string) {
 	body, err := readJSON(r, s.cfg.MaxBodyBytes)

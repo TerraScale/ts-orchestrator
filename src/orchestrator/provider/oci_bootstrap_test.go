@@ -128,13 +128,15 @@ func bootstrapTestRequest(t *testing.T) BootstrapRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seed, err := testTSNodeCloudInit("1.0.0", strings.Repeat("a", 64), "https://git.terrascale.tech/releases/ts-node-1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return BootstrapRequest{
+		HostCloudInit:   map[int]string{1: seed, 2: seed},
 		Region:          region,
 		CompartmentName: "terrascale",
 		ImageID:         "ocid1.image.oc1.x",
-		TSNodeVersion:   "1.0.0",
-		TSNodeSHA256:    strings.Repeat("a", 64),
-		TSNodeURL:       "https://git.terrascale.tech/releases/ts-node-1.0.0",
 		Convergence:     BootstrapConvergenceConfig{Deadline: time.Second, MaxPasses: 8, PollInitial: time.Millisecond, PollMaximum: 4 * time.Millisecond},
 	}
 }
@@ -222,7 +224,7 @@ func TestRunOCIBootstrapRefusesIncompleteRequest(t *testing.T) {
 		t.Fatal("bootstrap without an image accepted")
 	}
 	request = bootstrapTestRequest(t)
-	request.TSNodeURL = "not-a-url"
+	request.HostCloudInit = nil
 	err := RunOCIBootstrap(context.Background(), request, newAllGatewayFakes().gateways(), nil)
 	if err == nil {
 		t.Fatal("bootstrap without a ts-node release accepted")

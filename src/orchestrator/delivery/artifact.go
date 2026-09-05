@@ -24,6 +24,7 @@ type ReleaseArtifact struct {
 	Digest       string // "sha256:<hex>" as named by the request
 	Architecture string // linux/arm64 or linux/amd64; empty means legacy arm64
 	Body         []byte
+	Signature    []byte // verified raw detached signature
 	SignatureKey string // the trust-set key ID that verified the signature
 }
 
@@ -367,5 +368,6 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 		Architecture: request.Artifact.Architecture,
 		Body:         append([]byte(nil), body...),
 		SignatureKey: keyID,
+		Signature:    append([]byte(nil), signature...),
 	}, nil
 }

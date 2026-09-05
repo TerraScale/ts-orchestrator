@@ -12,15 +12,18 @@ import (
 // The regional runtime owns the authenticated connection, durable journal,
 // command-generation admission and live authority checks.
 type SignedDeliveryRuntimeConfig struct {
-	Fetcher delivery.ArtifactFetcher
-	Trust   func() *delivery.TrustSet
-	Mirror  *delivery.ArtifactMirror
-	Rollout delivery.RolloutConfig
+	Delegation *MasterDeliveryAdmissionConfig
+	Trust      func() *delivery.TrustSet
+	Mirror     *delivery.ArtifactMirror
+	Rollout    delivery.RolloutConfig
 }
 
 func (c SignedDeliveryRuntimeConfig) Validate() error {
-	if deliveryNil(c.Fetcher) || c.Trust == nil || c.Trust() == nil || c.Mirror == nil || deliveryNil(c.Mirror.Store) {
-		return errors.New("signed delivery: verified release fetch, trust and mirror are required")
+	if err := c.Delegation.Validate(); err != nil {
+		return err
+	}
+	if c.Trust == nil || c.Trust() == nil || c.Mirror == nil || deliveryNil(c.Mirror.Store) {
+		return errors.New("signed delivery: release signing trust and verified mirror reads are required")
 	}
 	if _, ok := c.Mirror.Store.(delivery.RegionObjectStoreContentReader); !ok {
 		return errors.New("signed delivery: all-region mirror content reads are required")
@@ -79,9 +82,9 @@ func (r *NatsRuntime) deliveryDispatcher(ctx context.Context, state *natsRuntime
 	if err != nil {
 		return nil, err
 	}
-	dispatcher := &signedDeliveryDispatcher{connection: r.client, cell: r.topology.Cell, instance: r.topology.Instance, authority: r.authority, leaders: state.leaders, store: state.delivery}
+	dispatcher := &signedDeliveryDispatcher{delegation: config.Delegation, connection: r.client, cell: r.topology.Cell, instance: r.topology.Instance, authority: r.authority, leaders: state.leaders, store: state.delivery}
 	executor, err := delivery.NewExecutor(delivery.ExecutorConfig{
-		MirrorMode: delivery.MirrorModeVerifyAll, OwnerID: r.topology.Cell + "-" + r.topology.Instance, Fetcher: config.Fetcher, Trust: config.Trust,
+		MirrorMode: delivery.MirrorModeVerifyAll, OwnerID: r.topology.Cell + "-" + r.topology.Instance, Trust: config.Trust,
 		Mirror: config.Mirror, Rollout: rollout, Journal: journal, Authority: dispatcher.checkAuthority,
 	})
 	if err != nil {

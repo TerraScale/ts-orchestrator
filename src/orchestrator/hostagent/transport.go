@@ -258,7 +258,8 @@ func decodeRollbackCommand(data []byte) (RollbackCommand, error) {
 
 // NatsTransportConfig is the fully explicit transport configuration.
 type NatsTransportConfig struct {
-	CommandAuthority nodeauthority.CommandAuthorizer
+	RequireManifestAdmission bool
+	CommandAuthority         nodeauthority.CommandAuthorizer
 	// NodeId identifies the node whose subjects the transport serves.
 	NodeId NodeId
 	// Connection is the NATS connection seam the transport uses.
@@ -286,17 +287,18 @@ type NatsTransportConfig struct {
 // drain, drain-status, deploy, and rollback requests through the lifecycle
 // and publishes heartbeats on the injected clock's cadence.
 type NatsTransport struct {
-	authorizer      nodeauthority.CommandAuthorizer
-	epochs          *nodeauthority.EpochStore
-	nodeId          NodeId
-	connection      NatsConnection
-	lifecycle       *Lifecycle
-	facts           *HostFactsSource
-	ticker          HeartbeatTicker
-	now             func() time.Time
-	closeConnection bool
-	journal         *commandJournal
-	manifestPath    string
+	requireManifestAdmission bool
+	authorizer               nodeauthority.CommandAuthorizer
+	epochs                   *nodeauthority.EpochStore
+	nodeId                   NodeId
+	connection               NatsConnection
+	lifecycle                *Lifecycle
+	facts                    *HostFactsSource
+	ticker                   HeartbeatTicker
+	now                      func() time.Time
+	closeConnection          bool
+	journal                  *commandJournal
+	manifestPath             string
 
 	commandContext      context.Context
 	commandContextMutex sync.RWMutex
@@ -313,6 +315,9 @@ type NatsTransport struct {
 
 // NewNatsTransport validates the configuration and composes the transport.
 func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
+	if _, bootstrap := config.CommandAuthority.(*BootstrapAuthority); bootstrap {
+		config.RequireManifestAdmission = true
+	}
 	if config.CommandAuthority == nil {
 		return nil, errors.New("hostagent: receiver command authority is required")
 	}
@@ -356,18 +361,19 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		return nil, err
 	}
 	return &NatsTransport{
-		authorizer:      config.CommandAuthority,
-		nodeId:          nodeId,
-		connection:      config.Connection,
-		lifecycle:       config.Lifecycle,
-		facts:           config.Facts,
-		ticker:          config.Ticker,
-		now:             config.Now,
-		closeConnection: config.CloseConnection,
-		journal:         journal,
-		manifestPath:    manifestPath,
-		closing:         make(chan struct{}),
-		heartbeatDone:   make(chan struct{}),
+		authorizer:               config.CommandAuthority,
+		requireManifestAdmission: config.RequireManifestAdmission,
+		nodeId:                   nodeId,
+		connection:               config.Connection,
+		lifecycle:                config.Lifecycle,
+		facts:                    config.Facts,
+		ticker:                   config.Ticker,
+		now:                      config.Now,
+		closeConnection:          config.CloseConnection,
+		journal:                  journal,
+		manifestPath:             manifestPath,
+		closing:                  make(chan struct{}),
+		heartbeatDone:            make(chan struct{}),
 	}, nil
 }
 
@@ -411,6 +417,9 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 			_ = t.epochs.Close()
 		}
 	}()
+	if err := t.initializeManifestAuthority(); err != nil {
+		return err
+	}
 	if err := t.prepareLifecycleForStartup(); err != nil {
 		return err
 	}
@@ -864,11 +873,24 @@ func (t *NatsTransport) applyManifest(ctx context.Context, command ApplyManifest
 		if currentSha256 != command.ExpectedManifestSha256 {
 			accepted = false
 			detail = "manifest compare-and-swap rejected"
-		} else if err := writeDurableManifest(t.manifestPath, canonical); err != nil {
-			return nil, err
 		}
 	}
 	if accepted {
+		if t.requireManifestAdmission {
+			if err := t.epochs.AdmitRuntimeManifest(wantedSha256, currentSha256); err != nil {
+				return nil, err
+			}
+		}
+		if currentSha256 != wantedSha256 {
+			if err := writeDurableManifest(t.manifestPath, canonical); err != nil {
+				return nil, err
+			}
+		}
+		if t.requireManifestAdmission {
+			if err := t.epochs.CommitRuntimeManifest(wantedSha256); err != nil {
+				return nil, err
+			}
+		}
 		if convergeErr := t.lifecycle.ApplyDesired(ctx, command.Manifest.Components); convergeErr != nil {
 			detail = "manifest committed; convergence pending: " + convergeErr.Error()
 		}

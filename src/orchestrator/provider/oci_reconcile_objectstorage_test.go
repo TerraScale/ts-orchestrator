@@ -255,7 +255,7 @@ func TestOCIObjectStorageGatewayTreatsMissingPolicyAsEmpty(t *testing.T) {
 			return testHTTPResponse(http.StatusOK, `"ts-ns"`, http.Header{}), nil
 		}
 		if request.Method == http.MethodGet && request.URL.Path == "/n/ts-ns/b/" {
-			return testHTTPResponse(http.StatusOK, `{"items":[{"name":"terrascale-backups-gru"}]}`, http.Header{}), nil
+			return testHTTPResponse(http.StatusOK, `[{"name":"terrascale-backups-gru"}]`, http.Header{}), nil
 		}
 		if request.Method == http.MethodGet && request.URL.Path == "/n/ts-ns/b/terrascale-backups-gru" {
 			return testHTTPResponse(http.StatusOK, `{"name":"terrascale-backups-gru","versioning":"Enabled"}`, http.Header{}), nil

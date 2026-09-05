@@ -28,10 +28,6 @@ type ociInstanceDocument struct {
 	FreeformTags  map[string]string `json:"freeformTags"`
 }
 
-type ociInstanceList struct {
-	Items []ociInstanceDocument `json:"items"`
-}
-
 func ociStatus(resp *http.Response, operation string) error {
 	if resp == nil {
 		return &InvalidDataError{Message: "OCI request returned no response"}
@@ -81,23 +77,15 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 	v := url.Values{}
 	v.Set("compartmentId", t.CompartmentId)
 	v.Set("limit", strconv.Itoa(limit))
-	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
+	list, err := readOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
-	if err := ociStatus(resp, "instance observation"); err != nil {
-		return nil, err
-	}
-	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-	if err != nil {
-		return nil, err
-	}
-	var list ociInstanceList
-	if json.Unmarshal(body, &list) != nil || len(list.Items) > limit {
+	if len(list) > limit {
 		return nil, &InvalidDataError{Message: "OCI instance observation response is invalid"}
 	}
-	out := make([]OciCiRunnerNodeObservation, 0, len(list.Items))
-	for _, item := range list.Items {
+	out := make([]OciCiRunnerNodeObservation, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId || len(item.FreeformTags) > 32 || !validFreeformTags(item.FreeformTags) {
 			return nil, &InvalidDataError{Message: "OCI instance observation contains invalid identity"}
 		}
@@ -540,22 +528,14 @@ func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartmen
 	v := url.Values{}
 	v.Set("compartmentId", compartment)
 	v.Set("limit", "1000")
-	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
+	list, err := readOCIResourceList[ociInstanceDocument](ctx, c.OCI, "/20160918/instances", v, func(item ociInstanceDocument) string { return item.ID })
 	if err != nil {
 		return nil, err
 	}
-	if err := ociStatus(resp, "node reconciliation"); err != nil {
-		return nil, err
-	}
-	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-	if err != nil {
-		return nil, err
-	}
-	var list ociInstanceList
-	if json.Unmarshal(body, &list) != nil || len(list.Items) > 1000 {
+	if len(list) > 1000 {
 		return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
 	}
-	return list.Items, nil
+	return list, nil
 }
 
 func (c *OCIComputeNodeClient) reconcileNodeCreate(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {

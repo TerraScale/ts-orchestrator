@@ -179,9 +179,7 @@ type BootstrapRequest struct {
 	Region          estate.Region
 	CompartmentName string
 	ImageID         string
-	TSNodeVersion   string
-	TSNodeSHA256    string
-	TSNodeURL       string
+	HostCloudInit   map[int]string
 	Convergence     BootstrapConvergenceConfig
 }
 
@@ -195,7 +193,7 @@ func (r BootstrapRequest) validate() error {
 	if !validEstateName(r.CompartmentName) {
 		return &errs.Argument{Message: "bootstrap compartment name is invalid"}
 	}
-	if _, err := TSNodeCloudInit(r.TSNodeVersion, r.TSNodeSHA256, r.TSNodeURL); err != nil {
+	if err := validateBootstrapHostCloudInit(r.HostCloudInit, int(r.Region.Members.Count)); err != nil {
 		return err
 	}
 	if err := r.Convergence.validate(); err != nil {
@@ -239,10 +237,6 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 	if err := gateways.validate(); err != nil {
 		return err
 	}
-	cloudInit, err := TSNodeCloudInit(request.TSNodeVersion, request.TSNodeSHA256, request.TSNodeURL)
-	if err != nil {
-		return err
-	}
 	network := &NetworkReconciler{Gateway: gateways.Network}
 	vault := &VaultReconciler{Vault: gateways.Vault}
 	object := &ObjectStorageReconciler{Object: gateways.Object}
@@ -257,7 +251,7 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 	if err := convergeStage(ctx, "buckets", object, request.Region, progress, request.Convergence); err != nil {
 		return err
 	}
-	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitBase64: cloudInit}, progress, request.Convergence); err != nil {
+	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitByMember: request.HostCloudInit}, progress, request.Convergence); err != nil {
 		return err
 	}
 	return convergeStage(ctx, "volumes", block, request.Region, progress, request.Convergence)
@@ -448,13 +442,7 @@ func (g *OCIIdentityGateway) EnsureCompartment(ctx context.Context, name string)
 		query := url.Values{}
 		query.Set("compartmentId", g.TenancyID)
 		query.Set("name", name)
-		var list struct {
-			Items []compartment `json:"items"`
-		}
-		if err := doOCIJSON(ctx, g.Identity, http.MethodGet, "/20160918/compartments?"+query.Encode(), nil, nil, &list); err != nil {
-			return nil, err
-		}
-		return list.Items, nil
+		return readBootstrapControlList[compartment](ctx, g.Identity, "/20160918/compartments", query)
 	}
 	findCompartment := func(items []compartment) (string, string, error) {
 		var found *compartment
@@ -569,21 +557,6 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	if request.ImageID == "" {
 		if image, present := lookup(OCIImageEnvironment); present {
 			request.ImageID = strings.TrimSpace(image)
-		}
-	}
-	if request.TSNodeVersion == "" {
-		if value, present := lookup(TSNodeVersionEnvironment); present {
-			request.TSNodeVersion = strings.TrimSpace(value)
-		}
-	}
-	if request.TSNodeSHA256 == "" {
-		if value, present := lookup(TSNodeSHA256Environment); present {
-			request.TSNodeSHA256 = strings.TrimSpace(value)
-		}
-	}
-	if request.TSNodeURL == "" {
-		if value, present := lookup(TSNodeURLEnvironment); present {
-			request.TSNodeURL = strings.TrimSpace(value)
 		}
 	}
 	if request.CompartmentName == "" {

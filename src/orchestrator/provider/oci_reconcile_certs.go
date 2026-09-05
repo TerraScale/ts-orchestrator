@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -374,20 +373,12 @@ type ociCertDetailDocument struct {
 }
 
 func (g *OCICertificatesGateway) ListCertificates(ctx context.Context) ([]ObservedCert, error) {
-	query := url.Values{}
-	query.Set("compartmentId", g.CompartmentID)
-	query.Set("limit", strconv.Itoa(g.MaxListed))
-	var list struct {
-		Items []ociCertSummaryDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Certs, http.MethodGet, "/20210224/certificates?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := g.listCertificateSummaries(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if len(list.Items) > g.MaxListed {
-		return nil, &InvalidDataError{Message: "OCI certificate list exceeds the reconciliation bound"}
-	}
-	certs := make([]ObservedCert, 0, len(list.Items))
-	for _, item := range list.Items {
+	certs := make([]ObservedCert, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "certificate") || item.Name == "" {
 			return nil, &InvalidDataError{Message: "OCI certificate list response is invalid"}
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 // GlobalNatsRole identifies one global-control role.
@@ -113,6 +114,8 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 	publish = append(publish,
 		"$KV."+topology.Leaders().Bucket+".authority.global",
 		"$KV."+topology.Releases().Bucket+".>",
+		"$KV."+topology.MasterDeliveries().Bucket+".master.>",
+		"_INBOX.>",
 		"$KV."+topology.RunnerJobs().Bucket+"."+GlobalNatsTopologyCiRunnerJournalKeyPrefix+".*.job.>",
 		GlobalNatsTopologyCiSubject(),
 		GlobalNatsTopologyCiJobSubjectPrefix()+".untrusted-product.*",
@@ -122,6 +125,7 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 
 	publish = append(publish, globalNatsKeyValueManagement(topology.Leaders().Bucket)...)
 	publish = append(publish, globalNatsKeyValueManagement(topology.Releases().Bucket)...)
+	publish = append(publish, globalNatsKeyValueManagement(topology.MasterDeliveries().Bucket)...)
 	publish = append(publish, globalNatsKeyValueManagement(topology.RunnerJobs().Bucket)...)
 	publish = append(publish, globalNatsObjectStorePermissions(topology.Bundles().Bucket)...)
 	publish = append(publish, globalNatsObjectStorePermissions(topology.RunnerBundles().Bucket)...)
@@ -142,7 +146,7 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 	publish = append(publish, globalNatsKeyValueWatchPermissions(topology.Releases().Bucket)...)
 	publish = append(publish, globalNatsCiRunnerConsumerPermissions()...)
 
-	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>"}), nil
+	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", protocol.NatsSubjectTaxonomy.GlobalDeliverySubject()}), nil
 }
 
 func globalNatsStreamManagement(stream string) []string {
@@ -159,6 +163,7 @@ func globalNatsKeyValueManagement(bucket string) []string {
 		"$JS.API.STREAM.UPDATE.KV_" + bucket,
 		"$JS.API.STREAM.INFO.KV_" + bucket,
 		"$JS.API.DIRECT.GET.KV_" + bucket,
+		"$JS.API.STREAM.MSG.GET.KV_" + bucket,
 	}
 }
 

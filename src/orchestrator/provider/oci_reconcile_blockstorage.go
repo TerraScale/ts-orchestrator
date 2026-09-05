@@ -964,14 +964,12 @@ type ociVolumeDocument struct {
 func (g *OCIBlockStorageGateway) ListVolumes(ctx context.Context) ([]ObservedVolume, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []ociVolumeDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/volumes?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociVolumeDocument](ctx, g.Core, "/20160918/volumes", query, func(item ociVolumeDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	volumes := make([]ObservedVolume, 0, len(list.Items))
-	for _, item := range list.Items {
+	volumes := make([]ObservedVolume, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "volume") {
 			return nil, &InvalidDataError{Message: "OCI volume response is invalid"}
 		}
@@ -1027,14 +1025,12 @@ type ociAttachmentDocument struct {
 func (g *OCIBlockStorageGateway) ListAttachments(ctx context.Context) ([]ObservedAttachment, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []ociAttachmentDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/volumeAttachments?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociAttachmentDocument](ctx, g.Core, "/20160918/volumeAttachments", query, func(item ociAttachmentDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	attachments := make([]ObservedAttachment, 0, len(list.Items))
-	for _, item := range list.Items {
+	attachments := make([]ObservedAttachment, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "volumeattachment") || !isOCID(item.InstanceID, "instance") || !isOCID(item.VolumeID, "volume") {
 			return nil, &InvalidDataError{Message: "OCI volume attachment response is invalid"}
 		}

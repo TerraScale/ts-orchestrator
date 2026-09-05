@@ -27,6 +27,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
 
 func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
@@ -79,7 +80,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	if strings.Contains(string(first.UserData), "path: "+desiredHostManifestPath) {
 		t.Fatal("NoCloud write_files placed the manifest beneath the not-yet-mounted data volume")
 	}
-	if len(first.RootFiles) != 9 || first.RootFiles[0].Path != GuestControlPath || first.RootFiles[0].Mode != 0500 || !bytes.Equal(first.RootFiles[0].Content, spec.GuestControl) || first.RootFiles[1].Path != tsNodeBootstrapBinaryPath || first.RootFiles[1].Mode != 0600 || !bytes.Equal(first.RootFiles[1].Content, spec.TSNode.Binary) {
+	if len(first.RootFiles) != 11 || first.RootFiles[0].Path != GuestControlPath || first.RootFiles[0].Mode != 0500 || !bytes.Equal(first.RootFiles[0].Content, spec.GuestControl) || first.RootFiles[1].Path != tsNodeBootstrapBinaryPath || first.RootFiles[1].Mode != 0600 || !bytes.Equal(first.RootFiles[1].Content, spec.TSNode.Binary) {
 		t.Fatal("root payloads do not preserve validated binaries and modes")
 	}
 	if strings.Contains(string(first.UserData), "f0VMRgIBAQA") || strings.Contains(string(first.UserData), "path: "+GuestControlPath) || strings.Contains(string(first.UserData), "path: "+tsNodeBootstrapBinaryPath+"\n") {
@@ -566,6 +567,20 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 		productionComponent("orchestrator", "3.0.0", digest(orchestratorBinary)),
 		productionComponent("terrabase", "3.0.0", digest(terrabaseBinary)),
 	})
+	issuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = issuer.Close() })
+	admitted, err := hostagent.ParseHostManifest(desiredManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialGrant, err := issuer.Grant("gru-member-1", admitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	return NoCloudSeedSpec{
 		InstanceID: "gru-member-1", Hostname: "gru-member-1", Region: "gru",
 		Address: "10.77.0.10", PrefixBits: 24, Gateway: "10.77.0.1", MACAddress: "02:FC:00:00:00:01",
@@ -574,7 +589,8 @@ func validNoCloudSpec(t *testing.T) NoCloudSeedSpec {
 		DataDevice:       "/dev/vdb", DataMount: "/var/lib/terrascale", GuestSeed: guestSeed,
 		GuestControl: runnableELF64(elf.EM_AARCH64),
 		TSNode: TSNodeBootstrap{
-			Version: "3.0.0", Binary: tsNodeBinary, SHA256: digest(tsNodeBinary), Signature: ed25519.Sign(privateKey, tsNodeBinary),
+			InitialGrant: &TSNodeInitialGrant{PublicKeyPEM: initialGrant.PublicKeyPEM, SignedGrant: initialGrant.SignedGrant},
+			Version:      "3.0.0", Binary: tsNodeBinary, SHA256: digest(tsNodeBinary), Signature: ed25519.Sign(privateKey, tsNodeBinary),
 			ReleasePublicKey:             privateKey.Public().(ed25519.PublicKey),
 			NATSIdentity:                 testTSNodeNATSIdentity(t, privateKey, caCertificate),
 			MembershipIdentityPrivateKey: membershipPEM,

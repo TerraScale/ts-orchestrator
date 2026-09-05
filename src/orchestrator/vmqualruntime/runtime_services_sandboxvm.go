@@ -23,12 +23,14 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -36,7 +38,9 @@ import (
 const artifactReleaseHostname = "releases.terrascale.tech"
 
 type qualificationRuntimeServices struct {
-	mu sync.Mutex
+	mu              sync.Mutex
+	bootstrapIssuer *vmqualbootstrap.Issuer
+	controlSeeds    map[string]vmcontrolseed.Material
 
 	plan           vmnet.NetworkPlan
 	artifacts      []guestArtifactInput
@@ -102,10 +106,37 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
+	var candidates []vmcontrolseed.Guest
+	for _, region := range plan.Regions {
+		if string(region.Code) != "GRU" {
+			continue
+		}
+		for _, guest := range region.Guests {
+			signer := authority.commandSigners["gru-controller-"+guest.ID]
+			if signer == nil {
+				authority.close()
+				return nil, errors.New("vmqual: declared GRU command signer missing")
+			}
+			candidates = append(candidates, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, CommandPrivateKey: signer.PrivatePEM})
+		}
+	}
+	controlSeeds, err := vmcontrolseed.GenerateGRU(plan.RunID, candidates)
+	if err != nil {
+		authority.close()
+		return nil, err
+	}
+	bootstrapIssuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		for _, seed := range controlSeeds {
+			seed.Clear()
+		}
+		authority.close()
+		return nil, err
+	}
 	services := &qualificationRuntimeServices{
-		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest,
+		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest, controlSeeds: controlSeeds,
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
-		natsAuthority: authority, stateRoot: config.StateRoot,
+		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
 	}
 	cleanupArtifacts = false
 	return services, nil
@@ -263,6 +294,13 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if services.closed {
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: qualification services are closed")
 	}
+	if string(guest.Region) != "GRU" {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: non-GRU bootstrap requires admitted allocation and controller configuration")
+	}
+	controlSeed, ok := services.controlSeeds[guest.ID]
+	if !ok {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: declared GRU controller configuration missing")
+	}
 	natsEndpoint, ok := services.plan.Endpoint(guest.Region, "nats")
 	if !ok {
 		return vmimage.TSNodeBootstrap{}, nil, fmt.Errorf("vmqual: Region %s has no NATS endpoint", guest.Region)
@@ -294,14 +332,42 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: membership identity not provisioned")
 	}
 	pins := make(map[string]string, len(services.natsAuthority.memberships))
-	for host, member := range services.natsAuthority.memberships {
-		pins[host] = member.PublicKey
+	for host := range services.controlSeeds {
+		pins[host] = services.natsAuthority.memberships[host].PublicKey
 	}
 	commandTrust, err := services.natsAuthority.commandTrust(services.plan, guest.Region)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
+	if services.bootstrapIssuer == nil {
+		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: initial grant issuer is missing")
+	}
+	desired, err := hostagent.ParseHostManifest(services.manifest)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
+	for i := range desired.Components {
+		if desired.Components[i].Name == "orchestrator" {
+			desired.Components[i].Arguments = "run --config @config"
+			desired.Components[i].Configuration = controlSeed.Settings
+		}
+	}
+	desired, err = bootstrap.PlanControlLaunchManifest(desired)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
+	manifest, err := hostagent.CanonicalHostManifestJSON(desired)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
+	initialGrant, err := services.bootstrapIssuer.Grant(guest.ID, desired)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
+	controlSeed = controlSeed.Clone()
 	bootstrap := vmimage.TSNodeBootstrap{
+		Controller:                   &controlSeed,
+		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: initialGrant.PublicKeyPEM, SignedGrant: initialGrant.SignedGrant},
 		MembershipIdentityPrivateKey: append([]byte(nil), membership.PrivatePEM...), MembershipPins: pins,
 		Version: tsNode.manifest.Version, Binary: append([]byte(nil), tsNode.binary...),
 		SHA256: tsNode.manifest.SHA256, Signature: append([]byte(nil), tsNode.signature...),
@@ -314,7 +380,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 			// releases at subsecond intervals distorts idle CPU and status contention.
 			HeartbeatInterval: 10 * time.Second, ReconcileInterval: 30 * time.Second,
 		},
-		DesiredHostManifest:   append([]byte(nil), services.manifest...),
+		DesiredHostManifest:   manifest,
 		ArtifactCACertificate: append([]byte(nil), services.caCertificate...),
 		ArtifactHostAddress:   artifactEndpoint.GuestAddress,
 		NATSIdentity:          &vmimage.TSNodeNATSIdentity{NKeySeed: append([]byte(nil), identity.seed...), TLSCA: append([]byte(nil), services.natsAuthority.ca...), TLSCertificate: append([]byte(nil), identity.certificate...), TLSPrivateKey: append([]byte(nil), identity.privateKey...)},
@@ -468,7 +534,15 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		return services.removeNATSStore()
 	}
 	services.closed = true
+	for _, seed := range services.controlSeeds {
+		seed.Clear()
+	}
+	services.controlSeeds = nil
 	services.started = false
+	if services.bootstrapIssuer != nil {
+		_ = services.bootstrapIssuer.Close()
+		services.bootstrapIssuer = nil
+	}
 	var errs []error
 	if services.timeService != nil {
 		errs = append(errs, services.timeService.Close())

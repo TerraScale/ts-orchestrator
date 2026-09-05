@@ -64,21 +64,36 @@ references, never secret values. The private-key PEM check is not a general
 secret detector. Self-service `ts-node` launch remains owned by its bootstrap
 unit, with release metadata retained for authenticated self-rollback.
 
-The initial activation algorithm validates the seeded manifest digest and
-component observations before planning journaled drain, deploy, and release
-commands. Its live sender now refuses mutations until actual command authority
-is connected; algorithm tests cannot establish working guest activation. The qualification transport now requires TLS 1.3, verified client certificates,
-and per-node NKeys with node-specific command permissions. Its file-backed
-JetStream is a test transport, not the guest global control store. It cannot
-supply GRU authority or R3 qualification evidence. The receiver now verifies signed host commands against the current regional
-lease and a durable local epoch floor. It rejects pending-command replay
-without fresh authorization and prevents concurrent receiver ownership.
-These changes have not passed real-guest qualification. Initial activation
-still needs an independently authenticated bootstrap manifest or retired
-bootstrap grant; a fabricated lease in the fixture broker cannot supply it.
+Initial activation validates the seeded full-manifest digest and component
+observations, then sends the exact drain, deploy, and release commands admitted
+by an independent owner-signed grant. The grant binds the host, full launch
+configuration, signer, finite command set, and expiry. The node journals its
+admitted manifest and signer pin before effects. A durable accepted regional
+epoch permanently retires bootstrap authority. Pending commands require fresh
+authorization after restart, and manifest recovery hydrates the exact verified
+snapshot before restoring host state.
 
-The guest manifests still lack concrete TerraBase and orchestrator launch
-configuration. Bare TerraBase startup fails because its process requires
+The qualification transport requires TLS 1.3, verified client certificates,
+and per-node NKeys with node-specific permissions. Its file-backed JetStream
+is a test transport, not the guest global control store; it cannot establish
+GRU authority or R3. Ordinary qualification mutations still refuse to use a
+bootstrap grant instead of a real regional lease. The signed-grant VM run
+below activated both real component binaries through `ts-node`, but neither
+component stayed active. This proves the initial grant transport boundary,
+not runtime regional fencing or service readiness.
+
+Production also has a separate local initial executor that consumes the same
+finite signed grant before dialing NATS. It uses the same command journal and
+epoch retirement checks and requires observed service readiness. Its tests
+use actual signatures and recorded host effects; that offline path has not
+passed guest qualification. It does not supply missing orchestrator runtime
+composition or TerraBase membership.
+
+The guest renderer now signs concrete GRU orchestrator launch configuration.
+Only the first GRU guest embeds the initial broker; GRU peers use its guest
+address and independent service credentials. It does not invent OCI estate
+or signer inputs, and additional Regions require admitted allocations.
+TerraBase launch configuration remains incomplete. Bare TerraBase startup fails because its process requires
 `--config FILE` or `TERRABASE_CONFIG_FILE`. Even with a complete production
 configuration, the inspected adjacent producer's
 `crates/terrabase-server/src/runtime.rs` production path drains its opened member
@@ -107,7 +122,7 @@ release slots.
 Qualification now generates disposable NATS identities and TLS files and
 stages private credentials outside cloud-init UserData. Persistent membership
 keys and explicit peer pins are staged for the service identity. It still needs the complete
-signed-command authority path and OCI estate/signer references. TerraBase separately needs durable membership,
+runtime authority qualification and OCI estate/signer references. TerraBase separately needs durable membership,
 admitted database placement, peer identity, and Vault bindings. The command
 file reader does not supply these missing authorities or complete runtime
 composition.
@@ -133,6 +148,26 @@ the control membership path; real-guest membership qualification remains open.
 
 ### Production dependency audit
 
+The bootstrap and add-region commands now admit an owner-private declaration
+before provisioning and retain those exact inputs through construction.
+Per-slot cloud-init is mandatory. Initial GRU bootstrap resolves only GRU's
+actual owned OCI members; later admissions extend immutable region receipts.
+Private credentials are represented in user-data by version-pinned Vault
+references and digests. The instance-principal fetcher checks the returned
+identity and content before durable publication. These paths still require
+real OCI qualification and complete runtime handoff.
+
+Credential publication now records the authenticated manifest and exact
+service UID/GID before transferring orchestrator credential ownership.
+Directories remain root-owned with traversal permission; ts-node secrets stay
+root-private. A [privileged temporary-directory test](../evidence/host-secrets-ownership-2026-09-05.txt)
+proved service readability and restart recognition of that ownership.
+The command checks the durable regional epoch under the authority lock before
+initial secret loading. Once runtime authority has retired bootstrap, restart
+skips the initial seed so later rotated credentials are not replaced or
+rejected against initial digests. This ordering has focused race coverage;
+it has not passed real-host credential rotation qualification.
+
 The production composition root still always returns
 `ErrProductionCompositionMissing`. This is unfinished implementation, not a
 missing-credential or VM-environment gate. `control.OrchestratorOptions`
@@ -142,7 +177,7 @@ dependencies required by `productionRuntimeConfig`.
 
 | Runtime input | Existing implementation and exact missing connection |
 | --- | --- |
-| Signed command dispatch | The regional runtime now constructs the delivery dispatcher with a file-backed JetStream journal, generation admission, and live regional lease checks. Regional commands now require exactly their signed Region, and rollout verifies all mirrored bytes without writing mirrors. The master preparation and signed regional fanout route is still unfinished. The executable still lacks complete concrete rollout dependencies, and receiver-side fencing is implemented but has not passed real-guest qualification. |
+| Signed command dispatch | The master now journals original signed requests, mirrors verified artifacts, and sends signed per-Region commands through runtime-owned global NATS ingress. Regional receivers require both delegated global authority and a live regional lease. Recovery tests cover registry outage, partial mirrors, lost replies, and master takeover. The executable still needs complete root configuration and rollout dependencies; infrastructure must provision the new `GLOBAL_DELIVERIES` R3 bucket. Real-guest delivery qualification remains open. |
 | Estate publication | `estate.ControlPlaneClient` implements public document writes. The root still needs its configured endpoint and credential, a coherent `estatepublisher.SnapshotSource`, and an `Authority` that reads the accepted epoch and rechecks its fence before each write. A constant epoch or empty snapshot cannot establish this. |
 | Identity and capability rotation | `security.IdentityIssuer` requires `Issue`, `Fetch`, and `Retire`; `CapabilityVault` requires `Generate`, `Fetch`, and `Retire`. Their concrete production implementations are absent. `MemberGateway` still needs member enumeration, distribution, generation verification, activation, retirement, rollback, and fencing; `Reloader` needs reload, verification, rollback, and fencing. These require authenticated host/member transports and durable operation receipts. |
 | Cloudflare rotation | `keyrotation.CloudflareSecretsStore` wraps the value API, but requires concrete `CloudflareCapabilityObserver.VerifyCapability` and `CloudflareCapabilityFencer.FenceCapability`. Secret metadata alone cannot prove the generation accepted by the Snippet. Its staged provider versions also need crash recovery before production use. |
@@ -150,6 +185,14 @@ dependencies required by `productionRuntimeConfig`.
 | Free database lifecycle | `reaper.DatabaseAdapter` needs the authoritative paginated catalog, snapshot and placement verification, close, Litestream stop, reactivation, CDN purge, and owned-data deletion. `KeyAdapter.DestroyDEK` and `MailAdapter.Send` have no concrete production implementation. The file/memory reaper stores do not establish global journal fencing. Notice delivery must be acknowledged before the durable lifecycle advances. |
 | Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `restoredrill.NATSJournal` now persists runs, items, source facts, and restore epochs in the global authority stream. Stream-wide CAS barriers protect successful reads and mutations. Three-node file-backed JetStream tests cover restart, stale writers, minority outage, and late-commit recovery with history 1. Its authoritative facts producer and command wiring remain unfinished. `TickerScheduler` and `NATSJetStreamSnapshotter` exist. `restoresnapshot` now implements signed OCI snapshot writes, full-content verified reads, and per-Region mirrors with durable ownership checks and immutable object keys; its HTTP contract tests pass under race detection. These adapters still need production composition with the authoritative stream and exact regional scopes. VM-local restore adapters are qualification fixtures. |
 | Release mirrors | `provider.DeliveryRegionStore` is concrete. The root must bind each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and a live `OwnershipCheck`. The delivery and restore paths must share those same scopes and journal. |
+
+OCI resource list adapters now consume canonical array responses and bounded
+`opc-next-page` pagination. Network, volume, attachment, Vault, bucket,
+availability-domain and instance reads no longer rely on the fixture's old
+`items` wrapper. The certificate API retains its canonical collection wrapper.
+HTTP contract tests cover page cycles, duplicate resource identities, malformed
+collections and later-page failures without returning partial results.
+These tests do not replace real-provider qualification.
 
 The adjacent TerraBase checkout exposes its private contract in
 `../terrabase/contracts/proto/terrabase/v1/engine.proto` and the matching crate
@@ -285,3 +328,46 @@ qualification sender has no actual regional authority, and the independent
 bootstrap grant path remains unwired. Orchestrator and TerraBase remained
 inactive. Peak host RSS was 412,532,736 bytes; no readiness, scenario, or idle
 budget passed. Automatic cleanup and explicit `vm-clean` succeeded.
+
+An [abrupt coordinator crash](../evidence/vm-stack-crash-store-2026-09-05.json)
+left the journaled first guest and NATS fixture store alive. The first cleanup
+refused the active socket because the stack had not yet copied the durable
+runtime process identity. Recovery now validates that runtime record against
+the run and guest ownership markers, stable process start ticks, and the
+claimed executable's device and inode. The inode check handles Firecracker's
+jailed `/firecracker` path without accepting a basename match. The corrected
+cleaner recovered the same interrupted run successfully; the guest PID, guest
+state, fixture store, stack cleanup journal, and planned root links were absent
+afterward. The separate network plan file remains as a local artifact. This
+qualifies that interrupted-startup cleanup boundary, not the full fault suite.
+
+The [signed-grant VM run](../evidence/vm-test-bootstrap-grant-2026-09-05.json)
+exercised authenticated initial drain, deployment, and release through the
+real guest `ts-node`. Both orchestrator and TerraBase were activated, then
+exited with status 1 and auto-restarted. `ts-node` remained active. Readiness
+correctly failed, with peak host RSS 415,526,912 bytes and no scenario pass.
+The seed still launches both binaries without complete production
+configuration. The captured fixed diagnostics do not identify either exit's
+exact cause. Automatic and explicit cleanup passed. This run used the owner
+transport grant path; it does not qualify the separate offline bootstrap path.
+
+The [configured GRU attempt](../evidence/vm-test-configured-gru-2026-09-05.json)
+launched the orchestrator with its signed settings and captured the fixed
+`oci-estate-configuration-missing` category. Activation then stopped because
+the command journal rejected the launch field `arguments`. ts-node stayed
+active and TerraBase stayed inactive. Peak host RSS was 449,638,400 bytes;
+automatic and explicit cleanup passed. No service readiness or scenario
+passed. This run predates the credential ownership and retirement integration
+and does not qualify that separate path.
+
+The [journal-fix VM run](../evidence/vm-test-configured-journal-fix-2026-09-05.json)
+completed initial activation without the rejected-field error. The strict
+journal decoder now accepts admitted launch arguments and configuration;
+configured replay tests still reject ambiguous and unknown fields.
+Both component services then exited with status 1. The orchestrator retained
+the exact missing-OCI-configuration category, while TerraBase's fixed
+diagnostics did not identify its exit cause. ts-node stayed active. Peak host
+RSS was 421,564,416 bytes, and automatic plus explicit cleanup passed.
+No full-stack scenario passed. The [final portable evidence](../evidence/bootstrap-delivery-portable-gates-2026-09-05.txt)
+records passing `make check` and the complete sandboxvm-tagged race suite for
+the integrated source.

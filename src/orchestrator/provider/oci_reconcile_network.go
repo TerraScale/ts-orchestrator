@@ -1037,14 +1037,12 @@ func (g *OCINetworkGateway) ListVCNs(ctx context.Context, name string) ([]Observ
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("displayName", name)
-	var list struct {
-		Items []ociVCNDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/vcns?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociVCNDocument](ctx, g.Core, "/20160918/vcns", query, func(item ociVCNDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	vcns := make([]ObservedVCN, 0, len(list.Items))
-	for _, item := range list.Items {
+	vcns := make([]ObservedVCN, 0, len(list))
+	for _, item := range list {
 		observed, err := ociVCNObserved(item)
 		if err != nil {
 			return nil, err
@@ -1089,14 +1087,12 @@ func (g *OCINetworkGateway) ListSubnets(ctx context.Context, vcnID string) ([]Ob
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	var list struct {
-		Items []ociSubnetDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/subnets?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociSubnetDocument](ctx, g.Core, "/20160918/subnets", query, func(item ociSubnetDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	subnets := make([]ObservedSubnet, 0, len(list.Items))
-	for _, item := range list.Items {
+	subnets := make([]ObservedSubnet, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "subnet") {
 			return nil, &InvalidDataError{Message: "OCI subnet response is invalid"}
 		}
@@ -1142,14 +1138,12 @@ func (g *OCINetworkGateway) ListNSGs(ctx context.Context, vcnID string) ([]Obser
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	var list struct {
-		Items []ociNSGDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/networkSecurityGroups?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociNSGDocument](ctx, g.Core, "/20160918/networkSecurityGroups", query, func(item ociNSGDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	groups := make([]ObservedNSG, 0, len(list.Items))
-	for _, item := range list.Items {
+	groups := make([]ObservedNSG, 0, len(list))
+	for _, item := range list {
 		if !isOCID(item.ID, "networksecuritygroup") {
 			return nil, &InvalidDataError{Message: "OCI network security group response is invalid"}
 		}
@@ -1282,14 +1276,12 @@ func (g *OCINetworkGateway) ListNSGRules(ctx context.Context, nsgID string) ([]O
 	if !isOCID(nsgID, "networksecuritygroup") {
 		return nil, &errs.Argument{Message: "security rule list requires a network security group identity"}
 	}
-	var list struct {
-		Items []ociSecurityRuleDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules", nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociSecurityRuleDocument](ctx, g.Core, "/20160918/networkSecurityGroups/"+url.PathEscape(nsgID)+"/securityRules", url.Values{}, func(item ociSecurityRuleDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	rules := make([]ObservedSecurityRule, 0, len(list.Items))
-	for _, item := range list.Items {
+	rules := make([]ObservedSecurityRule, 0, len(list))
+	for _, item := range list {
 		rule, err := observedSecurityRule(item)
 		if err != nil {
 			return nil, err
@@ -1359,14 +1351,12 @@ func (g *OCINetworkGateway) ListNATGateways(ctx context.Context, vcnID string) (
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	var list struct {
-		Items []ociNATGatewayDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/natGateways?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociNATGatewayDocument](ctx, g.Core, "/20160918/natGateways", query, func(item ociNATGatewayDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	gateways := make([]ObservedNATGateway, 0, len(list.Items))
-	for _, item := range list.Items {
+	gateways := make([]ObservedNATGateway, 0, len(list))
+	for _, item := range list {
 		observed, err := ociNATGatewayObserved(item)
 		if err != nil {
 			return nil, err
@@ -1461,14 +1451,12 @@ func (g *OCINetworkGateway) ListRouteTables(ctx context.Context, vcnID string) (
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("vcnId", vcnID)
-	var list struct {
-		Items []ociRouteTableDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/routeTables?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociRouteTableDocument](ctx, g.Core, "/20160918/routeTables", query, func(item ociRouteTableDocument) string { return item.ID })
+	if err != nil {
 		return nil, err
 	}
-	tables := make([]ObservedRouteTable, 0, len(list.Items))
-	for _, item := range list.Items {
+	tables := make([]ObservedRouteTable, 0, len(list))
+	for _, item := range list {
 		observed, err := ociRouteTableObserved(item)
 		if err != nil {
 			return nil, err

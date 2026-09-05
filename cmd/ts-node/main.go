@@ -63,43 +63,49 @@ type tsNodeCommandTrustFile struct {
 }
 
 type tsNodeConfigurationFile struct {
-	AuthorityBucket     string                   `json:"authorityBucket"`
-	CommandTrustKeys    []tsNodeCommandTrustFile `json:"commandTrustKeys"`
-	NodeId              string                   `json:"nodeId"`
-	NatsURL             string                   `json:"natsUrl"`
-	NatsNkeyFile        string                   `json:"natsNkeyFile"`
-	NatsTlsCaFile       string                   `json:"natsTlsCaFile"`
-	NatsTlsCertFile     string                   `json:"natsTlsCertFile"`
-	NatsTlsKeyFile      string                   `json:"natsTlsKeyFile"`
-	ReleasePublicKey    string                   `json:"releasePublicKey"`
-	ManifestPath        string                   `json:"manifestPath"`
-	InstallRoot         string                   `json:"installRoot"`
-	UnitDir             string                   `json:"unitDir"`
-	DataVolumeRoot      string                   `json:"dataVolumeRoot"`
-	ChronycBinary       string                   `json:"chronycBinary"`
-	SystemctlBinary     string                   `json:"systemctlBinary"`
-	UseraddBinary       string                   `json:"useraddBinary"`
-	HeartbeatIntervalMs int64                    `json:"heartbeatIntervalMilliseconds"`
-	ReconcileIntervalMs int64                    `json:"reconcileIntervalMilliseconds"`
+	BootstrapBeforeNATS    bool                     `json:"bootstrapBeforeNats"`
+	BootstrapGrantFile     string                   `json:"bootstrapGrantFile"`
+	BootstrapPublicKeyFile string                   `json:"bootstrapPublicKeyFile"`
+	AuthorityBucket        string                   `json:"authorityBucket"`
+	CommandTrustKeys       []tsNodeCommandTrustFile `json:"commandTrustKeys"`
+	NodeId                 string                   `json:"nodeId"`
+	NatsURL                string                   `json:"natsUrl"`
+	NatsNkeyFile           string                   `json:"natsNkeyFile"`
+	NatsTlsCaFile          string                   `json:"natsTlsCaFile"`
+	NatsTlsCertFile        string                   `json:"natsTlsCertFile"`
+	NatsTlsKeyFile         string                   `json:"natsTlsKeyFile"`
+	ReleasePublicKey       string                   `json:"releasePublicKey"`
+	ManifestPath           string                   `json:"manifestPath"`
+	InstallRoot            string                   `json:"installRoot"`
+	UnitDir                string                   `json:"unitDir"`
+	DataVolumeRoot         string                   `json:"dataVolumeRoot"`
+	ChronycBinary          string                   `json:"chronycBinary"`
+	SystemctlBinary        string                   `json:"systemctlBinary"`
+	UseraddBinary          string                   `json:"useraddBinary"`
+	HeartbeatIntervalMs    int64                    `json:"heartbeatIntervalMilliseconds"`
+	ReconcileIntervalMs    int64                    `json:"reconcileIntervalMilliseconds"`
 }
 
 // tsNodeConfiguration is the validated runtime configuration.
 type tsNodeConfiguration struct {
-	AuthorityBucket   string
-	CommandTrustKeys  []tsNodeCommandTrustFile
-	NodeId            string
-	NatsURL           string
-	natsOptions       []nats.Option
-	ReleasePublicKey  string
-	ManifestPath      string
-	InstallRoot       string
-	UnitDir           string
-	DataVolumeRoot    string
-	ChronycBinary     string
-	SystemctlBinary   string
-	UseraddBinary     string
-	HeartbeatInterval time.Duration
-	ReconcileInterval time.Duration
+	BootstrapBeforeNATS    bool
+	BootstrapGrantFile     string
+	BootstrapPublicKeyFile string
+	AuthorityBucket        string
+	CommandTrustKeys       []tsNodeCommandTrustFile
+	NodeId                 string
+	NatsURL                string
+	natsOptions            []nats.Option
+	ReleasePublicKey       string
+	ManifestPath           string
+	InstallRoot            string
+	UnitDir                string
+	DataVolumeRoot         string
+	ChronycBinary          string
+	SystemctlBinary        string
+	UseraddBinary          string
+	HeartbeatInterval      time.Duration
+	ReconcileInterval      time.Duration
 }
 
 // parseTsNodeArguments accepts at most one --flag value pair: the config
@@ -156,6 +162,12 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 			return tsNodeConfiguration{}, errors.New("ts-node: each command trust key requires candidateId and an absolute publicKeyFile")
 		}
 	}
+	if file.BootstrapBeforeNATS && file.BootstrapGrantFile == "" {
+		return tsNodeConfiguration{}, errors.New("ts-node: bootstrapBeforeNats requires a signed bootstrap grant")
+	}
+	if (file.BootstrapGrantFile == "") != (file.BootstrapPublicKeyFile == "") || file.BootstrapGrantFile != "" && (!isAbsolute(file.BootstrapGrantFile) || !isAbsolute(file.BootstrapPublicKeyFile)) {
+		return tsNodeConfiguration{}, errors.New("ts-node: bootstrapGrantFile and bootstrapPublicKeyFile must be absolute paths supplied together")
+	}
 	var options []nats.Option
 	credentials := []string{file.NatsNkeyFile, file.NatsTlsCaFile, file.NatsTlsCertFile, file.NatsTlsKeyFile}
 	supplied := 0
@@ -195,6 +207,8 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 	}
 	options = append(options, nats.ReconnectBufSize(-1))
 	configuration := tsNodeConfiguration{
+		BootstrapBeforeNATS: file.BootstrapBeforeNATS,
+		BootstrapGrantFile:  file.BootstrapGrantFile, BootstrapPublicKeyFile: file.BootstrapPublicKeyFile,
 		AuthorityBucket: file.AuthorityBucket, CommandTrustKeys: file.CommandTrustKeys,
 		NodeId:            file.NodeId,
 		NatsURL:           file.NatsURL,
@@ -289,7 +303,7 @@ func readTsNodeConfigurationFile(path string) ([]byte, error) {
 
 func validateTsNodeConfigurationJSON(data []byte) error {
 	allowed := map[string]struct{}{
-		"authorityBucket": {}, "commandTrustKeys": {},
+		"authorityBucket": {}, "commandTrustKeys": {}, "bootstrapGrantFile": {}, "bootstrapPublicKeyFile": {}, "bootstrapBeforeNats": {},
 		"nodeId": {}, "natsUrl": {}, "natsNkeyFile": {}, "natsTlsCaFile": {},
 		"natsTlsCertFile": {}, "natsTlsKeyFile": {}, "releasePublicKey": {},
 		"manifestPath": {}, "installRoot": {}, "unitDir": {}, "dataVolumeRoot": {},
@@ -418,13 +432,43 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if err != nil {
 		return nil, errors.New("ts-node: command trust configuration is invalid")
 	}
+	var bootstrapPublic, bootstrapGrant []byte
+	if configuration.BootstrapGrantFile != "" {
+		bootstrapPublic, err = readBootstrapConfigFile(configuration.BootstrapPublicKeyFile, 32<<10)
+		if err != nil {
+			return nil, err
+		}
+		bootstrapGrant, err = readBootstrapConfigFile(configuration.BootstrapGrantFile, 2<<20)
+		if err != nil {
+			return nil, err
+		}
+		block, _ := pem.Decode(bootstrapPublic)
+		if block == nil {
+			return nil, errors.New("ts-node: invalid bootstrap public key")
+		}
+		fingerprint := sha256.Sum256(block.Bytes)
+		if _, shared := candidates[hex.EncodeToString(fingerprint[:])]; shared {
+			return nil, errors.New("ts-node: bootstrap key must be independent from regional command keys")
+		}
+		if _, err = hostagent.VerifyBootstrapGrant(configuration.NodeId, bootstrapPublic, bootstrapGrant); err != nil {
+			return nil, err
+		}
+	}
 	return hostagent.NewHostAgent(hostagent.HostAgentConfig{
+		RequireManifestAdmission: true,
 		CommandAuthorityFactory: func(connection hostagent.NatsConnection) (nodeauthority.CommandAuthorizer, error) {
 			live, ok := connection.(hostagent.LiveNatsConnection)
 			if !ok {
 				return nil, errors.New("ts-node: receiver authority requires a live authenticated NATS connection")
 			}
-			return nodeauthority.NewRegionalCommandAuthorizer(nodeauthority.CommandAuthorityConfig{Connection: live.Connection, NodeID: configuration.NodeId, Bucket: configuration.AuthorityBucket, Trust: trust, SignerCandidates: candidates})
+			regional, err := nodeauthority.NewRegionalCommandAuthorizer(nodeauthority.CommandAuthorityConfig{Connection: live.Connection, NodeID: configuration.NodeId, Bucket: configuration.AuthorityBucket, Trust: trust, SignerCandidates: candidates})
+			if err != nil {
+				return nil, err
+			}
+			if len(bootstrapGrant) > 0 {
+				return hostagent.NewBootstrapAuthority(regional, configuration.NodeId, bootstrapPublic, bootstrapGrant)
+			}
+			return regional, nil
 		},
 		NodeId:            nodeId,
 		NatsURL:           configuration.NatsURL,
@@ -483,6 +527,10 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	if err := provisionTsNodeSecrets(ctx, configPath); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(exitCode(err))
+	}
 	configuration, err := loadTsNodeConfiguration(configPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -492,6 +540,10 @@ func main() {
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if err := activateTsNodeBeforeNATS(ctx, configuration, agent.Lifecycle()); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(exitCode(err))
 	}
 	if err := runTsNode(ctx, agent); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

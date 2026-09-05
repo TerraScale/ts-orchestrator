@@ -72,7 +72,7 @@ type GlobalNatsRuntimeConfiguration struct {
 	CiRunnerNatsIdentity        *CiRunnerNatsIdentityConfiguration
 	CiRuntime                   GlobalNatsRuntimeComponentStarter
 	CiRuntimeEnabled            bool
-	Delivery                    GlobalNatsRuntimeComponentStarter
+	Delivery                    *MasterDeliveryRuntimeConfig
 	DeliveryEnabled             bool
 	NativeGitOpsConsumerEnabled bool
 }
@@ -222,12 +222,8 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 			return nil, err
 		}
 	}
-	if configuration.DeliveryEnabled && configuration.Delivery != nil {
-		runtime.delivery, err = configuration.Delivery(lifetime, deps)
-		if err != nil || runtime.delivery == nil {
-			if err == nil {
-				err = errors.New("the global delivery runtime starter returned a nil component")
-			}
+	if configuration.DeliveryEnabled {
+		if err := runtime.startMasterDelivery(configuration.Delivery); err != nil {
 			_ = runtime.Close()
 			return nil, err
 		}
@@ -299,8 +295,13 @@ func validateGlobalNatsRuntimeConfiguration(ctx context.Context, configuration *
 	if configuration.CiRuntimeEnabled && configuration.CiRuntime == nil {
 		return errors.New("global CI runtime was requested but no reviewed starter was supplied")
 	}
-	if configuration.DeliveryEnabled && configuration.Delivery == nil {
-		return errors.New("global delivery runtime was requested but no reviewed starter was supplied")
+	if configuration.DeliveryEnabled {
+		if err := configuration.Delivery.Validate(); err != nil {
+			return err
+		}
+	}
+	if !configuration.DeliveryEnabled && configuration.Delivery != nil {
+		return errors.New("global delivery configuration supplied while delivery is disabled")
 	}
 	if configuration.CiRunnerSigner != nil && (configuration.CiRunnerIdentity != nil || configuration.CiRunnerNatsIdentity != nil) {
 		return errors.New("CI runner signer and identity configuration cannot both be supplied")
@@ -333,7 +334,7 @@ func validateGlobalNatsRuntimeConfiguration(ctx context.Context, configuration *
 }
 
 func globalNatsRuntimeConnect(ctx context.Context, rawURL string, authentication *NatsAuthenticationFiles, tlsFiles *NatsTlsFiles) (*nats.Conn, error) {
-	options := []nats.Option{nats.Timeout(globalNatsRuntimeConnectTimeout), nats.MaxReconnects(-1), nats.ReconnectWait(2 * time.Second), nats.RetryOnFailedConnect(false)}
+	options := []nats.Option{nats.Timeout(globalNatsRuntimeConnectTimeout), nats.MaxReconnects(-1), nats.ReconnectWait(2 * time.Second), nats.RetryOnFailedConnect(false), nats.ReconnectBufSize(-1)}
 	options = append(options, authentication.Options()...)
 	options = append(options, tlsFiles.Options()...)
 	result := make(chan struct {
@@ -394,7 +395,7 @@ func globalNatsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, to
 		if err != nil {
 			return nil, err
 		}
-		if err := NatsOperationJournalStore.ValidatePlainTopologyKeyValueConfiguration(info.Config, expected); err != nil {
+		if err := NatsOperationJournalStore.ValidateExactStreamConfiguration(info.Config, NatsOperationJournalStore.CanonicalKeyValueStream(expected)); err != nil {
 			return nil, err
 		}
 		return store, nil

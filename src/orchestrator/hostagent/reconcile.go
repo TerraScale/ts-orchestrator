@@ -31,6 +31,7 @@ type ManifestWatcherConfig struct {
 // Polling, not inotify: a 30-second cadence is the contract the delivery
 // lane plans around and a poll survives manifest writes by any writer.
 type ManifestWatcher struct {
+	reconcile    func(context.Context, HostManifest) error
 	manifestPath string
 	interval     time.Duration
 	lifecycle    *Lifecycle
@@ -79,6 +80,9 @@ func (w *ManifestWatcher) ReconcileOnce(ctx context.Context) error {
 	manifest, err := w.readManifest()
 	if err != nil {
 		return err
+	}
+	if w.reconcile != nil {
+		return w.reconcile(ctx, manifest)
 	}
 	return w.lifecycle.ApplyDesired(ctx, manifest.Components)
 }

@@ -16,6 +16,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
 // The compute reconciler launches and repairs the Region's member hosts
@@ -72,9 +73,9 @@ type ComputeDeclared struct {
 	Region estate.Region
 	// ImageID boots the primary shape; FallbackImageID boots the fallback
 	// shape whenever the two shapes span architectures (D-69).
-	ImageID         string
-	FallbackImageID string
-	CloudInitBase64 string
+	ImageID           string
+	FallbackImageID   string
+	CloudInitByMember map[int]string
 }
 
 type ComputeObserved struct {
@@ -302,6 +303,14 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			}
 		}
 	}
+	for _, action := range plan.Actions {
+		if _, launch := action.(LaunchMemberAction); launch {
+			if err := validateBootstrapHostCloudInit(declared.CloudInitByMember, int(pool.Count)); err != nil {
+				return OCIPlan{}, err
+			}
+			break
+		}
+	}
 	return plan, nil
 }
 
@@ -380,6 +389,7 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 	if len(observed.AvailabilityDomains) > 0 {
 		domain = observed.AvailabilityDomains[(index-1)%len(observed.AvailabilityDomains)]
 	}
+	cloudInit := declared.CloudInitByMember[index]
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
 		DisplayName:        MemberDisplayName(declared.Region.Code, index),
 		Index:              index,
@@ -392,7 +402,7 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 		SubnetID:           subnetID,
 		NSGIDs:             nsgIDs,
 		AvailabilityDomain: domain,
-		CloudInitBase64:    declared.CloudInitBase64,
+		CloudInitBase64:    cloudInit,
 	}}
 }
 
@@ -528,7 +538,7 @@ const (
 // PEM). With no optional arguments the signature URL is artifactURL + ".sig"
 // and the image-provisioned key at tsNodeTrustKeyPath is used. No credentials
 // are written to the host or emitted in cloud-init command output.
-func TSNodeCloudInit(version, sha256Hex, artifactURL string, trust ...string) (string, error) {
+func renderTSNodeCloudInit(version, sha256Hex, artifactURL, signatureURL, publicKey string) (string, error) {
 	if len(version) < 1 || len(version) > 32 || !tokenPattern.MatchString(version) {
 		return "", &errs.Argument{Message: "ts-node release version is invalid"}
 	}
@@ -541,43 +551,19 @@ func TSNodeCloudInit(version, sha256Hex, artifactURL string, trust ...string) (s
 	if err := validateTSNodeReleaseURL(artifactURL); err != nil {
 		return "", &errs.Argument{Message: "ts-node release URL is invalid"}
 	}
-	signatureURL := artifactURL + ".sig"
-	publicKeyPath := tsNodeTrustKeyPath
-	publicKeyPEM := ""
-	if len(trust) > 2 {
-		return "", &errs.Argument{Message: "ts-node trust material is invalid"}
-	}
-	if len(trust) > 0 && trust[0] != "" {
-		signatureURL = trust[0]
-	}
 	if err := validateTSNodeReleaseURL(signatureURL); err != nil {
-		return "", &errs.Argument{Message: "ts-node signature URL is invalid"}
+		return "", err
 	}
-	if len(trust) == 2 && trust[1] != "" {
-		if strings.HasPrefix(trust[1], "/") {
-			if !strings.HasPrefix(trust[1], "/etc/terrascale/") || strings.Contains(trust[1], "..") || strings.ContainsAny(trust[1], "\r\n\x00 \t") || len(trust[1]) > 256 {
-				return "", &errs.Argument{Message: "ts-node trust key path is invalid"}
-			}
-			publicKeyPath = trust[1]
-		} else {
-			var err error
-			publicKeyPEM, err = canonicalTSNodePublicKey(trust[1])
-			if err != nil {
-				return "", &errs.Argument{Message: "ts-node trust key is invalid"}
-			}
-		}
+	publicKeyPath := tsNodeTrustKeyPath
+	publicKeyPEM, err := canonicalTSNodePublicKey(publicKey)
+	if err != nil {
+		return "", err
 	}
 	artifactPath := "/opt/terrascale/ts-node/" + version + "/ts-node"
 	artifactTempPath := artifactPath + ".download"
 	signatureTempPath := artifactPath + ".sig.download"
 	var b strings.Builder
 	b.WriteString("#cloud-config\n")
-	b.WriteString("users:\n")
-	b.WriteString("  - default\n")
-	b.WriteString("  - name: " + tsNodeUser + "\n")
-	b.WriteString("    system: true\n")
-	b.WriteString("    shell: /usr/sbin/nologin\n")
-	b.WriteString("    lock_passwd: true\n")
 	b.WriteString("write_files:\n")
 	if publicKeyPEM != "" {
 		b.WriteString("  - path: " + publicKeyPath + "\n")
@@ -592,40 +578,16 @@ func TSNodeCloudInit(version, sha256Hex, artifactURL string, trust ...string) (s
 	b.WriteString("    owner: root:root\n")
 	b.WriteString("    permissions: '0644'\n")
 	b.WriteString("    content: |\n")
-	b.WriteString("      [Unit]\n")
-	b.WriteString("      Description=TerraScale ts-node host agent\n")
-	b.WriteString("      After=network-online.target\n")
-	b.WriteString("      Wants=network-online.target\n")
-	b.WriteString("      [Service]\n")
-	b.WriteString("      Type=exec\n")
-	b.WriteString("      User=" + tsNodeUser + "\n")
-	b.WriteString("      Group=" + tsNodeUser + "\n")
-	b.WriteString("      ExecStart=/opt/terrascale/ts-node/current/ts-node\n")
-	b.WriteString("      Restart=on-failure\n")
-	b.WriteString("      RestartSec=2s\n")
-	b.WriteString("      NoNewPrivileges=true\n")
-	b.WriteString("      ProtectSystem=strict\n")
-	b.WriteString("      ProtectHome=yes\n")
-	b.WriteString("      PrivateTmp=yes\n")
-	b.WriteString("      PrivateDevices=yes\n")
-	b.WriteString("      ProtectKernelTunables=yes\n")
-	b.WriteString("      ProtectKernelModules=yes\n")
-	b.WriteString("      ProtectControlGroups=yes\n")
-	b.WriteString("      CapabilityBoundingSet=\n")
-	b.WriteString("      SystemCallFilter=@system-service\n")
-	b.WriteString("      RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6\n")
-	b.WriteString("      RestrictSUIDSGID=yes\n")
-	b.WriteString("      LockPersonality=yes\n")
-	b.WriteString("      UMask=0077\n")
-	b.WriteString("      ReadWritePaths=" + tsNodeDataVolume + "\n")
-	b.WriteString("      CPUWeight=100\n")
-	b.WriteString("      MemoryMax=536870912\n")
-	b.WriteString("      IOWeight=100\n")
-	b.WriteString("      [Install]\n")
-	b.WriteString("      WantedBy=multi-user.target\n")
+	unit, err := tsnodebootstrap.RenderSystemdUnit(tsnodebootstrap.ProductionConfig())
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(unit, "\n"), "\n") {
+		b.WriteString("      " + line + "\n")
+	}
 	b.WriteString("runcmd:\n")
 	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0755, /opt/terrascale/ts-node/" + version + "]\n")
-	b.WriteString("  - [/usr/bin/install, -d, -o, " + tsNodeUser + ", -g, " + tsNodeUser + ", -m, 0700, " + tsNodeDataVolume + "]\n")
+	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0700, " + tsNodeDataVolume + "]\n")
 	b.WriteString("  - [/usr/bin/test, -s, " + publicKeyPath + "]\n")
 	b.WriteString("  - [/usr/bin/rm, -f, " + artifactTempPath + ", " + signatureTempPath + "]\n")
 	b.WriteString("  - [/usr/bin/curl, --fail, --silent, --show-error, --location, --proto, '=https', --tlsv1.2, --max-redirs, 3, --connect-timeout, 10, --max-time, 300, --max-filesize, 67108864, --output, " + artifactTempPath + ", " + tsNodeShellQuote(artifactURL) + "]\n")
@@ -726,16 +688,15 @@ type ociMemberDocument struct {
 func (g *ociMemberGateway) ListAvailabilityDomains(ctx context.Context) ([]string, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []struct {
-			Name string `json:"name"`
-		} `json:"items"`
+	type domain struct {
+		Name string `json:"name"`
 	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/availabilityDomains?"+query.Encode(), nil, nil, &list); err != nil {
+	items, err := readBootstrapControlList[domain](ctx, g.Core, "/20160918/availabilityDomains", query)
+	if err != nil {
 		return nil, err
 	}
-	domains := make([]string, 0, len(list.Items))
-	for _, item := range list.Items {
+	domains := make([]string, 0, len(items))
+	for _, item := range items {
 		if len(item.Name) == 0 || len(item.Name) > 128 {
 			return nil, &InvalidDataError{Message: "OCI availability domain response is invalid"}
 		}
@@ -747,14 +708,12 @@ func (g *ociMemberGateway) ListAvailabilityDomains(ctx context.Context) ([]strin
 func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, error) {
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
-	var list struct {
-		Items []ociMemberDocument `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Core, http.MethodGet, "/20160918/instances?"+query.Encode(), nil, nil, &list); err != nil {
+	items, err := readBootstrapControlList[ociMemberDocument](ctx, g.Core, "/20160918/instances", query)
+	if err != nil {
 		return nil, err
 	}
-	members := make([]ObservedMember, 0, len(list.Items))
-	for _, item := range list.Items {
+	members := make([]ObservedMember, 0, len(items))
+	for _, item := range items {
 		if !isOCID(item.ID, "instance") {
 			return nil, &InvalidDataError{Message: "OCI member instance response has an invalid identity"}
 		}
@@ -781,6 +740,9 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 		if !isOCID(nsg, "networksecuritygroup") {
 			return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid network security group"}
 		}
+	}
+	if err := validateBootstrapHostCloudInit(map[int]string{1: spec.CloudInitBase64}, 1); err != nil {
+		return ObservedMember{}, err
 	}
 	// Boot the image carried by the spec — the reconciler resolves one per
 	// shape architecture (D-69) — falling back to the gateway's image when

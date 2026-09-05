@@ -63,10 +63,8 @@ var bootstrapInputs = []string{
 var runBootstrapOCI = provider.RunOCIBootstrapFromEnvironment
 
 // bootstrapControlMachineFactory composes the durable, fenced control state
-// machine. Keeping it nil by default is deliberate: without an authoritative
-// control provider, bootstrap fails closed instead of reporting a control
-// group it never formed.
-var bootstrapControlMachineFactory func(envLookup, string) (*bootstrap.ControlStateMachine, error)
+// machine from reviewed declarations and owner credential references.
+var bootstrapControlMachineFactory = newBootstrapControlFactory()
 
 // ErrBootstrapMissingStage classifies a composition refusal for callers that
 // prefer errors.Is; BootstrapMissingStageError carries the exact stage.
@@ -355,24 +353,34 @@ func runBootstrapProvision(ctx context.Context, lookup envLookup, output io.Writ
 	if err != nil {
 		return err
 	}
-	if err := validateBootstrapComposition(lookup); err != nil {
+	admission, err := validateBootstrapComposition(ctx, lookup, region.Code)
+	if err != nil {
 		return err
 	}
-	if err := runBootstrapOCI(ctx, lookup, provider.BootstrapRequest{}, output); err != nil {
+	request := admission.provision
+	if err := runBootstrapOCI(ctx, lookup, request, output); err != nil {
 		return err
 	}
-	return formBootstrapControlGroup(ctx, lookup, region)
+	return formBootstrapControlGroup(ctx, lookup, region, admission)
 }
 
-func validateBootstrapComposition(lookup envLookup) error {
+func validateBootstrapComposition(ctx context.Context, lookup envLookup, region string) (*bootstrapControlAdmission, error) {
 	path, present := lookup(addRegionControlJournalEnv)
 	if !present || strings.TrimSpace(path) == "" {
-		return bootstrapMissingStage("control", errors.New("durable control journal is required"))
+		return nil, bootstrapMissingStage("control", errors.New("durable control journal is required"))
 	}
-	if bootstrapControlMachineFactory == nil {
-		return bootstrapMissingStage("control", errors.New("authoritative control provider is not configured"))
+	factory := bootstrapControlMachineFactory
+	if factory == nil || factory.Validate == nil || factory.Construct == nil {
+		return nil, bootstrapMissingStage("control", errors.New("authoritative control composition is unavailable"))
 	}
-	return nil
+	admission, err := factory.Validate(ctx, lookup, region)
+	if err != nil {
+		return nil, bootstrapMissingStage("control", err)
+	}
+	if admission == nil {
+		return nil, bootstrapMissingStage("control", errors.New("validated control admission is unavailable"))
+	}
+	return admission, nil
 }
 
 // formBootstrapControlGroup executes the fenced bootstrap-gru-r1 transition
@@ -381,19 +389,20 @@ func validateBootstrapComposition(lookup envLookup) error {
 // transition finishes its remaining idempotent actions, and a control plane
 // that already reached the temporary R1 (or a later topology) makes the
 // re-run a no-op instead of re-forming or regressing the group.
-func formBootstrapControlGroup(ctx context.Context, lookup envLookup, region estate.Region) error {
+func formBootstrapControlGroup(ctx context.Context, lookup envLookup, region estate.Region, admission *bootstrapControlAdmission) error {
 	value, present := lookup(addRegionControlJournalEnv)
 	path := strings.TrimSpace(value)
 	if !present || path == "" {
 		return bootstrapMissingStage("control", errors.New("durable control journal is required"))
 	}
-	machine, err := bootstrapControlMachineFactory(lookup, path)
+	machine, err := bootstrapControlMachineFactory.Construct(ctx, admission, path)
 	if err != nil {
 		return fmt.Errorf("bootstrap control: %w", err)
 	}
 	if machine == nil {
 		return errors.New("bootstrap control: control machine is unavailable")
 	}
+	defer closeBootstrapControlMachine(machine)
 	prior, err := machine.Journal.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap control: %w", err)

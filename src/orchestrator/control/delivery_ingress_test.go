@@ -3,9 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
@@ -17,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
@@ -43,6 +40,8 @@ func (f *ingressReleaseFetcher) Fetch(context.Context, *delivery.Request) ([]byt
 }
 
 type ingressDeliveryEffects struct {
+	before        func() error
+	once          sync.Once
 	mu            sync.Mutex
 	puts, targets []string
 	heads         []string
@@ -61,6 +60,15 @@ func (e *ingressDeliveryEffects) PutFenced(_ context.Context, region, bucket, ob
 	return nil
 }
 func (e *ingressDeliveryEffects) Get(_ context.Context, region, bucket, object string) (io.ReadCloser, delivery.ObjectIdentity, error) {
+	var beforeErr error
+	e.once.Do(func() {
+		if e.before != nil {
+			beforeErr = e.before()
+		}
+	})
+	if beforeErr != nil {
+		return nil, delivery.ObjectIdentity{}, beforeErr
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.heads = append(e.heads, region)
@@ -101,14 +109,22 @@ func (e *ingressDeliveryEffects) RollFenced(ctx context.Context, request *delive
 
 func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 	for _, cellName := range []string{"gru", "sfo"} {
-		for _, mode := range []string{"success", "multi-region", "wrong-region", "stale-epoch", "superseded", "lease-replaced", "missing-mirror", "corrupt-mirror"} {
+		for _, mode := range []string{"success", "invalid-release-signature", "missing-release-signature", "bare-request", "multi-region", "wrong-region", "target-extension", "stale-epoch", "superseded", "lease-replaced", "missing-mirror", "corrupt-mirror", "future-global-lease", "duplicate-global-lease", "unknown-global-lease"} {
 			t.Run(cellName+"/"+mode, func(t *testing.T) {
-				ctx, kv, leaders, nc := deliveryTestKV(t)
+				ctx, nc, js := masterTestNATS(t)
+				kv := masterTestKV(t, ctx, js, "delivery")
+				leaders := masterTestKV(t, ctx, js, "leaders")
+				globalLeaders := masterTestKV(t, ctx, js, "global_leaders")
 				coordinator, err := authority.RegionalAuthorityCoordinatorStartAsync(ctx, leaders, cellName, "instance")
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer coordinator.Dispose()
+				global, err := authority.RegionalAuthorityCoordinatorStartGlobalAsync(ctx, globalLeaders, "gru", "master")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer global.Dispose()
 				epoch := coordinator.Snapshot().Epoch
 				store, err := newNatsDeliveryStore(ctx, kv, nc)
 				if err != nil {
@@ -118,7 +134,10 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				d := &signedDeliveryDispatcher{connection: nc, cell: cellName, instance: "instance", authority: coordinator, leaders: leaders, store: kv}
+				masterSigner, masterVerifier := masterTestSigner(t)
+				intentSigner, intentVerifier := masterTestSigner(t)
+				delegation := &MasterDeliveryAdmissionConfig{Connection: nc, Leaders: globalLeaders, MasterVerifier: masterVerifier, IntentVerifier: intentVerifier}
+				d := &signedDeliveryDispatcher{connection: nc, cell: cellName, instance: "instance", authority: coordinator, leaders: leaders, store: kv, delegation: delegation}
 				public, private, err := ed25519.GenerateKey(rand.Reader)
 				if err != nil {
 					t.Fatal(err)
@@ -134,7 +153,7 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				executor, err := delivery.NewExecutor(delivery.ExecutorConfig{MirrorMode: delivery.MirrorModeVerifyAll, OwnerID: cellName + "-instance", Fetcher: fetcher, Trust: func() *delivery.TrustSet { return trust }, Mirror: mirror, Rollout: effects, Journal: journal, Authority: d.checkAuthority})
+				executor, err := delivery.NewExecutor(delivery.ExecutorConfig{MirrorMode: delivery.MirrorModeVerifyAll, OwnerID: cellName + "-instance", Trust: func() *delivery.TrustSet { return trust }, Mirror: mirror, Rollout: effects, Journal: journal, Authority: d.checkAuthority})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -143,66 +162,97 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				request, err := delivery.ParseRequest(string(raw))
+				parentRequest, err := delivery.ParseRequest(string(raw))
 				if err != nil {
 					t.Fatal(err)
 				}
-				request.OperationID = "regional-delivery"
-				request.Target.Regions = []string{cellName}
-				request.Artifact.Digest = delivery.SHA256Digest(artifact)
+				parentRequest.OperationID = "regional-delivery"
+				parentRequest.Target.Regions = []string{cellName}
+				parentRequest.Artifact.Digest = delivery.SHA256Digest(artifact)
+				if mode == "target-extension" {
+					parentRequest.Target.Regions = []string{"fra"}
+				}
+				parentCell, _ := contracts.CellIdTryCreate("gru")
+				parentAggregate, _ := contracts.AggregateIdTryCreate("delivery-master")
+				parentWire := signedDeliveryTestWire(t, intentSigner, parentCell, parentAggregate, parentRequest, global.Snapshot().Epoch)
+				parentEnvelope, err := protocol.DecodeCommandEnvelope(parentWire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				operation := "delivery-" + masterKey(parentRequest.OperationID + "\x00" + delivery.SHA256Digest(parentEnvelope.Payload.Bytes()) + "\x00" + cellName)[:54]
+				requestPayload, err := masterChildPayload(parentRequest, cellName, operation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request, err := delivery.ParseRequest(string(requestPayload))
+				if err != nil {
+					t.Fatal(err)
+				}
 				if mode == "multi-region" {
 					request.Target.Regions = []string{"gru", "sfo", "fra"}
 				}
 				if mode == "wrong-region" {
 					request.Target.Regions = []string{"fra"}
 				}
+				requestPayload, _ = json.Marshal(request)
+				leaseEntry, err := globalLeaders.Get(ctx, "authority.global")
+				if err != nil {
+					t.Fatal(err)
+				}
+				lease, err := decodeMasterLease(leaseEntry.Value())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "future-global-lease" {
+					lease.IssuedAt = time.Now().Add(time.Minute)
+				}
+				releaseSignature := append([]byte(nil), fetcher.signature...)
+				if mode == "invalid-release-signature" {
+					releaseSignature[0] ^= 1
+				}
+				if mode == "missing-release-signature" {
+					releaseSignature = nil
+				}
+				wrapped, err := json.Marshal(masterRegionalDelivery{Version: 1, ParentEnvelope: parentWire, GlobalLease: lease, ReleaseSignature: releaseSignature, Request: requestPayload})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "bare-request" {
+					wrapped = requestPayload
+				}
+				if mode == "duplicate-global-lease" {
+					wrapped = bytes.Replace(wrapped, []byte(`"globalLease":{`), []byte(`"globalLease":{"Epoch":99,`), 1)
+				}
+				if mode == "unknown-global-lease" {
+					wrapped = bytes.Replace(wrapped, []byte(`"globalLease":{`), []byte(`"globalLease":{"unexpected":true,`), 1)
+				}
 				if mode == "superseded" {
-					fetcher.before = func() error {
+					effects.before = func() error {
 						return d.admit(ctx, deliveryAdmission{Version: 1, OperationID: "replacement", PayloadDigest: "replacement", IdempotencyDigest: "replacement", Generation: 2}, epoch)
 					}
 				}
 				if mode == "lease-replaced" {
-					fetcher.before = func() error {
+					effects.before = func() error {
 						entry, err := leaders.Get(ctx, "authority.regional")
 						if err != nil {
 							return err
 						}
-						var lease authority.RegionalAuthorityLeaseDocument
-						if err := json.Unmarshal(entry.Value(), &lease); err != nil {
+						var current authority.RegionalAuthorityLeaseDocument
+						if err := json.Unmarshal(entry.Value(), &current); err != nil {
 							return err
 						}
-						lease.Epoch++
-						lease.CandidateId = cellName + "-controller-replacement"
-						body, _ := json.Marshal(lease)
+						current.Epoch++
+						current.CandidateId = cellName + "-controller-replacement"
+						body, _ := json.Marshal(current)
 						_, err = leaders.Update(ctx, "authority.regional", body, entry.Revision())
 						return err
 					}
 				}
-				signerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				replay, err := NewNatsCommandReplayStore(masterTestKV(t, ctx, js, "replay"))
 				if err != nil {
 					t.Fatal(err)
 				}
-				signer, err := security.NewCommandSignatureSignerFromKey(signerKey)
-				if err != nil {
-					t.Fatal(err)
-				}
-				verifier, err := security.NewCommandSignatureVerifierFromKeys([]security.CommandSignatureTrustKey{{KeyID: signer.PublicKeyID(), Algorithm: security.CommandSignatureAlgorithm, PublicKeySPKI: mustIngressSPKI(t, &signerKey.PublicKey)}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				js, err := jetstream.New(nc)
-				if err != nil {
-					t.Fatal(err)
-				}
-				replayKV, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "replay", Storage: jetstream.FileStorage, TTL: 15 * time.Minute, MaxValueSize: 256})
-				if err != nil {
-					t.Fatal(err)
-				}
-				replay, err := NewNatsCommandReplayStore(replayKV)
-				if err != nil {
-					t.Fatal(err)
-				}
-				boundary, err := security.NewCommandSecurityBoundary(verifier, replay, 0)
+				boundary, err := security.NewCommandSecurityBoundary(masterVerifier, replay, 0)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -211,7 +261,7 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				generation, _ := protocol.DesiredGenerationTryCreate(1)
 				minimumEpoch, _ := protocol.WriterEpochTryCreate(1)
 				version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
-				subject := "ts.orch.v1." + cellName + ".command.delivery"
+				subject, _ := protocol.NatsSubjectTaxonomy.DirectDeliverySubject(cellName)
 				ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{Connection: nc, Subject: subject, Boundary: boundary, Replay: replay, ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation, MinimumWriterEpoch: minimumEpoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version}, PayloadDigestVerifier: ingressDigestVerifier{}, Dispatch: d.dispatch, MultiInstance: true})
 				if err != nil {
 					t.Fatal(err)
@@ -224,7 +274,7 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				if mode == "stale-epoch" {
 					signedEpoch++
 				}
-				wire := signedDeliveryTestWire(t, signer, cell, aggregate, request, signedEpoch)
+				wire := signedDeliveryPayloadWire(t, masterSigner, cell, aggregate, operation, wrapped, signedEpoch, parentEnvelope.ExpiresAt)
 				reply, err := nc.Request(subject, wire, 5*time.Second)
 				if err != nil {
 					t.Fatal(err)
@@ -232,23 +282,18 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				effects.mu.Lock()
 				puts := append([]string(nil), effects.puts...)
 				targets := append([]string(nil), effects.targets...)
+				reads := len(effects.heads)
 				effects.mu.Unlock()
-				operation, exists, err := journal.GetWithError(request.OperationID)
+				stored, exists, err := journal.GetWithError(request.OperationID)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if mode == "success" {
-					if string(reply.Data) != string(CommandIngressCodeAccepted) {
-						t.Fatalf("reply: %s", reply.Data)
+					if string(reply.Data) != string(CommandIngressCodeAccepted) || !exists || stored.Receipt == nil || stored.Receipt.Status != delivery.StatusSucceeded {
+						t.Fatalf("missing durable success: %s %+v", reply.Data, stored)
 					}
-					if !exists || operation.Receipt == nil || operation.Receipt.Status != delivery.StatusSucceeded {
-						t.Fatalf("missing successful durable receipt: %+v", operation)
-					}
-					if !reflect.DeepEqual(operation.Request, request) || !reflect.DeepEqual(targets, []string{cellName}) {
-						t.Fatalf("signed request changed or foreign rollout: %v", targets)
-					}
-					if len(puts) != 0 || len(effects.heads) != len(estate.Default().Regions) {
-						t.Fatalf("regional delivery wrote mirrors or skipped availability checks: writes=%v reads=%v", puts, effects.heads)
+					if !reflect.DeepEqual(stored.Request, request) || !reflect.DeepEqual(targets, []string{cellName}) || len(puts) != 0 || reads != len(estate.Default().Regions)+1 {
+						t.Fatalf("child changed or wrong mirror/rollout effects: targets=%v puts=%v reads=%d", targets, puts, reads)
 					}
 					replayed, err := nc.Request(subject, wire, time.Second)
 					if err != nil || string(replayed.Data) != string(CommandIngressCodeRejected) {
@@ -256,13 +301,13 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 					}
 				} else {
 					if string(reply.Data) != string(CommandIngressCodeDispatchFailed) {
-						t.Fatalf("rejected command reply: %s", reply.Data)
+						t.Fatalf("rejected reply: %s", reply.Data)
 					}
 					if len(puts) != 0 || len(targets) != 0 {
-						t.Fatalf("fenced command mutated providers: puts=%v targets=%v", puts, targets)
+						t.Fatalf("rejected delegation mutated providers: puts=%v targets=%v", puts, targets)
 					}
-					if exists && operation.Receipt != nil && operation.Receipt.Status == delivery.StatusSucceeded {
-						t.Fatal("fenced command recorded success")
+					if exists && stored.Receipt != nil && stored.Receipt.Status == delivery.StatusSucceeded {
+						t.Fatal("rejected delegation recorded success")
 					}
 				}
 			})
@@ -272,26 +317,31 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 
 func signedDeliveryTestWire(t *testing.T, signer *security.CommandSignatureSigner, cell contracts.CellId, aggregate contracts.AggregateId, request *delivery.Request, epochValue int64) []byte {
 	t.Helper()
-	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
-	generation, _ := protocol.DesiredGenerationTryCreate(1)
-	epoch, _ := protocol.WriterEpochTryCreate(epochValue)
-	operation, _ := contracts.OperationIdTryCreate(request.OperationID)
-	idempotency, _ := contracts.IdempotencyKeyTryCreate(request.OperationID)
-	attempt, _ := protocol.DeliveryAttemptTryCreate(1)
 	body, err := json.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return signedDeliveryPayloadWire(t, signer, cell, aggregate, request.OperationID, body, epochValue, time.Now().Add(time.Minute))
+}
+
+func signedDeliveryPayloadWire(t *testing.T, signer *security.CommandSignatureSigner, cell contracts.CellId, aggregate contracts.AggregateId, operationID string, body []byte, epochValue int64, expires time.Time) []byte {
+	t.Helper()
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
+	generation, _ := protocol.DesiredGenerationTryCreate(1)
+	epoch, _ := protocol.WriterEpochTryCreate(epochValue)
+	operation, _ := contracts.OperationIdTryCreate(operationID)
+	idempotency, _ := contracts.IdempotencyKeyTryCreate(operationID)
+	attempt, _ := protocol.DeliveryAttemptTryCreate(1)
 	payload := protocol.OpaquePayloadCopyFrom(body)
 	sum := sha256.Sum256(body)
 	digest, _ := protocol.PayloadDigestTryCopyFrom(sum[:])
 	now := time.Now().UTC()
-	envelope := protocol.NewCommandEnvelope(version, cell, aggregate, generation, epoch, operation, idempotency, now, now.Add(time.Minute), attempt, payload, digest, protocol.OpaqueSignature{})
+	envelope := protocol.NewCommandEnvelope(version, cell, aggregate, generation, epoch, operation, idempotency, now, expires, attempt, payload, digest, protocol.OpaqueSignature{})
 	signature, err := signer.Sign(envelope.SignedMaterial)
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope = protocol.NewCommandEnvelope(version, cell, aggregate, generation, epoch, operation, idempotency, now, now.Add(time.Minute), attempt, payload, digest, signature)
+	envelope = protocol.NewCommandEnvelope(version, cell, aggregate, generation, epoch, operation, idempotency, now, expires, attempt, payload, digest, signature)
 	wire, err := protocol.EncodeCommandEnvelope(envelope)
 	if err != nil {
 		t.Fatal(err)

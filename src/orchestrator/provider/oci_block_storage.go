@@ -151,19 +151,7 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 
 func (a *OCIBlockStorageAdapter) findVolumeForIntent(ctx context.Context, request VolumeCreateRequest) (BlockVolume, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumes?"+query.Encode(), nil)
-	if err != nil {
-		return BlockVolume{}, false, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = ReadBoundedBody(resp, 64<<10)
-		return BlockVolume{}, false, &InvalidOperationError{Message: "OCI volume reconciliation failed"}
-	}
-	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
-	if err != nil {
-		return BlockVolume{}, false, err
-	}
-	items, err := decodeOCIList[ociAutomatedVolume](body)
+	items, err := readOCIResourceList[ociAutomatedVolume](ctx, a.Core, "/20160918/volumes", query, func(item ociAutomatedVolume) string { return item.ID })
 	if err != nil || len(items) > maximumOCIListResults {
 		return BlockVolume{}, false, &InvalidDataError{Message: "OCI volume reconciliation response is invalid"}
 	}
@@ -404,19 +392,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 
 func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request VolumeAttachRequest) (VolumeAttachment, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "instanceId": {request.InstanceID}, "volumeId": {request.VolumeID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumeAttachments?"+query.Encode(), nil)
-	if err != nil {
-		return VolumeAttachment{}, false, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = ReadBoundedBody(resp, 64<<10)
-		return VolumeAttachment{}, false, &InvalidOperationError{Message: "OCI attachment reconciliation failed"}
-	}
-	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
-	if err != nil {
-		return VolumeAttachment{}, false, err
-	}
-	list, err := decodeOCIList[ociAutomatedAttachment](body)
+	list, err := readOCIResourceList[ociAutomatedAttachment](ctx, a.Core, "/20160918/volumeAttachments", query, func(item ociAutomatedAttachment) string { return item.ID })
 	if err != nil || len(list) > maximumOCIListResults {
 		return VolumeAttachment{}, false, &InvalidDataError{Message: "OCI attachment reconciliation response is invalid"}
 	}

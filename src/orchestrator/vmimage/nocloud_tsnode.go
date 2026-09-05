@@ -20,8 +20,10 @@ import (
 
 	"github.com/nats-io/nkeys"
 
+	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 )
 
 const (
@@ -81,6 +83,7 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	script.WriteString("/usr/bin/systemctl daemon-reload\n")
 	script.WriteString(chronyBootstrapScript())
 	script.WriteString(membershipOwnershipBootstrap())
+	script.WriteString(controllerOwnershipBootstrap(tsNode.commandTrustFiles))
 	script.WriteString("/usr/bin/systemctl enable --now " + tsnodebootstrap.UnitName + "\n")
 	script.WriteString("/usr/bin/rm -f " + tsNodeBootstrapBinaryPath + " " + tsNodeBootstrapSigPath + " " + tsNodeBootstrapKeyPath + " " + tsNodeBootstrapDigestPath + " " + tsNodeBootstrapManifestPath + " " + tsNodeBootstrapScriptPath + "\n")
 	script.WriteString("/usr/bin/rmdir " + tsNodeBootstrapDirectory + "\n")
@@ -100,6 +103,8 @@ type TSNodeNATSIdentity struct {
 // NoCloud seed. Orchestrator and TerraBase remain desired-manifest artifacts
 // fetched and reconciled by the running ts-node.
 type TSNodeBootstrap struct {
+	Controller                   *vmcontrolseed.Material
+	InitialGrant                 *TSNodeInitialGrant
 	MembershipIdentityPrivateKey []byte
 	MembershipPins               map[string]string
 	NATSIdentity                 *TSNodeNATSIdentity
@@ -134,6 +139,8 @@ type tsNodeBootstrapMaterial struct {
 }
 
 type tsNodeConfigurationFile struct {
+	BootstrapGrantFile            string                   `json:"bootstrapGrantFile"`
+	BootstrapPublicKeyFile        string                   `json:"bootstrapPublicKeyFile"`
 	AuthorityBucket               string                   `json:"authorityBucket"`
 	CommandTrustKeys              []tsNodeCommandTrustFile `json:"commandTrustKeys"`
 	NodeID                        string                   `json:"nodeId"`
@@ -175,10 +182,20 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		!ed25519.Verify(input.ReleasePublicKey, input.Binary, input.Signature) {
 		return tsNodeBootstrapMaterial{}, errors.New("vmimage: ts-node bootstrap signature is invalid")
 	}
+	grantFiles, err := canonicalInitialGrant(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
 	_, commandFiles, err := canonicalCommandTrust(input.Config)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err
 	}
+	commandFiles = append(commandFiles, grantFiles...)
+	controllerFiles, err := canonicalControllerBootstrap(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	commandFiles = append(commandFiles, controllerFiles...)
 	memberPrivate, memberPins, err := canonicalMembershipBootstrap(input)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err
@@ -266,6 +283,7 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 		return nil, err
 	}
 	wire := tsNodeConfigurationFile{
+		BootstrapGrantFile: BootstrapGrantPath, BootstrapPublicKeyFile: BootstrapPublicKeyPath,
 		AuthorityBucket: config.AuthorityBucket, CommandTrustKeys: trustRefs,
 		NodeID: config.NodeID, NATSURL: config.NATSURL,
 		NATSNKeyFile: tsNodeNKeyPath, NATSTLSCAFile: tsNodeTLSCAPath, NATSTLSCertFile: tsNodeTLSCertPath, NATSTLSKeyFile: tsNodeTLSKeyPath,
@@ -301,7 +319,19 @@ func canonicalDesiredHostManifest(data []byte) ([]byte, hostagent.HostManifest, 
 			component.CPUWeight != 100 || component.MemoryMaxBytes != 128<<20 || component.IOWeight != 100 || component.NeedsNetlink {
 			return nil, hostagent.HostManifest{}, errors.New("vmimage: desired host manifest does not match the production component profile")
 		}
-		artifactPath := "/releases/" + component.Name + "/" + component.Version + "/" + component.Name
+		releaseVersion := component.Version
+		if strings.HasPrefix(component.Version, "ctl-") {
+			parts := strings.Split(component.ArtifactURL, "/")
+			if len(parts) != 7 || !namePattern.MatchString(parts[5]) || reservedReleaseVersion(parts[5]) {
+				return nil, hostagent.HostManifest{}, errors.New("vmimage: invalid configured artifact URL")
+			}
+			releaseVersion = parts[5]
+			planned, err := bootstrap.PlanControlLaunchManifest(hostagent.HostManifest{Components: []hostagent.ComponentSpec{component}})
+			if err != nil || planned.Components[0].Version != component.Version {
+				return nil, hostagent.HostManifest{}, errors.New("vmimage: invalid configured launch revision")
+			}
+		}
+		artifactPath := "/releases/" + component.Name + "/" + releaseVersion + "/" + component.Name
 		baseURL := "https://" + artifactReleaseHost + ":" + artifactReleasePort
 		if component.ArtifactURL != baseURL+artifactPath || component.SignatureURL != baseURL+artifactPath+".sig" {
 			return nil, hostagent.HostManifest{}, errors.New("vmimage: desired artifacts must use the canonical TerraScale release URLs")

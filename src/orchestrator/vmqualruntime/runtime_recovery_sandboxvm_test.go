@@ -3,10 +3,21 @@
 package vmqualruntime
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"gopkg.in/yaml.v2"
 	"reflect"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/sandboxvm"
@@ -113,7 +124,8 @@ func TestRecoveryStorageEvidenceRequiresGuestDeviceAndWrite(t *testing.T) {
 }
 
 func TestRecoveryShapeFallbackUsesOCIReconcilerAndHTTPProvider(t *testing.T) {
-	observation, err := (&firecrackerFactory{}).ExhaustA1AndFallback(context.Background(), vmqual.Guest{
+	factory := recoverySeedFactory(t)
+	observation, err := factory.ExhaustA1AndFallback(context.Background(), vmqual.Guest{
 		ID: "gru-member-2", Region: vmnet.GRU,
 	})
 	if err != nil {
@@ -152,5 +164,110 @@ func TestRecoveryClockFailsClosedWithoutTerraBaseEvidence(t *testing.T) {
 	}
 	if observation.WritesFenced || observation.WritesAdmittedAfter || observation.SuspectHLCMinted {
 		t.Fatalf("unobserved clock claims = %+v", observation)
+	}
+}
+
+func recoverySeedFactory(t *testing.T) *firecrackerFactory {
+	t.Helper()
+	plan, err := vmnet.Plan(vmnet.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := newQualificationNATSAuthority(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(authority.close)
+	var guests []vmcontrolseed.Guest
+	for _, region := range plan.Regions {
+		if region.Code != vmnet.GRU {
+			continue
+		}
+		for _, guest := range region.Guests {
+			guests = append(guests, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, CommandPrivateKey: authority.commandSigners["gru-controller-"+guest.ID].PrivatePEM})
+		}
+	}
+	seeds, err := vmcontrolseed.GenerateGRU(plan.RunID, guests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, seed := range seeds {
+			seed.Clear()
+		}
+	})
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifacts []guestArtifactInput
+	for _, name := range []string{"orchestrator", "terrabase", "ts-node"} {
+		binary := []byte("signed recovery " + name)
+		digest := sha256.Sum256(binary)
+		artifacts = append(artifacts, guestArtifactInput{manifest: vmimage.GuestArtifact{Component: name, Version: "1.0.0", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(binary)), Source: "https://releases.terrascale.tech:8443/releases/" + name + "/1.0.0/" + name}, binary: binary, signature: ed25519.Sign(private, binary)})
+	}
+	manifest, err := desiredHostManifest(artifacts, 8443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = issuer.Close() })
+	return &firecrackerFactory{services: &qualificationRuntimeServices{plan: plan, natsAuthority: authority, controlSeeds: seeds, artifacts: artifacts, manifest: manifest, bootstrapIssuer: issuer, publicKey: public}}
+}
+
+func TestRecoverySeedBindsManifestWithoutPrivateMetadata(t *testing.T) {
+	factory := recoverySeedFactory(t)
+	guest := vmqual.Guest{ID: "gru-member-1", Region: vmnet.GRU}
+	encoded, err := factory.recoveryHostCloudInit(guest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cloud struct {
+		Files []struct {
+			Path     string `yaml:"path"`
+			Content  string `yaml:"content"`
+			Encoding string `yaml:"encoding"`
+		} `yaml:"write_files"`
+	}
+	if err := yaml.Unmarshal(raw, &cloud); err != nil {
+		t.Fatal(err)
+	}
+	seed, _, err := factory.services.Bootstrap(guest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer seed.Controller.Clear()
+	found := map[string][]byte{}
+	for _, file := range cloud.Files {
+		data := []byte(file.Content)
+		if file.Encoding == "b64" {
+			data, err = base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		found[file.Path] = data
+		for _, secret := range [][]byte{seed.NATSIdentity.NKeySeed, seed.NATSIdentity.TLSPrivateKey, seed.MembershipIdentityPrivateKey, seed.Controller.Files[vmcontrolseed.CommandKeyPath], seed.Controller.Files[vmcontrolseed.NKeyPath], seed.Controller.Files[vmcontrolseed.PrivateKeyPath], seed.Controller.Files[vmcontrolseed.ServerPrivateKeyPath]} {
+			if len(secret) != 0 && bytes.Contains(data, secret) {
+				t.Fatal("private credential entered user-data")
+			}
+		}
+	}
+	if !bytes.Equal(found["/var/lib/terrascale/ts-node/manifest.json"], seed.DesiredHostManifest) {
+		t.Fatal("recovery manifest differs")
+	}
+	var config map[string]any
+	if json.Unmarshal(found["/etc/terrascale/ts-node.json"], &config) != nil || config["nodeId"] != guest.ID || config["natsUrl"] != seed.Config.NATSURL {
+		t.Fatal("guest configuration missing")
+	}
+	if _, err := (&firecrackerFactory{}).recoveryHostCloudInit(guest); err == nil {
+		t.Fatal("configless recovery admitted")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 
 	"golang.org/x/crypto/ssh"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
@@ -66,11 +67,17 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
-	if file.Owner != "" && (file.Path != MembershipIdentityPath || file.Owner != membershipServiceUser) {
+	if file.Owner != "" && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
 	}
 	limit := 0
 	switch {
+	case vmcontrolseed.IsFilePath(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:
+		limit = 64 << 10
+	case file.Path == BootstrapGrantPath && file.Mode == 0400:
+		limit = 128 << 10
+	case file.Path == BootstrapPublicKeyPath && file.Mode == 0400:
+		limit = 1024
 	case file.Path == MembershipIdentityPath && file.Mode == 0400 && file.Owner == membershipServiceUser:
 		limit = 64 << 10
 	case (file.Path == commandTrustPath(0) || file.Path == commandTrustPath(1) || file.Path == commandTrustPath(2) || file.Path == commandTrustPath(3)) && file.Mode == 0444:
@@ -152,6 +159,9 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if err := validateGuestControl(spec.GuestControl, guestSeed.Image.Architecture); err != nil {
 		return NoCloudSeed{}, err
 	}
+	if spec.TSNode.Controller != nil && (spec.TSNode.Controller.Address != spec.Address || spec.Region != "gru") {
+		return NoCloudSeed{}, errors.New("vmimage: controller seed must match the declared GRU guest address")
+	}
 	tsNode, err := canonicalTSNodeBootstrap(spec.TSNode, guestSeed.Image.Architecture)
 	if err != nil {
 		return NoCloudSeed{}, err
@@ -206,7 +216,11 @@ func validateNoCloudBindings(spec NoCloudSeedSpec, guestSeed GuestChannelSeed, g
 	}
 	for _, component := range tsNode.desired.Components {
 		artifact := artifacts[component.Name]
-		if component.Version != artifact.Version || component.Sha256 != artifact.SHA256 {
+		versionMatches := component.Version == artifact.Version
+		if strings.HasPrefix(component.Version, "ctl-") {
+			versionMatches = component.ArtifactURL == "https://"+artifactReleaseHost+":"+artifactReleasePort+"/releases/"+component.Name+"/"+artifact.Version+"/"+component.Name
+		}
+		if !versionMatches || component.Sha256 != artifact.SHA256 {
 			return fmt.Errorf("vmimage: desired %s component does not match the guest seed artifact", component.Name)
 		}
 	}

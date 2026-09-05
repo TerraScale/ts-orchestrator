@@ -24,6 +24,7 @@ type GlobalNatsTopology struct {
 const (
 	GlobalNatsTopologyCellSpecStream           = "GLOBAL_SPEC"
 	GlobalNatsTopologyCiStream                 = "GLOBAL_CI"
+	GlobalNatsTopologyMasterDeliveriesBucket   = "GLOBAL_DELIVERIES"
 	GlobalNatsTopologyCellsBucket              = "GLOBAL_CELLS"
 	GlobalNatsTopologyRunnerJobsBucket         = "CI_RUNNER_JOBS"
 	GlobalNatsTopologyRunnerBundlesBucket      = "CI_RUNNER_BUNDLES"
@@ -128,6 +129,14 @@ func (t *GlobalNatsTopology) Releases() jetstream.KeyValueConfig {
 		MaxBytes:     1024 * 1024 * 1024,
 		Replicas:     t.Replicas,
 	}
+}
+
+// MasterDeliveries holds immutable original intent and resumable regional fanout.
+func (t *GlobalNatsTopology) MasterDeliveries() jetstream.KeyValueConfig {
+	return jetstream.KeyValueConfig{Bucket: GlobalNatsTopologyMasterDeliveriesBucket,
+		Description: "Signed global delivery preparation and regional fanout",
+		History:     1, TTL: 0, MaxValueSize: DeliveryOperationMaxValueBytes,
+		MaxBytes: 1024 * 1024 * 1024, Storage: jetstream.FileStorage, Replicas: t.Replicas}
 }
 
 // RunnerJobs returns the CI runner acceptance pointer bucket.

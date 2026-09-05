@@ -247,10 +247,12 @@ func TestBootstrapFormsTheFencedControlGroupAfterOCI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapControlMachineFactory = func(envLookup, string) (*bootstrap.ControlStateMachine, error) {
+	bootstrapControlMachineFactory = &bootstrapControlFactory{Validate: func(context.Context, envLookup, string) (*bootstrapControlAdmission, error) {
+		return &bootstrapControlAdmission{}, nil
+	}, Construct: func(context.Context, *bootstrapControlAdmission, string) (*bootstrap.ControlStateMachine, error) {
 		order = append(order, "control")
 		return machine, nil
-	}
+	}}
 	t.Cleanup(func() {
 		runBootstrapOCI = oldBootstrap
 		bootstrapControlMachineFactory = oldFactory
@@ -301,9 +303,11 @@ func TestBootstrapResumesAMidTransitionControlJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrapControlMachineFactory = func(envLookup, string) (*bootstrap.ControlStateMachine, error) {
+	bootstrapControlMachineFactory = &bootstrapControlFactory{Validate: func(context.Context, envLookup, string) (*bootstrapControlAdmission, error) {
+		return &bootstrapControlAdmission{}, nil
+	}, Construct: func(context.Context, *bootstrapControlAdmission, string) (*bootstrap.ControlStateMachine, error) {
 		return machine, nil
-	}
+	}}
 	t.Cleanup(func() {
 		runBootstrapOCI = oldBootstrap
 		bootstrapControlMachineFactory = oldFactory

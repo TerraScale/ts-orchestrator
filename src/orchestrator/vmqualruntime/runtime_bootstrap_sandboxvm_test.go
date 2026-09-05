@@ -5,6 +5,7 @@ package vmqualruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -12,41 +13,13 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
 
-func TestInitialActivationRefusesForeignOrUninstalledState(t *testing.T) {
-	manifest := hostagent.HostManifest{Components: []hostagent.ComponentSpec{{Name: "orchestrator", Version: "1.0.0"}, {Name: "terrabase", Version: "2.0.0"}}}
-	report := hostagent.NodeStatusReport{Facts: hostagent.HostFacts{ManifestSha256: "admitted", Components: []hostagent.ComponentFact{
-		{Name: "orchestrator", Desired: "1.0.0", Installed: true}, {Name: "terrabase", Desired: "2.0.0", Installed: true},
-	}}}
-	if ready, err := initialActivationStatus(report, manifest, "admitted"); err != nil || !ready {
-		t.Fatalf("initial: %v %v", ready, err)
-	}
-	report.Facts.Components[0].Version = "1.0.0"
-	if ready, err := initialActivationStatus(report, manifest, "admitted"); err != nil || !ready {
-		t.Fatalf("partial recovery: %v %v", ready, err)
-	}
-	report.Facts.Components[1].Installed = false
-	if ready, err := initialActivationStatus(report, manifest, "admitted"); err != nil || ready {
-		t.Fatalf("uninstalled: %v %v", ready, err)
-	}
-	report.Facts.Components[0].Version = "9.0.0"
-	if _, err := initialActivationStatus(report, manifest, "admitted"); err == nil {
-		t.Fatal("foreign serving release accepted")
-	}
-	report.Facts.Components[0].Version = ""
-	if _, err := initialActivationStatus(report, manifest, "foreign"); err == nil {
-		t.Fatal("foreign manifest accepted")
-	}
-	report.Facts.Components[1] = report.Facts.Components[0]
-	if _, err := initialActivationStatus(report, manifest, "admitted"); err == nil {
-		t.Fatal("duplicate component evidence accepted")
-	}
-}
-
-func TestInitialActivationRequiresActualCommandAuthorityBeforeMutation(t *testing.T) {
+func TestOrdinaryMutationNeverUsesBootstrapGrant(t *testing.T) {
 	server, authority := startDeliveryTestNATS(t)
 	host := "gru-member-1"
 	factory := &firecrackerFactory{active: map[string]*sandboxVM{host: {id: host, guest: vmqual.Guest{ID: host}}}, services: &qualificationRuntimeServices{nats: server, started: true, natsAuthority: authority}}
@@ -61,6 +34,15 @@ func TestInitialActivationRequiresActualCommandAuthorityBeforeMutation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	issuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = issuer.Close() })
+	if _, err := issuer.Grant(host, manifest); err != nil {
+		t.Fatal(err)
+	}
+	factory.services.(*qualificationRuntimeServices).bootstrapIssuer = issuer
 	digest, _ := hostagent.HostManifestSha256(manifest)
 	options, err := authority.options(authority.guests[host])
 	if err != nil {
@@ -110,13 +92,101 @@ func TestInitialActivationRequiresActualCommandAuthorityBeforeMutation(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for attempt := 0; attempt < 2; attempt++ {
-		if err := factory.activateAdmittedGuest(ctx, host, manifest); err == nil || !strings.Contains(err.Error(), "actual regional lease holder") {
+		if err := factory.requestTSNode(ctx, host, drainSubject, hostagent.DrainCommand{}, &hostagent.DrainReceipt{}); err == nil || !strings.Contains(err.Error(), "actual regional lease holder") {
 			t.Fatalf("activation without bootstrap authority = %v", err)
 		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if mutations != 0 || observations != 2 {
-		t.Fatalf("mutations=%d observations=%d; want zero mutations and two status observations", mutations, observations)
+	if mutations != 0 || observations != 0 {
+		t.Fatalf("mutations=%d observations=%d; want zero mutations and zero status observations", mutations, observations)
 	}
+}
+
+func TestInitialGrantUsesAuthenticatedTransportAndRealReceiverVerifier(t *testing.T) {
+	server, authority := startDeliveryTestNATS(t)
+	host := "gru-member-1"
+	issuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer issuer.Close()
+	factory := &firecrackerFactory{active: map[string]*sandboxVM{host: {id: host, guest: vmqual.Guest{ID: host}}}, services: &qualificationRuntimeServices{nats: server, started: true, natsAuthority: authority, bootstrapIssuer: issuer}}
+	data, err := desiredHostManifest([]guestArtifactInput{{manifest: vmimage.GuestArtifact{Component: "orchestrator", Version: "1.0.0", SHA256: strings.Repeat("a", 64)}}, {manifest: vmimage.GuestArtifact{Component: "terrabase", Version: "1.0.0", SHA256: strings.Repeat("b", 64)}}}, 8443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := hostagent.ParseHostManifest(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	material, err := issuer.Grant(host, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := hostagent.VerifyBootstrapGrant(host, material.PublicKeyPEM, material.SignedGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := hostagent.NewBootstrapAuthority(rejectBootstrapRuntime{}, host, material.PublicKeyPEM, material.SignedGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps, err := hostagent.BootstrapCommands(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := authority.options(authority.guests[host])
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := nats.Connect(server.ClientURL(), options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	verified := make(chan error, 1)
+	_, err = connection.Subscribe(steps[0].Subject, func(message *nats.Msg) {
+		admitted, err := receiver.Authorize(context.Background(), message.Subject, message.Data)
+		if err != nil {
+			verified <- err
+			return
+		}
+		if admitted.Epoch != 0 || admitted.LeaseID != "" || admitted.BootstrapGrantSHA256 == "" {
+			verified <- errors.New("grant fabricated a runtime fence")
+			return
+		}
+		var command hostagent.DrainCommand
+		if err := json.Unmarshal(admitted.Command, &command); err != nil {
+			verified <- err
+			return
+		}
+		receipt := hostagent.DrainReceipt{CommandId: command.CommandId, NodeId: host, Draining: command.Drain, Quiesced: true}
+		encoded, _ := json.Marshal(receipt)
+		verified <- message.Respond(encoded)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var receipt hostagent.DrainReceipt
+	if err := factory.requestBootstrapStep(ctx, host, steps[0].Subject, steps[0].Command, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-verified; err != nil {
+		t.Fatal(err)
+	}
+	if receipt.NodeId != host || !receipt.Quiesced {
+		t.Fatal("bootstrap receipt lost verified host binding")
+	}
+}
+
+type rejectBootstrapRuntime struct{}
+
+func (rejectBootstrapRuntime) Authorize(context.Context, string, []byte) (nodeauthority.CommandAuthorization, error) {
+	return nodeauthority.CommandAuthorization{}, errors.New("no regional authority")
 }

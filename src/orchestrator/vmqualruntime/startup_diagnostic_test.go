@@ -106,6 +106,11 @@ func TestStartupJournalLimitsAndCategories(t *testing.T) {
 	if len(composition.Categories) != 1 || composition.Categories[0] != "production-composition-missing" {
 		t.Fatalf("composition category lost: %+v", composition)
 	}
+	var estate startupServiceDiagnostic
+	parseStartupJournal(&estate, []byte(`{"MESSAGE":"orchestrator: OCI estate verification requires TS_ORCH_OCI_ESTATE_FILE, TS_ORCH_OCI_KEY_ID, and TS_ORCH_OCI_PRIVATE_KEY_FILE","PRIORITY":"3"}`))
+	if len(estate.Categories) != 1 || estate.Categories[0] != "oci-estate-configuration-missing" {
+		t.Fatalf("estate category lost: %+v", estate)
+	}
 	var report startupServiceDiagnostic
 	parseStartupJournal(&report, []byte(strings.Repeat(`{"MESSAGE":"permission denied TOKEN","PRIORITY":"3"}`+"\n", 100)))
 	if report.JournalEntries != 20 || report.SeverityCounts[3] != 20 || len(report.Categories) != 1 {

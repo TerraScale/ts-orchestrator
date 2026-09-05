@@ -467,7 +467,7 @@ func TestNonlocalRunAndCheckRequireOCIBeforeRuntime(t *testing.T) {
 	}
 	// The same settings reach estate admission after explicit OCI selection.
 	values[providerEnvironment] = "oci"
-	if err := execute(context.Background(), []string{"check"}, lookup, ioDiscard{}); err == nil || !strings.Contains(errors.Unwrap(err).Error(), "OCI estate verification configuration is required") {
+	if err := execute(context.Background(), []string{"check"}, lookup, ioDiscard{}); !errors.Is(err, errOCIEstateConfigurationMissing) {
 		t.Fatalf("missing OCI estate bypassed: %v", err)
 	}
 	// Local tooling retains its documented default cell and explicit provider.
@@ -517,6 +517,9 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 				return nil
 			})
 			admitted := &productionRuntime{delivery: &control.SignedDeliveryRuntimeConfig{}, workers: []*scheduledService{worker}}
+			if stage == "global" {
+				admitted.masterDelivery = productionMasterDeliveryFixture(t)
+			}
 			var order []string
 			admitProductionRuntime = testProductionAdmission(func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error) {
 				order = append(order, "admit")
@@ -538,7 +541,7 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 				return regional, nil
 			}
 			makeGlobalConfiguration = func(*control.OrchestratorOptions, component) (*control.GlobalNatsRuntimeConfiguration, error) {
-				return &control.GlobalNatsRuntimeConfiguration{}, nil
+				return &control.GlobalNatsRuntimeConfiguration{Cell: "gru", Authority: &control.GlobalAuthorityNatsConfiguration{Cell: "gru"}}, nil
 			}
 			startGlobalRuntime = func(context.Context, *control.GlobalNatsRuntimeConfiguration) (component, error) {
 				order = append(order, "global")
@@ -572,5 +575,28 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 func testProductionAdmission(construct func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error)) func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
 	return func(_ context.Context, options *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
 		return &admittedProductionRuntime{construct: func(ctx context.Context) (*productionRuntime, error) { return construct(ctx, options) }}, nil
+	}
+}
+
+func TestMissingCompositionDiagnosticExcludesWrappedDetails(t *testing.T) {
+	privateDetail := errors.New("credential=never-print-this")
+	err := commandFailure("run", errors.Join(ErrProductionCompositionMissing, privateDetail))
+	if err.Error() != ErrProductionCompositionMissing.Error() || !errors.Is(err, privateDetail) {
+		t.Fatalf("missing composition diagnostic lost its fixed label or error identity")
+	}
+	if ordinary := commandFailure("run", privateDetail); ordinary.Error() != "orchestrator run failed" {
+		t.Fatal("ordinary failure exposed private details")
+	}
+	missingEstate := verifyConfiguredOCIEstate(context.Background(), "gru", func(name string) (string, bool) {
+		if name == providerEnvironment {
+			return "oci", true
+		}
+		return "", false
+	})
+	if !errors.Is(missingEstate, errOCIEstateConfigurationMissing) {
+		t.Fatal("missing estate configuration has no stable identity")
+	}
+	if reported := commandFailure("run", errors.Join(missingEstate, privateDetail)); reported.Error() != errOCIEstateConfigurationMissing.Error() {
+		t.Fatal("estate diagnostic did not retain only its fixed configuration names")
 	}
 }

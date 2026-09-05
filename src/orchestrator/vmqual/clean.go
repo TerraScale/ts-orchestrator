@@ -482,7 +482,21 @@ func validateExistingResource(journal Journal, resource JournalVM) error {
 				return fmt.Errorf("vmqual: starting VM %s has an active socket without a runtime record", resource.ID)
 			}
 			if resource.Process == nil && socketActive(resource.SocketPath) {
-				return fmt.Errorf("vmqual: VM %s has an active socket without process identity", resource.ID)
+				// The runtime record is published before Create returns to the
+				// stack. A crash in that interval leaves no stack observation.
+				// Require both durable ownership records and the live process
+				// incarnation; stopJournaledProcess repeats this identity check.
+				if runtimeErr != nil || markerErr != nil || runtime.State != "running" {
+					return fmt.Errorf("vmqual: VM %s has an active socket without process identity", resource.ID)
+				}
+				identity := VMProcessIdentity{PID: runtime.PID, StartTimeTicks: runtime.ProcessStartTime, Executable: resource.FirecrackerPath}
+				if err := validateProcessIdentity(identity); err != nil {
+					return fmt.Errorf("vmqual: VM %s runtime process identity invalid: %w", resource.ID, err)
+				}
+				matched, err := ProcessIdentityMatches(identity)
+				if err != nil || !matched {
+					return fmt.Errorf("vmqual: VM %s runtime process incarnation does not match", resource.ID)
+				}
 			}
 		}
 	}
@@ -770,11 +784,28 @@ func ProcessIdentityMatches(identity VMProcessIdentity) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	executable, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(identity.PID), "exe"))
+	if start != identity.StartTimeTicks {
+		return false, nil
+	}
+	// A jailed mount namespace reports /firecracker while the ownership plan
+	// names its host path. Match the actual executable inode, never a basename
+	// or namespace-relative readlink string.
+	expected, err := os.Lstat(identity.Executable)
 	if err != nil {
 		return false, err
 	}
-	return start == identity.StartTimeTicks && filepath.Clean(executable) == identity.Executable, nil
+	if !expected.Mode().IsRegular() {
+		return false, nil
+	}
+	executable, err := os.Stat(filepath.Join("/proc", strconv.Itoa(identity.PID), "exe"))
+	if err != nil {
+		return false, err
+	}
+	after, err := ProcStartTime(identity.PID)
+	if err != nil {
+		return false, err
+	}
+	return after == start && os.SameFile(expected, executable), nil
 }
 
 func ProcStartTime(pid int) (uint64, error) {

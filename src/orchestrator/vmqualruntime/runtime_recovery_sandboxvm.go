@@ -7,10 +7,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -23,6 +24,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -660,13 +663,17 @@ func recoveryAcknowledgeFilesystemGrow(ctx context.Context, vm *sandboxVM, gener
 // OCI HTTP gateway. The first local endpoint launch returns OCI's capacity
 // error, the reconciler retries the E5 image, and a provider readback plus a
 // start action proves the selected instance reached RUNNING.
-func (*firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, guest vmqual.Guest) (vmqual.ShapeFallbackObservation, error) {
+func (factory *firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, guest vmqual.Guest) (vmqual.ShapeFallbackObservation, error) {
 	observation := vmqual.ShapeFallbackObservation{}
 	if ctx == nil {
 		return observation, errors.New("vmqual: shape fallback context is nil")
 	}
 	if guest.ID == "" || guest.Region == "" {
 		return observation, errors.New("vmqual: shape fallback guest is invalid")
+	}
+	cloudInit, err := factory.recoveryHostCloudInit(guest)
+	if err != nil {
+		return observation, err
 	}
 	endpoint := sandboxoci.New(sandboxoci.Config{Faults: []sandboxoci.Fault{{
 		Method: http.MethodPost,
@@ -714,7 +721,7 @@ func (*firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, guest vmqua
 		MemoryGiB:          8,
 		SubnetID:           "ocid1.subnet.oc1.local.vmqual",
 		AvailabilityDomain: "AD-1",
-		CloudInitBase64:    base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
+		CloudInitBase64:    cloudInit,
 	}
 	plan := provider.OCIPlan{Actions: []provider.OCIAction{provider.LaunchMemberAction{Region: declared.Region, Spec: spec}}}
 	if err := reconciler.Apply(ctx, declared, provider.ComputeObserved{}, plan); err != nil {
@@ -745,6 +752,59 @@ func (*firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, guest vmqua
 	observation.SelectedArchitecture = architecture
 	observation.ReplacementReady = members[0].LifecycleState == "RUNNING"
 	return observation, nil
+}
+
+// recoveryHostCloudInit forwards admitted public launch inputs into the HTTP
+// shape probe. Private credentials remain on the existing guest root disk;
+// provider RUNNING is not evidence of service admission on a replacement host.
+func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (string, error) {
+	if factory == nil || factory.services == nil {
+		return "", errors.New("vmqual: recovery requires admitted guest bootstrap material")
+	}
+	seed, artifacts, err := factory.services.Bootstrap(guest)
+	if err != nil {
+		return "", err
+	}
+	if seed.Controller != nil {
+		defer seed.Controller.Clear()
+	}
+	defer clear(seed.MembershipIdentityPrivateKey)
+	if seed.NATSIdentity == nil || seed.InitialGrant == nil || seed.Config.NodeID != guest.ID {
+		return "", errors.New("vmqual: recovery guest seed is incomplete")
+	}
+	defer clear(seed.NATSIdentity.NKeySeed)
+	defer clear(seed.NATSIdentity.TLSPrivateKey)
+	grant, err := hostagent.VerifyBootstrapGrant(guest.ID, seed.InitialGrant.PublicKeyPEM, seed.InitialGrant.SignedGrant)
+	if err != nil {
+		return "", err
+	}
+	manifest, err := hostagent.CanonicalHostManifestJSON(grant.Manifest)
+	if err != nil || !bytes.Equal(manifest, seed.DesiredHostManifest) {
+		return "", errors.New("vmqual: recovery manifest differs from admitted grant")
+	}
+	digest := sha256.Sum256(seed.Binary)
+	if len(seed.ReleasePublicKey) != ed25519.PublicKeySize || hex.EncodeToString(digest[:]) != seed.SHA256 || !ed25519.Verify(seed.ReleasePublicKey, seed.Binary, seed.Signature) {
+		return "", errors.New("vmqual: recovery ts-node artifact is not signed by the admitted release key")
+	}
+	var artifact vmimage.GuestArtifact
+	for _, candidate := range artifacts {
+		if candidate.Component == "ts-node" {
+			artifact = candidate
+		}
+	}
+	if artifact.Version != seed.Version || artifact.SHA256 != seed.SHA256 || artifact.Size != int64(len(seed.Binary)) {
+		return "", errors.New("vmqual: recovery ts-node release differs from guest artifact")
+	}
+	publicFiles, err := vmimage.TSNodePublicLaunchFiles(seed)
+	if err != nil {
+		return "", err
+	}
+	files := make([]provider.BootstrapHostFile, 0, len(publicFiles))
+	for path, content := range publicFiles {
+		files = append(files, provider.BootstrapHostFile{Path: path, Content: content, Private: true})
+	}
+
+	return provider.TSNodeCloudInit(seed.Version, seed.SHA256, artifact.Source, artifact.Source+".sig", hex.EncodeToString(seed.ReleasePublicKey), files)
 }
 
 type recoveryOCIRewriteTransport struct {

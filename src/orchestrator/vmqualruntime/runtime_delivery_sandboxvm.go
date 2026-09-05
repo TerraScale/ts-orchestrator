@@ -115,6 +115,24 @@ func (factory *firecrackerFactory) requestTSNode(ctx context.Context, host, subj
 	if subject != statusSubject {
 		return errors.New("vmqual: ts-node mutation requires a signed command from the actual regional lease holder; the qualification sender has no regional command authority adapter")
 	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("vmqual: encode ts-node command: %w", err)
+	}
+	return factory.requestTSNodePayload(ctx, host, subject, payload, reply)
+}
+
+// Called only after read-only subject admission or finite grant signing.
+func (factory *firecrackerFactory) requestTSNodePayload(ctx context.Context, host, subject string, payload []byte, reply any) error {
+	if ctx == nil {
+		return errors.New("vmqual: command context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := factory.activeDeliveryVM(host); err != nil {
+		return err
+	}
 	services, ok := factory.services.(*qualificationRuntimeServices)
 	if !ok || services == nil {
 		return errors.New("vmqual: embedded qualification NATS is not configured")
@@ -128,10 +146,6 @@ func (factory *firecrackerFactory) requestTSNode(ctx context.Context, host, subj
 	services.mu.Unlock()
 	if serverURL == "" {
 		return errors.New("vmqual: embedded qualification NATS has no client address")
-	}
-	payload, err := json.Marshal(command)
-	if err != nil {
-		return fmt.Errorf("vmqual: encode ts-node command: %w", err)
 	}
 	timeout := deliveryRequestTimeout(ctx)
 	authentication, err := services.authenticatedNATSOptions()

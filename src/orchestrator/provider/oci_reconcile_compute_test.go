@@ -29,11 +29,11 @@ func testComputeRegion() estate.Region {
 
 func testComputeDeclared(t *testing.T) ComputeDeclared {
 	t.Helper()
-	cloudInit, err := TSNodeCloudInit("v1", strings.Repeat("a", 64), "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/download/v1/ts-node")
+	cloudInit, err := testTSNodeCloudInit("v1", strings.Repeat("a", 64), "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/download/v1/ts-node")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ComputeDeclared{Region: testComputeRegion(), ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitBase64: cloudInit}
+	return ComputeDeclared{Region: testComputeRegion(), ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: map[int]string{1: cloudInit, 2: cloudInit}}
 }
 
 // fakeComputeGateway models member instances with shape capacity behavior.
@@ -442,7 +442,7 @@ func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
 func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	sha := strings.Repeat("0123456789abcdef", 4)
 	key := strings.Repeat("ab", 32)
-	encoded, err := TSNodeCloudInit("1.2.3", sha, "https://git.terrascale.tech/releases/ts-node", "https://git.terrascale.tech/releases/ts-node.sig", key)
+	encoded, err := testTSNodeCloudInit("1.2.3", sha, "https://git.terrascale.tech/releases/ts-node", "https://git.terrascale.tech/releases/ts-node.sig", key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,30 +459,30 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 			t.Fatalf("cloud-init installs more than ts-node: found %q", forbidden)
 		}
 	}
-	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=terrascale-node", "Group=terrascale-node", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale/ts-node", "NoNewPrivileges=true", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100"} {
+	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=root", "Group=root", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("cloud-init lacks %q", required)
 		}
 	}
-	if !strings.Contains(document, "BEGIN PUBLIC KEY") || !strings.Contains(document, "name: terrascale-node") {
-		t.Fatal("cloud-init must provision the pinned key and dedicated user")
+	if !strings.Contains(document, "BEGIN PUBLIC KEY") || !strings.Contains(document, "User=root") {
+		t.Fatal("cloud-init must provision the pinned key and canonical host authority")
 	}
 	if strings.Contains(document, "PRIVATE KEY") {
 		t.Fatal("cloud-init must never contain private key material")
 	}
-	if _, err := TSNodeCloudInit("bad version", sha, "https://example.com/x"); err == nil {
+	if _, err := testTSNodeCloudInit("bad version", sha, "https://example.com/x"); err == nil {
 		t.Fatal("invalid version accepted")
 	}
-	if _, err := TSNodeCloudInit("1.2.3", "not-a-digest", "https://example.com/x"); err == nil {
+	if _, err := testTSNodeCloudInit("1.2.3", "not-a-digest", "https://example.com/x"); err == nil {
 		t.Fatal("invalid digest accepted")
 	}
-	if _, err := TSNodeCloudInit("1.2.3", sha, "http://insecure.example.com/x"); err == nil {
+	if _, err := testTSNodeCloudInit("1.2.3", sha, "http://insecure.example.com/x"); err == nil {
 		t.Fatal("non-https artifact URL accepted")
 	}
-	if _, err := TSNodeCloudInit("1.2.3", sha, "https://example.com/x", "https://example.com/x.sig", strings.Repeat("not-a-key", 4)); err == nil {
+	if _, err := testTSNodeCloudInit("1.2.3", sha, "https://example.com/x", "https://example.com/x.sig", strings.Repeat("not-a-key", 4)); err == nil {
 		t.Fatal("invalid Ed25519 trust key accepted")
 	}
-	if _, err := TSNodeCloudInit("1.2.3", sha, "https://example.com/x", "http://example.com/x.sig", key); err == nil {
+	if _, err := testTSNodeCloudInit("1.2.3", sha, "https://example.com/x", "http://example.com/x.sig", key); err == nil {
 		t.Fatal("non-https signature URL accepted")
 	}
 }
@@ -508,7 +508,7 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 		DisplayName: "terrascale-gru-1", Index: 1, Shape: "VM.Standard.A1.Flex",
 		ImageID: "ocid1.image.oc1.arm64",
 		OCPUs:   2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x",
-		NSGIDs: []string{"ocid1.networksecuritygroup.oc1.x"}, AvailabilityDomain: "AD-1", CloudInitBase64: "dHNub2Rl",
+		NSGIDs: []string{"ocid1.networksecuritygroup.oc1.x"}, AvailabilityDomain: "AD-1", CloudInitBase64: testComputeDeclared(t).CloudInitByMember[1],
 	})
 	if err != nil || member.ID != "ocid1.instance.oc1.x" || member.Index != 1 {
 		t.Fatalf("LaunchMember = %+v, %v", member, err)
@@ -528,7 +528,7 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 		t.Fatalf("launch source = %+v; the spec image must win over the gateway default", source)
 	}
 	metadata := requestBody["metadata"].(map[string]any)
-	if metadata["user_data"] != "dHNub2Rl" {
+	if metadata["user_data"] != testComputeDeclared(t).CloudInitByMember[1] {
 		t.Fatalf("launch user_data = %+v", metadata)
 	}
 	tags := requestBody["freeformTags"].(map[string]any)
@@ -542,7 +542,7 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 	requestBody = nil
 	if _, err := gateway.LaunchMember(context.Background(), MemberLaunchSpec{
 		DisplayName: "terrascale-gru-2", Index: 2, Shape: "VM.Standard.E5.Flex",
-		OCPUs: 2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: "dHNub2Rl",
+		OCPUs: 2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: testComputeDeclared(t).CloudInitByMember[1],
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -553,8 +553,19 @@ func TestOCIMemberGatewayLaunchContract(t *testing.T) {
 	if _, err := gateway.LaunchMember(context.Background(), MemberLaunchSpec{
 		DisplayName: "terrascale-gru-3", Index: 3, Shape: "VM.Standard.A1.Flex",
 		ImageID: "not-an-image",
-		OCPUs:   2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: "dHNub2Rl",
+		OCPUs:   2, MemoryGiB: 12, SubnetID: "ocid1.subnet.oc1.x", CloudInitBase64: testComputeDeclared(t).CloudInitByMember[1],
 	}); err == nil {
 		t.Fatal("invalid boot image accepted")
 	}
+}
+
+func testTSNodeCloudInit(version, digest, artifact string, trust ...string) (string, error) {
+	signature, key := artifact+".sig", strings.Repeat("ab", 32)
+	if len(trust) > 0 {
+		signature = trust[0]
+	}
+	if len(trust) > 1 {
+		key = trust[1]
+	}
+	return TSNodeCloudInit(version, digest, artifact, signature, key, []BootstrapHostFile{{Path: "/etc/terrascale/ts-node.json", Content: []byte("{}"), Private: true}, {Path: "/var/lib/terrascale/ts-node/manifest.json", Content: []byte("{}"), Private: true}})
 }

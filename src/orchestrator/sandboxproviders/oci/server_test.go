@@ -75,9 +75,9 @@ func TestServerComputeAsyncIdempotentAndPaginated(t *testing.T) {
 	if resp.Header.Get("opc-next-page") == "" {
 		t.Fatal("missing continuation token")
 	}
-	var page map[string]any
+	var page []any
 	_ = json.NewDecoder(resp.Body).Decode(&page)
-	if len(page["items"].([]any)) != 1 {
+	if len(page) != 1 {
 		t.Fatalf("page = %#v", page)
 	}
 	bad, _ := http.NewRequest(http.MethodPost, h.URL+"/20160918/instances", bytes.NewReader([]byte(`{"compartmentId":"ocid1.compartment.oc1.local.tenant","displayName":"different"}`)))
@@ -219,14 +219,12 @@ func TestIndeterminateMutationIsAppliedBeforeResponseLoss(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list status %d", resp.StatusCode)
 	}
-	var list struct {
-		Items []map[string]any `json:"items"`
-	}
+	var list []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 1 {
-		t.Fatalf("accepted resources = %d", len(list.Items))
+	if len(list) != 1 {
+		t.Fatalf("accepted resources = %d", len(list))
 	}
 }
 
@@ -267,11 +265,11 @@ func TestServerNetworkAndVaultShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var listed map[string]any
+	var listed []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed["items"].([]any)) != 1 {
+	if len(listed) != 1 {
 		t.Fatalf("rules %#v", listed)
 	}
 	vault := post("/20180608/vaults", `{"compartmentId":"`+comp+`","displayName":"terrascale-gru-vault","vaultType":"DEFAULT"}`)

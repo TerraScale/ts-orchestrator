@@ -76,9 +76,8 @@ var (
 )
 
 // A control machine is supplied by the repository-owned control-plane
-// composition root. Keeping this nil by default is deliberate: a missing
-// provider must fail closed and can never be reported as a successful stage.
-var addRegionControlMachineFactory func(envLookup, string) (*bootstrap.ControlStateMachine, error)
+// composition root using explicit runtime declarations and credential files.
+var addRegionControlMachineFactory = newBootstrapControlFactory()
 
 // ErrAddRegionMissingStage classifies a composition refusal for callers that
 // prefer errors.Is; AddRegionMissingStageError carries the exact stage.
@@ -465,18 +464,35 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 	if err := validateAddRegionStages(lookup, spec, region); err != nil {
 		return err
 	}
+	var admission *bootstrapControlAdmission
+	if sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) && sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment) {
+		admission, err = addRegionControlMachineFactory.Validate(ctx, lookup, region.Code)
+		if err != nil {
+			return addRegionMissingStage("control", err)
+		}
+		if admission == nil {
+			return addRegionMissingStage("control", errors.New("validated admission missing"))
+		}
+	}
 	stages := []struct {
 		name string
 		run  addRegionStageFunc
 	}{
 		{"oci", func(ctx context.Context, _ envLookup, _ estate.Spec, region estate.Region, output io.Writer) error {
-			if err := runAddRegionBootstrap(ctx, lookup, provider.BootstrapRequest{Region: region}, output); err != nil {
+			request := provider.BootstrapRequest{Region: region}
+			if admission != nil {
+				request.HostCloudInit = admission.provision.HostCloudInit
+			}
+			if err := runAddRegionBootstrap(ctx, lookup, request, output); err != nil {
 				return err
 			}
 			// A test/provider may inject a control stage. The default stage is
 			// required only for the real OCI bootstrap; a fake bootstrap cannot
 			// accidentally turn the absent control provider into a false success.
 			if runAddRegionControl != nil && (sameBootstrapStage(runAddRegionBootstrap, provider.RunOCIBootstrapFromEnvironment) || !sameAddRegionStage(runAddRegionControl, addRegionControlFromEnvironment)) {
+				if admission != nil {
+					return addRegionControlAdmitted(ctx, lookup, region, admission)
+				}
 				if err := runAddRegionControl(ctx, lookup, spec, region, output); err != nil {
 					return err
 				}
@@ -532,9 +548,10 @@ func validateAddRegionStages(lookup envLookup, spec estate.Spec, region estate.R
 		if !present || strings.TrimSpace(path) == "" {
 			return addRegionMissingStage("control", errors.New("durable control journal is required"))
 		}
-		if addRegionControlMachineFactory == nil {
+		if addRegionControlMachineFactory == nil || addRegionControlMachineFactory.Validate == nil || addRegionControlMachineFactory.Construct == nil {
 			return addRegionMissingStage("control", errors.New("authoritative control provider is not configured"))
 		}
+
 	}
 	for _, stage := range []struct {
 		name string
@@ -729,16 +746,26 @@ func addRegionControlFromEnvironment(ctx context.Context, lookup envLookup, spec
 	if !ok || strings.TrimSpace(path) == "" {
 		return errors.New("add-region control: durable control journal is required")
 	}
-	if addRegionControlMachineFactory == nil {
+	if addRegionControlMachineFactory == nil || addRegionControlMachineFactory.Validate == nil || addRegionControlMachineFactory.Construct == nil {
 		return errors.New("add-region control: authoritative control provider is not configured")
 	}
-	machine, err := addRegionControlMachineFactory(lookup, strings.TrimSpace(path))
+	admission, err := addRegionControlMachineFactory.Validate(ctx, lookup, region.Code)
+	if err != nil {
+		return err
+	}
+	return addRegionControlAdmitted(ctx, lookup, region, admission)
+}
+
+func addRegionControlAdmitted(ctx context.Context, lookup envLookup, region estate.Region, admission *bootstrapControlAdmission) error {
+	path, _ := lookup(addRegionControlJournalEnv)
+	machine, err := addRegionControlMachineFactory.Construct(ctx, admission, strings.TrimSpace(path))
 	if err != nil {
 		return fmt.Errorf("add-region control: %w", err)
 	}
 	if machine == nil {
 		return errors.New("add-region control: control machine is unavailable")
 	}
+	defer closeBootstrapControlMachine(machine)
 	request := bootstrap.ControlTransitionRequest{Operation: bootstrap.ControlOperationAddRegion,
 		Region: region.Code, MemberHosts: int(region.Members.Count), EligibleHosts: int(region.Members.Count),
 		RegionalControl: region.Members.ControlReplicas > 0}

@@ -233,7 +233,7 @@ func verifyConfiguredOCIEstate(ctx context.Context, cell string, lookup envLooku
 	keyID, keyPresent := lookup(ociKeyIDEnvironment)
 	keyFile, keyFilePresent := lookup(ociPrivateKeyFileEnvironment)
 	if !estatePresent || !keyPresent || !keyFilePresent || strings.TrimSpace(estateFile) == "" || strings.TrimSpace(keyID) == "" || strings.TrimSpace(keyFile) == "" {
-		return errors.New("OCI estate verification configuration is required")
+		return errOCIEstateConfigurationMissing
 	}
 	spec, err := provider.LoadOCIEstateSpec(estateFile)
 	if err != nil {
@@ -306,9 +306,17 @@ type commandError struct {
 	cause   error
 }
 
+var errOCIEstateConfigurationMissing = errors.New("orchestrator: OCI estate verification requires TS_ORCH_OCI_ESTATE_FILE, TS_ORCH_OCI_KEY_ID, and TS_ORCH_OCI_PRIVATE_KEY_FILE")
+
 func (e commandError) Error() string {
 	if e.command == "unsupported" {
 		return "orchestrator: unsupported command"
+	}
+	if e.command == "run" && errors.Is(e.cause, ErrProductionCompositionMissing) {
+		return ErrProductionCompositionMissing.Error()
+	}
+	if errors.Is(e.cause, errOCIEstateConfigurationMissing) {
+		return errOCIEstateConfigurationMissing.Error()
 	}
 	return "orchestrator " + e.command + " failed"
 }
@@ -411,6 +419,11 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 		if configErr != nil {
 			return configErr
 		}
+		if production != nil {
+			if err := production.BindGlobalDelivery(configuration); err != nil {
+				return err
+			}
+		}
 		global, err = startGlobalRuntime(runCtx, configuration)
 		if err != nil {
 			return err
@@ -419,12 +432,21 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 			return errors.New("global runtime starter returned nil")
 		}
 	} else if options.GlobalDirectoryNats != nil {
+		if production != nil {
+			if err := production.BindGlobalDelivery(nil); err != nil {
+				return err
+			}
+		}
 		global, err = startDirectoryRuntime(runCtx, options, regional)
 		if err != nil {
 			return err
 		}
 		if global == nil {
 			return errors.New("global directory runtime starter returned nil")
+		}
+	} else if production != nil {
+		if err := production.BindGlobalDelivery(nil); err != nil {
+			return err
 		}
 	}
 	if production != nil {

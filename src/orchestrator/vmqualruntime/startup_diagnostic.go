@@ -139,6 +139,7 @@ func parseStartupJournal(report *startupServiceDiagnostic, data []byte) {
 	categories := []struct{ match, label string }{
 		{"no durable orchestrator membership source is configured", "membership-source-missing"},
 		{"orchestrator: production runtime requires configured estate publisher, key rotation, free-tier reaper, restore drill, and delivery mirror adapters", "production-composition-missing"},
+		{"orchestrator: oci estate verification requires ts_orch_oci_estate_file, ts_orch_oci_key_id, and ts_orch_oci_private_key_file", "oci-estate-configuration-missing"},
 		{"no such file or directory", "file-missing"},
 		{"permission denied", "permission-denied"},
 		{"exec format error", "executable-format"},

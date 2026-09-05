@@ -53,7 +53,11 @@ func (t *NatsTransport) authorizeLocked(message *nats.Msg) (context.Context, con
 	if authorization.NodeID != t.nodeId.Value || !bytes.Equal(authorization.Command, message.Data) || !time.Now().Before(authorization.ExpiresAt) {
 		return nil, nil, errors.New("hostagent: command authority expired or changed")
 	}
-	if err := t.epochs.Admit(authorization); err != nil {
+	if authorization.BootstrapGrantSHA256 != "" {
+		if err := t.admitBootstrapCommand(authorization.BootstrapGrantSHA256, authorization.BootstrapManifestSHA256); err != nil {
+			return nil, nil, err
+		}
+	} else if err := t.epochs.Admit(authorization); err != nil {
 		return nil, nil, err
 	}
 	ctx, cancel := context.WithDeadline(t.context(), authorization.ExpiresAt)

@@ -114,6 +114,7 @@ func (messagingSemanticClasses) Matches(pattern, subject string) bool {
 }
 
 var semanticClassSubjectRules = compileSemanticClassRules([]SemanticClassRule{
+	{SubjectPattern: NatsSubjectTaxonomy.GlobalDeliverySubject(), Namespace: NatsSubjectNamespaceGlobalAuthority, SemanticClass: MessagingSemanticClassLossy, LossMeaning: "Signed request/reply admission; GLOBAL_DELIVERIES journals durable intent and retries preserve lineage."},
 	{SubjectPattern: NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), Namespace: NatsSubjectNamespaceGlobalDirectory,
 		SemanticClass: MessagingSemanticClassLossy,
 		LossMeaning:   "Request/reply over the durable directory snapshot; callers retry."},
@@ -168,6 +169,7 @@ var semanticClassStoreRules = []StoreClassRule{
 		"The authoritative encrypted regional operation journal; never rebuilt from hints."},
 	{"ORCH_OPERATION_PROOFS", MessagingSemanticClassLossy,
 		"Expiry-bounded single-use proofs; a lost un-consumed proof simply expires."},
+	{"GLOBAL_DELIVERIES", MessagingSemanticClassAuthoritativeJournal, "Original signed delivery intents, saved release signatures, and regional acceptance survive master replacement."},
 	{"GLOBAL_RELEASES", MessagingSemanticClassAuthoritativeJournal,
 		"Durable delivery and CI journal ledger; authoritative history."},
 	{"CI_RUNNER_JOBS", MessagingSemanticClassLossy,

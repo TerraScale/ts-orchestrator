@@ -322,7 +322,7 @@ func decodeTransitionPlan(data []byte) (transitionPlan, error) {
 		"name", "version", "artifactUrl", "signatureUrl", "sha256", "user",
 		"dataVolume", "cpuWeight", "memoryMaxBytes", "ioWeight", "needsNetlink",
 	}
-	if _, err := decodeJournalObject(fields["spec"], commandJournalMaximumWire, specFields, nil); err != nil {
+	if _, err := decodeJournalObject(fields["spec"], commandJournalMaximumWire, specFields, []string{"arguments", "configuration"}); err != nil {
 		return transitionPlan{}, err
 	}
 	var plan transitionPlan

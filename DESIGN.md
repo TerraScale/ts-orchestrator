@@ -27,11 +27,16 @@ describe code that exists today; they do not preserve a retired topology.
 | Control plane (delivery, messaging, observability, operations) | `src/orchestrator/control` | contracts, protocol, runtime, security |
 | Bootstrap (embedded NATS) | `src/orchestrator/bootstrap` | security, control |
 | Host agent | `src/orchestrator/hostagent` | runtime |
+| Initial host grant wire and signing | `src/orchestrator/nodebootstrap` | protocol, security |
+| Initial local host activation | `src/orchestrator/hostbootstrap` | hostagent, nodeauthority, nodebootstrap |
+| Initial host credentials | `src/orchestrator/hostsecrets` | OCI Go SDK instance identity and Secrets API |
 | Authenticated host client | `src/orchestrator/hostcontrol` | hostagent, delivery |
 | OCI control snapshot storage | `src/orchestrator/restoresnapshot` | restoredrill, provider, delivery |
 | CLI / process entry | `cmd/orchestrator` | control, provider |
 | VM qualification core | `src/orchestrator/vmqual` | shared configuration, lifecycle, journals, diagnostic/resource evidence, guest contracts |
 | Firecracker qualification runtime | `src/orchestrator/vmqualruntime` | vmqual, sandboxvm, vmnet, vmdisk, vmimage, production host/provider packages |
+| Qualification grant issuer and activation | `src/orchestrator/vmqualbootstrap` | hostagent, security |
+| Guest controller configuration | `src/orchestrator/vmcontrolseed` | control, hostagent, security |
 | Qualification scenarios | `src/orchestrator/vmqualsuite` | vmqual, production controllers, sandboxproviders |
 
 Within `src/orchestrator/control`, use concise snake_case filenames named for

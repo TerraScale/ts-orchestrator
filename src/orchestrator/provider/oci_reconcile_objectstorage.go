@@ -311,6 +311,10 @@ type ociBucketDocument struct {
 	Versioning string `json:"versioning"`
 }
 
+type ociBucketSummaryDocument struct {
+	Name string `json:"name"`
+}
+
 func (g *OCIObjectStorageGateway) ListBuckets(ctx context.Context, namespace string) ([]ObservedBucket, error) {
 	if !validObjectPart(namespace, 128, false) {
 		return nil, &errs.Argument{Message: "object storage namespace is invalid"}
@@ -318,19 +322,15 @@ func (g *OCIObjectStorageGateway) ListBuckets(ctx context.Context, namespace str
 	query := url.Values{}
 	query.Set("compartmentId", g.CompartmentID)
 	query.Set("limit", strconv.Itoa(g.MaxBucketsList))
-	var list struct {
-		Items []struct {
-			Name string `json:"name"`
-		} `json:"items"`
-	}
-	if err := doOCIJSON(ctx, g.Object, http.MethodGet, "/n/"+url.PathEscape(namespace)+"/b/?"+query.Encode(), nil, nil, &list); err != nil {
+	list, err := readOCIResourceList[ociBucketSummaryDocument](ctx, g.Object, "/n/"+url.PathEscape(namespace)+"/b/", query, func(item ociBucketSummaryDocument) string { return item.Name })
+	if err != nil {
 		return nil, err
 	}
-	if len(list.Items) > g.MaxBucketsList {
+	if len(list) > g.MaxBucketsList {
 		return nil, &InvalidDataError{Message: "OCI bucket list exceeds the reconciliation bound"}
 	}
-	buckets := make([]ObservedBucket, 0, len(list.Items))
-	for _, item := range list.Items {
+	buckets := make([]ObservedBucket, 0, len(list))
+	for _, item := range list {
 		if !validObjectPart(item.Name, 256, false) {
 			return nil, &InvalidDataError{Message: "OCI bucket response is invalid"}
 		}

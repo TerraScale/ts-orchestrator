@@ -91,7 +91,7 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 | `ts.orch.v1.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
 | `ts.orch.v1.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
 
-Store classes (`StoreRules`): authoritative journals — `ORCH_OPERATIONS`, `GLOBAL_RELEASES`; snapshots — `GLOBAL_CELLS`, `CELL_BUNDLES`, `GLOBAL_BUNDLES`, `CI_RUNNER_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`; coordination (lossy in the contract sense — CAS plus epochs carry correctness) — `ORCH_LEADERS`, `ORCH_RUNTIME`, `ORCH_DELIVERY`, `ORCH_OPERATION_PROOFS`, `CI_RUNNER_JOBS`. A drift test pins every landed bucket to a declared class.
+Store classes (`StoreRules`): authoritative journals — `ORCH_OPERATIONS`, `GLOBAL_RELEASES`, `GLOBAL_DELIVERIES`; snapshots — `GLOBAL_CELLS`, `CELL_BUNDLES`, `GLOBAL_BUNDLES`, `CI_RUNNER_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`; coordination (lossy in the contract sense — CAS plus epochs carry correctness) — `ORCH_LEADERS`, `ORCH_RUNTIME`, `ORCH_DELIVERY`, `ORCH_OPERATION_PROOFS`, `CI_RUNNER_JOBS`. A drift test pins every landed bucket to a declared class.
 
 ## 5. Delivery semantics
 

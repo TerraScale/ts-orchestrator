@@ -65,6 +65,11 @@ func (natsSubjectTaxonomy) GlobalAcceptedReleasePrefix() string {
 	return NatsSubjectTaxonomy.GlobalRoot() + ".release.accepted"
 }
 
+// GlobalDeliverySubject admits original signed delivery intents to the live GRU master.
+func (natsSubjectTaxonomy) GlobalDeliverySubject() string {
+	return NatsSubjectTaxonomy.GlobalRoot() + ".release.delivery"
+}
+
 // CiForgejoTriggerSubject mirrors the normalized Forgejo trigger decisions
 // subject consumed by the leader-only global CI consumer.
 func (natsSubjectTaxonomy) CiForgejoTriggerSubject() string {

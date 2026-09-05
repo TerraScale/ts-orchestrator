@@ -144,6 +144,10 @@ func NewExecutor(config ExecutorConfig) (*Executor, error) {
 		return nil, errors.New("delivery: explicit artifact mirror mode is required")
 	}
 	if config.MirrorMode == MirrorModeVerifyAll {
+		if config.Fetcher != nil {
+			return nil, errors.New("delivery: regional execution must read prepared mirrors")
+		}
+		config.Fetcher = preparedMirrorFetcher{config.Mirror}
 		if config.Mirror == nil {
 			return nil, errors.New("delivery: artifact mirror is required")
 		}

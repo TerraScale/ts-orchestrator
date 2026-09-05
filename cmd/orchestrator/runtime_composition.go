@@ -76,21 +76,34 @@ type productionRuntimeConfig struct {
 }
 
 // The production root owns the mirror and estate. Provider composition
-// supplies the fetcher, active signing trust, and rollout adapters only.
+// supplies explicit global delegation trust and regional rollout adapters.
+// Only the optional GRU master inputs include a registry fetcher.
 type productionDeliveryConfig struct {
-	Fetcher delivery.ArtifactFetcher
-	Trust   func() *delivery.TrustSet
-	Rollout delivery.RolloutConfig
+	Delegation *control.MasterDeliveryAdmissionConfig
+	Trust      func() *delivery.TrustSet
+	Rollout    delivery.RolloutConfig
+	Master     *productionMasterDeliveryConfig
+}
+
+// productionMasterDeliveryConfig contains the additional GRU-only inputs. The
+// root supplies the same estate mirror, release trust and original-intent trust
+// used by regional admission; callers cannot substitute a second artifact path.
+type productionMasterDeliveryConfig struct {
+	Fetcher        delivery.ArtifactFetcher
+	Signer         *security.CommandSignatureSigner
+	Regions        map[string]control.RegionalDeliveryRoute
+	RequestTimeout time.Duration
 }
 
 type productionRuntime struct {
-	delivery   *control.SignedDeliveryRuntimeConfig
-	publisher  *estatepublisher.Publisher
-	rotation   *security.Coordinator
-	reaper     *reaper.Reconciler
-	restore    *restoredrill.ProductionComposition
-	workers    []*scheduledService
-	completion chan struct{}
+	delivery       *control.SignedDeliveryRuntimeConfig
+	masterDelivery *control.MasterDeliveryRuntimeConfig
+	publisher      *estatepublisher.Publisher
+	rotation       *security.Coordinator
+	reaper         *reaper.Reconciler
+	restore        *restoredrill.ProductionComposition
+	workers        []*scheduledService
+	completion     chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -110,14 +123,9 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, fmt.Errorf("runtime artifact mirror: %w", err)
 	}
 
-	rollout := config.Delivery.Rollout
-	rollout.Spec = spec
-	signedDelivery := &control.SignedDeliveryRuntimeConfig{
-		Fetcher: config.Delivery.Fetcher, Trust: config.Delivery.Trust,
-		Mirror: mirror, Rollout: rollout,
-	}
-	if err := signedDelivery.Validate(); err != nil {
-		return nil, fmt.Errorf("runtime signed delivery: %w", err)
+	signedDelivery, masterDelivery, err := composeProductionDelivery(config.Delivery, spec, mirror)
+	if err != nil {
+		return nil, err
 	}
 
 	publisher, err := newEstatePublisher(config.EstateClient, config.EstateSnapshot, config.EstateAuthority)
@@ -137,12 +145,72 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, fmt.Errorf("runtime restore drill: %w", err)
 	}
 	return &productionRuntime{
-		delivery:  signedDelivery,
-		publisher: publisher,
-		rotation:  rotation,
-		reaper:    reaperRuntime,
-		restore:   restore,
+		delivery:       signedDelivery,
+		masterDelivery: masterDelivery,
+		publisher:      publisher,
+		rotation:       rotation,
+		reaper:         reaperRuntime,
+		restore:        restore,
 	}, nil
+}
+
+func composeProductionDelivery(config productionDeliveryConfig, spec estate.Spec, mirror *delivery.ArtifactMirror) (*control.SignedDeliveryRuntimeConfig, *control.MasterDeliveryRuntimeConfig, error) {
+	if err := config.Delegation.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("runtime signed delivery: %w", err)
+	}
+	delegation := *config.Delegation
+	rollout := config.Rollout
+	rollout.Spec = spec
+	regional := &control.SignedDeliveryRuntimeConfig{Delegation: &delegation, Trust: config.Trust, Mirror: mirror, Rollout: rollout}
+	if err := regional.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("runtime signed delivery: %w", err)
+	}
+	if config.Master == nil {
+		return regional, nil, nil
+	}
+	routes := make(map[string]control.RegionalDeliveryRoute, len(config.Master.Regions))
+	for cell, route := range config.Master.Regions {
+		routes[cell] = route
+	}
+	master := &control.MasterDeliveryRuntimeConfig{
+		Fetcher: config.Master.Fetcher, Trust: config.Trust, Mirror: mirror,
+		Signer: config.Master.Signer, IntentVerifier: delegation.IntentVerifier,
+		Regions: routes, RequestTimeout: config.Master.RequestTimeout,
+	}
+	if err := master.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("runtime master delivery: %w", err)
+	}
+	return regional, master, nil
+}
+
+// BindGlobalDelivery installs the admitted master adapters into the runtime that
+// owns the GRU global connection and authority. Passing nil verifies that a
+// regional-only process has no unstarted master configuration.
+func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntimeConfiguration) error {
+	if r == nil {
+		return errors.New("runtime master delivery: production composition is missing")
+	}
+	if config == nil {
+		if r.masterDelivery != nil {
+			return errors.New("runtime master delivery: GRU global runtime is required")
+		}
+		return nil
+	}
+	if config.Cell != "gru" || config.Authority == nil || config.Authority.Cell != "gru" {
+		return errors.New("runtime master delivery: global runtime must belong to GRU")
+	}
+	if r.masterDelivery == nil {
+		return errors.New("runtime master delivery: explicit master adapters are required for GRU")
+	}
+	if config.Delivery != nil || config.DeliveryEnabled {
+		return errors.New("runtime master delivery: global delivery was already configured")
+	}
+	if err := r.masterDelivery.Validate(); err != nil {
+		return err
+	}
+	config.Delivery = r.masterDelivery
+	config.DeliveryEnabled = true
+	return nil
 }
 
 func (r *productionRuntime) Start(ctx context.Context) error {
