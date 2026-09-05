@@ -2,17 +2,17 @@
 package vmqualartifact
 
 import (
- "crypto/ed25519"
- "crypto/rand"
- "crypto/tls"
- "crypto/x509"
- "crypto/x509/pkix"
- "encoding/pem"
- "errors"
- "math/big"
- "net/http"
- "strconv"
- "time"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"math/big"
+	"net/http"
+	"strconv"
+	"time"
 )
 
 func GenerateCertificate(hostname string, now time.Time) (tls.Certificate, []byte, error) {
@@ -31,11 +31,11 @@ func GenerateCertificate(hostname string, now time.Time) (tls.Certificate, []byt
 			clear(serverPrivate)
 		}
 	}()
-	caSerial, err := certificateSerial()
+	caSerial, err := CertificateSerial()
 	if err != nil {
 		return tls.Certificate{}, nil, err
 	}
-	serverSerial, err := certificateSerial()
+	serverSerial, err := CertificateSerial()
 	if err != nil {
 		return tls.Certificate{}, nil, err
 	}
@@ -71,7 +71,7 @@ func GenerateCertificate(hostname string, now time.Time) (tls.Certificate, []byt
 	return tls.Certificate{Certificate: [][]byte{serverDER, caDER}, PrivateKey: serverPrivate, Leaf: leaf}, caPEM, nil
 }
 
-func certificateSerial() (*big.Int, error) {
+func CertificateSerial() (*big.Int, error) {
 	value := make([]byte, 16)
 	if _, err := rand.Read(value); err != nil {
 		return nil, err
@@ -108,4 +108,3 @@ func Handler(hostname string, port uint16, resources map[string][]byte) http.Han
 		_, _ = response.Write(data)
 	})
 }
-

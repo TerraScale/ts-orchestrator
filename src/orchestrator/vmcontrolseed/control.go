@@ -5,6 +5,7 @@ package vmcontrolseed
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
@@ -81,9 +82,17 @@ func (m Material) DataDriveBytes() (int64, error) {
 	}
 	captureReserve := int64(0)
 	if config.PreliminaryCapture != nil {
-		captureReserve = config.PreliminaryCapture.MaxTotalBytes + config.PreliminaryCapture.MaxSnapshotBytes
+		total, snapshot := config.PreliminaryCapture.MaxTotalBytes, config.PreliminaryCapture.MaxSnapshotBytes
+		if total > math.MaxInt64-snapshot {
+			return 0, fmt.Errorf("vmcontrolseed: capture staging capacity overflow")
+		}
+		captureReserve = total + snapshot
 	}
-	return config.Broker.StorageBudgetBytes + filesystemAllowance + captureReserve, nil
+	base := config.Broker.StorageBudgetBytes + filesystemAllowance
+	if captureReserve > math.MaxInt64-base {
+		return 0, fmt.Errorf("vmcontrolseed: data drive capacity overflow")
+	}
+	return base + captureReserve, nil
 }
 
 const AuthorityDirectory = "/etc/terrascale/ts-node-authority"

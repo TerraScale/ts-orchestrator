@@ -22,7 +22,10 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/candidateplan"
+	"terrascale.tech/orchestrator/src/orchestrator/captureplan"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/controlcandidatecli"
+	"terrascale.tech/orchestrator/src/orchestrator/initialcontrolcli"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
@@ -129,7 +132,16 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		args = []string{"run"}
 	}
 	if name == "initial-gru-r1" {
-		return runInitialGRUR1(ctx, args[2])
+		if err := initialcontrolcli.Run(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
+	if name == "plan-preliminary-capture" {
+		if err := captureplan.Run(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
 	}
 	if name == "plan-control-candidates" {
 		if err := candidateplan.Run(ctx, args[2], output); err != nil {
@@ -138,7 +150,10 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		return nil
 	}
 	if name == "prepare-control-candidate" {
-		return runControlCandidate(ctx, args[2], output)
+		if err := controlcandidatecli.Run(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
 	}
 	if name == "observe-member" {
 		return memberobserve.Run(ctx, args, output)
@@ -268,7 +283,7 @@ func requestedCommand(args []string) (string, error) {
 	if args[0] == "run" && len(args) == 3 && args[1] == "--config" && args[2] != "" {
 		return "run", nil
 	}
-	if args[0] == "initial-gru-r1" || args[0] == "prepare-control-candidate" || args[0] == "plan-control-candidates" {
+	if args[0] == "initial-gru-r1" || args[0] == "prepare-control-candidate" || args[0] == "plan-control-candidates" || args[0] == "plan-preliminary-capture" {
 		if len(args) == 3 && args[1] == "--config" && args[2] != "" {
 			return args[0], nil
 		}
@@ -313,7 +328,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates", "plan-preliminary-capture":
 		return args[0]
 	default:
 		return "unsupported"

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -42,38 +43,40 @@ type ProductionArtifactInput struct {
 // from the documented TS_VM_* environment variables; no ambient production
 // credentials are read.
 type Config struct {
-	Root                      string
-	StateRoot                 string
-	JournalPath               string
-	PinsPath                  string
-	ImageManifestPath         string
-	ImageCacheRoot            string
-	ReadinessRoot             string
-	GuestControlPath          string
-	ReleasePublicKeyPath      string
-	TSNode                    ProductionArtifactInput
-	Orchestrator              ProductionArtifactInput
-	TerraBase                 ProductionArtifactInput
-	NetworkPlan               vmnet.NetworkPlan
-	FirecrackerPath           string
-	JailerPath                string
-	KernelPath                string
-	RootFSPath                string
-	ExpectedVersion           string
-	ExpectedKernelSHA256      string
-	ExpectedRootFSSHA256      string
-	ExpectedFirecrackerSHA256 string
-	ExpectedJailerSHA256      string
-	SDKModule                 string
-	SDKVersion                string
-	JailerUID                 int
-	JailerGID                 int
-	MemoryMiB                 int64
-	ReadinessTimeout          time.Duration
-	StopTimeout               time.Duration
-	MaxDiskBytes              int64
-	RequiredPorts             []int
-	configurationError        string
+	Root                               string
+	StateRoot                          string
+	JournalPath                        string
+	PinsPath                           string
+	ImageManifestPath                  string
+	ImageCacheRoot                     string
+	ReadinessRoot                      string
+	GuestControlPath                   string
+	ReleasePublicKeyPath               string
+	TSNode                             ProductionArtifactInput
+	Orchestrator                       ProductionArtifactInput
+	TerraBase                          ProductionArtifactInput
+	NetworkPlan                        vmnet.NetworkPlan
+	FirecrackerPath                    string
+	JailerPath                         string
+	KernelPath                         string
+	RootFSPath                         string
+	ExpectedVersion                    string
+	ExpectedKernelSHA256               string
+	ExpectedRootFSSHA256               string
+	ExpectedFirecrackerSHA256          string
+	ExpectedJailerSHA256               string
+	SDKModule                          string
+	SDKVersion                         string
+	JailerUID                          int
+	JailerGID                          int
+	MemoryMiB                          int64
+	ReadinessTimeout                   time.Duration
+	StopTimeout                        time.Duration
+	MaxDiskBytes                       int64
+	RequiredPorts                      []int
+	PreliminaryCaptureMaxSnapshotBytes int64
+	PreliminaryCaptureMaxTotalBytes    int64
+	configurationError                 string
 }
 
 // DefaultConfig resolves paths but does not create directories or inspect the
@@ -120,6 +123,20 @@ func defaultConfigForArchitecture(architecture string) Config {
 		ReadinessTimeout:          2 * time.Minute,
 		StopTimeout:               30 * time.Second,
 		MaxDiskBytes:              8 << 30,
+	}
+	snapshotText, snapshotSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_SNAPSHOT_BYTES")
+	totalText, totalSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_TOTAL_BYTES")
+	if snapshotSet != totalSet {
+		c.setConfigurationError("preliminary capture snapshot and total capacities must be configured together")
+	} else if snapshotSet {
+		snapshot, snapshotErr := parseStrictDecimal(snapshotText, 64)
+		total, totalErr := parseStrictDecimal(totalText, 64)
+		declaration := vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: snapshot, MaxTotalBytes: total}
+		if snapshotErr != nil || totalErr != nil || declaration.Validate() != nil {
+			c.setConfigurationError("invalid preliminary capture snapshot and total capacities")
+		} else {
+			c.PreliminaryCaptureMaxSnapshotBytes, c.PreliminaryCaptureMaxTotalBytes = snapshot, total
+		}
 	}
 	uidText, uidSet := os.LookupEnv("TS_VM_JAILER_UID")
 	gidText, gidSet := os.LookupEnv("TS_VM_JAILER_GID")
@@ -303,6 +320,11 @@ func findGoModuleRoot(start string) string {
 func (c Config) Validate() error {
 	if c.configurationError != "" {
 		return errors.New("vmqual: " + c.configurationError)
+	}
+	if c.PreliminaryCaptureMaxSnapshotBytes != 0 || c.PreliminaryCaptureMaxTotalBytes != 0 {
+		if err := (vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: c.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: c.PreliminaryCaptureMaxTotalBytes}).Validate(); err != nil {
+			return err
+		}
 	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		return fmt.Errorf("vmqual: native architecture %s is unsupported by Firecracker qualification", runtime.GOARCH)

@@ -1,8 +1,8 @@
 # Control snapshot transition design
 
 Status: the end-to-end transition remains design input and is not implemented
-or production-qualified. The single-stream snapshot envelope described below
-is implemented. Audited on
+or production-qualified. The single-stream snapshot envelope and source-local
+preliminary capture described below are implemented. Audited on
 2026-09-05 against PR-03 in `GOAL.md`. This document describes the required
 end-to-end transition from the temporary GRU standalone R1 to permanent
 GRU/SFO/FRA R3. A snapshot transport helper or an optional restore field alone
@@ -97,7 +97,7 @@ The current callers expose an ordering gap:
 | `src/orchestrator/bootstrap/nats_control_runtime.go` | `Execute` applies all handoffs, creates mirrors, updates replicas, and gathers store checks. `applyHandoff` waits for component readiness. | Separate broker preparation from runtime activation. Capture and restore must occur in the appropriate phases before runtime readiness is required. Update the constructor's manual action-plan clone when adding fields. |
 | `src/orchestrator/hostagent/transport.go` | `applyManifest` uses the existing command journal and invokes `initialgrant.RetireForReplacement` before replacement manifest effects. | Bind preparation and activation to the existing signed command and journal authority. Preserve recoverable progress without authorizing the retired launch. |
 | `src/orchestrator/initialgrant/proof.go` | `RetireForReplacement` durably retires an initial launch when replacing it with a non-initial launch. | Keep this retirement invariant. Pre-admit capture, then stop and seal the original store before opening a separate capture copy. |
-| `src/orchestrator/initialcontrol/runtime.go` | `supervise` detects retirement and closes the initial runtime and embedded broker. | Keep retirement shutdown. A separate restricted capture launch must use a verified copy of the stopped store; that lifecycle does not exist today. |
+| `src/orchestrator/initialcontrol/runtime.go` | Runs optional owner-admitted preliminary capture while GRU is live. `supervise` detects retirement and closes the initial runtime and embedded broker. | Keep retirement shutdown. A separate restricted final-capture launch must use a verified copy of the stopped store; that lifecycle does not exist today. |
 | `src/orchestrator/initialcontrol/broker.go` | The admitted initial broker is standalone and forbids routes and a system account. | Prepare a separately admitted cluster with a fresh GRU destination directory. Do not widen the initial broker's grant or reuse its standalone directory as cluster state. |
 | `src/orchestrator/bootstrap/nats_control_mutations.go` | Replica changes require a live, exact target lease and separately promote admitted consumers. | Add a separate finite transition-grant path for declared storage promotion. Keep ordinary mutation guards unchanged; start ordinary election only after verified R3. |
 
@@ -158,14 +158,34 @@ assumption that denying ordinary publication makes them nonmutating.
 The proposed snapshot-reader fields and generated credentials were removed.
 Existing signed source configurations retain their original rights.
 
-A source-owned snapshot worker must keep its explicitly admitted privileged
-credentials private, accept a typed transition request, derive the admitted
-inventory, and choose its own reserved delivery inbox. Its ingress must not
-forward caller-selected source-account reply or delivery subjects. Candidates
-receive immutable object identities and separately bounded object-read
-authority. The worker, isolated ingress, transfer declarations, and independent
-receipt path remain to be implemented. Client chunk validation alone does not
-provide this source-side authorization boundary.
+The optional source-owned preliminary worker in `initialcontrol` keeps its
+explicitly admitted privileged credentials on GRU. It accepts a bounded,
+owner-signed request from the signed configuration's root-owned request file.
+Verification uses the original initial admission's owner key. The request binds
+the original grant, source node, store scope, profile, both accounts and their
+complete stream inventory, exact live global control epoch, and finite dates.
+It cannot select NATS reply or delivery subjects. The worker chooses its own
+snapshot inbox and checks the observed stream inventory before and after each
+account's capture.
+
+The worker stages immutable envelopes in a separate, bounded local directory
+and publishes a source-membership-key-signed preliminary receipt. One signed
+request pins that output directory. Identical retries preserve prior artifacts;
+another request or a newer global term cannot replace that pin. Capture requires
+live initial admission and the exact global leadership term throughout its
+bounded execution. It holds the initial admission's mutation lock so retirement
+cannot complete while capture is still running. Runtime shutdown cancels and
+joins the worker before closing the broker. See
+[the preliminary capture guide](../guides/control-preliminary-capture.md) for
+configuration, request planning, status, and retry limits.
+
+These sequential snapshots describe a still-running source. They do not fence
+writers or establish an atomic final cut. The implementation supplies no OCI
+publication, candidate transfer or restore, independently hosted receipt
+channel, or R3 readiness. Candidates still need immutable object identities and
+separately bounded object-read authority through the future transfer path.
+The full storage transition grant and its post-retirement capture lifecycle
+remain separate work.
 
 The required durable order is:
 

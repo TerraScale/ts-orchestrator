@@ -74,21 +74,21 @@ type Peer struct {
 	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
-	PreliminaryCapture *PreliminaryCaptureConfig `json:"preliminaryCapture,omitempty"`
-	AuthorityReader nodeauthority.ReaderConfig `json:"authorityReader"`
-	Version         int                        `json:"version"`
-	Mode            string                     `json:"mode"`
-	Role            string                     `json:"role"`
-	NodeID          string                     `json:"nodeId"`
-	Cell            string                     `json:"cell"`
-	Instance        string                     `json:"instance"`
-	SeedInstance    string                     `json:"seedInstance"`
-	Peers           []Peer                     `json:"peers"`
-	Broker          Broker                     `json:"broker"`
-	Regional        Store                      `json:"regional"`
-	Global          *Store                     `json:"global"`
-	Membership      Membership                 `json:"membership"`
-	ProfileSHA256   string                     `json:"profileSha256"`
+	PreliminaryCapture *PreliminaryCaptureConfig  `json:"preliminaryCapture,omitempty"`
+	AuthorityReader    nodeauthority.ReaderConfig `json:"authorityReader"`
+	Version            int                        `json:"version"`
+	Mode               string                     `json:"mode"`
+	Role               string                     `json:"role"`
+	NodeID             string                     `json:"nodeId"`
+	Cell               string                     `json:"cell"`
+	Instance           string                     `json:"instance"`
+	SeedInstance       string                     `json:"seedInstance"`
+	Peers              []Peer                     `json:"peers"`
+	Broker             Broker                     `json:"broker"`
+	Regional           Store                      `json:"regional"`
+	Global             *Store                     `json:"global"`
+	Membership         Membership                 `json:"membership"`
+	ProfileSHA256      string                     `json:"profileSha256"`
 }
 
 func ParseConfig(raw []byte) (Config, error) {
@@ -154,7 +154,7 @@ func (c Config) Validate() error {
 			return bad()
 		}
 		if capture := c.PreliminaryCapture; capture != nil {
-			if !cleanPath(capture.RequestFile) || !cleanPath(capture.OutputDir) || capture.OutputDir == "/" || capture.MaxSnapshotBytes < 1024 || capture.MaxSnapshotBytes > 1<<30 || capture.MaxTotalBytes < capture.MaxSnapshotBytes || capture.MaxTotalBytes > 1<<40 || !capture.Regional.valid() || !capture.Global.valid() {
+			if !cleanPath(capture.RequestFile) || !cleanPath(capture.OutputDir) || capture.OutputDir == "/" || capture.MaxSnapshotBytes < 1024 || capture.MaxSnapshotBytes > 1<<30 || capture.MaxTotalBytes < capture.MaxSnapshotBytes || capture.MaxTotalBytes > 256<<30 || !capture.Regional.valid() || !capture.Global.valid() {
 				return bad()
 			}
 			for _, path := range []string{c.Broker.StoreDir, capture.RequestFile} {

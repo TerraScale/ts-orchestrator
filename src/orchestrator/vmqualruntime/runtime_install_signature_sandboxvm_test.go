@@ -5,7 +5,6 @@ package vmqualruntime
 import (
 	"bytes"
 	"context"
-"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +20,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 	"testing"
 	"time"
 
@@ -38,7 +38,7 @@ func TestQualificationHTTPSReleaseInstallsThroughTSNode(t *testing.T) {
 	signature := ed25519.Sign(private, artifact)
 	digest := sha256.Sum256(artifact)
 	artifactPath, signaturePath := vmqualartifact.ReleasePaths("orchestrator", "v1")
-	certificate, caPEM, err := generateArtifactCertificate(time.Now())
+	certificate, caPEM, err := vmqualartifact.GenerateCertificate(artifactReleaseHostname, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestQualificationHTTPSReleaseInstallsThroughTSNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	services := &qualificationRuntimeServices{resources: map[string][]byte{artifactPath: artifact, signaturePath: signature}}
-	handler := services.artifactHandler(uint16(port))
+	handler := vmqualartifact.Handler(artifactReleaseHostname, uint16(port), services.resources)
 	var requests atomic.Int64
 	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)

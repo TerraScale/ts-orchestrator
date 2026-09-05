@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
-"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
@@ -120,9 +120,11 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		}
 	}
 	var controlSeeds map[string]vmcontrolseed.Material
- if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
- controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID,candidates,vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes:config.PreliminaryCaptureMaxSnapshotBytes,MaxTotalBytes:config.PreliminaryCaptureMaxTotalBytes})
- } else { controlSeeds, err = vmcontrolseed.GenerateGRU(plan.RunID, candidates) }
+	if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
+		controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes})
+	} else {
+		controlSeeds, err = vmcontrolseed.GenerateGRU(plan.RunID, candidates)
+	}
 	if err != nil {
 		authority.close()
 		return nil, err

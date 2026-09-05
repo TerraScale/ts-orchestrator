@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 	"time"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
@@ -51,7 +52,7 @@ func newQualificationNATSAuthority(plan vmnet.NetworkPlan) (*qualificationNATSAu
 		return nil, err
 	}
 	defer zeroBytes(caPrivate)
-	serial, err := certificateSerial()
+	serial, err := vmqualartifact.CertificateSerial()
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +75,7 @@ func newQualificationNATSAuthority(plan vmnet.NetworkPlan) (*qualificationNATSAu
 			return nil, err
 		}
 		defer zeroBytes(private)
-		serial, err := certificateSerial()
+		serial, err := vmqualartifact.CertificateSerial()
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,5 @@
-package main
+// Package controlcandidatecli runs the admitted control-candidate preparation process.
+package controlcandidatecli
 
 import (
 	"context"
@@ -12,19 +13,19 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
-// Preparation keeps the admitted candidate process available without opening
+// Run keeps the admitted candidate process available without opening
 // a broker, electing an authority, or reporting ordinary runtime readiness.
-func runControlCandidate(ctx context.Context, path string, output io.Writer) error {
+func Run(ctx context.Context, path string, output io.Writer) error {
 	raw, err := initialgrant.ReadMaterialFile(path, transitiongrant.MaximumBytes, false)
 	if err != nil {
-		return commandFailure(transitiongrant.Mode, err)
+		return err
 	}
 	config, err := transitiongrant.ParseConfig(raw)
 	if err != nil {
-		return commandFailure(transitiongrant.Mode, err)
+		return err
 	}
 	if err := waitControlCandidate(ctx, config, output, nodeauthority.ValidatePublishedPreparation); err != nil {
-		return commandFailure(transitiongrant.Mode, err)
+		return err
 	}
 	return nil
 }

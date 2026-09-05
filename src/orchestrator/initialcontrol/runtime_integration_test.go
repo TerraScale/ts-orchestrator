@@ -106,13 +106,25 @@ type fixture struct {
 	proof     *initialgrant.Proof
 	epochs    *nodeauthority.EpochStore
 	admission *initialgrant.Admission
+	owner     *security.CommandSignatureSigner
 }
 
 func fixtureConfig(t *testing.T) (initialgrant.Config, initialgrant.Config) {
+	return fixtureConfigCapture(t, false)
+}
+
+func fixtureConfigCapture(t *testing.T, capture bool) (initialgrant.Config, initialgrant.Config) {
 	t.Helper()
 	seedKey, seedPublic := memberKey(t)
 	peerKey, peerPublic := memberKey(t)
-	materials, err := vmcontrolseed.GenerateGRU("runtime-test", []vmcontrolseed.Guest{{ID: "gru-one", Address: "10.77.0.10", MembershipPublicKey: seedPublic}, {ID: "gru-two", Address: "10.77.0.11", MembershipPublicKey: peerPublic}})
+	guests := []vmcontrolseed.Guest{{ID: "gru-one", Address: "10.77.0.10", MembershipPublicKey: seedPublic}, {ID: "gru-two", Address: "10.77.0.11", MembershipPublicKey: peerPublic}}
+	materials, err := vmcontrolseed.GenerateGRU("runtime-test", guests)
+	if capture {
+		for _, material := range materials {
+			material.Clear()
+		}
+		materials, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture("runtime-test", guests, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: 32 << 20, MaxTotalBytes: 128 << 20})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +153,7 @@ func fixtureConfig(t *testing.T) (initialgrant.Config, initialgrant.Config) {
 		}
 		settings := strings.NewReplacer(vmcontrolseed.Directory, directory, vmcontrolseed.AuthorityDirectory, directory+"/reader").Replace(material.Settings)
 		settings = strings.ReplaceAll(settings, vmcontrolseed.StorePath, filepath.Join(root, "nats"))
+		settings = strings.ReplaceAll(settings, vmcontrolseed.CaptureOutputPath, filepath.Join(root, "capture"))
 		settings = strings.ReplaceAll(settings, "tls://10.77.0.10:4222", endpoint)
 		var c initialgrant.Config
 		if err = json.Unmarshal([]byte(settings), &c); err != nil {
@@ -203,7 +216,7 @@ func admit(t *testing.T, c initialgrant.Config) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer signer.Close()
+	t.Cleanup(func() { signer.Close() })
 	public, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	signed, err := nodebootstrap.SignBootstrapGrant(signer, nodebootstrap.BootstrapGrant{Version: 1, GrantID: "owner-initial-test", NodeID: c.NodeID, Manifest: manifest, IssuedAt: time.Now().UTC().Add(-time.Minute), ExpiresAt: time.Now().UTC().Add(time.Hour)})
 	if err != nil {
@@ -233,7 +246,7 @@ func admit(t *testing.T, c initialgrant.Config) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{c, proof, epochs, admission}
+	return &fixture{config: c, proof: proof, epochs: epochs, admission: admission, owner: signer}
 }
 func client(t *testing.T, c initialgrant.Config, identity initialgrant.Connection) *nats.Conn {
 	t.Helper()

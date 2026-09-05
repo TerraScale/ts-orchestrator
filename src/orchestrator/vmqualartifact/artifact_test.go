@@ -1,13 +1,16 @@
 package vmqualartifact
+
 import (
- "crypto/tls"
- "crypto/x509"
- "net/http"
- "net/http/httptest"
- "testing"
- "time"
+	"crypto/tls"
+	"crypto/x509"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 )
+
 const artifactReleaseHostname = "releases.terrascale.test"
+
 func TestArtifactCertificateRequiresGeneratedCAAndReleaseSAN(t *testing.T) {
 	now := time.Now().UTC()
 	certificate, caPEM, err := GenerateCertificate(artifactReleaseHostname, now)

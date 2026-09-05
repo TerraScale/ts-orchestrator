@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
-	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"

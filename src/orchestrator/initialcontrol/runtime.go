@@ -111,7 +111,18 @@ func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runt
 		}
 		startup, startupCancel := context.WithTimeout(lifetime, 30*time.Second)
 		err = admission.WithinMutation(startup, func(operation context.Context) error {
-			if err := checkDiskBudget(cfg.Broker.StoreDir, cfg.Broker.StorageBudgetBytes); err != nil {
+			budget := cfg.Broker.StorageBudgetBytes
+			if capture := cfg.PreliminaryCapture; capture != nil {
+				reserve := capture.MaxTotalBytes + capture.MaxSnapshotBytes
+				if budget > (1<<63-1)-reserve {
+					return errors.New("initial control: combined storage budget overflows")
+				}
+				budget += reserve
+				if err := checkDiskBudget(capture.OutputDir, reserve); err != nil {
+					return err
+				}
+			}
+			if err := checkDiskBudget(cfg.Broker.StoreDir, budget); err != nil {
 				return err
 			}
 			var e error

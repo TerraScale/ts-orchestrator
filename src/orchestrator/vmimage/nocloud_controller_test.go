@@ -11,12 +11,23 @@ import (
 )
 
 func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
+	t.Run("default", func(t *testing.T) { testNoCloudControllerFilesAndConfiguredGrant(t, false) })
+	t.Run("source-capture", func(t *testing.T) { testNoCloudControllerFilesAndConfiguredGrant(t, true) })
+}
+
+func testNoCloudControllerFilesAndConfiguredGrant(t *testing.T, capture bool) {
 	spec := validNoCloudSpec(t)
 	_, public, err := directory.RegionalRuntimeMembershipPublicKeyFromPEM(spec.TSNode.MembershipIdentityPrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	materials, err := vmcontrolseed.GenerateGRU("run1", []vmcontrolseed.Guest{{ID: spec.InstanceID, Address: spec.Address, MembershipPublicKey: public}})
+	guests := []vmcontrolseed.Guest{{ID: spec.InstanceID, Address: spec.Address, MembershipPublicKey: public}}
+	var materials map[string]vmcontrolseed.Material
+	if capture {
+		materials, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture("run1", guests, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: 32 << 20, MaxTotalBytes: 128 << 20})
+	} else {
+		materials, err = vmcontrolseed.GenerateGRU("run1", guests)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

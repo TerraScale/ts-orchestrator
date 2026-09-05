@@ -20,8 +20,15 @@ type PreliminaryCaptureDeclaration struct {
 // source-only capture credentials and bounded staging capacity. GenerateGRU
 // remains the default without this capability; old signed launches gain none.
 func GenerateGRUWithPreliminaryCapture(runID string, guests []Guest, declaration PreliminaryCaptureDeclaration) (map[string]Material, error) {
-	if declaration.MaxSnapshotBytes < 1024 || declaration.MaxSnapshotBytes > 1<<30 || declaration.MaxTotalBytes < declaration.MaxSnapshotBytes || declaration.MaxTotalBytes > 1<<40 {
-		return nil, errors.New("vmcontrolseed: invalid explicit preliminary capture capacity")
+	if err := declaration.Validate(); err != nil {
+		return nil, err
 	}
 	return generateGRU(runID, guests, &declaration)
+}
+
+func (declaration PreliminaryCaptureDeclaration) Validate() error {
+	if declaration.MaxSnapshotBytes < 1024 || declaration.MaxSnapshotBytes > 1<<30 || declaration.MaxTotalBytes < declaration.MaxSnapshotBytes || declaration.MaxTotalBytes > 256<<30 {
+		return errors.New("vmcontrolseed: invalid explicit preliminary capture capacity")
+	}
+	return nil
 }
