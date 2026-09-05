@@ -33,7 +33,17 @@ lost read prevents any subsequent readiness observation. Three focused runs
 passed. Removing the bounded-read change via overlay consumes the entire
 25-second test budget and fails while fresh queries still show healthy R3 and
 intact checkpoints. Raising the fixture deadline alone does not fix that case.
-Final portable verification is pending.
+After the fix in `6e35b0f4`, the following checks passed:
+
+```sh
+GOMAXPROCS=4 GOFLAGS=-p=2 make check
+GOMAXPROCS=4 GOFLAGS=-p=2 go test -race -tags sandboxvm ./...
+GOOS=linux GOARCH=arm64 GOMAXPROCS=4 GOFLAGS=-p=2 go build ./...
+```
+
+The tagged command permits Go's successful package cache. Verification began
+with the changes in the shared working tree; another session committed them
+while checks were running. The earlier failures remain part of this record.
 This is an integration test with controlled writers and an in-memory immutable
 object-store fixture. It does not establish a production writer fence,
 consistent multi-account final cut, OCI availability, transition admission,
@@ -46,7 +56,7 @@ missing durable orchestrator membership. The guest launch lacks the required
 database, key-version, RF2 placement, member and peer-TLS inputs. The host agent
 already supports immutable configuration and `--config @config`; inventing
 those identities would not fix production composition. No new Firecracker run
-was performed for this test-only capture change.
+was performed in this verification; the real transition remains unqualified.
 
 Forgejo run 102 for `d76e379b5af5e49eb203fbf6f28355779610ff59` failed after nine
 seconds. The task status was read through `fj actions tasks`; job logs were not

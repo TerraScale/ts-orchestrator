@@ -135,8 +135,16 @@ prove all reported state equals the archived contents. Public restore tests
 cover their fixtures. Production restoration must compare recovered records,
 allocator/deletion state and consumer checkpoints against the admitted manifest
 and source evidence. These guarantees apply to one supplied stream/account
-connection. Complete account inventories, writer fencing,
+connection. Production account-inventory capture, writer fencing,
 consistent multi-stream capture and production restore composition remain open.
+The [initial-inventory integration](../evidence/initial-inventory-capture-2026-09-05.md)
+now exercises the production snapshotter across all 15 initial streams in both
+accounts, including 14 empty streams, followed by populated restore, R3,
+outage and restart checks. Consumer promotion waits for the exact current
+stream replicas. Its readiness reads use bounded attempts and recheck the
+lease before retry, so a lost info response cannot consume the entire action
+deadline. Mutation requests remain single-attempt. These tests do not supply
+the production capture or transition composition.
 The [single-metadata-seed experiment](../evidence/nats-single-metadata-seed-2026-09-05.md)
 also did not establish a working one-member clustered bootstrap on pinned NATS;
 it does not qualify an alternative promotion path.
