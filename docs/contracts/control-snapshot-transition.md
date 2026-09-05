@@ -162,7 +162,11 @@ Existing bootstrap commands permit only exact initial drain/deploy/release;
 this design does not add general bootstrap-authorized `ApplyManifest`.
 
 A finite, domain-separated owner-signed storage transition grant will bridge
-the source shutdown. This is planned and unimplemented. Verification uses the
+the source shutdown. `controltransition` now defines and verifies the immutable
+owner-signed plan, and `nodeauthority` can pin that agreement in the existing
+private host journal. These APIs do not execute phases or grant storage effects.
+The host delivery, receipt protocol, and privileged phase composition remain
+unimplemented. End-to-end verification must use the
 existing ts-node `bootstrapPublicKeyFile`, together with the original verified
 `bootstrapGrantFile`; the VM image currently provisions the public key at
 `/etc/terrascale/ts-node-bootstrap/authority.pem` with mode `0400`. The key is
@@ -357,8 +361,8 @@ Every receipt must bind the same grant and its immediate predecessor. Reject
 omitted accounts, duplicate streams, unexpected consumers, altered archives,
 changed identities and conflicting receipts. Existing control action and
 host command journals retain authority through source shutdown; signed object
-receipts provide independently readable evidence, not another master. Journal
-record types, privileged phase execution and the pre-NATS recovery composition
+receipts provide independently readable evidence, not another master. The private
+plan pin exists; phase journal record types, privileged phase execution and the pre-NATS recovery composition
 remain to be implemented and crash-tested. Neither the current handoff loop nor
 the single-stream snapshot transport already supplies this architecture.
 

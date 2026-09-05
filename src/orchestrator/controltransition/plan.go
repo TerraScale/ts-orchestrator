@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"math"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -155,7 +157,7 @@ func separatePaths(paths ...string) bool {
 
 func (p Plan) Validate() error {
 	bad := errors.New("controltransition: invalid finite transition plan")
-	if p.Version != 1 || p.Mode != Mode || !token(p.EstateID) || !token(p.TransitionID) || p.IssuedAt.IsZero() || !p.ExpiresAt.After(p.IssuedAt) || p.ExpiresAt.Sub(p.IssuedAt) > 24*time.Hour || !token(p.ClusterName) || !validDigest(p.TrustBundleSHA256) || p.SourceTopologyEpoch == 0 || p.TargetTopologyEpoch <= p.SourceTopologyEpoch || p.GlobalElectionFloor <= 0 || p.RegionalElectionFloor <= 0 || len(p.Destinations) != 3 || len(p.Accounts) != 2 {
+	if p.Version != 1 || p.Mode != Mode || !token(p.EstateID) || !token(p.TransitionID) || p.IssuedAt.IsZero() || !p.ExpiresAt.After(p.IssuedAt) || p.ExpiresAt.Sub(p.IssuedAt) > 24*time.Hour || !token(p.ClusterName) || !validDigest(p.TrustBundleSHA256) || p.SourceTopologyEpoch == 0 || p.TargetTopologyEpoch <= p.SourceTopologyEpoch || p.GlobalElectionFloor <= 0 || p.GlobalElectionFloor == math.MaxInt64 || p.RegionalElectionFloor <= 0 || p.RegionalElectionFloor == math.MaxInt64 || len(p.Destinations) != 3 || len(p.Accounts) != 2 {
 		return bad
 	}
 	s := p.Source
@@ -223,13 +225,31 @@ func validRoute(value string) bool {
 	}
 	host, port, err := net.SplitHostPort(u.Host)
 	n, portErr := strconv.Atoi(port)
-	return err == nil && host != "" && portErr == nil && n > 0 && n <= 65535 && strconv.Itoa(n) == port
+	if err != nil || host == "" || len(host) > 253 || portErr != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return false
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		return address.Zone() == "" && !address.IsUnspecified() && !address.IsMulticast()
+	}
+	for label := range strings.SplitSeq(host, ".") {
+		if !token(label) {
+			return false
+		}
+	}
+	return true
 }
 
 func (o ObjectLocation) valid(region string) bool {
 	want := map[string]string{"gru": "sa-saopaulo-1", "sfo": "us-sanjose-1", "fra": "eu-frankfurt-1"}[region]
 	if o.OCIRegion != want || !token(o.Namespace) || !token(o.Bucket) || !strings.HasPrefix(o.BucketResourceID, "ocid1.bucket.") || !strings.HasPrefix(o.CompartmentID, "ocid1.compartment.") || len(o.BucketResourceID) > 512 || len(o.CompartmentID) > 512 || !validDigest(o.OwnershipObservationSHA256) || len(o.Prefix) == 0 || len(o.Prefix) > 512 {
 		return false
+	}
+	for _, id := range []string{o.BucketResourceID, o.CompartmentID} {
+		for _, r := range id {
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.') {
+				return false
+			}
+		}
 	}
 	for part := range strings.SplitSeq(o.Prefix, "/") {
 		if !token(part) {

@@ -15,7 +15,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
-func testKey(t *testing.T) (*security.CommandSignatureSigner, []byte) {
+func testKey(t testing.TB) (*security.CommandSignatureSigner, []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -33,7 +33,7 @@ func testKey(t *testing.T) (*security.CommandSignatureSigner, []byte) {
 	return signer, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 }
 
-func testPlan(t *testing.T) Plan {
+func testPlan(t testing.TB) Plan {
 	t.Helper()
 	h := strings.Repeat("a", 64)
 	_, sourcePublic := testKey(t)
@@ -185,6 +185,12 @@ func TestPlanRejectsIncompleteConflictingOrUnboundedEffects(t *testing.T) {
 }
 
 func FuzzVerifyPlan(f *testing.F) {
+	signer, public := testKey(f)
+	signed, err := SignPlan(signer, testPlan(f))
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(public, signed)
 	f.Add([]byte(`{}`), []byte(`{}`))
 	f.Add([]byte("PUBLIC KEY"), []byte(`{"payload":null,"signature":""}`))
 	f.Fuzz(func(t *testing.T, public, signed []byte) {
