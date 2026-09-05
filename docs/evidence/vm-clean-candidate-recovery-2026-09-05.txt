@@ -1,0 +1,1 @@
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run -tags sandboxvm ./cmd/vm-qualify clean
