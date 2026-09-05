@@ -1,0 +1,42 @@
+Fresh Firecracker qualification attempt on clean a3d38c46, Linux amd64.
+Privileged doctor PASS. Actual orchestrator and ts-node binaries were built
+from that commit; TerraBase was the supplied executable, not rebuilt here.
+
+Run: 2026-09-05T12:40:06.693472601Z to 2026-09-05T12:42:46.096982893Z.
+First GRU guest failed service readiness. ts-node remained active, while
+orchestrator exited 1 and auto-restarted with no matched diagnostic category.
+TerraBase exited 1 and auto-restarted with terrabase-configuration-missing.
+No six-host/fourth-region scenario, fault suite or idle resource result passed.
+
+The subsequent unit/reader regression reproduced an integration mismatch:
+@config rendered through the mutable current symlink, while the new admission
+reader rejects symlinked ancestors. The follow-up change pins configuration
+to its immutable version directory and preserves the current version while a
+new desired release is staged. This failed run does not qualify that fix.
+
+Peak host RSS: 431898624 bytes, with 512MiB configured guest RAM.
+Automatic cleanup: 78779356ns. Explicit vm-clean PASS exit 0. No Firecracker
+process or files under the qualification state directory remained afterward.
+Unmeasured zero idle/disk fields are not passing resource evidence.
+
+Artifact SHA256:
+b47f860c94d7fcf31e18f3bd4831c3c476a6df1202ba4b548e618b2d727f8b60  ts-node (9556128 bytes)
+bfbb09cad303fc0468963118a8c100eb6a1b599b29eb912099f8eb509d21fe5f  orchestrator (28860576 bytes)
+300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7  TerraBase (17787952 bytes)
+
+Fresh helper SHA256:
+02b4b7b33ab2e06922906c1a51e376ddb293e844301e3cb6221f5004cab2c638  /tmp/ts-orchestrator-vm-qualify-initial-r1
+74ee85322ecdcc3e89d39ee2627461511380f7890bc2382d01bce8a53659d840  /tmp/ts-orchestrator-vm-artifacts-initial-r1
+
+TS_VM_ROOT=/var/lib/terrascale-qualification/ts-orchestrator
+TS_VM_PINS=/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json
+TS_VM_IMAGE_MANIFEST=/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json
+PATH included Go1.27.1 and the pinned e2fsprogs1.47.4 directory.
+GOMAXPROCS=4 GOFLAGS=-p=2
+sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH,GOFLAGS,GOMAXPROCS /tmp/ts-orchestrator-vm-artifacts-initial-r1 --root /var/lib/terrascale-qualification/ts-orchestrator --repo /home/mariogk/Projects/TerraScale/ts-orchestrator --terrabase-repo /home/mariogk/Projects/TerraScale/terrabase --terrabase-binary /home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server -- /tmp/ts-orchestrator-vm-qualify-initial-r1 test
+sudo -n --preserve-env=TS_VM_ROOT,TS_VM_PINS,TS_VM_IMAGE_MANIFEST,PATH /tmp/ts-orchestrator-vm-qualify-initial-r1 clean
+
+Local log SHA256:
+d093583a54698d7878a0e2ffa5b889817624ab349fb2eaf2cf25608c6ff5b76b  /tmp/ts-vm-initial-r1-test.log
+15c7ee7d07a919af091af33e6624e1d21fe4b2fd23b3e714438a0d1a3694575f  /tmp/ts-vm-initial-r1-doctor.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-vm-initial-r1-clean.log

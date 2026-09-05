@@ -24,7 +24,10 @@ initial-gru-r1 --config @config
 ```
 
 The host resolves `@config` to the immutable configuration beside the admitted
-release. The executable accepts exactly `initial-gru-r1 --config FILE`.
+release, using its version directory rather than the mutable `current` link.
+Staging another desired release preserves the running version's configuration
+path until deployment; rollback restores the prior version's path.
+The executable accepts exactly `initial-gru-r1 --config FILE`.
 `initialgrant.ReadConfiguration` reads bounded configuration through verified
 directory descriptors. `AdmitConfiguration` compares its canonical bytes with
 the original signed component, verifies the published admission and credential

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 )
 
 func TestComponentLaunchConfigurationArgumentResolvesConfig(t *testing.T) {
@@ -13,7 +15,7 @@ func TestComponentLaunchConfigurationArgumentResolvesConfig(t *testing.T) {
 	spec.Arguments = "--config @config"
 	spec.Configuration = "mode = \"production\"\n"
 	unit, err := RenderSystemdUnit("/opt/terrascale", spec)
-	if err != nil || !strings.Contains(unit, " --config /opt/terrascale/terrabase/current/terrabase.config\n") {
+	if err != nil || !strings.Contains(unit, " --config "+filepath.Join(VersionDir("/opt/terrascale", spec.Name, spec.Version), spec.Name+".config")+"\n") {
 		t.Fatalf("config launch: %v %s", err, unit)
 	}
 }
@@ -33,8 +35,15 @@ func TestComponentLaunchImmutableInstallAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.applyDesired(t, second)
+	wanted := filepath.Join(VersionDir(h.lifecycle.installRoot, first.Name, first.Version), first.Name+".config")
+	if raw, err := initialgrant.ReadConfiguration(wanted); err != nil || string(raw) != first.Configuration {
+		t.Fatalf("immutable configuration cannot pass safe admission: %v", err)
+	}
+	if _, err := initialgrant.ReadConfiguration(filepath.Join(InstallDir(h.lifecycle.installRoot, first.Name), "current", first.Name+".config")); err == nil {
+		t.Fatal("configuration admission followed a mutable current symlink")
+	}
 	before, err := os.ReadFile(filepath.Join(h.lifecycle.unitDir, UnitName(first.Name)))
-	if err != nil || !strings.Contains(string(before), " --config ") {
+	if err != nil || !strings.Contains(string(before), " --config "+wanted+"\n") {
 		t.Fatalf("staged config prematurely changed running args: %v %s", err, before)
 	}
 	if err := h.lifecycle.BeginDrain(ctx); err != nil {
@@ -51,7 +60,7 @@ func TestComponentLaunchImmutableInstallAndRollback(t *testing.T) {
 		t.Fatalf("rollback configuration: %v %q", err, config)
 	}
 	unit, err := os.ReadFile(filepath.Join(h.lifecycle.unitDir, UnitName(first.Name)))
-	if err != nil || !strings.Contains(string(unit), " --config ") || strings.Contains(string(unit), "--config-file") {
+	if err != nil || !strings.Contains(string(unit), " --config "+wanted+"\n") || strings.Contains(string(unit), "--config-file") {
 		t.Fatalf("rollback arguments: %v %s", err, unit)
 	}
 	first.Configuration = "revision = 3\n"

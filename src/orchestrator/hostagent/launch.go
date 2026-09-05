@@ -18,7 +18,7 @@ func componentExecStart(installRoot string, spec hostmanifest.ComponentSpec) str
 	}
 	for _, argument := range strings.Split(spec.Arguments, " ") {
 		if argument == "@config" {
-			argument = InstallDir(installRoot, spec.Name) + "/current/" + spec.Name + ".config"
+			argument = filepath.Join(VersionDir(installRoot, spec.Name, spec.Version), spec.Name+".config")
 		}
 		result += " " + argument
 	}

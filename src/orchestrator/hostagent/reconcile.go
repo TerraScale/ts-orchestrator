@@ -331,7 +331,6 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec hostmanifest
 		if err != nil {
 			return err
 		}
-		unitSpec.Version = spec.Version
 		if err := l.writeUnitLocked(ctx, unitSpec); err != nil {
 			return err
 		}

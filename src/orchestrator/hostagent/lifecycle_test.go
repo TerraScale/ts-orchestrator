@@ -282,7 +282,7 @@ func TestDeployStartFailureRestoresLinksAndUnit(t *testing.T) {
 		t.Fatalf("previous link was not restored: %q (%v)", previous, err)
 	}
 	unit, err := os.ReadFile(filepath.Join(harness.unitDir, UnitName("terrabase")))
-	if err != nil || !strings.Contains(string(unit), "Description=TerraScale terrabase 1.1.0") {
+	if err != nil || !strings.Contains(string(unit), "Description=TerraScale terrabase "+v1.Version) {
 		t.Fatalf("unit was not restored: %v %q", err, unit)
 	}
 }

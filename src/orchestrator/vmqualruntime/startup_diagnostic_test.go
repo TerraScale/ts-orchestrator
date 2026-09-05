@@ -101,6 +101,11 @@ func TestStartupDiagnosticTimeoutStillStops(t *testing.T) {
 }
 
 func TestStartupJournalLimitsAndCategories(t *testing.T) {
+	var initial startupServiceDiagnostic
+	parseStartupJournal(&initial, []byte(`{"MESSAGE":"not a directory SECRET","PRIORITY":"3"}`))
+	if len(initial.Categories) != 1 || initial.Categories[0] != "path-not-directory" {
+		t.Fatalf("path category lost: %+v", initial)
+	}
 	var engine startupServiceDiagnostic
 	parseStartupJournal(&engine, []byte(`{"MESSAGE":"Error: MissingConfigurationPath","PRIORITY":"3"}`))
 	if len(engine.Categories) != 1 || engine.Categories[0] != "terrabase-configuration-missing" {
