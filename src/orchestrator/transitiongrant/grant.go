@@ -98,6 +98,18 @@ func (c Config) Validate() error {
 	if c.Version != 1 || c.Mode != Mode || !token(c.TransitionID) || (c.Region != "sfo" && c.Region != "fra") || !token(c.NodeID) || !strings.HasPrefix(c.NodeID, c.Region+"-") || !token(c.ServerName) || !hostmanifest.SafeAbsolutePath(c.StoreDir) || !hostmanifest.SafeAbsolutePath(c.GrantFile) || !hostmanifest.SafeAbsolutePath(c.GrantPublicKeyFile) || c.GrantFile == c.GrantPublicKeyFile {
 		return errors.New("transitiongrant: invalid candidate configuration")
 	}
+	// Admission material must remain separate even when no sync worker exists.
+	paths := []string{c.StoreDir, c.GrantFile, c.GrantPublicKeyFile}
+	for i, path := range paths {
+		if path == "/" {
+			return errors.New("transitiongrant: candidate path cannot be filesystem root")
+		}
+		for _, prior := range paths[:i] {
+			if hostmanifest.PathsOverlap(path, prior) {
+				return errors.New("transitiongrant: candidate storage and admission paths overlap")
+			}
+		}
+	}
 	if c.Sync != nil {
 		paths := []string{c.Sync.RequestFile, c.Sync.StagingDir, c.Sync.ReceiptDir, c.Sync.ReceiptPrivateKeyFile, c.StoreDir}
 		if c.Sync.Identity.Qualification != nil {
@@ -141,6 +153,9 @@ func ComponentConfig(spec hostmanifest.ComponentSpec) (Config, bool, error) {
 	}
 	if !strings.HasPrefix(c.StoreDir, strings.TrimSuffix(spec.DataVolume, "/")+"/") {
 		return c, true, errors.New("transitiongrant: candidate store must be within dedicated data volume")
+	}
+	if !hostmanifest.SafeAbsolutePath(spec.DataVolume) || hostmanifest.PathsOverlap(spec.DataVolume, c.GrantFile) || hostmanifest.PathsOverlap(spec.DataVolume, c.GrantPublicKeyFile) {
+		return c, true, errors.New("transitiongrant: preparation admission overlaps writable data volume")
 	}
 	if c.Sync != nil {
 		if err := c.Sync.validateComponent(spec.DataVolume); err != nil {
