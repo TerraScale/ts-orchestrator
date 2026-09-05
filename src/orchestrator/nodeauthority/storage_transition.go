@@ -125,23 +125,6 @@ func (s *EpochStore) admitStorageTransitionPlan(ctx context.Context, public, sig
 			return zero, errors.New("nodeauthority: destination not admitted by transition plan")
 		}
 	}
-	path := filepath.Join(filepath.Dir(s.path), storageTransitionRecordName)
-	prior, priorVerified, e := readStorageTransitionRecord(path, uid)
-	if e == nil {
-		if prior.NodeID != s.node || prior.PlanSHA256 != r.PlanSHA256 || !bytes.Equal(prior.PublicKey, r.PublicKey) || prior.ManifestSHA256 != r.ManifestSHA256 || prior.BootstrapGrantSHA256 != r.BootstrapGrantSHA256 || prior.CommandID != r.CommandID || prior.CommandSHA256 != r.CommandSHA256 {
-			return zero, errors.New("nodeauthority: conflicting immutable transition pin")
-		}
-		if err = ctx.Err(); err != nil {
-			return zero, err
-		}
-		if err = syncEpochDirectory(filepath.Dir(s.path)); err != nil {
-			return zero, err
-		}
-		return priorVerified, nil
-	}
-	if !os.IsNotExist(e) {
-		return zero, e
-	}
 	check := func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -154,7 +137,30 @@ func (s *EpochStore) admitStorageTransitionPlan(ctx context.Context, public, sig
 		}
 		return nil
 	}
+	path := filepath.Join(filepath.Dir(s.path), storageTransitionRecordName)
+	prior, priorVerified, e := readStorageTransitionRecord(path, uid)
+	if e == nil {
+		if prior.NodeID != s.node || prior.PlanSHA256 != r.PlanSHA256 || !bytes.Equal(prior.PublicKey, r.PublicKey) || prior.ManifestSHA256 != r.ManifestSHA256 || prior.BootstrapGrantSHA256 != r.BootstrapGrantSHA256 || prior.CommandID != r.CommandID || prior.CommandSHA256 != r.CommandSHA256 {
+			return zero, errors.New("nodeauthority: conflicting immutable transition pin")
+		}
+		if err = ctx.Err(); err != nil {
+			return zero, err
+		}
+		if err = syncEpochDirectory(filepath.Dir(s.path)); err != nil {
+			return zero, err
+		}
+		if err = check(); err != nil {
+			return zero, err
+		}
+		return priorVerified, nil
+	}
+	if !os.IsNotExist(e) {
+		return zero, e
+	}
 	if err = writeStorageTransitionRecord(path, r, check, afterRename); err != nil {
+		return zero, err
+	}
+	if err = check(); err != nil {
 		return zero, err
 	}
 	return v, nil
@@ -226,7 +232,7 @@ func (s *EpochStore) validateStorageTransitionResumeLocked(ctx context.Context, 
 	if err = v.Check(time.Now()); err != nil {
 		return err
 	}
-	return nil
+	return ctx.Err()
 }
 
 func readStorageTransitionRecord(path string, uid uint32) (storageTransitionRecord, controltransition.VerifiedPlan, error) {

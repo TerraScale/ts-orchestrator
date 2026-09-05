@@ -56,6 +56,13 @@ and does not replace that pin. Recovery accepts only the expected signed-plan
 digest and validates the stored signature, historical admission time, current
 plan lifetime, current manifest binding, and nonregressing authority floor.
 
+Admission checks cancellation, plan lifetime, and the source command's expiry
+again after directory persistence, including identical retries. An interrupted
+call can leave the original durable pin without returning successful admission.
+A fresh recovery call validates that retained agreement without rewriting it or
+renewing the original command. Recovery also checks cancellation after its final
+directory sync.
+
 `ResumeStorageTransitionPlan` may read the source pin after the original command
 expires or the source retires. It does not renew the command or call
 `AdmitBootstrap`. It preserves the permanent R1 retirement. Ordinary authority

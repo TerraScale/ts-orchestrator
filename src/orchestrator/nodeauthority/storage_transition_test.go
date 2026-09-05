@@ -273,3 +273,60 @@ func TestStorageTransitionExpiredAgreementCannotResumeOrReplacePin(t *testing.T)
 		t.Fatal("expired pin changed", err)
 	}
 }
+
+func TestStorageTransitionAdmissionInterruptedAfterRenamePreservesRecoverablePin(t *testing.T) {
+	for _, failure := range []string{"cancellation", "command-expiry"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newInitialR1Fixture(t)
+			if err := f.admit(t.Context(), nil); err != nil {
+				t.Fatal(err)
+			}
+			p := storagePlanFixture(t)
+			signer, public := storagePlanKey(t)
+			signed, err := controltransition.SignPlan(signer, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := f.command(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var retained []byte
+			path := filepath.Join(filepath.Dir(f.store.path), storageTransitionRecordName)
+			v, err := f.store.admitStorageTransitionPlan(ctx, public, signed, &command, f.uid, func() error {
+				var readErr error
+				retained, readErr = os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				if failure == "cancellation" {
+					cancel()
+				} else {
+					command.ExpiresAt = time.Now().Add(-time.Second)
+				}
+				return nil
+			})
+			if err == nil || v.Digest() != "" {
+				t.Fatal("interrupted admission returned verified authority", err)
+			}
+			if failure == "cancellation" && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+			if err := f.guard.Check(t.Context()); err != nil {
+				t.Fatal("interrupted pin retired source", err)
+			}
+			f.store.Close()
+			f.store, err = NewEpochStore(filepath.Dir(path), f.identity.NodeID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { f.store.Close() })
+			if _, err := f.store.resumeStorageTransitionPlan(t.Context(), controltransition.Digest(signed), f.uid); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(retained, after) {
+				t.Fatal("recovery replaced retained pin", err)
+			}
+		})
+	}
+}
