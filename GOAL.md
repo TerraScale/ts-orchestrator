@@ -190,6 +190,30 @@ view. Durable replicas and backups protect that state outside GRU. This does
 not move customer data out of its residency boundary or change the existing
 ownership of usage truth by TerraBase and collected telemetry by Grafana Cloud.
 
+## Capacity and load-balancer publication
+
+Each Region starts with exactly two member hosts and scales as needed from
+measured CPU, memory, storage/I/O, queue pressure, and service latency. Declare
+sustained thresholds, minimum/maximum capacity, hysteresis and cooldowns in typed
+estate configuration. Do not set invented universal utilization targets.
+
+Publish fresh, bounded per-member identity, endpoint, readiness, drain state,
+and capacity to `ts-proxy`. Publication uses the exact Worker KV schema and
+key layout; a parallel legacy map does not satisfy the consumer. Health is
+observed, never inferred from a configured address or a running VM alone.
+
+Scale-out provisions TerraBase and a same-host orchestrator, admits identity,
+catches up the required placements, and passes engine and infrastructure gates
+before the new member receives traffic. Scale-in drains, proves placement and
+RF=2 obligations, and keeps at least two hosts in each Region. Adding a host
+neither joins the global control R3 nor creates another SQLite writer for an
+existing database file. Recover RF=2 after loss before claiming its durability.
+
+Qualify load redistribution, high-load expansion, recovery probation, failure
+during admission, sustained-low-load removal, and stale publication. The REST
+proxy must route around failed/overloaded members without changing residency.
+Control and reactive data paths retain their separate ownership.
+
 ## Launch estate
 
 - Launch Regions are GRU, SFO, and FRA. Design supports 20 Regions, but launch
