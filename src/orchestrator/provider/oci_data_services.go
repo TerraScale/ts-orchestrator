@@ -63,7 +63,7 @@ func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectP
 	if err := validateObjectRef(request.Object); err != nil {
 		return ObjectMetadata{}, err
 	}
-	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
+	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxObjectBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
 		return ObjectMetadata{}, &errs.Argument{Message: "object storage content binding is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.put", ObjectPutMutationScope(request), objectPutBinding(request)); err != nil {
@@ -95,7 +95,7 @@ func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectP
 	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 		return ObjectMetadata{}, err
 	}
-	resp, err := a.ObjectStorage.DoWithHeaders(ctx, http.MethodPut, objectStoragePath(request.Object), bytes.NewReader(request.Content), map[string]string{
+	resp, err := a.ObjectStorage.PutObjectBody(ctx, request.Object, bytes.NewReader(request.Content), map[string]string{
 		"Content-Type":               "application/octet-stream",
 		"If-None-Match":              "*",
 		"opc-meta-terrascale-sha256": request.SHA256,

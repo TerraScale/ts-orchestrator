@@ -27,15 +27,16 @@ const MaximumBytes = 64 << 10
 const domain = "TS-CONTROL-CANDIDATE-PREPARATION-V1\x00"
 
 type Config struct {
-	Version            int    `json:"version"`
-	Mode               string `json:"mode"`
-	TransitionID       string `json:"transitionId"`
-	NodeID             string `json:"nodeId"`
-	Region             string `json:"region"`
-	ServerName         string `json:"serverName"`
-	StoreDir           string `json:"storeDir"`
-	GrantFile          string `json:"grantFile"`
-	GrantPublicKeyFile string `json:"grantPublicKeyFile"`
+	Sync               *CandidateSyncConfig `json:"sync,omitempty"`
+	Version            int                  `json:"version"`
+	Mode               string               `json:"mode"`
+	TransitionID       string               `json:"transitionId"`
+	NodeID             string               `json:"nodeId"`
+	Region             string               `json:"region"`
+	ServerName         string               `json:"serverName"`
+	StoreDir           string               `json:"storeDir"`
+	GrantFile          string               `json:"grantFile"`
+	GrantPublicKeyFile string               `json:"grantPublicKeyFile"`
 }
 type SourceIdentity struct {
 	NodeID             string `json:"nodeId"`
@@ -97,6 +98,9 @@ func (c Config) Validate() error {
 	if c.Version != 1 || c.Mode != Mode || !token(c.TransitionID) || (c.Region != "sfo" && c.Region != "fra") || !token(c.NodeID) || !strings.HasPrefix(c.NodeID, c.Region+"-") || !token(c.ServerName) || !hostmanifest.SafeAbsolutePath(c.StoreDir) || !hostmanifest.SafeAbsolutePath(c.GrantFile) || !hostmanifest.SafeAbsolutePath(c.GrantPublicKeyFile) || c.GrantFile == c.GrantPublicKeyFile {
 		return errors.New("transitiongrant: invalid candidate configuration")
 	}
+	if c.Sync != nil {
+		return c.Sync.Validate(c.StoreDir)
+	}
 	return nil
 }
 func ParseConfig(raw []byte) (Config, error) {
@@ -128,6 +132,11 @@ func ComponentConfig(spec hostmanifest.ComponentSpec) (Config, bool, error) {
 	}
 	if !strings.HasPrefix(c.StoreDir, strings.TrimSuffix(spec.DataVolume, "/")+"/") {
 		return c, true, errors.New("transitiongrant: candidate store must be within dedicated data volume")
+	}
+	if c.Sync != nil {
+		if err := c.Sync.validateComponent(spec.DataVolume); err != nil {
+			return c, true, err
+		}
 	}
 	return c, true, nil
 }

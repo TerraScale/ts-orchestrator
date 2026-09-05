@@ -13,6 +13,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
+	"terrascale.tech/orchestrator/src/orchestrator/internal/ociworker"
 )
 
 // SDK debug logging can include Vault response bodies and federation material.
@@ -25,7 +26,7 @@ func init()                                                   { common.SetSDKLog
 
 type secretFetcher struct{ client secrets.SecretsClient }
 
-var identityWorker = make(chan struct{}, 1)
+var identityWorker = ociworker.Gate
 
 // The official SDK metadata retry loop sleeps without accepting a context.
 // Bound caller latency and serialize that SDK path (which also updates SDK

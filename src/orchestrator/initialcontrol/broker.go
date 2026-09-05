@@ -166,6 +166,13 @@ func validateBrokerOptions(cfg initialgrant.Config, expectedTLS *tls.Config) fun
 				}
 				users[connection.PublicNKey] = userPlan{account, pub, sub}
 			}
+			if publication := cfg.PreliminaryCapture.Publication; publication != nil {
+				if _, exists := users[publication.Journal.PublicNKey]; exists {
+					return invalid
+				}
+				pub, sub := PublicationJournalPermissions()
+				users[publication.Journal.PublicNKey] = userPlan{cfg.Regional.Account, pub, sub}
+			}
 		}
 		for _, peer := range cfg.Peers {
 			if _, exists := users[peer.AuthorityReaderPublicNKey]; exists {

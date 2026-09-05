@@ -4,6 +4,12 @@ import (
 	"sort"
 )
 
+// PublicationJournalPermissions is a privileged source-only connection. The
+// runtime additionally checks the exact provider keys admitted by the transfer.
+func PublicationJournalPermissions() (publish, subscribe []string) {
+	return []string{"$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS", "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS.>", "$KV.ORCH_OPERATIONS.provider.>"}, []string{"_INBOX.>"}
+}
+
 // CapturePermissions is used only by the source-owned local capture worker.
 // JetStream API reply/delivery forwarding makes these privileged credentials;
 // subject restrictions alone do not make them safe to hand to another host.

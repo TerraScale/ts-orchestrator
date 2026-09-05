@@ -40,6 +40,10 @@ func (a *Admission) VerifyPreliminaryRequest(ctx context.Context, raw []byte) (p
 // directory descriptors. A missing file is idle; service-writable ancestry or
 // files, symlinks, special files and multiple hard links are refused.
 func ReadPreliminaryRequest(path string) ([]byte, error) {
+	return readRootRequest(path, 64<<10)
+}
+
+func readRootRequest(path string, maximumBytes int64) ([]byte, error) {
 	if !cleanPath(path) {
 		return nil, errors.New("initialgrant: unsafe preliminary request path")
 	}
@@ -69,10 +73,10 @@ func ReadPreliminaryRequest(path string) ([]byte, error) {
 	f := os.NewFile(uintptr(requestFD), path)
 	defer f.Close()
 	var before unix.Stat_t
-	if unix.Fstat(requestFD, &before) != nil || before.Uid != 0 || before.Mode&unix.S_IFMT != unix.S_IFREG || before.Mode&0022 != 0 || before.Nlink != 1 || before.Size <= 0 || before.Size > 64<<10 {
+	if unix.Fstat(requestFD, &before) != nil || before.Uid != 0 || before.Mode&unix.S_IFMT != unix.S_IFREG || before.Mode&0022 != 0 || before.Nlink != 1 || before.Size <= 0 || before.Size > maximumBytes {
 		return nil, errors.New("initialgrant: unsafe preliminary request ownership or bounds")
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, (64<<10)+1))
+	raw, err := io.ReadAll(io.LimitReader(f, maximumBytes+1))
 	var after unix.Stat_t
 	if err != nil || unix.Fstat(requestFD, &after) != nil || int64(len(raw)) != before.Size || after.Size != before.Size || after.Mtim != before.Mtim || after.Ctim != before.Ctim {
 		return nil, errors.New("initialgrant: preliminary request changed while reading")

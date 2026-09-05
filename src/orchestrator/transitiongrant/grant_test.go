@@ -192,7 +192,7 @@ func TestCandidateGrantExactIdentityHashesAndTimeBounds(t *testing.T) {
 	raw, _ := json.Marshal(config)
 	component := hostmanifest.ComponentSpec{Name: "orchestrator", User: "terrascale-orchestrator", Arguments: transitiongrant.Arguments, Configuration: string(raw), DataVolume: "/var/lib/terrascale/orchestrator"}
 	parsed, found, err := transitiongrant.ComponentConfig(component)
-	if err != nil || !found || parsed != config {
+	if err != nil || !found || !parsed.Equal(config) {
 		t.Fatal("exact preparation config not recognized")
 	}
 	for _, mutate := range []func(*hostmanifest.ComponentSpec){func(c *hostmanifest.ComponentSpec) { c.Arguments = "run --config @config" }, func(c *hostmanifest.ComponentSpec) { c.User = "root" }, func(c *hostmanifest.ComponentSpec) { c.Name = "terrabase" }, func(c *hostmanifest.ComponentSpec) { c.DataVolume = config.StoreDir }, func(c *hostmanifest.ComponentSpec) { c.DataVolume = config.StoreDir + "/nested" }} {

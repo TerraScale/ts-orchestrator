@@ -119,9 +119,22 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			candidates = append(candidates, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, MembershipPublicKey: membership.PublicKey})
 		}
 	}
+	var publication *vmcontrolseed.PreliminaryPublicationDeclaration
+	if config.PreliminaryPublicationFile != "" {
+		if config.PreliminaryCaptureMaxSnapshotBytes == 0 || config.PreliminaryCaptureMaxTotalBytes == 0 {
+			authority.close()
+			return nil, errors.New("vmqual: publication requires explicit preliminary capture")
+		}
+		publication, err = vmcontrolseed.LoadPreliminaryPublicationDeclaration(config.PreliminaryPublicationFile)
+		if err != nil {
+			authority.close()
+			return nil, err
+		}
+		defer publication.Clear()
+	}
 	var controlSeeds map[string]vmcontrolseed.Material
 	if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
-		controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes})
+		controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes, Publication: publication})
 	} else {
 		controlSeeds, err = vmcontrolseed.GenerateGRU(plan.RunID, candidates)
 	}

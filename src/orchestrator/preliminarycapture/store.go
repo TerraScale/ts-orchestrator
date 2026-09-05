@@ -166,6 +166,10 @@ func NewStore(c StoreConfig) (result *Store, resultErr error) {
 }
 
 func openOutput(path string, check func() error) (*os.File, error) {
+	return openOutputMode(path, check, true)
+}
+
+func openOutputMode(path string, check func() error, create bool) (*os.File, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == "/" {
 		return nil, errors.New("preliminarycapture: explicit absolute output directory required")
 	}
@@ -176,7 +180,7 @@ func openOutput(path string, check func() error) (*os.File, error) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for index, part := range parts {
 		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if errors.Is(e, unix.ENOENT) && index == len(parts)-1 {
+		if create && errors.Is(e, unix.ENOENT) && index == len(parts)-1 {
 			if e = check(); e != nil {
 				unix.Close(fd)
 				return nil, e

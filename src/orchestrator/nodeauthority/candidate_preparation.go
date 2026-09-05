@@ -98,7 +98,7 @@ func (s *EpochStore) admitCandidatePreparation(ctx context.Context, public, sign
 	private := filepath.Join(filepath.Dir(s.path), candidateRecordName)
 	prior, e := readCandidateRecord(private, 0600, uid)
 	if e == nil {
-		if validateCandidateRecord(prior, now) != nil || prior.Config != c || !bytes.Equal(prior.PublicKey, public) || !bytes.Equal(prior.SignedGrant, signed) || prior.Receipt.ManifestSHA256 != manifestDigest || prior.Receipt.BootstrapGrantSHA256 != bootstrapDigest {
+		if validateCandidateRecord(prior, now) != nil || candidateConfigDigest(prior.Config) != candidateConfigDigest(c) || !bytes.Equal(prior.PublicKey, public) || !bytes.Equal(prior.SignedGrant, signed) || prior.Receipt.ManifestSHA256 != manifestDigest || prior.Receipt.BootstrapGrantSHA256 != bootstrapDigest {
 			return zero, errors.New("nodeauthority: conflicting candidate preparation")
 		}
 		r = prior
@@ -112,6 +112,9 @@ func (s *EpochStore) admitCandidatePreparation(ctx context.Context, public, sign
 		return zero, e
 	}
 	if e = prepareCandidatePublication(directory, uid); e != nil {
+		return zero, e
+	}
+	if e = prepareCandidateActivity(directory, uid); e != nil {
 		return zero, e
 	}
 	published := filepath.Join(directory, "preparation.json")
@@ -149,26 +152,31 @@ func ValidatePublishedPreparation(ctx context.Context, c transitiongrant.Config)
 	return validatePublishedPreparation(ctx, c, CandidatePreparationDirectory, 0)
 }
 func validatePublishedPreparation(ctx context.Context, c transitiongrant.Config, directory string, uid uint32) (CandidatePreparationReceipt, error) {
+	r, err := readPublishedCandidate(ctx, c, directory, uid)
+	return r.Receipt, err
+}
+
+func readPublishedCandidate(ctx context.Context, c transitiongrant.Config, directory string, uid uint32) (candidatePreparationRecord, error) {
 	if ctx == nil {
-		return CandidatePreparationReceipt{}, errors.New("nodeauthority: candidate context required")
+		return candidatePreparationRecord{}, errors.New("nodeauthority: candidate context required")
 	}
 	if e := ctx.Err(); e != nil {
-		return CandidatePreparationReceipt{}, e
+		return candidatePreparationRecord{}, e
 	}
 	if e := checkCandidateParents(directory, uid); e != nil {
-		return CandidatePreparationReceipt{}, e
+		return candidatePreparationRecord{}, e
 	}
 	r, e := readCandidateRecord(filepath.Join(directory, "preparation.json"), 0644, uid)
 	if e != nil {
-		return CandidatePreparationReceipt{}, e
+		return candidatePreparationRecord{}, e
 	}
-	if r.Config != c {
-		return CandidatePreparationReceipt{}, errors.New("nodeauthority: published candidate configuration differs")
+	if candidateConfigDigest(r.Config) != candidateConfigDigest(c) {
+		return candidatePreparationRecord{}, errors.New("nodeauthority: published candidate configuration differs")
 	}
 	if e = validateCandidateRecord(r, time.Now()); e != nil {
-		return CandidatePreparationReceipt{}, e
+		return candidatePreparationRecord{}, e
 	}
-	return r.Receipt, nil
+	return r, nil
 }
 func checkCandidateParents(path string, uid uint32) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
@@ -306,8 +314,16 @@ func (s *EpochStore) retireCandidatePreparationLocked() error {
 	if e != nil {
 		return e
 	}
-	if current.Receipt.GrantSHA256 != r.Receipt.GrantSHA256 || current.Config != r.Config {
+	if current.Receipt.GrantSHA256 != r.Receipt.GrantSHA256 || candidateConfigDigest(current.Config) != candidateConfigDigest(r.Config) {
 		return errors.New("nodeauthority: candidate retirement publication differs")
+	}
+	activity, e := openCandidateActivity(CandidatePreparationDirectory, 0, false)
+	if e != nil {
+		return e
+	}
+	defer activity.Close()
+	if e = syscall.Flock(int(activity.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); e != nil {
+		return errors.New("nodeauthority: candidate effects must stop before ordinary authority admission")
 	}
 	if e = os.Remove(path); e != nil {
 		return e

@@ -8,9 +8,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -93,6 +95,51 @@ func TestCandidatePreparationPinsExactScopeAndResumesPublication(t *testing.T) {
 	changed.StoreDir += "-changed"
 	if _, e = validatePublishedPreparation(ctx, changed, publication, uid); e == nil {
 		t.Fatal("changed config admitted")
+	}
+	// A live local effect prevents ordinary admission taking exclusive ownership.
+	// Cancellation joins the effect and releases ownership without losing its pin.
+	operation, cancel := context.WithCancel(ctx)
+	entered := make(chan struct{})
+	finished := make(chan error, 1)
+	go func() {
+		finished <- withinCandidateMutation(operation, cfg, publication, uid, func(op context.Context) error {
+			close(entered)
+			<-op.Done()
+			return op.Err()
+		})
+	}()
+	select {
+	case <-entered:
+	case err := <-finished:
+		cancel()
+		t.Fatalf("candidate effect did not start: %v", err)
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("candidate effect did not acquire activity ownership")
+	}
+	activity, err := openCandidateActivity(publication, uid, false)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	defer activity.Close()
+	if err := syscall.Flock(int(activity.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
+		cancel()
+		t.Fatalf("ordinary admission overlapped a candidate effect: %v", err)
+	}
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("candidate cancellation: %v", err)
+	}
+	if err := syscall.Flock(int(activity.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("finished candidate effect retained ownership: %v", err)
+	}
+	if err := syscall.Flock(int(activity.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	effected := false
+	if err := withinCandidateMutation(ctx, changed, publication, uid, func(context.Context) error { effected = true; return nil }); err == nil || effected {
+		t.Fatal("unadmitted local candidate effect ran")
 	}
 	g.TargetEpoch++
 	conflict, e := transitiongrant.SignGrant(signer, g)

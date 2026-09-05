@@ -292,6 +292,22 @@ func verifyMaterial(c Config) error {
 					return err
 				}
 			}
+			if publication := c.PreliminaryCapture.Publication; publication != nil {
+				if err := verifyConnection(publication.Journal); err != nil {
+					return err
+				}
+				if qualification := publication.Identity.Qualification; qualification != nil {
+					key, err := readMaterial(qualification.ClientPrivateKeyFile, 64<<10, true)
+					if err != nil {
+						return err
+					}
+					_, err = tls.X509KeyPair([]byte(qualification.ClientCertificatePEM), key)
+					clear(key)
+					if err != nil {
+						return errors.New("initialgrant: publication qualification identity differs from signed certificate")
+					}
+				}
+			}
 		}
 	}
 	raw, err := readMaterial(c.Membership.PinsFile, 64<<10, false)

@@ -75,7 +75,7 @@ func PlanControlCandidatePeer(config transitiongrant.Config, bootstrapPublicPEM,
 		if !candidate {
 			continue
 		}
-		if found || actual != config {
+		if found || !actual.Equal(config) {
 			return transitiongrant.Peer{}, errors.New("bootstrap: signed candidate configuration differs from preparation identity")
 		}
 		found = true

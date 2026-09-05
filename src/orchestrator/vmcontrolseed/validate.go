@@ -132,6 +132,9 @@ func (m Material) Validate() error {
 		if path == RegionalCaptureNKeyPath || path == GlobalCaptureNKeyPath {
 			cert, key = CaptureCertificatePath, CapturePrivateKeyPath
 		}
+		if path == PublicationJournalNKeyPath {
+			cert, key = PublicationCertificatePath, PublicationPrivateKeyPath
+		}
 		return checkTLS(c.TLS, cert, key, false)
 	}
 	if err := checkConnection(config.Regional.Runtime, NKeyPath, false); err != nil {
@@ -164,6 +167,29 @@ func (m Material) Validate() error {
 			}
 			if bytes.Equal(tlsPublic[CaptureCertificatePath], tlsPublic[CertificatePath]) || bytes.Equal(tlsPublic[CaptureCertificatePath], tlsPublic[ProvisionerCertificatePath]) {
 				return bad()
+			}
+		}
+		if capture := config.PreliminaryCapture; capture != nil && capture.Publication != nil {
+			publication := capture.Publication
+			if publication.RequestFile != PublicationRequestPath || publication.StateDir != PublicationStatePath {
+				return bad()
+			}
+			if err := checkConnection(publication.Journal, PublicationJournalNKeyPath, false); err != nil {
+				return err
+			}
+			for _, role := range []string{CertificatePath, ProvisionerCertificatePath, CaptureCertificatePath} {
+				if bytes.Equal(tlsPublic[role], tlsPublic[PublicationCertificatePath]) {
+					return bad()
+				}
+			}
+			if q := publication.Identity.Qualification; q != nil {
+				if q.ClientPrivateKeyFile != PublicationQualificationKeyPath {
+					return bad()
+				}
+				expected[PublicationQualificationKeyPath] = true
+				if _, err := tls.X509KeyPair([]byte(q.ClientCertificatePEM), m.Files[PublicationQualificationKeyPath]); err != nil {
+					return bad()
+				}
 			}
 		}
 		if bytes.Equal(tlsPublic[CertificatePath], tlsPublic[ProvisionerCertificatePath]) {

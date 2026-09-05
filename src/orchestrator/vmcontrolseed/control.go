@@ -34,7 +34,7 @@ const RegionalAccount = "GRU_REGIONAL"
 
 func IsFilePath(path string) bool {
 	switch path {
-	case RegionalCaptureNKeyPath, GlobalCaptureNKeyPath, CaptureCertificatePath, CapturePrivateKeyPath, NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
+	case PublicationJournalNKeyPath, PublicationCertificatePath, PublicationPrivateKeyPath, PublicationQualificationKeyPath, RegionalCaptureNKeyPath, GlobalCaptureNKeyPath, CaptureCertificatePath, CapturePrivateKeyPath, NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
 		return true
 	}
 	return false

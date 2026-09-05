@@ -18,6 +18,7 @@ import (
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/ociinstance"
 )
 
 const Arguments = "initial-gru-r1 --config @config"
@@ -51,6 +52,17 @@ type PreliminaryCaptureConfig struct {
 	MaxTotalBytes    int64      `json:"maxTotalBytes"`
 	Regional         Connection `json:"regional"`
 	Global           Connection `json:"global"`
+	Publication      *PreliminaryPublicationConfig `json:"publication,omitempty"`
+}
+
+// PreliminaryPublicationConfig admits only source-owned publication under a
+// separately signed finite transfer request. OCI identities are instance-bound;
+// no owner or OCI API private key is delivered to this worker.
+type PreliminaryPublicationConfig struct {
+	RequestFile string             `json:"requestFile"`
+	StateDir    string             `json:"stateDir"`
+	Journal     Connection         `json:"journal"`
+	Identity    ociinstance.Config `json:"identity"`
 }
 type Broker struct {
 	Configuration      string   `json:"configuration"`
@@ -162,6 +174,19 @@ func (c Config) Validate() error {
 					return bad()
 				}
 			}
+			if publication := capture.Publication; publication != nil {
+				if !cleanPath(publication.RequestFile) || !cleanPath(publication.StateDir) || publication.StateDir == "/" || !publication.Journal.valid() || ociinstance.ValidateConfig(publication.Identity) != nil {
+					return bad()
+				}
+				for _, path := range []string{c.Broker.StoreDir, capture.OutputDir, capture.RequestFile, publication.RequestFile} {
+					if nestedPath(path, publication.StateDir) || nestedPath(publication.StateDir, path) {
+						return bad()
+					}
+				}
+				if publication.RequestFile == capture.RequestFile {
+					return bad()
+				}
+			}
 		}
 	} else if c.Instance == c.SeedInstance || c.Global != nil || c.Regional.Provisioner != nil || c.Broker.Configuration != "" || c.Broker.TLS != (TLSFiles{}) {
 		return bad()
@@ -210,6 +235,9 @@ func (c Config) Validate() error {
 		connections := []*Connection{c.Regional.Provisioner, c.Global.Provisioner}
 		if c.PreliminaryCapture != nil {
 			connections = append(connections, &c.PreliminaryCapture.Regional, &c.PreliminaryCapture.Global)
+			if c.PreliminaryCapture.Publication != nil {
+				connections = append(connections, &c.PreliminaryCapture.Publication.Journal)
+			}
 		}
 		for _, conn := range connections {
 			if keys[conn.PublicNKey] {

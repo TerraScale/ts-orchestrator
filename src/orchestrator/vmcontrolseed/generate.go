@@ -172,6 +172,24 @@ func generateGRU(runID string, guests []Guest, capture *PreliminaryCaptureDeclar
 					return nil, err
 				}
 				config.PreliminaryCapture = &initialgrant.PreliminaryCaptureConfig{RequestFile: CaptureRequestPath, OutputDir: CaptureOutputPath, MaxSnapshotBytes: capture.MaxSnapshotBytes, MaxTotalBytes: capture.MaxTotalBytes, Regional: regionalCapture, Global: globalCapture}
+				if publication := capture.Publication; publication != nil {
+					journalGuest := guest
+					journalGuest.ID += "-provider-journal"
+					journalCert, journalKey, err := issue(journalGuest, false)
+					if err != nil {
+						return nil, err
+					}
+					files[PublicationCertificatePath], files[PublicationPrivateKeyPath] = journalCert, journalKey
+					journal, err := newUser(files, PublicationJournalNKeyPath, tlsFiles(files, PublicationCertificatePath, PublicationPrivateKeyPath))
+					if err != nil {
+						return nil, err
+					}
+					config.PreliminaryCapture.Publication = &initialgrant.PreliminaryPublicationConfig{RequestFile: PublicationRequestPath, StateDir: PublicationStatePath, Journal: journal, Identity: publication.Identity}
+					if publication.Identity.Qualification != nil {
+						files[PublicationQualificationKeyPath] = append([]byte(nil), publication.qualificationPrivateKey...)
+					}
+				}
+
 			}
 
 			cert, key, err = issue(guest, true)
@@ -261,6 +279,10 @@ func renderBroker(config initialgrant.Config) (string, error) {
 				regionalUsers = append(regionalUsers, user)
 			}
 		}
+	}
+	if config.PreliminaryCapture != nil && config.PreliminaryCapture.Publication != nil {
+		publish, subscribe := initialcontrol.PublicationJournalPermissions()
+		regionalUsers = append(regionalUsers, map[string]any{"nkey": config.PreliminaryCapture.Publication.Journal.PublicNKey, "permissions": map[string]any{"publish": map[string]any{"allow": publish}, "subscribe": map[string]any{"allow": subscribe}}})
 	}
 	broker := map[string]any{"server_name": config.Instance, "listen": net.JoinHostPort(brokerAddress, "4222"), "max_payload": 4 << 20, "jetstream": map[string]any{"store_dir": StorePath, "max_memory_store": 32 << 20, "max_file_store": config.Broker.StorageBudgetBytes}, "tls": map[string]any{"cert_file": ServerCertificatePath, "key_file": ServerPrivateKeyPath, "ca_file": CAPath, "verify": true, "min_version": "1.3"}, "accounts": map[string]any{RegionalAccount: map[string]any{"jetstream": "enabled", "users": regionalUsers}, GlobalAccount: map[string]any{"jetstream": "enabled", "users": globalUsers}}}
 	var buffer bytes.Buffer

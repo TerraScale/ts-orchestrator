@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -206,7 +208,9 @@ type OCITransportConfig struct {
 	Endpoint     *url.URL
 	Timeout      time.Duration
 	MaxBodyBytes int64
-	MaxRetries   int
+	// MaxObjectBytes bounds only Object Storage PUT bodies; other APIs retain MaxBodyBytes.
+	MaxObjectBytes int64
+	MaxRetries     int
 }
 
 // OCIService identifies the small set of OCI HTTP authorities used by the
@@ -313,6 +317,12 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if config.MaxBodyBytes <= 0 || config.MaxBodyBytes > 16<<20 {
 		return nil, &errs.ArgumentOutOfRangeError{Param: "maxBodyBytes"}
 	}
+	if config.MaxObjectBytes == 0 {
+		config.MaxObjectBytes = config.MaxBodyBytes
+	}
+	if config.MaxObjectBytes < 1 || config.MaxObjectBytes > 1<<30 || (config.Service != OCIServiceObjectStorage && config.MaxObjectBytes != config.MaxBodyBytes) {
+		return nil, &errs.ArgumentOutOfRangeError{Param: "maxObjectBytes"}
+	}
 	if config.MaxRetries < 0 || config.MaxRetries > 5 {
 		return nil, &errs.ArgumentOutOfRangeError{Param: "maxRetries"}
 	}
@@ -343,6 +353,26 @@ func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.
 // DoWithHeaders is Do with a small caller-supplied set of validated headers.
 // Header names/values are rejected if they contain controls.
 func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	if t == nil {
+		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
+	}
+	return t.doWithLimit(ctx, method, path, body, headers, t.Config.MaxBodyBytes)
+}
+
+// PutObjectBody is the sole transport entry point admitting large object bodies.
+// It constructs the Object Storage object path itself and cannot widen a
+// control API, bucket mutation, or arbitrary caller-selected service path.
+func (t *OCIHTTPTransport) PutObjectBody(ctx context.Context, object ObjectRef, body io.Reader, headers map[string]string) (*http.Response, error) {
+	if t == nil || t.Config.Service != OCIServiceObjectStorage || t.Config.MaxObjectBytes < 1 || t.Config.MaxObjectBytes > 1<<30 {
+		return nil, &InvalidOperationError{Message: "OCI object transport is unavailable"}
+	}
+	if err := validateObjectRef(object); err != nil {
+		return nil, err
+	}
+	return t.doWithLimit(ctx, http.MethodPut, objectStoragePath(object), body, headers, t.Config.MaxObjectBytes)
+}
+
+func (t *OCIHTTPTransport) doWithLimit(ctx context.Context, method, path string, body io.Reader, headers map[string]string, maximum int64) (*http.Response, error) {
 	if t == nil || t.Client == nil || t.Config.Endpoint == nil {
 		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
 	}
@@ -359,11 +389,11 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 	hasBody := body != nil
 	if body != nil {
 		var err error
-		data, err = io.ReadAll(io.LimitReader(body, t.Config.MaxBodyBytes+1))
+		data, err = io.ReadAll(io.LimitReader(body, maximum+1))
 		if err != nil {
 			return nil, err
 		}
-		if int64(len(data)) > t.Config.MaxBodyBytes {
+		if int64(len(data)) > maximum {
 			return nil, &InvalidDataError{Message: "OCI request body exceeds limit"}
 		}
 	}
@@ -392,6 +422,12 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		}
 		if hasBody && req.Header.Get("Content-Type") == "" {
 			req.Header.Set("Content-Type", "application/json")
+		}
+		if hasBody {
+			// Bind the actual buffered bytes, including for object uploads exceeding
+			// the ordinary control API limit. Never trust a caller-supplied digest.
+			digest := sha256.Sum256(data)
+			req.Header.Set("x-content-sha256", base64.StdEncoding.EncodeToString(digest[:]))
 		}
 		if t.Signer != nil {
 			if err := t.Signer.Sign(req); err != nil {

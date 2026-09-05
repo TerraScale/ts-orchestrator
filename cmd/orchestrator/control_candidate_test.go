@@ -8,7 +8,7 @@ import (
 )
 
 func TestControlCandidateDispatch(t *testing.T) {
-	for _, command := range []string{transitiongrant.Mode, "plan-control-candidates", "plan-preliminary-capture"} {
+	for _, command := range []string{transitiongrant.Mode, "plan-control-candidates", "plan-preliminary-capture", "plan-preliminary-transfer"} {
 		for _, args := range [][]string{{command}, {command, "--config"}, {command, "--config", ""}, {command, "--config", "/missing", "extra"}, {command, "--owner-key", "/missing"}} {
 			if _, err := requestedCommand(args); err == nil {
 				t.Fatalf("accepted unsupported candidate arguments %q", args)
