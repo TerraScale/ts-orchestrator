@@ -36,12 +36,13 @@ continues.
 
 ## What the code establishes
 
-Snapshot version 3 now binds each file-backed consumer's configuration and
-checkpoint values to stable source observations and requires public restores
-to match them before candidate verification. The
-[source-checkpoint evidence](../evidence/snapshot-source-checkpoints-2026-09-05.md)
-records the tests and remaining final-cut/authority requirements. Matching two
-restores alone no longer suffices for these checkpoint values.
+Snapshot version 4 binds retained records and each file-backed consumer's
+configuration/checkpoint values to source observations. Public restores must
+match that evidence before candidate verification. The
+[source-record evidence](../evidence/snapshot-source-records-2026-09-05.md)
+records the tests and remaining final-cut/authority requirements. The source
+read checks unchanged stream state and configuration; it supplies no writer
+fence or atomic cut across streams.
 
 The [TerraBase VM configuration path](terrabase-vm-configuration.md) now renders
 explicit production declarations into the owner-signed GRU host manifest and

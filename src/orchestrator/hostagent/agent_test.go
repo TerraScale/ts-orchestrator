@@ -84,7 +84,9 @@ func TestAgentReconnectsAfterEmbeddedBrokerRestart(t *testing.T) {
 		CommandAuthorityFactory: testCommandAuthorityFactory,
 		NodeId:                  NodeId{Value: "gru-1"}, NatsURL: instance.ClientURL(), ConnectTimeout: time.Second,
 		Lifecycle: harness.lifecycle, Facts: harness.factsSource(t), ManifestPath: manifestPath,
-		ReconcileInterval: 20 * time.Millisecond, HeartbeatInterval: 20 * time.Millisecond,
+		// Run the real initial installation, then keep this transport test
+		// outside later reconciliation passes that legitimately make status busy.
+		ReconcileInterval: time.Hour, HeartbeatInterval: 20 * time.Millisecond,
 		Now: time.Now,
 	})
 	if err != nil {
