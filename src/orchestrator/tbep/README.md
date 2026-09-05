@@ -120,14 +120,17 @@ found no remaining server from either attempt.
 | [Recorded observation](evidence/real-member-observation.json) | `2f903e3b3963e6135711c09a03a39dfbd5d1fe45d269748a7abcd647b6005bbb` |
 | [Wrong-host diagnostic](evidence/wrong-host-rejection.txt) | `6f54a494249ab269e44ff6eb6fbc5108ea102c72f3a703556009ef668a0df75e` |
 
-The first startup attempt failed with `Error: SecretFile` on valid generated
-PEM certificates. Inspection found that the producer's
-`crates/terrabase-server/src/runtime.rs::valid_pem` body-line predicate rejects
-lines combining base64 characters with `=` padding. The successful experiment
-used valid certificates whose DER lengths are divisible by three, so their
-base64 requires no padding. This is an unresolved producer credential-ingestion
-bug, not evidence that arbitrary supported PEM certificates work. No producer
-files were modified. Temporary private keys are excluded from this repository.
+TerraBase's credential loader now accepts padded PEM certificates and keys.
+Its `base64` decoder validates each complete PEM block, including padding;
+rustls validates the decoded certificates and keys. Producer regression tests
+cover all three certificate-length remainders, certificate chains, CRLF,
+malformed padding, private-file permissions, and symlink refusal.
+
+A subsequent real-process check used newly generated padded server and client
+certificates. The three observation RPCs succeeded, the wrong server identity
+was rejected without partial output, `/ready` remained `503` in local-development
+mode, and SIGTERM stopped the daemon cleanly. Temporary private keys were removed
+with the test directory.
 
 This evidence proves the actual private transport and exact server identity
 check in a single local-development process. It does not qualify production
