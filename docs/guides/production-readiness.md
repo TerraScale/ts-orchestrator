@@ -44,6 +44,13 @@ records the tests and remaining final-cut/authority requirements. The source
 read checks unchanged stream state and configuration; it supplies no writer
 fence or atomic cut across streams.
 
+The [consumer-checkpoint validator](../evidence/consumer-checkpoint-validation-2026-09-05.md)
+now decodes each archived checkpoint before publication or restore, rejects
+malformed or oversized state, and compares its counters with source evidence.
+A real-broker fixture proves recovery of the original unacknowledged message
+set without replaying an acknowledged message. Independent comparison of every
+live source entry/timer remains unavailable through the public NATS API.
+
 The [TerraBase VM configuration path](terrabase-vm-configuration.md) now renders
 explicit production declarations into the owner-signed GRU host manifest and
 separately provisions exact member TLS material. It binds the supplied engine
