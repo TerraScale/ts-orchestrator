@@ -27,15 +27,15 @@ const MaximumBytes = 64 << 10
 const domain = "TS-CONTROL-CANDIDATE-PREPARATION-V1\x00"
 
 type Config struct {
-	Version      int    `json:"version"`
-	Mode         string `json:"mode"`
-	TransitionID string `json:"transitionId"`
-	NodeID       string `json:"nodeId"`
-	Region       string `json:"region"`
-	ServerName   string `json:"serverName"`
-	StoreDir     string `json:"storeDir"`
- GrantFile string `json:"grantFile"`
- GrantPublicKeyFile string `json:"grantPublicKeyFile"`
+	Version            int    `json:"version"`
+	Mode               string `json:"mode"`
+	TransitionID       string `json:"transitionId"`
+	NodeID             string `json:"nodeId"`
+	Region             string `json:"region"`
+	ServerName         string `json:"serverName"`
+	StoreDir           string `json:"storeDir"`
+	GrantFile          string `json:"grantFile"`
+	GrantPublicKeyFile string `json:"grantPublicKeyFile"`
 }
 type SourceIdentity struct {
 	NodeID             string `json:"nodeId"`

@@ -6,12 +6,20 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
 // Admission applies to the complete immutable launch, including an older
 // installed version selected by rollback or recovery.
 func admitInitialComponents(ctx context.Context, specs []hostmanifest.ComponentSpec) error {
 	for _, spec := range specs {
+		if c, candidate, err := transitiongrant.ComponentConfig(spec); err != nil {
+			return err
+		} else if candidate {
+			if _, err = nodeauthority.ValidatePublishedPreparation(ctx, c); err != nil {
+				return err
+			}
+		}
 		if _, err := initialgrant.AdmitComponent(ctx, spec); err != nil {
 			return err
 		}
@@ -23,6 +31,13 @@ func withInitialLaunch(ctx context.Context, directory, component string, effect 
 	spec, err := readComponentLaunch(directory, component)
 	if err != nil {
 		return err
+	}
+	if c, candidate, err := transitiongrant.ComponentConfig(spec); err != nil {
+		return err
+	} else if candidate {
+		if _, err = nodeauthority.ValidatePublishedPreparation(ctx, c); err != nil {
+			return err
+		}
 	}
 	admission, err := initialgrant.AdmitComponent(ctx, spec)
 	if err != nil {

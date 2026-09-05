@@ -26,6 +26,9 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 	if err != nil {
 		return err
 	}
+	if handled, candidateErr := t.initializeCandidatePreparation(manifest, digest); handled {
+		return candidateErr
+	}
 	runtime, admissionErr := t.epochs.AdmittedManifest(digest)
 	if admissionErr == nil && runtime {
 		if err := admitInitialComponents(t.context(), manifest.Components); err != nil {
@@ -92,6 +95,21 @@ func (t *NatsTransport) reconcileAdmittedManifest(ctx context.Context, manifest 
 	currentDigest, err := hostmanifest.HostManifestSha256(current)
 	if err != nil || currentDigest != digest {
 		return errors.New("hostagent: desired manifest changed before reconciliation")
+	}
+	if spec, c, candidate, candidateErr := candidateComponent(manifest); candidateErr != nil {
+		return candidateErr
+	} else if candidate {
+		bootstrap, ok := t.authorizer.(*BootstrapAuthority)
+		if !ok || runtime {
+			return errors.New("hostagent: candidate preparation retired or lacks bootstrap proof")
+		}
+		receipt, err := t.epochs.ResumeCandidatePreparation(ctx, c, bootstrap.digest, digest)
+		if err != nil {
+			return err
+		}
+		bounded, cancel := context.WithDeadline(ctx, receipt.ExpiresAt)
+		defer cancel()
+		return resumeCandidateActivation(bounded, t.lifecycle, t.journal, spec, receipt)
 	}
 	if !runtime {
 		bootstrap, ok := t.authorizer.(*BootstrapAuthority)

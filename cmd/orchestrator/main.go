@@ -130,6 +130,15 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	if name == "initial-gru-r1" {
 		return runInitialGRUR1(ctx, args[2])
 	}
+	if name == "plan-control-candidates" {
+		if err := planControlCandidates(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
+	if name == "prepare-control-candidate" {
+		return runControlCandidate(ctx, args[2], output)
+	}
 	if name == "observe-member" {
 		return memberobserve.Run(ctx, args, output)
 	}
@@ -258,7 +267,7 @@ func requestedCommand(args []string) (string, error) {
 	if args[0] == "run" && len(args) == 3 && args[1] == "--config" && args[2] != "" {
 		return "run", nil
 	}
-	if args[0] == "initial-gru-r1" {
+	if args[0] == "initial-gru-r1" || args[0] == "prepare-control-candidate" || args[0] == "plan-control-candidates" {
 		if len(args) == 3 && args[1] == "--config" && args[2] != "" {
 			return args[0], nil
 		}
@@ -303,7 +312,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates":
 		return args[0]
 	default:
 		return "unsupported"

@@ -110,6 +110,9 @@ func (s *EpochStore) Admit(command CommandAuthorization) error {
 	if floor.Epoch > command.Epoch || (floor.Epoch != 0 && floor.AuthorityID != command.AuthorityID) || (floor.Epoch == command.Epoch && (floor.CandidateID != command.CandidateID || floor.LeaseID != command.LeaseID)) {
 		return errors.New("nodeauthority: stale or conflicting authority epoch")
 	}
+	if err := s.retireCandidatePreparationLocked(); err != nil {
+		return err
+	}
 	if floor.Epoch == command.Epoch {
 		return syncEpochDirectory(filepath.Dir(s.path))
 	}

@@ -208,6 +208,17 @@ func (a *BootstrapAuthority) Grant() BootstrapGrant {
 }
 func (a *BootstrapAuthority) Digest() string { return a.digest }
 
+// OwnerKeyID identifies the already verified, pinned bootstrap owner key.
+func (a *BootstrapAuthority) OwnerKeyID() string { return a.keyID }
+
+// CheckAt enforces the original initial grant lifetime at first admission.
+func (a *BootstrapAuthority) CheckAt(now time.Time) error {
+	if now.Before(a.grant.IssuedAt) || !now.Before(a.grant.ExpiresAt) {
+		return errors.New("nodebootstrap: initial grant expired")
+	}
+	return nil
+}
+
 // VerifyBootstrapGrant verifies the dedicated owner signature and returns its
 // host-bound full manifest. Callers must also enforce the grant time window at
 // each new operation; an expired grant remains readable for audit/restart.

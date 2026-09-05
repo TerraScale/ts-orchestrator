@@ -26,6 +26,9 @@ func RunLocalBootstrap(ctx context.Context, config LocalBootstrapConfig) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
+	if handled, err := hostagent.ResumeLocalCandidatePreparation(ctx, config.Lifecycle, config.NodeID, config.PublicKeyPEM, config.SignedGrant, config.ManifestPath); handled || err != nil {
+		return err
+	}
 	session, err := hostagent.OpenLocalBootstrap(ctx, config.Lifecycle, config.NodeID, config.PublicKeyPEM, config.SignedGrant, config.ManifestPath, config.CredentialHandoff)
 	if err != nil {
 		return err

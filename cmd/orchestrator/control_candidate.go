@@ -1,0 +1,75 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
+)
+
+// Preparation keeps the admitted candidate process available without opening
+// a broker, electing an authority, or reporting ordinary runtime readiness.
+func runControlCandidate(ctx context.Context, path string, output io.Writer) error {
+	raw, err := initialgrant.ReadMaterialFile(path, transitiongrant.MaximumBytes, false)
+	if err != nil {
+		return commandFailure(transitiongrant.Mode, err)
+	}
+	config, err := transitiongrant.ParseConfig(raw)
+	if err != nil {
+		return commandFailure(transitiongrant.Mode, err)
+	}
+	if err := waitControlCandidate(ctx, config, output, nodeauthority.ValidatePublishedPreparation); err != nil {
+		return commandFailure(transitiongrant.Mode, err)
+	}
+	return nil
+}
+
+func waitControlCandidate(ctx context.Context, config transitiongrant.Config, output io.Writer, validate func(context.Context, transitiongrant.Config) (nodeauthority.CandidatePreparationReceipt, error)) error {
+	if ctx == nil || output == nil || validate == nil {
+		return errors.New("candidate preparation requires context, output and admission")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	receipt, err := validate(ctx, config)
+	if err != nil {
+		return err
+	}
+	if !receipt.ExpiresAt.After(time.Now()) {
+		return errors.New("candidate preparation admission has expired")
+	}
+	if err := json.NewEncoder(output).Encode(receipt); err != nil {
+		return errors.New("candidate preparation receipt could not be written")
+	}
+	expiry := time.NewTimer(time.Until(receipt.ExpiresAt))
+	defer expiry.Stop()
+	poll := time.NewTicker(250 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-expiry.C:
+			return errors.New("candidate preparation admission has expired")
+		case <-poll.C:
+			current, err := validate(ctx, config)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return err
+			}
+			if current != receipt {
+				return errors.New("candidate preparation admission changed")
+			}
+		}
+	}
+}
