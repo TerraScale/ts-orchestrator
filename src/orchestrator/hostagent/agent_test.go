@@ -90,12 +90,32 @@ func TestAgentReconnectsAfterEmbeddedBrokerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Start returns after subscriptions are ready, before the asynchronous
+	// first manifest installation releases the lifecycle mutation lock. Wait
+	// for that real convergence pass before testing broker reconnection.
+	reconciled := make(chan error, 1)
+	agent.watcher.reconcile = func(ctx context.Context, manifest hostmanifest.HostManifest) error {
+		err := harness.lifecycle.ApplyDesired(ctx, manifest.Components)
+		select {
+		case reconciled <- err:
+		default:
+		}
+		return err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := agent.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = agent.Close() })
+	select {
+	case err := <-reconciled:
+		if err != nil {
+			t.Fatalf("initial manifest reconciliation failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("initial manifest reconciliation did not complete")
+	}
 	assertAgentStatusReply(t, instance.ClientURL(), "before-restart")
 
 	instance.Shutdown()

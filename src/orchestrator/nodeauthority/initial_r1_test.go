@@ -387,7 +387,9 @@ func TestInitialR1MissingCorruptAndUnsafeStateRefuses(t *testing.T) {
 
 func TestInitialR1LifetimeAndCanceledLock(t *testing.T) {
 	f := newInitialR1Fixture(t)
-	f.identity.ExpiresAt = time.Now().UTC().Add(100 * time.Millisecond)
+	// Admission fsyncs durable state before the mutation begins. Allow that
+	// setup under suite load, then exercise the real grant deadline below.
+	f.identity.ExpiresAt = time.Now().UTC().Add(5 * time.Second)
 	g, err := newInitialR1Guard(f.directory, f.identity, f.uid)
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +398,14 @@ func TestInitialR1LifetimeAndCanceledLock(t *testing.T) {
 	if err := f.admit(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
-	err = f.guard.WithinMutation(t.Context(), func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
+	err = f.guard.WithinMutation(t.Context(), func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		if !ok || !deadline.Equal(f.identity.ExpiresAt) {
+			t.Fatalf("mutation deadline %v does not match grant expiry %v", deadline, f.identity.ExpiresAt)
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}

@@ -20,6 +20,11 @@ Delivery claim: **effectively-once mutation through operation-level idempotency 
 
 ## 1. Durable streams
 
+The table records the ordinary profiles currently declared by
+`src/orchestrator/protocol/durable_work_inventory.go`. `Domain` is the existing
+profile classification and `R` is its declared replica count; neither proves
+that a separate regional cluster is installed or required for every Region.
+
 | Stream | Domain | Subjects | Class | R | Retention | Max age | Max bytes | Discard | Duplicate window | Terminal evidence behavior |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CELL_SPEC` | RegionalCell | `ts.orch.v1.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence; exhaustion warns on the final delivery. |
@@ -27,7 +32,41 @@ Delivery claim: **effectively-once mutation through operation-level idempotency 
 | `CELL_EVENTS` | RegionalCell | `ts.orch.v1.{cell}.observation.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
 | `GLOBAL_SPEC` | GlobalControl | `ts.orch.v1.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence. |
 
-Regional rows are per-cell: each region owns its streams inside its own JetStream domain, and no stream or durable consumer spans regions (gateway plan admission rejects WAN-spanning assets).
+### Required placement and current implementation
+
+[GOAL.md](../../GOAL.md) governs physical storage placement. Production has one
+permanent global R3, with one selected replica co-hosted in each of GRU, SFO
+and FRA. Every Region starts with two member hosts, each running its own local
+orchestrator. Regional controllers use the global R3 for authoritative control
+records; adding a controller or Region does not add a storage replica or grant
+global authority. A later independent regional R3 requires at least three
+eligible hosts and a separate declaration. It remains post-launch work.
+
+Cell-scoped subjects and fenced regional ownership remain required regardless
+of where the records are stored. The permanent global R3 crosses the three
+launch Regions. Existing gateway restrictions do not prohibit that required
+storage topology and do not establish its implementation.
+
+The code still declares `RegionalCell` as a regional JetStream domain and
+constructs separate regional and global profiles through `NatsTopology` and
+`GlobalNatsTopology`. The complete mapping of each Region's streams, buckets,
+consumers and permissions onto the shared global R3 is not yet wired and
+qualified. In particular, the fixed `CELL_*` names are not evidence that
+multiple Region inventories can coexist in one account. Production composition
+must define the actual isolation, naming and credential mapping and prove
+regional lease and receipt access through it. Update the typed inventory,
+provisioners, runtime readers and tests together when that mapping is admitted.
+Do not deploy independent R3 groups merely to satisfy the existing profiles.
+
+The signed pre-customer bootstrap is a separate, bounded R1 projection.
+`src/orchestrator/initialcontrol/profile.go` builds GRU regional and global
+account inventories on the seed broker, explicitly changes their replica
+counts to one, and retains the limits above. It does not change ordinary R3
+validation or implement the final multi-Region mapping. See
+[initial GRU R1](initial-gru-r1.md), [global storage](global-control-storage.md)
+and [snapshot transition](control-snapshot-transition.md) for retained inventory
+and the incomplete R1-to-R3 integration. Customers cannot be admitted under R1,
+and promotion must never permit a subsequent downgrade.
 
 ## 2. Durable consumer profiles
 

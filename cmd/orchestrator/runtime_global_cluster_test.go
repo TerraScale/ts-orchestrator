@@ -101,7 +101,8 @@ func newRotationStateCluster(t *testing.T) *rotationStateCluster {
 		if route != nil {
 			options.Routes = []*url.URL{route}
 		}
-		server, err := natsserver.NewServer(options)
+		// Keep restart metadata separate from options owned by the running server.
+		server, err := natsserver.NewServer(options.Clone())
 		if err != nil {
 			t.Fatal(err)
 		}

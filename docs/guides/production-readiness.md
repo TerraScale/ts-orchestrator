@@ -2,8 +2,9 @@
 
 The [repository goal](../../GOAL.md) defines the target. This guide records
 exploration findings and the inputs needed to implement it. Code presence is
-not qualification evidence. The inspected checkout includes substantial
-uncommitted implementation work; recheck these findings as that work lands.
+not qualification evidence. The [operation inventory](../contracts/production-operation-inventory.md)
+maps required entry points, authority, persistence, dependencies and remaining
+proofs. Recheck these findings as implementation changes.
 
 ## Agreed architecture
 
@@ -104,14 +105,22 @@ production admission and signed delivery requirements remain; global workers
 remain R3-only. No guest readiness, OCI effects, TerraBase membership or
 production readiness result follows from this slice.
 
-The current qualification host-control binding has no caller and omits the
-required command signer. ts-node now has a separate read-only guest-authority
-connection, opened lazily so initial activation can start the broker. The sender
-binding still needs the matching signer and actual guest lease resolver.
+The qualification host-control binding now requires an enrolled regional
+candidate and an explicit live lease resolver. It signs commands with the
+candidate's independent key and rejects expired leases, wrong candidates,
+cross-Region authority, and hosts outside the owned guest inventory. Transport
+race tests verify signatures and refusal when authority changes before
+publication. The services close the parsed signer with its connection.
+The binding still has no suite caller or concrete guest lease resolver.
+ts-node now has a separate read-only guest-authority
+connection, opened lazily so initial activation can start the broker.
 The initial GRU broker forbids routes
 and stops when its admission retires; the promotion path therefore needs an
 admitted successor that preserves GRU's store while forming the three-server
 cluster. Candidate mirrors alone do not establish Raft replicas.
+The [snapshot transition design](../contracts/control-snapshot-transition.md)
+records the required preparation, final-cut capture, restoration and activation
+ordering. That flow remains unimplemented.
 
 [NATS mutation admission](../contracts/bootstrap-nats-mutations.md) now pins the
 candidate, term and LeaseID in each mutating action declaration and checks them

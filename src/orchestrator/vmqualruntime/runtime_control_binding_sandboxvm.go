@@ -12,39 +12,72 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 // QualificationHostControl binds the actual fixture transport to explicit
 // admitted-membership and live-authority resolvers. The transport itself does
 // not establish either membership or authority.
-func (factory *firecrackerFactory) QualificationHostControl(ctx context.Context, region string, resolve func(context.Context, string) (hostcontrol.Host, error), authorize func(context.Context, hostcontrol.Host) error) (*hostcontrol.Client, error) {
-	if ctx == nil || resolve == nil || authorize == nil {
+func (factory *firecrackerFactory) QualificationHostControl(ctx context.Context, region, candidateID string, resolve func(context.Context, string) (hostcontrol.Host, error), commandAuthority func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error)) (*hostcontrol.Client, error) {
+	if ctx == nil || resolve == nil || commandAuthority == nil || candidateID == "" {
 		return nil, bootstrap.ErrControlRuntimeUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	services, ok := factory.services.(*qualificationRuntimeServices)
 	if !ok {
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	declared := false
+	candidateDeclared := false
 	for _, planned := range services.plan.Regions {
 		if region == strings.ToLower(string(planned.Code)) {
 			declared = true
+			for i, guest := range planned.Guests {
+				if i >= 3 {
+					break
+				}
+				if candidateID == region+"-controller-"+guest.ID {
+					candidateDeclared = true
+				}
+			}
 			break
 		}
 	}
 	if !declared {
 		return nil, errors.New("vmqual: host-control Region is not a canonical declared Region")
 	}
+	if !candidateDeclared {
+		return nil, errors.New("vmqual: host-control candidate is not enrolled in the requested Region")
+	}
 	options, err := services.authenticatedNATSOptions()
 	if err != nil {
 		return nil, err
 	}
 	services.mu.Lock()
-	if services.closed || services.nats == nil {
+	if services.closed || services.nats == nil || services.natsAuthority == nil {
 		services.mu.Unlock()
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
+	identity := services.natsAuthority.commandSigners[candidateID]
+	if identity == nil {
+		services.mu.Unlock()
+		return nil, errors.New("vmqual: host-control command signer missing")
+	}
+	signer, err := security.ParseCommandSignatureSignerPEM(identity.PrivatePEM)
+	if err != nil {
+		services.mu.Unlock()
+		return nil, err
+	}
+	owned := false
+	defer func() {
+		if !owned {
+			_ = signer.Close()
+		}
+	}()
 	address := services.nats.ClientURL()
 	services.mu.Unlock()
 	options = append(options, nats.Timeout(2*time.Second), nats.Name("vmqual-control-"+region))
@@ -52,7 +85,19 @@ func (factory *firecrackerFactory) QualificationHostControl(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	client, err := hostcontrol.New(hostcontrol.Config{Region: strings.ToUpper(region), Connection: connection, Timeout: 5 * time.Second, Authorize: authorize, ResolveHost: func(ctx context.Context, id string) (hostcontrol.Host, error) {
+	liveAuthority := func(ctx context.Context, host hostcontrol.Host) (delivery.RegionalCommandAuthority, error) {
+		lease, err := commandAuthority(ctx, host)
+		if err != nil {
+			return lease, err
+		}
+		now := time.Now().UTC()
+		if host.Region != strings.ToUpper(region) || lease.AuthorityID != region+"-regional" || lease.CandidateID != candidateID || lease.LeaseID == "" || lease.Epoch <= 0 || lease.DesiredGeneration <= 0 || lease.IssuedAt.IsZero() || now.Before(lease.IssuedAt) || !now.Before(lease.ExpiresAt) {
+			return delivery.RegionalCommandAuthority{}, errors.New("vmqual: command signer does not hold live authority for requested Region")
+		}
+		return lease, nil
+	}
+	authorize := func(ctx context.Context, host hostcontrol.Host) error { _, err := liveAuthority(ctx, host); return err }
+	client, err := hostcontrol.New(hostcontrol.Config{SigningKey: signer, CommandAuthority: liveAuthority, Region: strings.ToUpper(region), Connection: connection, Timeout: 5 * time.Second, Authorize: authorize, ResolveHost: func(ctx context.Context, id string) (hostcontrol.Host, error) {
 		host, err := resolve(ctx, id)
 		if err != nil {
 			return host, err
@@ -79,6 +124,10 @@ func (factory *firecrackerFactory) QualificationHostControl(ctx context.Context,
 		connection.Close()
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
+	if err := ctx.Err(); err != nil {
+		connection.Close()
+		return nil, err
+	}
 	if services.controlClients == nil {
 		services.controlClients = make(map[string]*hostcontrol.Client)
 	}
@@ -88,6 +137,8 @@ func (factory *firecrackerFactory) QualificationHostControl(ctx context.Context,
 	}
 	services.controlClients[region] = client
 	services.controlConnections = append(services.controlConnections, connection)
+	services.controlSigners = append(services.controlSigners, signer)
+	owned = true
 	return client, nil
 }
 

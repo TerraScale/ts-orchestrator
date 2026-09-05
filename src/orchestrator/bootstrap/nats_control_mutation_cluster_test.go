@@ -75,7 +75,8 @@ func newControlMutationStateCluster(t *testing.T) *controlMutationStateCluster {
 		if route != nil {
 			options.Routes = []*url.URL{route}
 		}
-		server, err := natsserver.NewServer(options)
+		// Keep restart metadata separate from options owned by the running server.
+		server, err := natsserver.NewServer(options.Clone())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -107,7 +108,8 @@ func (cluster *controlMutationStateCluster) restart(t *testing.T) {
 	cluster.stop()
 	cluster.servers = nil
 	for _, options := range cluster.options {
-		server, err := natsserver.NewServer(options)
+		// Keep restart metadata separate from options owned by the running server.
+		server, err := natsserver.NewServer(options.Clone())
 		if err != nil {
 			t.Fatal(err)
 		}
