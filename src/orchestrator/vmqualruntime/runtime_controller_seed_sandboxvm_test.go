@@ -6,10 +6,10 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"strings"
-	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
@@ -33,7 +33,7 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 			continue
 		}
 		for _, guest := range region.Guests {
-			guests = append(guests, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, CommandPrivateKey: authority.commandSigners["gru-controller-"+guest.ID].PrivatePEM})
+			guests = append(guests, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, MembershipPublicKey: authority.memberships[guest.ID].PublicKey})
 		}
 	}
 	seeds, err := vmcontrolseed.GenerateGRU(plan.RunID, guests)
@@ -62,6 +62,10 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer result.Controller.Clear()
+		capacity, err := services.DataDriveBytes(vmqual.Guest{ID: guest.ID, Region: vmnet.GRU})
+		if err != nil || result.Controller.Selected && capacity <= 1352<<20 || !result.Controller.Selected && capacity != 64<<20 {
+			t.Fatal("qualification disk does not match admitted seed role")
+		}
 		if len(result.MembershipPins) != len(guests) || bytes.Equal(result.Controller.Files[vmcontrolseed.CAPath], result.NATSIdentity.TLSCA) {
 			t.Fatal("guest control scope or transport separation lost")
 		}
@@ -77,7 +81,7 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if configured.Components[0].Arguments != "run --config @config" || configured.Components[0].Configuration != result.Controller.Settings || !strings.HasPrefix(configured.Components[0].Version, "ctl-") {
+		if configured.Components[0].Arguments != vmcontrolseed.Arguments || configured.Components[0].Configuration != result.Controller.Settings || !strings.HasPrefix(configured.Components[0].Version, "ctl-") {
 			t.Fatal("configured immutable launch missing")
 		}
 		again, _, err := services.Bootstrap(vmqual.Guest{ID: guest.ID, Region: vmnet.GRU})

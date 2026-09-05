@@ -17,6 +17,9 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
+	if err := m.ValidateMembership(input.MembershipIdentityPrivateKey, input.MembershipPins); err != nil {
+		return nil, err
+	}
 	if m.HostID != input.Config.NodeID {
 		return nil, errors.New("vmimage: controller material belongs to another host")
 	}
@@ -27,7 +30,7 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 	matched := false
 	for _, component := range manifest.Components {
 		if component.Name == "orchestrator" {
-			matched = component.Arguments == "run --config @config" && component.Configuration == m.Settings
+			matched = component.Arguments == vmcontrolseed.Arguments && component.Configuration == m.Settings
 		}
 	}
 	if !matched {

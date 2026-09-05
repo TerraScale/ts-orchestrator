@@ -20,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
@@ -855,7 +856,14 @@ func (t *NatsTransport) applyManifest(ctx context.Context, command hostmanifest.
 		}
 	}
 	if accepted {
+		if err := admitInitialComponents(ctx, command.Manifest.Components); err != nil {
+			return nil, err
+		}
 		if t.requireManifestAdmission {
+			authorization, _ := ctx.Value(commandAuthorizationContextKey{}).(nodeauthority.CommandAuthorization)
+			if err := initialgrant.RetireForReplacement(ctx, t.epochs, authorization, command, currentManifest); err != nil {
+				return nil, err
+			}
 			if err := t.epochs.AdmitRuntimeManifest(wantedSha256, currentSha256); err != nil {
 				return nil, err
 			}

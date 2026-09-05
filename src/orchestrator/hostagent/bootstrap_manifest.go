@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"time"
 )
 
@@ -27,6 +28,9 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 	}
 	runtime, admissionErr := t.epochs.AdmittedManifest(digest)
 	if admissionErr == nil && runtime {
+		if err := admitInitialComponents(t.context(), manifest.Components); err != nil {
+			return t.hydrateRetiredInitialReceiver(digest, err)
+		}
 		return t.lifecycle.HydrateDesired(manifest.Components)
 	}
 	bootstrap, ok := t.authorizer.(*BootstrapAuthority)
@@ -44,6 +48,14 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 		return err
 	}
 	if err := t.epochs.AdmitBootstrap(bootstrap.digest, bootstrap.manifestDigest); err != nil {
+		return err
+	}
+	if bootstrap.initialProof != nil {
+		if err := initialgrant.Publish(t.context(), t.epochs, bootstrap.initialProof); err != nil {
+			return err
+		}
+	}
+	if err := admitInitialComponents(t.context(), manifest.Components); err != nil {
 		return err
 	}
 	return t.lifecycle.HydrateDesired(manifest.Components)

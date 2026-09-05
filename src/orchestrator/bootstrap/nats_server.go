@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -66,8 +67,53 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 	if err != nil {
 		return nil, err
 	}
+	return startNatsServerOptions(ctx, options, config.ReadinessTimeout, nil)
+}
+
+// StartNatsServerConfiguration parses literal configuration without TLS paths
+// and attaches captured TLS material. The validator checks resolved options
+// before any server effect.
+func StartNatsServerConfiguration(ctx context.Context, configuration []byte, readiness time.Duration, capturedTLS *tls.Config, validate func(*server.Options) error) (*NatsServer, error) {
+	if ctx == nil {
+		return nil, errors.New("nats server context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(configuration) == 0 || len(configuration) > NatsServerConfigSizeLimit || containsNatsIncludeDirective(configuration) {
+		return nil, errors.New("nats server configuration must be bounded and self-contained")
+	}
+	if readiness < 0 || readiness > NatsServerReadinessLimit {
+		return nil, errors.New("nats readiness timeout is invalid")
+	}
+	options := &server.Options{}
+	var fields map[string]json.RawMessage
+	if capturedTLS == nil || json.Unmarshal(configuration, &fields) != nil || fields == nil {
+		return nil, errors.New("captured TLS and literal configuration are required")
+	}
+	for name := range fields {
+		if strings.EqualFold(name, "tls") {
+			return nil, errors.New("captured TLS configuration cannot also reference TLS files")
+		}
+	}
+	if err := options.ProcessConfigString(string(configuration)); err != nil {
+		return nil, errors.New("parse nats server configuration: configuration is invalid")
+	}
+	if options.TLSConfig != nil {
+		return nil, errors.New("captured TLS configuration cannot also reference TLS files")
+	}
+	options.TLSConfig = capturedTLS.Clone()
+	return startNatsServerOptions(ctx, options, readiness, validate)
+}
+
+func startNatsServerOptions(ctx context.Context, options *server.Options, readiness time.Duration, validate func(*server.Options) error) (*NatsServer, error) {
 	if err := validateNatsServerOptions(options); err != nil {
 		return nil, err
+	}
+	if validate != nil {
+		if err := validate(options); err != nil {
+			return nil, err
+		}
 	}
 	// The orchestrator owns OS signals and supervises this server explicitly.
 	options.NoSigs = true
@@ -80,7 +126,7 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 	// its owner so the controller can shut down every resource it owns.
 	instance.SetLogger(&natsServerLogger{fatalErrors: fatalErrors}, false, false)
 	instance.Start()
-	if err := waitForNatsReadiness(ctx, instance, config.ReadinessTimeout, fatalErrors); err != nil {
+	if err := waitForNatsReadiness(ctx, instance, readiness, fatalErrors); err != nil {
 		shutdownNatsServer(instance)
 		return nil, err
 	}

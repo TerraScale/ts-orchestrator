@@ -126,6 +126,9 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		}
 		args = []string{"run"}
 	}
+	if name == "initial-gru-r1" {
+		return runInitialGRUR1(ctx, args[2])
+	}
 	if name == "observe-member" {
 		return runObserveMember(ctx, args, output)
 	}
@@ -254,6 +257,12 @@ func requestedCommand(args []string) (string, error) {
 	if args[0] == "run" && len(args) == 3 && args[1] == "--config" && args[2] != "" {
 		return "run", nil
 	}
+	if args[0] == "initial-gru-r1" {
+		if len(args) == 3 && args[1] == "--config" && args[2] != "" {
+			return args[0], nil
+		}
+		return "unsupported", errors.New("orchestrator: invalid initial configuration arguments")
+	}
 	if args[0] == "observe-member" {
 		return "observe-member", nil
 	}
@@ -293,7 +302,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1":
 		return args[0]
 	default:
 		return "unsupported"

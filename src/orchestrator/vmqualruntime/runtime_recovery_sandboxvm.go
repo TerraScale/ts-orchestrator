@@ -7,11 +7,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -24,8 +22,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
-	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"time"
 
@@ -776,37 +772,7 @@ func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (st
 	}
 	defer clear(seed.NATSIdentity.NKeySeed)
 	defer clear(seed.NATSIdentity.TLSPrivateKey)
-	grant, err := hostagent.VerifyBootstrapGrant(guest.ID, seed.InitialGrant.PublicKeyPEM, seed.InitialGrant.SignedGrant)
-	if err != nil {
-		return "", err
-	}
-	manifest, err := hostmanifest.CanonicalHostManifestJSON(grant.Manifest)
-	if err != nil || !bytes.Equal(manifest, seed.DesiredHostManifest) {
-		return "", errors.New("vmqual: recovery manifest differs from admitted grant")
-	}
-	digest := sha256.Sum256(seed.Binary)
-	if len(seed.ReleasePublicKey) != ed25519.PublicKeySize || hex.EncodeToString(digest[:]) != seed.SHA256 || !ed25519.Verify(seed.ReleasePublicKey, seed.Binary, seed.Signature) {
-		return "", errors.New("vmqual: recovery ts-node artifact is not signed by the admitted release key")
-	}
-	var artifact vmimage.GuestArtifact
-	for _, candidate := range artifacts {
-		if candidate.Component == "ts-node" {
-			artifact = candidate
-		}
-	}
-	if artifact.Version != seed.Version || artifact.SHA256 != seed.SHA256 || artifact.Size != int64(len(seed.Binary)) {
-		return "", errors.New("vmqual: recovery ts-node release differs from guest artifact")
-	}
-	publicFiles, err := vmimage.TSNodePublicLaunchFiles(seed)
-	if err != nil {
-		return "", err
-	}
-	files := make([]ocireconcile.BootstrapHostFile, 0, len(publicFiles))
-	for path, content := range publicFiles {
-		files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: content, Private: true})
-	}
-
-	return ocireconcile.TSNodeCloudInit(seed.Version, seed.SHA256, artifact.Source, artifact.Source+".sig", hex.EncodeToString(seed.ReleasePublicKey), files)
+	return vmimage.TSNodeRecoveryCloudInit(seed, artifacts)
 }
 
 type recoveryOCIRewriteTransport struct {

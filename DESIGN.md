@@ -20,7 +20,10 @@ describe code that exists today; they do not preserve a retired topology.
 | Contracts | `src/orchestrator/contracts` | — |
 | NATS subjects, accounts and capability policy | `src/orchestrator/natspolicy` | contracts |
 | Protocol envelopes and delivery semantics | `src/orchestrator/protocol` | contracts, natspolicy |
-| GRU operational NATS client | `src/orchestrator/globalclient` | control/directory |
+| GRU operational NATS client | `src/orchestrator/globalclient` | control/directory, natsconnect |
+| Captured-identity NATS connection | `src/orchestrator/natsconnect` | NATS client |
+| Signed initial GRU admission | `src/orchestrator/initialgrant` | hostmanifest, nodeauthority, nodebootstrap |
+| Temporary GRU authority runtime | `src/orchestrator/initialcontrol` | initialgrant, bootstrap, control, natsconnect |
 | Scheduled service lifecycle | `src/orchestrator/lifecycle` | — (leaf) |
 | Runtime | `src/orchestrator/runtime` | — (leaf) |
 | Security | `src/orchestrator/security` | — (leaf) |

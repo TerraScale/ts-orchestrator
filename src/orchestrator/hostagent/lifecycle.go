@@ -175,7 +175,7 @@ func (l *Lifecycle) startUnitsLocked(ctx context.Context) error {
 		if active {
 			continue
 		}
-		if err := l.installer.withVerifiedCurrentTransition(ctx, spec, func(string) error {
+		if err := l.installer.withVerifiedCurrentTransition(ctx, spec, func(ctx context.Context, _ string) error {
 			return l.systemd.StartUnit(ctx, UnitName(spec.Name))
 		}); err != nil {
 			return err
@@ -265,7 +265,7 @@ func (l *Lifecycle) prepareDeployLocked(ctx context.Context, component, version 
 		return transitionPlan{}, &InvalidOperationError{Message: fmt.Sprintf(
 			"Component %s deploy refused: drain the node first.", component)}
 	}
-	if err := l.installer.withVerifiedTransition(ctx, spec.Name, spec.Version, spec.Sha256, func() error { return nil }); err != nil {
+	if err := l.installer.withVerifiedTransition(ctx, spec.Name, spec.Version, spec.Sha256, func(context.Context) error { return nil }); err != nil {
 		return transitionPlan{}, err
 	}
 	return transitionPlan{Spec: spec, ExpectedSha256: spec.Sha256}, nil
@@ -320,7 +320,7 @@ func (l *Lifecycle) applyTransitionLocked(ctx context.Context, plan transitionPl
 	if plan.ExpectedSha256 != "" && plan.ExpectedSha256 != plan.Spec.Sha256 {
 		return &InvalidDataError{Message: "The transition release digest does not match its component spec."}
 	}
-	return l.installer.withVerifiedTransition(ctx, plan.Spec.Name, plan.Spec.Version, plan.ExpectedSha256, func() error {
+	return l.installer.withVerifiedTransition(ctx, plan.Spec.Name, plan.Spec.Version, plan.ExpectedSha256, func(ctx context.Context) error {
 		if err := verifyExpectedLaunch(VersionDir(l.installRoot, plan.Spec.Name, plan.Spec.Version), plan.Spec); err != nil {
 			return err
 		}

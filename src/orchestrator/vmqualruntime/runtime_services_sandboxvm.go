@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
@@ -29,8 +28,8 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
@@ -113,12 +112,12 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			continue
 		}
 		for _, guest := range region.Guests {
-			signer := authority.commandSigners["gru-controller-"+guest.ID]
-			if signer == nil {
+			membership := authority.memberships[guest.ID]
+			if membership == nil {
 				authority.close()
-				return nil, errors.New("vmqual: declared GRU command signer missing")
+				return nil, errors.New("vmqual: declared GRU membership identity missing")
 			}
-			candidates = append(candidates, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, CommandPrivateKey: signer.PrivatePEM})
+			candidates = append(candidates, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, MembershipPublicKey: membership.PublicKey})
 		}
 	}
 	controlSeeds, err := vmcontrolseed.GenerateGRU(plan.RunID, candidates)
@@ -343,17 +342,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if services.bootstrapIssuer == nil {
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: initial grant issuer is missing")
 	}
-	desired, err := hostmanifest.ParseHostManifest(services.manifest)
-	if err != nil {
-		return vmimage.TSNodeBootstrap{}, nil, err
-	}
-	for i := range desired.Components {
-		if desired.Components[i].Name == "orchestrator" {
-			desired.Components[i].Arguments = "run --config @config"
-			desired.Components[i].Configuration = controlSeed.Settings
-		}
-	}
-	desired, err = bootstrap.PlanControlLaunchManifest(desired)
+	desired, err := controlSeed.LaunchManifest(services.manifest)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
@@ -660,4 +649,15 @@ func (services *qualificationRuntimeServices) removeNATSStore() error {
 	services.natsStoreName = ""
 	services.natsStoreRunID = ""
 	return err
+}
+
+// DataDriveBytes declares the seed's full broker capacity before guest boot.
+func (services *qualificationRuntimeServices) DataDriveBytes(guest vmqual.Guest) (int64, error) {
+	services.mu.Lock()
+	defer services.mu.Unlock()
+	seed, ok := services.controlSeeds[guest.ID]
+	if !ok {
+		return 64 << 20, nil
+	}
+	return seed.DataDriveBytes()
 }

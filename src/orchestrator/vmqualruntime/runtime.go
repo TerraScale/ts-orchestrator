@@ -404,7 +404,16 @@ func (f *firecrackerFactory) Create(ctx context.Context, guest vmqual.Guest) (vm
 	if err != nil {
 		return nil, err
 	}
-	drive, err := disks.Preallocate(ctx, guest.ID, 64<<20)
+	driveBytes := int64(64 << 20)
+	if sizing, ok := f.services.(interface {
+		DataDriveBytes(vmqual.Guest) (int64, error)
+	}); ok {
+		driveBytes, err = sizing.DataDriveBytes(guest)
+		if err != nil {
+			return nil, err
+		}
+	}
+	drive, err := disks.Preallocate(ctx, guest.ID, driveBytes)
 	if err != nil {
 		return nil, err
 	}

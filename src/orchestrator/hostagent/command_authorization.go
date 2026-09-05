@@ -10,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+type commandAuthorizationContextKey struct{}
+
 const internalCommandProof = "Ts-Node-Internal-Proof"
 
 func (t *NatsTransport) authorizedHandler(handler func(*nats.Msg)) func(*nats.Msg) {
@@ -61,5 +63,5 @@ func (t *NatsTransport) authorizeLocked(message *nats.Msg) (context.Context, con
 		return nil, nil, err
 	}
 	ctx, cancel := context.WithDeadline(t.context(), authorization.ExpiresAt)
-	return ctx, cancel, nil
+	return context.WithValue(ctx, commandAuthorizationContextKey{}, authorization), cancel, nil
 }

@@ -4,6 +4,7 @@ package vmqualruntime
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"gopkg.in/yaml.v2"
+	"io"
 	"reflect"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
@@ -184,7 +186,7 @@ func recoverySeedFactory(t *testing.T) *firecrackerFactory {
 			continue
 		}
 		for _, guest := range region.Guests {
-			guests = append(guests, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, CommandPrivateKey: authority.commandSigners["gru-controller-"+guest.ID].PrivatePEM})
+			guests = append(guests, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, MembershipPublicKey: authority.memberships[guest.ID].PublicKey})
 		}
 	}
 	seeds, err := vmcontrolseed.GenerateGRU(plan.RunID, guests)
@@ -225,6 +227,10 @@ func TestRecoverySeedBindsManifestWithoutPrivateMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("recovery serialized metadata bytes=%d", len(encoded))
+	if len(encoded) > 48<<10 {
+		t.Fatal("recovery metadata exceeds OCI bound")
+	}
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		t.Fatal(err)
@@ -247,20 +253,32 @@ func TestRecoverySeedBindsManifestWithoutPrivateMetadata(t *testing.T) {
 	found := map[string][]byte{}
 	for _, file := range cloud.Files {
 		data := []byte(file.Content)
-		if file.Encoding == "b64" {
+		if file.Encoding == "b64" || file.Encoding == "gz+b64" {
 			data, err = base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
+		if file.Encoding == "gz+b64" {
+			reader, err := gzip.NewReader(bytes.NewReader(data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err = io.ReadAll(io.LimitReader(reader, (32<<10)+1))
+			reader.Close()
+			if err != nil || len(data) > 32<<10 {
+				t.Fatal("invalid bounded compressed launch file")
+			}
+		}
+		t.Logf("recovery file %s decoded bytes=%d", file.Path, len(data))
 		found[file.Path] = data
-		for _, secret := range [][]byte{seed.NATSIdentity.NKeySeed, seed.NATSIdentity.TLSPrivateKey, seed.MembershipIdentityPrivateKey, seed.Controller.Files[vmcontrolseed.CommandKeyPath], seed.Controller.Files[vmcontrolseed.NKeyPath], seed.Controller.Files[vmcontrolseed.PrivateKeyPath], seed.Controller.Files[vmcontrolseed.ServerPrivateKeyPath]} {
+		for _, secret := range [][]byte{seed.NATSIdentity.NKeySeed, seed.NATSIdentity.TLSPrivateKey, seed.MembershipIdentityPrivateKey, seed.Controller.Files[vmcontrolseed.NKeyPath], seed.Controller.Files[vmcontrolseed.PrivateKeyPath], seed.Controller.Files[vmcontrolseed.ServerPrivateKeyPath], seed.Controller.Files[vmcontrolseed.GlobalNKeyPath], seed.Controller.Files[vmcontrolseed.RegionalProvisionerNKeyPath], seed.Controller.Files[vmcontrolseed.GlobalProvisionerNKeyPath], seed.Controller.Files[vmcontrolseed.ProvisionerPrivateKeyPath]} {
 			if len(secret) != 0 && bytes.Contains(data, secret) {
 				t.Fatal("private credential entered user-data")
 			}
 		}
 	}
-	if !bytes.Equal(found["/var/lib/terrascale/ts-node/manifest.json"], seed.DesiredHostManifest) {
+	if !bytes.Equal(found["/var/lib/terrascale/ts-node/manifest.json"], seed.DesiredHostManifest) || !bytes.Equal(found[vmimage.BootstrapGrantPath], seed.InitialGrant.SignedGrant) {
 		t.Fatal("recovery manifest differs")
 	}
 	var config map[string]any

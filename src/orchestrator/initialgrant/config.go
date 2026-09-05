@@ -1,0 +1,197 @@
+// Package initialgrant verifies an initial control launch under the existing
+// owner-signed host grant. It does not create signing authority or control stores.
+package initialgrant
+
+import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/url"
+	"path/filepath"
+	"strings"
+
+	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+)
+
+const Arguments = "initial-gru-r1 --config @config"
+const Mode = "initial-gru-r1"
+const MaximumConfigBytes = 64 << 10
+
+type TLSFiles struct {
+	CAFile            string `json:"caFile"`
+	CASHA256          string `json:"caSha256"`
+	CertificateFile   string `json:"certificateFile"`
+	CertificateSHA256 string `json:"certificateSha256"`
+	KeyFile           string `json:"keyFile"`
+}
+type Connection struct {
+	NKeySeedFile string   `json:"nkeySeedFile"`
+	PublicNKey   string   `json:"publicNkey"`
+	TLS          TLSFiles `json:"tls"`
+}
+type Store struct {
+	Account     string      `json:"account"`
+	Provisioner *Connection `json:"provisioner"`
+	Runtime     Connection  `json:"runtime"`
+}
+type Broker struct {
+	Configuration      string   `json:"configuration"`
+	ServerName         string   `json:"serverName"`
+	StoreDir           string   `json:"storeDir"`
+	Endpoint           string   `json:"endpoint"`
+	StorageBudgetBytes int64    `json:"storageBudgetBytes"`
+	TLS                TLSFiles `json:"tls"`
+}
+type Membership struct {
+	SigningKeyFile string `json:"signingKeyFile"`
+	PublicKey      string `json:"publicKey"`
+	PinsFile       string `json:"pinsFile"`
+	PinsSHA256     string `json:"pinsSha256"`
+}
+type Peer struct {
+	Instance            string `json:"instance"`
+	RegionalPublicNKey  string `json:"regionalPublicNkey"`
+	GlobalPublicNKey    string `json:"globalPublicNkey"`
+	MembershipPublicKey string `json:"membershipPublicKey"`
+}
+type Config struct {
+	Version       int        `json:"version"`
+	Mode          string     `json:"mode"`
+	Role          string     `json:"role"`
+	NodeID        string     `json:"nodeId"`
+	Cell          string     `json:"cell"`
+	Instance      string     `json:"instance"`
+	SeedInstance  string     `json:"seedInstance"`
+	Peers         []Peer     `json:"peers"`
+	Broker        Broker     `json:"broker"`
+	Regional      Store      `json:"regional"`
+	Global        *Store     `json:"global"`
+	Membership    Membership `json:"membership"`
+	ProfileSHA256 string     `json:"profileSha256"`
+}
+
+func ParseConfig(raw []byte) (Config, error) {
+	var c Config
+	if len(raw) == 0 || len(raw) > MaximumConfigBytes {
+		return c, errors.New("initialgrant: configuration exceeds bound")
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if d.Decode(&c) != nil || d.Decode(&struct{}{}) != io.EOF {
+		return c, errors.New("initialgrant: malformed configuration")
+	}
+	canonical, err := json.Marshal(c)
+	if err != nil || !bytes.Equal(raw, canonical) {
+		return c, errors.New("initialgrant: configuration must be canonical with exact fields")
+	}
+	return c, c.Validate()
+}
+func cleanPath(s string) bool {
+	return filepath.IsAbs(s) && filepath.Clean(s) == s && !strings.ContainsAny(s, "\x00\r\n")
+}
+func token(s string) bool {
+	_, err := hostmanifest.RequireToken(s, "identity", "initialgrant: invalid identity")
+	return err == nil
+}
+func validMembershipPublic(s string) bool {
+	raw, err := base64.StdEncoding.Strict().DecodeString(s)
+	if err != nil || base64.StdEncoding.EncodeToString(raw) != s {
+		return false
+	}
+	key, err := x509.ParsePKIXPublicKey(raw)
+	p, ok := key.(*ecdsa.PublicKey)
+	return err == nil && ok && p.Curve == elliptic.P256()
+}
+func (t TLSFiles) valid() bool {
+	return cleanPath(t.CAFile) && cleanPath(t.CertificateFile) && cleanPath(t.KeyFile) && hostmanifest.ValidDigest(t.CASHA256) && hostmanifest.ValidDigest(t.CertificateSHA256) && t.KeyFile != t.CertificateFile && t.KeyFile != t.CAFile
+}
+func (c Connection) valid() bool {
+	return cleanPath(c.NKeySeedFile) && nkeys.IsValidPublicUserKey(c.PublicNKey) && c.TLS.valid() && c.NKeySeedFile != c.TLS.KeyFile
+}
+func (c Config) Validate() error {
+	bad := func() error {
+		return errors.New("initialgrant: invalid initial GRU role, identity or finite configuration")
+	}
+	if c.Version != 1 || c.Mode != Mode || (c.Role != "seed" && c.Role != "participant") || c.Cell != "gru" || !token(c.NodeID) || !strings.HasPrefix(c.NodeID, "gru-") || !token(c.Instance) || !token(c.SeedInstance) || !hostmanifest.ValidDigest(c.ProfileSHA256) || !token(c.Broker.ServerName) || !cleanPath(c.Broker.StoreDir) || c.Broker.StorageBudgetBytes <= 0 {
+		return bad()
+	}
+	u, err := url.Parse(c.Broker.Endpoint)
+	if err != nil || u.Scheme != "tls" || u.Hostname() == "" || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return bad()
+	}
+	if c.Regional.Account == "" || len(c.Regional.Account) > 63 || !c.Regional.Runtime.valid() || !cleanPath(c.Membership.SigningKeyFile) || !cleanPath(c.Membership.PinsFile) || !hostmanifest.ValidDigest(c.Membership.PinsSHA256) || !validMembershipPublic(c.Membership.PublicKey) {
+		return bad()
+	}
+	if c.Role == "seed" {
+		if c.Instance != c.SeedInstance || c.Global == nil || c.Regional.Provisioner == nil || c.Global.Provisioner == nil || !c.Regional.Provisioner.valid() || !c.Global.Provisioner.valid() || !c.Global.Runtime.valid() || c.Global.Account == "" || c.Global.Account == c.Regional.Account || !c.Broker.TLS.valid() || !json.Valid([]byte(c.Broker.Configuration)) || len(c.Broker.Configuration) > 32<<10 {
+			return bad()
+		}
+	} else if c.Instance == c.SeedInstance || c.Global != nil || c.Regional.Provisioner != nil || c.Broker.Configuration != "" || c.Broker.TLS != (TLSFiles{}) {
+		return bad()
+	}
+	if len(c.Peers) < 1 || len(c.Peers) > 3 {
+		return bad()
+	}
+	seen := map[string]bool{}
+	keys := map[string]bool{}
+	membershipKeys := map[string]bool{}
+	self, seed := false, false
+	for index, p := range c.Peers {
+		if !token(p.Instance) || seen[p.Instance] || index > 0 && c.Peers[index-1].Instance >= p.Instance || !nkeys.IsValidPublicUserKey(p.RegionalPublicNKey) || keys[p.RegionalPublicNKey] || !validMembershipPublic(p.MembershipPublicKey) || membershipKeys[p.MembershipPublicKey] {
+			return bad()
+		}
+		seen[p.Instance] = true
+		membershipKeys[p.MembershipPublicKey] = true
+		keys[p.RegionalPublicNKey] = true
+		if p.Instance == c.SeedInstance {
+			if !nkeys.IsValidPublicUserKey(p.GlobalPublicNKey) || keys[p.GlobalPublicNKey] {
+				return bad()
+			}
+			keys[p.GlobalPublicNKey] = true
+			seed = true
+		} else if p.GlobalPublicNKey != "" {
+			return bad()
+		}
+		if p.Instance == c.Instance {
+			self = p.RegionalPublicNKey == c.Regional.Runtime.PublicNKey && p.MembershipPublicKey == c.Membership.PublicKey
+			if c.Role == "seed" && p.GlobalPublicNKey != c.Global.Runtime.PublicNKey {
+				return bad()
+			}
+		}
+	}
+	if !self || !seed {
+		return bad()
+	}
+	if c.Role == "seed" {
+		for _, conn := range []*Connection{c.Regional.Provisioner, c.Global.Provisioner} {
+			if keys[conn.PublicNKey] {
+				return bad()
+			}
+			keys[conn.PublicNKey] = true
+		}
+	}
+	return nil
+}
+
+// ComponentConfig recognizes only the exact initial launch vocabulary. A
+// malformed attempted initial mode is an error, never an ordinary component.
+func ComponentConfig(spec hostmanifest.ComponentSpec) (Config, bool, error) {
+	if spec.Name != "orchestrator" {
+		return Config{}, false, nil
+	}
+	fields := strings.Fields(spec.Arguments)
+	if len(fields) == 0 || fields[0] != Mode {
+		return Config{}, false, nil
+	}
+	if spec.Arguments != Arguments {
+		return Config{}, true, errors.New("initialgrant: initial launch arguments differ")
+	}
+	c, err := ParseConfig([]byte(spec.Configuration))
+	return c, true, err
+}

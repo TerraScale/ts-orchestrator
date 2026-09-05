@@ -3,8 +3,8 @@ package vmimage
 import (
 	"bytes"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
-
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 	"testing"
@@ -12,7 +12,11 @@ import (
 
 func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	spec := validNoCloudSpec(t)
-	materials, err := vmcontrolseed.GenerateGRU("run1", []vmcontrolseed.Guest{{ID: spec.InstanceID, Address: spec.Address, CommandPrivateKey: spec.TSNode.MembershipIdentityPrivateKey}})
+	_, public, err := directory.RegionalRuntimeMembershipPublicKeyFromPEM(spec.TSNode.MembershipIdentityPrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materials, err := vmcontrolseed.GenerateGRU("run1", []vmcontrolseed.Guest{{ID: spec.InstanceID, Address: spec.Address, MembershipPublicKey: public}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +30,7 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Components[0].Arguments = "run --config @config"
+	manifest.Components[0].Arguments = vmcontrolseed.Arguments
 	manifest.Components[0].Configuration = m.Settings
 	manifest, err = bootstrap.PlanControlLaunchManifest(manifest)
 	if err != nil {
@@ -76,8 +80,8 @@ func TestNoCloudControllerFilesAndConfiguredGrant(t *testing.T) {
 		t.Fatal("controller files missing")
 	}
 	script := controllerOwnershipBootstrap(seed.RootFiles)
-	if !bytes.Contains([]byte(script), []byte("stat -c %U:%G:%a "+vmcontrolseed.ServerConfigPath)) {
-		t.Fatal("broker config ownership not verified")
+	if !bytes.Contains([]byte(script), []byte("stat -c %U:%G:%a "+vmcontrolseed.ServerPrivateKeyPath)) {
+		t.Fatal("broker credential ownership not verified")
 	}
 	m.Settings += " "
 	if _, err := BuildNoCloudSeed(spec); err == nil {

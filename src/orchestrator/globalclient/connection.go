@@ -3,7 +3,6 @@ package globalclient
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"net"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
+	"terrascale.tech/orchestrator/src/orchestrator/natsconnect"
 )
 
 // Plan owns resolved immutable file references, never credential bytes.
@@ -71,49 +71,6 @@ func (p *Plan) Matches(config *directory.GlobalAuthorityNatsConfiguration) bool 
 	return config.Url == p.url && config.Authentication.PublicKey == p.public && absolute(*config.Authentication.NKeyFile) == p.seed && absolute(config.Tls.CaFile) == p.ca && absolute(config.Tls.CertificateFile) == p.certificate && absolute(config.Tls.KeyFile) == p.key
 }
 
-type pendingSocket struct {
-	connection net.Conn
-	stop       func() bool
-	done       chan struct{}
-}
-
-// NATS calls Dial serially during initial connection; reconnect is disabled.
-type contextDialer struct {
-	ctx     context.Context
-	dialer  net.Dialer
-	sockets []*pendingSocket
-}
-
-func (d *contextDialer) Dial(network, address string) (net.Conn, error) {
-	connection, err := d.dialer.DialContext(d.ctx, network, address)
-	if err != nil {
-		return nil, err
-	}
-	socket := &pendingSocket{connection: connection, done: make(chan struct{})}
-	socket.stop = context.AfterFunc(d.ctx, func() { connection.Close(); close(socket.done) })
-	d.sockets = append(d.sockets, socket)
-	return connection, nil
-}
-func (d *contextDialer) finish(keep bool) bool {
-	for _, socket := range d.sockets {
-		if socket.stop() {
-			close(socket.done)
-		} else {
-			<-socket.done
-			keep = false
-		}
-	}
-	if d.ctx.Err() != nil {
-		keep = false
-	}
-	if !keep {
-		for _, socket := range d.sockets {
-			socket.connection.Close()
-		}
-	}
-	return keep
-}
-
 // Connect opens one authenticated, unbuffered session. The caller owns Close.
 func (p *Plan) Connect(ctx context.Context) (*nats.Conn, error) {
 	return p.connect(ctx, net.Dialer{Timeout: 2 * time.Second})
@@ -131,49 +88,6 @@ func (p *Plan) connect(ctx context.Context, network net.Dialer) (*nats.Conn, err
 	if err != nil {
 		return nil, err
 	}
-	transferred := false
-	dialer := &contextDialer{ctx: bounded, dialer: network}
-	defer func() {
-		if !transferred {
-			dialer.finish(false)
-			identity.pair.Wipe()
-		}
-	}()
-	settings := nats.GetDefaultOptions()
-	settings.Url = p.url
-	for _, option := range []nats.Option{nats.Secure(identity.tls), nats.Nkey(p.public, identity.pair.Sign), nats.NoReconnect(), nats.ReconnectBufSize(-1), nats.RetryOnFailedConnect(false), nats.SkipHostLookup(), nats.SetCustomDialer(dialer)} {
-		if err := option(&settings); err != nil {
-			return nil, err
-		}
-	}
-	deadline, _ := bounded.Deadline()
-	settings.Timeout = time.Until(deadline)
-	if settings.Timeout <= 0 {
-		return nil, context.DeadlineExceeded
-	}
-	connection, err := settings.Connect()
-	if err != nil {
-		if bounded.Err() != nil {
-			return nil, bounded.Err()
-		}
-		return nil, err
-	}
-	if err := bounded.Err(); err != nil {
-		connection.Close()
-		return nil, err
-	}
-	state, err := connection.TLSConnectionState()
-	if err != nil || !connection.AuthRequired() || !state.HandshakeComplete || state.Version < tls.VersionTLS13 || len(state.VerifiedChains) == 0 {
-		connection.Close()
-		return nil, errors.New("global worker connection did not establish authenticated verified TLS 1.3")
-	}
-	if !dialer.finish(true) {
-		connection.Close()
-		if err := bounded.Err(); err != nil {
-			return nil, err
-		}
-		return nil, context.Canceled
-	}
-	transferred = true
-	return connection, nil
+	defer identity.pair.Wipe()
+	return natsconnect.Connect(bounded, natsconnect.Config{URL: p.url, TLS: identity.tls, PublicNKey: p.public, Sign: identity.pair.Sign, Timeout: 2 * time.Second}, network)
 }

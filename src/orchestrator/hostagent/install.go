@@ -849,7 +849,7 @@ func requireSameMount(paths ...string) error {
 // withVerifiedTransition holds the installer and component locks while it
 // authenticates the exact immutable release and performs one serving
 // transition. This removes the lifecycle's former verify/use gap.
-func (i *Installer) withVerifiedTransition(ctx context.Context, component, version, expectedSha256 string, transition func() error) error {
+func (i *Installer) withVerifiedTransition(ctx context.Context, component, version, expectedSha256 string, transition func(context.Context) error) error {
 	if i == nil || transition == nil {
 		return &InvalidOperationError{Message: "A verified release transition is required."}
 	}
@@ -895,14 +895,14 @@ func (i *Installer) withVerifiedTransition(ctx context.Context, component, versi
 	if !installed || !complete {
 		return &InvalidOperationError{Message: fmt.Sprintf("Component %s version %s is not fully authenticated.", component, version)}
 	}
-	return transition()
+	return withInitialLaunch(ctx, VersionDir(i.installRoot, component, version), component, func(effectCtx context.Context) error { return transition(effectCtx) })
 }
 
 // withVerifiedCurrentTransition resolves current only after taking the
 // component install lock, authenticates that exact version, and keeps the
 // lock held until the serving transition completes. A current version that
 // differs from the manifest uses its own durable digest/signature metadata.
-func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec hostmanifest.ComponentSpec, transition func(version string) error) error {
+func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec hostmanifest.ComponentSpec, transition func(context.Context, string) error) error {
 	if i == nil || transition == nil {
 		return &InvalidOperationError{Message: "A verified current transition is required."}
 	}
@@ -955,7 +955,7 @@ func (i *Installer) withVerifiedCurrentTransition(ctx context.Context, spec host
 	if !installed || !complete {
 		return &InvalidOperationError{Message: fmt.Sprintf("Component %s version %s is not fully authenticated.", validated.Name, version)}
 	}
-	return transition(version)
+	return withInitialLaunch(ctx, VersionDir(i.installRoot, validated.Name, version), validated.Name, func(effectCtx context.Context) error { return transition(effectCtx, version) })
 }
 
 // decodeEd25519Signature admits the exact raw detached signature emitted by

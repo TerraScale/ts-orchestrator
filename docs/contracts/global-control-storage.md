@@ -14,12 +14,14 @@ Its global NATS runtime opens only the control records needed for those duties.
 
 Production remains R3 in GRU/SFO/FRA, totaling 4,056 MiB of declared stream
 limits before overhead. These are storage limits, not measured allocation or
-performance. The current qualification seed's 256 MiB broker budget cannot
-admit this topology. Initial R1 provisioning must declare an adequate budget
-and prove the complete profiles without reducing production limits.
+performance. The initial GRU seed declares 3,952.25 MiB for the complete R1
+regional and global profiles plus overhead. Its qualification data disk adds
+256 MiB for the filesystem. These capacities do not establish physical
+allocation or qualify the permanent R3 topology.
 
 The desired-state consumer is `global_cell_spec_{cell}`, consuming the retained
-global desired subject. Its exact pull, acknowledgment, redelivery and replica
+global desired subject, with both Name and Durable set to that exact name and
+no inactivity expiry. Named ephemeral consumers fail readback. Its exact pull, acknowledgment, redelivery and replica
 profile remains mandatory. Closed stream limits explicitly represent NATS's
 unbounded fields as `-1`, so real broker readback matches the declared profile.
 

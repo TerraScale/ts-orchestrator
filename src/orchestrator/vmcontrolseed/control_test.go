@@ -7,32 +7,31 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
-	"terrascale.tech/orchestrator/src/orchestrator/control"
-	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 )
 
-func commandKey(t *testing.T) []byte {
+func membershipPublic(t *testing.T) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	der, err := x509.MarshalPKCS8PrivateKey(key)
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	return base64.StdEncoding.EncodeToString(der)
 }
 func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
-	guests := []Guest{{ID: "gru-member-2", Address: "10.77.0.11", CommandPrivateKey: commandKey(t)}, {ID: "gru-member-1", Address: "10.77.0.10", CommandPrivateKey: commandKey(t)}}
+	guests := []Guest{{ID: "gru-member-2", Address: "10.77.0.11", MembershipPublicKey: membershipPublic(t)}, {ID: "gru-member-1", Address: "10.77.0.10", MembershipPublicKey: membershipPublic(t)}}
 	materials, err := GenerateGRU("run1", guests)
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +49,26 @@ func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
 		if err := m.Validate(); err != nil {
 			t.Fatal(err)
 		}
+		config, err := initialgrant.ParseConfig([]byte(m.Settings))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.Broker.Endpoint != "tls://10.77.0.10:4222" || config.SeedInstance != "gru-member-1" || len(config.Peers) != 2 || config.ProfileSHA256 == "" {
+			t.Fatal("signed scope missing")
+		}
+		if strings.Contains(m.Settings, "TS_ORCH_") {
+			t.Fatal("flat production configuration retained")
+		}
+		if !m.Selected {
+			if config.Role != "participant" || config.Global != nil || config.Regional.Provisioner != nil || config.Broker.Configuration != "" || len(m.Files) != 4 {
+				t.Fatal("participant received seed authority")
+			}
+			continue
+		}
+		size, err := m.DataDriveBytes()
+		if err != nil || size <= config.Broker.StorageBudgetBytes || size < 1352<<20 {
+			t.Fatal("disk cannot contain admitted topology")
+		}
 		root := t.TempDir()
 		for path, data := range m.Files {
 			target := filepath.Join(root, path)
@@ -60,57 +79,42 @@ func TestGRUConfigurationParsesWithGuestBroker(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		membership := commandKey(t)
-		_, public, err := directory.RegionalRuntimeMembershipPublicKeyFromPEM(membership)
-		if err != nil {
+		broker := strings.ReplaceAll(config.Broker.Configuration, Directory, root+Directory)
+		options := &natsserver.Options{}
+		if err := options.ProcessConfigString(broker); err != nil {
 			t.Fatal(err)
 		}
-		pins, _ := json.Marshal(map[string]string{m.HostID: public})
-		for path, data := range map[string][]byte{Directory + "/identity.pem": membership, Directory + "/membership-pins.json": pins} {
-			if err := os.WriteFile(filepath.Join(root, path), data, 0400); err != nil {
-				t.Fatal(err)
+		if options.Host != "10.77.0.10" || options.Port != 4222 || !options.JetStream || options.StoreDir != StorePath || options.MaxPayload != 4<<20 || options.TLSConfig.MinVersion != tls.VersionTLS13 || options.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert || options.JetStreamMaxStore != config.Broker.StorageBudgetBytes {
+			t.Fatal("broker production settings lost")
+		}
+		if len(options.Accounts) != 2 || len(options.Nkeys) != 5 {
+			t.Fatal("account or candidate identity inventory differs")
+		}
+		counts := map[string]int{}
+		for _, user := range options.Nkeys {
+			counts[user.Account.Name]++
+			if user.Permissions == nil || user.Permissions.Publish == nil || user.Permissions.Subscribe == nil {
+				t.Fatal("broker user unrestricted")
 			}
 		}
-		settings := map[string]string{}
-		if err := json.Unmarshal([]byte(m.Settings), &settings); err != nil {
-			t.Fatal(err)
-		}
-		if settings["TS_ORCH_NATS_URL"] != "tls://10.77.0.10:4222" || settings["TS_ORCH_PROVIDER"] != "oci" {
-			t.Fatal("wrong authority endpoint or provider")
-		}
-		for key, value := range settings {
-			if strings.Contains(key, "OCI") {
-				t.Fatal("fabricated estate settings")
-			}
-			settings[key] = strings.ReplaceAll(value, Directory, root+Directory)
-		}
-		if _, err := control.ParseOrchestratorOptions([]string{"run"}, func(key string) (string, bool) { value, ok := settings[key]; return value, ok }); err != nil {
-			t.Fatal(err)
-		}
-		if m.Selected {
-			config := strings.ReplaceAll(string(m.Files[ServerConfigPath]), Directory, root+Directory)
-			options := &natsserver.Options{}
-			if err := options.ProcessConfigString(config); err != nil {
-				t.Fatal(err)
-			}
-			if options.Host != "10.77.0.10" || options.Port != 4222 || !options.JetStream || options.StoreDir != StorePath || options.MaxPayload != 4<<20 || options.TLSConfig.MinVersion != tls.VersionTLS13 || options.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert {
-				t.Fatal("broker production settings lost")
-			}
-			if len(options.Accounts) != 1 || options.Accounts[0].Name != "GRU_CONTROL" || len(options.Nkeys) != 2 {
-				t.Fatal("broker users escaped GRU account")
-			}
+		if counts[RegionalAccount] != 3 || counts[GlobalAccount] != 2 {
+			t.Fatal("cross-account user assignment")
 		}
 	}
-	bad := first.Clone()
-	bad.HostID = "other"
-	if bad.Validate() == nil {
-		t.Fatal("foreign host accepted")
+	for name, change := range map[string]func(*Material){"host": func(m *Material) { m.HostID = "gru-other" }, "broker": func(m *Material) { m.Settings = strings.ReplaceAll(m.Settings, "10.77.0.10", "10.77.0.1") }, "credential": func(m *Material) { m.Files[NKeyPath] = append([]byte(nil), second.Files[NKeyPath]...) }, "extra": func(m *Material) { m.Files["/tmp/secret"] = []byte("extra") }, "budget": func(m *Material) {
+		var c initialgrant.Config
+		json.Unmarshal([]byte(m.Settings), &c)
+		c.Broker.StorageBudgetBytes = 64 << 20
+		data, _ := json.Marshal(c)
+		m.Settings = string(data)
+	}} {
+		t.Run(name, func(t *testing.T) {
+			bad := first.Clone()
+			defer bad.Clear()
+			change(&bad)
+			if bad.Validate() == nil {
+				t.Fatal("changed material accepted")
+			}
+		})
 	}
-	bad.Clear()
-	bad = first.Clone()
-	bad.Files[ServerConfigPath] = bytes.ReplaceAll(bad.Files[ServerConfigPath], []byte("10.77.0.10"), []byte("10.77.0.1"))
-	if bad.Validate() == nil {
-		t.Fatal("root fixture broker accepted")
-	}
-	bad.Clear()
 }

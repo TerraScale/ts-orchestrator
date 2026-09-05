@@ -208,8 +208,66 @@ func TestGlobalRuntimeOpensDeliveryTopologyWithoutCIStores(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer authorityClient.Close()
-	if _, err := globalNatsRuntimeOpenAndValidate(ctx, authorityClient, topology, false, "gru"); err != nil {
-		t.Fatalf("signed delivery topology required obsolete resources: %v", err)
+	consumerConfig, err := topology.CellSpecConsumer("gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumerConfig.Durable != consumerConfig.Name || consumerConfig.InactiveThreshold != 0 {
+		t.Fatal("global desired consumer must be durable without idle expiry")
+	}
+	specStream, err := js.Stream(ctx, GlobalNatsTopologyCellSpecStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the retired named-ephemeral profile on the real R3 broker.
+	ephemeral := consumerConfig
+	ephemeral.Durable = ""
+	if _, err := specStream.CreateConsumer(ctx, ephemeral); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := globalNatsRuntimeOpenAndValidate(ctx, authorityClient, topology, true, "gru"); err == nil {
+		t.Fatal("restricted runtime admitted an ephemeral desired consumer")
+	}
+	if err := specStream.DeleteConsumer(ctx, consumerConfig.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := specStream.CreateConsumer(ctx, consumerConfig); err != nil {
+		t.Fatal(err)
+	}
+	state, err := globalNatsRuntimeOpenAndValidate(ctx, authorityClient, topology, true, "gru")
+	if err != nil {
+		t.Fatalf("restricted R3 runtime rejected durable desired consumer: %v", err)
+	}
+	info, err := state.cellSpec.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !NatsConsumerProfileMatches(info, consumerConfig, GlobalNatsTopologyCellSpecStream) || info.Config.Durable != consumerConfig.Name || info.Config.InactiveThreshold != 0 {
+		t.Fatalf("broker desired profile drift: %+v", info.Config)
+	}
+	if _, err := js.Publish(ctx, consumerConfig.FilterSubject, []byte("desired-one")); err != nil {
+		t.Fatal(err)
+	}
+	message, err := state.cellSpec.Next(jetstream.FetchMaxWait(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message.Data()) != "desired-one" {
+		t.Fatal("wrong desired message")
+	}
+	if err := message.DoubleAck(ctx); err != nil {
+		t.Fatal(err)
+	}
+	reopenedState, err := globalNatsRuntimeOpenAndValidate(ctx, authorityClient, topology, true, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenedInfo, err := reopenedState.cellSpec.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopenedInfo.AckFloor.Stream != 1 || reopenedInfo.NumAckPending != 0 {
+		t.Fatal("durable acknowledgement checkpoint lost on reopen")
 	}
 	names := js.StreamNames(ctx)
 	var actual []string

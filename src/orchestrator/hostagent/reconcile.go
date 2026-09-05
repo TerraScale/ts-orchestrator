@@ -147,6 +147,9 @@ func (l *Lifecycle) ApplyDesired(ctx context.Context, desired []hostmanifest.Com
 	if err != nil {
 		return err
 	}
+	if err := admitInitialComponents(ctx, validated); err != nil {
+		return err
+	}
 	discovered, err := l.discoverManagedComponents()
 	if err != nil {
 		return err
@@ -357,7 +360,7 @@ func (l *Lifecycle) ensureComponentLocked(ctx context.Context, spec hostmanifest
 				return err
 			}
 			if !active {
-				return l.installer.withVerifiedCurrentTransition(ctx, spec, func(string) error {
+				return l.installer.withVerifiedCurrentTransition(ctx, spec, func(ctx context.Context, _ string) error {
 					return l.systemd.StartUnit(ctx, UnitName(spec.Name))
 				})
 			}

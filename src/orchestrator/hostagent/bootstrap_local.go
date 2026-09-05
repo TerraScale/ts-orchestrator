@@ -42,7 +42,7 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 		}
 	}()
 	// Only existing journal executor methods are used; no network is created.
-	executor := &NatsTransport{authorizer: authority, epochs: epochs, nodeId: NodeId{Value: node}, lifecycle: lifecycle, journal: journal, manifestPath: path, requireManifestAdmission: true, closing: make(chan struct{})}
+	executor := &NatsTransport{commandContext: ctx, authorizer: authority, epochs: epochs, nodeId: NodeId{Value: node}, lifecycle: lifecycle, journal: journal, manifestPath: path, requireManifestAdmission: true, closing: make(chan struct{})}
 	if err = executor.initializeManifestAuthority(); err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 			active, activeErr := lifecycle.systemd.UnitActive(ctx, UnitName(spec.Name))
 			ready = ready && currentErr == nil && current == spec.Version && activeErr == nil && active
 			if ready {
-				ready = lifecycle.installer.withVerifiedCurrentTransition(ctx, spec, func(string) error { return nil }) == nil
+				ready = lifecycle.installer.withVerifiedCurrentTransition(ctx, spec, func(ctx context.Context, _ string) error { return nil }) == nil
 			}
 		}
 		return ready, nil

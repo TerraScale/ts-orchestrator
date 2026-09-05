@@ -129,6 +129,7 @@ type RegionalAuthorityCoordinator struct {
 	candidateId               string
 	leaseKey                  string
 	tolerateTransientFailures bool
+	withinMutation            func(context.Context, func(context.Context) error) error
 
 	stateMu           sync.Mutex
 	journalState      *AuthorityState
@@ -158,6 +159,30 @@ func RegionalAuthorityCoordinatorStartAsync(
 	cell string,
 	instance string,
 ) (*RegionalAuthorityCoordinator, error) {
+	return regionalAuthorityCoordinatorStartAsync(ctx, store, cell, instance, nil)
+}
+
+// RegionalAuthorityCoordinatorStartAsyncGuarded applies admission to every initial and periodic lease tick.
+func RegionalAuthorityCoordinatorStartAsyncGuarded(
+	ctx context.Context,
+	store jetstream.KeyValue,
+	cell string,
+	instance string,
+	guard func(context.Context, func(context.Context) error) error,
+) (*RegionalAuthorityCoordinator, error) {
+	if guard == nil {
+		return nil, errors.New("authority mutation admission is required")
+	}
+	return regionalAuthorityCoordinatorStartAsync(ctx, store, cell, instance, guard)
+}
+
+func regionalAuthorityCoordinatorStartAsync(
+	ctx context.Context,
+	store jetstream.KeyValue,
+	cell string,
+	instance string,
+	guard func(context.Context, func(context.Context) error) error,
+) (*RegionalAuthorityCoordinator, error) {
 	if ctx == nil {
 		return nil, errors.New("(Parameter 'ctx')")
 	}
@@ -170,7 +195,9 @@ func RegionalAuthorityCoordinatorStartAsync(
 	coordinator := newRegionalAuthorityCoordinator(
 		store, cell+"-regional", cell+"-controller-"+instance, "authority.regional", false)
 
+	coordinator.withinMutation = guard
 	if err := coordinator.tick(ctx); err != nil {
+		coordinator.stopping()
 		return nil, err
 	}
 
@@ -185,6 +212,30 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	store jetstream.KeyValue,
 	cell string,
 	instance string,
+) (*RegionalAuthorityCoordinator, error) {
+	return regionalAuthorityCoordinatorStartGlobalAsync(ctx, store, cell, instance, nil)
+}
+
+// RegionalAuthorityCoordinatorStartGlobalAsyncGuarded applies admission to every initial and periodic lease tick.
+func RegionalAuthorityCoordinatorStartGlobalAsyncGuarded(
+	ctx context.Context,
+	store jetstream.KeyValue,
+	cell string,
+	instance string,
+	guard func(context.Context, func(context.Context) error) error,
+) (*RegionalAuthorityCoordinator, error) {
+	if guard == nil {
+		return nil, errors.New("authority mutation admission is required")
+	}
+	return regionalAuthorityCoordinatorStartGlobalAsync(ctx, store, cell, instance, guard)
+}
+
+func regionalAuthorityCoordinatorStartGlobalAsync(
+	ctx context.Context,
+	store jetstream.KeyValue,
+	cell string,
+	instance string,
+	guard func(context.Context, func(context.Context) error) error,
 ) (*RegionalAuthorityCoordinator, error) {
 	if ctx == nil {
 		return nil, errors.New("(Parameter 'ctx')")
@@ -202,7 +253,9 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	coordinator := newRegionalAuthorityCoordinator(
 		store, "global", "global-controller-"+cell+"-"+instance, "authority.global", true)
 
+	coordinator.withinMutation = guard
 	if err := coordinator.tick(ctx); err != nil {
+		coordinator.stopping()
 		return nil, err
 	}
 
@@ -248,8 +301,12 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 			case <-ticker.C:
 			}
 
-			if err := c.tick(c.stoppingCtx); err != nil &&
-				c.tolerateTransientFailures && shared.IsNatsTransientError(err) {
+			err := c.tick(c.stoppingCtx)
+			if err != nil && c.withinMutation != nil {
+				c.publish("fenced", false, AuthorityObservation{AuthorityId: c.authorityId}, "initial-admission-or-lease-failed", time.Now().UTC())
+				return
+			}
+			if err != nil && c.tolerateTransientFailures && shared.IsNatsTransientError(err) {
 				c.stateMu.Lock()
 				confirmed := AuthorityObservation{
 					AuthorityId:   c.authorityId,
@@ -305,6 +362,15 @@ func (c *RegionalAuthorityCoordinator) Dispose() {
 }
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
+	if c != nil && c.withinMutation != nil {
+		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return c.withinMutation(bounded, c.tickAdmitted)
+	}
+	return c.tickAdmitted(ctx)
+}
+
+func (c *RegionalAuthorityCoordinator) tickAdmitted(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("(Parameter 'ctx')")
 	}

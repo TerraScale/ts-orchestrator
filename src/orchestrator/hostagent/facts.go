@@ -167,7 +167,7 @@ func (s *HostFactsSource) Sample(
 	}
 	for _, spec := range desired {
 		current, _ := CurrentVersion(s.installRoot, spec.Name)
-		installed := s.installer.withVerifiedTransition(ctx, spec.Name, spec.Version, spec.Sha256, func() error { return nil }) == nil
+		installed := s.installer.withVerifiedTransition(ctx, spec.Name, spec.Version, spec.Sha256, func(context.Context) error { return nil }) == nil
 		active := false
 		if unitProbe, err := s.systemd.UnitActive(ctx, UnitName(spec.Name)); err == nil {
 			active = unitProbe

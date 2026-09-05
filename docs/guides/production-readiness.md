@@ -39,8 +39,8 @@ Canonical component, launch and manifest validation now lives in
 `src/orchestrator/hostmanifest`. Host installation, signed bootstrap grants,
 control handoff and VM preparation consume that package directly. The strict
 ApplyManifest parser also lives there so retirement can bind the same verified
-command bytes as host execution. This extraction does not establish initial
-R1 startup or production composition.
+command bytes as host execution. The signed initial-R1 composition is described
+below; ordinary production composition remains incomplete.
 
 | Area | Entry points inspected | Finding and next proof |
 | --- | --- | --- |
@@ -80,23 +80,35 @@ credential-file mode is explicitly unsupported by these operational journals
 and is rejected before listeners. This removes the provider-supplied connection
 callback; it does not complete the external adapter resolver.
 
-Initial global topology provisioning also remains unwired. Static production
-admission currently rejects before the embedded broker starts, and bootstrap
-activation waits for running services before inspecting control stores. The
-guest broker seed declares only `GRU_CONTROL`, without the global account,
-separate infrastructure identity or required global storage budget. Complete
-signed R1 admission and provisioning between broker readiness and live-store
-construction. Normal global runtime and operational workers remain R3-only.
+The [initial GRU R1 contract](../contracts/initial-gru-r1.md) now connects the
+owner-signed host grant, fixed root-owned proof publication, host launch checks
+and the executable `initial-gru-r1 --config FILE` command. The seed embeds NATS
+and provisions the full retained regional and global inventories before opening
+restricted authority and membership connections. The second GRU process keeps
+its own signed admission, regional coordinator and membership identity against
+the seed broker, with no broker, provisioner or global credentials.
 
-The global runtime no longer opens CI stores, issues runner credentials or
-constructs a runner reconciler. CI belongs to `ts-deploy`; signed delivery
-continues through `GLOBAL_DELIVERIES` and per-Region OCI mirrors. The retained
-global profiles total 1,352 MiB per replica before overhead and regional
-stores, so the guest broker's 256 MiB limit remains insufficient. Runtime
-identities can read profiles, consume desired state and update admitted
-control records, but cannot provision streams, buckets or consumers.
-The [global storage contract](../contracts/global-control-storage.md) records
-the final inventory and permission boundary.
+The signed profile budget covers 2,344.25 MiB of regional limits, 1,352 MiB of
+global limits and 256 MiB of overhead: 3,952.25 MiB total. Provisioning rejects
+conflicting profiles and uses separate credentials from the runtime. Grant
+expiry and durable retirement guard lease and membership writes. Authenticated
+host replacement retires the initial launch before effects; a crash before
+manifest replacement leaves only the receiver able to await a fresh verified
+retry of its pending transition.
+
+The activation-to-R3 producer/consumer chain remains incomplete.
+Replacement manifest and credential delivery,
+SFO/FRA synchronization, actual R3 promotion and quorum proof, and retirement
+across all participating hosts still need executable integration. Ordinary
+production admission and signed delivery requirements remain; global workers
+remain R3-only. No guest readiness, OCI effects, TerraBase membership or
+production readiness result follows from this slice.
+
+CI belongs to `ts-deploy`; the global runtime no longer opens CI stores, issues
+runner credentials or constructs a runner reconciler. Signed delivery continues
+through `GLOBAL_DELIVERIES` and per-Region OCI mirrors. The
+[global storage contract](../contracts/global-control-storage.md) records the
+retained production inventory and permission boundary.
 
 The [integrated verification](../evidence/global-worker-reaper-gates-2026-09-05.txt)
 records passing portable and sandboxvm-tagged race suites and a Linux arm64
@@ -198,6 +210,14 @@ runtime authority qualification and OCI estate/signer references. TerraBase sepa
 admitted database placement, peer identity, and Vault bindings. The command
 file reader does not supply these missing authorities or complete runtime
 composition.
+
+The [TerraBase launch audit](../evidence/terrabase-production-config-audit-2026-09-05.md)
+records current source requirements for strict production TOML, explicit
+database/key-version identities, RF2 placement and peer TLS identities. Those
+inputs are absent from the current guest seed. The source also lacks the
+durable membership producer and lifecycle contracts needed by the runtime.
+The inspected modified source is not an attestation of the supplied binary's
+launch schema. Rendering guessed configuration would not close these gaps.
 
 ### Embedded server and membership identity
 

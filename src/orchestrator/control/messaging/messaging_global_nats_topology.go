@@ -103,6 +103,7 @@ func (t *GlobalNatsTopology) CellSpecConsumer(cell string) (jetstream.ConsumerCo
 
 	return jetstream.ConsumerConfig{
 		Name:              "global_cell_spec_" + cell,
+		Durable:           "global_cell_spec_" + cell,
 		Description:       "Durable globally signed desired-estate CellSpecs for " + cell,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		AckPolicy:         jetstream.AckExplicitPolicy,
