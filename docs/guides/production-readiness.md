@@ -145,6 +145,12 @@ observed both ts-node and orchestrator active and running. TerraBase still
 failed with missing configuration, stopping the suite at the first guest.
 Cleanup passed. This establishes observed process startup only; guest authority
 readiness, R3 promotion and the six-host/fourth-region scenarios remain unproven.
+The [fresh receiver run on 8e919f63](../evidence/vm-test-receiver-authority-2026-09-05.txt)
+also observed ts-node and orchestrator running with the new reader configuration.
+TerraBase still reported missing configuration, stopping the suite at the first
+guest. Automatic and explicit cleanup passed, with no Firecracker process or
+qualification state files remaining. Live guest authority and full-stack
+qualification remain open.
 
 CI belongs to `ts-deploy`; the global runtime no longer opens CI stores, issues
 runner credentials or constructs a runner reconciler. Signed delivery continues

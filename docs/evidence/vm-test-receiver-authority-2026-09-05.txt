@@ -1,0 +1,39 @@
+Fresh Firecracker qualification on clean committed 8e919f63, Linux amd64.
+Privileged doctor PASS. Fresh vm-qualify/vm-artifacts helpers and guest ts-node
+and orchestrator binaries; supplied TerraBase executable was not rebuilt.
+
+Run: 2026-09-05T15:02:49.009768395Z to 2026-09-05T15:05:55.86065007Z.
+vm-test FAIL exit 1 at gru-member-1 service readiness:
+vmqual: activated terrabase process is not running.
+Observed ts-node active/running, PID 2285, result success.
+Observed orchestrator active/running, PID 2568, result success.
+TerraBase activating/auto-restart, exit 1, terrabase-configuration-missing.
+
+The new receiver configuration permits observed ts-node and orchestrator startup.
+This run does not establish fresh guest regional authorization, R3 handoff,
+six-host/fourth-region scenarios, data-plane readiness or fault qualification.
+No idle resource gate passed; unmeasured zero fields are not passing evidence.
+
+Peak host RSS: 473923584 bytes; configured guest RAM: 512 MiB.
+Automatic cleanup: 79905992 ns. Explicit clean PASS exit 0.
+Follow-up process and filesystem inspection found no Firecracker processes or
+files under the owned qualification state directory. All reported provider paths
+were absent and listeners unreachable. The adjacent JSON retains the SuiteReport.
+
+Guest artifacts:
+vm-artifacts: component=ts-node version=vmqual.44663881fc86f236 sha256=44663881fc86f23688106a7d2bd38d1dedbf611b8f2fd4a44f3e67053fb1c8e5 bytes=9613472
+vm-artifacts: component=orchestrator version=vmqual.d983f4a1c63723eb sha256=d983f4a1c63723eb6fce84e8fc1626500ceb831af4b9add30555b39e6635db20 bytes=28905632
+vm-artifacts: component=terrabase version=vmqual.300d71b2c6e44655 sha256=300d71b2c6e446555aa62eb03c04a07937a83503da1c4393da39074a19444aa7 bytes=17787952
+
+Environment and invocation match vm-test-initial-r1-2026-09-05.txt, with helper
+suffix receiver. TS_VM_ROOT=/var/lib/terrascale-qualification/ts-orchestrator;
+Go 1.27.1 and pinned e2fsprogs 1.47.4 in PATH; GOMAXPROCS=4 GOFLAGS=-p=2.
+The VM image manifest and amd64 pins remain the checked-in declarations.
+
+Local helper/log SHA256:
+b62d97486ca5221f463d7ea50df62ce17ea9dce539e5d77d6d8099080dd396b3  /tmp/ts-orchestrator-vm-qualify-receiver
+971d17bd804065c1068252becec75729e2d74ce490afba2bdc596068b24cb4ea  /tmp/ts-orchestrator-vm-artifacts-receiver
+abfa70d5f34d461fdb2b712f1cd80258553002c8ba157091d7800f865d529926  /tmp/ts-vm-receiver-test.log
+a5ef014a2d188bec026f636c10ad8ab7a04b837612cee7f6501ad11e011f2e2c  /tmp/ts-vm-receiver-doctor.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/ts-vm-receiver-clean.log
+e603ef00fb20f1f5a558f99f6d635e4a34d342373e65c1142dd805d48b809e27  /tmp/ts-vm-receiver-clean-inspection.log
