@@ -5,6 +5,7 @@ package vmqualruntime
 import (
 	"bytes"
 	"context"
+"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -36,7 +37,7 @@ func TestQualificationHTTPSReleaseInstallsThroughTSNode(t *testing.T) {
 	artifact := bytes.Repeat([]byte("signed production binary payload\n"), 32768)
 	signature := ed25519.Sign(private, artifact)
 	digest := sha256.Sum256(artifact)
-	artifactPath, signaturePath := releasePaths("orchestrator", "v1")
+	artifactPath, signaturePath := vmqualartifact.ReleasePaths("orchestrator", "v1")
 	certificate, caPEM, err := generateArtifactCertificate(time.Now())
 	if err != nil {
 		t.Fatal(err)

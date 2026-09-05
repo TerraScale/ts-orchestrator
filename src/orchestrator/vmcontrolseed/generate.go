@@ -51,6 +51,10 @@ func brokerUser(cell, instance string, global, provisioner bool, public string) 
 // GenerateGRU declares one seed and the remaining signed initial participants.
 // All membership pins are supplied by the real guest identity issuer.
 func GenerateGRU(runID string, guests []Guest) (map[string]Material, error) {
+	return generateGRU(runID, guests, nil)
+}
+
+func generateGRU(runID string, guests []Guest, capture *PreliminaryCaptureDeclaration) (map[string]Material, error) {
 	if !identifierPattern.MatchString(runID) || len(guests) == 0 || len(guests) > 3 {
 		return nil, errors.New("vmcontrolseed: initial GRU requires one to three declared candidates")
 	}
@@ -150,6 +154,26 @@ func GenerateGRU(runID string, guests []Guest) (map[string]Material, error) {
 			}
 			config.Global = &initialgrant.Store{Account: GlobalAccount, Provisioner: &globalProvisioner, Runtime: globalRuntime}
 			peer.GlobalPublicNKey = globalRuntime.PublicNKey
+			if capture != nil {
+				captureGuest := guest
+				captureGuest.ID += "-source-capture"
+				captureCert, captureKey, err := issue(captureGuest, false)
+				if err != nil {
+					return nil, err
+				}
+				files[CaptureCertificatePath], files[CapturePrivateKeyPath] = captureCert, captureKey
+				captureTLS := tlsFiles(files, CaptureCertificatePath, CapturePrivateKeyPath)
+				regionalCapture, err := newUser(files, RegionalCaptureNKeyPath, captureTLS)
+				if err != nil {
+					return nil, err
+				}
+				globalCapture, err := newUser(files, GlobalCaptureNKeyPath, captureTLS)
+				if err != nil {
+					return nil, err
+				}
+				config.PreliminaryCapture = &initialgrant.PreliminaryCaptureConfig{RequestFile: CaptureRequestPath, OutputDir: CaptureOutputPath, MaxSnapshotBytes: capture.MaxSnapshotBytes, MaxTotalBytes: capture.MaxTotalBytes, Regional: regionalCapture, Global: globalCapture}
+			}
+
 			cert, key, err = issue(guest, true)
 			if err != nil {
 				return nil, err
@@ -219,6 +243,23 @@ func renderBroker(config initialgrant.Config) (string, error) {
 			globalUsers = append(globalUsers, user)
 		} else {
 			regionalUsers = append(regionalUsers, user)
+		}
+	}
+	if config.PreliminaryCapture != nil {
+		for _, entry := range []struct {
+			global     bool
+			connection initialgrant.Connection
+		}{{false, config.PreliminaryCapture.Regional}, {true, config.PreliminaryCapture.Global}} {
+			publish, subscribe, err := initialcontrol.CapturePermissions("gru", config.Instance, entry.global)
+			if err != nil {
+				return "", err
+			}
+			user := map[string]any{"nkey": entry.connection.PublicNKey, "permissions": map[string]any{"publish": map[string]any{"allow": publish}, "subscribe": map[string]any{"allow": subscribe}}}
+			if entry.global {
+				globalUsers = append(globalUsers, user)
+			} else {
+				regionalUsers = append(regionalUsers, user)
+			}
 		}
 	}
 	broker := map[string]any{"server_name": config.Instance, "listen": net.JoinHostPort(brokerAddress, "4222"), "max_payload": 4 << 20, "jetstream": map[string]any{"store_dir": StorePath, "max_memory_store": 32 << 20, "max_file_store": config.Broker.StorageBudgetBytes}, "tls": map[string]any{"cert_file": ServerCertificatePath, "key_file": ServerPrivateKeyPath, "ca_file": CAPath, "verify": true, "min_version": "1.3"}, "accounts": map[string]any{RegionalAccount: map[string]any{"jetstream": "enabled", "users": regionalUsers}, GlobalAccount: map[string]any{"jetstream": "enabled", "users": globalUsers}}}

@@ -5,15 +5,11 @@ package vmqualruntime
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
-	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -24,6 +20,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
+"terrascale.tech/orchestrator/src/orchestrator/vmqualartifact"
 
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	natsclient "github.com/nats-io/nats.go"
@@ -91,7 +88,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	artifactListener, _ := plan.Listener("artifacts")
 	resources := make(map[string][]byte, len(artifacts)*2)
 	for index := range artifacts {
-		artifactPath, signaturePath := releasePaths(artifacts[index].manifest.Component, artifacts[index].manifest.Version)
+		artifactPath, signaturePath := vmqualartifact.ReleasePaths(artifacts[index].manifest.Component, artifacts[index].manifest.Version)
 		artifacts[index].manifest.Source = "https://" + artifactReleaseHostname + ":" + strconv.Itoa(int(artifactListener.Port)) + artifactPath
 		resources[artifactPath] = artifacts[index].binary
 		resources[signaturePath] = artifacts[index].signature
@@ -100,7 +97,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
-	certificate, caCertificate, err := generateArtifactCertificate(time.Now().UTC())
+	certificate, caCertificate, err := vmqualartifact.GenerateCertificate(artifactReleaseHostname, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +119,10 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			candidates = append(candidates, vmcontrolseed.Guest{ID: guest.ID, Address: guest.Address, MembershipPublicKey: membership.PublicKey})
 		}
 	}
-	controlSeeds, err := vmcontrolseed.GenerateGRU(plan.RunID, candidates)
+	var controlSeeds map[string]vmcontrolseed.Material
+ if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
+ controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID,candidates,vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes:config.PreliminaryCaptureMaxSnapshotBytes,MaxTotalBytes:config.PreliminaryCaptureMaxTotalBytes})
+ } else { controlSeeds, err = vmcontrolseed.GenerateGRU(plan.RunID, candidates) }
 	if err != nil {
 		authority.close()
 		return nil, err
@@ -180,11 +180,6 @@ func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
 	return nil
 }
 
-func releasePaths(component, version string) (string, string) {
-	artifact := "/releases/" + component + "/" + version + "/" + component
-	return artifact, artifact + ".sig"
-}
-
 func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, error) {
 	byComponent := make(map[string]guestArtifactInput, len(artifacts))
 	for _, artifact := range artifacts {
@@ -196,7 +191,7 @@ func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, e
 		if !ok {
 			return nil, fmt.Errorf("vmqual: signed %s artifact is missing", name)
 		}
-		artifactPath, signaturePath := releasePaths(name, artifact.manifest.Version)
+		artifactPath, signaturePath := vmqualartifact.ReleasePaths(name, artifact.manifest.Version)
 		baseURL := "https://" + artifactReleaseHostname + ":" + strconv.Itoa(int(port))
 		spec, err := hostmanifest.NewComponentSpec(hostmanifest.ComponentSpec{
 			Name: name, Version: artifact.manifest.Version,
@@ -219,72 +214,6 @@ func desiredHostManifest(artifacts []guestArtifactInput, port uint16) ([]byte, e
 		return nil, err
 	}
 	return data, nil
-}
-
-func generateArtifactCertificate(now time.Time) (tls.Certificate, []byte, error) {
-	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	defer zeroBytes(caPrivate)
-	serverPublic, serverPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	failed := true
-	defer func() {
-		if failed {
-			zeroBytes(serverPrivate)
-		}
-	}()
-	caSerial, err := certificateSerial()
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	serverSerial, err := certificateSerial()
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	caTemplate := &x509.Certificate{
-		SerialNumber: caSerial, Subject: pkix.Name{CommonName: "TerraScale VM qualification artifact CA"},
-		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true, IsCA: true, MaxPathLenZero: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caPublic, caPrivate)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	serverTemplate := &x509.Certificate{
-		SerialNumber: serverSerial, Subject: pkix.Name{CommonName: artifactReleaseHostname},
-		DNSNames: []string{artifactReleaseHostname}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(12 * time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caTemplate, serverPublic, caPrivate)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	leaf, err := x509.ParseCertificate(serverDER)
-	if err != nil {
-		return tls.Certificate{}, nil, err
-	}
-	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
-	if len(caPEM) == 0 {
-		return tls.Certificate{}, nil, errors.New("vmqual: encode artifact CA certificate")
-	}
-	failed = false
-	return tls.Certificate{Certificate: [][]byte{serverDER, caDER}, PrivateKey: serverPrivate, Leaf: leaf}, caPEM, nil
-}
-
-func certificateSerial() (*big.Int, error) {
-	value := make([]byte, 16)
-	if _, err := rand.Read(value); err != nil {
-		return nil, err
-	}
-	value[0] &= 0x7f
-	value[0] |= 0x01
-	return new(big.Int).SetBytes(value), nil
 }
 
 func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmimage.TSNodeBootstrap, []vmimage.GuestArtifact, error) {
@@ -411,7 +340,7 @@ func (services *qualificationRuntimeServices) Start(ctx context.Context) error {
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{services.tlsCertificate}}
 	server := &http.Server{
-		Handler: services.artifactHandler(artifactPlan.Port), ReadHeaderTimeout: 2 * time.Second,
+		Handler: vmqualartifact.Handler(artifactReleaseHostname, artifactPlan.Port, services.resources), ReadHeaderTimeout: 2 * time.Second,
 		ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 30 * time.Second,
 		MaxHeaderBytes: 16 << 10,
 	}
@@ -492,29 +421,6 @@ func (services *qualificationRuntimeServices) probeArtifactTLS(ctx context.Conte
 		return fmt.Errorf("vmqual: prove artifact TLS listener: %w", err)
 	}
 	return connection.Close()
-}
-
-func (services *qualificationRuntimeServices) artifactHandler(port uint16) http.Handler {
-	wantHost := artifactReleaseHostname + ":" + strconv.Itoa(int(port))
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || request.Method != http.MethodGet || request.Host != wantHost ||
-			request.URL.RawQuery != "" || request.URL.Fragment != "" || request.ContentLength > 0 ||
-			request.URL.EscapedPath() != request.URL.Path {
-			http.Error(response, "not found", http.StatusNotFound)
-			return
-		}
-		data, ok := services.resources[request.URL.Path]
-		if !ok {
-			http.Error(response, "not found", http.StatusNotFound)
-			return
-		}
-		response.Header().Set("Cache-Control", "no-store")
-		response.Header().Set("Content-Type", "application/octet-stream")
-		response.Header().Set("X-Content-Type-Options", "nosniff")
-		response.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		response.WriteHeader(http.StatusOK)
-		_, _ = response.Write(data)
-	})
 }
 
 func (services *qualificationRuntimeServices) Close(ctx context.Context) error {

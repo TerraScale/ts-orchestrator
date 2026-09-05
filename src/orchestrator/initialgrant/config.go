@@ -41,6 +41,17 @@ type Store struct {
 	Provisioner *Connection `json:"provisioner"`
 	Runtime     Connection  `json:"runtime"`
 }
+
+// PreliminaryCaptureConfig admits a source-owned local worker. Its credentials
+// are privileged broker credentials, never an externally usable read-only role.
+type PreliminaryCaptureConfig struct {
+	RequestFile      string     `json:"requestFile"`
+	OutputDir        string     `json:"outputDir"`
+	MaxSnapshotBytes int64      `json:"maxSnapshotBytes"`
+	MaxTotalBytes    int64      `json:"maxTotalBytes"`
+	Regional         Connection `json:"regional"`
+	Global           Connection `json:"global"`
+}
 type Broker struct {
 	Configuration      string   `json:"configuration"`
 	ServerName         string   `json:"serverName"`
@@ -63,6 +74,7 @@ type Peer struct {
 	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
+	PreliminaryCapture *PreliminaryCaptureConfig `json:"preliminaryCapture,omitempty"`
 	AuthorityReader nodeauthority.ReaderConfig `json:"authorityReader"`
 	Version         int                        `json:"version"`
 	Mode            string                     `json:"mode"`
@@ -141,7 +153,20 @@ func (c Config) Validate() error {
 		if c.Instance != c.SeedInstance || c.Global == nil || c.Regional.Provisioner == nil || c.Global.Provisioner == nil || !c.Regional.Provisioner.valid() || !c.Global.Provisioner.valid() || !c.Global.Runtime.valid() || c.Global.Account == "" || c.Global.Account == c.Regional.Account || !c.Broker.TLS.valid() || !json.Valid([]byte(c.Broker.Configuration)) || len(c.Broker.Configuration) > 32<<10 {
 			return bad()
 		}
+		if capture := c.PreliminaryCapture; capture != nil {
+			if !cleanPath(capture.RequestFile) || !cleanPath(capture.OutputDir) || capture.OutputDir == "/" || capture.MaxSnapshotBytes < 1024 || capture.MaxSnapshotBytes > 1<<30 || capture.MaxTotalBytes < capture.MaxSnapshotBytes || capture.MaxTotalBytes > 1<<40 || !capture.Regional.valid() || !capture.Global.valid() {
+				return bad()
+			}
+			for _, path := range []string{c.Broker.StoreDir, capture.RequestFile} {
+				if nestedPath(path, capture.OutputDir) || nestedPath(capture.OutputDir, path) {
+					return bad()
+				}
+			}
+		}
 	} else if c.Instance == c.SeedInstance || c.Global != nil || c.Regional.Provisioner != nil || c.Broker.Configuration != "" || c.Broker.TLS != (TLSFiles{}) {
+		return bad()
+	}
+	if c.Role != "seed" && c.PreliminaryCapture != nil {
 		return bad()
 	}
 	if len(c.Peers) < 1 || len(c.Peers) > 3 {
@@ -182,7 +207,11 @@ func (c Config) Validate() error {
 		return bad()
 	}
 	if c.Role == "seed" {
-		for _, conn := range []*Connection{c.Regional.Provisioner, c.Global.Provisioner} {
+		connections := []*Connection{c.Regional.Provisioner, c.Global.Provisioner}
+		if c.PreliminaryCapture != nil {
+			connections = append(connections, &c.PreliminaryCapture.Regional, &c.PreliminaryCapture.Global)
+		}
+		for _, conn := range connections {
 			if keys[conn.PublicNKey] {
 				return bad()
 			}
@@ -190,6 +219,10 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func nestedPath(path, parent string) bool {
+	return path == parent || strings.HasPrefix(path, strings.TrimSuffix(parent, "/")+"/")
 }
 
 // ComponentConfig recognizes only the exact initial launch vocabulary. A

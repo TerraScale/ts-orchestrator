@@ -129,6 +129,9 @@ func (m Material) Validate() error {
 		if provisioner {
 			cert, key = ProvisionerCertificatePath, ProvisionerPrivateKeyPath
 		}
+		if path == RegionalCaptureNKeyPath || path == GlobalCaptureNKeyPath {
+			cert, key = CaptureCertificatePath, CapturePrivateKeyPath
+		}
 		return checkTLS(c.TLS, cert, key, false)
 	}
 	if err := checkConnection(config.Regional.Runtime, NKeyPath, false); err != nil {
@@ -145,6 +148,22 @@ func (m Material) Validate() error {
 		}{{*config.Regional.Provisioner, RegionalProvisionerNKeyPath, true}, {*config.Global.Provisioner, GlobalProvisionerNKeyPath, true}, {config.Global.Runtime, GlobalNKeyPath, false}} {
 			if err := checkConnection(entry.connection, entry.path, entry.provisioner); err != nil {
 				return err
+			}
+		}
+		if capture := config.PreliminaryCapture; capture != nil {
+			if capture.RequestFile != CaptureRequestPath || capture.OutputDir != CaptureOutputPath {
+				return bad()
+			}
+			for _, entry := range []struct {
+				connection initialgrant.Connection
+				path       string
+			}{{capture.Regional, RegionalCaptureNKeyPath}, {capture.Global, GlobalCaptureNKeyPath}} {
+				if err := checkConnection(entry.connection, entry.path, false); err != nil {
+					return err
+				}
+			}
+			if bytes.Equal(tlsPublic[CaptureCertificatePath], tlsPublic[CertificatePath]) || bytes.Equal(tlsPublic[CaptureCertificatePath], tlsPublic[ProvisionerCertificatePath]) {
+				return bad()
 			}
 		}
 		if bytes.Equal(tlsPublic[CertificatePath], tlsPublic[ProvisionerCertificatePath]) {

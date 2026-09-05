@@ -286,6 +286,13 @@ func verifyMaterial(c Config) error {
 				return err
 			}
 		}
+		if c.PreliminaryCapture != nil {
+			for _, conn := range []Connection{c.PreliminaryCapture.Regional, c.PreliminaryCapture.Global} {
+				if err := verifyConnection(conn); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	raw, err := readMaterial(c.Membership.PinsFile, 64<<10, false)
 	if err != nil {

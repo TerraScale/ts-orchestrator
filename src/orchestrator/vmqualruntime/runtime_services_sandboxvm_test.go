@@ -4,12 +4,8 @@ package vmqualruntime
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
@@ -20,30 +16,6 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
-
-func TestArtifactCertificateRequiresGeneratedCAAndReleaseSAN(t *testing.T) {
-	now := time.Now().UTC()
-	certificate, caPEM, err := generateArtifactCertificate(now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if certificate.Leaf == nil {
-		t.Fatal("generated certificate has no parsed leaf")
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(caPEM) {
-		t.Fatal("generated CA is not parseable")
-	}
-	if _, err := certificate.Leaf.Verify(x509.VerifyOptions{DNSName: artifactReleaseHostname, Roots: roots, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
-		t.Fatalf("release certificate did not verify: %v", err)
-	}
-	if _, err := certificate.Leaf.Verify(x509.VerifyOptions{DNSName: "localhost", Roots: roots, CurrentTime: now}); err == nil {
-		t.Fatal("release certificate verified for an unplanned DNS name")
-	}
-	if _, err := certificate.Leaf.Verify(x509.VerifyOptions{DNSName: artifactReleaseHostname, Roots: x509.NewCertPool(), CurrentTime: now}); err == nil {
-		t.Fatal("release certificate verified without its generated CA")
-	}
-}
 
 func TestDesiredHostManifestAndArtifactRoutesAreExact(t *testing.T) {
 	artifacts := []guestArtifactInput{
@@ -69,32 +41,6 @@ func TestDesiredHostManifestAndArtifactRoutesAreExact(t *testing.T) {
 		t.Fatalf("manifest is not canonical: %s", manifestData)
 	}
 
-	artifactPath, signaturePath := releasePaths("orchestrator", "v1.2.3")
-	services := &qualificationRuntimeServices{resources: map[string][]byte{artifactPath: []byte("artifact"), signaturePath: []byte("signature")}}
-	handler := services.artifactHandler(8443)
-	request := httptest.NewRequest(http.MethodGet, "https://"+artifactReleaseHostname+":8443"+artifactPath, nil)
-	request.TLS = &tls.ConnectionState{}
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || response.Body.String() != "artifact" || response.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("artifact response = %d %q", response.Code, response.Body.String())
-	}
-
-	request = httptest.NewRequest(http.MethodGet, "https://localhost:8443"+artifactPath, nil)
-	request.TLS = &tls.ConnectionState{}
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("wrong Host response = %d", response.Code)
-	}
-
-	request = httptest.NewRequest(http.MethodGet, "https://"+artifactReleaseHostname+":8443"+artifactPath+"?mirror=true", nil)
-	request.TLS = &tls.ConnectionState{}
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("query-bearing route response = %d", response.Code)
-	}
 }
 
 func TestQualificationServicesCloseZerosArtifactMaterial(t *testing.T) {

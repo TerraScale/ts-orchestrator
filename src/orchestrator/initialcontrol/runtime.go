@@ -36,6 +36,7 @@ type Runtime struct {
 	err                          error
 	closeErr                     error
 	closing                      bool
+	capture                      *preliminaryWorker
 }
 
 func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runtime, resultErr error) {
@@ -233,6 +234,9 @@ func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runt
 	if err != nil {
 		return nil, err
 	}
+	if cfg.PreliminaryCapture != nil {
+		r.capture = startPreliminaryWorker(lifetime, admission, r.GlobalAuthority)
+	}
 	started = true
 	go r.supervise(lifetime, admission)
 	return r, nil
@@ -349,6 +353,9 @@ func (r *Runtime) Close() error {
 			}
 		}
 		r.cancel()
+		if r.capture != nil {
+			<-r.capture.done
+		}
 		if r.global != nil {
 			r.global.Dispose()
 		}

@@ -33,7 +33,7 @@ const RegionalAccount = "GRU_REGIONAL"
 
 func IsFilePath(path string) bool {
 	switch path {
-	case NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
+	case RegionalCaptureNKeyPath, GlobalCaptureNKeyPath, CaptureCertificatePath, CapturePrivateKeyPath, NKeyPath, GlobalNKeyPath, RegionalProvisionerNKeyPath, GlobalProvisionerNKeyPath, CAPath, CertificatePath, PrivateKeyPath, ProvisionerCertificatePath, ProvisionerPrivateKeyPath, ServerCertificatePath, ServerPrivateKeyPath:
 		return true
 	}
 	return false
@@ -79,7 +79,11 @@ func (m Material) DataDriveBytes() (int64, error) {
 	if config.Broker.StorageBudgetBytes <= 0 || config.Broker.StorageBudgetBytes > 1<<40 {
 		return 0, fmt.Errorf("vmcontrolseed: invalid admitted disk capacity")
 	}
-	return config.Broker.StorageBudgetBytes + filesystemAllowance, nil
+	captureReserve := int64(0)
+	if config.PreliminaryCapture != nil {
+		captureReserve = config.PreliminaryCapture.MaxTotalBytes + config.PreliminaryCapture.MaxSnapshotBytes
+	}
+	return config.Broker.StorageBudgetBytes + filesystemAllowance + captureReserve, nil
 }
 
 const AuthorityDirectory = "/etc/terrascale/ts-node-authority"
