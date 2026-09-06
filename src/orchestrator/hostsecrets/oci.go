@@ -57,7 +57,7 @@ func instanceFetcherWithTransport(ctx context.Context, region string, transport 
 		return nil, ErrIdentity
 	}
 }
-func constructInstanceFetcher(ctx context.Context, region string, transport http.RoundTripper) (*secretFetcher, error) {
+func instanceConfiguration(ctx context.Context, region string, transport http.RoundTripper) (common.ConfigurationProvider, error) {
 	modifier := func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
 		client, ok := dispatcher.(*http.Client)
 		if !ok {
@@ -76,6 +76,14 @@ func constructInstanceFetcher(ctx context.Context, region string, transport http
 	// Force initial federation inside the bounded identity worker as well.
 	if _, err := configuration.KeyID(); err != nil {
 		return nil, ErrIdentity
+	}
+	return configuration, nil
+}
+
+func constructInstanceFetcher(ctx context.Context, region string, transport http.RoundTripper) (*secretFetcher, error) {
+	configuration, err := instanceConfiguration(ctx, region, transport)
+	if err != nil {
+		return nil, err
 	}
 	client, err := secrets.NewSecretsClientWithConfigurationProvider(configuration)
 	if err != nil {
@@ -98,9 +106,10 @@ func credentialTransport() *http.Transport {
 }
 
 type boundedDispatcher struct {
-	client *http.Client
-	ctx    context.Context
-	region string
+	client     *http.Client
+	ctx        context.Context
+	region     string
+	cryptoHost string
 }
 
 func (d boundedDispatcher) Do(request *http.Request) (*http.Response, error) {
@@ -112,7 +121,7 @@ func (d boundedDispatcher) Do(request *http.Request) (*http.Response, error) {
 	}
 	host := request.URL.Host
 	metadata := request.URL.Scheme == "http" && host == "169.254.169.254" && request.Method == http.MethodGet
-	cloud := request.URL.Scheme == "https" && (host == "auth."+d.region+".oraclecloud.com" || host == "secrets.vaults."+d.region+".oci.oraclecloud.com")
+	cloud := request.URL.Scheme == "https" && (host == "auth."+d.region+".oraclecloud.com" || host == "secrets.vaults."+d.region+".oci.oraclecloud.com" || (d.cryptoHost != "" && host == d.cryptoHost))
 	if !metadata && !cloud {
 		return nil, ErrFetch
 	}

@@ -137,8 +137,8 @@ func TestSetWorkerHealthWritesTheContractDocument(t *testing.T) {
 	doc := WorkerHealthDoc{
 		Updated: 1725300000,
 		Regions: map[string]WorkerRegionHealth{
-			"gru": {OK: true, LagMS: 0, Lat: -23.43, Lon: -46.47},
-			"sfo": {OK: true, LagMS: 40, Lat: 37.37, Lon: -121.92},
+			"gru": {OK: true, LagMS: new(0), Lat: -23.43, Lon: -46.47},
+			"sfo": {OK: true, LagMS: new(40), Lat: 37.37, Lon: -121.92},
 			"fra": {OK: false, Lat: 50.03, Lon: 8.57},
 		},
 	}
@@ -172,7 +172,7 @@ func TestSetWorkerHealthWritesTheContractDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WorkerHealth read failed: %v", err)
 	}
-	if !reflect.DeepEqual(got.Regions["GRU"], WorkerRegionHealth{OK: true, Lat: -23.43, Lon: -46.47}) {
+	if !reflect.DeepEqual(got.Regions["GRU"], WorkerRegionHealth{OK: true, LagMS: new(0), Lat: -23.43, Lon: -46.47}) {
 		t.Fatalf("health round-trip mismatch: %+v", got)
 	}
 	if got.V != 1 || got.Updated != 1725300000 {
@@ -209,7 +209,7 @@ func TestSetWorkerHealthRejectsDroppedDocuments(t *testing.T) {
 			"GRU": {OK: true, Lat: 0, Lon: math.NaN()},
 		}}, want: "lon"},
 		{name: "negative lag", doc: WorkerHealthDoc{Updated: 1, Regions: map[string]WorkerRegionHealth{
-			"GRU": {OK: true, Lat: 0, Lon: 0, LagMS: -1},
+			"GRU": {OK: true, Lat: 0, Lon: 0, LagMS: new(-1)},
 		}}, want: "lag"},
 	}
 	for _, tc := range cases {

@@ -1,8 +1,8 @@
 package cloudflare
 
-// This file hosts the I-4 KV writer loop skeleton (D-58): the periodic pass
+// This file hosts the production KV writer: the periodic pass
 // that keeps the two maps the ts-proxy Worker reads fresh. Region health is
-// rewritten every tick (default 10s); database placement is rewritten only
+// published as one complete document every tick (default 10s); database placement is rewritten only
 // when its hosting set changes. Health is always written before placement so
 // first-contact REST never routes to a Region whose health entry is stale.
 // Writes are billed, so the loop counts every tick and fires a budget alert
@@ -13,6 +13,7 @@ package cloudflare
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,8 +21,7 @@ import (
 	"time"
 )
 
-// DefaultKVWriterHealthInterval is the I-4 health cadence: every Region health
-// entry is rewritten every 10 seconds.
+// DefaultKVWriterHealthInterval refreshes the full health document every 10 seconds.
 const DefaultKVWriterHealthInterval = 10 * time.Second
 
 // KVRegionHealthSource observes the current Region health facts. Keys are bare
@@ -79,7 +79,6 @@ type KVWriter struct {
 	mutex              sync.Mutex
 	lastPlacement      map[string]string
 	lastPlacementState map[string]DBPlacement
-	lastHealth         map[string]struct{}
 	writeCount         int
 	lastErr            error
 
@@ -127,7 +126,6 @@ func NewKVWriter(config KVWriterConfig) (*KVWriter, error) {
 		now:                now,
 		lastPlacement:      make(map[string]string),
 		lastPlacementState: make(map[string]DBPlacement),
-		lastHealth:         make(map[string]struct{}),
 		completion:         make(chan struct{}),
 		notify:             make(chan struct{}, 1),
 	}, nil
@@ -184,9 +182,8 @@ func (w *KVWriter) NotifyChange() {
 	}
 }
 
-// WriteBatch writes one tick in bulk order: every health entry first, then
-// every placement entry. Keys are written in sorted order so ticks are
-// deterministic. The budget hook fires after the writes when the tick exceeds
+// WriteBatch writes the complete health document before changed placement keys.
+// The client sorts and chunks placement keys into bounded bulk requests. The budget hook fires after the writes when the tick exceeds
 // MaxWritesPerTick; writes are never skipped for budget reasons.
 func (w *KVWriter) WriteBatch(ctx context.Context, health map[string]RegionHealth, placement map[string]DBPlacement) (int, error) {
 	if w == nil {
@@ -215,7 +212,11 @@ func (w *KVWriter) writeBatch(ctx context.Context, health map[string]RegionHealt
 	now := w.now().Unix()
 	doc := WorkerHealthDoc{Updated: now, Regions: make(map[string]WorkerRegionHealth, len(health))}
 	for region, entry := range health {
-		doc.Regions[region] = WorkerRegionHealth{OK: entry.Healthy && !entry.Draining && !entry.Overloaded, LagMS: entry.LagMS, Lat: entry.Lat, Lon: entry.Lon}
+		var lag *int
+		if entry.LagMeasured {
+			lag = new(entry.LagMS)
+		}
+		doc.Regions[region] = WorkerRegionHealth{OK: entry.Healthy && !entry.Draining && !entry.Overloaded, LagMS: lag, Lat: entry.Lat, Lon: entry.Lon}
 	}
 	normalizedHealth, err := doc.normalized()
 	if err != nil {
@@ -253,7 +254,7 @@ func (w *KVWriter) writeBatch(ctx context.Context, health map[string]RegionHealt
 	return writes, nil
 }
 
-// Step performs one writer tick: observe health, rewrite every health entry,
+// Step performs one writer tick: observe health, replace the full health document,
 // observe placement, and rewrite only the placement entries whose hosting set
 // changed since the last successful tick.
 func (w *KVWriter) Step(ctx context.Context) (int, error) {
@@ -303,7 +304,7 @@ func (w *KVWriter) Step(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-	_, stalePlacement := w.staleKeys(health, placement)
+	stalePlacement := w.stalePlacementKeys(placement)
 	if len(stalePlacement) > 0 {
 		if _, ok := w.store.(KVWriterDeleteStore); !ok {
 			err = errors.New("cloudflare: kv writer store cannot delete stale entries")
@@ -336,9 +337,8 @@ func (w *KVWriter) Step(ctx context.Context) (int, error) {
 	}
 	// The observations become the retry baseline only after every set and
 	// delete in this tick has succeeded. A partial delete therefore remains in
-	// staleKeys for the next tick and is safely retried.
+	// stalePlacementKeys for the next tick and is safely retried.
 	w.recordChangedPlacement(changed)
-	w.recordObservedHealth(health)
 	w.removeStalePlacement(stalePlacement)
 	w.recordTickWrites(writes)
 	w.recordErr(nil)
@@ -445,33 +445,17 @@ func (w *KVWriter) recordChangedPlacement(changed map[string]DBPlacement) {
 	}
 }
 
-func (w *KVWriter) staleKeys(health map[string]RegionHealth, placement map[string]DBPlacement) ([]string, []string) {
+func (w *KVWriter) stalePlacementKeys(placement map[string]DBPlacement) []string {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
-	var staleHealth []string
-	for region := range w.lastHealth {
-		if _, ok := health[region]; !ok {
-			staleHealth = append(staleHealth, region)
-		}
-	}
-	var stalePlacement []string
+	var stale []string
 	for database := range w.lastPlacement {
 		if _, ok := placement[database]; !ok {
-			stalePlacement = append(stalePlacement, database)
+			stale = append(stale, database)
 		}
 	}
-	sort.Strings(staleHealth)
-	sort.Strings(stalePlacement)
-	return staleHealth, stalePlacement
-}
-
-func (w *KVWriter) recordObservedHealth(health map[string]RegionHealth) {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-	w.lastHealth = make(map[string]struct{}, len(health))
-	for region := range health {
-		w.lastHealth[region] = struct{}{}
-	}
+	slices.Sort(stale)
+	return stale
 }
 
 func (w *KVWriter) removeStalePlacement(databases []string) {

@@ -110,7 +110,9 @@ func newClient(config Config, databaseScope bool) (*Client, error) {
 	}
 	scope := metadata.Pairs("x-tb-principal", principal)
 	if databaseScope {
-		scope.Append("x-tb-tenant", config.Tenant, "x-tb-project", config.Project, "x-tb-database", config.Database)
+		scope.Append("x-tb-tenant", config.Tenant)
+		scope.Append("x-tb-project", config.Project)
+		scope.Append("x-tb-database", config.Database)
 	}
 	return &Client{conn: conn, maintenance: pb.NewMaintenanceServiceClient(conn), scope: scope, principal: principal, timeout: config.Timeout}, nil
 }

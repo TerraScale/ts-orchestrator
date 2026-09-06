@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )

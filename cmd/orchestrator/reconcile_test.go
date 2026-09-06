@@ -153,11 +153,9 @@ func (s *reconcileKVStoreFake) SetWorkerPlacements(context.Context, map[string]c
 func (s *reconcileKVStoreFake) DeleteWorkerPlacements(context.Context, []string) error { return nil }
 
 func TestProductionKVWriterStartsAndShutsDown(t *testing.T) {
-	spec := estate.Default()
-	members := cloudflare.Members{"gru": {"198.51.100.10"}, "sfo": {"198.51.100.11"}, "fra": {"198.51.100.12"}}
 	store := &reconcileKVStoreFake{}
 	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{
-		Store: store, Health: &declaredKVHealthSource{spec: spec, members: members}, Placement: declaredKVPlacementSource{}, HealthInterval: time.Hour,
+		Store: store, Health: testObservedHealth{}, Placement: declaredKVPlacementSource{}, HealthInterval: time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("KV writer construction failed: %v", err)
@@ -193,4 +191,10 @@ func TestRequestedCommandAcceptsOnlyTheDryRunFlag(t *testing.T) {
 			t.Errorf("requestedCommand(%q) = %q, %v; want rejection", args, got, err)
 		}
 	}
+}
+
+type testObservedHealth struct{}
+
+func (testObservedHealth) ObserveRegionHealth(context.Context) (map[string]cloudflare.RegionHealth, error) {
+	return map[string]cloudflare.RegionHealth{"gru": {Healthy: true}}, nil
 }

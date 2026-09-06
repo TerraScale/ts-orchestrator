@@ -242,3 +242,26 @@ func TestKVWriterBudgetCountsCurrentDocumentAndPlacementKeys(t *testing.T) {
 		t.Fatal("budget skipped placement")
 	}
 }
+
+func TestKVWriterSeparatesUnknownLagAndMeasuredZero(t *testing.T) {
+	store := &kvWriterStoreFake{}
+	config := kvWriterTestConfig(store, map[string]RegionHealth{
+		"gru": {Healthy: true},
+		"sfo": {Healthy: true, LagMeasured: true, LagMS: 0},
+		"fra": {Healthy: true, Overloaded: true},
+	}, map[string]DBPlacement{})
+	w, err := NewKVWriter(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Step(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	regions := store.health[0].Regions
+	if regions["GRU"].LagMS != nil || regions["SFO"].LagMS == nil || *regions["SFO"].LagMS != 0 {
+		t.Fatalf("unknown and measured-zero lag were conflated: %+v", regions)
+	}
+	if regions["FRA"].OK {
+		t.Fatal("overloaded region was admitted for edge traffic")
+	}
+}

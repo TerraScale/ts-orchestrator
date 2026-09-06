@@ -55,20 +55,19 @@ func TestLocalOperationsContractQualifiesKVStateAndBudget(t *testing.T) {
 	if cloudflare.DefaultKVWriterHealthInterval != 10*time.Second || result.Interval != cloudflare.DefaultKVWriterHealthInterval {
 		t.Fatalf("interval = %s", result.Interval)
 	}
-	if result.InitialWrites != 5 || result.RefreshWrites != 3 || result.TransitionWrites != 5 || result.TotalWrites != 13 {
+	if result.InitialWrites != 3 || result.RefreshWrites != 1 || result.TransitionWrites != 3 || result.TotalWrites != 7 {
 		t.Fatalf("write accounting = %+v", result)
 	}
-	if !equalInts(result.BudgetObservations, []int{5, 5}) {
+	if !equalInts(result.BudgetObservations, []int{3, 3}) {
 		t.Fatalf("budget observations = %v", result.BudgetObservations)
 	}
 	wantOrder := []string{
-		"set-health:fra", "set-health:gru", "set-placement:qualification-live",
-		"delete-health:sfo", "delete-placement:qualification-stale",
+		"set-health:regions", "set-placement:qualification-live", "delete-placement:qualification-stale",
 	}
 	if !equalStrings(result.TransitionOrder, wantOrder) || !result.StaleHealthRemoved || !result.StalePlacementRemoved {
 		t.Fatalf("KV transition result = %+v", result)
 	}
-	if !equalStrings(result.PlacementRegions, []string{"gru"}) || result.PlacementGeneration != 2 {
+	if !equalStrings(result.PlacementRegions, []string{"GRU"}) || result.PlacementGeneration != 2 {
 		t.Fatalf("placement readback = %+v", result)
 	}
 }

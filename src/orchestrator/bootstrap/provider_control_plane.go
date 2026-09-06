@@ -2,8 +2,8 @@ package bootstrap
 
 // This file binds the control transition state machine to the provider APIs
 // used by production. OCI member tags are the durable intent and observation
-// boundary. Cloudflare receives only the derived Region health document used
-// by the edge router; it never stores control state or carries control traffic.
+// boundary. Engine serving health is published separately from authenticated
+// host observations; control activation never grants edge traffic admission.
 
 import (
 	"bytes"
@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
@@ -77,31 +76,25 @@ type ControlRegionBinding struct {
 	OCIRegion     string
 	CompartmentID string
 	MemberIDs     []string
-	Latitude      float64
-	Longitude     float64
 }
 
 // ProductionControlPlaneProviderConfig accepts only repository OCI transports
-// and the canonical Cloudflare client. OCI transports must be signed, bound to
+// bound to canonical OCI transports. Transports must be signed, bound to
 // the Region's canonical HTTPS authority, and use the core service.
 type ProductionControlPlaneProviderConfig struct {
-	Runtime    ControlRuntime
-	Regions    []ControlRegionBinding
-	OCI        map[string]*provider.OCIHTTPTransport
-	Cloudflare *cloudflare.Client
+	Runtime ControlRuntime
+	Regions []ControlRegionBinding
+	OCI     map[string]*provider.OCIHTTPTransport
 }
 
 // LocalControlPlaneProviderConfig is the only constructor that admits custom
 // provider URLs. Every URL must be an absolute loopback HTTP(S) URL with an
 // explicit port and no path, query, userinfo, or fragment.
 type LocalControlPlaneProviderConfig struct {
-	Runtime             ControlRuntime
-	Regions             []ControlRegionBinding
-	OCIBaseURLs         map[string]string
-	CloudflareBaseURL   string
-	CloudflareZoneID    string
-	CloudflareAccountID string
-	HTTPClient          *http.Client
+	Runtime     ControlRuntime
+	Regions     []ControlRegionBinding
+	OCIBaseURLs map[string]string
+	HTTPClient  *http.Client
 }
 
 // ControlReplica is one expected co-hosted control process as observed through
@@ -128,25 +121,21 @@ type ControlCandidateObservation struct {
 	VerifySequence uint64            `json:"verifySequence,omitempty"`
 }
 
-// ControlObservation is a detached view derived from provider reads. Edge
-// health consistency is descriptive: stale Cloudflare health never changes the
-// accepted control epoch or quorum derived from OCI members.
+// ControlObservation separates provider observations from accepted control
+// epoch and runtime quorum. It contains no engine serving-health claims.
 type ControlObservation struct {
-	State                ControlPlaneState             `json:"state"`
-	Replicas             []ControlReplica              `json:"replicas,omitempty"`
-	Candidates           []ControlCandidateObservation `json:"candidates,omitempty"`
-	RemoteRegions        []string                      `json:"remoteRegions,omitempty"`
-	RemoteHealth         map[string]bool               `json:"remoteHealth,omitempty"`
-	BootstrapAuthorized  bool                          `json:"bootstrapAuthorized"`
-	QuorumAvailable      bool                          `json:"quorumAvailable"`
-	LastSequence         uint64                        `json:"lastSequence,omitempty"`
-	PromotionSequence    uint64                        `json:"promotionSequence,omitempty"`
-	EdgeHealth           map[string]bool               `json:"edgeHealth,omitempty"`
-	EdgeHealthConsistent bool                          `json:"edgeHealthConsistent"`
+	State               ControlPlaneState             `json:"state"`
+	Replicas            []ControlReplica              `json:"replicas,omitempty"`
+	Candidates          []ControlCandidateObservation `json:"candidates,omitempty"`
+	RemoteRegions       []string                      `json:"remoteRegions,omitempty"`
+	RemoteHealth        map[string]bool               `json:"remoteHealth,omitempty"`
+	BootstrapAuthorized bool                          `json:"bootstrapAuthorized"`
+	QuorumAvailable     bool                          `json:"quorumAvailable"`
+	LastSequence        uint64                        `json:"lastSequence,omitempty"`
+	PromotionSequence   uint64                        `json:"promotionSequence,omitempty"`
 }
 
-// Validate rejects internally contradictory observations. It intentionally
-// permits stale edge health because Cloudflare is not a control authority.
+// Validate rejects internally contradictory control observations.
 func (o ControlObservation) Validate() error {
 	if err := o.State.Validate(); err != nil || o.BootstrapAuthorized != o.State.BootstrapAuthorized {
 		return ErrControlProviderInvalid
@@ -220,15 +209,13 @@ type controlRegion struct {
 	oci     controlOCIClient
 }
 
-// ProviderControlPlane implements the bootstrap provider against OCI and
-// Cloudflare HTTP clients. Calls are serialized within the process; OCI ETags
+// ProviderControlPlane implements the bootstrap provider against OCI.
+// Calls are serialized within the process; OCI ETags
 // fence concurrent writers outside it.
 type ProviderControlPlane struct {
-	runtime    ControlRuntime
-	mu         sync.Mutex
-	regions    map[string]controlRegion
-	cloudflare *cloudflare.Client
-	now        func() time.Time
+	runtime ControlRuntime
+	mu      sync.Mutex
+	regions map[string]controlRegion
 }
 
 var _ ControlPlaneProvider = (*ProviderControlPlane)(nil)
@@ -237,7 +224,7 @@ var _ ControlPlaneProvider = (*ProviderControlPlane)(nil)
 // at non-canonical authorities. Local qualification must use the separate
 // local constructor below.
 func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConfig) (*ProviderControlPlane, error) {
-	if config.Runtime == nil || !validProductionCloudflareClient(config.Cloudflare) {
+	if config.Runtime == nil {
 		return nil, ErrControlProviderInvalid
 	}
 	regions, err := normalizeControlRegions(config.Regions)
@@ -258,9 +245,7 @@ func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConf
 		}
 		bound[code] = controlRegion{binding: binding, oci: controlOCIClient{transport: cloned}}
 	}
-	cf := cloudflare.NewClient(config.Cloudflare.Token, config.Cloudflare.ZoneID, config.Cloudflare.AccountID)
-	cf.HTTP = config.Cloudflare.HTTP
-	return &ProviderControlPlane{runtime: config.Runtime, regions: bound, cloudflare: cf, now: time.Now}, nil
+	return &ProviderControlPlane{runtime: config.Runtime, regions: bound}, nil
 }
 
 // NewLocalControlPlaneProvider builds a provider for the loopback HTTP
@@ -268,13 +253,8 @@ func NewProductionControlPlaneProvider(config ProductionControlPlaneProviderConf
 // URLs even if the supplied HTTP client could reach them.
 func NewLocalControlPlaneProvider(config LocalControlPlaneProviderConfig) (*ProviderControlPlane, error) {
 	regions, err := normalizeControlRegions(config.Regions)
-	if config.Runtime == nil || err != nil || len(config.OCIBaseURLs) != len(regions) || config.HTTPClient == nil || config.HTTPClient.Timeout <= 0 ||
-		strings.TrimSpace(config.CloudflareZoneID) == "" || strings.TrimSpace(config.CloudflareAccountID) == "" {
+	if config.Runtime == nil || err != nil || len(config.OCIBaseURLs) != len(regions) || config.HTTPClient == nil || config.HTTPClient.Timeout <= 0 {
 		return nil, ErrControlProviderInvalid
-	}
-	cfBase, err := validateLocalProviderURL(config.CloudflareBaseURL)
-	if err != nil {
-		return nil, err
 	}
 	client := &http.Client{Transport: config.HTTPClient.Transport, Timeout: config.HTTPClient.Timeout,
 		CheckRedirect: rejectControlRedirects}
@@ -286,17 +266,7 @@ func NewLocalControlPlaneProvider(config LocalControlPlaneProviderConfig) (*Prov
 		}
 		bound[code] = controlRegion{binding: binding, oci: controlOCIClient{baseURL: base, http: client, local: true}}
 	}
-	cf := cloudflare.NewClient("local-qualification", config.CloudflareZoneID, config.CloudflareAccountID)
-	cf.BaseURL = cfBase
-	if client.Transport != nil {
-		cf.HTTP = client.Transport
-	}
-	return &ProviderControlPlane{runtime: config.Runtime, regions: bound, cloudflare: cf, now: time.Now}, nil
-}
-
-func validProductionCloudflareClient(client *cloudflare.Client) bool {
-	return client != nil && strings.TrimSpace(client.Token) != "" && strings.TrimSpace(client.ZoneID) != "" &&
-		strings.TrimSpace(client.AccountID) != "" && client.BaseURL == cloudflare.DefaultBaseURL && client.HTTP != nil
+	return &ProviderControlPlane{runtime: config.Runtime, regions: bound}, nil
 }
 
 func validProductionOCITransport(transport *provider.OCIHTTPTransport, region string) bool {
@@ -321,8 +291,7 @@ func normalizeControlRegions(input []ControlRegionBinding) (map[string]ControlRe
 		binding.CompartmentID = strings.TrimSpace(binding.CompartmentID)
 		binding.MemberIDs = append([]string(nil), binding.MemberIDs...)
 		if !validControlRegion(binding.Code) || !validOCIRegionName(binding.OCIRegion) ||
-			!validProviderIdentity(binding.CompartmentID, "compartment") || len(binding.MemberIDs) < 1 || len(binding.MemberIDs) > 16 ||
-			binding.Latitude < -90 || binding.Latitude > 90 || binding.Longitude < -180 || binding.Longitude > 180 {
+			!validProviderIdentity(binding.CompartmentID, "compartment") || len(binding.MemberIDs) < 1 || len(binding.MemberIDs) > 16 {
 			return nil, ErrControlProviderInvalid
 		}
 		if _, exists := result[binding.Code]; exists {
@@ -586,7 +555,7 @@ func mergeCandidateObservation(values map[string]ControlCandidateObservation, ca
 }
 
 func (p *ProviderControlPlane) observationFromInstances(instances []controlInstance) (ControlObservation, error) {
-	observation := ControlObservation{EdgeHealthConsistent: true, RemoteHealth: make(map[string]bool)}
+	observation := ControlObservation{RemoteHealth: make(map[string]bool)}
 	candidates := make(map[string]ControlCandidateObservation)
 	remote := make(map[string]struct{})
 	remoteActive := make(map[string]int)
@@ -782,8 +751,7 @@ func (p *ProviderControlPlane) addMissingGlobalReplicas(observation *ControlObse
 	})
 }
 
-// ObserveControl reads every configured expected member and the Cloudflare
-// Worker-health document. Runtime readback, not OCI lifecycle tags, proves
+// ObserveControl reads every configured expected member. Runtime readback proves
 // that an expected control process is active.
 func (p *ProviderControlPlane) ObserveControl(ctx context.Context) (ControlObservation, error) {
 	if p == nil || ctx == nil {
@@ -802,7 +770,6 @@ func (p *ProviderControlPlane) ObserveControl(ctx context.Context) (ControlObser
 	if err != nil {
 		return ControlObservation{}, err
 	}
-	p.readEdgeHealthLocked(ctx, &observation)
 	return observation, nil
 }
 
@@ -818,105 +785,6 @@ func (p *ProviderControlPlane) ReplicaStatus(ctx context.Context, region string)
 		}
 	}
 	return ControlReplica{}, ErrControlProviderUnavailable
-}
-
-func (p *ProviderControlPlane) readEdgeHealthLocked(ctx context.Context, observation *ControlObservation) {
-	namespaces, err := p.cloudflare.ListKVNamespaces(ctx)
-	if err != nil {
-		observation.EdgeHealthConsistent = false
-		return
-	}
-	found := false
-	for _, namespace := range namespaces {
-		if namespace.Title == cloudflare.RegionHealthNamespace {
-			found = true
-			break
-		}
-	}
-	if !found {
-		observation.EdgeHealthConsistent = observation.State.Phase == ControlPhaseEmpty
-		return
-	}
-	document, err := p.cloudflare.WorkerHealth(ctx)
-	if err != nil {
-		observation.EdgeHealthConsistent = false
-		return
-	}
-	observation.EdgeHealth = make(map[string]bool, len(document.Regions))
-	for region, health := range document.Regions {
-		observation.EdgeHealth[strings.ToLower(region)] = health.OK
-	}
-	want := p.derivedRegionHealth(*observation)
-	for region, healthy := range want {
-		if observation.EdgeHealth[region] != healthy {
-			observation.EdgeHealthConsistent = false
-		}
-	}
-}
-
-func (p *ProviderControlPlane) derivedRegionHealth(observation ControlObservation) map[string]bool {
-	health := make(map[string]bool, len(p.regions))
-	for code := range p.regions {
-		health[code] = false
-	}
-	for _, replica := range observation.Replicas {
-		health[replica.Region] = health[replica.Region] || replica.Active
-	}
-	for _, region := range observation.RemoteRegions {
-		health[region] = observation.RemoteHealth[region]
-	}
-	return health
-}
-
-func (p *ProviderControlPlane) ensureHealthNamespaceLocked(ctx context.Context) error {
-	namespaces, err := p.cloudflare.ListKVNamespaces(ctx)
-	if err != nil {
-		return err
-	}
-	for _, namespace := range namespaces {
-		if namespace.Title == cloudflare.RegionHealthNamespace {
-			return nil
-		}
-	}
-	if err := p.cloudflare.CreateKVNamespace(ctx, cloudflare.RegionHealthNamespace); err != nil {
-		// A competing reconciler may have created it after our list.
-		namespaces, listErr := p.cloudflare.ListKVNamespaces(ctx)
-		if listErr != nil {
-			return err
-		}
-		for _, namespace := range namespaces {
-			if namespace.Title == cloudflare.RegionHealthNamespace {
-				return nil
-			}
-		}
-		return err
-	}
-	return nil
-}
-
-func (p *ProviderControlPlane) publishHealthLocked(ctx context.Context) error {
-	if err := p.ensureHealthNamespaceLocked(ctx); err != nil {
-		return err
-	}
-	instances, err := p.readAllLocked(ctx)
-	if err != nil {
-		return err
-	}
-	observation, err := p.observationFromInstances(instances)
-	if err != nil {
-		return err
-	}
-	derived := p.derivedRegionHealth(observation)
-	entries := make(map[string]cloudflare.WorkerRegionHealth, len(p.regions))
-	for code, region := range p.regions {
-		entries[code] = cloudflare.WorkerRegionHealth{OK: derived[code], LagMS: 0,
-			Lat: region.binding.Latitude, Lon: region.binding.Longitude}
-	}
-	now := p.now
-	if now == nil {
-		now = time.Now
-	}
-	return p.cloudflare.SetWorkerHealth(ctx, cloudflare.WorkerHealthDoc{Updated: now().UTC().Unix(), Regions: entries})
 }
 
 func validateProviderAction(ctx context.Context, request ControlActionRequest, kind ControlActionKind) error {
@@ -1097,9 +965,6 @@ func (p *ProviderControlPlane) mutate(ctx context.Context, request ControlAction
 			}
 		}
 		if complete {
-			if err := p.publishHealthLocked(ctx); err != nil {
-				return ControlReceipt{}, err
-			}
 			return ControlReceipt{ID: request.Action.IdempotencyKey}, nil
 		}
 		// Re-observe even after a partially completed multi-Region action. The

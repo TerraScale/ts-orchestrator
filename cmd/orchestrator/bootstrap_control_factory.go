@@ -20,7 +20,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
-	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
@@ -57,7 +56,6 @@ type bootstrapControlAdmission struct {
 	provision   ocireconcile.BootstrapRequest
 	loaded      loadedBootstrapControl
 	credentials ocireconcile.BootstrapCredentials
-	cloudflare  *cloudflare.Client
 	regions     []bootstrapControlRegion
 }
 
@@ -95,7 +93,7 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 			loaded.closeCredentials()
 		}
 	}()
-	credentials, cf, err := bootstrapControlProviderCredentials(lookup, loaded.declaration.Regions)
+	credentials, err := bootstrapControlProviderCredentials(lookup, loaded.declaration.Regions)
 	if err != nil {
 		return nil, err
 	}
@@ -108,31 +106,19 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 		return nil, err
 	}
 	admitted = true
-	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, cloudflare: cf, regions: regions}, nil
+	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, regions: regions}, nil
 }
-func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (ocireconcile.BootstrapCredentials, *cloudflare.Client, error) {
+func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (ocireconcile.BootstrapCredentials, error) {
 	credentials, err := ocireconcile.BootstrapCredentialsFromEnv(lookup)
 	if err != nil {
-		return credentials, nil, err
+		return credentials, err
 	}
 	for _, region := range regions {
 		if _, err := ocireconcile.BootstrapControlTransport(credentials, region.OCIRegion, provider.OCIServiceCore); err != nil {
-			return credentials, nil, err
+			return credentials, err
 		}
 	}
-	token, err := addRegionRequiredEnv(lookup, addRegionCFTokenEnvironment)
-	if err != nil {
-		return credentials, nil, err
-	}
-	zone, err := addRegionRequiredEnv(lookup, addRegionCFZoneEnvironment)
-	if err != nil {
-		return credentials, nil, err
-	}
-	account, err := addRegionRequiredEnv(lookup, addRegionCFAccountEnvironment)
-	if err != nil {
-		return credentials, nil, err
-	}
-	return credentials, cloudflare.NewClient(token, zone, account), nil
+	return credentials, nil
 }
 func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControlAdmission, journalPath string) (*bootstrap.ControlStateMachine, error) {
 	if ctx == nil || admission == nil {
@@ -141,7 +127,7 @@ func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControl
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	loaded, credentials, cf := admission.loaded, admission.credentials, admission.cloudflare
+	loaded, credentials := admission.loaded, admission.credentials
 	journal, err := bootstrap.NewFileControlJournal(journalPath)
 	if err != nil {
 		return nil, err
@@ -275,7 +261,7 @@ func newBootstrapControlMachine(ctx context.Context, admission *bootstrapControl
 	for _, region := range admission.regions {
 		activationRuntime.hostStores[region.Code] = region.HostStore
 	}
-	controlProvider, err := bootstrap.NewProductionControlPlaneProvider(bootstrap.ProductionControlPlaneProviderConfig{Runtime: activationRuntime, Regions: bindings, OCI: transports, Cloudflare: cf})
+	controlProvider, err := bootstrap.NewProductionControlPlaneProvider(bootstrap.ProductionControlPlaneProviderConfig{Runtime: activationRuntime, Regions: bindings, OCI: transports})
 	if err != nil {
 		return nil, err
 	}

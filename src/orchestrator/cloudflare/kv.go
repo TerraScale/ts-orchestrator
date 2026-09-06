@@ -90,15 +90,16 @@ func (z *Zone) reconcileKVNamespaces(ctx context.Context, c *Client, p *Plan) er
 // They are not edge wire documents; only WorkerHealthDoc and WorkerPlacement
 // are published to Cloudflare KV.
 type RegionHealth struct {
-	Region     string    `json:"region"`
-	Healthy    bool      `json:"healthy"`
-	Draining   bool      `json:"draining"`
-	Overloaded bool      `json:"overloaded"`
-	LagMS      int       `json:"lag_ms"`
-	Lat        float64   `json:"lat"`
-	Lon        float64   `json:"lon"`
-	Members    []string  `json:"members"` // healthy member addresses, sorted
-	UpdatedAt  time.Time `json:"updated_at"`
+	Region      string    `json:"region"`
+	Healthy     bool      `json:"healthy"`
+	Draining    bool      `json:"draining"`
+	Overloaded  bool      `json:"overloaded"`
+	LagMS       int       `json:"lag_ms"`
+	LagMeasured bool      `json:"lag_measured"`
+	Lat         float64   `json:"lat"`
+	Lon         float64   `json:"lon"`
+	Members     []string  `json:"members"` // healthy member addresses, sorted
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type DBPlacement struct {

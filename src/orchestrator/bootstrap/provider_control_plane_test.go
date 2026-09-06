@@ -16,10 +16,8 @@ import (
 	"testing"
 	"time"
 
-	productioncf "terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
-	localcf "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare"
 	localoci "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci"
 )
 
@@ -28,7 +26,6 @@ type controlProviderHarness struct {
 	ctx      context.Context
 	client   *http.Client
 	oci      *httptest.Server
-	cf       *httptest.Server
 	provider *ProviderControlPlane
 	bindings map[string]ControlRegionBinding
 }
@@ -36,14 +33,12 @@ type controlProviderHarness struct {
 func newControlProviderHarness(t *testing.T) *controlProviderHarness {
 	t.Helper()
 	ociHandler := localoci.New(localoci.Config{WorkRequestPolls: 1})
-	cfHandler := localcf.New(localcf.Config{ZoneID: "zone-local", AccountID: "account-local"})
 	h := &controlProviderHarness{
 		t: t, ctx: context.Background(), client: &http.Client{Timeout: 3 * time.Second},
-		oci: httptest.NewServer(ociHandler), cf: httptest.NewServer(cfHandler),
+		oci:      httptest.NewServer(ociHandler),
 		bindings: make(map[string]ControlRegionBinding),
 	}
 	t.Cleanup(h.oci.Close)
-	t.Cleanup(h.cf.Close)
 	regions := []struct {
 		code, oci string
 		members   int
@@ -68,8 +63,8 @@ func newControlProviderHarness(t *testing.T) *controlProviderHarness {
 	var err error
 	h.provider, err = NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{
 		Runtime: &unitControlRuntime{bindings: bindings},
-		Regions: bindings, OCIBaseURLs: urls, CloudflareBaseURL: h.cf.URL,
-		CloudflareZoneID: "zone-local", CloudflareAccountID: "account-local", HTTPClient: h.client,
+		Regions: bindings, OCIBaseURLs: urls,
+		HTTPClient: h.client,
 	})
 	if err != nil {
 		t.Fatalf("create local control provider: %v", err)
@@ -221,7 +216,7 @@ func TestLocalControlPlaneProviderDrivesProviderContracts(t *testing.T) {
 	}
 	if state.Topology != ControlTopologyGlobalR3 || state.Epoch != 2 || state.BootstrapAuthorized ||
 		len(observation.Replicas) != 3 || len(observation.Candidates) != 2 || !observation.QuorumAvailable ||
-		observation.PromotionSequence == 0 || !observation.EdgeHealthConsistent {
+		observation.PromotionSequence == 0 {
 		t.Fatalf("R3 observation = %+v", observation)
 	}
 	for _, candidate := range observation.Candidates {
@@ -238,7 +233,7 @@ func TestLocalControlPlaneProviderDrivesProviderContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(observation.RemoteRegions) != 1 || observation.RemoteRegions[0] != "lhr" || !observation.EdgeHealth["lhr"] || !observation.EdgeHealthConsistent {
+	if len(observation.RemoteRegions) != 1 || observation.RemoteRegions[0] != "lhr" {
 		t.Fatalf("fourth-Region observation = %+v", observation)
 	}
 
@@ -265,7 +260,7 @@ func TestLocalControlPlaneProviderDrivesProviderContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FRA replica status: %v", err)
 	}
-	if status.Active || status.LifecycleState != "TERMINATED" || !observation.QuorumAvailable || observation.EdgeHealthConsistent {
+	if status.Active || status.LifecycleState != "TERMINATED" || !observation.QuorumAvailable {
 		t.Fatalf("degraded observation=%+v FRA=%+v", observation, status)
 	}
 }
@@ -314,18 +309,16 @@ func TestLocalControlPlaneProviderIsIdempotentAndRaceSafe(t *testing.T) {
 }
 
 func TestControlPlaneProviderSeparatesProductionAndLocalAuthorities(t *testing.T) {
-	cf := productioncf.NewClient("token", "zone", "account")
-	cf.BaseURL = "http://127.0.0.1:8080"
-	if _, err := NewProductionControlPlaneProvider(ProductionControlPlaneProviderConfig{Cloudflare: cf}); !errors.Is(err, ErrControlProviderInvalid) {
-		t.Fatalf("production constructor accepted local Cloudflare URL: %v", err)
+	if _, err := NewProductionControlPlaneProvider(ProductionControlPlaneProviderConfig{}); !errors.Is(err, ErrControlProviderInvalid) {
+		t.Fatalf("production constructor accepted absent runtime: %v", err)
 	}
 	client := &http.Client{Timeout: time.Second}
 	binding := ControlRegionBinding{Code: "gru", OCIRegion: "sa-saopaulo-1", CompartmentID: "ocid1.compartment.oc1.local.control",
 		MemberIDs: []string{"ocid1.instance.oc1.local.1"}}
 	for _, rawURL := range []string{"https://api.cloudflare.com:443", "http://127.0.0.1", "http://127.0.0.1:8080/path", "http://user@127.0.0.1:8080"} {
 		_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Runtime: &unitControlRuntime{}, Regions: []ControlRegionBinding{binding},
-			OCIBaseURLs: map[string]string{"gru": "http://127.0.0.1:8080"}, CloudflareBaseURL: rawURL,
-			CloudflareZoneID: "zone", CloudflareAccountID: "account", HTTPClient: client})
+			OCIBaseURLs: map[string]string{"gru": rawURL},
+			HTTPClient:  client})
 		if !errors.Is(err, ErrControlProviderInvalid) {
 			t.Errorf("local constructor accepted %q: %v", rawURL, err)
 		}
@@ -393,7 +386,7 @@ func TestControlProviderRejectsEpochRegressionBeforeRuntimeExecution(t *testing.
 func TestLocalControlProviderRequiresExplicitRuntime(t *testing.T) {
 	h := newControlProviderHarness(t)
 	binding := h.bindings["gru"]
-	_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Regions: []ControlRegionBinding{binding}, OCIBaseURLs: map[string]string{"gru": h.oci.URL}, CloudflareBaseURL: h.cf.URL, CloudflareZoneID: "zone-local", CloudflareAccountID: "account-local", HTTPClient: h.client})
+	_, err := NewLocalControlPlaneProvider(LocalControlPlaneProviderConfig{Regions: []ControlRegionBinding{binding}, OCIBaseURLs: map[string]string{"gru": h.oci.URL}, HTTPClient: h.client})
 	if !errors.Is(err, ErrControlProviderInvalid) {
 		t.Fatalf("constructor silently supplied runtime: %v", err)
 	}

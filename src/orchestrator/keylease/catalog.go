@@ -1,0 +1,216 @@
+// Package keylease serves short-lived, database-scoped OCI Vault data keys to
+// the local TerraBase process. Durable state contains wrapped ciphertext only.
+package keylease
+
+import (
+	"context"
+	"encoding/json/v2"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
+)
+
+var ErrUnavailable = errors.New("keylease: key unavailable")
+
+const maximumCatalogBytes = 4 << 20
+
+// Binding is authenticated as OCI associated data, including the intended use.
+// Versions are explicit; the service never substitutes the newest version.
+type Binding struct {
+	Environment string `json:"environment"`
+	TenantID    string `json:"tenant_id"`
+	ProjectID   string `json:"project_id"`
+	DatabaseID  string `json:"database_id"`
+	KeyVersion  string `json:"key_version"`
+	Region      string `json:"region"`
+	Purpose     string `json:"purpose"`
+}
+
+type Entry struct {
+	Binding        Binding   `json:"binding"`
+	CryptoEndpoint string    `json:"crypto_endpoint"`
+	KEKID          string    `json:"kek_id"`
+	KEKVersionID   string    `json:"kek_version_id"`
+	Ciphertext     string    `json:"ciphertext"`
+	LeaseSeconds   uint32    `json:"lease_seconds"`
+	Revoked        bool      `json:"revoked"`
+	NotAfter       time.Time `json:"not_after"`
+}
+
+type Catalog struct {
+	Version int     `json:"version"`
+	Entries []Entry `json:"entries"`
+}
+
+func validULID(s string) bool {
+	if len(s) != 26 || s[0] > '7' {
+		return false
+	}
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", c) {
+			return false
+		}
+	}
+	return true
+}
+func (b Binding) valid() bool {
+	if len(b.Environment) < 1 || len(b.Environment) > 128 {
+		return false
+	}
+	for _, c := range b.Environment {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return validULID(b.TenantID) && validULID(b.ProjectID) && validULID(b.DatabaseID) && validULID(b.KeyVersion) && ociRegion(b.Region) != "" && (b.Purpose == "data" || b.Purpose == "backup" || b.Purpose == "checkpoint")
+}
+func ociRegion(region string) string {
+	switch region {
+	case "GRU":
+		return "sa-saopaulo-1"
+	case "SFO":
+		return "us-sanjose-1"
+	case "FRA":
+		return "eu-frankfurt-1"
+	}
+	return ""
+}
+func (b Binding) AssociatedData() map[string]string {
+	return map[string]string{"environment": b.Environment, "tenant_id": b.TenantID, "project_id": b.ProjectID, "database_id": b.DatabaseID, "key_version": b.KeyVersion, "region": b.Region, "purpose": b.Purpose}
+}
+func (c Catalog) validate() error {
+	if c.Version != 1 || len(c.Entries) > 10000 {
+		return ErrUnavailable
+	}
+	seen := map[Binding]bool{}
+	for _, e := range c.Entries {
+		if !e.Binding.valid() || seen[e.Binding] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) || !provider.IsOCID(e.KEKID, "key") || !provider.IsOCID(e.KEKVersionID, "keyversion") || len(e.Ciphertext) == 0 || len(e.Ciphertext) > 8192 || e.LeaseSeconds < 1 || e.LeaseSeconds > 1800 || e.NotAfter.IsZero() {
+			return ErrUnavailable
+		}
+		seen[e.Binding] = true
+	}
+	return nil
+}
+
+// privateRoot refuses symlinked parent directories and requires owner-only
+// access. OpenRoot confines subsequent file operations to that directory.
+func privateRoot(path string) (*os.Root, string, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, "", ErrUnavailable
+	}
+	dir := filepath.Dir(path)
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil || resolved != dir {
+		return nil, "", ErrUnavailable
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+		return nil, "", ErrUnavailable
+	}
+	// os.FileInfo.Sys is syscall.Stat_t, so inspect ownership through fstat below.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", ErrUnavailable
+	}
+	f, err := root.Open(".")
+	if err != nil {
+		root.Close()
+		return nil, "", ErrUnavailable
+	}
+	var st unix.Stat_t
+	err = unix.Fstat(int(f.Fd()), &st)
+	f.Close()
+	if err != nil || st.Uid != uint32(os.Geteuid()) {
+		root.Close()
+		return nil, "", ErrUnavailable
+	}
+	return root, filepath.Base(path), nil
+}
+
+func ReadCatalog(path string) (Catalog, error) {
+	root, name, err := privateRoot(path)
+	if err != nil {
+		return Catalog{}, ErrUnavailable
+	}
+	defer root.Close()
+	info, err := root.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > maximumCatalogBytes {
+		return Catalog{}, ErrUnavailable
+	}
+	f, err := root.OpenFile(name, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return Catalog{}, ErrUnavailable
+	}
+	defer f.Close()
+	var st unix.Stat_t
+	if unix.Fstat(int(f.Fd()), &st) != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&0777 != 0600 {
+		return Catalog{}, ErrUnavailable
+	}
+	body, err := io.ReadAll(io.LimitReader(f, maximumCatalogBytes+1))
+	if err != nil || len(body) > maximumCatalogBytes {
+		return Catalog{}, ErrUnavailable
+	}
+	var catalog Catalog
+	if json.Unmarshal(body, &catalog, json.RejectUnknownMembers(true)) != nil || catalog.validate() != nil {
+		return Catalog{}, ErrUnavailable
+	}
+	return catalog, nil
+}
+
+// WriteCatalog durably replaces a catalog after the caller has obtained wrapped
+// material from Vault. Issuance must persist this record before admitting data.
+func WriteCatalog(path string, catalog Catalog) error {
+	if catalog.validate() != nil {
+		return ErrUnavailable
+	}
+	body, err := json.Marshal(catalog)
+	if err != nil || len(body) > maximumCatalogBytes {
+		return ErrUnavailable
+	}
+	root, name, err := privateRoot(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer root.Close()
+	// A unique, exclusive staging file avoids clobbering another writer's staging.
+	f, err := os.CreateTemp(filepath.Dir(path), ".wrapped-key-*")
+	if err != nil {
+		return ErrUnavailable
+	}
+	temp := filepath.Base(f.Name())
+	defer root.Remove(temp)
+	if _, err = f.Write(body); err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	if root.Rename(temp, name) != nil {
+		return ErrUnavailable
+	}
+	dir, err := root.Open(".")
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer dir.Close()
+	if dir.Sync() != nil {
+		return ErrUnavailable
+	}
+	return nil
+}
+
+type UnwrapFunc func(context.Context, Entry) ([]byte, error)
+
+func unwrapOCI(ctx context.Context, e Entry) ([]byte, error) {
+	return hostsecrets.UnwrapDataKey(ctx, ociRegion(e.Binding.Region), e.CryptoEndpoint, e.KEKID, e.KEKVersionID, e.Ciphertext, e.Binding.AssociatedData())
+}

@@ -1,0 +1,226 @@
+//go:build linux
+
+package keylease
+
+import (
+	"context"
+	"encoding/binary"
+	"io"
+	"net"
+	"os"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
+)
+
+const maximumFrame = 2048
+
+type Config struct {
+	SocketPath  string
+	CatalogPath string
+	Environment string
+	Region      string
+	AllowedUID  uint32
+}
+
+type Server struct {
+	config     Config
+	listener   *net.UnixListener
+	cancel     context.CancelFunc
+	workers    sync.WaitGroup
+	completion chan error
+	once       sync.Once
+}
+
+// Start binds an owner-only Unix socket. OCI IAM authentication happens when a
+// key is requested; startup does not fetch or persist any plaintext keys.
+func Start(ctx context.Context, config Config) (*Server, error) { return start(ctx, config, unwrapOCI) }
+func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, error) {
+	if ctx == nil || unwrap == nil || config.AllowedUID != uint32(os.Geteuid()) || ociRegion(config.Region) == "" || len(config.Environment) == 0 {
+		return nil, ErrUnavailable
+	}
+	catalog, err := ReadCatalog(config.CatalogPath)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	for _, e := range catalog.Entries {
+		if e.Binding.Environment != config.Environment || e.Binding.Region != config.Region {
+			return nil, ErrUnavailable
+		}
+	}
+	root, name, err := privateRoot(config.SocketPath)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer root.Close()
+	// A stale socket must be removed explicitly by systemd RuntimeDirectory
+	// cleanup. Never unlink a live service or a caller-supplied filesystem object.
+	if _, err := root.Lstat(name); !os.IsNotExist(err) {
+		return nil, ErrUnavailable
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: config.SocketPath, Net: "unix"})
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	if root.Chmod(name, 0600) != nil {
+		listener.Close()
+		return nil, ErrUnavailable
+	}
+	local, cancel := context.WithCancel(ctx)
+	s := &Server{config: config, listener: listener, cancel: cancel, completion: make(chan error, 1)}
+	go s.serve(local, unwrap)
+	return s, nil
+}
+func (s *Server) Completion() <-chan error { return s.completion }
+func (s *Server) Close() error {
+	s.once.Do(func() { s.cancel(); s.listener.Close(); s.workers.Wait() })
+	return nil
+}
+func (s *Server) serve(ctx context.Context, unwrap UnwrapFunc) {
+	stop := context.AfterFunc(ctx, func() { s.listener.Close() })
+	defer stop()
+	defer close(s.completion)
+	// Bound queued connections and SDK work. Four requests can wait on the one
+	// existing process-wide OCI identity worker; no unbounded goroutine admission.
+	slots := make(chan struct{}, 4)
+	for {
+		connection, err := s.listener.AcceptUnix()
+		if err != nil {
+			if ctx.Err() == nil {
+				s.completion <- ErrUnavailable
+			}
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			s.workers.Go(func() { defer func() { <-slots }(); defer connection.Close(); s.handle(ctx, connection, unwrap) })
+		default:
+			connection.Close()
+		}
+	}
+}
+func peerUID(connection *net.UnixConn) (uint32, error) {
+	raw, err := connection.SyscallConn()
+	if err != nil {
+		return 0, ErrUnavailable
+	}
+	var credential *unix.Ucred
+	var inner error
+	if raw.Control(func(fd uintptr) { credential, inner = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) }) != nil || inner != nil || credential == nil {
+		return 0, ErrUnavailable
+	}
+	return credential.Uid, nil
+}
+func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap UnwrapFunc) {
+	uid, err := peerUID(connection)
+	if err != nil || uid != s.config.AllowedUID {
+		return
+	}
+	if connection.SetDeadline(time.Now().Add(25*time.Second)) != nil {
+		return
+	}
+	local, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(local, func() { connection.Close() })
+	defer stop()
+	binding, err := readBinding(connection)
+	if err != nil || binding.Environment != s.config.Environment || binding.Region != s.config.Region {
+		writeUnavailable(connection)
+		return
+	}
+	entry, err := s.lookup(binding, time.Now())
+	if err != nil {
+		writeUnavailable(connection)
+		return
+	}
+	key, err := unwrap(local, entry)
+	defer clear(key)
+	if err != nil || len(key) != 32 {
+		writeUnavailable(connection)
+		return
+	}
+	// Re-check after remote latency: revocation or rotation must not race a
+	// pending Vault unwrap. Old versions remain usable only if explicitly kept.
+	current, err := s.lookup(binding, time.Now())
+	if err != nil || current != entry {
+		writeUnavailable(connection)
+		return
+	}
+	seconds := min(entry.LeaseSeconds, uint32(max(0, time.Until(entry.NotAfter)/time.Second)))
+	if seconds == 0 {
+		writeUnavailable(connection)
+		return
+	}
+	var response [72]byte
+	defer clear(response[:])
+	binary.BigEndian.PutUint32(response[:4], 68)
+	copy(response[4:8], "TBKL")
+	response[8] = 1
+	response[9] = 0
+	binary.BigEndian.PutUint32(response[10:14], seconds)
+	copy(response[14:40], binding.KeyVersion)
+	copy(response[40:], key)
+	writeAll(connection, response[:])
+}
+func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
+	catalog, err := ReadCatalog(s.config.CatalogPath)
+	if err != nil {
+		return Entry{}, ErrUnavailable
+	}
+	for _, e := range catalog.Entries {
+		if e.Binding == binding {
+			if e.Revoked || !e.NotAfter.After(now) {
+				return Entry{}, ErrUnavailable
+			}
+			return e, nil
+		}
+	}
+	return Entry{}, ErrUnavailable
+}
+func readBinding(reader io.Reader) (Binding, error) {
+	var prefix [4]byte
+	if _, err := io.ReadFull(reader, prefix[:]); err != nil {
+		return Binding{}, ErrUnavailable
+	}
+	size := binary.BigEndian.Uint32(prefix[:])
+	if size < 5 || size > maximumFrame {
+		return Binding{}, ErrUnavailable
+	}
+	body := make([]byte, size)
+	if _, err := io.ReadFull(reader, body); err != nil || string(body[:4]) != "TBKL" || body[4] != 1 {
+		return Binding{}, ErrUnavailable
+	}
+	var b Binding
+	fields := []*string{&b.Environment, &b.TenantID, &b.ProjectID, &b.DatabaseID, &b.KeyVersion, &b.Region, &b.Purpose}
+	cursor := 5
+	for _, field := range fields {
+		if cursor+2 > len(body) {
+			return Binding{}, ErrUnavailable
+		}
+		n := int(binary.BigEndian.Uint16(body[cursor : cursor+2]))
+		cursor += 2
+		if n < 1 || n > 128 || cursor+n > len(body) || !utf8.Valid(body[cursor:cursor+n]) {
+			return Binding{}, ErrUnavailable
+		}
+		*field = string(body[cursor : cursor+n])
+		cursor += n
+	}
+	if cursor != len(body) || !b.valid() {
+		return Binding{}, ErrUnavailable
+	}
+	return b, nil
+}
+func writeUnavailable(writer io.Writer) {
+	writeAll(writer, []byte{0, 0, 0, 6, 'T', 'B', 'K', 'L', 1, 1})
+}
+func writeAll(writer io.Writer, body []byte) {
+	for len(body) > 0 {
+		n, err := writer.Write(body)
+		if err != nil || n == 0 {
+			return
+		}
+		body = body[n:]
+	}
+}

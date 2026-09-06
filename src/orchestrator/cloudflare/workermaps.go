@@ -67,7 +67,7 @@ type WorkerHealthDoc struct {
 // carried for a later policy, not used for routing at launch.
 type WorkerRegionHealth struct {
 	OK    bool    `json:"ok"`
-	LagMS int     `json:"lag_ms"`
+	LagMS *int    `json:"lag_ms,omitempty"`
 	Lat   float64 `json:"lat"`
 	Lon   float64 `json:"lon"`
 }
@@ -79,10 +79,7 @@ type WorkerPlacement struct {
 	R   []string        `json:"r"`
 	Res WorkerResidency `json:"res"`
 	G   uint64          `json:"g"` // immutable placement-lock generation
-	// Generation is accepted as a descriptive API alias; G is the compact
-	// wire field used by the Worker contract.
-	Generation uint64 `json:"-"`
-	U          int64  `json:"u"` // unix seconds, writer clock
+	U   int64           `json:"u"` // unix seconds, writer clock
 }
 
 // WorkerResidency is the placement lock as it appears on the wire: a named
@@ -298,7 +295,7 @@ func (h WorkerRegionHealth) validate() error {
 	if !finite(h.Lon) || h.Lon < -180 || h.Lon > 180 {
 		return errors.New("lon must be a finite value in [-180, 180]")
 	}
-	if h.LagMS < 0 {
+	if h.LagMS != nil && *h.LagMS < 0 {
 		return errors.New("lag must not be negative")
 	}
 	return nil
@@ -343,11 +340,7 @@ func (p WorkerPlacement) normalized() (WorkerPlacement, error) {
 		}
 	}
 	sort.Strings(regions) // deterministic bytes: one write shape, no drift churn
-	generation := p.G
-	if generation == 0 {
-		generation = p.Generation
-	}
-	return WorkerPlacement{V: workerMapVersion, R: regions, Res: residency, G: generation, Generation: generation, U: p.U}, nil
+	return WorkerPlacement{V: workerMapVersion, R: regions, Res: residency, G: p.G, U: p.U}, nil
 }
 
 func (r WorkerResidency) normalized() (WorkerResidency, error) {

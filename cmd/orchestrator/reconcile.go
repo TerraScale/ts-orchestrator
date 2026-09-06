@@ -272,9 +272,13 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: placement state configuration is invalid: %w", err)
 	}
+	health, err := newObservedKVHealthSource(spec, lookup)
+	if err != nil {
+		return nil, err
+	}
 	kvWriter, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{
 		Store:          cloudflareController.Client,
-		Health:         &declaredKVHealthSource{spec: spec, members: cloudflareController.Members},
+		Health:         health,
 		Placement:      placement,
 		HealthInterval: cloudflare.DefaultKVWriterHealthInterval,
 	})
@@ -291,24 +295,6 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		Telemetry:     telemetrySink,
 		Progress:      progress,
 	}, nil
-}
-
-type declaredKVHealthSource struct {
-	spec    estate.Spec
-	members cloudflare.Members
-}
-
-func (s *declaredKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[string]cloudflare.RegionHealth, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	result := make(map[string]cloudflare.RegionHealth, len(s.spec.Regions))
-	for _, region := range s.spec.Regions {
-		addresses := append([]string(nil), s.members[region.Code]...)
-		sort.Strings(addresses)
-		result[region.Code] = cloudflare.RegionHealth{Region: region.Code, Healthy: len(addresses) > 0, Members: addresses}
-	}
-	return result, nil
 }
 
 // declaredKVPlacementSource is retained only as a local test fixture. The

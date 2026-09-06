@@ -40,6 +40,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
@@ -68,6 +69,7 @@ type tsNodeCommandTrustFile struct {
 }
 
 type tsNodeConfigurationFile struct {
+	EngineObservation      *tbep.FileConfig           `json:"engineObservation,omitempty"`
 	AuthorityReader        nodeauthority.ReaderConfig `json:"authorityReader"`
 	BootstrapBeforeNATS    bool                       `json:"bootstrapBeforeNats"`
 	BootstrapGrantFile     string                     `json:"bootstrapGrantFile"`
@@ -94,6 +96,7 @@ type tsNodeConfigurationFile struct {
 
 // tsNodeConfiguration is the validated runtime configuration.
 type tsNodeConfiguration struct {
+	EngineObservation      *tbep.FileConfig
 	AuthorityReader        nodeauthority.ReaderConfig
 	BootstrapBeforeNATS    bool
 	BootstrapGrantFile     string
@@ -222,7 +225,7 @@ func loadTsNodeConfiguration(path string) (tsNodeConfiguration, error) {
 			"ts-node: natsUrl must use nats:// for local use or tls:// for production")
 	}
 	options = append(options, nats.ReconnectBufSize(-1))
-	configuration := tsNodeConfiguration{AuthorityReader: file.AuthorityReader,
+	configuration := tsNodeConfiguration{EngineObservation: file.EngineObservation, AuthorityReader: file.AuthorityReader,
 		BootstrapBeforeNATS: file.BootstrapBeforeNATS,
 		BootstrapGrantFile:  file.BootstrapGrantFile, BootstrapPublicKeyFile: file.BootstrapPublicKeyFile,
 		AuthorityBucket: file.AuthorityBucket, CommandTrustKeys: file.CommandTrustKeys,
@@ -319,7 +322,7 @@ func readTsNodeConfigurationFile(path string) ([]byte, error) {
 
 func validateTsNodeConfigurationJSON(data []byte) error {
 	allowed := map[string]struct{}{
-		"authorityReader": {}, "authorityBucket": {}, "commandTrustKeys": {}, "bootstrapGrantFile": {}, "bootstrapPublicKeyFile": {}, "bootstrapBeforeNats": {},
+		"engineObservation": {}, "authorityReader": {}, "authorityBucket": {}, "commandTrustKeys": {}, "bootstrapGrantFile": {}, "bootstrapPublicKeyFile": {}, "bootstrapBeforeNats": {},
 		"nodeId": {}, "natsUrl": {}, "natsNkeyFile": {}, "natsTlsCaFile": {},
 		"natsTlsCertFile": {}, "natsTlsKeyFile": {}, "releasePublicKey": {},
 		"manifestPath": {}, "installRoot": {}, "unitDir": {}, "dataVolumeRoot": {},
@@ -407,7 +410,12 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the lifecycle is invalid: %s", err.Error())
 	}
+	var engineSample func(context.Context) (hostagent.EngineFacts, error)
+	if configuration.EngineObservation != nil {
+		engineSample = hostagent.SampleEngine(*configuration.EngineObservation)
+	}
 	facts, err := hostagent.NewHostFactsSource(hostagent.HostFactsSourceConfig{
+		Engine: engineSample,
 		Clock: hostplatform.ChronyTrackingSource{
 			ChronycBinary: configuration.ChronycBinary,
 			Timeout:       tsNodeCommandTimeout,
