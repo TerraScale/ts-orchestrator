@@ -395,7 +395,7 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		}
 		return conn, nil
 	}}
-	client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
+	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	sub, err := c.Connection.Subscribe(subject, func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) > maxMessage {
 			return
@@ -406,6 +406,9 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 			return
 		}
 		if handleHostDeletion(opctx, c, client, message) {
+			return
+		}
+		if handleHostUsage(opctx, c, client, message) {
 			return
 		}
 		var request installRequest
