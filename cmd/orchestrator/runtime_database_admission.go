@@ -227,8 +227,8 @@ func databaseAuthorizer(client *http.Client, endpoint, key string) func(context.
 
 // Placement's external ingress has no operation argument. It still admits only
 // an exact proposal durably allocated by the database admission authority.
-func databasePlacementPolicy(journal databaseadmission.Journal) func(context.Context, string, *pb.PlacementStageRequest) error {
-	return func(ctx context.Context, host string, proposal *pb.PlacementStageRequest) error {
+func databasePlacementPolicy(journal databaseadmission.Journal) func(context.Context, string, *pb.PlacementControlServiceStageRequest) error {
+	return func(ctx context.Context, host string, proposal *pb.PlacementControlServiceStageRequest) error {
 		records, err := journal.List(ctx)
 		if err != nil {
 			return err

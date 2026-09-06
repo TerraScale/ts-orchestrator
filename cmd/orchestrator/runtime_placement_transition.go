@@ -144,7 +144,7 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 		if err != nil {
 			return err
 		}
-		_, err = target.Accept(ctx, operation, &pb.PlacementAcceptRequest{ProposalRevision: revision, Proof: payload})
+		_, err = target.Accept(ctx, operation, &pb.PlacementControlServiceAcceptRequest{ProposalRevision: revision, Proof: payload})
 		return err
 	}
 	config.Issuer.Authority = authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
@@ -172,7 +172,7 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 			if err := session.CheckEffectAuthority(ctx); err != nil {
 				return nil, err
 			}
-			response, err := target.Drain(ctx, request.OperationID, &pb.PlacementDrainRequest{PreparedTransition: encoded})
+			response, err := target.Drain(ctx, request.OperationID, &pb.PlacementControlServiceDrainRequest{PreparedTransition: encoded})
 			if err != nil {
 				failures = append(failures, err)
 				continue
@@ -239,7 +239,7 @@ func transitionRequest(record databaseadmission.Record) (placementtransition.Req
 	}
 	expected := map[string]string{}
 	for _, target := range record.PlacementTargets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if !target.Proposed || proto.Unmarshal(target.Proposal, stage) != nil {
 			return r, placementtransition.ErrInvalid
 		}
@@ -317,8 +317,8 @@ func (t *productionPlacementTransition) activate(ctx context.Context, record dat
 		if err != nil {
 			return err
 		}
-		receipt := new(pb.PlacementProposalResponse)
-		stage := new(pb.PlacementStageRequest)
+		receipt := new(pb.PlacementControlServiceStageResponse)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if stored.OperationID != r.OperationID || !bytes.Equal(stored.Request, target.Proposal) || len(stored.Receipt) == 0 || proto.Unmarshal(stored.Request, stage) != nil || proto.Unmarshal(stored.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil || stage.ExpectedRevision == ^uint64(0) || receipt.Revision != stage.ExpectedRevision+1 {
 			return errors.New("runtime transition: pending Stage receipt unresolved")
 		}

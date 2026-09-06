@@ -38,11 +38,11 @@ func (target *controlTestTarget) Drain(_ context.Context, id string, request *pb
 	}
 	return &pb.PlacementControlServiceDrainResponse{SignedReceipt: signed}, nil
 }
-func (target *controlTestTarget) Readiness(_ context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceDrainResponse, error) {
+func (target *controlTestTarget) Readiness(_ context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceReadinessResponse, error) {
 	target.readinessCalls++
 	payload, _ := json.Marshal(map[string]string{"nonce": request.Nonce, "operation_id": request.OperationId})
 	envelope, _ := json.Marshal(placementtransition.Signed{KeyID: "readiness", Payload: payload, Signature: make([]byte, 64)})
-	return &pb.PlacementControlServiceDrainResponse{SignedReceipt: envelope}, nil
+	return &pb.PlacementControlServiceReadinessResponse{SignedReceipt: envelope}, nil
 }
 func TestDrainAndReadinessDispatchPreserveChallengesAndRetries(t *testing.T) {
 	cluster := newPlacementJournalCluster(t)

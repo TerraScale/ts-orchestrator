@@ -36,7 +36,7 @@ func (j bootstrapTestJournal) Accept(_ context.Context, r placementpublisher.Rec
 	j.databasePlacementJournal[r.ServerIdentity] = r
 	return nil
 }
-func (j bootstrapTestJournal) Acknowledge(_ context.Context, r placementpublisher.Record, response *pb.PlacementProposalResponse) error {
+func (j bootstrapTestJournal) Acknowledge(_ context.Context, r placementpublisher.Record, response *pb.PlacementControlServiceStageResponse) error {
 	r.Receipt, _ = proto.Marshal(response)
 	j.databasePlacementJournal[r.ServerIdentity] = r
 	return nil
@@ -51,9 +51,9 @@ func (t bootstrapTestTarget) Principal() string {
 	return "spiffe://terrascale.tech/production/orchestrator/gru-1"
 }
 func (t bootstrapTestTarget) ServerIdentity() string { return t.identity }
-func (t bootstrapTestTarget) Stage(_ context.Context, _ string, r *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
+func (t bootstrapTestTarget) Stage(_ context.Context, _ string, r *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
 	*t.staged++
-	return &pb.PlacementProposalResponse{Revision: 1, Proposal: r.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
+	return &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: r.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
 }
 
 func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t *testing.T) {
@@ -64,7 +64,7 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	worker := &productionPlacementTransition{allocateStreams: func(context.Context, databaseadmission.Record, string) error { return nil }, registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: &runtimeTestIssuer{}, pending: journal, check: func(context.Context) error { return nil }, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
 	for n := range record.PlacementTargets {
 		target := &record.PlacementTargets[n]
-		request := new(pb.PlacementStageRequest)
+		request := new(pb.PlacementControlServiceStageRequest)
 		_ = proto.Unmarshal(target.Proposal, request)
 		request.Proposal.Assignments = nil
 		request.Declarations = nil

@@ -41,7 +41,7 @@ func (j databasePlacementJournal) Load(_ context.Context, host string) (placemen
 func (j databasePlacementJournal) Accept(context.Context, placementpublisher.Record) error {
 	return errors.New("not used")
 }
-func (j databasePlacementJournal) Acknowledge(context.Context, placementpublisher.Record, *pb.PlacementProposalResponse) error {
+func (j databasePlacementJournal) Acknowledge(context.Context, placementpublisher.Record, *pb.PlacementControlServiceStageResponse) error {
 	return errors.New("not used")
 }
 func databasePlanFixture() (productionDatabaseConfig, databaseadmission.Record) {
@@ -66,7 +66,7 @@ func TestDatabasePlanRetainsExplicitRolesAndImmutableScope(t *testing.T) {
 	if err := databaseadmission.ValidateRecord(record); err != nil {
 		t.Fatal(err)
 	}
-	stage := new(pb.PlacementStageRequest)
+	stage := new(pb.PlacementControlServiceStageRequest)
 	if err := proto.Unmarshal(targets[0].Proposal, stage); err != nil {
 		t.Fatal(err)
 	}
@@ -105,11 +105,11 @@ func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
 		t.Fatal("unresolved predecessor was replaced")
 	}
 	for _, target := range targets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 			t.Fatal(err)
 		}
-		receipt, err := proto.Marshal(&pb.PlacementProposalResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING})
+		receipt, err := proto.Marshal(&pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +122,7 @@ func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, target := range planned.Placements {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +155,7 @@ func TestDatabaseReconcileRetriesTransportButStopsFencedOrCorrupt(t *testing.T) 
 				Install: func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
 					return nil
 				},
-				AcceptPlacement: func(context.Context, string, string, *pb.PlacementStageRequest) error { return nil },
+				AcceptPlacement: func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) error { return nil },
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -213,7 +213,7 @@ func TestDatabasePlanAdvancesAllClusterMembersWithoutResidencyLeak(t *testing.T)
 		}
 	}
 	for _, target := range plan.Placements {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 			t.Fatal(err)
 		}
@@ -245,11 +245,11 @@ func TestDatabasePlanCarriesCanonicalDeclarationsForPriorAndCurrentScopes(t *tes
 	}
 	placements := databasePlacementJournal{}
 	for _, target := range priorPlan.Placements {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 			t.Fatal(err)
 		}
-		receipt, err := proto.Marshal(&pb.PlacementProposalResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING})
+		receipt, err := proto.Marshal(&pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -259,7 +259,7 @@ func TestDatabasePlanCarriesCanonicalDeclarationsForPriorAndCurrentScopes(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	stage := new(pb.PlacementStageRequest)
+	stage := new(pb.PlacementControlServiceStageRequest)
 	if err := proto.Unmarshal(plan.Placements[0].Proposal, stage); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestDatabasePlanCarriesCanonicalDeclarationsForPriorAndCurrentScopes(t *tes
 		t.Fatalf("declaration regions changed: %+v", stage.Declarations)
 	}
 	for _, target := range plan.Members {
-		memberStage := new(pb.PlacementStageRequest)
+		memberStage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(target.Proposal, memberStage); err != nil {
 			t.Fatal(err)
 		}
