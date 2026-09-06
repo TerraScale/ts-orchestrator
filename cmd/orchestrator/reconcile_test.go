@@ -143,15 +143,14 @@ func TestFilterOCIPlanFailsClosedAtGenericOwnershipBoundary(t *testing.T) {
 
 type reconcileKVStoreFake struct{ health int }
 
-func (s *reconcileKVStoreFake) SetRegionHealth(context.Context, string, cloudflare.RegionHealth) error {
+func (s *reconcileKVStoreFake) SetWorkerHealth(context.Context, cloudflare.WorkerHealthDoc) error {
 	s.health++
 	return nil
 }
-func (s *reconcileKVStoreFake) SetDBPlacement(context.Context, string, cloudflare.DBPlacement) error {
+func (s *reconcileKVStoreFake) SetWorkerPlacements(context.Context, map[string]cloudflare.WorkerPlacement) error {
 	return nil
 }
-func (s *reconcileKVStoreFake) DeleteRegionHealth(context.Context, string) error { return nil }
-func (s *reconcileKVStoreFake) DeleteDBPlacement(context.Context, string) error  { return nil }
+func (s *reconcileKVStoreFake) DeleteWorkerPlacements(context.Context, []string) error { return nil }
 
 func TestProductionKVWriterStartsAndShutsDown(t *testing.T) {
 	spec := estate.Default()

@@ -26,7 +26,7 @@ assets were copied from `contracts/proto/terrabase/v1/` without modification.
 
 | Asset | SHA256 |
 | --- | --- |
-| `engine.proto` | `866350008e820aabc3b0e0d90bdf524eaca562c7c04edff5ca518fdf48b291ed` |
+| `engine.proto` | `555c1f69dedf5e630f3f287982b32f8770fd15c092d4c56054419fbe52407320` |
 | `family.proto` | `cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec` |
 
 Generation uses protoc 34.1, protoc-gen-go 1.36.12 and

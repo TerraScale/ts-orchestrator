@@ -805,3 +805,55 @@ service UsageService {
   rpc Record(UsageServiceRecordRequest) returns (UsageServiceRecordResponse);
   rpc Export(UsageServiceExportRequest) returns (UsageServiceExportResponse);
 }
+
+// Host-scoped orchestrator control. These RPCs require x-tb-principal matching
+// the authenticated mTLS certificate and a dedicated orchestrator allowlist.
+// They do not accept database scope metadata and never grant permission to serve.
+service PlacementControlService {
+  // Persists an intent only. x-tb-idempotency-key binds the exact canonical
+  // request and authenticated principal. A retry returns its original revision.
+  rpc Stage(PlacementStageRequest) returns (PlacementProposalResponse);
+  rpc Get(PlacementGetRequest) returns (PlacementProposalResponse);
+}
+
+message PlacementRegionSeats {
+  string region = 1; // GRU, SFO, or FRA.
+  repeated string members = 2; // Exactly two distinct canonical Member ULIDs.
+}
+
+message PlacementDatabaseAssignment {
+  string tenant = 1; // Canonical ULID.
+  string project = 2; // Canonical ULID.
+  string database = 3; // Canonical ULID.
+  string region = 4;
+  string writer_member = 5; // Explicit role; seat order never elects a writer.
+  string follower_member = 6;
+}
+
+message PlacementProposal {
+  string environment = 1; // Exact configured environment.
+  string cluster = 2; // Exact configured Cluster ULID.
+  uint64 generation = 3; // Positive; replacement strictly increases this and epoch.
+  uint64 epoch = 4;
+  repeated PlacementRegionSeats regions = 5; // 1..3; disjoint Member identities.
+  repeated PlacementDatabaseAssignment assignments = 6; // 1..1024; unique scope/Region.
+}
+
+message PlacementStageRequest {
+  uint64 expected_revision = 1; // Local journal CAS revision, zero before first Stage.
+  PlacementProposal proposal = 2;
+}
+
+message PlacementGetRequest {}
+
+enum PlacementProposalStatus {
+  PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED = 0;
+  // Persisted control intent; no membership, writer, or readiness authority.
+  PLACEMENT_PROPOSAL_STATUS_PENDING = 1;
+}
+
+message PlacementProposalResponse {
+  uint64 revision = 1;
+  PlacementProposal proposal = 2;
+  PlacementProposalStatus status = 3;
+}

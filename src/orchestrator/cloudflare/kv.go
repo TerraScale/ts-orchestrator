@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"time"
 )
 
@@ -87,16 +86,19 @@ func (z *Zone) reconcileKVNamespaces(ctx context.Context, c *Client, p *Plan) er
 	return nil
 }
 
-// RegionHealth and DBPlacement are the two maps the ts-proxy Worker reads to
-// route first-contact REST (D-58): which Regions are healthy, and which
-// Regions host a database. Keys are bare region codes / database ids. The
-// writer loop is item I-4; this is its CRUD. Write ordering (health before
-// placement) is the loop's job.
+// RegionHealth and DBPlacement are observed control facts consumed by KVWriter.
+// They are not edge wire documents; only WorkerHealthDoc and WorkerPlacement
+// are published to Cloudflare KV.
 type RegionHealth struct {
-	Region    string    `json:"region"`
-	Healthy   bool      `json:"healthy"`
-	Members   []string  `json:"members"` // healthy member addresses, sorted
-	UpdatedAt time.Time `json:"updated_at"`
+	Region     string    `json:"region"`
+	Healthy    bool      `json:"healthy"`
+	Draining   bool      `json:"draining"`
+	Overloaded bool      `json:"overloaded"`
+	LagMS      int       `json:"lag_ms"`
+	Lat        float64   `json:"lat"`
+	Lon        float64   `json:"lon"`
+	Members    []string  `json:"members"` // healthy member addresses, sorted
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type DBPlacement struct {
@@ -105,35 +107,6 @@ type DBPlacement struct {
 	PlacementLock string    `json:"placement_lock,omitempty"` // eu-only, br-only, or explicit
 	Generation    uint64    `json:"generation,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-// SetRegionHealth writes one region's health entry.
-func (c *Client) SetRegionHealth(ctx context.Context, region string, h RegionHealth) error {
-	h.Region = region
-	return putKVJSON(ctx, c, RegionHealthNamespace, region, h)
-}
-
-// RegionHealth reads one region's health entry.
-func (c *Client) RegionHealth(ctx context.Context, region string) (RegionHealth, error) {
-	var h RegionHealth
-	err := getKVJSON(ctx, c, RegionHealthNamespace, region, &h)
-	return h, err
-}
-
-// DeleteRegionHealth removes one region's health entry.
-func (c *Client) DeleteRegionHealth(ctx context.Context, region string) error {
-	return c.deleteKVValue(ctx, RegionHealthNamespace, region)
-}
-
-// SetDBPlacement writes one database's placement map entry.
-func (c *Client) SetDBPlacement(ctx context.Context, database string, pl DBPlacement) error {
-	if err := validateDBPlacementDocument(pl); err != nil {
-		return err
-	}
-	pl.Database = database
-	pl.Regions = append([]string(nil), pl.Regions...)
-	sort.Strings(pl.Regions)
-	return putKVJSON(ctx, c, DBPlacementNamespace, database, pl)
 }
 
 func validateDBPlacementDocument(pl DBPlacement) error {
@@ -160,19 +133,6 @@ func validateDBPlacementDocument(pl DBPlacement) error {
 		return errors.New("cloudflare: placement lock generation must be positive")
 	}
 	return nil
-}
-
-// DBPlacement reads one database's placement entry.
-func (c *Client) DBPlacement(ctx context.Context, database string) (DBPlacement, error) {
-	var pl DBPlacement
-	err := getKVJSON(ctx, c, DBPlacementNamespace, database, &pl)
-	return pl, err
-}
-
-// DeleteDBPlacement removes one database's placement entry (database
-// deletion).
-func (c *Client) DeleteDBPlacement(ctx context.Context, database string) error {
-	return c.deleteKVValue(ctx, DBPlacementNamespace, database)
 }
 
 func putKVJSON(ctx context.Context, c *Client, namespace, key string, value any) error {

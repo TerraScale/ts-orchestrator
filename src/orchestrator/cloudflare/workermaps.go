@@ -5,9 +5,8 @@ package cloudflare
 // parsed by its src/route.ts: one REGIONS document on key "regions" and one
 // PLACEMENT document per database on key "db:<id>". Health is written with
 // an ordinary PUT; placement uses the bulk API, at most 10,000 keys per
-// call. The I-4 writer loop (kv_writer.go) drives these methods; the
-// RegionHealth/DBPlacement pair in kv.go predates this contract and is
-// deleted when that loop migrates onto these shapes.
+// call. The production writer loop (kv_writer.go) projects observed control
+// facts directly into these documents.
 //
 // Every setter canonicalizes and validates so the orchestrator can never
 // publish a document the Worker would silently drop: region codes are
@@ -32,8 +31,7 @@ const (
 	// workerHealthKey is the single REGIONS key the Worker caches per PoP.
 	workerHealthKey = "regions"
 
-	// workerPlacementPrefix namespaces placement keys; database ids are
-	// uppercased so the Worker's uppercased reads always hit.
+	// workerPlacementPrefix namespaces the producer's immutable database names.
 	workerPlacementPrefix = "db:"
 
 	// kvBulkChunk is Cloudflare's bulk limit: 10,000 keys per call.
@@ -251,14 +249,18 @@ func (c *Client) kvBulkPath(namespaceID string) string {
 	return c.accountPath("/storage/kv/namespaces/" + url.PathEscape(namespaceID) + "/bulk")
 }
 
-// workerPlacementKey builds the canonical placement key for a database id:
-// the prefix plus the uppercased id, bounded like every other KV key.
+// workerPlacementKey preserves the public API's immutable database name.
+// TerraBase control::validate_name owns the 1–63 byte lowercase name contract.
 func workerPlacementKey(database string) (string, error) {
-	id := strings.ToUpper(database)
-	if err := validateKVWriterKey(id); err != nil {
-		return "", fmt.Errorf("cloudflare: database id %q: %w", database, err)
+	if len(database) < 1 || len(database) > 63 || strings.HasPrefix(database, "-") || strings.HasSuffix(database, "-") {
+		return "", errors.New("cloudflare: invalid database name")
 	}
-	return workerPlacementPrefix + id, nil
+	for _, character := range database {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+			return "", errors.New("cloudflare: invalid database name")
+		}
+	}
+	return workerPlacementPrefix + database, nil
 }
 
 func (d WorkerHealthDoc) normalized() (WorkerHealthDoc, error) {

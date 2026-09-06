@@ -3,70 +3,55 @@ package cloudflare
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
 
 type kvWriterStoreFake struct {
-	events              []string
-	healthOrder         []string
-	placementKeys       []string
-	deletedHealth       []string
-	deletedDB           []string
-	failHealth          error
-	failPlacement       error
-	failDeleteHealthFor string
-	failDeleteDBFor     string
-	failDelete          error
+	events        []string
+	health        []WorkerHealthDoc
+	placements    []map[string]WorkerPlacement
+	deletedDB     []string
+	failHealth    error
+	failPlacement error
+	failDelete    error
 }
 
-func (f *kvWriterStoreFake) SetRegionHealth(_ context.Context, region string, _ RegionHealth) error {
-	f.events = append(f.events, "set-health:"+region)
+func (f *kvWriterStoreFake) SetWorkerHealth(_ context.Context, h WorkerHealthDoc) error {
+	f.events = append(f.events, "health")
 	if f.failHealth != nil {
 		return f.failHealth
 	}
-	f.healthOrder = append(f.healthOrder, region)
+	f.health = append(f.health, h)
 	return nil
 }
-
-func (f *kvWriterStoreFake) SetDBPlacement(_ context.Context, database string, _ DBPlacement) error {
-	f.events = append(f.events, "set-placement:"+database)
+func (f *kvWriterStoreFake) SetWorkerPlacements(_ context.Context, p map[string]WorkerPlacement) error {
+	f.events = append(f.events, "placement")
 	if f.failPlacement != nil {
 		return f.failPlacement
 	}
-	f.placementKeys = append(f.placementKeys, database)
+	f.placements = append(f.placements, p)
 	return nil
 }
-
-func (f *kvWriterStoreFake) DeleteRegionHealth(_ context.Context, region string) error {
-	f.events = append(f.events, "delete-health:"+region)
-	if region == f.failDeleteHealthFor {
+func (f *kvWriterStoreFake) DeleteWorkerPlacements(_ context.Context, names []string) error {
+	f.events = append(f.events, "delete")
+	if f.failDelete != nil {
 		return f.failDelete
 	}
-	f.deletedHealth = append(f.deletedHealth, region)
+	f.deletedDB = append(f.deletedDB, names...)
 	return nil
 }
 
-func (f *kvWriterStoreFake) DeleteDBPlacement(_ context.Context, database string) error {
-	f.events = append(f.events, "delete-placement:"+database)
-	if database == f.failDeleteDBFor {
-		return f.failDelete
-	}
-	f.deletedDB = append(f.deletedDB, database)
-	return nil
-}
-
-// kvWriterSetOnlyFake intentionally omits KVWriterDeleteStore. It exercises
-// the fail-closed path when an observation removes an entry.
 type kvWriterSetOnlyFake struct{ delegate *kvWriterStoreFake }
 
-func (f *kvWriterSetOnlyFake) SetRegionHealth(ctx context.Context, region string, h RegionHealth) error {
-	return f.delegate.SetRegionHealth(ctx, region, h)
+func (f *kvWriterSetOnlyFake) SetWorkerHealth(c context.Context, h WorkerHealthDoc) error {
+	return f.delegate.SetWorkerHealth(c, h)
 }
-
-func (f *kvWriterSetOnlyFake) SetDBPlacement(ctx context.Context, database string, p DBPlacement) error {
-	return f.delegate.SetDBPlacement(ctx, database, p)
+func (f *kvWriterSetOnlyFake) SetWorkerPlacements(c context.Context, p map[string]WorkerPlacement) error {
+	return f.delegate.SetWorkerPlacements(c, p)
 }
 
 type kvWriterHealthFake struct {
@@ -131,238 +116,6 @@ func TestKVWriterRejectsMissingDependencies(t *testing.T) {
 	}
 }
 
-func TestKVWriterHealthEveryTickPlacementOnlyOnChange(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	w, err := NewKVWriter(kvWriterTestConfig(store,
-		map[string]RegionHealth{"gru": {Healthy: true}, "sfo": {Healthy: true}},
-		map[string]DBPlacement{"db-1": {Regions: []string{"gru"}}}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	first, err := w.Step(ctx)
-	if err != nil || first != 3 {
-		t.Fatalf("first tick writes=%d err=%v, want 3", first, err)
-	}
-	second, err := w.Step(ctx)
-	if err != nil || second != 2 {
-		t.Fatalf("second tick writes=%d err=%v, want health-only 2", second, err)
-	}
-	if got := len(store.placementKeys); got != 1 {
-		t.Fatalf("placement writes=%d, want 1 (change only)", got)
-	}
-	if got := len(store.healthOrder); got != 4 {
-		t.Fatalf("health writes=%d, want 4 (every tick)", got)
-	}
-}
-
-func TestKVWriterDeletesRemovedEntriesAfterPlacementWrites(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	health := &kvWriterHealthFake{health: map[string]RegionHealth{
-		"gru": {},
-		"sfo": {},
-	}}
-	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{
-		"db-1": {Regions: []string{"sfo"}},
-		"db-2": {Regions: []string{"gru"}},
-	}}
-	w, err := NewKVWriter(KVWriterConfig{
-		Store: store, Health: health, Placement: placement,
-		Now: func() time.Time { return time.Unix(1000, 0) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if writes, err := w.Step(context.Background()); err != nil || writes != 4 {
-		t.Fatalf("initial step writes=%d err=%v, want 4", writes, err)
-	}
-
-	store.events = nil
-	health.health = map[string]RegionHealth{"gru": {Healthy: true}}
-	placement.placement = map[string]DBPlacement{
-		"db-1": {Regions: []string{"gru"}},
-	}
-	writes, err := w.Step(context.Background())
-	if err != nil || writes != 4 {
-		t.Fatalf("removal step writes=%d err=%v, want 4", writes, err)
-	}
-	want := []string{
-		"set-health:gru",
-		"set-placement:db-1",
-		"delete-health:sfo",
-		"delete-placement:db-2",
-	}
-	if !reflect.DeepEqual(store.events, want) {
-		t.Fatalf("operation order = %v, want %v", store.events, want)
-	}
-	if !reflect.DeepEqual(store.deletedHealth, []string{"sfo"}) || !reflect.DeepEqual(store.deletedDB, []string{"db-2"}) {
-		t.Fatalf("deletes health=%v db=%v", store.deletedHealth, store.deletedDB)
-	}
-}
-
-func TestKVWriterRejectsStaleEntriesWithoutDeleteSupport(t *testing.T) {
-	delegate := &kvWriterStoreFake{}
-	health := &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}
-	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{"db-1": {Regions: []string{"gru"}}}}
-	w, err := NewKVWriter(KVWriterConfig{
-		Store: &kvWriterSetOnlyFake{delegate: delegate}, Health: health, Placement: placement,
-		Now: func() time.Time { return time.Unix(1000, 0) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Step(context.Background()); err != nil {
-		t.Fatalf("initial step: %v", err)
-	}
-	health.health = map[string]RegionHealth{}
-	placement.placement = map[string]DBPlacement{}
-	before := len(delegate.events)
-	if writes, err := w.Step(context.Background()); err == nil || writes != 0 {
-		t.Fatalf("stale step writes=%d err=%v, want zero writes and an error", writes, err)
-	}
-	if got := len(delegate.events); got != before {
-		t.Fatalf("unsupported delete store performed %d operations", got-before)
-	}
-	if w.LastError() == nil {
-		t.Fatal("LastError should retain unsupported delete error")
-	}
-}
-
-func TestKVWriterRetriesAllStaleEntriesAfterPartialDeleteFailure(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	health := &kvWriterHealthFake{health: map[string]RegionHealth{
-		"gru": {}, "sfo": {},
-	}}
-	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{
-		"db-1": {Regions: []string{"gru"}}, "db-2": {Regions: []string{"sfo"}},
-	}}
-	w, err := NewKVWriter(KVWriterConfig{
-		Store: store, Health: health, Placement: placement,
-		Now: func() time.Time { return time.Unix(1000, 0) },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Step(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	health.health = map[string]RegionHealth{"gru": {}}
-	placement.placement = map[string]DBPlacement{"db-1": {Regions: []string{"gru"}}}
-	store.failDeleteDBFor = "db-2"
-	store.failDelete = errors.New("delete unavailable")
-	store.events = nil
-	writes, err := w.Step(context.Background())
-	if err == nil || writes != 2 {
-		t.Fatalf("partial-delete step writes=%d err=%v, want 2 and an error", writes, err)
-	}
-	if got := w.WriteCount(); got != 6 {
-		t.Fatalf("write count after partial delete=%d, want 6", got)
-	}
-	wantFirst := []string{"set-health:gru", "delete-health:sfo", "delete-placement:db-2"}
-	if !reflect.DeepEqual(store.events, wantFirst) {
-		t.Fatalf("partial-delete order=%v, want %v", store.events, wantFirst)
-	}
-
-	store.failDeleteDBFor = ""
-	store.events = nil
-	writes, err = w.Step(context.Background())
-	if err != nil || writes != 3 {
-		t.Fatalf("retry step writes=%d err=%v, want 3", writes, err)
-	}
-	wantRetry := []string{"set-health:gru", "delete-health:sfo", "delete-placement:db-2"}
-	if !reflect.DeepEqual(store.events, wantRetry) {
-		t.Fatalf("retry order=%v, want %v", store.events, wantRetry)
-	}
-	if got := w.WriteCount(); got != 9 {
-		t.Fatalf("write count after retry=%d, want 9", got)
-	}
-	if w.LastError() != nil {
-		t.Fatalf("LastError after retry=%v, want nil", w.LastError())
-	}
-}
-
-func TestKVWriterBudgetCountsSetsAndDeletesOncePerTick(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	health := &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}, "sfo": {}}}
-	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{
-		"db-1": {Regions: []string{"gru"}}, "db-2": {Regions: []string{"sfo"}},
-	}}
-	var alerts []int
-	config := KVWriterConfig{
-		Store: store, Health: health, Placement: placement,
-		MaxWritesPerTick: 2,
-		OnBudgetExceeded: func(writes int) { alerts = append(alerts, writes) },
-		Now:              func() time.Time { return time.Unix(1000, 0) },
-	}
-	w, err := NewKVWriter(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Step(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	health.health = map[string]RegionHealth{"gru": {}}
-	placement.placement = map[string]DBPlacement{"db-1": {Regions: []string{"gru"}}}
-	if _, err := w.Step(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(alerts, []int{4, 3}) {
-		t.Fatalf("budget alerts=%v, want one alert per tick with all operations", alerts)
-	}
-	if got := w.WriteCount(); got != 7 {
-		t.Fatalf("write count=%d, want 7", got)
-	}
-}
-
-func TestKVWriterWritesHealthBeforePlacement(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	w, err := NewKVWriter(kvWriterTestConfig(store,
-		map[string]RegionHealth{"gru": {}}, map[string]DBPlacement{"db-1": {}}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// WriteBatch with one health and one placement entry must keep the D-58
-	// health-before-placement order even though maps iterate randomly.
-	for range 10 {
-		store.healthOrder, store.placementKeys = nil, nil
-		if _, err := w.WriteBatch(context.Background(),
-			map[string]RegionHealth{"gru": {}}, map[string]DBPlacement{"db-1": {}}); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(store.healthOrder, []string{"gru"}) || !reflect.DeepEqual(store.placementKeys, []string{"db-1"}) {
-			t.Fatalf("batch order health=%v placement=%v", store.healthOrder, store.placementKeys)
-		}
-	}
-}
-
-func TestKVWriterBudgetAlertFiresWithoutSkippingWrites(t *testing.T) {
-	store := &kvWriterStoreFake{}
-	alerts := 0
-	config := kvWriterTestConfig(store,
-		map[string]RegionHealth{"gru": {}, "sfo": {}},
-		map[string]DBPlacement{"db-1": {Regions: []string{"gru"}}})
-	config.MaxWritesPerTick = 2
-	config.OnBudgetExceeded = func(tickWrites int) {
-		if tickWrites != 3 {
-			t.Errorf("alert tickWrites=%d, want 3", tickWrites)
-		}
-		alerts++
-	}
-	w, err := NewKVWriter(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Step(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if alerts != 1 {
-		t.Fatalf("alerts=%d, want 1", alerts)
-	}
-	if got := w.WriteCount(); got != 3 {
-		t.Fatalf("writes=%d, want 3 (budget alerts, never skips)", got)
-	}
-}
-
 func TestKVWriterFailsClosed(t *testing.T) {
 	store := &kvWriterStoreFake{}
 	w, err := NewKVWriter(kvWriterTestConfig(store,
@@ -397,5 +150,95 @@ func TestKVWriterFailsClosed(t *testing.T) {
 	}
 	if wFail.LastError() == nil {
 		t.Fatal("LastError should retain the tick failure")
+	}
+}
+
+func TestKVWriterCurrentContractRefreshRemovalAndRetries(t *testing.T) {
+	store := &kvWriterStoreFake{}
+	health := &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {Healthy: true, Lat: -23, Lon: -46}, "sfo": {Healthy: true, Draining: true}}}
+	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{"app": {Regions: []string{"gru"}, PlacementLock: "explicit", Generation: 1}, "retired": {Regions: []string{"sfo"}}}}
+	w, err := NewKVWriter(KVWriterConfig{Store: store, Health: health, Placement: placement, Now: func() time.Time { return time.Unix(1000, 0) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writes, err := w.Step(t.Context()); err != nil || writes != 3 {
+		t.Fatalf("initial writes=%d err=%v", writes, err)
+	}
+	if !reflect.DeepEqual(store.events, []string{"health", "placement"}) {
+		t.Fatal(store.events)
+	}
+	h := store.health[0]
+	if h.V != 1 || h.Updated != 1000 || !h.Regions["GRU"].OK || h.Regions["SFO"].OK || h.Regions["GRU"].Lat != -23 {
+		t.Fatalf("health %+v", h)
+	}
+	p := store.placements[0]["app"]
+	if p.G != 1 || !reflect.DeepEqual(p.Res.Codes, []string{"GRU"}) {
+		t.Fatalf("placement %+v", p)
+	}
+	if writes, err := w.Step(t.Context()); err != nil || writes != 1 {
+		t.Fatalf("refresh writes=%d err=%v", writes, err)
+	}
+	if len(store.placements) != 1 {
+		t.Fatal("unchanged placement rewritten")
+	}
+	delete(health.health, "sfo")
+	delete(placement.placement, "retired")
+	store.failDelete = errors.New("interrupted delete")
+	if writes, err := w.Step(t.Context()); err == nil || writes != 1 {
+		t.Fatalf("failed removal writes=%d err=%v", writes, err)
+	}
+	if _, exists := store.health[len(store.health)-1].Regions["SFO"]; exists {
+		t.Fatal("removed region retained in current health document")
+	}
+	store.failDelete = nil
+	if writes, err := w.Step(t.Context()); err != nil || writes != 2 {
+		t.Fatalf("retry writes=%d err=%v", writes, err)
+	}
+	if !reflect.DeepEqual(store.deletedDB, []string{"retired"}) {
+		t.Fatal(store.deletedDB)
+	}
+	if w.WriteCount() != 7 {
+		t.Fatalf("writes %d", w.WriteCount())
+	}
+}
+func TestKVWriterRejectsStalePlacementWithoutDeleteSupport(t *testing.T) {
+	delegate := &kvWriterStoreFake{}
+	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{"app": {Regions: []string{"gru"}}}}
+	w, err := NewKVWriter(KVWriterConfig{Store: &kvWriterSetOnlyFake{delegate}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Step(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	delete(placement.placement, "app")
+	before := len(delegate.events)
+	if _, err := w.Step(t.Context()); err == nil || len(delegate.events) != before {
+		t.Fatal("stale placement not rejected before writes")
+	}
+}
+func TestKVWriterBudgetCountsCurrentDocumentAndPlacementKeys(t *testing.T) {
+	store := &kvWriterStoreFake{}
+	config := kvWriterTestConfig(store, map[string]RegionHealth{"gru": {}, "sfo": {}}, map[string]DBPlacement{"a": {Regions: []string{"gru"}}, "b": {Regions: []string{"sfo"}}})
+	alerts := 0
+	config.MaxWritesPerTick = 2
+	config.OnBudgetExceeded = func(n int) {
+		if n != 3 {
+			t.Errorf("budget writes=%d", n)
+		}
+		alerts++
+	}
+	w, err := NewKVWriter(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Step(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if alerts != 1 || w.WriteCount() != 3 {
+		t.Fatalf("alerts=%d writes=%d", alerts, w.WriteCount())
+	}
+	if !reflect.DeepEqual(slices.Sorted(maps.Keys(store.placements[0])), []string{"a", "b"}) {
+		t.Fatal("budget skipped placement")
 	}
 }

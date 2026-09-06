@@ -39,8 +39,8 @@ type KVDBPlacementSource interface {
 // KVWriterStore is the write seam the loop drives. *Client satisfies it; the
 // bulk entry point below batches one tick into health-before-placement order.
 type KVWriterStore interface {
-	SetRegionHealth(context.Context, string, RegionHealth) error
-	SetDBPlacement(context.Context, string, DBPlacement) error
+	SetWorkerHealth(context.Context, WorkerHealthDoc) error
+	SetWorkerPlacements(context.Context, map[string]WorkerPlacement) error
 }
 
 // KVWriterDeleteStore is implemented by stores that can remove entries that
@@ -48,8 +48,7 @@ type KVWriterStore interface {
 // implements it; a store without delete support is rejected as soon as a
 // stale key is detected so stale routing data is never silently retained.
 type KVWriterDeleteStore interface {
-	DeleteRegionHealth(context.Context, string) error
-	DeleteDBPlacement(context.Context, string) error
+	DeleteWorkerPlacements(context.Context, []string) error
 }
 
 // KVWriterConfig is the fully explicit configuration of one writer loop. No
@@ -213,55 +212,44 @@ func (w *KVWriter) writeBatch(ctx context.Context, health map[string]RegionHealt
 	if health == nil || placement == nil {
 		return 0, errors.New("cloudflare: kv writer batch maps are required")
 	}
-	now := w.now()
-	healthKeys := make([]string, 0, len(health))
-	for region := range health {
-		if err := validateKVWriterKey(region); err != nil {
+	now := w.now().Unix()
+	doc := WorkerHealthDoc{Updated: now, Regions: make(map[string]WorkerRegionHealth, len(health))}
+	for region, entry := range health {
+		doc.Regions[region] = WorkerRegionHealth{OK: entry.Healthy && !entry.Draining && !entry.Overloaded, LagMS: entry.LagMS, Lat: entry.Lat, Lon: entry.Lon}
+	}
+	normalizedHealth, err := doc.normalized()
+	if err != nil {
+		return 0, err
+	}
+	placements := make(map[string]WorkerPlacement, len(placement))
+	for database, entry := range placement {
+		if _, err := workerPlacementKey(database); err != nil {
 			return 0, err
 		}
-		healthKeys = append(healthKeys, region)
-	}
-	sort.Strings(healthKeys)
-	placementKeys := make([]string, 0, len(placement))
-	for database := range placement {
-		if err := validateKVWriterKey(database); err != nil {
+		if err := w.validatePlacement(database, entry); err != nil {
 			return 0, err
 		}
-		if err := w.validatePlacement(database, placement[database]); err != nil {
+		residency := WorkerResidency{Label: entry.PlacementLock}
+		if entry.PlacementLock == "explicit" {
+			residency = WorkerResidency{Codes: entry.Regions}
+		}
+		wire, err := (WorkerPlacement{R: entry.Regions, Res: residency, G: entry.Generation, U: now}).normalized()
+		if err != nil {
 			return 0, err
 		}
-		placementKeys = append(placementKeys, database)
+		placements[database] = wire
 	}
-	sort.Strings(placementKeys)
-	writes := 0
-	for _, region := range healthKeys {
-		if err := ctx.Err(); err != nil {
-			return writes, err
-		}
-		entry := health[region]
-		entry.Region = region
-		entry.Members = append([]string(nil), entry.Members...)
-		sort.Strings(entry.Members)
-		entry.UpdatedAt = now
-		if err := w.store.SetRegionHealth(ctx, region, entry); err != nil {
-			return writes, err
-		}
-		writes++
+	if err := w.store.SetWorkerHealth(ctx, normalizedHealth); err != nil {
+		return 0, err
 	}
-	for _, database := range placementKeys {
-		if err := ctx.Err(); err != nil {
+	writes := 1
+	if len(placements) > 0 {
+		if err := w.store.SetWorkerPlacements(ctx, placements); err != nil {
 			return writes, err
 		}
-		entry := placement[database]
-		entry.Database = database
-		entry.Regions = append([]string(nil), entry.Regions...)
-		sort.Strings(entry.Regions)
-		entry.UpdatedAt = now
-		if err := w.store.SetDBPlacement(ctx, database, entry); err != nil {
-			return writes, err
-		}
-		writes++
+		writes += len(placements)
 	}
+
 	return writes, nil
 }
 
@@ -315,8 +303,8 @@ func (w *KVWriter) Step(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-	staleHealth, stalePlacement := w.staleKeys(health, placement)
-	if len(staleHealth) > 0 || len(stalePlacement) > 0 {
+	_, stalePlacement := w.staleKeys(health, placement)
+	if len(stalePlacement) > 0 {
 		if _, ok := w.store.(KVWriterDeleteStore); !ok {
 			err = errors.New("cloudflare: kv writer store cannot delete stale entries")
 			w.recordErr(err)
@@ -330,28 +318,15 @@ func (w *KVWriter) Step(ctx context.Context) (int, error) {
 		w.recordErr(err)
 		return writes, err
 	}
-	if len(staleHealth) > 0 || len(stalePlacement) > 0 {
+	if len(stalePlacement) > 0 {
 		deleter := w.store.(KVWriterDeleteStore)
-		for _, region := range staleHealth {
-			if err := ctx.Err(); err != nil {
-				w.recordTickWrites(writes)
-				w.recordErr(err)
-				return writes, err
-			}
-			if err := deleter.DeleteRegionHealth(ctx, region); err != nil {
-				w.recordTickWrites(writes)
-				w.recordErr(err)
-				return writes, err
-			}
-			writes++
-		}
 		for _, database := range stalePlacement {
 			if err := ctx.Err(); err != nil {
 				w.recordTickWrites(writes)
 				w.recordErr(err)
 				return writes, err
 			}
-			if err := deleter.DeleteDBPlacement(ctx, database); err != nil {
+			if err := deleter.DeleteWorkerPlacements(ctx, []string{database}); err != nil {
 				w.recordTickWrites(writes)
 				w.recordErr(err)
 				return writes, err

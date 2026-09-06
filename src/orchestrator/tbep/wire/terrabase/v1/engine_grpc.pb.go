@@ -1302,3 +1302,156 @@ var UsageService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "terrabase/v1/engine.proto",
 }
+
+const (
+	PlacementControlService_Stage_FullMethodName = "/terrabase.v1.PlacementControlService/Stage"
+	PlacementControlService_Get_FullMethodName   = "/terrabase.v1.PlacementControlService/Get"
+)
+
+// PlacementControlServiceClient is the client API for PlacementControlService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Host-scoped orchestrator control. These RPCs require x-tb-principal matching
+// the authenticated mTLS certificate and a dedicated orchestrator allowlist.
+// They do not accept database scope metadata and never grant permission to serve.
+type PlacementControlServiceClient interface {
+	// Persists an intent only. x-tb-idempotency-key binds the exact canonical
+	// request and authenticated principal. A retry returns its original revision.
+	Stage(ctx context.Context, in *PlacementStageRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
+	Get(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
+}
+
+type placementControlServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPlacementControlServiceClient(cc grpc.ClientConnInterface) PlacementControlServiceClient {
+	return &placementControlServiceClient{cc}
+}
+
+func (c *placementControlServiceClient) Stage(ctx context.Context, in *PlacementStageRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementProposalResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_Stage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *placementControlServiceClient) Get(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementProposalResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PlacementControlServiceServer is the server API for PlacementControlService service.
+// All implementations must embed UnimplementedPlacementControlServiceServer
+// for forward compatibility.
+//
+// Host-scoped orchestrator control. These RPCs require x-tb-principal matching
+// the authenticated mTLS certificate and a dedicated orchestrator allowlist.
+// They do not accept database scope metadata and never grant permission to serve.
+type PlacementControlServiceServer interface {
+	// Persists an intent only. x-tb-idempotency-key binds the exact canonical
+	// request and authenticated principal. A retry returns its original revision.
+	Stage(context.Context, *PlacementStageRequest) (*PlacementProposalResponse, error)
+	Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error)
+	mustEmbedUnimplementedPlacementControlServiceServer()
+}
+
+// UnimplementedPlacementControlServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPlacementControlServiceServer struct{}
+
+func (UnimplementedPlacementControlServiceServer) Stage(context.Context, *PlacementStageRequest) (*PlacementProposalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Stage not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) mustEmbedUnimplementedPlacementControlServiceServer() {
+}
+func (UnimplementedPlacementControlServiceServer) testEmbeddedByValue() {}
+
+// UnsafePlacementControlServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PlacementControlServiceServer will
+// result in compilation errors.
+type UnsafePlacementControlServiceServer interface {
+	mustEmbedUnimplementedPlacementControlServiceServer()
+}
+
+func RegisterPlacementControlServiceServer(s grpc.ServiceRegistrar, srv PlacementControlServiceServer) {
+	// If the following call panics, it indicates UnimplementedPlacementControlServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PlacementControlService_ServiceDesc, srv)
+}
+
+func _PlacementControlService_Stage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementStageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).Stage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_Stage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).Stage(ctx, req.(*PlacementStageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PlacementControlService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).Get(ctx, req.(*PlacementGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PlacementControlService_ServiceDesc is the grpc.ServiceDesc for PlacementControlService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "terrabase.v1.PlacementControlService",
+	HandlerType: (*PlacementControlServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Stage",
+			Handler:    _PlacementControlService_Stage_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _PlacementControlService_Get_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "terrabase/v1/engine.proto",
+}

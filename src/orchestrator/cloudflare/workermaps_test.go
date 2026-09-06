@@ -253,15 +253,15 @@ func TestSetWorkerPlacementsBulkChunksAndShapes(t *testing.T) {
 	if n := len(fake.bulkPuts[1]); n != 1 {
 		t.Fatalf("second bulk call carried %d keys, want 1", n)
 	}
-	if fake.bulkPuts[0][0] != "db:DB0" {
-		t.Fatalf("keys must be sorted and uppercased: %v", fake.bulkPuts[0][0])
+	if fake.bulkPuts[0][0] != "db:db0" {
+		t.Fatalf("keys must be sorted and preserve database names: %v", fake.bulkPuts[0][0])
 	}
-	if fake.bulkPuts[1][0] != "db:DB9999" {
+	if fake.bulkPuts[1][0] != "db:db9999" {
 		t.Fatalf("the overflow key is the lexicographically largest: %v", fake.bulkPuts[1][0])
 	}
 
 	var wire map[string]any
-	if err := json.Unmarshal([]byte(fake.values["ns-place"]["db:DB1"]), &wire); err != nil {
+	if err := json.Unmarshal([]byte(fake.values["ns-place"]["db:db1"]), &wire); err != nil {
 		t.Fatalf("placement value is not JSON: %v", err)
 	}
 	if wire["v"] != float64(1) {
@@ -325,20 +325,40 @@ func TestWorkerPlacementRoundTripAndDelete(t *testing.T) {
 
 	placement := WorkerPlacement{R: []string{"sfo", "gru"}, U: 1725300000,
 		Res: WorkerResidency{Codes: []string{"gru", "sfo"}}}
-	if err := c.SetWorkerPlacements(ctx, map[string]WorkerPlacement{"Db1000": placement}); err != nil {
+	if err := c.SetWorkerPlacements(ctx, map[string]WorkerPlacement{"db1000": placement}); err != nil {
 		t.Fatalf("SetWorkerPlacements failed: %v", err)
 	}
-	got, err := c.WorkerPlacement(ctx, "db1000") // key lookup is case-joined
+	got, err := c.WorkerPlacement(ctx, "db1000")
 	if err != nil {
 		t.Fatalf("WorkerPlacement failed: %v", err)
 	}
 	if !reflect.DeepEqual(got.R, []string{"GRU", "SFO"}) || got.Res.Label != "" || !reflect.DeepEqual(got.Res.Codes, []string{"GRU", "SFO"}) {
 		t.Fatalf("placement round-trip mismatch: %+v", got)
 	}
-	if err := c.DeleteWorkerPlacements(ctx, []string{"DB1000", "db1000"}); err != nil {
+	if err := c.DeleteWorkerPlacements(ctx, []string{"db1000", "db1000"}); err != nil {
 		t.Fatalf("DeleteWorkerPlacements failed: %v", err)
 	}
 	if _, err := c.WorkerPlacement(ctx, "db1000"); err != ErrNotFound {
 		t.Fatalf("want ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestWorkerPlacementRejectsNamesOutsideProducerContract(t *testing.T) {
+	for _, name := range []string{"", "DB1000", "-db", "db-", "db_name", "a/b", strings.Repeat("a", 64), "dáb"} {
+		t.Run(name, func(t *testing.T) {
+			fake := newWorkerMapFake()
+			c, _ := testClient(fake.handle(t))
+			if err := c.SetWorkerPlacements(t.Context(), map[string]WorkerPlacement{name: {R: []string{"GRU"}, U: 1}}); err == nil {
+				t.Fatal("invalid producer database name accepted")
+			}
+			if len(fake.bulkPuts) != 0 {
+				t.Fatal("invalid name reached provider")
+			}
+		})
+	}
+	for _, name := range []string{"a", "0", "customer-db", strings.Repeat("a", 63)} {
+		if key, err := workerPlacementKey(name); err != nil || key != "db:"+name {
+			t.Fatalf("valid name %q changed: key=%q err=%v", name, key, err)
+		}
 	}
 }

@@ -37,12 +37,17 @@ type Client struct {
 	conn        *grpc.ClientConn
 	maintenance pb.MaintenanceServiceClient
 	scope       metadata.MD
+	principal   string
 	timeout     time.Duration
 }
 
 // New configures a lazy connection. Only a successful Observe proves contact.
 // The wrapper exposes no mutations and disables service-config retries.
 func New(config Config) (*Client, error) {
+	return newClient(config, true)
+}
+
+func newClient(config Config, databaseScope bool) (*Client, error) {
 	host, port, err := net.SplitHostPort(config.Endpoint)
 	if err != nil {
 		return nil, errors.New("TBEP endpoint must be a loopback IP and port")
@@ -70,6 +75,9 @@ func New(config Config) (*Client, error) {
 		value string
 		limit int
 	}{{principal, 128}, {config.Tenant, 64}, {config.Project, 255}, {config.Database, 255}} {
+		if !databaseScope && item.value == "" {
+			continue
+		}
 		if !validMetadata(item.value, item.limit) {
 			return nil, errors.New("TBEP scope must contain bounded nonempty printable ASCII metadata")
 		}
@@ -96,11 +104,15 @@ func New(config Config) (*Client, error) {
 		// Dial the admitted literal directly; proxy environment and resolver
 		// configuration cannot redirect a host-local control connection.
 		return (&net.Dialer{}).DialContext(ctx, "tcp", config.Endpoint)
-	}), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64*1024), grpc.MaxCallSendMsgSize(1024)))
+	}), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(512*1024), grpc.MaxCallSendMsgSize(512*1024)))
 	if err != nil {
 		return nil, fmt.Errorf("configure TBEP transport: %w", err)
 	}
-	return &Client{conn: conn, maintenance: pb.NewMaintenanceServiceClient(conn), scope: metadata.Pairs("x-tb-principal", principal, "x-tb-tenant", config.Tenant, "x-tb-project", config.Project, "x-tb-database", config.Database), timeout: config.Timeout}, nil
+	scope := metadata.Pairs("x-tb-principal", principal)
+	if databaseScope {
+		scope.Append("x-tb-tenant", config.Tenant, "x-tb-project", config.Project, "x-tb-database", config.Database)
+	}
+	return &Client{conn: conn, maintenance: pb.NewMaintenanceServiceClient(conn), scope: scope, principal: principal, timeout: config.Timeout}, nil
 }
 
 func validMetadata(value string, limit int) bool {

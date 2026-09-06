@@ -71,32 +71,66 @@ func (a *BootstrapAuthority) readStorageTransition(ctx context.Context, required
 	if d == (controltransition.Delivery{}) {
 		return zero, nil, false, nil
 	}
-	if _, err := os.Lstat(d.PlanFile); os.IsNotExist(err) && !required {
-		return zero, nil, false, nil
+	if _, err := os.Lstat(d.PlanFile); os.IsNotExist(err) {
+		if d.PlanObject == nil {
+			if !required {
+				return zero, nil, false, nil
+			}
+		} else {
+			raw, found, err := fetchStorageTransitionPlan(ctx, d)
+			if err != nil {
+				return zero, nil, false, err
+			}
+			if !found {
+				if required {
+					return zero, nil, false, errors.New("hostagent: required remote plan is absent")
+				}
+				return zero, nil, false, nil
+			}
+			v, err := a.validateStorageTransition(ctx, d, source, raw)
+			if err != nil {
+				return zero, nil, false, err
+			}
+			if err := retainStorageTransitionPlan(ctx, d.PlanFile, raw, func() error { return v.Check(time.Now()) }); err != nil {
+				return zero, nil, false, err
+			}
+		}
 	}
 	raw, err := bootstrapcredentials.ReadFile(d.PlanFile, true, controltransition.MaximumBytes)
 	if err != nil {
 		return zero, nil, false, err
 	}
-	v, err := controltransition.VerifyPlan(a.ownerPublic, raw)
+	v, err := a.validateStorageTransition(ctx, d, source, raw)
 	if err != nil {
 		return zero, nil, false, err
 	}
+	return v, raw, true, nil
+}
+
+func (a *BootstrapAuthority) validateStorageTransition(ctx context.Context, d controltransition.Delivery, source bool, raw []byte) (controltransition.VerifiedPlan, error) {
+	var zero controltransition.VerifiedPlan
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+	v, err := controltransition.VerifyPlan(a.ownerPublic, raw)
+	if err != nil {
+		return zero, err
+	}
 	if err = v.Check(time.Now()); err != nil {
-		return zero, nil, false, err
+		return zero, err
 	}
 	p, err := v.Plan()
 	if err != nil {
-		return zero, nil, false, err
+		return zero, err
 	}
 	if p.TransitionID != d.TransitionID {
-		return zero, nil, false, errors.New("hostagent: delivered storage transition identity differs")
+		return zero, errors.New("hostagent: delivered storage transition identity differs")
 	}
 	var grant, manifest string
 	var paths []string
 	if source {
 		if p.Source.NodeID != a.grant.NodeID {
-			return zero, nil, false, errors.New("hostagent: delivered source host differs")
+			return zero, errors.New("hostagent: delivered source host differs")
 		}
 		grant, manifest = p.Source.BootstrapGrantSHA256, p.Source.InitialManifestSHA256
 		paths = append(paths, p.Source.StoreDir, p.Source.CaptureDir, p.Source.ArchiveDir)
@@ -110,10 +144,21 @@ func (a *BootstrapAuthority) readStorageTransition(ctx context.Context, required
 			grant, manifest = destination.BootstrapGrantSHA256, destination.PreparedManifestSHA256
 		}
 	}
-	if grant != a.digest || manifest != a.manifestDigest || d.Validate(paths...) != nil {
-		return zero, nil, false, errors.New("hostagent: delivered plan differs from original host admission")
+	if remote := d.PlanObject; remote != nil {
+		matched := false
+		for _, destination := range p.Destinations {
+			if source && destination.Region == "gru" || !source && destination.NodeID == a.grant.NodeID {
+				matched = remote.Region == destination.Region && remote.Objects == destination.Objects
+			}
+		}
+		if !matched {
+			return zero, errors.New("hostagent: plan object differs from original host delivery scope")
+		}
 	}
-	return v, raw, true, nil
+	if grant != a.digest || manifest != a.manifestDigest || d.Validate(paths...) != nil {
+		return zero, errors.New("hostagent: delivered plan differs from original host admission")
+	}
+	return v, nil
 }
 
 func pinStorageTransition(ctx context.Context, epochs *nodeauthority.EpochStore, a *BootstrapAuthority, v controltransition.VerifiedPlan, raw []byte, command *nodeauthority.CommandAuthorization) error {

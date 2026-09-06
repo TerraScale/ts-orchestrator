@@ -38,7 +38,7 @@ func hostStoragePublicationFixture(t *testing.T, d *controltransition.Delivery, 
 	for i, name := range []string{"gru", "sfo", "fra"} {
 		buckets = append(buckets, fixture.Bucket{OCIRegion: []string{"sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1"}[i], Observation: hostStorageBucket(name)})
 	}
-	server, err := fixture.New(fixture.Config{Buckets: buckets, MaxObjectBytes: controltransition.PinReceiptMaximumBytes})
+	server, err := fixture.New(fixture.Config{Buckets: buckets, MaxObjectBytes: controltransition.MaximumBytes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,6 +412,7 @@ func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T
 	if os.Geteuid() != 0 || os.Getenv("TS_INITIAL_R1_ISOLATED_TEST") != "1" {
 		t.Skip("requires isolated root /var/lib mount")
 	}
+	delivery.PlanObject = hostStorageRemoteLocation(t, "gru")
 	server := hostStoragePublicationFixture(t, &delivery, "gru-1", "sa-saopaulo-1")
 	h, initial, _, _, path := initialHostFixture(t, delivery)
 	signer, public, wire, _ := bootstrapTestGrant(t, initial)
@@ -451,9 +452,8 @@ func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(delivery.PlanFile, plan, 0600); err != nil {
-		t.Fatal(err)
-	}
+	putHostRemotePlan(t, delivery, plan)
+
 	if _, err = transport.applyManifest(ctx, command); !errors.Is(err, ErrStorageTransitionPreparationMissing) {
 		t.Fatal(err)
 	}

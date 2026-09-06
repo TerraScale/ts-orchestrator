@@ -1356,6 +1356,53 @@ func (ErrorCode) EnumDescriptor() ([]byte, []int) {
 	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{22}
 }
 
+type PlacementProposalStatus int32
+
+const (
+	PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED PlacementProposalStatus = 0
+	// Persisted control intent; no membership, writer, or readiness authority.
+	PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING PlacementProposalStatus = 1
+)
+
+// Enum value maps for PlacementProposalStatus.
+var (
+	PlacementProposalStatus_name = map[int32]string{
+		0: "PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED",
+		1: "PLACEMENT_PROPOSAL_STATUS_PENDING",
+	}
+	PlacementProposalStatus_value = map[string]int32{
+		"PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED": 0,
+		"PLACEMENT_PROPOSAL_STATUS_PENDING":     1,
+	}
+)
+
+func (x PlacementProposalStatus) Enum() *PlacementProposalStatus {
+	p := new(PlacementProposalStatus)
+	*p = x
+	return p
+}
+
+func (x PlacementProposalStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PlacementProposalStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_terrabase_v1_engine_proto_enumTypes[23].Descriptor()
+}
+
+func (PlacementProposalStatus) Type() protoreflect.EnumType {
+	return &file_terrabase_v1_engine_proto_enumTypes[23]
+}
+
+func (x PlacementProposalStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PlacementProposalStatus.Descriptor instead.
+func (PlacementProposalStatus) EnumDescriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{23}
+}
+
 // One ordered backbone change event.
 type ChangeEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -5718,6 +5765,374 @@ func (x *RpcStatus) GetDetails() []*Any {
 	return nil
 }
 
+type PlacementRegionSeats struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Region        string                 `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`   // GRU, SFO, or FRA.
+	Members       []string               `protobuf:"bytes,2,rep,name=members,proto3" json:"members,omitempty"` // Exactly two distinct canonical Member ULIDs.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlacementRegionSeats) Reset() {
+	*x = PlacementRegionSeats{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementRegionSeats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementRegionSeats) ProtoMessage() {}
+
+func (x *PlacementRegionSeats) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementRegionSeats.ProtoReflect.Descriptor instead.
+func (*PlacementRegionSeats) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *PlacementRegionSeats) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *PlacementRegionSeats) GetMembers() []string {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+type PlacementDatabaseAssignment struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Tenant         string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`     // Canonical ULID.
+	Project        string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`   // Canonical ULID.
+	Database       string                 `protobuf:"bytes,3,opt,name=database,proto3" json:"database,omitempty"` // Canonical ULID.
+	Region         string                 `protobuf:"bytes,4,opt,name=region,proto3" json:"region,omitempty"`
+	WriterMember   string                 `protobuf:"bytes,5,opt,name=writer_member,json=writerMember,proto3" json:"writer_member,omitempty"` // Explicit role; seat order never elects a writer.
+	FollowerMember string                 `protobuf:"bytes,6,opt,name=follower_member,json=followerMember,proto3" json:"follower_member,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlacementDatabaseAssignment) Reset() {
+	*x = PlacementDatabaseAssignment{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementDatabaseAssignment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementDatabaseAssignment) ProtoMessage() {}
+
+func (x *PlacementDatabaseAssignment) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementDatabaseAssignment.ProtoReflect.Descriptor instead.
+func (*PlacementDatabaseAssignment) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *PlacementDatabaseAssignment) GetTenant() string {
+	if x != nil {
+		return x.Tenant
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseAssignment) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseAssignment) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseAssignment) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseAssignment) GetWriterMember() string {
+	if x != nil {
+		return x.WriterMember
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseAssignment) GetFollowerMember() string {
+	if x != nil {
+		return x.FollowerMember
+	}
+	return ""
+}
+
+type PlacementProposal struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Environment   string                         `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"` // Exact configured environment.
+	Cluster       string                         `protobuf:"bytes,2,opt,name=cluster,proto3" json:"cluster,omitempty"`         // Exact configured Cluster ULID.
+	Generation    uint64                         `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`  // Positive; replacement strictly increases this and epoch.
+	Epoch         uint64                         `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Regions       []*PlacementRegionSeats        `protobuf:"bytes,5,rep,name=regions,proto3" json:"regions,omitempty"`         // 1..3; disjoint Member identities.
+	Assignments   []*PlacementDatabaseAssignment `protobuf:"bytes,6,rep,name=assignments,proto3" json:"assignments,omitempty"` // 1..1024; unique scope/Region.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlacementProposal) Reset() {
+	*x = PlacementProposal{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementProposal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementProposal) ProtoMessage() {}
+
+func (x *PlacementProposal) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementProposal.ProtoReflect.Descriptor instead.
+func (*PlacementProposal) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *PlacementProposal) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *PlacementProposal) GetCluster() string {
+	if x != nil {
+		return x.Cluster
+	}
+	return ""
+}
+
+func (x *PlacementProposal) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *PlacementProposal) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *PlacementProposal) GetRegions() []*PlacementRegionSeats {
+	if x != nil {
+		return x.Regions
+	}
+	return nil
+}
+
+func (x *PlacementProposal) GetAssignments() []*PlacementDatabaseAssignment {
+	if x != nil {
+		return x.Assignments
+	}
+	return nil
+}
+
+type PlacementStageRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ExpectedRevision uint64                 `protobuf:"varint,1,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"` // Local journal CAS revision, zero before first Stage.
+	Proposal         *PlacementProposal     `protobuf:"bytes,2,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PlacementStageRequest) Reset() {
+	*x = PlacementStageRequest{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementStageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementStageRequest) ProtoMessage() {}
+
+func (x *PlacementStageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementStageRequest.ProtoReflect.Descriptor instead.
+func (*PlacementStageRequest) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *PlacementStageRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *PlacementStageRequest) GetProposal() *PlacementProposal {
+	if x != nil {
+		return x.Proposal
+	}
+	return nil
+}
+
+type PlacementGetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlacementGetRequest) Reset() {
+	*x = PlacementGetRequest{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementGetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementGetRequest) ProtoMessage() {}
+
+func (x *PlacementGetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementGetRequest.ProtoReflect.Descriptor instead.
+func (*PlacementGetRequest) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{74}
+}
+
+type PlacementProposalResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Revision      uint64                  `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Proposal      *PlacementProposal      `protobuf:"bytes,2,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	Status        PlacementProposalStatus `protobuf:"varint,3,opt,name=status,proto3,enum=terrabase.v1.PlacementProposalStatus" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlacementProposalResponse) Reset() {
+	*x = PlacementProposalResponse{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementProposalResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementProposalResponse) ProtoMessage() {}
+
+func (x *PlacementProposalResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementProposalResponse.ProtoReflect.Descriptor instead.
+func (*PlacementProposalResponse) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *PlacementProposalResponse) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *PlacementProposalResponse) GetProposal() *PlacementProposal {
+	if x != nil {
+		return x.Proposal
+	}
+	return nil
+}
+
+func (x *PlacementProposalResponse) GetStatus() PlacementProposalStatus {
+	if x != nil {
+		return x.Status
+	}
+	return PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED
+}
+
 var File_terrabase_v1_engine_proto protoreflect.FileDescriptor
 
 const file_terrabase_v1_engine_proto_rawDesc = "" +
@@ -6051,7 +6466,34 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\tRpcStatus\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12+\n" +
-	"\adetails\x18\x03 \x03(\v2\x11.terrabase.v1.AnyR\adetails*z\n" +
+	"\adetails\x18\x03 \x03(\v2\x11.terrabase.v1.AnyR\adetails\"H\n" +
+	"\x14PlacementRegionSeats\x12\x16\n" +
+	"\x06region\x18\x01 \x01(\tR\x06region\x12\x18\n" +
+	"\amembers\x18\x02 \x03(\tR\amembers\"\xd1\x01\n" +
+	"\x1bPlacementDatabaseAssignment\x12\x16\n" +
+	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1a\n" +
+	"\bdatabase\x18\x03 \x01(\tR\bdatabase\x12\x16\n" +
+	"\x06region\x18\x04 \x01(\tR\x06region\x12#\n" +
+	"\rwriter_member\x18\x05 \x01(\tR\fwriterMember\x12'\n" +
+	"\x0ffollower_member\x18\x06 \x01(\tR\x0efollowerMember\"\x90\x02\n" +
+	"\x11PlacementProposal\x12 \n" +
+	"\venvironment\x18\x01 \x01(\tR\venvironment\x12\x18\n" +
+	"\acluster\x18\x02 \x01(\tR\acluster\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x03 \x01(\x04R\n" +
+	"generation\x12\x14\n" +
+	"\x05epoch\x18\x04 \x01(\x04R\x05epoch\x12<\n" +
+	"\aregions\x18\x05 \x03(\v2\".terrabase.v1.PlacementRegionSeatsR\aregions\x12K\n" +
+	"\vassignments\x18\x06 \x03(\v2).terrabase.v1.PlacementDatabaseAssignmentR\vassignments\"\x81\x01\n" +
+	"\x15PlacementStageRequest\x12+\n" +
+	"\x11expected_revision\x18\x01 \x01(\x04R\x10expectedRevision\x12;\n" +
+	"\bproposal\x18\x02 \x01(\v2\x1f.terrabase.v1.PlacementProposalR\bproposal\"\x15\n" +
+	"\x13PlacementGetRequest\"\xb3\x01\n" +
+	"\x19PlacementProposalResponse\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x04R\brevision\x12;\n" +
+	"\bproposal\x18\x02 \x01(\v2\x1f.terrabase.v1.PlacementProposalR\bproposal\x12=\n" +
+	"\x06status\x18\x03 \x01(\x0e2%.terrabase.v1.PlacementProposalStatusR\x06status*z\n" +
 	"\vClusterMode\x12\x1c\n" +
 	"\x18CLUSTER_MODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17CLUSTER_MODE_STANDALONE\x10\x01\x12\x17\n" +
@@ -6201,7 +6643,10 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"#ERROR_CODE_BACKUP_CLUSTER_IMMUTABLE\x10\x13\x12#\n" +
 	"\x1fERROR_CODE_FRONTIER_UNREACHABLE\x10\x15\x12 \n" +
 	"\x1cERROR_CODE_USAGE_UNAVAILABLE\x10\x16\x12\x1c\n" +
-	"\x18ERROR_CODE_USAGE_CORRUPT\x10\x17\"\x04\b\x14\x10\x142k\n" +
+	"\x18ERROR_CODE_USAGE_CORRUPT\x10\x17\"\x04\b\x14\x10\x14*k\n" +
+	"\x17PlacementProposalStatus\x12)\n" +
+	"%PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
+	"!PLACEMENT_PROPOSAL_STATUS_PENDING\x10\x012k\n" +
 	"\x0eChannelService\x12Y\n" +
 	"\x04Bind\x12'.terrabase.v1.ChannelServiceBindRequest\x1a(.terrabase.v1.ChannelServiceBindResponse2\xd4\x02\n" +
 	"\x0fBackboneService\x12]\n" +
@@ -6229,7 +6674,10 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\x13SupervisionShutdown\x12:.terrabase.v1.MaintenanceServiceSupervisionShutdownRequest\x1a;.terrabase.v1.MaintenanceServiceSupervisionShutdownResponse2\xc8\x01\n" +
 	"\fUsageService\x12[\n" +
 	"\x06Record\x12'.terrabase.v1.UsageServiceRecordRequest\x1a(.terrabase.v1.UsageServiceRecordResponse\x12[\n" +
-	"\x06Export\x12'.terrabase.v1.UsageServiceExportRequest\x1a(.terrabase.v1.UsageServiceExportResponseB.Z,terrascale.tech/terrabase-go/terrabase/v1;v1b\x06proto3"
+	"\x06Export\x12'.terrabase.v1.UsageServiceExportRequest\x1a(.terrabase.v1.UsageServiceExportResponse2\xc3\x01\n" +
+	"\x17PlacementControlService\x12U\n" +
+	"\x05Stage\x12#.terrabase.v1.PlacementStageRequest\x1a'.terrabase.v1.PlacementProposalResponse\x12Q\n" +
+	"\x03Get\x12!.terrabase.v1.PlacementGetRequest\x1a'.terrabase.v1.PlacementProposalResponseB.Z,terrascale.tech/terrabase-go/terrabase/v1;v1b\x06proto3"
 
 var (
 	file_terrabase_v1_engine_proto_rawDescOnce sync.Once
@@ -6243,8 +6691,8 @@ func file_terrabase_v1_engine_proto_rawDescGZIP() []byte {
 	return file_terrabase_v1_engine_proto_rawDescData
 }
 
-var file_terrabase_v1_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 23)
-var file_terrabase_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
+var file_terrabase_v1_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 24)
+var file_terrabase_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 76)
 var file_terrabase_v1_engine_proto_goTypes = []any{
 	(ClusterMode)(0),                                      // 0: terrabase.v1.ClusterMode
 	(ChangeKind)(0),                                       // 1: terrabase.v1.ChangeKind
@@ -6269,183 +6717,199 @@ var file_terrabase_v1_engine_proto_goTypes = []any{
 	(UsageRegion)(0),                                      // 20: terrabase.v1.UsageRegion
 	(UsageRecordMeter)(0),                                 // 21: terrabase.v1.UsageRecordMeter
 	(ErrorCode)(0),                                        // 22: terrabase.v1.ErrorCode
-	(*ChangeEvent)(nil),                                   // 23: terrabase.v1.ChangeEvent
-	(*SubscriptionStart)(nil),                             // 24: terrabase.v1.SubscriptionStart
-	(*SubscriptionLive)(nil),                              // 25: terrabase.v1.SubscriptionLive
-	(*BackboneServiceSubscribeRequest)(nil),               // 26: terrabase.v1.BackboneServiceSubscribeRequest
-	(*BackboneServiceSubscribeResponse)(nil),              // 27: terrabase.v1.BackboneServiceSubscribeResponse
-	(*BackboneServiceAcknowledgeRequest)(nil),             // 28: terrabase.v1.BackboneServiceAcknowledgeRequest
-	(*BackboneServiceAcknowledgeResponse)(nil),            // 29: terrabase.v1.BackboneServiceAcknowledgeResponse
-	(*BackboneServiceUnsubscribeRequest)(nil),             // 30: terrabase.v1.BackboneServiceUnsubscribeRequest
-	(*BackboneServiceUnsubscribeResponse)(nil),            // 31: terrabase.v1.BackboneServiceUnsubscribeResponse
-	(*SubscriptionBatch)(nil),                             // 32: terrabase.v1.SubscriptionBatch
-	(*TriggerNotification)(nil),                           // 33: terrabase.v1.TriggerNotification
-	(*SubscriptionClosed)(nil),                            // 34: terrabase.v1.SubscriptionClosed
-	(*SubscribeResponse)(nil),                             // 35: terrabase.v1.SubscribeResponse
-	(*SchemaViolation)(nil),                               // 36: terrabase.v1.SchemaViolation
-	(*TransformLiteral)(nil),                              // 37: terrabase.v1.TransformLiteral
-	(*FieldTransformStep)(nil),                            // 38: terrabase.v1.FieldTransformStep
-	(*SchemaMigrationContract)(nil),                       // 39: terrabase.v1.SchemaMigrationContract
-	(*PlanProblem)(nil),                                   // 40: terrabase.v1.PlanProblem
-	(*TransformCounts)(nil),                               // 41: terrabase.v1.TransformCounts
-	(*MigrationState)(nil),                                // 42: terrabase.v1.MigrationState
-	(*MigrationPlan)(nil),                                 // 43: terrabase.v1.MigrationPlan
-	(*MigrationReceipt)(nil),                              // 44: terrabase.v1.MigrationReceipt
-	(*SchemaServiceDeclareRequest)(nil),                   // 45: terrabase.v1.SchemaServiceDeclareRequest
-	(*SchemaServiceDeclareResponse)(nil),                  // 46: terrabase.v1.SchemaServiceDeclareResponse
-	(*SchemaServiceStatusRequest)(nil),                    // 47: terrabase.v1.SchemaServiceStatusRequest
-	(*SchemaServiceStatusResponse)(nil),                   // 48: terrabase.v1.SchemaServiceStatusResponse
-	(*SchemaServiceValidateRequest)(nil),                  // 49: terrabase.v1.SchemaServiceValidateRequest
-	(*SchemaServiceValidateResponse)(nil),                 // 50: terrabase.v1.SchemaServiceValidateResponse
-	(*MigrationStatusRequest)(nil),                        // 51: terrabase.v1.MigrationStatusRequest
-	(*MigrationStatusResponse)(nil),                       // 52: terrabase.v1.MigrationStatusResponse
-	(*MigrationDryRunRequest)(nil),                        // 53: terrabase.v1.MigrationDryRunRequest
-	(*MigrationDryRunResponse)(nil),                       // 54: terrabase.v1.MigrationDryRunResponse
-	(*MigrationApplyRequest)(nil),                         // 55: terrabase.v1.MigrationApplyRequest
-	(*MigrationApplyResponse)(nil),                        // 56: terrabase.v1.MigrationApplyResponse
-	(*ReplicationServiceConflictsRequest)(nil),            // 57: terrabase.v1.ReplicationServiceConflictsRequest
-	(*ClockStamp)(nil),                                    // 58: terrabase.v1.ClockStamp
-	(*ConflictOutcome)(nil),                               // 59: terrabase.v1.ConflictOutcome
-	(*ConflictRecord)(nil),                                // 60: terrabase.v1.ConflictRecord
-	(*ReplicationServiceConflictsResponse)(nil),           // 61: terrabase.v1.ReplicationServiceConflictsResponse
-	(*ReplicationServiceFencedRequest)(nil),               // 62: terrabase.v1.ReplicationServiceFencedRequest
-	(*FencedRecord)(nil),                                  // 63: terrabase.v1.FencedRecord
-	(*ReplicationServiceFencedResponse)(nil),              // 64: terrabase.v1.ReplicationServiceFencedResponse
-	(*ReplicationServiceDepositionsRequest)(nil),          // 65: terrabase.v1.ReplicationServiceDepositionsRequest
-	(*DepositionRecord)(nil),                              // 66: terrabase.v1.DepositionRecord
-	(*ReplicationServiceDepositionsResponse)(nil),         // 67: terrabase.v1.ReplicationServiceDepositionsResponse
-	(*ReplicationServiceCursorRequest)(nil),               // 68: terrabase.v1.ReplicationServiceCursorRequest
-	(*ReplicationServiceCursorResponse)(nil),              // 69: terrabase.v1.ReplicationServiceCursorResponse
-	(*ReplicationServiceHealthRequest)(nil),               // 70: terrabase.v1.ReplicationServiceHealthRequest
-	(*ReplicationServiceHealthResponse)(nil),              // 71: terrabase.v1.ReplicationServiceHealthResponse
-	(*ReplicationServiceDenialsRequest)(nil),              // 72: terrabase.v1.ReplicationServiceDenialsRequest
-	(*DenialRecord)(nil),                                  // 73: terrabase.v1.DenialRecord
-	(*ReplicationServiceDenialsResponse)(nil),             // 74: terrabase.v1.ReplicationServiceDenialsResponse
-	(*ChannelServiceBindRequest)(nil),                     // 75: terrabase.v1.ChannelServiceBindRequest
-	(*ChannelServiceBindResponse)(nil),                    // 76: terrabase.v1.ChannelServiceBindResponse
-	(*MaintenanceServiceTopologyReadRequest)(nil),         // 77: terrabase.v1.MaintenanceServiceTopologyReadRequest
-	(*MaintenanceServiceTopologyReadResponse)(nil),        // 78: terrabase.v1.MaintenanceServiceTopologyReadResponse
-	(*MaintenanceServiceAdminStatusRequest)(nil),          // 79: terrabase.v1.MaintenanceServiceAdminStatusRequest
-	(*MaintenanceServiceAdminStatusResponse)(nil),         // 80: terrabase.v1.MaintenanceServiceAdminStatusResponse
-	(*MaintenanceServiceSupervisionHealthRequest)(nil),    // 81: terrabase.v1.MaintenanceServiceSupervisionHealthRequest
-	(*MaintenanceServiceSupervisionHealthResponse)(nil),   // 82: terrabase.v1.MaintenanceServiceSupervisionHealthResponse
-	(*MaintenanceServiceSupervisionShutdownRequest)(nil),  // 83: terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
-	(*MaintenanceServiceSupervisionShutdownResponse)(nil), // 84: terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
-	(*UsageServiceRecordRequest)(nil),                     // 85: terrabase.v1.UsageServiceRecordRequest
-	(*UsageServiceRecordResponse)(nil),                    // 86: terrabase.v1.UsageServiceRecordResponse
-	(*UsageFact)(nil),                                     // 87: terrabase.v1.UsageFact
-	(*UsageServiceExportRequest)(nil),                     // 88: terrabase.v1.UsageServiceExportRequest
-	(*UsageServiceExportResponse)(nil),                    // 89: terrabase.v1.UsageServiceExportResponse
-	(*TbepError)(nil),                                     // 90: terrabase.v1.TbepError
-	(*Any)(nil),                                           // 91: terrabase.v1.Any
-	(*RpcStatus)(nil),                                     // 92: terrabase.v1.RpcStatus
-	(*Value)(nil),                                         // 93: terrabase.v1.Value
+	(PlacementProposalStatus)(0),                          // 23: terrabase.v1.PlacementProposalStatus
+	(*ChangeEvent)(nil),                                   // 24: terrabase.v1.ChangeEvent
+	(*SubscriptionStart)(nil),                             // 25: terrabase.v1.SubscriptionStart
+	(*SubscriptionLive)(nil),                              // 26: terrabase.v1.SubscriptionLive
+	(*BackboneServiceSubscribeRequest)(nil),               // 27: terrabase.v1.BackboneServiceSubscribeRequest
+	(*BackboneServiceSubscribeResponse)(nil),              // 28: terrabase.v1.BackboneServiceSubscribeResponse
+	(*BackboneServiceAcknowledgeRequest)(nil),             // 29: terrabase.v1.BackboneServiceAcknowledgeRequest
+	(*BackboneServiceAcknowledgeResponse)(nil),            // 30: terrabase.v1.BackboneServiceAcknowledgeResponse
+	(*BackboneServiceUnsubscribeRequest)(nil),             // 31: terrabase.v1.BackboneServiceUnsubscribeRequest
+	(*BackboneServiceUnsubscribeResponse)(nil),            // 32: terrabase.v1.BackboneServiceUnsubscribeResponse
+	(*SubscriptionBatch)(nil),                             // 33: terrabase.v1.SubscriptionBatch
+	(*TriggerNotification)(nil),                           // 34: terrabase.v1.TriggerNotification
+	(*SubscriptionClosed)(nil),                            // 35: terrabase.v1.SubscriptionClosed
+	(*SubscribeResponse)(nil),                             // 36: terrabase.v1.SubscribeResponse
+	(*SchemaViolation)(nil),                               // 37: terrabase.v1.SchemaViolation
+	(*TransformLiteral)(nil),                              // 38: terrabase.v1.TransformLiteral
+	(*FieldTransformStep)(nil),                            // 39: terrabase.v1.FieldTransformStep
+	(*SchemaMigrationContract)(nil),                       // 40: terrabase.v1.SchemaMigrationContract
+	(*PlanProblem)(nil),                                   // 41: terrabase.v1.PlanProblem
+	(*TransformCounts)(nil),                               // 42: terrabase.v1.TransformCounts
+	(*MigrationState)(nil),                                // 43: terrabase.v1.MigrationState
+	(*MigrationPlan)(nil),                                 // 44: terrabase.v1.MigrationPlan
+	(*MigrationReceipt)(nil),                              // 45: terrabase.v1.MigrationReceipt
+	(*SchemaServiceDeclareRequest)(nil),                   // 46: terrabase.v1.SchemaServiceDeclareRequest
+	(*SchemaServiceDeclareResponse)(nil),                  // 47: terrabase.v1.SchemaServiceDeclareResponse
+	(*SchemaServiceStatusRequest)(nil),                    // 48: terrabase.v1.SchemaServiceStatusRequest
+	(*SchemaServiceStatusResponse)(nil),                   // 49: terrabase.v1.SchemaServiceStatusResponse
+	(*SchemaServiceValidateRequest)(nil),                  // 50: terrabase.v1.SchemaServiceValidateRequest
+	(*SchemaServiceValidateResponse)(nil),                 // 51: terrabase.v1.SchemaServiceValidateResponse
+	(*MigrationStatusRequest)(nil),                        // 52: terrabase.v1.MigrationStatusRequest
+	(*MigrationStatusResponse)(nil),                       // 53: terrabase.v1.MigrationStatusResponse
+	(*MigrationDryRunRequest)(nil),                        // 54: terrabase.v1.MigrationDryRunRequest
+	(*MigrationDryRunResponse)(nil),                       // 55: terrabase.v1.MigrationDryRunResponse
+	(*MigrationApplyRequest)(nil),                         // 56: terrabase.v1.MigrationApplyRequest
+	(*MigrationApplyResponse)(nil),                        // 57: terrabase.v1.MigrationApplyResponse
+	(*ReplicationServiceConflictsRequest)(nil),            // 58: terrabase.v1.ReplicationServiceConflictsRequest
+	(*ClockStamp)(nil),                                    // 59: terrabase.v1.ClockStamp
+	(*ConflictOutcome)(nil),                               // 60: terrabase.v1.ConflictOutcome
+	(*ConflictRecord)(nil),                                // 61: terrabase.v1.ConflictRecord
+	(*ReplicationServiceConflictsResponse)(nil),           // 62: terrabase.v1.ReplicationServiceConflictsResponse
+	(*ReplicationServiceFencedRequest)(nil),               // 63: terrabase.v1.ReplicationServiceFencedRequest
+	(*FencedRecord)(nil),                                  // 64: terrabase.v1.FencedRecord
+	(*ReplicationServiceFencedResponse)(nil),              // 65: terrabase.v1.ReplicationServiceFencedResponse
+	(*ReplicationServiceDepositionsRequest)(nil),          // 66: terrabase.v1.ReplicationServiceDepositionsRequest
+	(*DepositionRecord)(nil),                              // 67: terrabase.v1.DepositionRecord
+	(*ReplicationServiceDepositionsResponse)(nil),         // 68: terrabase.v1.ReplicationServiceDepositionsResponse
+	(*ReplicationServiceCursorRequest)(nil),               // 69: terrabase.v1.ReplicationServiceCursorRequest
+	(*ReplicationServiceCursorResponse)(nil),              // 70: terrabase.v1.ReplicationServiceCursorResponse
+	(*ReplicationServiceHealthRequest)(nil),               // 71: terrabase.v1.ReplicationServiceHealthRequest
+	(*ReplicationServiceHealthResponse)(nil),              // 72: terrabase.v1.ReplicationServiceHealthResponse
+	(*ReplicationServiceDenialsRequest)(nil),              // 73: terrabase.v1.ReplicationServiceDenialsRequest
+	(*DenialRecord)(nil),                                  // 74: terrabase.v1.DenialRecord
+	(*ReplicationServiceDenialsResponse)(nil),             // 75: terrabase.v1.ReplicationServiceDenialsResponse
+	(*ChannelServiceBindRequest)(nil),                     // 76: terrabase.v1.ChannelServiceBindRequest
+	(*ChannelServiceBindResponse)(nil),                    // 77: terrabase.v1.ChannelServiceBindResponse
+	(*MaintenanceServiceTopologyReadRequest)(nil),         // 78: terrabase.v1.MaintenanceServiceTopologyReadRequest
+	(*MaintenanceServiceTopologyReadResponse)(nil),        // 79: terrabase.v1.MaintenanceServiceTopologyReadResponse
+	(*MaintenanceServiceAdminStatusRequest)(nil),          // 80: terrabase.v1.MaintenanceServiceAdminStatusRequest
+	(*MaintenanceServiceAdminStatusResponse)(nil),         // 81: terrabase.v1.MaintenanceServiceAdminStatusResponse
+	(*MaintenanceServiceSupervisionHealthRequest)(nil),    // 82: terrabase.v1.MaintenanceServiceSupervisionHealthRequest
+	(*MaintenanceServiceSupervisionHealthResponse)(nil),   // 83: terrabase.v1.MaintenanceServiceSupervisionHealthResponse
+	(*MaintenanceServiceSupervisionShutdownRequest)(nil),  // 84: terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
+	(*MaintenanceServiceSupervisionShutdownResponse)(nil), // 85: terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
+	(*UsageServiceRecordRequest)(nil),                     // 86: terrabase.v1.UsageServiceRecordRequest
+	(*UsageServiceRecordResponse)(nil),                    // 87: terrabase.v1.UsageServiceRecordResponse
+	(*UsageFact)(nil),                                     // 88: terrabase.v1.UsageFact
+	(*UsageServiceExportRequest)(nil),                     // 89: terrabase.v1.UsageServiceExportRequest
+	(*UsageServiceExportResponse)(nil),                    // 90: terrabase.v1.UsageServiceExportResponse
+	(*TbepError)(nil),                                     // 91: terrabase.v1.TbepError
+	(*Any)(nil),                                           // 92: terrabase.v1.Any
+	(*RpcStatus)(nil),                                     // 93: terrabase.v1.RpcStatus
+	(*PlacementRegionSeats)(nil),                          // 94: terrabase.v1.PlacementRegionSeats
+	(*PlacementDatabaseAssignment)(nil),                   // 95: terrabase.v1.PlacementDatabaseAssignment
+	(*PlacementProposal)(nil),                             // 96: terrabase.v1.PlacementProposal
+	(*PlacementStageRequest)(nil),                         // 97: terrabase.v1.PlacementStageRequest
+	(*PlacementGetRequest)(nil),                           // 98: terrabase.v1.PlacementGetRequest
+	(*PlacementProposalResponse)(nil),                     // 99: terrabase.v1.PlacementProposalResponse
+	(*Value)(nil),                                         // 100: terrabase.v1.Value
 }
 var file_terrabase_v1_engine_proto_depIdxs = []int32{
-	1,  // 0: terrabase.v1.ChangeEvent.kind:type_name -> terrabase.v1.ChangeKind
-	25, // 1: terrabase.v1.SubscriptionStart.live:type_name -> terrabase.v1.SubscriptionLive
-	24, // 2: terrabase.v1.BackboneServiceSubscribeRequest.from:type_name -> terrabase.v1.SubscriptionStart
-	23, // 3: terrabase.v1.SubscriptionBatch.events:type_name -> terrabase.v1.ChangeEvent
-	4,  // 4: terrabase.v1.SubscriptionClosed.reason:type_name -> terrabase.v1.SubscriptionCloseReason
-	27, // 5: terrabase.v1.SubscribeResponse.subscribed:type_name -> terrabase.v1.BackboneServiceSubscribeResponse
-	32, // 6: terrabase.v1.SubscribeResponse.batch:type_name -> terrabase.v1.SubscriptionBatch
-	33, // 7: terrabase.v1.SubscribeResponse.trigger:type_name -> terrabase.v1.TriggerNotification
-	34, // 8: terrabase.v1.SubscribeResponse.closed:type_name -> terrabase.v1.SubscriptionClosed
-	6,  // 9: terrabase.v1.SchemaViolation.kind:type_name -> terrabase.v1.ViolationKind
-	9,  // 10: terrabase.v1.FieldTransformStep.kind:type_name -> terrabase.v1.FieldTransform
-	37, // 11: terrabase.v1.FieldTransformStep.default:type_name -> terrabase.v1.TransformLiteral
-	7,  // 12: terrabase.v1.FieldTransformStep.coercion:type_name -> terrabase.v1.Coercion
-	93, // 13: terrabase.v1.SchemaMigrationContract.target:type_name -> terrabase.v1.Value
-	38, // 14: terrabase.v1.SchemaMigrationContract.transforms:type_name -> terrabase.v1.FieldTransformStep
-	10, // 15: terrabase.v1.PlanProblem.kind:type_name -> terrabase.v1.PlanProblemKind
-	8,  // 16: terrabase.v1.PlanProblem.rejection:type_name -> terrabase.v1.TransformRejection
-	36, // 17: terrabase.v1.PlanProblem.violations:type_name -> terrabase.v1.SchemaViolation
-	11, // 18: terrabase.v1.MigrationState.kind:type_name -> terrabase.v1.MigrationStateKind
-	41, // 19: terrabase.v1.MigrationPlan.transform_counts:type_name -> terrabase.v1.TransformCounts
-	40, // 20: terrabase.v1.MigrationPlan.problems:type_name -> terrabase.v1.PlanProblem
-	41, // 21: terrabase.v1.MigrationReceipt.transform_counts:type_name -> terrabase.v1.TransformCounts
-	12, // 22: terrabase.v1.MigrationReceipt.rollback_limit:type_name -> terrabase.v1.RollbackLimitKind
-	93, // 23: terrabase.v1.SchemaServiceDeclareRequest.schema:type_name -> terrabase.v1.Value
-	93, // 24: terrabase.v1.SchemaServiceValidateRequest.document:type_name -> terrabase.v1.Value
-	36, // 25: terrabase.v1.SchemaServiceValidateResponse.violations:type_name -> terrabase.v1.SchemaViolation
-	42, // 26: terrabase.v1.MigrationStatusResponse.state:type_name -> terrabase.v1.MigrationState
-	39, // 27: terrabase.v1.MigrationDryRunRequest.contract:type_name -> terrabase.v1.SchemaMigrationContract
-	43, // 28: terrabase.v1.MigrationDryRunResponse.plan:type_name -> terrabase.v1.MigrationPlan
-	39, // 29: terrabase.v1.MigrationApplyRequest.contract:type_name -> terrabase.v1.SchemaMigrationContract
-	44, // 30: terrabase.v1.MigrationApplyResponse.receipt:type_name -> terrabase.v1.MigrationReceipt
-	13, // 31: terrabase.v1.ConflictOutcome.kind:type_name -> terrabase.v1.ConflictOutcomeKind
-	58, // 32: terrabase.v1.ConflictRecord.clocks:type_name -> terrabase.v1.ClockStamp
-	59, // 33: terrabase.v1.ConflictRecord.outcome:type_name -> terrabase.v1.ConflictOutcome
-	60, // 34: terrabase.v1.ReplicationServiceConflictsResponse.records:type_name -> terrabase.v1.ConflictRecord
-	63, // 35: terrabase.v1.ReplicationServiceFencedResponse.records:type_name -> terrabase.v1.FencedRecord
-	66, // 36: terrabase.v1.ReplicationServiceDepositionsResponse.records:type_name -> terrabase.v1.DepositionRecord
-	14, // 37: terrabase.v1.ReplicationServiceHealthResponse.status:type_name -> terrabase.v1.ReplicationStatus
-	15, // 38: terrabase.v1.DenialRecord.seam:type_name -> terrabase.v1.DenialSeam
-	73, // 39: terrabase.v1.ReplicationServiceDenialsResponse.records:type_name -> terrabase.v1.DenialRecord
-	5,  // 40: terrabase.v1.MaintenanceServiceTopologyReadResponse.binding:type_name -> terrabase.v1.BindingKind
-	0,  // 41: terrabase.v1.MaintenanceServiceTopologyReadResponse.cluster_mode:type_name -> terrabase.v1.ClusterMode
-	2,  // 42: terrabase.v1.MaintenanceServiceSupervisionHealthResponse.state:type_name -> terrabase.v1.HealthState
-	3,  // 43: terrabase.v1.MaintenanceServiceSupervisionShutdownRequest.reason:type_name -> terrabase.v1.ShutdownReason
-	2,  // 44: terrabase.v1.MaintenanceServiceSupervisionShutdownResponse.state:type_name -> terrabase.v1.HealthState
-	21, // 45: terrabase.v1.UsageServiceRecordRequest.meter:type_name -> terrabase.v1.UsageRecordMeter
-	20, // 46: terrabase.v1.UsageServiceRecordRequest.origin_region:type_name -> terrabase.v1.UsageRegion
-	16, // 47: terrabase.v1.UsageFact.meter:type_name -> terrabase.v1.UsageMeter
-	17, // 48: terrabase.v1.UsageFact.unit:type_name -> terrabase.v1.UsageUnit
-	18, // 49: terrabase.v1.UsageFact.charge_scope:type_name -> terrabase.v1.UsageChargeScope
-	19, // 50: terrabase.v1.UsageFact.minting_rule:type_name -> terrabase.v1.UsageMintingRule
-	20, // 51: terrabase.v1.UsageFact.region:type_name -> terrabase.v1.UsageRegion
-	87, // 52: terrabase.v1.UsageServiceExportResponse.facts:type_name -> terrabase.v1.UsageFact
-	22, // 53: terrabase.v1.TbepError.code:type_name -> terrabase.v1.ErrorCode
-	91, // 54: terrabase.v1.RpcStatus.details:type_name -> terrabase.v1.Any
-	75, // 55: terrabase.v1.ChannelService.Bind:input_type -> terrabase.v1.ChannelServiceBindRequest
-	26, // 56: terrabase.v1.BackboneService.Subscribe:input_type -> terrabase.v1.BackboneServiceSubscribeRequest
-	28, // 57: terrabase.v1.BackboneService.Acknowledge:input_type -> terrabase.v1.BackboneServiceAcknowledgeRequest
-	30, // 58: terrabase.v1.BackboneService.Unsubscribe:input_type -> terrabase.v1.BackboneServiceUnsubscribeRequest
-	45, // 59: terrabase.v1.SchemaService.Declare:input_type -> terrabase.v1.SchemaServiceDeclareRequest
-	47, // 60: terrabase.v1.SchemaService.Status:input_type -> terrabase.v1.SchemaServiceStatusRequest
-	49, // 61: terrabase.v1.SchemaService.Validate:input_type -> terrabase.v1.SchemaServiceValidateRequest
-	51, // 62: terrabase.v1.SchemaService.MigrationStatus:input_type -> terrabase.v1.MigrationStatusRequest
-	53, // 63: terrabase.v1.SchemaService.MigrationDryRun:input_type -> terrabase.v1.MigrationDryRunRequest
-	55, // 64: terrabase.v1.SchemaService.MigrationApply:input_type -> terrabase.v1.MigrationApplyRequest
-	57, // 65: terrabase.v1.ReplicationService.Conflicts:input_type -> terrabase.v1.ReplicationServiceConflictsRequest
-	62, // 66: terrabase.v1.ReplicationService.Fenced:input_type -> terrabase.v1.ReplicationServiceFencedRequest
-	65, // 67: terrabase.v1.ReplicationService.Depositions:input_type -> terrabase.v1.ReplicationServiceDepositionsRequest
-	68, // 68: terrabase.v1.ReplicationService.Cursor:input_type -> terrabase.v1.ReplicationServiceCursorRequest
-	70, // 69: terrabase.v1.ReplicationService.Health:input_type -> terrabase.v1.ReplicationServiceHealthRequest
-	72, // 70: terrabase.v1.ReplicationService.Denials:input_type -> terrabase.v1.ReplicationServiceDenialsRequest
-	77, // 71: terrabase.v1.MaintenanceService.TopologyRead:input_type -> terrabase.v1.MaintenanceServiceTopologyReadRequest
-	79, // 72: terrabase.v1.MaintenanceService.AdminStatus:input_type -> terrabase.v1.MaintenanceServiceAdminStatusRequest
-	81, // 73: terrabase.v1.MaintenanceService.SupervisionHealth:input_type -> terrabase.v1.MaintenanceServiceSupervisionHealthRequest
-	83, // 74: terrabase.v1.MaintenanceService.SupervisionShutdown:input_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
-	85, // 75: terrabase.v1.UsageService.Record:input_type -> terrabase.v1.UsageServiceRecordRequest
-	88, // 76: terrabase.v1.UsageService.Export:input_type -> terrabase.v1.UsageServiceExportRequest
-	76, // 77: terrabase.v1.ChannelService.Bind:output_type -> terrabase.v1.ChannelServiceBindResponse
-	35, // 78: terrabase.v1.BackboneService.Subscribe:output_type -> terrabase.v1.SubscribeResponse
-	29, // 79: terrabase.v1.BackboneService.Acknowledge:output_type -> terrabase.v1.BackboneServiceAcknowledgeResponse
-	31, // 80: terrabase.v1.BackboneService.Unsubscribe:output_type -> terrabase.v1.BackboneServiceUnsubscribeResponse
-	46, // 81: terrabase.v1.SchemaService.Declare:output_type -> terrabase.v1.SchemaServiceDeclareResponse
-	48, // 82: terrabase.v1.SchemaService.Status:output_type -> terrabase.v1.SchemaServiceStatusResponse
-	50, // 83: terrabase.v1.SchemaService.Validate:output_type -> terrabase.v1.SchemaServiceValidateResponse
-	52, // 84: terrabase.v1.SchemaService.MigrationStatus:output_type -> terrabase.v1.MigrationStatusResponse
-	54, // 85: terrabase.v1.SchemaService.MigrationDryRun:output_type -> terrabase.v1.MigrationDryRunResponse
-	56, // 86: terrabase.v1.SchemaService.MigrationApply:output_type -> terrabase.v1.MigrationApplyResponse
-	61, // 87: terrabase.v1.ReplicationService.Conflicts:output_type -> terrabase.v1.ReplicationServiceConflictsResponse
-	64, // 88: terrabase.v1.ReplicationService.Fenced:output_type -> terrabase.v1.ReplicationServiceFencedResponse
-	67, // 89: terrabase.v1.ReplicationService.Depositions:output_type -> terrabase.v1.ReplicationServiceDepositionsResponse
-	69, // 90: terrabase.v1.ReplicationService.Cursor:output_type -> terrabase.v1.ReplicationServiceCursorResponse
-	71, // 91: terrabase.v1.ReplicationService.Health:output_type -> terrabase.v1.ReplicationServiceHealthResponse
-	74, // 92: terrabase.v1.ReplicationService.Denials:output_type -> terrabase.v1.ReplicationServiceDenialsResponse
-	78, // 93: terrabase.v1.MaintenanceService.TopologyRead:output_type -> terrabase.v1.MaintenanceServiceTopologyReadResponse
-	80, // 94: terrabase.v1.MaintenanceService.AdminStatus:output_type -> terrabase.v1.MaintenanceServiceAdminStatusResponse
-	82, // 95: terrabase.v1.MaintenanceService.SupervisionHealth:output_type -> terrabase.v1.MaintenanceServiceSupervisionHealthResponse
-	84, // 96: terrabase.v1.MaintenanceService.SupervisionShutdown:output_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
-	86, // 97: terrabase.v1.UsageService.Record:output_type -> terrabase.v1.UsageServiceRecordResponse
-	89, // 98: terrabase.v1.UsageService.Export:output_type -> terrabase.v1.UsageServiceExportResponse
-	77, // [77:99] is the sub-list for method output_type
-	55, // [55:77] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	1,   // 0: terrabase.v1.ChangeEvent.kind:type_name -> terrabase.v1.ChangeKind
+	26,  // 1: terrabase.v1.SubscriptionStart.live:type_name -> terrabase.v1.SubscriptionLive
+	25,  // 2: terrabase.v1.BackboneServiceSubscribeRequest.from:type_name -> terrabase.v1.SubscriptionStart
+	24,  // 3: terrabase.v1.SubscriptionBatch.events:type_name -> terrabase.v1.ChangeEvent
+	4,   // 4: terrabase.v1.SubscriptionClosed.reason:type_name -> terrabase.v1.SubscriptionCloseReason
+	28,  // 5: terrabase.v1.SubscribeResponse.subscribed:type_name -> terrabase.v1.BackboneServiceSubscribeResponse
+	33,  // 6: terrabase.v1.SubscribeResponse.batch:type_name -> terrabase.v1.SubscriptionBatch
+	34,  // 7: terrabase.v1.SubscribeResponse.trigger:type_name -> terrabase.v1.TriggerNotification
+	35,  // 8: terrabase.v1.SubscribeResponse.closed:type_name -> terrabase.v1.SubscriptionClosed
+	6,   // 9: terrabase.v1.SchemaViolation.kind:type_name -> terrabase.v1.ViolationKind
+	9,   // 10: terrabase.v1.FieldTransformStep.kind:type_name -> terrabase.v1.FieldTransform
+	38,  // 11: terrabase.v1.FieldTransformStep.default:type_name -> terrabase.v1.TransformLiteral
+	7,   // 12: terrabase.v1.FieldTransformStep.coercion:type_name -> terrabase.v1.Coercion
+	100, // 13: terrabase.v1.SchemaMigrationContract.target:type_name -> terrabase.v1.Value
+	39,  // 14: terrabase.v1.SchemaMigrationContract.transforms:type_name -> terrabase.v1.FieldTransformStep
+	10,  // 15: terrabase.v1.PlanProblem.kind:type_name -> terrabase.v1.PlanProblemKind
+	8,   // 16: terrabase.v1.PlanProblem.rejection:type_name -> terrabase.v1.TransformRejection
+	37,  // 17: terrabase.v1.PlanProblem.violations:type_name -> terrabase.v1.SchemaViolation
+	11,  // 18: terrabase.v1.MigrationState.kind:type_name -> terrabase.v1.MigrationStateKind
+	42,  // 19: terrabase.v1.MigrationPlan.transform_counts:type_name -> terrabase.v1.TransformCounts
+	41,  // 20: terrabase.v1.MigrationPlan.problems:type_name -> terrabase.v1.PlanProblem
+	42,  // 21: terrabase.v1.MigrationReceipt.transform_counts:type_name -> terrabase.v1.TransformCounts
+	12,  // 22: terrabase.v1.MigrationReceipt.rollback_limit:type_name -> terrabase.v1.RollbackLimitKind
+	100, // 23: terrabase.v1.SchemaServiceDeclareRequest.schema:type_name -> terrabase.v1.Value
+	100, // 24: terrabase.v1.SchemaServiceValidateRequest.document:type_name -> terrabase.v1.Value
+	37,  // 25: terrabase.v1.SchemaServiceValidateResponse.violations:type_name -> terrabase.v1.SchemaViolation
+	43,  // 26: terrabase.v1.MigrationStatusResponse.state:type_name -> terrabase.v1.MigrationState
+	40,  // 27: terrabase.v1.MigrationDryRunRequest.contract:type_name -> terrabase.v1.SchemaMigrationContract
+	44,  // 28: terrabase.v1.MigrationDryRunResponse.plan:type_name -> terrabase.v1.MigrationPlan
+	40,  // 29: terrabase.v1.MigrationApplyRequest.contract:type_name -> terrabase.v1.SchemaMigrationContract
+	45,  // 30: terrabase.v1.MigrationApplyResponse.receipt:type_name -> terrabase.v1.MigrationReceipt
+	13,  // 31: terrabase.v1.ConflictOutcome.kind:type_name -> terrabase.v1.ConflictOutcomeKind
+	59,  // 32: terrabase.v1.ConflictRecord.clocks:type_name -> terrabase.v1.ClockStamp
+	60,  // 33: terrabase.v1.ConflictRecord.outcome:type_name -> terrabase.v1.ConflictOutcome
+	61,  // 34: terrabase.v1.ReplicationServiceConflictsResponse.records:type_name -> terrabase.v1.ConflictRecord
+	64,  // 35: terrabase.v1.ReplicationServiceFencedResponse.records:type_name -> terrabase.v1.FencedRecord
+	67,  // 36: terrabase.v1.ReplicationServiceDepositionsResponse.records:type_name -> terrabase.v1.DepositionRecord
+	14,  // 37: terrabase.v1.ReplicationServiceHealthResponse.status:type_name -> terrabase.v1.ReplicationStatus
+	15,  // 38: terrabase.v1.DenialRecord.seam:type_name -> terrabase.v1.DenialSeam
+	74,  // 39: terrabase.v1.ReplicationServiceDenialsResponse.records:type_name -> terrabase.v1.DenialRecord
+	5,   // 40: terrabase.v1.MaintenanceServiceTopologyReadResponse.binding:type_name -> terrabase.v1.BindingKind
+	0,   // 41: terrabase.v1.MaintenanceServiceTopologyReadResponse.cluster_mode:type_name -> terrabase.v1.ClusterMode
+	2,   // 42: terrabase.v1.MaintenanceServiceSupervisionHealthResponse.state:type_name -> terrabase.v1.HealthState
+	3,   // 43: terrabase.v1.MaintenanceServiceSupervisionShutdownRequest.reason:type_name -> terrabase.v1.ShutdownReason
+	2,   // 44: terrabase.v1.MaintenanceServiceSupervisionShutdownResponse.state:type_name -> terrabase.v1.HealthState
+	21,  // 45: terrabase.v1.UsageServiceRecordRequest.meter:type_name -> terrabase.v1.UsageRecordMeter
+	20,  // 46: terrabase.v1.UsageServiceRecordRequest.origin_region:type_name -> terrabase.v1.UsageRegion
+	16,  // 47: terrabase.v1.UsageFact.meter:type_name -> terrabase.v1.UsageMeter
+	17,  // 48: terrabase.v1.UsageFact.unit:type_name -> terrabase.v1.UsageUnit
+	18,  // 49: terrabase.v1.UsageFact.charge_scope:type_name -> terrabase.v1.UsageChargeScope
+	19,  // 50: terrabase.v1.UsageFact.minting_rule:type_name -> terrabase.v1.UsageMintingRule
+	20,  // 51: terrabase.v1.UsageFact.region:type_name -> terrabase.v1.UsageRegion
+	88,  // 52: terrabase.v1.UsageServiceExportResponse.facts:type_name -> terrabase.v1.UsageFact
+	22,  // 53: terrabase.v1.TbepError.code:type_name -> terrabase.v1.ErrorCode
+	92,  // 54: terrabase.v1.RpcStatus.details:type_name -> terrabase.v1.Any
+	94,  // 55: terrabase.v1.PlacementProposal.regions:type_name -> terrabase.v1.PlacementRegionSeats
+	95,  // 56: terrabase.v1.PlacementProposal.assignments:type_name -> terrabase.v1.PlacementDatabaseAssignment
+	96,  // 57: terrabase.v1.PlacementStageRequest.proposal:type_name -> terrabase.v1.PlacementProposal
+	96,  // 58: terrabase.v1.PlacementProposalResponse.proposal:type_name -> terrabase.v1.PlacementProposal
+	23,  // 59: terrabase.v1.PlacementProposalResponse.status:type_name -> terrabase.v1.PlacementProposalStatus
+	76,  // 60: terrabase.v1.ChannelService.Bind:input_type -> terrabase.v1.ChannelServiceBindRequest
+	27,  // 61: terrabase.v1.BackboneService.Subscribe:input_type -> terrabase.v1.BackboneServiceSubscribeRequest
+	29,  // 62: terrabase.v1.BackboneService.Acknowledge:input_type -> terrabase.v1.BackboneServiceAcknowledgeRequest
+	31,  // 63: terrabase.v1.BackboneService.Unsubscribe:input_type -> terrabase.v1.BackboneServiceUnsubscribeRequest
+	46,  // 64: terrabase.v1.SchemaService.Declare:input_type -> terrabase.v1.SchemaServiceDeclareRequest
+	48,  // 65: terrabase.v1.SchemaService.Status:input_type -> terrabase.v1.SchemaServiceStatusRequest
+	50,  // 66: terrabase.v1.SchemaService.Validate:input_type -> terrabase.v1.SchemaServiceValidateRequest
+	52,  // 67: terrabase.v1.SchemaService.MigrationStatus:input_type -> terrabase.v1.MigrationStatusRequest
+	54,  // 68: terrabase.v1.SchemaService.MigrationDryRun:input_type -> terrabase.v1.MigrationDryRunRequest
+	56,  // 69: terrabase.v1.SchemaService.MigrationApply:input_type -> terrabase.v1.MigrationApplyRequest
+	58,  // 70: terrabase.v1.ReplicationService.Conflicts:input_type -> terrabase.v1.ReplicationServiceConflictsRequest
+	63,  // 71: terrabase.v1.ReplicationService.Fenced:input_type -> terrabase.v1.ReplicationServiceFencedRequest
+	66,  // 72: terrabase.v1.ReplicationService.Depositions:input_type -> terrabase.v1.ReplicationServiceDepositionsRequest
+	69,  // 73: terrabase.v1.ReplicationService.Cursor:input_type -> terrabase.v1.ReplicationServiceCursorRequest
+	71,  // 74: terrabase.v1.ReplicationService.Health:input_type -> terrabase.v1.ReplicationServiceHealthRequest
+	73,  // 75: terrabase.v1.ReplicationService.Denials:input_type -> terrabase.v1.ReplicationServiceDenialsRequest
+	78,  // 76: terrabase.v1.MaintenanceService.TopologyRead:input_type -> terrabase.v1.MaintenanceServiceTopologyReadRequest
+	80,  // 77: terrabase.v1.MaintenanceService.AdminStatus:input_type -> terrabase.v1.MaintenanceServiceAdminStatusRequest
+	82,  // 78: terrabase.v1.MaintenanceService.SupervisionHealth:input_type -> terrabase.v1.MaintenanceServiceSupervisionHealthRequest
+	84,  // 79: terrabase.v1.MaintenanceService.SupervisionShutdown:input_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
+	86,  // 80: terrabase.v1.UsageService.Record:input_type -> terrabase.v1.UsageServiceRecordRequest
+	89,  // 81: terrabase.v1.UsageService.Export:input_type -> terrabase.v1.UsageServiceExportRequest
+	97,  // 82: terrabase.v1.PlacementControlService.Stage:input_type -> terrabase.v1.PlacementStageRequest
+	98,  // 83: terrabase.v1.PlacementControlService.Get:input_type -> terrabase.v1.PlacementGetRequest
+	77,  // 84: terrabase.v1.ChannelService.Bind:output_type -> terrabase.v1.ChannelServiceBindResponse
+	36,  // 85: terrabase.v1.BackboneService.Subscribe:output_type -> terrabase.v1.SubscribeResponse
+	30,  // 86: terrabase.v1.BackboneService.Acknowledge:output_type -> terrabase.v1.BackboneServiceAcknowledgeResponse
+	32,  // 87: terrabase.v1.BackboneService.Unsubscribe:output_type -> terrabase.v1.BackboneServiceUnsubscribeResponse
+	47,  // 88: terrabase.v1.SchemaService.Declare:output_type -> terrabase.v1.SchemaServiceDeclareResponse
+	49,  // 89: terrabase.v1.SchemaService.Status:output_type -> terrabase.v1.SchemaServiceStatusResponse
+	51,  // 90: terrabase.v1.SchemaService.Validate:output_type -> terrabase.v1.SchemaServiceValidateResponse
+	53,  // 91: terrabase.v1.SchemaService.MigrationStatus:output_type -> terrabase.v1.MigrationStatusResponse
+	55,  // 92: terrabase.v1.SchemaService.MigrationDryRun:output_type -> terrabase.v1.MigrationDryRunResponse
+	57,  // 93: terrabase.v1.SchemaService.MigrationApply:output_type -> terrabase.v1.MigrationApplyResponse
+	62,  // 94: terrabase.v1.ReplicationService.Conflicts:output_type -> terrabase.v1.ReplicationServiceConflictsResponse
+	65,  // 95: terrabase.v1.ReplicationService.Fenced:output_type -> terrabase.v1.ReplicationServiceFencedResponse
+	68,  // 96: terrabase.v1.ReplicationService.Depositions:output_type -> terrabase.v1.ReplicationServiceDepositionsResponse
+	70,  // 97: terrabase.v1.ReplicationService.Cursor:output_type -> terrabase.v1.ReplicationServiceCursorResponse
+	72,  // 98: terrabase.v1.ReplicationService.Health:output_type -> terrabase.v1.ReplicationServiceHealthResponse
+	75,  // 99: terrabase.v1.ReplicationService.Denials:output_type -> terrabase.v1.ReplicationServiceDenialsResponse
+	79,  // 100: terrabase.v1.MaintenanceService.TopologyRead:output_type -> terrabase.v1.MaintenanceServiceTopologyReadResponse
+	81,  // 101: terrabase.v1.MaintenanceService.AdminStatus:output_type -> terrabase.v1.MaintenanceServiceAdminStatusResponse
+	83,  // 102: terrabase.v1.MaintenanceService.SupervisionHealth:output_type -> terrabase.v1.MaintenanceServiceSupervisionHealthResponse
+	85,  // 103: terrabase.v1.MaintenanceService.SupervisionShutdown:output_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
+	87,  // 104: terrabase.v1.UsageService.Record:output_type -> terrabase.v1.UsageServiceRecordResponse
+	90,  // 105: terrabase.v1.UsageService.Export:output_type -> terrabase.v1.UsageServiceExportResponse
+	99,  // 106: terrabase.v1.PlacementControlService.Stage:output_type -> terrabase.v1.PlacementProposalResponse
+	99,  // 107: terrabase.v1.PlacementControlService.Get:output_type -> terrabase.v1.PlacementProposalResponse
+	84,  // [84:108] is the sub-list for method output_type
+	60,  // [60:84] is the sub-list for method input_type
+	60,  // [60:60] is the sub-list for extension type_name
+	60,  // [60:60] is the sub-list for extension extendee
+	0,   // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_terrabase_v1_engine_proto_init() }
@@ -6475,10 +6939,10 @@ func file_terrabase_v1_engine_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_terrabase_v1_engine_proto_rawDesc), len(file_terrabase_v1_engine_proto_rawDesc)),
-			NumEnums:      23,
-			NumMessages:   70,
+			NumEnums:      24,
+			NumMessages:   76,
 			NumExtensions: 0,
-			NumServices:   6,
+			NumServices:   7,
 		},
 		GoTypes:           file_terrabase_v1_engine_proto_goTypes,
 		DependencyIndexes: file_terrabase_v1_engine_proto_depIdxs,

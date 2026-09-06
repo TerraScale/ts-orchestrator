@@ -39,12 +39,12 @@ type notifyingKVStore struct {
 	changed chan struct{}
 }
 
-func (s *notifyingKVStore) SetRegionHealth(context.Context, string, RegionHealth) error {
+func (s *notifyingKVStore) SetWorkerHealth(context.Context, WorkerHealthDoc) error {
 	s.record()
 	return nil
 }
 
-func (s *notifyingKVStore) SetDBPlacement(context.Context, string, DBPlacement) error {
+func (s *notifyingKVStore) SetWorkerPlacements(context.Context, map[string]WorkerPlacement) error {
 	s.record()
 	return nil
 }

@@ -114,24 +114,35 @@ type recordingKVStore struct {
 	events   []string
 }
 
-func (s *recordingKVStore) SetRegionHealth(ctx context.Context, region string, health cf.RegionHealth) error {
-	s.events = append(s.events, "set-health:"+region)
-	return s.delegate.SetRegionHealth(ctx, region, health)
+func (s *recordingKVStore) SetWorkerHealth(ctx context.Context, value cf.WorkerHealthDoc) error {
+	if err := s.delegate.SetWorkerHealth(ctx, value); err != nil {
+		return err
+	}
+	s.events = append(s.events, "set-health:"+"regions")
+	return nil
 }
-
-func (s *recordingKVStore) SetDBPlacement(ctx context.Context, database string, value cf.DBPlacement) error {
-	s.events = append(s.events, "set-placement:"+database)
-	return s.delegate.SetDBPlacement(ctx, database, value)
+func (s *recordingKVStore) SetWorkerPlacements(ctx context.Context, values map[string]cf.WorkerPlacement) error {
+	if err := s.delegate.SetWorkerPlacements(ctx, values); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		s.events = append(s.events, "set-placement:"+key)
+	}
+	return nil
 }
-
-func (s *recordingKVStore) DeleteRegionHealth(ctx context.Context, region string) error {
-	s.events = append(s.events, "delete-health:"+region)
-	return s.delegate.DeleteRegionHealth(ctx, region)
-}
-
-func (s *recordingKVStore) DeleteDBPlacement(ctx context.Context, database string) error {
-	s.events = append(s.events, "delete-placement:"+database)
-	return s.delegate.DeleteDBPlacement(ctx, database)
+func (s *recordingKVStore) DeleteWorkerPlacements(ctx context.Context, keys []string) error {
+	if err := s.delegate.DeleteWorkerPlacements(ctx, keys); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		s.events = append(s.events, "delete-placement:"+key)
+	}
+	return nil
 }
 
 // QualifyKV executes health refreshes, an unchanged tick, a safe placement
@@ -168,7 +179,7 @@ func (c *LocalOperationsContract) QualifyKV(ctx context.Context) (KVOperationsRe
 		Store:            store,
 		Health:           source,
 		Placement:        source,
-		MaxWritesPerTick: 3,
+		MaxWritesPerTick: 2,
 		OnBudgetExceeded: func(writes int) { budget = append(budget, writes) },
 		Now:              func() time.Time { return now },
 	})
@@ -185,7 +196,7 @@ func (c *LocalOperationsContract) QualifyKV(ctx context.Context) (KVOperationsRe
 	if result.RefreshWrites, err = writer.Step(ctx); err != nil {
 		return result, err
 	}
-	if result.InitialWrites != 5 || result.RefreshWrites != 3 {
+	if result.InitialWrites != 3 || result.RefreshWrites != 1 {
 		return result, fmt.Errorf("vmqual: KV refresh writes are initial=%d refresh=%d", result.InitialWrites, result.RefreshWrites)
 	}
 	store.events = nil
@@ -199,35 +210,34 @@ func (c *LocalOperationsContract) QualifyKV(ctx context.Context) (KVOperationsRe
 	}
 	result.TransitionOrder = append([]string(nil), store.events...)
 	wantOrder := []string{
-		"set-health:fra", "set-health:gru", "set-placement:qualification-live",
-		"delete-health:sfo", "delete-placement:qualification-stale",
+		"set-health:regions", "set-placement:qualification-live", "delete-placement:qualification-stale",
 	}
 	if !equalStrings(result.TransitionOrder, wantOrder) {
 		return result, fmt.Errorf("vmqual: unsafe KV transition order %v", result.TransitionOrder)
 	}
-	placementValue, err := client.DBPlacement(ctx, "qualification-live")
+	placementValue, err := client.WorkerPlacement(ctx, "qualification-live")
 	if err != nil {
 		return result, err
 	}
-	if placementValue.PlacementLock != "explicit" || placementValue.Generation != 2 || !equalStrings(placementValue.Regions, []string{"gru"}) {
+	if !equalStrings(placementValue.Res.Codes, []string{"GRU"}) || placementValue.G != 2 || !equalStrings(placementValue.R, []string{"GRU"}) {
 		return result, fmt.Errorf("vmqual: KV placement readback is %+v", placementValue)
 	}
-	healthValue, err := client.RegionHealth(ctx, "gru")
-	if err != nil || !healthValue.Healthy || !healthValue.UpdatedAt.Equal(now) {
+	healthValue, err := client.WorkerHealth(ctx)
+	if err != nil || !healthValue.Regions["GRU"].OK || healthValue.Updated != now.Unix() {
 		return result, fmt.Errorf("vmqual: KV health readback is %+v: %w", healthValue, err)
 	}
-	_, healthErr := client.RegionHealth(ctx, "sfo")
-	_, placementErr := client.DBPlacement(ctx, "qualification-stale")
-	result.StaleHealthRemoved = errors.Is(healthErr, cf.ErrNotFound)
+	_, staleHealth := healthValue.Regions["SFO"]
+	_, placementErr := client.WorkerPlacement(ctx, "qualification-stale")
+	result.StaleHealthRemoved = !staleHealth
 	result.StalePlacementRemoved = errors.Is(placementErr, cf.ErrNotFound)
 	if !result.StaleHealthRemoved || !result.StalePlacementRemoved {
 		return result, errors.New("vmqual: stale KV keys remain visible")
 	}
 	result.TotalWrites = writer.WriteCount()
 	result.BudgetObservations = append([]int(nil), budget...)
-	result.PlacementRegions = append([]string(nil), placementValue.Regions...)
-	result.PlacementGeneration = placementValue.Generation
-	if result.TransitionWrites != 5 || result.TotalWrites != 13 || !equalInts(result.BudgetObservations, []int{5, 5}) {
+	result.PlacementRegions = append([]string(nil), placementValue.R...)
+	result.PlacementGeneration = placementValue.G
+	if result.TransitionWrites != 3 || result.TotalWrites != 7 || !equalInts(result.BudgetObservations, []int{3, 3}) {
 		return result, fmt.Errorf("vmqual: KV budget accounting writes=%d alerts=%v", result.TotalWrites, result.BudgetObservations)
 	}
 	return result, nil

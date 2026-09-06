@@ -19,6 +19,23 @@ type Delivery struct {
 	// OCIQualification is an explicit owner-signed test endpoint. Nil uses
 	// production instance principals in the region fixed by the signed plan.
 	OCIQualification *ociinstance.QualificationConfig `json:"ociQualification,omitempty"`
+	// PlanObject optionally names the initial remote delivery location. Its
+	// digest cannot be embedded here because the plan binds this manifest.
+	PlanObject *PlanDeliveryObject `json:"planObject,omitempty"`
+}
+
+// PlanDeliveryObject is bound by the original bootstrap owner. The plan is
+// fetched from Objects.Prefix + "/plan.json" with instance principals.
+type PlanDeliveryObject struct {
+	Region  string         `json:"region"`
+	Objects ObjectLocation `json:"objects"`
+}
+
+func (o PlanDeliveryObject) Validate() error {
+	if o.Region != "gru" && o.Region != "sfo" && o.Region != "fra" || !o.Objects.valid(o.Region) {
+		return errors.New("controltransition: invalid plan object location")
+	}
+	return nil
 }
 
 func (d Delivery) Validate(protectedPaths ...string) error {
@@ -27,6 +44,11 @@ func (d Delivery) Validate(protectedPaths ...string) error {
 	}
 	if !token(d.TransitionID) || !separatePaths(d.PlanFile, d.ReceiptPrivateKeyFile) || len(d.PlanFile) > 4096 || len(d.ReceiptPrivateKeyFile) > 4096 {
 		return errors.New("controltransition: invalid plan delivery location")
+	}
+	if d.PlanObject != nil {
+		if err := d.PlanObject.Validate(); err != nil {
+			return err
+		}
 	}
 	if q := d.OCIQualification; q != nil {
 		// Qualification validation is independent of region. The later verified

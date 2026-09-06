@@ -203,35 +203,34 @@ type providerKVStore struct {
 	changed  chan struct{}
 }
 
-func (s *providerKVStore) SetRegionHealth(ctx context.Context, region string, value cf.RegionHealth) error {
-	if err := s.delegate.SetRegionHealth(ctx, region, value); err != nil {
+func (s *providerKVStore) SetWorkerHealth(ctx context.Context, value cf.WorkerHealthDoc) error {
+	if err := s.delegate.SetWorkerHealth(ctx, value); err != nil {
 		return err
 	}
-	s.record("set-health", region)
+	s.record("set-health", "regions")
 	return nil
 }
-
-func (s *providerKVStore) SetDBPlacement(ctx context.Context, database string, value cf.DBPlacement) error {
-	if err := s.delegate.SetDBPlacement(ctx, database, value); err != nil {
+func (s *providerKVStore) SetWorkerPlacements(ctx context.Context, values map[string]cf.WorkerPlacement) error {
+	if err := s.delegate.SetWorkerPlacements(ctx, values); err != nil {
 		return err
 	}
-	s.record("set-placement", database)
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		s.record("set-placement", key)
+	}
 	return nil
 }
-
-func (s *providerKVStore) DeleteRegionHealth(ctx context.Context, region string) error {
-	if err := s.delegate.DeleteRegionHealth(ctx, region); err != nil {
+func (s *providerKVStore) DeleteWorkerPlacements(ctx context.Context, keys []string) error {
+	if err := s.delegate.DeleteWorkerPlacements(ctx, keys); err != nil {
 		return err
 	}
-	s.record("delete-health", region)
-	return nil
-}
-
-func (s *providerKVStore) DeleteDBPlacement(ctx context.Context, database string) error {
-	if err := s.delegate.DeleteDBPlacement(ctx, database); err != nil {
-		return err
+	for _, key := range keys {
+		s.record("delete-placement", key)
 	}
-	s.record("delete-placement", database)
 	return nil
 }
 
@@ -295,7 +294,7 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 	var budget []int
 	writer, err := cf.NewKVWriter(cf.KVWriterConfig{
 		Store: store, Health: source, Placement: source,
-		MaxWritesPerTick: 3,
+		MaxWritesPerTick: 2,
 		OnBudgetExceeded: func(writes int) {
 			budgetMu.Lock()
 			budget = append(budget, writes)
@@ -313,12 +312,12 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 		return result, err
 	}
 	defer writer.Close()
-	if err := awaitProviderKVEvents(ctx, store, 6, 3*time.Second); err != nil {
+	if err := awaitProviderKVEvents(ctx, store, 3, 3*time.Second); err != nil {
 		return result, fmt.Errorf("vmqual: initial provider KV pass: %w", err)
 	}
 	initial := store.snapshot()
 	result.InitialWrites = len(initial)
-	if err := awaitProviderKVEvents(ctx, store, 10, providerTickUpperBound); err != nil {
+	if err := awaitProviderKVEvents(ctx, store, 4, providerTickUpperBound); err != nil {
 		return result, fmt.Errorf("vmqual: periodic provider KV pass: %w", err)
 	}
 	periodic := store.snapshot()
@@ -329,10 +328,10 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 	}
 	source.selectRevision(nextRegistryPath, nextPlacementPath)
 	writer.NotifyChange()
-	if err := awaitProviderKVEvents(ctx, store, 16, 3*time.Second); err != nil {
+	if err := awaitProviderKVEvents(ctx, store, 7, 3*time.Second); err != nil {
 		return result, fmt.Errorf("vmqual: notified provider KV pass: %w", err)
 	}
-	if err := awaitProviderKVWriteCount(ctx, writer, 16, 3*time.Second); err != nil {
+	if err := awaitProviderKVWriteCount(ctx, writer, 7, 3*time.Second); err != nil {
 		return result, fmt.Errorf("vmqual: notified provider KV accounting: %w", err)
 	}
 	allEvents := store.snapshot()
@@ -341,30 +340,33 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 		result.TransitionOrder = append(result.TransitionOrder, event.kind+":"+event.key)
 	}
 	wantOrder := []string{
-		"set-health:fra", "set-health:gru", "set-health:sfo", "set-placement:qualification-live",
-		"delete-health:iad", "delete-placement:qualification-stale",
+		"set-health:regions", "set-placement:qualification-live", "delete-placement:qualification-stale",
 	}
 	if !equalStrings(result.TransitionOrder, wantOrder) {
 		return result, fmt.Errorf("vmqual: provider KV transition order is %v", result.TransitionOrder)
 	}
-	placement, err := client.DBPlacement(ctx, "qualification-live")
+	placement, err := client.WorkerPlacement(ctx, "qualification-live")
 	if err != nil {
 		return result, err
 	}
-	_, staleHealthErr := client.RegionHealth(ctx, "iad")
-	_, stalePlacementErr := client.DBPlacement(ctx, "qualification-stale")
-	result.StaleHealthRemoved = errors.Is(staleHealthErr, cf.ErrNotFound)
+	healthValue, healthErr := client.WorkerHealth(ctx)
+	if healthErr != nil {
+		return result, healthErr
+	}
+	_, staleHealth := healthValue.Regions["IAD"]
+	_, stalePlacementErr := client.WorkerPlacement(ctx, "qualification-stale")
+	result.StaleHealthRemoved = !staleHealth
 	result.StalePlacementRemoved = errors.Is(stalePlacementErr, cf.ErrNotFound)
-	result.PlacementRegions = append([]string(nil), placement.Regions...)
-	result.PlacementGeneration = placement.Generation
+	result.PlacementRegions = append([]string(nil), placement.R...)
+	result.PlacementGeneration = placement.G
 	result.TotalWrites = writer.WriteCount()
 	budgetMu.Lock()
 	result.BudgetObservations = append([]int(nil), budget...)
 	budgetMu.Unlock()
 	if writer.LastError() != nil || !result.StaleHealthRemoved || !result.StalePlacementRemoved ||
-		!equalStrings(result.PlacementRegions, []string{"gru"}) || result.PlacementGeneration != 2 ||
-		result.InitialWrites != 6 || result.RefreshWrites != 4 || result.TransitionWrites != 6 || result.TotalWrites != 16 ||
-		!equalInts(result.BudgetObservations, []int{6, 4, 6}) {
+		!equalStrings(result.PlacementRegions, []string{"GRU"}) || result.PlacementGeneration != 2 ||
+		result.InitialWrites != 3 || result.RefreshWrites != 1 || result.TransitionWrites != 3 || result.TotalWrites != 7 ||
+		!equalInts(result.BudgetObservations, []int{3, 3}) {
 		return result, fmt.Errorf("vmqual: provider KV proof is incomplete: %+v lastError=%v", result, writer.LastError())
 	}
 	return result, nil
@@ -433,7 +435,7 @@ func (s *providerEstateSource) snapshot(ctx context.Context) (estate.Snapshot, e
 			hosts = append(hosts, map[string]any{"id": member, "region": region, "ready": true})
 		}
 	}
-	placement, err := s.cloud.DBPlacement(ctx, "qualification-live")
+	placement, err := s.cloud.WorkerPlacement(ctx, "qualification-live")
 	if err != nil {
 		return estate.Snapshot{}, err
 	}
