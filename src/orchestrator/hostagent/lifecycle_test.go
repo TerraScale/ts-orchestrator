@@ -286,3 +286,19 @@ func TestDeployStartFailureRestoresLinksAndUnit(t *testing.T) {
 		t.Fatalf("unit was not restored: %v %q", err, unit)
 	}
 }
+
+func TestNewLifecycleRejectsUnsafeConfiguredSystemctl(t *testing.T) {
+	harness := newTestHarness(t)
+	config := LifecycleConfig{
+		InstallRoot:     harness.root,
+		UnitDir:         harness.unitDir,
+		DataVolumeRoot:  harness.dataVolume,
+		Installer:       harness.lifecycle.installer,
+		Systemd:         harness.systemd,
+		Users:           harness.users,
+		SystemctlBinary: "relative/systemctl",
+	}
+	if _, err := NewLifecycle(config); err == nil {
+		t.Fatal("unsafe configured systemctl path was accepted")
+	}
+}

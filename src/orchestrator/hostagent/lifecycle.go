@@ -37,6 +37,8 @@ type LifecycleConfig struct {
 	Installer *Installer
 	// Systemd drives units.
 	Systemd SystemdController
+	// SystemctlBinary is the executable used for the detached self-restart.
+	SystemctlBinary string
 	// Users provisions the dedicated component accounts.
 	Users UserProvisioner
 }
@@ -45,12 +47,13 @@ type LifecycleConfig struct {
 // agent. All operations serialize under one mutex: a host is mutated by one
 // goroutine at a time by construction.
 type Lifecycle struct {
-	installRoot string
-	unitDir     string
-	dataRoot    string
-	installer   *Installer
-	systemd     SystemdController
-	users       UserProvisioner
+	installRoot     string
+	unitDir         string
+	dataRoot        string
+	installer       *Installer
+	systemd         SystemdController
+	users           UserProvisioner
+	systemctlBinary string
 
 	reconcileProgress atomic.Pointer[reconcileProgress]
 	mutex             sync.Mutex
@@ -90,15 +93,23 @@ func NewLifecycle(config LifecycleConfig) (*Lifecycle, error) {
 	if config.Users == nil {
 		return nil, &InvalidOperationError{Message: "A user provisioner is required."}
 	}
+	systemctlBinary := config.SystemctlBinary
+	if systemctlBinary == "" {
+		systemctlBinary = "systemctl"
+	}
+	if systemctlBinary != "systemctl" && !hostmanifest.SafeAbsolutePath(systemctlBinary) {
+		return nil, &InvalidOperationError{Message: "The systemctl binary must be an absolute safe path."}
+	}
 	return &Lifecycle{
-		installRoot:  config.InstallRoot,
-		unitDir:      config.UnitDir,
-		dataRoot:     config.DataVolumeRoot,
-		installer:    config.Installer,
-		systemd:      config.Systemd,
-		users:        config.Users,
-		state:        NodeStateServing,
-		enabledUnits: map[string]bool{},
+		installRoot:     config.InstallRoot,
+		unitDir:         config.UnitDir,
+		dataRoot:        config.DataVolumeRoot,
+		installer:       config.Installer,
+		systemd:         config.Systemd,
+		users:           config.Users,
+		systemctlBinary: systemctlBinary,
+		state:           NodeStateServing,
+		enabledUnits:    map[string]bool{},
 	}, nil
 }
 
@@ -430,7 +441,7 @@ func (l *Lifecycle) selfDeployLocked(ctx context.Context, version string) error 
 	if err := FlipCurrent(l.installRoot, hostmanifest.TsNodeComponentName, version); err != nil {
 		return err
 	}
-	command := detachedCommand(context.Background(), "systemctl", "restart", tsnodebootstrap.UnitName)
+	command := detachedCommand(context.Background(), l.systemctlBinary, "restart", tsnodebootstrap.UnitName)
 	if err := command.Start(); err != nil {
 		return errors.Join(fmt.Errorf("the ts-node self-restart could not be scheduled: %w", err), restoreSymlinkState(l.installRoot, hostmanifest.TsNodeComponentName, links))
 	}

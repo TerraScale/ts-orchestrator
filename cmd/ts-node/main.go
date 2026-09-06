@@ -48,7 +48,7 @@ import (
 // none is read from the environment.
 const (
 	tsNodeDefaultConfigPath     = "/etc/terrascale/ts-node.json"
-	tsNodeDefaultManifestPath   = "/etc/terrascale/manifest.json"
+	tsNodeDefaultManifestPath   = "/var/lib/terrascale/ts-node/manifest.json"
 	tsNodeDefaultInstallRoot    = "/opt/terrascale"
 	tsNodeDefaultUnitDir        = "/etc/systemd/system"
 	tsNodeDefaultDataVolumeRoot = "/var/lib/terrascale"
@@ -397,11 +397,12 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		return nil, fmt.Errorf("ts-node: the systemd controller is invalid: %s", err.Error())
 	}
 	lifecycle, err := hostagent.NewLifecycle(hostagent.LifecycleConfig{
-		InstallRoot:    configuration.InstallRoot,
-		UnitDir:        configuration.UnitDir,
-		DataVolumeRoot: configuration.DataVolumeRoot,
-		Installer:      installer,
-		Systemd:        systemd,
+		InstallRoot:     configuration.InstallRoot,
+		UnitDir:         configuration.UnitDir,
+		DataVolumeRoot:  configuration.DataVolumeRoot,
+		Installer:       installer,
+		Systemd:         systemd,
+		SystemctlBinary: configuration.SystemctlBinary,
 		Users: hostagent.UseraddProvisioner{
 			UseraddBinary: configuration.UseraddBinary,
 			Timeout:       tsNodeCommandTimeout,
