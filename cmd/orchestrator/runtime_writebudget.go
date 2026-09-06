@@ -53,18 +53,22 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		return writebudget.PolicyResult{}, err
 	}
 	var published struct {
-		OrganizationID     string `json:"organizationId"`
-		CycleID            string `json:"cycleId"`
-		IncludedWriteUnits int64  `json:"includedWriteUnits"`
-		SpendCapCents      int64  `json:"spendCapCents"`
-		RateNanoDollar     int64  `json:"rateNanoDollar"`
+		OrganizationID         string `json:"organizationId"`
+		CycleID                string `json:"cycleId"`
+		IncludedWriteUnits     int64  `json:"includedWriteUnits"`
+		IncludedAllowanceUnits int64  `json:"includedAllowanceUnits"`
+		PaidExcessEnabled      bool   `json:"paidExcessEnabled"`
+		OrganizationSpendNano  int64  `json:"organizationSpendNano"`
+		SpendCapCents          int64  `json:"spendCapCents"`
+		RateNanoDollar         int64  `json:"rateNanoDollar"`
 	}
 	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != envelope.OrganizationID || published.CycleID != envelope.CycleID {
 		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid policy payload")
 	}
 	next := r.policy
-	next.CycleID, next.Units, next.CostMinor, next.RateNanoDollar = envelope.CycleID, published.IncludedWriteUnits, published.SpendCapCents, published.RateNanoDollar
-	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, next); err != nil {
+	next.CycleID, next.IncludedAllowanceUnits, next.RateNanoDollar = envelope.CycleID, published.IncludedAllowanceUnits, published.RateNanoDollar
+	next.IncludedAllowanceUnits, next.PaidExcessEnabled, next.OrganizationSpendNano = published.IncludedAllowanceUnits, published.PaidExcessEnabled, published.OrganizationSpendNano
+	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, envelope.PolicyGeneration, next); err != nil {
 		return writebudget.PolicyResult{}, err
 	}
 	pending, err := r.authority.PolicyPending(ctx)

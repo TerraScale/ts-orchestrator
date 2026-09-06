@@ -37,14 +37,15 @@ type Policy struct {
 	ConsentEpoch   uint64
 	WriterEpoch    uint64
 	WriterEpochs   map[string]uint64
-	Units          int64
-	CostMinor      int64
-	UnitCostMinor  int64
 	// RateNanoDollar is the exact rate per write. When set, it is authoritative
 	// and avoids fractional-cent rounding at grant boundaries.
-	AllowanceNanoDollar int64
-	RateNanoDollar      int64
-	DatabaseCaps        map[string]int64
+	AllowanceNanoDollar    int64
+	RateNanoDollar         int64
+	DatabaseCaps           map[string]int64
+	IncludedAllowanceUnits int64
+	PaidExcessEnabled      bool
+	OrganizationSpendNano  int64
+	DatabaseSpendNano      map[string]int64
 }
 
 // VerifyAllocation checks the detached TSCS command signature over the exact
@@ -112,7 +113,6 @@ type Grant struct {
 	PaidUnits      int64     `json:"paid_units"`
 	Regions        []string  `json:"regions"`
 	Units          int64     `json:"units"`
-	CostMinor      int64     `json:"cost_minor"`
 	CostNanoDollar int64     `json:"cost_nano_dollar"`
 	PolicyEpoch    uint64    `json:"policy_epoch"`
 	ConsentEpoch   uint64    `json:"consent_epoch"`
@@ -166,12 +166,14 @@ type State struct {
 	AccountRevision  string               `json:"account_revision"`
 	RevisionSequence uint64               `json:"revision_sequence"`
 	PolicyChecksum   string               `json:"policy_checksum"`
+	PolicyGeneration int                  `json:"policy_generation"`
 	CycleID          string               `json:"cycle_id"`
 	PolicyEpoch      uint64               `json:"policy_epoch"`
 	ConsentEpoch     uint64               `json:"consent_epoch"`
 	UsedUnits        int64                `json:"used_units"`
-	UsedCostMinor    int64                `json:"used_cost_minor"`
 	UsedNanoDollar   int64                `json:"used_nano_dollar"`
+	UsedIncluded     int64                `json:"used_included"`
+	UsedPaid         int64                `json:"used_paid"`
 	DatabaseUnits    map[string]int64     `json:"database_units"`
 	Grants           map[string]Grant     `json:"grants"`
 	PendingPolicy    bool                 `json:"pending_policy,omitzero"`
@@ -181,7 +183,7 @@ type State struct {
 // ApplyPolicy atomically installs a new billing policy. Existing reservations
 // remain accounted for; the new epoch fences all newly issued old-policy
 // grants while their expiry/holder acknowledgements are observed separately.
-func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, next Policy) error {
+func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, generation int, next Policy) error {
 	if revision == "" || checksum == "" || next.OrganizationID != a.policy.OrganizationID || next.CycleID == "" || next.WriterEpoch == 0 || next.Units <= 0 || next.CostMinor < 0 || next.UnitCostMinor < 0 || next.RateNanoDollar < 0 {
 		return ErrInvalid
 	}
@@ -189,10 +191,13 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 		if err := a.validateState(state); err != nil {
 			return err
 		}
-		if state.AccountRevision == revision && state.PolicyChecksum == checksum && next.CycleID == state.ActivePolicy.CycleID {
+		if state.AccountRevision == revision && state.PolicyChecksum == checksum && state.PolicyGeneration == generation && next.CycleID == state.ActivePolicy.CycleID {
 			return nil
 		}
 		if state.AccountRevision != "" && state.AccountRevision == revision {
+			return ErrConflict
+		}
+		if generation <= state.PolicyGeneration {
 			return ErrConflict
 		}
 		if state.RevisionSequence == math.MaxUint64 {
@@ -203,6 +208,7 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 		// while the allocation checks below expose zero available capacity.
 		next.PolicyEpoch, next.ConsentEpoch = state.ActivePolicy.PolicyEpoch+1, state.ActivePolicy.ConsentEpoch+1
 		state.ActivePolicy, state.AccountRevision, state.PolicyChecksum = next, revision, checksum
+		state.PolicyGeneration = generation
 		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = next.CycleID, next.PolicyEpoch, next.ConsentEpoch
 		state.PendingGrants = make(map[string]time.Time)
 		now := a.now().UTC()
@@ -299,16 +305,39 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !ok {
 			return ErrInvalid
 		}
+		included, paid := units, int64(0)
+		if policy.IncludedAllowanceUnits > 0 {
+			remaining := policy.IncludedAllowanceUnits - state.UsedIncluded
+			if remaining < 0 {
+				remaining = 0
+			}
+			included = min(units, remaining)
+			paid = units - included
+			if paid > 0 && !policy.PaidExcessEnabled {
+				return ErrExhausted
+			}
+		}
 		cost, ok := multiply(units, policy.UnitCostMinor)
 		if !ok {
 			return ErrInvalid
 		}
 		nanoCost, ok := multiply(units, policy.RateNanoDollar)
+		if policy.IncludedAllowanceUnits > 0 {
+			nanoCost, ok = multiply(paid, policy.RateNanoDollar)
+		}
 		if policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > policy.AllowanceNanoDollar-nanoCost) {
 			return ErrExhausted
 		}
-		if state.UsedUnits > policy.Units-units || state.UsedCostMinor > policy.CostMinor-cost {
+		if policy.IncludedAllowanceUnits == 0 && (state.UsedUnits > policy.Units-units || state.UsedCostMinor > policy.CostMinor-cost) {
 			return ErrExhausted
+		}
+		if policy.IncludedAllowanceUnits > 0 && paid > 0 {
+			if policy.OrganizationSpendNano > 0 && state.UsedNanoDollar > policy.OrganizationSpendNano-nanoCost {
+				return ErrExhausted
+			}
+			if cap, ok := policy.DatabaseSpendNano[request.DatabaseID]; ok && state.UsedNanoDollar > cap-nanoCost {
+				return ErrExhausted
+			}
 		}
 		cap, capped := policy.DatabaseCaps[request.DatabaseID]
 		if capped && state.DatabaseUnits[request.DatabaseID] > cap-units {
@@ -318,12 +347,17 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
 		}
-		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: 0, PaidUnits: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		if policy.IncludedAllowanceUnits > 0 {
+			cost, _ = multiply(paid, policy.UnitCostMinor)
+		}
+		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: included, PaidUnits: paid, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
 		state.UsedCostMinor += cost
 		state.UsedNanoDollar += nanoCost
+		state.UsedIncluded += included
+		state.UsedPaid += paid
 		state.DatabaseUnits[grant.DatabaseID] += units
 		result = grant
 		return nil
