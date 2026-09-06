@@ -11,7 +11,7 @@ import (
 // A contract update must explicitly change both the provenance and these pins.
 func TestPinnedContracts(t *testing.T) {
 	for name, want := range map[string]string{
-		"engine.proto": "8734f185db819b3cb03a8d898604d1aed990eb4dacfdba2d98ad363ff28da5c1",
+		"engine.proto": "bfa148f78e96cb5f65e1cac60b0ff7bd1b8b8685df38e957a2607bcbc46882b5",
 		"family.proto": "cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec",
 	} {
 		data, err := os.ReadFile("contracts/terrabase/v1/" + name)

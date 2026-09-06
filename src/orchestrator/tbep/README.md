@@ -25,15 +25,14 @@ handwritten wire subset.
 
 `CONTRACT_VERSION` pins an exact producer worktree snapshot. This is **not a
 published contract release**. The producer checkout was
-`../terrabase` at HEAD `0cf795f4814aadf273476b2a17d14f51b7efd4f2`, with local
-modifications to `crates/terrabase-tbep/proto/terrabase/v1/engine.proto`. The
+`../terrabase` at HEAD `b131af2ee2cc3bb670167d9ab06b44d422087d61`. The
 complete engine asset was copied from that producer crate; the generated
 `contracts/proto/terrabase/v1/` mirror agrees. The complete family asset remains
 unchanged. These are worktree pins, not an immutable published release.
 
 | Asset | SHA256 |
 | --- | --- |
-| `engine.proto` | `8734f185db819b3cb03a8d898604d1aed990eb4dacfdba2d98ad363ff28da5c1` |
+| `engine.proto` | `bfa148f78e96cb5f65e1cac60b0ff7bd1b8b8685df38e957a2607bcbc46882b5` |
 | `family.proto` | `cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec` |
 
 Generation uses protoc 34.1, protoc-gen-go 1.36.12 and

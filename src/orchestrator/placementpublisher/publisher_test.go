@@ -9,7 +9,7 @@ import (
 )
 
 func testRequest() *pb.PlacementStageRequest {
-	return &pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", Region: "GRU", WriterMember: "01ARZ3NDEKTSV4RRFFQ69G5FAW", FollowerMember: "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}}
+	return &pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", Region: "GRU", WriterMember: "01ARZ3NDEKTSV4RRFFQ69G5FAW", FollowerMember: "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Declarations: []*pb.PlacementDatabaseDeclaration{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", SelectedRegions: []string{"GRU"}}}}
 }
 
 type fakeTarget struct {
@@ -51,6 +51,10 @@ func TestRecordCanonicalizationAndIdentityBinding(t *testing.T) {
 	record, err := NewRecord("op", target.ServerIdentity(), target.Principal(), request)
 	if err != nil {
 		t.Fatal(err)
+	}
+	decoded, err := decodeRecord(record)
+	if err != nil || !proto.Equal(decoded, request) {
+		t.Fatalf("durable record dropped declarations: %v", err)
 	}
 	request.Proposal.Regions[0].Members[0], request.Proposal.Regions[0].Members[1] = request.Proposal.Regions[0].Members[1], request.Proposal.Regions[0].Members[0]
 	same, err := NewRecord("op", target.ServerIdentity(), target.Principal(), request)

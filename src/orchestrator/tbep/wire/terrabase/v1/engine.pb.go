@@ -6238,7 +6238,7 @@ type PlacementProposal struct {
 	Generation    uint64                         `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`  // Positive; replacement strictly increases this and epoch.
 	Epoch         uint64                         `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	Regions       []*PlacementRegionSeats        `protobuf:"bytes,5,rep,name=regions,proto3" json:"regions,omitempty"`         // 1..3; disjoint Member identities.
-	Assignments   []*PlacementDatabaseAssignment `protobuf:"bytes,6,rep,name=assignments,proto3" json:"assignments,omitempty"` // 0..1024; unique scope/Region.
+	Assignments   []*PlacementDatabaseAssignment `protobuf:"bytes,6,rep,name=assignments,proto3" json:"assignments,omitempty"` // Up to 1024 scopes x 3 Regions; unique scope/Region, subject to proposal byte limit.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

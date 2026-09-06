@@ -3,6 +3,7 @@ package vmimage
 import (
 	"bytes"
 	"encoding/json/v2"
+	"os"
 	"strings"
 	"testing"
 
@@ -215,6 +216,28 @@ func TestNoCloudOmitsObservationForPendingEngine(t *testing.T) {
 		}
 	}()
 	spec.TSNode.Engine = materials[spec.InstanceID]
+	manifest, err = spec.TSNode.Engine.Apply(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = bootstrap.PlanControlLaunchManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.TSNode.DesiredHostManifest, err = hostmanifest.CanonicalHostManifestJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := vmqualbootstrap.NewIssuer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer issuer.Close()
+	grant, err := issuer.Grant(spec.InstanceID, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.TSNode.InitialGrant = &TSNodeInitialGrant{PublicKeyPEM: grant.PublicKeyPEM, SignedGrant: grant.SignedGrant}
 	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
 	if err != nil {
 		t.Fatal(err)

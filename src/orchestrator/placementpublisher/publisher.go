@@ -56,7 +56,7 @@ func NewRecord(operationID, serverIdentity, principal string, request *pb.Placem
 	if err != nil {
 		return Record{}, err
 	}
-	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal})
+	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal, Declarations: request.Declarations})
 	if err != nil {
 		return Record{}, err
 	}

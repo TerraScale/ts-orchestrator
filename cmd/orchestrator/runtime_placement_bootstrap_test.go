@@ -66,6 +66,7 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 		request := new(pb.PlacementStageRequest)
 		_ = proto.Unmarshal(target.Proposal, request)
 		request.Proposal.Assignments = nil
+		request.Declarations = nil
 		target.Proposal, _ = (proto.MarshalOptions{Deterministic: true}).Marshal(request)
 		config.Targets = append(config.Targets, productionPlacementBootstrapTarget{target.ServerIdentity, target.MemberID, target.Region, target.Proposal})
 		publisher, err := placementpublisher.New(journal, bootstrapTestTarget{target.ServerIdentity, &staged}, worker.check)

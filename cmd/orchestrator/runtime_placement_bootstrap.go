@@ -68,7 +68,7 @@ func (t *productionPlacementTransition) Bootstrap(ctx context.Context) error {
 	record := databaseadmission.Record{Request: databaseadmission.Request{Environment: config.Environment}}
 	for _, target := range config.Targets {
 		stage := new(pb.PlacementStageRequest)
-		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil || len(stage.Proposal.Assignments) != 0 || stage.ExpectedRevision != 0 || stage.Proposal.Epoch != 1 || stage.Proposal.Generation != 1 {
+		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil || len(stage.Proposal.Assignments) != 0 || len(stage.Declarations) != 0 || stage.ExpectedRevision != 0 || stage.Proposal.Epoch != 1 || stage.Proposal.Generation != 1 {
 			return errors.New("runtime transition: bootstrap requires exact empty initial placement")
 		}
 		if t.bootstrapPublishers[target.ServerIdentity] == nil {
