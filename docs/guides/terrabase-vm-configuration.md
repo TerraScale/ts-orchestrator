@@ -23,30 +23,32 @@ Do not put credentials or PEM material in this document.
 
 | Fields | Required values |
 | --- | --- |
-| `version`, `contract` | `1` and `terrabase-worktree-config-981772331888c0036fcbf7714fd8ba96215aa4b4803a91834cdcddde8e17941e` |
+| `version`, `contract` | `1` and `terrabase-worktree-config-3e598c24c6762893748dfe6fdaa2cb04c4ef072e5db65d80ef20110e4c3538a6` |
 | `artifactSha256`, `release` | Exact bare SHA-256 and version of the supplied signed TerraBase artifact |
 | `environment`, `cluster` | Explicit bounded environment name and canonical cluster ULID |
 | `generation`, `epoch` | Positive declared placement values representable as TOML integers; these claims do not establish admitted membership |
 | `hosts` | One entry for every launch host in GRU/SFO/FRA, with `nodeId`, unique canonical `member` ULID, `certificateFile`, `privateKeyFile`, and `caFile` |
-| `databases` | Explicit enabled database records containing `tenant`, `project`, `database`, home `region`, `allowedRegions`, `encryptionKey`, `maxStorageBytes`, `maxDocuments`, and `maxInflight` |
+| `databases` | Explicit database records containing `tenant`, `project`, `database`, home `region`, `selectedRegions`, `allowedRegions`, `encryptionKey`, `maxStorageBytes`, `maxDocuments`, and `maxInflight` |
 | `limits` | Explicit `maxMessageBytes`, `maxInflight`, `requestTimeoutMillis`, `tlsHandshakeTimeoutMillis`, and `shutdownGraceMillis` |
 
 Database scope and encryption-key versions are canonical ULIDs. The key
 version is not an OCI key OCID or raw key. Each project belongs to one tenant,
-database IDs are unique, and each database Region must occur in the declared
-placement. The renderer supports the producer's current GRU/SFO/FRA schema,
-with exactly two hosts per included Region and at least one enabled database.
+database IDs are unique, and each database's `selectedRegions` must be
+nonempty, unique, limited to GRU/SFO/FRA, backed by exactly two hosts, include
+the declared home `region`, and be contained by `allowedRegions`. The renderer
+supports the producer's current GRU/SFO/FRA schema, with exactly two hosts per
+selected Region and at least one selected database on each rendered host.
 The normal launch network plan requires all six host declarations.
 The full suite also reserves IAD networking for a later expansion scenario.
 Those reserved hosts are excluded from the initial engine bindings and peer
 list. A network reservation does not admit engine placement. IAD bootstrap
 still requires admitted allocation and supported controller/engine configuration.
 
-Every database requires an explicit `allowedRegions` lock. Because the current
-engine schema applies one placement to the whole catalog, every included Region
-must be permitted by every database's lock. A GRU-only database is rejected
-under a GRU/SFO/FRA declaration. The renderer cannot express independent
-per-database placements until the producer supports them.
+Every database requires an explicit `allowedRegions` lock. `selectedRegions`
+is the authoritative placement selection for that database; the renderer
+places storage on a host only when that host's Region is selected. A GRU-only
+database may coexist with a GRU/SFO database. `allowedRegions` remains a
+broader policy lock and cannot add a selected Region.
 
 TLS certificates must bind the exact identity
 `spiffe://terrascale.tech/<environment>/terrabase-member/<cluster>/<member>`
@@ -69,7 +71,9 @@ The renderer derives all peer addresses and exact SPIFFE identities from the
 network plan and assigned member IDs. It binds TBEP to `127.0.0.1:8421`, metrics
 to `127.0.0.1:8423`, and QUIC to the guest's private IP on port 8422. Database,
 policy, and backup paths occupy separate directories below
-`/var/lib/terrascale/terrabase`.
+`/var/lib/terrascale/terrabase`. Each host receives only the selected local
+database storage entries, and the TOML `region` for those entries is that
+host's Region. The complete selected Region set remains in `selected_regions`.
 
 The manifest carries the nonsecret TOML and `--config @config`. The existing
 launch planner derives the immutable `ctl-` version from the complete component
@@ -110,6 +114,16 @@ Firecracker service startup. A subsequent
 producer's committed PEM decoder fix reached the missing durable membership
 source after catalog and transport construction. It did not become ready.
 Production and full VM acceptance remain open.
+
+The current producer still has two integration gaps for heterogeneous
+residency. It renders only host-local storage declarations, so a host does not
+yet carry disabled control-only declarations for databases selected in another
+Region. The Rust placement boundary consequently cannot yet validate the full
+global database scope from every host. A host with no selected local database
+also has no valid observer database binding today. The eventual control-only
+contract must preserve the complete selected Region set while marking local
+storage disabled, and must allow an explicitly empty observer binding for a
+pending host without fabricating storage.
 
 ### Host placement control material
 

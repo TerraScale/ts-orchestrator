@@ -22,7 +22,7 @@ import (
 )
 
 // Contract identifies the inspected producer parser, not a published release.
-const Contract = "terrabase-worktree-config-981772331888c0036fcbf7714fd8ba96215aa4b4803a91834cdcddde8e17941e"
+const Contract = "terrabase-worktree-config-3e598c24c6762893748dfe6fdaa2cb04c4ef072e5db65d80ef20110e4c3538a6"
 const ServiceUser = "terrascale-terrabase"
 const CertificatePath = "/etc/terrascale/terrabase/server.pem"
 const PrivateKeyPath = "/etc/terrascale/terrabase/key.pem"
