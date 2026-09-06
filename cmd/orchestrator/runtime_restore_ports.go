@@ -116,6 +116,9 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	}
 	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions, provider)
 	if err != nil {
+		if errors.Is(err, tbep.ErrRestorePending) || errors.Is(err, context.DeadlineExceeded) {
+			return restoredrill.ErrPending
+		}
 		return err
 	}
 	return j.Transact(ctx, true, func(r *lifecycleGrantRecord) error { r.Completed = true; return nil })

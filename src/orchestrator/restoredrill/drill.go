@@ -309,6 +309,15 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 		return cleanupAndFinish(ErrRestoreEpochFenced)
 	}
 	operationErr = d.backup.Restore(itemCtx, RestoreRequest{RecoveryPointID: facts.RecoveryPointID, ManifestDigest: facts.ManifestDigest, SourceDatabaseID: databaseID, BranchID: branch.ID, JournalCut: facts.JournalCut, RestoreEpoch: epoch, IdempotencyKey: key, RestoreProvider: facts.RestoreProvider})
+	if errors.Is(operationErr, ErrPending) {
+		item.Status = ItemRunning
+		item.Error = operationErr.Error()
+		item.CompletedAt = time.Time{}
+		if saveErr := d.journal.SaveItem(durableCtx, copyItem(item)); saveErr != nil {
+			return item, sanitizeError(saveErr)
+		}
+		return item, nil
+	}
 	if operationErr == nil {
 		current, operationErr = d.journal.RestoreEpochCurrent(itemCtx, databaseID, epoch)
 		if operationErr == nil && !current {

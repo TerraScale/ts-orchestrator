@@ -61,6 +61,11 @@ type ObservedMember struct {
 // a same-architecture fallback may reuse ImageID.
 type MemberLaunchSpec struct {
 	DisplayName        string
+	ServerIdentity     string
+	Environment        string
+	Cluster            string
+	MemberID           string
+	Generation         uint64
 	Index              int
 	Shape              string
 	FallbackShape      string
@@ -442,6 +447,8 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 	copy(candidates, declared.Candidates)
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
 		DisplayName:        MemberDisplayName(declared.Region.Code, index),
+		Environment:        declared.Region.Code,
+		MemberID:           MemberDisplayName(declared.Region.Code, index),
 		Index:              index,
 		Shape:              pool.PrimaryShape,
 		FallbackShape:      pool.FallbackShape,
@@ -980,6 +987,7 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName)},
 	}
 	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
+		ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, Generation: spec.Generation,
 		NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates,
 		Tags: map[string]string{}}
 	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)

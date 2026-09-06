@@ -61,6 +61,9 @@ func validateOwnershipRecord(ctx context.Context, record ProviderOwnershipRecord
 	if strings.ContainsAny(record.ResourceId.Value+record.CellId.Value+record.CompartmentId.Value, "\r\n") {
 		return &errs.Argument{Message: "ownership record identity is invalid"}
 	}
+	if record.ServerIdentity != "" && (!validServerIdentity(record.ServerIdentity) || !validBindingPart(record.MemberID)) {
+		return &errs.Argument{Message: "ownership record authenticated identity is invalid"}
+	}
 	return nil
 }
 
@@ -134,7 +137,7 @@ func (j *DurableOwnershipJournal) Lookup(ctx context.Context, id ProviderResourc
 		return ProviderOwnershipRecord{}, false, nil
 	}
 	var record ProviderOwnershipRecord
-	if json.Unmarshal(b, &record) != nil || record.ResourceId != id || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 {
+	if json.Unmarshal(b, &record) != nil || record.ResourceId != id || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 || (record.ServerIdentity != "" && (!validServerIdentity(record.ServerIdentity) || !validBindingPart(record.MemberID))) {
 		return ProviderOwnershipRecord{}, false, &InvalidDataError{Message: "ownership journal contains malformed data"}
 	}
 	return record, true, nil

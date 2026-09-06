@@ -245,6 +245,9 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	if err := validateCreateRequest(r, p.Keys, p.Clock()); err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
+	if p.Ownership != nil && (!validServerIdentity(r.Binding.ServerIdentity) || !validBindingPart(r.Binding.Environment) || !validBindingPart(r.Binding.Cluster) || !validBindingPart(r.Binding.MemberID)) {
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "durable OCI CreateNode requires authenticated member identity"}
+	}
 	if r.InvocationCapability == nil || !p.Journal.AuthoritativeDurable() || !VerifyInvocationCapability(*r.InvocationCapability, p.InvocationKeys, r.Binding, p.Clock()) {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode requires an unconsumed authoritative invocation capability"}
 	}

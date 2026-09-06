@@ -21,10 +21,17 @@ type CreateNodeReceiptBinding struct {
 	OperationId, TenantId, NodeRequestId, IdempotencyKey, CreateKey, CellId, CompartmentId, TemplateId, PlacementId, BootstrapEnvelopeDigest, AuthorizationDigest, ProviderContextFingerprint string
 	Generation, Epoch                                                                                                                                                                         uint64
 	AuthorizationSequence                                                                                                                                                                     int64
+	// ServerIdentity is the exact identity in the authenticated bootstrap
+	// grant. It binds the provider receipt to the host credential that will
+	// use the created instance.
+	ServerIdentity string
+	Environment    string
+	Cluster        string
+	MemberID       string
 }
 
 func (b CreateNodeReceiptBinding) Digest() string {
-	return digestCanonical("create-node-binding-v1", b.OperationId, b.TenantId, b.NodeRequestId, b.IdempotencyKey, b.CreateKey, b.CellId, b.CompartmentId, b.Generation, b.Epoch, b.TemplateId, b.PlacementId, b.BootstrapEnvelopeDigest, b.AuthorizationSequence, b.AuthorizationDigest, b.ProviderContextFingerprint)
+	return digestCanonical("create-node-binding-v2", b.OperationId, b.TenantId, b.NodeRequestId, b.IdempotencyKey, b.CreateKey, b.CellId, b.CompartmentId, b.Generation, b.Epoch, b.TemplateId, b.PlacementId, b.BootstrapEnvelopeDigest, b.AuthorizationSequence, b.AuthorizationDigest, b.ProviderContextFingerprint, b.ServerIdentity, b.Environment, b.Cluster, b.MemberID)
 }
 
 type CreateNodeHandoffReceipt struct {
@@ -35,7 +42,7 @@ type CreateNodeHandoffReceipt struct {
 }
 
 func (r CreateNodeHandoffReceipt) payload() []byte {
-	return []byte(canonical("terrascale-create-node-handoff-v1", r.Algorithm, r.KeyId, r.Binding.OperationId, "CreateNode", r.Binding.TenantId, r.Binding.NodeRequestId, r.Binding.IdempotencyKey, r.Binding.CreateKey, r.Binding.CellId, r.Binding.CompartmentId, r.Binding.Generation, r.Binding.Epoch, r.Binding.TemplateId, r.Binding.PlacementId, r.Binding.BootstrapEnvelopeDigest, r.Binding.AuthorizationSequence, r.Binding.AuthorizationDigest, r.Binding.ProviderContextFingerprint, r.IssuedAt.UTC().UnixNano(), r.ExpiresAt.UTC().UnixNano()))
+	return []byte(canonical("terrascale-create-node-handoff-v2", r.Algorithm, r.KeyId, r.Binding.OperationId, "CreateNode", r.Binding.TenantId, r.Binding.NodeRequestId, r.Binding.IdempotencyKey, r.Binding.CreateKey, r.Binding.CellId, r.Binding.CompartmentId, r.Binding.Generation, r.Binding.Epoch, r.Binding.TemplateId, r.Binding.PlacementId, r.Binding.BootstrapEnvelopeDigest, r.Binding.AuthorizationSequence, r.Binding.AuthorizationDigest, r.Binding.ProviderContextFingerprint, r.Binding.ServerIdentity, r.Binding.Environment, r.Binding.Cluster, r.Binding.MemberID, r.IssuedAt.UTC().UnixNano(), r.ExpiresAt.UTC().UnixNano()))
 }
 func canonical(values ...any) string {
 	var b strings.Builder
@@ -130,7 +137,15 @@ func (s *CreateNodeHandoffReceiptSigner) PublicKey() []byte {
 	return v
 }
 func validBinding(b CreateNodeReceiptBinding) bool {
-	return b.OperationId != "" && b.TenantId != "" && b.NodeRequestId != "" && b.IdempotencyKey != "" && b.CreateKey != "" && b.CellId != "" && b.CompartmentId != "" && b.TemplateId != "" && b.PlacementId != "" && b.BootstrapEnvelopeDigest != "" && b.AuthorizationDigest != "" && b.ProviderContextFingerprint != "" && b.Generation > 0 && b.Epoch > 0 && b.AuthorizationSequence > 0
+	return b.OperationId != "" && b.TenantId != "" && b.NodeRequestId != "" && b.IdempotencyKey != "" && b.CreateKey != "" && b.CellId != "" && b.CompartmentId != "" && b.TemplateId != "" && b.PlacementId != "" && b.BootstrapEnvelopeDigest != "" && b.AuthorizationDigest != "" && b.ProviderContextFingerprint != "" && b.Generation > 0 && b.Epoch > 0 && b.AuthorizationSequence > 0 && (b.ServerIdentity == "" || (validServerIdentity(b.ServerIdentity) && validBindingPart(b.Environment) && validBindingPart(b.Cluster) && validBindingPart(b.MemberID)))
+}
+
+func validBindingPart(value string) bool {
+	return value != "" && len(value) <= 256 && !strings.ContainsAny(value, "\r\n\x00")
+}
+
+func validServerIdentity(value string) bool {
+	return validBindingPart(value) && strings.HasPrefix(value, "spiffe://")
 }
 func (s *CreateNodeHandoffReceiptSigner) Sign(binding CreateNodeReceiptBinding, issued, expires time.Time) (CreateNodeHandoffReceipt, error) {
 	if s == nil || !validBinding(binding) || issued.IsZero() || !expires.After(issued) {

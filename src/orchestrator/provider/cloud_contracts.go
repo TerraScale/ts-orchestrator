@@ -416,6 +416,11 @@ type ComputeLaunchRequest struct {
 	Mutation        ProviderMutationIntent
 	CompartmentID   string
 	DisplayName     string
+	ServerIdentity  string
+	Environment     string
+	Cluster         string
+	MemberID        string
+	Generation      uint64
 	NSGIDs          []string
 	BootstrapBase64 string
 	Candidates      []ComputeCapacityCandidate

@@ -68,7 +68,7 @@ func TestReceiptRoundTripAndTamper(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b := CreateNodeReceiptBinding{"op", "tenant", "node", "idem", "create", "gru", "ocid1.compartment.oc1.x", "tmpl", "place", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "auth", "fingerprint", 1, 2, 1}
+	b := CreateNodeReceiptBinding{OperationId: "op", TenantId: "tenant", NodeRequestId: "node", IdempotencyKey: "idem", CreateKey: "create", CellId: "gru", CompartmentId: "ocid1.compartment.oc1.x", TemplateId: "tmpl", PlacementId: "place", BootstrapEnvelopeDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AuthorizationDigest: "auth", ProviderContextFingerprint: "fingerprint", Generation: 1, Epoch: 2, AuthorizationSequence: 1}
 	issued := time.Unix(100, 0)
 	r, e := signer.Sign(b, issued, issued.Add(time.Minute))
 	if e != nil {

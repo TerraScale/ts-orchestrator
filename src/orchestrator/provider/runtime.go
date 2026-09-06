@@ -78,7 +78,7 @@ func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwne
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if record.ResourceId.Value == "" || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 {
+	if record.ResourceId.Value == "" || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 || (record.ServerIdentity != "" && (!validServerIdentity(record.ServerIdentity) || !validBindingPart(record.MemberID))) {
 		return &errs.Argument{Message: "ownership record is incomplete"}
 	}
 	j.mu.Lock()

@@ -19,6 +19,9 @@ var (
 	ErrRestoreEpochFenced  = errors.New("restore drill: restore epoch was fenced")
 	ErrChecksumMismatch    = errors.New("restore drill: checksum mismatch")
 	ErrRowCountMismatch    = errors.New("restore drill: row count mismatch")
+	// ErrPending means the native restore was accepted but completion is not
+	// yet durably observable. The item and scratch branch must be retained.
+	ErrPending = errors.New("restore drill: restore pending")
 )
 
 // Database is a database eligible for a restore drill. ControlPlane marks the
@@ -39,8 +42,8 @@ type JournalFacts struct {
 	// ManifestDigest identifies the immutable backup artifact (SHA-256).
 	ManifestDigest string
 	// Checksum is the logical restored content digest (BLAKE3).
-	Checksum        string
-	RowCount        int64
+	Checksum string
+	RowCount int64
 }
 
 // RestoreStats are facts observed from a restored scratch branch.
@@ -68,7 +71,7 @@ type ScratchBranchRequest struct {
 	RestoreEpoch     uint64
 	// JournalCut binds atomic restore-and-create providers to the exact facts
 	// already persisted for this item. It must not be replaced with live state.
-	JournalCut string
+	JournalCut      string
 	RestoreProvider string
 }
 

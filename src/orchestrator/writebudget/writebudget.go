@@ -187,6 +187,9 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 	if revision == "" || checksum == "" || next.OrganizationID != a.policy.OrganizationID || next.CycleID == "" || next.WriterEpoch == 0 || next.IncludedAllowanceUnits < 0 || next.RateNanoDollar < 0 {
 		return ErrInvalid
 	}
+	if err := validateCaps(next); err != nil {
+		return err
+	}
 	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
 		if err := a.validateState(state); err != nil {
 			return err
@@ -273,6 +276,9 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 		if holder == "" || epoch == 0 {
 			return nil, ErrInvalid
 		}
+	}
+	if err := validateCaps(policy); err != nil {
+		return nil, err
 	}
 	return &Authority{persist: persist, policy: policy, now: time.Now}, nil
 }
@@ -510,6 +516,18 @@ func (a *Authority) validateState(state *State) error {
 	}
 	for database, used := range databaseSpend {
 		if state.DatabaseSpendNano[database] != used {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+
+func validateCaps(policy Policy) error {
+	if policy.OrganizationSpendCap != nil && *policy.OrganizationSpendCap < 0 {
+		return ErrInvalid
+	}
+	for database, cap := range policy.DatabaseSpendCaps {
+		if database == "" || cap != nil && *cap < 0 {
 			return ErrInvalid
 		}
 	}

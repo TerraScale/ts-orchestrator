@@ -60,7 +60,6 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		IncludedAllowanceUnits int64            `json:"includedAllowanceUnits"`
 		PaidExcessEnabled      bool             `json:"paidExcessEnabled"`
 		OrganizationSpendNano  *int64           `json:"organizationSpendNano"`
-		SpendCapCents          int64            `json:"spendCapCents"`
 		RateNanoDollar         int64            `json:"rateNanoDollar"`
 		DatabaseSpendCapsCents map[string]int64 `json:"databaseSpendCapsCents"`
 	}
@@ -80,6 +79,7 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	} else {
 		next.OrganizationSpendCap = nil
 	}
+	next.DatabaseSpendCaps = nil
 	if published.DatabaseSpendCapsCents != nil {
 		next.DatabaseSpendCaps = make(map[string]*int64, len(published.DatabaseSpendCapsCents))
 		for database, cap := range published.DatabaseSpendCapsCents {

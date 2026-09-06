@@ -466,6 +466,11 @@ type ProviderOwnershipRecord struct {
 	CellId        ProviderCellId
 	CompartmentId ProviderCompartmentId
 	Generation    ProviderGeneration
+	// ServerIdentity is the exact authenticated SPIFFE identity admitted for
+	// this provider resource. It is durable evidence, never inferred from
+	// mutable OCI metadata.
+	ServerIdentity string
+	MemberID       string
 }
 type ProviderInventoryTagEvidence struct {
 	ResourceId    ProviderResourceId

@@ -21,6 +21,11 @@ import (
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
+// ErrRestorePending indicates that the member accepted the restore operation
+// but has not produced an applied receipt yet. Callers must retry the same
+// operation identity and retain the target.
+var ErrRestorePending = errors.New("TBEP restore operation pending")
+
 // Config must come from the admitted host's identity and database scope.
 // Endpoint is a literal loopback IP and port. ServerIdentity is the exact
 // admitted TerraBase SPIFFE identity, never a trust-domain wildcard.
@@ -177,10 +182,18 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 	if err != nil {
 		return nil, err
 	}
+	if response.GetOperationId() != operation {
+		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
+	}
+	if response.GetStatus() == pb.LifecycleStatus_LIFECYCLE_STATUS_ACCEPTED {
+		// Accepted is an intentionally unverified dispatch receipt. The server
+		// leaves proof fields empty until the same operation reaches applied.
+		return response, ErrRestorePending
+	}
 	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
 	slices.Sort(want)
 	slices.Sort(got)
-	if response.GetOperationId() != operation || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED) {
+	if response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
 		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
 	}
 	return response, nil

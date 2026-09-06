@@ -50,7 +50,8 @@ func TestRuntimeWriteBudgetDecodesZeroAndNilDatabaseCaps(t *testing.T) {
 		"nil":  nil,
 	} {
 		t.Run(name, func(t *testing.T) {
-			policy := writebudget.Policy{OrganizationID: "org", CycleID: "old", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"holder": 1}, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 1 << 62}
+			oldCap := int64(0)
+			policy := writebudget.Policy{OrganizationID: "org", CycleID: "old", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"holder": 1}, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 1 << 62, DatabaseSpendCaps: map[string]*int64{"db": &oldCap}}
 			authority, err := writebudget.New(writebudget.NewMemoryPersister(), policy)
 			if err != nil {
 				t.Fatal(err)

@@ -163,14 +163,15 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 }
 
 type computeLaunchFingerprint struct {
-	CompartmentID, DisplayName, BootstrapBase64 string
-	NSGIDs                                      []string
-	Candidates                                  []ComputeCapacityCandidate
-	Tags                                        map[string]string
+	CompartmentID, DisplayName, ServerIdentity, Environment, Cluster, MemberID, BootstrapBase64 string
+	Generation                                                                                  uint64
+	NSGIDs                                                                                      []string
+	Candidates                                                                                  []ComputeCapacityCandidate
+	Tags                                                                                        map[string]string
 }
 
 func computeLaunchBinding(request ComputeLaunchRequest) computeLaunchFingerprint {
-	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.BootstrapBase64, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
+	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ServerIdentity, request.Environment, request.Cluster, request.MemberID, request.BootstrapBase64, request.Generation, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
 }
 
 func ComputeLaunchMutationFingerprint(request ComputeLaunchRequest) string {
@@ -187,6 +188,11 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 	}
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
 		return err
+	}
+	if request.ServerIdentity != "" || request.Environment != "" || request.Cluster != "" || request.MemberID != "" {
+		if !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID) {
+			return &errs.Argument{Message: "compute launch authenticated member identity is incomplete"}
+		}
 	}
 	if len(request.NSGIDs) > 5 || len(request.Candidates) < 1 || len(request.Candidates) > 12 {
 		return &errs.Argument{Message: "compute launch placement set is invalid"}
@@ -258,6 +264,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 	}
 	if err := validateComputeLaunch(request); err != nil {
 		return ComputeInstance{}, err
+	}
+	if a.Ownership != nil && (request.Generation == 0 || !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID)) {
+		return ComputeInstance{}, &errs.Argument{Message: "durable compute launch requires authenticated member identity"}
 	}
 	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
 	if err != nil {
@@ -370,6 +379,11 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}
 		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 			return ComputeInstance{}, err
+		}
+		if a.Ownership != nil {
+			if err := a.Ownership.Record(ctx, ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: item.ID}, CellId: ProviderCellId{Value: request.Environment}, CompartmentId: ProviderCompartmentId{Value: request.CompartmentID}, Generation: ProviderGeneration{Value: request.Generation}, ServerIdentity: request.ServerIdentity, MemberID: request.MemberID}); err != nil {
+				return ComputeInstance{}, err
+			}
 		}
 		return instance, nil
 	}

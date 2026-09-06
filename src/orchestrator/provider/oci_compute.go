@@ -155,6 +155,15 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 	if work == "" {
 		return CreateNodeProviderResponse{}, &InvalidDataError{Message: "OCI node create response has no work request"}
 	}
+	if c.Ownership != nil {
+		if err := c.Ownership.Record(ctx, ProviderOwnershipRecord{
+			ResourceId: ProviderResourceId{Value: item.ID}, CellId: ProviderCellId{Value: r.Binding.CellId},
+			CompartmentId: ProviderCompartmentId{Value: r.Binding.CompartmentId}, Generation: ProviderGeneration{Value: r.Binding.Generation},
+			ServerIdentity: r.Binding.ServerIdentity, MemberID: r.Binding.MemberID,
+		}); err != nil {
+			return CreateNodeProviderResponse{}, err
+		}
+	}
 	return CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: work}}, nil
 }
 
