@@ -75,6 +75,22 @@ func (m *RemoteMembers) DeliverTo(ctx context.Context, endpoints []RemoteMemberE
 	return nil
 }
 
+func (m *RemoteMembers) ValidateEnrollment(ctx context.Context, endpoint RemoteMemberEndpoint) error {
+	if !validJournalRoster([]RemoteMemberEndpoint{endpoint}) {
+		return ErrRotation
+	}
+	trusted, err := m.config.Endpoints(ctx)
+	if err != nil || !validJournalRoster(trusted) {
+		return ErrRotation
+	}
+	for _, candidate := range trusted {
+		if endpointKey(candidate) == endpointKey(endpoint) {
+			return nil
+		}
+	}
+	return ErrRotation
+}
+
 func endpointKey(endpoint RemoteMemberEndpoint) string {
 	u, _ := url.Parse(endpoint.URL)
 	return endpoint.NodeID + "\x00" + strings.ToLower(u.Host)

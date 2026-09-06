@@ -23,10 +23,18 @@ func (fakeIssuer) Fetch(context.Context, hostsecrets.IdentitySecretReference) (*
 }
 
 type effects struct {
-	calls        []string
-	fail         bool
-	failDelivery bool
-	targets      [][]RemoteMemberEndpoint
+	calls              []string
+	fail               bool
+	failDelivery       bool
+	targets            [][]RemoteMemberEndpoint
+	validateEnrollment func(context.Context, RemoteMemberEndpoint) error
+}
+
+func (e *effects) ValidateEnrollment(ctx context.Context, member RemoteMemberEndpoint) error {
+	if e.validateEnrollment != nil {
+		return e.validateEnrollment(ctx, member)
+	}
+	return nil
 }
 
 func (e *effects) SetIdentityServiceKeys(_ context.Context, _ string, _, _ []byte, deadline time.Time) error {
@@ -162,6 +170,22 @@ func TestFailedEnrollmentCannotAdmitAndRetryProvesAgain(t *testing.T) {
 	}
 	if c.Enroll(t.Context(), RemoteMemberEndpoint{NodeID: "third", URL: "https://second.internal/"}) == nil {
 		t.Fatal("duplicate endpoint adopted")
+	}
+}
+
+func TestUnauthorizedEnrollmentIsRejectedBeforeJournalSave(t *testing.T) {
+	c, s, e := rosterCoordinator(t)
+	prior := s.j
+	priorDeliveries := len(e.targets)
+	e.validateEnrollment = func(context.Context, RemoteMemberEndpoint) error { return ErrRotation }
+	if c.Enroll(t.Context(), RemoteMemberEndpoint{NodeID: "untrusted", URL: "https://untrusted.internal"}) == nil {
+		t.Fatal("unauthorized enrollment succeeded")
+	}
+	if !sameJournal(s.j, prior) {
+		t.Fatalf("unauthorized enrollment changed journal: before=%+v after=%+v", prior, s.j)
+	}
+	if len(e.targets) != priorDeliveries {
+		t.Fatalf("unauthorized enrollment delivered after save: %d deliveries", len(e.targets))
 	}
 }
 func TestRosterChangesRejectBusyRotationAndRetainLastHost(t *testing.T) {

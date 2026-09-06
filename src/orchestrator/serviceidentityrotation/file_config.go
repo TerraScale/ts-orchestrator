@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ type FileConfig struct {
 	Members             []RemoteMemberEndpoint `json:"members"`
 	PeriodSeconds       int64                  `json:"period_seconds"`
 	OverlapSeconds      int64                  `json:"overlap_seconds"`
+}
+
+func (c FileConfig) coordinatorConfig(store Store, issuer Issuer, dashboard Dashboard, members Members, authority func(context.Context) error) Config {
+	return Config{BootstrapMembers: slices.Clone(c.Members), Issuer: issuer, Store: store, Dashboard: dashboard, Members: members, Script: c.DashboardScript, Period: time.Duration(c.PeriodSeconds) * time.Second, Overlap: time.Duration(c.OverlapSeconds) * time.Second, Authority: authority}
 }
 
 func (c FileConfig) Validate() error {
@@ -118,15 +123,12 @@ func (c FileConfig) Construct(ctx context.Context, connection *nats.Conn, candid
 	if !roots.AppendCertsFromPEM(trust) {
 		return nil, ErrRotation
 	}
+	endpoints := slices.Clone(c.Members)
 	members, e := NewRemoteMembers(RemoteMembersConfig{TLS: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{pair}}, Endpoints: func(ctx context.Context) ([]RemoteMemberEndpoint, error) {
 		if check(ctx) != nil {
 			return nil, ErrRotation
 		}
-		journal, err := store.Load(ctx)
-		if err != nil {
-			return nil, ErrRotation
-		}
-		return append([]RemoteMemberEndpoint(nil), journal.Members...), nil
+		return slices.Clone(endpoints), nil
 	}, Authority: func(ctx context.Context) (uint64, string, error) {
 		if check(ctx) != nil {
 			return 0, "", ErrRotation
@@ -136,5 +138,5 @@ func (c FileConfig) Construct(ctx context.Context, connection *nats.Conn, candid
 	if e != nil {
 		return nil, ErrRotation
 	}
-	return New(Config{Issuer: issuer, Store: store, Dashboard: cloudflare.NewClient(string(token), "", c.CloudflareAccountID), Members: members, Script: c.DashboardScript, Period: time.Duration(c.PeriodSeconds) * time.Second, Overlap: time.Duration(c.OverlapSeconds) * time.Second, Authority: check})
+	return New(c.coordinatorConfig(store, issuer, cloudflare.NewClient(string(token), "", c.CloudflareAccountID), members, check))
 }

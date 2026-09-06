@@ -41,6 +41,7 @@ type Dashboard interface {
 // DeliverTo succeeds only after every admitted member proves adoption.
 // Revisions use 2*generation for activation and 2*generation+1 for rollback.
 type Members interface {
+	ValidateEnrollment(context.Context, RemoteMemberEndpoint) error
 	DeliverTo(context.Context, []RemoteMemberEndpoint, hostsecrets.IdentitySecretReference, uint64, []byte) error
 }
 type Config struct {
@@ -282,6 +283,9 @@ func (c *Coordinator) Enroll(ctx context.Context, member RemoteMemberEndpoint) e
 		}
 	}
 	if !found {
+		if c.config.Members.ValidateEnrollment(ctx, member) != nil {
+			return ErrRotation
+		}
 		if j.RosterRevision == ^uint64(0) {
 			return ErrRotation
 		}
