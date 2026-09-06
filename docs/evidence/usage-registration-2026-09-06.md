@@ -29,3 +29,10 @@ and stopping a partially delivered batch on authority loss.
 Normal creation still does not allocate authoritative lifecycle streams. Missing
 streams keep activation pending. This delivery work does not invent partitions,
 qualify the real Rust daemon entrypoint, or establish production billing readiness.
+
+The private database admission payload now transmits the original journal
+`CreatedAt` as integer Unix milliseconds for install, branch capture, and restore.
+Rust requires the matching positive `created_at`, persists it immutably, and
+returns it in public metadata. Exact propagation and zero rejection tests pass.
+Independent producer/consumer review found no material mismatch. Full
+orchestrator `make check` passed again, including race tests (`98145`, exit 0).

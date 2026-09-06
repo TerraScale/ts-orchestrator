@@ -123,9 +123,17 @@ func TestBranchRestoreTransportBindsHostAndAuthorityOperation(t *testing.T) {
 	target := record.Targets[0]
 	config := HostConfig{Environment: record.Request.Environment, Region: target.Region, MemberID: target.MemberID}
 	request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: record.CreatedAt.UnixMilli(), Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: strings.Repeat("a", 64)}
+	if request.Admission.CreatedAt != record.CreatedAt.UnixMilli() {
+		t.Fatal("branch restore changed authoritative creation timestamp")
+	}
 	if err := validateBranchRestoreRequest(config, request); err != nil {
 		t.Fatal(err)
 	}
+	request.Admission.CreatedAt = 0
+	if validateBranchRestoreRequest(config, request) == nil {
+		t.Fatal("zero creation timestamp accepted")
+	}
+	request.Admission.CreatedAt = record.CreatedAt.UnixMilli()
 	wrong := request
 	wrong.Admission.MemberID = record.Targets[1].MemberID
 	if err := validateBranchRestoreRequest(config, wrong); err == nil {

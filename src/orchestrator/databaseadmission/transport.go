@@ -322,11 +322,11 @@ func listenPrivate(path string) (net.Listener, error) {
 
 type Admission struct {
 	Request
-	CreatedAt  int64 `json:"created_at"`
-	DatabaseID string    `json:"database_id"`
-	KeyVersion string    `json:"key_version"`
-	Region     string    `json:"region"`
-	MemberID   string    `json:"member_id"`
+	CreatedAt  int64  `json:"created_at"`
+	DatabaseID string `json:"database_id"`
+	KeyVersion string `json:"key_version"`
+	Region     string `json:"region"`
+	MemberID   string `json:"member_id"`
 }
 type installRequest struct {
 	Admission Admission        `json:"admission"`

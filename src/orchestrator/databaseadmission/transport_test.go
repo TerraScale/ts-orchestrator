@@ -117,7 +117,7 @@ func TestCiphertextHostDeliveryPrecedesDurableEngineAdmission(t *testing.T) {
 		}
 		data, _ := io.ReadAll(r.Body)
 		var admission Admission
-		if json.Unmarshal(data, &admission) != nil || admission.DatabaseID != record.DatabaseID || admission.KeyVersion != record.KeyVersion {
+		if json.Unmarshal(data, &admission) != nil || admission.DatabaseID != record.DatabaseID || admission.KeyVersion != record.KeyVersion || admission.CreatedAt != record.CreatedAt.UnixMilli() {
 			t.Error("identity changed")
 		}
 		data, _ = json.Marshal(map[string]string{"operation_id": admission.OperationID, "database_id": admission.DatabaseID, "state": "admitted"})
