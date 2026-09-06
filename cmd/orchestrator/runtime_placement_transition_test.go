@@ -69,11 +69,59 @@ func (i *runtimeTestIssuer) Issue(_ context.Context, r placementtransition.Reque
 	i.proof = placementtransition.Signed{Payload: b}
 	return i.proof, nil
 }
+func TestTransitionUsageFailureBlocksCompletionAndRetriesSameProof(t *testing.T) {
+	record, pending := transitionFixture(t)
+	issuer := &runtimeTestIssuer{}
+	accepted, registered, completed := 0, 0, 0
+	var firstDigest string
+	worker := &productionPlacementTransition{
+		issuer: issuer, pending: pending, check: func(context.Context) error { return nil },
+		config: productionPlacementTransitionConfig{
+			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
+			Deliver: func(context.Context, string, string, uint64, placementtransition.Signed) error {
+				accepted++
+				return nil
+			},
+		},
+		registerUsage: func(_ context.Context, got databaseadmission.Record, digest string) error {
+			registered++
+			if accepted != registered*len(record.PlacementTargets) || got.DatabaseID != record.DatabaseID || len(digest) != 64 {
+				t.Fatal("usage delivered before all accepted placements or with wrong identity")
+			}
+			if registered == 1 {
+				firstDigest = digest
+				return errors.New("usage unresolved")
+			}
+			if digest != firstDigest {
+				t.Fatal("retry changed usage proof")
+			}
+			return nil
+		},
+		completion: func(_ context.Context, _, digest string, write bool) error {
+			if registered != 2 || digest != firstDigest || !write {
+				t.Fatal("premature completion")
+			}
+			completed++
+			return nil
+		},
+	}
+	if err := worker.Activate(t.Context(), record); err == nil || completed != 0 {
+		t.Fatal("usage failure completed activation", err)
+	}
+	if err := worker.Activate(t.Context(), record); err != nil || completed != 1 || issuer.issued != 1 {
+		t.Fatal("retry failed", err)
+	}
+	worker.registerUsage = nil
+	if err := worker.Activate(t.Context(), record); err == nil {
+		t.Fatal("missing usage authority accepted")
+	}
+}
+
 func TestTransitionWorkerExplicitGenesisAndDeliveryRetry(t *testing.T) {
 	record, pending := transitionFixture(t)
 	issuer := &runtimeTestIssuer{}
 	delivered := 0
-	worker := &productionPlacementTransition{issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, _ placementtransition.Signed) error {
+	worker := &productionPlacementTransition{registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, _ placementtransition.Signed) error {
 		if revision != 1 {
 			t.Fatal("wrong Stage revision")
 		}

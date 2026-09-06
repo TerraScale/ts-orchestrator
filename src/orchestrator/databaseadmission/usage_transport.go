@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nats-io/nats.go"
 )
@@ -57,7 +58,7 @@ func ValidateUsageRegistration(r UsageRegistration) error {
 			return ErrInvalid
 		}
 	}
-	if !slices.Contains(r.SelectedRegions, r.Region) || strings.IndexFunc(r.Partition, func(char rune) bool { return char < 0x20 || char == 0x7f }) >= 0 {
+	if !slices.Contains(r.SelectedRegions, r.Region) || strings.IndexFunc(r.Partition, unicode.IsControl) >= 0 {
 		return ErrInvalid
 	}
 	return nil
@@ -93,8 +94,7 @@ func RemoteUsageRegistration(nc *nats.Conn) func(context.Context, Target, UsageR
 
 func handleHostUsage(ctx context.Context, c HostConfig, client *http.Client, message *nats.Msg) bool {
 	if len(message.Data) > usageMessageLimit {
-		_ = message.Respond([]byte("invalid"))
-		return true
+		return false
 	}
 	var envelope usageEnvelope
 	if json.Unmarshal(message.Data, &envelope, json.RejectUnknownMembers(true)) != nil || validateHostUsage(c, envelope.Registration) != nil {

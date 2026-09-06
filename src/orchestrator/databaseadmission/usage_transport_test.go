@@ -6,10 +6,14 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
 func usageRegistrationFixture() UsageRegistration {
@@ -31,6 +35,11 @@ func TestValidateUsageRegistrationRejectsIdentityAndOrderingMismatches(t *testin
 	r.Region = "FRA"
 	if ValidateUsageRegistration(r) == nil {
 		t.Fatal("accepted region absent from selected regions")
+	}
+	r = usageRegistrationFixture()
+	r.Partition = "billing\u0080"
+	if ValidateUsageRegistration(r) == nil {
+		t.Fatal("accepted C1 control character in partition")
 	}
 }
 
@@ -68,10 +77,18 @@ func TestHandleHostUsageForwardsExactRegistrationAndRejectsReceiptMismatch(t *te
 func TestHandleHostUsageRejectsOversizeAndRedirectResponses(t *testing.T) {
 	registration := usageRegistrationFixture()
 	config := HostConfig{Environment: registration.Environment, Region: registration.Region, MemberID: registration.MemberID}
-	data, _ := json.Marshal(usageEnvelope{Registration: registration})
-	data = append(data, bytes.Repeat([]byte("x"), usageMessageLimit)...)
-	if !handleHostUsage(context.Background(), config, &http.Client{}, &nats.Msg{Data: data}) {
-		t.Fatal("oversize usage envelope was not handled")
+	data := append([]byte(`{"admission":{},"entries":[],"padding":"`), bytes.Repeat([]byte("x"), usageMessageLimit)...)
+	data = append(data, []byte(`"}`)...)
+	if handleHostUsage(context.Background(), config, &http.Client{}, &nats.Msg{Data: data}) {
+		t.Fatal("oversize non-usage envelope was consumed")
+	}
+	oversizeUsage, _ := json.Marshal(usageEnvelope{Registration: func() UsageRegistration {
+		r := registration
+		r.Partition = strings.Repeat("x", usageMessageLimit)
+		return r
+	}()})
+	if handleHostUsage(context.Background(), config, &http.Client{}, &nats.Msg{Data: oversizeUsage}) {
+		t.Fatal("oversize usage envelope was consumed before install decoding")
 	}
 	client := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -81,6 +98,77 @@ func TestHandleHostUsageRejectsOversizeAndRedirectResponses(t *testing.T) {
 	}
 	if !handleHostUsage(context.Background(), config, client, &nats.Msg{Data: mustJSON(usageEnvelope{Registration: registration})}) {
 		t.Fatal("redirect response was not handled")
+	}
+}
+
+func TestRemoteUsageRegistrationThroughAuthenticatedHost(t *testing.T) {
+	cluster := newAdmissionJournalCluster(t)
+	connection := cluster.connect(t)
+	record := journalFixture(t)
+	target := record.Targets[0]
+	registration := usageRegistrationFixture()
+	registration.Environment = record.Request.Environment
+	registration.MemberID = target.MemberID
+	registration.Region = target.Region
+	registration.SelectedRegions = []string{target.Region}
+	if err := ValidateUsageRegistration(registration); err != nil {
+		t.Fatal(err)
+	}
+	config := pipelineConfig(t, NewMemoryJournal())
+	if err := keylease.InitializeCatalog(config.CatalogPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"ok", "tuple", "state", "unknown", "oversize", "redirect"} {
+		t.Run(mode, func(t *testing.T) {
+			socket := filepath.Join(filepath.Dir(config.CatalogPath), "usage-"+mode+".sock")
+			listener, err := listenPrivate(socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if mode == "redirect" {
+					w.Header().Set("Location", "http://redirect.invalid")
+					w.WriteHeader(http.StatusTemporaryRedirect)
+					return
+				}
+				receipt := usageReceipt{UsageRegistration: registration, State: "registered"}
+				switch mode {
+				case "tuple":
+					receipt.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FC2"
+				case "state":
+					receipt.State = "pending"
+				case "unknown":
+					body := append(mustJSON(receipt), []byte(` `)...)
+					body = append(body[:len(body)-1], []byte(`,"extra":true}`)...)
+					_, _ = w.Write(body)
+					return
+				case "oversize":
+					_, _ = w.Write(bytes.Repeat([]byte("x"), usageMessageLimit+1))
+					return
+				}
+				_, _ = w.Write(mustJSON(receipt))
+			})}
+			go server.Serve(listener)
+			defer server.Close()
+			host, err := StartHost(t.Context(), HostConfig{Connection: connection, ServerIdentity: target.ServerIdentity, CatalogPath: config.CatalogPath, EngineSocket: socket, EngineUID: uint32(os.Geteuid()), Environment: record.Request.Environment, Region: target.Region, MemberID: target.MemberID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer host.Close()
+			err = RemoteUsageRegistration(connection)(t.Context(), target, registration)
+			if mode == "ok" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil {
+				t.Fatal("accepted invalid usage receipt")
+			}
+			if mode == "redirect" && calls.Load() != 1 {
+				t.Fatalf("redirect handler called %d times", calls.Load())
+			}
+		})
 	}
 }
 

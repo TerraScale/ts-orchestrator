@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -60,7 +61,7 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	config := &productionPlacementBootstrap{OperationID: "cluster-genesis", Environment: record.Request.Environment}
 	staged := 0
 	journal := bootstrapTestJournal{databasePlacementJournal{}}
-	worker := &productionPlacementTransition{issuer: &runtimeTestIssuer{}, pending: journal, check: func(context.Context) error { return nil }, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
+	worker := &productionPlacementTransition{registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: &runtimeTestIssuer{}, pending: journal, check: func(context.Context) error { return nil }, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
 	for n := range record.PlacementTargets {
 		target := &record.PlacementTargets[n]
 		request := new(pb.PlacementStageRequest)

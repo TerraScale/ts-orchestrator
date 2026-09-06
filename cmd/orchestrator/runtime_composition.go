@@ -18,6 +18,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/estatepublisher"
@@ -272,6 +273,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	transition.registerUsage = func(ctx context.Context, record databaseadmission.Record, digest string) error {
+		return deliverDatabaseUsage(ctx, database.lifecycleJournal, session.CheckEffectAuthority, databaseadmission.RemoteUsageRegistration(session.Connection), record, digest)
+	}
 	if config.KV == nil {
 		return group, errors.New("runtime global KV publisher is required")
 	}
