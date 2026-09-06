@@ -49,7 +49,7 @@ func RemoteBranchRestore(nc *nats.Conn) func(context.Context, Record, string) ([
 			if err != nil {
 				return nil, err
 			}
-			data, err := json.Marshal(BranchRestoreRequest{Source: record.BranchSource, Admission: Admission{CreatedAt: record.CreatedAt, Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: nonce})
+			data, err := json.Marshal(BranchRestoreRequest{Source: record.BranchSource, Admission: Admission{CreatedAt: record.CreatedAt.UnixMilli(), Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: nonce})
 			if err != nil || len(data) > maxMessage {
 				return nil, ErrInvalid
 			}
@@ -74,7 +74,7 @@ func RemoteBranchRestore(nc *nats.Conn) func(context.Context, Record, string) ([
 
 func validateBranchRestoreRequest(c HostConfig, request BranchRestoreRequest) error {
 	a := request.Admission
-	if a.CreatedAt.IsZero() || ValidateRequest(a.Request) != nil || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
+	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
 		return ErrInvalid
 	}
 	if request.Capture {
@@ -181,7 +181,7 @@ func RemoteBranchSource(nc *nats.Conn) func(context.Context, Record, Record, str
 		if err != nil {
 			return SignedReadiness{}, err
 		}
-		request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: child.CreatedAt, Request: child.Request, DatabaseID: child.DatabaseID, KeyVersion: child.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(child.Request), Nonce: nonce}
+		request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: child.CreatedAt.UnixMilli(), Request: child.Request, DatabaseID: child.DatabaseID, KeyVersion: child.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(child.Request), Nonce: nonce}
 		data, err := json.Marshal(request)
 		if err != nil || len(data) > maxMessage {
 			return SignedReadiness{}, ErrInvalid

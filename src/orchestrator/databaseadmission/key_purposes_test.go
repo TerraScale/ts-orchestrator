@@ -48,7 +48,7 @@ func TestHostRequiresEveryPurpose(t *testing.T) {
 	r := journalFixture(t)
 	target := r.Targets[0]
 	c := HostConfig{Environment: r.Request.Environment, Region: target.Region, MemberID: target.MemberID}
-	request := installRequest{Admission: Admission{Request: r.Request, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: target.Region, MemberID: target.MemberID}, Entries: journalWrapped(r)}
+	request := installRequest{Admission: Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: target.Region, MemberID: target.MemberID}, Entries: journalWrapped(r)}
 	if err := validateInstall(c, request); err != nil {
 		t.Fatal(err)
 	}

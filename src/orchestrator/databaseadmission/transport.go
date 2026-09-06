@@ -322,7 +322,7 @@ func listenPrivate(path string) (net.Listener, error) {
 
 type Admission struct {
 	Request
-	CreatedAt  time.Time `json:"created_at"`
+	CreatedAt  int64 `json:"created_at"`
 	DatabaseID string    `json:"database_id"`
 	KeyVersion string    `json:"key_version"`
 	Region     string    `json:"region"`
@@ -352,7 +352,7 @@ func RemoteInstall(nc *nats.Conn) func(context.Context, Record, Target, []keylea
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID}, entries})
+		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID}, entries})
 		if err != nil || len(data) > maxMessage {
 			return ErrInvalid
 		}
@@ -459,7 +459,7 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 }
 func validateInstall(c HostConfig, r installRequest) error {
 	a := r.Admission
-	if ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != len(databaseKeyPurposes) {
+	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != len(databaseKeyPurposes) {
 		return ErrInvalid
 	}
 	seen := map[string]bool{}

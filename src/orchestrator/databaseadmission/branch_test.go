@@ -122,7 +122,7 @@ func TestBranchRestoreTransportBindsHostAndAuthorityOperation(t *testing.T) {
 	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
 	target := record.Targets[0]
 	config := HostConfig{Environment: record.Request.Environment, Region: target.Region, MemberID: target.MemberID}
-	request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: record.CreatedAt, Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: strings.Repeat("a", 64)}
+	request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: record.CreatedAt.UnixMilli(), Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: strings.Repeat("a", 64)}
 	if err := validateBranchRestoreRequest(config, request); err != nil {
 		t.Fatal(err)
 	}
