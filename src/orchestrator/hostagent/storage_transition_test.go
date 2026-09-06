@@ -22,8 +22,75 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
+	fixture "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/ociinstance"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
+	"terrascale.tech/orchestrator/src/orchestrator/transitionreceipts"
 )
+
+func hostStorageBucket(region string) provider.OCIBucketObservation {
+	return provider.OCIBucketObservation{ID: "ocid1.bucket." + region, CompartmentID: "ocid1.compartment.launch", Namespace: "tenancy", Name: region + "-control", FreeformTags: map[string]string{"terrascale-region": region}}
+}
+
+func hostStoragePublicationFixture(t *testing.T, d *controltransition.Delivery, node, region string) *fixture.Server {
+	t.Helper()
+	buckets := []fixture.Bucket{}
+	for i, name := range []string{"gru", "sfo", "fra"} {
+		buckets = append(buckets, fixture.Bucket{OCIRegion: []string{"sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1"}[i], Observation: hostStorageBucket(name)})
+	}
+	server, err := fixture.New(fixture.Config{Buckets: buckets, MaxObjectBytes: controltransition.PinReceiptMaximumBytes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Close)
+	keyPath := filepath.Join(t.TempDir(), "oci-client.pem")
+	cfg, key, err := server.Identity(node, region, keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(key)
+	if err = os.WriteFile(keyPath, key, 0600); err != nil {
+		t.Fatal(err)
+	}
+	d.OCIQualification = cfg.Qualification
+	return server
+}
+
+func checkHostPublishedPin(t *testing.T, server *fixture.Server, plan controltransition.VerifiedPlan, node string, raw []byte) {
+	t.Helper()
+	region, key, err := transitionreceipts.PinObjectKey(plan, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := plan.Plan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range p.Destinations {
+		if d.Region != region {
+			continue
+		}
+		got, found := server.Object(d.Objects.OCIRegion, d.Objects.Namespace, d.Objects.Bucket, key)
+		if !found || !bytes.Equal(got, raw) {
+			t.Fatal("remote acknowledgement differs from private retained bytes")
+		}
+	}
+	federation, puts := 0, 0
+	for _, r := range server.Requests() {
+		if strings.HasPrefix(r.Host, "auth.") {
+			federation++
+		}
+		if r.Method == "PUT" {
+			puts++
+			if r.Node != node {
+				t.Fatal("publication used another host identity")
+			}
+		}
+	}
+	if federation == 0 || puts == 0 {
+		t.Fatal("host skipped federation or publication")
+	}
+}
 
 func hostStoragePlan(t *testing.T, a *BootstrapAuthority) controltransition.Plan {
 	t.Helper()
@@ -65,6 +132,11 @@ func hostStoragePlan(t *testing.T, a *BootstrapAuthority) controltransition.Plan
 	}
 	for i, region := range []string{"gru", "sfo", "fra"} {
 		d := controltransition.Destination{Region: region, NodeID: region + "-1", ServerName: region + "-r3", BootstrapGrantSHA256: h, PreparedManifestSHA256: strings.Repeat("b", 64), ActivationManifestSHA256: h, RouteURL: "nats-route://" + region + ".internal:6222", CertificateSHA256: strings.Repeat(string(rune('d'+i)), 64), ReceiptPublicKeyPEM: public(), PreliminaryStoreDir: "/data/preliminary", StoreDir: "/data/r3", StagingDir: "/data/staging", Objects: controltransition.ObjectLocation{OCIRegion: []string{"sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1"}[i], Namespace: "tenancy", Bucket: region + "-control", BucketResourceID: "ocid1.bucket." + region, CompartmentID: "ocid1.compartment.launch", OwnershipObservationSHA256: h, Prefix: "control-transitions/first-r3"}}
+		var err error
+		d.Objects.OwnershipObservationSHA256, err = transitionreceipts.BucketObservationDigest(hostStorageBucket(region))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if a.initialProof == nil && strings.HasPrefix(a.grant.NodeID, region+"-") {
 			d.NodeID = a.grant.NodeID
 		}
@@ -108,6 +180,7 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	spec.User = "terrascale-orchestrator"
 	dir := t.TempDir()
 	cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-r3", StoreDir: filepath.Join(spec.DataVolume, "store"), GrantFile: filepath.Join(dir, "prepare.json"), GrantPublicKeyFile: filepath.Join(dir, "public.pem"), StorageTransition: controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(dir, "plan.json"), ReceiptPrivateKeyFile: filepath.Join(dir, "receipt.pem")}}
+	server := hostStoragePublicationFixture(t, &cfg.StorageTransition, cfg.NodeID, "us-sanjose-1")
 	raw, err := json.Marshal(cfg, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		t.Fatal(err)
@@ -222,6 +295,33 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	if err = os.Chmod(keyFile, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if len(server.Requests()) != 0 {
+		t.Fatal("invalid local evidence reached OCI")
+	}
+	// Missing federation credentials must leave both the original pin and the
+	// newly signed receipt durable, ready for an identical upload retry.
+	ociKeyPath := cfg.StorageTransition.OCIQualification.ClientPrivateKeyFile
+	ociKey, err := os.ReadFile(ociKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(ociKey)
+	if err = os.Remove(ociKeyPath); err != nil {
+		t.Fatal(err)
+	}
+	if err = transport.pinDestinationStorageTransition(t.Context()); err == nil {
+		t.Fatal("missing OCI identity reported publication")
+	}
+	pendingAck, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal("credential failure lost durable receipt", err)
+	}
+	if len(server.Requests()) != 0 {
+		t.Fatal("missing credential reached OCI")
+	}
+	if err = os.WriteFile(ociKeyPath, ociKey, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err = transport.pinDestinationStorageTransition(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -236,10 +336,14 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !bytes.Equal(pendingAck, ack) {
+		t.Fatal("upload retry re-signed pending receipt")
+	}
 	verified, err := controltransition.VerifyPlan(public, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkHostPublishedPin(t, server, verified, authority.grant.NodeID, ack)
 	receipt, err := controltransition.VerifyPinReceipt(verified, ack)
 	if err != nil || receipt.NodeID != cfg.NodeID || receipt.Role != "destination" || receipt.PinSHA256 != controltransition.Digest(before) {
 		t.Fatal("lost acknowledgement binding", err)
@@ -261,11 +365,16 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	if err != nil || !bytes.Equal(ack, again) {
 		t.Fatal("restart changed acknowledgement", err)
 	}
+	checkHostPublishedPin(t, server, verified, cfg.NodeID, ack)
 	if err = os.WriteFile(receiptPath, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	networkBefore := len(server.Requests())
 	if err = ResumeLocalStorageTransitionPlan(t.Context(), h.lifecycle, cfg.NodeID, public, signed); err == nil || errors.Is(err, nodeauthority.ErrStorageTransitionReceiptSignerRequired) {
 		t.Fatal("corrupt receipt treated as missing signer", err)
+	}
+	if len(server.Requests()) != networkBefore {
+		t.Fatal("corrupt retained receipt reached OCI")
 	}
 	corrupt, err := os.ReadFile(receiptPath)
 	if err != nil || string(corrupt) != "{}" {
@@ -300,6 +409,10 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 
 func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T) {
 	delivery := controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(t.TempDir(), "plan.json"), ReceiptPrivateKeyFile: filepath.Join(t.TempDir(), "receipt.pem")}
+	if os.Geteuid() != 0 || os.Getenv("TS_INITIAL_R1_ISOLATED_TEST") != "1" {
+		t.Skip("requires isolated root /var/lib mount")
+	}
+	server := hostStoragePublicationFixture(t, &delivery, "gru-1", "sa-saopaulo-1")
 	h, initial, _, _, path := initialHostFixture(t, delivery)
 	signer, public, wire, _ := bootstrapTestGrant(t, initial)
 	authority, err := NewBootstrapAuthority(testCommandAuthorizer{}, "gru-1", public, wire)
@@ -367,6 +480,7 @@ func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkHostPublishedPin(t, server, verified, authority.grant.NodeID, ack)
 	receipt, err := controltransition.VerifyPinReceipt(verified, ack)
 	if err != nil || receipt.Role != "source" || receipt.CommandSHA256 != controltransition.Digest(body) {
 		t.Fatal("source acknowledgement lost command binding", err)
@@ -384,4 +498,5 @@ func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T
 	if err != nil || !bytes.Equal(ack, again) {
 		t.Fatal("source restart changed acknowledgement", err)
 	}
+	checkHostPublishedPin(t, server, verified, "gru-1", ack)
 }

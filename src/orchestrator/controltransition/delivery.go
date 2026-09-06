@@ -2,7 +2,9 @@ package controltransition
 
 import (
 	"errors"
+
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/ociinstance"
 )
 
 var ErrPreparationMissing = errors.New("controltransition: complete preparation barrier is not implemented")
@@ -14,6 +16,9 @@ type Delivery struct {
 	TransitionID          string `json:"transitionId"`
 	PlanFile              string `json:"planFile"`
 	ReceiptPrivateKeyFile string `json:"receiptPrivateKeyFile"`
+	// OCIQualification is an explicit owner-signed test endpoint. Nil uses
+	// production instance principals in the region fixed by the signed plan.
+	OCIQualification *ociinstance.QualificationConfig `json:"ociQualification,omitempty"`
 }
 
 func (d Delivery) Validate(protectedPaths ...string) error {
@@ -22,6 +27,18 @@ func (d Delivery) Validate(protectedPaths ...string) error {
 	}
 	if !token(d.TransitionID) || !separatePaths(d.PlanFile, d.ReceiptPrivateKeyFile) || len(d.PlanFile) > 4096 || len(d.ReceiptPrivateKeyFile) > 4096 {
 		return errors.New("controltransition: invalid plan delivery location")
+	}
+	if q := d.OCIQualification; q != nil {
+		// Qualification validation is independent of region. The later verified
+		// plan supplies the actual host region before any identity is acquired.
+		if ociinstance.ValidateConfig(ociinstance.Config{Region: "sa-saopaulo-1", Qualification: q}) != nil || !separatePaths(d.PlanFile, d.ReceiptPrivateKeyFile, q.ClientPrivateKeyFile) {
+			return errors.New("controltransition: invalid qualification identity")
+		}
+		for _, path := range protectedPaths {
+			if path != "" && hostmanifest.PathsOverlap(q.ClientPrivateKeyFile, path) {
+				return errors.New("controltransition: qualification key overlaps protected storage")
+			}
+		}
 	}
 	for _, path := range protectedPaths {
 		if path != "" && (hostmanifest.PathsOverlap(d.PlanFile, path) || hostmanifest.PathsOverlap(d.ReceiptPrivateKeyFile, path)) {

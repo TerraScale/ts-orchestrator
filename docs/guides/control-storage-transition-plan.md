@@ -58,8 +58,7 @@ covers the complete signed envelope.
 The checks authenticate the supplied evidence and its bindings. They do not
 retrieve referenced restore evidence, observe OCI ownership, compare final
 consumer state, validate actual filesystem identities, or establish the final
-preparation barrier. Local host intake is described below. Remote plan transfer, independent receipt
-publication, privileged phase execution and pre-NATS phase recovery remain
+preparation barrier. Local host intake is described below. Remote plan transfer, privileged phase execution and pre-NATS phase recovery remain
 unimplemented. The command must not be used as a substitute for those gates.
 
 ## Authorize local intake before signing the initial manifests
@@ -92,7 +91,7 @@ acknowledgement using the configured host key. That command currently refuses co
 retirement because the full preparation barrier is not implemented.
 
 A `ts-node` restart checks any already pinned agreement and creates or recovers
-its local acknowledgement before NATS dialing. It does not execute storage
+its local acknowledgement and publishes it before NATS dialing. It does not execute storage
 phases. Keep the delivered file and its bytes
 unchanged. Intake verifies with the original bootstrap public key; the plan
 file cannot nominate a new owner key. No owner private key is sent to a host.
@@ -101,8 +100,13 @@ Provision a separate P-256 host receipt key in the configured root-owned private
 file before first acknowledgement. The plan must bind its public PEM in the
 corresponding source or destination `receiptPublicKeyPem` field. This is not the
 owner key or a fallback to a service-owned membership key. Host receipt-key
-provisioning and acknowledgement upload are not automated yet. The operator
-check below can read acknowledgements already present in OCI.
+provisioning is not automated yet. After retaining the acknowledgement, the host
+acquires instance-principal credentials in the plan's OCI region and publishes
+the exact bytes. Grant that host read access to its signed bucket observation
+and read/create access to its plan-pinned object prefix. No owner OCI API key
+belongs on the host. Each attempt has a one-minute deadline; failed publication
+retains the receipt and reports failure so startup or command retry can resume.
+The operator check below reads acknowledgements already present in OCI.
 
 Once written, the receipt is retained in the private command journal as
 `storage-transition-pin-receipt.json`. Recovery validates and returns those
@@ -133,9 +137,9 @@ symlinks or additional hard links. The source broker is not needed.
 
 The acknowledgement objects must already exist at the exact locations in the
 [receipt-read contract](../contracts/control-transition-plan.md#independent-oci-acknowledgement-reads).
-Automatic host upload is still unfinished. Preserve each host's signed bytes
-and the required OCI digest metadata when publishing; the check cannot create
-or repair missing receipts.
+The host publishes these objects automatically after acknowledgement recovery.
+The check cannot create or repair missing receipts; retry the host operation
+with its original plan and private receipt intact.
 
 On success, the command prints `status: "plan-pins-verified"`, `planSha256`,
 source-first ordered `receiptSha256` values, and `checkedAt`. It emits no success

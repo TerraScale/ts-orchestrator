@@ -12,8 +12,11 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/ociinstance"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
+	"terrascale.tech/orchestrator/src/orchestrator/transitionreceipts"
 )
 
 var ErrStorageTransitionPreparationMissing = controltransition.ErrPreparationMissing
@@ -126,27 +129,71 @@ func pinStorageTransition(ctx context.Context, epochs *nodeauthority.EpochStore,
 }
 
 func acknowledgeStorageTransition(ctx context.Context, epochs *nodeauthority.EpochStore, a *BootstrapAuthority, v controltransition.VerifiedPlan) error {
-	// A valid retained acknowledgement is returned without accessing a key.
-	// Only the explicit missing-signer result permits first-signature work.
-	if _, err := epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), nil); !errors.Is(err, nodeauthority.ErrStorageTransitionReceiptSignerRequired) {
+	raw, err := recoverStorageTransitionAcknowledgement(ctx, epochs, a, v)
+	if err != nil {
 		return err
 	}
+	// The local receipt is durable before acquiring credentials or sending any
+	// remote request. All retries, including after restart, recover these bytes.
 	d, _, err := a.storageTransitionDelivery()
 	if err != nil {
 		return err
 	}
-	private, err := bootstrapcredentials.ReadFile(d.ReceiptPrivateKeyFile, true, 32<<10)
+	region, _, err := transitionreceipts.PinObjectKey(v, a.grant.NodeID)
 	if err != nil {
 		return err
+	}
+	p, err := v.Plan()
+	if err != nil {
+		return err
+	}
+	ociRegion := ""
+	for _, destination := range p.Destinations {
+		if destination.Region == region {
+			ociRegion = destination.Objects.OCIRegion
+		}
+	}
+	bounded, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := v.Check(time.Now()); err != nil {
+		return err
+	}
+	identity, err := ociinstance.NewFromConfig(bounded, ociinstance.Config{Region: ociRegion, Qualification: d.OCIQualification}, func(path string) ([]byte, error) {
+		return bootstrapcredentials.ReadFile(path, true, 64<<10)
+	})
+	if err != nil {
+		return err
+	}
+	defer identity.Close()
+	transport, err := identity.NewTransport(provider.OCIServiceObjectStorage, controltransition.PinReceiptMaximumBytes)
+	if err != nil {
+		return err
+	}
+	return transitionreceipts.PublishPlanPin(bounded, v, a.grant.NodeID, raw, transport)
+}
+
+func recoverStorageTransitionAcknowledgement(ctx context.Context, epochs *nodeauthority.EpochStore, a *BootstrapAuthority, v controltransition.VerifiedPlan) ([]byte, error) {
+	// A valid retained acknowledgement is returned without accessing a key.
+	// Only the explicit missing-signer result permits first-signature work.
+	raw, err := epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), nil)
+	if !errors.Is(err, nodeauthority.ErrStorageTransitionReceiptSignerRequired) {
+		return raw, err
+	}
+	d, _, err := a.storageTransitionDelivery()
+	if err != nil {
+		return nil, err
+	}
+	private, err := bootstrapcredentials.ReadFile(d.ReceiptPrivateKeyFile, true, 32<<10)
+	if err != nil {
+		return nil, err
 	}
 	signer, err := security.ParseCommandSignatureSignerPEM(private)
 	clear(private)
 	if err != nil {
-		return errors.New("hostagent: invalid protected transition receipt signer")
+		return nil, errors.New("hostagent: invalid protected transition receipt signer")
 	}
 	defer signer.Close()
-	_, err = epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), signer)
-	return err
+	return epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), signer)
 }
 
 // Destination startup calls this only after its ordinary initial manifest has
@@ -221,8 +268,9 @@ func (t *NatsTransport) requireStorageTransitionPreparation(ctx context.Context,
 }
 
 // ResumeLocalStorageTransitionPlan verifies and acknowledges an existing plan
-// before NATS dialing and bootstrap's retired-host return. It executes no storage effects,
-// renews no lease, and never calls AdmitBootstrap. First delivery is pinned by
+// and publishes its retained receipt before NATS dialing and bootstrap's
+// retired-host return. It executes no broker storage effects, renews no lease,
+// and never calls AdmitBootstrap. First delivery is pinned by
 // destination admission or the source's live ApplyManifest handler.
 func ResumeLocalStorageTransitionPlan(ctx context.Context, lifecycle *Lifecycle, node string, public, signed []byte) error {
 	if ctx == nil || lifecycle == nil {

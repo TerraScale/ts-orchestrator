@@ -119,9 +119,9 @@ plan expiry close this preliminary recovery API. Historical signed bytes remain
 verifiable for audit. Corrupt, unsafe, or conflicting acknowledgement files are
 retained and refused, never replaced to force a retry.
 
-These acknowledgements are stored locally and returned to the trusted caller.
-Host publication is not wired yet. The independent OCI reader described below
-can verify receipts once their exact bytes are present in the regional buckets.
+These acknowledgements are stored locally and published by the trusted host
+using instance-principal credentials. The independent OCI reader described
+below verifies their exact bytes in the regional buckets.
 The complete preparation barrier must combine them with synchronization,
 identity, storage and health evidence before retirement. The first private
 acknowledgement is not a general phase journal or permission to execute effects.
@@ -191,12 +191,11 @@ barrier exists. Removing the bootstrap wrapper cannot bypass these checks.
 
 Before NATS dialing, `ResumeLocalStorageTransitionPlan` verifies an existing
 private agreement using the exact delivered plan and creates or recovers its
-local acknowledgement. It neither creates bootstrap admission nor resumes
-storage effects. The current intake covers the shared
+local acknowledgement, then publishes it with instance-principal credentials.
+It neither creates bootstrap admission nor resumes broker storage effects. The current intake covers the shared
 source/GRU host and the initial SFO/FRA candidate configurations; a separate GRU
 destination launch still needs its own admitted configuration and composition.
-There is no remote plan-upload command, continuous file poller, or automatic
-external acknowledgement publication yet. Keep the original delivered file
+There is no remote plan-upload command or continuous file poller yet. Keep the original delivered file
 available for agreement recovery and do not replace its signed bytes.
 
 ## Host acknowledgement composition
@@ -218,8 +217,8 @@ A completed acknowledgement is recovered byte-for-byte without reopening the
 key, including after a `ts-node` restart. This permits recovery while that key
 file is unavailable; it does not authorize new signatures after key retirement.
 The receipt remains in `storage-transition-pin-receipt.json` inside the private
-host journal. Host acknowledgement publication is not wired yet; the independent reader
-below collects receipts that have already been published.
+host journal. Each acknowledgement or recovery call publishes the retained
+bytes through `PublishPlanPin`; the independent reader below collects them.
 A local receipt still cannot satisfy the unfinished preparation barrier alone.
 
 Configured `storageTransition` values now require the receipt-key path. The
@@ -264,8 +263,8 @@ usable only within the plan's lifetime. `PinObjectKey` can identify historical
 objects, but key derivation itself establishes no current authority.
 
 This is independent evidence collection, not publication or a complete
-preparation barrier. Host upload, automated collection in the transition
-executor, storage/health checks and source retirement remain unfinished.
+preparation barrier. Automated collection in the transition executor,
+storage/health checks and source retirement remain unfinished.
 The operator's JSON summary is an unsigned report and cannot substitute for
 verification of the original signed receipts.
 
@@ -286,7 +285,17 @@ is retained. A failed read leaves the outcome unresolved and the caller must
 retry with the same durable signed bytes. There is no broker journal dependency
 or cached success that could skip remote verification.
 
-This function does not establish local persistence itself. Automatic host
-invocation, instance-principal acquisition, and retry scheduling remain to be
-connected to the existing private acknowledgement recovery path. Publication
-proves neither destination preparation nor permission to retire the source.
+The host invokes this function after private acknowledgement recovery. It
+acquires instance-principal credentials in the host region derived from the
+signed plan and closes the identity after the attempt. A one-minute context
+bounds acquisition and publication together. A failed publication leaves the
+pin and receipt intact and returns an error; startup or command retry recovers
+the same bytes. There is no periodic background retry worker yet.
+
+Production needs no OCI private-key file. The optional `ociQualification` value
+inside the original owner-signed delivery can select the existing mTLS fixture.
+Its credential file must be private and separate from the plan, receipt key,
+and all protected storage/admission paths. SDK environment variables cannot
+select an alternate endpoint. Fixture execution proves local integration only.
+Publication proves neither destination preparation nor permission to retire the
+source.
