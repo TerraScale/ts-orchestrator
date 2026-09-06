@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
@@ -94,11 +93,10 @@ func TestOCIReconcileAppliesAutoscalePlanToComputeDeclaration(t *testing.T) {
 	controller := &ociReconcileController{regions: map[string]*ociRegionController{
 		region.Code: {region: region},
 	}}
-	plan := autoscale.Plan{Region: region.Code, PreviousMembers: int(region.Members.Count), DesiredMembers: int(region.Members.Count) + 1, OperationID: "autoscale-plan"}
-	if err := controller.applyAutoscalePlan(plan); err != nil {
+	if err := controller.applyAutoscalePlan(region.Code, int(region.Members.Count)+1); err != nil {
 		t.Fatal(err)
 	}
-	if got := controller.regions[region.Code].computeDeclared().Members.Count; got != region.Members.Count+1 {
+	if got := controller.regions[region.Code].computeDeclared().Region.Members.Count; got != region.Members.Count+1 {
 		t.Fatalf("autoscale target members = %d, want %d", got, region.Members.Count+1)
 	}
 }

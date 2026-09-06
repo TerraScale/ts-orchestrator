@@ -628,15 +628,15 @@ func (r *ociRegionController) setScaleOutTarget(desired int) error {
 // applyAutoscalePlan hands one GRU-authorized scale-out decision to the
 // existing OCI compute declaration. Provider mutation and stable slot
 // identity remain in ocireconcile; this seam only raises the desired target.
-func (c *ociReconcileController) applyAutoscalePlan(plan autoscale.Plan) error {
-	if c == nil || plan.Region == "" || plan.DesiredMembers <= plan.PreviousMembers {
+func (c *ociReconcileController) applyAutoscalePlan(regionCode string, desired int) error {
+	if c == nil || regionCode == "" || desired < 1 {
 		return errors.New("reconcile: invalid autoscale plan")
 	}
-	region, ok := c.regions[plan.Region]
+	region, ok := c.regions[regionCode]
 	if !ok || region == nil {
 		return errors.New("reconcile: autoscale plan names an unknown region")
 	}
-	return region.setScaleOutTarget(plan.DesiredMembers)
+	return region.setScaleOutTarget(desired)
 }
 
 func planForRegion(plan reconcile.Plan, region string) reconcile.Plan {

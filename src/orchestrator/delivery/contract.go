@@ -50,10 +50,14 @@ type Source struct {
 
 // Artifact is the exact trusted artifact identity of a delivery.
 type Artifact struct {
-	Digest         string `json:"digest"`
-	ManifestDigest string `json:"manifestDigest"`
-	Kind           string `json:"kind"`
-	Architecture   string `json:"architecture"`
+	Name                    string `json:"name"`
+	ManifestName            string `json:"manifestName"`
+	Digest                  string `json:"digest"`
+	SignatureDigest         string `json:"signatureDigest"`
+	ManifestDigest          string `json:"manifestDigest"`
+	ManifestSignatureDigest string `json:"manifestSignatureDigest"`
+	Kind                    string `json:"kind"`
+	Architecture            string `json:"architecture"`
 }
 
 // RollbackArtifact is the exact prior artifact a rollback returns to.
@@ -523,8 +527,16 @@ func validateSource(source *Source) {
 }
 
 func validateArtifact(artifact *Artifact) {
+	bounded(artifact.Name, maxText, "artifact_name_invalid", "artifact.name")
+	bounded(artifact.ManifestName, maxText, "artifact_manifest_name_invalid", "artifact.manifestName")
 	digestField(artifact.Digest, "artifact.digest")
+	if artifact.SignatureDigest != "" {
+		digestField(artifact.SignatureDigest, "artifact.signatureDigest")
+	}
 	digestField(artifact.ManifestDigest, "artifact.manifestDigest")
+	if artifact.ManifestSignatureDigest != "" {
+		digestField(artifact.ManifestSignatureDigest, "artifact.manifestSignatureDigest")
+	}
 	if artifact.Kind != "service" && artifact.Kind != "package" && artifact.Kind != "site" {
 		fail("artifact_kind_invalid", "artifact.kind is not supported.", "Use service, package, or site.")
 	}

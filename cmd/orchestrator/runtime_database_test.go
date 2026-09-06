@@ -50,7 +50,7 @@ func databasePlanFixture() (productionDatabaseConfig, databaseadmission.Record) 
 	identity := func(member string) string {
 		return "spiffe://terrascale.tech/production/terrabase-member/" + cluster + "/" + member
 	}
-	config := productionDatabaseConfig{Environment: "production", Cluster: cluster, Regions: []productionDatabaseRegion{{Region: "GRU", Writer: productionDatabaseHost{identity(member2), member2}, Follower: productionDatabaseHost{identity(member1), member1}, Vault: keylease.ProvisionTarget{LeaseSeconds: 60, NotAfter: time.Now().Add(time.Hour)}}}}
+	config := productionDatabaseConfig{Environment: "production", Cluster: cluster, Regions: []productionDatabaseRegion{{Region: "GRU", Writer: productionDatabaseHost{ServerIdentity: identity(member2), MemberID: member2}, Follower: productionDatabaseHost{ServerIdentity: identity(member1), MemberID: member1}, Vault: keylease.ProvisionTarget{LeaseSeconds: 60, NotAfter: time.Now().Add(time.Hour)}}}}
 	record := databaseadmission.Record{Request: databaseadmission.Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Name: "orders", OperationID: "create-orders", Regions: []string{"GRU"}}, DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAF", KeyVersion: "01ARZ3NDEKTSV4RRFFQ69G5FAG", State: "accepted"}
 	return config, record
 }
@@ -187,7 +187,7 @@ func TestDatabasePlanAdvancesAllClusterMembersWithoutResidencyLeak(t *testing.T)
 		identity := func(member string) string {
 			return "spiffe://terrascale.tech/production/terrabase-member/" + config.Cluster + "/" + member
 		}
-		config.Regions = append(config.Regions, productionDatabaseRegion{Region: region, Writer: productionDatabaseHost{identity(writer), writer}, Follower: productionDatabaseHost{identity(follower), follower}, Vault: config.Regions[0].Vault})
+		config.Regions = append(config.Regions, productionDatabaseRegion{Region: region, Writer: productionDatabaseHost{ServerIdentity: identity(writer), MemberID: writer}, Follower: productionDatabaseHost{ServerIdentity: identity(follower), MemberID: follower}, Vault: config.Regions[0].Vault})
 	}
 	// Use valid canonical Crockford ULIDs (L is not an allowed digit).
 	config.Regions[2].Writer.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAN"
