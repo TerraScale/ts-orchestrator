@@ -33,7 +33,7 @@ func planDatabaseUsage(record databaseadmission.Record, records []databaseadmiss
 	var proposal *pb.PlacementProposal
 	var declarations []*pb.PlacementDatabaseDeclaration
 	for _, target := range record.PlacementTargets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if len(target.Proposal) == 0 || proto.Unmarshal(target.Proposal, stage) != nil {
 			return nil, databaseadmission.ErrInvalid
 		}

@@ -112,10 +112,13 @@ type productionGlobalWorkerConfig struct {
 	Restore             productionRestoreConfig
 	Placement           productionPlacementConfig
 	PlacementTransition productionPlacementTransitionConfig
-	KV                  *cloudflare.KVWriter
-	ServiceIdentity     *serviceidentityrotation.Coordinator
-	Database            productionDatabaseConfig
-	AuthBootstrap       productionAuthBootstrapConfig
+	// KV is mandatory for GRU workers. Regional delivery may leave the rollout
+	// ordering hook unset; only this lease-owned periodic writer publishes the
+	// global edge maps.
+	KV              *cloudflare.KVWriter
+	ServiceIdentity *serviceidentityrotation.Coordinator
+	Database        productionDatabaseConfig
+	AuthBootstrap   productionAuthBootstrapConfig
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan

@@ -69,6 +69,9 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 	if (g != nil) != (workerPlan != nil) {
 		return nil, errors.New("production deployment and global NATS role must agree")
 	}
+	if g != nil {
+		return nil, errors.New("production global admission requires TerraBase reaper and restore lifecycle providers")
+	}
 	return &admittedProductionRuntime{construct: func(constructCtx context.Context) (*productionRuntime, error) {
 		if constructCtx == nil {
 			return nil, errors.New("production runtime construction requires context")
@@ -92,7 +95,11 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 				}
 				conn, e = dialBootstrapStore(constructCtx, bootstrap.ControlNATSStore{URL: credentials.URL, Options: credentials.Options})
 				_ = credentials.Close()
+				err = e
 				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("production regional NATS connection: %w", err)
 			}
 			if conn == nil {
 				return nil, errors.New("production delivery requires an admitted regional NATS connection")
@@ -125,15 +132,6 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 			_ = constructed.Close()
 			_ = closeConn()
 			return nil, err
-		}
-		if workerPlan != nil {
-			// The lifecycle producer adapters are deliberately not fabricated here.
-			// The deployment is admitted, but global workers remain unavailable until
-			// the assigned reaper/restore producers are supplied.
-			runtime.connection = workerPlan
-			runtime.plan = &productionGlobalWorkerPlan{CandidateID: "global-controller-gru-" + options.Instance, Construct: func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error) {
-			return productionGlobalWorkerConfig{}, errors.New("production global workers require admitted reaper and restore lifecycle providers")
-		}}
 		}
 		return runtime, nil
 	}}, nil

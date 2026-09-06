@@ -11,7 +11,7 @@ import (
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
-func DrainBinding(operationID string, request *pb.PlacementDrainRequest) (placementtransition.Prepared, error) {
+func DrainBinding(operationID string, request *pb.PlacementControlServiceDrainRequest) (placementtransition.Prepared, error) {
 	var prepared placementtransition.Prepared
 	if !validMetadata(operationID, 128) || request == nil || len(request.PreparedTransition) == 0 || len(request.PreparedTransition) > 256<<10 {
 		return prepared, errors.New("TBEP drain request is invalid")
@@ -29,7 +29,7 @@ func DrainBinding(operationID string, request *pb.PlacementDrainRequest) (placem
 	}
 	return prepared, nil
 }
-func ValidateDrainReceipt(response *pb.PlacementDrainResponse, prepared placementtransition.Prepared, memberIdentity string) error {
+func ValidateDrainReceipt(response *pb.PlacementControlServiceDrainResponse, prepared placementtransition.Prepared, memberIdentity string) error {
 	if response == nil || len(response.SignedReceipt) == 0 || len(response.SignedReceipt) > 64<<10 {
 		return errors.New("TBEP drain returned invalid signed receipt")
 	}
@@ -47,7 +47,7 @@ func ValidateDrainReceipt(response *pb.PlacementDrainResponse, prepared placemen
 	}
 	return nil
 }
-func (c *PlacementClient) Drain(ctx context.Context, operationID string, request *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error) {
+func (c *PlacementClient) Drain(ctx context.Context, operationID string, request *pb.PlacementControlServiceDrainRequest) (*pb.PlacementControlServiceDrainResponse, error) {
 	prepared, err := DrainBinding(operationID, request)
 	if err != nil {
 		return nil, err

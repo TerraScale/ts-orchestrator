@@ -34,8 +34,8 @@ func (c SignedDeliveryRuntimeConfig) Validate() error {
 	if !reflect.DeepEqual(c.Rollout.Spec, c.Mirror.Spec) {
 		return errors.New("signed delivery: rollout and mirror estates differ")
 	}
-	if deliveryNil(c.Rollout.Hosts) || deliveryNil(c.Rollout.Control) || deliveryNil(c.Rollout.Edge) || deliveryNil(c.Rollout.KV) {
-		return errors.New("signed delivery: host inventory, ts-node control, edge and KV publication are required")
+	if deliveryNil(c.Rollout.Hosts) || deliveryNil(c.Rollout.Control) || deliveryNil(c.Rollout.Edge) {
+		return errors.New("signed delivery: host inventory, ts-node control, and edge promotion are required")
 	}
 	gates := map[string]bool{}
 	for _, gate := range c.Rollout.Gates {

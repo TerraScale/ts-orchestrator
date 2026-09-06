@@ -42,6 +42,10 @@ func TestProductionDeliveryRequiresDelegationAndSharesVerifiedArtifactPath(t *te
 	if regional.Mirror != mirror || master.Mirror != mirror || regional.Trust() != config.Trust() || master.Trust() != config.Trust() || master.IntentVerifier != config.Delegation.IntentVerifier || regional.Delegation.MasterVerifier != config.Delegation.MasterVerifier {
 		t.Fatal("composition split artifact preparation, release trust, or intent authority")
 	}
+	regional.Rollout.KV = nil
+	if err := regional.Validate(); err != nil {
+		t.Fatalf("regional delivery must allow the optional KV hook: %v", err)
+	}
 	if master.Signer != config.Master.Signer || master.Fetcher != config.Master.Fetcher {
 		t.Fatal("master lost explicit preparation or signing adapter")
 	}

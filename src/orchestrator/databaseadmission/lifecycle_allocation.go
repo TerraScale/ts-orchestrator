@@ -140,7 +140,7 @@ func allocationProposal(record Record) (*pb.PlacementProposal, []*pb.PlacementDa
 	var proposal *pb.PlacementProposal
 	var declarations []*pb.PlacementDatabaseDeclaration
 	for _, target := range record.PlacementTargets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil {
 			return nil, nil, ErrInvalid
 		}

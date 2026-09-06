@@ -38,11 +38,11 @@ func NewJournal(config authorityjournal.Config) (*Journal, error) {
 	}
 	return &Journal{durable}, nil
 }
-func decode(record Record) (*pb.AuthGroupBootstrapRequest, error) {
+func decode(record Record) (*pb.AuthGroupBootstrapServiceBootstrapRequest, error) {
 	if len(record.Request) == 0 || len(record.Request) > 32<<10 || record.Receipts == nil {
 		return nil, ErrInvalid
 	}
-	request := new(pb.AuthGroupBootstrapRequest)
+	request := new(pb.AuthGroupBootstrapServiceBootstrapRequest)
 	if proto.Unmarshal(record.Request, request) != nil || !validID(request.OperationId) {
 		return nil, ErrInvalid
 	}
@@ -51,7 +51,7 @@ func decode(record Record) (*pb.AuthGroupBootstrapRequest, error) {
 		return nil, ErrInvalid
 	}
 	for target, data := range record.Receipts {
-		receipt := new(pb.AuthGroupBootstrapReceipt)
+		receipt := new(pb.AuthGroupBootstrapServiceBootstrapResponse)
 		if proto.Unmarshal(data, receipt) != nil || ValidateReceipt(receipt, request, target) != nil {
 			return nil, ErrInvalid
 		}
@@ -113,7 +113,7 @@ func (journal *Journal) Accept(ctx context.Context, grant *pb.AuthGroupBootstrap
 		}
 		candidate := proto.Clone(canonical).(*pb.AuthGroupBootstrapGrant)
 		candidate.AuthorityRevision = revision
-		request := &pb.AuthGroupBootstrapRequest{OperationId: candidate.GroupId, Grant: candidate}
+		request := &pb.AuthGroupBootstrapServiceBootstrapRequest{OperationId: candidate.GroupId, Grant: candidate}
 		data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
 		if err != nil {
 			return err
@@ -139,7 +139,7 @@ func (journal *Journal) Accept(ctx context.Context, grant *pb.AuthGroupBootstrap
 		return nil
 	})
 }
-func (journal *Journal) Acknowledge(ctx context.Context, request *pb.AuthGroupBootstrapRequest, target string, receipt *pb.AuthGroupBootstrapReceipt) error {
+func (journal *Journal) Acknowledge(ctx context.Context, request *pb.AuthGroupBootstrapServiceBootstrapRequest, target string, receipt *pb.AuthGroupBootstrapServiceBootstrapResponse) error {
 	if err := ValidateReceipt(receipt, request, target); err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func (journal *Journal) Acknowledge(ctx context.Context, request *pb.AuthGroupBo
 			return ErrConflict
 		}
 		if old, ok := record.Receipts[target]; ok {
-			prior := new(pb.AuthGroupBootstrapReceipt)
+			prior := new(pb.AuthGroupBootstrapServiceBootstrapResponse)
 			if proto.Unmarshal(old, prior) != nil || !proto.Equal(prior, receipt) {
 				return ErrConflict
 			}
@@ -175,13 +175,13 @@ func (journal *Journal) Acknowledge(ctx context.Context, request *pb.AuthGroupBo
 type Durable interface {
 	Load(context.Context, string) (Record, error)
 	Accept(context.Context, *pb.AuthGroupBootstrapGrant) error
-	Acknowledge(context.Context, *pb.AuthGroupBootstrapRequest, string, *pb.AuthGroupBootstrapReceipt) error
+	Acknowledge(context.Context, *pb.AuthGroupBootstrapServiceBootstrapRequest, string, *pb.AuthGroupBootstrapServiceBootstrapResponse) error
 }
 type Target interface {
 	Principal() string
 	ServerIdentity() string
-	Identity(context.Context) (*pb.AuthStorageIdentity, error)
-	Bootstrap(context.Context, *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error)
+	Identity(context.Context) (*pb.AuthGroupBootstrapServiceIdentityResponse, error)
+	Bootstrap(context.Context, *pb.AuthGroupBootstrapServiceBootstrapRequest) (*pb.AuthGroupBootstrapServiceBootstrapResponse, error)
 }
 type Service struct {
 	journal Durable

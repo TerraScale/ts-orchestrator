@@ -464,11 +464,22 @@ func TestComputeApplyRefusesUnknownLifecycleRace(t *testing.T) {
 	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
 	plan := OCIPlan{Actions: []OCIAction{TerminateMemberAction{InstanceID: expected.ID}}}
 	err := reconciler.Apply(context.Background(), declared, ComputeObserved{Members: []ObservedMember{expected}}, plan)
-	if err == nil {
-		t.Fatal("Apply accepted a lifecycle state that changed to unknown")
+	var invalid *provider.InvalidDataError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Apply lifecycle race = %v, want InvalidDataError", err)
 	}
 	if len(gateway.terminations) != 0 {
 		t.Fatalf("termination calls = %v, want none", gateway.terminations)
+	}
+	unknown := expected
+	unknown.LifecycleState = "MYSTERY"
+	gateway.members = []ObservedMember{unknown}
+	err = reconciler.Apply(context.Background(), declared, ComputeObserved{Members: []ObservedMember{unknown}}, plan)
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Apply unknown lifecycle = %v, want InvalidDataError", err)
+	}
+	if len(gateway.terminations) != 0 {
+		t.Fatalf("termination calls after unknown plan = %v, want none", gateway.terminations)
 	}
 }
 

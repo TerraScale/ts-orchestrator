@@ -105,20 +105,31 @@ func (e *OCIQuotaError) Error() string {
 // error. Rejection detail is matched, never propagated: OCI error bodies can
 // echo request metadata.
 func classifyOCIRejection(status int, code, message string) error {
+	return classifyOCIRejectionWithProblemType(status, code, message, "")
+}
+
+func classifyOCIRejectionWithProblemType(status int, code, message, problemType string) error {
 	if status == http.StatusTooManyRequests || code == "TooManyRequests" || code == "LimitExceeded" || code == "QuotaExceeded" {
 		return &OCIQuotaError{Code: code}
 	}
-	if strings.Contains(strings.ToLower(message), "out of host capacity") {
+	if status == http.StatusInternalServerError && strings.EqualFold(strings.TrimSpace(message), "out of host capacity.") &&
+		(problemType == "" || strings.EqualFold(strings.TrimSpace(problemType), "out_of_capacity")) {
 		return &OCIShapeCapacityError{}
+	}
+	if status >= http.StatusInternalServerError && status <= 599 {
+		return &provider.ProviderOutcomeUnknownError{Message: "OCI request outcome is unknown; reconcile after observation"}
 	}
 	return &provider.InvalidDataError{Message: "OCI request was rejected"}
 }
 
 type ociRejectionDocument struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
-	Status      int    `json:"status,omitempty"`
-	TrailerCode string `json:"codeInTrailer"`
+	Code             string `json:"code"`
+	Message          string `json:"message"`
+	Status           int    `json:"status,omitempty"`
+	TrailerCode      string `json:"codeInTrailer"`
+	MessageArguments struct {
+		ProblemType string `json:"problemType"`
+	} `json:"messageArguments"`
 }
 
 // doOCIJSON performs one signed JSON request against a service transport and
@@ -151,7 +162,7 @@ func doOCIJSON[T any](ctx context.Context, transport *provider.OCIHTTPTransport,
 		if rejection.Code == "" {
 			rejection.Code = rejection.TrailerCode
 		}
-		return classifyOCIRejection(resp.StatusCode, rejection.Code, rejection.Message)
+		return classifyOCIRejectionWithProblemType(resp.StatusCode, rejection.Code, rejection.Message, rejection.MessageArguments.ProblemType)
 	}
 	if out == nil || len(raw) == 0 {
 		return nil

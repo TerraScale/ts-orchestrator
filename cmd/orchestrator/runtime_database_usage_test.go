@@ -31,7 +31,7 @@ func usagePlanFixture(t *testing.T) (databaseadmission.Record, []databaseadmissi
 		records = append(records, databaseadmission.Record{Request: request, DatabaseID: id, CreatedAt: now.Add(-time.Minute)})
 		resources = append(resources, databaselifecycle.Resource{Identity: databaselifecycle.Identity{Environment: env, OrganizationID: tenant, ProjectID: project, DatabaseID: id}, Regions: []string{"FRA", "GRU"}, CreatedAt: now.Add(-time.Minute), RoutingComplete: true, Streams: []databaselifecycle.Stream{{Region: "GRU", Partition: "p-" + id, Epoch: 7, StartedAt: now.Add(-time.Second)}, {Region: "FRA", Partition: "p-" + id, Epoch: 7, StartedAt: now.Add(-time.Second)}}})
 	}
-	stageBytes, err := proto.Marshal(&pb.PlacementStageRequest{Proposal: proposal, Declarations: declarations})
+	stageBytes, err := proto.Marshal(&pb.PlacementControlServiceStageRequest{Proposal: proposal, Declarations: declarations})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestPlanDatabaseUsageRejectsStreamAndProposalChanges(t *testing.T) {
 		t.Fatal("accepted stream epoch mismatch")
 	}
 	record, records, resources, now = usagePlanFixture(t)
-	stage := new(pb.PlacementStageRequest)
+	stage := new(pb.PlacementControlServiceStageRequest)
 	if err := proto.Unmarshal(record.PlacementTargets[0].Proposal, stage); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestPlanDatabaseUsageRejectsStreamAndProposalChanges(t *testing.T) {
 func TestPlanDatabaseUsageAcceptsHostLocalRevisionDifferences(t *testing.T) {
 	record, records, resources, now := usagePlanFixture(t)
 	for i := range record.PlacementTargets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if err := proto.Unmarshal(record.PlacementTargets[i].Proposal, stage); err != nil {
 			t.Fatal(err)
 		}

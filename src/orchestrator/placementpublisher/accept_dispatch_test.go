@@ -13,7 +13,7 @@ import (
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
-func acceptanceTestRequest(t *testing.T) *pb.PlacementAcceptRequest {
+func acceptanceTestRequest(t *testing.T) *pb.PlacementControlServiceAcceptRequest {
 	t.Helper()
 	payload, err := json.Marshal(placementtransition.Proof{SchemaVersion: 1, Kind: "accepted_epoch", Request: placementtransition.Request{OperationID: "proof-op", Epoch: 2, Generation: 3}, AuthorityEpoch: 5, JournalRevision: 8})
 	if err != nil {
@@ -23,22 +23,22 @@ func acceptanceTestRequest(t *testing.T) *pb.PlacementAcceptRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &pb.PlacementAcceptRequest{ProposalRevision: 9, Proof: envelope}
+	return &pb.PlacementControlServiceAcceptRequest{ProposalRevision: 9, Proof: envelope}
 }
 
 type acceptanceTestTarget struct {
 	fakeTarget
-	request *pb.PlacementAcceptRequest
+	request *pb.PlacementControlServiceAcceptRequest
 	effect  int
 	unknown bool
 }
 
-func (target *acceptanceTestTarget) Accept(_ context.Context, id string, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
+func (target *acceptanceTestTarget) Accept(_ context.Context, id string, request *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error) {
 	if target.request != nil && !proto.Equal(target.request, request) {
 		return nil, errors.New("proof retry changed")
 	}
 	if target.request == nil {
-		target.request = proto.Clone(request).(*pb.PlacementAcceptRequest)
+		target.request = proto.Clone(request).(*pb.PlacementControlServiceAcceptRequest)
 		target.effect++
 	}
 	result, err := tbep.AcceptanceBinding(id, request)

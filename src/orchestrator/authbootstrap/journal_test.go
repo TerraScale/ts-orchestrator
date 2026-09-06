@@ -26,7 +26,7 @@ func testGrant() *pb.AuthGroupBootstrapGrant {
 type fakeTarget struct {
 	grant               *pb.AuthGroupBootstrapGrant
 	voter               *pb.AuthGroupVoter
-	receipt             *pb.AuthGroupBootstrapReceipt
+	receipt             *pb.AuthGroupBootstrapServiceBootstrapResponse
 	effects, identities int
 	unknown             bool
 	lostDisk            bool
@@ -36,17 +36,17 @@ func (target *fakeTarget) Principal() string {
 	return "spiffe://terrascale.tech/production/orchestrator/" + target.voter.Region
 }
 func (target *fakeTarget) ServerIdentity() string { return target.voter.SpiffeUri }
-func (target *fakeTarget) Identity(context.Context) (*pb.AuthStorageIdentity, error) {
+func (target *fakeTarget) Identity(context.Context) (*pb.AuthGroupBootstrapServiceIdentityResponse, error) {
 	target.identities++
-	return &pb.AuthStorageIdentity{Environment: target.grant.Environment, Cluster: target.grant.Cluster, Member: target.voter.Member, StorageIncarnation: target.voter.Member}, nil
+	return &pb.AuthGroupBootstrapServiceIdentityResponse{Environment: target.grant.Environment, Cluster: target.grant.Cluster, Member: target.voter.Member, StorageIncarnation: target.voter.Member}, nil
 }
-func (target *fakeTarget) Bootstrap(_ context.Context, request *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error) {
+func (target *fakeTarget) Bootstrap(_ context.Context, request *pb.AuthGroupBootstrapServiceBootstrapRequest) (*pb.AuthGroupBootstrapServiceBootstrapResponse, error) {
 	if target.lostDisk {
 		return nil, ErrConflict
 	}
 	if target.receipt == nil {
 		target.effects++
-		target.receipt = &pb.AuthGroupBootstrapReceipt{GroupId: request.Grant.GroupId, Generation: 1, AuthorityRevision: request.Grant.AuthorityRevision, StorageIncarnation: target.voter.Member, Status: 1, Grant: proto.Clone(request.Grant).(*pb.AuthGroupBootstrapGrant), OperationId: request.OperationId}
+		target.receipt = &pb.AuthGroupBootstrapServiceBootstrapResponse{GroupId: request.Grant.GroupId, Generation: 1, AuthorityRevision: request.Grant.AuthorityRevision, StorageIncarnation: target.voter.Member, Status: 1, Grant: proto.Clone(request.Grant).(*pb.AuthGroupBootstrapGrant), OperationId: request.OperationId}
 	}
 	if target.unknown {
 		target.unknown = false

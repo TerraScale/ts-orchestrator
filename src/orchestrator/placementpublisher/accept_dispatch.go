@@ -24,7 +24,7 @@ func AcceptedHostSubject(identity string) (string, error) {
 }
 
 type AcceptanceTarget interface {
-	Accept(context.Context, string, *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error)
+	Accept(context.Context, string, *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error)
 	Principal() string
 	ServerIdentity() string
 }
@@ -33,7 +33,7 @@ type acceptanceDispatch struct {
 	Request                                []byte
 }
 
-func (target *RemoteTarget) Accept(ctx context.Context, id string, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
+func (target *RemoteTarget) Accept(ctx context.Context, id string, request *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error) {
 	expected, err := tbep.AcceptanceBinding(id, request)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (target *RemoteTarget) Accept(ctx context.Context, id string, request *pb.P
 		}
 		return nil, status.Error(codes.Code(reply.Code), "host refused accepted placement proof")
 	}
-	receipt := new(pb.PlacementAcceptanceResponse)
+	receipt := new(pb.PlacementControlServiceAcceptResponse)
 	if proto.Unmarshal(reply.Receipt, receipt) != nil {
 		return nil, ErrInvalidConfig
 	}
@@ -123,7 +123,7 @@ func StartAcceptanceHostBridge(ctx context.Context, connection *nats.Conn, targe
 			reply := dispatchReply{Code: int32(codes.InvalidArgument)}
 			var dispatch acceptanceDispatch
 			if len(message.Data) <= maximumDispatchBytes && json.Unmarshal(message.Data, &dispatch, json.RejectUnknownMembers(true)) == nil && dispatch.ServerIdentity == target.ServerIdentity() && dispatch.Principal == target.Principal() {
-				request := new(pb.PlacementAcceptRequest)
+				request := new(pb.PlacementControlServiceAcceptRequest)
 				if proto.Unmarshal(dispatch.Request, request) == nil {
 					expected, err := tbep.AcceptanceBinding(dispatch.OperationID, request)
 					if err == nil {

@@ -14,7 +14,7 @@ import (
 
 type readinessCollectorTarget struct {
 	identity string
-	request  *pb.PlacementReadinessRequest
+	request  *pb.PlacementControlServiceReadinessRequest
 	failure  error
 	calls    int
 }
@@ -23,14 +23,14 @@ func (t *readinessCollectorTarget) Principal() string {
 	return "spiffe://terrascale.tech/production/orchestrator/a"
 }
 func (t *readinessCollectorTarget) ServerIdentity() string { return t.identity }
-func (t *readinessCollectorTarget) Readiness(_ context.Context, request *pb.PlacementReadinessRequest) (*pb.PlacementDrainResponse, error) {
+func (t *readinessCollectorTarget) Readiness(_ context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceReadinessResponse, error) {
 	t.calls++
 	t.request = request
 	if t.failure != nil {
 		return nil, t.failure
 	}
 	raw, _ := json.Marshal(databaseadmission.SignedReadiness{KeyID: "key", Payload: []byte(`{"actual":"raw producer evidence"}`), Signature: make([]byte, 64)})
-	return &pb.PlacementDrainResponse{SignedReceipt: raw}, nil
+	return &pb.PlacementControlServiceReadinessResponse{SignedReceipt: raw}, nil
 }
 func TestReadinessCollectorDiscardsPartialAndPreservesChallenge(t *testing.T) {
 	a := &readinessCollectorTarget{identity: "spiffe://terrascale.tech/production/terrabase/a"}
