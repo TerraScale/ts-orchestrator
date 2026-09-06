@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -69,7 +69,7 @@ func NewPolicyHandler(receiver PolicyReceiver, serviceKey string) (http.Handler,
 		providedSignature := r.Header.Get("x-terrascale-policy-signature")
 		mac := hmac.New(sha256.New, []byte(serviceKey))
 		_, _ = mac.Write(body)
-		expectedSignature := hex.EncodeToString(mac.Sum(nil))
+		expectedSignature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 		if len(r.Header.Values("x-terrascale-policy-signature")) != 1 || !hmac.Equal([]byte(expectedSignature), []byte(providedSignature)) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
