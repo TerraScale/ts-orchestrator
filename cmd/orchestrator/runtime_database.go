@@ -269,6 +269,9 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 			}
 		}
 	}
+	if err := validateDatabaseDeclarationsAgainstProposal(declarations, proposal); err != nil {
+		return databaseadmission.Plan{}, err
+	}
 	canonical, err := tbep.CanonicalPlacement(proposal)
 	if err != nil {
 		return databaseadmission.Plan{}, fmt.Errorf("runtime database plan: %w", err)
@@ -297,8 +300,9 @@ func databasePlacementDeclarations(environment string, records []databaseadmissi
 		regions                   []string
 	}
 	declarations := map[string]scope{}
+	databaseOwners := map[string]string{}
 	add := func(record databaseadmission.Record) error {
-		if record.Request.Environment != environment || record.Request.TenantID == "" || record.Request.ProjectID == "" || record.DatabaseID == "" || len(record.Request.Regions) == 0 {
+		if record.Request.Environment != environment || databaseadmission.ValidateRequest(record.Request) != nil || record.DatabaseID == "" {
 			return databaseadmission.ErrInvalid
 		}
 		regions := slices.Clone(record.Request.Regions)
@@ -309,6 +313,11 @@ func databasePlacementDeclarations(environment string, records []databaseadmissi
 			}
 		}
 		key := record.Request.TenantID + "\x00" + record.Request.ProjectID + "\x00" + record.DatabaseID
+		owner := record.Request.TenantID + "\x00" + record.Request.ProjectID
+		if prior, ok := databaseOwners[record.DatabaseID]; ok && prior != owner {
+			return databaseadmission.ErrConflict
+		}
+		databaseOwners[record.DatabaseID] = owner
 		candidate := scope{tenant: record.Request.TenantID, project: record.Request.ProjectID, database: record.DatabaseID, regions: regions}
 		if prior, ok := declarations[key]; ok && (!slices.Equal(prior.regions, candidate.regions) || prior.tenant != candidate.tenant || prior.project != candidate.project || prior.database != candidate.database) {
 			return databaseadmission.ErrConflict
@@ -336,6 +345,45 @@ func databasePlacementDeclarations(environment string, records []databaseadmissi
 		out = append(out, &pb.PlacementDatabaseDeclaration{Tenant: declaration.tenant, Project: declaration.project, Database: declaration.database, SelectedRegions: declaration.regions})
 	}
 	return out, nil
+}
+
+func validateDatabaseDeclarationsAgainstProposal(declarations []*pb.PlacementDatabaseDeclaration, proposal *pb.PlacementProposal) error {
+	declared := make(map[string][]string, len(declarations))
+	for _, declaration := range declarations {
+		if declaration == nil || declaration.Tenant == "" || declaration.Project == "" || declaration.Database == "" || len(declaration.SelectedRegions) == 0 {
+			return databaseadmission.ErrInvalid
+		}
+		key := declaration.Tenant + "\x00" + declaration.Project + "\x00" + declaration.Database
+		if _, exists := declared[key]; exists {
+			return databaseadmission.ErrConflict
+		}
+		regions := slices.Clone(declaration.SelectedRegions)
+		slices.Sort(regions)
+		for i := 1; i < len(regions); i++ {
+			if regions[i] == regions[i-1] {
+				return databaseadmission.ErrInvalid
+			}
+		}
+		declared[key] = regions
+	}
+	assigned := make(map[string][]string)
+	for _, assignment := range proposal.GetAssignments() {
+		if assignment == nil || assignment.Tenant == "" || assignment.Project == "" || assignment.Database == "" || assignment.Region == "" {
+			return databaseadmission.ErrInvalid
+		}
+		key := assignment.Tenant + "\x00" + assignment.Project + "\x00" + assignment.Database
+		assigned[key] = append(assigned[key], assignment.Region)
+	}
+	if len(declared) != len(assigned) {
+		return databaseadmission.ErrConflict
+	}
+	for key, regions := range assigned {
+		slices.Sort(regions)
+		if !slices.Equal(declared[key], regions) {
+			return databaseadmission.ErrConflict
+		}
+	}
+	return nil
 }
 
 // Unreachable hosts retain their durable intent and retry. Authority loss and

@@ -115,6 +115,8 @@ func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
 		}
 		placements[target.ServerIdentity] = placementpublisher.Record{Request: target.Proposal, Receipt: receipt}
 	}
+	record.State = "ready"
+	journal.records = []databaseadmission.Record{record}
 	planned, err := config.plan(t.Context(), next, journal, placements)
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +239,23 @@ func TestDatabasePlanCarriesCanonicalDeclarationsForPriorAndCurrentScopes(t *tes
 	prior.State = "ready"
 	current.State = "accepted"
 	j := &databasePlanJournal{records: []databaseadmission.Record{prior}}
-	plan, err := config.plan(t.Context(), current, j, databasePlacementJournal{})
+	priorPlan, err := config.plan(t.Context(), prior, &databasePlanJournal{}, databasePlacementJournal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	placements := databasePlacementJournal{}
+	for _, target := range priorPlan.Placements {
+		stage := new(pb.PlacementStageRequest)
+		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
+			t.Fatal(err)
+		}
+		receipt, err := proto.Marshal(&pb.PlacementProposalResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING})
+		if err != nil {
+			t.Fatal(err)
+		}
+		placements[target.ServerIdentity] = placementpublisher.Record{Request: target.Proposal, Receipt: receipt}
+	}
+	plan, err := config.plan(t.Context(), current, j, placements)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,5 +280,36 @@ func TestDatabasePlanCarriesCanonicalDeclarationsForPriorAndCurrentScopes(t *tes
 		if !proto.Equal(stage, memberStage) {
 			t.Fatal("storage and placement stage declarations differ")
 		}
+	}
+}
+
+func TestDatabasePlanRejectsDatabaseOwnerCollision(t *testing.T) {
+	config, current := databasePlanFixture()
+	prior := current
+	prior.State = "ready"
+	prior.Request.TenantID = "01ARZ3NDEKTSV4RRFFQ69G5FAH"
+	if _, err := config.plan(t.Context(), current, &databasePlanJournal{records: []databaseadmission.Record{prior}}, databasePlacementJournal{}); !errors.Is(err, databaseadmission.ErrConflict) {
+		t.Fatalf("owner collision error = %v", err)
+	}
+}
+
+func TestDatabasePlanRejectsMissingPriorAssignment(t *testing.T) {
+	config, current := databasePlanFixture()
+	prior := current
+	prior.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAH"
+	prior.Request.Name = "invoices"
+	prior.State = "ready"
+	if _, err := config.plan(t.Context(), current, &databasePlanJournal{records: []databaseadmission.Record{prior}}, databasePlacementJournal{}); !errors.Is(err, databaseadmission.ErrConflict) {
+		t.Fatalf("missing prior assignment error = %v", err)
+	}
+}
+
+func TestDatabasePlanRejectsConflictingResidencyDeclaration(t *testing.T) {
+	config, current := databasePlanFixture()
+	prior := current
+	prior.State = "ready"
+	prior.Request.Regions = []string{"SFO"}
+	if _, err := config.plan(t.Context(), current, &databasePlanJournal{records: []databaseadmission.Record{prior}}, databasePlacementJournal{}); !errors.Is(err, databaseadmission.ErrConflict) {
+		t.Fatalf("residency conflict error = %v", err)
 	}
 }

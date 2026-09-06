@@ -182,7 +182,39 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 
 func TestNoCloudOmitsObservationForPendingEngine(t *testing.T) {
 	spec := validNoCloudSpec(t)
-	spec.TSNode.Engine = nil
+	manifest, err := hostmanifest.ParseHostManifest(spec.TSNode.DesiredHostManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := []vmengineconfig.Binding{
+		{NodeID: "gru-member-1", Region: "GRU", Address: spec.Address},
+		{NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
+		{NodeID: "sfo-member-1", Region: "SFO", Address: "10.77.1.10"},
+		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
+	}
+	d, path := testengineconfig.DatabaseDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
+	d.Databases[0].Region = "SFO"
+	d.Databases[0].SelectedRegions = []string{"SFO"}
+	for i := range d.Hosts[:2] {
+		d.Hosts[i].ObserverDatabase = ""
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	materials, err := vmengineconfig.Load(path, d.ArtifactSHA256, d.Release, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, material := range materials {
+			material.Clear()
+		}
+	}()
+	spec.TSNode.Engine = materials[spec.InstanceID]
 	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
 	if err != nil {
 		t.Fatal(err)
