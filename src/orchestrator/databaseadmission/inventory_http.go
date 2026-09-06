@@ -57,7 +57,7 @@ func admissionInventory(state journalState, scope InventoryScope) (AdmissionInve
 	out := AdmissionInventory{InventoryScope: scope, Complete: true, Operations: []InventoryOperation{}, RetiredOperationIDs: []string{}, Resources: []InventoryResource{}}
 	deleting := map[string]bool{}
 	for _, d := range state.Deletions {
-		if d.State == "stopping" {
+		if d.State == "preparing" || d.State == "stopping" || d.State == "edge_pending" || d.State == "cleanup_pending" {
 			for _, target := range d.Targets {
 				deleting[databaselifecycle.Key(target.Stop.Identity)] = true
 			}

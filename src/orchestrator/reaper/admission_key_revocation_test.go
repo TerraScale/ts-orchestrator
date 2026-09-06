@@ -23,6 +23,9 @@ func revocationRecordFixture(t *testing.T) databaseadmission.Record {
 	for _, member := range members {
 		r.Targets = append(r.Targets, databaseadmission.Target{ServerIdentity: "spiffe://terrascale.tech/production/terrabase-member/01ARZ3NDEKTSV4RRFFQ69G5FAV/" + member, MemberID: member, Region: "GRU", Provision: provision, Proposal: proposal})
 	}
+	for _, target := range r.Targets {
+		r.PlacementTargets = append(r.PlacementTargets, databaseadmission.PlacementTarget{ServerIdentity: target.ServerIdentity, MemberID: target.MemberID, Region: target.Region, Proposal: target.Proposal})
+	}
 	if err := databaseadmission.ValidateRecord(r); err != nil {
 		t.Fatal(err)
 	}

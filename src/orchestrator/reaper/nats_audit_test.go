@@ -46,6 +46,7 @@ func TestNATSAuditRestartRetryAndLeaseFence(t *testing.T) {
 	cluster.stop()
 	cluster.restart(t)
 	connection = cluster.connect(t)
+	_ = openReaperTestLeaseStore(t, ctx, connection, false)
 	sink, err = NewNATSAuditSink(NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId})
 	if err != nil {
 		t.Fatal(err)

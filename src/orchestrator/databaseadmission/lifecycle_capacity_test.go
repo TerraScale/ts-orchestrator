@@ -17,6 +17,7 @@ func capacitySize(t *testing.T, state journalState) int {
 	}
 	reserved := state
 	reserveLifecycleCapacity(&reserved)
+	reserveDeletionCapacity(&reserved)
 	data, err := json.Marshal(reserved)
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +52,13 @@ func TestLifecycleTerminalCapacityReservedBeforeEffects(t *testing.T) {
 	deletion, err := journal.BeginDeletion(t.Context(), request, cutoff, cutoff.Add(30*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, target := range deletion.Targets {
+		preparedAt := deletion.RequestedAt.UTC().Truncate(time.Millisecond)
+		deletion, err = journal.RecordDeletionPreparation(t.Context(), request, DeletionPreparation{Identity: target.Stop.Identity, OperationID: target.Stop.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: preparedAt}, preparedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, target := range deletion.Targets {
 		if _, err := journal.RecordDeletionStop(t.Context(), request, DeletionReceipt{DeletionStop: target.Stop, AccessRevoked: true, UsageStopped: true}); err != nil {

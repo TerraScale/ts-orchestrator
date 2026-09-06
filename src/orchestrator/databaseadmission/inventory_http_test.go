@@ -70,6 +70,21 @@ func TestInventoryHTTPSAuthenticationScopeAndDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	preparing, err := j.AdmissionInventory(t.Context(), scope)
+	if err != nil || len(preparing.Resources) != 1 || !preparing.Resources[0].Deleting || preparing.Revision == before.Revision {
+		t.Fatalf("preparing deletion missing from inventory: %+v %v", preparing, err)
+	}
+	for _, target := range deletion.Targets {
+		preparedAt := deletion.RequestedAt.UTC().Truncate(time.Millisecond)
+		deletion, err = j.RecordDeletionPreparation(t.Context(), r, DeletionPreparation{Identity: target.Stop.Identity, OperationID: target.Stop.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: preparedAt}, preparedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stopping, err := j.AdmissionInventory(t.Context(), scope)
+	if err != nil || len(stopping.Resources) != 1 || !stopping.Resources[0].Deleting {
+		t.Fatalf("stopping deletion missing from inventory: %+v %v", stopping, err)
+	}
 	pending, err := j.AdmissionInventory(t.Context(), scope)
 	if err != nil {
 		t.Fatal(err)

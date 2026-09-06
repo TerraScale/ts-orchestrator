@@ -110,7 +110,7 @@ func TestCiphertextHostDeliveryPrecedesDurableEngineAdmission(t *testing.T) {
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		catalog, err := keylease.ReadCatalog(config.CatalogPath)
-		if err != nil || len(catalog.Entries) != 1 {
+		if err != nil || len(catalog.Entries) != len(databaseKeyPurposes) {
 			t.Error("engine contacted before wrapped catalog durable", err)
 			http.Error(w, "unavailable", 503)
 			return
