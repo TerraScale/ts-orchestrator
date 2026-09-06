@@ -14,6 +14,7 @@ func TestLifecycleEndpointAdmissionRequiresLoopback(t *testing.T) {
 	}{
 		{name: "loopback", value: "127.0.0.1:8421", want: true},
 		{name: "ipv6 loopback", value: "[::1]:8421", want: true},
+		{name: "private member", value: "10.42.0.17:8421", want: true},
 		{name: "public", value: "198.51.100.1:8421"},
 		{name: "missing port", value: "127.0.0.1"},
 	} {

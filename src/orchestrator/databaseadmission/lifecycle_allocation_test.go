@@ -19,7 +19,7 @@ func allocationFixture(t *testing.T) (*MemoryJournal, Record, time.Time) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	record.CreatedAt = now.Add(-time.Hour)
 	for i := range record.PlacementTargets {
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if err := proto.Unmarshal(record.PlacementTargets[i].Proposal, stage); err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestAllocatePlacementStreamsSkipsDeleted(t *testing.T) {
 
 func TestAllocatePlacementStreamsAtomicMissingScope(t *testing.T) {
 	journal, record, now := allocationFixture(t)
-	stage := new(pb.PlacementControlServiceStageRequest)
+	stage := new(pb.PlacementStageRequest)
 	if err := proto.Unmarshal(record.PlacementTargets[0].Proposal, stage); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func allocationSuccessor(t *testing.T, first Record, now time.Time) Record {
 	second.KeyVersion = "01ARZ3NDEKTSV4RRFFQ69G5FB3"
 	second.CreatedAt = now.Add(-30 * time.Minute)
 	second.Revision = 0
-	stage := new(pb.PlacementControlServiceStageRequest)
+	stage := new(pb.PlacementStageRequest)
 	if err := proto.Unmarshal(first.PlacementTargets[0].Proposal, stage); err != nil {
 		t.Fatal(err)
 	}

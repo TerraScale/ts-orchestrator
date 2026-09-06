@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -179,18 +180,19 @@ func cloneStoreEntry(entry StoreEntry) StoreEntry {
 // Operation is one durable delivery operation: the request, its canonical
 // digest (idempotency), and the terminal receipt once it exists.
 type Operation struct {
-	OperationID   string
-	Request       *Request
-	RequestDigest string
-	State         string
-	Receipt       *Receipt
-	StartedAt     time.Time
-	FinishedAt    time.Time
-	UpdatedAt     time.Time
-	OwnerID       string
-	Generation    uint64
-	LeaseUntil    time.Time
-	Rollout       *RolloutProgress
+	OperationID      string
+	Request          *Request
+	RequestDigest    string
+	State            string
+	Receipt          *Receipt
+	StartedAt        time.Time
+	FinishedAt       time.Time
+	UpdatedAt        time.Time
+	OwnerID          string
+	Generation       uint64
+	LeaseUntil       time.Time
+	Rollout          *RolloutProgress
+	ReleaseSignature []byte
 }
 
 // RolloutProgress is the durable host mutation ledger.
@@ -461,6 +463,41 @@ func (j *Journal) RecordRollout(operationID, requestDigest string, lease Operati
 		if !found {
 			op.Rollout.Hosts = append(op.Rollout.Hosts, RolloutHostProgress{Host: host, PriorDigest: priorDigest, PriorManifestDigest: priorManifest, CandidateDigest: candidate, Mutated: mutated, Completed: completed})
 		}
+		op.UpdatedAt = j.now()
+		value, err := encodeOperation(op)
+		if err != nil {
+			return err
+		}
+		if _, err = j.store.Update(entry.Key, entry.Revision, value); err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrStoreConflict) {
+			return err
+		}
+	}
+	return ErrOperationLeaseActive
+}
+
+func (j *Journal) RecordReleaseSignature(operationID, requestDigest string, lease OperationLease, signature []byte) error {
+	if len(signature) != ed25519.SignatureSize {
+		return errors.New("delivery: release signature has invalid size")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		entry, err := j.store.Get(operationKey(operationID))
+		if err != nil {
+			return err
+		}
+		op, err := decodeOperation(entry, operationID)
+		if err != nil {
+			return err
+		}
+		if op.State != OperationRunning || op.RequestDigest != requestDigest || op.OwnerID != lease.OwnerID || op.Generation != lease.Generation {
+			return ErrOperationLeaseActive
+		}
+		if len(op.ReleaseSignature) != 0 && !bytes.Equal(op.ReleaseSignature, signature) {
+			return errors.New("delivery: release signature changed")
+		}
+		op.ReleaseSignature = bytes.Clone(signature)
 		op.UpdatedAt = j.now()
 		value, err := encodeOperation(op)
 		if err != nil {
@@ -875,6 +912,7 @@ func cloneOperation(operation *Operation) *Operation {
 	if operation.Rollout != nil {
 		copied.Rollout = &RolloutProgress{Hosts: slices.Clone(operation.Rollout.Hosts)}
 	}
+	copied.ReleaseSignature = bytes.Clone(operation.ReleaseSignature)
 	return &copied
 }
 

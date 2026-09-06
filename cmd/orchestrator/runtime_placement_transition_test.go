@@ -34,9 +34,9 @@ func transitionFixture(t *testing.T) (databaseadmission.Record, databasePlacemen
 	for n := range record.PlacementTargets {
 		target := &record.PlacementTargets[n]
 		target.Proposed = true
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		_ = proto.Unmarshal(target.Proposal, stage)
-		receipt := &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
+		receipt := &pb.PlacementProposalResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
 		data, err := proto.Marshal(receipt)
 		if err != nil {
 			t.Fatal(err)

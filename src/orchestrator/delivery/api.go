@@ -312,7 +312,11 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 	if err != nil {
 		return nil, err
 	}
-	artifact, err := verifyArtifact(context.WithoutCancel(ctx), s.config.Fetcher, s.config.Trust(), claimed.Request)
+	recoveryContext := context.WithoutCancel(ctx)
+	if len(claimed.ReleaseSignature) != 0 {
+		recoveryContext = WithPreparedReleaseSignature(recoveryContext, claimed.ReleaseSignature)
+	}
+	artifact, err := verifyArtifact(recoveryContext, s.config.Fetcher, s.config.Trust(), claimed.Request)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +333,10 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := buildReceipt(claimed.Request, RolloutResult{Status: StatusFailed, Checks: []*HealthCheck{{Name: "recovery", Status: "passed"}}, Rollback: rollback}, true)
+	code := "rollout_recovered"
+	message := "The interrupted rollout was recovered and the prior release was restored."
+	remediation := "Inspect the recovery checks before retrying with a fresh operation ID."
+	receipt, err := buildReceipt(claimed.Request, RolloutResult{Status: StatusFailed, Checks: []*HealthCheck{{Name: "recovery", Status: "passed"}}, Rollback: rollback, Error: &Error{Code: &code, Message: &message, Remediation: &remediation}}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -571,6 +578,9 @@ func (s *Executor) deliver(ctx context.Context, request *Request, operation *Ope
 		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
 	}
 	verified = true
+	if err := s.config.Journal.RecordReleaseSignature(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), artifact.Signature); err != nil {
+		return nil, err
+	}
 	fence := fenceFor(operation)
 	check := s.checker(ctx, request)
 	roller := s.config.Rollout

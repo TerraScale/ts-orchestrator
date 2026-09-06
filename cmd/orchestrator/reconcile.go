@@ -306,66 +306,6 @@ type fileKVPlacementSource struct {
 	registered map[string]struct{}
 }
 
-// autoscaleTargetStore stores GRU-authorized scale-out decisions in the same
-// durable, lock/CAS-backed progress journal used by provider reconciliation.
-// It is deliberately only a target projection: OCI reconcile remains the sole
-// owner of provider creation and stable member slots.
-type autoscaleTargetStore struct {
-	store reconcile.ProgressStore
-	cas   reconcile.ProgressCAS
-}
-
-func autoscaleTargetKey(region string) string { return "autoscale-target/" + region }
-
-func (s *autoscaleTargetStore) Load(ctx context.Context, region string) (autoscale.Target, bool, error) {
-	if s == nil || s.store == nil || s.cas == nil || strings.TrimSpace(region) != region || region == "" {
-		return autoscale.Target{}, false, errors.New("reconcile: autoscale target store is unavailable")
-	}
-	record, found, err := s.store.Load(ctx, autoscaleTargetKey(region))
-	if err != nil || !found {
-		return autoscale.Target{}, found, err
-	}
-	var target autoscale.Target
-	if err := json.Unmarshal([]byte(record.Detail), &target); err != nil || target.Region != region {
-		return autoscale.Target{}, false, errors.New("reconcile: autoscale target record is malformed")
-	}
-	return target, true, nil
-}
-
-func (s *autoscaleTargetStore) CompareAndSwap(ctx context.Context, region string, expected *autoscale.Target, next autoscale.Target) error {
-	if s == nil || s.cas == nil || strings.TrimSpace(region) != region || region == "" || next.Region != region {
-		return errors.New("reconcile: autoscale target store is unavailable")
-	}
-	body, err := json.Marshal(next)
-	if err != nil {
-		return err
-	}
-	key := autoscaleTargetKey(region)
-	var prior *reconcile.Progress
-	if expected != nil {
-		current, found, err := s.store.Load(ctx, key)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return reconcile.ErrProgressConflict
-		}
-		var decoded autoscale.Target
-		if err := json.Unmarshal([]byte(current.Detail), &decoded); err != nil || decoded != *expected {
-			return reconcile.ErrProgressConflict
-		}
-		prior = &current
-	}
-	attempt := 1
-	if prior != nil {
-		attempt = prior.Attempt + 1
-	}
-	nextRecord := reconcile.Progress{Key: key, Action: reconcile.ActionUpdate, Ref: region, Attempt: attempt, Outcome: "applied", UpdatedAt: time.Now().UTC(), Detail: string(body)}
-	return s.cas.CompareAndSwap(ctx, key, prior, nextRecord)
-}
-
-var _ autoscale.TargetStore = (*autoscaleTargetStore)(nil)
-
 func newFileKVPlacementSource(path string, registered ...[]string) (*fileKVPlacementSource, error) {
 	path = strings.TrimSpace(path)
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsAny(path, "\r\n\x00") {

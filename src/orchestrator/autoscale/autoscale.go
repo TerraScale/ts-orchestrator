@@ -181,7 +181,7 @@ func validObservations(values []Observation, now time.Time, maxAge time.Duration
 	seenHosts, seenEngines := map[string]struct{}{}, map[string]struct{}{}
 	sequence := values[0].Sequence
 	for _, value := range values {
-		if value.HostID == "" || value.EngineID == "" || value.Sequence <= 0 || value.Sequence != sequence || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity <= 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
+		if value.HostID == "" || value.EngineID == "" || value.Sequence <= 0 || value.Sequence != sequence || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity < 0 || value.QueueCapacity == 0 && value.QueueDepth != 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
 			return false
 		}
 		if _, ok := seenHosts[value.HostID]; ok {
@@ -198,7 +198,7 @@ func validObservations(values []Observation, now time.Time, maxAge time.Duration
 
 func allHigh(values []Observation, config Config) bool {
 	for _, value := range values {
-		if value.CPUPercent < config.CPUThreshold || value.MemoryPercent < config.MemoryThreshold || value.QueueDepth < config.QueueThreshold {
+		if value.CPUPercent < config.CPUThreshold || value.MemoryPercent < config.MemoryThreshold || value.QueueCapacity > 0 && value.QueueDepth < config.QueueThreshold {
 			return false
 		}
 	}

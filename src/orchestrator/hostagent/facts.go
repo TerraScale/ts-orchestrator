@@ -43,7 +43,8 @@ type ComponentFact struct {
 
 // HostFacts is the payload of one heartbeat.
 type HostFacts struct {
-	Engine EngineFacts `json:"engine"`
+	Engine  EngineFacts `json:"engine"`
+	Metrics HostMetrics `json:"metrics"`
 	// State is the node lifecycle state: serving, draining, or quiesced.
 	State string `json:"state"`
 	// ClockOffsetMillis is the signed chrony system-time offset.
@@ -89,7 +90,8 @@ func OsStatfs(path string) (int64, int64, error) {
 
 // HostFactsSourceConfig is the fully explicit facts-source configuration.
 type HostFactsSourceConfig struct {
-	Engine func(context.Context) (EngineFacts, error)
+	Engine  func(context.Context) (EngineFacts, error)
+	Metrics func(context.Context) (HostMetrics, error)
 	// Clock reads the chrony offset.
 	Clock hostplatform.ClockSource
 	// Statfs measures the data volume.
@@ -109,6 +111,7 @@ type HostFactsSourceConfig struct {
 // HostFactsSource samples every heartbeat dimension on demand.
 type HostFactsSource struct {
 	engine         func(context.Context) (EngineFacts, error)
+	metrics        func(context.Context) (HostMetrics, error)
 	clock          hostplatform.ClockSource
 	statfs         StatfsPath
 	dataVolumeRoot string
@@ -139,6 +142,7 @@ func NewHostFactsSource(config HostFactsSourceConfig) (*HostFactsSource, error) 
 	}
 	return &HostFactsSource{
 		engine:         config.Engine,
+		metrics:        config.Metrics,
 		clock:          config.Clock,
 		statfs:         config.Statfs,
 		dataVolumeRoot: config.DataVolumeRoot,
@@ -193,8 +197,15 @@ func (s *HostFactsSource) Sample(
 			engine = sample
 		}
 	}
+	metrics := HostMetrics{}
+	if s.metrics != nil {
+		if sample, err := s.metrics(ctx); err == nil {
+			metrics = sample
+		}
+	}
 	return HostFacts{
 		Engine:            engine,
+		Metrics:           metrics,
 		State:             state,
 		ClockOffsetMillis: clock.OffsetMillis,
 		ClockMeasured:     clock.Measured,

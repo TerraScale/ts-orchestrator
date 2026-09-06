@@ -31,9 +31,6 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 	}
 	for i := len(progress.Hosts) - 1; i >= 0; i-- {
 		h := progress.Hosts[i]
-		if !h.Mutated {
-			continue
-		}
 		state, err := observer.ObserveRelease(ctx, h.Host)
 		if err != nil {
 			return failed(err)

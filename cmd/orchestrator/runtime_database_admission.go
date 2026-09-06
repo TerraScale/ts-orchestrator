@@ -61,7 +61,8 @@ type databaseHostFile struct {
 
 func validLifecycleEndpoint(value string) bool {
 	host, port, err := net.SplitHostPort(value)
-	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || port == "" {
+	ip := net.ParseIP(host)
+	if err != nil || ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) || port == "" {
 		return false
 	}
 	return true
@@ -226,8 +227,8 @@ func databaseAuthorizer(client *http.Client, endpoint, key string) func(context.
 
 // Placement's external ingress has no operation argument. It still admits only
 // an exact proposal durably allocated by the database admission authority.
-func databasePlacementPolicy(journal databaseadmission.Journal) func(context.Context, string, *pb.PlacementControlServiceStageRequest) error {
-	return func(ctx context.Context, host string, proposal *pb.PlacementControlServiceStageRequest) error {
+func databasePlacementPolicy(journal databaseadmission.Journal) func(context.Context, string, *pb.PlacementStageRequest) error {
+	return func(ctx context.Context, host string, proposal *pb.PlacementStageRequest) error {
 		records, err := journal.List(ctx)
 		if err != nil {
 			return err

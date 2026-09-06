@@ -91,7 +91,7 @@ type dispatchReply struct {
 	Code    int32
 }
 
-func (target *RemoteTarget) Stage(ctx context.Context, id string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+func (target *RemoteTarget) Stage(ctx context.Context, id string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 	record, err := NewRecord(id, target.serverIdentity, target.principal, request)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (target *RemoteTarget) Stage(ctx context.Context, id string, request *pb.Pl
 		}
 		return nil, status.Error(codes.Code(reply.Code), "host refused placement proposal")
 	}
-	receipt := new(pb.PlacementControlServiceStageResponse)
+	receipt := new(pb.PlacementProposalResponse)
 	if proto.Unmarshal(reply.Receipt, receipt) != nil {
 		return nil, ErrInvalidConfig
 	}

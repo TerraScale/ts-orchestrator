@@ -16,6 +16,8 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -115,10 +117,13 @@ type productionGlobalWorkerConfig struct {
 	// KV is mandatory for GRU workers. Regional delivery may leave the rollout
 	// ordering hook unset; only this lease-owned periodic writer publishes the
 	// global edge maps.
-	KV              *cloudflare.KVWriter
-	ServiceIdentity *serviceidentityrotation.Coordinator
-	Database        productionDatabaseConfig
-	AuthBootstrap   productionAuthBootstrapConfig
+	KV                  *cloudflare.KVWriter
+	ServiceIdentity     *serviceidentityrotation.Coordinator
+	Database            productionDatabaseConfig
+	AuthBootstrap       productionAuthBootstrapConfig
+	AutoscaleSource     autoscale.ObservationSource
+	AutoscaleRegions    []string
+	ApplyScaleOutTarget func(string, int) error
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -152,6 +157,7 @@ type productionGlobalWorkers struct {
 	authBootstrap   *productionAuthBootstrap
 	kv              *cloudflare.KVWriter
 	serviceIdentity *serviceidentityrotation.Coordinator
+	autoscale       *productionAutoscale
 	workers         []*lifecycle.Service
 	completion      chan struct{}
 }
@@ -215,6 +221,24 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	}
 	if config.Edge == nil {
 		return group, errors.New("runtime global edge provider is required")
+	}
+	if config.AutoscaleSource != nil || config.ApplyScaleOutTarget != nil {
+		if config.AutoscaleSource == nil || config.ApplyScaleOutTarget == nil || len(config.AutoscaleRegions) == 0 {
+			return group, errors.New("runtime autoscale configuration is incomplete")
+		}
+		journal, err := authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "autoscale"}, func() map[string]autoscale.Target { return map[string]autoscale.Target{} }, func(map[string]autoscale.Target) error { return nil })
+		if err != nil {
+			return group, fmt.Errorf("runtime autoscale journal: %w", err)
+		}
+		targets, err := autoscale.NewNATSTargetStore(journal)
+		if err != nil {
+			return group, err
+		}
+		controller, err := autoscale.New(autoscale.Config{Source: config.AutoscaleSource, Targets: targets, Authority: sessionAuthority{check: session.CheckEffectAuthority}, MinMembers: 2, MaxMembers: 1024, CPUThreshold: 80, MemoryThreshold: 80, HighSamples: 3, Cooldown: 10 * time.Minute, ObservationMaxAge: 30 * time.Second, Now: time.Now})
+		if err != nil {
+			return group, fmt.Errorf("runtime autoscale: %w", err)
+		}
+		group.autoscale = &productionAutoscale{controller: controller, regions: append([]string(nil), config.AutoscaleRegions...), apply: config.ApplyScaleOutTarget}
 	}
 
 	epoch := uint64(session.Lease.Epoch)
@@ -374,6 +398,12 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		return err
 	}
 	r.workers = []*lifecycle.Service{
+		lifecycle.NewScheduledService("autoscale", time.Minute, func(runCtx context.Context, _ time.Time) error {
+			if r.autoscale == nil {
+				return nil
+			}
+			return r.autoscale.Reconcile(runCtx)
+		}),
 		lifecycle.NewScheduledService("key rotation", productionRotationInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.rotation.Reconcile(runCtx, productionRotationLead)
 			return err
@@ -417,6 +447,7 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		case <-r.workers[5].Completion():
 		case <-r.workers[6].Completion():
 		case <-r.workers[7].Completion():
+		case <-r.workers[8].Completion():
 		case <-r.database.service.Completion():
 		case <-r.database.inventory.Completion():
 		}

@@ -47,6 +47,10 @@ type fakeRoller struct {
 	gate   chan struct{} // non-nil: block until closed
 }
 
+func (r *fakeRoller) Recover(context.Context, *Request, *ReleaseArtifact, *RolloutProgress) (*Rollback, error) {
+	return &Rollback{Attempted: true, Status: RollbackSucceeded}, nil
+}
+
 type panicAfterMutationRoller struct {
 	mu             sync.Mutex
 	mutated        bool
@@ -375,26 +379,37 @@ func TestDeliveryAPIAuthenticatesReadEndpoints(t *testing.T) {
 	}
 }
 
-func TestDeliveryAPIRecoveryClosesRunningOperationWithoutRerun(t *testing.T) {
+func TestDeliveryAPIRecoveryResumesClaimedOperation(t *testing.T) {
 	request, fetcher, trust, _ := testRelease(t, nil)
+	artifact, err := verifyArtifact(context.Background(), fetcher, trust, request)
+	if err != nil {
+		t.Fatalf("verify exact release: %v", err)
+	}
 	store := &fakeStore{}
 	mirror, err := NewArtifactMirror(estate.Default(), store)
 	if err != nil {
 		t.Fatalf("build mirror: %v", err)
 	}
-	durable := NewInMemoryStore()
-	journal, err := NewDurableJournal(durable)
-	if err != nil {
-		t.Fatalf("build journal: %v", err)
-	}
-	if _, exists, err := journal.Begin(request, OperationLease{OwnerID: "crashed-owner", TTL: time.Minute}); err != nil || exists {
+	journal := NewJournal()
+	now := time.Unix(1_000, 0).UTC()
+	journal.clock = func() time.Time { return now }
+	lease := OperationLease{OwnerID: "crashed-owner", TTL: time.Minute, Generation: 1}
+	operation, exists, err := journal.Begin(request, lease)
+	if err != nil || exists {
 		t.Fatalf("admit operation: exists=%v err=%v", exists, err)
+	}
+	if err := journal.RecordReleaseSignature(request.OperationID, operation.RequestDigest, lease, artifact.Signature); err != nil {
+		t.Fatalf("record release signature: %v", err)
+	}
+	if err := journal.RecordRollout(request.OperationID, operation.RequestDigest, lease, "member-1", request.Rollback.ArtifactDigest, request.Rollback.ManifestDigest, request.Artifact.Digest, true, false); err != nil {
+		t.Fatalf("record host ledger: %v", err)
 	}
 	// Recovery is only valid after the durable lease has expired. This models
 	// a crashed owner while retaining an explicit owner/generation fence.
-	journal.clock = func() time.Time { return time.Now().UTC().Add(time.Hour) }
-	roller := &fakeRoller{}
-	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil }, Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: roller, Journal: journal})
+	journal.clock = func() time.Time { return now.Add(time.Hour) }
+	control := &recoveryObserverControl{state: HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest}}
+	rollout := recoveryRollout(t, control)
+	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil }, Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: rollout, Journal: journal})
 	if err != nil {
 		t.Fatalf("build server: %v", err)
 	}
@@ -422,18 +437,18 @@ func TestDeliveryAPIRecoveryClosesRunningOperationWithoutRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse recovery receipt: %v", err)
 	}
-	if receipt.Status != StatusFailed || receipt.Error == nil || receipt.Error.Code == nil || *receipt.Error.Code != "operation_unknown" {
+	if receipt.Status != StatusFailed || receipt.Rollback == nil || receipt.Rollback.Status != RollbackSucceeded {
 		t.Fatalf("recovery receipt = %+v", receipt)
 	}
 	if err := ValidateReceipt(receipt, request); err != nil {
 		t.Fatalf("recovery receipt is invalid: %v", err)
 	}
 	replay, err := server.Submit(context.Background(), request)
-	if err != nil || replay == nil || replay.Error == nil || replay.Error.Code == nil || *replay.Error.Code != "operation_unknown" {
+	if err != nil || replay == nil || replay.Rollback == nil || replay.Rollback.Status != RollbackSucceeded {
 		t.Fatalf("recovered operation was not an immutable terminal replay: receipt=%+v err=%v", replay, err)
 	}
-	if roller.callCount() != 0 || store.putCount != 0 {
-		t.Fatalf("recovery reran provider work: rollouts=%d mirrors=%d", roller.callCount(), store.putCount)
+	if control.convergeCount() != 1 {
+		t.Fatalf("recovery did not rollback the post-effect host: converges=%d", control.convergeCount())
 	}
 }
 

@@ -1,0 +1,49 @@
+package autoscale
+
+import (
+	"context"
+	"errors"
+
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+)
+
+// NATSTargetStore persists all regional targets in the GRU R3 authority
+// journal. The journal checks the exact live lease and stream revision for
+// every transaction, so a regional worker cannot write after takeover.
+type NATSTargetStore struct {
+	journal *authorityjournal.Journal[map[string]Target]
+}
+
+func NewNATSTargetStore(journal *authorityjournal.Journal[map[string]Target]) (*NATSTargetStore, error) {
+	if journal == nil {
+		return nil, errors.New("autoscale: authority journal is required")
+	}
+	return &NATSTargetStore{journal: journal}, nil
+}
+
+func (s *NATSTargetStore) Load(ctx context.Context, region string) (Target, bool, error) {
+	var result Target
+	var found bool
+	err := s.journal.Transact(ctx, false, func(state *map[string]Target) error {
+		result, found = (*state)[region]
+		return nil
+	})
+	return result, found, err
+}
+
+func (s *NATSTargetStore) CompareAndSwap(ctx context.Context, region string, expected *Target, next Target) error {
+	return s.journal.Transact(ctx, true, func(state *map[string]Target) error {
+		if *state == nil {
+			*state = make(map[string]Target)
+		}
+		current, found := (*state)[region]
+		if expected == nil && found || expected != nil && (!found || *expected != current) {
+			return ErrConflict
+		}
+		if next.Region != region {
+			return errors.New("autoscale: target region mismatch")
+		}
+		(*state)[region] = next
+		return nil
+	})
+}

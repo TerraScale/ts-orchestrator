@@ -422,8 +422,13 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		}
 		engineSample = hostagent.SampleEngine(*configuration.EngineObservation)
 	}
+	metrics, err := hostagent.NewOSHostMetrics(filepath.Join(configuration.DataVolumeRoot, hostmanifest.TsNodeComponentName, "metrics-sequence"))
+	if err != nil {
+		return nil, fmt.Errorf("ts-node: host metrics configuration: %w", err)
+	}
 	facts, err := hostagent.NewHostFactsSource(hostagent.HostFactsSourceConfig{
-		Engine: engineSample,
+		Engine:  engineSample,
+		Metrics: metrics.Sample,
 		Clock: hostplatform.ChronyTrackingSource{
 			ChronycBinary: configuration.ChronycBinary,
 			Timeout:       tsNodeCommandTimeout,

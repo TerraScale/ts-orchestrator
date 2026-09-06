@@ -27,7 +27,7 @@ func readinessFixture(t *testing.T, r Record, nonce string) ([]SignedReadiness, 
 		}
 		keys[target.ServerIdentity] = ReadinessKey{KeyID: target.MemberID, PublicKey: public}
 		private[target.ServerIdentity] = secret
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil {
 			t.Fatal("proposal")
 		}

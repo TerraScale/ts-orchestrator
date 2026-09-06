@@ -32,14 +32,15 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 		result := make([]autoscale.Observation, 0, len(reports))
 		for _, report := range reports {
 			engine := report.Facts.Engine
-			if !engine.Measured || !engine.Serving || report.State != hostagent.NodeStateServing || report.Quiesced || engine.ObservationSequence <= 0 || engine.QueueCapacity <= 0 {
+			metrics := report.Facts.Metrics
+			if !engine.Measured || !engine.Serving || report.State != hostagent.NodeStateServing || report.Quiesced || metrics.ObservationSequence <= 0 {
 				return nil, autoscale.ErrUnavailable
 			}
 			result = append(result, autoscale.Observation{
-				HostID: report.NodeId, EngineID: report.NodeId, Sequence: engine.ObservationSequence,
-				ObservedAt: time.UnixMilli(engine.ObservedAtUnixMS), CPUPercent: engine.CPUPercent,
-				MemoryPercent: engine.MemoryPercent, QueueDepth: engine.QueueDepth,
-				QueueCapacity: engine.QueueCapacity, Healthy: true, Authenticated: true,
+				HostID: report.NodeId, EngineID: report.NodeId, Sequence: metrics.ObservationSequence,
+				ObservedAt: time.UnixMilli(metrics.ObservedAtUnixMS), CPUPercent: metrics.CPUPercent,
+				MemoryPercent: metrics.MemoryPercent, QueueDepth: metrics.QueueDepth,
+				QueueCapacity: metrics.QueueCapacity, Healthy: true, Authenticated: true,
 			})
 		}
 		if len(result) != len(entry.Members) {

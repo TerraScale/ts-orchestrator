@@ -31,7 +31,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			target.Provision.Binding.KeyVersion = r.KeyVersion
 			target.Provision.Binding.TenantID = r.Request.TenantID
 			target.Provision.Binding.ProjectID = r.Request.ProjectID
-			stage := new(pb.PlacementControlServiceStageRequest)
+			stage := new(pb.PlacementStageRequest)
 			if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 				return Plan{}, err
 			}
@@ -51,7 +51,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			placements = append(placements, PlacementTarget{ServerIdentity: target.ServerIdentity, MemberID: target.MemberID, Region: target.Region, Proposal: target.Proposal})
 		}
 		return Plan{Members: targets, Placements: placements}, nil
-	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) error { return nil }, ActivatePlacement: func(context.Context, Record) error { return nil }}
+	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(context.Context, string, string, *pb.PlacementStageRequest) error { return nil }, ActivatePlacement: func(context.Context, Record) error { return nil }}
 }
 func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) {
 	journal := NewMemoryJournal()
@@ -95,7 +95,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	}
 	proposalCalls := map[string]int{}
 	loseProposal := true
-	config.AcceptPlacement = func(_ context.Context, host, operation string, _ *pb.PlacementControlServiceStageRequest) error {
+	config.AcceptPlacement = func(_ context.Context, host, operation string, _ *pb.PlacementStageRequest) error {
 		durable, _, _ := journal.Load(t.Context(), ScopeKey(request))
 		for _, target := range durable.Targets {
 			if !target.Installed {
