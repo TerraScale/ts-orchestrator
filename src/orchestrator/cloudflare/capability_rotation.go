@@ -470,6 +470,9 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 	if len(hostnames) == 0 {
 		return capabilityEffectError()
 	}
+	if snippetName == GateSnippetName && !requiredGateHosts(hostnames) {
+		return capabilityEffectError()
+	}
 	for _, hostname := range hostnames {
 		if hostname == "" || strings.TrimSpace(hostname) != hostname || strings.ContainsAny(hostname, "/:?#@*\\") {
 			return capabilityEffectError()
@@ -514,6 +517,19 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 		seen[identity] = true
 	}
 	return nil
+}
+
+func requiredGateHosts(hosts []string) bool {
+	want := map[string]bool{"sync.api.terrascale.tech": true, "gru.sync.api.terrascale.tech": true, "sfo.sync.api.terrascale.tech": true, "fra.sync.api.terrascale.tech": true}
+	if len(hosts) != len(want) {
+		return false
+	}
+	for _, host := range hosts {
+		if !want[strings.ToLower(host)] {
+			return false
+		}
+	}
+	return true
 }
 
 func containsFold(values []string, value string) bool {

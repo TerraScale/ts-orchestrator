@@ -75,7 +75,7 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	if pending {
 		status = "pending"
 	}
-	return writebudget.PolicyResult{Status: status, AccountRevision: envelope.AccountRevision, CycleID: envelope.CycleID, Checksum: envelope.Checksum}, nil
+	return writebudget.PolicyResult{Status: status, AccountRevision: envelope.AccountRevision, PolicyGeneration: envelope.PolicyGeneration, CycleID: envelope.CycleID, Checksum: envelope.Checksum}, nil
 }
 
 // newRuntimeWriteBudget binds the authority to the exact live current GRU

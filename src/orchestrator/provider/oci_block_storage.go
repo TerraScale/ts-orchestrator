@@ -52,7 +52,7 @@ func validateVolumeCreate(request VolumeCreateRequest) error {
 	if request.SizeGiB < 50 || request.SizeGiB > 32*1024 || request.VPUsPerGiB < 10 || request.VPUsPerGiB > 120 {
 		return &errs.Argument{Message: "volume create size or performance is invalid"}
 	}
-	if _, err := safeFreeformTags(request.Tags); err != nil {
+	if _, err := safeFreeformTags(request.Tags, false); err != nil {
 		return err
 	}
 	return expectJSONMutation(request.Mutation, "volume.create", VolumeCreateMutationScope(request), volumeCreateBinding(request))
@@ -106,7 +106,7 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 		}
 		return volume, nil
 	}
-	tags, _ := safeFreeformTags(request.Tags)
+	tags, _ := safeFreeformTags(request.Tags, false)
 	payload := struct {
 		CompartmentID      string            `json:"compartmentId"`
 		AvailabilityDomain string            `json:"availabilityDomain"`

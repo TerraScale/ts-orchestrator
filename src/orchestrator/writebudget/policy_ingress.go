@@ -22,20 +22,22 @@ var ErrPolicyTransport = errors.New("writebudget: policy transport failure")
 // JSON so billing can add fields without making regional writers billing
 // customers or collaborators.
 type PolicyEnvelope struct {
-	SchemaVersion   int            `json:"schemaVersion"`
-	OrganizationID  string         `json:"organizationId"`
-	CycleID         string         `json:"cycleId"`
-	AccountRevision string         `json:"accountRevision"`
-	Policy          map[string]any `json:"policy"`
-	Checksum        string         `json:"checksum"`
+	SchemaVersion    int            `json:"schemaVersion"`
+	OrganizationID   string         `json:"organizationId"`
+	CycleID          string         `json:"cycleId"`
+	AccountRevision  string         `json:"accountRevision"`
+	PolicyGeneration int            `json:"policyGeneration"`
+	Policy           map[string]any `json:"policy"`
+	Checksum         string         `json:"checksum"`
 }
 
 type PolicyResult struct {
-	Status          string `json:"status"`
-	AccountRevision string `json:"accountRevision"`
-	CycleID         string `json:"cycleId"`
-	Checksum        string `json:"checksum"`
-	Deadline        string `json:"deadline,omitempty"`
+	Status           string `json:"status"`
+	AccountRevision  string `json:"accountRevision"`
+	CycleID          string `json:"cycleId"`
+	PolicyGeneration int    `json:"policyGeneration"`
+	Checksum         string `json:"checksum"`
+	Deadline         string `json:"deadline,omitempty"`
 }
 
 // PolicyReceiver is implemented by the GRU authority owner, which must apply
@@ -76,7 +78,7 @@ func NewPolicyHandler(receiver PolicyReceiver, serviceKey string) (http.Handler,
 			return
 		}
 		var policy PolicyEnvelope
-		if json.Unmarshal(body, &policy, json.RejectUnknownMembers(true)) != nil || policy.SchemaVersion != 1 || policy.OrganizationID == "" || policy.CycleID == "" || policy.AccountRevision == "" || policy.Checksum == "" || policy.Policy == nil {
+		if json.Unmarshal(body, &policy, json.RejectUnknownMembers(true)) != nil || policy.SchemaVersion != 1 || policy.OrganizationID == "" || policy.CycleID == "" || policy.AccountRevision == "" || policy.PolicyGeneration <= 0 || policy.Checksum == "" || policy.Policy == nil {
 			http.Error(w, "invalid", http.StatusBadRequest)
 			return
 		}
@@ -89,7 +91,7 @@ func NewPolicyHandler(receiver PolicyReceiver, serviceKey string) (http.Handler,
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if result.Status != "accepted" && result.Status != "pending" || result.AccountRevision != policy.AccountRevision || result.CycleID != policy.CycleID || result.Checksum != policy.Checksum {
+		if result.Status != "accepted" && result.Status != "pending" || result.AccountRevision != policy.AccountRevision || result.PolicyGeneration != policy.PolicyGeneration || result.CycleID != policy.CycleID || result.Checksum != policy.Checksum {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}

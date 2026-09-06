@@ -13,7 +13,7 @@ import (
 
 func snippetZone() *Zone {
 	return &Zone{ZoneName: "terrascale.tech", SnippetRules: []SnippetRule{{
-		SnippetName: GateSnippetName, Hostname: "sync.api.terrascale.tech",
+		SnippetName: GateSnippetName, Hostnames: []string{"sync.api.terrascale.tech"},
 		PathPrefix: "/api/v1/reactive/", Enabled: true,
 	}}}
 }

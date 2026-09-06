@@ -108,6 +108,8 @@ type Grant struct {
 	BranchID       string    `json:"branch_id"`
 	HolderID       string    `json:"holder_id"`
 	RequestedUnits int64     `json:"requested_units"`
+	IncludedUnits  int64     `json:"included_units"`
+	PaidUnits      int64     `json:"paid_units"`
 	Regions        []string  `json:"regions"`
 	Units          int64     `json:"units"`
 	CostMinor      int64     `json:"cost_minor"`
@@ -160,44 +162,20 @@ func SignAllocation(signer *security.CommandSignatureSigner, grant Grant, cycleI
 // every live or unreconciled grant, while DatabaseUnits aggregates all
 // branches belonging to a database.
 type State struct {
-	ActivePolicy    Policy               `json:"active_policy"`
-	AccountRevision string               `json:"account_revision"`
-	PolicyChecksum  string               `json:"policy_checksum"`
-	CycleID         string               `json:"cycle_id"`
-	PolicyEpoch     uint64               `json:"policy_epoch"`
-	ConsentEpoch    uint64               `json:"consent_epoch"`
-	UsedUnits       int64                `json:"used_units"`
-	UsedCostMinor   int64                `json:"used_cost_minor"`
-	UsedNanoDollar  int64                `json:"used_nano_dollar"`
-	DatabaseUnits   map[string]int64     `json:"database_units"`
-	Grants          map[string]Grant     `json:"grants"`
-	PendingPolicy   bool                 `json:"pending_policy,omitzero"`
-	PendingGrants   map[string]time.Time `json:"pending_grants,omitempty"`
-}
-
-// ApplyPolicyMetadata records the producer's CAS revision in the same fenced
-// journal as grants. Equal retries are accepted; a different revision cannot
-// overwrite an already admitted policy document.
-func (a *Authority) ApplyPolicyMetadata(ctx context.Context, revision, checksum string) error {
-	if revision == "" || checksum == "" {
-		return ErrInvalid
-	}
-	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
-		if err := a.validateState(state); err != nil {
-			return err
-		}
-		if state.AccountRevision == revision && state.PolicyChecksum == checksum {
-			return nil
-		}
-		if state.AccountRevision != "" && revision == state.AccountRevision {
-			return ErrConflict
-		}
-		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
-			return ErrConflict
-		}
-		state.AccountRevision, state.PolicyChecksum = revision, checksum
-		return nil
-	})
+	ActivePolicy     Policy               `json:"active_policy"`
+	AccountRevision  string               `json:"account_revision"`
+	RevisionSequence uint64               `json:"revision_sequence"`
+	PolicyChecksum   string               `json:"policy_checksum"`
+	CycleID          string               `json:"cycle_id"`
+	PolicyEpoch      uint64               `json:"policy_epoch"`
+	ConsentEpoch     uint64               `json:"consent_epoch"`
+	UsedUnits        int64                `json:"used_units"`
+	UsedCostMinor    int64                `json:"used_cost_minor"`
+	UsedNanoDollar   int64                `json:"used_nano_dollar"`
+	DatabaseUnits    map[string]int64     `json:"database_units"`
+	Grants           map[string]Grant     `json:"grants"`
+	PendingPolicy    bool                 `json:"pending_policy,omitzero"`
+	PendingGrants    map[string]time.Time `json:"pending_grants,omitempty"`
 }
 
 // ApplyPolicy atomically installs a new billing policy. Existing reservations
@@ -211,20 +189,16 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 		if err := a.validateState(state); err != nil {
 			return err
 		}
-		for _, grant := range state.Grants {
-			if !grant.Fenced && a.now().Before(grant.ExpiresAt) {
-				return ErrPending
-			}
-		}
 		if state.AccountRevision == revision && state.PolicyChecksum == checksum && next.CycleID == state.ActivePolicy.CycleID {
 			return nil
 		}
 		if state.AccountRevision != "" && state.AccountRevision == revision {
 			return ErrConflict
 		}
-		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
+		if state.RevisionSequence == math.MaxUint64 {
 			return ErrConflict
 		}
+		state.RevisionSequence++
 		// Restrictive caps are valid: existing reservations remain accounted for,
 		// while the allocation checks below expose zero available capacity.
 		next.PolicyEpoch, next.ConsentEpoch = state.ActivePolicy.PolicyEpoch+1, state.ActivePolicy.ConsentEpoch+1
@@ -344,7 +318,7 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
 		}
-		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: 0, PaidUnits: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
@@ -453,11 +427,19 @@ func (a *Authority) validateState(state *State) error {
 		if !admitted || expectedWriterEpoch == 0 {
 			return ErrInvalid
 		}
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || !grant.Revoked && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || !grant.Revoked && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))
 		if !ok || multiplied != grant.Units {
+			return ErrInvalid
+		}
+		includedTotal, totalOK := add(grant.IncludedUnits, grant.PaidUnits)
+		if grant.IncludedUnits < 0 || grant.PaidUnits < 0 || !totalOK || includedTotal != grant.Units {
+			return ErrInvalid
+		}
+		expectedPaid, ok := multiply(grant.PaidUnits, grant.RateNanoDollar)
+		if !ok || expectedPaid != grant.CostNanoDollar {
 			return ErrInvalid
 		}
 		expectedCost, ok := multiply(grant.Units, policy.UnitCostMinor)

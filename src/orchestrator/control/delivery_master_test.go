@@ -334,6 +334,7 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 	request.OperationID = "master-release"
 	request.Target.Regions = []string{"gru", "sfo"}
 	request.Artifact.Digest = delivery.SHA256Digest(body)
+	request.Artifact.SignatureDigest = delivery.SHA256Digest(fetcher.signature)
 	_, _, manifest, manifestSignature, err := fetcher.FetchRelease(ctx, request)
 	if err != nil {
 		t.Fatal(err)

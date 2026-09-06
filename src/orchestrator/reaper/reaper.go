@@ -429,6 +429,24 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		entry.Plan = database.Plan
 	}
 	state.Entries[database.ID] = entry
+	if entry.BillingGrace && entry.Phase == PhaseDeleting && billingIrreversibleFence(entry) {
+		if err := r.deleteLocked(ctx, state, database, now); err != nil {
+			return "", err
+		}
+		return "deleted", nil
+	}
+	if entry.BillingGrace && entry.Phase == PhaseDeleting && database.BillingDeletionEligible && database.BillingGraceDeadline != nil && !now.Before(*database.BillingGraceDeadline) {
+		if err := r.deleteLocked(ctx, state, database, now); err != nil {
+			return "", err
+		}
+		return "deleted", nil
+	}
+	if entry.BillingGrace && (database.BillingGraceDeadline == nil || now.Before(*database.BillingGraceDeadline)) && (entry.Phase == PhasePaused || entry.Phase == PhaseDeleting) && !billingIrreversibleFence(entry) {
+		if err := r.cancelBillingDeletionLocked(ctx, state, database, now); err != nil {
+			return "", err
+		}
+		return "reactivated", nil
+	}
 	if database.BillingGraceDeadline == nil && entry.BillingGrace && entry.Phase == PhasePaused {
 		if err := r.reactivateLocked(ctx, state, database.ID, entry.LastRequest); err != nil {
 			return "", err
@@ -753,6 +771,28 @@ func (r *Reconciler) reactivateLocked(ctx context.Context, state *State, databas
 		return err
 	}
 	return r.auditOnce(ctx, state, databaseID, "reactivate", "completed", key, requestAt.UTC(), "")
+}
+
+func billingIrreversibleFence(entry Entry) bool {
+	for _, base := range []string{"delete/crypto-shred", "delete/data"} {
+		if entry.Operations[fmt.Sprintf("%s/cycle-%d", base, entry.Cycle)].Status != "" {
+			return true
+		}
+		if entry.Cycle == 0 && entry.Operations[base].Status != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Reconciler) cancelBillingDeletionLocked(ctx context.Context, state *State, database Database, now time.Time) error {
+	entry := state.Entries[database.ID]
+	entry.Phase = PhasePaused
+	state.Entries[database.ID] = entry
+	if err := r.reactivateLocked(ctx, state, database.ID, entry.LastRequest); err != nil {
+		return err
+	}
+	return r.auditOnce(ctx, state, database.ID, "billing-deletion", "cancelled", "billing-deletion/cancelled/"+database.ID, now, "")
 }
 
 // Reactivate performs the one-request reactivation operation for a paused

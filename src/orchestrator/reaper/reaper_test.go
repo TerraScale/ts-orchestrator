@@ -193,6 +193,105 @@ func TestRestoredBillingCoverageReactivatesBeforeIdleReaper(t *testing.T) {
 	}
 }
 
+func TestResolvedExpiredReasonDoesNotRemainPausedForFutureGrace(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	future := base.Add(60 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
+	catalog := &testCatalog{databases: []Database{database}}
+	executor, mailer, audit, store := &testExecutor{}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	database.BillingGraceDeadline, database.BillingDeletionEligible = &future, false
+	catalog.databases[0] = database
+	if result, err := reaper.Run(context.Background()); err != nil || result.Reactivated != 1 {
+		t.Fatalf("future grace: result=%+v err=%v", result, err)
+	}
+}
+
+func TestBillingDeletionResumesAfterEachIrreversibleStepFailure(t *testing.T) {
+	for _, failedStep := range []string{"purge", "shred", "delete"} {
+		t.Run(failedStep, func(t *testing.T) {
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			deadline := base.Add(30 * 24 * time.Hour)
+			clock := &testClock{now: deadline}
+			catalog := &testCatalog{databases: []Database{{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanPaid, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}}}
+			executor, mailer, audit, store := &testExecutor{fail: map[string]int{failedStep: 1}}, &testMailer{}, &testAudit{}, &MemoryStore{}
+			reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+			if _, err := reaper.Run(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := reaper.Run(context.Background()); err == nil {
+				t.Fatal("expected deletion step failure")
+			}
+			if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleting {
+				t.Fatalf("failed deletion lost its fence: %+v", state)
+			}
+			if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
+				t.Fatalf("resume: result=%+v err=%v", result, err)
+			}
+			if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleted {
+				t.Fatalf("resume state=%+v", state)
+			}
+		})
+	}
+}
+
+func TestRestoredCoverageCancelsBeforeCryptoShred(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
+	executor := &testExecutor{fail: map[string]int{"purge": 1}}
+	catalog := &testCatalog{databases: []Database{database}}
+	audit, store := &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reaper.Run(context.Background()); err == nil {
+		t.Fatal("expected purge failure")
+	}
+	database.BillingGraceDeadline, database.BillingDeletionEligible = nil, false
+	catalog.databases[0] = database
+	if result, err := reaper.Run(context.Background()); err != nil || result.Reactivated != 1 {
+		t.Fatalf("cancel: result=%+v err=%v", result, err)
+	}
+	for _, call := range executor.calls {
+		if len(call) >= 5 && call[:5] == "shred" {
+			t.Fatalf("crypto shred after restored coverage: %v", executor.calls)
+		}
+	}
+}
+
+func TestRestoredCoverageCannotUndoCryptoShredFence(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
+	executor := &testExecutor{fail: map[string]int{"shred": 1}}
+	catalog := &testCatalog{databases: []Database{database}}
+	audit, store := &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reaper.Run(context.Background()); err == nil {
+		t.Fatal("expected crypto shred failure")
+	}
+	database.BillingGraceDeadline, database.BillingDeletionEligible = nil, false
+	catalog.databases[0] = database
+	if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
+		t.Fatalf("fenced resume: result=%+v err=%v", result, err)
+	}
+	if store.Snapshot().Entries["billing-db"].Phase != PhaseDeleted {
+		t.Fatalf("state=%+v", store.Snapshot().Entries["billing-db"])
+	}
+}
+
 func TestPartialFailureRetriesSameOperationAndPauseEmail(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(30 * 24 * time.Hour)}

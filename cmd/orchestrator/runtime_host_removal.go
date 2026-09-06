@@ -16,7 +16,7 @@ import (
 // supplied by an admitted production component; this adapter owns only the
 // durable stage choreography.
 type productionHostRemovalConfig struct {
-	Inventory  func(context.Context, string, string, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
+	Inventory  func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
 	Replace    func(context.Context, hostremoval.Replacement) error
 	Revalidate func(context.Context, string, string, uint64) error
 	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
@@ -49,8 +49,19 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	if operationID == "" {
 		return errors.New("runtime host removal: operation identity is missing")
 	}
-	return r.owner.RemoveMember(ctx, operationID, member.ID, generation)
+	survivorIDs := make([]string, 0, len(survivors))
+	for _, candidate := range survivors {
+		survivorIDs = append(survivorIDs, candidate.ID)
+	}
+	observations := make([]hostremoval.MemberObservation, 0, len(survivors))
+	for _, candidate := range survivors {
+		candidateGeneration, _ := strconv.ParseUint(candidate.FreeformTags["terrascale-generation"], 10, 64)
+		observations = append(observations, hostremoval.MemberObservation{Identity: candidate.ID, Region: regionFromIdentity(candidate.ID), Slot: candidate.Index, Generation: candidateGeneration})
+	}
+	return r.owner.RemoveMember(ctx, operationID, hostremoval.MemberObservation{Identity: member.ID, Region: regionFromIdentity(member.ID), Slot: member.Index, Generation: generation}, generation, observations...)
 }
+
+func regionFromIdentity(identity string) string { return "" }
 
 // hostRemovalTransitionPorts documents the exact authenticated providers used
 // by the runtime factory. It intentionally does not provide mock readiness or

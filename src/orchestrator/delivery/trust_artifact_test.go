@@ -30,6 +30,7 @@ func testRelease(t *testing.T, mutate func(*Request)) (*Request, ArtifactFetcher
 		t.Fatalf("build request: %v", err)
 	}
 	request.Artifact.Digest = digest
+	request.Artifact.SignatureDigest = SHA256Digest(signature)
 	request.Artifact.ManifestDigest = SHA256Digest([]byte("manifest"))
 	if mutate != nil {
 		mutate(request)
@@ -237,6 +238,7 @@ func TestDetachedArtifactSignaturesAreRawEd25519Only(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Artifact.Digest = SHA256Digest(body)
+	request.Artifact.SignatureDigest = SHA256Digest(signature)
 	request.Artifact.ManifestName = "release-manifest.json"
 	manifest := []byte(`{"schemaVersion":1,"repository":"terrabase","kind":"service","commit":"` + request.Source.Commit + `","artifacts":[{"name":"` + request.Artifact.Name + `","path":"` + request.Artifact.Name + `","architecture":"` + request.Artifact.Architecture + `","digest":"` + request.Artifact.Digest + `","signatureDigest":"` + SHA256Digest(signature) + `","bytes":` + fmt.Sprint(len(body)) + `}]}`)
 	request.Artifact.ManifestDigest = SHA256Digest(manifest)
@@ -312,6 +314,7 @@ func TestRawSignatureBytesAreNeverWhitespaceTrimmed(t *testing.T) {
 	}
 	request, _, _, _ := testRelease(t, nil)
 	request.Artifact.Digest = SHA256Digest(body)
+	request.Artifact.SignatureDigest = SHA256Digest(signature)
 	trust, err := NewTrustSet(map[string]ed25519.PublicKey{"raw-key": private.Public().(ed25519.PublicKey)})
 	if err != nil {
 		t.Fatal(err)

@@ -959,8 +959,7 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 	}
 	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
 		NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates,
-		Tags: map[string]string{provider.OCIManagedTag: ManagedMemberTagValue,
-			provider.OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)}}
+		Tags: map[string]string{}}
 	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)
 	instance, err := g.Adapter.LaunchInstance(ctx, request)
 	if err != nil {

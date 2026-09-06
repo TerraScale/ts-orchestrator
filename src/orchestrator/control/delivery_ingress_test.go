@@ -170,6 +170,7 @@ func TestSignedNatsIngressExecutesOnlyAdmittedRegionalDelivery(t *testing.T) {
 				parentRequest.OperationID = "regional-delivery"
 				parentRequest.Target.Regions = []string{cellName}
 				parentRequest.Artifact.Digest = delivery.SHA256Digest(artifact)
+				parentRequest.Artifact.SignatureDigest = delivery.SHA256Digest(fetcher.signature)
 				if mode == "target-extension" {
 					parentRequest.Target.Regions = []string{"fra"}
 				}

@@ -135,9 +135,9 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 	// The snippet code is deployed with ts-proxy releases (X-2); only the
 	// rule is ours.
 	z.SnippetRules = []SnippetRule{{
-		SnippetName: GateSnippetName, Hostname: "sync.api." + ZoneName,
-		Hostnames:  []string{"sync.api." + ZoneName, "gru.sync.api." + ZoneName, "sfo.sync.api." + ZoneName, "fra.sync.api." + ZoneName},
-		PathPrefix: reactivePathPrefix, Enabled: true,
+		SnippetName: GateSnippetName,
+		Hostnames:   []string{"sync.api." + ZoneName, "gru.sync.api." + ZoneName, "sfo.sync.api." + ZoneName, "fra.sync.api." + ZoneName},
+		PathPrefix:  reactivePathPrefix, Enabled: true,
 	}}
 
 	// Worker routes (D-58/D-59).

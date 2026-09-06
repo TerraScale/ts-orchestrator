@@ -414,6 +414,9 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	if len(signature) != ed25519.SignatureSize {
 		return nil, errors.New("delivery: detached artifact signature must be exactly 64 raw Ed25519 bytes")
 	}
+	if !SameDigest(SHA256Digest(signature), request.Artifact.SignatureDigest) {
+		return nil, errors.New("delivery: artifact signature digest does not match the request")
+	}
 	if !trust.VerifySignature(body, signature) {
 		return nil, errors.New("delivery: artifact signature failed verification against the release trust set")
 	}
@@ -429,6 +432,9 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	}
 	if !SameDigest(SHA256Digest(manifest), request.Artifact.ManifestDigest) || request.Artifact.ManifestName == "" {
 		return nil, errors.New("delivery: release manifest digest or name does not match the request")
+	}
+	if !SameDigest(SHA256Digest(manifestSignature), request.Artifact.ManifestSignatureDigest) {
+		return nil, errors.New("delivery: manifest signature digest does not match the request")
 	}
 	var document struct {
 		SchemaVersion            int `json:"schemaVersion"`

@@ -82,6 +82,7 @@ func (d *nativeLifecycleDatabase) invoke(ctx context.Context, databaseID, operat
 	if client == nil {
 		return errors.New("native lifecycle client is unavailable")
 	}
+	defer client.Close()
 	return call(client, ctx, assignment, operation)
 }
 

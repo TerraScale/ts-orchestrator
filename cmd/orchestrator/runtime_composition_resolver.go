@@ -34,6 +34,8 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 	}
 	g := deployment.Global
 	var workerPlan *globalclient.Plan
+	var auth productionAuthBootstrapConfig
+	var transition productionPlacementTransitionConfig
 	if g != nil {
 		if err := g.Estate.validate(); err != nil {
 			return nil, err
@@ -47,11 +49,11 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		if err := g.Recovery.Admit(); err != nil {
 			return nil, err
 		}
-		transition, err := g.PlacementTransition.load()
+		transition, err = g.PlacementTransition.load()
 		if err != nil {
 			return nil, err
 		}
-		auth, err := LoadProductionAuthBootstrap(g.AuthBootstrapFile)
+		auth, err = LoadProductionAuthBootstrap(g.AuthBootstrapFile)
 		if err != nil {
 			return nil, err
 		}
@@ -68,9 +70,6 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 	}
 	if (g != nil) != (workerPlan != nil) {
 		return nil, errors.New("production deployment and global NATS role must agree")
-	}
-	if g != nil {
-		return nil, errors.New("production global admission requires TerraBase reaper and restore lifecycle providers")
 	}
 	return &admittedProductionRuntime{construct: func(constructCtx context.Context) (*productionRuntime, error) {
 		if constructCtx == nil {
@@ -125,7 +124,18 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 			_ = closeConn()
 			return nil, err
 		}
-		runtime, err := newProductionRuntime(productionRuntimeConfig{EstateSpec: spec, DeliveryStore: constructed.Store, BindDelivery: constructed.BindMirror, Close: func() error {
+		var globalPlan *productionGlobalWorkerPlan
+		var runtime *productionRuntime
+		if g != nil {
+			globalPlan = &productionGlobalWorkerPlan{CandidateID: "global-controller-" + strings.ToLower(options.Cell) + "-" + options.Instance}
+			globalPlan.Construct = func(workerCtx context.Context, session globalWorkerSession) (productionGlobalWorkerConfig, error) {
+				return buildProductionGlobalConfig(workerCtx, session, productionGlobalBuildInput{
+					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
+					Shared: constructed.Store, Ownership: constructed.Ownership, Transition: transition,
+				})
+			}
+		}
+		runtime, err = newProductionRuntime(productionRuntimeConfig{Global: globalPlan, EstateSpec: spec, DeliveryStore: constructed.Store, BindDelivery: constructed.BindMirror, Close: func() error {
 			return errors.Join(constructed.Close(), closeConn())
 		}})
 		if err != nil {

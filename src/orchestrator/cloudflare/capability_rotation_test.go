@@ -128,7 +128,7 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 	t.Cleanup(probe.Close)
 	client := cf.NewClient("token", "zone", "account")
 	client.BaseURL = api.URL
-	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostname: "127.0.0.1", PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, Journal: f.journal, Authorize: func(context.Context) error {
+	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostnames: []string{"127.0.0.1"}, PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, Journal: f.journal, Authorize: func(context.Context) error {
 		if f.deny.Load() {
 			return errors.New("authority lost")
 		}
@@ -301,17 +301,22 @@ func templateContext(t *testing.T) context.Context {
 
 func TestCapabilityDeploymentDeclarationValidation(t *testing.T) {
 	source := []byte(cf.CapabilityDeploymentMarker)
-	zone := &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostname: "sync.api.terrascale.tech", Enabled: true}}}
-	base := "https://sync.api.terrascale.tech/.well-known/terrascale-capability-generation"
-	if err := cf.ValidateCapabilityDeployment(source, zone, "gate", []string{base}); err != nil {
+	hosts := []string{"sync.api.terrascale.tech", "gru.sync.api.terrascale.tech", "sfo.sync.api.terrascale.tech", "fra.sync.api.terrascale.tech"}
+	zone := &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "ts-gate", Hostnames: hosts, Enabled: true}}}
+	var probes []string
+	for _, host := range hosts {
+		probes = append(probes, "https://"+host+"/.well-known/terrascale-capability-generation")
+	}
+	base := probes[0]
+	if err := cf.ValidateCapabilityDeployment(source, zone, "ts-gate", probes); err != nil {
 		t.Fatal(err)
 	}
 	for _, urls := range [][]string{nil, {base, base}, {base, "https://sync.api.terrascale.tech:443/.well-known/terrascale-capability-generation"}, {"https://other.example/.well-known/terrascale-capability-generation"}, {base + "?"}, {base + "#fragment"}, {"https://user@sync.api.terrascale.tech/.well-known/terrascale-capability-generation"}, {"https://sync.api.terrascale.tech:99999/.well-known/terrascale-capability-generation"}} {
-		if cf.ValidateCapabilityDeployment(source, zone, "gate", urls) == nil {
+		if cf.ValidateCapabilityDeployment(source, zone, "ts-gate", urls) == nil {
 			t.Fatalf("accepted invalid probes %v", urls)
 		}
 	}
-	if cf.ValidateCapabilityDeployment(source, nil, "gate", []string{base}) == nil {
+	if cf.ValidateCapabilityDeployment(source, nil, "ts-gate", []string{base}) == nil {
 		t.Fatal("accepted missing zone")
 	}
 }
