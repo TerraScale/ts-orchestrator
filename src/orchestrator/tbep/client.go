@@ -167,7 +167,7 @@ func (c *Client) lifecycleCall(ctx context.Context, request *pb.LifecycleControl
 // recovery facts are explicit so a caller cannot silently restore a different
 // point or owner.
 func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation, sourceOwner, sourceDatabase, recoveryPointID, recoveryPointDigest, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64, expectedPlacement []string, provider pb.RestoreProvider) (*pb.LifecycleControlResponse, error) {
-	if !validOwner(sourceOwner) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validOwner(targetOwner) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 || (provider != pb.RestoreProvider_RESTORE_PROVIDER_OCI && provider != pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS) {
+	if !validOwner(sourceOwner) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validOwner(targetOwner) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 || len(expectedPlacement) == 0 || (provider != pb.RestoreProvider_RESTORE_PROVIDER_OCI && provider != pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS) {
 		return nil, errors.New("TBEP restore request is incomplete")
 	}
 	r, err := c.lifecycleRequest(a, operation)

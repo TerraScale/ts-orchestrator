@@ -163,15 +163,15 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 }
 
 type computeLaunchFingerprint struct {
-	CompartmentID, DisplayName, ServerIdentity, Environment, Cluster, MemberID, BootstrapBase64 string
-	Generation                                                                                  uint64
-	NSGIDs                                                                                      []string
-	Candidates                                                                                  []ComputeCapacityCandidate
-	Tags                                                                                        map[string]string
+	CompartmentID, DisplayName, ServerIdentity, Environment, Cluster, MemberID, CellID, BootstrapBase64 string
+	Generation                                                                                          uint64
+	NSGIDs                                                                                              []string
+	Candidates                                                                                          []ComputeCapacityCandidate
+	Tags                                                                                                map[string]string
 }
 
 func computeLaunchBinding(request ComputeLaunchRequest) computeLaunchFingerprint {
-	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ServerIdentity, request.Environment, request.Cluster, request.MemberID, request.BootstrapBase64, request.Generation, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
+	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ServerIdentity, request.Environment, request.Cluster, request.MemberID, request.CellID, request.BootstrapBase64, request.Generation, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
 }
 
 func ComputeLaunchMutationFingerprint(request ComputeLaunchRequest) string {
@@ -189,8 +189,8 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
 		return err
 	}
-	if request.ServerIdentity != "" || request.Environment != "" || request.Cluster != "" || request.MemberID != "" {
-		if !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID) {
+	if request.ServerIdentity != "" || request.Environment != "" || request.Cluster != "" || request.MemberID != "" || request.CellID != "" {
+		if !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID) || !validBindingPart(request.CellID) {
 			return &errs.Argument{Message: "compute launch authenticated member identity is incomplete"}
 		}
 	}
@@ -265,7 +265,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 	if err := validateComputeLaunch(request); err != nil {
 		return ComputeInstance{}, err
 	}
-	if a.Ownership != nil && (request.Generation == 0 || !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID)) {
+	if a.Ownership != nil && (request.Generation == 0 || !validServerIdentity(request.ServerIdentity) || !validBindingPart(request.Environment) || !validBindingPart(request.Cluster) || !validBindingPart(request.MemberID) || !validBindingPart(request.CellID)) {
 		return ComputeInstance{}, &errs.Argument{Message: "durable compute launch requires authenticated member identity"}
 	}
 	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
@@ -381,7 +381,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 			return ComputeInstance{}, err
 		}
 		if a.Ownership != nil {
-			if err := a.Ownership.Record(ctx, ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: item.ID}, CellId: ProviderCellId{Value: request.Environment}, CompartmentId: ProviderCompartmentId{Value: request.CompartmentID}, Generation: ProviderGeneration{Value: request.Generation}, ServerIdentity: request.ServerIdentity, MemberID: request.MemberID}); err != nil {
+			if err := a.Ownership.Record(ctx, ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: item.ID}, CellId: ProviderCellId{Value: request.CellID}, CompartmentId: ProviderCompartmentId{Value: request.CompartmentID}, Generation: ProviderGeneration{Value: request.Generation}, ServerIdentity: request.ServerIdentity, MemberID: request.MemberID}); err != nil {
 				return ComputeInstance{}, err
 			}
 		}

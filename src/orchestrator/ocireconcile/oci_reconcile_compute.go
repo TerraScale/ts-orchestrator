@@ -66,6 +66,7 @@ type MemberLaunchSpec struct {
 	Cluster            string
 	MemberID           string
 	Generation         uint64
+	CellID             string
 	Index              int
 	Shape              string
 	FallbackShape      string
@@ -100,6 +101,12 @@ type ComputeDeclared struct {
 	FallbackImageID   string
 	Candidates        []MemberLaunchCandidate
 	CloudInitByMember map[int]string
+	MemberBindings    map[int]MemberBinding
+}
+
+type MemberBinding struct {
+	ServerIdentity, Environment, Cluster, MemberID, CellID string
+	Generation                                             uint64
 }
 
 type ComputeObserved struct {
@@ -445,10 +452,10 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 	cloudInit := declared.CloudInitByMember[index]
 	candidates := make([]MemberLaunchCandidate, len(declared.Candidates))
 	copy(candidates, declared.Candidates)
+	binding := declared.MemberBindings[index]
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
-		DisplayName:        MemberDisplayName(declared.Region.Code, index),
-		Environment:        declared.Region.Code,
-		MemberID:           MemberDisplayName(declared.Region.Code, index),
+		DisplayName:    MemberDisplayName(declared.Region.Code, index),
+		ServerIdentity: binding.ServerIdentity, Environment: binding.Environment, Cluster: binding.Cluster, MemberID: binding.MemberID, CellID: binding.CellID, Generation: binding.Generation,
 		Index:              index,
 		Shape:              pool.PrimaryShape,
 		FallbackShape:      pool.FallbackShape,
@@ -987,7 +994,7 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName)},
 	}
 	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
-		ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, Generation: spec.Generation,
+		ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, CellID: spec.CellID, Generation: spec.Generation,
 		NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates,
 		Tags: map[string]string{}}
 	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)

@@ -420,6 +420,7 @@ type ComputeLaunchRequest struct {
 	Environment     string
 	Cluster         string
 	MemberID        string
+	CellID          string
 	Generation      uint64
 	NSGIDs          []string
 	BootstrapBase64 string

@@ -141,6 +141,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		cloudInitByArch[arch] = value
 	}
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
+	config.Ownership = input.Ownership
 	config.ComputeGateways = make(map[string]ocireconcile.ComputeGateway, len(input.Spec.Regions))
 	for _, region := range input.Spec.Regions {
 		estateSpec, err := provider.LoadOCIEstateSpec(input.Global.Compute.EstateFiles[region.Code])
@@ -155,6 +156,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		if err != nil {
 			return fail(fmt.Errorf("compute OCI adapter %s: %w", region.Code, err))
 		}
+		adapter.Ownership = input.Ownership
 		gateway, err := ocireconcile.NewDurableOCIMemberGateway(reader.Transports[provider.OCIServiceCore], adapter, estateSpec.WorkloadCompartmentID, input.Global.Compute.ImageID, provider.ProviderEpoch{Value: uint64(session.Lease.Epoch)})
 		if err != nil {
 			return fail(fmt.Errorf("compute gateway %s: %w", region.Code, err))
@@ -196,7 +198,16 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			for index := 1; index <= int(region.Members.Count); index++ {
 				cloudInitByMember[index] = cloudInitByArch[ocireconcile.MemberArchArm64]
 			}
-			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember}
+			bindings := make(map[int]ocireconcile.MemberBinding, 2)
+			for _, databaseRegion := range config.Database.Regions {
+				if databaseRegion.Region != region.Code {
+					continue
+				}
+				bindings[1] = ocireconcile.MemberBinding{ServerIdentity: databaseRegion.Writer.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: databaseRegion.Writer.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
+				bindings[2] = ocireconcile.MemberBinding{ServerIdentity: databaseRegion.Follower.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: databaseRegion.Follower.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
+				break
+			}
+			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember, MemberBindings: bindings}
 			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: nil}
 			observed, err := reconciler.Observe(applyCtx, declared)
 			if err != nil {

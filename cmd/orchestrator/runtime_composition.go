@@ -106,6 +106,7 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
+	Ownership *provider.DurableOwnershipJournal
 	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
@@ -355,7 +356,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		}
 		observers := make(map[string]func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error), len(config.ComputeGateways))
 		for region, gateway := range config.ComputeGateways {
-			observers[region] = newProductionAcceptedMemberObserver(database.lifecycleJournal, gateway)
+			observers[region] = newProductionDurableMemberObserver(config.Ownership, gateway)
 		}
 		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Admission: database.lifecycleJournal, Issuer: issuer, Gateways: config.ComputeGateways, Observers: observers, Placement: placement, Transition: transition})
 		if ownerErr != nil {

@@ -40,7 +40,7 @@ func TestAllocationGoldenVector(t *testing.T) {
 
 func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 	persist := NewMemoryPersister()
-	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-1": 9, "writer-vector-2": 9}, IncludedAllowanceUnits: 2, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-1": 9, "writer-vector-2": 9}, IncludedAllowanceUnits: 2, PaidExcessEnabled: true, RateNanoDollar: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 	}
 	// Independent crossing-policy vector: four regional units consume three
 	// included units and one paid unit.
-	cross, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "cycle-cross", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-crossing": 9}, IncludedAllowanceUnits: 3, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	cross, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "cycle-cross", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-crossing": 9}, IncludedAllowanceUnits: 3, PaidExcessEnabled: true, RateNanoDollar: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 
 func TestZeroAllowancePAYGAllocatesPaidUnits(t *testing.T) {
 	persist := NewMemoryPersister()
-	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "payg", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-payg": 4}, IncludedAllowanceUnits: 0, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "payg", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-payg": 4}, IncludedAllowanceUnits: 0, PaidExcessEnabled: true, RateNanoDollar: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestZeroAllowancePAYGAllocatesPaidUnits(t *testing.T) {
 }
 
 func TestZeroAllowanceWithoutPaidConsentDeniesWrites(t *testing.T) {
-	a, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "free", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-free": 1}, IncludedAllowanceUnits: 0, PaidExcessEnabled: false, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	a, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "free", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-free": 1}, IncludedAllowanceUnits: 0, PaidExcessEnabled: false, RateNanoDollar: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 	}
 	organizationCap := int64(100000)
 	databaseCap := int64(80000)
-	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, WriterEpochs: epochs, IncludedAllowanceUnits: 10, PaidExcessEnabled: false, RateNanoDollar: 1000, AllowanceNanoDollar: 100000, OrganizationSpendCap: &organizationCap, DatabaseSpendCaps: map[string]*int64{"db": &databaseCap}})
+	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, WriterEpochs: epochs, IncludedAllowanceUnits: 10, PaidExcessEnabled: false, RateNanoDollar: 1000, OrganizationSpendCap: &organizationCap, DatabaseSpendCaps: map[string]*int64{"db": &databaseCap}})
 	if err != nil {
 		t.Fatal(err)
 	}

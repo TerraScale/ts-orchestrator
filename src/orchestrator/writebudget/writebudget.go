@@ -28,7 +28,7 @@ var (
 	ErrUnavailable = errors.New("writebudget: persistence unavailable")
 )
 
-// Policy is the billing-cycle policy in integer write units and integer minor
+// Policy is the billing-cycle policy in integer write units and nanodollar
 // currency units. Branches deliberately have no separate allowance.
 type Policy struct {
 	OrganizationID string
@@ -39,7 +39,6 @@ type Policy struct {
 	WriterEpochs   map[string]uint64
 	// RateNanoDollar is the exact rate per write. When set, it is authoritative
 	// and avoids fractional-cent rounding at grant boundaries.
-	AllowanceNanoDollar    int64
 	RateNanoDollar         int64
 	IncludedAllowanceUnits int64
 	PaidExcessEnabled      bool
@@ -266,9 +265,6 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 	if persist == nil || policy.OrganizationID == "" || policy.CycleID == "" || policy.PolicyEpoch == 0 || policy.ConsentEpoch == 0 || policy.WriterEpoch == 0 || policy.IncludedAllowanceUnits < 0 || policy.RateNanoDollar < 0 {
 		return nil, ErrInvalid
 	}
-	if policy.RateNanoDollar < 0 || policy.AllowanceNanoDollar < 0 || policy.RateNanoDollar > 0 && policy.AllowanceNanoDollar == 0 {
-		return nil, ErrInvalid
-	}
 	if len(policy.WriterEpochs) == 0 {
 		return nil, ErrInvalid
 	}
@@ -323,12 +319,9 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 				return ErrExhausted
 			}
 		}
-		nanoCost, ok := multiply(units, policy.RateNanoDollar)
-		{
-			nanoCost, ok = multiply(paid, policy.RateNanoDollar)
-		}
-		if policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > policy.AllowanceNanoDollar-nanoCost) {
-			return ErrExhausted
+		nanoCost, ok := multiply(paid, policy.RateNanoDollar)
+		if !ok {
+			return ErrInvalid
 		}
 		if policy.PaidExcessEnabled && paid > 0 {
 			if policy.OrganizationSpendCap != nil && state.UsedNanoDollar > *policy.OrganizationSpendCap-nanoCost {
@@ -341,8 +334,6 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		writerEpoch, admitted := policy.WriterEpochs[request.HolderID]
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
-		}
-		if policy.IncludedAllowanceUnits > 0 {
 		}
 		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: included, PaidUnits: paid, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)

@@ -7,6 +7,7 @@ import (
 )
 
 func fundingPolicy(cycle string) Policy {
+	organizationCap := int64(1_000_000_000)
 	return Policy{
 		OrganizationID:         "org",
 		CycleID:                cycle,
@@ -17,7 +18,7 @@ func fundingPolicy(cycle string) Policy {
 		IncludedAllowanceUnits: 0,
 		PaidExcessEnabled:      true,
 		RateNanoDollar:         1000,
-		AllowanceNanoDollar:    1_000_000_000,
+		OrganizationSpendCap:   &organizationCap,
 	}
 }
 
@@ -28,7 +29,8 @@ func fundingRequest(id, cycle string, epoch uint64, units int64) Request {
 func TestFundingDatabaseDollarCapAllowsMillionPaidUnitsThenExhausts(t *testing.T) {
 	cap := int64(1_000_000_000)
 	policy := fundingPolicy("cycle")
-	policy.AllowanceNanoDollar = 2_000_000_000
+	organizationCap := int64(2_000_000_000)
+	policy.OrganizationSpendCap = &organizationCap
 	policy.DatabaseSpendCaps = map[string]*int64{"db": &cap}
 	authority, err := New(NewMemoryPersister(), policy)
 	if err != nil {
