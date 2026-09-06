@@ -23,13 +23,17 @@ import (
 
 func Declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
 	t.Helper()
-	return declaration(t, bindings, artifact, release, false)
+	return declaration(t, bindings, artifact, release, false, false)
 }
 func ControlDeclaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
 	t.Helper()
-	return declaration(t, bindings, artifact, release, true)
+	return declaration(t, bindings, artifact, release, true, false)
 }
-func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string, control bool) (vmengineconfig.Declaration, string) {
+func DatabaseDeclaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
+	t.Helper()
+	return declaration(t, bindings, artifact, release, true, true)
+}
+func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string, control, database bool) (vmengineconfig.Declaration, string) {
 	t.Helper()
 	root := t.TempDir()
 	write := func(name string, raw []byte) string {
@@ -138,6 +142,24 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 			pair.Wipe()
 			host.OrchestratorPrincipals = []string{identity}
 			host.EngineControl = &vmengineconfig.EngineControlCredentials{Identity: identity, CertificateFile: certificate, PrivateKeyFile: private, NATSURL: "tls://" + bindings[0].Address + ":4222", NATSAccount: "$G", NKeyFile: nkey, NATSCertificateFile: natsCertificate, NATSPrivateKeyFile: natsPrivate, NATSCAFile: caFile}
+			if database {
+				dbCert, dbKey := issue("nats-database", "spiffe://terrascale.tech/qualification/nats-database/"+binding.NodeID, int64(900+i))
+				newSeed := func(suffix string) string {
+					pair, err := nkeys.CreateUser()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer pair.Wipe()
+					seed, err := pair.Seed()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer clear(seed)
+					return write(fmt.Sprintf("%d-%s.nkey", i, suffix), seed)
+				}
+				host.DatabaseHost = &vmengineconfig.DatabaseHostCredentials{DataRoot: "/var/lib/terrascale/terrabase/member", NATSURL: host.EngineControl.NATSURL, NATSAccount: "$G", NKeyFile: newSeed("database"), LifecycleNKeyFile: newSeed("lifecycle"), CertificateFile: dbCert, PrivateKeyFile: dbKey, CAFile: caFile, CatalogPath: "/var/lib/terrascale/orchestrator/keys/catalog.json", EngineSocket: "/run/terrascale-database/engine.sock", IngressSocket: "/var/lib/terrascale/orchestrator/database/ingress.sock", IngressUID: 62013}
+			}
+
 		}
 		d.Hosts = append(d.Hosts, host)
 	}

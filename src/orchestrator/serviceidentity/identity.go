@@ -66,11 +66,11 @@ func UnitProperties(name string) []string {
 		return nil
 	}
 	properties := []string{"SupplementaryGroups=" + SocketGroup}
-	if name == Orchestrator {
-		properties = append(properties,
-			"RuntimeDirectory=terrascale-keys", "RuntimeDirectoryMode=0700", "RuntimeDirectoryPreserve=no",
-			"ExecStartPre=/usr/bin/chgrp "+SocketGroup+" "+SocketDirectory,
-			"ExecStartPre=/usr/bin/chmod 0710 "+SocketDirectory)
+	directory := "terrascale-keys"
+	if name == TerraBase {
+		directory = "terrascale-database"
 	}
+	properties = append(properties, "RuntimeDirectory="+directory, "RuntimeDirectoryMode=0700", "RuntimeDirectoryPreserve=no", "ExecStartPre=/usr/bin/chgrp "+SocketGroup+" /run/"+directory, "ExecStartPre=/usr/bin/chmod 0710 /run/"+directory)
+
 	return properties
 }

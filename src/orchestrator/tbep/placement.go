@@ -34,9 +34,10 @@ func (c *PlacementClient) Principal() string      { return c.transport.principal
 func (c *PlacementClient) ServerIdentity() string { return c.serverIdentity }
 
 // CanonicalPlacement clones and orders a bounded proposal without mutating the
-// caller. The producer independently validates identities, residency and roles.
+// caller. Empty assignments permit explicitly authorized empty-cluster bootstrap;
+// they do not imply genesis. The producer validates identities, residency and roles.
 func CanonicalPlacement(proposal *pb.PlacementProposal) (*pb.PlacementProposal, error) {
-	if proposal == nil || proposal.Environment == "" || proposal.Cluster == "" || proposal.Generation == 0 || proposal.Epoch == 0 || len(proposal.Regions) < 1 || len(proposal.Regions) > 3 || len(proposal.Assignments) < 1 || len(proposal.Assignments) > 1024 || proto.Size(proposal) > 480<<10 {
+	if proposal == nil || proposal.Environment == "" || proposal.Cluster == "" || proposal.Generation == 0 || proposal.Epoch == 0 || len(proposal.Regions) < 1 || len(proposal.Regions) > 3 || len(proposal.Assignments) > 1024 || proto.Size(proposal) > 480<<10 {
 		return nil, errors.New("TBEP placement proposal is incomplete or exceeds bounds")
 	}
 	result := proto.Clone(proposal).(*pb.PlacementProposal)

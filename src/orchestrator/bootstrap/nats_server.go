@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"time"
 
@@ -39,6 +40,7 @@ const (
 // Callers omit this configuration on hosts that are not NATS replicas.
 type NatsServerConfig struct {
 	PlacementHosts   []placementpublisher.BrokerGrant
+	DatabaseHosts    []databaseadmission.BrokerGrant
 	ConfigPath       string
 	ReadinessTimeout time.Duration
 }
@@ -71,6 +73,12 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 	}
 	if len(config.PlacementHosts) > 0 {
 		options, err = placementpublisher.ApplyBrokerGrants(options, config.PlacementHosts)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(config.DatabaseHosts) > 0 {
+		options, err = databaseadmission.ApplyBrokerGrants(options, config.DatabaseHosts)
 		if err != nil {
 			return nil, err
 		}

@@ -40,21 +40,31 @@ type Target struct {
 	Provision      keylease.ProvisionTarget
 	Proposal       []byte
 	Installed      bool
-	Proposed       bool
+}
+type PlacementTarget struct {
+	ServerIdentity, MemberID, Region string
+	Proposal                         []byte
+	Proposed                         bool
+}
+type Plan struct {
+	Members    []Target
+	Placements []PlacementTarget
 }
 type Record struct {
-	BranchEvidence []SignedReadiness
-	BranchNonce    string
-	Revision       uint64
-	CreatedAt      time.Time
-	Request        Request
-	DatabaseID     string
-	KeyVersion     string
-	State          string
-	Targets        []Target
-	Wrapped        []keylease.Entry
-	ReadyEvidence  []SignedReadiness
-	ReadinessNonce string
+	PlacementTargets []PlacementTarget
+	BranchSource     *BranchSource
+	BranchEvidence   []SignedReadiness
+	BranchNonce      string
+	Revision         uint64
+	CreatedAt        time.Time
+	Request          Request
+	DatabaseID       string
+	KeyVersion       string
+	State            string
+	Targets          []Target
+	Wrapped          []keylease.Entry
+	ReadyEvidence    []SignedReadiness
+	ReadinessNonce   string
 }
 type Journal interface {
 	Load(context.Context, string) (Record, bool, error)
@@ -126,6 +136,9 @@ func ValidateRequest(r Request) error {
 	return nil
 }
 func ValidateRecord(r Record) error {
+	if r.Request.ParentDatabaseID == r.DatabaseID {
+		return ErrInvalid
+	}
 	if ValidateRequest(r.Request) != nil || !canonicalID.MatchString(r.DatabaseID) || !canonicalID.MatchString(r.KeyVersion) || !slices.Contains([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, r.State) || len(r.Targets) != len(r.Request.Regions)*2 {
 		return ErrInvalid
 	}
@@ -179,7 +192,7 @@ func ValidateRecord(r Record) error {
 			return ErrInvalid
 		}
 	}
-	return nil
+	return validatePlacementTargets(r)
 }
 
 // ValidateNewRecord also checks time-bounded key policy before accepting intent;
@@ -206,6 +219,8 @@ func ImmutableEqual(a, b Record) bool {
 	b.State = ""
 	a.Wrapped = nil
 	b.Wrapped = nil
+	a.BranchSource = nil
+	b.BranchSource = nil
 	a.BranchEvidence = nil
 	b.BranchEvidence = nil
 	a.BranchNonce = ""
@@ -218,13 +233,83 @@ func ImmutableEqual(a, b Record) bool {
 	b.Targets = slices.Clone(b.Targets)
 	for i := range a.Targets {
 		a.Targets[i].Installed = false
-		a.Targets[i].Proposed = false
 		a.Targets[i].Provision.NotAfter = a.Targets[i].Provision.NotAfter.UTC()
 	}
 	for i := range b.Targets {
 		b.Targets[i].Installed = false
-		b.Targets[i].Proposed = false
 		b.Targets[i].Provision.NotAfter = b.Targets[i].Provision.NotAfter.UTC()
 	}
+	a.PlacementTargets = slices.Clone(a.PlacementTargets)
+	b.PlacementTargets = slices.Clone(b.PlacementTargets)
+	for i := range a.PlacementTargets {
+		a.PlacementTargets[i].Proposed = false
+	}
+	for i := range b.PlacementTargets {
+		b.PlacementTargets[i].Proposed = false
+	}
 	return reflect.DeepEqual(a, b)
+}
+
+func validatePlacementTargets(r Record) error {
+	if len(r.PlacementTargets) < len(r.Targets) || len(r.PlacementTargets) > 6 {
+		return ErrInvalid
+	}
+	seen := map[string]PlacementTarget{}
+	var shared *pb.PlacementProposal
+	for _, target := range r.PlacementTargets {
+		stage := new(pb.PlacementStageRequest)
+		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil {
+			return ErrInvalid
+		}
+		proposal := stage.Proposal
+		if shared == nil {
+			shared = proposal
+		} else if !proto.Equal(shared, proposal) {
+			return ErrInvalid
+		}
+		if proposal.Environment != r.Request.Environment || target.ServerIdentity != "spiffe://terrascale.tech/"+r.Request.Environment+"/terrabase-member/"+proposal.Cluster+"/"+target.MemberID {
+			return ErrInvalid
+		}
+		if _, ok := seen[target.ServerIdentity]; ok {
+			return ErrInvalid
+		}
+		seen[target.ServerIdentity] = target
+		local := false
+		for _, seats := range proposal.Regions {
+			if seats.Region == target.Region && slices.Contains(seats.Members, target.MemberID) {
+				local = true
+			}
+		}
+		if !local {
+			return ErrInvalid
+		}
+		for _, assignment := range proposal.Assignments {
+			if assignment.Database == r.DatabaseID && (assignment.Tenant != r.Request.TenantID || assignment.Project != r.Request.ProjectID || !slices.Contains(r.Request.Regions, assignment.Region)) {
+				return ErrInvalid
+			}
+		}
+	}
+	if shared == nil {
+		return ErrInvalid
+	}
+	count := 0
+	for _, seats := range shared.Regions {
+		for _, member := range seats.Members {
+			count++
+			id := "spiffe://terrascale.tech/" + r.Request.Environment + "/terrabase-member/" + shared.Cluster + "/" + member
+			if target, ok := seen[id]; !ok || target.Region != seats.Region {
+				return ErrInvalid
+			}
+		}
+	}
+	if count != len(seen) {
+		return ErrInvalid
+	}
+	for _, target := range r.Targets {
+		placement, ok := seen[target.ServerIdentity]
+		if !ok || placement.MemberID != target.MemberID || placement.Region != target.Region || !slices.Equal(placement.Proposal, target.Proposal) {
+			return ErrInvalid
+		}
+	}
+	return nil
 }

@@ -20,9 +20,11 @@ import (
 // The engine must persist its selected source snapshot under AuthorityOperationID
 // before copying, and replay that same source after an unknown effect outcome.
 type BranchRestoreRequest struct {
-	Admission            Admission `json:"admission"`
-	AuthorityOperationID string    `json:"authority_operation_id"`
-	Nonce                string    `json:"nonce"`
+	Capture              bool          `json:"capture,omitzero"`
+	Source               *BranchSource `json:"source,omitempty"`
+	Admission            Admission     `json:"admission"`
+	AuthorityOperationID string        `json:"authority_operation_id"`
+	Nonce                string        `json:"nonce"`
 }
 
 func BranchRestoreSubject(identity string) (string, error) {
@@ -47,7 +49,7 @@ func RemoteBranchRestore(nc *nats.Conn) func(context.Context, Record, string) ([
 			if err != nil {
 				return nil, err
 			}
-			data, err := json.Marshal(BranchRestoreRequest{Admission: Admission{Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: nonce})
+			data, err := json.Marshal(BranchRestoreRequest{Source: record.BranchSource, Admission: Admission{CreatedAt: record.CreatedAt, Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: nonce})
 			if err != nil || len(data) > maxMessage {
 				return nil, ErrInvalid
 			}
@@ -72,8 +74,17 @@ func RemoteBranchRestore(nc *nats.Conn) func(context.Context, Record, string) ([
 
 func validateBranchRestoreRequest(c HostConfig, request BranchRestoreRequest) error {
 	a := request.Admission
-	if ValidateRequest(a.Request) != nil || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
+	if a.CreatedAt.IsZero() || ValidateRequest(a.Request) != nil || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
 		return ErrInvalid
+	}
+	if request.Capture {
+		if request.Source != nil {
+			return ErrInvalid
+		}
+	} else {
+		if _, err := validateBranchSource(Record{Request: a.Request, DatabaseID: a.DatabaseID, KeyVersion: a.KeyVersion}, request.Source, nil, time.Time{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -117,7 +128,11 @@ func StartBranchRestoreHost(ctx context.Context, c HostConfig) (*Service, error)
 		}
 		opctx, cancel := context.WithTimeout(ctx, 50*time.Second)
 		defer cancel()
-		req, err := http.NewRequestWithContext(opctx, http.MethodPost, "http://unix/internal/v1/databases/branch-restore", bytes.NewReader(message.Data))
+		endpoint := "http://unix/internal/v1/databases/branch-restore"
+		if request.Capture {
+			endpoint = "http://unix/internal/v1/databases/branch-source"
+		}
+		req, err := http.NewRequestWithContext(opctx, http.MethodPost, endpoint, bytes.NewReader(message.Data))
 		if err != nil {
 			_ = message.Respond([]byte(`{"error":"unavailable"}`))
 			return
@@ -154,4 +169,33 @@ func StartBranchRestoreHost(ctx context.Context, c HostConfig) (*Service, error)
 	service := &Service{done: make(chan struct{}), close: func() error { transport.CloseIdleConnections(); return sub.Unsubscribe() }}
 	context.AfterFunc(ctx, func() { _ = service.Close() })
 	return service, nil
+}
+
+func RemoteBranchSource(nc *nats.Conn) func(context.Context, Record, Record, string) (SignedReadiness, error) {
+	return func(ctx context.Context, child, parent Record, nonce string) (SignedReadiness, error) {
+		if !secureConnection(nc) || child.Request.ParentDatabaseID != parent.DatabaseID || len(parent.Targets) == 0 || !validDigest(nonce) {
+			return SignedReadiness{}, ErrInvalid
+		}
+		target := parent.Targets[0]
+		subject, err := BranchRestoreSubject(target.ServerIdentity)
+		if err != nil {
+			return SignedReadiness{}, err
+		}
+		request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: child.CreatedAt, Request: child.Request, DatabaseID: child.DatabaseID, KeyVersion: child.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(child.Request), Nonce: nonce}
+		data, err := json.Marshal(request)
+		if err != nil || len(data) > maxMessage {
+			return SignedReadiness{}, ErrInvalid
+		}
+		opctx, cancel := context.WithTimeout(ctx, 55*time.Second)
+		defer cancel()
+		reply, err := nc.RequestWithContext(opctx, subject, data)
+		if err != nil {
+			return SignedReadiness{}, err
+		}
+		var receipt SignedReadiness
+		if len(reply.Data) > maxMessage || json.Unmarshal(reply.Data, &receipt, json.RejectUnknownMembers(true)) != nil || len(receipt.Payload) == 0 {
+			return SignedReadiness{}, ErrInvalid
+		}
+		return receipt, nil
+	}
 }

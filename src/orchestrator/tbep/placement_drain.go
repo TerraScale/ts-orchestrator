@@ -2,6 +2,7 @@ package tbep
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 
@@ -39,6 +40,10 @@ func ValidateDrainReceipt(response *pb.PlacementDrainResponse, prepared placemen
 	}
 	if receipt.Kind != "old_epoch_drained_fenced" || receipt.MemberIdentity != memberIdentity || receipt.ScopeID != prepared.Request.ScopeID || receipt.PriorEpoch != prepared.Request.PriorEpoch || receipt.PriorGeneration != prepared.PriorGeneration || receipt.RequestDigest != prepared.RequestDigest || len(receipt.FrontierDigest) != 64 {
 		return errors.New("TBEP drain receipt differs from prepared transition")
+	}
+	frontier, err := hex.DecodeString(receipt.FrontierDigest)
+	if err != nil || len(frontier) != 32 || hex.EncodeToString(frontier) != receipt.FrontierDigest {
+		return errors.New("TBEP drain frontier digest is malformed")
 	}
 	return nil
 }

@@ -1,7 +1,6 @@
 package cloudflare
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -20,7 +19,7 @@ var ErrIdentityService = errors.New("cloudflare: identity service secret update 
 // for deletion; it does not accept a bindings array. Provider contract:
 // https://github.com/cloudflare/cloudflare-go/blob/main/workers/scriptsecret.go
 func (c *Client) SetIdentityServiceKeys(ctx context.Context, script string, active, previous []byte, expires time.Time) error {
-	if script == "" || c.AccountID == "" || len(active) < 32 || (len(previous) == 0) != expires.IsZero() || len(previous) > 0 && (len(previous) < 32 || !expires.After(time.Now()) || expires.After(time.Now().Add(300*time.Second))) {
+	if ctx == nil || script == "" || c.AccountID == "" || len(active) < 32 || (len(previous) == 0) != expires.IsZero() || len(previous) > 0 && (len(previous) < 32 || !expires.After(time.Now()) || expires.After(time.Now().Add(300*time.Second))) {
 		return ErrIdentityService
 	}
 	for _, key := range [][]byte{active, previous} {
@@ -33,6 +32,8 @@ func (c *Client) SetIdentityServiceKeys(ctx context.Context, script string, acti
 			}
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	buffer, err := hostsecrets.NewSecretBuffer(2048)
 	if err != nil {
 		return ErrIdentityService
@@ -51,7 +52,9 @@ func (c *Client) SetIdentityServiceKeys(ctx context.Context, script string, acti
 		payload = strconv.AppendInt(payload, expires.Unix(), 10)
 		payload = append(payload, `"}}}`...)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.BaseURL+c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/secrets-bulk"), bytes.NewReader(payload))
+	protected := hostsecrets.SecretRequestBody(payload)
+	defer protected.Close()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.BaseURL+c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/secrets-bulk"), protected)
 	if err != nil {
 		return ErrIdentityService
 	}
@@ -63,17 +66,24 @@ func (c *Client) SetIdentityServiceKeys(ctx context.Context, script string, acti
 		transport = http.DefaultTransport
 	}
 	response, err := transport.RoundTrip(request)
-	if err != nil {
+	if err != nil || response == nil || response.Body == nil {
 		return ErrIdentityService
 	}
 	defer response.Body.Close()
 	status := response.StatusCode
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 8193))
-	if len(raw) > 8192 {
-		clear(raw)
+	responseBuffer, allocationErr := hostsecrets.NewSecretBuffer(8193)
+	if allocationErr != nil {
 		return ErrIdentityService
 	}
-	defer clear(raw)
+	defer responseBuffer.Close()
+	n, readErr := io.ReadFull(response.Body, responseBuffer.Bytes())
+	if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		return ErrIdentityService
+	}
+	raw := responseBuffer.Bytes()[:n]
+	if len(raw) > 8192 {
+		return ErrIdentityService
+	}
 	// Never expose provider error bodies, which could contain submitted secrets.
 	if err != nil || status < 200 || status >= 300 {
 		return ErrIdentityService

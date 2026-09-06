@@ -55,11 +55,13 @@ func databasePlanFixture() (productionDatabaseConfig, databaseadmission.Record) 
 }
 func TestDatabasePlanRetainsExplicitRolesAndImmutableScope(t *testing.T) {
 	config, record := databasePlanFixture()
-	targets, err := config.plan(t.Context(), record, &databasePlanJournal{}, databasePlacementJournal{})
+	plan, err := config.plan(t.Context(), record, &databasePlanJournal{}, databasePlacementJournal{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	targets := plan.Members
 	record.Targets = targets
+	record.PlacementTargets = plan.Placements
 	if err := databaseadmission.ValidateRecord(record); err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +85,11 @@ func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
 	config, record := databasePlanFixture()
 	journal := &databasePlanJournal{}
 	placements := databasePlacementJournal{}
-	targets, err := config.plan(t.Context(), record, journal, placements)
+	plan, err := config.plan(t.Context(), record, journal, placements)
 	if err != nil {
 		t.Fatal(err)
 	}
+	targets := plan.Members
 	for _, target := range targets {
 		placements[target.ServerIdentity] = placementpublisher.Record{Request: target.Proposal}
 	}
@@ -112,7 +115,7 @@ func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range planned {
+	for _, target := range planned.Placements {
 		stage := new(pb.PlacementStageRequest)
 		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 			t.Fatal(err)
@@ -140,7 +143,9 @@ func TestDatabaseReconcileRetriesTransportButStopsFencedOrCorrupt(t *testing.T) 
 				ActivatePlacement: func(context.Context, databaseadmission.Record) error { return errors.New("activation must not run") },
 				Journal:           journal, CatalogPath: "/unopened/catalog.json", CheckAuthority: func(context.Context) error { return nil },
 				Authorize: func(context.Context, databaseadmission.Request) error { return nil },
-				Plan:      func(context.Context, databaseadmission.Record) ([]databaseadmission.Target, error) { return nil, nil },
+				Plan: func(context.Context, databaseadmission.Record) (databaseadmission.Plan, error) {
+					return databaseadmission.Plan{}, nil
+				},
 				Install: func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
 					return nil
 				},
@@ -149,11 +154,69 @@ func TestDatabaseReconcileRetriesTransportButStopsFencedOrCorrupt(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			runtime := &productionDatabase{pipeline: pipeline, check: func(context.Context) error { return tt.authority }}
+			runtime := &productionDatabase{pipeline: pipeline, deletion: &databaseadmission.DeletionWorkflow{Journal: databaseadmission.NewMemoryJournal(), Stopper: unexpectedDeletionStopper{}}, check: func(context.Context) error { return tt.authority }}
 			err = runtime.Reconcile(t.Context())
 			if !errors.Is(err, tt.errorWant) {
 				t.Fatalf("got %v, want %v", err, tt.errorWant)
 			}
 		})
+	}
+}
+
+type unexpectedDeletionStopper struct{}
+
+func (unexpectedDeletionStopper) StopDeletion(context.Context, databaseadmission.DeletionStop) (databaseadmission.DeletionReceipt, error) {
+	return databaseadmission.DeletionReceipt{}, errors.New("unexpected deletion stop")
+}
+
+func (unexpectedDeletionStopper) PrepareDeletion(context.Context, databaseadmission.DeletionStop) (databaseadmission.DeletionPreparation, error) {
+	return databaseadmission.DeletionPreparation{}, errors.New("unexpected deletion prepare")
+}
+
+func TestDatabasePlanAdvancesAllClusterMembersWithoutResidencyLeak(t *testing.T) {
+	config, record := databasePlanFixture()
+	for i, region := range []string{"SFO", "FRA"} {
+		writer := "01ARZ3NDEKTSV4RRFFQ69G5FA" + string(rune('J'+i*2))
+		follower := "01ARZ3NDEKTSV4RRFFQ69G5FA" + string(rune('K'+i*2))
+		identity := func(member string) string {
+			return "spiffe://terrascale.tech/production/terrabase-member/" + config.Cluster + "/" + member
+		}
+		config.Regions = append(config.Regions, productionDatabaseRegion{Region: region, Writer: productionDatabaseHost{identity(writer), writer}, Follower: productionDatabaseHost{identity(follower), follower}, Vault: config.Regions[0].Vault})
+	}
+	// Use valid canonical Crockford ULIDs (L is not an allowed digit).
+	config.Regions[2].Writer.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAN"
+	config.Regions[2].Follower.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAP"
+	for _, host := range []*productionDatabaseHost{&config.Regions[2].Writer, &config.Regions[2].Follower} {
+		host.ServerIdentity = "spiffe://terrascale.tech/production/terrabase-member/" + config.Cluster + "/" + host.MemberID
+	}
+	record.Request.Residency = "br-only"
+	plan, err := config.plan(t.Context(), record, &databasePlanJournal{}, databasePlacementJournal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Members) != 2 || len(plan.Placements) != 6 {
+		t.Fatalf("member/placement targets: %d/%d", len(plan.Members), len(plan.Placements))
+	}
+	record.Targets, record.PlacementTargets = plan.Members, plan.Placements
+	if err := databaseadmission.ValidateRecord(record); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range plan.Members {
+		if target.Region != "GRU" {
+			t.Fatal("customer key outside residency")
+		}
+	}
+	for _, target := range plan.Placements {
+		stage := new(pb.PlacementStageRequest)
+		if err := proto.Unmarshal(target.Proposal, stage); err != nil {
+			t.Fatal(err)
+		}
+		if len(stage.Proposal.Regions) != 3 || len(stage.Proposal.Assignments) != 1 || stage.Proposal.Assignments[0].Region != "GRU" {
+			t.Fatal("placement dropped cluster members or leaked database assignment")
+		}
+	}
+	record.PlacementTargets = record.PlacementTargets[:5]
+	if err := databaseadmission.ValidateRecord(record); err == nil {
+		t.Fatal("incomplete epoch transition accepted")
 	}
 }

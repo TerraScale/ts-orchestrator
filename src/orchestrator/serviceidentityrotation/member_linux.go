@@ -3,7 +3,6 @@
 package serviceidentityrotation
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"golang.org/x/sys/unix"
@@ -11,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
+	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
 	"time"
 )
@@ -30,7 +31,7 @@ type MemberReceipt struct {
 
 // DeliverLocal authenticates the engine socket peer before transmitting bytes.
 func DeliverLocal(ctx context.Context, socket string, request MemberRequest) error {
-	if !filepath.IsAbs(socket) || filepath.Clean(socket) != socket || request.Generation == 0 || request.Version == "" || len(request.Secret) != 43 {
+	if !filepath.IsAbs(socket) || filepath.Clean(socket) != socket || request.Generation == 0 || request.Version == "" || len(request.Version) > 128 || len(request.Secret) != 43 {
 		return ErrRotation
 	}
 	transport := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -52,12 +53,31 @@ func DeliverLocal(ctx context.Context, socket string, request MemberRequest) err
 		return conn, nil
 	}}
 	defer transport.CloseIdleConnections()
-	payload, err := json.Marshal(request)
+	for _, v := range request.Secret {
+		if !(v >= 'a' && v <= 'z' || v >= 'A' && v <= 'Z' || v >= '0' && v <= '9' || v == '_' || v == '-') {
+			return ErrRotation
+		}
+	}
+	version, err := json.Marshal(request.Version)
 	if err != nil {
 		return ErrRotation
 	}
-	defer clear(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://member"+MemberPath, bytes.NewReader(payload))
+	buffer, err := hostsecrets.NewSecretBuffer(2048)
+	if err != nil {
+		return ErrRotation
+	}
+	defer buffer.Close()
+	payload := buffer.Bytes()[:0]
+	payload = append(payload, `{"version":`...)
+	payload = append(payload, version...)
+	payload = append(payload, `,"generation":`...)
+	payload = strconv.AppendUint(payload, request.Generation, 10)
+	payload = append(payload, `,"secret":"`...)
+	payload = append(payload, request.Secret...)
+	payload = append(payload, `"}`...)
+	protected := hostsecrets.SecretRequestBody(payload)
+	defer protected.Close()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://member"+MemberPath, protected)
 	if err != nil {
 		return ErrRotation
 	}

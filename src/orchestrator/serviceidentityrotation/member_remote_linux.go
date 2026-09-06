@@ -17,7 +17,10 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
 
-type RemoteMemberEndpoint struct{ NodeID, URL string }
+type RemoteMemberEndpoint struct {
+	NodeID string `json:"node_id"`
+	URL    string `json:"url"`
+}
 type RemoteMembersConfig struct {
 	TLS *tls.Config
 	// Endpoints must enumerate every admitted member from trusted control state.

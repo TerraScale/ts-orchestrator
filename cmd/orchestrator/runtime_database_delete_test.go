@@ -5,55 +5,52 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"testing"
 	"time"
-
-	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 )
 
-func TestDatabaseDeletionAuthorizationRequiresExactFreshUnprotectedDecision(t *testing.T) {
+func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing.T) {
 	request := databaseadmission.DeleteRequest{Environment: "production", TenantID: "tenant", ProjectID: "project", DatabaseID: "database", OperationID: "delete-one"}
-	for _, scenario := range []string{"allowed", "protected", "missing-protection", "wrong-database", "expired", "retention-past", "denied"} {
+	for _, scenario := range []string{"allowed", "missing-actor", "wrong-action", "wrong-database", "expired", "future-issued", "denied"} {
 		t.Run(scenario, func(t *testing.T) {
 			now := time.Now()
-			decision := map[string]any{"allowed": true, "protected": false, "environment": request.Environment, "tenant_id": request.TenantID, "project_id": request.ProjectID, "database_id": request.DatabaseID, "operation_id": request.OperationID, "expires_at": now.Add(30 * time.Second).Unix(), "retain_until": now.Add(time.Hour).UnixMilli()}
+			decision := map[string]any{"allowed": true, "action": "delete", "subject": "owner-id", "actor": "token-id", "environment": request.Environment, "tenant_id": request.TenantID, "project_id": request.ProjectID, "database_id": request.DatabaseID, "operation_id": request.OperationID, "issued_at": now.Unix(), "expires_at": now.Add(30 * time.Second).Unix()}
 			switch scenario {
-			case "protected":
-				decision["protected"] = true
-			case "missing-protection":
-				delete(decision, "protected")
+			case "missing-actor":
+				delete(decision, "actor")
+			case "wrong-action":
+				decision["action"] = "create"
 			case "wrong-database":
 				decision["database_id"] = "another"
 			case "expired":
 				decision["expires_at"] = now.Unix()
-			case "retention-past":
-				decision["retain_until"] = now.Add(-time.Hour).UnixMilli()
+			case "future-issued":
+				decision["issued_at"] = now.Add(time.Hour).Unix()
 			case "denied":
 				decision["allowed"] = false
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost || r.Header.Get("x-terrascale-database-admission-key") != "secret" {
+				if r.Method != http.MethodPost || r.Header.Get("x-terrascale-database-admission-key") != "secret" || r.Header.Get("Authorization") != "Bearer customer-token" {
 					t.Error("missing authenticated POST")
 				}
-				body, err := json.Marshal(decision)
-				if err != nil {
-					t.Error(err)
-					return
-				}
-				_, _ = w.Write(body)
+				_ = json.MarshalWrite(w, decision)
 			}))
 			defer server.Close()
-			result, err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(t.Context(), request)
+			err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(databaseadmission.WithDeletionAuthorization(t.Context(), "Bearer customer-token"), request)
 			if scenario == "allowed" {
-				if err != nil || result.RetainUntil.UnixMilli() != decision["retain_until"] {
-					t.Fatalf("unexpected decision: %+v %v", result, err)
+				if err != nil {
+					t.Fatal(err)
 				}
 			} else if err == nil {
 				t.Fatal("unsafe decision accepted")
 			}
-			if scenario == "protected" && !errors.Is(err, databaseadmission.ErrForbidden) {
-				t.Fatalf("protected deletion: %v", err)
-			}
 		})
+	}
+}
+func TestDatabaseDeletionAuthorizationRequiresCustomerBearer(t *testing.T) {
+	policy := databaseDeletionAuthorizer(&http.Client{}, "https://example.invalid", "secret")
+	if err := policy(t.Context(), databaseadmission.DeleteRequest{}); !errors.Is(err, databaseadmission.ErrForbidden) {
+		t.Fatalf("missing customer bearer: %v", err)
 	}
 }

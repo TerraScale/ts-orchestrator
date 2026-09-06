@@ -241,12 +241,12 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	item = ItemRecord{Key: key, RunID: run.ID, DatabaseID: databaseID, Status: ItemRunning, StartedAt: d.config.Now().UTC()}
 	itemCtx := ctx
 	durableCtx := durableContext(ctx)
-	facts, err := d.journal.Facts(itemCtx, databaseID)
+	facts, err := d.journal.Facts(itemCtx, databaseID, key)
 	if err != nil {
 		return d.finishItem(durableCtx, item, err)
 	}
 	item.Expected = facts
-	if facts.Checksum == "" || facts.RowCount < 0 {
+	if facts.JournalCut == "" || facts.Checksum == "" || facts.RowCount < 0 {
 		return d.finishItem(durableCtx, item, fmt.Errorf("%w: invalid journal facts", ErrInvalidConfig))
 	}
 	epoch, err := d.journal.ClaimRestoreEpoch(durableCtx, databaseID, key)
@@ -261,10 +261,12 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 		return item, sanitizeError(err)
 	}
 	branch, err := d.branches.CreateScratch(itemCtx, ScratchBranchRequest{
+		RecoveryPointID:  facts.RecoveryPointID,
 		SourceDatabaseID: databaseID,
 		Name:             "restore-drill/" + run.ID + "/" + databaseID,
 		IdempotencyKey:   key,
 		RestoreEpoch:     epoch,
+		JournalCut:       facts.JournalCut,
 	})
 	if err != nil {
 		if branch.ID != "" {
@@ -298,7 +300,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	if !current {
 		return cleanupAndFinish(ErrRestoreEpochFenced)
 	}
-	operationErr = d.backup.Restore(itemCtx, RestoreRequest{SourceDatabaseID: databaseID, BranchID: branch.ID, JournalCut: facts.JournalCut, RestoreEpoch: epoch, IdempotencyKey: key})
+	operationErr = d.backup.Restore(itemCtx, RestoreRequest{RecoveryPointID: facts.RecoveryPointID, SourceDatabaseID: databaseID, BranchID: branch.ID, JournalCut: facts.JournalCut, RestoreEpoch: epoch, IdempotencyKey: key})
 	if operationErr == nil {
 		current, operationErr = d.journal.RestoreEpochCurrent(itemCtx, databaseID, epoch)
 		if operationErr == nil && !current {

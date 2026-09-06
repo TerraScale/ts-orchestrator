@@ -28,11 +28,24 @@ type productionPlacementTransitionFile struct {
 	GenesisKeyFiles map[string]string                     `json:"genesis_key_files"`
 	MemberKeyFiles  map[string]string                     `json:"member_key_files"`
 	GenesisGrants   map[string]placementtransition.Signed `json:"genesis_grants"`
+	Bootstrap       *productionPlacementBootstrap         `json:"bootstrap"`
+}
+type productionPlacementBootstrap struct {
+	OperationID string                               `json:"operation_id"`
+	Environment string                               `json:"environment"`
+	Targets     []productionPlacementBootstrapTarget `json:"targets"`
+}
+type productionPlacementBootstrapTarget struct {
+	ServerIdentity string `json:"server_identity"`
+	MemberID       string `json:"member_id"`
+	Region         string `json:"region"`
+	Proposal       []byte `json:"proposal"`
 }
 type productionPlacementTransitionConfig struct {
 	Issuer        placementtransition.Config
 	GenesisGrants map[string]placementtransition.Signed
 	Targets       []productionPlacementTarget
+	Bootstrap     *productionPlacementBootstrap
 	// Drain must return authenticated, durable engine fence receipts. Delivery
 	// only acknowledges accepted membership; it must never imply serving ready.
 	Drain   func(context.Context, placementtransition.Request, placementtransition.Proof) ([]placementtransition.Signed, error)
@@ -41,6 +54,7 @@ type productionPlacementTransitionConfig struct {
 
 func (f productionPlacementTransitionFile) load() (productionPlacementTransitionConfig, error) {
 	out := productionPlacementTransitionConfig{Issuer: placementtransition.Config{ProofKeyID: f.ProofKeyID, GenesisKeys: map[string]ed25519.PublicKey{}, MemberKeys: map[string]ed25519.PublicKey{}}, GenesisGrants: map[string]placementtransition.Signed{}}
+	out.Bootstrap = f.Bootstrap
 	if f.ProofKeyID == "" || len(f.GenesisKeyFiles) == 0 || len(f.MemberKeyFiles) == 0 {
 		return out, placementtransition.ErrInvalid
 	}
@@ -96,10 +110,12 @@ type transitionIssuer interface {
 	Head(context.Context, string) (placementtransition.Signed, error)
 }
 type productionPlacementTransition struct {
-	config  productionPlacementTransitionConfig
-	issuer  transitionIssuer
-	pending placementpublisher.Journal
-	check   func(context.Context) error
+	config              productionPlacementTransitionConfig
+	issuer              transitionIssuer
+	pending             placementpublisher.Journal
+	check               func(context.Context) error
+	bootstrapPublishers map[string]*placementpublisher.Publisher
+	completion          func(context.Context, string, string, bool) error
 }
 
 func newProductionPlacementTransition(config productionPlacementTransitionConfig, session globalWorkerSession) (*productionPlacementTransition, error) {
@@ -176,18 +192,53 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 	if err != nil {
 		return nil, err
 	}
-	return &productionPlacementTransition{config, issuer, pending, session.CheckEffectAuthority}, nil
+	result := &productionPlacementTransition{config: config, issuer: issuer, pending: pending, check: session.CheckEffectAuthority, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
+	result.completion = func(ctx context.Context, operation, digest string, write bool) error {
+		sum := sha256.Sum256([]byte(operation))
+		c := config.Issuer.Authority
+		c.StateKey = "placement.delivered." + hex.EncodeToString(sum[:])
+		journal, err := authorityjournal.New(c, func() string { return "" }, func(s string) error {
+			if s != "" && len(s) != 64 {
+				return placementtransition.ErrInvalid
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		return journal.Transact(ctx, write, func(stored *string) error {
+			if *stored != "" {
+				if *stored != digest {
+					return placementtransition.ErrConflict
+				}
+				return nil
+			}
+			if !write {
+				return placementtransition.ErrMissing
+			}
+			*stored = digest
+			return nil
+		})
+	}
+	for identity, target := range targets {
+		publisher, err := placementpublisher.New(pending, target, session.CheckEffectAuthority)
+		if err != nil {
+			return nil, err
+		}
+		result.bootstrapPublishers[identity] = publisher
+	}
+	return result, nil
 }
 
 func transitionRequest(record databaseadmission.Record) (placementtransition.Request, error) {
 	r := placementtransition.Request{OperationID: databaseadmission.PlacementOperationID(record.Request)}
-	if len(record.Targets) == 0 {
+	if len(record.PlacementTargets) == 0 {
 		return r, placementtransition.ErrInvalid
 	}
 	expected := map[string]string{}
-	for _, target := range record.Targets {
+	for _, target := range record.PlacementTargets {
 		stage := new(pb.PlacementStageRequest)
-		if !target.Installed || !target.Proposed || proto.Unmarshal(target.Proposal, stage) != nil {
+		if !target.Proposed || proto.Unmarshal(target.Proposal, stage) != nil {
 			return r, placementtransition.ErrInvalid
 		}
 		proposal, err := tbep.CanonicalPlacement(stage.Proposal)
@@ -237,18 +288,29 @@ func transitionRequest(record databaseadmission.Record) (placementtransition.Req
 // Activate is the database pipeline's accepted-membership callback. Completion
 // leaves readiness to separately authenticated engine catch-up evidence.
 func (t *productionPlacementTransition) Activate(ctx context.Context, record databaseadmission.Record) error {
+	return t.activate(ctx, record, "")
+}
+func (t *productionPlacementTransition) activate(ctx context.Context, record databaseadmission.Record, operationOverride string) error {
 	if t == nil || t.issuer == nil || t.pending == nil || t.check == nil {
 		return placementtransition.ErrInvalid
 	}
 	if err := t.check(ctx); err != nil {
 		return err
 	}
+	for _, member := range record.Targets {
+		if !member.Installed {
+			return placementtransition.ErrInvalid
+		}
+	}
 	r, err := transitionRequest(record)
 	if err != nil {
 		return err
 	}
+	if operationOverride != "" {
+		r.OperationID = operationOverride
+	}
 	revisions := map[string]uint64{}
-	for _, target := range record.Targets {
+	for _, target := range record.PlacementTargets {
 		stored, err := t.pending.Load(ctx, target.ServerIdentity)
 		if err != nil {
 			return err
@@ -311,11 +373,17 @@ deliver:
 	if err != nil || d != proof.RequestDigest {
 		return placementtransition.ErrConflict
 	}
-	for _, target := range record.Targets {
+	for _, target := range record.PlacementTargets {
 		if err := t.check(ctx); err != nil {
 			return err
 		}
 		if err := t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, revisions[target.ServerIdentity], signed); err != nil {
+			return err
+		}
+	}
+	if t.completion != nil {
+		sum := sha256.Sum256(signed.Payload)
+		if err := t.completion(ctx, r.OperationID, hex.EncodeToString(sum[:]), true); err != nil {
 			return err
 		}
 	}

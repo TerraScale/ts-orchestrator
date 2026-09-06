@@ -53,7 +53,7 @@ func TestGlobalAuthorityRenewsAcrossSiblingStreamWrites(t *testing.T) {
 	if err := json.Unmarshal(entry.Value(), &original); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"root.workers.barrier", "security.rotation.barrier", "restore.drill.barrier"} {
+	for _, key := range []string{"root.workers.barrier", "security.rotation.barrier", "security.identity-rotation.barrier", "restore.drill.barrier"} {
 		if _, err := kv.Put(ctx, key, []byte("sibling write")); err != nil {
 			t.Fatal(err)
 		}

@@ -26,27 +26,32 @@ type productionDatabaseRegion struct {
 }
 type productionDatabaseHost struct{ ServerIdentity, MemberID string }
 type productionDatabaseConfig struct {
+	ReadinessKeys                     map[string]databaseadmission.ReadinessKey
+	Inventory                         databaseInventoryFileConfig
 	BranchRestoreKeys                 map[string]databaseadmission.ReadinessKey
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
-	DeletionPolicy                    databaseadmission.DeletionPolicy
+	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) error
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 }
 type productionDatabase struct {
-	lifecycleJournal *databaseadmission.NATSJournal
-	lifecycleService *databaseadmission.Service
-	pipeline         *databaseadmission.Pipeline
-	service          *databaseadmission.Service
-	deletion         *databaseadmission.DeletionWorkflow
-	deletionService  *databaseadmission.Service
-	check            func(context.Context) error
-	mu               sync.Mutex
-	failure          string
+	inventoryConfig      databaseInventoryFileConfig
+	inventoryEnvironment string
+	inventory            *productionDatabaseInventory
+	lifecycleJournal     *databaseadmission.NATSJournal
+	lifecycleService     *databaseadmission.Service
+	pipeline             *databaseadmission.Pipeline
+	service              *databaseadmission.Service
+	deletion             *databaseadmission.DeletionWorkflow
+	deletionService      *databaseadmission.Service
+	check                func(context.Context) error
+	mu                   sync.Mutex
+	failure              string
 }
 
 func newProductionDatabase(config productionDatabaseConfig, session globalWorkerSession, placement *productionPlacement) (*productionDatabase, error) {
-	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || config.DeletionPolicy == nil || placement == nil {
+	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || config.AuthorizeDeletion == nil || placement == nil {
 		return nil, errors.New("runtime database: admitted topology, catalog and project authorization required")
 	}
 	seenHosts, seenRegions := map[string]bool{}, map[string]bool{}
@@ -70,15 +75,20 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 	if err != nil {
 		return nil, err
 	}
+	readiness, err := newProductionReadiness(config.ReadinessKeys, session, placement.config.Targets)
+	if err != nil {
+		return nil, err
+	}
 	pipeline, err := databaseadmission.New(databaseadmission.Config{
-		Journal: journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
+		Readiness: readiness,
+		Journal:   journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
 		Authorize: func(ctx context.Context, r databaseadmission.Request) error {
 			if r.Environment != config.Environment {
 				return databaseadmission.ErrInvalid
 			}
 			return config.Authorize(ctx, r)
 		},
-		Plan: func(ctx context.Context, r databaseadmission.Record) ([]databaseadmission.Target, error) {
+		Plan: func(ctx context.Context, r databaseadmission.Record) (databaseadmission.Plan, error) {
 			return config.plan(ctx, r, journal, placementJournal)
 		},
 		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
@@ -101,23 +111,31 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		if err := session.CheckEffectAuthority(ctx); err != nil {
 			return databaseadmission.DeletionPolicyDecision{}, err
 		}
-		return config.DeletionPolicy.AuthorizeDeletion(ctx, request)
+		if err := config.AuthorizeDeletion(ctx, request); err != nil {
+			return databaseadmission.DeletionPolicyDecision{}, err
+		}
+		return databaseadmission.DeletionPolicyDecision{}, nil
 	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal)}
-	return &productionDatabase{lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority}, nil
+	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority}, nil
 }
 func (d *productionDatabase) Start(ctx context.Context, session globalWorkerSession) error {
-	service, err := databaseadmission.StartAuthority(ctx, session.Connection, d.pipeline)
+	inventory, err := startProductionDatabaseInventory(ctx, d.inventoryConfig, d.inventoryEnvironment, d.lifecycleJournal)
 	if err != nil {
 		return err
+	}
+	d.inventory = inventory
+	service, err := databaseadmission.StartAuthority(ctx, session.Connection, d.pipeline)
+	if err != nil {
+		return errors.Join(err, d.inventory.Close())
 	}
 	d.service = service
 	d.lifecycleService, err = databaseadmission.StartLifecycleAuthority(ctx, session.Connection, d.lifecycleJournal)
 	if err != nil {
-		return errors.Join(err, d.service.Close())
+		return errors.Join(err, d.inventory.Close(), d.service.Close())
 	}
 	d.deletionService, err = databaseadmission.StartDeletionAuthority(ctx, session.Connection, d.deletion)
 	if err != nil {
-		return errors.Join(err, d.service.Close(), d.lifecycleService.Close())
+		return errors.Join(err, d.inventory.Close(), d.service.Close(), d.lifecycleService.Close())
 	}
 	return nil
 }
@@ -126,6 +144,9 @@ func (d *productionDatabase) Close() error {
 		return nil
 	}
 	var errs []error
+	if d.inventory != nil {
+		errs = append(errs, d.inventory.Close())
+	}
 	if d.lifecycleService != nil {
 		errs = append(errs, d.lifecycleService.Close())
 	}
@@ -150,7 +171,7 @@ func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Jou
 		if databaseadmission.PlacementOperationID(record.Request) != operation {
 			continue
 		}
-		for _, target := range record.Targets {
+		for _, target := range record.PlacementTargets {
 			if target.ServerIdentity == host && bytes.Equal(target.Proposal, encoded) {
 				return nil
 			}
@@ -159,32 +180,36 @@ func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Jou
 	return errors.New("runtime database: placement differs from accepted immutable plan")
 }
 
-func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmission.Record, journal databaseadmission.Journal, placements placementpublisher.Journal) ([]databaseadmission.Target, error) {
+func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmission.Record, journal databaseadmission.Journal, placements placementpublisher.Journal) (databaseadmission.Plan, error) {
 	if r.Request.Environment != config.Environment {
-		return nil, databaseadmission.ErrInvalid
+		return databaseadmission.Plan{}, databaseadmission.ErrInvalid
 	}
 	records, err := journal.List(ctx)
 	if err != nil {
-		return nil, err
+		return databaseadmission.Plan{}, err
 	}
 	// A successor proposal must not overtake an unresolved operation on a host.
 	for _, prior := range records {
 		if prior.State != "placement_pending" && prior.State != "ready" {
-			return nil, errors.New("runtime database: previous database admission is unresolved")
+			return databaseadmission.Plan{}, errors.New("runtime database: previous database admission is unresolved")
 		}
 	}
 	proposal := &pb.PlacementProposal{Environment: config.Environment, Cluster: config.Cluster, Generation: 1, Epoch: 1}
 	targets := []databaseadmission.Target{}
+	placementTargets := []databaseadmission.PlacementTarget{}
 	selected := map[string]bool{}
 	for _, region := range config.Regions {
+		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
+			placementTargets = append(placementTargets, databaseadmission.PlacementTarget{ServerIdentity: host.ServerIdentity, MemberID: host.MemberID, Region: region.Region})
+		}
+		proposal.Regions = append(proposal.Regions, &pb.PlacementRegionSeats{Region: region.Region, Members: []string{region.Writer.MemberID, region.Follower.MemberID}})
 		if !slices.Contains(r.Request.Regions, region.Region) {
 			continue
 		}
 		if selected[region.Region] {
-			return nil, databaseadmission.ErrInvalid
+			return databaseadmission.Plan{}, databaseadmission.ErrInvalid
 		}
 		selected[region.Region] = true
-		proposal.Regions = append(proposal.Regions, &pb.PlacementRegionSeats{Region: region.Region, Members: []string{region.Writer.MemberID, region.Follower.MemberID}})
 		proposal.Assignments = append(proposal.Assignments, &pb.PlacementDatabaseAssignment{Tenant: r.Request.TenantID, Project: r.Request.ProjectID, Database: r.DatabaseID, Region: region.Region, WriterMember: region.Writer.MemberID, FollowerMember: region.Follower.MemberID})
 		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
 			vault := region.Vault
@@ -193,29 +218,29 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		}
 	}
 	if len(selected) != len(r.Request.Regions) {
-		return nil, databaseadmission.ErrInvalid
+		return databaseadmission.Plan{}, databaseadmission.ErrInvalid
 	}
 	// Each target journal is authoritative for its local CAS revision. Merge all
 	// admitted prior assignments so a new database cannot erase an existing one.
 	revisions := map[string]uint64{}
-	for _, target := range targets {
+	for _, target := range placementTargets {
 		prior, err := placements.Load(ctx, target.ServerIdentity)
 		if errors.Is(err, placementpublisher.ErrIntentMissing) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return databaseadmission.Plan{}, err
 		}
 		receipt := new(pb.PlacementProposalResponse)
 		previous := new(pb.PlacementStageRequest)
 		if len(prior.Receipt) == 0 || proto.Unmarshal(prior.Receipt, receipt) != nil || proto.Unmarshal(prior.Request, previous) != nil || tbep.ValidatePlacementReceipt(receipt, previous.Proposal) != nil {
-			return nil, errors.New("runtime database: previous placement remains unresolved")
+			return databaseadmission.Plan{}, errors.New("runtime database: previous placement remains unresolved")
 		}
 		if previous.Proposal.Environment != config.Environment || previous.Proposal.Cluster != config.Cluster {
-			return nil, databaseadmission.ErrConflict
+			return databaseadmission.Plan{}, databaseadmission.ErrConflict
 		}
 		if previous.Proposal.Generation == ^uint64(0) || previous.Proposal.Epoch == ^uint64(0) {
-			return nil, databaseadmission.ErrInvalid
+			return databaseadmission.Plan{}, databaseadmission.ErrInvalid
 		}
 		revisions[target.ServerIdentity] = receipt.Revision
 		proposal.Generation = max(proposal.Generation, previous.Proposal.Generation+1)
@@ -223,9 +248,9 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		for _, seats := range previous.Proposal.Regions {
 			i := slices.IndexFunc(proposal.Regions, func(v *pb.PlacementRegionSeats) bool { return v.Region == seats.Region })
 			if i < 0 {
-				proposal.Regions = append(proposal.Regions, proto.CloneOf(seats))
+				return databaseadmission.Plan{}, databaseadmission.ErrConflict
 			} else if !slices.Equal(slices.Sorted(slices.Values(proposal.Regions[i].Members)), slices.Sorted(slices.Values(seats.Members))) {
-				return nil, databaseadmission.ErrConflict
+				return databaseadmission.Plan{}, databaseadmission.ErrConflict
 			}
 		}
 		for _, assignment := range previous.Proposal.Assignments {
@@ -235,21 +260,27 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 			if i < 0 {
 				proposal.Assignments = append(proposal.Assignments, proto.CloneOf(assignment))
 			} else if !proto.Equal(proposal.Assignments[i], assignment) {
-				return nil, databaseadmission.ErrConflict
+				return databaseadmission.Plan{}, databaseadmission.ErrConflict
 			}
 		}
 	}
 	canonical, err := tbep.CanonicalPlacement(proposal)
 	if err != nil {
-		return nil, fmt.Errorf("runtime database plan: %w", err)
+		return databaseadmission.Plan{}, fmt.Errorf("runtime database plan: %w", err)
 	}
 	for i := range targets {
 		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical})
 		if err != nil {
-			return nil, err
+			return databaseadmission.Plan{}, err
 		}
 	}
-	return targets, nil
+	for i := range placementTargets {
+		placementTargets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[placementTargets[i].ServerIdentity], Proposal: canonical})
+		if err != nil {
+			return databaseadmission.Plan{}, err
+		}
+	}
+	return databaseadmission.Plan{Members: targets, Placements: placementTargets}, nil
 }
 
 // Unreachable hosts retain their durable intent and retry. Authority loss and

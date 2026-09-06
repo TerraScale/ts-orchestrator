@@ -64,6 +64,7 @@ type Event struct {
 	RetainUntil time.Time `json:"retain_until,omitzero"`
 }
 type Snapshot struct {
+	Environment    string     `json:"environment"`
 	OrganizationID string     `json:"organization_id"`
 	Start          time.Time  `json:"start"`
 	End            time.Time  `json:"end"`
@@ -127,7 +128,7 @@ func Validate(state State) error {
 		}
 	}
 	for key, snapshot := range state.Closed {
-		if key != snapshotKey(snapshot.OrganizationID, snapshot.Start, snapshot.End) || snapshot.Digest != digest(snapshot) || snapshot.Revision > state.Revision {
+		if key != snapshot.Environment+"/"+snapshotKey(snapshot.OrganizationID, snapshot.Start, snapshot.End) || snapshot.Digest != digest(snapshot) || snapshot.Revision > state.Revision {
 			return ErrInvalid
 		}
 	}
@@ -287,10 +288,26 @@ func Apply(state *State, e Event) error {
 // Freeze establishes the inventory close barrier atomically with its exact
 // resource/stream set. Lack of routing evidence is an error, never completeness.
 func Freeze(state *State, org string, start, end time.Time) (Snapshot, error) {
+	return FreezeEnvironment(state, "", org, start, end)
+}
+
+// FreezeEnvironment binds the receipt to its configured deployment environment
+// inside the same transaction as inventory closure, including an empty cycle.
+func FreezeEnvironment(state *State, environment, org string, start, end time.Time) (Snapshot, error) {
 	if state == nil || Validate(*state) != nil || !idPattern.MatchString(org) || start.IsZero() || !end.After(start) || state.Revision == math.MaxUint64 {
 		return Snapshot{}, ErrInvalid
 	}
-	key := snapshotKey(org, start, end)
+	if environment != "" {
+		if !environmentPattern.MatchString(environment) {
+			return Snapshot{}, ErrInvalid
+		}
+		for _, resource := range state.Resources {
+			if resource.OrganizationID == org && resource.Environment != environment {
+				return Snapshot{}, ErrConflict
+			}
+		}
+	}
+	key := environment + "/" + snapshotKey(org, start, end)
 	if old, ok := state.Closed[key]; ok {
 		return cloneSnapshot(old)
 	}
@@ -299,7 +316,7 @@ func Freeze(state *State, org string, start, end time.Time) (Snapshot, error) {
 			return Snapshot{}, ErrConflict
 		}
 	}
-	out := Snapshot{OrganizationID: org, Start: start.UTC(), End: end.UTC(), Revision: state.Revision + 1, Resources: []Resource{}}
+	out := Snapshot{Environment: environment, OrganizationID: org, Start: start.UTC(), End: end.UTC(), Revision: state.Revision + 1, Resources: []Resource{}}
 	for _, r := range state.Resources {
 		if r.OrganizationID != org || !r.CreatedAt.Before(end) || (!r.UsageStoppedAt.IsZero() && !r.UsageStoppedAt.After(start)) {
 			continue

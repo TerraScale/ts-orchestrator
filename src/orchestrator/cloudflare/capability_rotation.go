@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,7 +55,7 @@ type SnippetCapabilityStore struct {
 var _ security.SecretsStore = (*SnippetCapabilityStore)(nil)
 
 func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabilityStore, error) {
-	if c.Client == nil || c.SnippetName == "" || c.Vault == nil || c.Journal == nil || c.Authorize == nil || c.HTTPClient == nil || c.Now == nil || len(c.ProbeURLs) == 0 || bytes.Count(c.Source, []byte(CapabilityDeploymentMarker)) != 1 {
+	if c.Client == nil || c.Client.HTTP == nil || c.SnippetName == "" || c.Vault == nil || c.Journal == nil || c.Authorize == nil || c.HTTPClient == nil || c.Now == nil || len(c.ProbeURLs) == 0 || bytes.Count(c.Source, []byte(CapabilityDeploymentMarker)) != 1 {
 		return nil, capabilityEffectError()
 	}
 	if (c.Artifacts == nil) != (c.TemplateService == "") {
@@ -104,6 +105,8 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 	}
 	if old.Generation != 0 {
 		receipt.TemplateDigest = old.TemplateDigest
+		receipt.RevocationRevision = old.RevocationRevision
+		receipt.Revocations = slices.Clone(old.Revocations)
 	}
 	if receipt.Previous.Reference != "" {
 		receipt.Previous.ExpiresAt = minTime(receipt.Previous.ExpiresAt, receipt.Current.NotBefore.Add(security.CapabilityOverlap))
@@ -190,11 +193,12 @@ type capabilityWireKey struct {
 	NotAfter  int64  `json:"notAfter"`
 }
 type capabilityDeployment struct {
-	Generation string             `json:"generation"`
-	Phase      string             `json:"phase"`
-	ValidUntil int64              `json:"validUntil"`
-	Current    capabilityWireKey  `json:"current"`
-	Previous   *capabilityWireKey `json:"previous,omitzero"`
+	Revocations capabilityRevocationWire `json:"revocations"`
+	Generation  string                   `json:"generation"`
+	Phase       string                   `json:"phase"`
+	ValidUntil  int64                    `json:"validUntil"`
+	Current     capabilityWireKey        `json:"current"`
+	Previous    *capabilityWireKey       `json:"previous,omitzero"`
 }
 
 func (s *SnippetCapabilityStore) fetch(ctx context.Context, state security.CapabilityKeyState) (security.CapabilityMaterial, error) {
@@ -218,7 +222,7 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 		return nil, err
 	}
 	defer clear(current.Key)
-	d := capabilityDeployment{Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current)}
+	d := capabilityDeployment{Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
 	if r.Previous.Reference != "" && s.config.Now().Before(r.Previous.ExpiresAt) {
 		previous, e := s.fetch(ctx, r.Previous)
 		if e != nil {
@@ -232,7 +236,12 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 		return nil, capabilityEffectError()
 	}
 	defer clear(encoded)
-	return bytes.Replace(template, []byte(CapabilityDeploymentMarker), encoded, 1), nil
+	source := bytes.Replace(template, []byte(CapabilityDeploymentMarker), encoded, 1)
+	if len(source) > 32768 {
+		clear(source)
+		return nil, capabilityEffectError()
+	}
+	return source, nil
 }
 func (s *SnippetCapabilityStore) deploy(ctx context.Context, r CapabilityReceipt, revision uint64) error {
 	source, err := s.source(ctx, r)
@@ -295,6 +304,9 @@ func capabilityMAC(key []byte, text string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 func (s *SnippetCapabilityStore) probe(ctx context.Context, endpoint string, r CapabilityReceipt, key []byte) error {
+	if s.authorize(ctx) != nil {
+		return capabilityEffectError()
+	}
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return capabilityEffectError()
@@ -319,16 +331,18 @@ func (s *SnippetCapabilityStore) probe(ctx context.Context, endpoint string, r C
 		return capabilityEffectError()
 	}
 	var proof struct {
-		Nonce      string `json:"nonce"`
-		Generation string `json:"generation"`
-		Phase      string `json:"phase"`
-		ValidUntil int64  `json:"validUntil"`
-		Proof      string `json:"proof"`
+		Nonce              string `json:"nonce"`
+		Generation         string `json:"generation"`
+		Phase              string `json:"phase"`
+		ValidUntil         int64  `json:"validUntil"`
+		Proof              string `json:"proof"`
+		RevocationRevision string `json:"revocationRevision"`
+		RevocationDigest   string `json:"revocationDigest"`
 	}
-	if json.Unmarshal(raw, &proof) != nil || proof.Nonce != nonce || proof.Generation != strconv.FormatUint(r.Generation, 10) || proof.Phase != r.Phase || proof.ValidUntil != r.Current.ExpiresAt.Unix() {
+	if json.Unmarshal(raw, &proof) != nil || proof.Nonce != nonce || proof.Generation != strconv.FormatUint(r.Generation, 10) || proof.Phase != r.Phase || proof.ValidUntil != r.Current.ExpiresAt.Unix() || proof.RevocationRevision != strconv.FormatUint(r.RevocationRevision, 10) || proof.RevocationDigest != capabilityRevocationDigest(r.Revocations) {
 		return capabilityEffectError()
 	}
-	expected := capabilityMAC(key, "terrascale-capability-generation-response-v1\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10))
+	expected := capabilityMAC(key, "terrascale-capability-generation-response-v2\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10)+"\n"+proof.RevocationRevision+"\n"+proof.RevocationDigest)
 	if !hmac.Equal([]byte(expected), []byte(proof.Proof)) {
 		return capabilityEffectError()
 	}
@@ -456,10 +470,23 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 	if hostname == "" || strings.TrimSpace(hostname) != hostname || strings.ContainsAny(hostname, "/:?#@*\\") {
 		return capabilityEffectError()
 	}
+	if len(hostname) > 253 {
+		return capabilityEffectError()
+	}
+	for label := range strings.SplitSeq(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return capabilityEffectError()
+		}
+		for _, char := range label {
+			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-') {
+				return capabilityEffectError()
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, endpoint := range probeURLs {
 		u, err := url.Parse(endpoint)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || !strings.EqualFold(u.Hostname(), hostname) || u.Path != "/.well-known/terrascale-capability-generation" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" {
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || !strings.EqualFold(u.Hostname(), hostname) || u.Path != "/.well-known/terrascale-capability-generation" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || strings.Contains(endpoint, "#") {
 			return capabilityEffectError()
 		}
 		port := u.Port()
@@ -468,6 +495,7 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 			if e != nil || n < 1 || n > 65535 {
 				return capabilityEffectError()
 			}
+			port = strconv.Itoa(n)
 		}
 		identity := strings.ToLower(u.Hostname()) + ":" + port
 		if port == "443" {

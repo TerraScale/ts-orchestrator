@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
@@ -53,6 +54,7 @@ type Declaration struct {
 }
 
 type Host struct {
+	DatabaseHost            *DatabaseHostCredentials  `json:"databaseHost,omitempty"`
 	EngineControl           *EngineControlCredentials `json:"engineControl,omitempty"`
 	OrchestratorPrincipals  []string                  `json:"orchestratorPrincipals,omitempty"`
 	ObserverCertificateFile string                    `json:"observerCertificateFile"`
@@ -98,6 +100,8 @@ type Material struct {
 	observerCertificate, observerPrivateKey      []byte
 	observation                                  tbep.FileConfig
 	controlFiles                                 map[string][]byte
+	databaseFiles                                map[string][]byte
+	databaseAuthorization                        databaseadmission.BrokerGrant
 	transitionFiles                              map[string][]byte
 	controlAuthorization                         ControlNATSAuthorization
 }
@@ -111,6 +115,9 @@ func IsTLSPath(path string) bool {
 func (m *Material) Clear() {
 	if m == nil {
 		return
+	}
+	for _, raw := range m.databaseFiles {
+		clear(raw)
 	}
 	clear(m.privateKey)
 	clear(m.observerPrivateKey)
@@ -126,6 +133,7 @@ func (m *Material) Clone() *Material {
 	}
 	copy := *m
 	copy.controlFiles = m.ControlFiles()
+	copy.databaseFiles = m.DatabaseFiles()
 	copy.transitionFiles = m.TransitionFiles()
 	copy.controlAuthorization = m.ControlAuthorization()
 	copy.certificate, copy.privateKey, copy.ca = bytes.Clone(m.certificate), bytes.Clone(m.privateKey), bytes.Clone(m.ca)
@@ -168,7 +176,11 @@ func (m *Material) Apply(manifest hostmanifest.HostManifest) (hostmanifest.HostM
 	if !found {
 		return manifest, errors.New("vmengineconfig: engine component missing")
 	}
-	return m.applyControlManifest(manifest)
+	manifest, err := m.applyControlManifest(manifest)
+	if err != nil {
+		return manifest, err
+	}
+	return m.applyDatabaseManifest(manifest)
 }
 
 func (m *Material) ValidateManifest(nodeID, address string, manifest hostmanifest.HostManifest) error {
@@ -188,7 +200,10 @@ func (m *Material) ValidateManifest(nodeID, address string, manifest hostmanifes
 	if found != 1 {
 		return errors.New("vmengineconfig: engine component inventory differs")
 	}
-	return m.validateControlManifest(manifest)
+	if err := m.validateControlManifest(manifest); err != nil {
+		return err
+	}
+	return m.validateDatabaseManifest(manifest)
 }
 
 func Load(path, artifact, release string, bindings []Binding) (map[string]*Material, error) {
@@ -315,6 +330,7 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		return "", err
 	}
 	renderTransitionTrust(&b, d.TransitionTrust)
+	renderDatabaseAdmission(&b, h.DatabaseHost)
 	l := d.Limits
 	fmt.Fprintf(&b, "\n[transport]\ntbep_listen = \"127.0.0.1:8421\"\nquic_listen = %q\nmetrics_listen = \"127.0.0.1:8423\"\nserver_certificate = %q\nserver_private_key = %q\nclient_ca = %q\nmax_message_bytes = %d\nmax_inflight = %d\nrequest_timeout_millis = %d\ntls_handshake_timeout_millis = %d\nshutdown_grace_millis = %d\n", nodes[h.NodeID].Address+":8422", CertificatePath, PrivateKeyPath, CAPath, l.MaxMessageBytes, l.MaxInflight, l.RequestTimeoutMillis, l.TLSHandshakeTimeoutMillis, l.ShutdownGraceMillis)
 	for _, peer := range d.Hosts {

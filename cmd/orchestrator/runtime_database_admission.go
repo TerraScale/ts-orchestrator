@@ -25,12 +25,15 @@ import (
 )
 
 type productionDatabaseFileConfig struct {
-	Environment           string                    `json:"environment"`
-	Cluster               string                    `json:"cluster"`
-	CatalogPath           string                    `json:"catalogPath"`
-	Authorization         databaseAuthorizationFile `json:"authorization"`
-	DeletionAuthorization databaseAuthorizationFile `json:"deletionAuthorization"`
-	Regions               []databaseRegionFile      `json:"regions"`
+	ReadinessKeys         map[string]productionReadinessKeyFile `json:"readinessKeys"`
+	Inventory             databaseInventoryFileConfig           `json:"inventory"`
+	BranchRestoreKeys     map[string]databaseBranchKeyFile      `json:"branchRestoreKeys"`
+	Environment           string                                `json:"environment"`
+	Cluster               string                                `json:"cluster"`
+	CatalogPath           string                                `json:"catalogPath"`
+	Authorization         databaseAuthorizationFile             `json:"authorization"`
+	DeletionAuthorization databaseAuthorizationFile             `json:"deletionAuthorization"`
+	Regions               []databaseRegionFile                  `json:"regions"`
 }
 type databaseAuthorizationFile struct {
 	Endpoint       string `json:"endpoint"`
@@ -52,8 +55,11 @@ type databaseHostFile struct {
 }
 
 func resolveProductionDatabase(config productionDatabaseFileConfig, placement productionPlacementConfig, auth productionAuthBootstrapConfig) (productionDatabaseConfig, error) {
+	if err := config.Inventory.Validate(); err != nil {
+		return productionDatabaseConfig{}, err
+	}
 	canonicalID := regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
-	result := productionDatabaseConfig{Environment: config.Environment, Cluster: config.Cluster, CatalogPath: config.CatalogPath}
+	result := productionDatabaseConfig{Inventory: config.Inventory, Environment: config.Environment, Cluster: config.Cluster, CatalogPath: config.CatalogPath}
 	if config.Environment == "" || !canonicalID.MatchString(config.Cluster) || !filepath.IsAbs(config.CatalogPath) || filepath.Clean(config.CatalogPath) != config.CatalogPath || len(config.Regions) < 1 || len(config.Regions) > 3 {
 		return result, databaseadmission.ErrInvalid
 	}
@@ -86,12 +92,30 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 			}
 		}
 	}
+	readinessKeys, err := loadProductionReadinessKeys(config.ReadinessKeys)
+	if err != nil {
+		return result, err
+	}
+	if len(readinessKeys) != len(placement.Targets) {
+		return result, databaseadmission.ErrInvalid
+	}
+	for _, target := range placement.Targets {
+		if _, ok := readinessKeys[target.ServerIdentity]; !ok {
+			return result, databaseadmission.ErrInvalid
+		}
+	}
+	result.ReadinessKeys = readinessKeys
+	branchKeys, err := loadDatabaseBranchKeys(config.BranchRestoreKeys, hostMembers)
+	if err != nil {
+		return result, err
+	}
+	result.BranchRestoreKeys = branchKeys
 	authorize, err := newDatabaseAuthorizer(config.Authorization)
 	if err != nil {
 		return result, err
 	}
 	result.Authorize = authorize
-	result.DeletionPolicy, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
+	result.AuthorizeDeletion, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
 	if err != nil {
 		return result, err
 	}
@@ -186,7 +210,7 @@ func databasePlacementPolicy(journal databaseadmission.Journal) func(context.Con
 			if err := databaseadmission.ValidateRecord(record); err != nil {
 				return err
 			}
-			for _, target := range record.Targets {
+			for _, target := range record.PlacementTargets {
 				if target.ServerIdentity == host && bytes.Equal(target.Proposal, data) {
 					return nil
 				}

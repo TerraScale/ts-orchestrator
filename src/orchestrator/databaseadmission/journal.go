@@ -60,21 +60,25 @@ func validateProgress(record Record) error {
 	if rank < 0 {
 		return ErrInvalid
 	}
-	if rank == 0 && len(record.Wrapped) != 0 {
+	if len(record.Wrapped) > len(record.Request.Regions)*len(databaseKeyPurposes) {
 		return ErrInvalid
 	}
-	if rank > 0 && len(record.Wrapped) != len(record.Request.Regions) {
+	if rank > 0 && len(record.Wrapped) != len(record.Request.Regions)*len(databaseKeyPurposes) {
 		return ErrInvalid
 	}
 	regions := map[string]bool{}
 	for _, entry := range record.Wrapped {
-		if regions[entry.Binding.Region] || len(entry.Ciphertext) == 0 || len(entry.Ciphertext) > 8192 || entry.Revoked {
+		if regions[entry.Binding.Region+"/"+entry.Binding.Purpose] || len(entry.Ciphertext) == 0 || len(entry.Ciphertext) > 8192 || entry.Revoked {
 			return ErrInvalid
 		}
-		regions[entry.Binding.Region] = true
+		regions[entry.Binding.Region+"/"+entry.Binding.Purpose] = true
 		match := false
 		for _, target := range record.Targets {
 			p := target.Provision
+			p.Binding.Purpose = entry.Binding.Purpose
+			if !slices.Contains(databaseKeyPurposes[:], entry.Binding.Purpose) {
+				return ErrInvalid
+			}
 			if entry.Binding == p.Binding && entry.CryptoEndpoint == p.CryptoEndpoint && entry.KEKID == p.KEKID && entry.KEKVersionID == p.KEKVersionID && entry.LeaseSeconds == p.LeaseSeconds && entry.NotAfter.Equal(p.NotAfter) {
 				match = true
 				break
@@ -84,8 +88,19 @@ func validateProgress(record Record) error {
 			return ErrInvalid
 		}
 	}
+	for _, purpose := range databaseKeyPurposes {
+		count := 0
+		for _, entry := range record.Wrapped {
+			if entry.Binding.Purpose == purpose {
+				count++
+			}
+		}
+		if count != 0 && count != len(record.Request.Regions) {
+			return ErrInvalid
+		}
+	}
 	for _, target := range record.Targets {
-		if target.Installed && rank < 1 || target.Proposed && (!target.Installed || rank < 2) || rank >= 2 && !target.Installed || rank >= 3 && !target.Proposed {
+		if target.Installed && rank < 1 || rank >= 2 && !target.Installed {
 			return ErrInvalid
 		}
 	}
@@ -97,7 +112,7 @@ func validateProgress(record Record) error {
 		return ErrInvalid
 	}
 	if record.Request.ParentDatabaseID == "" {
-		if len(record.BranchEvidence) != 0 || record.BranchNonce != "" {
+		if record.BranchSource != nil || len(record.BranchEvidence) != 0 || record.BranchNonce != "" {
 			return ErrInvalid
 		}
 	} else if len(record.BranchEvidence) > 0 {
@@ -106,6 +121,19 @@ func validateProgress(record Record) error {
 		}
 	} else if rank == 4 || record.BranchNonce != "" {
 		return ErrInvalid
+	}
+	for _, target := range record.PlacementTargets {
+		if target.Proposed && rank < 2 || rank >= 3 && !target.Proposed {
+			return ErrInvalid
+		}
+	}
+	if record.BranchSource != nil {
+		if rank < 3 {
+			return ErrInvalid
+		}
+		if _, err := validateBranchSource(record, record.BranchSource, nil, time.Time{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -122,7 +150,10 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 		if old.Revision != expected {
 			return 0, ErrJournalConflict
 		}
-		if !ImmutableEqual(old, record) || stateRank(record.State) < stateRank(old.State) || len(old.Wrapped) > 0 && !reflect.DeepEqual(old.Wrapped, record.Wrapped) {
+		if !ImmutableEqual(old, record) || stateRank(record.State) < stateRank(old.State) || !wrappedPreserved(old.Wrapped, record.Wrapped) {
+			return 0, ErrConflict
+		}
+		if old.BranchSource != nil && !reflect.DeepEqual(old.BranchSource, record.BranchSource) {
 			return 0, ErrConflict
 		}
 		if old.State == "ready" && (!sameReadiness(old.ReadyEvidence, record.ReadyEvidence) || old.ReadinessNonce != record.ReadinessNonce) {
@@ -132,7 +163,12 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			return 0, ErrConflict
 		}
 		for i, target := range old.Targets {
-			if target.Installed && !record.Targets[i].Installed || target.Proposed && !record.Targets[i].Proposed {
+			if target.Installed && !record.Targets[i].Installed {
+				return 0, ErrConflict
+			}
+		}
+		for i, target := range old.PlacementTargets {
+			if target.Proposed && !record.PlacementTargets[i].Proposed {
 				return 0, ErrConflict
 			}
 		}
@@ -170,14 +206,9 @@ func validateReservedCapacity(state journalState) error {
 	reserved := state
 	reserved.Records = make(map[string]Record, len(state.Records))
 	for key, record := range state.Records {
-		if len(record.Wrapped) == 0 {
-			seen := map[string]bool{}
-			for _, target := range record.Targets {
-				p := target.Provision
-				if seen[p.Binding.Region] {
-					continue
-				}
-				seen[p.Binding.Region] = true
+		record.Wrapped = nil
+		for _, purpose := range databaseKeyPurposes {
+			for _, p := range purposeTargets(record, purpose) {
 				record.Wrapped = append(record.Wrapped, keylease.Entry{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: strings.Repeat("\x00", 8192), LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter})
 			}
 		}
@@ -198,6 +229,7 @@ func validateReservedCapacity(state journalState) error {
 		reserved.Records[key] = record
 	}
 	reserveLifecycleCapacity(&reserved)
+	reserveDeletionCapacity(&reserved)
 	encoded, err := json.Marshal(reserved)
 	if err != nil || len(encoded) > authorityjournal.MaximumStateBytes {
 		return ErrJournalUnavailable

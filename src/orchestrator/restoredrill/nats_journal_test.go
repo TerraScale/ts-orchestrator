@@ -211,7 +211,7 @@ func TestNATSRestoreJournalRestartEpochCASAndMinorityOutage(t *testing.T) {
 	if err != nil || !found || len(loaded.Items) != 1 || loaded.Items[0].RestoreEpoch != 1 {
 		t.Fatalf("restart run: %+v %v %v", loaded, found, err)
 	}
-	loadedFacts, err := journal.Facts(ctx, "database")
+	loadedFacts, err := journal.Facts(ctx, "database", "item")
 	if err != nil || loadedFacts != facts {
 		t.Fatalf("restart facts: %+v %v", loadedFacts, err)
 	}
@@ -396,12 +396,12 @@ func TestNATSRestoreJournalRequiresExactLeaseID(t *testing.T) {
 	}
 	lease.IssuedAt = time.Now().UTC()
 	putRestoreLease(t, ctx, store, lease)
-	if _, err := journal.Facts(ctx, "database"); err != nil {
+	if _, err := journal.Facts(ctx, "database", "item"); err != nil {
 		t.Fatalf("same-lease renewal rejected: %v", err)
 	}
 	lease.LeaseId = "replacement-lease"
 	putRestoreLease(t, ctx, store, lease)
-	if _, err := journal.Facts(ctx, "database"); err == nil {
+	if _, err := journal.Facts(ctx, "database", "item"); err == nil {
 		t.Fatal("same candidate and epoch with changed lease ID accepted")
 	}
 }

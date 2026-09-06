@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 )
 
@@ -22,6 +23,7 @@ const maximumRunConfigurationBytes = 64 << 10
 // tokens, private keys, and arbitrary environment variables are not supported.
 var runConfigurationKeys = map[string]bool{
 	placementpublisher.BrokerGrantsEnvironment: true,
+	databaseadmission.BrokerGrantsEnvironment:  true,
 	"TS_ORCH_PRODUCTION_RUNTIME_FILE":          true,
 	placementHostFileEnvironment:               true,
 	rotationHostFileEnvironment:                true,

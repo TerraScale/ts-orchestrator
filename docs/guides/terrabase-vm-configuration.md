@@ -138,3 +138,12 @@ those retain their own admission and startup rules. Pending placement receipts
 do not establish accepted membership, catch-up, writer authority, or serving
 readiness. The declaration and bridge material are inputs for qualification,
 not evidence that the production runtime or three-Region estate is ready.
+
+An optional declaration-level `transitionTrust` supplies `authority`, `genesis`,
+and `members` arrays of `{ "keyId": "...", "publicKeyFile": "/..." }`. The
+renderer accepts only exact raw32 Ed25519 public key files, copies them to
+fixed hashed paths below `/etc/terrascale/terrabase/transition/`, and renders the
+producer's `[control.transition]` signing pins. Their files are readable only
+by the engine service. Authority and explicit genesis sets are mandatory when
+this object is supplied; absence denies acceptance, never permits implicit
+bootstrap. Private signer keys are not generated from this trust configuration.

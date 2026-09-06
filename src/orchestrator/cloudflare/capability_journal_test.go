@@ -1,6 +1,7 @@
 package cloudflare
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"errors"
 	"strings"
@@ -120,7 +121,9 @@ func TestCapabilityJournalLeaderReadAndCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, rev, err := restarted.Load(t.Context())
-	if err != nil || loaded != receipt || rev != 1 {
+	loadedJSON, _ := json.Marshal(loaded)
+	receiptJSON, _ := json.Marshal(receipt)
+	if err != nil || !bytes.Equal(loadedJSON, receiptJSON) || rev != 1 {
 		t.Fatalf("restart: %v %d %v", loaded, rev, err)
 	}
 	if err := restarted.Save(t.Context(), receipt, 0); !errors.Is(err, ErrCapabilityJournalConflict) {

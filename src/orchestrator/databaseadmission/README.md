@@ -57,9 +57,37 @@ buffer, and exact grants for `orch.database.create`, `orch.database.status`,
 and `orch.database.host.<SHA256-of-engine-SPIFFE>.install`. Only GRU authority may
 publish host installation. Member identities may request admission/status and
 subscribe to their own installation subject, replying on request inboxes.
-NATS carries bounded control metadata and wrapped ciphertext only.
+NATS carries bounded control metadata and wrapped ciphertext only. Wrapped
+ciphertext remains recoverable from durable control history while its regional
+KEK exists; host lease tombstones alone do not prove cryptographic erasure of
+historical journal or backup copies.
 
 Tests exercise real authenticated NATS transport, R3 restart and quorum loss,
 lease replacement, immutable concurrent name ownership, lost effect responses,
 UID rejection, cross-project polling isolation, and ciphertext-before-admission
 ordering. They do not qualify OCI deployment or replication readiness.
+
+### Worker inventory transport
+
+The production database authority starts a TLS 1.3 HTTPS listener using its same
+live GRU `NATSJournal`. Deployment `database.inventory` requires `address`,
+`certificateFile`, `keyFile`, and `serviceKeyFile`; all file paths are absolute,
+and the service key file is private (no group/world permissions). The service
+credential must contain at least 32 characters. Listener termination is exposed
+through `Completion()` for runtime supervision.
+
+`POST /internal/v1/databases/admission-inventory` authenticates the dedicated
+`x-terrascale-database-admission-key` header and accepts
+`{"environment":"production","tenant_id":"<organization ULID>"}` with optional
+`project_id`. It returns the same scope, `complete:true`, a content revision
+string, `operations:[{operation_id,project_id}]`, `retired_operation_ids:[]`, and
+`resources:[]` containing lifecycle metadata and admission/deletion state.
+Creation and branch operations remain occupied until all regional access and
+usage stop confirmations are durable. Project existence, including projects
+without databases, remains dashboard-owned. Inventory reads never imply a
+complete project directory. Authentication failures return 401, invalid scopes
+400, and unavailable or fenced authority 503; responses cannot be cached.
+
+The same listener and credential serve
+`POST /internal/v1/databases/inventory/freeze` for billing lifecycle snapshots.
+Both endpoints require HTTPS directly and never accept an expired cached view.

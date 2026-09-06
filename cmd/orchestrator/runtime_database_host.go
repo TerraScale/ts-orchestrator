@@ -17,38 +17,22 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/natsconnect"
-	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 )
 
 const databaseHostFileEnvironment = "TS_ORCH_DATABASE_HOST_FILE"
 
-type productionDatabaseHostFile struct {
-	Version           int                         `json:"version"`
-	Cell              string                      `json:"cell"`
-	Instance          string                      `json:"instance"`
-	Environment       string                      `json:"environment"`
-	MemberID          string                      `json:"memberId"`
-	ServerIdentity    string                      `json:"serverIdentity"`
-	CatalogPath       string                      `json:"catalogPath"`
-	EngineSocket      string                      `json:"engineSocket"`
-	EngineUID         uint32                      `json:"engineUid"`
-	IngressSocket     string                      `json:"ingressSocket"`
-	IngressUID        uint32                      `json:"ingressUid"`
-	NATSURL           string                      `json:"natsUrl"`
-	LifecycleNKeyFile string                      `json:"lifecycleNkeyFile"`
-	NKeyFile          string                      `json:"nkeyFile"`
-	TLS               placementpublisher.TLSFiles `json:"tls"`
-}
+type productionDatabaseHostFile = databaseadmission.HostFileConfig
+
 type productionDatabaseHostServices struct {
-	lifecycleConnection *nats.Conn
-	lifecycleKey        nkeys.KeyPair
-	connection          *nats.Conn
-	key                 nkeys.KeyPair
-	host, ingress       *databaseadmission.Service
-	done                chan struct{}
-	cancel              context.CancelFunc
-	once                sync.Once
-	err                 error
+	lifecycleConnection   *nats.Conn
+	lifecycleKey          nkeys.KeyPair
+	connection            *nats.Conn
+	key                   nkeys.KeyPair
+	host, ingress, branch *databaseadmission.Service
+	done                  chan struct{}
+	cancel                context.CancelFunc
+	once                  sync.Once
+	err                   error
 }
 
 func (s *productionDatabaseHostServices) Completion() <-chan struct{} { return s.done }
@@ -58,7 +42,7 @@ func (s *productionDatabaseHostServices) Close() error {
 	}
 	s.once.Do(func() {
 		s.cancel()
-		s.err = errors.Join(s.host.Close(), s.ingress.Close())
+		s.err = errors.Join(s.host.Close(), s.ingress.Close(), s.branch.Close())
 		if s.lifecycleConnection != nil {
 			s.lifecycleConnection.Close()
 		}
@@ -153,6 +137,10 @@ func startProductionDatabaseHost(ctx context.Context, options *control.Orchestra
 	if err != nil {
 		return nil, err
 	}
+	service.branch, err = databaseadmission.StartBranchRestoreHost(local, databaseadmission.HostConfig{Connection: connection, ServerIdentity: config.ServerIdentity, CatalogPath: config.CatalogPath, EngineSocket: config.EngineSocket, EngineUID: config.EngineUID, Environment: config.Environment, Region: strings.ToUpper(config.Cell), MemberID: config.MemberID})
+	if err != nil {
+		return nil, err
+	}
 	service.ingress, err = databaseadmission.StartIngress(local, databaseadmission.IngressConfig{Connection: connection, SocketPath: config.IngressSocket, AllowedUID: config.IngressUID, Lifecycle: &databaseadmission.LifecycleIngressConfig{PublisherConnection: service.lifecycleConnection, PublisherUID: config.IngressUID}})
 	if err != nil {
 		return nil, err
@@ -164,6 +152,7 @@ func startProductionDatabaseHost(ctx context.Context, options *control.Orchestra
 		select {
 		case <-local.Done():
 		case <-service.host.Completion():
+		case <-service.branch.Completion():
 		case <-service.ingress.Completion():
 		case <-lifecycleTransport:
 		case <-transport:

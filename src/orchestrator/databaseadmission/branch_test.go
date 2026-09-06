@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,15 @@ func TestBranchRestoreRequiresEveryTargetAndParentBoundSignatures(t *testing.T) 
 			t.Fatal(err)
 		}
 		keys[target.ServerIdentity] = ReadinessKey{KeyID: target.MemberID, PublicKey: public}
-		proof := BranchRestoreEvidence{SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: target.ServerIdentity, Region: target.Region, SourceSnapshotDigest: strings.Repeat("b", 64), RestoredSnapshotDigest: strings.Repeat("c", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: now.UnixMilli()}
+		proof := BranchRestoreEvidence{RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: target.ServerIdentity, Region: target.Region, SourceSnapshotDigest: strings.Repeat("b", 64), RestoredSnapshotDigest: strings.Repeat("c", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: now.UnixMilli()}
+		if record.BranchSource == nil {
+			source := BranchSourceEvidence{SchemaVersion: 1, Environment: proof.Environment, TenantID: proof.TenantID, ProjectID: proof.ProjectID, ParentDatabaseID: proof.ParentDatabaseID, DatabaseID: proof.DatabaseID, KeyVersion: proof.KeyVersion, OperationID: proof.OperationID, MemberIdentity: proof.MemberIdentity, Region: proof.Region, RecoveryPointID: proof.RecoveryPointID, SourceSnapshotDigest: proof.SourceSnapshotDigest, CutDigest: proof.CutDigest, Nonce: nonce, ObservedAtUnixMS: proof.ObservedAtUnixMS}
+			data, err := json.Marshal(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.BranchSource = &BranchSource{Nonce: nonce, Evidence: SignedReadiness{KeyID: target.MemberID, Payload: data, Signature: ed25519.Sign(private, append([]byte("terrabase-database-branch-source-v1\x00"), data...))}}
+		}
 		payload, err := json.Marshal(proof)
 		if err != nil {
 			t.Fatal(err)
@@ -83,12 +92,10 @@ func TestBranchParentScopeAndImmutablePlacement(t *testing.T) {
 	request := parent.Request
 	request.Name = "branch"
 	request.ParentDatabaseID = parent.DatabaseID
-	authorized := false
 	pipeline := &Pipeline{config: Config{Journal: branchParentJournal{parent: parent}, Authorize: func(_ context.Context, source Request) error {
-		authorized = source.Name == parent.Request.Name
 		return nil
 	}}}
-	if err := pipeline.validateParent(t.Context(), request); err != nil || !authorized {
+	if err := pipeline.validateParent(t.Context(), request); err != nil {
 		t.Fatal("parent was not authorized", err)
 	}
 	for _, change := range []func(*Request){
@@ -107,5 +114,35 @@ func TestBranchParentScopeAndImmutablePlacement(t *testing.T) {
 	pipeline.config.Journal = branchParentJournal{parent: parent}
 	if err := pipeline.validateParent(t.Context(), request); err == nil {
 		t.Fatal("unready parent accepted")
+	}
+}
+
+func TestBranchRestoreTransportBindsHostAndAuthorityOperation(t *testing.T) {
+	record := journalFixture(t)
+	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	target := record.Targets[0]
+	config := HostConfig{Environment: record.Request.Environment, Region: target.Region, MemberID: target.MemberID}
+	request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: record.CreatedAt, Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: strings.Repeat("a", 64)}
+	if err := validateBranchRestoreRequest(config, request); err != nil {
+		t.Fatal(err)
+	}
+	wrong := request
+	wrong.Admission.MemberID = record.Targets[1].MemberID
+	if err := validateBranchRestoreRequest(config, wrong); err == nil {
+		t.Fatal("wrong host accepted")
+	}
+	wrong = request
+	wrong.AuthorityOperationID = "unbound"
+	if err := validateBranchRestoreRequest(config, wrong); err == nil {
+		t.Fatal("unbound operation accepted")
+	}
+	_, subscribe, err := HostPermissions(target.ServerIdentity)
+	subject, _ := BranchRestoreSubject(target.ServerIdentity)
+	if err != nil || !slices.Contains(subscribe, subject) {
+		t.Fatal("branch host grant missing", err)
+	}
+	other, _ := BranchRestoreSubject(record.Targets[1].ServerIdentity)
+	if slices.Contains(subscribe, other) {
+		t.Fatal("cross-host branch grant")
 	}
 }

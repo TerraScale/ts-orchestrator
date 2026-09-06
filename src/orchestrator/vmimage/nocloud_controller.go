@@ -64,7 +64,7 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 func controllerOwnershipBootstrap(files []NoCloudRootFile) string {
 	var script strings.Builder
 	for _, file := range files {
-		if !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) {
+		if !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) && !vmengineconfig.IsDatabasePath(file.Path) {
 			continue
 		}
 		script.WriteString("/usr/bin/chown " + vmcontrolseed.ServiceUser + ":" + vmcontrolseed.ServiceUser + " " + file.Path + "\n")

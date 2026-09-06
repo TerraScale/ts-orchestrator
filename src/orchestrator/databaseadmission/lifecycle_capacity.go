@@ -4,7 +4,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +21,21 @@ func reserveLifecycleCapacity(reserved *journalState) {
 	for key, resource := range reserved.Lifecycle.Resources {
 		if !resource.EffectsCompletedAt.IsZero() {
 			continue
+		}
+		wasDeleted := !resource.DeletedAt.IsZero()
+		operationID := strings.Repeat("x", 128)
+		hasDeletion := false
+		for _, pending := range reserved.Deletions {
+			for _, target := range pending.Targets {
+				if target.Stop.Identity == resource.Identity {
+					operationID = pending.Request.OperationID
+					hasDeletion = true
+					break
+				}
+			}
+			if hasDeletion {
+				break
+			}
 		}
 		resource.Streams = slices.Clone(resource.Streams)
 		// A resource pending installation still needs space for its first routing
@@ -45,18 +59,22 @@ func reserveLifecycleCapacity(reserved *journalState) {
 		}
 		resource.EffectsCompletedAt = terminal
 		reserved.Lifecycle.Resources[key] = resource
-		kinds := []string{"delete", "effects_completed"}
-		for range resource.Regions {
-			kinds = append(kinds, "streams")
-		}
-		for index, kind := range kinds {
-			// Maximal idempotency text and full stream payload bound retry history.
-			op := strings.Repeat("x", 220) + strconv.Itoa(index) + resource.DatabaseID
-			event := databaselifecycle.Event{Identity: resource.Identity, OperationID: op, Kind: kind, At: terminal, RetainUntil: terminal}
-			if kind == "streams" {
-				event.Streams = resource.Streams
+		addEvent := func(kind, operation string, streams []databaselifecycle.Stream) {
+			event := databaselifecycle.Event{Identity: resource.Identity, OperationID: operation, Kind: kind, At: terminal, RetainUntil: terminal, Streams: streams}
+			eventKey := resource.Environment + "/" + resource.OrganizationID + "/" + operation
+			if _, exists := reserved.Lifecycle.Events[eventKey]; !exists {
+				reserved.Lifecycle.Events[eventKey] = event
 			}
-			reserved.Lifecycle.Events[resource.Environment+"/"+resource.OrganizationID+"/"+op] = event
+		}
+		if !wasDeleted {
+			addEvent("delete", "delete-"+operationID+"-"+resource.DatabaseID, nil)
+			for _, region := range resource.Regions {
+				addEvent("streams", "stop-"+operationID+"-"+resource.DatabaseID+"-"+region, resource.Streams)
+			}
+		}
+		addEvent("effects_completed", strings.Repeat("x", 220)+resource.DatabaseID, nil)
+		if hasDeletion || wasDeleted {
+			continue
 		}
 		request := DeleteRequest{Environment: resource.Environment, TenantID: resource.OrganizationID, ProjectID: resource.ProjectID, DatabaseID: resource.DatabaseID, OperationID: strings.Repeat("x", 128)}
 		deletion := Deletion{Request: request, Cutoff: terminal, State: "cleanup_pending"}

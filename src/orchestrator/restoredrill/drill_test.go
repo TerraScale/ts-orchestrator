@@ -80,7 +80,7 @@ type fakeJournal struct {
 func newFakeJournal() *fakeJournal {
 	return &fakeJournal{facts: make(map[string]JournalFacts), runs: make(map[string]RunRecord), items: make(map[string]ItemRecord), epochs: make(map[string]uint64), claims: make(map[string]uint64), fenced: make(map[string]bool)}
 }
-func (f *fakeJournal) Facts(_ context.Context, id string) (JournalFacts, error) {
+func (f *fakeJournal) Facts(_ context.Context, id, _ string) (JournalFacts, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.facts[id], nil

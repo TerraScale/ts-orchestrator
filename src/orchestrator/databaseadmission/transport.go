@@ -13,8 +13,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -22,22 +24,23 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
-const CreateSubject = "orch.database.create"
-const StatusSubject = "orch.database.status"
+const CreateSubject = subjects.Create
+const StatusSubject = subjects.Status
 const maxMessage = 256 << 10
 
 type Result struct {
-	ParentDatabaseID string   `json:"parent_database_id,omitempty"`
-	Environment      string   `json:"environment"`
-	TenantID         string   `json:"tenant_id"`
-	ProjectID        string   `json:"project_id"`
-	OperationID      string   `json:"operation_id"`
-	DatabaseID       string   `json:"database_id"`
-	KeyVersion       string   `json:"key_version"`
-	Name             string   `json:"name"`
-	Regions          []string `json:"regions"`
-	Residency        string   `json:"residency"`
-	State            string   `json:"state"`
+	CreatedAt        time.Time `json:"created_at"`
+	ParentDatabaseID string    `json:"parent_database_id,omitempty"`
+	Environment      string    `json:"environment"`
+	TenantID         string    `json:"tenant_id"`
+	ProjectID        string    `json:"project_id"`
+	OperationID      string    `json:"operation_id"`
+	DatabaseID       string    `json:"database_id"`
+	KeyVersion       string    `json:"key_version"`
+	Name             string    `json:"name"`
+	Regions          []string  `json:"regions"`
+	Residency        string    `json:"residency"`
+	State            string    `json:"state"`
 }
 type response struct {
 	Result *Result `json:"result,omitempty"`
@@ -49,7 +52,7 @@ func result(r Record) Result {
 	if r.State == "ready" {
 		state = "ready"
 	}
-	return Result{ParentDatabaseID: r.Request.ParentDatabaseID, Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: state}
+	return Result{CreatedAt: r.CreatedAt, ParentDatabaseID: r.Request.ParentDatabaseID, Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: state}
 }
 
 type Service struct {
@@ -85,7 +88,7 @@ func HostSubject(identity string) (string, error) {
 		return "", ErrInvalid
 	}
 	sum := sha256.Sum256([]byte(identity))
-	return "orch.database.host." + hex.EncodeToString(sum[:]) + ".install", nil
+	return strings.Replace(subjects.HostInstallPattern, "*", hex.EncodeToString(sum[:]), 1), nil
 }
 
 // HostPermissions are the exact dedicated database service NKey grants.
@@ -96,7 +99,11 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, StatusSubject, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, "_INBOX.>"}, nil
+	branch, err := BranchRestoreSubject(identity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{CreateSubject, StatusSubject, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -315,10 +322,11 @@ func listenPrivate(path string) (net.Listener, error) {
 
 type Admission struct {
 	Request
-	DatabaseID string `json:"database_id"`
-	KeyVersion string `json:"key_version"`
-	Region     string `json:"region"`
-	MemberID   string `json:"member_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	DatabaseID string    `json:"database_id"`
+	KeyVersion string    `json:"key_version"`
+	Region     string    `json:"region"`
+	MemberID   string    `json:"member_id"`
 }
 type installRequest struct {
 	Admission Admission        `json:"admission"`
@@ -344,7 +352,7 @@ func RemoteInstall(nc *nats.Conn) func(context.Context, Record, Target, []keylea
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(installRequest{Admission{r.Request, r.DatabaseID, r.KeyVersion, t.Region, t.MemberID}, entries})
+		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID}, entries})
 		if err != nil || len(data) > maxMessage {
 			return ErrInvalid
 		}
@@ -394,6 +402,9 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		}
 		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
+		if handleHostPreparation(opctx, c, client, message) {
+			return
+		}
 		if handleHostDeletion(opctx, c, client, message) {
 			return
 		}
@@ -445,12 +456,16 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 }
 func validateInstall(c HostConfig, r installRequest) error {
 	a := r.Admission
-	if ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != 1 {
+	if ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != len(databaseKeyPurposes) {
 		return ErrInvalid
 	}
-	b := r.Entries[0].Binding
-	if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || b.Purpose != "data" || r.Entries[0].Revoked {
-		return ErrInvalid
+	seen := map[string]bool{}
+	for _, entry := range r.Entries {
+		b := entry.Binding
+		if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || !slices.Contains(databaseKeyPurposes[:], b.Purpose) || seen[b.Purpose] || entry.Revoked {
+			return ErrInvalid
+		}
+		seen[b.Purpose] = true
 	}
 	found := false
 	for _, region := range a.Regions {

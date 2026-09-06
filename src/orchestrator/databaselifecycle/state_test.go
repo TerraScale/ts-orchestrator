@@ -154,3 +154,19 @@ func TestBranchIdentityRegionsCascadeAndRestart(t *testing.T) {
 		t.Fatalf("branch resurrected deleted parent: %v", err)
 	}
 }
+
+func TestEnvironmentBindingAndEmptyInventory(t *testing.T) {
+	state, e := fixture()
+	empty, err := FreezeEnvironment(&state, "production", e.OrganizationID, e.At, e.At.Add(time.Hour))
+	if err != nil || empty.Environment != "production" || len(empty.Resources) != 0 || empty.Digest == "" {
+		t.Fatalf("unbound empty cycle: %+v %v", empty, err)
+	}
+	if _, err := FreezeEnvironment(&state, "staging", e.OrganizationID, e.At, e.At.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed environment on closed cycle: %v", err)
+	}
+	state, e = fixture()
+	applyOK(t, &state, e)
+	if _, err := FreezeEnvironment(&state, "staging", e.OrganizationID, e.At, e.At.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mixed environment accepted: %v", err)
+	}
+}

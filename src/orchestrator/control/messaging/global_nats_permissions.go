@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/control/internal/shared"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"terrascale.tech/orchestrator/src/orchestrator/natspolicy"
 )
 
@@ -116,6 +117,8 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 		"$KV."+topology.Leaders().Bucket+".authority.global",
 		"$KV."+topology.Leaders().Bucket+".security.rotation.state",
 		"$KV."+topology.Leaders().Bucket+".security.rotation.barrier",
+		"$KV."+topology.Leaders().Bucket+".security.identity-rotation.state",
+		"$KV."+topology.Leaders().Bucket+".security.identity-rotation.barrier",
 		"$KV."+topology.Leaders().Bucket+".restore.drill.state",
 		"$KV."+topology.Leaders().Bucket+".restore.drill.barrier",
 		"$KV."+topology.Leaders().Bucket+".placement.proposal.state",
@@ -124,12 +127,17 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 		"orch.placement.host.*.accept",
 		"orch.placement.host.*.drain",
 		"orch.placement.host.*.readiness",
+		subjects.HostInstallPattern,
+		subjects.HostBranchRestorePattern,
+		"$KV.ORCH_LEADERS.database.admission.state",
+		"$KV.ORCH_LEADERS.database.admission.barrier",
 		"orch.auth.bootstrap.host.*.identity",
 		"orch.auth.bootstrap.host.*.bootstrap",
 		"$KV.ORCH_LEADERS.auth.bootstrap.state",
 		"$KV.ORCH_LEADERS.auth.bootstrap.barrier",
 		"$KV."+topology.Leaders().Bucket+".reaper.state",
 		"$KV."+topology.Leaders().Bucket+".reaper.barrier",
+		"$KV."+topology.Leaders().Bucket+".reaper.audit.*",
 		"$KV."+topology.MasterDeliveries().Bucket+".master.>",
 		"_INBOX.>",
 		GlobalNatsTopologyCellSpecSubjectPrefix()+".*",
@@ -157,7 +165,7 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 	publish = append(publish, globalNatsConsumerPermissions(
 		GlobalNatsTopologyCellSpecStream, cellSpecConsumer.Name)...)
 
-	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject()}), nil
+	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), subjects.Create, subjects.Status, subjects.DeletionBegin, subjects.DeletionStatus, subjects.LifecycleEvent, subjects.InventoryFreeze, subjects.InventoryResources}), nil
 }
 
 func globalNatsStreamReadPermissions(stream string) []string {

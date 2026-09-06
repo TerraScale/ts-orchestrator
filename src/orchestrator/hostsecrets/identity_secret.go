@@ -112,7 +112,7 @@ func (i *IdentitySecretIssuer) Generate(ctx context.Context, r IdentitySecretReq
 	}
 }
 func (i *IdentitySecretIssuer) Fetch(ctx context.Context, ref IdentitySecretReference) (*IdentitySecret, error) {
-	if ctx == nil || !provider.IsOCID(ref.SecretID, "secret") || ref.VersionNumber != 1 || ref.Generation == 0 || !identityOperationValid(ref.OperationID) {
+	if ctx == nil || !provider.IsOCID(ref.SecretID, "vaultsecret") || ref.VersionNumber != 1 || ref.Generation == 0 || !identityOperationValid(ref.OperationID) {
 		return nil, ErrIdentitySecret
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -157,7 +157,7 @@ type identitySecretMetadata struct {
 }
 
 func (i *IdentitySecretIssuer) metadataValid(m identitySecretMetadata, r IdentitySecretRequest) bool {
-	return provider.IsOCID(m.ID, "secret") && m.SecretName == identitySecretName(r) && m.CompartmentID == i.config.CompartmentID && m.VaultID == i.config.VaultID && m.KeyID == i.config.KeyID && m.FreeformTags["purpose"] == "identity-service-auth" && m.FreeformTags["operation"] == r.OperationID && m.FreeformTags["generation"] == strconv.FormatUint(r.Generation, 10) && m.TimeOfDeletion == nil
+	return provider.IsOCID(m.ID, "vaultsecret") && m.SecretName == identitySecretName(r) && m.CompartmentID == i.config.CompartmentID && m.VaultID == i.config.VaultID && m.KeyID == i.config.KeyID && m.FreeformTags["purpose"] == "identity-service-auth" && m.FreeformTags["operation"] == r.OperationID && m.FreeformTags["generation"] == strconv.FormatUint(r.Generation, 10) && m.TimeOfDeletion == nil
 }
 func (i *IdentitySecretIssuer) endpoint(retrieval bool) string {
 	if retrieval {
@@ -229,7 +229,7 @@ func (i *IdentitySecretIssuer) find(ctx context.Context, r IdentitySecretRequest
 		return "", nil
 	}
 	// List summaries omit the key and current version: confirm them with GetSecret.
-	if !provider.IsOCID(items[0].ID, "secret") {
+	if !provider.IsOCID(items[0].ID, "vaultsecret") {
 		return "", ErrIdentitySecret
 	}
 	return items[0].ID, nil

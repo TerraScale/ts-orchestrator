@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"time"
@@ -77,6 +78,18 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 			}
 			controlKeys[public] = true
 		}
+		if err = prepareDatabase(m, d, h, nodes[h.NodeID]); err != nil {
+			return nil, err
+		}
+		for _, public := range []string{m.databaseAuthorization.PublicNKey, m.databaseAuthorization.LifecyclePublicNKey} {
+			if public == "" {
+				continue
+			}
+			if controlKeys[public] {
+				return nil, errors.New("vmengineconfig: database NKey reused across hosts or roles")
+			}
+			controlKeys[public] = true
+		}
 		if err = validateTLS(m, identity(d, h)); err != nil {
 			return nil, err
 		}
@@ -96,6 +109,23 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		for _, material := range materials {
 			if len(material.controlFiles) > 0 {
 				material.controlFiles[placementpublisher.BrokerGrantsPath] = bytes.Clone(raw)
+			}
+		}
+	}
+	var databaseGrants []databaseadmission.BrokerGrant
+	for _, m := range materials {
+		if m.databaseAuthorization.PublicNKey != "" {
+			databaseGrants = append(databaseGrants, m.databaseAuthorization)
+		}
+	}
+	if len(databaseGrants) > 0 {
+		raw, err := databaseadmission.EncodeBrokerGrants(databaseGrants)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range materials {
+			if len(m.databaseFiles) > 0 {
+				m.databaseFiles[databaseadmission.BrokerGrantsPath] = bytes.Clone(raw)
 			}
 		}
 	}

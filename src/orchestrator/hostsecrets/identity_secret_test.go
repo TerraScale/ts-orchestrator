@@ -30,7 +30,7 @@ func TestIdentitySecretDurableGenerationAndLockedFetch(t *testing.T) {
 		t.Fatal(e)
 	}
 	r := IdentitySecretRequest{"test-operation", 7}
-	id := "ocid1.secret.oc1.sa-saopaulo-1.fixture"
+	id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.fixture"
 	metadata := identitySecretMetadata{ID: id, SecretName: identitySecretName(r), CompartmentID: i.config.CompartmentID, VaultID: i.config.VaultID, KeyID: i.config.KeyID, LifecycleState: "ACTIVE", CurrentVersionNumber: 1, FreeformTags: map[string]string{"purpose": "identity-service-auth", "operation": r.OperationID, "generation": "7"}}
 	exists := false
 	creates := 0

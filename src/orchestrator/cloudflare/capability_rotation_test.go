@@ -91,7 +91,7 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 		if revision == 0 || receipt.Digest == "" {
 			t.Error("provider contacted before durable intent")
 		}
-		if r.Method == http.MethodPut {
+		if r.Method == http.MethodPut && r.URL.Path == "/zones/zone/snippets/gate" {
 			f.puts.Add(1)
 		}
 		f.provider.ServeHTTP(w, r)
@@ -111,11 +111,18 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 		}
 		generation := fmt.Sprint(receipt.Generation)
 		expires := receipt.Current.ExpiresAt.Unix()
-		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v1\n%s\n%s\n%s\n%d", nonce, generation, receipt.Phase, expires))
+		revocationCanonical := ""
+		for _, entry := range receipt.Revocations {
+			revocationCanonical += fmt.Sprintf("%s.%d\n", entry.Scope, entry.ExpiresAt)
+		}
+		revocationHash := sha256.Sum256([]byte(revocationCanonical))
+		revocationDigest := hex.EncodeToString(revocationHash[:])
+		revocationRevision := fmt.Sprint(receipt.RevocationRevision)
+		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v2\n%s\n%s\n%s\n%d\n%s\n%s", nonce, generation, receipt.Phase, expires, revocationRevision, revocationDigest))
 		if f.forged.Load() {
 			proof = rotationMAC([]byte("attacker"), nonce)
 		}
-		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof})
+		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof, "revocationRevision": revocationRevision, "revocationDigest": revocationDigest})
 		w.Write(body)
 	}))
 	t.Cleanup(probe.Close)
@@ -290,4 +297,108 @@ func templateContext(t *testing.T) context.Context {
 		t.Fatal(err)
 	}
 	return ctx
+}
+
+func TestCapabilityDeploymentDeclarationValidation(t *testing.T) {
+	source := []byte(cf.CapabilityDeploymentMarker)
+	zone := &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostname: "sync.api.terrascale.tech", Enabled: true}}}
+	base := "https://sync.api.terrascale.tech/.well-known/terrascale-capability-generation"
+	if err := cf.ValidateCapabilityDeployment(source, zone, "gate", []string{base}); err != nil {
+		t.Fatal(err)
+	}
+	for _, urls := range [][]string{nil, {base, base}, {base, "https://sync.api.terrascale.tech:443/.well-known/terrascale-capability-generation"}, {"https://other.example/.well-known/terrascale-capability-generation"}, {base + "?"}, {base + "#fragment"}, {"https://user@sync.api.terrascale.tech/.well-known/terrascale-capability-generation"}, {"https://sync.api.terrascale.tech:99999/.well-known/terrascale-capability-generation"}} {
+		if cf.ValidateCapabilityDeployment(source, zone, "gate", urls) == nil {
+			t.Fatalf("accepted invalid probes %v", urls)
+		}
+	}
+	if cf.ValidateCapabilityDeployment(source, nil, "gate", []string{base}) == nil {
+		t.Fatal("accepted missing zone")
+	}
+}
+
+func TestSnippetTemplateChecksDeliveryFenceBeforeDispatch(t *testing.T) {
+	f := newRotationFixture(t)
+	material := f.material(1)
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: material}, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	candidate := []byte("// candidate\n" + cf.CapabilityDeploymentMarker)
+	digest := testEdgeDigest(candidate)
+	f.config.TemplateService = "ts-proxy-snippet"
+	f.config.Artifacts = edgeArtifactMap{f.config.TemplateService + "\x00" + digest: candidate}
+	store, err := cf.NewSnippetCapabilityStore(f.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.puts.Load()
+	var checks int
+	ctx, err := delivery.WithExecutionFence(t.Context(), delivery.OperationFence{OperationID: "release", RequestDigest: "digest", OwnerID: "owner", Generation: 1}, func(delivery.OperationFence) error {
+		checks++
+		if checks >= 3 {
+			return errors.New("operation ownership lost")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.PromoteTemplate(ctx, f.config.TemplateService, digest) == nil {
+		t.Fatal("accepted lost operation fence")
+	}
+	if f.puts.Load() != before {
+		t.Fatal("published after operation fence loss")
+	}
+	if store.PromoteTemplate(t.Context(), f.config.TemplateService, digest) == nil {
+		t.Fatal("accepted missing operation fence")
+	}
+}
+
+func TestSnippetRevocationsPersistAcrossRotationAndRejectOverflow(t *testing.T) {
+	f := newRotationFixture(t)
+	first := f.material(1)
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: first}, "stage"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Activate(t.Context(), 1, "activate"); err != nil {
+		t.Fatal(err)
+	}
+	scope := "scope-" + hex.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	entry := cf.CapabilityRevocation{Scope: scope, ExpiresAt: f.now.Add(20 * time.Minute).Unix()}
+	proof, err := f.store.PublishRevocations(t.Context(), []cf.CapabilityRevocation{entry}, "delete")
+	if err != nil || proof.Revision != 1 || proof.Digest == "" {
+		t.Fatalf("revocation receipt: %+v %v", proof, err)
+	}
+	puts := f.puts.Load()
+	repeat, err := f.store.PublishRevocations(t.Context(), []cf.CapabilityRevocation{entry}, "delete")
+	if err != nil || repeat.Revision != 1 || f.puts.Load() != puts {
+		t.Fatal("duplicate revocation republished")
+	}
+	second := f.material(2)
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first}, "next"); err != nil {
+		t.Fatal(err)
+	}
+	current, _, _ := f.journal.Load(t.Context())
+	if current.RevocationRevision != 1 || len(current.Revocations) != 1 || current.Revocations[0] != entry {
+		t.Fatal("rotation lost live revocation")
+	}
+	additions := make([]cf.CapabilityRevocation, cf.MaximumCapabilityRevocations)
+	for i := range additions {
+		additions[i] = cf.CapabilityRevocation{Scope: fmt.Sprintf("scope-%064x", i+10), ExpiresAt: entry.ExpiresAt}
+	}
+	if _, err := f.store.PublishRevocations(t.Context(), additions, "overflow"); err == nil {
+		t.Fatal("overflow evicted live entries")
+	}
+	unchanged, _, _ := f.journal.Load(t.Context())
+	if unchanged.RevocationRevision != 1 || len(unchanged.Revocations) != 1 {
+		t.Fatal("overflow mutated durable ring")
+	}
+	f.now = f.now.Add(20 * time.Minute)
+	proof, err = f.store.PublishRevocations(t.Context(), nil, "prune")
+	if err != nil || proof.Revision != 2 {
+		t.Fatalf("expiry pruning: %+v %v", proof, err)
+	}
+	pruned, _, _ := f.journal.Load(t.Context())
+	if len(pruned.Revocations) != 0 {
+		t.Fatal("expired revocations were not pruned")
+	}
 }

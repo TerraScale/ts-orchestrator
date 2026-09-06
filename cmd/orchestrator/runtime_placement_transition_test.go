@@ -23,12 +23,15 @@ func transitionFixture(t *testing.T) (databaseadmission.Record, databasePlacemen
 	if err != nil {
 		t.Fatal(err)
 	}
-	record.Targets = targets
+	record.Targets = targets.Members
+	record.PlacementTargets = targets.Placements
 	record.State = "placement_pending"
 	pending := databasePlacementJournal{}
 	for n := range record.Targets {
-		target := &record.Targets[n]
-		target.Installed = true
+		record.Targets[n].Installed = true
+	}
+	for n := range record.PlacementTargets {
+		target := &record.PlacementTargets[n]
 		target.Proposed = true
 		stage := new(pb.PlacementStageRequest)
 		_ = proto.Unmarshal(target.Proposal, stage)
@@ -104,7 +107,7 @@ func TestTransitionRequestRejectsIncompletePlan(t *testing.T) {
 	if _, err := transitionRequest(record); err != nil {
 		t.Fatal(err)
 	}
-	record.Targets = record.Targets[:1]
+	record.PlacementTargets = record.PlacementTargets[:1]
 	if _, err := transitionRequest(record); err == nil {
 		t.Fatal("partial membership plan accepted")
 	}

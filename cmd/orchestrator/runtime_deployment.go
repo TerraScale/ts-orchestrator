@@ -10,6 +10,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
 )
 
 type productionDeploymentFile struct {
@@ -21,14 +22,15 @@ type productionDeploymentFile struct {
 }
 
 type productionGlobalFile struct {
-	Estate              productionEstateFile              `json:"estate"`
-	HealthFile          string                            `json:"health_file"`
-	KV                  productionKVFile                  `json:"kv"`
-	Rotation            productionRotationFile            `json:"rotation"`
-	Recovery            productionRecoveryFile            `json:"recovery"`
-	Database            productionDatabaseFileConfig      `json:"database"`
-	AuthBootstrapFile   string                            `json:"auth_bootstrap_file"`
-	PlacementTransition productionPlacementTransitionFile `json:"placement_transition"`
+	Estate              productionEstateFile               `json:"estate"`
+	HealthFile          string                             `json:"health_file"`
+	KV                  productionKVFile                   `json:"kv"`
+	Rotation            productionRotationFile             `json:"rotation"`
+	Recovery            productionRecoveryFile             `json:"recovery"`
+	Database            productionDatabaseFileConfig       `json:"database"`
+	AuthBootstrapFile   string                             `json:"auth_bootstrap_file"`
+	PlacementTransition productionPlacementTransitionFile  `json:"placement_transition"`
+	ServiceIdentity     serviceidentityrotation.FileConfig `json:"service_identity"`
 }
 
 func loadProductionDeployment(options *control.OrchestratorOptions) (productionDeploymentFile, error) {

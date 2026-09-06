@@ -8,6 +8,7 @@ import (
 
 	"terrascale.tech/orchestrator/internal/testengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
@@ -21,7 +22,7 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings := []vmengineconfig.Binding{{NodeID: spec.InstanceID, Region: "GRU", Address: spec.Address}, {NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"}}
-	_, path := testengineconfig.ControlDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
+	_, path := testengineconfig.DatabaseDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
 	materials, err := vmengineconfig.Load(path, manifest.Components[1].Sha256, manifest.Components[1].Version, bindings)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +117,29 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 	}
 	if !strings.Contains(controllerOwnershipBootstrap(seed.RootFiles), placementpublisher.HostFilePath) {
 		t.Fatal("control service ownership missing")
+	}
+	databaseCount := 0
+	for _, file := range seed.RootFiles {
+		if !vmengineconfig.IsDatabasePath(file.Path) {
+			continue
+		}
+		databaseCount++
+		if file.Mode != 0400 || file.Owner != membershipServiceUser {
+			t.Fatal("database material not isolated to orchestrator")
+		}
+		if bytes.Contains(seed.UserData, file.Content) {
+			t.Fatal("database secret bytes exposed to cloud-init")
+		}
+	}
+	if databaseCount != 7 {
+		t.Fatalf("database files missing: %d", databaseCount)
+	}
+	var runConfig map[string]string
+	if err := json.Unmarshal([]byte(manifest.Components[0].Configuration), &runConfig); err != nil {
+		t.Fatal(err)
+	}
+	if runConfig[databaseadmission.HostFileEnvironment] != databaseadmission.HostFilePath || runConfig[databaseadmission.BrokerGrantsEnvironment] != databaseadmission.BrokerGrantsPath {
+		t.Fatal("signed native boot omits database host or broker material")
 	}
 	count := 0
 	for _, file := range seed.RootFiles {

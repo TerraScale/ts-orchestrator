@@ -23,14 +23,22 @@ func journalFixture(t *testing.T) Record {
 	for _, member := range members {
 		r.Targets = append(r.Targets, Target{ServerIdentity: "spiffe://terrascale.tech/production/terrabase-member/01ARZ3NDEKTSV4RRFFQ69G5FAV/" + member, MemberID: member, Region: "GRU", Provision: provision, Proposal: proposal})
 	}
+	for _, target := range r.Targets {
+		r.PlacementTargets = append(r.PlacementTargets, PlacementTarget{ServerIdentity: target.ServerIdentity, MemberID: target.MemberID, Region: target.Region, Proposal: target.Proposal})
+	}
 	if err := ValidateRecord(r); err != nil {
 		t.Fatal(err)
 	}
 	return r
 }
 func journalWrapped(r Record) []keylease.Entry {
-	p := r.Targets[0].Provision
-	return []keylease.Entry{{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-ciphertext", LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter}}
+	var entries []keylease.Entry
+	for _, purpose := range databaseKeyPurposes {
+		for _, p := range purposeTargets(r, purpose) {
+			entries = append(entries, keylease.Entry{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter})
+		}
+	}
+	return entries
 }
 func TestJournalAtomicNameAndOperationOwnership(t *testing.T) {
 	journal := NewMemoryJournal()

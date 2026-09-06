@@ -33,9 +33,10 @@ type Database struct {
 // JournalFacts are the immutable facts at a journal cut. A restore is proved
 // against these facts rather than against a live, changing source database.
 type JournalFacts struct {
-	JournalCut string
-	Checksum   string
-	RowCount   int64
+	RecoveryPointID string
+	JournalCut      string
+	Checksum        string
+	RowCount        int64
 }
 
 // RestoreStats are facts observed from a restored scratch branch.
@@ -45,6 +46,7 @@ type RestoreStats struct {
 }
 
 type RestoreRequest struct {
+	RecoveryPointID  string
 	SourceDatabaseID string
 	BranchID         string
 	JournalCut       string
@@ -53,10 +55,14 @@ type RestoreRequest struct {
 }
 
 type ScratchBranchRequest struct {
+	RecoveryPointID  string
 	SourceDatabaseID string
 	Name             string
 	IdempotencyKey   string
 	RestoreEpoch     uint64
+	// JournalCut binds atomic restore-and-create providers to the exact facts
+	// already persisted for this item. It must not be replaced with live state.
+	JournalCut string
 }
 
 type ScratchBranch struct {
@@ -84,7 +90,9 @@ type BranchPort interface {
 // process restart it returns the existing epoch. Implementations must reject
 // writes for an item whose epoch is no longer current.
 type JournalPort interface {
-	Facts(context.Context, string) (JournalFacts, error)
+	// Facts receives the durable run/item key so a native capture is retried
+	// under the same operation identity instead of capturing a later cut.
+	Facts(context.Context, string, string) (JournalFacts, error)
 	LoadRun(context.Context, string) (RunRecord, bool, error)
 	SaveRun(context.Context, RunRecord) error
 	LoadItem(context.Context, string) (ItemRecord, bool, error)

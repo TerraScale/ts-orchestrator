@@ -119,7 +119,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"authority.global", "security.rotation.state", "security.rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier", "placement.proposal.state", "placement.proposal.barrier", "auth.bootstrap.state", "auth.bootstrap.barrier"} {
+	for _, key := range []string{"authority.global", "security.rotation.state", "security.rotation.barrier", "security.identity-rotation.state", "security.identity-rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier", "placement.proposal.state", "placement.proposal.barrier", "auth.bootstrap.state", "auth.bootstrap.barrier", "database.admission.state", "database.admission.barrier"} {
 		revision, err := controllerLeaders.Create(ctx, key, []byte("first"))
 		if err != nil {
 			t.Fatalf("state create %s: %v", key, err)
@@ -206,7 +206,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 	if err != nil || string(response.Data) != "accepted" {
 		t.Fatalf("delivery request/reply ACL: %v", err)
 	}
-	for _, subject := range []string{"orch.auth.bootstrap.host.admitted.identity", "orch.auth.bootstrap.host.admitted.bootstrap"} {
+	for _, subject := range []string{"orch.auth.bootstrap.host.admitted.identity", "orch.auth.bootstrap.host.admitted.bootstrap", "orch.database.host.admitted.install", "orch.database.host.admitted.branch_restore"} {
 		subscription, err := owner.Subscribe(subject, func(message *nats.Msg) { _ = message.Respond([]byte("control-receipt")) })
 		if err != nil {
 			t.Fatal(err)
@@ -217,6 +217,20 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 		response, err := controller.RequestWithContext(ctx, subject, []byte("control-intent"))
 		if err != nil || string(response.Data) != "control-receipt" {
 			t.Fatal("auth control subject refused", err)
+		}
+		_ = subscription.Unsubscribe()
+	}
+	for _, subject := range []string{"orch.database.create", "orch.database.status", "orch.database.delete.begin", "orch.database.delete.status", "orch.database.lifecycle.event", "orch.database.inventory.freeze", "orch.database.inventory.resources"} {
+		subscription, err := controller.Subscribe(subject, func(message *nats.Msg) { _ = message.Respond([]byte("database-receipt")) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = controller.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		response, err := owner.RequestWithContext(ctx, subject, []byte("request"))
+		if err != nil || string(response.Data) != "database-receipt" {
+			t.Fatalf("database authority subscription %s: %v", subject, err)
 		}
 		_ = subscription.Unsubscribe()
 	}
@@ -233,7 +247,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 		}
 		forbidden = append(forbidden, "$JS.API.CONSUMER.DELETE."+specConfig.Name+"."+consumer)
 	}
-	for _, subject := range append(forbidden, []string{"$KV.GLOBAL_CELLS.cell.gru", "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS", "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS", "$KV.ORCH_LEADERS.security.rotation.other", "$KV.ORCH_LEADERS.security.rotation.state.extra", "$KV.ORCH_LEADERS.restore.drill.other", "$KV.ORCH_LEADERS.restore.drill.barrier.extra", "$KV.ORCH_LEADERS.authority.regional", "$KV.ORCH_LEADERS.reaper.other", "$KV.ORCH_LEADERS.reaper.state.extra", "$KV.ORCH_LEADERS.reaper.barrier.extra", "$KV.ORCH_LEADERS.placement.proposal.other", "$KV.ORCH_LEADERS.placement.proposal.state.extra", "orch.placement.host.a.other", "orch.placement.host.a.b.stage", "orch.auth.bootstrap.host.a.other", "orch.auth.bootstrap.host.a.b.bootstrap", "$KV.ORCH_LEADERS.auth.bootstrap.other", "$KV.ORCH_LEADERS.auth.bootstrap.state.extra"}...) {
+	for _, subject := range append(forbidden, []string{"$KV.GLOBAL_CELLS.cell.gru", "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS", "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS", "$KV.ORCH_LEADERS.security.rotation.other", "$KV.ORCH_LEADERS.security.identity-rotation.other", "$KV.ORCH_LEADERS.security.identity-rotation.state.extra", "$KV.ORCH_LEADERS.security.identity-rotation.barrier.extra", "$KV.ORCH_LEADERS.security.rotation.state.extra", "$KV.ORCH_LEADERS.restore.drill.other", "$KV.ORCH_LEADERS.restore.drill.barrier.extra", "$KV.ORCH_LEADERS.authority.regional", "$KV.ORCH_LEADERS.reaper.other", "$KV.ORCH_LEADERS.reaper.state.extra", "$KV.ORCH_LEADERS.reaper.barrier.extra", "$KV.ORCH_LEADERS.placement.proposal.other", "$KV.ORCH_LEADERS.placement.proposal.state.extra", "orch.placement.host.a.other", "orch.placement.host.a.b.stage", "orch.auth.bootstrap.host.a.other", "orch.auth.bootstrap.host.a.b.bootstrap", "$KV.ORCH_LEADERS.auth.bootstrap.other", "$KV.ORCH_LEADERS.auth.bootstrap.state.extra", "$KV.ORCH_LEADERS.database.admission.state.extra", "orch.database.host.a.other", "orch.database.host.a.b.install", "orch.database.lifecycle.event"}...) {
 		if err := controller.Publish(subject, []byte("unauthorized")); err != nil {
 			t.Fatal(err)
 		}

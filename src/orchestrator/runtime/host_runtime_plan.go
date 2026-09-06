@@ -260,14 +260,11 @@ func createSystemdExecutionPlan(
 			}
 		}
 		plan.Properties = append(plan.Properties, "Group="+serviceUser, "StateDirectoryMode=0700")
-		if serviceUser == serviceidentity.TerraBase {
-			plan.Properties = append(plan.Properties, "RuntimeDirectoryMode=0700")
-		}
 		for _, property := range serviceidentity.UnitProperties(serviceUser) {
-			if property == "RuntimeDirectory=terrascale-keys" {
+			if directory, ok := strings.CutPrefix(property, "RuntimeDirectory="); ok {
 				for i, current := range plan.Properties {
 					if strings.HasPrefix(current, "RuntimeDirectory=") {
-						plan.Properties[i] = current + " terrascale-keys"
+						plan.Properties[i] = current + " " + directory
 					}
 				}
 				continue

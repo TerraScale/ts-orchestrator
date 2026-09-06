@@ -26,6 +26,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
 )
 
 const (
@@ -113,6 +114,7 @@ type productionGlobalWorkerConfig struct {
 	Placement           productionPlacementConfig
 	PlacementTransition productionPlacementTransitionConfig
 	KV                  *cloudflare.KVWriter
+	ServiceIdentity     *serviceidentityrotation.Coordinator
 	Database            productionDatabaseConfig
 	AuthBootstrap       productionAuthBootstrapConfig
 }
@@ -131,23 +133,25 @@ type productionRuntime struct {
 }
 
 type productionGlobalWorkers struct {
-	edge          control.GlobalEdgeDelivery
-	check         func(context.Context) error
-	release       func() error
-	closeOnce     sync.Once
-	closeError    error
-	finished      sync.Once
-	lifetime      context.Context
-	publisher     *estatepublisher.Publisher
-	rotation      *security.Coordinator
-	reaper        *reaper.Reconciler
-	restore       *restoredrill.ProductionComposition
-	placement     *productionPlacement
-	database      *productionDatabase
-	authBootstrap *productionAuthBootstrap
-	kv            *cloudflare.KVWriter
-	workers       []*lifecycle.Service
-	completion    chan struct{}
+	edge            control.GlobalEdgeDelivery
+	check           func(context.Context) error
+	release         func() error
+	closeOnce       sync.Once
+	closeError      error
+	finished        sync.Once
+	lifetime        context.Context
+	publisher       *estatepublisher.Publisher
+	rotation        *security.Coordinator
+	reaper          *reaper.Reconciler
+	restore         *restoredrill.ProductionComposition
+	placement       *productionPlacement
+	transition      *productionPlacementTransition
+	database        *productionDatabase
+	authBootstrap   *productionAuthBootstrap
+	kv              *cloudflare.KVWriter
+	serviceIdentity *serviceidentityrotation.Coordinator
+	workers         []*lifecycle.Service
+	completion      chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -262,6 +266,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime placement transition: %w", err)
 	}
 	config.Database.ActivatePlacement = transition.Activate
+	group.transition = transition
 	database, err := newProductionDatabase(config.Database, session, placement)
 	if err != nil {
 		return group, fmt.Errorf("runtime database: %w", err)
@@ -271,6 +276,10 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, errors.New("runtime global KV publisher is required")
 	}
 	group.kv = config.KV
+	if config.ServiceIdentity == nil {
+		return group, errors.New("runtime service identity rotation is required")
+	}
+	group.serviceIdentity = config.ServiceIdentity
 	authBootstrap, err := newProductionAuthBootstrap(config.AuthBootstrap, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime auth bootstrap: %w", err)
@@ -346,7 +355,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil || r.serviceIdentity == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -377,6 +386,9 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 			_, err := r.kv.Step(runCtx)
 			return err
 		}),
+		lifecycle.NewScheduledService("service identity rotation", time.Minute, func(runCtx context.Context, _ time.Time) error {
+			return r.serviceIdentity.Run(runCtx)
+		}),
 	}
 	if r.completion == nil {
 		r.completion = make(chan struct{})
@@ -396,7 +408,9 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		case <-r.workers[4].Completion():
 		case <-r.workers[5].Completion():
 		case <-r.workers[6].Completion():
+		case <-r.workers[7].Completion():
 		case <-r.database.service.Completion():
+		case <-r.database.inventory.Completion():
 		}
 		r.finished.Do(func() { close(r.completion) })
 	}()
@@ -495,6 +509,9 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
 	if err != nil {
+		return group, err
+	}
+	if err := group.transition.RunBootstrap(ctx); err != nil {
 		return group, err
 	}
 	if err := group.database.Start(ctx, session); err != nil {

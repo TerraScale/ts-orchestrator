@@ -42,23 +42,34 @@ type LifecyclePolicyScope struct {
 
 // LifecyclePolicyFacts are an authoritative policy observation for one admitted
 // inventory entry, not a database catalog or inferred customer activity.
+type LifecycleBillingGrace struct {
+	StartedAt time.Time `json:"startedAt"`
+	Deadline  time.Time `json:"deadline"`
+}
+type LifecycleBillingCoverage struct {
+	PaidThrough           *time.Time                       `json:"paidThrough"`
+	CardLoss              *LifecycleBillingGrace           `json:"cardLoss"`
+	UnpaidStorageInvoices map[string]LifecycleBillingGrace `json:"unpaidStorageInvoices"`
+}
+
 type LifecyclePolicyFacts struct {
-	SchemaVersion           int        `json:"schemaVersion"`
-	OrganizationID          string     `json:"organizationId"`
-	ProjectID               string     `json:"projectId"`
-	DatabaseID              string     `json:"databaseId"`
-	Revision                string     `json:"revision"`
-	ObservedAt              time.Time  `json:"observedAt"`
-	Plan                    string     `json:"plan"`
-	LastAuthorizedRequestAt *time.Time `json:"lastAuthorizedRequestAt"`
-	DeletionProtection      bool       `json:"deletionProtection"`
-	OwnerEmails             []string   `json:"ownerEmails"`
-	PauseEligible           bool       `json:"pauseEligible"`
-	DeletionEligible        bool       `json:"deletionEligible"`
-	DeletionReasons         []string   `json:"deletionReasons"`
-	AccessRevoked           bool       `json:"accessRevoked"`
-	UsageStoppedAt          *time.Time `json:"usageStoppedAt"`
-	RetainUntil             *time.Time `json:"retainUntil"`
+	Coverage                LifecycleBillingCoverage `json:"coverage"`
+	SchemaVersion           int                      `json:"schemaVersion"`
+	OrganizationID          string                   `json:"organizationId"`
+	ProjectID               string                   `json:"projectId"`
+	DatabaseID              string                   `json:"databaseId"`
+	Revision                string                   `json:"revision"`
+	ObservedAt              time.Time                `json:"observedAt"`
+	Plan                    string                   `json:"plan"`
+	LastAuthorizedRequestAt *time.Time               `json:"lastAuthorizedRequestAt"`
+	DeletionProtection      bool                     `json:"deletionProtection"`
+	OwnerEmails             []string                 `json:"ownerEmails"`
+	PauseEligible           bool                     `json:"pauseEligible"`
+	DeletionEligible        bool                     `json:"deletionEligible"`
+	DeletionReasons         []string                 `json:"deletionReasons"`
+	AccessRevoked           bool                     `json:"accessRevoked"`
+	UsageStoppedAt          *time.Time               `json:"usageStoppedAt"`
+	RetainUntil             *time.Time               `json:"retainUntil"`
 }
 
 func NewLifecyclePolicyClient(c LifecyclePolicyClientConfig) (*LifecyclePolicyClient, error) {
@@ -132,6 +143,23 @@ func (c *LifecyclePolicyClient) Evaluate(ctx context.Context, scope LifecyclePol
 	if facts.SchemaVersion != 1 || facts.OrganizationID != scope.OrganizationID || facts.ProjectID != scope.ProjectID || facts.DatabaseID != scope.DatabaseID || !policyToken(facts.Revision) || (scope.ExpectedRevision != "" && facts.Revision != scope.ExpectedRevision) || facts.ObservedAt.IsZero() || now.Sub(facts.ObservedAt) > time.Minute || facts.ObservedAt.Sub(now) > 5*time.Second {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
+	if facts.Coverage.PaidThrough != nil && facts.Coverage.PaidThrough.IsZero() {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	validGrace := func(g LifecycleBillingGrace) bool {
+		return !g.StartedAt.IsZero() && !g.Deadline.IsZero() && !g.Deadline.Before(g.StartedAt)
+	}
+	if facts.Coverage.CardLoss != nil && !validGrace(*facts.Coverage.CardLoss) {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	if len(facts.Coverage.UnpaidStorageInvoices) > 1000 {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	for id, grace := range facts.Coverage.UnpaidStorageInvoices {
+		if !policyToken(id) || !validGrace(grace) {
+			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+		}
+	}
 	return facts, nil
 }
 
@@ -142,7 +170,7 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 	}
 	// Every field is required; only the three explicitly nullable timestamps may
 	// be null. Missing booleans must not silently become permission-granting false.
-	for _, name := range []string{"schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil"} {
+	for _, name := range []string{"coverage", "schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil"} {
 		value, ok := fields[name]
 		if !ok {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
@@ -150,6 +178,18 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) && name != "lastAuthorizedRequestAt" && name != "usageStoppedAt" && name != "retainUntil" {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 		}
+	}
+	var coverage map[string]jsontext.Value
+	if err := json.Unmarshal(fields["coverage"], &coverage); err != nil || len(coverage) != 3 {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	for _, name := range []string{"paidThrough", "cardLoss", "unpaidStorageInvoices"} {
+		if _, ok := coverage[name]; !ok {
+			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+		}
+	}
+	if bytes.Equal(bytes.TrimSpace(coverage["unpaidStorageInvoices"]), []byte("null")) {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
 	var facts LifecyclePolicyFacts
 	if err := json.Unmarshal(raw, &facts, json.RejectUnknownMembers(true)); err != nil {

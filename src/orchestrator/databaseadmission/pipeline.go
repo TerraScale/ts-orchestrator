@@ -22,7 +22,7 @@ type Config struct {
 	// Authorize checks verified organization admission and the caller's project.
 	Authorize       func(context.Context, Request) error
 	CheckAuthority  func(context.Context) error
-	Plan            func(context.Context, Record) ([]Target, error)
+	Plan            func(context.Context, Record) (Plan, error)
 	Install         func(context.Context, Record, Target, []keylease.Entry) error
 	AcceptPlacement func(context.Context, string, string, *pb.PlacementStageRequest) error
 	// ActivatePlacement delivers a separately authorized accepted-membership
@@ -42,7 +42,12 @@ func New(config Config) (*Pipeline, error) {
 	if config.Readiness != nil && (config.Readiness.Collect == nil || len(config.Readiness.Keys) == 0) {
 		return nil, ErrInvalid
 	}
-	if config.BranchRestore != nil && (config.BranchRestore.Restore == nil || len(config.BranchRestore.Keys) == 0) {
+	if config.Readiness != nil {
+		if err := validateReadinessKeys(config.Readiness.Keys); err != nil {
+			return nil, err
+		}
+	}
+	if config.BranchRestore != nil && (config.BranchRestore.Capture == nil || config.BranchRestore.Restore == nil || len(config.BranchRestore.Keys) == 0) {
 		return nil, ErrInvalid
 	}
 	return &Pipeline{config: config}, nil
@@ -86,8 +91,9 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 	if err != nil {
 		return Record{}, err
 	}
-	record := Record{Request: request, DatabaseID: id.String(), KeyVersion: version.String(), State: "accepted", CreatedAt: time.Now().UTC()}
-	record.Targets, err = p.config.Plan(ctx, record)
+	record := Record{Request: request, DatabaseID: id.String(), KeyVersion: version.String(), State: "accepted", CreatedAt: time.Now().UTC().Truncate(time.Millisecond)}
+	plan, err := p.config.Plan(ctx, record)
+	record.Targets, record.PlacementTargets = plan.Members, plan.Placements
 	if err != nil {
 		return Record{}, err
 	}
@@ -197,41 +203,8 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		}
 		return p.activateAndObserve(ctx, r)
 	}
-	if len(r.Wrapped) == 0 {
-		if err := p.config.CheckAuthority(ctx); err != nil {
-			return err
-		}
-		targets := []keylease.ProvisionTarget{}
-		regions := map[string]bool{}
-		for _, target := range r.Targets {
-			if !regions[target.Region] {
-				regions[target.Region] = true
-				targets = append(targets, target.Provision)
-			}
-		}
-		if err := keylease.Provision(ctx, p.config.CatalogPath, targets); err != nil {
-			return err
-		}
-		catalog, err := keylease.ReadCatalog(p.config.CatalogPath)
-		if err != nil {
-			return err
-		}
-		for _, target := range targets {
-			for _, entry := range catalog.Entries {
-				if entry.Binding == target.Binding {
-					r.Wrapped = append(r.Wrapped, entry)
-				}
-			}
-		}
-		if len(r.Wrapped) != len(targets) {
-			return ErrInvalid
-		}
-		r.State = "keys_provisioned"
-		// Persist all ciphertext before any host can acquire a key. A successor can
-		// resume distribution without generating different material for this version.
-		if err := p.save(ctx, &r); err != nil {
-			return err
-		}
+	if err := p.provisionKeys(ctx, &r); err != nil {
+		return err
 	}
 	for i, target := range r.Targets {
 		if target.Installed {
@@ -246,7 +219,7 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 				entries = append(entries, entry)
 			}
 		}
-		if len(entries) != 1 {
+		if len(entries) != len(databaseKeyPurposes) {
 			return ErrInvalid
 		}
 		if err := p.config.Install(ctx, r, target, entries); err != nil {
@@ -263,7 +236,7 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 			return err
 		}
 	}
-	for i, target := range r.Targets {
+	for i, target := range r.PlacementTargets {
 		if target.Proposed {
 			continue
 		}
@@ -277,12 +250,12 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.AcceptPlacement(ctx, target.ServerIdentity, PlacementOperationID(r.Request), request); err != nil {
 			return err
 		}
-		r.Targets[i].Proposed = true
+		r.PlacementTargets[i].Proposed = true
 		if err := p.save(ctx, &r); err != nil {
 			return err
 		}
 	}
-	if !slices.ContainsFunc(r.Targets, func(t Target) bool { return !t.Proposed }) {
+	if !slices.ContainsFunc(r.PlacementTargets, func(t PlacementTarget) bool { return !t.Proposed }) {
 		r.State = "placement_pending"
 		if err := p.save(ctx, &r); err != nil {
 			return err
@@ -315,7 +288,7 @@ func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
 				entries = append(entries, entry)
 			}
 		}
-		if len(entries) != 1 {
+		if len(entries) != len(databaseKeyPurposes) {
 			return ErrInvalid
 		}
 		if err := p.config.Install(ctx, r, target, entries); err != nil {
@@ -339,9 +312,6 @@ func (p *Pipeline) validateParent(ctx context.Context, request Request) error {
 		source := parent.Request
 		if source.Environment != request.Environment || source.TenantID != request.TenantID || source.ProjectID != request.ProjectID {
 			return ErrForbidden
-		}
-		if err := p.config.Authorize(ctx, source); err != nil {
-			return err
 		}
 		if parent.State != "ready" || !slices.Equal(source.Regions, request.Regions) || source.Residency != request.Residency {
 			return ErrConflict

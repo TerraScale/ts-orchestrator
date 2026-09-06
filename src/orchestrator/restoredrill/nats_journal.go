@@ -269,7 +269,7 @@ func (journal *NATSJournal) transact(ctx context.Context, write bool, change fun
 	return ErrRestoreJournalConflict
 }
 
-func (journal *NATSJournal) Facts(ctx context.Context, database string) (facts JournalFacts, err error) {
+func (journal *NATSJournal) Facts(ctx context.Context, database, _ string) (facts JournalFacts, err error) {
 	if !validID(database) {
 		return facts, ErrInvalidConfig
 	}

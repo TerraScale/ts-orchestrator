@@ -7,6 +7,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"io"
 	"net/http"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"time"
 )
 
@@ -81,7 +82,7 @@ func handleHostDeletion(ctx context.Context, c HostConfig, client *http.Client, 
 		return false
 	}
 	var r hostDeletionRequest
-	if json.Unmarshal(message.Data, &r, json.RejectUnknownMembers(true)) != nil || r.MemberID != c.MemberID || r.Stop.Environment != c.Environment || r.Stop.Region != c.Region || !canonicalID.MatchString(r.Stop.DatabaseID) || !canonicalID.MatchString(r.Stop.OrganizationID) || !canonicalID.MatchString(r.Stop.ProjectID) || r.Stop.OperationID == "" || r.Stop.Cutoff.IsZero() || r.Stop.Cutoff.Nanosecond()%int(time.Millisecond) != 0 || r.Stop.RetainUntil.Before(r.Stop.Cutoff) {
+	if json.Unmarshal(message.Data, &r, json.RejectUnknownMembers(true)) != nil || r.MemberID != c.MemberID || r.Stop.Environment != c.Environment || r.Stop.Region != c.Region || !canonicalID.MatchString(r.Stop.DatabaseID) || !canonicalID.MatchString(r.Stop.OrganizationID) || !canonicalID.MatchString(r.Stop.ProjectID) || r.Stop.OperationID == "" || r.Stop.Cutoff.IsZero() || r.Stop.Cutoff.Nanosecond()%int(time.Millisecond) != 0 || (!r.Stop.RetainUntil.IsZero() && r.Stop.RetainUntil.Before(r.Stop.Cutoff)) {
 		_ = message.Respond([]byte("invalid"))
 		return true
 	}
@@ -104,6 +105,104 @@ func handleHostDeletion(ctx context.Context, c HostConfig, client *http.Client, 
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxMessage+1))
 	var receipt hostDeletionReceipt
 	if err != nil || response.StatusCode != http.StatusOK || len(data) > maxMessage || json.Unmarshal(data, &receipt, json.RejectUnknownMembers(true)) != nil || receipt.MemberID != r.MemberID || !validStopReceipt(r.Stop, receipt.DeletionReceipt) {
+		_ = message.Respond([]byte("unavailable"))
+		return true
+	}
+	_ = message.Respond(data)
+	return true
+}
+
+type hostPreparationRequest struct {
+	Prepare  DeletionStop `json:"prepare"`
+	MemberID string       `json:"member_id"`
+}
+type hostPreparationReceipt struct {
+	DeletionPreparation
+	MemberID string `json:"member_id"`
+}
+
+func (s *remoteDeletionStopper) PrepareDeletion(ctx context.Context, stop DeletionStop) (DeletionPreparation, error) {
+	if !secureConnection(s.connection) || s.journal == nil {
+		return DeletionPreparation{}, ErrInvalid
+	}
+	records, err := s.journal.List(ctx)
+	if err != nil {
+		return DeletionPreparation{}, err
+	}
+	for _, r := range records {
+		if r.Request.Environment != stop.Environment || r.Request.TenantID != stop.OrganizationID || r.Request.ProjectID != stop.ProjectID || r.DatabaseID != stop.DatabaseID {
+			continue
+		}
+		count := 0
+		seen := map[string]bool{}
+		out := DeletionPreparation{Identity: stop.Identity, OperationID: stop.OperationID, Region: stop.Region, Prepared: true}
+		for _, target := range r.Targets {
+			if target.Region != stop.Region {
+				continue
+			}
+			if seen[target.MemberID] {
+				return DeletionPreparation{}, ErrInvalid
+			}
+			seen[target.MemberID] = true
+			subject, err := HostSubject(target.ServerIdentity)
+			if err != nil {
+				return DeletionPreparation{}, err
+			}
+			data, err := json.Marshal(hostPreparationRequest{stop, target.MemberID})
+			if err != nil {
+				return DeletionPreparation{}, err
+			}
+			opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			message, err := s.connection.RequestWithContext(opctx, subject, data)
+			cancel()
+			if err != nil {
+				return DeletionPreparation{}, err
+			}
+			var receipt hostPreparationReceipt
+			if len(message.Data) > maxMessage || json.Unmarshal(message.Data, &receipt, json.RejectUnknownMembers(true)) != nil || receipt.MemberID != target.MemberID || !validPreparation(stop, receipt.DeletionPreparation) {
+				return DeletionPreparation{}, ErrInvalid
+			}
+			out.LastAccountedAt = maxTime(out.LastAccountedAt, receipt.LastAccountedAt)
+			count++
+		}
+		if count != 2 {
+			return DeletionPreparation{}, ErrConflict
+		}
+		return out, nil
+	}
+	return DeletionPreparation{}, ErrConflict
+}
+func handleHostPreparation(ctx context.Context, c HostConfig, client *http.Client, message *nats.Msg) bool {
+	var envelope map[string]any
+	if json.Unmarshal(message.Data, &envelope) != nil || envelope["prepare"] == nil {
+		return false
+	}
+	var r hostPreparationRequest
+	if json.Unmarshal(message.Data, &r, json.RejectUnknownMembers(true)) != nil || r.MemberID != c.MemberID || r.Prepare.Environment != c.Environment || r.Prepare.Region != c.Region || !canonicalID.MatchString(r.Prepare.DatabaseID) || !canonicalID.MatchString(r.Prepare.OrganizationID) || !canonicalID.MatchString(r.Prepare.ProjectID) || r.Prepare.OperationID == "" {
+		_ = message.Respond([]byte("invalid"))
+		return true
+	}
+	body, _ := json.Marshal(struct {
+		databaselifecycle.Identity
+		OperationID string `json:"operation_id"`
+		Region      string `json:"region"`
+		MemberID    string `json:"member_id"`
+	}{r.Prepare.Identity, r.Prepare.OperationID, r.Prepare.Region, r.MemberID})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/internal/v1/databases/delete/prepare", bytes.NewReader(body))
+	if err != nil {
+		_ = message.Respond([]byte("unavailable"))
+		return true
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		_ = message.Respond([]byte("unavailable"))
+		return true
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxMessage+1))
+	var receipt hostPreparationReceipt
+	if err != nil || response.StatusCode != http.StatusOK || len(data) > maxMessage || json.Unmarshal(data, &receipt, json.RejectUnknownMembers(true)) != nil || receipt.MemberID != r.MemberID || !validPreparation(r.Prepare, receipt.DeletionPreparation) {
 		_ = message.Respond([]byte("unavailable"))
 		return true
 	}

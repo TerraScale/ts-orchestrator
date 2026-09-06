@@ -91,7 +91,7 @@ func TestReadyEvidencePersistsOnlyAfterVerifiedCollection(t *testing.T) {
 	record.State = "placement_pending"
 	for i := range record.Targets {
 		record.Targets[i].Installed = true
-		record.Targets[i].Proposed = true
+		record.PlacementTargets[i].Proposed = true
 	}
 	record.Revision, err = journal.Save(t.Context(), key, record.Revision, record)
 	if err != nil {

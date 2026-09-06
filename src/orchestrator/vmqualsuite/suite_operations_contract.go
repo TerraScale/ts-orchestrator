@@ -811,7 +811,7 @@ func (j *localDrillJournal) setFacts(ctx context.Context, facts map[string]resto
 	return j.persistLocked(ctx)
 }
 
-func (j *localDrillJournal) Facts(_ context.Context, database string) (restoredrill.JournalFacts, error) {
+func (j *localDrillJournal) Facts(_ context.Context, database, _ string) (restoredrill.JournalFacts, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	facts, ok := j.state.Facts[database]

@@ -13,6 +13,7 @@ import (
 // BranchRestoreEvidence is emitted only after installing a parent snapshot
 // under the child's identity and data key. It is independent of serving proof.
 type BranchRestoreEvidence struct {
+	RecoveryPointID        string `json:"recovery_point_id"`
 	SchemaVersion          int    `json:"schema_version"`
 	Environment            string `json:"environment"`
 	TenantID               string `json:"tenant_id"`
@@ -31,6 +32,7 @@ type BranchRestoreEvidence struct {
 }
 
 type BranchRestoreConfig struct {
+	Capture func(context.Context, Record, Record, string) (SignedReadiness, error)
 	Keys    map[string]ReadinessKey
 	Restore func(context.Context, Record, string) ([]SignedReadiness, error)
 }
@@ -38,6 +40,10 @@ type BranchRestoreConfig struct {
 func validateBranchRestore(r Record, receipts []SignedReadiness, nonce string, keys map[string]ReadinessKey, now time.Time) error {
 	if r.Request.ParentDatabaseID == "" || len(receipts) != len(r.Targets) || !validDigest(nonce) {
 		return ErrInvalid
+	}
+	frozen, err := validateBranchSource(r, r.BranchSource, keys, time.Time{})
+	if err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	restored := map[string]string{}
@@ -61,6 +67,9 @@ func validateBranchRestore(r Record, receipts []SignedReadiness, nonce string, k
 			return ErrInvalid
 		}
 		if proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Region != r.Targets[index].Region || proof.Nonce != nonce || proof.ObservedAtUnixMS <= 0 {
+			return ErrInvalid
+		}
+		if proof.RecoveryPointID != frozen.RecoveryPointID || proof.SourceSnapshotDigest != frozen.SourceSnapshotDigest || proof.CutDigest != frozen.CutDigest {
 			return ErrInvalid
 		}
 		if !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.RestoredSnapshotDigest) || !validDigest(proof.CutDigest) {
@@ -92,6 +101,9 @@ func (p *Pipeline) restoreBranch(ctx context.Context, r *Record) error {
 	config := p.config.BranchRestore
 	if config == nil {
 		return ErrInvalid
+	}
+	if err := p.captureBranchSource(ctx, r); err != nil {
+		return err
 	}
 	if len(r.BranchEvidence) != 0 {
 		return validateBranchRestore(*r, r.BranchEvidence, r.BranchNonce, config.Keys, time.Time{})

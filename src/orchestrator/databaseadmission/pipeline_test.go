@@ -24,7 +24,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	fixture := journalFixture(t)
-	return Config{Journal: journal, CatalogPath: filepath.Join(dir, "keys.json"), Authorize: func(context.Context, Request) error { return nil }, CheckAuthority: func(context.Context) error { return nil }, Plan: func(_ context.Context, r Record) ([]Target, error) {
+	return Config{Journal: journal, CatalogPath: filepath.Join(dir, "keys.json"), Authorize: func(context.Context, Request) error { return nil }, CheckAuthority: func(context.Context) error { return nil }, Plan: func(_ context.Context, r Record) (Plan, error) {
 		targets := make([]Target, len(fixture.Targets))
 		for i, target := range fixture.Targets {
 			target.Provision.Binding.DatabaseID = r.DatabaseID
@@ -33,7 +33,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			target.Provision.Binding.ProjectID = r.Request.ProjectID
 			stage := new(pb.PlacementStageRequest)
 			if err := proto.Unmarshal(target.Proposal, stage); err != nil {
-				return nil, err
+				return Plan{}, err
 			}
 			for _, a := range stage.Proposal.Assignments {
 				a.Database = r.DatabaseID
@@ -42,11 +42,15 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			}
 			target.Proposal, err = proto.Marshal(stage)
 			if err != nil {
-				return nil, err
+				return Plan{}, err
 			}
 			targets[i] = target
 		}
-		return targets, nil
+		placements := []PlacementTarget{}
+		for _, target := range targets {
+			placements = append(placements, PlacementTarget{ServerIdentity: target.ServerIdentity, MemberID: target.MemberID, Region: target.Region, Proposal: target.Proposal})
+		}
+		return Plan{Members: targets, Placements: placements}, nil
 	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(context.Context, string, string, *pb.PlacementStageRequest) error { return nil }, ActivatePlacement: func(context.Context, Record) error { return nil }}
 }
 func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) {
@@ -79,7 +83,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	lost := true
 	config.Install = func(_ context.Context, r Record, target Target, entries []keylease.Entry) error {
 		durable, ok, err := journal.Load(t.Context(), ScopeKey(request))
-		if err != nil || !ok || len(durable.Wrapped) != 1 {
+		if err != nil || !ok || len(durable.Wrapped) != 3 {
 			t.Fatal("key delivered before durable ciphertext", err)
 		}
 		installCalls[target.MemberID]++

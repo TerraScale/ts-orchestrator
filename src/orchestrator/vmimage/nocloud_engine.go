@@ -47,6 +47,7 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 		files = append(files, file)
 	}
 	control := input.Engine.ControlFiles()
+	maps.Copy(control, input.Engine.DatabaseFiles())
 	for _, path := range slices.Sorted(maps.Keys(control)) {
 		file := NoCloudRootFile{Path: path, Owner: membershipServiceUser, Mode: 0400, Content: control[path]}
 		if err := file.Validate(); err != nil {

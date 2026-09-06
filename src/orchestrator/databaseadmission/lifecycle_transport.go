@@ -7,15 +7,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 )
 
-const LifecycleEventSubject = "orch.database.lifecycle.event"
-const InventoryFreezeSubject = "orch.database.inventory.freeze"
-const InventoryResourcesSubject = "orch.database.inventory.resources"
+const LifecycleEventSubject = subjects.LifecycleEvent
+const InventoryFreezeSubject = subjects.InventoryFreeze
+const InventoryResourcesSubject = subjects.InventoryResources
 
 type InventoryFreezeRequest struct {
 	OrganizationID string    `json:"organization_id"`

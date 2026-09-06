@@ -59,6 +59,20 @@ type ReadinessConfig struct {
 	Collect func(context.Context, Record, string) ([]SignedReadiness, error)
 }
 
+func validateReadinessKeys(keys map[string]ReadinessKey) error {
+	seen := map[string]bool{}
+	for identity, key := range keys {
+		if _, err := HostSubject(identity); err != nil {
+			return ErrInvalid
+		}
+		if len(key.KeyID) == 0 || len(key.KeyID) > 128 || len(key.PublicKey) != ed25519.PublicKeySize || seen[string(key.PublicKey)] {
+			return ErrInvalid
+		}
+		seen[string(key.PublicKey)] = true
+	}
+	return nil
+}
+
 func validDigest(value string) bool {
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == 32 && strings.ToLower(value) == value

@@ -7,11 +7,33 @@ import (
 	"github.com/nats-io/nats.go"
 	"io"
 	"net/http"
+	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"time"
 )
 
-const DeletionBeginSubject = "orch.database.delete.begin"
-const DeletionStatusSubject = "orch.database.delete.status"
+const DeletionBeginSubject = subjects.DeletionBegin
+const DeletionStatusSubject = subjects.DeletionStatus
+
+type deletionAuthorizationKey struct{}
+
+func WithDeletionAuthorization(ctx context.Context, authorization string) context.Context {
+	return context.WithValue(ctx, deletionAuthorizationKey{}, authorization)
+}
+
+func DeletionAuthorization(ctx context.Context) string {
+	value, _ := ctx.Value(deletionAuthorizationKey{}).(string)
+	return value
+}
+
+type deletionCommand struct {
+	Request       DeleteRequest `json:"request"`
+	Authorization string        `json:"authorization"`
+}
+
+func validDeletionAuthorization(value string) bool {
+	return strings.HasPrefix(value, "Bearer ") && len(value) > 7 && len(value) <= 8192 && !strings.ContainsAny(value, "\r\n")
+}
 
 type deletionResponse struct {
 	Result *Deletion `json:"result,omitempty"`
@@ -53,19 +75,19 @@ func StartDeletionAuthority(ctx context.Context, nc *nats.Conn, w *DeletionWorkf
 			if m.Reply == "" || len(m.Data) > maxMessage {
 				return
 			}
-			var r DeleteRequest
+			var command deletionCommand
 			reply := deletionResponse{}
-			if json.Unmarshal(m.Data, &r, json.RejectUnknownMembers(true)) != nil {
+			if json.Unmarshal(m.Data, &command, json.RejectUnknownMembers(true)) != nil || !validDeletionAuthorization(command.Authorization) {
 				reply.Error = "invalid"
 			} else {
-				opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+				opctx, cancel := context.WithTimeout(context.WithValue(ctx, deletionAuthorizationKey{}, command.Authorization), 20*time.Second)
 				defer cancel()
 				var d Deletion
 				var err error
 				if m.Subject == DeletionBeginSubject {
-					d, err = w.Begin(opctx, r)
+					d, err = w.Begin(opctx, command.Request)
 				} else {
-					d, err = w.Status(opctx, r)
+					d, err = w.Status(opctx, command.Request)
 				}
 				if err != nil {
 					reply.Error = lifecycleError(err)
@@ -106,6 +128,17 @@ func registerDeletionIngress(mux *http.ServeMux, c IngressConfig) {
 				return
 			}
 			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxMessage))
+			if err != nil {
+				http.Error(w, "invalid", http.StatusBadRequest)
+				return
+			}
+			var request DeleteRequest
+			authorization := r.Header.Get("Authorization")
+			if json.Unmarshal(data, &request, json.RejectUnknownMembers(true)) != nil || !validDeletionAuthorization(authorization) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			data, err = json.Marshal(deletionCommand{Request: request, Authorization: authorization})
 			if err != nil {
 				http.Error(w, "invalid", http.StatusBadRequest)
 				return

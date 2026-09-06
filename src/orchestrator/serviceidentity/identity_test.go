@@ -63,7 +63,7 @@ func TestBootstrapRefusesConflictingLocalIdentityWithoutAccountMutation(t *testi
 
 func TestSocketGroupDoesNotExposePrivatePrimaryGroup(t *testing.T) {
 	engine := strings.Join(UnitProperties(TerraBase), "\n")
-	if engine != "SupplementaryGroups="+SocketGroup {
+	if !strings.Contains(engine, "SupplementaryGroups="+SocketGroup) || strings.Contains(engine, "terrascale-keys") || !strings.Contains(engine, "ExecStartPre=/usr/bin/chmod 0710 /run/terrascale-database") {
 		t.Fatal(engine)
 	}
 	server := strings.Join(UnitProperties(Orchestrator), "\n")

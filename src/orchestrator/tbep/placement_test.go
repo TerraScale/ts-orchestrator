@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net"
+	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"testing"
 	"time"
@@ -78,6 +79,19 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	if _, err := client.Accept(ctx, "wrong-op", proofRequest); err == nil {
 		t.Fatal("mismatched proof operation accepted")
 	}
+	next := placementtransition.Request{OperationID: "next", ScopeID: "production/cluster", PriorEpoch: 1, Epoch: 2, Generation: 2, Members: []placementtransition.Member{{Identity: serverIdentity, Region: "GRU", PlacementDigest: strings.Repeat("b", 64)}, {Identity: "spiffe://terrascale.test/region/GRU/host/b/terrabase", Region: "GRU", PlacementDigest: strings.Repeat("c", 64)}}}
+	nextDigest, err := placementtransition.RequestDigest(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparePayload, _ := json.Marshal(placementtransition.Prepared{SchemaVersion: 1, Kind: "prepared_epoch", Request: next, RequestDigest: nextDigest, PriorGeneration: 1, PreviousProofDigest: strings.Repeat("d", 64), AuthorityEpoch: 1, LeaseID: "lease", JournalRevision: 8})
+	prepareEnvelope, _ := json.Marshal(placementtransition.Signed{KeyID: "authority", Payload: preparePayload, Signature: make([]byte, 64)})
+	if _, err := client.Drain(ctx, "next", &pb.PlacementDrainRequest{PreparedTransition: prepareEnvelope}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Readiness(ctx, &pb.PlacementReadinessRequest{Tenant: "tenant", Project: "project", Database: "database", OperationId: "next", Nonce: strings.Repeat("a", 64)}); err != nil {
+		t.Fatal(err)
+	}
 	if request.Proposal.Regions[0].Members[0] != "b" {
 		t.Fatal("canonicalization mutated caller request")
 	}
@@ -111,4 +125,36 @@ func (server *placementTestServer) Accept(ctx context.Context, request *pb.Place
 		return nil, errors.New("missing operation")
 	}
 	return AcceptanceBinding(values[0], request)
+}
+
+func (server *placementTestServer) Drain(ctx context.Context, request *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error) {
+	scope, _ := metadata.FromIncomingContext(ctx)
+	if len(scope.Get("x-tb-tenant")) != 0 || len(scope.Get("x-tb-project")) != 0 || len(scope.Get("x-tb-database")) != 0 {
+		server.t.Error("drain received database scope")
+	}
+	values := scope.Get("x-tb-idempotency-key")
+	if len(values) != 1 {
+		return nil, errors.New("drain operation absent")
+	}
+	prepared, err := DrainBinding(values[0], request)
+	if err != nil {
+		return nil, err
+	}
+	payload, _ := json.Marshal(placementtransition.DrainReceipt{Kind: "old_epoch_drained_fenced", MemberIdentity: serverIdentity, ScopeID: prepared.Request.ScopeID, PriorEpoch: prepared.Request.PriorEpoch, PriorGeneration: prepared.PriorGeneration, RequestDigest: prepared.RequestDigest, FrontierDigest: strings.Repeat("f", 64)})
+	signed, _ := json.Marshal(placementtransition.Signed{KeyID: serverIdentity, Payload: payload, Signature: make([]byte, 64)})
+	return &pb.PlacementDrainResponse{SignedReceipt: signed}, nil
+}
+func (server *placementTestServer) Readiness(ctx context.Context, request *pb.PlacementReadinessRequest) (*pb.PlacementDrainResponse, error) {
+	scope, _ := metadata.FromIncomingContext(ctx)
+	for _, key := range []string{"x-tb-tenant", "x-tb-project", "x-tb-database", "x-tb-idempotency-key"} {
+		if len(scope.Get(key)) != 0 {
+			server.t.Errorf("readiness received forbidden %s metadata", key)
+		}
+	}
+	if request.Nonce != strings.Repeat("a", 64) {
+		server.t.Error("challenge changed")
+	}
+	payload, _ := json.Marshal(map[string]string{"nonce": request.Nonce})
+	signed, _ := json.Marshal(placementtransition.Signed{KeyID: "member-key", Payload: payload, Signature: make([]byte, 64)})
+	return &pb.PlacementDrainResponse{SignedReceipt: signed}, nil
 }

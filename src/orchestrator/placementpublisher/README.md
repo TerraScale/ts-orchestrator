@@ -81,3 +81,34 @@ minority outage, lease takeover, delayed post-expiry commits, immutable retries
 after an engine response loss, exact-host dispatch, and TBEP mTLS/metadata.
 They do not qualify six production members, actual engine replication,
 Firecracker, or provider deployment.
+
+## Accepted transitions and signed readiness
+
+Pending Stage remains separate from admission. The host control bridge also
+carries `Accept`, `Drain`, and `Readiness` on distinct exact-host subjects.
+`Accept` transports the exact durably issued GRU proof and its original
+operation ID. Its receipt must match the staged proposal revision, epoch,
+generation, and SHA256 of the authenticated proof payload. The only acceptance
+status is `ADMITTED_CATCHING_UP`; it is not a readiness statement.
+
+Before a successor can be issued, `Drain` requires a durably committed signed
+`prepared_epoch` grant binding the prior accepted proof and exact next request.
+The engine verifies GRU authority, drains and durably fences its own old-epoch
+acknowledgments, and signs its actual final frontier receipt. Unknown replies
+reuse the exact prepare bytes and operation ID. The GRU issuer independently
+verifies member signatures and requires the old RF2 fence quorum before issuing
+the accepted successor. The bridge never signs or synthesizes these receipts.
+
+`Readiness` is a challenged read of an actual member proof. It carries the
+explicit database tuple, durable placement operation ID, and a fresh 32-byte
+nonce encoded as lowercase hex. The raw signed receipt is bounded and returned
+unchanged. `databaseadmission` verifies the pinned member signatures, freshness,
+nonce, exact proposal digest, same physical snapshot/WAL boundary within each
+RF2 pair, and the same causal cut/frontier/root across all required members.
+The runtime discards partial collections. No pending or accepted RPC receipt
+can substitute for that independent data evidence.
+
+Production database configuration requires `readinessKeys`, a map from exact
+engine SPIFFE identity to `{ "key_id": "...", "public_key_file": "/..." }`.
+Every admitted member must have one explicit raw32 Ed25519 public key. The
+concrete collector uses the current GRU session and exact admitted host routes.

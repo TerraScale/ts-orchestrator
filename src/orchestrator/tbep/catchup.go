@@ -30,7 +30,7 @@ func validateCatchUp(status *pb.MaintenanceServiceCatchUpStatusResponse) error {
 			return errors.New("TBEP duplicate catchup database scope")
 		}
 		seen[key] = true
-		if (!entry.RegionalMeasured && entry.RegionalSequence != 0) || (!entry.CausalMeasured && entry.CausalCaughtUp) || (!entry.BackupMeasured && (entry.BackupCaughtUp || entry.BackupSourceSequence != 0 || entry.BackupProtectedSequence != 0)) || (entry.BackupCaughtUp && entry.BackupProtectedSequence < entry.BackupSourceSequence) {
+		if (!entry.RegionalMeasured && entry.RegionalSequence != 0) || (!entry.CausalMeasured && entry.CausalCaughtUp) || (!entry.BackupMeasured && (entry.BackupCaughtUp || entry.BackupProtectedSequence != 0)) || (entry.BackupCaughtUp && entry.BackupProtectedSequence < entry.BackupSourceSequence) {
 			return errors.New("TBEP inconsistent catchup measurements")
 		}
 	}

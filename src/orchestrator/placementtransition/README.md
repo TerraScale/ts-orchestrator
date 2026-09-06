@@ -55,7 +55,15 @@ fences. Prepared intent cannot grant membership or serving. The runtime worker
 uses explicit pre-signed genesis grants from owner-private configuration and
 delivers accepted proofs with the exact persisted pending Stage revision.
 
-Caller integration still needs the explicit genesis authorization workflow,
-authenticated actual engine fence receipt producer, proof delivery endpoint,
-engine signature verification and durable acceptance/catch-up. A successful
-unit test or pending placement does not qualify that production chain.
+The production GRU worker runs an explicitly configured empty-cluster bootstrap
+before starting database admission. The genesis grant binds that cluster's
+empty canonical proposals, independent of customer database IDs. A committed
+head or delivered marker cannot be erased and silently re-created as genesis.
+Subsequent customer creates advance the accepted full-cluster chain using
+`Stage → Prepare → Drain → Issue → Accept`; customer database readiness remains
+separate from accepted membership. The concrete TBEP/NATS transport returns
+actual signed engine receipts without synthesizing evidence.
+
+Portable issuer and orchestration tests do not qualify the actual Rust fence,
+catch-up, six-host data path, or production provider estate. Engine integration
+and qualification must still establish those guarantees on production binaries.

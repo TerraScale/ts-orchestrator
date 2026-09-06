@@ -5,6 +5,9 @@ package serviceidentityrotation
 import (
 	"context"
 	"errors"
+	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"time"
@@ -17,12 +20,14 @@ type Issuer interface {
 	Fetch(context.Context, hostsecrets.IdentitySecretReference) (*hostsecrets.IdentitySecret, error)
 }
 type Journal struct {
-	Generation   uint64                              `json:"generation"`
-	Active       hostsecrets.IdentitySecretReference `json:"active"`
-	Pending      hostsecrets.IdentitySecretReference `json:"pending"`
-	Deadline     time.Time                           `json:"deadline"`
-	Phase        string                              `json:"phase"`
-	NextRotation time.Time                           `json:"next_rotation"`
+	Members        []RemoteMemberEndpoint              `json:"members"`
+	RosterRevision uint64                              `json:"roster_revision"`
+	Generation     uint64                              `json:"generation"`
+	Active         hostsecrets.IdentitySecretReference `json:"active"`
+	Pending        hostsecrets.IdentitySecretReference `json:"pending"`
+	Deadline       time.Time                           `json:"deadline"`
+	Phase          string                              `json:"phase"`
+	NextRotation   time.Time                           `json:"next_rotation"`
 }
 
 // Store must serialize updates under the live global authority lease.
@@ -34,19 +39,20 @@ type Dashboard interface {
 	SetIdentityServiceKeys(context.Context, string, []byte, []byte, time.Time) error
 }
 
-// DeliverAll succeeds only after every admitted member proves adoption.
+// DeliverTo succeeds only after every admitted member proves adoption.
 // Revisions use 2*generation for activation and 2*generation+1 for rollback.
 type Members interface {
-	DeliverAll(context.Context, hostsecrets.IdentitySecretReference, uint64, []byte) error
+	DeliverTo(context.Context, []RemoteMemberEndpoint, hostsecrets.IdentitySecretReference, uint64, []byte) error
 }
 type Config struct {
-	Issuer          Issuer
-	Store           Store
-	Dashboard       Dashboard
-	Members         Members
-	Script          string
-	Period, Overlap time.Duration
-	Authority       func(context.Context) error
+	BootstrapMembers []RemoteMemberEndpoint
+	Issuer           Issuer
+	Store            Store
+	Dashboard        Dashboard
+	Members          Members
+	Script           string
+	Period, Overlap  time.Duration
+	Authority        func(context.Context) error
 }
 type Coordinator struct {
 	config Config
@@ -57,6 +63,10 @@ func New(c Config) (*Coordinator, error) {
 	if c.Issuer == nil || c.Store == nil || c.Dashboard == nil || c.Members == nil || c.Authority == nil || c.Script == "" || c.Period < time.Hour || c.Overlap < time.Minute || c.Overlap > 300*time.Second {
 		return nil, ErrRotation
 	}
+	if !validRoster(c.BootstrapMembers) {
+		return nil, ErrRotation
+	}
+	c.BootstrapMembers = slices.Clone(c.BootstrapMembers)
 	return &Coordinator{config: c}, nil
 }
 func (c *Coordinator) Close() error { return nil }
@@ -128,7 +138,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	if c.config.Authority(work) != nil {
 		return ErrRotation
 	}
-	if err = c.config.Members.DeliverAll(work, j.Pending, 2*j.Generation, next.Bytes()); err != nil {
+	if err = c.config.Members.DeliverTo(work, slices.Clone(j.Members), j.Pending, 2*j.Generation, next.Bytes()); err != nil {
 		return c.rollback(ctx, j)
 	}
 	j.Phase = "commit"
@@ -180,7 +190,7 @@ func (c *Coordinator) rollback(ctx context.Context, j Journal) error {
 	if c.config.Authority(ctx) != nil {
 		return ErrRotation
 	}
-	if c.config.Members.DeliverAll(ctx, j.Active, 2*j.Generation+1, old.Bytes()) != nil {
+	if c.config.Members.DeliverTo(ctx, slices.Clone(j.Members), j.Active, 2*j.Generation+1, old.Bytes()) != nil {
 		return ErrRotation
 	}
 	j.Pending = hostsecrets.IdentitySecretReference{}
@@ -196,6 +206,8 @@ func (c *Coordinator) rollback(ctx context.Context, j Journal) error {
 // Bootstrap issues the first durable provider secret before admitting consumers.
 func (c *Coordinator) bootstrap(ctx context.Context, j Journal) error {
 	if j.Phase == "" {
+		j.Members = slices.Clone(c.config.BootstrapMembers)
+		j.RosterRevision = 1
 		j.Generation = 1
 		j.Phase = "bootstrap"
 		j.Deadline = time.Now().UTC().Truncate(time.Second)
@@ -230,7 +242,7 @@ func (c *Coordinator) bootstrap(ctx context.Context, j Journal) error {
 	if c.config.Authority(ctx) != nil {
 		return ErrRotation
 	}
-	if c.config.Members.DeliverAll(ctx, j.Pending, 2*j.Generation, next.Bytes()) != nil {
+	if c.config.Members.DeliverTo(ctx, slices.Clone(j.Members), j.Pending, 2*j.Generation, next.Bytes()) != nil {
 		return ErrRotation
 	}
 	j.Active = j.Pending
@@ -238,6 +250,97 @@ func (c *Coordinator) bootstrap(ctx context.Context, j Journal) error {
 	j.Phase = ""
 	j.Deadline = time.Time{}
 	j.NextRotation = time.Now().Add(c.config.Period)
+	if c.config.Store.Save(ctx, j) != nil {
+		return ErrRotation
+	}
+	return nil
+}
+
+func validRoster(members []RemoteMemberEndpoint) bool {
+	if len(members) == 0 {
+		return false
+	}
+	ids, urls := map[string]bool{}, map[string]bool{}
+	for _, m := range members {
+		u, err := url.Parse(m.URL)
+		if err != nil || m.NodeID == "" || len(m.NodeID) > 256 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") || ids[m.NodeID] || urls[strings.TrimSuffix(m.URL, "/")] {
+			return false
+		}
+		ids[m.NodeID] = true
+		urls[strings.TrimSuffix(m.URL, "/")] = true
+	}
+	return true
+}
+
+// Enroll must succeed before a newly provisioned host becomes admitted-ready.
+// Persisting the roster first ensures a failed delivery remains in every later
+// rotation; retrying the same endpoint proves adoption again before success.
+func (c *Coordinator) Enroll(ctx context.Context, member RemoteMemberEndpoint) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !validRoster([]RemoteMemberEndpoint{member}) || c.config.Authority(ctx) != nil {
+		return ErrRotation
+	}
+	j, err := c.config.Store.Load(ctx)
+	if err != nil || j.Phase != "" || j.Active.SecretID == "" || j.Generation >= 1<<63-1 {
+		return ErrRotation
+	}
+	found := false
+	for _, existing := range j.Members {
+		if existing.NodeID == member.NodeID {
+			if existing != member {
+				return ErrRotation
+			}
+			found = true
+		} else if strings.TrimSuffix(existing.URL, "/") == strings.TrimSuffix(member.URL, "/") {
+			return ErrRotation
+		}
+	}
+	if !found {
+		if j.RosterRevision == ^uint64(0) {
+			return ErrRotation
+		}
+		j.Members = append(slices.Clone(j.Members), member)
+		j.RosterRevision++
+		if c.config.Store.Save(ctx, j) != nil {
+			return ErrRotation
+		}
+	}
+	active, err := c.config.Issuer.Fetch(ctx, j.Active)
+	if err != nil {
+		return ErrRotation
+	}
+	defer active.Close()
+	if c.config.Authority(ctx) != nil {
+		return ErrRotation
+	}
+	if c.config.Members.DeliverTo(ctx, []RemoteMemberEndpoint{member}, j.Active, 2*j.Generation+1, active.Bytes()) != nil {
+		return ErrRotation
+	}
+	if c.config.Authority(ctx) != nil {
+		return ErrRotation
+	}
+	return nil
+}
+
+// RetireMember removes an already fenced and withdrawn host from future
+// deliveries. The admission owner must withdraw the host before calling it.
+func (c *Coordinator) RetireMember(ctx context.Context, member RemoteMemberEndpoint) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.config.Authority(ctx) != nil {
+		return ErrRotation
+	}
+	j, err := c.config.Store.Load(ctx)
+	if err != nil || j.Phase != "" || j.Active.SecretID == "" || len(j.Members) <= 1 || j.RosterRevision == ^uint64(0) {
+		return ErrRotation
+	}
+	index := slices.Index(j.Members, member)
+	if index < 0 {
+		return ErrRotation
+	}
+	j.Members = slices.Delete(slices.Clone(j.Members), index, index+1)
+	j.RosterRevision++
 	if c.config.Store.Save(ctx, j) != nil {
 		return ErrRotation
 	}
