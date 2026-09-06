@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
@@ -55,7 +56,7 @@ func engineOwnershipBootstrap(files []NoCloudRootFile) string {
 			continue
 		}
 		if script.Len() == 0 {
-			script.WriteString("if ! /usr/bin/id -u terrascale-terrabase >/dev/null 2>&1; then\n  /usr/sbin/useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin terrascale-terrabase\nfi\n/usr/bin/test \"$(/usr/bin/id -u terrascale-terrabase)\" -ne 0\n")
+			script.WriteString(serviceidentity.Bootstrap(serviceidentity.TerraBase))
 		}
 		script.WriteString("/usr/bin/chown terrascale-terrabase:terrascale-terrabase " + file.Path + "\n/usr/bin/chmod 0400 " + file.Path + "\n/usr/bin/test \"$(/usr/bin/stat -c %U:%G:%a " + file.Path + ")\" = terrascale-terrabase:terrascale-terrabase:400\n")
 	}

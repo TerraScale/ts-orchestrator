@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/authbootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/natsconnect"
@@ -20,19 +21,23 @@ const placementHostFileEnvironment = "TS_ORCH_PLACEMENT_HOST_FILE"
 
 type productionPlacementHost struct {
 	bridge     *placementpublisher.HostBridge
+	authBridge *authbootstrap.HostBridge
+	authEngine *tbep.AuthBootstrapClient
+	completion chan struct{}
 	engine     *tbep.PlacementClient
 	connection *nats.Conn
 	once       sync.Once
 	err        error
 }
 
-func (host *productionPlacementHost) Completion() <-chan struct{} { return host.bridge.Completion() }
+func (host *productionPlacementHost) Completion() <-chan struct{} { return host.completion }
 func (host *productionPlacementHost) Close() error {
 	if host == nil {
 		return nil
 	}
 	host.once.Do(func() {
 		host.err = host.bridge.Close()
+		host.err = errors.Join(host.err, host.authBridge.Close(), host.authEngine.Close())
 		host.err = errors.Join(host.err, host.engine.Close())
 		host.connection.Close()
 	})
@@ -65,11 +70,20 @@ func startProductionPlacementHost(ctx context.Context, options *control.Orchestr
 	if err != nil {
 		return nil, err
 	}
-	host := &productionPlacementHost{engine: engine}
+	authEngine, err := tbep.NewAuthBootstrap(tbep.Config{Endpoint: config.EngineEndpoint, ServerIdentity: config.EngineIdentity, Certificate: engineTLS.Certificates[0], Roots: engineTLS.RootCAs, Timeout: 5 * time.Second})
+	if err != nil {
+		_ = engine.Close()
+		return nil, err
+	}
+	host := &productionPlacementHost{engine: engine, authEngine: authEngine, completion: make(chan struct{})}
 	completed := false
 	defer func() {
 		if !completed {
 			_ = engine.Close()
+			_ = authEngine.Close()
+			if host.bridge != nil {
+				_ = host.bridge.Close()
+			}
 			if host.connection != nil {
 				host.connection.Close()
 			}
@@ -103,6 +117,18 @@ func startProductionPlacementHost(ctx context.Context, options *control.Orchestr
 		return nil, err
 	}
 	host.bridge = bridge
+	authBridge, err := authbootstrap.StartHostBridge(ctx, connection, authEngine)
+	if err != nil {
+		return nil, err
+	}
+	host.authBridge = authBridge
+	go func() {
+		select {
+		case <-bridge.Completion():
+		case <-authBridge.Completion():
+		}
+		close(host.completion)
+	}()
 	completed = true
 	return host, nil
 }

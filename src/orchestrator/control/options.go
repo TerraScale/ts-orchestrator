@@ -64,6 +64,7 @@ type OrchestratorOptions struct {
 	Delivery                 *SignedDeliveryRuntimeConfig
 	MembershipSigningKeyFile string
 	MembershipPinsFile       string
+	ProductionRuntimeFile    string
 }
 
 // EnvironmentLookup is deliberately injected so parsing never reads process
@@ -315,6 +316,7 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		CommandIdentity:            commandIdentity,
 		CommandAggregateID:         commandAggregate,
 		MembershipSigningKeyFile:   membershipSigningKey, MembershipPinsFile: membershipPins,
+		ProductionRuntimeFile: lookup("TS_ORCH_PRODUCTION_RUNTIME_FILE"),
 	}, nil
 }
 

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
+	"terrascale.tech/orchestrator/src/orchestrator/systemdlimits"
 )
 
 // UnitName returns the systemd unit name of one component.
@@ -35,9 +37,8 @@ func ExecStartPath(installRoot, component string) string {
 }
 
 // RenderSystemdUnit renders the D-69 hardened unit file of one validated
-// component spec. The directive set is exactly the decided list plus the
-// minimal Unit/Service/Install scaffolding a system unit needs; nothing else
-// is added, so the renderer can be pinned against D-69 in tests.
+// component spec. The D-69 sandbox is extended with explicit locked-memory
+// budgets and disabled core files for native key handling.
 //
 // AF_NETLINK is omitted unless the spec declares NeedsNetlink. No component
 // of the launch estate declares it: terrabase, the orchestrator control
@@ -64,9 +65,13 @@ func RenderSystemdUnit(installRoot string, spec hostmanifest.ComponentSpec) (str
 	b.WriteString("Type=exec\n")
 	b.WriteString("User=" + spec.User + "\n")
 	b.WriteString("Group=" + spec.User + "\n")
+	for _, property := range serviceidentity.UnitProperties(spec.User) {
+		b.WriteString(property + "\n")
+	}
 	b.WriteString("ExecStart=" + componentExecStart(installRoot, spec) + "\n")
 	b.WriteString("Restart=on-failure\n")
 	b.WriteString("RestartSec=2s\n")
+	b.WriteString(systemdlimits.Core + "\n" + systemdlimits.MemoryLock(spec.Name) + "\n")
 	// The exact D-69 hardening block. CapabilityBoundingSet= (empty) strips
 	// every capability; ProtectSystem=strict makes the whole filesystem
 	// read-only except ReadWritePaths, which names the data volume only.

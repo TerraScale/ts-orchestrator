@@ -17,6 +17,7 @@ type configuredHostServices struct {
 	lease     *keylease.Server
 	placement *productionPlacementHost
 	database  *productionDatabaseHostServices
+	rotation  *productionRotationHost
 	done      chan struct{}
 	cancel    context.CancelFunc
 	once      sync.Once
@@ -25,7 +26,10 @@ type configuredHostServices struct {
 func (h *configuredHostServices) Completion() <-chan struct{} { return h.done }
 func (h *configuredHostServices) Close() error {
 	var err error
-	h.once.Do(func() { h.cancel(); err = errors.Join(h.database.Close(), h.placement.Close(), h.lease.Close()) })
+	h.once.Do(func() {
+		h.cancel()
+		err = errors.Join(h.rotation.Close(), h.database.Close(), h.placement.Close(), h.lease.Close())
+	})
 	return err
 }
 func startConfiguredHostServices(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (hostServices, error) {
@@ -51,13 +55,22 @@ func startConfiguredHostServices(ctx context.Context, options *control.Orchestra
 		_ = lease.Close()
 		return nil, err
 	}
-	hosts := &configuredHostServices{database: database, lease: lease, placement: placement, done: make(chan struct{}), cancel: cancel}
+	rotation, err := startProductionRotationHost(local, options, lookup)
+	if err != nil {
+		cancel()
+		_ = database.Close()
+		_ = placement.Close()
+		_ = lease.Close()
+		return nil, err
+	}
+	hosts := &configuredHostServices{rotation: rotation, database: database, lease: lease, placement: placement, done: make(chan struct{}), cancel: cancel}
 	go func() {
 		defer close(hosts.done)
 		select {
 		case <-lease.Completion():
 		case <-placement.Completion():
 		case <-database.Completion():
+		case <-rotation.Completion():
 		case <-local.Done():
 		}
 		cancel()

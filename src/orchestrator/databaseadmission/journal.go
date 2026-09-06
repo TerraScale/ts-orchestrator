@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
@@ -17,10 +18,17 @@ var (
 	ErrEpochFenced        = authorityjournal.ErrFenced
 )
 
-type journalState struct{ Records map[string]Record }
+type journalState struct {
+	Records   map[string]Record
+	Lifecycle databaselifecycle.State
+}
+
+func newJournalState() journalState {
+	return journalState{Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
+}
 
 func validateJournalState(state journalState) error {
-	if state.Records == nil {
+	if state.Records == nil || databaselifecycle.Validate(state.Lifecycle) != nil {
 		return ErrInvalid
 	}
 	operations := map[string]bool{}
@@ -112,11 +120,16 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			}
 		}
 	}
+	if !found {
+		if err := databaselifecycle.Apply(&state.Lifecycle, databaselifecycle.Event{OperationID: PlacementOperationID(record.Request), Kind: "create", Identity: databaselifecycle.Identity{Environment: record.Request.Environment, OrganizationID: record.Request.TenantID, ProjectID: record.Request.ProjectID, DatabaseID: record.DatabaseID}, At: record.CreatedAt, Regions: record.Request.Regions}); err != nil {
+			return 0, err
+		}
+	}
 	record.Revision = expected + 1
 	state.Records[key] = record
 	// Reserve the largest permitted ciphertext and progress before accepting any
 	// effects. Later progress must still fit while other creates are accepted.
-	reserved := journalState{Records: make(map[string]Record, len(state.Records))}
+	reserved := journalState{Records: make(map[string]Record, len(state.Records)), Lifecycle: state.Lifecycle}
 	for key, record := range state.Records {
 		if len(record.Wrapped) == 0 {
 			seen := map[string]bool{}

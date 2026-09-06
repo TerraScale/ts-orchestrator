@@ -29,6 +29,7 @@ type productionDatabaseConfig struct {
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
+	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 }
 type productionDatabase struct {
 	pipeline *databaseadmission.Pipeline
@@ -74,7 +75,8 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		Plan: func(ctx context.Context, r databaseadmission.Record) ([]databaseadmission.Target, error) {
 			return config.plan(ctx, r, journal, placementJournal)
 		},
-		Install: databaseadmission.RemoteInstall(session.Connection),
+		Install:           databaseadmission.RemoteInstall(session.Connection),
+		ActivatePlacement: config.ActivatePlacement,
 		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) error {
 			if err := validateDatabaseProposal(ctx, journal, host, operation, proposal); err != nil {
 				return err

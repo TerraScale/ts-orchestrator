@@ -110,3 +110,31 @@ Firecracker service startup. A subsequent
 producer's committed PEM decoder fix reached the missing durable membership
 source after catalog and transport construction. It did not become ready.
 Production and full VM acceptance remain open.
+
+### Host placement control material
+
+A production `run` host additionally supplies `engineControl` on its engine
+host declaration, plus the same exact SPIFFE URI in `orchestratorPrincipals`.
+The object contains `identity`, `certificateFile`, `privateKeyFile`, `natsUrl`,
+`natsAccount`, `nkeyFile`, `natsCertificateFile`, `natsPrivateKeyFile`, and
+`natsCaFile`. These are explicit admitted references. The engine control,
+read-only observer, member transport, and NATS client private keys must all be
+distinct. Every host uses its own NKey; the global R3 account must already exist.
+
+The renderer copies private material into `/etc/terrascale/placement/`, owned
+by `terrascale-orchestrator` with mode `0400`, and writes the shared
+`placementpublisher.HostFileConfig` schema to `host.json`. The signed
+orchestrator run configuration includes `TS_ORCH_PLACEMENT_HOST_FILE` and
+`TS_ORCH_PLACEMENT_BROKER_GRANTS_FILE`. Public `broker-hosts.json` binds each
+host NKey to its exact engine-identity control subjects; it carries no private
+keys or caller-defined wildcard permissions. Selected embedded global brokers
+apply these grants before opening their listeners. A reused key with broader
+or conflicting permissions is rejected. Non-broker hosts do not start a broker
+merely because they carry the public grant inventory.
+
+This control material applies only to the production `run --config` manifest.
+It cannot be layered onto the temporary initial-R1 or transition-grant command;
+those retain their own admission and startup rules. Pending placement receipts
+do not establish accepted membership, catch-up, writer authority, or serving
+readiness. The declaration and bridge material are inputs for qualification,
+not evidence that the production runtime or three-Region estate is ready.

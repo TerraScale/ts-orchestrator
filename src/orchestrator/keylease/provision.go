@@ -59,6 +59,9 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 	if err != nil {
 		return ErrUnavailable
 	}
+	if catalog.destroyed(primary.Scope()) {
+		return ErrUnavailable
+	}
 	existing := 0
 	for _, target := range targets {
 		for _, entry := range catalog.Entries {

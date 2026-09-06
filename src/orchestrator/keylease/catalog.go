@@ -45,8 +45,9 @@ type Entry struct {
 }
 
 type Catalog struct {
-	Version int     `json:"version"`
-	Entries []Entry `json:"entries"`
+	Version    int                 `json:"version"`
+	Entries    []Entry             `json:"entries"`
+	Tombstones []DatabaseTombstone `json:"tombstones,omitempty"`
 }
 
 func validULID(s string) bool {
@@ -95,9 +96,19 @@ func (c Catalog) validate() error {
 	if c.Version != 1 || len(c.Entries) > 10000 {
 		return ErrUnavailable
 	}
+	if len(c.Tombstones) > 100000 {
+		return ErrUnavailable
+	}
+	destroyed := map[DatabaseScope]bool{}
+	for _, tombstone := range c.Tombstones {
+		if !tombstone.valid() || destroyed[tombstone.Scope] {
+			return ErrUnavailable
+		}
+		destroyed[tombstone.Scope] = true
+	}
 	seen := map[Binding]bool{}
 	for _, e := range c.Entries {
-		if !e.Binding.valid() || seen[e.Binding] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) || !provider.IsOCID(e.KEKID, "key") || !provider.IsOCID(e.KEKVersionID, "keyversion") || len(e.Ciphertext) == 0 || len(e.Ciphertext) > 8192 || e.LeaseSeconds < 1 || e.LeaseSeconds > 1800 || e.NotAfter.IsZero() {
+		if !e.Binding.valid() || seen[e.Binding] || destroyed[e.Binding.Scope()] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) || !provider.IsOCID(e.KEKID, "key") || !provider.IsOCID(e.KEKVersionID, "keyversion") || len(e.Ciphertext) == 0 || len(e.Ciphertext) > 8192 || e.LeaseSeconds < 1 || e.LeaseSeconds > 1800 || e.NotAfter.IsZero() {
 			return ErrUnavailable
 		}
 		seen[e.Binding] = true
@@ -187,6 +198,30 @@ func WriteCatalog(path string, catalog Catalog) error {
 		return ErrUnavailable
 	}
 	defer unlock()
+	if existing, readErr := ReadCatalog(path); readErr == nil {
+		for _, old := range existing.Tombstones {
+			retained := false
+			for _, next := range catalog.Tombstones {
+				if next.Scope == old.Scope && sameTombstone(old, next) {
+					retained = true
+					break
+				}
+			}
+			if !retained {
+				return ErrUnavailable
+			}
+		}
+	} else {
+		root, name, rootErr := privateRoot(path)
+		if rootErr != nil {
+			return ErrUnavailable
+		}
+		_, statErr := root.Lstat(name)
+		root.Close()
+		if !os.IsNotExist(statErr) {
+			return ErrUnavailable
+		}
+	}
 	return writeCatalog(path, catalog)
 }
 func writeCatalog(path string, catalog Catalog) error {
@@ -255,6 +290,9 @@ func MergeEntries(path string, entries []Entry) error {
 	}
 	changed := false
 	for _, incoming := range entries {
+		if catalog.destroyed(incoming.Binding.Scope()) {
+			return ErrUnavailable
+		}
 		found := false
 		for _, existing := range catalog.Entries {
 			if existing.Binding == incoming.Binding {

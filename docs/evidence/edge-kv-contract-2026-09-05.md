@@ -8,6 +8,12 @@ now uses that API; the retired CRUD methods and their separate round-trip test
 are deleted. Their required behavior is exercised by current wire tests and
 the local HTTP operations qualification.
 
+The related host-delivery review found that `src/node` had no imports or
+production entrypoint anywhere in the workspace. Its only callers were its own
+tests; the native `cmd/ts-node` path uses `src/orchestrator/hostagent` instead.
+The unused installer, downloader and tests are removed. Historical verification
+logs mentioning that package remain intact.
+
 Each tick replaces one versioned `regions` document before publishing changed
 `db:<database-name>` placements. Names follow TerraBase's lowercase 1–63 byte
 contract and retain their exact identity. Explicit residency becomes a region

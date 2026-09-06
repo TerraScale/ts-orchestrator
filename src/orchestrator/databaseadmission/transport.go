@@ -74,11 +74,24 @@ func secureConnection(nc *nats.Conn) bool {
 	return err == nil && state.HandshakeComplete && state.Version >= tls.VersionTLS13 && len(state.VerifiedChains) > 0
 }
 func HostSubject(identity string) (string, error) {
-	if !strings.HasPrefix(identity, "spiffe://terrascale.tech/") || len(identity) > 512 {
+	path, ok := strings.CutPrefix(identity, "spiffe://terrascale.tech/")
+	parts := strings.Split(path, "/")
+	if !ok || len(parts) != 4 || !environmentName.MatchString(parts[0]) || parts[1] != "terrabase-member" || !canonicalID.MatchString(parts[2]) || !canonicalID.MatchString(parts[3]) {
 		return "", ErrInvalid
 	}
 	sum := sha256.Sum256([]byte(identity))
 	return "orch.database.host." + hex.EncodeToString(sum[:]) + ".install", nil
+}
+
+// HostPermissions are the exact dedicated database service NKey grants.
+// Installation can be received only for this engine identity; the host cannot
+// publish installation, mutate the journal, or consume another host's intent.
+func HostPermissions(identity string) (publish, subscribe []string, err error) {
+	subject, err := HostSubject(identity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{CreateSubject, StatusSubject, "_INBOX.>"}, []string{subject, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -112,6 +125,8 @@ func StartAuthority(ctx context.Context, nc *nats.Conn, pipeline *Pipeline) (*Se
 						reply.Error = "conflict"
 					} else if errors.Is(err, ErrInvalid) {
 						reply.Error = "invalid"
+					} else if errors.Is(err, ErrForbidden) {
+						reply.Error = "forbidden"
 					} else {
 						reply.Error = "unavailable"
 					}
@@ -152,17 +167,22 @@ type IngressConfig struct {
 	Connection *nats.Conn
 	SocketPath string
 	AllowedUID uint32
+	Lifecycle  *LifecycleIngressConfig
 }
 
 func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 	if ctx == nil || !secureConnection(c.Connection) {
 		return nil, ErrInvalid
 	}
+	if err := validateLifecycleIngress(c.Lifecycle); err != nil {
+		return nil, err
+	}
 	listener, err := listenPrivate(c.SocketPath)
 	if err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
+	registerLifecycleIngress(mux, c.Lifecycle)
 	for path, subject := range map[string]string{"/internal/v1/databases/create": CreateSubject, "/internal/v1/databases/status": StatusSubject} {
 		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 			uid, ok := r.Context().Value(peerUIDKey{}).(uint32)
@@ -201,12 +221,19 @@ func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 				if reply.Error == "invalid" {
 					code = 400
 				}
+				if reply.Error == "forbidden" {
+					code = 403
+				}
 				http.Error(w, "create unavailable", code)
 				return
 			}
 			payload, _ := json.Marshal(reply.Result)
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusAccepted)
+			status := http.StatusAccepted
+			if subject == StatusSubject {
+				status = http.StatusOK
+			}
+			w.WriteHeader(status)
 			_, _ = w.Write(payload)
 		})
 	}
@@ -330,6 +357,13 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 	}
 	subject, err := HostSubject(c.ServerIdentity)
 	if err != nil {
+		return nil, err
+	}
+	identityParts := strings.Split(strings.TrimPrefix(c.ServerIdentity, "spiffe://terrascale.tech/"), "/")
+	if identityParts[0] != c.Environment || identityParts[3] != c.MemberID {
+		return nil, ErrInvalid
+	}
+	if _, err := keylease.ReadCatalog(c.CatalogPath); err != nil {
 		return nil, err
 	}
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

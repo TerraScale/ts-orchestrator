@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
+	"terrascale.tech/orchestrator/src/orchestrator/systemdlimits"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -203,7 +205,7 @@ func createSystemdExecutionPlan(
 	} else {
 		configurationProperty = "EnvironmentFile=-" + stateDirectory + "/environment"
 	}
-	return &SystemdExecutionPlan{
+	plan := &SystemdExecutionPlan{
 		UnitName:   unit,
 		Executable: executable,
 		Arguments:  arguments,
@@ -211,6 +213,8 @@ func createSystemdExecutionPlan(
 			"Type=exec",
 			"Restart=always",
 			"RestartSec=5s",
+			systemdlimits.Core,
+			systemdlimits.MemoryLock(descriptor.ArtifactKey),
 			"DynamicUser=yes",
 			"NoNewPrivileges=yes",
 			"PrivateTmp=yes",
@@ -241,6 +245,23 @@ func createSystemdExecutionPlan(
 			"Nice=" + strconv.Itoa(resources.Nice),
 		},
 	}
+	serviceUser := ""
+	switch descriptor.Role {
+	case AdmittedRoleTerraBaseMember:
+		serviceUser = serviceidentity.TerraBase
+	case AdmittedRoleAutoscaler, AdmittedRoleJournalWriter:
+		serviceUser = serviceidentity.Orchestrator
+	}
+	if serviceUser != "" {
+		for index, property := range plan.Properties {
+			if property == "DynamicUser=yes" {
+				plan.Properties[index] = "User=" + serviceUser
+			}
+		}
+		plan.Properties = append(plan.Properties, "Group="+serviceUser, "StateDirectoryMode=0700")
+		plan.Properties = append(plan.Properties, serviceidentity.UnitProperties(serviceUser)...)
+	}
+	return plan
 }
 
 // RuntimeResourceLimitPolicy ports the internal RuntimeResourceLimitPolicy.

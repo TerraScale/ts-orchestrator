@@ -143,3 +143,17 @@ func TestClosedLockedRequestBodyCannotReadUnmappedStorage(t *testing.T) {
 		t.Fatal("read allowed after mapping ownership ended")
 	}
 }
+
+func TestDataKeyFormattingIsAlwaysRedacted(t *testing.T) {
+	key, err := NewDataKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ReleaseDataKey(key)
+	copy(key.Bytes(), bytes.Repeat([]byte{7}, 32))
+	for _, format := range []string{"%v", "%+v", "%#v", "%x"} {
+		if result := fmt.Sprintf(format, key); result != "[redacted data key]" {
+			t.Fatal("key formatting disclosed memory")
+		}
+	}
+}

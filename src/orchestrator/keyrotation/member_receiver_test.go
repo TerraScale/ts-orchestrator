@@ -1,0 +1,114 @@
+package keyrotation
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json/v2"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestReceiverRejectsUnverifiedTLS(t *testing.T) {
+	r := &memberReceiver{}
+	req := httptest.NewRequest(http.MethodPost, memberRotationPath, nil)
+	req.TLS = &tls.ConnectionState{}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "consumer.sock")
+	tokenFile := filepath.Join(dir, "token")
+	token := strings.Repeat("t", 32)
+	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(chan bool, 1)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			t.Error("missing token")
+		}
+		var fields map[string]any
+		if err := json.UnmarshalRead(r.Body, &fields); err != nil {
+			t.Error(err)
+		}
+		for _, forbidden := range []string{"node_id", "consumer", "control_tls"} {
+			if _, ok := fields[forbidden]; ok {
+				t.Errorf("forwarded %s", forbidden)
+			}
+		}
+		seen <- true
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"operation_id":"stage","generation":1,"valid_until":4102444800,"state":"staged"}`))
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	cert, ca := receiverIdentity(t)
+	dynamic, err := NewDynamicTLS(cert, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, _ := tls.X509KeyPair(cert, cert)
+	leaf, _ := x509.ParseCertificate(pair.Certificate[0])
+	sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+	pin := hex.EncodeToString(sum[:])
+	calls := 0
+	handler, err := NewMemberReceiver(MemberReceiverConfig{NodeID: "node", SocketPath: socket, TokenFile: tokenFile, StateDir: dir, ControllerSPKI: []string{pin}, TLS: dynamic, CheckPeerAuthority: func(_ context.Context, got string) error {
+		calls++
+		if got != pin {
+			t.Error("wrong peer")
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := MemberRotationRequest{OperationID: "stage", NodeID: "node", Consumer: "member", Action: "stage", Generation: 1, ExpiresAt: time.Now().Add(time.Minute).Unix(), CurrentKeyID: "key", CurrentKey: bytes.Repeat([]byte{1}, 32), WorkloadTLS: cert, TrustBundle: ca}
+	body, err := json.Marshal(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, memberRotationPath, bytes.NewReader(body))
+	request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}, VerifiedChains: [][]*x509.Certificate{{leaf}}}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	if calls < 2 {
+		t.Fatal("authority not checked at effects")
+	}
+	select {
+	case <-seen:
+	default:
+		t.Fatal("consumer was not called")
+	}
+	restored, err := NewDynamicTLS(cert, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.AttachState(filepath.Join(dir, "member")); err != nil {
+		t.Fatal(err)
+	}
+	q.Action = "verify"
+	if _, err := restored.apply(q); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -22,9 +22,7 @@ func testComponentSpec() hostmanifest.ComponentSpec {
 }
 
 // TestRenderSystemdUnitIsPinnedToD69 asserts the exact directive list of
-// decision D-69: every decided hardening directive is present, in the
-// hardened shape, and nothing beyond the decided set plus the minimal unit
-// scaffolding is rendered.
+// decision D-69 plus bounded locked memory and disabled core files.
 func TestRenderSystemdUnitIsPinnedToD69(t *testing.T) {
 	rendered, err := RenderSystemdUnit("/opt/terrascale", testComponentSpec())
 	if err != nil {
@@ -39,9 +37,12 @@ Wants=network-online.target
 Type=exec
 User=terrascale-terrabase
 Group=terrascale-terrabase
+SupplementaryGroups=terrascale-keylease
 ExecStart=/opt/terrascale/terrabase/current/terrabase
 Restart=on-failure
 RestartSec=2s
+LimitCORE=0
+LimitMEMLOCK=268435456
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/terrascale/terrabase

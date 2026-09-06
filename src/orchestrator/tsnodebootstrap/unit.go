@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/systemdlimits"
 )
 
 const (
@@ -131,6 +132,7 @@ func RenderSystemdUnit(config Config) (string, error) {
 	unit.WriteString("ExecStart=" + config.ExecutablePath + "\n")
 	unit.WriteString("Restart=on-failure\n")
 	unit.WriteString("RestartSec=2s\n")
+	unit.WriteString(systemdlimits.Core + "\n" + systemdlimits.MemoryLock("ts-node") + "\n")
 	unit.WriteString("UMask=0022\n")
 	unit.WriteString("NoNewPrivileges=yes\n")
 	unit.WriteString("CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER\n")

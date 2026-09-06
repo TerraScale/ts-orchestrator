@@ -82,7 +82,7 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal("observer credentials missing")
 	}
 	controlFiles := spec.TSNode.Engine.ControlFiles()
-	if len(controlFiles) != 8 {
+	if len(controlFiles) != 9 {
 		t.Fatal("control service material missing")
 	}
 	controlConfig, err := placementpublisher.ParseHostFile(controlFiles[placementpublisher.HostFilePath], "gru", spec.InstanceID)
@@ -111,7 +111,7 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 			t.Fatal("root-only control material accepted for nonroot service")
 		}
 	}
-	if controlCount != 8 {
+	if controlCount != 9 {
 		t.Fatal("control service files not installed")
 	}
 	if !strings.Contains(controllerOwnershipBootstrap(seed.RootFiles), placementpublisher.HostFilePath) {

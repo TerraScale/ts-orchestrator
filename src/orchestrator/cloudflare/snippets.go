@@ -190,7 +190,7 @@ func (z *Zone) reconcileSnippets(ctx context.Context, c *Client, p *Plan) error 
 			continue
 		}
 		rules := []SnippetRuleWire{{
-			Expression:  hostPathExpression(want.Hostname, want.PathPrefix),
+			Expression:  snippetGateExpression(want.Hostname, want.PathPrefix),
 			Description: refDescription(want.SnippetName),
 			Enabled:     want.Enabled,
 		}}
@@ -248,4 +248,9 @@ func routeCoversHost(pattern, host string) bool {
 	default:
 		return hostPart == host
 	}
+}
+
+// The authenticated generation probe is executed by the same Snippet as reads.
+func snippetGateExpression(hostname, pathPrefix string) string {
+	return "(" + hostPathExpression(hostname, pathPrefix) + ") or (" + hostPathExpression(hostname, "/.well-known/terrascale-capability-generation") + ")"
 }

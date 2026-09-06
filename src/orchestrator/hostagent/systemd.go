@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -87,6 +88,16 @@ func (p UseraddProvisioner) EnsureUser(ctx context.Context, user string) error {
 		return err
 	}
 	defer cancel()
+	if script := serviceidentity.Bootstrap(user); script != "" {
+		if p.UseraddBinary != "/usr/sbin/useradd" {
+			return &InvalidOperationError{Message: "Reserved service identities require the canonical account tools."}
+		}
+		output, err := exec.CommandContext(operationContext, "/bin/sh", "-eu", "-c", script).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("provision reserved service identity: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return validateExistingComponentUser(user)
+	}
 	command := exec.CommandContext(operationContext, p.UseraddBinary,
 		"--system", "--no-create-home", "--home-dir", "/nonexistent",
 		"--shell", "/usr/sbin/nologin", "--user-group", "--no-log-init", user)

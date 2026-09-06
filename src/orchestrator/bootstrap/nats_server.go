@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -37,6 +38,7 @@ const (
 // NatsServerConfig explicitly selects the local server configuration.
 // Callers omit this configuration on hosts that are not NATS replicas.
 type NatsServerConfig struct {
+	PlacementHosts   []placementpublisher.BrokerGrant
 	ConfigPath       string
 	ReadinessTimeout time.Duration
 }
@@ -66,6 +68,12 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 	options, err := loadNatsServerOptions(config.ConfigPath)
 	if err != nil {
 		return nil, err
+	}
+	if len(config.PlacementHosts) > 0 {
+		options, err = placementpublisher.ApplyBrokerGrants(options, config.PlacementHosts)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return startNatsServerOptions(ctx, options, config.ReadinessTimeout, nil)
 }

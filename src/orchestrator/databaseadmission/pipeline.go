@@ -24,6 +24,9 @@ type Config struct {
 	Plan            func(context.Context, Record) ([]Target, error)
 	Install         func(context.Context, Record, Target, []keylease.Entry) error
 	AcceptPlacement func(context.Context, string, string, *pb.PlacementStageRequest) error
+	// ActivatePlacement delivers a separately authorized accepted-membership
+	// proof. Success does not establish RF2 or caught-up serving readiness.
+	ActivatePlacement func(context.Context, Record) error
 }
 type Pipeline struct {
 	config Config
@@ -31,7 +34,7 @@ type Pipeline struct {
 }
 
 func New(config Config) (*Pipeline, error) {
-	if config.Journal == nil || config.CatalogPath == "" || config.Authorize == nil || config.CheckAuthority == nil || config.Plan == nil || config.Install == nil || config.AcceptPlacement == nil {
+	if config.Journal == nil || config.CatalogPath == "" || config.Authorize == nil || config.CheckAuthority == nil || config.Plan == nil || config.Install == nil || config.AcceptPlacement == nil || config.ActivatePlacement == nil {
 		return nil, ErrInvalid
 	}
 	return &Pipeline{config: config}, nil
@@ -67,7 +70,7 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 	if err != nil {
 		return Record{}, err
 	}
-	record := Record{Request: request, DatabaseID: id.String(), KeyVersion: version.String(), State: "accepted"}
+	record := Record{Request: request, DatabaseID: id.String(), KeyVersion: version.String(), State: "accepted", CreatedAt: time.Now().UTC()}
 	record.Targets, err = p.config.Plan(ctx, record)
 	if err != nil {
 		return Record{}, err
@@ -167,7 +170,10 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		return ErrInvalid
 	}
 	if r.State == "placement_pending" {
-		return nil
+		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		return p.config.ActivatePlacement(ctx, r)
 	}
 	if len(r.Wrapped) == 0 {
 		if err := p.config.CheckAuthority(ctx); err != nil {
@@ -256,7 +262,13 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 	}
 	if !slices.ContainsFunc(r.Targets, func(t Target) bool { return !t.Proposed }) {
 		r.State = "placement_pending"
-		return p.save(ctx, &r)
+		if err := p.save(ctx, &r); err != nil {
+			return err
+		}
+		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		return p.config.ActivatePlacement(ctx, r)
 	}
 	return nil
 }

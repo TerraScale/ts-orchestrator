@@ -24,6 +24,7 @@ type Config struct {
 	Environment string
 	Region      string
 	AllowedUID  uint32
+	SocketGID   uint32
 }
 
 type Server struct {
@@ -36,11 +37,12 @@ type Server struct {
 	once       sync.Once
 }
 
-// Start binds an owner-only Unix socket. OCI IAM authentication happens when a
+// Start binds a dedicated-group Unix socket with an exact peer UID allowlist.
+// OCI IAM authentication happens when a
 // key is requested; startup does not fetch or persist any plaintext keys.
 func Start(ctx context.Context, config Config) (*Server, error) { return start(ctx, config, unwrapOCI) }
 func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, error) {
-	if ctx == nil || unwrap == nil || config.AllowedUID != uint32(os.Geteuid()) || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) {
+	if ctx == nil || unwrap == nil || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) {
 		return nil, ErrUnavailable
 	}
 	_, err := ReadCatalog(config.CatalogPath)
@@ -48,7 +50,7 @@ func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, erro
 		return nil, ErrUnavailable
 	}
 
-	root, name, err := privateRoot(config.SocketPath)
+	root, name, err := socketRoot(config.SocketPath, config.SocketGID)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
@@ -62,7 +64,7 @@ func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, erro
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	if root.Chmod(name, 0600) != nil {
+	if root.Chown(name, os.Geteuid(), int(config.SocketGID)) != nil || root.Chmod(name, 0660) != nil {
 		listener.Close()
 		return nil, ErrUnavailable
 	}
@@ -142,6 +144,12 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	}
 	// Re-check after remote latency: revocation or rotation must not race a
 	// pending Vault unwrap. Old versions remain usable only if explicitly kept.
+	unlock, err := catalogLock(s.config.CatalogPath)
+	if err != nil {
+		writeUnavailable(connection)
+		return
+	}
+	defer unlock()
 	current, err := s.lookup(binding, time.Now())
 	if err != nil || current != entry {
 		writeUnavailable(connection)

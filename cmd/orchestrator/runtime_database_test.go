@@ -137,7 +137,8 @@ func TestDatabaseReconcileRetriesTransportButStopsFencedOrCorrupt(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			journal := &databasePlanJournal{failure: tt.failure}
 			pipeline, err := databaseadmission.New(databaseadmission.Config{
-				Journal: journal, CatalogPath: "/unopened/catalog.json", CheckAuthority: func(context.Context) error { return nil },
+				ActivatePlacement: func(context.Context, databaseadmission.Record) error { return errors.New("activation must not run") },
+				Journal:           journal, CatalogPath: "/unopened/catalog.json", CheckAuthority: func(context.Context) error { return nil },
 				Authorize: func(context.Context, databaseadmission.Request) error { return nil },
 				Plan:      func(context.Context, databaseadmission.Record) ([]databaseadmission.Target, error) { return nil, nil },
 				Install: func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {

@@ -21,6 +21,7 @@ import (
 
 var ErrInvalid = errors.New("database admission: invalid request or plan")
 var ErrConflict = errors.New("database admission: immutable create conflict")
+var ErrForbidden = errors.New("database admission: organization admission denied")
 
 type Request struct {
 	Environment string   `json:"environment"`
@@ -42,6 +43,7 @@ type Target struct {
 }
 type Record struct {
 	Revision   uint64
+	CreatedAt  time.Time
 	Request    Request
 	DatabaseID string
 	KeyVersion string
@@ -188,6 +190,8 @@ func ValidateNewRecord(r Record) error {
 
 // ImmutableEqual permits progress updates, never a changed identity or plan.
 func ImmutableEqual(a, b Record) bool {
+	a.CreatedAt = a.CreatedAt.UTC()
+	b.CreatedAt = b.CreatedAt.UTC()
 	a.Revision = 0
 	b.Revision = 0
 	a.State = ""

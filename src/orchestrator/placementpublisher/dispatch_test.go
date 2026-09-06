@@ -3,6 +3,7 @@ package placementpublisher
 import (
 	"context"
 	"encoding/json/v2"
+	"terrascale.tech/orchestrator/src/orchestrator/authbootstrap"
 	"testing"
 	"time"
 
@@ -53,8 +54,9 @@ func TestAuthenticatedHostDispatch(t *testing.T) {
 	if target.effects != 1 {
 		t.Fatal("invalid request reached local engine")
 	}
+	identitySubject, bootstrapSubject, _ := authbootstrap.HostSubjects(target.ServerIdentity())
 	publish, subscribe, err := HostPermissions(target.ServerIdentity())
-	if err != nil || len(publish) != 1 || publish[0] != "_INBOX.>" || len(subscribe) != 1 || subscribe[0] != remote.subject {
+	if err != nil || len(publish) != 1 || publish[0] != "_INBOX.>" || len(subscribe) != 3 || subscribe[0] != remote.subject || subscribe[1] != identitySubject || subscribe[2] != bootstrapSubject {
 		t.Fatal("host grants are not exact")
 	}
 }

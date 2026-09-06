@@ -23,7 +23,7 @@ type NATSJournal struct {
 }
 
 func NewNATSJournal(config NATSJournalConfig) (*NATSJournal, error) {
-	journal, err := authorityjournal.New(authorityjournal.Config{Connection: config.Connection, CandidateID: config.CandidateID, AuthorityEpoch: config.AuthorityEpoch, LeaseID: config.LeaseID, StateKey: "database.admission"}, func() journalState { return journalState{Records: map[string]Record{}} }, validateJournalState)
+	journal, err := authorityjournal.New(authorityjournal.Config{Connection: config.Connection, CandidateID: config.CandidateID, AuthorityEpoch: config.AuthorityEpoch, LeaseID: config.LeaseID, StateKey: "database.admission"}, func() journalState { return newJournalState() }, validateJournalState)
 	if err != nil {
 		return nil, err
 	}

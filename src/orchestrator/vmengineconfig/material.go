@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"time"
 
@@ -75,6 +76,24 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		}
 		if err = validateTLS(m, identity(d, h)); err != nil {
 			return nil, err
+		}
+	}
+	var grants []placementpublisher.BrokerGrant
+	for _, material := range materials {
+		grant := material.controlAuthorization
+		if grant.PublicNKey != "" {
+			grants = append(grants, placementpublisher.BrokerGrant{ServerIdentity: grant.ServerIdentity, PublicNKey: grant.PublicNKey, Account: grant.Account})
+		}
+	}
+	if len(grants) > 0 {
+		raw, err := placementpublisher.EncodeBrokerGrants(grants)
+		if err != nil {
+			return nil, err
+		}
+		for _, material := range materials {
+			if len(material.controlFiles) > 0 {
+				material.controlFiles[placementpublisher.BrokerGrantsPath] = bytes.Clone(raw)
+			}
 		}
 	}
 	return materials, nil

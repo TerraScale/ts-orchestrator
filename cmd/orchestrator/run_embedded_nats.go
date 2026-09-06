@@ -31,10 +31,13 @@ func selectedNatsConfiguration(lookup envLookup) (*bootstrap.NatsServerConfig, e
 		if timeoutPresent {
 			return nil, errors.New("embedded NATS readiness requires an explicitly selected server configuration")
 		}
-		return nil, nil
+		return nil, configurePlacementBroker(nil, lookup)
 	}
 	config, err := natsServerConfiguration(lookup)
 	if err != nil {
+		return nil, err
+	}
+	if err := configurePlacementBroker(&config, lookup); err != nil {
 		return nil, err
 	}
 	// Static reference admission performs no listener or JetStream startup.

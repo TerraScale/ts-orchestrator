@@ -69,6 +69,8 @@ type productionRuntimeConfig struct {
 
 	DeliveryStore provider.DeliveryRegionStoreConfig
 	Delivery      productionDeliveryConfig
+	BindDelivery  func(*delivery.ArtifactMirror) (productionDeliveryConfig, error)
+	Close         func() error
 }
 
 // The production root owns the mirror and estate. Provider composition
@@ -119,6 +121,9 @@ type productionRuntime struct {
 	active         *productionGlobalWorkers
 	delivery       *control.SignedDeliveryRuntimeConfig
 	masterDelivery *control.MasterDeliveryRuntimeConfig
+	release        func() error
+	closeOnce      sync.Once
+	closeError     error
 }
 
 type productionGlobalWorkers struct {
@@ -155,6 +160,15 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 		return nil, fmt.Errorf("runtime artifact mirror: %w", err)
 	}
 
+	if config.BindDelivery != nil {
+		if config.Delivery.Delegation != nil || config.Delivery.Master != nil || config.Delivery.Trust != nil {
+			return nil, errors.New("runtime delivery must have one composition source")
+		}
+		config.Delivery, err = config.BindDelivery(mirror)
+		if err != nil {
+			return nil, fmt.Errorf("runtime delivery provider binding: %w", err)
+		}
+	}
 	signedDelivery, masterDelivery, err := composeProductionDelivery(config.Delivery, spec, mirror)
 	if err != nil {
 		return nil, err
@@ -169,7 +183,7 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 	if config.Global != nil && (config.Global.Construct == nil || config.Global.CandidateID == "") {
 		return nil, errors.New("runtime global worker plan is incomplete")
 	}
-	return &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror}, nil
+	return &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror, release: config.Close}, nil
 }
 
 func ownedGlobalWorkers(config productionGlobalWorkerConfig) *productionGlobalWorkers {
@@ -485,13 +499,17 @@ func (r *productionRuntime) Close() error {
 	if r == nil {
 		return nil
 	}
-	if r.supervisor != nil {
-		return r.supervisor.Close()
-	}
-	if r.active != nil {
-		return r.active.Close()
-	}
-	return nil
+	r.closeOnce.Do(func() {
+		if r.supervisor != nil {
+			r.closeError = r.supervisor.Close()
+		} else if r.active != nil {
+			r.closeError = r.active.Close()
+		}
+		if r.release != nil {
+			r.closeError = errors.Join(r.closeError, r.release())
+		}
+	})
+	return r.closeError
 }
 
 func isNilProductionValue(value any) bool {

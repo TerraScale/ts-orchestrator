@@ -212,7 +212,7 @@ func validLeaseCommit(lease authority.RegionalAuthorityLeaseDocument, committed 
 // The callback may run repeatedly after stream CAS conflicts and must not
 // perform external effects or retain pointers to the transaction state.
 func (journal *Journal[S]) Transact(ctx context.Context, write bool, change func(*S) error) error {
- return journal.TransactRevision(ctx, write, func(state *S, _ uint64) error { return change(state) })
+	return journal.TransactRevision(ctx, write, func(state *S, _ uint64) error { return change(state) })
 }
 
 // TransactRevision supplies the proposed commit sequence while the exact lease

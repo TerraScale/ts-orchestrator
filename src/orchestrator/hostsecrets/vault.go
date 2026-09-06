@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -233,7 +235,7 @@ func readCryptoBody(reader io.Reader, destination []byte) (int, error) {
 	for total < len(destination) {
 		n, err := reader.Read(destination[total:])
 		total += n
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return total, nil
 		}
 		if err != nil || n == 0 {
@@ -377,3 +379,5 @@ func (body *lockedRequestBody) Close() error {
 	body.mu.Unlock()
 	return nil
 }
+
+func (*DataKey) Format(state fmt.State, _ rune) { _, _ = io.WriteString(state, "[redacted data key]") }

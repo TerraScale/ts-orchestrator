@@ -137,7 +137,7 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 			clear(seed)
 			pair.Wipe()
 			host.OrchestratorPrincipals = []string{identity}
-			host.EngineControl = &vmengineconfig.EngineControlCredentials{Identity: identity, CertificateFile: certificate, PrivateKeyFile: private, NATSURL: "tls://" + bindings[0].Address + ":4222", NKeyFile: nkey, NATSCertificateFile: natsCertificate, NATSPrivateKeyFile: natsPrivate, NATSCAFile: caFile}
+			host.EngineControl = &vmengineconfig.EngineControlCredentials{Identity: identity, CertificateFile: certificate, PrivateKeyFile: private, NATSURL: "tls://" + bindings[0].Address + ":4222", NATSAccount: "$G", NKeyFile: nkey, NATSCertificateFile: natsCertificate, NATSPrivateKeyFile: natsPrivate, NATSCAFile: caFile}
 		}
 		d.Hosts = append(d.Hosts, host)
 	}

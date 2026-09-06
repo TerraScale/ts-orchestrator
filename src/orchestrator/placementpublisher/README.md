@@ -21,6 +21,13 @@ persisted receipt even when its current proposal head has advanced. A receipt
 must match the exact canonical request and expected revision plus one. A newer
 `Get` head does not resolve an older unknown operation.
 
+VM engine declarations may supply explicit `engineControl` credential references.
+The renderer binds their separate host NKeys to existing global accounts in
+`broker-hosts.json`. `TS_ORCH_PLACEMENT_BROKER_GRANTS_FILE` applies those exact
+public grants to selected embedded broker options before listeners open; it
+rejects account omission, system-account grants, duplicate identities, and
+reuse of broader authority keys.
+
 The global publisher uses `orch.placement.host.<SHA256-of-engine-SPIFFE>.stage`.
 Each host has a dedicated NKey with the exact `HostPermissions` allowlist and
 replies only on request inboxes. Only global authority may publish stage

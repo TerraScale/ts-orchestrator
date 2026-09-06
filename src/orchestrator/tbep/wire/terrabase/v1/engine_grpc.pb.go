@@ -1304,8 +1304,10 @@ var UsageService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PlacementControlService_Stage_FullMethodName = "/terrabase.v1.PlacementControlService/Stage"
-	PlacementControlService_Get_FullMethodName   = "/terrabase.v1.PlacementControlService/Get"
+	PlacementControlService_Stage_FullMethodName       = "/terrabase.v1.PlacementControlService/Stage"
+	PlacementControlService_Get_FullMethodName         = "/terrabase.v1.PlacementControlService/Get"
+	PlacementControlService_Accept_FullMethodName      = "/terrabase.v1.PlacementControlService/Accept"
+	PlacementControlService_GetAccepted_FullMethodName = "/terrabase.v1.PlacementControlService/GetAccepted"
 )
 
 // PlacementControlServiceClient is the client API for PlacementControlService service.
@@ -1320,6 +1322,10 @@ type PlacementControlServiceClient interface {
 	// request and authenticated principal. A retry returns its original revision.
 	Stage(ctx context.Context, in *PlacementStageRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
 	Get(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
+	// Verifies and durably retains a signed GRU epoch proof matching staged intent.
+	// Admission permits catch-up only; it does not assert data readiness.
+	Accept(ctx context.Context, in *PlacementAcceptRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
+	GetAccepted(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
 }
 
 type placementControlServiceClient struct {
@@ -1350,6 +1356,26 @@ func (c *placementControlServiceClient) Get(ctx context.Context, in *PlacementGe
 	return out, nil
 }
 
+func (c *placementControlServiceClient) Accept(ctx context.Context, in *PlacementAcceptRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementAcceptanceResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_Accept_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *placementControlServiceClient) GetAccepted(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementAcceptanceResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_GetAccepted_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PlacementControlServiceServer is the server API for PlacementControlService service.
 // All implementations must embed UnimplementedPlacementControlServiceServer
 // for forward compatibility.
@@ -1362,6 +1388,10 @@ type PlacementControlServiceServer interface {
 	// request and authenticated principal. A retry returns its original revision.
 	Stage(context.Context, *PlacementStageRequest) (*PlacementProposalResponse, error)
 	Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error)
+	// Verifies and durably retains a signed GRU epoch proof matching staged intent.
+	// Admission permits catch-up only; it does not assert data readiness.
+	Accept(context.Context, *PlacementAcceptRequest) (*PlacementAcceptanceResponse, error)
+	GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error)
 	mustEmbedUnimplementedPlacementControlServiceServer()
 }
 
@@ -1377,6 +1407,12 @@ func (UnimplementedPlacementControlServiceServer) Stage(context.Context, *Placem
 }
 func (UnimplementedPlacementControlServiceServer) Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) Accept(context.Context, *PlacementAcceptRequest) (*PlacementAcceptanceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Accept not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAccepted not implemented")
 }
 func (UnimplementedPlacementControlServiceServer) mustEmbedUnimplementedPlacementControlServiceServer() {
 }
@@ -1436,6 +1472,42 @@ func _PlacementControlService_Get_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PlacementControlService_Accept_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementAcceptRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).Accept(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_Accept_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).Accept(ctx, req.(*PlacementAcceptRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PlacementControlService_GetAccepted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).GetAccepted(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_GetAccepted_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).GetAccepted(ctx, req.(*PlacementGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PlacementControlService_ServiceDesc is the grpc.ServiceDesc for PlacementControlService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1450,6 +1522,14 @@ var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Get",
 			Handler:    _PlacementControlService_Get_Handler,
+		},
+		{
+			MethodName: "Accept",
+			Handler:    _PlacementControlService_Accept_Handler,
+		},
+		{
+			MethodName: "GetAccepted",
+			Handler:    _PlacementControlService_GetAccepted_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -47,7 +47,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			targets[i] = target
 		}
 		return targets, nil
-	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(context.Context, string, string, *pb.PlacementStageRequest) error { return nil }}
+	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(context.Context, string, string, *pb.PlacementStageRequest) error { return nil }, ActivatePlacement: func(context.Context, Record) error { return nil }}
 }
 func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) {
 	journal := NewMemoryJournal()

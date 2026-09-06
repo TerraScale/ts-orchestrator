@@ -946,7 +946,9 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 	version := base + 1
 	currentIdentity, currentCapability, currentCapabilityID := previous.CurrentIdentityRef, previous.CurrentCapabilityRef, previous.CurrentCapabilityID
 	currentVersion, currentExpiry := previous.CurrentVersion, previous.CurrentExpiry
-	identityExpiry := now.Add(CapabilityPeriod)
+	// Capability consumers enforce Unix-second validity windows.
+	credentialStart := now.Truncate(time.Second)
+	identityExpiry := credentialStart.Add(CapabilityPeriod)
 	// A previous key is retained only for the edge overlap window. The
 	// provider material itself may have a longer not-after, but keeping it in
 	// the active ring longer than one bucket would violate D-70 and needlessly
@@ -959,7 +961,7 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 		}
 	}
 	bucket := now.Unix() / int64(CapabilityPeriod/time.Second)
-	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: now, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
+	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: credentialStart, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {

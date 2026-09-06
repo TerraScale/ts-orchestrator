@@ -14,7 +14,7 @@ type MemoryJournal struct {
 }
 
 func NewMemoryJournal() *MemoryJournal {
-	return &MemoryJournal{state: journalState{Records: map[string]Record{}}}
+	return &MemoryJournal{state: newJournalState()}
 }
 func cloneState(state journalState) (journalState, error) {
 	data, err := json.Marshal(state)

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 )
@@ -38,9 +39,7 @@ func canonicalMembershipBootstrap(input TSNodeBootstrap) ([]byte, []byte, error)
 // Root files are staged as root before boot. The declared final principal is
 // created and the private file ownership is verified before ts-node starts.
 func membershipOwnershipBootstrap() string {
-	return "if ! /usr/bin/id -u " + membershipServiceUser + " >/dev/null 2>&1; then\n" +
-		"  /usr/sbin/useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin " + membershipServiceUser + "\nfi\n" +
-		"/usr/bin/test \"$(/usr/bin/id -u " + membershipServiceUser + ")\" -ne 0\n" +
+	return serviceidentity.Bootstrap(membershipServiceUser) +
 		"/usr/bin/chown " + membershipServiceUser + ":" + membershipServiceUser + " " + MembershipIdentityPath + "\n" +
 		"/usr/bin/chmod 0400 " + MembershipIdentityPath + "\n" +
 		"/usr/bin/test \"$(/usr/bin/stat -c %U:%G:%a " + MembershipIdentityPath + ")\" = " + membershipServiceUser + ":" + membershipServiceUser + ":400\n"

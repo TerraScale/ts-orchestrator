@@ -7,10 +7,13 @@ are required:
 - `TS_ORCH_KEY_LEASE_SOCKET_FILE`: absolute local Unix socket path.
 - `TS_ORCH_KEY_LEASE_CATALOG_FILE`: absolute wrapped-key catalog path.
 - `TS_ORCH_KEY_LEASE_ENVIRONMENT`: exact deployment environment.
-- `TS_ORCH_KEY_LEASE_PEER_UID`: decimal UID shared by the orchestrator and TerraBase.
+- `TS_ORCH_KEY_LEASE_PEER_UID`: exact decimal TerraBase service UID.
+- `TS_ORCH_KEY_LEASE_SOCKET_GID`: dedicated socket-access group GID.
 
-The socket and catalog have mode 0600; their immediate directories have mode
-0700 and belong to the service UID. Every ancestor belongs to root or the service
+The socket has mode 0660 and a parent directory with mode 0710, both owned by
+the orchestrator service UID and dedicated socket-access GID. TerraBase runs as
+a distinct service user in that narrow group. The catalog has mode 0600 and its
+immediate directory has mode 0700, both owned only by the orchestrator UID. Every ancestor belongs to root or the service
 UID and has no group/other write permission. Symlinked paths are refused. A stale
 socket is not unlinked on startup; systemd `RuntimeDirectory` cleanup owns crash
 recovery. The server validates Linux `SO_PEERCRED` before reading requests.
@@ -38,8 +41,8 @@ state fails closed. The database admission workflow must deliver wrapped records
 selected hosts before publishing placement; the read-lease socket refuses a
 missing record and never provisions one implicitly.
 
-Every lease reads the current durable catalog, calls Vault, and reads the catalog
-again before releasing a key. Revocation during an in-flight unwrap therefore
+Every lease reads the current durable catalog, calls Vault, then holds the
+catalog lock across its final catalog check and socket transmission. Revocation during an in-flight unwrap therefore
 fails closed. Retained old versions are returned only on an exact version
 request. Already-issued leases remain valid for their bounded lifetime. Catalog
 writes use a nonblocking exclusive file lock, atomic rename and file/directory
@@ -50,3 +53,21 @@ old/new version selection, revocation during unwrap, sanitized provider failure,
 atomic multi-Region issuance and idempotent retry. The Vault transport test uses
 local metadata/federation and crypto response fixtures; it does not prove live
 OCI IAM policy, Vault availability, or production cross-host delivery.
+
+`DestroyDatabase` removes every wrapped copy for an exact database scope and
+persists a permanent tombstone. The same deletion operation returns its original
+receipt after restart; another operation identity is rejected. Tombstones block
+late ciphertext delivery, new key versions, and stale full-catalog replacement.
+The receipt always includes a conservative 1800-second lease horizon, sampled
+after acquiring the catalog lock. Clients anchor lease expiry to monotonic
+request start, so a delayed response cannot extend this horizon. This is a
+local durable receipt: it does not erase another host, historical catalog backups,
+or previously exported ciphertext. All-host distribution, authorized deletion of
+retained key-catalog copies, and expiry of every lease remain the reaper's
+completion requirements. Shared regional KEKs are never deleted for one database.
+
+Application-managed DEKs and their encoded request/response representations use
+locked, nondumpable pages. The OCI SDK's ordinary plaintext string decoding and
+request-body copying are bypassed while retaining its official federated request
+signer. Go's HTTP/TLS implementation still owns transient transport buffers;
+this package does not claim to control those internal allocations.

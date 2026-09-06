@@ -23,6 +23,8 @@ Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/terrascale/ts-node/current/ts-node
 Restart=on-failure
 RestartSec=2s
+LimitCORE=0
+LimitMEMLOCK=16777216
 UMask=0022
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER

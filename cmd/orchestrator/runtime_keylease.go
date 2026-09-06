@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 
@@ -16,6 +15,7 @@ const (
 	keyLeaseCatalogEnvironment = "TS_ORCH_KEY_LEASE_CATALOG_FILE"
 	keyLeaseEnvironment        = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
 	keyLeaseUIDEnvironment     = "TS_ORCH_KEY_LEASE_PEER_UID"
+	keyLeaseGIDEnvironment     = "TS_ORCH_KEY_LEASE_SOCKET_GID"
 )
 
 func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (*keylease.Server, error) {
@@ -26,11 +26,13 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	catalog, _ := lookup(keyLeaseCatalogEnvironment)
 	environment, _ := lookup(keyLeaseEnvironment)
 	peer, _ := lookup(keyLeaseUIDEnvironment)
+	group, _ := lookup(keyLeaseGIDEnvironment)
+	gid, gidErr := strconv.ParseUint(group, 10, 32)
 	uid, err := strconv.ParseUint(peer, 10, 32)
-	if err != nil || strconv.FormatUint(uid, 10) != peer || uid != uint64(os.Geteuid()) || socket == "" || catalog == "" || environment == "" {
+	if err != nil || strconv.FormatUint(uid, 10) != peer || gidErr != nil || strconv.FormatUint(gid, 10) != group || socket == "" || catalog == "" || environment == "" {
 		return nil, errors.New("orchestrator: local Vault key lease configuration unavailable")
 	}
-	service, err := keylease.Start(ctx, keylease.Config{SocketPath: socket, CatalogPath: catalog, Environment: environment, Region: strings.ToUpper(options.Cell), AllowedUID: uint32(uid)})
+	service, err := keylease.Start(ctx, keylease.Config{SocketPath: socket, CatalogPath: catalog, Environment: environment, Region: strings.ToUpper(options.Cell), AllowedUID: uint32(uid), SocketGID: uint32(gid)})
 	if err != nil {
 		return nil, errors.New("orchestrator: local Vault key lease service unavailable")
 	}

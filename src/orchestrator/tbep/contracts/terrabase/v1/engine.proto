@@ -814,6 +814,10 @@ service PlacementControlService {
   // request and authenticated principal. A retry returns its original revision.
   rpc Stage(PlacementStageRequest) returns (PlacementProposalResponse);
   rpc Get(PlacementGetRequest) returns (PlacementProposalResponse);
+  // Verifies and durably retains a signed GRU epoch proof matching staged intent.
+  // Admission permits catch-up only; it does not assert data readiness.
+  rpc Accept(PlacementAcceptRequest) returns (PlacementAcceptanceResponse);
+  rpc GetAccepted(PlacementGetRequest) returns (PlacementAcceptanceResponse);
 }
 
 message PlacementRegionSeats {
@@ -869,7 +873,7 @@ message AuthStorageIdentity {
   string environment = 1;
   string cluster = 2;
   string member = 3;
-  // Persisted, engine-generated storage identity. Changes after storage loss.
+  // Persisted engine-generated ULID. Changes after storage loss.
   string storage_incarnation = 4;
 }
 message AuthGroupVoter {
@@ -882,7 +886,7 @@ message AuthGroupVoter {
 message AuthGroupBootstrapGrant {
   string environment = 1;
   string cluster = 2;
-  string group_id = 3; // Canonical UUID, allocated once by GRU control authority.
+  string group_id = 3; // Canonical ULID, allocated once by GRU control authority.
   string tenant = 4;
   string project = 5;
   string database = 6;
@@ -909,4 +913,23 @@ message AuthGroupBootstrapReceipt {
   AuthGroupBootstrapStatus status = 5;
   AuthGroupBootstrapGrant grant = 6; // Exact immutable request grant echo.
   string operation_id = 7;
+}
+
+// Exact Signed JSON envelope from the GRU placementtransition producer.
+message PlacementAcceptRequest {
+  uint64 proposal_revision = 1;
+  bytes proof = 2; // <=256 KiB; raw signed payload authenticated before decoding.
+}
+
+enum PlacementAcceptanceStatus {
+  PLACEMENT_ACCEPTANCE_STATUS_UNSPECIFIED = 0;
+  PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP = 1;
+}
+
+message PlacementAcceptanceResponse {
+  uint64 proposal_revision = 1;
+  uint64 epoch = 2;
+  uint64 generation = 3;
+  string proof_digest = 4; // SHA256 of authenticated raw proof payload, lowercase hex.
+  PlacementAcceptanceStatus status = 5;
 }

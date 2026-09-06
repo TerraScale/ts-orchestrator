@@ -36,7 +36,7 @@ func TestNoCloudMembershipIdentityPrivateAndOwned(t *testing.T) {
 		t.Fatal("membership key missing")
 	}
 	script := membershipOwnershipBootstrap()
-	if !strings.Contains(script, "--system --user-group") || !strings.Contains(script, "stat -c %U:%G:%a") || !strings.Contains(script, ":400") {
+	if !strings.Contains(script, "--uid 62010 --gid 62010 --no-user-group") || !strings.Contains(script, "stat -c %U:%G:%a") || !strings.Contains(script, ":400") {
 		t.Fatal("bootstrap does not create and verify service ownership")
 	}
 }

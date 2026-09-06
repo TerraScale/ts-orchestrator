@@ -31,9 +31,13 @@ func fixture(t *testing.T) (Config, Catalog) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	socketDir := filepath.Join(dir, "socket")
+	if err := os.Mkdir(socketDir, 0710); err != nil {
+		t.Fatal(err)
+	}
 	entry := fixtureEntry()
 	entry.CryptoEndpoint = "https://" + entry.CryptoEndpoint
-	config := Config{SocketPath: filepath.Join(dir, "lease.sock"), CatalogPath: filepath.Join(dir, "catalog.json"), Environment: "production", Region: "GRU", AllowedUID: uint32(os.Geteuid())}
+	config := Config{SocketPath: filepath.Join(socketDir, "lease.sock"), CatalogPath: filepath.Join(dir, "catalog.json"), Environment: "production", Region: "GRU", AllowedUID: uint32(os.Geteuid()), SocketGID: uint32(os.Getegid())}
 	catalog := Catalog{Version: 1, Entries: []Entry{entry}}
 	if err := WriteCatalog(config.CatalogPath, catalog); err != nil {
 		t.Fatal(err)
@@ -168,9 +172,9 @@ func TestRejectsUnsafeFilesystemAndProtocol(t *testing.T) {
 		t.Fatal("oversized frame accepted")
 	}
 	config, _ = fixture(t)
-	config.AllowedUID++
+	config.SocketGID++
 	if _, err := Start(t.Context(), config); err == nil {
-		t.Fatal("inaccessible peer policy accepted")
+		t.Fatal("wrong socket group accepted")
 	}
 }
 
@@ -184,4 +188,27 @@ func testDataKey(t *testing.T, value byte) *hostsecrets.DataKey {
 		key.Bytes()[i] = value
 	}
 	return key
+}
+
+func TestSocketPeerUIDRefusesOtherGroupMember(t *testing.T) {
+	config, _ := fixture(t)
+	config.AllowedUID++
+	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {
+		t.Error("unlisted UID reached Vault")
+		return nil, ErrUnavailable
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	c, err := net.Dial("unix", config.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(time.Second))
+	var body [1]byte
+	if _, err := c.Read(body[:]); err == nil {
+		t.Fatal("unlisted UID received data")
+	}
 }

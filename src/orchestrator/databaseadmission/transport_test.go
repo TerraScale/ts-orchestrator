@@ -52,7 +52,7 @@ func TestUnixCreateAndScopedOperationPollingOverAuthenticatedNATS(t *testing.T) 
 		defer reply.Body.Close()
 		body, _ := io.ReadAll(reply.Body)
 		var value Result
-		if reply.StatusCode == 202 && json.Unmarshal(body, &value) != nil {
+		if (reply.StatusCode == 202 || reply.StatusCode == 200) && json.Unmarshal(body, &value) != nil {
 			t.Fatal(string(body))
 		}
 		return reply.StatusCode, value
@@ -64,7 +64,7 @@ func TestUnixCreateAndScopedOperationPollingOverAuthenticatedNATS(t *testing.T) 
 	}
 	lookup := Request{Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, OperationID: request.OperationID}
 	code, polled := post("status", lookup)
-	if code != 202 || polled.DatabaseID != accepted.DatabaseID || polled.TenantID != lookup.TenantID || polled.ProjectID != lookup.ProjectID {
+	if code != 200 || polled.DatabaseID != accepted.DatabaseID || polled.TenantID != lookup.TenantID || polled.ProjectID != lookup.ProjectID {
 		t.Fatal(code, polled)
 	}
 	lookup.ProjectID = "01ARZ3NDEKTSV4RRFFQ69G5FB9"

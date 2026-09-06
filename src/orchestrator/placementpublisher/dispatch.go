@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/authbootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -36,7 +37,11 @@ func HostPermissions(serverIdentity string) (publish, subscribe []string, err er
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{"_INBOX.>"}, []string{subject}, nil
+	identity, bootstrap, err := authbootstrap.HostSubjects(serverIdentity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{"_INBOX.>"}, []string{subject, identity, bootstrap}, nil
 }
 
 func authenticatedConnection(connection *nats.Conn) bool {
@@ -140,6 +145,10 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 	}
 	if err := connection.FlushWithContext(ctx); err != nil {
 		subscription.Unsubscribe()
+		return nil, err
+	}
+	if err := connection.LastError(); err != nil {
+		_ = subscription.Unsubscribe()
 		return nil, err
 	}
 	lifetime, cancel := context.WithCancel(ctx)

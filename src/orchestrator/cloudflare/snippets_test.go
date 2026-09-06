@@ -19,11 +19,11 @@ func snippetZone() *Zone {
 }
 
 // Escaped for embedding inside JSON string values in the fixtures below.
-const declaredSnippetRule = `(http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/\"))`
+const declaredSnippetRule = `((http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/api/v1/reactive/\"))) or ((http.host eq \"sync.api.terrascale.tech\" and starts_with(http.request.uri.path, \"/.well-known/terrascale-capability-generation\")))`
 
 // planSnippetRule is the same expression as it appears in plan details (real
 // quotes, after the JSON round-trip).
-const planSnippetRule = `(http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/api/v1/reactive/"))`
+const planSnippetRule = `((http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/api/v1/reactive/"))) or ((http.host eq "sync.api.terrascale.tech" and starts_with(http.request.uri.path, "/.well-known/terrascale-capability-generation")))`
 
 func TestSnippetRulesReconcile(t *testing.T) {
 	cases := []struct {

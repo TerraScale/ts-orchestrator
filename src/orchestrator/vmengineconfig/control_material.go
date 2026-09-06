@@ -31,6 +31,7 @@ type EngineControlCredentials struct {
 	CertificateFile     string `json:"certificateFile"`
 	PrivateKeyFile      string `json:"privateKeyFile"`
 	NATSURL             string `json:"natsUrl"`
+	NATSAccount         string `json:"natsAccount"`
 	NKeyFile            string `json:"nkeyFile"`
 	NATSCertificateFile string `json:"natsCertificateFile"`
 	NATSPrivateKeyFile  string `json:"natsPrivateKeyFile"`
@@ -40,12 +41,13 @@ type EngineControlCredentials struct {
 // ControlNATSAuthorization is a public exact-host grant for the global R3 broker
 // renderer. No authority/journal publication subject or credential is included.
 type ControlNATSAuthorization struct {
-	PublicNKey         string
-	Publish, Subscribe []string
+	PublicNKey              string
+	Account, ServerIdentity string
+	Publish, Subscribe      []string
 }
 
 func IsControlPath(path string) bool {
-	return slices.Contains([]string{placementpublisher.HostFilePath, controlCertificatePath, controlPrivateKeyPath, controlCAPath, controlNKeyPath, controlNATSCertificatePath, controlNATSPrivateKeyPath, controlNATSCAPath}, path)
+	return slices.Contains([]string{placementpublisher.BrokerGrantsPath, placementpublisher.HostFilePath, controlCertificatePath, controlPrivateKeyPath, controlCAPath, controlNKeyPath, controlNATSCertificatePath, controlNATSPrivateKeyPath, controlNATSCAPath}, path)
 }
 func (m *Material) ControlFiles() map[string][]byte {
 	result := make(map[string][]byte, len(m.controlFiles))
@@ -157,7 +159,7 @@ func prepareControl(m *Material, d Declaration, h Host, binding Binding) error {
 	if err != nil {
 		return err
 	}
-	m.controlAuthorization = ControlNATSAuthorization{PublicNKey: public, Publish: publish, Subscribe: subscribe}
+	m.controlAuthorization = ControlNATSAuthorization{PublicNKey: public, Account: control.NATSAccount, ServerIdentity: identity(d, h), Publish: publish, Subscribe: subscribe}
 	config := placementpublisher.HostFileConfig{Version: 1, Cell: strings.ToLower(binding.Region), Instance: h.NodeID, NATSURL: control.NATSURL, NKeyFile: controlNKeyPath,
 		NATSIdentity:   placementpublisher.TLSFiles{CertificateFile: controlNATSCertificatePath, PrivateKeyFile: controlNATSPrivateKeyPath, TrustBundleFile: controlNATSCAPath},
 		EngineEndpoint: "127.0.0.1:8421", EngineIdentity: identity(d, h), EngineTLS: placementpublisher.TLSFiles{CertificateFile: controlCertificatePath, PrivateKeyFile: controlPrivateKeyPath, TrustBundleFile: controlCAPath}}
@@ -193,7 +195,7 @@ func (m *Material) applyControlManifest(manifest hostmanifest.HostManifest) (hos
 		if component.Configuration != "" && json.Unmarshal([]byte(component.Configuration), &settings) != nil {
 			return manifest, errors.New("vmengineconfig: orchestrator run settings invalid")
 		}
-		for key, value := range map[string]string{"TS_ORCH_PLACEMENT_HOST_FILE": placementpublisher.HostFilePath, "TS_ORCH_CELL": config.Cell, "TS_ORCH_INSTANCE": config.Instance} {
+		for key, value := range map[string]string{"TS_ORCH_PLACEMENT_HOST_FILE": placementpublisher.HostFilePath, placementpublisher.BrokerGrantsEnvironment: placementpublisher.BrokerGrantsPath, "TS_ORCH_CELL": config.Cell, "TS_ORCH_INSTANCE": config.Instance} {
 			if prior, exists := settings[key]; exists && prior != value {
 				return manifest, errors.New("vmengineconfig: orchestrator control host setting differs")
 			}
@@ -226,7 +228,7 @@ func (m *Material) validateControlManifest(manifest hostmanifest.HostManifest) e
 		}
 		found++
 		var settings map[string]string
-		if component.Arguments != "run --config @config" || json.Unmarshal([]byte(component.Configuration), &settings) != nil || settings["TS_ORCH_PLACEMENT_HOST_FILE"] != placementpublisher.HostFilePath || settings["TS_ORCH_CELL"] != m.cell || settings["TS_ORCH_INSTANCE"] != m.nodeID {
+		if component.Arguments != "run --config @config" || json.Unmarshal([]byte(component.Configuration), &settings) != nil || settings["TS_ORCH_PLACEMENT_HOST_FILE"] != placementpublisher.HostFilePath || settings[placementpublisher.BrokerGrantsEnvironment] != placementpublisher.BrokerGrantsPath || settings["TS_ORCH_CELL"] != m.cell || settings["TS_ORCH_INSTANCE"] != m.nodeID {
 			return errors.New("vmengineconfig: signed host control configuration differs")
 		}
 	}
