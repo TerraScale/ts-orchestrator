@@ -51,7 +51,7 @@ func TestProductionDeliveryObjectAdmission(t *testing.T) {
 }
 
 func TestProductionDeliveryObjectRequiresRuntimeConnection(t *testing.T) {
-	if _, err := validProductionObjectFile(t).Construct(t.Context(), nil); err == nil {
+	if _, _, err := validProductionObjectFile(t).ConstructWithOwnership(t.Context(), nil); err == nil {
 		t.Fatal("accepted missing runtime connection")
 	}
 }

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
@@ -43,8 +45,11 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	entry := Entry{DatabaseID: scope.DatabaseID, Plan: PlanFree, Phase: PhaseDeleting, LastRequest: now.Add(-100 * 24 * time.Hour), PausedAt: now, FirstNoticeAt: now, SecondNoticeAt: now, Operations: map[string]Operation{}}
+	entry := Entry{Cycle: 1, DatabaseID: scope.DatabaseID, Plan: PlanFree, Phase: PhaseDeleting, LastRequest: now.Add(-100 * 24 * time.Hour), PausedAt: now, FirstNoticeAt: now, SecondNoticeAt: now, Operations: map[string]Operation{}}
 	for _, name := range []string{"pause/snapshot", "pause/close", "pause/native-backup", "notice/second/" + scope.DatabaseID, "notice/final/" + scope.DatabaseID, "delete/cdn-purge"} {
+		if !strings.HasPrefix(name, "delete/") {
+			name = reaperCycleName(entry, name)
+		}
 		entry.Operations[name] = Operation{Status: operationDone, Attempts: 1, StartedAt: now, CompletedAt: now}
 	}
 	entry.Operations["delete/crypto-shred"] = Operation{Status: operationStarted, Attempts: 1, StartedAt: now}
@@ -68,13 +73,13 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer receiver.Close()
-	config := HostKeyAdapterConfig{Connection: nc, Scope: scope, HostIdentities: []string{host}, Authority: NATSStateStoreConfig{CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, CheckEffectAuthority: func(ctx context.Context) error { return ctx.Err() }}
-	adapter, err := NewHostKeyAdapter(config)
+	config := HostKeyRevokerConfig{Connection: nc, Scope: scope, HostIdentities: []string{host}, Authority: NATSStateStoreConfig{CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, CheckEffectAuthority: func(ctx context.Context) error { return ctx.Err() }}
+	adapter, err := NewHostKeyRevoker(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	op := "delete/crypto-shred/" + scope.DatabaseID
-	if err := adapter.DestroyDEK(ctx, scope.DatabaseID, "wrong"); err == nil {
+	if _, err := adapter.RevokeWrappedCopies(ctx, scope.DatabaseID, "wrong"); err == nil {
 		t.Fatal("wrong operation accepted")
 	}
 	catalog, _ := keylease.ReadCatalog(path)
@@ -82,8 +87,9 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		t.Fatal("invalid request mutated catalog")
 	}
 	for range 2 {
-		if err := adapter.DestroyDEK(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyLeasesPending) {
-			t.Fatalf("lease barrier: %v", err)
+		result, err := adapter.RevokeWrappedCopies(ctx, scope.DatabaseID, op)
+		if !errors.Is(err, ErrKeyLeasesPending) || result.Scope != scope || result.OperationKey != op || len(result.Receipts) != 1 || !result.LeasesExpireAt.Equal(result.Receipts[host].LeasesExpireAt) {
+			t.Fatalf("lease barrier receipt: %+v %v", result, err)
 		}
 	}
 	catalog, err = keylease.ReadCatalog(path)
@@ -102,7 +108,7 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer receiver.Close()
-	if err := adapter.DestroyDEK(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyLeasesPending) {
+	if _, err := adapter.RevokeWrappedCopies(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyLeasesPending) {
 		t.Fatal("dynamic tombstone restart failed", err)
 	}
 	foreign := scope
@@ -122,20 +128,56 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		t.Fatal("wrong host request accepted")
 	}
 	config.Authority.AuthorityEpoch++
-	stale, err := NewHostKeyAdapter(config)
+	stale, err := NewHostKeyRevoker(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := stale.DestroyDEK(ctx, scope.DatabaseID, op); err == nil || errors.Is(err, ErrKeyLeasesPending) {
+	if _, err := stale.RevokeWrappedCopies(ctx, scope.DatabaseID, op); err == nil || errors.Is(err, ErrKeyLeasesPending) {
 		t.Fatal("wrong fence accepted", err)
 	}
 	config.Authority.AuthorityEpoch--
 	config.HostIdentities = append(config.HostIdentities, host[:len(host)-1]+"Y")
-	partial, err := NewHostKeyAdapter(config)
+	partial, err := NewHostKeyRevoker(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := partial.DestroyDEK(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyDestructionUnavailable) {
+	if _, err := partial.RevokeWrappedCopies(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyDestructionUnavailable) {
 		t.Fatal("missing host accepted", err)
 	}
+	if err := receiver.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"missing", "scope", "operation", "host", "future", "short-horizon"} {
+		t.Run(kind, func(t *testing.T) {
+			receipt := original
+			response := keyDestructionReply{HostIdentity: host, Receipt: &receipt}
+			switch kind {
+			case "missing":
+				response.Receipt = nil
+			case "scope":
+				receipt.Scope = foreign
+			case "operation":
+				receipt.OperationKey = "other"
+			case "host":
+				response.HostIdentity = host + "X"
+			case "future":
+				receipt.DestroyedAt = time.Now().Add(time.Hour)
+				receipt.LeasesExpireAt = receipt.DestroyedAt.Add(1800 * time.Second)
+			case "short-horizon":
+				receipt.LeasesExpireAt = receipt.DestroyedAt
+			}
+			sub, err := nc.Subscribe(subject, func(msg *nats.Msg) { data, _ := json.Marshal(response); _ = msg.Respond(data) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Unsubscribe()
+			if err := nc.Flush(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := adapter.RevokeWrappedCopies(ctx, scope.DatabaseID, op); !errors.Is(err, ErrKeyDestructionUnavailable) {
+				t.Fatal("malformed receipt accepted", err)
+			}
+		})
+	}
+
 }

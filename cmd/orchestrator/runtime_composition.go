@@ -16,6 +16,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -100,17 +101,20 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
+	Edge control.GlobalEdgeDelivery
 	// Close releases every client allocated by Construct, including partial
 	// results returned with an error. It is required even for an empty bundle.
-	Close          func() error
-	EstateClient   any
-	EstateSnapshot estatepublisher.SnapshotSource
-	Rotation       keyrotation.Config
-	Reaper         reaper.ProductionConfig
-	Restore        productionRestoreConfig
-	Placement      productionPlacementConfig
-	Database       productionDatabaseConfig
-	AuthBootstrap  productionAuthBootstrapConfig
+	Close               func() error
+	EstateClient        any
+	EstateSnapshot      estatepublisher.SnapshotSource
+	Rotation            keyrotation.Config
+	Reaper              reaper.ProductionConfig
+	Restore             productionRestoreConfig
+	Placement           productionPlacementConfig
+	PlacementTransition productionPlacementTransitionConfig
+	KV                  *cloudflare.KVWriter
+	Database            productionDatabaseConfig
+	AuthBootstrap       productionAuthBootstrapConfig
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -127,6 +131,8 @@ type productionRuntime struct {
 }
 
 type productionGlobalWorkers struct {
+	edge          control.GlobalEdgeDelivery
+	check         func(context.Context) error
 	release       func() error
 	closeOnce     sync.Once
 	closeError    error
@@ -139,6 +145,7 @@ type productionGlobalWorkers struct {
 	placement     *productionPlacement
 	database      *productionDatabase
 	authBootstrap *productionAuthBootstrap
+	kv            *cloudflare.KVWriter
 	workers       []*lifecycle.Service
 	completion    chan struct{}
 }
@@ -183,7 +190,11 @@ func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, e
 	if config.Global != nil && (config.Global.Construct == nil || config.Global.CandidateID == "") {
 		return nil, errors.New("runtime global worker plan is incomplete")
 	}
-	return &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror, release: config.Close}, nil
+	runtime := &productionRuntime{delivery: signedDelivery, masterDelivery: masterDelivery, plan: config.Global, mirror: mirror, release: config.Close}
+	if masterDelivery != nil {
+		masterDelivery.GlobalEdge = productionGlobalEdge{runtime: runtime}
+	}
+	return runtime, nil
 }
 
 func ownedGlobalWorkers(config productionGlobalWorkerConfig) *productionGlobalWorkers {
@@ -192,8 +203,12 @@ func ownedGlobalWorkers(config productionGlobalWorkerConfig) *productionGlobalWo
 
 func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session globalWorkerSession, mirror *delivery.ArtifactMirror) (*productionGlobalWorkers, error) {
 	group := ownedGlobalWorkers(config)
+	group.edge, group.check = config.Edge, session.CheckEffectAuthority
 	if config.Close == nil {
 		return group, errors.New("runtime global client cleanup is required")
+	}
+	if config.Edge == nil {
+		return group, errors.New("runtime global edge provider is required")
 	}
 
 	epoch := uint64(session.Lease.Epoch)
@@ -241,11 +256,21 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime placement: %w", err)
 	}
 	group.placement = placement
+	config.PlacementTransition.Targets = config.Placement.Targets
+	transition, err := newProductionPlacementTransition(config.PlacementTransition, session)
+	if err != nil {
+		return group, fmt.Errorf("runtime placement transition: %w", err)
+	}
+	config.Database.ActivatePlacement = transition.Activate
 	database, err := newProductionDatabase(config.Database, session, placement)
 	if err != nil {
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	if config.KV == nil {
+		return group, errors.New("runtime global KV publisher is required")
+	}
+	group.kv = config.KV
 	authBootstrap, err := newProductionAuthBootstrap(config.AuthBootstrap, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime auth bootstrap: %w", err)
@@ -321,7 +346,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -348,6 +373,10 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
 		}),
+		lifecycle.NewScheduledService("global edge maps", cloudflare.DefaultKVWriterHealthInterval, func(runCtx context.Context, _ time.Time) error {
+			_, err := r.kv.Step(runCtx)
+			return err
+		}),
 	}
 	if r.completion == nil {
 		r.completion = make(chan struct{})
@@ -366,6 +395,7 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		case <-r.workers[3].Completion():
 		case <-r.workers[4].Completion():
 		case <-r.workers[5].Completion():
+		case <-r.workers[6].Completion():
 		case <-r.database.service.Completion():
 		}
 		r.finished.Do(func() { close(r.completion) })

@@ -24,13 +24,14 @@ var ErrConflict = errors.New("database admission: immutable create conflict")
 var ErrForbidden = errors.New("database admission: organization admission denied")
 
 type Request struct {
-	Environment string   `json:"environment"`
-	TenantID    string   `json:"tenant_id"`
-	ProjectID   string   `json:"project_id"`
-	Name        string   `json:"name"`
-	OperationID string   `json:"operation_id"`
-	Regions     []string `json:"regions"`
-	Residency   string   `json:"residency"`
+	ParentDatabaseID string   `json:"parent_database_id,omitempty"`
+	Environment      string   `json:"environment"`
+	TenantID         string   `json:"tenant_id"`
+	ProjectID        string   `json:"project_id"`
+	Name             string   `json:"name"`
+	OperationID      string   `json:"operation_id"`
+	Regions          []string `json:"regions"`
+	Residency        string   `json:"residency"`
 }
 type Target struct {
 	ServerIdentity string
@@ -42,14 +43,18 @@ type Target struct {
 	Proposed       bool
 }
 type Record struct {
-	Revision   uint64
-	CreatedAt  time.Time
-	Request    Request
-	DatabaseID string
-	KeyVersion string
-	State      string
-	Targets    []Target
-	Wrapped    []keylease.Entry
+	BranchEvidence []SignedReadiness
+	BranchNonce    string
+	Revision       uint64
+	CreatedAt      time.Time
+	Request        Request
+	DatabaseID     string
+	KeyVersion     string
+	State          string
+	Targets        []Target
+	Wrapped        []keylease.Entry
+	ReadyEvidence  []SignedReadiness
+	ReadinessNonce string
 }
 type Journal interface {
 	Load(context.Context, string) (Record, bool, error)
@@ -75,6 +80,9 @@ func PlacementOperationID(r Request) string {
 	return "database-create-" + hex.EncodeToString(sum[:])
 }
 func ValidateRequest(r Request) error {
+	if r.ParentDatabaseID != "" && !canonicalID.MatchString(r.ParentDatabaseID) {
+		return ErrInvalid
+	}
 	if !environmentName.MatchString(r.Environment) || !canonicalID.MatchString(r.TenantID) || !canonicalID.MatchString(r.ProjectID) || !databaseName.MatchString(r.Name) || len(r.OperationID) < 1 || len(r.OperationID) > 128 || len(r.Regions) < 1 || len(r.Regions) > 3 {
 		return ErrInvalid
 	}
@@ -118,7 +126,7 @@ func ValidateRequest(r Request) error {
 	return nil
 }
 func ValidateRecord(r Record) error {
-	if ValidateRequest(r.Request) != nil || !canonicalID.MatchString(r.DatabaseID) || !canonicalID.MatchString(r.KeyVersion) || !slices.Contains([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending"}, r.State) || len(r.Targets) != len(r.Request.Regions)*2 {
+	if ValidateRequest(r.Request) != nil || !canonicalID.MatchString(r.DatabaseID) || !canonicalID.MatchString(r.KeyVersion) || !slices.Contains([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, r.State) || len(r.Targets) != len(r.Request.Regions)*2 {
 		return ErrInvalid
 	}
 	hosts := map[string]bool{}
@@ -198,6 +206,14 @@ func ImmutableEqual(a, b Record) bool {
 	b.State = ""
 	a.Wrapped = nil
 	b.Wrapped = nil
+	a.BranchEvidence = nil
+	b.BranchEvidence = nil
+	a.BranchNonce = ""
+	b.BranchNonce = ""
+	a.ReadyEvidence = nil
+	b.ReadyEvidence = nil
+	a.ReadinessNonce = ""
+	b.ReadinessNonce = ""
 	a.Targets = slices.Clone(a.Targets)
 	b.Targets = slices.Clone(b.Targets)
 	for i := range a.Targets {

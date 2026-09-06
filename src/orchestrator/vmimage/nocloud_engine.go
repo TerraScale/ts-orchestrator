@@ -38,6 +38,14 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 		}
 		files = append(files, file)
 	}
+	trust := input.Engine.TransitionFiles()
+	for _, path := range input.Engine.TransitionPaths() {
+		file := NoCloudRootFile{Path: path, Owner: vmengineconfig.ServiceUser, Mode: 0400, Content: trust[path]}
+		if err := file.Validate(); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
 	control := input.Engine.ControlFiles()
 	for _, path := range slices.Sorted(maps.Keys(control)) {
 		file := NoCloudRootFile{Path: path, Owner: membershipServiceUser, Mode: 0400, Content: control[path]}
@@ -52,7 +60,7 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 func engineOwnershipBootstrap(files []NoCloudRootFile) string {
 	var script strings.Builder
 	for _, file := range files {
-		if !vmengineconfig.IsTLSPath(file.Path) {
+		if !vmengineconfig.IsTLSPath(file.Path) && !vmengineconfig.IsTransitionTrustPath(file.Path) {
 			continue
 		}
 		if script.Len() == 0 {

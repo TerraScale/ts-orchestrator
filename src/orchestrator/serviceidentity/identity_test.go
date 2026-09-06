@@ -13,6 +13,18 @@ func TestBootstrapRefusesConflictingLocalIdentityWithoutAccountMutation(t *testi
 	for _, name := range []string{Orchestrator, TerraBase} {
 		for _, fault := range []string{"", "uid", "gid", "shell", "socket-group-members"} {
 			t.Run(name+"/"+fault, func(t *testing.T) {
+				awk, err := exec.LookPath("awk")
+				if err != nil {
+					t.Fatal(err)
+				}
+				cut, err := exec.LookPath("cut")
+				if err != nil {
+					t.Fatal(err)
+				}
+				testBinary, err := exec.LookPath("test")
+				if err != nil {
+					t.Fatal(err)
+				}
 				uid, _ := UID(name)
 				root := t.TempDir()
 				write := func(name, contents string, mode os.FileMode) string {
@@ -36,10 +48,10 @@ func TestBootstrapRefusesConflictingLocalIdentityWithoutAccountMutation(t *testi
 				}
 				passwdFile := write("passwd", passwd, 0600)
 				groupFile := write("group", group, 0600)
-				getent := write("getent", fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\npasswd) file=%s;;\ngroup) file=%s;;\nesac\n/usr/bin/awk -F: -v key=\"$2\" '$1==key || $3==key {print; found=1;exit} END{if(!found)exit 2}' \"$file\"\n", passwdFile, groupFile), 0700)
+				getent := write("getent", strings.ReplaceAll(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\npasswd) file=%s;;\ngroup) file=%s;;\nesac\n/usr/bin/awk -F: -v key=\"$2\" '$1==key || $3==key {print; found=1;exit} END{if(!found)exit 2}' \"$file\"\n", passwdFile, groupFile), "/usr/bin/awk", awk), 0700)
 				id := write("id", fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %d\n", uid), 0700)
 				refuse := write("refuse", "#!/bin/sh\nexit 99\n", 0700)
-				script := strings.NewReplacer("/etc/passwd", passwdFile, "/etc/group", groupFile, "/usr/bin/getent", getent, "/usr/bin/id", id, "/usr/sbin/useradd", refuse, "/usr/sbin/groupadd", refuse).Replace(Bootstrap(name))
+				script := strings.NewReplacer("/usr/bin/awk", awk, "/usr/bin/cut", cut, "/usr/bin/test", testBinary, "/etc/passwd", passwdFile, "/etc/group", groupFile, "/usr/bin/getent", getent, "/usr/bin/id", id, "/usr/sbin/useradd", refuse, "/usr/sbin/groupadd", refuse).Replace(Bootstrap(name))
 				output, err := exec.CommandContext(t.Context(), "/bin/sh", "-eu", "-c", script).CombinedOutput()
 				if (err == nil) != (fault == "") {
 					t.Fatalf("fault %q: err=%v output=%s", fault, err, output)

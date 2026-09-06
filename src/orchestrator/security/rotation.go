@@ -881,6 +881,7 @@ func (c *Coordinator) previousCapability(ctx context.Context, state PersistedSta
 		wipe(material.Key)
 		return CapabilityMaterial{}, errors.New("previous capability key identity mismatch")
 	}
+	material.ExpiresAt = state.OldExpiry
 	return material, nil
 }
 

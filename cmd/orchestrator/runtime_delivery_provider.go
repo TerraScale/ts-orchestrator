@@ -61,6 +61,7 @@ type productionDeliveryPlan struct {
 }
 type constructedProductionDelivery struct {
 	Store       provider.DeliveryRegionStoreConfig
+	Ownership   *provider.DurableOwnershipJournal
 	plan        *productionDeliveryPlan
 	lifetime    context.Context
 	global      *nats.Conn
@@ -189,7 +190,7 @@ func (p *productionDeliveryPlan) Construct(ctx context.Context, global *nats.Con
 		}
 		r.connections[region.Code] = connection
 	}
-	r.Store, err = p.file.ObjectStore.Construct(ctx, global)
+	r.Store, r.Ownership, err = p.file.ObjectStore.ConstructWithOwnership(ctx, global)
 	if err != nil {
 		return r, err
 	}

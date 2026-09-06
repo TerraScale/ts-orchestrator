@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
@@ -19,17 +20,21 @@ var (
 )
 
 type journalState struct {
+	Deletions map[string]Deletion
 	Records   map[string]Record
 	Lifecycle databaselifecycle.State
 }
 
 func newJournalState() journalState {
-	return journalState{Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
+	return journalState{Deletions: map[string]Deletion{}, Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
 }
 
 func validateJournalState(state journalState) error {
-	if state.Records == nil || databaselifecycle.Validate(state.Lifecycle) != nil {
+	if state.Records == nil || databaselifecycle.Validate(state.Lifecycle) != nil || validateAdmissionLifecycle(state) != nil {
 		return ErrInvalid
+	}
+	if err := validateDeletions(state); err != nil {
+		return err
 	}
 	operations := map[string]bool{}
 	databases := map[string]bool{}
@@ -80,14 +85,32 @@ func validateProgress(record Record) error {
 		}
 	}
 	for _, target := range record.Targets {
-		if target.Installed && rank < 1 || target.Proposed && (!target.Installed || rank < 2) || rank >= 2 && !target.Installed || rank == 3 && !target.Proposed {
+		if target.Installed && rank < 1 || target.Proposed && (!target.Installed || rank < 2) || rank >= 2 && !target.Installed || rank >= 3 && !target.Proposed {
 			return ErrInvalid
 		}
+	}
+	if rank == 4 {
+		if validateReadinessSet(record, record.ReadyEvidence, record.ReadinessNonce, nil, time.Time{}) != nil {
+			return ErrInvalid
+		}
+	} else if len(record.ReadyEvidence) != 0 || record.ReadinessNonce != "" {
+		return ErrInvalid
+	}
+	if record.Request.ParentDatabaseID == "" {
+		if len(record.BranchEvidence) != 0 || record.BranchNonce != "" {
+			return ErrInvalid
+		}
+	} else if len(record.BranchEvidence) > 0 {
+		if rank < 3 || validateBranchRestore(record, record.BranchEvidence, record.BranchNonce, nil, time.Time{}) != nil {
+			return ErrInvalid
+		}
+	} else if rank == 4 || record.BranchNonce != "" {
+		return ErrInvalid
 	}
 	return nil
 }
 func stateRank(state string) int {
-	return slices.Index([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending"}, state)
+	return slices.Index([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, state)
 }
 
 func saveRecord(state *journalState, key string, expected uint64, record Record) (uint64, error) {
@@ -100,6 +123,12 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			return 0, ErrJournalConflict
 		}
 		if !ImmutableEqual(old, record) || stateRank(record.State) < stateRank(old.State) || len(old.Wrapped) > 0 && !reflect.DeepEqual(old.Wrapped, record.Wrapped) {
+			return 0, ErrConflict
+		}
+		if old.State == "ready" && (!sameReadiness(old.ReadyEvidence, record.ReadyEvidence) || old.ReadinessNonce != record.ReadinessNonce) {
+			return 0, ErrConflict
+		}
+		if len(old.BranchEvidence) > 0 && (!sameReadiness(old.BranchEvidence, record.BranchEvidence) || old.BranchNonce != record.BranchNonce) {
 			return 0, ErrConflict
 		}
 		for i, target := range old.Targets {
@@ -121,15 +150,25 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 		}
 	}
 	if !found {
-		if err := databaselifecycle.Apply(&state.Lifecycle, databaselifecycle.Event{OperationID: PlacementOperationID(record.Request), Kind: "create", Identity: databaselifecycle.Identity{Environment: record.Request.Environment, OrganizationID: record.Request.TenantID, ProjectID: record.Request.ProjectID, DatabaseID: record.DatabaseID}, At: record.CreatedAt, Regions: record.Request.Regions}); err != nil {
+		if deletionBlocksEvent(state, admissionLifecycleEvent(record)) {
+			return 0, ErrConflict
+		}
+		if err := databaselifecycle.Apply(&state.Lifecycle, admissionLifecycleEvent(record)); err != nil {
 			return 0, err
 		}
 	}
 	record.Revision = expected + 1
 	state.Records[key] = record
+	if err := validateReservedCapacity(*state); err != nil {
+		return 0, err
+	}
+	return record.Revision, nil
+}
+func validateReservedCapacity(state journalState) error {
 	// Reserve the largest permitted ciphertext and progress before accepting any
 	// effects. Later progress must still fit while other creates are accepted.
-	reserved := journalState{Records: make(map[string]Record, len(state.Records)), Lifecycle: state.Lifecycle}
+	reserved := state
+	reserved.Records = make(map[string]Record, len(state.Records))
 	for key, record := range state.Records {
 		if len(record.Wrapped) == 0 {
 			seen := map[string]bool{}
@@ -143,12 +182,25 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			}
 		}
 		record.State = "placement_pending"
+		if len(record.ReadyEvidence) == 0 {
+			record.ReadinessNonce = strings.Repeat("f", 64)
+			for range record.Targets {
+				record.ReadyEvidence = append(record.ReadyEvidence, SignedReadiness{KeyID: strings.Repeat("k", 128), Payload: make([]byte, 32<<10), Signature: make([]byte, 64)})
+			}
+		}
+		if record.Request.ParentDatabaseID != "" && len(record.BranchEvidence) == 0 {
+			record.BranchNonce = strings.Repeat("f", 64)
+			for range record.Targets {
+				record.BranchEvidence = append(record.BranchEvidence, SignedReadiness{KeyID: strings.Repeat("k", 128), Payload: make([]byte, 32<<10), Signature: make([]byte, 64)})
+			}
+		}
 		record.Revision = math.MaxUint64
 		reserved.Records[key] = record
 	}
+	reserveLifecycleCapacity(&reserved)
 	encoded, err := json.Marshal(reserved)
 	if err != nil || len(encoded) > authorityjournal.MaximumStateBytes {
-		return 0, ErrJournalUnavailable
+		return ErrJournalUnavailable
 	}
-	return record.Revision, nil
+	return nil
 }

@@ -27,16 +27,17 @@ const StatusSubject = "orch.database.status"
 const maxMessage = 256 << 10
 
 type Result struct {
-	Environment string   `json:"environment"`
-	TenantID    string   `json:"tenant_id"`
-	ProjectID   string   `json:"project_id"`
-	OperationID string   `json:"operation_id"`
-	DatabaseID  string   `json:"database_id"`
-	KeyVersion  string   `json:"key_version"`
-	Name        string   `json:"name"`
-	Regions     []string `json:"regions"`
-	Residency   string   `json:"residency"`
-	State       string   `json:"state"`
+	ParentDatabaseID string   `json:"parent_database_id,omitempty"`
+	Environment      string   `json:"environment"`
+	TenantID         string   `json:"tenant_id"`
+	ProjectID        string   `json:"project_id"`
+	OperationID      string   `json:"operation_id"`
+	DatabaseID       string   `json:"database_id"`
+	KeyVersion       string   `json:"key_version"`
+	Name             string   `json:"name"`
+	Regions          []string `json:"regions"`
+	Residency        string   `json:"residency"`
+	State            string   `json:"state"`
 }
 type response struct {
 	Result *Result `json:"result,omitempty"`
@@ -44,7 +45,11 @@ type response struct {
 }
 
 func result(r Record) Result {
-	return Result{Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: "pending"}
+	state := "pending"
+	if r.State == "ready" {
+		state = "ready"
+	}
+	return Result{ParentDatabaseID: r.Request.ParentDatabaseID, Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: state}
 }
 
 type Service struct {
@@ -91,7 +96,7 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, StatusSubject, "_INBOX.>"}, []string{subject, "_INBOX.>"}, nil
+	return []string{CreateSubject, StatusSubject, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -132,6 +137,9 @@ func StartAuthority(ctx context.Context, nc *nats.Conn, pipeline *Pipeline) (*Se
 					}
 				} else {
 					reply.Result = new(result(record))
+					if message.Subject == CreateSubject {
+						reply.Result.State = "pending"
+					}
 				}
 			}
 			data, _ := json.Marshal(reply)
@@ -183,6 +191,7 @@ func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 	}
 	mux := http.NewServeMux()
 	registerLifecycleIngress(mux, c.Lifecycle)
+	registerDeletionIngress(mux, c)
 	for path, subject := range map[string]string{"/internal/v1/databases/create": CreateSubject, "/internal/v1/databases/status": StatusSubject} {
 		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 			uid, ok := r.Context().Value(peerUIDKey{}).(uint32)
@@ -385,6 +394,9 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		}
 		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
+		if handleHostDeletion(opctx, c, client, message) {
+			return
+		}
 		var request installRequest
 		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil || validateInstall(c, request) != nil {
 			_ = message.Respond([]byte("invalid"))

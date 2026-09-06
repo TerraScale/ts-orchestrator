@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json/v2"
+	"errors"
 	"maps"
 	"slices"
 
@@ -18,6 +19,7 @@ type state struct {
 	Operations map[string]entry
 	Heads      map[string]string
 	Genesis    map[string]string
+	Checkpoint bool
 }
 type transaction interface {
 	TransactRevision(context.Context, bool, func(*state, uint64) error) error
@@ -39,7 +41,9 @@ type Issuer struct {
 	genesisKeys, memberKeys map[string]ed25519.PublicKey
 }
 
-func emptyState() state { return state{map[string]entry{}, map[string]string{}, map[string]string{}} }
+func emptyState() state {
+	return state{Operations: map[string]entry{}, Heads: map[string]string{}, Genesis: map[string]string{}}
+}
 func validState(s state) error {
 	if s.Operations == nil || s.Heads == nil || s.Genesis == nil || len(s.Operations) > 512 {
 		return ErrInvalid
@@ -81,7 +85,7 @@ func validState(s state) error {
 					break
 				}
 			}
-			if !found {
+			if !found && !s.Checkpoint {
 				return ErrInvalid
 			}
 		}
@@ -125,11 +129,11 @@ func New(config Config) (*Issuer, error) {
 		return nil, err
 	}
 	config.Authority.StateKey = "placement.accepted"
-	j, err := authorityjournal.New(config.Authority, emptyState, validState)
+	_, err = authorityjournal.New(config.Authority, emptyState, validState)
 	if err != nil {
 		return nil, err
 	}
-	return &Issuer{j, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members}, nil
+	return &Issuer{&shardedJournal{config: config.Authority}, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members}, nil
 }
 
 // Issue commits exactly one transition per scope and preserves every retry
@@ -137,8 +141,34 @@ func New(config Config) (*Issuer, error) {
 // request to retrieve its original proof. Evidence is verified inside the CAS.
 func (i *Issuer) Issue(ctx context.Context, r Request, genesis *Signed, receipts []Signed) (Signed, error) {
 	d, err := RequestDigest(r)
-	if err != nil || i == nil || i.journal == nil {
+	if ctx == nil || err != nil || i == nil || i.journal == nil {
 		return Signed{}, ErrInvalid
+	}
+	ctx = scopeContext(ctx, r.ScopeID)
+	if shard, ok := i.journal.(*shardedJournal); ok {
+		if err := shard.reserve(ctx, "operation", r.OperationID, d); err != nil {
+			return Signed{}, err
+		}
+		stored, err := shard.load(ctx, r.OperationID)
+		if err == nil {
+			var p Proof
+			if json.Unmarshal(stored.Payload, &p) != nil || p.RequestDigest != d {
+				return Signed{}, ErrConflict
+			}
+			return stored, nil
+		}
+		if !errors.Is(err, ErrMissing) {
+			return Signed{}, err
+		}
+		if genesis != nil {
+			var grant GenesisGrant
+			if verify(*genesis, i.genesisKeys[genesis.KeyID], &grant) != nil || grant.RequestDigest != d || grant.Kind != "genesis_grant" {
+				return Signed{}, ErrInvalid
+			}
+			if err := shard.reserve(ctx, "genesis", grant.GrantID, d); err != nil {
+				return Signed{}, err
+			}
+		}
 	}
 	var result Signed
 	err = i.journal.TransactRevision(ctx, true, func(s *state, revision uint64) error {
@@ -225,14 +255,22 @@ func (i *Issuer) Issue(ctx context.Context, r Request, genesis *Signed, receipts
 	if err != nil {
 		return Signed{}, err
 	}
+	if shard, ok := i.journal.(*shardedJournal); ok {
+		if err := shard.archive(ctx, r.OperationID, entry{d, result}); err != nil {
+			return Signed{}, err
+		}
+	}
 	return result, nil
 }
 
 // Load requires current GRU authority and a leader-routed barrier. It never
 // returns speculative proof bytes after a failed journal transaction.
 func (i *Issuer) Load(ctx context.Context, operationID string) (Signed, error) {
-	if i == nil || i.journal == nil || !token(operationID) {
+	if ctx == nil || i == nil || i.journal == nil || !token(operationID) {
 		return Signed{}, ErrInvalid
+	}
+	if shard, ok := i.journal.(*shardedJournal); ok {
+		return shard.load(ctx, operationID)
 	}
 	var out Signed
 	err := i.journal.TransactRevision(ctx, false, func(s *state, _ uint64) error {
@@ -251,9 +289,10 @@ func (i *Issuer) Load(ctx context.Context, operationID string) (Signed, error) {
 
 // Head returns the committed scope head. Absence is not a genesis grant.
 func (i *Issuer) Head(ctx context.Context, scopeID string) (Signed, error) {
-	if i == nil || i.journal == nil || !token(scopeID) {
+	if ctx == nil || i == nil || i.journal == nil || !token(scopeID) {
 		return Signed{}, ErrInvalid
 	}
+	ctx = scopeContext(ctx, scopeID)
 	var out Signed
 	err := i.journal.TransactRevision(ctx, false, func(s *state, _ uint64) error {
 		op, ok := s.Heads[scopeID]

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"time"
 )
 
@@ -21,6 +22,7 @@ var (
 	ErrClosed     = errors.New("database lifecycle: inventory window closed")
 	ErrIncomplete = errors.New("database lifecycle: stream inventory incomplete")
 )
+var environmentPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
 var idPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 type Identity struct {
@@ -50,6 +52,7 @@ type Resource struct {
 	EffectsCompletedAt time.Time `json:"effects_completed_at,omitzero"`
 	RetainUntil        time.Time `json:"retain_until,omitzero"`
 	Streams            []Stream  `json:"streams"`
+	RoutingComplete    bool      `json:"routing_complete"`
 }
 type Event struct {
 	OperationID string `json:"operation_id"`
@@ -82,7 +85,7 @@ func Key(identity Identity) string {
 	return identity.Environment + "/" + identity.OrganizationID + "/" + identity.DatabaseID
 }
 func validIdentity(i Identity) bool {
-	return i.Environment != "" && len(i.Environment) <= 128 && idPattern.MatchString(i.OrganizationID) && idPattern.MatchString(i.ProjectID) && idPattern.MatchString(i.DatabaseID) && (i.ParentDatabaseID == "" || idPattern.MatchString(i.ParentDatabaseID) && i.ParentDatabaseID != i.DatabaseID)
+	return environmentPattern.MatchString(i.Environment) && idPattern.MatchString(i.OrganizationID) && idPattern.MatchString(i.ProjectID) && idPattern.MatchString(i.DatabaseID) && (i.ParentDatabaseID == "" || idPattern.MatchString(i.ParentDatabaseID) && i.ParentDatabaseID != i.DatabaseID)
 }
 func validRegions(regions []string) bool {
 	if len(regions) < 1 || len(regions) > 3 {
@@ -133,8 +136,8 @@ func Validate(state State) error {
 func validateStreams(r Resource, streams []Stream) error {
 	seen := map[string]bool{}
 	for _, s := range streams {
-		key := s.Region + "/" + s.Partition + "/" + time.Unix(int64(s.Epoch), 0).String()
-		if !slices.Contains(r.Regions, s.Region) || len(s.Partition) == 0 || len(s.Partition) > 255 || s.Epoch == 0 || s.StartedAt.Before(r.CreatedAt) || seen[key] || (!s.StoppedAt.IsZero() && !s.StoppedAt.After(s.StartedAt)) {
+		key := s.Region + "/" + s.Partition + "/" + strconv.FormatUint(s.Epoch, 10)
+		if !slices.Contains(r.Regions, s.Region) || len(s.Partition) == 0 || len(s.Partition) > 255 || s.Epoch == 0 || (s.StartedAt.IsZero() || s.StartedAt.Before(r.CreatedAt)) || seen[key] || (!s.StoppedAt.IsZero() && !s.StoppedAt.After(s.StartedAt)) {
 			return ErrInvalid
 		}
 		seen[key] = true
@@ -160,6 +163,12 @@ func Apply(state *State, e Event) error {
 	}
 	e.At = e.At.UTC()
 	e.RetainUntil = e.RetainUntil.UTC()
+	e.Streams = slices.Clone(e.Streams)
+	for i := range e.Streams {
+		e.Streams[i].StartedAt = e.Streams[i].StartedAt.UTC()
+		e.Streams[i].StoppedAt = e.Streams[i].StoppedAt.UTC()
+	}
+	slices.SortFunc(e.Streams, compareStream)
 	e.Regions = slices.Clone(e.Regions)
 	slices.Sort(e.Regions)
 	if old, ok := state.Events[eventKey(e)]; ok {
@@ -188,19 +197,42 @@ func Apply(state *State, e Event) error {
 				return ErrConflict
 			}
 		}
-		r = Resource{Identity: e.Identity, Regions: e.Regions, CreatedAt: e.At, Streams: slices.Clone(e.Streams)}
+		r = Resource{Identity: e.Identity, Regions: e.Regions, CreatedAt: e.At, Streams: slices.Clone(e.Streams), RoutingComplete: len(e.Streams) > 0}
 	case "streams":
-		if !found || r.Identity != e.Identity || !r.DeletedAt.IsZero() || len(e.Streams) == 0 {
+		if !found || r.Identity != e.Identity || len(e.Streams) == 0 || e.At.Before(r.CreatedAt) {
 			return ErrConflict
 		}
-		// A routing revision provides the complete append-only stream history.
-		// Existing identities and intervals cannot be silently removed or rewritten.
 		for _, old := range r.Streams {
-			if !slices.Contains(e.Streams, old) {
+			next := slices.IndexFunc(e.Streams, func(v Stream) bool { return sameStream(old, v) })
+			if next < 0 {
+				return ErrConflict
+			}
+			v := e.Streams[next]
+			if !old.StartedAt.Equal(v.StartedAt) || (!old.StoppedAt.IsZero() && !old.StoppedAt.Equal(v.StoppedAt)) {
+				return ErrConflict
+			}
+		}
+		for _, next := range e.Streams {
+			prior := slices.IndexFunc(r.Streams, func(v Stream) bool { return sameStream(next, v) })
+			var changedAt time.Time
+			if prior < 0 {
+				changedAt = next.StartedAt
+			} else if !next.StoppedAt.Equal(r.Streams[prior].StoppedAt) {
+				changedAt = next.StoppedAt
+			}
+			if !changedAt.IsZero() {
+				for _, closed := range state.Closed {
+					if closed.OrganizationID == e.OrganizationID && changedAt.Before(closed.End) {
+						return ErrClosed
+					}
+				}
+			}
+			if !r.DeletedAt.IsZero() && (next.StartedAt.After(r.DeletedAt) || (!next.StoppedAt.IsZero() && next.StoppedAt.After(r.DeletedAt))) {
 				return ErrConflict
 			}
 		}
 		r.Streams = slices.Clone(e.Streams)
+		r.RoutingComplete = true
 	case "delete":
 		if !found || r.Identity != e.Identity || !r.DeletedAt.IsZero() || e.At.Before(r.CreatedAt) || (!e.RetainUntil.IsZero() && e.RetainUntil.Before(e.At)) {
 			return ErrConflict
@@ -209,9 +241,25 @@ func Apply(state *State, e Event) error {
 		r.UsageStoppedAt = e.At
 		r.AccessRevoked = true
 		r.RetainUntil = e.RetainUntil
-		// Parent deletion closes every still-live branch in this same transaction.
+		// Descendants are scoped by immutable parent identity, including
+		// branches restored from other branches. No child survives a parent.
+		descendants := map[string]bool{r.DatabaseID: true}
+		for changed := true; changed; {
+			changed = false
+			for _, child := range state.Resources {
+				if child.Environment == r.Environment && child.OrganizationID == r.OrganizationID && descendants[child.ParentDatabaseID] && !descendants[child.DatabaseID] {
+					descendants[child.DatabaseID] = true
+					changed = true
+				}
+			}
+		}
+		for _, child := range state.Resources {
+			if child.Environment == r.Environment && child.OrganizationID == r.OrganizationID && descendants[child.DatabaseID] && child.DeletedAt.IsZero() && child.CreatedAt.After(e.At) {
+				return ErrConflict
+			}
+		}
 		for childKey, child := range state.Resources {
-			if child.Environment == r.Environment && child.OrganizationID == r.OrganizationID && child.ParentDatabaseID == r.DatabaseID && child.DeletedAt.IsZero() {
+			if child.Environment == r.Environment && child.OrganizationID == r.OrganizationID && descendants[child.DatabaseID] && child.DeletedAt.IsZero() {
 				child.DeletedAt = e.At
 				child.UsageStoppedAt = e.At
 				child.AccessRevoked = true
@@ -244,7 +292,7 @@ func Freeze(state *State, org string, start, end time.Time) (Snapshot, error) {
 	}
 	key := snapshotKey(org, start, end)
 	if old, ok := state.Closed[key]; ok {
-		return old, nil
+		return cloneSnapshot(old)
 	}
 	for _, old := range state.Closed {
 		if old.OrganizationID == org && start.Before(old.End) && end.After(old.Start) {
@@ -264,15 +312,36 @@ func Freeze(state *State, org string, start, end time.Time) (Snapshot, error) {
 		if !r.UsageStoppedAt.IsZero() && r.UsageStoppedAt.Before(until) {
 			until = r.UsageStoppedAt
 		}
+		if !r.RoutingComplete {
+			return Snapshot{}, ErrIncomplete
+		}
 		for _, region := range r.Regions {
-			covered := false
-			for _, stream := range r.Streams {
-				if stream.Region == region && !stream.StartedAt.After(from) && (stream.StoppedAt.IsZero() || !stream.StoppedAt.Before(until)) {
-					covered = true
+			streams := slices.Clone(r.Streams)
+			slices.SortFunc(streams, func(a, b Stream) int { return a.StartedAt.Compare(b.StartedAt) })
+			cursor := from
+			for _, stream := range streams {
+				if stream.Region != region || stream.StartedAt.After(cursor) {
+					continue
+				}
+				if stream.StoppedAt.IsZero() {
+					cursor = until
+					break
+				}
+				if stream.StoppedAt.After(cursor) {
+					cursor = stream.StoppedAt
 				}
 			}
-			if !covered {
+			if cursor.Before(until) {
 				return Snapshot{}, ErrIncomplete
+			}
+		}
+		// A deletion intent is not a native usage-stop receipt. Every retained
+		// stream must be closed by its real producer before this can seal.
+		if !r.DeletedAt.IsZero() && r.DeletedAt.Before(end) {
+			for _, stream := range r.Streams {
+				if stream.StartedAt.Before(r.DeletedAt) && (stream.StoppedAt.IsZero() || stream.StoppedAt.After(r.DeletedAt)) {
+					return Snapshot{}, ErrIncomplete
+				}
 			}
 		}
 		// Clone through serialization to prevent callers mutating closed receipts.
@@ -281,11 +350,30 @@ func Freeze(state *State, org string, start, end time.Time) (Snapshot, error) {
 		if err := json.Unmarshal(data, &cloned); err != nil {
 			return Snapshot{}, err
 		}
+		cloned.Streams = slices.DeleteFunc(cloned.Streams, func(stream Stream) bool {
+			return !stream.StartedAt.Before(until) || (!stream.StoppedAt.IsZero() && !stream.StoppedAt.After(from))
+		})
 		out.Resources = append(out.Resources, cloned)
 	}
 	slices.SortFunc(out.Resources, func(a, b Resource) int { return cmp.Compare(Key(a.Identity), Key(b.Identity)) })
 	out.Digest = digest(out)
 	state.Revision++
 	state.Closed[key] = out
-	return out, nil
+	return cloneSnapshot(out)
+}
+
+func sameStream(a, b Stream) bool {
+	return a.Region == b.Region && a.Partition == b.Partition && a.Epoch == b.Epoch
+}
+func compareStream(a, b Stream) int {
+	return cmp.Or(cmp.Compare(a.Region, b.Region), cmp.Compare(a.Partition, b.Partition), cmp.Compare(a.Epoch, b.Epoch))
+}
+func cloneSnapshot(s Snapshot) (Snapshot, error) {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	var out Snapshot
+	err = json.Unmarshal(data, &out)
+	return out, err
 }

@@ -23,10 +23,15 @@ Reconciliation performs these durable steps:
 3. Publish the exact persisted placement request under its scoped retry ID.
    A lost response repeats the same host admission or placement operation.
 
-The terminal state of this workflow is `placement_pending`. It proves neither
-membership activation nor RF=2, catch-up, writer ownership, or service readiness.
-The external operation response remains `pending` until a separate qualified
-membership/replication transition supplies those guarantees.
+`placement_pending` proves neither membership activation nor RF=2, catch-up,
+writer ownership, or service readiness. After separately authorized membership
+delivery, the engine admission is retried to publish the same closed scope under
+its accepted role. A fresh nonce then challenges every selected member for a
+signed readiness receipt. The authority verifies the exact database/key/placement
+identity, two matching snapshot and WAL boundaries per Region, and equal causal
+cut, frontier, and reconciliation root across selected Regions. Only those
+persisted receipts advance the operation to `ready`. Missing evidence stays
+pending; a transport acknowledgment never substitutes for it.
 
 Local TerraBase calls the UID-authenticated Unix HTTP ingress:
 
@@ -36,7 +41,8 @@ Local TerraBase calls the UID-authenticated Unix HTTP ingress:
   `project_id`, and `operation_id`.
 
 Creation returns HTTP 202 and status returns HTTP 200 with the original scope, operation ID, database ID, key
-version, name, Regions, residency, and `state: pending`. The scope must originate
+version, name, Regions, residency, and state. Create always acknowledges `pending`;
+polling returns `ready` only after the verified proof set is durable. The scope must originate
 from verified product identity; a request body is not ownership evidence. The
 authority's required `Authorize` producer checks the original accepted request
 again on polling. Missing authorization or control authority fails closed.

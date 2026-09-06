@@ -30,6 +30,9 @@ func TestReceiverRejectsUnverifiedTLS(t *testing.T) {
 }
 func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	socket := filepath.Join(dir, "consumer.sock")
 	tokenFile := filepath.Join(dir, "token")
 	token := strings.Repeat("t", 32)
@@ -40,7 +43,7 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := make(chan bool, 1)
+	seen := make(chan bool, 4)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			t.Error("missing token")
@@ -70,7 +73,7 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 	sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
 	pin := hex.EncodeToString(sum[:])
 	calls := 0
-	handler, err := NewMemberReceiver(MemberReceiverConfig{NodeID: "node", SocketPath: socket, TokenFile: tokenFile, StateDir: dir, ControllerSPKI: []string{pin}, TLS: dynamic, CheckPeerAuthority: func(_ context.Context, got string) error {
+	handler, err := NewMemberReceiver(MemberReceiverConfig{NodeID: "node", SocketPath: socket, TokenFile: tokenFile, StateDir: dir, ControllerSPKI: []string{pin}, ControlTLS: dynamic, CheckPeerAuthority: func(_ context.Context, got string, epoch uint64, lease string) error {
 		calls++
 		if got != pin {
 			t.Error("wrong peer")
@@ -80,7 +83,12 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := MemberRotationRequest{OperationID: "stage", NodeID: "node", Consumer: "member", Action: "stage", Generation: 1, ExpiresAt: time.Now().Add(time.Minute).Unix(), CurrentKeyID: "key", CurrentKey: bytes.Repeat([]byte{1}, 32), WorkloadTLS: cert, TrustBundle: ca}
+	defer handler.(interface{ Close() error }).Close()
+	if second, err := NewMemberReceiver(handler.(*memberReceiver).config); err == nil {
+		second.(interface{ Close() error }).Close()
+		t.Fatal("duplicate receiver acquired state lock")
+	}
+	q := MemberRotationRequest{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", OperationID: "stage", NodeID: "node", Consumer: "member", Action: "stage", Generation: 1, ExpiresAt: time.Now().Add(time.Minute).Unix(), CurrentKeyID: "key", CurrentKey: bytes.Repeat([]byte{1}, 32), WorkloadTLS: cert, TrustBundle: ca}
 	body, err := json.Marshal(q)
 	if err != nil {
 		t.Fatal(err)
@@ -95,20 +103,28 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 	if calls < 2 {
 		t.Fatal("authority not checked at effects")
 	}
+	for _, test := range []struct {
+		action     string
+		generation uint64
+		status     int
+	}{{"stage", 2, http.StatusBadGateway}, {"fence", 0, http.StatusOK}} {
+		q.Action = test.action
+		q.Generation = test.generation
+		payload, err := json.Marshal(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, memberRotationPath, bytes.NewReader(payload))
+		req.TLS = request.TLS
+		result := httptest.NewRecorder()
+		handler.ServeHTTP(result, req)
+		if result.Code != test.status {
+			t.Fatalf("%s generation %d status %d", test.action, test.generation, result.Code)
+		}
+	}
 	select {
 	case <-seen:
 	default:
 		t.Fatal("consumer was not called")
-	}
-	restored, err := NewDynamicTLS(cert, ca)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := restored.AttachState(filepath.Join(dir, "member")); err != nil {
-		t.Fatal(err)
-	}
-	q.Action = "verify"
-	if _, err := restored.apply(q); err != nil {
-		t.Fatal(err)
 	}
 }

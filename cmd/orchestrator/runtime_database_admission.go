@@ -25,11 +25,12 @@ import (
 )
 
 type productionDatabaseFileConfig struct {
-	Environment   string                    `json:"environment"`
-	Cluster       string                    `json:"cluster"`
-	CatalogPath   string                    `json:"catalogPath"`
-	Authorization databaseAuthorizationFile `json:"authorization"`
-	Regions       []databaseRegionFile      `json:"regions"`
+	Environment           string                    `json:"environment"`
+	Cluster               string                    `json:"cluster"`
+	CatalogPath           string                    `json:"catalogPath"`
+	Authorization         databaseAuthorizationFile `json:"authorization"`
+	DeletionAuthorization databaseAuthorizationFile `json:"deletionAuthorization"`
+	Regions               []databaseRegionFile      `json:"regions"`
 }
 type databaseAuthorizationFile struct {
 	Endpoint       string `json:"endpoint"`
@@ -58,6 +59,7 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	}
 	seenRegions, seenMembers := map[string]bool{}, map[string]bool{}
 	hostRegions := map[string]string{}
+	hostMembers := map[string]string{}
 	for _, region := range config.Regions {
 		ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region.Region]
 		if ociRegion == "" || seenRegions[region.Region] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion, region.CryptoEndpoint) || !provider.IsOCID(region.KEKID, "key") || !provider.IsOCID(region.KEKVersionID, "keyversion") || region.LeaseSeconds < 1 || region.LeaseSeconds > 1800 || !region.NotAfter.After(time.Now()) {
@@ -70,6 +72,7 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 			}
 			seenMembers[host.MemberID] = true
 			hostRegions[host.ServerIdentity] = region.Region
+			hostMembers[host.ServerIdentity] = host.MemberID
 		}
 		result.Regions = append(result.Regions, productionDatabaseRegion{Region: region.Region, Writer: productionDatabaseHost(region.Writer), Follower: productionDatabaseHost(region.Follower), Vault: keylease.ProvisionTarget{CryptoEndpoint: region.CryptoEndpoint, KEKID: region.KEKID, KEKVersionID: region.KEKVersionID, LeaseSeconds: region.LeaseSeconds, NotAfter: region.NotAfter}})
 	}
@@ -78,7 +81,7 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 			return result, databaseadmission.ErrInvalid
 		}
 		for _, voter := range grant.Voters {
-			if voter == nil || !seenMembers[voter.Member] || hostRegions[voter.SpiffeUri] != voter.Region {
+			if voter == nil || !seenMembers[voter.Member] || hostRegions[voter.SpiffeUri] != voter.Region || hostMembers[voter.SpiffeUri] != voter.Member {
 				return result, databaseadmission.ErrInvalid
 			}
 		}
@@ -88,28 +91,39 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 		return result, err
 	}
 	result.Authorize = authorize
+	result.DeletionPolicy, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
+	if err != nil {
+		return result, err
+	}
 	return result, nil
 }
 
 func newDatabaseAuthorizer(config databaseAuthorizationFile) (func(context.Context, databaseadmission.Request) error, error) {
+	client, key, err := databaseAuthorizationClient(config)
+	if err != nil {
+		return nil, err
+	}
+	return databaseAuthorizer(client, config.Endpoint, key), nil
+}
+func databaseAuthorizationClient(config databaseAuthorizationFile) (*http.Client, string, error) {
 	endpoint, err := url.Parse(config.Endpoint)
 	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" || endpoint.Opaque != "" {
-		return nil, errors.New("database authorization: explicit HTTPS producer endpoint required")
+		return nil, "", errors.New("database authorization: explicit HTTPS producer endpoint required")
 	}
 	secret, err := bootstrapcredentials.ReadFile(config.ServiceKeyFile, true, 4096)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer clear(secret)
 	key := strings.TrimSpace(string(secret))
 	if len(key) < 32 || len(key) > 2048 || strings.ContainsAny(key, "\r\n\t ") {
-		return nil, errors.New("database authorization: dedicated service key required")
+		return nil, "", errors.New("database authorization: dedicated service key required")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return databaseAuthorizer(client, config.Endpoint, key), nil
+	return client, key, nil
 }
 func databaseAuthorizer(client *http.Client, endpoint, key string) func(context.Context, databaseadmission.Request) error {
 	return func(ctx context.Context, request databaseadmission.Request) error {

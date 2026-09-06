@@ -55,8 +55,11 @@ func TestAuthenticatedHostDispatch(t *testing.T) {
 		t.Fatal("invalid request reached local engine")
 	}
 	identitySubject, bootstrapSubject, _ := authbootstrap.HostSubjects(target.ServerIdentity())
+	acceptedSubject, _ := AcceptedHostSubject(target.ServerIdentity())
+	drainSubject, _ := DrainHostSubject(target.ServerIdentity())
+	readySubject, _ := ReadinessHostSubject(target.ServerIdentity())
 	publish, subscribe, err := HostPermissions(target.ServerIdentity())
-	if err != nil || len(publish) != 1 || publish[0] != "_INBOX.>" || len(subscribe) != 3 || subscribe[0] != remote.subject || subscribe[1] != identitySubject || subscribe[2] != bootstrapSubject {
+	if err != nil || len(publish) != 1 || publish[0] != "_INBOX.>" || len(subscribe) != 6 || subscribe[0] != remote.subject || subscribe[1] != identitySubject || subscribe[2] != bootstrapSubject || subscribe[3] != acceptedSubject || subscribe[4] != drainSubject || subscribe[5] != readySubject {
 		t.Fatal("host grants are not exact")
 	}
 }

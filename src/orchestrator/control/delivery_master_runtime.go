@@ -18,6 +18,7 @@ import (
 // GlobalNatsRuntime owns authority, the global connection, and the subscription;
 // the caller owns regional connections and signer lifetime.
 type MasterDeliveryRuntimeConfig struct {
+	GlobalEdge     GlobalEdgeDelivery
 	Fetcher        delivery.ArtifactFetcher
 	Trust          func() *delivery.TrustSet
 	Mirror         *delivery.ArtifactMirror
@@ -77,7 +78,7 @@ func (r *GlobalNatsRuntime) startMasterDelivery(config *MasterDeliveryRuntimeCon
 		Cell: r.cell, Instance: r.instance, Connection: r.client, Leaders: r.state.leaders,
 		Journal: journal, Authority: r.authority.Snapshot, Fetcher: config.Fetcher,
 		Trust: config.Trust, Mirror: config.Mirror, Signer: config.Signer,
-		IntentVerifier: config.IntentVerifier, Regions: config.Regions, RequestTimeout: config.RequestTimeout,
+		GlobalEdge: config.GlobalEdge, IntentVerifier: config.IntentVerifier, Regions: config.Regions, RequestTimeout: config.RequestTimeout,
 	})
 	if err != nil {
 		return err

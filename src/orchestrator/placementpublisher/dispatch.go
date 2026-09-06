@@ -41,7 +41,19 @@ func HostPermissions(serverIdentity string) (publish, subscribe []string, err er
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{"_INBOX.>"}, []string{subject, identity, bootstrap}, nil
+	accepted, err := AcceptedHostSubject(serverIdentity)
+	if err != nil {
+		return nil, nil, err
+	}
+	drain, err := DrainHostSubject(serverIdentity)
+	if err != nil {
+		return nil, nil, err
+	}
+	ready, err := ReadinessHostSubject(serverIdentity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{"_INBOX.>"}, []string{subject, identity, bootstrap, accepted, drain, ready}, nil
 }
 
 func authenticatedConnection(connection *nats.Conn) bool {

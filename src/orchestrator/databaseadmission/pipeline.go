@@ -16,8 +16,9 @@ import (
 )
 
 type Config struct {
-	Journal     Journal
-	CatalogPath string
+	BranchRestore *BranchRestoreConfig
+	Journal       Journal
+	CatalogPath   string
 	// Authorize checks verified organization admission and the caller's project.
 	Authorize       func(context.Context, Request) error
 	CheckAuthority  func(context.Context) error
@@ -27,6 +28,7 @@ type Config struct {
 	// ActivatePlacement delivers a separately authorized accepted-membership
 	// proof. Success does not establish RF2 or caught-up serving readiness.
 	ActivatePlacement func(context.Context, Record) error
+	Readiness         *ReadinessConfig
 }
 type Pipeline struct {
 	config Config
@@ -35,6 +37,12 @@ type Pipeline struct {
 
 func New(config Config) (*Pipeline, error) {
 	if config.Journal == nil || config.CatalogPath == "" || config.Authorize == nil || config.CheckAuthority == nil || config.Plan == nil || config.Install == nil || config.AcceptPlacement == nil || config.ActivatePlacement == nil {
+		return nil, ErrInvalid
+	}
+	if config.Readiness != nil && (config.Readiness.Collect == nil || len(config.Readiness.Keys) == 0) {
+		return nil, ErrInvalid
+	}
+	if config.BranchRestore != nil && (config.BranchRestore.Restore == nil || len(config.BranchRestore.Keys) == 0) {
 		return nil, ErrInvalid
 	}
 	return &Pipeline{config: config}, nil
@@ -61,6 +69,14 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 			return Record{}, ErrConflict
 		}
 		return existing, nil
+	}
+	if request.ParentDatabaseID != "" {
+		if p.config.BranchRestore == nil {
+			return Record{}, ErrInvalid
+		}
+		if err := p.validateParent(ctx, request); err != nil {
+			return Record{}, err
+		}
 	}
 	id, err := ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
 	if err != nil {
@@ -126,7 +142,7 @@ func (p *Pipeline) LookupOperation(ctx context.Context, scope Request) (Record, 
 }
 
 func validateLookup(scope Request) error {
-	if scope.Name != "" || len(scope.Regions) != 0 || scope.Residency != "" {
+	if scope.Name != "" || len(scope.Regions) != 0 || scope.Residency != "" || scope.ParentDatabaseID != "" {
 		return ErrInvalid
 	}
 	probe := scope
@@ -169,11 +185,17 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 	if ValidateRecord(r) != nil {
 		return ErrInvalid
 	}
+	if r.State == "ready" {
+		return nil
+	}
 	if r.State == "placement_pending" {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
-		return p.config.ActivatePlacement(ctx, r)
+		if err := p.restoreBranch(ctx, &r); err != nil {
+			return err
+		}
+		return p.activateAndObserve(ctx, r)
 	}
 	if len(r.Wrapped) == 0 {
 		if err := p.config.CheckAuthority(ctx); err != nil {
@@ -268,7 +290,63 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
-		return p.config.ActivatePlacement(ctx, r)
+		if err := p.restoreBranch(ctx, &r); err != nil {
+			return err
+		}
+		return p.activateAndObserve(ctx, r)
 	}
 	return nil
+}
+
+func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
+	if err := p.config.ActivatePlacement(ctx, r); err != nil {
+		return err
+	}
+	// The original install registered a closed encrypted scope so Stage could
+	// validate it. Replay after accepted membership lets the engine publish that
+	// same scope under the now-authorized role, without inventing a writer grant.
+	for _, target := range r.Targets {
+		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		entries := []keylease.Entry{}
+		for _, entry := range r.Wrapped {
+			if entry.Binding.Region == target.Region {
+				entries = append(entries, entry)
+			}
+		}
+		if len(entries) != 1 {
+			return ErrInvalid
+		}
+		if err := p.config.Install(ctx, r, target, entries); err != nil {
+			return err
+		}
+	}
+	return p.establishReadiness(ctx, r)
+}
+
+// validateParent prevents a derived database from escaping its source scope or
+// changing the immutable placement and residency selected at source creation.
+func (p *Pipeline) validateParent(ctx context.Context, request Request) error {
+	records, err := p.config.Journal.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, parent := range records {
+		if parent.DatabaseID != request.ParentDatabaseID {
+			continue
+		}
+		source := parent.Request
+		if source.Environment != request.Environment || source.TenantID != request.TenantID || source.ProjectID != request.ProjectID {
+			return ErrForbidden
+		}
+		if err := p.config.Authorize(ctx, source); err != nil {
+			return err
+		}
+		if parent.State != "ready" || !slices.Equal(source.Regions, request.Regions) || source.Residency != request.Residency {
+			return ErrConflict
+		}
+		return nil
+	}
+	return ErrForbidden
 }

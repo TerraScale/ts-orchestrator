@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 )
@@ -89,5 +90,115 @@ func TestDynamicTLSRejectsSameGenerationDifferentMaterial(t *testing.T) {
 	q.ControlTLS, q.TrustBundle = receiverIdentity(t)
 	if _, e = d.apply(q); e == nil {
 		t.Fatal("generation material changed")
+	}
+}
+
+func TestDynamicTLSDurableReceipt(t *testing.T) {
+	cert, ca := receiverIdentity(t)
+	d, err := NewDynamicTLS(cert, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.AttachState(dir); err != nil {
+		t.Fatal(err)
+	}
+	q := MemberRotationRequest{OperationID: "reload", Consumer: "control", Action: "reload", Generation: 1, ControlTLS: cert, TrustBundle: ca}
+	if _, err = d.apply(q); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewDynamicTLSFromState([]byte("expired bootstrap"), []byte("expired bootstrap"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.AttachState(dir); err != nil {
+		t.Fatal(err)
+	}
+	if restored.active.Load().generation != 1 {
+		t.Fatal("active generation not restored")
+	}
+	if _, err = restored.apply(q); err != nil {
+		t.Fatal(err)
+	}
+	q.ControlTLS = []byte("changed")
+	if _, err = restored.apply(q); err == nil {
+		t.Fatal("receipt accepted changed payload")
+	}
+}
+
+func TestDynamicTLSHighwaterSurvivesRollbackFenceRestart(t *testing.T) {
+	for _, action := range []string{"rollback", "fence"} {
+		t.Run(action, func(t *testing.T) {
+			cert, ca := receiverIdentity(t)
+			d, err := NewDynamicTLS(cert, ca)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if err = os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err = d.AttachState(dir); err != nil {
+				t.Fatal(err)
+			}
+			q := MemberRotationRequest{OperationID: "reload", Consumer: "control", Action: "reload", Generation: 2, ControlTLS: cert, TrustBundle: ca}
+			if _, err = d.apply(q); err != nil {
+				t.Fatal(err)
+			}
+			q.Action = action
+			q.OperationID = action
+			if _, err = d.apply(q); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := NewDynamicTLS(cert, ca)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = restored.AttachState(dir); err != nil {
+				t.Fatal(err)
+			}
+			for _, consumer := range []*DynamicTLS{d, restored} {
+				for _, generation := range []uint64{1, 2} {
+					q.Generation = generation
+					q.Action = "reload"
+					q.OperationID = "new-reload"
+					if _, err = consumer.apply(q); err == nil {
+						t.Fatalf("accepted retired generation %d", generation)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDynamicTLSPersistenceFailureFencesConsumer(t *testing.T) {
+	cert, ca := receiverIdentity(t)
+	d, err := NewDynamicTLS(cert, ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.AttachState(dir); err != nil {
+		t.Fatal(err)
+	}
+	// A directory at the destination forces the atomic rename to fail.
+	if err = os.Mkdir(dir+"/tls-state.json", 0700); err != nil {
+		t.Fatal(err)
+	}
+	q := MemberRotationRequest{OperationID: "reload", Consumer: "control", Action: "reload", Generation: 1, ControlTLS: cert, TrustBundle: ca}
+	if _, err = d.apply(q); err == nil {
+		t.Fatal("persistence failure accepted")
+	}
+	if d.active.Load() != nil || d.staged != nil || d.previous != nil {
+		t.Fatal("persistence failure left usable TLS state")
+	}
+	if _, err = d.TLSConfig().GetConfigForClient(&tls.ClientHelloInfo{}); err == nil {
+		t.Fatal("fenced consumer accepted handshake")
 	}
 }

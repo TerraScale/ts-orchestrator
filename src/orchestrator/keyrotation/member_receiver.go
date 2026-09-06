@@ -22,15 +22,16 @@ type MemberReceiverConfig struct {
 	NodeID, SocketPath, TokenFile string
 	StateDir                      string
 	ControllerSPKI                []string
-	CheckPeerAuthority            func(context.Context, string) error
-	TLS, ControlTLS               *DynamicTLS
+	CheckPeerAuthority            func(context.Context, string, uint64, string) error
+	ControlTLS                    *DynamicTLS
 }
 type memberReceiver struct {
-	config MemberReceiverConfig
-	client *http.Client
-	token  string
-	pins   map[string]bool
-	mu     sync.Mutex
+	config    MemberReceiverConfig
+	client    *http.Client
+	token     string
+	pins      map[string]bool
+	mu        sync.Mutex
+	stateLock *os.File
 }
 
 func privateRootPath(path string, directory bool) error {
@@ -84,8 +85,21 @@ func NewMemberReceiver(c MemberReceiverConfig) (http.Handler, error) {
 	if err := privateRootPath(c.StateDir, true); err != nil {
 		return nil, err
 	}
-	for name, dynamic := range map[string]*DynamicTLS{"member": c.TLS, "control": c.ControlTLS} {
-		if dynamic == nil && q.Consumer == "control" {
+	lock, err := os.OpenFile(filepath.Join(c.StateDir, ".receiver.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		return nil, errors.New("receiver state lock unavailable")
+	}
+	locked := false
+	defer func() {
+		if !locked {
+			lock.Close()
+		}
+	}()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil, errors.New("receiver state already in use")
+	}
+	for name, dynamic := range map[string]*DynamicTLS{"control": c.ControlTLS} {
+		if dynamic == nil {
 			continue
 		}
 		dir := filepath.Join(c.StateDir, name)
@@ -118,7 +132,8 @@ func NewMemberReceiver(c MemberReceiverConfig) (http.Handler, error) {
 		}
 		return (&net.Dialer{}).DialContext(ctx, "unix", c.SocketPath)
 	}, DisableKeepAlives: true}
-	return &memberReceiver{config: c, token: string(token), pins: pins, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	locked = true
+	return &memberReceiver{stateLock: lock, config: c, token: string(token), pins: pins, client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	fail := func(status int) { http.Error(w, "credential rotation rejected", status) }
@@ -130,18 +145,25 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		fail(http.StatusUnauthorized)
 		return
 	}
-	pin := sha256.Sum256(request.TLS.PeerCertificates[0].RawSubjectPublicKeyInfo)
+	peer := request.TLS.PeerCertificates[0]
+	if now := time.Now(); now.Before(peer.NotBefore) || !now.Before(peer.NotAfter) {
+		fail(http.StatusUnauthorized)
+		return
+	}
+	pin := sha256.Sum256(peer.RawSubjectPublicKeyInfo)
 	if !r.pins[hex.EncodeToString(pin[:])] {
 		fail(http.StatusForbidden)
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, request.Body, 1<<20))
+	defer clear(body)
 	if err != nil {
 		fail(http.StatusBadRequest)
 		return
 	}
 	var q MemberRotationRequest
-	if json.Unmarshal(body, &q, json.RejectUnknownMembers(true)) != nil || q.NodeID != r.config.NodeID || q.OperationID == "" || (q.Generation == 0 && q.Action != "fence") || (q.ExpiresAt != 0 && q.ExpiresAt <= time.Now().Unix()) || (q.Consumer != "member" && q.Consumer != "control") {
+	defer func() { clearRotationMaterial(&q) }()
+	if json.Unmarshal(body, &q, json.RejectUnknownMembers(true)) != nil || q.AuthorityEpoch == 0 || q.AuthorityLeaseID == "" || q.NodeID != r.config.NodeID || q.OperationID == "" || (q.Generation == 0 && q.Action != "fence") || (q.ExpiresAt != 0 && q.ExpiresAt <= time.Now().Unix()) || (q.Consumer != "member" && q.Consumer != "control") {
 		fail(http.StatusBadRequest)
 		return
 	}
@@ -151,7 +173,11 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		fail(http.StatusBadRequest)
 		return
 	}
-	dynamic := r.config.TLS
+	if q.Consumer == "member" && q.Action == "reload" {
+		fail(http.StatusBadRequest)
+		return
+	}
+	var dynamic *DynamicTLS
 	if q.Consumer == "control" {
 		dynamic = r.config.ControlTLS
 	}
@@ -167,12 +193,14 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		if q.Consumer == "control" {
 			pem = q.ControlTLS
 		}
-		if _, err := parseTLSSnapshot(pem, q.TrustBundle, q.Generation, q.ExpiresAt); err != nil {
+		snapshot, err := parseTLSSnapshot(pem, q.TrustBundle, q.Generation, q.ExpiresAt)
+		if err != nil {
 			fail(http.StatusBadRequest)
 			return
 		}
+		clearRotationMaterial(&snapshot.material)
 	}
-	if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:])); err != nil {
+	if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:]), q.AuthorityEpoch, q.AuthorityLeaseID); err != nil {
 		fail(http.StatusServiceUnavailable)
 		return
 	}
@@ -180,19 +208,21 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 	if q.Consumer == "member" && q.Action != "reload" {
 		// Remove the fields that belong solely to the HTTPS/TLS consumer.
 		payload := struct {
-			OperationID       string `json:"operation_id"`
-			Action            string `json:"action"`
-			Generation        uint64 `json:"generation"`
-			ExpiresAt         int64  `json:"expires_at"`
-			CurrentKeyID      string `json:"current_key_id"`
-			CurrentKey        []byte `json:"current_key"`
-			PreviousKeyID     string `json:"previous_key_id"`
-			PreviousKey       []byte `json:"previous_key"`
-			PreviousExpiresAt int64  `json:"previous_expires_at"`
-			WorkloadTLS       []byte `json:"workload_tls"`
-			TrustBundle       []byte `json:"trust_bundle"`
-		}{q.OperationID, q.Action, q.Generation, q.ExpiresAt, q.CurrentKeyID, q.CurrentKey, q.PreviousKeyID, q.PreviousKey, q.PreviousExpiresAt, q.WorkloadTLS, q.TrustBundle}
+			OperationID        string `json:"operation_id"`
+			Action             string `json:"action"`
+			Generation         uint64 `json:"generation"`
+			ExpiresAt          int64  `json:"expires_at"`
+			CurrentKeyID       string `json:"current_key_id"`
+			CurrentKey         []byte `json:"current_key"`
+			PreviousKeyID      string `json:"previous_key_id"`
+			PreviousKey        []byte `json:"previous_key"`
+			PreviousExpiresAt  int64  `json:"previous_expires_at"`
+			PreviousGeneration uint64 `json:"previous_generation"`
+			WorkloadTLS        []byte `json:"workload_tls"`
+			TrustBundle        []byte `json:"trust_bundle"`
+		}{q.OperationID, q.Action, q.Generation, q.ExpiresAt, q.CurrentKeyID, q.CurrentKey, q.PreviousKeyID, q.PreviousKey, q.PreviousExpiresAt, q.PreviousGeneration, q.WorkloadTLS, q.TrustBundle}
 		data, err := json.Marshal(payload)
+		defer clear(data)
 		if err != nil {
 			fail(http.StatusBadRequest)
 			return
@@ -204,7 +234,7 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		}
 		req.Header.Set("Authorization", "Bearer "+r.token)
 		req.Header.Set("Content-Type", "application/json")
-		if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:])); err != nil {
+		if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:]), q.AuthorityEpoch, q.AuthorityLeaseID); err != nil {
 			fail(http.StatusServiceUnavailable)
 			return
 		}
@@ -215,12 +245,13 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 		}
 		defer res.Body.Close()
 		data, err = io.ReadAll(io.LimitReader(res.Body, (1<<16)+1))
-		if err != nil || len(data) > 1<<16 || res.StatusCode != http.StatusOK || json.Unmarshal(data, &response) != nil || response.OperationID != q.OperationID || response.Generation != q.Generation {
+		defer clear(data)
+		if err != nil || len(data) > 1<<16 || res.StatusCode != http.StatusOK || json.Unmarshal(data, &response) != nil || response.OperationID != q.OperationID || (q.Action != "fence" && response.Generation != q.Generation) {
 			fail(http.StatusBadGateway)
 			return
 		}
 	}
-	if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:])); err != nil {
+	if err := r.config.CheckPeerAuthority(request.Context(), hex.EncodeToString(pin[:]), q.AuthorityEpoch, q.AuthorityLeaseID); err != nil {
 		fail(http.StatusServiceUnavailable)
 		return
 	}
@@ -244,4 +275,26 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+func clearRotationMaterial(q *MemberRotationRequest) {
+	clear(q.CurrentKey)
+	clear(q.PreviousKey)
+	clear(q.WorkloadTLS)
+	clear(q.ControlTLS)
+	clear(q.TrustBundle)
+}
+
+// Close releases exclusive ownership of the receiver state directory.
+// Stop serving requests before calling Close.
+func (r *memberReceiver) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.client.CloseIdleConnections()
+	if r.stateLock != nil {
+		err := r.stateLock.Close()
+		r.stateLock = nil
+		return err
+	}
+	return nil
 }

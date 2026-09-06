@@ -51,7 +51,7 @@ func TestIndependentGenesisWireVector(t *testing.T) {
 func TestFenceQuorumCoversEveryPreviousRegion(t *testing.T) {
 	i, _, keys := setup(t)
 	r := request()
-	r.Members = append(r.Members, Member{"c", "fra", hash([]byte("c"))}, Member{"d", "fra", hash([]byte("d"))})
+	r.Members = append(r.Members, Member{"c", "FRA", hash([]byte("c"))}, Member{"d", "FRA", hash([]byte("d"))})
 	g := grant(t, r, keys["genesis"])
 	if _, err := i.Issue(t.Context(), r, &g, nil); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func setup(t *testing.T) (*Issuer, *memoryJournal, map[string]ed25519.PrivateKey
 	return &Issuer{j, "gru", keys["gru"], 3, "lease3", map[string]ed25519.PublicKey{"genesis": pubs["genesis"]}, map[string]ed25519.PublicKey{"a": pubs["a"], "b": pubs["b"], "c": pubs["c"]}}, j, keys
 }
 func request() Request {
-	return Request{"op1", "prod/cluster", 0, 1, 1, []Member{{"a", "gru", hash([]byte("a"))}, {"b", "gru", hash([]byte("b"))}}}
+	return Request{"op1", "prod/cluster", 0, 1, 1, []Member{{"a", "GRU", hash([]byte("a"))}, {"b", "GRU", hash([]byte("b"))}}}
 }
 func grant(t *testing.T, r Request, key ed25519.PrivateKey) Signed {
 	t.Helper()
@@ -163,7 +163,7 @@ func TestRequiresOldRF2FenceQuorum(t *testing.T) {
 	r.PriorEpoch = 1
 	r.Epoch = 2
 	r.Generation = 2
-	r.Members = []Member{{"b", "gru", hash([]byte("b2"))}, {"c", "gru", hash([]byte("c2"))}}
+	r.Members = []Member{{"b", "GRU", hash([]byte("b2"))}, {"c", "GRU", hash([]byte("c2"))}}
 	a, b := drain(t, r, "a", keys["a"]), drain(t, r, "b", keys["b"])
 	for _, receipts := range [][]Signed{nil, {a, a}, {a, drain(t, r, "c", keys["c"])}} {
 		if _, e := i.Issue(t.Context(), r, nil, receipts); !errors.Is(e, ErrInvalid) {

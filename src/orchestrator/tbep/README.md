@@ -33,7 +33,7 @@ unchanged. These are worktree pins, not an immutable published release.
 
 | Asset | SHA256 |
 | --- | --- |
-| `engine.proto` | `555c1f69dedf5e630f3f287982b32f8770fd15c092d4c56054419fbe52407320` |
+| `engine.proto` | `8734f185db819b3cb03a8d898604d1aed990eb4dacfdba2d98ad363ff28da5c1` |
 | `family.proto` | `cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec` |
 
 Generation uses protoc 34.1, protoc-gen-go 1.36.12 and

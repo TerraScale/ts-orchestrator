@@ -10,6 +10,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"slices"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
@@ -31,10 +32,11 @@ type productionPlacementTransitionFile struct {
 type productionPlacementTransitionConfig struct {
 	Issuer        placementtransition.Config
 	GenesisGrants map[string]placementtransition.Signed
+	Targets       []productionPlacementTarget
 	// Drain must return authenticated, durable engine fence receipts. Delivery
 	// only acknowledges accepted membership; it must never imply serving ready.
 	Drain   func(context.Context, placementtransition.Request, placementtransition.Proof) ([]placementtransition.Signed, error)
-	Deliver func(context.Context, string, string, placementtransition.Signed) error
+	Deliver func(context.Context, string, string, uint64, placementtransition.Signed) error
 }
 
 func (f productionPlacementTransitionFile) load() (productionPlacementTransitionConfig, error) {
@@ -51,6 +53,9 @@ func (f productionPlacementTransitionFile) load() (productionPlacementTransition
 	case ed25519.SeedSize:
 		out.Issuer.ProofKey = ed25519.NewKeyFromSeed(key)
 	case ed25519.PrivateKeySize:
+		if !bytes.Equal(key, ed25519.NewKeyFromSeed(key[:ed25519.SeedSize])) {
+			return out, placementtransition.ErrInvalid
+		}
 		out.Issuer.ProofKey = slices.Clone(key)
 	default:
 		return out, placementtransition.ErrInvalid
@@ -75,6 +80,9 @@ func (f productionPlacementTransitionFile) load() (productionPlacementTransition
 		if op == "" || len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, append([]byte("terrabase-placement-transition-v1\x00"), signed.Payload...), signed.Signature) || json.Unmarshal(signed.Payload, &grant, json.RejectUnknownMembers(true)) != nil || grant.Kind != "genesis_grant" || grant.GrantID == "" || len(grant.RequestDigest) != 64 {
 			return out, placementtransition.ErrInvalid
 		}
+		if _, err := hex.DecodeString(grant.RequestDigest); err != nil {
+			return out, placementtransition.ErrInvalid
+		}
 		signed.Payload = slices.Clone(signed.Payload)
 		signed.Signature = slices.Clone(signed.Signature)
 		out.GenesisGrants[op] = signed
@@ -95,13 +103,74 @@ type productionPlacementTransition struct {
 }
 
 func newProductionPlacementTransition(config productionPlacementTransitionConfig, session globalWorkerSession) (*productionPlacementTransition, error) {
-	if config.Deliver == nil || config.Drain == nil || session.CheckEffectAuthority == nil {
-		return nil, errors.New("runtime transition: accepted delivery and durable fence transport required")
+	if len(config.Targets) == 0 {
+		return nil, errors.New("runtime transition: admitted targets required")
+	}
+	targets := map[string]*placementpublisher.RemoteTarget{}
+	for _, identity := range config.Targets {
+		if targets[identity.ServerIdentity] != nil {
+			return nil, placementtransition.ErrInvalid
+		}
+		target, err := placementpublisher.NewRemoteTarget(session.Connection, identity.ServerIdentity, identity.Principal, 10*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		targets[identity.ServerIdentity] = target
+	}
+	config.Deliver = func(ctx context.Context, identity, operation string, revision uint64, proof placementtransition.Signed) error {
+		target := targets[identity]
+		if target == nil {
+			return placementtransition.ErrInvalid
+		}
+		payload, err := json.Marshal(proof)
+		if err != nil {
+			return err
+		}
+		_, err = target.Accept(ctx, operation, &pb.PlacementAcceptRequest{ProposalRevision: revision, Proof: payload})
+		return err
 	}
 	config.Issuer.Authority = authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
 	issuer, err := placementtransition.New(config.Issuer)
 	if err != nil {
 		return nil, err
+	}
+	config.Drain = func(ctx context.Context, request placementtransition.Request, prior placementtransition.Proof) ([]placementtransition.Signed, error) {
+		prepared, err := issuer.Prepare(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(prepared)
+		if err != nil {
+			return nil, err
+		}
+		receipts := []placementtransition.Signed{}
+		var failures []error
+		for _, member := range prior.Request.Members {
+			target := targets[member.Identity]
+			if target == nil {
+				failures = append(failures, errors.New("runtime transition: old member is not in admitted transport inventory"))
+				continue
+			}
+			if err := session.CheckEffectAuthority(ctx); err != nil {
+				return nil, err
+			}
+			response, err := target.Drain(ctx, request.OperationID, &pb.PlacementDrainRequest{PreparedTransition: encoded})
+			if err != nil {
+				failures = append(failures, err)
+				continue
+			}
+			var signed placementtransition.Signed
+			if json.Unmarshal(response.SignedReceipt, &signed, json.RejectUnknownMembers(true)) != nil {
+				return nil, placementtransition.ErrInvalid
+			}
+			receipts = append(receipts, signed)
+		}
+		// An unreachable old seat does not prevent a survivor quorum. Issue
+		// authenticates receipts and requires every old Region to be covered.
+		if len(receipts) == 0 {
+			return nil, errors.Join(failures...)
+		}
+		return receipts, nil
 	}
 	pending, err := placementpublisher.NewNATSJournal(placementpublisher.NATSJournalConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId})
 	if err != nil {
@@ -178,6 +247,7 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 	if err != nil {
 		return err
 	}
+	revisions := map[string]uint64{}
 	for _, target := range record.Targets {
 		stored, err := t.pending.Load(ctx, target.ServerIdentity)
 		if err != nil {
@@ -185,9 +255,10 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 		}
 		receipt := new(pb.PlacementProposalResponse)
 		stage := new(pb.PlacementStageRequest)
-		if stored.OperationID != r.OperationID || !bytes.Equal(stored.Request, target.Proposal) || len(stored.Receipt) == 0 || proto.Unmarshal(stored.Request, stage) != nil || proto.Unmarshal(stored.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil {
+		if stored.OperationID != r.OperationID || !bytes.Equal(stored.Request, target.Proposal) || len(stored.Receipt) == 0 || proto.Unmarshal(stored.Request, stage) != nil || proto.Unmarshal(stored.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil || stage.ExpectedRevision == ^uint64(0) || receipt.Revision != stage.ExpectedRevision+1 {
 			return errors.New("runtime transition: pending Stage receipt unresolved")
 		}
+		revisions[target.ServerIdentity] = receipt.Revision
 	}
 	signed, err := t.issuer.Load(ctx, r.OperationID)
 	if errors.Is(err, placementtransition.ErrMissing) {
@@ -196,6 +267,16 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 		if headErr == nil {
 			if json.Unmarshal(head.Payload, &prior, json.RejectUnknownMembers(true)) != nil {
 				return placementtransition.ErrInvalid
+			}
+			if prior.Request.OperationID == r.OperationID {
+				r.PriorEpoch = prior.Request.PriorEpoch
+				d, digestErr := placementtransition.RequestDigest(r)
+				if digestErr != nil || d != prior.RequestDigest {
+					return placementtransition.ErrConflict
+				}
+				signed = head
+				err = nil
+				goto deliver
 			}
 			r.PriorEpoch = prior.Request.Epoch
 		} else if !errors.Is(headErr, placementtransition.ErrMissing) {
@@ -220,6 +301,7 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 	if err != nil {
 		return err
 	}
+deliver:
 	var proof placementtransition.Proof
 	if json.Unmarshal(signed.Payload, &proof, json.RejectUnknownMembers(true)) != nil {
 		return placementtransition.ErrInvalid
@@ -233,7 +315,7 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 		if err := t.check(ctx); err != nil {
 			return err
 		}
-		if err := t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, signed); err != nil {
+		if err := t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, revisions[target.ServerIdentity], signed); err != nil {
 			return err
 		}
 	}

@@ -792,8 +792,32 @@ service ReplicationService {
   rpc Denials(ReplicationServiceDenialsRequest) returns (ReplicationServiceDenialsResponse);
 }
 
+// Host-wide observation of the complete immutable admitted database scope set.
+message MaintenanceServiceCatchUpStatusRequest {}
+message DatabaseCatchUpStatus {
+  string tenant = 1;
+  string project = 2;
+  string database = 3;
+  uint64 source_sequence = 4;
+  uint64 regional_sequence = 5;
+  bool regional_measured = 6;
+  bool causal_measured = 7;
+  bool causal_caught_up = 8;
+  uint64 backup_source_sequence = 9;
+  uint64 backup_protected_sequence = 10;
+  bool backup_measured = 11;
+  bool backup_caught_up = 12;
+}
+message MaintenanceServiceCatchUpStatusResponse {
+  bool complete = 1;
+  string assignment_revision = 2;
+  uint64 observed_at_unix_ms = 3;
+  repeated DatabaseCatchUpStatus databases = 4;
+}
+
 // Topology, administration, and supervision.
 service MaintenanceService {
+  rpc CatchUpStatus(MaintenanceServiceCatchUpStatusRequest) returns (MaintenanceServiceCatchUpStatusResponse);
   rpc TopologyRead(MaintenanceServiceTopologyReadRequest) returns (MaintenanceServiceTopologyReadResponse);
   rpc AdminStatus(MaintenanceServiceAdminStatusRequest) returns (MaintenanceServiceAdminStatusResponse);
   rpc SupervisionHealth(MaintenanceServiceSupervisionHealthRequest) returns (MaintenanceServiceSupervisionHealthResponse);
@@ -818,6 +842,10 @@ service PlacementControlService {
   // Admission permits catch-up only; it does not assert data readiness.
   rpc Accept(PlacementAcceptRequest) returns (PlacementAcceptanceResponse);
   rpc GetAccepted(PlacementGetRequest) returns (PlacementAcceptanceResponse);
+  // Executes a durably authorized old-epoch fence and returns a member-signed
+  // frontier receipt only after origin+physical work has durably drained.
+  rpc Drain(PlacementDrainRequest) returns (PlacementDrainResponse);
+  rpc Readiness(PlacementReadinessRequest) returns (PlacementDrainResponse);
 }
 
 message PlacementRegionSeats {
@@ -932,4 +960,19 @@ message PlacementAcceptanceResponse {
   uint64 generation = 3;
   string proof_digest = 4; // SHA256 of authenticated raw proof payload, lowercase hex.
   PlacementAcceptanceStatus status = 5;
+}
+
+message PlacementDrainRequest {
+  bytes prepared_transition = 1; // <=256KiB Signed prepared_epoch GRU envelope.
+}
+message PlacementDrainResponse {
+  bytes signed_receipt = 1; // Signed old_epoch_drained_fenced envelope.
+}
+
+message PlacementReadinessRequest {
+  string tenant = 1; // Canonical tenant ULID.
+  string project = 2; // Canonical project ULID.
+  string database = 3; // Canonical database ULID.
+  string operation_id = 4; // Exact durable provisioning operation.
+  string nonce = 5; // Fresh challenge, exactly64 lowercase hex characters.
 }

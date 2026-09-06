@@ -56,62 +56,66 @@ func (f productionDeliveryObjectStoreFile) Admit() error {
 	return nil
 }
 
-func (f productionDeliveryObjectStoreFile) Construct(ctx context.Context, authenticated *nats.Conn) (provider.DeliveryRegionStoreConfig, error) {
+func (f productionDeliveryObjectStoreFile) ConstructWithOwnership(ctx context.Context, authenticated *nats.Conn) (provider.DeliveryRegionStoreConfig, *provider.DurableOwnershipJournal, error) {
 	var result provider.DeliveryRegionStoreConfig
 	if err := f.Admit(); err != nil {
-		return result, err
+		return result, nil, err
 	}
 	if ctx == nil || authenticated == nil || !authenticated.IsConnected() {
-		return result, errors.New("delivery object journal requires the authenticated runtime NATS connection")
+		return result, nil, errors.New("delivery object journal requires the authenticated runtime NATS connection")
 	}
 	if err := checkDeliveryObjectConnection(authenticated); err != nil {
-		return result, err
+		return result, nil, err
 	}
 	// Load and admit all transport credentials before provisioning durable state.
 	transports := make(map[string]*provider.OCIHTTPTransport, len(f.Regions))
 	for _, r := range f.Regions {
 		transport, err := r.transport()
 		if err != nil {
-			return result, err
+			return result, nil, err
 		}
 		transports[r.Region] = transport
 	}
 	js, err := jetstream.New(authenticated)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	kv, err := js.KeyValue(ctx, f.JournalBucket)
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
 		kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: f.JournalBucket, Storage: jetstream.FileStorage, Replicas: 3, History: 1})
 	}
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	stream, err := js.Stream(ctx, "KV_"+f.JournalBucket)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	info, err := stream.Info(ctx)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	c := info.Config
 	if c.Storage != jetstream.FileStorage || c.Replicas != 3 || c.MaxAge != 0 || c.MaxMsgsPerSubject != 1 || c.Mirror != nil || len(c.Sources) != 0 || !c.AllowRollup || !c.DenyDelete || c.DenyPurge || c.Discard != jetstream.DiscardNew {
-		return result, errors.New("delivery provider journal is not an authoritative non-expiring file-backed R3 KV stream")
+		return result, nil, errors.New("delivery provider journal is not an authoritative non-expiring file-backed R3 KV stream")
 	}
 	cas, err := provider.NewNatsOwnershipCASStore(kv)
 	if err != nil {
-		return result, err
+		return result, nil, err
+	}
+	ownership, err := provider.NewDurableOwnershipJournal(cas, provider.MaximumOperationEvidenceCount)
+	if err != nil {
+		return result, nil, err
 	}
 	result.Journal, err = provider.NewCASProviderMutationJournal(cas)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
 	result.Regions = make(map[string]provider.DeliveryRegionStoreRegion, len(f.Regions))
 	for _, r := range f.Regions {
 		adapter, err := provider.NewOCIObjectStorageAdapter(transports[r.Region], result.Journal)
 		if err != nil {
-			return provider.DeliveryRegionStoreConfig{}, err
+			return provider.DeliveryRegionStoreConfig{}, nil, err
 		}
 		result.Regions[r.Region] = provider.DeliveryRegionStoreRegion{Provider: adapter, Region: r.Region, OCIRegion: r.OCIRegion, CompartmentID: r.CompartmentID, Namespace: r.Namespace, Bucket: r.Bucket, Owner: provider.TerraScaleObjectOwner}
 	}
@@ -129,7 +133,7 @@ func (f productionDeliveryObjectStoreFile) Construct(ctx context.Context, authen
 		}
 		return nil
 	}
-	return result, nil
+	return result, ownership, nil
 }
 
 func (r productionDeliveryObjectRegionFile) transport() (*provider.OCIHTTPTransport, error) {

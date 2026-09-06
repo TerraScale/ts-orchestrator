@@ -117,6 +117,11 @@ func (s *maintenanceServer) TopologyRead(context.Context, *pb.MaintenanceService
 	}
 	return &pb.MaintenanceServiceTopologyReadResponse{Binding: pb.BindingKind_BINDING_KIND_NETWORK_MTLS, ClusterMode: pb.ClusterMode_CLUSTER_MODE_STANDALONE, Subsystems: []string{"engine"}, EngineTopologyAvailable: false}, nil
 }
+func (s *maintenanceServer) CatchUpStatus(context.Context, *pb.MaintenanceServiceCatchUpStatusRequest) (*pb.MaintenanceServiceCatchUpStatusResponse, error) {
+	s.calls.Add(1)
+	return &pb.MaintenanceServiceCatchUpStatusResponse{}, nil
+}
+
 func (s *maintenanceServer) AdminStatus(context.Context, *pb.MaintenanceServiceAdminStatusRequest) (*pb.MaintenanceServiceAdminStatusResponse, error) {
 	s.calls.Add(1)
 	if s.pending {
@@ -172,7 +177,7 @@ func TestObserveMTLSScopeAndRawState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observed.Health.State != pb.HealthState_HEALTH_STATE_SERVING || observed.Topology.EngineTopologyAvailable || observed.Admin.RegistryVersion != "1.0" || server.calls.Load() != 3 {
+	if observed.Health.State != pb.HealthState_HEALTH_STATE_SERVING || observed.Topology.EngineTopologyAvailable || observed.Admin.RegistryVersion != "1.0" || server.calls.Load() != 4 {
 		t.Fatalf("unexpected observation: %+v; calls %d", observed, server.calls.Load())
 	}
 }

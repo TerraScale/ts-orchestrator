@@ -94,3 +94,22 @@ func TestRenderSystemdUnitRejectsInvalidSpecs(t *testing.T) {
 		t.Fatal("zero CPUWeight accepted")
 	}
 }
+
+func TestOrchestratorUnitPreparesOnlyDedicatedKeySocketDirectory(t *testing.T) {
+	spec := testComponentSpec()
+	spec.Name = "orchestrator"
+	spec.User = "terrascale-orchestrator"
+	spec.DataVolume = "/var/lib/terrascale/orchestrator"
+	rendered, err := RenderSystemdUnit("/opt/terrascale", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"User=terrascale-orchestrator\nGroup=terrascale-orchestrator\n", "SupplementaryGroups=terrascale-keylease\n", "RuntimeDirectoryMode=0700\n", "ExecStartPre=/usr/bin/chgrp terrascale-keylease /run/terrascale-keys\n", "ExecStartPre=/usr/bin/chmod 0710 /run/terrascale-keys\n"} {
+		if !strings.Contains(rendered, required) {
+			t.Fatalf("missing %q in unit %s", required, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Group=terrascale-terrabase") || strings.Contains(rendered, "DynamicUser=") {
+		t.Fatal("service identity isolation lost")
+	}
+}

@@ -43,6 +43,9 @@ type OCIMailAdapter struct {
 type OCIEmailMessage struct{ To, Subject, Body, OperationKey string }
 
 func NewOCIMailAdapter(c OCIMailConfig) (*OCIMailAdapter, error) {
+	if transport, ok := c.Transport.(*http.Transport); ok && transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
+		return nil, ErrOCIEmail
+	}
 	u, err := url.Parse(c.Endpoint)
 	if err != nil || u.Scheme != "https" || !regexp.MustCompile(`^cell0\.submit\.email\.[a-z0-9-]+\.oci\.oraclecloud\.com$`).MatchString(u.Host) || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.RawPath != "" || !ociMailbox(c.Sender) || strings.TrimSpace(c.CompartmentID) == "" || strings.TrimSpace(c.CompartmentID) != c.CompartmentID || len(c.CompartmentID) > 255 || strings.ContainsAny(c.CompartmentID, "\r\n\t") || len(c.KeyID) > 2048 || strings.ContainsAny(c.KeyID, "\r\n\"\\") || c.CheckEffectAuthority == nil {
 		return nil, ErrOCIEmail

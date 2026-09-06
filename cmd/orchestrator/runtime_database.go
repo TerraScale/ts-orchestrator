@@ -26,21 +26,27 @@ type productionDatabaseRegion struct {
 }
 type productionDatabaseHost struct{ ServerIdentity, MemberID string }
 type productionDatabaseConfig struct {
+	BranchRestoreKeys                 map[string]databaseadmission.ReadinessKey
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
+	DeletionPolicy                    databaseadmission.DeletionPolicy
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 }
 type productionDatabase struct {
-	pipeline *databaseadmission.Pipeline
-	service  *databaseadmission.Service
-	check    func(context.Context) error
-	mu       sync.Mutex
-	failure  string
+	lifecycleJournal *databaseadmission.NATSJournal
+	lifecycleService *databaseadmission.Service
+	pipeline         *databaseadmission.Pipeline
+	service          *databaseadmission.Service
+	deletion         *databaseadmission.DeletionWorkflow
+	deletionService  *databaseadmission.Service
+	check            func(context.Context) error
+	mu               sync.Mutex
+	failure          string
 }
 
 func newProductionDatabase(config productionDatabaseConfig, session globalWorkerSession, placement *productionPlacement) (*productionDatabase, error) {
-	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || placement == nil {
+	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || config.DeletionPolicy == nil || placement == nil {
 		return nil, errors.New("runtime database: admitted topology, catalog and project authorization required")
 	}
 	seenHosts, seenRegions := map[string]bool{}, map[string]bool{}
@@ -75,6 +81,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		Plan: func(ctx context.Context, r databaseadmission.Record) ([]databaseadmission.Target, error) {
 			return config.plan(ctx, r, journal, placementJournal)
 		},
+		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
 		Install:           databaseadmission.RemoteInstall(session.Connection),
 		ActivatePlacement: config.ActivatePlacement,
 		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) error {
@@ -87,20 +94,48 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 	if err != nil {
 		return nil, err
 	}
-	return &productionDatabase{pipeline: pipeline, check: session.CheckEffectAuthority}, nil
+	deletion := &databaseadmission.DeletionWorkflow{Journal: journal, Policy: databaseDeletionPolicy(func(ctx context.Context, request databaseadmission.DeleteRequest) (databaseadmission.DeletionPolicyDecision, error) {
+		if request.Environment != config.Environment {
+			return databaseadmission.DeletionPolicyDecision{}, databaseadmission.ErrInvalid
+		}
+		if err := session.CheckEffectAuthority(ctx); err != nil {
+			return databaseadmission.DeletionPolicyDecision{}, err
+		}
+		return config.DeletionPolicy.AuthorizeDeletion(ctx, request)
+	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal)}
+	return &productionDatabase{lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority}, nil
 }
 func (d *productionDatabase) Start(ctx context.Context, session globalWorkerSession) error {
 	service, err := databaseadmission.StartAuthority(ctx, session.Connection, d.pipeline)
-	if err == nil {
-		d.service = service
+	if err != nil {
+		return err
 	}
-	return err
+	d.service = service
+	d.lifecycleService, err = databaseadmission.StartLifecycleAuthority(ctx, session.Connection, d.lifecycleJournal)
+	if err != nil {
+		return errors.Join(err, d.service.Close())
+	}
+	d.deletionService, err = databaseadmission.StartDeletionAuthority(ctx, session.Connection, d.deletion)
+	if err != nil {
+		return errors.Join(err, d.service.Close(), d.lifecycleService.Close())
+	}
+	return nil
 }
 func (d *productionDatabase) Close() error {
-	if d == nil || d.service == nil {
+	if d == nil {
 		return nil
 	}
-	return d.service.Close()
+	var errs []error
+	if d.lifecycleService != nil {
+		errs = append(errs, d.lifecycleService.Close())
+	}
+	if d.service != nil {
+		errs = append(errs, d.service.Close())
+	}
+	if d.deletionService != nil {
+		errs = append(errs, d.deletionService.Close())
+	}
+	return errors.Join(errs...)
 }
 func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementStageRequest) error {
 	records, err := journal.List(ctx)
@@ -134,7 +169,7 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 	}
 	// A successor proposal must not overtake an unresolved operation on a host.
 	for _, prior := range records {
-		if prior.State != "placement_pending" {
+		if prior.State != "placement_pending" && prior.State != "ready" {
 			return nil, errors.New("runtime database: previous database admission is unresolved")
 		}
 	}
@@ -220,7 +255,7 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 // Unreachable hosts retain their durable intent and retry. Authority loss and
 // corrupt immutable records stop the session instead of repeatedly dispatching.
 func (d *productionDatabase) Reconcile(ctx context.Context) error {
-	err := d.pipeline.Reconcile(ctx)
+	err := errors.Join(d.pipeline.Reconcile(ctx), d.deletion.Resume(ctx))
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

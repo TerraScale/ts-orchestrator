@@ -47,6 +47,10 @@ type observedMemberServer struct {
 	pb.UnimplementedMaintenanceServiceServer
 }
 
+func (observedMemberServer) CatchUpStatus(context.Context, *pb.MaintenanceServiceCatchUpStatusRequest) (*pb.MaintenanceServiceCatchUpStatusResponse, error) {
+	return &pb.MaintenanceServiceCatchUpStatusResponse{}, nil
+}
+
 func (observedMemberServer) SupervisionHealth(context.Context, *pb.MaintenanceServiceSupervisionHealthRequest) (*pb.MaintenanceServiceSupervisionHealthResponse, error) {
 	return &pb.MaintenanceServiceSupervisionHealthResponse{State: pb.HealthState_HEALTH_STATE_DRAINING, FramesServed: 17}, nil
 }

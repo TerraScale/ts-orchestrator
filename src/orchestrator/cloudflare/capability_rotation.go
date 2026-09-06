@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
@@ -55,12 +57,14 @@ func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabili
 	if c.Client == nil || c.SnippetName == "" || c.Vault == nil || c.Journal == nil || c.Authorize == nil || c.HTTPClient == nil || c.Now == nil || len(c.ProbeURLs) == 0 || bytes.Count(c.Source, []byte(CapabilityDeploymentMarker)) != 1 {
 		return nil, capabilityEffectError()
 	}
-	for _, endpoint := range c.ProbeURLs {
-		u, err := url.Parse(endpoint)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "/.well-known/terrascale-capability-generation" || u.RawQuery != "" || u.Fragment != "" {
-			return nil, capabilityEffectError()
-		}
+	if (c.Artifacts == nil) != (c.TemplateService == "") {
+		return nil, capabilityEffectError()
 	}
+	if err := ValidateCapabilityDeployment(c.Source, c.Zone, c.SnippetName, c.ProbeURLs); err != nil {
+		return nil, err
+	}
+	provider := &Client{Token: c.Client.Token, ZoneID: c.Client.ZoneID, AccountID: c.Client.AccountID, BaseURL: c.Client.BaseURL, HTTP: capabilityTemplateTransport{next: c.Client.HTTP, authorize: c.Authorize}, maxAttempts: c.Client.maxAttempts, sleep: c.Client.sleep, now: c.Client.now}
+	c.Client = provider
 	c.Source = bytes.Clone(c.Source)
 	c.ProbeURLs = append([]string(nil), c.ProbeURLs...)
 	client := *c.HTTPClient
@@ -239,7 +243,7 @@ func (s *SnippetCapabilityStore) deploy(ctx context.Context, r CapabilityReceipt
 	r.Digest = edgeDigest(source)
 	// Commit intent first. On uncertain publication a restart reconstructs the
 	// exact source from Vault references and observes the provider before PUT.
-	if s.config.Authorize(ctx) != nil || s.config.Journal.Save(ctx, r, revision) != nil {
+	if s.authorize(ctx) != nil || s.config.Journal.Save(ctx, r, revision) != nil {
 		return capabilityEffectError()
 	}
 	observed, readErr := s.config.Client.SnippetCode(ctx, s.config.SnippetName)
@@ -247,14 +251,14 @@ func (s *SnippetCapabilityStore) deploy(ctx context.Context, r CapabilityReceipt
 		if readErr != nil && !errors.Is(readErr, ErrNotFound) && !isCloudflareNotFound(readErr) {
 			return capabilityEffectError()
 		}
-		if s.config.Authorize(ctx) != nil {
+		if s.authorize(ctx) != nil {
 			return capabilityEffectError()
 		}
 		if s.config.Client.PutSnippetCode(ctx, s.config.SnippetName, r.Digest, source) != nil {
 			return capabilityEffectError()
 		}
 	}
-	if s.config.Authorize(ctx) != nil {
+	if s.authorize(ctx) != nil {
 		return capabilityEffectError()
 	}
 	// Initial distribution must establish the Snippet route before its probe.
@@ -266,7 +270,7 @@ func (s *SnippetCapabilityStore) deploy(ctx context.Context, r CapabilityReceipt
 	return s.observe(ctx, r)
 }
 func (s *SnippetCapabilityStore) observe(ctx context.Context, r CapabilityReceipt) error {
-	if !s.config.Now().Before(r.Current.ExpiresAt) || s.config.Authorize(ctx) != nil {
+	if !s.config.Now().Before(r.Current.ExpiresAt) || s.authorize(ctx) != nil {
 		return capabilityEffectError()
 	}
 	code, err := s.config.Client.SnippetCode(ctx, s.config.SnippetName)
@@ -283,7 +287,7 @@ func (s *SnippetCapabilityStore) observe(ctx context.Context, r CapabilityReceip
 			return capabilityEffectError()
 		}
 	}
-	return s.config.Authorize(ctx)
+	return s.authorize(ctx)
 }
 func capabilityMAC(key []byte, text string) string {
 	h := hmac.New(sha256.New, key)
@@ -349,6 +353,7 @@ func (s *SnippetCapabilityStore) template(ctx context.Context, digest string) ([
 // PromoteTemplate preserves the live ring while releasing a new verified
 // Snippet template. The durable template digest is resolved again after restart.
 func (s *SnippetCapabilityStore) PromoteTemplate(ctx context.Context, service, digest string) error {
+	ctx = context.WithValue(ctx, capabilityTemplateContextKey{}, true)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if service == "" || service != s.config.TemplateService || s.config.Artifacts == nil {
@@ -369,6 +374,7 @@ func (s *SnippetCapabilityStore) PromoteTemplate(ctx context.Context, service, d
 // CoordinateTemplateRules validates the rendered source, not the unbound
 // artifact digest, before enabling the declared reactive/probe routes.
 func (s *SnippetCapabilityStore) CoordinateTemplateRules(ctx context.Context, service, digest string) error {
+	ctx = context.WithValue(ctx, capabilityTemplateContextKey{}, true)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.config.Zone == nil || service == "" || service != s.config.TemplateService {
@@ -379,11 +385,121 @@ func (s *SnippetCapabilityStore) CoordinateTemplateRules(ctx context.Context, se
 		return capabilityEffectError()
 	}
 	code, err := s.config.Client.SnippetCode(ctx, s.config.SnippetName)
-	if err != nil || code.Digest != receipt.Digest || s.config.Authorize(ctx) != nil {
+	if err != nil || code.Digest != receipt.Digest || s.authorize(ctx) != nil {
 		return capabilityEffectError()
 	}
 	if ReconcileSnippetRules(ctx, s.config.Client, s.config.Zone, s.config.SnippetName) != nil {
 		return capabilityEffectError()
 	}
 	return s.observe(ctx, receipt)
+}
+
+// ObserveTemplate proves the bound release and declared rule at this instant.
+// False is a retryable absence; an unavailable/unauthorized observation errors.
+func (s *SnippetCapabilityStore) ObserveTemplate(ctx context.Context, service, digest string) (bool, error) {
+	ctx = context.WithValue(ctx, capabilityTemplateContextKey{}, true)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if service == "" || service != s.config.TemplateService || s.config.Zone == nil {
+		return false, capabilityEffectError()
+	}
+	receipt, _, err := s.config.Journal.Load(ctx)
+	if err != nil {
+		return false, capabilityEffectError()
+	}
+	if receipt.Generation == 0 || receipt.TemplateDigest != digest {
+		return false, nil
+	}
+	code, readErr := s.config.Client.SnippetCode(ctx, s.config.SnippetName)
+	if errors.Is(readErr, ErrNotFound) {
+		return false, nil
+	}
+	if readErr != nil {
+		return false, capabilityEffectError()
+	}
+	if code.Digest != receipt.Digest {
+		return false, nil
+	}
+	if err := s.observe(ctx, receipt); err != nil {
+		return false, err
+	}
+	snippets, err := s.config.Client.ListSnippets(ctx)
+	if err != nil {
+		return false, capabilityEffectError()
+	}
+	for _, declaration := range s.config.Zone.SnippetRules {
+		if declaration.SnippetName != s.config.SnippetName {
+			continue
+		}
+		expected := SnippetRuleWire{Expression: snippetGateExpression(declaration.Hostname, declaration.PathPrefix), Description: refDescription(declaration.SnippetName), Enabled: declaration.Enabled}
+		for _, snippet := range snippets {
+			if snippet.Name == s.config.SnippetName && len(snippet.Rules) == 1 && snippet.Rules[0] == expected && expected.Enabled {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// ValidateCapabilityDeployment validates static declarations without contacting
+// Vault, Cloudflare, NATS, or any probe ingress.
+func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string, probeURLs []string) error {
+	if bytes.Count(source, []byte(CapabilityDeploymentMarker)) != 1 || zone == nil || snippetName == "" || len(probeURLs) == 0 || zone.validateGateDeclaration() != nil {
+		return capabilityEffectError()
+	}
+	hostname := ""
+	for _, rule := range zone.SnippetRules {
+		if rule.SnippetName == snippetName && rule.Enabled {
+			hostname = rule.Hostname
+		}
+	}
+	if hostname == "" || strings.TrimSpace(hostname) != hostname || strings.ContainsAny(hostname, "/:?#@*\\") {
+		return capabilityEffectError()
+	}
+	seen := map[string]bool{}
+	for _, endpoint := range probeURLs {
+		u, err := url.Parse(endpoint)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || !strings.EqualFold(u.Hostname(), hostname) || u.Path != "/.well-known/terrascale-capability-generation" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" {
+			return capabilityEffectError()
+		}
+		port := u.Port()
+		if port != "" {
+			n, e := strconv.Atoi(port)
+			if e != nil || n < 1 || n > 65535 {
+				return capabilityEffectError()
+			}
+		}
+		identity := strings.ToLower(u.Hostname()) + ":" + port
+		if port == "443" {
+			identity = strings.ToLower(u.Hostname()) + ":"
+		}
+		if seen[identity] {
+			return capabilityEffectError()
+		}
+		seen[identity] = true
+	}
+	return nil
+}
+
+type capabilityTemplateContextKey struct{}
+
+func (s *SnippetCapabilityStore) authorize(ctx context.Context) error {
+	if ctx.Value(capabilityTemplateContextKey{}) == true && delivery.CheckExecutionFence(ctx) != nil {
+		return capabilityEffectError()
+	}
+	return s.config.Authorize(ctx)
+}
+
+type capabilityTemplateTransport struct {
+	next      http.RoundTripper
+	authorize func(context.Context) error
+}
+
+func (t capabilityTemplateTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Context().Value(capabilityTemplateContextKey{}) == true {
+		if delivery.CheckExecutionFence(r.Context()) != nil || t.authorize(r.Context()) != nil {
+			return nil, capabilityEffectError()
+		}
+	}
+	return t.next.RoundTrip(r)
 }

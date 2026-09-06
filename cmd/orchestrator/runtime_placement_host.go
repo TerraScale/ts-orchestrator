@@ -20,14 +20,17 @@ import (
 const placementHostFileEnvironment = "TS_ORCH_PLACEMENT_HOST_FILE"
 
 type productionPlacementHost struct {
-	bridge     *placementpublisher.HostBridge
-	authBridge *authbootstrap.HostBridge
-	authEngine *tbep.AuthBootstrapClient
-	completion chan struct{}
-	engine     *tbep.PlacementClient
-	connection *nats.Conn
-	once       sync.Once
-	err        error
+	bridge          *placementpublisher.HostBridge
+	acceptBridge    *placementpublisher.AcceptanceHostBridge
+	drainBridge     *placementpublisher.AcceptanceHostBridge
+	readinessBridge *placementpublisher.AcceptanceHostBridge
+	authBridge      *authbootstrap.HostBridge
+	authEngine      *tbep.AuthBootstrapClient
+	completion      chan struct{}
+	engine          *tbep.PlacementClient
+	connection      *nats.Conn
+	once            sync.Once
+	err             error
 }
 
 func (host *productionPlacementHost) Completion() <-chan struct{} { return host.completion }
@@ -36,7 +39,7 @@ func (host *productionPlacementHost) Close() error {
 		return nil
 	}
 	host.once.Do(func() {
-		host.err = host.bridge.Close()
+		host.err = errors.Join(host.bridge.Close(), host.acceptBridge.Close(), host.drainBridge.Close(), host.readinessBridge.Close())
 		host.err = errors.Join(host.err, host.authBridge.Close(), host.authEngine.Close())
 		host.err = errors.Join(host.err, host.engine.Close())
 		host.connection.Close()
@@ -81,6 +84,18 @@ func startProductionPlacementHost(ctx context.Context, options *control.Orchestr
 		if !completed {
 			_ = engine.Close()
 			_ = authEngine.Close()
+			if host.drainBridge != nil {
+				_ = host.drainBridge.Close()
+			}
+			if host.readinessBridge != nil {
+				_ = host.readinessBridge.Close()
+			}
+			if host.authBridge != nil {
+				_ = host.authBridge.Close()
+			}
+			if host.acceptBridge != nil {
+				_ = host.acceptBridge.Close()
+			}
 			if host.bridge != nil {
 				_ = host.bridge.Close()
 			}
@@ -122,10 +137,29 @@ func startProductionPlacementHost(ctx context.Context, options *control.Orchestr
 		return nil, err
 	}
 	host.authBridge = authBridge
+	acceptBridge, err := placementpublisher.StartAcceptanceHostBridge(ctx, connection, engine)
+	if err != nil {
+		_ = authBridge.Close()
+		return nil, err
+	}
+	host.acceptBridge = acceptBridge
+	drainBridge, err := placementpublisher.StartDrainHostBridge(ctx, connection, engine)
+	if err != nil {
+		return nil, err
+	}
+	host.drainBridge = drainBridge
+	readinessBridge, err := placementpublisher.StartReadinessHostBridge(ctx, connection, engine)
+	if err != nil {
+		return nil, err
+	}
+	host.readinessBridge = readinessBridge
 	go func() {
 		select {
 		case <-bridge.Completion():
 		case <-authBridge.Completion():
+		case <-acceptBridge.Completion():
+		case <-drainBridge.Completion():
+		case <-readinessBridge.Completion():
 		}
 		close(host.completion)
 	}()

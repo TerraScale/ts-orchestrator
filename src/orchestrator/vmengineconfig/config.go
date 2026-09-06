@@ -38,17 +38,18 @@ var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // Declaration contains nonsecret, explicit qualification assignments. Artifact
 // binding prevents reusing a declaration with a different engine binary.
 type Declaration struct {
-	Version        int        `json:"version"`
-	Contract       string     `json:"contract"`
-	ArtifactSHA256 string     `json:"artifactSha256"`
-	Release        string     `json:"release"`
-	Environment    string     `json:"environment"`
-	Cluster        string     `json:"cluster"`
-	Generation     uint64     `json:"generation"`
-	Epoch          uint64     `json:"epoch"`
-	Hosts          []Host     `json:"hosts"`
-	Databases      []Database `json:"databases"`
-	Limits         Limits     `json:"limits"`
+	TransitionTrust *TransitionTrust `json:"transitionTrust,omitempty"`
+	Version         int              `json:"version"`
+	Contract        string           `json:"contract"`
+	ArtifactSHA256  string           `json:"artifactSha256"`
+	Release         string           `json:"release"`
+	Environment     string           `json:"environment"`
+	Cluster         string           `json:"cluster"`
+	Generation      uint64           `json:"generation"`
+	Epoch           uint64           `json:"epoch"`
+	Hosts           []Host           `json:"hosts"`
+	Databases       []Database       `json:"databases"`
+	Limits          Limits           `json:"limits"`
 }
 
 type Host struct {
@@ -97,6 +98,7 @@ type Material struct {
 	observerCertificate, observerPrivateKey      []byte
 	observation                                  tbep.FileConfig
 	controlFiles                                 map[string][]byte
+	transitionFiles                              map[string][]byte
 	controlAuthorization                         ControlNATSAuthorization
 }
 
@@ -124,6 +126,7 @@ func (m *Material) Clone() *Material {
 	}
 	copy := *m
 	copy.controlFiles = m.ControlFiles()
+	copy.transitionFiles = m.TransitionFiles()
 	copy.controlAuthorization = m.ControlAuthorization()
 	copy.certificate, copy.privateKey, copy.ca = bytes.Clone(m.certificate), bytes.Clone(m.privateKey), bytes.Clone(m.ca)
 	copy.observerCertificate, copy.observerPrivateKey = bytes.Clone(m.observerCertificate), bytes.Clone(m.observerPrivateKey)
@@ -308,6 +311,10 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		fmt.Fprintf(&b, "%q", principal)
 	}
 	fmt.Fprintf(&b, "]\nobserver_principals = [%q]\n", h.ObserverIdentity)
+	if err := validateTransitionTrust(d.TransitionTrust); err != nil {
+		return "", err
+	}
+	renderTransitionTrust(&b, d.TransitionTrust)
 	l := d.Limits
 	fmt.Fprintf(&b, "\n[transport]\ntbep_listen = \"127.0.0.1:8421\"\nquic_listen = %q\nmetrics_listen = \"127.0.0.1:8423\"\nserver_certificate = %q\nserver_private_key = %q\nclient_ca = %q\nmax_message_bytes = %d\nmax_inflight = %d\nrequest_timeout_millis = %d\ntls_handshake_timeout_millis = %d\nshutdown_grace_millis = %d\n", nodes[h.NodeID].Address+":8422", CertificatePath, PrivateKeyPath, CAPath, l.MaxMessageBytes, l.MaxInflight, l.RequestTimeoutMillis, l.TLSHandshakeTimeoutMillis, l.ShutdownGraceMillis)
 	for _, peer := range d.Hosts {

@@ -185,7 +185,7 @@ func (s *HostFactsSource) Sample(
 			UnitActive: active,
 		})
 	}
-	var engine EngineFacts
+	engine := EngineFacts{Databases: []DatabaseCatchUpFacts{}}
 	if s.engine != nil {
 		if sample, err := s.engine(ctx); err == nil {
 			engine = sample

@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json/v2"
+	"errors"
 	"net"
+	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"testing"
 	"time"
 
@@ -66,6 +69,15 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 			t.Fatalf("result=%v error=%v", result, err)
 		}
 	}
+	proofPayload, _ := json.Marshal(placementtransition.Proof{SchemaVersion: 1, Kind: "accepted_epoch", Request: placementtransition.Request{OperationID: "proof-op", Epoch: 2, Generation: 3}, AuthorityEpoch: 1, JournalRevision: 7})
+	proofEnvelope, _ := json.Marshal(placementtransition.Signed{KeyID: "authority", Payload: proofPayload, Signature: make([]byte, 64)})
+	proofRequest := &pb.PlacementAcceptRequest{ProposalRevision: 1, Proof: proofEnvelope}
+	if receipt, err := client.Accept(ctx, "proof-op", proofRequest); err != nil || receipt.Status != pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP {
+		t.Fatalf("proof transport: %v %v", receipt, err)
+	}
+	if _, err := client.Accept(ctx, "wrong-op", proofRequest); err == nil {
+		t.Fatal("mismatched proof operation accepted")
+	}
 	if request.Proposal.Regions[0].Members[0] != "b" {
 		t.Fatal("canonicalization mutated caller request")
 	}
@@ -83,4 +95,20 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	if _, err := wrong.Stage(t.Context(), "op-1", request); err == nil {
 		t.Fatal("wrong engine identity accepted")
 	}
+}
+
+func (server *placementTestServer) Accept(ctx context.Context, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
+	scope, _ := metadata.FromIncomingContext(ctx)
+	if len(scope.Get("x-tb-tenant")) != 0 || len(scope.Get("x-tb-project")) != 0 || len(scope.Get("x-tb-database")) != 0 {
+		server.t.Error("proof received forbidden database scope")
+	}
+	if values := scope.Get("x-tb-principal"); len(values) != 1 || values[0] != clientIdentity {
+		server.t.Error("proof principal not bound")
+	}
+	values := scope.Get("x-tb-idempotency-key")
+	if len(values) != 1 {
+		server.t.Error("proof operation metadata missing")
+		return nil, errors.New("missing operation")
+	}
+	return AcceptanceBinding(values[0], request)
 }

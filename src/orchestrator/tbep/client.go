@@ -139,6 +139,7 @@ type Observation struct {
 	Health   *pb.MaintenanceServiceSupervisionHealthResponse
 	Topology *pb.MaintenanceServiceTopologyReadResponse
 	Admin    *pb.MaintenanceServiceAdminStatusResponse
+	CatchUp  *pb.MaintenanceServiceCatchUpStatusResponse
 }
 
 // Observe has one deadline for the complete operation and replaces inherited
@@ -178,7 +179,14 @@ func (c *Client) Observe(ctx context.Context) (Observation, error) {
 	if !validMetadata(admin.RegistryVersion, 128) && !(pending && admin.RegistryVersion == "") {
 		return Observation{}, errors.New("TBEP admin status returned invalid registry version")
 	}
-	return Observation{Health: health, Topology: topology, Admin: admin}, nil
+	catchup, err := c.maintenance.CatchUpStatus(ctx, &pb.MaintenanceServiceCatchUpStatusRequest{})
+	if err != nil {
+		return Observation{}, fmt.Errorf("TBEP catchup status: %w", err)
+	}
+	if err := validateCatchUp(catchup); err != nil {
+		return Observation{}, err
+	}
+	return Observation{Health: health, Topology: topology, Admin: admin, CatchUp: catchup}, nil
 }
 
 func (c *Client) Close() error { return c.conn.Close() }

@@ -30,7 +30,16 @@ type RegionalDeliveryRoute struct {
 	MasterSignerKeyID string
 }
 
+// GlobalEdgeDelivery applies one authenticated global release. Implementations
+// must check the supplied fence before every provider mutation and observe real
+// serving state; an HTTP success alone is not completion evidence.
+type GlobalEdgeDelivery interface {
+	Observe(context.Context, *delivery.Request, *delivery.ReleaseArtifact, delivery.OperationFence, func(delivery.OperationFence) error) (bool, error)
+	Apply(context.Context, *delivery.Request, *delivery.ReleaseArtifact, delivery.OperationFence, func(delivery.OperationFence) error) error
+}
+
 type MasterDeliveryConfig struct {
+	GlobalEdge       GlobalEdgeDelivery
 	Cell, Instance   string
 	Connection       *nats.Conn
 	Leaders, Journal jetstream.KeyValue
@@ -62,11 +71,12 @@ type MasterRegionReceipt struct {
 	Accepted      bool   `json:"accepted"`
 }
 type MasterDeliveryReceipt struct {
-	OperationID  string                `json:"operationId"`
-	IntentDigest string                `json:"intentDigest"`
-	Generation   int64                 `json:"generation"`
-	Complete     bool                  `json:"complete"`
-	Regions      []MasterRegionReceipt `json:"regions"`
+	OperationID  string                   `json:"operationId"`
+	IntentDigest string                   `json:"intentDigest"`
+	Generation   int64                    `json:"generation"`
+	Complete     bool                     `json:"complete"`
+	Regions      []MasterRegionReceipt    `json:"regions"`
+	GlobalEdge   *MasterGlobalEdgeReceipt `json:"globalEdge,omitempty"`
 }
 
 func NewMasterDelivery(ctx context.Context, c MasterDeliveryConfig) (*MasterDelivery, error) {
@@ -150,4 +160,13 @@ func masterDeliveryTransport(connection *nats.Conn) error {
 		return errors.New("master delivery: verified transport is unavailable")
 	}
 	return nil
+}
+
+// MasterGlobalEdgeReceipt preserves the original intent identity for a global
+// provider effect; it is never represented as a regional child acceptance.
+type MasterGlobalEdgeReceipt struct {
+	OperationID    string `json:"operationId"`
+	PayloadDigest  string `json:"payloadDigest"`
+	ArtifactDigest string `json:"artifactDigest"`
+	Accepted       bool   `json:"accepted"`
 }

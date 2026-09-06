@@ -1,8 +1,8 @@
 # Accepted epoch proofs
 
 `New` constructs a GRU issuer using the authenticated R3 `authorityjournal`
-stream transaction, pinned Ed25519 authority/genesis/member keys, and fixed
-`placement.accepted` state key. The stream CAS fences the exact live authority
+stream transaction, pinned Ed25519 authority/genesis/member keys, and
+`placement.accepted` subject namespace. The stream CAS fences the exact live authority
 lease and records the proposed commit revision in the signed proof. Signing
 alone is not acceptance: `Issue` returns bytes only after the durable transaction
 and server commit timestamp have been verified. Unknown outcomes require the
@@ -17,7 +17,13 @@ sorting and deterministic protobuf encoding.
 Genesis requires a separately signed `GenesisGrant` whose request digest binds
 the complete request. Empty durable state, a pending Stage receipt, a healthy
 host, and a live authority lease cannot substitute for that grant. The grant ID
-and every operation ID remain retained; capacity exhaustion fails closed.
+and every operation ID remain retained. Each scope has one bounded checkpoint
+head; immutable operation proofs use separate retained subjects. Before replacing
+a head, the issuer confirms its predecessor's archive. It also archives the new
+proof before returning success. An unknown archive outcome cannot permit a
+successor. Independent immutable digest reservations protect operation and
+genesis identities across scopes. History therefore grows durably without a
+fixed lifetime transition cap or an ever-growing transaction payload.
 
 Transitions require a signed `old_epoch_drained_fenced` receipt from at least one
 member of **each old RF2 pair**. The receipt binds the exact prior epoch and
@@ -42,6 +48,12 @@ recanonicalize JSON. Genesis, member evidence and accepted proofs have distinct
 `kind` values and pinned key roles. The proof includes the previous raw proof
 payload's SHA-256 digest, commit revision, authority epoch, lease ID and complete
 signed drain receipts for engine verification and catch-up.
+
+`Prepare` durably records a separately signed `prepared_epoch` envelope binding
+the exact successor and current accepted predecessor before requesting member
+fences. Prepared intent cannot grant membership or serving. The runtime worker
+uses explicit pre-signed genesis grants from owner-private configuration and
+delivers accepted proofs with the exact persisted pending Stage revision.
 
 Caller integration still needs the explicit genesis authorization workflow,
 authenticated actual engine fence receipt producer, proof delivery endpoint,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/serviceidentity"
 	"terrascale.tech/orchestrator/src/orchestrator/systemdlimits"
 
@@ -259,7 +260,20 @@ func createSystemdExecutionPlan(
 			}
 		}
 		plan.Properties = append(plan.Properties, "Group="+serviceUser, "StateDirectoryMode=0700")
-		plan.Properties = append(plan.Properties, serviceidentity.UnitProperties(serviceUser)...)
+		if serviceUser == serviceidentity.TerraBase {
+			plan.Properties = append(plan.Properties, "RuntimeDirectoryMode=0700")
+		}
+		for _, property := range serviceidentity.UnitProperties(serviceUser) {
+			if property == "RuntimeDirectory=terrascale-keys" {
+				for i, current := range plan.Properties {
+					if strings.HasPrefix(current, "RuntimeDirectory=") {
+						plan.Properties[i] = current + " terrascale-keys"
+					}
+				}
+				continue
+			}
+			plan.Properties = append(plan.Properties, property)
+		}
 	}
 	return plan
 }

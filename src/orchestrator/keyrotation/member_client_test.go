@@ -41,7 +41,7 @@ func TestMemberGatewaySelectsOnlyTargetIdentityAndChecksDispatchAuthority(t *tes
 	serverRoots := x509.NewCertPool()
 	serverRoots.AddCert(server.Certificate())
 	allowed := true
-	gateway, err := NewMemberGateway(MemberGatewayConfig{Members: []MemberEndpoint{{ID: "gru-1", Region: "gru", URL: server.URL}}, TLS: &tls.Config{RootCAs: serverRoots, Certificates: []tls.Certificate{pair}}, CheckAuthority: func(context.Context) error {
+	gateway, err := NewMemberGateway(MemberGatewayConfig{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", Members: []MemberEndpoint{{ID: "gru-1", Region: "gru", URL: server.URL}}, TLS: &tls.Config{RootCAs: serverRoots, Certificates: []tls.Certificate{pair}}, CheckAuthority: func(context.Context) error {
 		if !allowed {
 			return errors.New("fenced")
 		}
@@ -71,7 +71,7 @@ func TestMemberGatewayRejectsUnknownIdentityAndInsecureTransport(t *testing.T) {
 	if _, err := selectMemberIdentity(encoded, "gru-1"); err == nil {
 		t.Fatal("missing identity accepted")
 	}
-	if _, err := NewMemberGateway(MemberGatewayConfig{Members: []MemberEndpoint{{ID: "gru-1", Region: "gru", URL: "http://127.0.0.1"}}, TLS: &tls.Config{InsecureSkipVerify: true}, CheckAuthority: func(context.Context) error { return nil }}); err == nil {
+	if _, err := NewMemberGateway(MemberGatewayConfig{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", Members: []MemberEndpoint{{ID: "gru-1", Region: "gru", URL: "http://127.0.0.1"}}, TLS: &tls.Config{InsecureSkipVerify: true}, CheckAuthority: func(context.Context) error { return nil }}); err == nil {
 		t.Fatal("insecure transport accepted")
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 )
 
 type admissionJournalCluster struct {
@@ -183,10 +184,23 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	putAdmissionLease(t, ctx, store, admissionLease(1, candidate))
 	journal := newAdmissionJournalClient(t, connection, 1, candidate)
 	record := journalFixture(t)
+	record.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
 	key := ScopeKey(record.Request)
 	revision, err := journal.Save(ctx, key, 0, record)
 	if err != nil || revision != 1 {
 		t.Fatalf("accept revision=%d err=%v", revision, err)
+	}
+	lifecycleRevision, resources, err := journal.LifecycleResources(ctx)
+	if err != nil || lifecycleRevision != 1 || len(resources) != 1 || resources[0].DatabaseID != record.DatabaseID {
+		t.Fatalf("create/inventory not atomic: %d %+v %v", lifecycleRevision, resources, err)
+	}
+	route := databaselifecycle.Event{Identity: resources[0].Identity, OperationID: "initial-routing", Kind: "streams", At: record.CreatedAt, Streams: []databaselifecycle.Stream{{Region: "GRU", Partition: "root", Epoch: 1, StartedAt: record.CreatedAt}}}
+	if err := journal.ApplyLifecycle(ctx, route); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := journal.FreezeInventory(ctx, record.Request.TenantID, record.CreatedAt, record.CreatedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
 	}
 	// Ignore the create response and reconstruct both the process and R3 servers.
 	cluster.restart(t)
@@ -201,6 +215,10 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	recovered, found, err := successor.Load(ctx, key)
 	if err != nil || !found || recovered.DatabaseID != record.DatabaseID || recovered.Revision != 1 || !ImmutableEqual(recovered, record) {
 		t.Fatalf("recovery found=%v err=%v record=%+v", found, err, recovered)
+	}
+	replayed, err := successor.FreezeInventory(ctx, record.Request.TenantID, closed.Start, closed.End)
+	if err != nil || replayed.Digest != closed.Digest || replayed.Revision != closed.Revision {
+		t.Fatalf("lost closed inventory: %+v %v", replayed, err)
 	}
 	recovered.State = "keys_provisioned"
 	recovered.Wrapped = journalWrapped(recovered)

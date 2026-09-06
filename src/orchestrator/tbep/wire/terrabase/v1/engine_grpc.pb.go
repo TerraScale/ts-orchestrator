@@ -940,6 +940,7 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	MaintenanceService_CatchUpStatus_FullMethodName       = "/terrabase.v1.MaintenanceService/CatchUpStatus"
 	MaintenanceService_TopologyRead_FullMethodName        = "/terrabase.v1.MaintenanceService/TopologyRead"
 	MaintenanceService_AdminStatus_FullMethodName         = "/terrabase.v1.MaintenanceService/AdminStatus"
 	MaintenanceService_SupervisionHealth_FullMethodName   = "/terrabase.v1.MaintenanceService/SupervisionHealth"
@@ -952,6 +953,7 @@ const (
 //
 // Topology, administration, and supervision.
 type MaintenanceServiceClient interface {
+	CatchUpStatus(ctx context.Context, in *MaintenanceServiceCatchUpStatusRequest, opts ...grpc.CallOption) (*MaintenanceServiceCatchUpStatusResponse, error)
 	TopologyRead(ctx context.Context, in *MaintenanceServiceTopologyReadRequest, opts ...grpc.CallOption) (*MaintenanceServiceTopologyReadResponse, error)
 	AdminStatus(ctx context.Context, in *MaintenanceServiceAdminStatusRequest, opts ...grpc.CallOption) (*MaintenanceServiceAdminStatusResponse, error)
 	SupervisionHealth(ctx context.Context, in *MaintenanceServiceSupervisionHealthRequest, opts ...grpc.CallOption) (*MaintenanceServiceSupervisionHealthResponse, error)
@@ -964,6 +966,16 @@ type maintenanceServiceClient struct {
 
 func NewMaintenanceServiceClient(cc grpc.ClientConnInterface) MaintenanceServiceClient {
 	return &maintenanceServiceClient{cc}
+}
+
+func (c *maintenanceServiceClient) CatchUpStatus(ctx context.Context, in *MaintenanceServiceCatchUpStatusRequest, opts ...grpc.CallOption) (*MaintenanceServiceCatchUpStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MaintenanceServiceCatchUpStatusResponse)
+	err := c.cc.Invoke(ctx, MaintenanceService_CatchUpStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *maintenanceServiceClient) TopologyRead(ctx context.Context, in *MaintenanceServiceTopologyReadRequest, opts ...grpc.CallOption) (*MaintenanceServiceTopologyReadResponse, error) {
@@ -1012,6 +1024,7 @@ func (c *maintenanceServiceClient) SupervisionShutdown(ctx context.Context, in *
 //
 // Topology, administration, and supervision.
 type MaintenanceServiceServer interface {
+	CatchUpStatus(context.Context, *MaintenanceServiceCatchUpStatusRequest) (*MaintenanceServiceCatchUpStatusResponse, error)
 	TopologyRead(context.Context, *MaintenanceServiceTopologyReadRequest) (*MaintenanceServiceTopologyReadResponse, error)
 	AdminStatus(context.Context, *MaintenanceServiceAdminStatusRequest) (*MaintenanceServiceAdminStatusResponse, error)
 	SupervisionHealth(context.Context, *MaintenanceServiceSupervisionHealthRequest) (*MaintenanceServiceSupervisionHealthResponse, error)
@@ -1026,6 +1039,9 @@ type MaintenanceServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMaintenanceServiceServer struct{}
 
+func (UnimplementedMaintenanceServiceServer) CatchUpStatus(context.Context, *MaintenanceServiceCatchUpStatusRequest) (*MaintenanceServiceCatchUpStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CatchUpStatus not implemented")
+}
 func (UnimplementedMaintenanceServiceServer) TopologyRead(context.Context, *MaintenanceServiceTopologyReadRequest) (*MaintenanceServiceTopologyReadResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TopologyRead not implemented")
 }
@@ -1057,6 +1073,24 @@ func RegisterMaintenanceServiceServer(s grpc.ServiceRegistrar, srv MaintenanceSe
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&MaintenanceService_ServiceDesc, srv)
+}
+
+func _MaintenanceService_CatchUpStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaintenanceServiceCatchUpStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MaintenanceServiceServer).CatchUpStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MaintenanceService_CatchUpStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MaintenanceServiceServer).CatchUpStatus(ctx, req.(*MaintenanceServiceCatchUpStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _MaintenanceService_TopologyRead_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1138,6 +1172,10 @@ var MaintenanceService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "terrabase.v1.MaintenanceService",
 	HandlerType: (*MaintenanceServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CatchUpStatus",
+			Handler:    _MaintenanceService_CatchUpStatus_Handler,
+		},
 		{
 			MethodName: "TopologyRead",
 			Handler:    _MaintenanceService_TopologyRead_Handler,
@@ -1308,6 +1346,8 @@ const (
 	PlacementControlService_Get_FullMethodName         = "/terrabase.v1.PlacementControlService/Get"
 	PlacementControlService_Accept_FullMethodName      = "/terrabase.v1.PlacementControlService/Accept"
 	PlacementControlService_GetAccepted_FullMethodName = "/terrabase.v1.PlacementControlService/GetAccepted"
+	PlacementControlService_Drain_FullMethodName       = "/terrabase.v1.PlacementControlService/Drain"
+	PlacementControlService_Readiness_FullMethodName   = "/terrabase.v1.PlacementControlService/Readiness"
 )
 
 // PlacementControlServiceClient is the client API for PlacementControlService service.
@@ -1326,6 +1366,10 @@ type PlacementControlServiceClient interface {
 	// Admission permits catch-up only; it does not assert data readiness.
 	Accept(ctx context.Context, in *PlacementAcceptRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
 	GetAccepted(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
+	// Executes a durably authorized old-epoch fence and returns a member-signed
+	// frontier receipt only after origin+physical work has durably drained.
+	Drain(ctx context.Context, in *PlacementDrainRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error)
+	Readiness(ctx context.Context, in *PlacementReadinessRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error)
 }
 
 type placementControlServiceClient struct {
@@ -1376,6 +1420,26 @@ func (c *placementControlServiceClient) GetAccepted(ctx context.Context, in *Pla
 	return out, nil
 }
 
+func (c *placementControlServiceClient) Drain(ctx context.Context, in *PlacementDrainRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementDrainResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_Drain_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *placementControlServiceClient) Readiness(ctx context.Context, in *PlacementReadinessRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlacementDrainResponse)
+	err := c.cc.Invoke(ctx, PlacementControlService_Readiness_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PlacementControlServiceServer is the server API for PlacementControlService service.
 // All implementations must embed UnimplementedPlacementControlServiceServer
 // for forward compatibility.
@@ -1392,6 +1456,10 @@ type PlacementControlServiceServer interface {
 	// Admission permits catch-up only; it does not assert data readiness.
 	Accept(context.Context, *PlacementAcceptRequest) (*PlacementAcceptanceResponse, error)
 	GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error)
+	// Executes a durably authorized old-epoch fence and returns a member-signed
+	// frontier receipt only after origin+physical work has durably drained.
+	Drain(context.Context, *PlacementDrainRequest) (*PlacementDrainResponse, error)
+	Readiness(context.Context, *PlacementReadinessRequest) (*PlacementDrainResponse, error)
 	mustEmbedUnimplementedPlacementControlServiceServer()
 }
 
@@ -1413,6 +1481,12 @@ func (UnimplementedPlacementControlServiceServer) Accept(context.Context, *Place
 }
 func (UnimplementedPlacementControlServiceServer) GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAccepted not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) Drain(context.Context, *PlacementDrainRequest) (*PlacementDrainResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Drain not implemented")
+}
+func (UnimplementedPlacementControlServiceServer) Readiness(context.Context, *PlacementReadinessRequest) (*PlacementDrainResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Readiness not implemented")
 }
 func (UnimplementedPlacementControlServiceServer) mustEmbedUnimplementedPlacementControlServiceServer() {
 }
@@ -1508,6 +1582,42 @@ func _PlacementControlService_GetAccepted_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PlacementControlService_Drain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementDrainRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).Drain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_Drain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).Drain(ctx, req.(*PlacementDrainRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PlacementControlService_Readiness_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlacementReadinessRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PlacementControlServiceServer).Readiness(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PlacementControlService_Readiness_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PlacementControlServiceServer).Readiness(ctx, req.(*PlacementReadinessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PlacementControlService_ServiceDesc is the grpc.ServiceDesc for PlacementControlService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1530,6 +1640,14 @@ var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAccepted",
 			Handler:    _PlacementControlService_GetAccepted_Handler,
+		},
+		{
+			MethodName: "Drain",
+			Handler:    _PlacementControlService_Drain_Handler,
+		},
+		{
+			MethodName: "Readiness",
+			Handler:    _PlacementControlService_Readiness_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

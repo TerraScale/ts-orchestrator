@@ -32,7 +32,7 @@ func KeyDestructionSubject(identity string) (string, error) {
 	return "orch.database.host." + hex.EncodeToString(sum[:]) + ".destroy-key", nil
 }
 
-type HostKeyAdapterConfig struct {
+type HostKeyRevokerConfig struct {
 	Connection *nats.Conn
 	Scope      keylease.DatabaseScope
 	// HostIdentities is the complete immutable inventory, including retired holders.
@@ -40,12 +40,19 @@ type HostKeyAdapterConfig struct {
 	Authority            NATSStateStoreConfig
 	CheckEffectAuthority func(context.Context) error
 }
-type HostKeyAdapter struct {
-	config HostKeyAdapterConfig
+type HostKeyRevoker struct {
+	config HostKeyRevokerConfig
 	closed atomic.Bool
 }
 
-var _ KeyAdapter = (*HostKeyAdapter)(nil)
+// HostKeyRevocation proves only removal from the listed live catalogs. It is
+// not irreversible destruction: durable admission history can retain wrappers.
+type HostKeyRevocation struct {
+	Scope          keylease.DatabaseScope
+	OperationKey   string
+	Receipts       map[string]keylease.DatabaseTombstone
+	LeasesExpireAt time.Time
+}
 
 type keyDestructionRequest struct {
 	HostIdentity   string                 `json:"host_identity"`
@@ -67,7 +74,7 @@ var destructionEnvironment = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 func validDestructionScope(s keylease.DatabaseScope) bool {
 	return destructionEnvironment.MatchString(s.Environment) && destructionULID.MatchString(s.TenantID) && destructionULID.MatchString(s.ProjectID) && destructionULID.MatchString(s.DatabaseID)
 }
-func NewHostKeyAdapter(c HostKeyAdapterConfig) (*HostKeyAdapter, error) {
+func NewHostKeyRevoker(c HostKeyRevokerConfig) (*HostKeyRevoker, error) {
 	if reaperTransport(c.Connection) != nil || !validDestructionScope(c.Scope) || len(c.HostIdentities) == 0 || c.CheckEffectAuthority == nil {
 		return nil, ErrKeyDestructionUnavailable
 	}
@@ -83,55 +90,59 @@ func NewHostKeyAdapter(c HostKeyAdapterConfig) (*HostKeyAdapter, error) {
 		seen[host] = true
 	}
 	c.HostIdentities = slices.Clone(c.HostIdentities)
-	return &HostKeyAdapter{config: c}, nil
+	return &HostKeyRevoker{config: c}, nil
 }
-func (a *HostKeyAdapter) Close() error {
+func (a *HostKeyRevoker) Close() error {
 	if a != nil {
 		a.closed.Store(true)
 	}
 	return nil
 }
-func (a *HostKeyAdapter) DestroyDEK(ctx context.Context, databaseID, operationKey string) error {
+func (a *HostKeyRevoker) RevokeWrappedCopies(ctx context.Context, databaseID, operationKey string) (HostKeyRevocation, error) {
+	result := HostKeyRevocation{}
 	if a == nil || ctx == nil || ctx.Err() != nil || a.closed.Load() || databaseID != a.config.Scope.DatabaseID || operationKey == "" || len(operationKey) > 256 || strings.ContainsAny(operationKey, "\x00\r\n") || reaperTransport(a.config.Connection) != nil {
-		return ErrKeyDestructionUnavailable
+		return result, ErrKeyDestructionUnavailable
 	}
 	c := a.config
-	var horizon time.Time
+	result.Scope = c.Scope
+	result.OperationKey = operationKey
+	result.Receipts = make(map[string]keylease.DatabaseTombstone, len(c.HostIdentities))
 	for _, host := range c.HostIdentities {
 		if err := c.CheckEffectAuthority(ctx); err != nil {
-			return err
+			return result, err
 		}
 		subject, _ := KeyDestructionSubject(host)
 		request := keyDestructionRequest{host, c.Scope, operationKey, c.Authority.CandidateID, c.Authority.AuthorityEpoch, c.Authority.LeaseID}
 		data, err := json.Marshal(request)
 		if err != nil {
-			return ErrKeyDestructionUnavailable
+			return result, ErrKeyDestructionUnavailable
 		}
 		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		message, err := c.Connection.RequestWithContext(opctx, subject, data)
 		cancel()
 		if err != nil || len(message.Data) > 16<<10 {
-			return ErrKeyDestructionUnavailable
+			return result, ErrKeyDestructionUnavailable
 		}
 		var reply keyDestructionReply
 		if json.Unmarshal(message.Data, &reply, json.RejectUnknownMembers(true)) != nil || reply.Error != "" || reply.HostIdentity != host || reply.Receipt == nil {
-			return ErrKeyDestructionUnavailable
+			return result, ErrKeyDestructionUnavailable
 		}
 		receipt := reply.Receipt
 		if receipt.Scope != c.Scope || receipt.OperationKey != operationKey || receipt.DestroyedAt.IsZero() || receipt.DestroyedAt.After(time.Now().UTC()) || receipt.LeasesExpireAt.Sub(receipt.DestroyedAt) != 1800*time.Second {
-			return ErrKeyDestructionUnavailable
+			return result, ErrKeyDestructionUnavailable
 		}
-		if receipt.LeasesExpireAt.After(horizon) {
-			horizon = receipt.LeasesExpireAt
+		result.Receipts[host] = *receipt
+		if receipt.LeasesExpireAt.After(result.LeasesExpireAt) {
+			result.LeasesExpireAt = receipt.LeasesExpireAt
 		}
 	}
 	if err := c.CheckEffectAuthority(ctx); err != nil {
-		return err
+		return result, err
 	}
-	if time.Now().UTC().Before(horizon) {
-		return ErrKeyLeasesPending
+	if time.Now().UTC().Before(result.LeasesExpireAt) {
+		return result, ErrKeyLeasesPending
 	}
-	return nil
+	return result, nil
 }
 
 type KeyDestructionHostConfig struct {
@@ -208,6 +219,10 @@ func StartKeyDestructionHost(ctx context.Context, c KeyDestructionHostConfig) (*
 	context.AfterFunc(ctx, func() { _ = h.Close() })
 	return h, nil
 }
+
+// checkKeyDestructionFence verifies the durable deletion admission and current
+// global leader. The lifecycle authority owns fresh product eligibility before
+// admitting this operation; this receiver does not independently query policy.
 func checkKeyDestructionFence(ctx context.Context, nc *nats.Conn, r keyDestructionRequest) error {
 	store, err := NewNATSStateStore(NATSStateStoreConfig{Connection: nc, CandidateID: r.CandidateID, AuthorityEpoch: r.AuthorityEpoch, LeaseID: r.LeaseID})
 	if err != nil {
@@ -221,7 +236,7 @@ func checkKeyDestructionFence(ctx context.Context, nc *nats.Conn, r keyDestructi
 	if !ok || entry.DatabaseID != r.Scope.DatabaseID || entry.Plan != PlanFree || entry.Phase != PhaseDeleting || entry.SecondNoticeAt.IsZero() {
 		return ErrStateFenced
 	}
-	name := (&Reconciler{}).operationName(entry, "delete/crypto-shred")
+	name := "delete/crypto-shred"
 	if r.OperationKey != name+"/"+entry.DatabaseID || entry.Operations[name].Status != operationStarted {
 		return ErrStateFenced
 	}

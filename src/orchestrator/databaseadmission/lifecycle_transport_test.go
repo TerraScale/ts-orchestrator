@@ -43,7 +43,7 @@ func TestLifecycleTransportRejectsMalformedAndAdmissionCreate(t *testing.T) {
 func TestLifecycleTransportPreservesTypedErrors(t *testing.T) {
 	for err, want := range map[error]string{databaselifecycle.ErrInvalid: "invalid", databaselifecycle.ErrConflict: "conflict", databaselifecycle.ErrClosed: "closed", databaselifecycle.ErrIncomplete: "incomplete", errors.New("storage internal detail"): "unavailable"} {
 		journal := &lifecycleTransportJournal{err: err}
-		reply := handleLifecycle(t.Context(), journal, LifecycleEventSubject, []byte(`{"kind":"delete"}`))
+		reply := handleLifecycle(t.Context(), journal, LifecycleEventSubject, []byte(`{"kind":"streams"}`))
 		if reply.Error != want || reply.Applied {
 			t.Fatalf("%v: %+v", err, reply)
 		}

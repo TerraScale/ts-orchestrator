@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
@@ -148,6 +149,11 @@ func TestOCIMailConfigurationAndInputFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseline := OCIMailConfig{Endpoint: "https://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com", CompartmentID: "compartment", Sender: "notice@example.com", KeyID: "id", PrivateKey: key, CheckEffectAuthority: func(context.Context) error { return nil }}
+	insecure := baseline
+	insecure.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	if _, err := NewOCIMailAdapter(insecure); err == nil {
+		t.Fatal("accepted disabled TLS verification")
+	}
 	for _, endpoint := range []string{"http://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com", "https://attacker.example", "https://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com:443", "https://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com/path", "https://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com/?", "https://user@cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com"} {
 		c := baseline
 		c.Endpoint = endpoint

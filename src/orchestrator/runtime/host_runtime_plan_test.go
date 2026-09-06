@@ -201,3 +201,18 @@ func TestHostRuntimePlanRevalidatesValueObjectFieldsAtPlanBoundary(t *testing.T)
 		})
 	}
 }
+
+func TestControlNativePlanRetainsPrivateStateAndStableSocketIdentity(t *testing.T) {
+	plan, err := NewHostRuntimePlan(AdmittedRoleAutoscaler, RuntimeDriverNativeSystemd, mustRuntimeAllocationId(t, "gru-control-1"), mustArtifactDigest(t, hostRuntimePlanDigest), HostArchitectureArm64, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"User=terrascale-orchestrator", "Group=terrascale-orchestrator", "SupplementaryGroups=terrascale-keylease", "StateDirectoryMode=0700", "RuntimeDirectory=terrascale-gru-control-1 terrascale-keys", "RuntimeDirectoryMode=0700", "ExecStartPre=/usr/bin/chmod 0710 /run/terrascale-keys"} {
+		containsString(t, plan.Systemd.Properties, required)
+	}
+	for _, property := range plan.Systemd.Properties {
+		if property == "DynamicUser=yes" {
+			t.Fatal("key server identity is not stable")
+		}
+	}
+}

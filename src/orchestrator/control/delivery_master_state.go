@@ -22,7 +22,13 @@ type masterDeliveryChild struct {
 	Attempt       int64  `json:"attempt"`
 	Accepted      bool   `json:"accepted"`
 }
+type masterDeliveryEdge struct {
+	ArtifactDigest string `json:"artifactDigest"`
+	Attempt        int64  `json:"attempt"`
+	Accepted       bool   `json:"accepted"`
+}
 type masterDeliveryRecord struct {
+	GlobalEdge        *masterDeliveryEdge   `json:"globalEdge,omitempty"`
 	Version           int                   `json:"version"`
 	OperationID       string                `json:"operationId"`
 	PayloadDigest     string                `json:"payloadDigest"`
@@ -42,6 +48,10 @@ type masterDeliveryHead struct {
 
 func (r *masterDeliveryRecord) receipt() *MasterDeliveryReceipt {
 	result := &MasterDeliveryReceipt{OperationID: r.OperationID, IntentDigest: r.PayloadDigest, Generation: r.Generation, Complete: r.Prepared && len(r.Children) > 0, Regions: make([]MasterRegionReceipt, 0, len(r.Children))}
+	if r.GlobalEdge != nil {
+		result.GlobalEdge = &MasterGlobalEdgeReceipt{OperationID: r.OperationID, PayloadDigest: r.PayloadDigest, ArtifactDigest: r.GlobalEdge.ArtifactDigest, Accepted: r.GlobalEdge.Accepted}
+		result.Complete = r.Prepared && r.GlobalEdge.Accepted && len(r.Children) == 0
+	}
 	for _, child := range r.Children {
 		result.Regions = append(result.Regions, MasterRegionReceipt{Cell: child.Cell, OperationID: child.OperationID, PayloadDigest: child.PayloadDigest, Accepted: child.Accepted})
 		result.Complete = result.Complete && child.Accepted
@@ -123,7 +133,14 @@ func (m *MasterDelivery) saveMaster(ctx context.Context, record *masterDeliveryR
 func (m *MasterDelivery) admitMaster(ctx context.Context, envelope protocol.CommandEnvelope, wire []byte, request *delivery.Request) (*masterDeliveryRecord, uint64, error) {
 	epoch := envelope.WriterEpoch.Value
 	expected := &masterDeliveryRecord{Version: 1, OperationID: request.OperationID, PayloadDigest: delivery.SHA256Digest(envelope.Payload.Bytes()), IdempotencyDigest: masterKey(envelope.IdempotencyKey.Value), Generation: envelope.DesiredGeneration.Value, OwnerEpoch: epoch, OriginalEnvelope: append([]byte(nil), wire...)}
-	for _, cell := range request.Target.Regions {
+	if masterIsEdge(request) {
+		expected.GlobalEdge = &masterDeliveryEdge{ArtifactDigest: request.Artifact.Digest}
+	}
+	targets := request.Target.Regions
+	if expected.GlobalEdge != nil {
+		targets = nil
+	}
+	for _, cell := range targets {
 		operation := "delivery-" + masterKey(request.OperationID + "\x00" + expected.PayloadDigest + "\x00" + cell)[:54]
 		payload, err := masterChildPayload(request, cell, operation)
 		if err != nil {
@@ -241,6 +258,14 @@ func (m *MasterDelivery) admitMaster(ctx context.Context, envelope protocol.Comm
 func masterSameLineage(prior, expected *masterDeliveryRecord) bool {
 	if (len(prior.ReleaseSignature) != 0 && len(prior.ReleaseSignature) != 64) || (prior.Prepared && len(prior.ReleaseSignature) != 64) || prior.Version != 1 || prior.head() != expected.head() || prior.IdempotencyDigest != expected.IdempotencyDigest || prior.OwnerEpoch <= 0 || len(prior.Children) != len(expected.Children) {
 		return false
+	}
+	if (prior.GlobalEdge == nil) != (expected.GlobalEdge == nil) {
+		return false
+	}
+	if edge := prior.GlobalEdge; edge != nil {
+		if edge.ArtifactDigest != expected.GlobalEdge.ArtifactDigest || edge.Attempt < 0 || edge.Attempt > 1000 || edge.Accepted && !prior.Prepared || len(prior.Children) != 0 {
+			return false
+		}
 	}
 	original, err := protocol.DecodeCommandEnvelope(prior.OriginalEnvelope)
 	if err != nil || original.Cell.Value != "gru" || original.AggregateId.Value != "delivery-master" || original.OperationId.Value != prior.OperationID || original.DesiredGeneration.Value != prior.Generation || delivery.SHA256Digest(original.Payload.Bytes()) != prior.PayloadDigest || masterKey(original.IdempotencyKey.Value) != prior.IdempotencyDigest {

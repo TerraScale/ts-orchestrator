@@ -10,6 +10,11 @@ Build `ts-proxy` with `npm run build:snippet` to obtain the executable, unbound
 Cloudflare credentials, zone/account and Snippet name, the capability Vault,
 fixed-owner `CheckEffectAuthority`, an existing R3 file-backed nonexpiring NATS
 KV journal, and explicit HTTPS probe URLs plus their trusted HTTP transport.
+Delivery supplies an artifact resolver and template service. `PromoteTemplate`
+keeps the live ring while journaling the new verified template digest;
+`ObserveTemplate` checks the rendered source, probes and enabled rule. Restarts
+resolve the journaled template digest instead of restoring an older startup
+file. Ordinary unbound Snippet uploads must not bypass this path.
 No keys are written into the template artifact. The adapter resolves Vault
 references and inserts the current/previous hex key ring into the template in
 memory immediately before upload. Cloudflare necessarily stores the deployed

@@ -95,7 +95,7 @@ func RequestDigest(r Request) (string, error) {
 	}
 	regions := map[string]int{}
 	for n, m := range r.Members {
-		if !token(m.Identity) || !token(m.Region) || !digest(m.PlacementDigest) || (n > 0 && r.Members[n-1].Identity >= m.Identity) {
+		if !token(m.Identity) || !slices.Contains([]string{"GRU", "SFO", "FRA"}, m.Region) || !digest(m.PlacementDigest) || (n > 0 && r.Members[n-1].Identity >= m.Identity) {
 			return "", ErrInvalid
 		}
 		regions[m.Region]++

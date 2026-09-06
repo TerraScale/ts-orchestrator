@@ -57,6 +57,9 @@ func (m *MasterDelivery) Submit(ctx context.Context, wire []byte) (*MasterDelive
 	if err := delivery.ValidateRequest(request); err != nil || request.OperationID != envelope.OperationId.Value || request.Artifact == nil || request.Artifact.Architecture == "" {
 		return nil, errors.New("master delivery: original request identity is invalid")
 	}
+	if masterIsEdge(request) && deliveryNil(m.config.GlobalEdge) {
+		return nil, errors.New("master delivery: global edge adapter is unavailable")
+	}
 	for _, cell := range request.Target.Regions {
 		if _, ok := m.config.Regions[cell]; !ok {
 			return nil, errors.New("master delivery: target has no admitted regional route")
@@ -103,6 +106,10 @@ func (m *MasterDelivery) Submit(ctx context.Context, wire []byte) (*MasterDelive
 			record.Prepared = false
 			return receipt(), err
 		}
+	}
+	if record.GlobalEdge != nil {
+		err := m.submitGlobalEdge(ctx, request, artifact, record, revision, epoch, fence, check)
+		return receipt(), err
 	}
 	for index := range record.Children {
 		child := &record.Children[index]

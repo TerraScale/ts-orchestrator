@@ -42,18 +42,22 @@ func (c MemberGatewayFileConfig) transportConfig(authority func(context.Context)
 	}
 	return MemberGatewayConfig{Members: c.Members, TLS: &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{pair}, RootCAs: roots}, CheckAuthority: authority}, nil
 }
-func (c MemberGatewayFileConfig) Open(authority func(context.Context) error) (*MemberGateway, error) {
+func (c MemberGatewayFileConfig) OpenForLease(authority func(context.Context) error, epoch uint64, leaseID string) (*MemberGateway, error) {
 	config, err := c.transportConfig(authority)
 	if err != nil {
 		return nil, err
 	}
+	config.AuthorityEpoch = epoch
+	config.AuthorityLeaseID = leaseID
 	return NewMemberGateway(config)
 }
-func (c MemberGatewayFileConfig) OpenReloader(authority func(context.Context) error) (*ControlReloader, error) {
+func (c MemberGatewayFileConfig) OpenReloaderForLease(authority func(context.Context) error, epoch uint64, leaseID string) (*ControlReloader, error) {
 	config, err := c.transportConfig(authority)
 	if err != nil {
 		return nil, err
 	}
+	config.AuthorityEpoch = epoch
+	config.AuthorityLeaseID = leaseID
 	return NewControlReloader(config)
 }
 
@@ -63,6 +67,11 @@ func (c MemberGatewayFileConfig) Validate() error {
 	if err != nil {
 		return err
 	}
-	_, err = NewMemberGateway(config)
-	return err
+	config.AuthorityEpoch = 1
+	config.AuthorityLeaseID = "static-validation"
+	gateway, err := NewMemberGateway(config)
+	if err != nil {
+		return err
+	}
+	return gateway.Close()
 }

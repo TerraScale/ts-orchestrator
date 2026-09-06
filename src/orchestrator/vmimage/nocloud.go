@@ -69,7 +69,7 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
-	engineOwner := vmengineconfig.IsTLSPath(file.Path) && file.Owner == vmengineconfig.ServiceUser
+	engineOwner := (vmengineconfig.IsTLSPath(file.Path) || vmengineconfig.IsTransitionTrustPath(file.Path)) && file.Owner == vmengineconfig.ServiceUser
 	if file.Owner != "" && !engineOwner && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
 	}

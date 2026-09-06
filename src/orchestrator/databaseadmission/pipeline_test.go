@@ -126,7 +126,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	if err != nil || final.State != "placement_pending" {
 		t.Fatal(final.State, err)
 	}
-	if installCalls[accepted.Targets[0].MemberID] != 2 || proposalCalls[accepted.Targets[0].ServerIdentity] != 2 {
+	if installCalls[accepted.Targets[0].MemberID] != 3 || proposalCalls[accepted.Targets[0].ServerIdentity] != 2 {
 		t.Fatal("unknown effects not retried with original identity")
 	}
 	if result(final).State != "pending" {
@@ -135,8 +135,8 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	if err = pipeline.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if installCalls[accepted.Targets[0].MemberID] != 2 {
-		t.Fatal("completed host work repeated")
+	if installCalls[accepted.Targets[0].MemberID] != 4 {
+		t.Fatal("pending operation did not recheck activated host publication")
 	}
 }
 func TestAdmissionDeniedBeforeDurableIdentity(t *testing.T) {

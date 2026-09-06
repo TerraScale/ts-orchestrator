@@ -19,10 +19,15 @@ func (journal *NATSJournal) ApplyLifecycle(ctx context.Context, event databaseli
 		return ErrJournalUnavailable
 	}
 	// Database creates must enter through admission and its immutable placement.
-	if event.Kind == "create" {
+	if event.Kind != "streams" {
 		return ErrInvalid
 	}
-	return journal.journal.Transact(ctx, true, func(state *journalState) error { return databaselifecycle.Apply(&state.Lifecycle, event) })
+	return journal.journal.Transact(ctx, true, func(state *journalState) error {
+		if err := databaselifecycle.Apply(&state.Lifecycle, event); err != nil {
+			return err
+		}
+		return validateReservedCapacity(*state)
+	})
 }
 func (journal *NATSJournal) FreezeInventory(ctx context.Context, org string, start, end time.Time) (out databaselifecycle.Snapshot, err error) {
 	if journal == nil || journal.journal == nil {
@@ -32,9 +37,15 @@ func (journal *NATSJournal) FreezeInventory(ctx context.Context, org string, sta
 		return out, ErrInvalid
 	}
 	err = journal.journal.Transact(ctx, true, func(state *journalState) error {
+		if deletionBlocksFreeze(state, org, end) {
+			return databaselifecycle.ErrIncomplete
+		}
 		var inner error
 		out, inner = databaselifecycle.Freeze(&state.Lifecycle, org, start, end)
-		return inner
+		if inner != nil {
+			return inner
+		}
+		return validateReservedCapacity(*state)
 	})
 	if err != nil {
 		return databaselifecycle.Snapshot{}, err
@@ -85,19 +96,30 @@ func (journal *MemoryJournal) lifecycleTransact(ctx context.Context, action func
 	return nil
 }
 func (journal *MemoryJournal) ApplyLifecycle(ctx context.Context, event databaselifecycle.Event) error {
-	if event.Kind == "create" {
+	if event.Kind != "streams" {
 		return ErrInvalid
 	}
-	return journal.lifecycleTransact(ctx, func(state *journalState) error { return databaselifecycle.Apply(&state.Lifecycle, event) })
+	return journal.lifecycleTransact(ctx, func(state *journalState) error {
+		if err := databaselifecycle.Apply(&state.Lifecycle, event); err != nil {
+			return err
+		}
+		return validateReservedCapacity(*state)
+	})
 }
 func (journal *MemoryJournal) FreezeInventory(ctx context.Context, org string, start, end time.Time) (out databaselifecycle.Snapshot, err error) {
 	if end.After(time.Now()) {
 		return out, ErrInvalid
 	}
 	err = journal.lifecycleTransact(ctx, func(state *journalState) error {
+		if deletionBlocksFreeze(state, org, end) {
+			return databaselifecycle.ErrIncomplete
+		}
 		var inner error
 		out, inner = databaselifecycle.Freeze(&state.Lifecycle, org, start, end)
-		return inner
+		if inner != nil {
+			return inner
+		}
+		return validateReservedCapacity(*state)
 	})
 	if err != nil {
 		return databaselifecycle.Snapshot{}, err
@@ -114,3 +136,26 @@ func (journal *MemoryJournal) LifecycleResources(ctx context.Context) (uint64, [
 
 var _ LifecycleJournal = (*NATSJournal)(nil)
 var _ LifecycleJournal = (*MemoryJournal)(nil)
+
+func admissionLifecycleEvent(record Record) databaselifecycle.Event {
+	kind := "create"
+	if record.Request.ParentDatabaseID != "" {
+		kind = "branch_create"
+	}
+	return databaselifecycle.Event{OperationID: PlacementOperationID(record.Request), Kind: kind, Identity: databaselifecycle.Identity{Environment: record.Request.Environment, OrganizationID: record.Request.TenantID, ProjectID: record.Request.ProjectID, DatabaseID: record.DatabaseID, ParentDatabaseID: record.Request.ParentDatabaseID}, At: record.CreatedAt, Regions: record.Request.Regions}
+}
+func validateAdmissionLifecycle(state journalState) error {
+	if len(state.Records) != len(state.Lifecycle.Resources) {
+		return ErrInvalid
+	}
+	for _, record := range state.Records {
+		event := admissionLifecycleEvent(record)
+		resource, found := state.Lifecycle.Resources[databaselifecycle.Key(event.Identity)]
+		regions := slices.Clone(record.Request.Regions)
+		slices.Sort(regions)
+		if !found || resource.Identity != event.Identity || !resource.CreatedAt.Equal(record.CreatedAt) || !slices.Equal(resource.Regions, regions) {
+			return ErrInvalid
+		}
+	}
+	return nil
+}

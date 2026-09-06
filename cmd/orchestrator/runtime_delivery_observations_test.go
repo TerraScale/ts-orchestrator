@@ -102,3 +102,47 @@ func TestProductionDeliveryGatesRequireExactFreshMeasuredFacts(t *testing.T) {
 		})
 	}
 }
+
+func TestProductionDeliveryCatchUpRequiresAllMeasuredDatabaseBoundaries(t *testing.T) {
+	membership, _ := deliveryObservationMembership(t)
+	valid := hostagent.EngineFacts{Measured: true, Serving: true, ObservedAtUnixMS: time.Now().UnixMilli(), CatchUpComplete: true, AssignmentRevision: "assignment-7", CatchUpObservedAtUnixMS: uint64(time.Now().UnixMilli()), Databases: []hostagent.DatabaseCatchUpFacts{{Tenant: "tenant", Project: "project", Database: "database", SourceSequence: 12, RegionalSequence: 12, RegionalMeasured: true, CausalMeasured: true, CausalCaughtUp: true, BackupSourceSequence: 9, BackupProtectedSequence: 9, BackupMeasured: true, BackupCaughtUp: true}}}
+	cases := []struct {
+		name   string
+		mutate func(*hostagent.EngineFacts)
+		want   bool
+	}{
+		{name: "all measured boundaries complete", want: true},
+		{name: "unknown complete set", mutate: func(f *hostagent.EngineFacts) { f.CatchUpComplete = false }},
+		{name: "unassigned", mutate: func(f *hostagent.EngineFacts) { f.AssignmentRevision = "" }},
+		{name: "missing databases", mutate: func(f *hostagent.EngineFacts) { f.Databases = nil }},
+		{name: "stale catchup", mutate: func(f *hostagent.EngineFacts) {
+			f.CatchUpObservedAtUnixMS = uint64(time.Now().Add(-time.Minute).UnixMilli())
+		}},
+		{name: "future catchup", mutate: func(f *hostagent.EngineFacts) {
+			f.CatchUpObservedAtUnixMS = uint64(time.Now().Add(time.Minute).UnixMilli())
+		}},
+		{name: "duplicate scope", mutate: func(f *hostagent.EngineFacts) { f.Databases = append(f.Databases, f.Databases[0]) }},
+		{name: "invalid scope", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].Database = "" }},
+		{name: "unknown regional", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].RegionalMeasured = false }},
+		{name: "regional behind source", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].RegionalSequence-- }},
+		{name: "unknown causal", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].CausalMeasured = false }},
+		{name: "causal behind", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].CausalCaughtUp = false }},
+		{name: "unknown backup", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].BackupMeasured = false }},
+		{name: "backup pending", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].BackupCaughtUp = false }},
+		{name: "backup behind journal", mutate: func(f *hostagent.EngineFacts) { f.Databases[0].BackupProtectedSequence-- }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			facts := valid
+			facts.Databases = slices.Clone(valid.Databases)
+			if test.mutate != nil {
+				test.mutate(&facts)
+			}
+			report := hostagent.NodeStatusReport{NodeId: "gru-1", State: hostagent.NodeStateDraining, Facts: hostagent.HostFacts{State: hostagent.NodeStateDraining, ClockMeasured: true, Disk: hostagent.DiskFacts{TotalBytes: 100, AvailableBytes: 50}, Engine: facts}}
+			source := productionDeliveryObservations{membership: membership, status: func(context.Context, string) (hostagent.NodeStatusReport, error) { return report, nil }}
+			if err := source.CaughtUp(t.Context(), "gru-1"); (err == nil) != test.want {
+				t.Fatalf("caught-up=%v want=%v error=%v", err == nil, test.want, err)
+			}
+		})
+	}
+}

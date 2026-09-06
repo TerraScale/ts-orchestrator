@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cf "terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	sandboxcf "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -120,7 +121,7 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 	t.Cleanup(probe.Close)
 	client := cf.NewClient("token", "zone", "account")
 	client.BaseURL = api.URL
-	f.config = cf.SnippetCapabilityStoreConfig{Client: client, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, Journal: f.journal, Authorize: func(context.Context) error {
+	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostname: "127.0.0.1", PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, Journal: f.journal, Authorize: func(context.Context) error {
 		if f.deny.Load() {
 			return errors.New("authority lost")
 		}
@@ -249,7 +250,7 @@ func TestSnippetCapabilityTemplateReleaseSurvivesRestartAndRotation(t *testing.T
 		}
 	}
 	before, _, _ := f.journal.Load(t.Context())
-	if err := f.store.PromoteTemplate(t.Context(), f.config.TemplateService, digest); err != nil {
+	if err := f.store.PromoteTemplate(templateContext(t), f.config.TemplateService, digest); err != nil {
 		t.Fatal(err)
 	}
 	released, _, _ := f.journal.Load(t.Context())
@@ -280,4 +281,13 @@ func TestSnippetCapabilityTemplateReleaseSurvivesRestartAndRotation(t *testing.T
 	if next.TemplateDigest != digest || next.Generation != 3 || next.Current.Reference != third.Reference {
 		t.Fatalf("next rotation = %+v", next)
 	}
+}
+
+func templateContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, err := delivery.WithExecutionFence(t.Context(), delivery.OperationFence{OperationID: "release", RequestDigest: "digest", OwnerID: "owner", Generation: 1}, func(delivery.OperationFence) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx
 }

@@ -1,6 +1,7 @@
 package databaseadmission
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -71,12 +72,16 @@ func lifecycleStatus(code string) int {
 	}
 }
 func handleLifecycle(ctx context.Context, journal LifecycleJournal, subject string, data []byte) lifecycleResponse {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '{' {
+		return lifecycleResponse{Error: "invalid"}
+	}
 	var reply lifecycleResponse
 	var err error
 	switch subject {
 	case LifecycleEventSubject:
 		var event databaselifecycle.Event
-		if json.Unmarshal(data, &event, json.RejectUnknownMembers(true)) != nil || event.Kind == "create" {
+		if json.Unmarshal(data, &event, json.RejectUnknownMembers(true)) != nil || event.Kind != "streams" {
 			return lifecycleResponse{Error: "invalid"}
 		}
 		err = journal.ApplyLifecycle(ctx, event)

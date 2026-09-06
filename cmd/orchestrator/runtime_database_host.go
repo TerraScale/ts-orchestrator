@@ -23,29 +23,32 @@ import (
 const databaseHostFileEnvironment = "TS_ORCH_DATABASE_HOST_FILE"
 
 type productionDatabaseHostFile struct {
-	Version        int                         `json:"version"`
-	Cell           string                      `json:"cell"`
-	Instance       string                      `json:"instance"`
-	Environment    string                      `json:"environment"`
-	MemberID       string                      `json:"memberId"`
-	ServerIdentity string                      `json:"serverIdentity"`
-	CatalogPath    string                      `json:"catalogPath"`
-	EngineSocket   string                      `json:"engineSocket"`
-	EngineUID      uint32                      `json:"engineUid"`
-	IngressSocket  string                      `json:"ingressSocket"`
-	IngressUID     uint32                      `json:"ingressUid"`
-	NATSURL        string                      `json:"natsUrl"`
-	NKeyFile       string                      `json:"nkeyFile"`
-	TLS            placementpublisher.TLSFiles `json:"tls"`
+	Version           int                         `json:"version"`
+	Cell              string                      `json:"cell"`
+	Instance          string                      `json:"instance"`
+	Environment       string                      `json:"environment"`
+	MemberID          string                      `json:"memberId"`
+	ServerIdentity    string                      `json:"serverIdentity"`
+	CatalogPath       string                      `json:"catalogPath"`
+	EngineSocket      string                      `json:"engineSocket"`
+	EngineUID         uint32                      `json:"engineUid"`
+	IngressSocket     string                      `json:"ingressSocket"`
+	IngressUID        uint32                      `json:"ingressUid"`
+	NATSURL           string                      `json:"natsUrl"`
+	LifecycleNKeyFile string                      `json:"lifecycleNkeyFile"`
+	NKeyFile          string                      `json:"nkeyFile"`
+	TLS               placementpublisher.TLSFiles `json:"tls"`
 }
 type productionDatabaseHostServices struct {
-	connection    *nats.Conn
-	key           nkeys.KeyPair
-	host, ingress *databaseadmission.Service
-	done          chan struct{}
-	cancel        context.CancelFunc
-	once          sync.Once
-	err           error
+	lifecycleConnection *nats.Conn
+	lifecycleKey        nkeys.KeyPair
+	connection          *nats.Conn
+	key                 nkeys.KeyPair
+	host, ingress       *databaseadmission.Service
+	done                chan struct{}
+	cancel              context.CancelFunc
+	once                sync.Once
+	err                 error
 }
 
 func (s *productionDatabaseHostServices) Completion() <-chan struct{} { return s.done }
@@ -56,6 +59,12 @@ func (s *productionDatabaseHostServices) Close() error {
 	s.once.Do(func() {
 		s.cancel()
 		s.err = errors.Join(s.host.Close(), s.ingress.Close())
+		if s.lifecycleConnection != nil {
+			s.lifecycleConnection.Close()
+		}
+		if s.lifecycleKey != nil {
+			s.lifecycleKey.Wipe()
+		}
 		s.connection.Close()
 		s.key.Wipe()
 	})
@@ -83,7 +92,7 @@ func startProductionDatabaseHost(ctx context.Context, options *control.Orchestra
 	if err != nil || u.Scheme != "tls" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
 		return nil, errors.New("database host: dedicated NATS TLS endpoint required")
 	}
-	for _, path := range []string{config.CatalogPath, config.EngineSocket, config.IngressSocket, config.NKeyFile, config.TLS.CertificateFile, config.TLS.PrivateKeyFile, config.TLS.TrustBundleFile} {
+	for _, path := range []string{config.CatalogPath, config.EngineSocket, config.IngressSocket, config.NKeyFile, config.LifecycleNKeyFile, config.TLS.CertificateFile, config.TLS.PrivateKeyFile, config.TLS.TrustBundleFile} {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return nil, errors.New("database host: absolute file references required")
 		}
@@ -123,14 +132,32 @@ func startProductionDatabaseHost(ctx context.Context, options *control.Orchestra
 			_ = service.Close()
 		}
 	}()
+	lifecycleSeed, err := bootstrapcredentials.ReadFile(config.LifecycleNKeyFile, true, 1024)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(lifecycleSeed)
+	service.lifecycleKey, err = nkeys.FromSeed(lifecycleSeed)
+	if err != nil {
+		return nil, err
+	}
+	lifecyclePublic, err := service.lifecycleKey.PublicKey()
+	if err != nil || !nkeys.IsValidPublicUserKey(lifecyclePublic) || lifecyclePublic == public {
+		return nil, errors.New("database host: distinct lifecycle publisher NKey required")
+	}
+	service.lifecycleConnection, err = natsconnect.Connect(local, natsconnect.Config{URL: config.NATSURL, TLS: tlsConfig, PublicNKey: lifecyclePublic, Sign: service.lifecycleKey.Sign, Timeout: 5 * time.Second}, net.Dialer{Timeout: 5 * time.Second})
+	if err != nil {
+		return nil, err
+	}
 	service.host, err = databaseadmission.StartHost(local, databaseadmission.HostConfig{Connection: connection, ServerIdentity: config.ServerIdentity, CatalogPath: config.CatalogPath, EngineSocket: config.EngineSocket, EngineUID: config.EngineUID, Environment: config.Environment, Region: strings.ToUpper(config.Cell), MemberID: config.MemberID})
 	if err != nil {
 		return nil, err
 	}
-	service.ingress, err = databaseadmission.StartIngress(local, databaseadmission.IngressConfig{Connection: connection, SocketPath: config.IngressSocket, AllowedUID: config.IngressUID})
+	service.ingress, err = databaseadmission.StartIngress(local, databaseadmission.IngressConfig{Connection: connection, SocketPath: config.IngressSocket, AllowedUID: config.IngressUID, Lifecycle: &databaseadmission.LifecycleIngressConfig{PublisherConnection: service.lifecycleConnection, PublisherUID: config.IngressUID}})
 	if err != nil {
 		return nil, err
 	}
+	lifecycleTransport := service.lifecycleConnection.StatusChanged(nats.CLOSED, nats.DISCONNECTED, nats.RECONNECTING)
 	transport := connection.StatusChanged(nats.CLOSED, nats.DISCONNECTED, nats.RECONNECTING)
 	go func() {
 		defer close(service.done)
@@ -138,6 +165,7 @@ func startProductionDatabaseHost(ctx context.Context, options *control.Orchestra
 		case <-local.Done():
 		case <-service.host.Completion():
 		case <-service.ingress.Completion():
+		case <-lifecycleTransport:
 		case <-transport:
 		}
 		cancel()

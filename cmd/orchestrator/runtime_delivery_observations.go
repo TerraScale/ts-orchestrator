@@ -148,12 +148,30 @@ func (o *productionDeliveryObservations) CaughtUp(ctx context.Context, id string
 	if err != nil {
 		return err
 	}
-	if !report.Facts.Engine.LagMeasured || report.Facts.Engine.LagMS != 0 {
-		return errors.New("delivery: replication catchup is not measured complete")
+	engine := report.Facts.Engine
+	observed := time.UnixMilli(int64(engine.CatchUpObservedAtUnixMS))
+	now := time.Now()
+	if !engine.CatchUpComplete || engine.AssignmentRevision == "" || len(engine.Databases) == 0 || len(engine.Databases) > 4096 || engine.CatchUpObservedAtUnixMS == 0 || engine.CatchUpObservedAtUnixMS > uint64(now.Add(time.Second).UnixMilli()) || now.Sub(observed) > 30*time.Second {
+		return errors.New("delivery: complete fresh admitted catchup observation is unavailable")
 	}
-	// TBEP currently exposes neither backup catchup completion nor a measured
-	// replication catchup contract. Zero lag alone cannot establish both.
-	return errors.New("delivery: backup catchup completion is unobserved")
+	seen := map[string]bool{}
+	for _, database := range engine.Databases {
+		key := database.Tenant + "\x00" + database.Project + "\x00" + database.Database
+		if database.Tenant == "" || database.Project == "" || database.Database == "" || seen[key] {
+			return errors.New("delivery: invalid catchup database scope")
+		}
+		seen[key] = true
+		if !database.RegionalMeasured || database.RegionalSequence < database.SourceSequence {
+			return errors.New("delivery: regional RF2 durability has not reached the observed source boundary")
+		}
+		if !database.CausalMeasured || !database.CausalCaughtUp {
+			return errors.New("delivery: cross-region convergence is not measured complete")
+		}
+		if !database.BackupMeasured || !database.BackupCaughtUp || database.BackupProtectedSequence < database.BackupSourceSequence {
+			return errors.New("delivery: backup protection has not reached its durable journal boundary")
+		}
+	}
+	return nil
 }
 
 func newProductionDeliveryGates(membership *productionDeliveryMembership, client *hostcontrol.Client, catalog *hostcontrol.SignedReleaseCatalog) []delivery.Gate {

@@ -21,15 +21,23 @@ var ErrMemberRotation = errors.New("key rotation: member operation failed")
 
 // MemberEndpoint is trusted deployment configuration, never a URL received
 // from a rotation request. IDs also select the issuer's per-host identity.
-type MemberEndpoint struct{ ID, Region, URL string }
+type MemberEndpoint struct {
+	ID     string `json:"id"`
+	Region string `json:"region"`
+	URL    string `json:"url"`
+}
 
 type MemberGatewayConfig struct {
-	Members        []MemberEndpoint
-	TLS            *tls.Config
-	CheckAuthority func(context.Context) error
+	AuthorityEpoch   uint64
+	AuthorityLeaseID string
+	Members          []MemberEndpoint
+	TLS              *tls.Config
+	CheckAuthority   func(context.Context) error
 }
 
 type MemberGateway struct {
+	epoch     uint64
+	leaseID   string
 	endpoints map[string]MemberEndpoint
 	regions   map[string][]string
 	client    *http.Client
@@ -39,7 +47,7 @@ type MemberGateway struct {
 var _ security.MemberGateway = (*MemberGateway)(nil)
 
 func NewMemberGateway(config MemberGatewayConfig) (*MemberGateway, error) {
-	if len(config.Members) == 0 || config.TLS == nil || config.CheckAuthority == nil {
+	if len(config.Members) == 0 || config.TLS == nil || config.CheckAuthority == nil || config.AuthorityEpoch == 0 || !rotationToken(config.AuthorityLeaseID) {
 		return nil, configurationError("member transport authority is required")
 	}
 	tlsConfig := config.TLS.Clone()
@@ -47,10 +55,10 @@ func NewMemberGateway(config MemberGatewayConfig) (*MemberGateway, error) {
 		return nil, configurationError("verified member mTLS is required")
 	}
 	tlsConfig.MinVersion = max(tlsConfig.MinVersion, tls.VersionTLS13)
-	g := &MemberGateway{endpoints: map[string]MemberEndpoint{}, regions: map[string][]string{}, authority: config.CheckAuthority, client: &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig, ResponseHeaderTimeout: 15 * time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	g := &MemberGateway{epoch: config.AuthorityEpoch, leaseID: config.AuthorityLeaseID, endpoints: map[string]MemberEndpoint{}, regions: map[string][]string{}, authority: config.CheckAuthority, client: &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig, ResponseHeaderTimeout: 15 * time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	for _, endpoint := range config.Members {
 		parsed, err := url.Parse(endpoint.URL)
-		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" || !rotationToken(endpoint.ID) || !rotationToken(endpoint.Region) {
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery || parsed.Opaque != "" || parsed.Path != "" && parsed.Path != "/" || !rotationToken(endpoint.ID) || !rotationToken(endpoint.Region) {
 			return nil, configurationError("member endpoint is invalid")
 		}
 		if _, exists := g.endpoints[endpoint.ID]; exists {
@@ -125,6 +133,8 @@ func (g *MemberGateway) call(ctx context.Context, member string, request MemberR
 	if !ok || !validOperationKey(request.OperationID) {
 		return MemberRotationResponse{}, ErrMemberRotation
 	}
+	request.AuthorityEpoch = g.epoch
+	request.AuthorityLeaseID = g.leaseID
 	payload, err := json.Marshal(request)
 	if err != nil || len(payload) > maximumMemberRotationBytes {
 		return MemberRotationResponse{}, ErrMemberRotation
@@ -172,6 +182,7 @@ func memberCredentialRequest(member, consumer, action string, credentials securi
 		request.CurrentKey = bytes.Clone(capability.Key)
 		previous := credentials.PreviousCapability
 		if previous.ID != "" {
+			request.PreviousGeneration = previous.Version
 			request.PreviousKeyID = previous.ID
 			request.PreviousKey = bytes.Clone(previous.Key)
 			request.PreviousExpiresAt = previous.ExpiresAt.Unix()
@@ -263,4 +274,17 @@ func (r *ControlReloader) Rollback(ctx context.Context, region string, generatio
 }
 func (r *ControlReloader) Fence(ctx context.Context, region, key string) error {
 	return r.gateway.regionAction(ctx, region, "control", "fence", 0, key)
+}
+
+func (g *MemberGateway) Close() error {
+	if g != nil && g.client != nil {
+		g.client.CloseIdleConnections()
+	}
+	return nil
+}
+func (r *ControlReloader) Close() error {
+	if r == nil {
+		return nil
+	}
+	return r.gateway.Close()
 }
