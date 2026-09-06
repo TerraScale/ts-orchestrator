@@ -125,10 +125,11 @@ type LifecycleAssignment struct {
 	PlacementRevision, AuthorityEpoch                      uint64
 	AuthorityLease                                         string
 	AuthoritySignature                                     []byte
+	OperationGrant                                         []byte
 }
 
 func (c *Client) lifecycleRequest(a LifecycleAssignment, operation string) (*pb.LifecycleControlRequest, error) {
-	if c == nil || c.lifecycle == nil || !validMetadata(operation, 128) || a.AuthoritySignature == nil {
+	if c == nil || c.lifecycle == nil || !validMetadata(operation, 128) || len(a.AuthoritySignature) == 0 || len(a.OperationGrant) == 0 {
 		return nil, errors.New("TBEP lifecycle request is incomplete")
 	}
 	return &pb.LifecycleControlRequest{Context: &pb.LifecycleControlContext{
@@ -136,6 +137,7 @@ func (c *Client) lifecycleRequest(a LifecycleAssignment, operation string) (*pb.
 		Region: a.Region, Member: a.Member, PlacementRevision: a.PlacementRevision,
 		AuthorityEpoch: a.AuthorityEpoch, AuthorityLease: a.AuthorityLease,
 		AuthoritySignature: append([]byte(nil), a.AuthoritySignature...),
+		OperationGrant: append([]byte(nil), a.OperationGrant...),
 	}, OperationId: operation}, nil
 }
 

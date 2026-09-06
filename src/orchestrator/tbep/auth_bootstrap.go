@@ -28,12 +28,12 @@ func NewAuthBootstrap(config Config) (*AuthBootstrapClient, error) {
 func (c *AuthBootstrapClient) Close() error           { return c.transport.Close() }
 func (c *AuthBootstrapClient) Principal() string      { return c.transport.principal }
 func (c *AuthBootstrapClient) ServerIdentity() string { return c.identity }
-func (c *AuthBootstrapClient) Identity(ctx context.Context) (*pb.AuthGroupBootstrapServiceIdentityResponse, error) {
+func (c *AuthBootstrapClient) Identity(ctx context.Context) (*pb.AuthStorageIdentity, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.transport.timeout)
 	defer cancel()
-	return c.rpc.Identity(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.AuthGroupBootstrapServiceIdentityRequest{})
+	return c.rpc.Identity(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.AuthStorageIdentityRequest{})
 }
-func (c *AuthBootstrapClient) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapServiceBootstrapRequest) (*pb.AuthGroupBootstrapServiceBootstrapResponse, error) {
+func (c *AuthBootstrapClient) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error) {
 	if request == nil || !validMetadata(request.OperationId, 128) {
 		return nil, authbootstrap.ErrInvalid
 	}

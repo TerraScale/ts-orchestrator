@@ -26,7 +26,7 @@ type Config struct {
 	Install        func(context.Context, Record, Target, []keylease.Entry) error
 	// AcceptPlacement returns the exact producer receipt after the fenced
 	// remote stage. The receipt is persisted before progress advances.
-	AcceptPlacement func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error)
+	AcceptPlacement func(context.Context, string, string, *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error)
 	// ActivatePlacement delivers a separately authorized accepted-membership
 	// proof. Success does not establish RF2 or caught-up serving readiness.
 	ActivatePlacement func(context.Context, Record) error
@@ -245,7 +245,7 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
-		request := new(pb.PlacementControlServiceStageRequest)
+		request := new(pb.PlacementStageRequest)
 		if proto.Unmarshal(target.Proposal, request) != nil {
 			return ErrInvalid
 		}

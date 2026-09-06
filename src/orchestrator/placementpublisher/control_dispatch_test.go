@@ -21,7 +21,7 @@ type controlTestTarget struct {
 	readinessCalls int
 }
 
-func (target *controlTestTarget) Drain(_ context.Context, id string, request *pb.PlacementControlServiceDrainRequest) (*pb.PlacementControlServiceDrainResponse, error) {
+func (target *controlTestTarget) Drain(_ context.Context, id string, request *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error) {
 	prepared, err := tbep.DrainBinding(id, request)
 	if err != nil {
 		return nil, err
@@ -36,13 +36,13 @@ func (target *controlTestTarget) Drain(_ context.Context, id string, request *pb
 		target.lost = false
 		return nil, errors.New("fence reply lost")
 	}
-	return &pb.PlacementControlServiceDrainResponse{SignedReceipt: signed}, nil
+	return &pb.PlacementDrainResponse{SignedReceipt: signed}, nil
 }
-func (target *controlTestTarget) Readiness(_ context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceReadinessResponse, error) {
+func (target *controlTestTarget) Readiness(_ context.Context, request *pb.PlacementReadinessRequest) (*pb.PlacementDrainResponse, error) {
 	target.readinessCalls++
 	payload, _ := json.Marshal(map[string]string{"nonce": request.Nonce, "operation_id": request.OperationId})
 	envelope, _ := json.Marshal(placementtransition.Signed{KeyID: "readiness", Payload: payload, Signature: make([]byte, 64)})
-	return &pb.PlacementControlServiceReadinessResponse{SignedReceipt: envelope}, nil
+	return &pb.PlacementDrainResponse{SignedReceipt: envelope}, nil
 }
 func TestDrainAndReadinessDispatchPreserveChallengesAndRetries(t *testing.T) {
 	cluster := newPlacementJournalCluster(t)
@@ -71,7 +71,7 @@ func TestDrainAndReadinessDispatchPreserveChallengesAndRetries(t *testing.T) {
 	}
 	payload, _ := json.Marshal(placementtransition.Prepared{SchemaVersion: 1, Kind: "prepared_epoch", Request: next, RequestDigest: digest, PriorGeneration: 1, PreviousProofDigest: strings.Repeat("c", 64), AuthorityEpoch: 4, LeaseID: "lease", JournalRevision: 20})
 	prepared, _ := json.Marshal(placementtransition.Signed{KeyID: "authority", Payload: payload, Signature: make([]byte, 64)})
-	request := &pb.PlacementControlServiceDrainRequest{PreparedTransition: prepared}
+	request := &pb.PlacementDrainRequest{PreparedTransition: prepared}
 	if _, err := remote.Drain(ctx, "next", request); err == nil {
 		t.Fatal("unknown fence treated as success")
 	}
@@ -84,7 +84,7 @@ func TestDrainAndReadinessDispatchPreserveChallengesAndRetries(t *testing.T) {
 	if _, err := remote.Drain(ctx, "other", request); err == nil {
 		t.Fatal("operation replacement accepted")
 	}
-	challenge := &pb.PlacementControlServiceReadinessRequest{Tenant: "tenant", Project: "project", Database: "database", OperationId: "next", Nonce: strings.Repeat("d", 64)}
+	challenge := &pb.PlacementReadinessRequest{Tenant: "tenant", Project: "project", Database: "database", OperationId: "next", Nonce: strings.Repeat("d", 64)}
 	reply, err := remote.Readiness(ctx, challenge)
 	if err != nil {
 		t.Fatal(err)

@@ -49,7 +49,7 @@ type productionPlacementTransitionConfig struct {
 	// Drain must return authenticated, durable engine fence receipts. Delivery
 	// only acknowledges accepted membership; it must never imply serving ready.
 	Drain   func(context.Context, placementtransition.Request, placementtransition.Proof) ([]placementtransition.Signed, error)
-	Deliver func(context.Context, string, string, uint64, placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error)
+	Deliver func(context.Context, string, string, uint64, placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error)
 }
 
 func (f productionPlacementTransitionFile) load() (productionPlacementTransitionConfig, error) {
@@ -116,7 +116,7 @@ type productionPlacementTransition struct {
 	check               func(context.Context) error
 	bootstrapPublishers map[string]*placementpublisher.Publisher
 	completion          func(context.Context, string, string, bool) error
-	acceptance          func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error
+	acceptance          func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementAcceptanceResponse) error
 	allocateStreams     func(context.Context, databaseadmission.Record, string) error
 	registerUsage       func(context.Context, databaseadmission.Record, string) error
 }
@@ -136,7 +136,7 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 		}
 		targets[identity.ServerIdentity] = target
 	}
-	config.Deliver = func(ctx context.Context, identity, operation string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+	config.Deliver = func(ctx context.Context, identity, operation string, revision uint64, proof placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error) {
 		target := targets[identity]
 		if target == nil {
 			return nil, placementtransition.ErrInvalid
@@ -145,7 +145,7 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 		if err != nil {
 			return nil, err
 		}
-		response, err := target.Accept(ctx, operation, &pb.PlacementControlServiceAcceptRequest{ProposalRevision: revision, Proof: payload})
+		response, err := target.Accept(ctx, operation, &pb.PlacementAcceptRequest{ProposalRevision: revision, Proof: payload})
 		return response, err
 	}
 	config.Issuer.Authority = authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
@@ -173,7 +173,7 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 			if err := session.CheckEffectAuthority(ctx); err != nil {
 				return nil, err
 			}
-			response, err := target.Drain(ctx, request.OperationID, &pb.PlacementControlServiceDrainRequest{PreparedTransition: encoded})
+			response, err := target.Drain(ctx, request.OperationID, &pb.PlacementDrainRequest{PreparedTransition: encoded})
 			if err != nil {
 				failures = append(failures, err)
 				continue
@@ -240,7 +240,7 @@ func transitionRequest(record databaseadmission.Record) (placementtransition.Req
 	}
 	expected := map[string]string{}
 	for _, target := range record.PlacementTargets {
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if !target.Proposed || proto.Unmarshal(target.Proposal, stage) != nil {
 			return r, placementtransition.ErrInvalid
 		}
@@ -318,8 +318,8 @@ func (t *productionPlacementTransition) activate(ctx context.Context, record dat
 		if err != nil {
 			return err
 		}
-		receipt := new(pb.PlacementControlServiceStageResponse)
-		stage := new(pb.PlacementControlServiceStageRequest)
+		receipt := new(pb.PlacementProposalResponse)
+		stage := new(pb.PlacementStageRequest)
 		if stored.OperationID != r.OperationID || !bytes.Equal(stored.Request, target.Proposal) || len(stored.Receipt) == 0 || proto.Unmarshal(stored.Request, stage) != nil || proto.Unmarshal(stored.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil || stage.ExpectedRevision == ^uint64(0) || receipt.Revision != stage.ExpectedRevision+1 {
 			return errors.New("runtime transition: pending Stage receipt unresolved")
 		}
@@ -380,7 +380,7 @@ deliver:
 		if err := t.check(ctx); err != nil {
 			return err
 		}
-		var response *pb.PlacementControlServiceAcceptResponse
+		var response *pb.PlacementAcceptanceResponse
 		var err error
 		response, err = t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, revisions[target.ServerIdentity], signed)
 		if err != nil {

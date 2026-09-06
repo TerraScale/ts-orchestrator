@@ -1360,16 +1360,16 @@ const (
 type PlacementControlServiceClient interface {
 	// Persists an intent only. x-tb-idempotency-key binds the exact canonical
 	// request and authenticated principal. A retry returns its original revision.
-	Stage(ctx context.Context, in *PlacementControlServiceStageRequest, opts ...grpc.CallOption) (*PlacementControlServiceStageResponse, error)
-	Get(ctx context.Context, in *PlacementControlServiceGetRequest, opts ...grpc.CallOption) (*PlacementControlServiceGetResponse, error)
+	Stage(ctx context.Context, in *PlacementStageRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
+	Get(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error)
 	// Verifies and durably retains a signed GRU epoch proof matching staged intent.
 	// Admission permits catch-up only; it does not assert data readiness.
-	Accept(ctx context.Context, in *PlacementControlServiceAcceptRequest, opts ...grpc.CallOption) (*PlacementControlServiceAcceptResponse, error)
-	GetAccepted(ctx context.Context, in *PlacementControlServiceGetAcceptedRequest, opts ...grpc.CallOption) (*PlacementControlServiceGetAcceptedResponse, error)
+	Accept(ctx context.Context, in *PlacementAcceptRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
+	GetAccepted(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error)
 	// Executes a durably authorized old-epoch fence and returns a member-signed
 	// frontier receipt only after origin+physical work has durably drained.
-	Drain(ctx context.Context, in *PlacementControlServiceDrainRequest, opts ...grpc.CallOption) (*PlacementControlServiceDrainResponse, error)
-	Readiness(ctx context.Context, in *PlacementControlServiceReadinessRequest, opts ...grpc.CallOption) (*PlacementControlServiceReadinessResponse, error)
+	Drain(ctx context.Context, in *PlacementDrainRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error)
+	Readiness(ctx context.Context, in *PlacementReadinessRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error)
 }
 
 type placementControlServiceClient struct {
@@ -1380,9 +1380,9 @@ func NewPlacementControlServiceClient(cc grpc.ClientConnInterface) PlacementCont
 	return &placementControlServiceClient{cc}
 }
 
-func (c *placementControlServiceClient) Stage(ctx context.Context, in *PlacementControlServiceStageRequest, opts ...grpc.CallOption) (*PlacementControlServiceStageResponse, error) {
+func (c *placementControlServiceClient) Stage(ctx context.Context, in *PlacementStageRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceStageResponse)
+	out := new(PlacementProposalResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_Stage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1390,9 +1390,9 @@ func (c *placementControlServiceClient) Stage(ctx context.Context, in *Placement
 	return out, nil
 }
 
-func (c *placementControlServiceClient) Get(ctx context.Context, in *PlacementControlServiceGetRequest, opts ...grpc.CallOption) (*PlacementControlServiceGetResponse, error) {
+func (c *placementControlServiceClient) Get(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementProposalResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceGetResponse)
+	out := new(PlacementProposalResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_Get_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1400,9 +1400,9 @@ func (c *placementControlServiceClient) Get(ctx context.Context, in *PlacementCo
 	return out, nil
 }
 
-func (c *placementControlServiceClient) Accept(ctx context.Context, in *PlacementControlServiceAcceptRequest, opts ...grpc.CallOption) (*PlacementControlServiceAcceptResponse, error) {
+func (c *placementControlServiceClient) Accept(ctx context.Context, in *PlacementAcceptRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceAcceptResponse)
+	out := new(PlacementAcceptanceResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_Accept_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1410,9 +1410,9 @@ func (c *placementControlServiceClient) Accept(ctx context.Context, in *Placemen
 	return out, nil
 }
 
-func (c *placementControlServiceClient) GetAccepted(ctx context.Context, in *PlacementControlServiceGetAcceptedRequest, opts ...grpc.CallOption) (*PlacementControlServiceGetAcceptedResponse, error) {
+func (c *placementControlServiceClient) GetAccepted(ctx context.Context, in *PlacementGetRequest, opts ...grpc.CallOption) (*PlacementAcceptanceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceGetAcceptedResponse)
+	out := new(PlacementAcceptanceResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_GetAccepted_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1420,9 +1420,9 @@ func (c *placementControlServiceClient) GetAccepted(ctx context.Context, in *Pla
 	return out, nil
 }
 
-func (c *placementControlServiceClient) Drain(ctx context.Context, in *PlacementControlServiceDrainRequest, opts ...grpc.CallOption) (*PlacementControlServiceDrainResponse, error) {
+func (c *placementControlServiceClient) Drain(ctx context.Context, in *PlacementDrainRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceDrainResponse)
+	out := new(PlacementDrainResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_Drain_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1430,9 +1430,9 @@ func (c *placementControlServiceClient) Drain(ctx context.Context, in *Placement
 	return out, nil
 }
 
-func (c *placementControlServiceClient) Readiness(ctx context.Context, in *PlacementControlServiceReadinessRequest, opts ...grpc.CallOption) (*PlacementControlServiceReadinessResponse, error) {
+func (c *placementControlServiceClient) Readiness(ctx context.Context, in *PlacementReadinessRequest, opts ...grpc.CallOption) (*PlacementDrainResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PlacementControlServiceReadinessResponse)
+	out := new(PlacementDrainResponse)
 	err := c.cc.Invoke(ctx, PlacementControlService_Readiness_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1450,16 +1450,16 @@ func (c *placementControlServiceClient) Readiness(ctx context.Context, in *Place
 type PlacementControlServiceServer interface {
 	// Persists an intent only. x-tb-idempotency-key binds the exact canonical
 	// request and authenticated principal. A retry returns its original revision.
-	Stage(context.Context, *PlacementControlServiceStageRequest) (*PlacementControlServiceStageResponse, error)
-	Get(context.Context, *PlacementControlServiceGetRequest) (*PlacementControlServiceGetResponse, error)
+	Stage(context.Context, *PlacementStageRequest) (*PlacementProposalResponse, error)
+	Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error)
 	// Verifies and durably retains a signed GRU epoch proof matching staged intent.
 	// Admission permits catch-up only; it does not assert data readiness.
-	Accept(context.Context, *PlacementControlServiceAcceptRequest) (*PlacementControlServiceAcceptResponse, error)
-	GetAccepted(context.Context, *PlacementControlServiceGetAcceptedRequest) (*PlacementControlServiceGetAcceptedResponse, error)
+	Accept(context.Context, *PlacementAcceptRequest) (*PlacementAcceptanceResponse, error)
+	GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error)
 	// Executes a durably authorized old-epoch fence and returns a member-signed
 	// frontier receipt only after origin+physical work has durably drained.
-	Drain(context.Context, *PlacementControlServiceDrainRequest) (*PlacementControlServiceDrainResponse, error)
-	Readiness(context.Context, *PlacementControlServiceReadinessRequest) (*PlacementControlServiceReadinessResponse, error)
+	Drain(context.Context, *PlacementDrainRequest) (*PlacementDrainResponse, error)
+	Readiness(context.Context, *PlacementReadinessRequest) (*PlacementDrainResponse, error)
 	mustEmbedUnimplementedPlacementControlServiceServer()
 }
 
@@ -1470,22 +1470,22 @@ type PlacementControlServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPlacementControlServiceServer struct{}
 
-func (UnimplementedPlacementControlServiceServer) Stage(context.Context, *PlacementControlServiceStageRequest) (*PlacementControlServiceStageResponse, error) {
+func (UnimplementedPlacementControlServiceServer) Stage(context.Context, *PlacementStageRequest) (*PlacementProposalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Stage not implemented")
 }
-func (UnimplementedPlacementControlServiceServer) Get(context.Context, *PlacementControlServiceGetRequest) (*PlacementControlServiceGetResponse, error) {
+func (UnimplementedPlacementControlServiceServer) Get(context.Context, *PlacementGetRequest) (*PlacementProposalResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedPlacementControlServiceServer) Accept(context.Context, *PlacementControlServiceAcceptRequest) (*PlacementControlServiceAcceptResponse, error) {
+func (UnimplementedPlacementControlServiceServer) Accept(context.Context, *PlacementAcceptRequest) (*PlacementAcceptanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Accept not implemented")
 }
-func (UnimplementedPlacementControlServiceServer) GetAccepted(context.Context, *PlacementControlServiceGetAcceptedRequest) (*PlacementControlServiceGetAcceptedResponse, error) {
+func (UnimplementedPlacementControlServiceServer) GetAccepted(context.Context, *PlacementGetRequest) (*PlacementAcceptanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAccepted not implemented")
 }
-func (UnimplementedPlacementControlServiceServer) Drain(context.Context, *PlacementControlServiceDrainRequest) (*PlacementControlServiceDrainResponse, error) {
+func (UnimplementedPlacementControlServiceServer) Drain(context.Context, *PlacementDrainRequest) (*PlacementDrainResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Drain not implemented")
 }
-func (UnimplementedPlacementControlServiceServer) Readiness(context.Context, *PlacementControlServiceReadinessRequest) (*PlacementControlServiceReadinessResponse, error) {
+func (UnimplementedPlacementControlServiceServer) Readiness(context.Context, *PlacementReadinessRequest) (*PlacementDrainResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Readiness not implemented")
 }
 func (UnimplementedPlacementControlServiceServer) mustEmbedUnimplementedPlacementControlServiceServer() {
@@ -1511,7 +1511,7 @@ func RegisterPlacementControlServiceServer(s grpc.ServiceRegistrar, srv Placemen
 }
 
 func _PlacementControlService_Stage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceStageRequest)
+	in := new(PlacementStageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1523,13 +1523,13 @@ func _PlacementControlService_Stage_Handler(srv interface{}, ctx context.Context
 		FullMethod: PlacementControlService_Stage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).Stage(ctx, req.(*PlacementControlServiceStageRequest))
+		return srv.(PlacementControlServiceServer).Stage(ctx, req.(*PlacementStageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _PlacementControlService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceGetRequest)
+	in := new(PlacementGetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1541,13 +1541,13 @@ func _PlacementControlService_Get_Handler(srv interface{}, ctx context.Context, 
 		FullMethod: PlacementControlService_Get_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).Get(ctx, req.(*PlacementControlServiceGetRequest))
+		return srv.(PlacementControlServiceServer).Get(ctx, req.(*PlacementGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _PlacementControlService_Accept_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceAcceptRequest)
+	in := new(PlacementAcceptRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1559,13 +1559,13 @@ func _PlacementControlService_Accept_Handler(srv interface{}, ctx context.Contex
 		FullMethod: PlacementControlService_Accept_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).Accept(ctx, req.(*PlacementControlServiceAcceptRequest))
+		return srv.(PlacementControlServiceServer).Accept(ctx, req.(*PlacementAcceptRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _PlacementControlService_GetAccepted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceGetAcceptedRequest)
+	in := new(PlacementGetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1577,13 +1577,13 @@ func _PlacementControlService_GetAccepted_Handler(srv interface{}, ctx context.C
 		FullMethod: PlacementControlService_GetAccepted_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).GetAccepted(ctx, req.(*PlacementControlServiceGetAcceptedRequest))
+		return srv.(PlacementControlServiceServer).GetAccepted(ctx, req.(*PlacementGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _PlacementControlService_Drain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceDrainRequest)
+	in := new(PlacementDrainRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1595,13 +1595,13 @@ func _PlacementControlService_Drain_Handler(srv interface{}, ctx context.Context
 		FullMethod: PlacementControlService_Drain_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).Drain(ctx, req.(*PlacementControlServiceDrainRequest))
+		return srv.(PlacementControlServiceServer).Drain(ctx, req.(*PlacementDrainRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _PlacementControlService_Readiness_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PlacementControlServiceReadinessRequest)
+	in := new(PlacementReadinessRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1613,7 +1613,7 @@ func _PlacementControlService_Readiness_Handler(srv interface{}, ctx context.Con
 		FullMethod: PlacementControlService_Readiness_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlacementControlServiceServer).Readiness(ctx, req.(*PlacementControlServiceReadinessRequest))
+		return srv.(PlacementControlServiceServer).Readiness(ctx, req.(*PlacementReadinessRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1965,8 +1965,8 @@ const (
 // Dedicated GRU-authorized auth consensus bootstrap control. No user data.
 // A pending placement proposal never authorizes this service's grants.
 type AuthGroupBootstrapServiceClient interface {
-	Identity(ctx context.Context, in *AuthGroupBootstrapServiceIdentityRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapServiceIdentityResponse, error)
-	Bootstrap(ctx context.Context, in *AuthGroupBootstrapServiceBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapServiceBootstrapResponse, error)
+	Identity(ctx context.Context, in *AuthStorageIdentityRequest, opts ...grpc.CallOption) (*AuthStorageIdentity, error)
+	Bootstrap(ctx context.Context, in *AuthGroupBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapReceipt, error)
 }
 
 type authGroupBootstrapServiceClient struct {
@@ -1977,9 +1977,9 @@ func NewAuthGroupBootstrapServiceClient(cc grpc.ClientConnInterface) AuthGroupBo
 	return &authGroupBootstrapServiceClient{cc}
 }
 
-func (c *authGroupBootstrapServiceClient) Identity(ctx context.Context, in *AuthGroupBootstrapServiceIdentityRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapServiceIdentityResponse, error) {
+func (c *authGroupBootstrapServiceClient) Identity(ctx context.Context, in *AuthStorageIdentityRequest, opts ...grpc.CallOption) (*AuthStorageIdentity, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AuthGroupBootstrapServiceIdentityResponse)
+	out := new(AuthStorageIdentity)
 	err := c.cc.Invoke(ctx, AuthGroupBootstrapService_Identity_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -1987,9 +1987,9 @@ func (c *authGroupBootstrapServiceClient) Identity(ctx context.Context, in *Auth
 	return out, nil
 }
 
-func (c *authGroupBootstrapServiceClient) Bootstrap(ctx context.Context, in *AuthGroupBootstrapServiceBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapServiceBootstrapResponse, error) {
+func (c *authGroupBootstrapServiceClient) Bootstrap(ctx context.Context, in *AuthGroupBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapReceipt, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(AuthGroupBootstrapServiceBootstrapResponse)
+	out := new(AuthGroupBootstrapReceipt)
 	err := c.cc.Invoke(ctx, AuthGroupBootstrapService_Bootstrap_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -2004,8 +2004,8 @@ func (c *authGroupBootstrapServiceClient) Bootstrap(ctx context.Context, in *Aut
 // Dedicated GRU-authorized auth consensus bootstrap control. No user data.
 // A pending placement proposal never authorizes this service's grants.
 type AuthGroupBootstrapServiceServer interface {
-	Identity(context.Context, *AuthGroupBootstrapServiceIdentityRequest) (*AuthGroupBootstrapServiceIdentityResponse, error)
-	Bootstrap(context.Context, *AuthGroupBootstrapServiceBootstrapRequest) (*AuthGroupBootstrapServiceBootstrapResponse, error)
+	Identity(context.Context, *AuthStorageIdentityRequest) (*AuthStorageIdentity, error)
+	Bootstrap(context.Context, *AuthGroupBootstrapRequest) (*AuthGroupBootstrapReceipt, error)
 	mustEmbedUnimplementedAuthGroupBootstrapServiceServer()
 }
 
@@ -2016,10 +2016,10 @@ type AuthGroupBootstrapServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAuthGroupBootstrapServiceServer struct{}
 
-func (UnimplementedAuthGroupBootstrapServiceServer) Identity(context.Context, *AuthGroupBootstrapServiceIdentityRequest) (*AuthGroupBootstrapServiceIdentityResponse, error) {
+func (UnimplementedAuthGroupBootstrapServiceServer) Identity(context.Context, *AuthStorageIdentityRequest) (*AuthStorageIdentity, error) {
 	return nil, status.Error(codes.Unimplemented, "method Identity not implemented")
 }
-func (UnimplementedAuthGroupBootstrapServiceServer) Bootstrap(context.Context, *AuthGroupBootstrapServiceBootstrapRequest) (*AuthGroupBootstrapServiceBootstrapResponse, error) {
+func (UnimplementedAuthGroupBootstrapServiceServer) Bootstrap(context.Context, *AuthGroupBootstrapRequest) (*AuthGroupBootstrapReceipt, error) {
 	return nil, status.Error(codes.Unimplemented, "method Bootstrap not implemented")
 }
 func (UnimplementedAuthGroupBootstrapServiceServer) mustEmbedUnimplementedAuthGroupBootstrapServiceServer() {
@@ -2045,7 +2045,7 @@ func RegisterAuthGroupBootstrapServiceServer(s grpc.ServiceRegistrar, srv AuthGr
 }
 
 func _AuthGroupBootstrapService_Identity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AuthGroupBootstrapServiceIdentityRequest)
+	in := new(AuthStorageIdentityRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -2057,13 +2057,13 @@ func _AuthGroupBootstrapService_Identity_Handler(srv interface{}, ctx context.Co
 		FullMethod: AuthGroupBootstrapService_Identity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthGroupBootstrapServiceServer).Identity(ctx, req.(*AuthGroupBootstrapServiceIdentityRequest))
+		return srv.(AuthGroupBootstrapServiceServer).Identity(ctx, req.(*AuthStorageIdentityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _AuthGroupBootstrapService_Bootstrap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AuthGroupBootstrapServiceBootstrapRequest)
+	in := new(AuthGroupBootstrapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -2075,7 +2075,7 @@ func _AuthGroupBootstrapService_Bootstrap_Handler(srv interface{}, ctx context.C
 		FullMethod: AuthGroupBootstrapService_Bootstrap_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthGroupBootstrapServiceServer).Bootstrap(ctx, req.(*AuthGroupBootstrapServiceBootstrapRequest))
+		return srv.(AuthGroupBootstrapServiceServer).Bootstrap(ctx, req.(*AuthGroupBootstrapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

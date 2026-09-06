@@ -17,7 +17,7 @@ import (
 // policy before a desired proposal is accepted into the fenced durable journal.
 type productionPlacementConfig struct {
 	Targets          []productionPlacementTarget
-	ValidateProposal func(context.Context, string, *pb.PlacementControlServiceStageRequest) error
+	ValidateProposal func(context.Context, string, *pb.PlacementStageRequest) error
 }
 type productionPlacementTarget struct{ ServerIdentity, Principal string }
 type productionPlacement struct {
@@ -52,7 +52,7 @@ func newProductionPlacement(config productionPlacementConfig, session globalWork
 	}
 	return result, nil
 }
-func (placement *productionPlacement) Accept(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementControlServiceStageRequest) error {
+func (placement *productionPlacement) Accept(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementStageRequest) error {
 	publisher, ok := placement.publishers[serverIdentity]
 	if !ok {
 		return errors.New("runtime placement: host is not admitted")
@@ -63,7 +63,7 @@ func (placement *productionPlacement) Accept(ctx context.Context, serverIdentity
 	return publisher.Accept(ctx, operationID, request)
 }
 
-func (placement *productionPlacement) AcceptReceipt(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+func (placement *productionPlacement) AcceptReceipt(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 	publisher, ok := placement.publishers[serverIdentity]
 	if !ok {
 		return nil, errors.New("runtime placement: host is not admitted")
@@ -104,7 +104,7 @@ func (placement *productionPlacement) Reconcile(ctx context.Context) error {
 // AcceptPlacement is the production control ingress after domain validation.
 // Its response acknowledges persisted intent only; the engine separately stages
 // PENDING and never converts it into membership or readiness evidence here.
-func (runtime *productionRuntime) AcceptPlacement(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementControlServiceStageRequest) error {
+func (runtime *productionRuntime) AcceptPlacement(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementStageRequest) error {
 	if runtime == nil {
 		return errors.New("runtime placement: global runtime missing")
 	}

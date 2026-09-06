@@ -104,7 +104,7 @@ func validateReadinessSet(record Record, receipts []SignedReadiness, nonce strin
 			return ErrInvalid
 		}
 		target := record.Targets[targetIndex]
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil {
 			return ErrInvalid
 		}

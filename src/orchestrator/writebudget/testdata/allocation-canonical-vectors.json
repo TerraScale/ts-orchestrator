@@ -1,0 +1,22 @@
+{
+  "keyID": "5cd252fb0ce8932436faf8ccd1040981b89ee4ad6b9fe9e2a2b7e71aacb27cd3",
+  "publicSPKI": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaxfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li/hp/m47n60p8D54WK84zV2sxXs7LtkBoN79R9Q==",
+  "vectors": [
+    {
+      "costNanoDollar": 0,
+      "includedUnits": 2,
+      "paidUnits": 0,
+      "payload": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZ3JhbnQiOnsiY3ljbGVfaWQiOiJjeWNsZSIsInJhdGVfbmFub19kb2xsYXIiOjEwMDAsIm9wZXJhdGlvbl9pZCI6InZlY3Rvci0xIiwib3JnYW5pemF0aW9uX2lkIjoib3JnIiwiZGF0YWJhc2VfaWQiOiJkYiIsImJyYW5jaF9pZCI6Im1haW4iLCJob2xkZXJfaWQiOiJ3cml0ZXItdmVjdG9yLTEiLCJyZXF1ZXN0ZWRfdW5pdHMiOjEsImluY2x1ZGVkX3VuaXRzIjoyLCJwYWlkX3VuaXRzIjowLCJyZWdpb25zIjpbImdydSIsInNmbyJdLCJ1bml0cyI6MiwiY29zdF9uYW5vX2RvbGxhciI6MCwicG9saWN5X2Vwb2NoIjoxLCJjb25zZW50X2Vwb2NoIjoxLCJ3cml0ZXJfZXBvY2giOjksImlzc3VlZF9hdCI6IjIwMjYtMDktMDZUMjI6MjM6MDUuNzk5NjgzMjMzWiIsImV4cGlyZXNfYXQiOiIyMDI2LTA5LTA2VDIzOjIzOjA1Ljc5OTY3OTM1MloifSwiY3ljbGVfaWQiOiJjeWNsZSIsInJhdGVfbmFub19kb2xsYXIiOjEwMDAsInBsYWNlbWVudCI6ImRiLXBsYWNlbWVudCJ9",
+      "signature": "VFNDUwEBXNJS+wzokyQ2+vjM0QQJgbie5K1rn+niorfnGqyyfNMASDBGAiEA60qXKmGa385Ajx0yh85DRTvgQu9hLsKMaizc5nm+PqQCIQCn8nzLmw8GH1wjY2g22tDFsXaSNzMGhoyO1b6ybSF1+g==",
+      "units": 2
+    },
+    {
+      "costNanoDollar": 4000,
+      "includedUnits": 0,
+      "paidUnits": 4,
+      "payload": "eyJzY2hlbWFfdmVyc2lvbiI6MSwiZ3JhbnQiOnsiY3ljbGVfaWQiOiJjeWNsZSIsInJhdGVfbmFub19kb2xsYXIiOjEwMDAsIm9wZXJhdGlvbl9pZCI6InZlY3Rvci0yIiwib3JnYW5pemF0aW9uX2lkIjoib3JnIiwiZGF0YWJhc2VfaWQiOiJkYiIsImJyYW5jaF9pZCI6Im1haW4iLCJob2xkZXJfaWQiOiJ3cml0ZXItdmVjdG9yLTIiLCJyZXF1ZXN0ZWRfdW5pdHMiOjIsImluY2x1ZGVkX3VuaXRzIjowLCJwYWlkX3VuaXRzIjo0LCJyZWdpb25zIjpbImdydSIsInNmbyJdLCJ1bml0cyI6NCwiY29zdF9uYW5vX2RvbGxhciI6NDAwMCwicG9saWN5X2Vwb2NoIjoxLCJjb25zZW50X2Vwb2NoIjoxLCJ3cml0ZXJfZXBvY2giOjksImlzc3VlZF9hdCI6IjIwMjYtMDktMDZUMjI6MjM6MDUuODAwMDM0MTA0WiIsImV4cGlyZXNfYXQiOiIyMDI2LTA5LTA2VDIzOjIzOjA1LjgwMDAzMDM0OFoifSwiY3ljbGVfaWQiOiJjeWNsZSIsInJhdGVfbmFub19kb2xsYXIiOjEwMDAsInBsYWNlbWVudCI6ImRiLXBsYWNlbWVudCJ9",
+      "signature": "VFNDUwEBXNJS+wzokyQ2+vjM0QQJgbie5K1rn+niorfnGqyyfNMARzBFAiB3FXVx9RO/5oiaE3hvX9yIn66q6v97fGQuuBXCbZ8wrwIhAKnFp1HdJHd88aC6R9y1ZyJReEYkBqePLQdCLayTva63",
+      "units": 4
+    }
+  ]
+}

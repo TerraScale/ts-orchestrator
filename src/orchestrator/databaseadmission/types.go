@@ -171,7 +171,7 @@ func ValidateRecord(r Record) error {
 			return ErrInvalid
 		}
 		provisions[t.Region] = t.Provision
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if proto.Unmarshal(t.Proposal, stage) != nil || stage.Proposal == nil || stage.Proposal.Environment != r.Request.Environment || !canonicalID.MatchString(stage.Proposal.Cluster) || stage.Proposal.Generation == 0 || stage.Proposal.Epoch == 0 {
 			return ErrInvalid
 		}
@@ -286,7 +286,7 @@ func validatePlacementTargets(r Record) error {
 		if len(target.AcceptedReceipt) != 0 && (target.AcceptedRevision == 0 || target.AcceptedEpoch == 0 || target.AcceptedGeneration == 0 || len(target.AcceptedProofDigest) != 64) {
 			return ErrInvalid
 		}
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil {
 			return ErrInvalid
 		}

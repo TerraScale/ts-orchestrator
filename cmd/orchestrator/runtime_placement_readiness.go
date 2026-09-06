@@ -67,7 +67,7 @@ func collectProductionReadiness(targets map[string]placementpublisher.ReadinessT
 		if check == nil || len(record.Targets) == 0 {
 			return nil, databaseadmission.ErrInvalid
 		}
-		request := &pb.PlacementControlServiceReadinessRequest{Tenant: record.Request.TenantID, Project: record.Request.ProjectID, Database: record.DatabaseID, OperationId: databaseadmission.PlacementOperationID(record.Request), Nonce: nonce}
+		request := &pb.PlacementReadinessRequest{Tenant: record.Request.TenantID, Project: record.Request.ProjectID, Database: record.DatabaseID, OperationId: databaseadmission.PlacementOperationID(record.Request), Nonce: nonce}
 		if err := tbep.ValidateReadinessRequest(request); err != nil {
 			return nil, err
 		}

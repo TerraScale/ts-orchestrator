@@ -108,7 +108,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
 		Install:           databaseadmission.RemoteInstall(session.Connection),
 		ActivatePlacement: config.ActivatePlacement,
-		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 			if err := validateDatabaseProposal(ctx, journal, host, operation, proposal); err != nil {
 				return nil, err
 			}
@@ -173,7 +173,7 @@ func (d *productionDatabase) Close() error {
 	return errors.Join(errs...)
 }
 
-func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, record databaseadmission.Record, host string, proof placementtransition.Signed, receipt *pb.PlacementControlServiceAcceptResponse) error {
+func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, record databaseadmission.Record, host string, proof placementtransition.Signed, receipt *pb.PlacementAcceptanceResponse) error {
 	if d == nil || d.lifecycleJournal == nil || receipt == nil {
 		return databaseadmission.ErrInvalid
 	}
@@ -242,7 +242,7 @@ func (d *productionDatabase) AcceptedRecord(ctx context.Context, databaseID stri
 	}
 	return databaseadmission.Record{}, databaseadmission.ErrInvalid
 }
-func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementControlServiceStageRequest) error {
+func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementStageRequest) error {
 	records, err := journal.List(ctx)
 	if err != nil {
 		return err
@@ -319,8 +319,8 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		if err != nil {
 			return databaseadmission.Plan{}, err
 		}
-		receipt := new(pb.PlacementControlServiceStageResponse)
-		previous := new(pb.PlacementControlServiceStageRequest)
+		receipt := new(pb.PlacementProposalResponse)
+		previous := new(pb.PlacementStageRequest)
 		if len(prior.Receipt) == 0 || proto.Unmarshal(prior.Receipt, receipt) != nil || proto.Unmarshal(prior.Request, previous) != nil || tbep.ValidatePlacementReceipt(receipt, previous.Proposal) != nil {
 			return databaseadmission.Plan{}, errors.New("runtime database: previous placement remains unresolved")
 		}
@@ -360,13 +360,13 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		return databaseadmission.Plan{}, fmt.Errorf("runtime database plan: %w", err)
 	}
 	for i := range targets {
-		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementControlServiceStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
+		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
 		if err != nil {
 			return databaseadmission.Plan{}, err
 		}
 	}
 	for i := range placementTargets {
-		placementTargets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementControlServiceStageRequest{ExpectedRevision: revisions[placementTargets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
+		placementTargets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[placementTargets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
 		if err != nil {
 			return databaseadmission.Plan{}, err
 		}

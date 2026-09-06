@@ -203,6 +203,9 @@ func deserialize[T any](jsonText, code string) (*T, error) {
 			Remediation: "Provide a UTF-8 JSON document smaller than 1 MiB.",
 		}
 	}
+	if err := rejectDuplicateJSON([]byte(jsonText)); err != nil || strings.Contains(jsonText, `"Commit"`) {
+		return nil, &ValidationError{Code: code, Message: "The delivery document contains duplicate or aliased fields.", Remediation: "Use each version-1 field exactly once with its exact camelCase name."}
+	}
 	if err := checkJSONDepth(jsonText, maxJSONDepth); err != nil {
 		return nil, &ValidationError{
 			Code:        code,

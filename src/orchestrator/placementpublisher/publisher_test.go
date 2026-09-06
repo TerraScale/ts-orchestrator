@@ -8,19 +8,19 @@ import (
 	"testing"
 )
 
-func testRequest() *pb.PlacementControlServiceStageRequest {
-	return &pb.PlacementControlServiceStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", Region: "GRU", WriterMember: "01ARZ3NDEKTSV4RRFFQ69G5FAW", FollowerMember: "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Declarations: []*pb.PlacementDatabaseDeclaration{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", SelectedRegions: []string{"GRU"}}}}
+func testRequest() *pb.PlacementStageRequest {
+	return &pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", Region: "GRU", WriterMember: "01ARZ3NDEKTSV4RRFFQ69G5FAW", FollowerMember: "01ARZ3NDEKTSV4RRFFQ69G5FAX"}}}, Declarations: []*pb.PlacementDatabaseDeclaration{{Tenant: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Project: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Database: "01ARZ3NDEKTSV4RRFFQ69G5FB0", SelectedRegions: []string{"GRU"}}}}
 }
 
 type fakeTarget struct {
 	effects  int
 	unknown  bool
-	results  map[string]*pb.PlacementControlServiceStageResponse
-	requests map[string]*pb.PlacementControlServiceStageRequest
+	results  map[string]*pb.PlacementProposalResponse
+	requests map[string]*pb.PlacementStageRequest
 }
 
 func newFakeTarget() *fakeTarget {
-	return &fakeTarget{results: map[string]*pb.PlacementControlServiceStageResponse{}, requests: map[string]*pb.PlacementControlServiceStageRequest{}}
+	return &fakeTarget{results: map[string]*pb.PlacementProposalResponse{}, requests: map[string]*pb.PlacementStageRequest{}}
 }
 func (*fakeTarget) Principal() string {
 	return "spiffe://terrascale.tech/production/orchestrator/member-a"
@@ -28,7 +28,7 @@ func (*fakeTarget) Principal() string {
 func (*fakeTarget) ServerIdentity() string {
 	return "spiffe://terrascale.tech/production/terrabase/member-a"
 }
-func (f *fakeTarget) Stage(_ context.Context, id string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+func (f *fakeTarget) Stage(_ context.Context, id string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 	if prior, ok := f.requests[id]; ok && !proto.Equal(prior, request) {
 		return nil, errors.New("changed retry")
 	}
@@ -36,8 +36,8 @@ func (f *fakeTarget) Stage(_ context.Context, id string, request *pb.PlacementCo
 		return result, nil
 	}
 	f.effects++
-	f.requests[id] = proto.Clone(request).(*pb.PlacementControlServiceStageRequest)
-	result := &pb.PlacementControlServiceStageResponse{Revision: uint64(f.effects), Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
+	f.requests[id] = proto.Clone(request).(*pb.PlacementStageRequest)
+	result := &pb.PlacementProposalResponse{Revision: uint64(f.effects), Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
 	f.results[id] = result
 	if f.unknown {
 		f.unknown = false

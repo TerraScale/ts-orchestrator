@@ -836,16 +836,16 @@ service UsageService {
 service PlacementControlService {
   // Persists an intent only. x-tb-idempotency-key binds the exact canonical
   // request and authenticated principal. A retry returns its original revision.
-  rpc Stage(PlacementControlServiceStageRequest) returns (PlacementControlServiceStageResponse);
-  rpc Get(PlacementControlServiceGetRequest) returns (PlacementControlServiceGetResponse);
+  rpc Stage(PlacementStageRequest) returns (PlacementProposalResponse);
+  rpc Get(PlacementGetRequest) returns (PlacementProposalResponse);
   // Verifies and durably retains a signed GRU epoch proof matching staged intent.
   // Admission permits catch-up only; it does not assert data readiness.
-  rpc Accept(PlacementControlServiceAcceptRequest) returns (PlacementControlServiceAcceptResponse);
-  rpc GetAccepted(PlacementControlServiceGetAcceptedRequest) returns (PlacementControlServiceGetAcceptedResponse);
+  rpc Accept(PlacementAcceptRequest) returns (PlacementAcceptanceResponse);
+  rpc GetAccepted(PlacementGetRequest) returns (PlacementAcceptanceResponse);
   // Executes a durably authorized old-epoch fence and returns a member-signed
   // frontier receipt only after origin+physical work has durably drained.
-  rpc Drain(PlacementControlServiceDrainRequest) returns (PlacementControlServiceDrainResponse);
-  rpc Readiness(PlacementControlServiceReadinessRequest) returns (PlacementControlServiceReadinessResponse);
+  rpc Drain(PlacementDrainRequest) returns (PlacementDrainResponse);
+  rpc Readiness(PlacementReadinessRequest) returns (PlacementDrainResponse);
 }
 
 // Authenticated private lifecycle control. Every mutation is bound to the
@@ -860,25 +860,26 @@ service LifecycleControlService {
 }
 
 message LifecycleControlContext {
-  string environment = 1; // Exact configured environment.
-  string tenant = 2; // Canonical tenant ULID.
-  string project = 3; // Canonical project ULID.
-  string database = 4; // Canonical database ULID.
-  string region = 5; // Exact selected Region.
-  string member = 6; // Exact selected member.
-  uint64 placement_revision = 7; // Accepted placement journal revision.
-  uint64 authority_epoch = 8; // Accepted signed authority epoch.
-  string authority_lease = 9; // Accepted authority lease identity.
-  bytes authority_signature = 10; // Signed accepted assignment proof.
+  string environment = 1;
+  string tenant = 2;
+  string project = 3;
+  string database = 4;
+  string region = 5;
+  string member = 6;
+  uint64 placement_revision = 7;
+  uint64 authority_epoch = 8;
+  string authority_lease = 9;
+  bytes authority_signature = 10;
+  bytes operation_grant = 11;
 }
 
 message LifecycleControlRequest {
   LifecycleControlContext context = 1;
-  string operation_id = 2; // Stable durable operation identity.
+  string operation_id = 2;
 }
 
 message LifecycleReactivateRequest {
-  LifecycleControlRequest request = 1; // Resume the same retained database.
+  LifecycleControlRequest request = 1;
 }
 
 enum LifecycleStatus {
@@ -891,7 +892,7 @@ enum LifecycleStatus {
 message LifecycleControlResponse {
   LifecycleStatus status = 1;
   string operation_id = 2;
-  string detail = 3; // Bounded typed refusal detail; never provider secrets.
+  string detail = 3;
 }
 
 message PlacementRegionSeats {
@@ -926,13 +927,13 @@ message PlacementDatabaseDeclaration {
   repeated string selected_regions = 4;
 }
 
-message PlacementControlServiceStageRequest {
+message PlacementStageRequest {
   uint64 expected_revision = 1; // Local journal CAS revision, zero before first Stage.
   PlacementProposal proposal = 2;
   repeated PlacementDatabaseDeclaration declarations = 3; // Exact provisioning scope/residency; committed with proposal CAS.
 }
 
-message PlacementControlServiceGetRequest {}
+message PlacementGetRequest {}
 
 enum PlacementProposalStatus {
   PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED = 0;
@@ -940,7 +941,7 @@ enum PlacementProposalStatus {
   PLACEMENT_PROPOSAL_STATUS_PENDING = 1;
 }
 
-message PlacementControlServiceStageResponse {
+message PlacementProposalResponse {
   uint64 revision = 1;
   PlacementProposal proposal = 2;
   PlacementProposalStatus status = 3;
@@ -949,11 +950,11 @@ message PlacementControlServiceStageResponse {
 // Dedicated GRU-authorized auth consensus bootstrap control. No user data.
 // A pending placement proposal never authorizes this service's grants.
 service AuthGroupBootstrapService {
-  rpc Identity(AuthGroupBootstrapServiceIdentityRequest) returns (AuthGroupBootstrapServiceIdentityResponse);
-  rpc Bootstrap(AuthGroupBootstrapServiceBootstrapRequest) returns (AuthGroupBootstrapServiceBootstrapResponse);
+  rpc Identity(AuthStorageIdentityRequest) returns (AuthStorageIdentity);
+  rpc Bootstrap(AuthGroupBootstrapRequest) returns (AuthGroupBootstrapReceipt);
 }
-message AuthGroupBootstrapServiceIdentityRequest {}
-message AuthGroupBootstrapServiceIdentityResponse {
+message AuthStorageIdentityRequest {}
+message AuthStorageIdentity {
   string environment = 1;
   string cluster = 2;
   string member = 3;
@@ -980,7 +981,7 @@ message AuthGroupBootstrapGrant {
   uint64 authority_revision = 10; // Exact committed GRU control journal sequence.
   uint64 genesis_node = 11; // Only this voter may initialize the new Raft group.
 }
-message AuthGroupBootstrapServiceBootstrapRequest {
+message AuthGroupBootstrapRequest {
   string operation_id = 1; // Stable control retry identity.
   AuthGroupBootstrapGrant grant = 2;
 }
@@ -989,7 +990,7 @@ enum AuthGroupBootstrapStatus {
   // Persisted grant; this does not report quorum, durability, or API readiness.
   AUTH_GROUP_BOOTSTRAP_STATUS_PERSISTED = 1;
 }
-message AuthGroupBootstrapServiceBootstrapResponse {
+message AuthGroupBootstrapReceipt {
   string group_id = 1;
   uint64 generation = 2;
   uint64 authority_revision = 3;
@@ -1000,7 +1001,7 @@ message AuthGroupBootstrapServiceBootstrapResponse {
 }
 
 // Exact Signed JSON envelope from the GRU placementtransition producer.
-message PlacementControlServiceAcceptRequest {
+message PlacementAcceptRequest {
   uint64 proposal_revision = 1;
   bytes proof = 2; // <=256 KiB; raw signed payload authenticated before decoding.
 }
@@ -1010,7 +1011,7 @@ enum PlacementAcceptanceStatus {
   PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP = 1;
 }
 
-message PlacementControlServiceAcceptResponse {
+message PlacementAcceptanceResponse {
   uint64 proposal_revision = 1;
   uint64 epoch = 2;
   uint64 generation = 3;
@@ -1018,37 +1019,17 @@ message PlacementControlServiceAcceptResponse {
   PlacementAcceptanceStatus status = 5;
 }
 
-message PlacementControlServiceDrainRequest {
+message PlacementDrainRequest {
   bytes prepared_transition = 1; // <=256KiB Signed prepared_epoch GRU envelope.
 }
-message PlacementControlServiceDrainResponse {
+message PlacementDrainResponse {
   bytes signed_receipt = 1; // Signed old_epoch_drained_fenced envelope.
 }
 
-message PlacementControlServiceReadinessRequest {
+message PlacementReadinessRequest {
   string tenant = 1; // Canonical tenant ULID.
   string project = 2; // Canonical project ULID.
   string database = 3; // Canonical database ULID.
   string operation_id = 4; // Exact durable provisioning operation.
   string nonce = 5; // Fresh challenge, exactly64 lowercase hex characters.
-}
-
-message PlacementControlServiceGetAcceptedRequest {}
-
-message PlacementControlServiceGetResponse {
-  uint64 revision = 1;
-  PlacementProposal proposal = 2;
-  PlacementProposalStatus status = 3;
-}
-
-message PlacementControlServiceGetAcceptedResponse {
-  uint64 proposal_revision = 1;
-  uint64 epoch = 2;
-  uint64 generation = 3;
-  string proof_digest = 4;
-  PlacementAcceptanceStatus status = 5;
-}
-
-message PlacementControlServiceReadinessResponse {
-  bytes signed_receipt = 1;
 }

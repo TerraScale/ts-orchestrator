@@ -107,7 +107,7 @@ func sameTemplate(a, b *pb.AuthGroupBootstrapGrant) bool {
 	}
 	return proto.Equal(left, right)
 }
-func ValidateReceipt(receipt *pb.AuthGroupBootstrapServiceBootstrapResponse, request *pb.AuthGroupBootstrapServiceBootstrapRequest, identity string) error {
+func ValidateReceipt(receipt *pb.AuthGroupBootstrapReceipt, request *pb.AuthGroupBootstrapRequest, identity string) error {
 	if receipt == nil || request == nil || request.Grant == nil || receipt.Status != 1 || receipt.OperationId != request.OperationId || receipt.GroupId != request.Grant.GroupId || receipt.Generation != request.Grant.Generation || receipt.AuthorityRevision != request.Grant.AuthorityRevision || !proto.Equal(receipt.Grant, request.Grant) {
 		return ErrInvalid
 	}

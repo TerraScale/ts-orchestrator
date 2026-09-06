@@ -19,9 +19,9 @@ import (
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
-func testAcceptanceResponse(revision uint64, proof placementtransition.Signed) *pb.PlacementControlServiceAcceptResponse {
+func testAcceptanceResponse(revision uint64, proof placementtransition.Signed) *pb.PlacementAcceptanceResponse {
 	digest := sha256.Sum256(proof.Payload)
-	return &pb.PlacementControlServiceAcceptResponse{ProposalRevision: revision, Epoch: 1, Generation: 1, ProofDigest: fmt.Sprintf("%x", digest[:]), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}
+	return &pb.PlacementAcceptanceResponse{ProposalRevision: revision, Epoch: 1, Generation: 1, ProofDigest: fmt.Sprintf("%x", digest[:]), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}
 }
 
 func transitionFixture(t *testing.T) (databaseadmission.Record, databasePlacementJournal) {
@@ -41,9 +41,9 @@ func transitionFixture(t *testing.T) (databaseadmission.Record, databasePlacemen
 	for n := range record.PlacementTargets {
 		target := &record.PlacementTargets[n]
 		target.Proposed = true
-		stage := new(pb.PlacementControlServiceStageRequest)
+		stage := new(pb.PlacementStageRequest)
 		_ = proto.Unmarshal(target.Proposal, stage)
-		receipt := &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
+		receipt := &pb.PlacementProposalResponse{Revision: 1, Proposal: stage.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}
 		data, err := proto.Marshal(receipt)
 		if err != nil {
 			t.Fatal(err)
@@ -83,12 +83,12 @@ func TestTransitionUsageFailureBlocksCompletionAndRetriesSameProof(t *testing.T)
 	accepted, allocated, registered, completed := 0, 0, 0, 0
 	var firstDigest string
 	worker := &productionPlacementTransition{
-		issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error {
+		issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementAcceptanceResponse) error {
 			return nil
 		},
 		config: productionPlacementTransitionConfig{
 			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
-			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error) {
 				accepted++
 				return testAcceptanceResponse(revision, proof), nil
 			},
@@ -141,12 +141,12 @@ func TestTransitionAllocationFailureBlocksUsageAndCompletion(t *testing.T) {
 	issuer := &runtimeTestIssuer{}
 	worker := &productionPlacementTransition{
 		issuer: issuer, pending: pending, check: func(context.Context) error { return nil },
-		acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error {
+		acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementAcceptanceResponse) error {
 			return nil
 		},
 		config: productionPlacementTransitionConfig{
 			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
-			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error) {
 				accepted++
 				return testAcceptanceResponse(revision, proof), nil
 			},
@@ -179,9 +179,9 @@ func TestTransitionWorkerExplicitGenesisAndDeliveryRetry(t *testing.T) {
 	record, pending := transitionFixture(t)
 	issuer := &runtimeTestIssuer{}
 	delivered := 0
-	worker := &productionPlacementTransition{acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error {
+	worker := &productionPlacementTransition{acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementAcceptanceResponse) error {
 		return nil
-	}, allocateStreams: func(context.Context, databaseadmission.Record, string) error { return nil }, registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+	}, allocateStreams: func(context.Context, databaseadmission.Record, string) error { return nil }, registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error) {
 		if revision != 1 {
 			t.Fatal("wrong Stage revision")
 		}
@@ -267,12 +267,12 @@ func TestTransitionAllocatesCommittedStreamsBeforeUsageDelivery(t *testing.T) {
 	}
 	delivered := 0
 	worker := &productionPlacementTransition{
-		issuer: &runtimeTestIssuer{}, pending: pending, check: func(context.Context) error { return nil }, acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error {
+		issuer: &runtimeTestIssuer{}, pending: pending, check: func(context.Context) error { return nil }, acceptance: func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementAcceptanceResponse) error {
 			return nil
 		},
 		config: productionPlacementTransitionConfig{
 			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
-			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementAcceptanceResponse, error) {
 				return testAcceptanceResponse(revision, proof), nil
 			},
 		},

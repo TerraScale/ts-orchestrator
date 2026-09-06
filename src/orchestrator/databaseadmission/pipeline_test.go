@@ -31,7 +31,7 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			target.Provision.Binding.KeyVersion = r.KeyVersion
 			target.Provision.Binding.TenantID = r.Request.TenantID
 			target.Provision.Binding.ProjectID = r.Request.ProjectID
-			stage := new(pb.PlacementControlServiceStageRequest)
+			stage := new(pb.PlacementStageRequest)
 			if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 				return Plan{}, err
 			}
@@ -51,8 +51,8 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			placements = append(placements, PlacementTarget{ServerIdentity: target.ServerIdentity, MemberID: target.MemberID, Region: target.Region, Proposal: target.Proposal})
 		}
 		return Plan{Members: targets, Placements: placements}, nil
-	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(_ context.Context, _ string, _ string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
-		return &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
+	}, Install: func(context.Context, Record, Target, []keylease.Entry) error { return nil }, AcceptPlacement: func(_ context.Context, _ string, _ string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
+		return &pb.PlacementProposalResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
 	}, ActivatePlacement: func(context.Context, Record) error { return nil }}
 }
 func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	}
 	proposalCalls := map[string]int{}
 	loseProposal := true
-	config.AcceptPlacement = func(_ context.Context, host, operation string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+	config.AcceptPlacement = func(_ context.Context, host, operation string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 		durable, _, _ := journal.Load(t.Context(), ScopeKey(accepted.Request))
 		for _, target := range durable.Targets {
 			if !target.Installed {
@@ -112,7 +112,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 			loseProposal = false
 			return nil, errors.New("placement response lost")
 		}
-		return &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
+		return &pb.PlacementProposalResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
 	}
 	pipeline, _ = New(config)
 	if err = pipeline.Reconcile(t.Context()); err == nil {
