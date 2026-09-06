@@ -1,6 +1,6 @@
 # Native backup boundary replacement
 
-The updated workspace D-29 and repository goal assign backup implementation to
+The updated workspace D-29 and workspace goal assign backup implementation to
 TerraBase's native Rust subsystem. Inspection found no external Litestream
 launcher or module dependency in the orchestrator. The remaining coupling was
 in lifecycle interfaces, reaper operation names, runbook output and comments.

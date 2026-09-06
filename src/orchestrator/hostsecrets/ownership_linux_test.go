@@ -22,6 +22,9 @@ func ownershipFixture(t *testing.T) (int, string, Seed, ownershipRecord) {
 	entry := testEntry()
 	entry.Destination = "/etc/terrascale/orchestrator/global/client.key"
 	seed.Entries = append(seed.Entries, entry)
+	receipt := testEntry()
+	receipt.Destination = StorageTransitionReceiptKeyPath
+	seed.Entries = append(seed.Entries, receipt)
 	p := prepareFixture(t, fd, seed)
 	for _, entry := range seed.Entries {
 		if err := p.publish(entry, []byte("private-canary")); err != nil {
@@ -38,7 +41,7 @@ func TestOwnershipHandoffKeepsDirectoriesProtectedAndNodePrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.close()
-	for path, mode := range map[string]os.FileMode{".": 0711, "orchestrator": 0711, "orchestrator/global": 0711, "ts-node-bootstrap": 0700, "orchestrator/global/client.key": 0600, "ts-node-bootstrap/client.key": 0600} {
+	for path, mode := range map[string]os.FileMode{".": 0711, "orchestrator": 0711, "orchestrator/global": 0711, "ts-node-bootstrap": 0700, "orchestrator/global/client.key": 0600, "ts-node-bootstrap/client.key": 0600, "ts-node-bootstrap/storage-transition-receipt.key": 0600} {
 		info, err := os.Stat(filepath.Join(root, path))
 		if err != nil || info.Mode().Perm() != mode {
 			t.Fatalf("incorrect protected traversal/file mode for %s", path)
@@ -187,6 +190,13 @@ func TestRootServiceOwnershipHandoff(t *testing.T) {
 	}
 	if _, err := readAsService(nodeLeaf); err == nil {
 		t.Fatal("numeric service UID can read root ts-node secret")
+	}
+	receiptLeaf := filepath.Join(root, entryName(seed.Entries[2]))
+	if err := unix.Stat(receiptLeaf, &stat); err != nil || stat.Uid != 0 || stat.Mode&07777 != 0600 {
+		t.Fatal("transition receipt key lost root-private ownership")
+	}
+	if _, err := readAsService(receiptLeaf); err == nil {
+		t.Fatal("service can read transition receipt key")
 	}
 	if err := os.Chown(leaf, 65534, 65533); err != nil {
 		t.Fatal(err)

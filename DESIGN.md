@@ -1,7 +1,7 @@
 # TerraScale.Orchestrator design
 
 Status: current Go implementation map, not product authority. The workspace
-[`GOAL.md`](../GOAL.md) and repository [`GOAL.md`](GOAL.md) control target
+[`GOAL.md`](../GOAL.md) control target
 architecture and replacement work. Package names and adapter contracts below
 describe code that exists today; they do not preserve a retired topology.
 
@@ -88,7 +88,7 @@ still prove durable operation recovery and safe release rollback.
 ## Local qualification boundary
 
 The required end-to-end test path is the Firecracker architecture in
-[`GOAL.md`](GOAL.md). Its Go `SandboxVMProvider`, Firecracker Unix-socket
+[`GOAL.md`](../GOAL.md#ts-orchestrator). Its Go `SandboxVMProvider`, Firecracker Unix-socket
 client, provider-contract endpoints, guest-image builder, and fault controller
 live only in test or tooling packages. Production packages may depend on
 provider-neutral behavior contracts, but never on Firecracker, TAP management,

@@ -1,7 +1,7 @@
 # NATS capability-adoption matrix and messaging contract
 
 > Frozen messaging contract for the checked-in NATS adapter. The repository
-> [`GOAL.md`](../../GOAL.md) replaces the optional-NATS target with the
+> [`GOAL.md`](../../../GOAL.md#ts-orchestrator) replaces the optional-NATS target with the
 > mandatory `ts.orch.v1` control network; the
 > subject tokens below name that v1 control root, which is the root served by
 > the checked-in adapter. It cannot
@@ -15,7 +15,7 @@
 | Machine-readable definitions | `src/orchestrator/natspolicy` contains the capability matrix, subject taxonomy and embedded `protocol-manifest.json`; `src/orchestrator/protocol` contains message envelopes, semantic classes, delivery semantics and regional autonomy. |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
-| Canonicality | Canonical for the checked-in `ts.orch.v1` implementation. The repository `GOAL.md` remains the authority for architecture beyond this adapter. |
+| Canonicality | Canonical for the checked-in `ts.orch.v1` implementation. The workspace `GOAL.md` remains the authority for architecture beyond this adapter. |
 
 Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.
 

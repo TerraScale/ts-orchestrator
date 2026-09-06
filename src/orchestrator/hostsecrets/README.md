@@ -14,8 +14,10 @@ must be fetched successfully before ts-node loads its NATS credentials or
 starts dependent services. `Bootstrap(ctx, Seed)` accepts an already-admitted
 seed. Publication requires Linux and effective UID 0.
 
-Only ten credential leaves are allowed: `client.key` and `user.seed` below
-`/etc/terrascale/ts-node-bootstrap`; `membership.key` and `command.key` below
+Up to thirteen credential leaves are allowed: `client.key` and `user.seed`
+below both `/etc/terrascale/ts-node-bootstrap` and
+`/etc/terrascale/ts-node-authority`; `storage-transition-receipt.key` below
+`ts-node-bootstrap`; `membership.key` and `command.key` below
 `/etc/terrascale/orchestrator`; and `server.key`, `client.key`, `user.seed`
 below each `global` and `regional` orchestrator directory. Unit, binary,
 configuration, and arbitrary absolute file destinations are refused.
@@ -101,8 +103,8 @@ remaining 0600. `/etc/terrascale` and the fixed orchestrator parent directories
 remain root-owned and become 0711: the service can traverse known paths but
 cannot list or modify configuration directories. Public certificate/trust/config
 files supplied by the seed must independently be service-readable. The
-`ts-node-bootstrap` directory and its credentials retain their root-private
-permissions and ownership.
+`ts-node-bootstrap` directory and its credentials, including the transition
+receipt key, retain their root-private permissions and ownership.
 
 A retry accepts only root ownership during an interrupted handoff or the exact
 journaled service UID/GID, verifies the original digest, and completes file and
@@ -118,3 +120,12 @@ calling initial bootstrap. Once runtime authority has retired bootstrap, the
 caller skips this initial seed entirely; this package must not validate or
 restore old secret bytes after runtime credential rotation. Completing the
 initial signed grant alone does not constitute runtime retirement.
+
+The bootstrap-control compiler requires an opted-in storage transition to use
+`/etc/terrascale/ts-node-bootstrap/storage-transition-receipt.key` and include
+its exact Vault version in the seed. It validates a single P-256 private key,
+rejects owner keys, regional command keys, keys reused by other seeded
+credentials, and shared receipt keys across hosts. A receipt seed without a
+corresponding signed transition descriptor is refused. Cloud-init carries only
+the Vault reference, version, and digest; the private key is retrieved on-host.
+The later owner-signed plan must still bind that key's public identity.

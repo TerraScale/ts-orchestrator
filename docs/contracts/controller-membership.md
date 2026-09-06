@@ -1,7 +1,7 @@
 # Controller membership and the global cell directory over NATS
 
 - Status: landed contract tranche (TerraScale.Orchestrator#21)
-- Subject root: `ts.orch.v1` per the repository `GOAL.md`; the checked-in
+- Subject root: `ts.orch.v1` per the workspace `GOAL.md`; the checked-in
   adapter serves this root.
 - Source of truth: the Go contracts in `src/orchestrator/control/` and
   `src/orchestrator/protocol/`

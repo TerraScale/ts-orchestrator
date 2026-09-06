@@ -21,6 +21,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 type bootstrapHostTrustReference struct {
@@ -76,6 +77,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 	release = hex.EncodeToString(public)
 	loaded.seeds = map[string]map[int]string{}
 	seen := map[string]bool{}
+	receiptHosts := map[string]string{}
 	for _, seed := range loaded.declaration.Seeds {
 		if seen[seed.HostID] {
 			return errors.New("control: duplicate host seed")
@@ -101,6 +103,11 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if err := validateBootstrapAuthorityReader(seed, activation); err != nil {
 			return err
 		}
+		receiptPath, err := bootstrapStorageTransitionReceiptPath(activation.grant.Manifest)
+		if err != nil {
+			return err
+		}
+		privateIdentities := map[string]string{}
 		var files []ocireconcile.BootstrapHostFile
 		var secrets []map[string]any
 		add := func(source, path string, private bool, secretID string, version int64) error {
@@ -114,7 +121,18 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			if err := validateBootstrapSeedContent(content, private, loaded.activations); err != nil {
 				return err
 			}
+			if path == hostsecrets.StorageTransitionReceiptKeyPath && !private {
+				return errors.New("control: transition receipt key must be a private Vault reference")
+			}
 			if private {
+				key, keyErr := security.ParseCommandSignatureSignerPEM(content)
+				if path == hostsecrets.StorageTransitionReceiptKeyPath && keyErr != nil {
+					return errors.New("control: transition receipt requires one P-256 private key")
+				}
+				if keyErr == nil {
+					privateIdentities[path] = key.PublicKeyID()
+					key.Close()
+				}
 				if !strings.HasPrefix(secretID, "ocid1.vaultsecret.") || version <= 0 {
 					return errors.New("control: private host credential requires exact Vault secret version")
 				}
@@ -233,6 +251,9 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 			return errors.New("control: invalid host secret declaration")
 		}
 		if err := hostsecrets.ValidateSeed(secretDeclaration); err != nil {
+			return err
+		}
+		if err := validateBootstrapStorageTransitionSeed(receiptPath, secretDeclaration, privateIdentities, loaded.signers, receiptHosts, seed.HostID); err != nil {
 			return err
 		}
 		files = append(files, ocireconcile.BootstrapHostFile{Path: "/etc/terrascale/host-secrets.json", Content: secretWire, Private: true})

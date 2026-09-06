@@ -1,6 +1,6 @@
 # Production readiness and refactoring inputs
 
-The [repository goal](../../GOAL.md) defines the target. This guide records
+The [workspace goal](../../../GOAL.md#ts-orchestrator) defines the target. This guide records
 exploration findings and the inputs needed to implement it. Code presence is
 not qualification evidence. The [operation inventory](../contracts/production-operation-inventory.md)
 maps required entry points, authority, persistence, dependencies and remaining

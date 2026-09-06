@@ -1,6 +1,6 @@
 # Production operation and dependency inventory
 
-This is the PR-01 implementation inventory required by [GOAL.md](../../GOAL.md).
+This is the PR-01 implementation inventory required by [GOAL.md](../../../GOAL.md#ts-orchestrator).
 It records entry points and the proof each operation still needs. A package,
 constructor, or passing unit test does not establish an executable production
 path. PR-01 remains open while published contracts, operational limits, or

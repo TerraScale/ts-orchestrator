@@ -14,6 +14,9 @@ import (
 
 const OrchestratorUser = "terrascale-orchestrator"
 
+// StorageTransitionReceiptKeyPath remains root-owned across service handoff.
+const StorageTransitionReceiptKeyPath = "/etc/terrascale/ts-node-bootstrap/storage-transition-receipt.key"
+
 const SeedPath = "/etc/terrascale/host-secrets.json"
 const MaxSeedBytes = 32 << 10
 const MaxSecretBytes = 64 << 10
@@ -49,7 +52,7 @@ var operationPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 func allowedDestination(path string) bool {
 	switch path {
-	case "/etc/terrascale/ts-node-authority/user.seed", "/etc/terrascale/ts-node-authority/client.key", "/etc/terrascale/ts-node-bootstrap/client.key", "/etc/terrascale/ts-node-bootstrap/user.seed", "/etc/terrascale/orchestrator/membership.key", "/etc/terrascale/orchestrator/command.key":
+	case StorageTransitionReceiptKeyPath, "/etc/terrascale/ts-node-authority/user.seed", "/etc/terrascale/ts-node-authority/client.key", "/etc/terrascale/ts-node-bootstrap/client.key", "/etc/terrascale/ts-node-bootstrap/user.seed", "/etc/terrascale/orchestrator/membership.key", "/etc/terrascale/orchestrator/command.key":
 		return true
 	}
 	for _, scope := range []string{"global", "regional"} {
@@ -65,7 +68,7 @@ func allowedDestination(path string) bool {
 // ValidateSeed validates public identities only. It does not read credentials
 // or contact OCI. The caller's immutable admission manifest must bind the seed.
 func ValidateSeed(seed Seed) error {
-	if !regionPattern.MatchString(seed.Region) || !operationPattern.MatchString(seed.OperationID) || len(seed.Entries) == 0 || len(seed.Entries) > 10 {
+	if !regionPattern.MatchString(seed.Region) || !operationPattern.MatchString(seed.OperationID) || len(seed.Entries) == 0 || len(seed.Entries) > 13 {
 		return ErrSeed
 	}
 	seen := map[string]bool{}

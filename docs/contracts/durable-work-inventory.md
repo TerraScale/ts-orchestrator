@@ -2,7 +2,7 @@
 
 > Current implementation inventory for NATS-backed Orchestrator control work.
 > Subject tokens name the mandatory `ts.orch.v1` control root selected by the
-> repository `GOAL.md`; the checked-in adapter serves that v1 root. It does not
+> workspace `GOAL.md`; the checked-in adapter serves that v1 root. It does not
 > define TerraBase durability.
 > NATS is the Orchestrator v1 control store: replacing it is a new goal and ADR
 > decision, and any replacement must migrate acknowledged control work without
@@ -34,7 +34,7 @@ that a separate regional cluster is installed or required for every Region.
 
 ### Required placement and current implementation
 
-[GOAL.md](../../GOAL.md) governs physical storage placement. Production has one
+[GOAL.md](../../../GOAL.md#ts-orchestrator) governs physical storage placement. Production has one
 permanent global R3, with one selected replica co-hosted in each of GRU, SFO
 and FRA. Every Region starts with two member hosts, each running its own local
 orchestrator. Regional controllers use the global R3 for authoritative control

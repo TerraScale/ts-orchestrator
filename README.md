@@ -5,9 +5,8 @@ alternative. It declares and reconciles the complete OCI and Cloudflare estate,
 runs signed TerraScale binaries under systemd, places TerraBase members, and
 repairs drift and host failures. It is never on the customer data path.
 
-The workspace [`GOAL.md`](../GOAL.md) is the sole product authority. The
-repository [`GOAL.md`](GOAL.md) applies those decisions here and adds the
-Firecracker qualification contract (D-81).
+The workspace [`GOAL.md`](../GOAL.md) defines product scope, repository responsibilities,
+and release gates.
 
 ## Boundary
 
@@ -112,7 +111,7 @@ on every `develop` push, including documentation changes.
 
 ## Documentation
 
-- [Repository goal](GOAL.md)
+- [Workspace goal](../GOAL.md#ts-orchestrator)
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
 - [Firecracker local qualification](docs/guides/running-locally.md)

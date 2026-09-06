@@ -70,7 +70,7 @@ configurations before signing their original host bootstrap grants:
 "storageTransition": {
   "transitionId": "first-r3",
   "planFile": "/etc/terrascale/storage-transition/plan.json",
-  "receiptPrivateKeyFile": "/etc/terrascale/storage-transition/host-receipt.pem"
+  "receiptPrivateKeyFile": "/etc/terrascale/ts-node-bootstrap/storage-transition-receipt.key"
 }
 ```
 
@@ -99,8 +99,13 @@ file cannot nominate a new owner key. No owner private key is sent to a host.
 Provision a separate P-256 host receipt key in the configured root-owned private
 file before first acknowledgement. The plan must bind its public PEM in the
 corresponding source or destination `receiptPublicKeyPem` field. This is not the
-owner key or a fallback to a service-owned membership key. Host receipt-key
-provisioning is not automated yet. After retaining the acknowledgement, the host
+owner key or a fallback to a service-owned membership key. For OCI bootstrap, publish that private key as an immutable Vault secret version
+before launch and include it in the host seed's `files` with `private: true`,
+the exact `secretId` and `versionNumber`, and the destination above. The compiler
+reads the local source file to pin its digest and rejects missing, shared, or
+service-owned receipt keys. Host bootstrap retrieves the pinned Vault version
+and keeps the file root-owned across service credential handoff. Creating the
+Vault secret/version is still a prerequisite; cloud-init contains no key bytes. After retaining the acknowledgement, the host
 acquires instance-principal credentials in the plan's OCI region and publishes
 the exact bytes. Grant that host read access to its signed bucket observation
 and read/create access to its plan-pinned object prefix. No owner OCI API key

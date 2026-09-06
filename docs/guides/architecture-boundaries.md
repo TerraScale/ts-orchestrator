@@ -1,8 +1,7 @@
 # Architecture boundaries
 
-The workspace [`GOAL.md`](../../../GOAL.md) is the sole authority. The
-repository [`GOAL.md`](../../GOAL.md) collects the requirements that apply to
-the orchestrator and defines its Firecracker qualification suite.
+The workspace [`GOAL.md`](../../../GOAL.md) defines product scope, repository responsibilities,
+and release gates.
 
 ## Product role
 

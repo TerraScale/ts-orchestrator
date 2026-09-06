@@ -1,8 +1,7 @@
 # TerraScale Orchestrator documentation
 
-The workspace [`GOAL.md`](../../GOAL.md) is the product authority. The
-repository [`GOAL.md`](../GOAL.md) applies those decisions to this Go control
-plane. The living documentation below follows the same boundary: the
+The workspace [`GOAL.md`](../../GOAL.md) defines product scope, repository responsibilities,
+and release gates. The living documentation below follows the same boundary: the
 orchestrator reconciles OCI and Cloudflare, operates signed binaries under
 systemd, and never carries customer data or serves the customer request path.
 

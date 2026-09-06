@@ -209,7 +209,13 @@ unsafe and conflicting receipts remain errors and never trigger re-signing.
 The first-signature key must be a bounded root-owned private regular file,
 reached without symlinks or extra hard links. Its public identity must equal the
 source or destination receipt key in the owner-signed plan. It is a dedicated
-host key, distinct from the off-host owner. The read buffer is cleared after
+host key, distinct from the off-host owner. OCI bootstrap provisions it through
+the existing pinned Vault seed at
+`/etc/terrascale/ts-node-bootstrap/storage-transition-receipt.key`. The compiler
+requires that exact root destination and a matching seed entry, rejects reused
+seeded or regional command identities, and emits no private key in user-data.
+The key remains root-owned during orchestrator credential handoff. The later
+plan still has to bind its public identity. The read buffer is cleared after
 parsing and the signer is closed after use. Missing, wrong or unsafe key material
 leaves the already pinned plan intact without creating a receipt.
 

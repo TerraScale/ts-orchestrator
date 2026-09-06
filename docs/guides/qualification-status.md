@@ -1,7 +1,7 @@
 # Qualification status
 
 This is an implementation and local verification record, not production
-acceptance. The requirements remain in `GOAL.md` and the workspace goal.
+acceptance. The requirements are in the workspace `GOAL.md`.
 
 ## Verified integration
 

@@ -5,8 +5,8 @@ OCI resource runbook. The owner completes only account, payment, home-Region,
 plan, and initial credential setup, then runs the authenticated bootstrap
 command from a trusted machine.
 
-The workspace [`GOAL.md`](../../../GOAL.md) and repository
-[`GOAL.md`](../../GOAL.md) define the exact authority and acceptance criteria.
+The [workspace goal](../../../GOAL.md#ts-orchestrator) defines authority and
+production outcomes; this guide describes the bootstrap design.
 The complete Firecracker `make vm-test` qualification must pass before the same
 bootstrap path is used against OCI.
 

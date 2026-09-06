@@ -1,7 +1,6 @@
 # Firecracker local qualification
 
-The workspace [D-81](../../../GOAL.md) and repository
-[`GOAL.md`](../../GOAL.md) require the complete orchestrator to run locally on
+The [workspace goal](../../../GOAL.md#ts-orchestrator) requires the complete orchestrator to run locally on
 real Ubuntu LTS systemd guests under Firecracker. This is the qualification
 path for host lifecycle, delivery, repair, degraded mode, and fault handling;
 running `ts-node` directly on the developer host is not equivalent.

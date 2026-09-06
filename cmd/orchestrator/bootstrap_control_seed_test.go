@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,9 +11,18 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
+	"gopkg.in/yaml.v2"
+	"io"
+	"maps"
+	"slices"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
+	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
+	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 
 	"math/big"
 	"os"
@@ -213,6 +223,157 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 	if !bytes.Contains(raw, []byte("/etc/terrascale/host-secrets.json")) || !bytes.Contains(raw, []byte("User=root")) {
 		t.Fatal("public secret references or canonical host unit missing")
 	}
+	t.Run("transition receipt Vault provisioning", func(t *testing.T) {
+		receiptKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		der, err := x509.MarshalPKCS8PrivateKey(receiptKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer clear(der)
+		receiptPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+		defer clear(receiptPEM)
+		reference := bootstrapHostFileReference{SourceFile: write("transition-receipt.pem", receiptPEM), Path: hostsecrets.StorageTransitionReceiptKeyPath, Private: true, SecretID: "ocid1.vaultsecret.oc1.test.receipt", VersionNumber: 7}
+		transitionSeed := hostSeed
+		transitionSeed.HostID = "sfo-1"
+		transitionSeed.CommandTrust = []bootstrapHostTrustReference{{CandidateID: "sfo-controller-sfo-1", PublicKeyFile: runtimePath}}
+		transitionSeed.Files = append(slices.Clone(hostSeed.Files), reference)
+		cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-r3", StoreDir: "/var/lib/terrascale/orchestrator/preliminary", GrantFile: "/etc/terrascale/prepare.json", GrantPublicKeyFile: "/etc/terrascale/owner.pem", StorageTransition: controltransition.Delivery{TransitionID: "first-r3", PlanFile: "/etc/terrascale/transition-plan.json", ReceiptPrivateKeyFile: hostsecrets.StorageTransitionReceiptKeyPath}}
+		scope := loaded
+		scope.activations = maps.Clone(loaded.activations)
+		delete(scope.activations, "gru-1")
+		scope.signers = map[string]*security.CommandSignatureSigner{"sfo": runtimeSigner}
+		scope.declaration = bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "sfo", OCIRegion: "us-sanjose-1", MemberCount: 1, CommandCandidateID: "sfo-controller-sfo-1"}}, Members: []bootstrapControlMember{{HostID: "sfo-1", Region: "sfo", Index: 1}}, Seeds: []bootstrapControlHostSeed{transitionSeed}, Activations: []bootstrapControlActivation{{HostID: "sfo-1", OwnerPublicKeyFile: publicPath}}}
+		sign := func() {
+			t.Helper()
+			m := hostmanifest.HostManifest{Components: slices.Clone(manifest.Components)}
+			wire, err := json.Marshal(cfg, jsonv1.DefaultOptionsV1())
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Components[0].Arguments = transitiongrant.Arguments
+			m.Components[0].Configuration = string(wire)
+			g := grant
+			g.NodeID = "sfo-1"
+			g.Manifest = m
+			signed, err := hostagent.SignBootstrapGrant(signer, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, err := loadControlActivation(bootstrapControlActivation{HostID: "sfo-1", GrantFile: write("candidate-grant.json", signed), OwnerPublicKeyFile: publicPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope.activations["sfo-1"] = a
+		}
+		sign()
+		if err := prepareBootstrapControlSeeds(lookup, &scope); err != nil {
+			t.Fatal(err)
+		}
+		cloud, err := base64.StdEncoding.DecodeString(scope.seeds["sfo"][1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(cloud, receiptPEM) || bytes.Contains(cloud, []byte(base64.StdEncoding.EncodeToString(receiptPEM))) {
+			t.Fatal("receipt private key entered metadata")
+		}
+		var document struct {
+			Files []struct {
+				Path     string `yaml:"path"`
+				Encoding string `yaml:"encoding"`
+				Content  string `yaml:"content"`
+			} `yaml:"write_files"`
+		}
+		if err := yaml.Unmarshal(cloud, &document); err != nil {
+			t.Fatal(err)
+		}
+		foundReceipt := false
+		for _, file := range document.Files {
+			if file.Encoding != "b64" && file.Encoding != "gz+b64" {
+				continue
+			}
+			raw, err := base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if file.Encoding == "gz+b64" {
+				reader, err := gzip.NewReader(bytes.NewReader(raw))
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err = io.ReadAll(io.LimitReader(reader, (32<<10)+1))
+				reader.Close()
+				if err != nil || len(raw) > 32<<10 {
+					t.Fatal("invalid generated compressed seed")
+				}
+			}
+			if bytes.Contains(raw, receiptPEM) || bytes.Contains(raw, der) {
+				t.Fatal("receipt secret in decoded metadata file")
+			}
+			if file.Path != hostsecrets.SeedPath {
+				continue
+			}
+			declaration, err := hostsecrets.ParseSeed(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range declaration.Entries {
+				if entry.Destination != reference.Path {
+					continue
+				}
+				sum := sha256.Sum256(receiptPEM)
+				if entry.SecretID != reference.SecretID || entry.VersionNumber != reference.VersionNumber || entry.SHA256 != hex.EncodeToString(sum[:]) {
+					t.Fatal("generated Vault receipt reference differs")
+				}
+				foundReceipt = true
+			}
+		}
+		if !foundReceipt {
+			t.Fatal("generated metadata omitted receipt Vault reference")
+		}
+
+		// Test every failure through the actual compiler, with an owner-signed
+		// manifest and protected local source files.
+		for _, mode := range []string{"missing", "public", "wrong type", "shared TLS key", "owner key", "unbound destination"} {
+			t.Run(mode, func(t *testing.T) {
+				original := scope.declaration.Seeds[0].Files
+				files := slices.Clone(transitionSeed.Files)
+				last := len(files) - 1
+				switch mode {
+				case "missing":
+					files = files[:last]
+				case "public":
+					files[last].Private = false
+				case "wrong type":
+					files[last].SourceFile = hostSeed.NATS.NKeySeedFile
+				case "shared TLS key":
+					files[last].SourceFile = hostSeed.NATS.PrivateKeyFile
+				case "owner key":
+					key, err := x509.MarshalPKCS8PrivateKey(owner)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer clear(key)
+					files[last].SourceFile = write("owner-private.pem", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}))
+				case "unbound destination":
+					files[last].Path = "/etc/terrascale/orchestrator/command.key"
+				}
+				scope.declaration.Seeds[0].Files = files
+				if err := prepareBootstrapControlSeeds(lookup, &scope); err == nil {
+					t.Fatal("invalid transition seed compiled")
+				}
+				scope.declaration.Seeds[0].Files = original
+			})
+		}
+		cfg.StorageTransition.ReceiptPrivateKeyFile = "/etc/terrascale/orchestrator/command.key"
+		sign()
+		if err := prepareBootstrapControlSeeds(lookup, &scope); err == nil {
+			t.Fatal("service-owned receipt key accepted")
+		}
+	})
+
 	for _, source := range []string{hostSeed.NATS.CAFile, hostSeed.NATS.CertificateFile} {
 		if err := os.WriteFile(source, append(append([]byte(nil), certificatePEM...), privatePEM...), 0600); err != nil {
 			t.Fatal(err)
