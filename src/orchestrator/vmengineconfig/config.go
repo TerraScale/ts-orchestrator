@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 )
 
 // Contract identifies the inspected producer parser, not a published release.
@@ -24,6 +26,9 @@ const ServiceUser = "terrascale-terrabase"
 const CertificatePath = "/etc/terrascale/terrabase/server.pem"
 const PrivateKeyPath = "/etc/terrascale/terrabase/key.pem"
 const CAPath = "/etc/terrascale/terrabase/ca.pem"
+const ObserverCertificatePath = "/etc/terrascale/engine-observer/client.pem"
+const ObserverPrivateKeyPath = "/etc/terrascale/engine-observer/client.key"
+const ObserverCAPath = "/etc/terrascale/engine-observer/ca.pem"
 const dataRoot = "/var/lib/terrascale/terrabase"
 
 var ulid = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
@@ -47,11 +52,16 @@ type Declaration struct {
 }
 
 type Host struct {
-	NodeID          string `json:"nodeId"`
-	Member          string `json:"member"`
-	CertificateFile string `json:"certificateFile"`
-	PrivateKeyFile  string `json:"privateKeyFile"`
-	CAFile          string `json:"caFile"`
+	OrchestratorPrincipals  []string `json:"orchestratorPrincipals,omitempty"`
+	ObserverCertificateFile string   `json:"observerCertificateFile"`
+	ObserverPrivateKeyFile  string   `json:"observerPrivateKeyFile"`
+	ObserverIdentity        string   `json:"observerIdentity"`
+	ObserverDatabase        string   `json:"observerDatabase"`
+	NodeID                  string   `json:"nodeId"`
+	Member                  string   `json:"member"`
+	CertificateFile         string   `json:"certificateFile"`
+	PrivateKeyFile          string   `json:"privateKeyFile"`
+	CAFile                  string   `json:"caFile"`
 }
 
 type Database struct {
@@ -82,6 +92,8 @@ type Binding struct{ NodeID, Region, Address string }
 type Material struct {
 	nodeID, address, settings, artifact, release string
 	certificate, privateKey, ca                  []byte
+	observerCertificate, observerPrivateKey      []byte
+	observation                                  tbep.FileConfig
 }
 
 func (m *Material) Address() string { return m.address }
@@ -95,6 +107,7 @@ func (m *Material) Clear() {
 		return
 	}
 	clear(m.privateKey)
+	clear(m.observerPrivateKey)
 	*m = Material{}
 }
 
@@ -104,11 +117,18 @@ func (m *Material) Clone() *Material {
 	}
 	copy := *m
 	copy.certificate, copy.privateKey, copy.ca = bytes.Clone(m.certificate), bytes.Clone(m.privateKey), bytes.Clone(m.ca)
+	copy.observerCertificate, copy.observerPrivateKey = bytes.Clone(m.observerCertificate), bytes.Clone(m.observerPrivateKey)
 	return &copy
 }
 
 func (m *Material) Files() map[string][]byte {
 	return map[string][]byte{CertificatePath: bytes.Clone(m.certificate), PrivateKeyPath: bytes.Clone(m.privateKey), CAPath: bytes.Clone(m.ca)}
+}
+
+func (m *Material) Observation() tbep.FileConfig { return m.observation }
+
+func (m *Material) ObserverFiles() map[string][]byte {
+	return map[string][]byte{ObserverCertificatePath: bytes.Clone(m.observerCertificate), ObserverPrivateKeyPath: bytes.Clone(m.observerPrivateKey), ObserverCAPath: bytes.Clone(m.ca)}
 }
 
 // Apply is called before the owner signs the complete host launch manifest.
@@ -203,6 +223,22 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		if nodes[h.NodeID].NodeID == "" || hosts[h.NodeID] || !ulid.MatchString(h.Member) || members[h.Member] {
 			return nil, bad
 		}
+		principals := map[string]bool{}
+		for _, principal := range h.OrchestratorPrincipals {
+			uri, err := url.Parse(principal)
+			if err != nil || uri.Scheme != "spiffe" || uri.Host != "terrascale.tech" || uri.User != nil || uri.RawQuery != "" || uri.Fragment != "" || !strings.HasPrefix(uri.Path, "/"+d.Environment+"/") || len(principal) > 128 || strings.ContainsAny(principal, "\r\n\t") || principal == h.ObserverIdentity || principals[principal] {
+				return nil, bad
+			}
+			for _, member := range d.Hosts {
+				if principal == identity(d, member) || principal == member.ObserverIdentity {
+					return nil, bad
+				}
+			}
+			principals[principal] = true
+		}
+		if len(principals) > 32 {
+			return nil, bad
+		}
 		hosts[h.NodeID], members[h.Member] = true, true
 	}
 	projects, databases := map[string]string{}, map[string]bool{}
@@ -253,6 +289,16 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		slices.Sort(seats)
 		fmt.Fprintf(&b, "[[placement.regions]]\nregion = %q\nmembers = [%q, %q]\n", region, seats[0], seats[1])
 	}
+	fmt.Fprintf(&b, "\n[control]\nproposal_journal = %q\norchestrator_principals = [", dataRoot+"/proposals.sqlite")
+	principals := slices.Clone(h.OrchestratorPrincipals)
+	slices.Sort(principals)
+	for i, principal := range principals {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%q", principal)
+	}
+	fmt.Fprintf(&b, "]\nobserver_principals = [%q]\n", h.ObserverIdentity)
 	l := d.Limits
 	fmt.Fprintf(&b, "\n[transport]\ntbep_listen = \"127.0.0.1:8421\"\nquic_listen = %q\nmetrics_listen = \"127.0.0.1:8423\"\nserver_certificate = %q\nserver_private_key = %q\nclient_ca = %q\nmax_message_bytes = %d\nmax_inflight = %d\nrequest_timeout_millis = %d\ntls_handshake_timeout_millis = %d\nshutdown_grace_millis = %d\n", nodes[h.NodeID].Address+":8422", CertificatePath, PrivateKeyPath, CAPath, l.MaxMessageBytes, l.MaxInflight, l.RequestTimeoutMillis, l.TLSHandshakeTimeoutMillis, l.ShutdownGraceMillis)
 	for _, peer := range d.Hosts {

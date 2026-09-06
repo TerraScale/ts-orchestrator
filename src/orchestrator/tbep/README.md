@@ -1,4 +1,4 @@
-# Same-host TBEP observation
+# Same-host TBEP control and observation
 
 `Client` calls the actual `MaintenanceService.SupervisionHealth`,
 `TopologyRead`, and `AdminStatus` RPCs. Configuration must bind the local host's
@@ -12,7 +12,12 @@ calls. Any failed RPC discards the partial sample.
 
 The observation preserves TerraBase's reported state. Serving health does not
 prove replication durability, placement acceptance, backup availability, or
-lifecycle completion. The wrapper exposes no mutations. Generated stubs contain
+lifecycle completion. The observation wrapper exposes no mutations. The separate `PlacementClient`
+stages durable pending control proposals through `PlacementControlService.Stage`
+and reads the latest pending proposal through `Get`. It uses host scope (only
+`x-tb-principal`, plus the immutable idempotency key on Stage), never invented
+database scope. Pending receipts cannot grant membership or readiness.
+Generated stubs contain
 the full producer contract, including unrelated RPCs, to avoid maintaining a
 handwritten wire subset.
 
@@ -20,9 +25,11 @@ handwritten wire subset.
 
 `CONTRACT_VERSION` pins an exact producer worktree snapshot. This is **not a
 published contract release**. The producer checkout was
-`../terrabase` at HEAD `3e9d34e561d193f279a3895ba4554f982e7cb26f`, with local
-modifications to `contracts/proto/terrabase/v1/engine.proto`. Both complete proto
-assets were copied from `contracts/proto/terrabase/v1/` without modification.
+`../terrabase` at HEAD `0cf795f4814aadf273476b2a17d14f51b7efd4f2`, with local
+modifications to `crates/terrabase-tbep/proto/terrabase/v1/engine.proto`. The
+complete engine asset was copied from that producer crate; the generated
+`contracts/proto/terrabase/v1/` mirror agrees. The complete family asset remains
+unchanged. These are worktree pins, not an immutable published release.
 
 | Asset | SHA256 |
 | --- | --- |

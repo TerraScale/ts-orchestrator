@@ -77,6 +77,9 @@ func (c *PlacementClient) Stage(ctx context.Context, operationID string, request
 	if err != nil {
 		return nil, err
 	}
+	if response.GetRevision() != request.ExpectedRevision+1 || request.ExpectedRevision == ^uint64(0) {
+		return nil, errors.New("TBEP placement receipt revision differs from requested transition")
+	}
 	if err := ValidatePlacementReceipt(response, proposal); err != nil {
 		return nil, err
 	}

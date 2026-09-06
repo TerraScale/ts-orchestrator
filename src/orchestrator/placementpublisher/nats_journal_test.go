@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"math/big"
@@ -238,18 +239,28 @@ func TestNATSPlacementJournalRestartFencingAndUnknownOutcome(t *testing.T) {
 	}
 	// Server-acknowledged messages arriving after lease expiry cannot replace the
 	// accepted state, even when history=1 has discarded the preceding value.
-	snapshot, err := successor.snapshot(ctx)
+	accepted, err := successor.Load(ctx, target.ServerIdentity())
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior, _ := json.Marshal(snapshot.state)
-	invalid := snapshot.state
+	prior, _ := json.Marshal(placementJournalState{Hosts: map[string]Record{accepted.ServerIdentity: accepted}})
+	invalid := placementJournalState{}
 	invalid.Hosts = map[string]Record{}
 	expired := placementLease(2, "global-controller-gru-two")
 	expired.IssuedAt = time.Now().Add(-time.Minute)
 	expired.DurationMilliseconds = 1
-	payload, _ := json.Marshal(placementJournalEnvelope{SchemaVersion: 1, Lease: expired, LeaseRevision: snapshot.leaseRevision, State: invalid, PriorState: prior})
-	if _, err := successor.js.Publish(ctx, placementStateSubject, payload); err != nil {
+	payload, _ := json.Marshal(struct {
+		SchemaVersion int
+		Lease         authority.RegionalAuthorityLeaseDocument
+		LeaseRevision uint64
+		State         placementJournalState
+		PriorState    jsontext.Value
+	}{SchemaVersion: 1, Lease: expired, LeaseRevision: 1, State: invalid, PriorState: prior})
+	jetStream, err := jetstream.New(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jetStream.Publish(ctx, placementStateSubject, payload); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := successor.Load(ctx, target.ServerIdentity())

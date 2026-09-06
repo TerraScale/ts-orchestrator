@@ -272,7 +272,7 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: placement state configuration is invalid: %w", err)
 	}
-	health, err := newObservedKVHealthSource(spec, lookup)
+	health, err := newObservedKVHealthSource(spec, cloudflareController.Members, lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -295,18 +295,6 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		Telemetry:     telemetrySink,
 		Progress:      progress,
 	}, nil
-}
-
-// declaredKVPlacementSource is retained only as a local test fixture. The
-// production composition root uses fileKVPlacementSource above; an empty
-// observation is never wired into a running reconciler.
-type declaredKVPlacementSource struct{}
-
-func (declaredKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[string]cloudflare.DBPlacement, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return map[string]cloudflare.DBPlacement{}, nil
 }
 
 // fileKVPlacementSource is the repository-owned durable placement projection.

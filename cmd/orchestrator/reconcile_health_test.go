@@ -15,7 +15,7 @@ import (
 )
 
 func TestObservedHealthRequiresFreshEngineReports(t *testing.T) {
-	region := healthRegion{Code: "gru", Latitude: -23.43, Longitude: -46.47, Members: []healthMember{{ID: "gru-1", Address: "198.51.100.1", Architecture: new(runtimeplan.HostArchitectureArm64)}}}
+	region := healthRegion{Code: "gru", Latitude: new(-23.43), Longitude: new(-46.47), Members: []healthMember{{ID: "gru-1", Address: "198.51.100.1", Architecture: new(runtimeplan.HostArchitectureArm64)}}}
 	path := filepath.Join(t.TempDir(), "health.json")
 	raw, _ := json.Marshal(healthObservationConfig{Regions: []healthRegion{region}})
 	if err := os.WriteFile(path, raw, 0600); err != nil {
@@ -65,7 +65,7 @@ func TestObservedHealthRequiresFreshEngineReports(t *testing.T) {
 				t.Fatal(err)
 			}
 			entry := got["gru"]
-			if entry.Healthy != test.want || entry.Draining != test.draining || entry.Overloaded != test.overloaded || entry.Lat != region.Latitude || entry.Lon != region.Longitude || entry.LagMeasured {
+			if entry.Healthy != test.want || entry.Draining != test.draining || entry.Overloaded != test.overloaded || entry.Lat != *region.Latitude || entry.Lon != *region.Longitude || entry.LagMeasured {
 				t.Fatalf("unexpected observed health: %+v", entry)
 			}
 			if test.want && (len(entry.Members) != 1 || entry.Members[0] != region.Members[0].Address || entry.UpdatedAt.IsZero()) {
@@ -82,5 +82,65 @@ func TestObservedHealthAdmissionIsReread(t *testing.T) {
 	source := &observedKVHealthSource{spec: estate.Spec{Regions: []estate.Region{{Code: "gru"}}}, path: filepath.Join(t.TempDir(), "missing")}
 	if _, err := source.ObserveRegionHealth(t.Context()); err == nil {
 		t.Fatal("missing admission accepted")
+	}
+}
+
+func TestObservedHealthRejectsAmbiguousAdmissionConfiguration(t *testing.T) {
+	for _, raw := range []string{
+		`{"regions":[],"regions":[]}`,
+		`{"regions":[{"code":"gru","members":[{"id":"gru-1","address":"198.51.100.1","architecture":0}]}]}`,
+		`{"regions":[{"code":"gru","latitude":0,"longitude":0,"members":[{"id":"gru-1","address":"198.51.100.1"}]}]}`,
+		`{"regions":[{"code":"gru","latitude":0,"longitude":0,"members":[{"id":"sfo-1","address":"198.51.100.1","architecture":0}]}]}`,
+		`{"regions":[],"unknown":true}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "health.json")
+			if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			source := &observedKVHealthSource{spec: estate.Spec{Regions: []estate.Region{{Code: "gru"}}}, path: path}
+			if _, err := source.configuration(); err == nil {
+				t.Fatal("invalid admission configuration accepted")
+			}
+		})
+	}
+}
+
+func TestObservedHealthRequiresStartupConfiguration(t *testing.T) {
+	if _, err := newObservedKVHealthSource(estate.Default(), nil, func(string) (string, bool) { return "", false }); err == nil {
+		t.Fatal("missing configuration accepted")
+	}
+}
+
+func TestObservedHealthDoesNotRoutePartiallyObservedPool(t *testing.T) {
+	region := healthRegion{Code: "gru", Latitude: new(0.0), Longitude: new(0.0), Members: []healthMember{
+		{ID: "gru-1", Address: "198.51.100.1", Architecture: new(runtimeplan.HostArchitectureArm64)},
+		{ID: "gru-2", Address: "198.51.100.2", Architecture: new(runtimeplan.HostArchitectureArm64)},
+	}}
+	path := filepath.Join(t.TempDir(), "health.json")
+	raw, _ := json.Marshal(healthObservationConfig{Regions: []healthRegion{region}})
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reports := []hostagent.NodeStatusReport{{NodeId: "gru-1", State: hostagent.NodeStateServing, Facts: hostagent.HostFacts{ClockMeasured: true, Engine: hostagent.EngineFacts{Measured: true, Serving: true, ObservedAtUnixMS: time.Now().UnixMilli(), LagMeasured: true, LagMS: 42}}}}
+	source := &observedKVHealthSource{spec: estate.Spec{Regions: []estate.Region{{Code: "gru"}}}, path: path, sample: func(context.Context, healthRegion) ([]hostagent.NodeStatusReport, error) { return reports, nil }}
+	observed, err := source.ObserveRegionHealth(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed["gru"].Healthy || observed["gru"].LagMeasured {
+		t.Fatalf("partially observed pool routed: %+v", observed)
+	}
+	second := reports[0]
+	second.NodeId = "gru-2"
+	second.Facts.Engine.LagMeasured = false
+	second.Facts.Engine.LagMS = 0
+	reports = append(reports, second)
+	observed, err = source.ObserveRegionHealth(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observed["gru"].Healthy || observed["gru"].LagMeasured {
+		t.Fatalf("unknown lag advertised as measured: %+v", observed)
 	}
 }

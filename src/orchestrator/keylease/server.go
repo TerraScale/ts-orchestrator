@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
 
 const maximumFrame = 2048
@@ -31,6 +32,7 @@ type Server struct {
 	cancel     context.CancelFunc
 	workers    sync.WaitGroup
 	completion chan error
+	stopped    chan struct{}
 	once       sync.Once
 }
 
@@ -41,15 +43,11 @@ func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, erro
 	if ctx == nil || unwrap == nil || config.AllowedUID != uint32(os.Geteuid()) || ociRegion(config.Region) == "" || len(config.Environment) == 0 {
 		return nil, ErrUnavailable
 	}
-	catalog, err := ReadCatalog(config.CatalogPath)
+	_, err := ReadCatalog(config.CatalogPath)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	for _, e := range catalog.Entries {
-		if e.Binding.Environment != config.Environment || e.Binding.Region != config.Region {
-			return nil, ErrUnavailable
-		}
-	}
+
 	root, name, err := privateRoot(config.SocketPath)
 	if err != nil {
 		return nil, ErrUnavailable
@@ -69,19 +67,20 @@ func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, erro
 		return nil, ErrUnavailable
 	}
 	local, cancel := context.WithCancel(ctx)
-	s := &Server{config: config, listener: listener, cancel: cancel, completion: make(chan error, 1)}
+	s := &Server{config: config, listener: listener, cancel: cancel, completion: make(chan error, 1), stopped: make(chan struct{})}
 	go s.serve(local, unwrap)
 	return s, nil
 }
 func (s *Server) Completion() <-chan error { return s.completion }
 func (s *Server) Close() error {
-	s.once.Do(func() { s.cancel(); s.listener.Close(); s.workers.Wait() })
+	s.once.Do(func() { s.cancel(); s.listener.Close(); <-s.stopped; s.workers.Wait() })
 	return nil
 }
 func (s *Server) serve(ctx context.Context, unwrap UnwrapFunc) {
 	stop := context.AfterFunc(ctx, func() { s.listener.Close() })
 	defer stop()
 	defer close(s.completion)
+	defer close(s.stopped)
 	// Bound queued connections and SDK work. Four requests can wait on the one
 	// existing process-wide OCI identity worker; no unbounded goroutine admission.
 	slots := make(chan struct{}, 4)
@@ -136,8 +135,8 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		return
 	}
 	key, err := unwrap(local, entry)
-	defer clear(key)
-	if err != nil || len(key) != 32 {
+	defer hostsecrets.ReleaseDataKey(key)
+	if err != nil || len(key.Bytes()) != 32 {
 		writeUnavailable(connection)
 		return
 	}
@@ -153,7 +152,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		writeUnavailable(connection)
 		return
 	}
-	var response [72]byte
+	var response [40]byte
 	defer clear(response[:])
 	binary.BigEndian.PutUint32(response[:4], 68)
 	copy(response[4:8], "TBKL")
@@ -161,8 +160,8 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	response[9] = 0
 	binary.BigEndian.PutUint32(response[10:14], seconds)
 	copy(response[14:40], binding.KeyVersion)
-	copy(response[40:], key)
 	writeAll(connection, response[:])
+	writeAll(connection, key.Bytes())
 }
 func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 	catalog, err := ReadCatalog(s.config.CatalogPath)

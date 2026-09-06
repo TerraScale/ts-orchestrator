@@ -441,6 +441,7 @@ func (w *KVWriter) recordChangedPlacement(changed map[string]DBPlacement) {
 		regions := append([]string(nil), entry.Regions...)
 		sort.Strings(regions)
 		w.lastPlacement[database] = placementFingerprint(entry, regions)
+		entry.Regions = slices.Clone(entry.Regions)
 		w.lastPlacementState[database] = entry
 	}
 }

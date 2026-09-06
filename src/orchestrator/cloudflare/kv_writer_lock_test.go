@@ -41,3 +41,23 @@ func TestKVWriterRejectsExplicitPlacementWidening(t *testing.T) {
 		t.Fatalf("widening result = %v", err)
 	}
 }
+
+func TestKVWriterAcceptedLockDoesNotAliasObservationBuffers(t *testing.T) {
+	regions := []string{"gru"}
+	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{
+		"db-1": {Regions: regions, PlacementLock: "explicit", Generation: 1},
+	}}
+	w, err := NewKVWriter(KVWriterConfig{
+		Store: &kvWriterStoreFake{}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Step(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	regions[0] = "fra"
+	if _, err := w.Step(t.Context()); err == nil || !strings.Contains(err.Error(), "widened") {
+		t.Fatalf("reused observation buffer bypassed accepted placement lock: %v", err)
+	}
+}

@@ -2,6 +2,7 @@ package vmimage
 
 import (
 	"bytes"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -55,6 +56,29 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 	seed, err := BuildNoCloudSeed(spec)
 	if err != nil {
 		t.Fatal(err)
+	}
+	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config tsNodeConfigurationFile
+	if err := json.Unmarshal(material.config, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.EngineObservation == nil || *config.EngineObservation != spec.TSNode.Engine.Observation() {
+		t.Fatal("engine observation configuration missing or substituted")
+	}
+	observerCount := 0
+	for _, file := range seed.RootFiles {
+		if _, ok := spec.TSNode.Engine.ObserverFiles()[file.Path]; ok {
+			observerCount++
+			if file.Owner != "" || file.Mode != 0600 {
+				t.Fatal("observer credentials are not private root material")
+			}
+		}
+	}
+	if observerCount != 3 {
+		t.Fatal("observer credentials missing")
 	}
 	count := 0
 	for _, file := range seed.RootFiles {

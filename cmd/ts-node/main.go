@@ -412,6 +412,13 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	}
 	var engineSample func(context.Context) (hostagent.EngineFacts, error)
 	if configuration.EngineObservation != nil {
+		observer, err := configuration.EngineObservation.Open()
+		if err != nil {
+			return nil, fmt.Errorf("ts-node: engine observation configuration: %w", err)
+		}
+		if err := observer.Close(); err != nil {
+			return nil, err
+		}
 		engineSample = hostagent.SampleEngine(*configuration.EngineObservation)
 	}
 	facts, err := hostagent.NewHostFactsSource(hostagent.HostFactsSourceConfig{

@@ -27,6 +27,14 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 		}
 		files = append(files, file)
 	}
+	observer := input.Engine.ObserverFiles()
+	for _, path := range []string{vmengineconfig.ObserverCertificatePath, vmengineconfig.ObserverPrivateKeyPath, vmengineconfig.ObserverCAPath} {
+		file := NoCloudRootFile{Path: path, Mode: 0600, Content: observer[path]}
+		if err := file.Validate(); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
 	return files, nil
 }
 

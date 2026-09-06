@@ -73,7 +73,7 @@ func TestProductionAdmissionFailureStartsNoEmbeddedListener(t *testing.T) {
 	}
 	options := fakeOptions(control.OrchestratorCommandRun)
 	options.Cell = "gru"
-	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}); !errors.Is(err, rejected) {
+	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}, nil); !errors.Is(err, rejected) {
 		t.Fatalf("admission result: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestEmbeddedNatsPrecedesRegionalAndClosesAfterClients(t *testing.T) {
 	}
 	options := fakeOptions(control.OrchestratorCommandRun)
 	options.Cell = "gru"
-	err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{})
+	err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}, nil)
 	if !errors.Is(err, failed) || !reflect.DeepEqual(order, []string{"admit", "broker-ready", "compose", "regional-start", "regional-close", "broker-close"}) {
 		t.Fatalf("error=%v order=%v", err, order)
 	}
@@ -128,7 +128,7 @@ func TestEmbeddedNatsFailureCancelsRegionalStartupAndPreservesCause(t *testing.T
 			return nil, nil
 		}
 	}
-	err := runCommand(context.Background(), fakeOptions(control.OrchestratorCommandRun), &bootstrap.NatsServerConfig{})
+	err := runCommand(context.Background(), fakeOptions(control.OrchestratorCommandRun), &bootstrap.NatsServerConfig{}, nil)
 	if !errors.Is(err, failed) || !broker.closed || exitCode(err) != 1 {
 		t.Fatalf("broker failure=%v closed=%v", err, broker.closed)
 	}
@@ -150,7 +150,7 @@ func TestRunCancellationKeepsEmbeddedNatsUntilClientCleanup(t *testing.T) {
 		return broker, nil
 	}
 	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) { cancel(); return regional, nil }
-	if err := runCommand(ctx, fakeOptions(control.OrchestratorCommandRun), &bootstrap.NatsServerConfig{}); !errors.Is(err, context.Canceled) {
+	if err := runCommand(ctx, fakeOptions(control.OrchestratorCommandRun), &bootstrap.NatsServerConfig{}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
 	if !broker.closed {
@@ -184,7 +184,7 @@ func TestProductionConstructionFailureClosesStartedBrokerWithoutSubscriptions(t 
 	}
 	options := fakeOptions(control.OrchestratorCommandRun)
 	options.Cell = "gru"
-	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}); !errors.Is(err, failed) || !broker.closed {
+	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}, nil); !errors.Is(err, failed) || !broker.closed {
 		t.Fatalf("composition failure=%v broker closed=%v", err, broker.closed)
 	}
 }

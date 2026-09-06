@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"net"
 	"net/url"
@@ -83,10 +84,12 @@ func (ca testCA) issue(t *testing.T, identities []string, usage x509.ExtKeyUsage
 
 type maintenanceServer struct {
 	pb.UnimplementedMaintenanceServiceServer
-	calls   atomic.Int32
-	delay   bool
-	unknown bool
-	reject  bool
+	calls        atomic.Int32
+	delay        bool
+	unknown      bool
+	reject       bool
+	pending      bool
+	claimServing bool
 }
 
 func (s *maintenanceServer) SupervisionHealth(ctx context.Context, _ *pb.MaintenanceServiceSupervisionHealthRequest) (*pb.MaintenanceServiceSupervisionHealthResponse, error) {
@@ -99,6 +102,9 @@ func (s *maintenanceServer) SupervisionHealth(ctx context.Context, _ *pb.Mainten
 		return nil, status.Error(codes.Unavailable, "unavailable")
 	}
 	state := pb.HealthState_HEALTH_STATE_SERVING
+	if s.pending && !s.claimServing {
+		state = pb.HealthState_HEALTH_STATE_STARTING
+	}
 	if s.unknown {
 		state = 99
 	}
@@ -106,10 +112,16 @@ func (s *maintenanceServer) SupervisionHealth(ctx context.Context, _ *pb.Mainten
 }
 func (s *maintenanceServer) TopologyRead(context.Context, *pb.MaintenanceServiceTopologyReadRequest) (*pb.MaintenanceServiceTopologyReadResponse, error) {
 	s.calls.Add(1)
+	if s.pending {
+		return &pb.MaintenanceServiceTopologyReadResponse{Binding: pb.BindingKind_BINDING_KIND_NETWORK_MTLS}, nil
+	}
 	return &pb.MaintenanceServiceTopologyReadResponse{Binding: pb.BindingKind_BINDING_KIND_NETWORK_MTLS, ClusterMode: pb.ClusterMode_CLUSTER_MODE_STANDALONE, Subsystems: []string{"engine"}, EngineTopologyAvailable: false}, nil
 }
 func (s *maintenanceServer) AdminStatus(context.Context, *pb.MaintenanceServiceAdminStatusRequest) (*pb.MaintenanceServiceAdminStatusResponse, error) {
 	s.calls.Add(1)
+	if s.pending {
+		return &pb.MaintenanceServiceAdminStatusResponse{}, nil
+	}
 	return &pb.MaintenanceServiceAdminStatusResponse{RegistryVersion: "1.0"}, nil
 }
 
@@ -262,5 +274,30 @@ func TestConfigRejectsRemoteAndInvalidScope(t *testing.T) {
 			client.Close()
 			t.Fatal("accepted invalid scope")
 		}
+	}
+}
+
+func TestObservePendingUnknownTopologyDoesNotEstablishServing(t *testing.T) {
+	for _, claimServing := range []bool{false, true} {
+		t.Run(fmt.Sprint(claimServing), func(t *testing.T) {
+			ca := newTestCA(t)
+			server := &maintenanceServer{pending: true, claimServing: claimServing}
+			config := startServer(t, ca, ca.issue(t, []string{serverIdentity}, x509.ExtKeyUsageServerAuth, false), tls.VersionTLS13, server)
+			client, err := New(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			observed, err := client.Observe(t.Context())
+			if claimServing {
+				if err == nil {
+					t.Fatal("serving with unknown cluster accepted")
+				}
+				return
+			}
+			if err != nil || observed.Health.State != pb.HealthState_HEALTH_STATE_STARTING || observed.Topology.EngineTopologyAvailable || observed.Admin.RegistryVersion != "" {
+				t.Fatalf("pending facts: %+v %v", observed, err)
+			}
+		})
 	}
 }

@@ -3,7 +3,6 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -110,32 +109,6 @@ type DBPlacement struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-func validateDBPlacementDocument(pl DBPlacement) error {
-	if len(pl.Regions) == 0 || len(pl.Regions) > 20 {
-		return fmt.Errorf("cloudflare: placement needs between 1 and 20 hosting regions")
-	}
-	seen := map[string]struct{}{}
-	for _, region := range pl.Regions {
-		if err := validateKVWriterKey(region); err != nil {
-			return fmt.Errorf("cloudflare: placement region: %w", err)
-		}
-		if _, exists := seen[region]; exists {
-			return errors.New("cloudflare: placement contains duplicate hosting regions")
-		}
-		seen[region] = struct{}{}
-	}
-	if pl.PlacementLock == "" && pl.Generation != 0 {
-		return errors.New("cloudflare: placement generation requires an immutable lock")
-	}
-	if pl.PlacementLock != "" && pl.PlacementLock != "eu-only" && pl.PlacementLock != "br-only" && pl.PlacementLock != "explicit" {
-		return errors.New("cloudflare: placement lock policy is invalid")
-	}
-	if pl.PlacementLock != "" && pl.Generation == 0 {
-		return errors.New("cloudflare: placement lock generation must be positive")
-	}
-	return nil
-}
-
 func putKVJSON(ctx context.Context, c *Client, namespace, key string, value any) error {
 	body, err := json.Marshal(value)
 	if err != nil {
@@ -210,23 +183,4 @@ func (c *Client) getKVValue(ctx context.Context, namespace, key string) ([]byte,
 		return nil, apiErrorFromEnvelope(op, status, raw)
 	}
 	return raw, nil
-}
-
-func (c *Client) deleteKVValue(ctx context.Context, namespace, key string) error {
-	id, err := c.namespaceID(ctx, namespace)
-	if err != nil {
-		return err
-	}
-	op := fmt.Sprintf("delete kv %s/%s", namespace, key)
-	status, raw, err := c.roundtrip(ctx, op, http.MethodDelete, c.kvValuePath(id, key), nil)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusNotFound {
-		return nil // already gone: deletes are idempotent
-	}
-	if status < 200 || status >= 300 {
-		return apiErrorFromEnvelope(op, status, raw)
-	}
-	return nil
 }

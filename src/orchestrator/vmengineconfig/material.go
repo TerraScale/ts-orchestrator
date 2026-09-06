@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
@@ -44,6 +46,7 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 			target  *[]byte
 			private bool
 		}{
+			{h.ObserverCertificateFile, &m.observerCertificate, false}, {h.ObserverPrivateKeyFile, &m.observerPrivateKey, true},
 			{h.CertificateFile, &m.certificate, false}, {h.PrivateKeyFile, &m.privateKey, true}, {h.CAFile, &m.ca, false},
 		} {
 			*file.target, err = initialgrant.ReadMaterialFile(file.path, 64<<10, file.private)
@@ -56,6 +59,9 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		}
 		if !bytes.Equal(sharedCA, m.ca) {
 			return nil, errors.New("vmengineconfig: member trust bundles differ")
+		}
+		if err = validateObserver(m, d, h); err != nil {
+			return nil, err
 		}
 		if err = validateTLS(m, identity(d, h)); err != nil {
 			return nil, err
@@ -110,4 +116,50 @@ func validateTLS(m *Material, expected string) error {
 		}
 	}
 	return nil
+}
+
+func validateObserver(m *Material, d Declaration, h Host) error {
+	bad := errors.New("vmengineconfig: observer identity, credentials or database scope invalid")
+	uri, err := url.Parse(h.ObserverIdentity)
+	if err != nil || uri.Scheme != "spiffe" || uri.Host != "terrascale.tech" || uri.RawQuery != "" || uri.Fragment != "" || uri.User != nil || uri.Path != "/"+d.Environment+"/engine-observer/"+h.NodeID || len(h.ObserverIdentity) > 128 {
+		return bad
+	}
+	pair, err := tls.X509KeyPair(m.observerCertificate, m.observerPrivateKey)
+	if err != nil || len(pair.Certificate) == 0 {
+		return bad
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil || leaf.IsCA || len(leaf.URIs) != 1 || leaf.URIs[0].String() != h.ObserverIdentity {
+		return bad
+	}
+	server, err := tls.X509KeyPair(m.certificate, m.privateKey)
+	if err != nil {
+		return bad
+	}
+	serverLeaf, err := x509.ParseCertificate(server.Certificate[0])
+	if err != nil || bytes.Equal(leaf.RawSubjectPublicKeyInfo, serverLeaf.RawSubjectPublicKeyInfo) {
+		return bad
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(m.ca) {
+		return bad
+	}
+	intermediates := x509.NewCertPool()
+	for _, raw := range pair.Certificate[1:] {
+		cert, err := x509.ParseCertificate(raw)
+		if err != nil {
+			return bad
+		}
+		intermediates.AddCert(cert)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return bad
+	}
+	for _, db := range d.Databases {
+		if db.Database == h.ObserverDatabase {
+			m.observation = tbep.FileConfig{Endpoint: "127.0.0.1:8421", ServerIdentity: identity(d, h), CertificateFile: ObserverCertificatePath, PrivateKeyFile: ObserverPrivateKeyPath, TrustBundleFile: ObserverCAPath, Tenant: db.Tenant, Project: db.Project, Database: db.Database}
+			return nil
+		}
+	}
+	return bad
 }

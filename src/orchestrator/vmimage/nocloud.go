@@ -75,6 +75,8 @@ func (file NoCloudRootFile) Validate() error {
 	}
 	limit := 0
 	switch {
+	case (file.Path == vmengineconfig.ObserverCertificatePath || file.Path == vmengineconfig.ObserverPrivateKeyPath || file.Path == vmengineconfig.ObserverCAPath) && file.Mode == 0600 && file.Owner == "":
+		limit = 64 << 10
 	case engineOwner && file.Mode == 0400:
 		limit = 64 << 10
 	case vmcandidateseed.IsServiceFile(file.Path) && file.Mode == 0400 && file.Owner == membershipServiceUser:

@@ -198,3 +198,12 @@ type testObservedHealth struct{}
 func (testObservedHealth) ObserveRegionHealth(context.Context) (map[string]cloudflare.RegionHealth, error) {
 	return map[string]cloudflare.RegionHealth{"gru": {Healthy: true}}, nil
 }
+
+type declaredKVPlacementSource struct{}
+
+func (declaredKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[string]cloudflare.DBPlacement, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]cloudflare.DBPlacement{}, nil
+}

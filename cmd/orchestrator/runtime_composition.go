@@ -106,6 +106,7 @@ type productionGlobalWorkerConfig struct {
 	Rotation       keyrotation.Config
 	Reaper         reaper.ProductionConfig
 	Restore        productionRestoreConfig
+	Placement      productionPlacementConfig
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -128,6 +129,7 @@ type productionGlobalWorkers struct {
 	rotation   *security.Coordinator
 	reaper     *reaper.Reconciler
 	restore    *restoredrill.ProductionComposition
+	placement  *productionPlacement
 	workers    []*lifecycle.Service
 	completion chan struct{}
 }
@@ -216,6 +218,11 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	if err != nil {
 		return group, fmt.Errorf("runtime restore drill: %w", err)
 	}
+	placement, err := newProductionPlacement(config.Placement, session)
+	if err != nil {
+		return group, fmt.Errorf("runtime placement: %w", err)
+	}
+	group.placement = placement
 	group.rotation, group.reaper, group.restore = rotation, reaperRuntime, restore
 	return group, nil
 }
@@ -286,7 +293,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -304,6 +311,9 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		lifecycle.NewScheduledService("free-tier reaper", productionReaperInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.reaper.Run(runCtx)
 			return err
+		}),
+		lifecycle.NewScheduledService("placement proposals", 5*time.Second, func(runCtx context.Context, _ time.Time) error {
+			return r.placement.Reconcile(runCtx)
 		}),
 		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
@@ -323,6 +333,7 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		case <-r.workers[0].Completion():
 		case <-r.workers[1].Completion():
 		case <-r.workers[2].Completion():
+		case <-r.workers[3].Completion():
 		}
 		r.finished.Do(func() { close(r.completion) })
 	}()

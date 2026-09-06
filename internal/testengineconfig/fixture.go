@@ -72,7 +72,25 @@ func Declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 		if err != nil {
 			t.Fatal(err)
 		}
-		d.Hosts = append(d.Hosts, vmengineconfig.Host{NodeID: binding.NodeID, Member: member, CertificateFile: write(fmt.Sprintf("%d.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), PrivateKeyFile: write(fmt.Sprintf("%d.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), CAFile: caFile})
+		observerIdentity := "spiffe://terrascale.tech/qualification/engine-observer/" + binding.NodeID
+		observerURI, err := url.Parse(observerIdentity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observerLeaf := &x509.Certificate{SerialNumber: big.NewInt(int64(i + 100)), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), URIs: []*url.URL{observerURI}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+		observerDER, err := x509.CreateCertificate(rand.Reader, observerLeaf, ca, &observerKey.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observerPrivate, err := x509.MarshalPKCS8PrivateKey(observerKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Hosts = append(d.Hosts, vmengineconfig.Host{ObserverIdentity: observerIdentity, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: write(fmt.Sprintf("%d-observer.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: observerDER})), ObserverPrivateKeyFile: write(fmt.Sprintf("%d-observer.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: observerPrivate})), NodeID: binding.NodeID, Member: member, CertificateFile: write(fmt.Sprintf("%d.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), PrivateKeyFile: write(fmt.Sprintf("%d.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), CAFile: caFile})
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {

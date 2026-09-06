@@ -110,6 +110,15 @@ func privateRoot(path string) (*os.Root, string, error) {
 	if err != nil || resolved != dir {
 		return nil, "", ErrUnavailable
 	}
+	for ancestor := dir; ; ancestor = filepath.Dir(ancestor) {
+		var st unix.Stat_t
+		if unix.Lstat(ancestor, &st) != nil || st.Mode&unix.S_IFMT != unix.S_IFDIR || st.Mode&0022 != 0 || (st.Uid != 0 && st.Uid != uint32(os.Geteuid())) {
+			return nil, "", ErrUnavailable
+		}
+		if ancestor == "/" {
+			break
+		}
+	}
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return nil, "", ErrUnavailable
@@ -167,6 +176,14 @@ func ReadCatalog(path string) (Catalog, error) {
 // WriteCatalog durably replaces a catalog after the caller has obtained wrapped
 // material from Vault. Issuance must persist this record before admitting data.
 func WriteCatalog(path string, catalog Catalog) error {
+	unlock, err := catalogLock(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer unlock()
+	return writeCatalog(path, catalog)
+}
+func writeCatalog(path string, catalog Catalog) error {
 	if catalog.validate() != nil {
 		return ErrUnavailable
 	}
@@ -209,8 +226,52 @@ func WriteCatalog(path string, catalog Catalog) error {
 	return nil
 }
 
-type UnwrapFunc func(context.Context, Entry) ([]byte, error)
+type UnwrapFunc func(context.Context, Entry) (*hostsecrets.DataKey, error)
 
-func unwrapOCI(ctx context.Context, e Entry) ([]byte, error) {
+func unwrapOCI(ctx context.Context, e Entry) (*hostsecrets.DataKey, error) {
 	return hostsecrets.UnwrapDataKey(ctx, ociRegion(e.Binding.Region), e.CryptoEndpoint, e.KEKID, e.KEKVersionID, e.Ciphertext, e.Binding.AssociatedData())
+}
+
+// MergeEntries admits delivered wrapped records without replacing any existing
+// binding. A revoked record can never be revived by a delayed delivery retry.
+func MergeEntries(path string, entries []Entry) error {
+	if len(entries) == 0 || (Catalog{Version: 1, Entries: entries}).validate() != nil {
+		return ErrUnavailable
+	}
+	unlock, err := catalogLock(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer unlock()
+	catalog, err := ReadCatalog(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	changed := false
+	for _, incoming := range entries {
+		found := false
+		for _, existing := range catalog.Entries {
+			if existing.Binding == incoming.Binding {
+				found = true
+				if existing.Revoked || !sameEntry(existing, incoming) {
+					return ErrUnavailable
+				}
+				break
+			}
+		}
+		if !found {
+			catalog.Entries = append(catalog.Entries, incoming)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return writeCatalog(path, catalog)
+}
+func sameEntry(a, b Entry) bool {
+	at, bt := a.NotAfter, b.NotAfter
+	a.NotAfter = time.Time{}
+	b.NotAfter = time.Time{}
+	return a == b && at.Equal(bt)
 }

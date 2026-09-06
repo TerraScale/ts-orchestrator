@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/netip"
 	"slices"
@@ -32,8 +30,8 @@ type healthMember struct {
 }
 type healthRegion struct {
 	Code       string                         `json:"code"`
-	Latitude   float64                        `json:"latitude"`
-	Longitude  float64                        `json:"longitude"`
+	Latitude   *float64                       `json:"latitude"`
+	Longitude  *float64                       `json:"longitude"`
 	Connection bootstrapcredentials.Reference `json:"connection"`
 	Members    []healthMember                 `json:"members"`
 }
@@ -46,18 +44,27 @@ type healthObservationConfig struct {
 // No previous successful status is cached across ticks or transport failures.
 type observedKVHealthSource struct {
 	spec   estate.Spec
+	pools  cloudflare.Members
 	path   string
 	sample func(context.Context, healthRegion) ([]hostagent.NodeStatusReport, error)
 }
 
-func newObservedKVHealthSource(spec estate.Spec, lookup envLookup) (*observedKVHealthSource, error) {
+func newObservedKVHealthSource(spec estate.Spec, pools cloudflare.Members, lookup envLookup) (*observedKVHealthSource, error) {
 	path, ok := lookup(reconcileHealthConfigEnvironment)
 	if !ok || path == "" {
 		return nil, fmt.Errorf("reconcile: %s is required for authenticated host observations", reconcileHealthConfigEnvironment)
 	}
-	source := &observedKVHealthSource{spec: spec, path: path, sample: sampleRegionHosts}
-	if _, err := source.configuration(); err != nil {
+	source := &observedKVHealthSource{spec: spec, pools: pools, path: path, sample: sampleRegionHosts}
+	config, err := source.configuration()
+	if err != nil {
 		return nil, err
+	}
+	for _, region := range config.Regions {
+		credentials, err := bootstrapcredentials.Load(region.Connection)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile: health credentials for %s: %w", region.Code, err)
+		}
+		credentials.Close()
 	}
 	return source, nil
 }
@@ -67,9 +74,7 @@ func (s *observedKVHealthSource) configuration() (healthObservationConfig, error
 	if err != nil {
 		return config, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&config) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+	if json.Unmarshal(raw, &config, json.RejectUnknownMembers(true)) != nil {
 		return config, errors.New("reconcile: malformed host health configuration")
 	}
 	expected := map[string]bool{}
@@ -78,7 +83,7 @@ func (s *observedKVHealthSource) configuration() (healthObservationConfig, error
 	}
 	seen := map[string]bool{}
 	for _, region := range config.Regions {
-		if !expected[region.Code] || seen[region.Code] || len(region.Members) == 0 || len(region.Members) > 1024 || math.IsNaN(region.Latitude) || math.IsNaN(region.Longitude) || region.Latitude < -90 || region.Latitude > 90 || region.Longitude < -180 || region.Longitude > 180 {
+		if !expected[region.Code] || seen[region.Code] || len(region.Members) == 0 || len(region.Members) > 1024 || region.Latitude == nil || region.Longitude == nil || math.IsNaN(*region.Latitude) || math.IsNaN(*region.Longitude) || *region.Latitude < -90 || *region.Latitude > 90 || *region.Longitude < -180 || *region.Longitude > 180 {
 			return config, errors.New("reconcile: invalid host health region")
 		}
 		seen[region.Code] = true
@@ -92,6 +97,17 @@ func (s *observedKVHealthSource) configuration() (healthObservationConfig, error
 			}
 			hosts[member.ID] = true
 			addresses[member.Address] = true
+		}
+		if s.pools != nil {
+			pool := s.pools[region.Code]
+			if len(pool) != len(addresses) {
+				return config, errors.New("reconcile: observed host admission differs from load balancer pool")
+			}
+			for _, address := range pool {
+				if !addresses[address] {
+					return config, errors.New("reconcile: observed host admission differs from load balancer pool")
+				}
+			}
 		}
 	}
 	if len(seen) != len(expected) {
@@ -167,7 +183,7 @@ func (s *observedKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[s
 	var workers sync.WaitGroup
 	for _, region := range config.Regions {
 		workers.Go(func() {
-			entry := cloudflare.RegionHealth{Region: region.Code, Lat: region.Latitude, Lon: region.Longitude}
+			entry := cloudflare.RegionHealth{Region: region.Code, Lat: *region.Latitude, Lon: *region.Longitude}
 			reports, err := s.sample(tick, region)
 
 			if err != nil {
@@ -177,6 +193,8 @@ func (s *observedKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[s
 				return
 			}
 			now := time.Now().UTC()
+			measuredLag := 0
+			seen := map[string]bool{}
 			for _, report := range reports {
 				engine := report.Facts.Engine
 				observedAt := time.UnixMilli(engine.ObservedAtUnixMS)
@@ -184,9 +202,10 @@ func (s *observedKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[s
 					continue
 				}
 				memberIndex := slices.IndexFunc(region.Members, func(member healthMember) bool { return member.ID == report.NodeId })
-				if memberIndex < 0 {
+				if memberIndex < 0 || seen[report.NodeId] {
 					continue
 				}
+				seen[report.NodeId] = true
 				draining := report.State != hostagent.NodeStateServing || report.Quiesced || engine.Draining
 				disk := report.Facts.Disk
 				overloaded := disk.TotalBytes > 0 && disk.AvailableBytes <= 0
@@ -198,18 +217,17 @@ func (s *observedKVHealthSource) ObserveRegionHealth(ctx context.Context) (map[s
 				entry.Healthy = true
 				entry.Members = append(entry.Members, region.Members[memberIndex].Address)
 				if engine.LagMeasured {
-					entry.LagMeasured = true
+					measuredLag++
 					entry.LagMS = max(entry.LagMS, engine.LagMS)
 				}
 				if entry.UpdatedAt.IsZero() || observedAt.Before(entry.UpdatedAt) {
 					entry.UpdatedAt = observedAt
 				}
 			}
-			// Mixed regions remain eligible through their observed serving members.
-			if entry.Healthy {
-				entry.Draining = false
-				entry.Overloaded = false
-			}
+			// The regional load balancer still contains all admitted members. Do
+			// not advertise a region while it may select an unobserved host.
+			entry.Healthy = len(entry.Members) == len(region.Members)
+			entry.LagMeasured = entry.Healthy && measuredLag == len(region.Members)
 			slices.Sort(entry.Members)
 			mu.Lock()
 			result[region.Code] = entry

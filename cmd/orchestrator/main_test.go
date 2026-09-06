@@ -502,7 +502,7 @@ func TestProductionAdmissionPrecedesRegionalStartup(t *testing.T) {
 			}
 			options := fakeOptions(control.OrchestratorCommandRun)
 			options.Cell = "gru"
-			err := runCommand(context.Background(), options, nil)
+			err := runCommand(context.Background(), options, nil, nil)
 			if err == nil || (kind == "error" && !errors.Is(err, rejected)) {
 				t.Fatalf("admission result: %v", err)
 			}
@@ -554,7 +554,7 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 			if stage == "global" {
 				options.GlobalNats = newRotationStateCluster(t).authorityConfig
 			}
-			err := runCommand(context.Background(), options, nil)
+			err := runCommand(context.Background(), options, nil, nil)
 			if options.Delivery != nil {
 				t.Fatal("startup mutated caller options")
 			}
@@ -625,7 +625,7 @@ func TestOperationalJWTModeRejectedBeforeListeners(t *testing.T) {
 	options := fakeOptions(control.OrchestratorCommandRun)
 	options.Cell = "gru"
 	options.GlobalNats = &control.GlobalAuthorityNatsConfiguration{Cell: "gru", Replicas: 3, Url: "tls://127.0.0.1:4222", Authentication: &control.NatsAuthenticationFiles{CredentialsFile: &credentials}, Tls: &control.NatsTlsFiles{}}
-	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}); err == nil || !strings.Contains(err.Error(), "JWT credential-file mode") {
+	if err := runCommand(context.Background(), options, &bootstrap.NatsServerConfig{}, nil); err == nil || !strings.Contains(err.Error(), "JWT credential-file mode") {
 		t.Fatalf("operational mode admission=%v", err)
 	}
 }

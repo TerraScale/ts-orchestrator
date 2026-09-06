@@ -24,6 +24,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
@@ -59,6 +60,7 @@ const (
 // host agent. Paths and the release key are derived by vmimage and cannot be
 // redirected by a caller.
 type TSNodeConfig struct {
+	engineObservation *tbep.FileConfig
 	AuthorityReader   nodeauthority.ReaderConfig
 	AuthorityBucket   string
 	CommandTrustKeys  []TSNodeCommandTrust
@@ -147,6 +149,7 @@ type tsNodeBootstrapMaterial struct {
 }
 
 type tsNodeConfigurationFile struct {
+	EngineObservation             *tbep.FileConfig           `json:"engineObservation,omitempty"`
 	AuthorityReader               nodeauthority.ReaderConfig `json:"authorityReader"`
 	BootstrapGrantFile            string                     `json:"bootstrapGrantFile"`
 	BootstrapPublicKeyFile        string                     `json:"bootstrapPublicKeyFile"`
@@ -222,6 +225,10 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 	identity, err := canonicalTSNodeNATSIdentity(input.NATSIdentity, input.Config.NodeID)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err
+	}
+	if input.Engine != nil {
+		observation := input.Engine.Observation()
+		input.Config.engineObservation = &observation
 	}
 	config, err := canonicalTSNodeConfig(input.Config, input.ReleasePublicKey)
 	if err != nil {
@@ -304,7 +311,7 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 	if err := config.AuthorityReader.Validate(); err != nil {
 		return nil, err
 	}
-	wire := tsNodeConfigurationFile{AuthorityReader: config.AuthorityReader,
+	wire := tsNodeConfigurationFile{EngineObservation: config.engineObservation, AuthorityReader: config.AuthorityReader,
 		BootstrapGrantFile: BootstrapGrantPath, BootstrapPublicKeyFile: BootstrapPublicKeyPath,
 		AuthorityBucket: config.AuthorityBucket, CommandTrustKeys: trustRefs,
 		NodeID: config.NodeID, NATSURL: config.NATSURL,

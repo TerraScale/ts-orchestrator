@@ -76,7 +76,7 @@ func decodeRecord(record Record) (*pb.PlacementStageRequest, error) {
 	}
 	if len(record.Receipt) > 0 {
 		receipt := new(pb.PlacementProposalResponse)
-		if proto.Unmarshal(record.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, request.Proposal) != nil {
+		if proto.Unmarshal(record.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, request.Proposal) != nil || receipt.Revision != request.ExpectedRevision+1 || request.ExpectedRevision == ^uint64(0) {
 			return nil, ErrInvalidConfig
 		}
 	}
@@ -152,6 +152,9 @@ func (p *Publisher) Reconcile(ctx context.Context) (*pb.PlacementProposalRespons
 	result, err := p.target.Stage(ctx, record.OperationID, request)
 	if err != nil {
 		return nil, err
+	}
+	if result.GetRevision() != request.ExpectedRevision+1 || request.ExpectedRevision == ^uint64(0) {
+		return nil, ErrInvalidConfig
 	}
 	if err := tbep.ValidatePlacementReceipt(result, request.Proposal); err != nil {
 		return nil, err

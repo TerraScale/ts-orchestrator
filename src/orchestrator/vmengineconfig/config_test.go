@@ -111,6 +111,18 @@ func TestDeclarationRejectsUnprovenInputs(t *testing.T) {
 			d.Hosts[0].CertificateFile = d.Hosts[1].CertificateFile
 			d.Hosts[0].PrivateKeyFile = d.Hosts[1].PrivateKeyFile
 		}},
+		{"writer-reuses-observer", func(d *vmengineconfig.Declaration) {
+			d.Hosts[0].OrchestratorPrincipals = []string{d.Hosts[1].ObserverIdentity}
+		}},
+		{"observer-scope", func(d *vmengineconfig.Declaration) { d.Hosts[0].ObserverDatabase = d.Databases[0].Tenant }},
+		{"observer-identity", func(d *vmengineconfig.Declaration) { d.Hosts[0].ObserverIdentity = d.Hosts[1].ObserverIdentity }},
+		{"observer-server-key", func(d *vmengineconfig.Declaration) {
+			d.Hosts[0].ObserverCertificateFile = d.Hosts[0].CertificateFile
+			d.Hosts[0].ObserverPrivateKeyFile = d.Hosts[0].PrivateKeyFile
+		}},
+		{"observer-foreign-key", func(d *vmengineconfig.Declaration) {
+			d.Hosts[0].ObserverPrivateKeyFile = d.Hosts[1].ObserverPrivateKeyFile
+		}},
 		{"epoch", func(d *vmengineconfig.Declaration) { d.Epoch = 0 }},
 		{"toml-integer-overflow", func(d *vmengineconfig.Declaration) { d.Epoch = math.MaxUint64 }},
 		{"undeclared-residency", func(d *vmengineconfig.Declaration) { d.Databases[0].Region = "FRA" }},

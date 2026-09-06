@@ -119,7 +119,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"authority.global", "security.rotation.state", "security.rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier"} {
+	for _, key := range []string{"authority.global", "security.rotation.state", "security.rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier", "placement.proposal.state", "placement.proposal.barrier"} {
 		revision, err := controllerLeaders.Create(ctx, key, []byte("first"))
 		if err != nil {
 			t.Fatalf("state create %s: %v", key, err)
@@ -219,7 +219,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 		}
 		forbidden = append(forbidden, "$JS.API.CONSUMER.DELETE."+specConfig.Name+"."+consumer)
 	}
-	for _, subject := range append(forbidden, []string{"$KV.GLOBAL_CELLS.cell.gru", "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS", "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS", "$KV.ORCH_LEADERS.security.rotation.other", "$KV.ORCH_LEADERS.security.rotation.state.extra", "$KV.ORCH_LEADERS.restore.drill.other", "$KV.ORCH_LEADERS.restore.drill.barrier.extra", "$KV.ORCH_LEADERS.authority.regional", "$KV.ORCH_LEADERS.reaper.other", "$KV.ORCH_LEADERS.reaper.state.extra", "$KV.ORCH_LEADERS.reaper.barrier.extra"}...) {
+	for _, subject := range append(forbidden, []string{"$KV.GLOBAL_CELLS.cell.gru", "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS", "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS", "$KV.ORCH_LEADERS.security.rotation.other", "$KV.ORCH_LEADERS.security.rotation.state.extra", "$KV.ORCH_LEADERS.restore.drill.other", "$KV.ORCH_LEADERS.restore.drill.barrier.extra", "$KV.ORCH_LEADERS.authority.regional", "$KV.ORCH_LEADERS.reaper.other", "$KV.ORCH_LEADERS.reaper.state.extra", "$KV.ORCH_LEADERS.reaper.barrier.extra", "$KV.ORCH_LEADERS.placement.proposal.other", "$KV.ORCH_LEADERS.placement.proposal.state.extra", "orch.placement.host.a.other", "orch.placement.host.a.b.stage"}...) {
 		if err := controller.Publish(subject, []byte("unauthorized")); err != nil {
 			t.Fatal(err)
 		}

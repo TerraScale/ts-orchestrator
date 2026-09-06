@@ -87,6 +87,7 @@ var (
 	}
 	renderCatalog          = writeCatalog
 	verifyEstate           = verifyConfiguredOCIEstate
+	startKeyLease          = startConfiguredKeyLease
 	startProductionRuntime = func(ctx context.Context, options *control.OrchestratorOptions) (*productionRuntime, error) {
 		admission, err := admitProductionRuntime(ctx, options)
 		if err != nil {
@@ -238,7 +239,9 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		var serverConfig *bootstrap.NatsServerConfig
 		serverConfig, err = selectedNatsConfiguration(lookup)
 		if err == nil {
-			err = runCommand(ctx, options, serverConfig)
+			err = runCommand(ctx, options, serverConfig, func(hostCtx context.Context) (hostServices, error) {
+				return startConfiguredHostServices(hostCtx, options, lookup)
+			})
 		}
 	case control.OrchestratorCommandCheck:
 		err = checkCommand(ctx, options)
@@ -400,7 +403,7 @@ func exitCode(err error) int {
 	return 1
 }
 
-func runCommand(ctx context.Context, options *control.OrchestratorOptions, serverConfig *bootstrap.NatsServerConfig) (result error) {
+func runCommand(ctx context.Context, options *control.OrchestratorOptions, serverConfig *bootstrap.NatsServerConfig, startHosts func(context.Context) (hostServices, error)) (result error) {
 	if ctx == nil || options == nil {
 		return errors.New("run requires context and options")
 	}
@@ -452,6 +455,27 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 			case <-monitorDone:
 			}
 		}()
+	}
+	if startHosts != nil {
+		hosts, hostErr := startHosts(runCtx)
+		if hostErr != nil {
+			return hostErr
+		}
+		if hosts != nil {
+			defer hosts.Close()
+			go func() {
+				select {
+				case <-hosts.Completion():
+					cancelRun()
+				case <-monitorDone:
+				}
+			}()
+			defer func() {
+				if ctx.Err() == nil && runCtx.Err() != nil && result == nil {
+					result = errors.New("orchestrator: local host service stopped")
+				}
+			}()
+		}
 	}
 	// Live constructors may now open local durable stores. Global workers are constructed
 	// later, only after the GRU election owns a proven lease.

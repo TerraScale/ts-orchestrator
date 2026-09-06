@@ -159,7 +159,11 @@ func (c *Client) Observe(ctx context.Context) (Observation, error) {
 	if err != nil {
 		return Observation{}, fmt.Errorf("TBEP topology: %w", err)
 	}
-	if topology.Binding != pb.BindingKind_BINDING_KIND_NETWORK_MTLS || topology.ClusterMode < pb.ClusterMode_CLUSTER_MODE_STANDALONE || topology.ClusterMode > pb.ClusterMode_CLUSTER_MODE_BACKUP || len(topology.Subsystems) > 16 {
+	// A pending control listener can honestly report no engine topology. Its
+	// unknown cluster and registry values never establish serving readiness.
+	pending := !topology.EngineTopologyAvailable && health.State != pb.HealthState_HEALTH_STATE_SERVING
+	unknownCluster := topology.ClusterMode == pb.ClusterMode_CLUSTER_MODE_UNSPECIFIED && pending
+	if topology.Binding != pb.BindingKind_BINDING_KIND_NETWORK_MTLS || (!unknownCluster && topology.ClusterMode < pb.ClusterMode_CLUSTER_MODE_STANDALONE) || topology.ClusterMode > pb.ClusterMode_CLUSTER_MODE_BACKUP || len(topology.Subsystems) > 16 {
 		return Observation{}, errors.New("TBEP topology returned invalid binding, cluster mode, or subsystem count")
 	}
 	for _, subsystem := range topology.Subsystems {
@@ -171,7 +175,7 @@ func (c *Client) Observe(ctx context.Context) (Observation, error) {
 	if err != nil {
 		return Observation{}, fmt.Errorf("TBEP admin status: %w", err)
 	}
-	if !validMetadata(admin.RegistryVersion, 128) {
+	if !validMetadata(admin.RegistryVersion, 128) && !(pending && admin.RegistryVersion == "") {
 		return Observation{}, errors.New("TBEP admin status returned invalid registry version")
 	}
 	return Observation{Health: health, Topology: topology, Admin: admin}, nil
