@@ -8,6 +8,7 @@ import (
 	"errors"
 	"google.golang.org/protobuf/proto"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
@@ -48,10 +50,38 @@ type databaseRegionFile struct {
 	KEKVersionID   string           `json:"kekVersionId"`
 	LeaseSeconds   uint32           `json:"leaseSeconds"`
 	NotAfter       time.Time        `json:"notAfter"`
+	LifecycleEndpoint string                       `json:"lifecycleEndpoint"`
+	LifecycleIdentity string                       `json:"lifecycleIdentity"`
+	LifecycleTLS      placementpublisher.TLSFiles `json:"lifecycleTls"`
 }
 type databaseHostFile struct {
 	ServerIdentity string `json:"serverIdentity"`
 	MemberID       string `json:"memberId"`
+}
+
+func validLifecycleEndpoint(value string) bool {
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() || port == "" {
+		return false
+	}
+	return true
+}
+
+func validLifecycleIdentity(value, environment, cluster string) bool {
+	if value == "" || environment == "" || cluster == "" {
+		return false
+	}
+	want := "spiffe://terrascale.tech/" + environment + "/terrabase-member/" + cluster + "/"
+	return strings.HasPrefix(value, want) && len(value) > len(want)
+}
+
+func validLifecycleTLS(files placementpublisher.TLSFiles) bool {
+	for _, value := range []string{files.CertificateFile, files.PrivateKeyFile, files.TrustBundleFile} {
+		if !filepath.IsAbs(value) || filepath.Clean(value) != value {
+			return false
+		}
+	}
+	return files.CertificateFile != files.PrivateKeyFile && files.CertificateFile != files.TrustBundleFile && files.PrivateKeyFile != files.TrustBundleFile
 }
 
 func resolveProductionDatabase(config productionDatabaseFileConfig, placement productionPlacementConfig, auth productionAuthBootstrapConfig) (productionDatabaseConfig, error) {
@@ -68,7 +98,7 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	hostMembers := map[string]string{}
 	for _, region := range config.Regions {
 		ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region.Region]
-		if ociRegion == "" || seenRegions[region.Region] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion, region.CryptoEndpoint) || !provider.IsOCID(region.KEKID, "key") || !provider.IsOCID(region.KEKVersionID, "keyversion") || region.LeaseSeconds < 1 || region.LeaseSeconds > 1800 || !region.NotAfter.After(time.Now()) {
+		if ociRegion == "" || seenRegions[region.Region] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion, region.CryptoEndpoint) || !provider.IsOCID(region.KEKID, "key") || !provider.IsOCID(region.KEKVersionID, "keyversion") || region.LeaseSeconds < 1 || region.LeaseSeconds > 1800 || !region.NotAfter.After(time.Now()) || !validLifecycleEndpoint(region.LifecycleEndpoint) || !validLifecycleIdentity(region.LifecycleIdentity, config.Environment, config.Cluster) || !validLifecycleTLS(region.LifecycleTLS) {
 			return result, databaseadmission.ErrInvalid
 		}
 		seenRegions[region.Region] = true

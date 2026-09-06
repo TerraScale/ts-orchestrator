@@ -184,11 +184,10 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 	request := ComputeLaunchRequest{
 		CompartmentID:   "ocid1.compartment.oc1.x",
 		DisplayName:     "node-resume",
-		ImageID:         "ocid1.image.oc1.x",
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
 		Candidates: []ComputeCapacityCandidate{
-			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.ad1", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6},
-			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.ad2", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 8},
+			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.ad1", Shape: "VM.Standard.A1.Flex", Architecture: "arm64", ImageID: "ocid1.image.oc1.arm64", OCPUs: 1, MemoryGiB: 6},
+			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.ad2", Shape: "VM.Standard.E5.Flex", Architecture: "amd64", ImageID: "ocid1.image.oc1.amd64", OCPUs: 1, MemoryGiB: 8},
 		},
 	}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
@@ -224,7 +223,7 @@ func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-unknown", ImageID: "ocid1.image.oc1.x", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6}}}
+	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-unknown", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", Architecture: "arm64", ImageID: "ocid1.image.oc1.x", OCPUs: 1, MemoryGiB: 6}}}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	if _, err := adapter.LaunchInstance(context.Background(), request); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
 		t.Fatalf("lost response error = %v", err)

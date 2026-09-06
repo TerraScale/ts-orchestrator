@@ -417,7 +417,7 @@ func (c *Coordinator) Rotate(ctx context.Context, operationID string) (RotationR
 			return RotationResult{}, &RotationError{Code: "rotation_overlap_active"}
 		}
 		if err := c.retireAt(ctx, &state); err != nil {
-			return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+			return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 		}
 	}
 	if state.OperationID == "" || state.Phase == PhaseActive || state.Phase == PhaseFailed {
@@ -470,15 +470,15 @@ func (c *Coordinator) RetireExpired(ctx context.Context) (RotationResult, error)
 	if err != nil {
 		return RotationResult{}, err
 	}
-	if state.Phase != PhaseActive || state.OldVersion == 0 {
+	if state.Phase != PhaseActive && state.Phase != PhaseRetire || state.OldVersion == 0 {
 		return c.result(state), nil
 	}
 	now := c.clock().UTC()
-	if now.Before(state.OldExpiry) {
+	if state.Phase == PhaseActive && now.Before(state.OldExpiry) {
 		return c.result(state), nil
 	}
 	if err := c.retireAt(ctx, &state); err != nil {
-		return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+		return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 	}
 	return c.result(state), nil
 }
@@ -534,6 +534,7 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 		state.PreviousCapabilityID = state.OldCapabilityID
 		state.CurrentVersion, state.CurrentExpiry = state.NewVersion, state.NewExpiry
 		state.LastAt = now
+		state.FailureCode = ""
 		if err := c.save(ctx, state); err != nil {
 			return RotationResult{}, c.transitionFailure(ctx, state, "state_save_failed")
 		}
@@ -543,18 +544,19 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 			return RotationResult{}, c.failClosed(ctx, state, "retire_not_safe")
 		}
 		if err := c.retireOld(ctx, state); err != nil {
-			return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+			return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 		}
 		state.OldIdentityRef, state.OldCapabilityRef, state.OldCapabilityID, state.OldVersion = "", "", "", 0
 		state.PreviousCapabilityID = ""
 		state.OldExpiry = time.Time{}
 		state.Phase = PhaseActive
+		state.FailureCode = ""
 		if err := c.save(ctx, state); err != nil {
 			return RotationResult{}, c.failClosed(ctx, state, "state_save_failed")
 		}
 	} else if state.Phase == PhaseActive && state.OldVersion != 0 && !now.Before(state.OldExpiry) {
 		if err := c.retireAt(ctx, &state); err != nil {
-			return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+			return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 		}
 	}
 	if c.audit != nil {
@@ -564,9 +566,11 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 }
 
 func (c *Coordinator) retireAt(ctx context.Context, state *PersistedState) error {
-	state.Phase = PhaseRetire
-	if err := c.save(ctx, *state); err != nil {
-		return err
+	if state.Phase != PhaseRetire {
+		state.Phase = PhaseRetire
+		if err := c.save(ctx, *state); err != nil {
+			return err
+		}
 	}
 	if err := c.retireOld(ctx, *state); err != nil {
 		return err
@@ -575,6 +579,7 @@ func (c *Coordinator) retireAt(ctx context.Context, state *PersistedState) error
 	state.PreviousCapabilityID = ""
 	state.OldExpiry = time.Time{}
 	state.Phase = PhaseActive
+	state.FailureCode = ""
 	return c.save(ctx, *state)
 }
 
@@ -717,7 +722,32 @@ func (c *Coordinator) transitionFailure(ctx context.Context, state PersistedStat
 	// Rollback is best effort: any uncertainty is followed by fencing, and the
 	// durable failed-closed state makes the next attempt an explicit operation.
 	_ = c.rollback(ctx, state)
+	if isCancellation(ctx) {
+		return c.recoverCancellation(ctx, state)
+	}
 	return c.failClosed(ctx, state, code)
+}
+
+func (c *Coordinator) retirementFailure(ctx context.Context, state PersistedState, code string) error {
+	if isCancellation(ctx) {
+		return c.recoverCancellation(ctx, state)
+	}
+	return c.failClosed(ctx, state, code)
+}
+
+// recoverCancellation keeps the journal at its current phase after a
+// canceled provider call. The call may have committed before observing the
+// cancellation, so a fresh context must retry the same idempotency keys.
+func (c *Coordinator) recoverCancellation(ctx context.Context, state PersistedState) error {
+	state.FailureCode = "cancellation_recoverable"
+	if err := c.save(context.WithoutCancel(ctx), state); err != nil {
+		return err
+	}
+	return &RotationError{Code: "context_cancelled"}
+}
+
+func isCancellation(ctx context.Context) bool {
+	return ctx != nil && ctx.Err() != nil
 }
 
 func (c *Coordinator) rollback(ctx context.Context, state PersistedState) error {

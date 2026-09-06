@@ -45,6 +45,13 @@ func (d *Drill) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("restore drill: context is required")
 	}
+	// Reconcile the current canonical day before installing the long-lived
+	// ticker. This closes the restart gap without inventing successful records
+	// for earlier days: RunAt loads the canonical record and resumes it when it
+	// already exists.
+	if _, err := d.RunAt(ctx, d.config.Now()); err != nil {
+		return err
+	}
 	return d.scheduler.Every(ctx, d.config.DailyInterval, func(runCtx context.Context, scheduledAt time.Time) error {
 		_, err := d.RunAt(runCtx, scheduledAt)
 		return err

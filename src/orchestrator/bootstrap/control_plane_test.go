@@ -1,13 +1,17 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type controlMachineProvider struct {
@@ -342,6 +346,127 @@ func TestControlStateMachineSerializesConcurrentReplay(t *testing.T) {
 	if candidateCalls != 3 {
 		t.Fatalf("concurrent replay made %d candidate calls, want 3", candidateCalls)
 	}
+}
+
+func TestFileControlJournalSerializesIndependentProcessesAndReopens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.json")
+	provider := &controlMachineProvider{}
+	journal, err := NewFileControlJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := newControlMachineForTest(t, provider, journal, 1)
+	if _, err := machine.Execute(context.Background(), ControlPlaneState{}, ControlTransitionRequest{Operation: ControlOperationBootstrap, Region: "gru", MemberHosts: 2}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	first := startControlJournalProcess(t, path, "sfo", root)
+	waitForControlJournalFile(t, filepath.Join(root, "sfo.ready"))
+	second := startControlJournalProcess(t, path, "fra", root)
+	time.Sleep(50 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(root, "fra.ready")); !os.IsNotExist(err) {
+		t.Fatalf("second process acquired authority before first released: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sfo.release"), []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForControlJournalFile(t, filepath.Join(root, "fra.ready"))
+	if err := os.WriteFile(filepath.Join(root, "fra.release"), []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitControlJournalProcess(t, first)
+	waitControlJournalProcess(t, second)
+
+	reopened, err := NewFileControlJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := reopened.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.State.Candidates) != 2 || record.State.Epoch != 1 {
+		t.Fatalf("reopened state = %#v", record.State)
+	}
+}
+
+func TestFileControlJournalProcessHelper(t *testing.T) {
+	if os.Getenv("TS_CONTROL_JOURNAL_PROCESS_HELPER") != "1" {
+		return
+	}
+	path := os.Getenv("TS_CONTROL_JOURNAL_PATH")
+	region := os.Getenv("TS_CONTROL_JOURNAL_REGION")
+	root := os.Getenv("TS_CONTROL_JOURNAL_ROOT")
+	journal, err := NewFileControlJournal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &processControlProvider{
+		controlMachineProvider: &controlMachineProvider{evidence: map[string][]CandidateEvidence{region: {readyControlCandidate(region, "a")}}},
+		markerRoot:             root,
+		region:                 region,
+	}
+	machine := newControlMachineForTest(t, provider, journal, 1)
+	if _, err := machine.Execute(context.Background(), ControlPlaneState{}, ControlTransitionRequest{Operation: ControlOperationAddRegion, Region: region, MemberHosts: 2}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type processControlProvider struct {
+	*controlMachineProvider
+	markerRoot string
+	region     string
+}
+
+func (p *processControlProvider) StartCandidate(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
+	if request.Action.Region == p.region {
+		if err := os.WriteFile(filepath.Join(p.markerRoot, p.region+".ready"), []byte("ready"), 0o600); err != nil {
+			return ControlReceipt{}, err
+		}
+		for {
+			if _, err := os.Stat(filepath.Join(p.markerRoot, p.region+".release")); err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ControlReceipt{}, ctx.Err()
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+	return p.controlMachineProvider.StartCandidate(ctx, request)
+}
+
+func startControlJournalProcess(t *testing.T, path, region, root string) *exec.Cmd {
+	t.Helper()
+	command := exec.Command(os.Args[0], "-test.run=^TestFileControlJournalProcessHelper$")
+	command.Env = append(os.Environ(), "TS_CONTROL_JOURNAL_PROCESS_HELPER=1", "TS_CONTROL_JOURNAL_PATH="+path, "TS_CONTROL_JOURNAL_REGION="+region, "TS_CONTROL_JOURNAL_ROOT="+root)
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return command
+}
+
+func waitControlJournalProcess(t *testing.T, command *exec.Cmd) {
+	t.Helper()
+	if err := command.Wait(); err != nil {
+		t.Fatalf("journal process: %v", err)
+	}
+}
+
+func waitForControlJournalFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }
 
 func controlCandidateMatches(state ControlPlaneState, want CandidateEvidence) bool {

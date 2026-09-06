@@ -36,3 +36,28 @@ func TestTickerSchedulerReturnsUnrecordedDrillFailure(t *testing.T) {
 		t.Fatal("fixture no longer represents failure before durable recording and paging")
 	}
 }
+
+func TestStartReconcilesCurrentDayBeforeScheduling(t *testing.T) {
+	drill, backup, _, journal, _ := drillFixture()
+	scheduler := &fakeScheduler{}
+	drill.scheduler = scheduler
+
+	if err := drill.Start(context.Background()); err != nil {
+		t.Fatalf("Start = %v", err)
+	}
+
+	const runID = "restore-drill-2026-09-04"
+	run, found := journal.runs[runID]
+	if !found || run.Status != RunSucceeded {
+		t.Fatalf("current day was not reconciled: found=%t run=%+v", found, run)
+	}
+	if len(backup.restores) == 0 {
+		t.Fatal("current-day reconciliation did not execute a restore")
+	}
+	if scheduler.callback == nil || scheduler.interval != drill.config.DailyInterval {
+		t.Fatal("daily scheduler was not installed after reconciliation")
+	}
+	if _, found := journal.runs["restore-drill-2026-09-03"]; found {
+		t.Fatal("start fabricated a successful historical run")
+	}
+}

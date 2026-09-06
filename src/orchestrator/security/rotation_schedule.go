@@ -45,7 +45,7 @@ func (c *Coordinator) Reconcile(ctx context.Context, lead time.Duration) (Rotati
 				return c.result(state), nil
 			}
 			if err := c.retireAt(ctx, &state); err != nil {
-				return RotationResult{}, c.failClosed(ctx, state, "retire_failed")
+				return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 			}
 		}
 		if now.Before(state.CurrentExpiry.Add(-lead)) {

@@ -38,11 +38,9 @@ func profilePromotionPort(t *testing.T) int {
 }
 func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*profilePromotionBroker, budget int64) {
 	t.Helper()
-	// Allocate the client endpoint for every start and retain the fixture-owned
-	// route endpoint across the standalone-to-cluster transition. The old
-	// fixture reused ports probed long before a restart, allowing concurrent
-	// tests to win the bind between probe and NATS startup.
-	b.port = profilePromotionPort(t)
+	// Let NATS bind the client endpoint atomically and retain the fixture-owned
+	// route endpoint across the standalone-to-cluster transition. Probing a
+	// client port before startup creates a TOCTOU race with concurrent tests.
 	if !cluster || b.route <= 0 {
 		b.route = profilePromotionPort(t)
 	}
@@ -50,7 +48,7 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 	for _, name := range []string{"GRU_CONTROL", "GLOBAL_CONTROL"} {
 		accounts[name] = map[string]any{"jetstream": true, "users": []any{map[string]any{"user": name, "password": "profilePromotion-only"}}}
 	}
-	cfg := map[string]any{"server_name": b.name, "host": "127.0.0.1", "port": b.port, "jetstream": map[string]any{"store_dir": b.store, "max_mem_store": 64 << 20, "max_file_store": budget}, "accounts": accounts}
+	cfg := map[string]any{"server_name": b.name, "host": "127.0.0.1", "port": 0, "jetstream": map[string]any{"store_dir": b.store, "max_mem_store": 64 << 20, "max_file_store": budget}, "accounts": accounts}
 	if cluster {
 		accounts["SYS"] = map[string]any{"users": []any{map[string]any{"user": "sys", "password": "profilePromotion-only"}}}
 		cfg["system_account"] = "SYS"

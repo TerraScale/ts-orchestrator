@@ -848,6 +848,59 @@ service PlacementControlService {
   rpc Readiness(PlacementReadinessRequest) returns (PlacementDrainResponse);
 }
 
+// Authenticated private lifecycle control. Every mutation is bound to the
+// accepted placement and authority proof; mTLS identity alone is insufficient.
+service LifecycleControlService {
+  rpc EnsureSnapshot(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc VerifySnapshotPlacement(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc CloseDatabase(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc StopNativeBackup(LifecycleControlRequest) returns (LifecycleControlResponse);
+  rpc Reactivate(LifecycleReactivateRequest) returns (LifecycleControlResponse);
+  rpc DeleteOwnedData(LifecycleControlRequest) returns (LifecycleControlResponse);
+}
+
+message LifecycleControlContext {
+  string environment = 1; // Exact configured environment.
+  string tenant = 2; // Canonical tenant ULID.
+  string project = 3; // Canonical project ULID.
+  string database = 4; // Canonical database ULID.
+  string region = 5; // Exact selected Region.
+  string member = 6; // Exact selected member.
+  uint64 placement_revision = 7; // Accepted placement journal revision.
+  uint64 authority_epoch = 8; // Accepted signed authority epoch.
+  string authority_lease = 9; // Accepted authority lease identity.
+  bytes authority_signature = 10; // Signed accepted assignment proof.
+}
+
+message LifecycleControlRequest {
+  LifecycleControlContext context = 1;
+  string operation_id = 2; // Stable durable operation identity.
+}
+
+message LifecycleRestoreTarget {
+  LifecycleControlContext context = 1;
+  string target_incarnation = 2; // Fresh target storage incarnation.
+  string operation_id = 3; // New restore operation identity.
+}
+
+message LifecycleReactivateRequest {
+  LifecycleControlRequest source = 1;
+  LifecycleRestoreTarget target = 2;
+}
+
+enum LifecycleStatus {
+  LIFECYCLE_STATUS_UNSPECIFIED = 0;
+  LIFECYCLE_STATUS_APPLIED = 1;
+  LIFECYCLE_STATUS_ALREADY_APPLIED = 2;
+  LIFECYCLE_STATUS_UNAVAILABLE = 3;
+}
+
+message LifecycleControlResponse {
+  LifecycleStatus status = 1;
+  string operation_id = 2;
+  string detail = 3; // Bounded typed refusal detail; never provider secrets.
+}
+
 message PlacementRegionSeats {
   string region = 1; // GRU, SFO, or FRA.
   repeated string members = 2; // Exactly two distinct canonical Member ULIDs.

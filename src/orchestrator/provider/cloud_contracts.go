@@ -406,6 +406,8 @@ type ComputeCapacityCandidate struct {
 	FaultDomain        string
 	SubnetID           string
 	Shape              string
+	Architecture       string
+	ImageID            string
 	OCPUs              float64
 	MemoryGiB          float64
 }
@@ -414,7 +416,6 @@ type ComputeLaunchRequest struct {
 	Mutation        ProviderMutationIntent
 	CompartmentID   string
 	DisplayName     string
-	ImageID         string
 	NSGIDs          []string
 	BootstrapBase64 string
 	Candidates      []ComputeCapacityCandidate

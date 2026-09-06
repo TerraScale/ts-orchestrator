@@ -20,6 +20,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 )
 
 type ControlTopology string
@@ -440,6 +442,13 @@ type ControlJournal interface {
 	Save(context.Context, ControlJournalRecord) error
 }
 
+// controlJournalAuthority serializes a complete transition across processes.
+// Journals that do not need process coordination, such as MemoryControlJournal,
+// may omit it and retain their existing behavior.
+type controlJournalAuthority interface {
+	Acquire(context.Context) (func() error, error)
+}
+
 type ControlStateMachine struct {
 	mu       sync.Mutex
 	Provider ControlPlaneProvider
@@ -475,6 +484,11 @@ func (m *ControlStateMachine) Execute(ctx context.Context, state ControlPlaneSta
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	release, err := acquireControlJournalAuthority(ctx, m.Journal)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = release() }()
 
 	prior, err := m.Journal.Load(ctx)
 	if err != nil {
@@ -545,6 +559,14 @@ func (m *ControlStateMachine) Execute(ctx context.Context, state ControlPlaneSta
 		return result, promoteErr
 	}
 	return result, nil
+}
+
+func acquireControlJournalAuthority(ctx context.Context, journal ControlJournal) (func() error, error) {
+	authority, ok := journal.(controlJournalAuthority)
+	if !ok {
+		return func() error { return nil }, nil
+	}
+	return authority.Acquire(ctx)
 }
 
 func executionControlRequest(state ControlPlaneState, request ControlTransitionRequest) ControlTransitionRequest {
@@ -845,13 +867,7 @@ func NewFileControlJournal(path string) (*FileControlJournal, error) {
 		return nil, ErrControlJournalUnavailable
 	}
 	j := &FileControlJournal{path: path}
-	if raw, err := os.ReadFile(path); err == nil {
-		decoder := json.NewDecoder(strings.NewReader(string(raw)))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&j.record) != nil || decoder.Decode(&struct{}{}) != io.EOF || validateControlJournalRecord(j.record) != nil {
-			return nil, ErrControlJournalUnavailable
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := j.reload(); err != nil {
 		return nil, ErrControlJournalUnavailable
 	}
 	return j, nil
@@ -866,7 +882,85 @@ func (j *FileControlJournal) Load(ctx context.Context) (ControlJournalRecord, er
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if err := j.reload(); err != nil {
+		return ControlJournalRecord{}, err
+	}
 	return cloneControlJournalRecord(j.record), nil
+}
+
+// Acquire obtains process-wide authority for one complete state transition.
+// flock is released by the kernel if the owning process exits unexpectedly.
+func (j *FileControlJournal) Acquire(ctx context.Context) (func() error, error) {
+	if ctx == nil || j == nil || j.path == "" {
+		return nil, ErrControlJournalUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(j.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, ErrControlJournalUnavailable
+	}
+	lock, err := os.OpenFile(j.path+".lock", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, ErrControlJournalUnavailable
+	}
+	closeLock := func() error { return lock.Close() }
+	for {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			_ = closeLock()
+			return nil, ErrControlJournalUnavailable
+		}
+		timer := time.NewTimer(5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			_ = closeLock()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	j.mu.Lock()
+	reloadErr := j.reload()
+	j.mu.Unlock()
+	if reloadErr != nil {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = closeLock()
+		return nil, reloadErr
+	}
+	return func() error {
+		unlockErr := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		closeErr := closeLock()
+		if unlockErr != nil || closeErr != nil {
+			return errors.Join(unlockErr, closeErr)
+		}
+		return nil
+	}, nil
+}
+
+func (j *FileControlJournal) reload() error {
+	raw, err := os.ReadFile(j.path)
+	if errors.Is(err, os.ErrNotExist) {
+		j.record = ControlJournalRecord{}
+		return nil
+	}
+	if err != nil {
+		return ErrControlJournalUnavailable
+	}
+	var record ControlJournalRecord
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&record) != nil || decoder.Decode(&struct{}{}) != io.EOF || validateControlJournalRecord(record) != nil {
+		return ErrControlJournalUnavailable
+	}
+	j.record = cloneControlJournalRecord(record)
+	return nil
 }
 func (j *FileControlJournal) Save(ctx context.Context, record ControlJournalRecord) error {
 	if ctx == nil {

@@ -163,14 +163,14 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 }
 
 type computeLaunchFingerprint struct {
-	CompartmentID, DisplayName, ImageID, BootstrapBase64 string
-	NSGIDs                                               []string
-	Candidates                                           []ComputeCapacityCandidate
-	Tags                                                 map[string]string
+	CompartmentID, DisplayName, BootstrapBase64 string
+	NSGIDs                                      []string
+	Candidates                                  []ComputeCapacityCandidate
+	Tags                                        map[string]string
 }
 
 func computeLaunchBinding(request ComputeLaunchRequest) computeLaunchFingerprint {
-	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ImageID, request.BootstrapBase64, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
+	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.BootstrapBase64, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
 }
 
 func ComputeLaunchMutationFingerprint(request ComputeLaunchRequest) string {
@@ -182,7 +182,7 @@ func ComputeLaunchMutationScope(request ComputeLaunchRequest) string {
 }
 
 func validateComputeLaunch(request ComputeLaunchRequest) error {
-	if !IsOCID(request.CompartmentID, "compartment") || !IsOCID(request.ImageID, "image") {
+	if !IsOCID(request.CompartmentID, "compartment") {
 		return &errs.Argument{Message: "compute launch resource identity is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
@@ -206,7 +206,8 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 		if len(candidate.AvailabilityDomain) < 1 || len(candidate.AvailabilityDomain) > 128 ||
 			!IsOCID(candidate.SubnetID, "subnet") ||
 			len(candidate.FaultDomain) > 64 || len(candidate.Shape) < 1 || len(candidate.Shape) > 128 ||
-			strings.ContainsAny(candidate.AvailabilityDomain+candidate.FaultDomain+candidate.Shape, "\r\n") ||
+			len(candidate.Architecture) < 1 || len(candidate.Architecture) > 32 || !IsOCID(candidate.ImageID, "image") ||
+			strings.ContainsAny(candidate.AvailabilityDomain+candidate.FaultDomain+candidate.Shape+candidate.Architecture, "\r\n") ||
 			math.IsNaN(candidate.OCPUs) || math.IsInf(candidate.OCPUs, 0) || candidate.OCPUs <= 0 || candidate.OCPUs > 192 ||
 			math.IsNaN(candidate.MemoryGiB) || math.IsInf(candidate.MemoryGiB, 0) || candidate.MemoryGiB <= 0 || candidate.MemoryGiB > 2048 {
 			return &errs.Argument{Message: "compute launch capacity candidate is invalid"}
@@ -300,7 +301,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}{candidate.SubnetID, request.NSGIDs}, SourceDetails: struct {
 			SourceType string `json:"sourceType"`
 			ImageID    string `json:"imageId"`
-		}{"image", request.ImageID}, Metadata: map[string]string{"user_data": request.BootstrapBase64}, FreeformTags: tags}
+		}{"image", candidate.ImageID}, Metadata: map[string]string{"user_data": request.BootstrapBase64}, FreeformTags: tags}
 		if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 			return ComputeInstance{}, err
 		}

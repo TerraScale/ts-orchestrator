@@ -124,18 +124,38 @@ func (v *rotationVault) Fetch(_ context.Context, ref string) (CapabilityMaterial
 func (v *rotationVault) Retire(context.Context, string, string) error { return nil }
 
 type rotationConsumers struct {
-	mu             sync.Mutex
-	failRegion     string
-	failActivation bool
-	versions       map[string]uint64
-	fenced         map[string]bool
-	rollback       int
+	mu               sync.Mutex
+	failRegion       string
+	failActivation   bool
+	cancel           context.CancelFunc
+	cancelRetire     context.CancelFunc
+	honorContext     bool
+	versions         map[string]uint64
+	fenced           map[string]bool
+	rollback         int
+	rollbackCanceled bool
+	distributions    int
 }
 
 func (f *rotationConsumers) Members(context.Context, string) ([]string, error) {
 	return []string{"member-a", "member-b"}, nil
 }
-func (f *rotationConsumers) Distribute(_ context.Context, member string, _ CredentialSet, _ string) error {
+func (f *rotationConsumers) Distribute(ctx context.Context, member string, _ CredentialSet, _ string) error {
+	f.mu.Lock()
+	f.distributions++
+	cancel := f.cancel
+	f.cancel = nil
+	f.mu.Unlock()
+	// The effect is recorded before cancellation, modeling a provider that
+	// commits and then observes the request context.
+	if cancel != nil {
+		cancel()
+	}
+	if f.honorContext {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if member == "member-b" && f.failRegion == "distribution" {
 		return errors.New("provider leaked secret")
 	}
@@ -156,12 +176,80 @@ func (f *rotationConsumers) Activate(_ context.Context, member string, generatio
 	f.mu.Unlock()
 	return nil
 }
-func (f *rotationConsumers) Retire(context.Context, string, uint64, string) error { return nil }
-func (f *rotationConsumers) Rollback(context.Context, string, uint64, string) error {
+func (f *rotationConsumers) Retire(ctx context.Context, _ string, _ uint64, _ string) error {
+	f.mu.Lock()
+	cancel := f.cancelRetire
+	f.cancelRetire = nil
+	f.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if f.honorContext {
+		return ctx.Err()
+	}
+	return nil
+}
+func (f *rotationConsumers) Rollback(ctx context.Context, _ string, _ uint64, _ string) error {
 	f.mu.Lock()
 	f.rollback++
+	if ctx.Err() != nil {
+		f.rollbackCanceled = true
+	}
 	f.mu.Unlock()
 	return nil
+}
+
+func TestRotationCancellationPreservesPhaseAndResumesUncertainEffect(t *testing.T) {
+	clock := &rotationClock{now: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	ctx, cancel := context.WithCancel(context.Background())
+	consumers := &rotationConsumers{cancel: cancel, honorContext: true}
+	store := &rotationStore{}
+	coordinator := testCoordinator(t, consumers, clock, store)
+	if _, err := coordinator.Rotate(ctx, "cancelled"); err == nil || !strings.Contains(err.Error(), "context_cancelled") {
+		t.Fatalf("cancellation was not reported: %v", err)
+	}
+	if store.state.Phase != PhaseDistribute || store.state.FailureCode != "cancellation_recoverable" {
+		t.Fatalf("cancellation did not preserve durable phase: %+v", store.state)
+	}
+	if consumers.rollback == 0 || !consumers.rollbackCanceled {
+		t.Fatalf("rollback did not receive canceled context: %+v", consumers)
+	}
+
+	result, err := coordinator.Resume(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Phase != PhaseActive || store.state.Phase != PhaseActive || consumers.distributions < 2 {
+		t.Fatalf("fresh-context resume did not converge: result=%+v state=%+v distributions=%d", result, store.state, consumers.distributions)
+	}
+}
+
+func TestRetireExpiredRetriesDurableRetirePhase(t *testing.T) {
+	clock := &rotationClock{now: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	consumers := &rotationConsumers{}
+	store := &rotationStore{}
+	coordinator := testCoordinator(t, consumers, clock, store)
+	if _, err := coordinator.Rotate(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(clock.Now().Add(time.Hour))
+	if _, err := coordinator.Rotate(context.Background(), "second"); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(store.state.OldExpiry)
+	ctx, cancel := context.WithCancel(context.Background())
+	consumers.cancelRetire = cancel
+	consumers.honorContext = true
+	if _, err := coordinator.RetireExpired(ctx); err == nil || !strings.Contains(err.Error(), "context_cancelled") {
+		t.Fatalf("retirement cancellation was not reported: %v", err)
+	}
+	if store.state.Phase != PhaseRetire || store.state.OldVersion == 0 {
+		t.Fatalf("retire phase was not durable: %+v", store.state)
+	}
+	result, err := coordinator.RetireExpired(context.Background())
+	if err != nil || result.Phase != PhaseActive || result.OldVersion != 0 {
+		t.Fatalf("retire phase did not converge: %+v %v", result, err)
+	}
 }
 func (f *rotationConsumers) Fence(_ context.Context, region, _ string) error {
 	f.mu.Lock()
