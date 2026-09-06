@@ -117,14 +117,57 @@ func SignAllocation(signer *security.CommandSignatureSigner, grant Grant, cycleI
 // every live or unreconciled grant, while DatabaseUnits aggregates all
 // branches belonging to a database.
 type State struct {
-	CycleID        string           `json:"cycle_id"`
-	PolicyEpoch    uint64           `json:"policy_epoch"`
-	ConsentEpoch   uint64           `json:"consent_epoch"`
-	UsedUnits      int64            `json:"used_units"`
-	UsedCostMinor  int64            `json:"used_cost_minor"`
-	UsedNanoDollar int64            `json:"used_nano_dollar"`
-	DatabaseUnits  map[string]int64 `json:"database_units"`
-	Grants         map[string]Grant `json:"grants"`
+	ActivePolicy   Policy           `json:"active_policy"`
+	AccountRevision string           `json:"account_revision"`
+	PolicyChecksum  string           `json:"policy_checksum"`
+	CycleID         string           `json:"cycle_id"`
+	PolicyEpoch     uint64           `json:"policy_epoch"`
+	ConsentEpoch    uint64           `json:"consent_epoch"`
+	UsedUnits       int64            `json:"used_units"`
+	UsedCostMinor   int64            `json:"used_cost_minor"`
+	UsedNanoDollar  int64            `json:"used_nano_dollar"`
+	DatabaseUnits   map[string]int64 `json:"database_units"`
+	Grants          map[string]Grant `json:"grants"`
+}
+
+// ApplyPolicyMetadata records the producer's CAS revision in the same fenced
+// journal as grants. Equal retries are accepted; a different revision cannot
+// overwrite an already admitted policy document.
+func (a *Authority) ApplyPolicyMetadata(ctx context.Context, revision, checksum string) error {
+	if revision == "" || checksum == "" {
+		return ErrInvalid
+	}
+	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
+		if err := a.validateState(state); err != nil {
+			return err
+		}
+		if state.AccountRevision != "" && state.AccountRevision != revision {
+			return ErrConflict
+		}
+		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
+			return ErrConflict
+		}
+		state.AccountRevision, state.PolicyChecksum = revision, checksum
+		return nil
+	})
+}
+
+// ApplyPolicy atomically installs a new billing policy. Existing reservations
+// remain accounted for; the new epoch fences all newly issued old-policy
+// grants while their expiry/holder acknowledgements are observed separately.
+func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, next Policy) error {
+	if revision == "" || checksum == "" || next.OrganizationID != a.policy.OrganizationID || next.CycleID == "" || next.Units <= 0 || next.CostMinor < 0 || next.UnitCostMinor < 0 || next.RateNanoDollar < 0 {
+		return ErrInvalid
+	}
+	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
+		if err := a.validateState(state); err != nil { return err }
+		if state.AccountRevision != "" && state.AccountRevision != revision { return ErrConflict }
+		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum { return ErrConflict }
+		if next.Units < state.UsedUnits || next.CostMinor < state.UsedCostMinor || next.RateNanoDollar > 0 && next.AllowanceNanoDollar < state.UsedNanoDollar { return ErrExhausted }
+		next.PolicyEpoch, next.ConsentEpoch = state.ActivePolicy.PolicyEpoch+1, state.ActivePolicy.ConsentEpoch+1
+		state.ActivePolicy, state.AccountRevision, state.PolicyChecksum = next, revision, checksum
+		return nil
+	})
 }
 
 type Persister interface {
@@ -166,7 +209,8 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if err := a.validateState(state); err != nil {
 			return err
 		}
-		if err := validateRequest(request, a.policy, a.now()); err != nil {
+		policy := state.ActivePolicy
+		if err := validateRequest(request, policy, a.now()); err != nil {
 			return err
 		}
 		if old, ok := state.Grants[request.OperationID]; ok {
@@ -180,18 +224,18 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !ok {
 			return ErrInvalid
 		}
-		cost, ok := multiply(units, a.policy.UnitCostMinor)
+		cost, ok := multiply(units, policy.UnitCostMinor)
 		if !ok {
 			return ErrInvalid
 		}
-		nanoCost, ok := multiply(units, a.policy.RateNanoDollar)
-		if a.policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > a.policy.AllowanceNanoDollar-nanoCost) {
+		nanoCost, ok := multiply(units, policy.RateNanoDollar)
+		if policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > policy.AllowanceNanoDollar-nanoCost) {
 			return ErrExhausted
 		}
-		if state.UsedUnits > a.policy.Units-units || state.UsedCostMinor > a.policy.CostMinor-cost {
+		if state.UsedUnits > policy.Units-units || state.UsedCostMinor > policy.CostMinor-cost {
 			return ErrExhausted
 		}
-		cap, capped := a.policy.DatabaseCaps[request.DatabaseID]
+		cap, capped := policy.DatabaseCaps[request.DatabaseID]
 		if capped && state.DatabaseUnits[request.DatabaseID] > cap-units {
 			return ErrExhausted
 		}
@@ -285,6 +329,8 @@ func (a *Authority) validateState(state *State) error {
 	if state.CycleID == "" {
 		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = a.policy.CycleID, a.policy.PolicyEpoch, a.policy.ConsentEpoch
 	}
+	if state.ActivePolicy.OrganizationID == "" { state.ActivePolicy = a.policy }
+	if state.ActivePolicy.OrganizationID != a.policy.OrganizationID { return ErrInvalid }
 	if state.CycleID != a.policy.CycleID || state.PolicyEpoch != a.policy.PolicyEpoch || state.ConsentEpoch != a.policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedCostMinor < 0 || state.UsedNanoDollar < 0 {
 		return ErrInvalid
 	}

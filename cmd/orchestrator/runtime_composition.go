@@ -103,7 +103,11 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
-	Edge control.GlobalEdgeDelivery
+	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI
+	// compute intents. ComputeApply is the admitted controller callback.
+	ComputeMutationJournalBucket string
+	ComputeApply                 func(context.Context, provider.ProviderMutationJournal) error
+	Edge                         control.GlobalEdgeDelivery
 	// Close releases every client allocated by Construct, including partial
 	// results returned with an error. It is required even for an empty bundle.
 	Close               func() error
@@ -124,6 +128,7 @@ type productionGlobalWorkerConfig struct {
 	AutoscaleSource     autoscale.ObservationSource
 	AutoscaleRegions    []string
 	ApplyScaleOutTarget func(string, int) error
+	WriteBudget         *runtimeWriteBudgetConfig
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -168,6 +173,8 @@ type productionGlobalWorkers struct {
 	kv              *cloudflare.KVWriter
 	serviceIdentity *serviceidentityrotation.Coordinator
 	autoscale       *productionAutoscale
+	writeBudget     *runtimeWriteBudget
+	compute         *productionComputeWorker
 	workers         []*lifecycle.Service
 	completion      chan struct{}
 }
@@ -226,6 +233,16 @@ func ownedGlobalWorkers(config productionGlobalWorkerConfig) *productionGlobalWo
 func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session globalWorkerSession, mirror *delivery.ArtifactMirror) (*productionGlobalWorkers, error) {
 	group := ownedGlobalWorkers(config)
 	group.edge, group.check = config.Edge, session.CheckEffectAuthority
+	if config.ComputeMutationJournalBucket != "" || config.ComputeApply != nil {
+		if config.ComputeMutationJournalBucket == "" || config.ComputeApply == nil {
+			return group, errors.New("runtime compute configuration is incomplete")
+		}
+		compute, err := newProductionOCIComputeWorker(session, config.ComputeMutationJournalBucket, config.ComputeApply)
+		if err != nil {
+			return group, err
+		}
+		group.compute = compute
+	}
 	if config.Close == nil {
 		return group, errors.New("runtime global client cleanup is required")
 	}
@@ -276,12 +293,6 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	if err != nil {
 		return group, fmt.Errorf("runtime key rotation: %w", err)
 	}
-	config.Reaper.Store = &reaper.NATSStateStoreConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId}
-	config.Reaper.CheckEffectAuthority = session.CheckEffectAuthority
-	reaperRuntime, err := reaper.NewProduction(config.Reaper)
-	if err != nil {
-		return group, fmt.Errorf("runtime free-tier reaper: %w", err)
-	}
 	journal, err := restoredrill.NewNATSJournal(restoredrill.NATSJournalConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId})
 	if err != nil {
 		return group, fmt.Errorf("runtime restore journal: %w", err)
@@ -308,6 +319,18 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition)
+	if err != nil {
+		return group, fmt.Errorf("runtime native lifecycle: %w", err)
+	}
+	config.Reaper.Database = nativeDatabase
+	config.Reaper.Store = &reaper.NATSStateStoreConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId}
+	config.Reaper.CheckEffectAuthority = session.CheckEffectAuthority
+	reaperRuntime, err := reaper.NewProduction(config.Reaper)
+	if err != nil {
+		return group, fmt.Errorf("runtime free-tier reaper: %w", err)
+	}
+	transition.acceptance = database.PersistPlacementAcceptance
 	transition.allocateStreams = func(ctx context.Context, record databaseadmission.Record, digest string) error {
 		return database.lifecycleJournal.AllocatePlacementStreams(ctx, record, digest, time.Now())
 	}
@@ -408,6 +431,12 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		return err
 	}
 	r.workers = []*lifecycle.Service{
+		func() *lifecycle.Service {
+			if r.compute == nil {
+				return lifecycle.NewScheduledService("OCI compute", 0, func(context.Context, time.Time) error { return nil })
+			}
+			return r.compute.service
+		}(),
 		lifecycle.NewScheduledService("autoscale", time.Minute, func(runCtx context.Context, _ time.Time) error {
 			if r.autoscale == nil {
 				return nil
@@ -488,6 +517,9 @@ func (r *productionGlobalWorkers) Close() error {
 	}
 	r.closeOnce.Do(func() {
 		var result error
+		if r.writeBudget != nil {
+			result = combineErrors(result, r.writeBudget.Close())
+		}
 		result = combineErrors(result, r.database.Close())
 		for i := len(r.workers) - 1; i >= 0; i-- {
 			worker := r.workers[i]
@@ -556,14 +588,30 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 	if err := session.CheckEffectAuthority(ctx); err != nil {
 		return ownedGlobalWorkers(config), err
 	}
+	if config.WriteBudget == nil {
+		return ownedGlobalWorkers(config), errors.New("global workers require configured write budget policy and regional delivery")
+	}
 	if r.autoscale != nil {
 		config.AutoscaleSource = r.autoscale.Source
 		config.AutoscaleRegions = append([]string(nil), r.autoscale.Regions...)
 		config.ApplyScaleOutTarget = r.autoscale.Apply
 	}
+	var writeBudget *runtimeWriteBudget
+	if config.WriteBudget != nil {
+		writeBudget, err = newRuntimeWriteBudget(session, *config.WriteBudget)
+		if err != nil {
+			return nil, err
+		}
+	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
 	if err != nil {
 		return group, err
+	}
+	group.writeBudget = writeBudget
+	if config.WriteBudget.PolicyListener != nil {
+		if err := writeBudget.Start(ctx, config.WriteBudget.PolicyListener); err != nil {
+			return group, err
+		}
 	}
 	if err := group.transition.RunBootstrap(ctx); err != nil {
 		return group, err

@@ -33,6 +33,7 @@ type PolicyEnvelope struct {
 type PolicyResult struct {
 	Status          string `json:"status"`
 	AccountRevision string `json:"accountRevision"`
+	CycleID         string `json:"cycleId"`
 	Checksum        string `json:"checksum"`
 	Deadline        string `json:"deadline,omitempty"`
 }
@@ -88,7 +89,7 @@ func NewPolicyHandler(receiver PolicyReceiver, serviceKey string) (http.Handler,
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if result.Status != "accepted" && result.Status != "pending" || result.AccountRevision != policy.AccountRevision || result.Checksum != policy.Checksum {
+		if result.Status != "accepted" && result.Status != "pending" || result.AccountRevision != policy.AccountRevision || result.CycleID != policy.CycleID || result.Checksum != policy.Checksum {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
 		}

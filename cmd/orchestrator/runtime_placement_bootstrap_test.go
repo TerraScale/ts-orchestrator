@@ -87,7 +87,9 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker.config = productionPlacementTransitionConfig{Bootstrap: config, Issuer: placementtransition.Config{GenesisKeys: map[string]ed25519.PublicKey{"genesis": key.Public().(ed25519.PublicKey)}}, GenesisGrants: map[string]placementtransition.Signed{config.OperationID: grant}, Deliver: func(context.Context, string, string, uint64, placementtransition.Signed) error { return nil }}
+	worker.config = productionPlacementTransitionConfig{Bootstrap: config, Issuer: placementtransition.Config{GenesisKeys: map[string]ed25519.PublicKey{"genesis": key.Public().(ed25519.PublicKey)}}, GenesisGrants: map[string]placementtransition.Signed{config.OperationID: grant}, Deliver: func(context.Context, string, string, uint64, placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+		return &pb.PlacementControlServiceAcceptResponse{ProposalRevision: 1, Epoch: 1, Generation: 1, ProofDigest: strings.Repeat("0", 64), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}, nil
+	}}
 	if err := worker.Bootstrap(t.Context()); err != nil {
 		t.Fatal(err)
 	}

@@ -49,7 +49,7 @@ type productionPlacementTransitionConfig struct {
 	// Drain must return authenticated, durable engine fence receipts. Delivery
 	// only acknowledges accepted membership; it must never imply serving ready.
 	Drain   func(context.Context, placementtransition.Request, placementtransition.Proof) ([]placementtransition.Signed, error)
-	Deliver func(context.Context, string, string, uint64, placementtransition.Signed) error
+	Deliver func(context.Context, string, string, uint64, placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error)
 }
 
 func (f productionPlacementTransitionFile) load() (productionPlacementTransitionConfig, error) {
@@ -116,6 +116,7 @@ type productionPlacementTransition struct {
 	check               func(context.Context) error
 	bootstrapPublishers map[string]*placementpublisher.Publisher
 	completion          func(context.Context, string, string, bool) error
+	acceptance          func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error
 	allocateStreams     func(context.Context, databaseadmission.Record, string) error
 	registerUsage       func(context.Context, databaseadmission.Record, string) error
 }
@@ -135,17 +136,17 @@ func newProductionPlacementTransition(config productionPlacementTransitionConfig
 		}
 		targets[identity.ServerIdentity] = target
 	}
-	config.Deliver = func(ctx context.Context, identity, operation string, revision uint64, proof placementtransition.Signed) error {
+	config.Deliver = func(ctx context.Context, identity, operation string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
 		target := targets[identity]
 		if target == nil {
-			return placementtransition.ErrInvalid
+			return nil, placementtransition.ErrInvalid
 		}
 		payload, err := json.Marshal(proof)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		_, err = target.Accept(ctx, operation, &pb.PlacementControlServiceAcceptRequest{ProposalRevision: revision, Proof: payload})
-		return err
+		response, err := target.Accept(ctx, operation, &pb.PlacementControlServiceAcceptRequest{ProposalRevision: revision, Proof: payload})
+		return response, err
 	}
 	config.Issuer.Authority = authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
 	issuer, err := placementtransition.New(config.Issuer)
@@ -379,7 +380,23 @@ deliver:
 		if err := t.check(ctx); err != nil {
 			return err
 		}
-		if err := t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, revisions[target.ServerIdentity], signed); err != nil {
+		var response *pb.PlacementControlServiceAcceptResponse
+		var err error
+		response, err = t.config.Deliver(ctx, target.ServerIdentity, r.OperationID, revisions[target.ServerIdentity], signed)
+		if err != nil {
+			return err
+		}
+		if response == nil || t.acceptance == nil {
+			return errors.New("runtime transition: accepted placement receipt persistence is required")
+		}
+		if response.ProposalRevision != revisions[target.ServerIdentity] || response.Epoch != proof.Request.Epoch || response.Generation != proof.Request.Generation || response.Status != pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP {
+			return errors.New("runtime transition: accepted placement receipt differs from issued proof")
+		}
+		proofDigest := sha256.Sum256(signed.Payload)
+		if response.ProofDigest != hex.EncodeToString(proofDigest[:]) {
+			return errors.New("runtime transition: accepted placement proof digest differs from issued proof")
+		}
+		if err := t.acceptance(ctx, record, target.ServerIdentity, response); err != nil {
 			return err
 		}
 	}

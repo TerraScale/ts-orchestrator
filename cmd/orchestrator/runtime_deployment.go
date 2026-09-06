@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,6 +23,7 @@ type productionDeploymentFile struct {
 }
 
 type productionGlobalFile struct {
+	Compute             productionGlobalComputeFile        `json:"compute"`
 	Estate              productionEstateFile               `json:"estate"`
 	HealthFile          string                             `json:"health_file"`
 	KV                  productionKVFile                   `json:"kv"`
@@ -31,6 +33,17 @@ type productionGlobalFile struct {
 	AuthBootstrapFile   string                             `json:"auth_bootstrap_file"`
 	PlacementTransition productionPlacementTransitionFile  `json:"placement_transition"`
 	ServiceIdentity     serviceidentityrotation.FileConfig `json:"service_identity"`
+}
+
+// productionGlobalComputeFile declares the lease-owned OCI mutation inputs.
+// Credentials remain file references; secrets are never embedded here.
+type productionGlobalComputeFile struct {
+	EstateFiles       map[string]string `json:"estate_files"`
+	KeyID             string            `json:"key_id"`
+	PrivateKeyFile    string            `json:"private_key_file"`
+	ImageID           string            `json:"image_id"`
+	FallbackImageID   string            `json:"fallback_image_id"`
+	MutationJournalKV string            `json:"mutation_journal_kv"`
 }
 
 func loadProductionDeployment(options *control.OrchestratorOptions) (productionDeploymentFile, error) {
@@ -60,6 +73,14 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	g := f.Global
 	if g == nil {
 		return errors.New("global runtime deployment is missing")
+	}
+	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" {
+		return errors.New("global compute declaration is incomplete")
+	}
+	for _, region := range spec.Regions {
+		if strings.TrimSpace(g.Compute.EstateFiles[region.Code]) == "" {
+			return fmt.Errorf("global compute estate file for region %s is missing", region.Code)
+		}
 	}
 	edge := g.Rotation.Edge
 	if f.Delivery.Cloudflare.AccountID != edge.AccountID || f.Delivery.Cloudflare.ZoneID != edge.ZoneID || f.Delivery.Cloudflare.SnippetServices[edge.TemplateService] != edge.SnippetName || g.KV.AccountID != edge.AccountID || g.KV.ZoneID != edge.ZoneID || edge.AccountID == "" || edge.ZoneID == "" || edge.TemplateService == "" || edge.SnippetName == "" {

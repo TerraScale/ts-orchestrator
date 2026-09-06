@@ -174,6 +174,10 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			if len(target.Receipt) != 0 && (!slices.Equal(target.Receipt, record.PlacementTargets[i].Receipt) || target.Revision != record.PlacementTargets[i].Revision) {
 				return 0, ErrConflict
 			}
+			current := record.PlacementTargets[i]
+			if len(target.AcceptedReceipt) != 0 && (!slices.Equal(target.AcceptedReceipt, current.AcceptedReceipt) || target.AcceptedRevision != current.AcceptedRevision || target.AcceptedEpoch != current.AcceptedEpoch || target.AcceptedGeneration != current.AcceptedGeneration || target.AcceptedProofDigest != current.AcceptedProofDigest) {
+				return 0, ErrConflict
+			}
 		}
 	} else {
 		if expected != 0 {

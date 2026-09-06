@@ -46,9 +46,14 @@ type PlacementTarget struct {
 	Proposal                         []byte
 	// Receipt is the exact fenced producer acknowledgement for Proposal. It is
 	// populated only after the remote stage has been acknowledged.
-	Receipt  []byte
-	Revision uint64
-	Proposed bool
+	Receipt             []byte
+	Revision            uint64
+	AcceptedReceipt     []byte
+	AcceptedRevision    uint64
+	AcceptedEpoch       uint64
+	AcceptedGeneration  uint64
+	AcceptedProofDigest string
+	Proposed            bool
 }
 type Plan struct {
 	Members    []Target
@@ -249,11 +254,21 @@ func ImmutableEqual(a, b Record) bool {
 		a.PlacementTargets[i].Proposed = false
 		a.PlacementTargets[i].Receipt = nil
 		a.PlacementTargets[i].Revision = 0
+		a.PlacementTargets[i].AcceptedReceipt = nil
+		a.PlacementTargets[i].AcceptedRevision = 0
+		a.PlacementTargets[i].AcceptedEpoch = 0
+		a.PlacementTargets[i].AcceptedGeneration = 0
+		a.PlacementTargets[i].AcceptedProofDigest = ""
 	}
 	for i := range b.PlacementTargets {
 		b.PlacementTargets[i].Proposed = false
 		b.PlacementTargets[i].Receipt = nil
 		b.PlacementTargets[i].Revision = 0
+		b.PlacementTargets[i].AcceptedReceipt = nil
+		b.PlacementTargets[i].AcceptedRevision = 0
+		b.PlacementTargets[i].AcceptedEpoch = 0
+		b.PlacementTargets[i].AcceptedGeneration = 0
+		b.PlacementTargets[i].AcceptedProofDigest = ""
 	}
 	return reflect.DeepEqual(a, b)
 }
@@ -265,6 +280,9 @@ func validatePlacementTargets(r Record) error {
 	seen := map[string]PlacementTarget{}
 	var shared *pb.PlacementProposal
 	for _, target := range r.PlacementTargets {
+		if len(target.AcceptedReceipt) != 0 && (target.AcceptedRevision == 0 || target.AcceptedEpoch == 0 || target.AcceptedGeneration == 0 || len(target.AcceptedProofDigest) != 64) {
+			return ErrInvalid
+		}
 		stage := new(pb.PlacementControlServiceStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil {
 			return ErrInvalid

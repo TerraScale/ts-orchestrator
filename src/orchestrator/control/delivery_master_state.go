@@ -28,17 +28,21 @@ type masterDeliveryEdge struct {
 	Accepted       bool   `json:"accepted"`
 }
 type masterDeliveryRecord struct {
-	GlobalEdge        *masterDeliveryEdge   `json:"globalEdge,omitempty"`
-	Version           int                   `json:"version"`
-	OperationID       string                `json:"operationId"`
-	PayloadDigest     string                `json:"payloadDigest"`
-	IdempotencyDigest string                `json:"idempotencyDigest"`
-	Generation        int64                 `json:"generation"`
-	OwnerEpoch        int64                 `json:"ownerEpoch"`
-	OriginalEnvelope  []byte                `json:"originalEnvelope"`
-	ReleaseSignature  []byte                `json:"releaseSignature"`
-	Prepared          bool                  `json:"prepared"`
-	Children          []masterDeliveryChild `json:"children"`
+	GlobalEdge               *masterDeliveryEdge   `json:"globalEdge,omitempty"`
+	Version                  int                   `json:"version"`
+	OperationID              string                `json:"operationId"`
+	PayloadDigest            string                `json:"payloadDigest"`
+	IdempotencyDigest        string                `json:"idempotencyDigest"`
+	Generation               int64                 `json:"generation"`
+	OwnerEpoch               int64                 `json:"ownerEpoch"`
+	OriginalEnvelope         []byte                `json:"originalEnvelope"`
+	ReleaseSignature         []byte                `json:"releaseSignature"`
+	ReleaseSignatureKey      string                `json:"releaseSignatureKey"`
+	ReleaseManifest          []byte                `json:"releaseManifest"`
+	ReleaseManifestSignature []byte                `json:"releaseManifestSignature"`
+	ReleaseManifestKey       string                `json:"releaseManifestKey"`
+	Prepared                 bool                  `json:"prepared"`
+	Children                 []masterDeliveryChild `json:"children"`
 }
 type masterDeliveryHead struct {
 	OperationID   string `json:"operationId"`
@@ -109,7 +113,7 @@ func (m *MasterDelivery) checkMaster(ctx context.Context, record *masterDelivery
 		return err
 	}
 	var current masterDeliveryRecord
-	if json.Unmarshal(entry.Value, &current) != nil || (len(current.ReleaseSignature) != 0 && !bytes.Equal(current.ReleaseSignature, record.ReleaseSignature)) || current.OwnerEpoch != epoch || current.head() != record.head() || !bytes.Equal(current.OriginalEnvelope, record.OriginalEnvelope) {
+	if json.Unmarshal(entry.Value, &current) != nil || !sameReleaseEvidence(&current, record) || current.OwnerEpoch != epoch || current.head() != record.head() || !bytes.Equal(current.OriginalEnvelope, record.OriginalEnvelope) {
 		return errors.New("master delivery: durable operation owner or lineage differs")
 	}
 	return nil
@@ -256,7 +260,7 @@ func (m *MasterDelivery) admitMaster(ctx context.Context, envelope protocol.Comm
 }
 
 func masterSameLineage(prior, expected *masterDeliveryRecord) bool {
-	if (len(prior.ReleaseSignature) != 0 && len(prior.ReleaseSignature) != 64) || (prior.Prepared && len(prior.ReleaseSignature) != 64) || prior.Version != 1 || prior.head() != expected.head() || prior.IdempotencyDigest != expected.IdempotencyDigest || prior.OwnerEpoch <= 0 || len(prior.Children) != len(expected.Children) {
+	if !validReleaseEvidence(prior) || prior.Version != 1 || prior.head() != expected.head() || prior.IdempotencyDigest != expected.IdempotencyDigest || prior.OwnerEpoch <= 0 || len(prior.Children) != len(expected.Children) {
 		return false
 	}
 	if (prior.GlobalEdge == nil) != (expected.GlobalEdge == nil) {
@@ -278,4 +282,18 @@ func masterSameLineage(prior, expected *masterDeliveryRecord) bool {
 		}
 	}
 	return true
+}
+
+func validReleaseEvidence(record *masterDeliveryRecord) bool {
+	if record == nil {
+		return false
+	}
+	if len(record.ReleaseSignature) == 0 {
+		return len(record.ReleaseSignatureKey) == 0 && len(record.ReleaseManifest) == 0 && len(record.ReleaseManifestSignature) == 0 && record.ReleaseManifestKey == ""
+	}
+	return len(record.ReleaseSignature) == 64 && record.ReleaseSignatureKey != "" && len(record.ReleaseManifest) > 0 && len(record.ReleaseManifestSignature) == 64 && record.ReleaseManifestKey == record.ReleaseSignatureKey
+}
+
+func sameReleaseEvidence(left, right *masterDeliveryRecord) bool {
+	return bytes.Equal(left.ReleaseSignature, right.ReleaseSignature) && left.ReleaseSignatureKey == right.ReleaseSignatureKey && bytes.Equal(left.ReleaseManifest, right.ReleaseManifest) && bytes.Equal(left.ReleaseManifestSignature, right.ReleaseManifestSignature) && left.ReleaseManifestKey == right.ReleaseManifestKey
 }

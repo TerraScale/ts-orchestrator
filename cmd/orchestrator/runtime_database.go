@@ -167,6 +167,36 @@ func (d *productionDatabase) Close() error {
 	}
 	return errors.Join(errs...)
 }
+
+func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, record databaseadmission.Record, host string, receipt *pb.PlacementControlServiceAcceptResponse) error {
+	if d == nil || d.lifecycleJournal == nil || receipt == nil {
+		return databaseadmission.ErrInvalid
+	}
+	current, found, err := d.lifecycleJournal.Load(ctx, databaseadmission.ScopeKey(record.Request))
+	if err != nil || !found || current.DatabaseID != record.DatabaseID {
+		return databaseadmission.ErrInvalid
+	}
+	for i := range current.PlacementTargets {
+		if current.PlacementTargets[i].ServerIdentity != host {
+			continue
+		}
+		if current.PlacementTargets[i].AcceptedRevision != 0 {
+			return nil
+		}
+		current.PlacementTargets[i].AcceptedRevision = receipt.ProposalRevision
+		current.PlacementTargets[i].AcceptedEpoch = receipt.Epoch
+		current.PlacementTargets[i].AcceptedGeneration = receipt.Generation
+		current.PlacementTargets[i].AcceptedProofDigest = receipt.ProofDigest
+		encoded, marshalErr := proto.Marshal(receipt)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		current.PlacementTargets[i].AcceptedReceipt = encoded
+		_, err = d.lifecycleJournal.Save(ctx, databaseadmission.ScopeKey(current.Request), current.Revision, current)
+		return err
+	}
+	return databaseadmission.ErrInvalid
+}
 func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementControlServiceStageRequest) error {
 	records, err := journal.List(ctx)
 	if err != nil {

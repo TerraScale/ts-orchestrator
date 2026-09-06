@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -20,12 +21,15 @@ import (
 // bytes named by a DeliveryRequest, their computed digest, and the detached
 // signature that verified them.
 type ReleaseArtifact struct {
-	Service      string
-	Digest       string // "sha256:<hex>" as named by the request
-	Architecture string // linux/arm64 or linux/amd64; empty means legacy arm64
-	Body         []byte
-	Signature    []byte // verified raw detached signature
-	SignatureKey string // the trust-set key ID that verified the signature
+	Service           string
+	Digest            string // "sha256:<hex>" as named by the request
+	ManifestName      string
+	ManifestBody      []byte
+	ManifestSignature []byte
+	Architecture      string // linux/arm64 or linux/amd64; empty means legacy arm64
+	Body              []byte
+	Signature         []byte // verified raw detached signature
+	SignatureKey      string // the trust-set key ID that verified the signature
 }
 
 // ArtifactFetcher retrieves the artifact bytes and detached signature named
@@ -33,6 +37,10 @@ type ReleaseArtifact struct {
 // decoding or whitespace normalization. Implementations must fail closed.
 type ArtifactFetcher interface {
 	Fetch(ctx context.Context, request *Request) (body []byte, signature []byte, err error)
+}
+
+type ManifestArtifactFetcher interface {
+	FetchRelease(context.Context, *Request) (body, signature, manifest, manifestSignature []byte, err error)
 }
 
 // ForgejoArtifactFetcher downloads release artifacts from the Forgejo
@@ -92,35 +100,55 @@ func (f *ForgejoArtifactFetcher) client() *http.Client {
 // Fetch resolves the release for the request's commit and downloads the
 // artifact and signature assets.
 func (f *ForgejoArtifactFetcher) Fetch(ctx context.Context, request *Request) ([]byte, []byte, error) {
+	body, signature, _, _, err := f.FetchRelease(ctx, request)
+	return body, signature, err
+}
+
+func (f *ForgejoArtifactFetcher) FetchRelease(ctx context.Context, request *Request) ([]byte, []byte, []byte, []byte, error) {
 	if f == nil || strings.TrimSpace(f.BaseURL) == "" {
-		return nil, nil, errors.New("delivery: artifact fetcher is not configured")
+		return nil, nil, nil, nil, errors.New("delivery: artifact fetcher is not configured")
 	}
 	if ctx == nil {
-		return nil, nil, errors.New("delivery: artifact fetch requires a context")
+		return nil, nil, nil, nil, errors.New("delivery: artifact fetch requires a context")
 	}
 	if request == nil || request.Source == nil || request.Artifact == nil {
-		return nil, nil, errors.New("delivery: artifact fetch requires source and artifact identity")
+		return nil, nil, nil, nil, errors.New("delivery: artifact fetch requires source and artifact identity")
 	}
 	release, err := f.releaseForCommit(ctx, request)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	asset, signatureAsset, err := releaseAssets(release, request)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	body, err := f.downloadAsset(ctx, asset.BrowserDownloadURL, MaxArtifactBytes, asset.Name)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	signature, err := f.downloadAsset(ctx, signatureAsset.BrowserDownloadURL, ed25519.SignatureSize, signatureAsset.Name)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if len(signature) != ed25519.SignatureSize {
-		return nil, nil, errors.New("delivery: detached artifact signature must be exactly 64 raw Ed25519 bytes")
+		return nil, nil, nil, nil, errors.New("delivery: detached artifact signature must be exactly 64 raw Ed25519 bytes")
 	}
-	return body, signature, nil
+	if request.Artifact.ManifestName == "" {
+		return nil, nil, nil, nil, errors.New("delivery: manifest name is required")
+	}
+	manifestAsset, manifestSignatureAsset, err := releaseManifestAssets(release, request)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	manifest, err := f.downloadAsset(ctx, manifestAsset.BrowserDownloadURL, MaxDocumentBytes, manifestAsset.Name)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	manifestSignature, err := f.downloadAsset(ctx, manifestSignatureAsset.BrowserDownloadURL, ed25519.SignatureSize, manifestSignatureAsset.Name)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return body, signature, manifest, manifestSignature, nil
 }
 
 func (f *ForgejoArtifactFetcher) releaseForCommit(ctx context.Context, request *Request) (*forgejoRelease, error) {
@@ -169,6 +197,26 @@ func releaseAssets(release *forgejoRelease, request *Request) (forgejoAsset, for
 		return forgejoAsset{}, forgejoAsset{}, fmt.Errorf("delivery: release has no verified %s asset pair", artifactName)
 	}
 	return artifact, signature, nil
+}
+
+func releaseManifestAssets(release *forgejoRelease, request *Request) (forgejoAsset, forgejoAsset, error) {
+	if release == nil || request == nil || request.Artifact == nil || request.Artifact.ManifestName == "" {
+		return forgejoAsset{}, forgejoAsset{}, errors.New("delivery: release manifest name is required")
+	}
+	name := request.Artifact.ManifestName
+	var manifest, signature forgejoAsset
+	for _, asset := range release.Assets {
+		switch asset.Name {
+		case name:
+			manifest = asset
+		case name + ".sig":
+			signature = asset
+		}
+	}
+	if manifest.BrowserDownloadURL == "" || signature.BrowserDownloadURL == "" {
+		return forgejoAsset{}, forgejoAsset{}, errors.New("delivery: release has no verified manifest asset pair")
+	}
+	return manifest, signature, nil
 }
 
 func (f *ForgejoArtifactFetcher) download(ctx context.Context, target string, limit int64) ([]byte, error) {
@@ -344,7 +392,15 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	if fetcher == nil || trust == nil || request == nil || request.Artifact == nil || request.Target == nil {
 		return nil, errors.New("delivery: request carries no artifact identity")
 	}
-	body, signature, err := fetcher.Fetch(ctx, request)
+	var body, signature, manifest, manifestSignature []byte
+	var err error
+	var manifestFetcher ManifestArtifactFetcher
+	if mf, ok := fetcher.(ManifestArtifactFetcher); ok {
+		manifestFetcher = mf
+		body, signature, manifest, manifestSignature, err = mf.FetchRelease(ctx, request)
+	} else {
+		body, signature, err = fetcher.Fetch(ctx, request)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -362,12 +418,55 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 		return nil, errors.New("delivery: artifact signature failed verification against the release trust set")
 	}
 	keyID := trust.verifyingKey(body, signature)
+	if manifestFetcher == nil {
+		return &ReleaseArtifact{Service: request.Target.Service, Digest: computed, Architecture: request.Artifact.Architecture, Body: append([]byte(nil), body...), SignatureKey: keyID, Signature: append([]byte(nil), signature...)}, nil
+	}
+	if len(manifest) == 0 || len(manifestSignature) != ed25519.SignatureSize || !trust.VerifySignature(manifest, manifestSignature) || trust.verifyingKey(manifest, manifestSignature) != keyID {
+		return nil, errors.New("delivery: release manifest signature failed verification")
+	}
+	if !SameDigest(SHA256Digest(manifest), request.Artifact.ManifestDigest) || request.Artifact.ManifestName == "" {
+		return nil, errors.New("delivery: release manifest digest or name does not match the request")
+	}
+	var document struct {
+		SchemaVersion            int `json:"schemaVersion"`
+		Repository, Kind, Commit string
+		Artifacts                []struct {
+			Name, Path, Architecture, Digest, SignatureDigest string
+			Bytes                                             int64
+		} `json:"artifacts"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(manifest)))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&document) != nil || document.SchemaVersion != 1 || string(mustCompactJSON(manifest)) != string(manifest) || strings.ToLower(document.Commit) != strings.ToLower(request.Source.Commit) || document.Repository != request.Source.Repository || document.Kind != request.Artifact.Kind {
+		return nil, errors.New("delivery: release manifest identity is invalid")
+	}
+	found := false
+	for _, entry := range document.Artifacts {
+		if entry.Name == request.Artifact.Name && entry.Architecture == request.Artifact.Architecture && SameDigest(entry.Digest, computed) && entry.Bytes == int64(len(body)) && SameDigest(entry.SignatureDigest, SHA256Digest(signature)) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, errors.New("delivery: release manifest artifact entry does not match the request")
+	}
 	return &ReleaseArtifact{
-		Service:      request.Target.Service,
-		Digest:       computed,
-		Architecture: request.Artifact.Architecture,
-		Body:         append([]byte(nil), body...),
-		SignatureKey: keyID,
-		Signature:    append([]byte(nil), signature...),
+		Service:           request.Target.Service,
+		Digest:            computed,
+		Architecture:      request.Artifact.Architecture,
+		Body:              append([]byte(nil), body...),
+		SignatureKey:      keyID,
+		Signature:         append([]byte(nil), signature...),
+		ManifestName:      request.Artifact.ManifestName,
+		ManifestBody:      append([]byte(nil), manifest...),
+		ManifestSignature: append([]byte(nil), manifestSignature...),
 	}, nil
+}
+
+func mustCompactJSON(raw []byte) []byte {
+	var compact bytes.Buffer
+	if json.Compact(&compact, raw) != nil {
+		return nil
+	}
+	return compact.Bytes()
 }

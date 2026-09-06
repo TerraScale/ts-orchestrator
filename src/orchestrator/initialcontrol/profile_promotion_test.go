@@ -48,7 +48,7 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 	for _, name := range []string{"GRU_CONTROL", "GLOBAL_CONTROL"} {
 		accounts[name] = map[string]any{"jetstream": true, "users": []any{map[string]any{"user": name, "password": "profilePromotion-only"}}}
 	}
-	cfg := map[string]any{"server_name": b.name, "host": "127.0.0.1", "port": 0, "jetstream": map[string]any{"store_dir": b.store, "max_mem_store": 64 << 20, "max_file_store": budget}, "accounts": accounts}
+	cfg := map[string]any{"server_name": b.name, "host": "127.0.0.1", "port": -1, "jetstream": map[string]any{"store_dir": b.store, "max_mem_store": 64 << 20, "max_file_store": budget}, "accounts": accounts}
 	if cluster {
 		accounts["SYS"] = map[string]any{"users": []any{map[string]any{"user": "sys", "password": "profilePromotion-only"}}}
 		cfg["system_account"] = "SYS"
@@ -58,11 +58,17 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 			// A server owns its dynamically allocated route for this entire
 			// running lifetime. Stopped peers have no authoritative endpoint;
 			// they will connect to a running peer when they start.
-			if p != b && p.route > 0 && (p.s != nil || p.name == "GRU_SOURCE") {
+			if p != b && p.s != nil && p.s.ClusterAddr() != nil {
+				routes = append(routes, "nats://"+p.s.ClusterAddr().String())
+			} else if p != b && p.name == "GRU_SOURCE" && p.route > 0 {
 				routes = append(routes, fmt.Sprintf("nats://127.0.0.1:%d", p.route))
 			}
 		}
-		cfg["cluster"] = map[string]any{"name": "CONTROL", "host": "127.0.0.1", "port": b.route, "routes": routes}
+		clusterPort := -1
+		if b.name == "GRU_SOURCE" {
+			clusterPort = b.route
+		}
+		cfg["cluster"] = map[string]any{"name": "CONTROL", "host": "127.0.0.1", "port": clusterPort, "routes": routes}
 	}
 	if !cluster {
 		cfg["no_sys_acc"] = true
@@ -683,9 +689,9 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 	for _, b := range brokers {
 		b.stop()
 	}
-	for _, b := range brokers {
-		b.start(t, true, brokers, budget)
-	}
+	brokers[1].start(t, true, brokers, budget)
+	brokers[2].start(t, true, brokers, budget)
+	source.start(t, true, brokers, budget)
 	for account, original := range snapshots {
 		nc, js := source.client(t, account)
 		profilePromotionWaitRecovered(t, ctx, js, original, true)

@@ -84,15 +84,24 @@ func (m *MasterDelivery) Submit(ctx context.Context, wire []byte) (*MasterDelive
 	if err := check(fence); err != nil {
 		return receipt(), err
 	}
-	artifact, err := delivery.LoadMasterRelease(ctx, request, m.config.Fetcher, m.config.Trust(), m.config.Mirror, record.ReleaseSignature, record.Prepared)
+	evidence := delivery.PreparedReleaseEvidence{Signature: record.ReleaseSignature, SignatureKey: record.ReleaseSignatureKey, Manifest: record.ReleaseManifest, ManifestSignature: record.ReleaseManifestSignature}
+	artifact, err := delivery.LoadMasterReleaseEvidence(ctx, request, m.config.Fetcher, m.config.Trust(), m.config.Mirror, evidence, record.Prepared)
 	if err != nil {
 		return receipt(), err
 	}
 	if len(record.ReleaseSignature) == 0 {
 		record.ReleaseSignature = append([]byte(nil), artifact.Signature...)
+		record.ReleaseSignatureKey = artifact.SignatureKey
+		record.ReleaseManifest = append([]byte(nil), artifact.ManifestBody...)
+		record.ReleaseManifestSignature = append([]byte(nil), artifact.ManifestSignature...)
+		record.ReleaseManifestKey = artifact.SignatureKey
 		revision, err = m.saveMaster(ctx, record, revision, epoch)
 		if err != nil {
 			record.ReleaseSignature = nil
+			record.ReleaseSignatureKey = ""
+			record.ReleaseManifest = nil
+			record.ReleaseManifestSignature = nil
+			record.ReleaseManifestKey = ""
 			return receipt(), err
 		}
 	}

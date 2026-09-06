@@ -385,7 +385,7 @@ func TestFileControlJournalSerializesIndependentProcessesAndReopens(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(record.State.Candidates) != 2 || record.State.Epoch != 1 {
+	if len(record.State.Candidates) != 2 || record.State.Epoch != 2 {
 		t.Fatalf("reopened state = %#v", record.State)
 	}
 }

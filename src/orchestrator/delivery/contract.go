@@ -527,16 +527,15 @@ func validateSource(source *Source) {
 }
 
 func validateArtifact(artifact *Artifact) {
+	if strings.TrimSpace(artifact.Name) == "" || strings.TrimSpace(artifact.ManifestName) == "" {
+		fail("artifact_identity_incomplete", "artifact names are required.", "Provide the exact binary and manifest asset names.")
+	}
 	bounded(artifact.Name, maxText, "artifact_name_invalid", "artifact.name")
 	bounded(artifact.ManifestName, maxText, "artifact_manifest_name_invalid", "artifact.manifestName")
 	digestField(artifact.Digest, "artifact.digest")
-	if artifact.SignatureDigest != "" {
-		digestField(artifact.SignatureDigest, "artifact.signatureDigest")
-	}
+	digestField(artifact.SignatureDigest, "artifact.signatureDigest")
 	digestField(artifact.ManifestDigest, "artifact.manifestDigest")
-	if artifact.ManifestSignatureDigest != "" {
-		digestField(artifact.ManifestSignatureDigest, "artifact.manifestSignatureDigest")
-	}
+	digestField(artifact.ManifestSignatureDigest, "artifact.manifestSignatureDigest")
 	if artifact.Kind != "service" && artifact.Kind != "package" && artifact.Kind != "site" {
 		fail("artifact_kind_invalid", "artifact.kind is not supported.", "Use service, package, or site.")
 	}

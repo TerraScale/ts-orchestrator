@@ -533,12 +533,9 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 		if err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
-		members, membersOK := id.([]directory.RegionalRuntimeMember)
-		snapshot, snapshotOK := state.(controlStoreSnapshot)
-		hostFacts, factsOK := facts.([]hostagent.NodeStatusReport)
-		if !membersOK || !snapshotOK || !factsOK {
-			return ControlRuntimeEvidence{}, ErrControlRuntimeUnavailable
-		}
+		members := id
+		snapshot := *state
+		hostFacts := facts
 		identities = append(identities, id)
 		storage = append(storage, state)
 		health = append(health, facts)
@@ -678,10 +675,10 @@ type controlMirrorSnapshot struct {
 	EmptyStoreMetadataDigest       string `json:",omitempty"`
 }
 
-func (r *NATSControlRuntime) checkStore(ctx context.Context, check ControlStoreCheck) (any, any, any, error) {
+func (r *NATSControlRuntime) checkStore(ctx context.Context, check ControlStoreCheck) ([]directory.RegionalRuntimeMember, *controlStoreSnapshot, []hostagent.NodeStatusReport, error) {
 	return r.checkStoreMode(ctx, check, false)
 }
-func (r *NATSControlRuntime) checkStoreMode(ctx context.Context, check ControlStoreCheck, quorumOnly bool) (any, any, any, error) {
+func (r *NATSControlRuntime) checkStoreMode(ctx context.Context, check ControlStoreCheck, quorumOnly bool) ([]directory.RegionalRuntimeMember, *controlStoreSnapshot, []hostagent.NodeStatusReport, error) {
 	connection, err := openControlNATS(ctx, r.config.Stores[check.Store])
 	if err != nil {
 		return nil, nil, nil, err
@@ -757,7 +754,7 @@ func (r *NATSControlRuntime) checkStoreMode(ctx context.Context, check ControlSt
 	if json.Unmarshal(latest.Data, &finalLease) != nil || finalLease.Validate() != nil || finalLease.LeaseId != lease.LeaseId || finalLease.Epoch != lease.Epoch || finalLease.CandidateId != lease.CandidateId || finalLease.AuthorityId != lease.AuthorityId || !finalLease.IssuedAt.Add(time.Duration(finalLease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
 		return nil, nil, nil, ErrControlRuntimeUnavailable
 	}
-	return identities, snapshot, facts, nil
+	return identities, &snapshot, facts, nil
 }
 
 func readControlMember(ctx context.Context, js jetstream.JetStream, member ControlRuntimeMember) (directory.RegionalRuntimeMember, error) {

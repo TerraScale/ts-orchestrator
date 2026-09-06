@@ -36,6 +36,7 @@ type Config struct {
 type Client struct {
 	conn        *grpc.ClientConn
 	maintenance pb.MaintenanceServiceClient
+	lifecycle   pb.LifecycleControlServiceClient
 	scope       metadata.MD
 	principal   string
 	timeout     time.Duration
@@ -114,7 +115,108 @@ func newClient(config Config, databaseScope bool) (*Client, error) {
 		scope.Append("x-tb-project", config.Project)
 		scope.Append("x-tb-database", config.Database)
 	}
-	return &Client{conn: conn, maintenance: pb.NewMaintenanceServiceClient(conn), scope: scope, principal: principal, timeout: config.Timeout}, nil
+	return &Client{conn: conn, maintenance: pb.NewMaintenanceServiceClient(conn), lifecycle: pb.NewLifecycleControlServiceClient(conn), scope: scope, principal: principal, timeout: config.Timeout}, nil
+}
+
+// LifecycleAssignment is the complete accepted placement envelope supplied by
+// the GRU placement journal. The signature is forwarded unchanged to TBEP.
+type LifecycleAssignment struct {
+	Environment, Tenant, Project, Database, Region, Member string
+	PlacementRevision, AuthorityEpoch                      uint64
+	AuthorityLease                                         string
+	AuthoritySignature                                     []byte
+}
+
+func (c *Client) lifecycleRequest(a LifecycleAssignment, operation string) (*pb.LifecycleControlRequest, error) {
+	if c == nil || c.lifecycle == nil || !validMetadata(operation, 128) || a.AuthoritySignature == nil {
+		return nil, errors.New("TBEP lifecycle request is incomplete")
+	}
+	return &pb.LifecycleControlRequest{Context: &pb.LifecycleControlContext{
+		Environment: a.Environment, Tenant: a.Tenant, Project: a.Project, Database: a.Database,
+		Region: a.Region, Member: a.Member, PlacementRevision: a.PlacementRevision,
+		AuthorityEpoch: a.AuthorityEpoch, AuthorityLease: a.AuthorityLease,
+		AuthoritySignature: append([]byte(nil), a.AuthoritySignature...),
+	}, OperationId: operation}, nil
+}
+
+func (c *Client) lifecycleCall(ctx context.Context, request *pb.LifecycleControlRequest, call func(context.Context, *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error)) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	ctx = metadata.NewOutgoingContext(ctx, c.scope)
+	response, err := call(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response.GetOperationId() != request.GetOperationId() || response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED {
+		return fmt.Errorf("TBEP lifecycle operation %q was not applied: %s", request.GetOperationId(), response.GetDetail())
+	}
+	return nil
+}
+
+// EnsureSnapshot invokes the authenticated native snapshot operation.
+func (c *Client) EnsureSnapshot(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.EnsureSnapshot(ctx, req)
+	})
+}
+
+// VerifySnapshotPlacement verifies the accepted placement before snapshot visibility.
+func (c *Client) VerifySnapshotPlacement(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.VerifySnapshotPlacement(ctx, req)
+	})
+}
+
+// CloseDatabase closes serving while retaining the same database identity.
+func (c *Client) CloseDatabase(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.CloseDatabase(ctx, req)
+	})
+}
+
+// StopNativeBackup stops only the selected database backup stream.
+func (c *Client) StopNativeBackup(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.StopNativeBackup(ctx, req)
+	})
+}
+
+// Reactivate resumes the same retained database.
+func (c *Client) Reactivate(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.Reactivate(ctx, &pb.LifecycleReactivateRequest{Request: req})
+	})
+}
+
+// DeleteOwnedData deletes only data owned by this member after authority validation.
+func (c *Client) DeleteOwnedData(ctx context.Context, a LifecycleAssignment, operation string) error {
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return err
+	}
+	return c.lifecycleCall(ctx, r, func(ctx context.Context, req *pb.LifecycleControlRequest) (*pb.LifecycleControlResponse, error) {
+		return c.lifecycle.DeleteOwnedData(ctx, req)
+	})
 }
 
 func validMetadata(value string, limit int) bool {

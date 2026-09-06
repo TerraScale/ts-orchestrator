@@ -111,6 +111,14 @@ type ComputeGateway interface {
 	TerminateMember(ctx context.Context, instanceID string) error
 }
 
+// MemberRemovalOwner performs the durable removal choreography before OCI
+// termination. It owns the GRU intent CAS, TBEP drain/readiness receipts,
+// RF2/control quorum and retained-backup/headroom proofs. A compute gateway
+// alone is never sufficient authority to remove an admitted member.
+type MemberRemovalOwner interface {
+	RemoveMember(context.Context, string, ObservedMember, []ObservedMember) error
+}
+
 type LaunchMemberAction struct {
 	Region estate.Region
 	Spec   MemberLaunchSpec
@@ -526,7 +534,17 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 		if !sameObservedMember(member, expected) {
 			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
 		}
-		return r.Compute.TerminateMember(ctx, id)
+		owner, ok := r.Compute.(MemberRemovalOwner)
+		if !ok {
+			return &provider.InvalidOperationError{Message: "member termination requires a durable removal owner with placement drain/readiness proof"}
+		}
+		survivors := make([]ObservedMember, 0, len(current)-1)
+		for _, candidate := range current {
+			if candidate.ID != id && memberOwnedInRegion(candidate, region) {
+				survivors = append(survivors, candidate)
+			}
+		}
+		return owner.RemoveMember(ctx, region, member, survivors)
 	}
 	return nil // already terminated/absent
 }
