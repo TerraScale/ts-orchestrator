@@ -34,6 +34,19 @@ func (a *productionAutoscale) Reconcile(ctx context.Context) error {
 			if err := a.apply(plan.Region, plan.DesiredMembers); err != nil {
 				return err
 			}
+			continue
+		}
+		// Re-apply the durable target after restart (or takeover). The
+		// authority journal is the source of truth; a new pressure sample is
+		// not required to resume an already admitted capacity decision.
+		target, found, err := a.controller.Target(ctx, region)
+		if err != nil {
+			return err
+		}
+		if found {
+			if err := a.apply(target.Region, target.Members); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

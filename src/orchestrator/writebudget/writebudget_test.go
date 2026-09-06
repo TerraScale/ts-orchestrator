@@ -2,7 +2,9 @@ package writebudget
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -88,5 +90,55 @@ func TestEpochAndExpiryFenceRequest(t *testing.T) {
 	r = request("expired", "db", "main", 1, time.Now().Add(-time.Second))
 	if _, err := authority.Allocate(t.Context(), r); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("expiry error = %v", err)
+	}
+}
+
+func TestSplitAndCombinedReservationsHaveSameIntegerCharge(t *testing.T) {
+	combined, _ := testAuthority(t)
+	split, _ := testAuthority(t)
+	expires := time.Now().Add(time.Hour)
+	grant, err := combined.Allocate(t.Context(), request("combined", "db", "main", 4, expires))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := split.Allocate(t.Context(), request("split-a", "db", "main", 1, expires))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := split.Allocate(t.Context(), request("split-b", "db", "main", 3, expires))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.Units != first.Units+second.Units || grant.CostMinor != first.CostMinor+second.CostMinor {
+		t.Fatalf("combined=%+v split=%+v,%+v", grant, first, second)
+	}
+}
+
+func TestConcurrentReservationsCannotExceedAllowance(t *testing.T) {
+	authority, _ := testAuthority(t)
+	// Two regions and five logical units leave ten chargeable units available.
+	var wg sync.WaitGroup
+	results := make(chan error, 20)
+	for i := range 20 {
+		id := fmt.Sprintf("concurrent-%d", i)
+		wg.Go(func() {
+			_, err := authority.Allocate(t.Context(), request(id, "db", "main", 1, time.Now().Add(time.Hour)))
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	var success, exhausted int
+	for err := range results {
+		if err == nil {
+			success++
+		} else if errors.Is(err, ErrExhausted) {
+			exhausted++
+		} else {
+			t.Fatalf("reservation error = %v", err)
+		}
+	}
+	if success != 4 || exhausted != 16 { // database cap is eight chargeable units
+		t.Fatalf("success=%d exhausted=%d", success, exhausted)
 	}
 }

@@ -103,11 +103,11 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
 		Install:           databaseadmission.RemoteInstall(session.Connection),
 		ActivatePlacement: config.ActivatePlacement,
-		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementControlServiceStageRequest) error {
+		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
 			if err := validateDatabaseProposal(ctx, journal, host, operation, proposal); err != nil {
-				return err
+				return nil, err
 			}
-			return placement.Accept(ctx, host, operation, proposal)
+			return placement.AcceptReceipt(ctx, host, operation, proposal)
 		},
 	})
 	if err != nil {

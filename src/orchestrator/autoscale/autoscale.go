@@ -78,6 +78,20 @@ type Controller struct {
 	config Config
 }
 
+// Target returns the durable target for a Region. Production composition uses
+// this on every reconcile tick so a restarted worker replays an already
+// admitted target before waiting for a new observation or scale plan.
+func (c *Controller) Target(ctx context.Context, region string) (Target, bool, error) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	if c == nil || region == "" || region != strings.TrimSpace(region) {
+		return Target{}, false, errors.New("autoscale: invalid region")
+	}
+	if err := c.config.Authority.Check(ctx); err != nil {
+		return Target{}, false, err
+	}
+	return c.config.Targets.Load(ctx, region)
+}
+
 func New(config Config) (*Controller, error) {
 	if config.Source == nil || config.Targets == nil || config.Authority == nil || config.Now == nil {
 		return nil, errors.New("autoscale: incomplete configuration")

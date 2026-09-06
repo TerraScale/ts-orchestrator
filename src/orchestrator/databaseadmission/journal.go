@@ -171,6 +171,9 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			if target.Proposed && !record.PlacementTargets[i].Proposed {
 				return 0, ErrConflict
 			}
+			if len(target.Receipt) != 0 && (!slices.Equal(target.Receipt, record.PlacementTargets[i].Receipt) || target.Revision != record.PlacementTargets[i].Revision) {
+				return 0, ErrConflict
+			}
 		}
 	} else {
 		if expected != 0 {

@@ -607,7 +607,18 @@ func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
 	if target > region.Members.Count {
 		region.Members.Count = target
 	}
-	return ocireconcile.ComputeDeclared{Region: region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID}
+	candidates := make([]ocireconcile.MemberLaunchCandidate, 0, len(region.Members.Candidates))
+	for _, candidate := range region.Members.Candidates {
+		imageID := r.imageID
+		if candidate.Architecture == ocireconcile.MemberArchAMD64 {
+			imageID = r.fallbackImageID
+		}
+		candidates = append(candidates, ocireconcile.MemberLaunchCandidate{
+			Shape: candidate.Shape, ImageID: imageID, Architecture: candidate.Architecture,
+			QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef,
+		})
+	}
+	return ocireconcile.ComputeDeclared{Region: region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID, Candidates: candidates}
 }
 
 // setScaleOutTarget is the narrow handoff from the GRU-owned autoscale

@@ -20,11 +20,13 @@ type Config struct {
 	Journal       Journal
 	CatalogPath   string
 	// Authorize checks verified organization admission and the caller's project.
-	Authorize       func(context.Context, Request) error
-	CheckAuthority  func(context.Context) error
-	Plan            func(context.Context, Record) (Plan, error)
-	Install         func(context.Context, Record, Target, []keylease.Entry) error
-	AcceptPlacement func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) error
+	Authorize      func(context.Context, Request) error
+	CheckAuthority func(context.Context) error
+	Plan           func(context.Context, Record) (Plan, error)
+	Install        func(context.Context, Record, Target, []keylease.Entry) error
+	// AcceptPlacement returns the exact producer receipt after the fenced
+	// remote stage. The receipt is persisted before progress advances.
+	AcceptPlacement func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error)
 	// ActivatePlacement delivers a separately authorized accepted-membership
 	// proof. Success does not establish RF2 or caught-up serving readiness.
 	ActivatePlacement func(context.Context, Record) error
@@ -247,10 +249,20 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if proto.Unmarshal(target.Proposal, request) != nil {
 			return ErrInvalid
 		}
-		if err := p.config.AcceptPlacement(ctx, target.ServerIdentity, PlacementOperationID(r.Request), request); err != nil {
+		receipt, err := p.config.AcceptPlacement(ctx, target.ServerIdentity, PlacementOperationID(r.Request), request)
+		if err != nil {
 			return err
 		}
+		if receipt == nil || receipt.Revision == 0 {
+			return ErrInvalid
+		}
 		r.PlacementTargets[i].Proposed = true
+		encoded, marshalErr := proto.Marshal(receipt)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		r.PlacementTargets[i].Receipt = encoded
+		r.PlacementTargets[i].Revision = receipt.Revision
 		if err := p.save(ctx, &r); err != nil {
 			return err
 		}

@@ -62,6 +62,20 @@ func (placement *productionPlacement) Accept(ctx context.Context, serverIdentity
 	}
 	return publisher.Accept(ctx, operationID, request)
 }
+
+func (placement *productionPlacement) AcceptReceipt(ctx context.Context, serverIdentity, operationID string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+	publisher, ok := placement.publishers[serverIdentity]
+	if !ok {
+		return nil, errors.New("runtime placement: host is not admitted")
+	}
+	if err := placement.config.ValidateProposal(ctx, serverIdentity, request); err != nil {
+		return nil, err
+	}
+	if err := publisher.Accept(ctx, operationID, request); err != nil {
+		return nil, err
+	}
+	return publisher.Reconcile(ctx)
+}
 func (placement *productionPlacement) Reconcile(ctx context.Context) error {
 	for _, identity := range placement.config.Targets {
 		_, err := placement.publishers[identity.ServerIdentity].Reconcile(ctx)

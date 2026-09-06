@@ -44,7 +44,11 @@ type Target struct {
 type PlacementTarget struct {
 	ServerIdentity, MemberID, Region string
 	Proposal                         []byte
-	Proposed                         bool
+	// Receipt is the exact fenced producer acknowledgement for Proposal. It is
+	// populated only after the remote stage has been acknowledged.
+	Receipt  []byte
+	Revision uint64
+	Proposed bool
 }
 type Plan struct {
 	Members    []Target
@@ -243,9 +247,13 @@ func ImmutableEqual(a, b Record) bool {
 	b.PlacementTargets = slices.Clone(b.PlacementTargets)
 	for i := range a.PlacementTargets {
 		a.PlacementTargets[i].Proposed = false
+		a.PlacementTargets[i].Receipt = nil
+		a.PlacementTargets[i].Revision = 0
 	}
 	for i := range b.PlacementTargets {
 		b.PlacementTargets[i].Proposed = false
+		b.PlacementTargets[i].Receipt = nil
+		b.PlacementTargets[i].Revision = 0
 	}
 	return reflect.DeepEqual(a, b)
 }

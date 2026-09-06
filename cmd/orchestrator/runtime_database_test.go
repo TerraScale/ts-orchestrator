@@ -155,7 +155,9 @@ func TestDatabaseReconcileRetriesTransportButStopsFencedOrCorrupt(t *testing.T) 
 				Install: func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
 					return nil
 				},
-				AcceptPlacement: func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) error { return nil },
+				AcceptPlacement: func(_ context.Context, _ string, _ string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
+					return &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
+				},
 			})
 			if err != nil {
 				t.Fatal(err)

@@ -5,10 +5,14 @@ package writebudget
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"sync"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 var (
@@ -30,7 +34,11 @@ type Policy struct {
 	Units          int64
 	CostMinor      int64
 	UnitCostMinor  int64
-	DatabaseCaps   map[string]int64
+	// RateNanoDollar is the exact rate per write. When set, it is authoritative
+	// and avoids fractional-cent rounding at grant boundaries.
+	AllowanceNanoDollar int64
+	RateNanoDollar      int64
+	DatabaseCaps        map[string]int64
 }
 
 // Request reserves Units logical writes for one holder across Regions. Region
@@ -61,6 +69,7 @@ type Grant struct {
 	Regions        []string  `json:"regions"`
 	Units          int64     `json:"units"`
 	CostMinor      int64     `json:"cost_minor"`
+	CostNanoDollar int64     `json:"cost_nano_dollar"`
 	PolicyEpoch    uint64    `json:"policy_epoch"`
 	ConsentEpoch   uint64    `json:"consent_epoch"`
 	IssuedAt       time.Time `json:"issued_at"`
@@ -69,21 +78,57 @@ type Grant struct {
 	Fenced         bool      `json:"fenced,omitzero"`
 }
 
+// AllocationEnvelope is the signed regional delivery document. Placement and
+// billing identity are inside the signed bytes, so a writer cannot retarget or
+// enlarge a grant by editing transport metadata.
+type AllocationEnvelope struct {
+	SchemaVersion  int    `json:"schema_version"`
+	Grant          Grant  `json:"grant"`
+	CycleID        string `json:"cycle_id"`
+	RateNanoDollar int64  `json:"rate_nano_dollar"`
+	Placement      string `json:"placement"`
+}
+
+type SignedAllocation struct {
+	Payload   []byte `json:"payload"`
+	Signature []byte `json:"signature"`
+	KeyID     string `json:"key_id"`
+}
+
+const allocationSigningDomain = "terrascale.write-budget.allocation.v1\x00"
+
+func SignAllocation(signer *security.CommandSignatureSigner, grant Grant, cycleID string, rateNanoDollar int64, placement string) (SignedAllocation, error) {
+	if signer == nil || cycleID == "" || placement == "" || rateNanoDollar < 0 || grant.OperationID == "" || grant.Revoked || grant.Fenced {
+		return SignedAllocation{}, ErrInvalid
+	}
+	envelope := AllocationEnvelope{SchemaVersion: 1, Grant: grant, CycleID: cycleID, RateNanoDollar: rateNanoDollar, Placement: placement}
+	payload, err := json.Marshal(envelope)
+	if err != nil || len(payload) > 64<<10 {
+		return SignedAllocation{}, ErrInvalid
+	}
+	signature, err := signer.SignCanonicalMaterial(append([]byte(allocationSigningDomain), payload...))
+	if err != nil {
+		return SignedAllocation{}, ErrUnavailable
+	}
+	return SignedAllocation{Payload: payload, Signature: signature.Bytes(), KeyID: signer.PublicKeyID()}, nil
+}
+
 // State is the authorityjournal payload. UsedUnits and UsedCostMinor include
 // every live or unreconciled grant, while DatabaseUnits aggregates all
 // branches belonging to a database.
 type State struct {
-	CycleID       string           `json:"cycle_id"`
-	PolicyEpoch   uint64           `json:"policy_epoch"`
-	ConsentEpoch  uint64           `json:"consent_epoch"`
-	UsedUnits     int64            `json:"used_units"`
-	UsedCostMinor int64            `json:"used_cost_minor"`
-	DatabaseUnits map[string]int64 `json:"database_units"`
-	Grants        map[string]Grant `json:"grants"`
+	CycleID        string           `json:"cycle_id"`
+	PolicyEpoch    uint64           `json:"policy_epoch"`
+	ConsentEpoch   uint64           `json:"consent_epoch"`
+	UsedUnits      int64            `json:"used_units"`
+	UsedCostMinor  int64            `json:"used_cost_minor"`
+	UsedNanoDollar int64            `json:"used_nano_dollar"`
+	DatabaseUnits  map[string]int64 `json:"database_units"`
+	Grants         map[string]Grant `json:"grants"`
 }
 
 type Persister interface {
-	Transact(context.Context, bool, func(*State) error) error
+	TransactRevision(context.Context, bool, func(*State, uint64) error) error
 }
 
 // Authority performs bounded allocation against a fenced journal.
@@ -97,6 +142,9 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 	if persist == nil || policy.OrganizationID == "" || policy.CycleID == "" || policy.PolicyEpoch == 0 || policy.ConsentEpoch == 0 || policy.Units <= 0 || policy.CostMinor < 0 || policy.UnitCostMinor < 0 {
 		return nil, ErrInvalid
 	}
+	if policy.RateNanoDollar < 0 || policy.AllowanceNanoDollar < 0 || policy.RateNanoDollar > 0 && policy.AllowanceNanoDollar == 0 {
+		return nil, ErrInvalid
+	}
 	for database, cap := range policy.DatabaseCaps {
 		if database == "" || cap <= 0 {
 			return nil, ErrInvalid
@@ -105,9 +153,16 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 	return &Authority{persist: persist, policy: policy, now: time.Now}, nil
 }
 
+// NewJournalAuthority makes the production persistence boundary explicit. The
+// supplied journal must have been constructed from the current GRU lease;
+// every mutation then uses TransactRevision's exact live-lease fence and CAS.
+func NewJournalAuthority(journal *authorityjournal.Journal[State], policy Policy) (*Authority, error) {
+	return New(journal, policy)
+}
+
 func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error) {
 	var result Grant
-	err := a.persist.Transact(ctx, true, func(state *State) error {
+	err := a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
 		if err := a.validateState(state); err != nil {
 			return err
 		}
@@ -129,6 +184,10 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !ok {
 			return ErrInvalid
 		}
+		nanoCost, ok := multiply(units, a.policy.RateNanoDollar)
+		if a.policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > a.policy.AllowanceNanoDollar-nanoCost) {
+			return ErrExhausted
+		}
 		if state.UsedUnits > a.policy.Units-units || state.UsedCostMinor > a.policy.CostMinor-cost {
 			return ErrExhausted
 		}
@@ -136,11 +195,12 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if capped && state.DatabaseUnits[request.DatabaseID] > cap-units {
 			return ErrExhausted
 		}
-		grant := Grant{OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		grant := Grant{OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
 		state.UsedCostMinor += cost
+		state.UsedNanoDollar += nanoCost
 		state.DatabaseUnits[grant.DatabaseID] += units
 		result = grant
 		return nil
@@ -153,7 +213,7 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 // and discoverable through Lookup.
 func (a *Authority) Revoke(ctx context.Context, operationID string) error {
 	pending := false
-	err := a.persist.Transact(ctx, true, func(state *State) error {
+	err := a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
 		if err := a.validateState(state); err != nil {
 			return err
 		}
@@ -184,7 +244,7 @@ func (a *Authority) Revoke(ctx context.Context, operationID string) error {
 }
 
 func (a *Authority) Fence(ctx context.Context, operationID string) error {
-	return a.persist.Transact(ctx, true, func(state *State) error {
+	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
 		if err := a.validateState(state); err != nil {
 			return err
 		}
@@ -202,7 +262,7 @@ func (a *Authority) Fence(ctx context.Context, operationID string) error {
 func (a *Authority) Lookup(ctx context.Context, operationID string) (Grant, bool, error) {
 	var result Grant
 	var found bool
-	err := a.persist.Transact(ctx, false, func(state *State) error {
+	err := a.persist.TransactRevision(ctx, false, func(state *State, _ uint64) error {
 		if err := a.validateState(state); err != nil {
 			return err
 		}
@@ -225,10 +285,10 @@ func (a *Authority) validateState(state *State) error {
 	if state.CycleID == "" {
 		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = a.policy.CycleID, a.policy.PolicyEpoch, a.policy.ConsentEpoch
 	}
-	if state.CycleID != a.policy.CycleID || state.PolicyEpoch != a.policy.PolicyEpoch || state.ConsentEpoch != a.policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedCostMinor < 0 {
+	if state.CycleID != a.policy.CycleID || state.PolicyEpoch != a.policy.PolicyEpoch || state.ConsentEpoch != a.policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedCostMinor < 0 || state.UsedNanoDollar < 0 {
 		return ErrInvalid
 	}
-	var units, cost int64
+	var units, cost, nanoCost int64
 	databaseUnits := make(map[string]int64, len(state.DatabaseUnits))
 	for operationID, grant := range state.Grants {
 		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != a.policy.OrganizationID || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.PolicyEpoch != a.policy.PolicyEpoch || grant.ConsentEpoch != a.policy.ConsentEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
@@ -242,6 +302,10 @@ func (a *Authority) validateState(state *State) error {
 		if !ok || expectedCost != grant.CostMinor {
 			return ErrInvalid
 		}
+		expectedNano, ok := multiply(grant.Units, a.policy.RateNanoDollar)
+		if !ok || expectedNano != grant.CostNanoDollar {
+			return ErrInvalid
+		}
 		units, ok = add(units, grant.Units)
 		if !ok {
 			return ErrInvalid
@@ -250,12 +314,16 @@ func (a *Authority) validateState(state *State) error {
 		if !ok {
 			return ErrInvalid
 		}
+		nanoCost, ok = add(nanoCost, grant.CostNanoDollar)
+		if !ok {
+			return ErrInvalid
+		}
 		databaseUnits[grant.DatabaseID], ok = add(databaseUnits[grant.DatabaseID], grant.Units)
 		if !ok {
 			return ErrInvalid
 		}
 	}
-	if units != state.UsedUnits || cost != state.UsedCostMinor || len(databaseUnits) != len(state.DatabaseUnits) {
+	if units != state.UsedUnits || cost != state.UsedCostMinor || nanoCost != state.UsedNanoDollar || len(databaseUnits) != len(state.DatabaseUnits) {
 		return ErrInvalid
 	}
 	for database, used := range databaseUnits {
@@ -313,7 +381,7 @@ type MemoryPersister struct {
 }
 
 func NewMemoryPersister() *MemoryPersister { return &MemoryPersister{} }
-func (p *MemoryPersister) Transact(ctx context.Context, write bool, change func(*State) error) error {
+func (p *MemoryPersister) TransactRevision(ctx context.Context, write bool, change func(*State, uint64) error) error {
 	if ctx == nil || change == nil {
 		return ErrInvalid
 	}
@@ -322,7 +390,7 @@ func (p *MemoryPersister) Transact(ctx context.Context, write bool, change func(
 	}
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	if err := change(&p.state); err != nil {
+	if err := change(&p.state, 1); err != nil {
 		return err
 	}
 	return nil
