@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -51,6 +52,10 @@ func allocatePlacementStreams(state *journalState, record Record, proofDigest st
 		return ErrConflict
 	}
 	if len(proposal.Assignments) == 0 && len(declarations) == 0 {
+		// Only the synthetic empty-cluster bootstrap has no owned database.
+		if record.DatabaseID != "" || len(record.Targets) != 0 {
+			return ErrConflict
+		}
 		return nil
 	}
 	if len(proposal.Assignments) == 0 || len(declarations) == 0 {
@@ -70,7 +75,8 @@ func allocatePlacementStreams(state *journalState, record Record, proofDigest st
 		key := allocationScope(assignment.Tenant, assignment.Project, assignment.Database)
 		assignments[key] = append(assignments[key], assignment.Region)
 	}
-	for key, regions := range assignments {
+	for _, key := range slices.Sorted(maps.Keys(assignments)) {
+		regions := assignments[key]
 		slices.Sort(regions)
 		if len(regions) == 0 || len(slices.Compact(slices.Clone(regions))) != len(regions) {
 			return ErrConflict

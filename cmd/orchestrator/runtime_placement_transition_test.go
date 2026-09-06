@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -230,5 +231,55 @@ func TestTransitionConfigRejectsPublicPrivateKeyAndUnsignedGrant(t *testing.T) {
 	f.GenesisGrants = map[string]placementtransition.Signed{"op": {KeyID: "genesis", Payload: []byte("{}")}}
 	if _, err := f.load(); err == nil {
 		t.Fatal("unsigned genesis accepted")
+	}
+}
+
+func TestTransitionAllocatesCommittedStreamsBeforeUsageDelivery(t *testing.T) {
+	record, pending := transitionFixture(t)
+	record.CreatedAt = time.Now().UTC().Add(-time.Second)
+	durable := record
+	durable.State = "accepted"
+	durable.Targets = append([]databaseadmission.Target(nil), record.Targets...)
+	durable.PlacementTargets = append([]databaseadmission.PlacementTarget(nil), record.PlacementTargets...)
+	for i := range durable.Targets {
+		durable.Targets[i].Installed = false
+	}
+	for i := range durable.PlacementTargets {
+		durable.PlacementTargets[i].Proposed = false
+	}
+	journal := databaseadmission.NewMemoryJournal()
+	if _, err := journal.Save(t.Context(), databaseadmission.ScopeKey(durable.Request), 0, durable); err != nil {
+		t.Fatal(err)
+	}
+	delivered := 0
+	worker := &productionPlacementTransition{
+		issuer: &runtimeTestIssuer{}, pending: pending, check: func(context.Context) error { return nil },
+		config: productionPlacementTransitionConfig{
+			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
+			Deliver:       func(context.Context, string, string, uint64, placementtransition.Signed) error { return nil },
+		},
+		allocateStreams: func(ctx context.Context, r databaseadmission.Record, digest string) error {
+			return journal.AllocatePlacementStreams(ctx, r, digest, time.Now())
+		},
+		registerUsage: func(ctx context.Context, r databaseadmission.Record, digest string) error {
+			return deliverDatabaseUsage(ctx, journal, func(context.Context) error { return nil }, func(_ context.Context, target databaseadmission.Target, registration databaseadmission.UsageRegistration) error {
+				_, resources, err := journal.LifecycleResources(ctx)
+				if err != nil || len(resources) != 1 || len(resources[0].Streams) != 1 {
+					t.Fatalf("missing committed streams: %v", err)
+				}
+				stream := resources[0].Streams[0]
+				if registration.Partition != stream.Partition || registration.StreamEpoch != stream.Epoch || registration.MemberID != target.MemberID {
+					t.Fatal("usage differs from committed stream")
+				}
+				delivered++
+				return nil
+			}, r, digest)
+		},
+	}
+	if err := worker.Activate(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+	if delivered != len(record.PlacementTargets) {
+		t.Fatalf("delivered %d registrations", delivered)
 	}
 }

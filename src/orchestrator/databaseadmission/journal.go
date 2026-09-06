@@ -206,9 +206,14 @@ func validateReservedCapacity(state journalState) error {
 	reserved := state
 	reserved.Records = make(map[string]Record, len(state.Records))
 	for key, record := range state.Records {
-		record.Wrapped = nil
+		// Persisted wrapped entries are immutable. Reserve their actual size;
+		// only unfinished key purposes can still grow to the maximum.
+		record.Wrapped = slices.Clone(record.Wrapped)
 		for _, purpose := range databaseKeyPurposes {
 			for _, p := range purposeTargets(record, purpose) {
+				if slices.ContainsFunc(record.Wrapped, func(entry keylease.Entry) bool { return entry.Binding == p.Binding }) {
+					continue
+				}
 				record.Wrapped = append(record.Wrapped, keylease.Entry{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: strings.Repeat("\x00", 8192), LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter})
 			}
 		}
