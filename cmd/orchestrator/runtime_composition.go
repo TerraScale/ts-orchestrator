@@ -273,6 +273,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	transition.allocateStreams = func(ctx context.Context, record databaseadmission.Record, digest string) error {
+		return database.lifecycleJournal.AllocatePlacementStreams(ctx, record, digest, time.Now())
+	}
 	transition.registerUsage = func(ctx context.Context, record databaseadmission.Record, digest string) error {
 		return deliverDatabaseUsage(ctx, database.lifecycleJournal, session.CheckEffectAuthority, databaseadmission.RemoteUsageRegistration(session.Connection), record, digest)
 	}

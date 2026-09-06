@@ -116,6 +116,7 @@ type productionPlacementTransition struct {
 	check               func(context.Context) error
 	bootstrapPublishers map[string]*placementpublisher.Publisher
 	completion          func(context.Context, string, string, bool) error
+	allocateStreams     func(context.Context, databaseadmission.Record, string) error
 	registerUsage       func(context.Context, databaseadmission.Record, string) error
 }
 
@@ -292,7 +293,7 @@ func (t *productionPlacementTransition) Activate(ctx context.Context, record dat
 	return t.activate(ctx, record, "")
 }
 func (t *productionPlacementTransition) activate(ctx context.Context, record databaseadmission.Record, operationOverride string) error {
-	if t == nil || t.issuer == nil || t.pending == nil || t.check == nil || t.registerUsage == nil {
+	if t == nil || t.issuer == nil || t.pending == nil || t.check == nil || t.allocateStreams == nil || t.registerUsage == nil {
 		return placementtransition.ErrInvalid
 	}
 	if err := t.check(ctx); err != nil {
@@ -384,6 +385,15 @@ deliver:
 	}
 	sum := sha256.Sum256(signed.Payload)
 	digest := hex.EncodeToString(sum[:])
+	if err := t.check(ctx); err != nil {
+		return err
+	}
+	if err := t.allocateStreams(ctx, record, digest); err != nil {
+		return err
+	}
+	if err := t.check(ctx); err != nil {
+		return err
+	}
 	if err := t.registerUsage(ctx, record, digest); err != nil {
 		return err
 	}

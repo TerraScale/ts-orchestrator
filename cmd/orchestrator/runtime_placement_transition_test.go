@@ -72,7 +72,7 @@ func (i *runtimeTestIssuer) Issue(_ context.Context, r placementtransition.Reque
 func TestTransitionUsageFailureBlocksCompletionAndRetriesSameProof(t *testing.T) {
 	record, pending := transitionFixture(t)
 	issuer := &runtimeTestIssuer{}
-	accepted, registered, completed := 0, 0, 0
+	accepted, allocated, registered, completed := 0, 0, 0, 0
 	var firstDigest string
 	worker := &productionPlacementTransition{
 		issuer: issuer, pending: pending, check: func(context.Context) error { return nil },
@@ -83,9 +83,16 @@ func TestTransitionUsageFailureBlocksCompletionAndRetriesSameProof(t *testing.T)
 				return nil
 			},
 		},
+		allocateStreams: func(_ context.Context, got databaseadmission.Record, digest string) error {
+			allocated++
+			if accepted != allocated*len(record.PlacementTargets) || got.DatabaseID != record.DatabaseID || len(digest) != 64 {
+				t.Fatal("streams allocated before placement acceptance or with wrong scope")
+			}
+			return nil
+		},
 		registerUsage: func(_ context.Context, got databaseadmission.Record, digest string) error {
 			registered++
-			if accepted != registered*len(record.PlacementTargets) || got.DatabaseID != record.DatabaseID || len(digest) != 64 {
+			if allocated != registered || accepted != registered*len(record.PlacementTargets) || got.DatabaseID != record.DatabaseID || len(digest) != 64 {
 				t.Fatal("usage delivered before all accepted placements or with wrong identity")
 			}
 			if registered == 1 {
@@ -117,11 +124,49 @@ func TestTransitionUsageFailureBlocksCompletionAndRetriesSameProof(t *testing.T)
 	}
 }
 
+func TestTransitionAllocationFailureBlocksUsageAndCompletion(t *testing.T) {
+	record, pending := transitionFixture(t)
+	failure := errors.New("allocation did not commit")
+	accepted, attempts, registered := 0, 0, 0
+	issuer := &runtimeTestIssuer{}
+	worker := &productionPlacementTransition{
+		issuer: issuer, pending: pending, check: func(context.Context) error { return nil },
+		config: productionPlacementTransitionConfig{
+			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
+			Deliver: func(context.Context, string, string, uint64, placementtransition.Signed) error {
+				accepted++
+				return nil
+			},
+		},
+		allocateStreams: func(context.Context, databaseadmission.Record, string) error {
+			attempts++
+			if accepted != attempts*len(record.PlacementTargets) {
+				t.Fatal("allocation before acceptance")
+			}
+			return failure
+		},
+		registerUsage: func(context.Context, databaseadmission.Record, string) error { registered++; return nil },
+		completion:    func(context.Context, string, string, bool) error { t.Fatal("completed failed allocation"); return nil },
+	}
+	for range 2 {
+		if err := worker.Activate(t.Context(), record); !errors.Is(err, failure) {
+			t.Fatal(err)
+		}
+	}
+	if registered != 0 || issuer.issued != 1 {
+		t.Fatal("allocation failure leaked usage or replaced proof")
+	}
+	worker.allocateStreams = nil
+	if err := worker.Activate(t.Context(), record); err == nil {
+		t.Fatal("missing allocator accepted")
+	}
+}
+
 func TestTransitionWorkerExplicitGenesisAndDeliveryRetry(t *testing.T) {
 	record, pending := transitionFixture(t)
 	issuer := &runtimeTestIssuer{}
 	delivered := 0
-	worker := &productionPlacementTransition{registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, _ placementtransition.Signed) error {
+	worker := &productionPlacementTransition{allocateStreams: func(context.Context, databaseadmission.Record, string) error { return nil }, registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: issuer, pending: pending, check: func(context.Context) error { return nil }, config: productionPlacementTransitionConfig{GenesisGrants: map[string]placementtransition.Signed{}, Deliver: func(_ context.Context, _, _ string, revision uint64, _ placementtransition.Signed) error {
 		if revision != 1 {
 			t.Fatal("wrong Stage revision")
 		}

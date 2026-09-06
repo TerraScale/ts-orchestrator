@@ -61,7 +61,7 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	config := &productionPlacementBootstrap{OperationID: "cluster-genesis", Environment: record.Request.Environment}
 	staged := 0
 	journal := bootstrapTestJournal{databasePlacementJournal{}}
-	worker := &productionPlacementTransition{registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: &runtimeTestIssuer{}, pending: journal, check: func(context.Context) error { return nil }, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
+	worker := &productionPlacementTransition{allocateStreams: func(context.Context, databaseadmission.Record, string) error { return nil }, registerUsage: func(context.Context, databaseadmission.Record, string) error { return nil }, issuer: &runtimeTestIssuer{}, pending: journal, check: func(context.Context) error { return nil }, bootstrapPublishers: map[string]*placementpublisher.Publisher{}}
 	for n := range record.PlacementTargets {
 		target := &record.PlacementTargets[n]
 		request := new(pb.PlacementStageRequest)
