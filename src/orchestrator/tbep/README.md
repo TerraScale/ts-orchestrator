@@ -23,12 +23,14 @@ handwritten wire subset.
 
 ## Contract provenance and generation
 
-`CONTRACT_VERSION` pins an exact producer worktree snapshot. This is **not a
-published contract release**. The producer checkout was
-`../terrabase` at HEAD `b131af2ee2cc3bb670167d9ab06b44d422087d61`. The
-complete engine asset was copied from that producer crate; the generated
+`CONTRACT_VERSION` pins the exact producer contract content. This is **not a
+published contract release**. The producer contract source is
+`../terrabase` at immutable commit
+`f6964dbc348f6411304037254fc2a717c4b9870a`. The complete engine asset was
+copied from that producer crate; the generated
 `contracts/proto/terrabase/v1/` mirror agrees. The complete family asset remains
-unchanged. These are worktree pins, not an immutable published release.
+unchanged. The commit and content digests below are the single provenance pin;
+other producer working-tree changes are outside this contract.
 
 | Asset | SHA256 |
 | --- | --- |
