@@ -115,15 +115,11 @@ producer's committed PEM decoder fix reached the missing durable membership
 source after catalog and transport construction. It did not become ready.
 Production and full VM acceptance remain open.
 
-The current producer still has two integration gaps for heterogeneous
-residency. It renders only host-local storage declarations, so a host does not
-yet carry disabled control-only declarations for databases selected in another
-Region. The Rust placement boundary consequently cannot yet validate the full
-global database scope from every host. A host with no selected local database
-also has no valid observer database binding today. The eventual control-only
-contract must preserve the complete selected Region set while marking local
-storage disabled, and must allow an explicitly empty observer binding for a
-pending host without fabricating storage.
+Heterogeneous residency uses explicit control-only declarations. Every host
+receives every database declaration with the complete selected Region set;
+local declarations are enabled and other declarations are disabled. A host
+with no selected local database may use an empty observer binding while it is
+pending. Dynamic remote declaration and admission remain separate work.
 
 ### Host placement control material
 

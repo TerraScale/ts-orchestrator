@@ -6238,7 +6238,7 @@ type PlacementProposal struct {
 	Generation    uint64                         `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`  // Positive; replacement strictly increases this and epoch.
 	Epoch         uint64                         `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	Regions       []*PlacementRegionSeats        `protobuf:"bytes,5,rep,name=regions,proto3" json:"regions,omitempty"`         // 1..3; disjoint Member identities.
-	Assignments   []*PlacementDatabaseAssignment `protobuf:"bytes,6,rep,name=assignments,proto3" json:"assignments,omitempty"` // 1..1024; unique scope/Region.
+	Assignments   []*PlacementDatabaseAssignment `protobuf:"bytes,6,rep,name=assignments,proto3" json:"assignments,omitempty"` // 0..1024; unique scope/Region.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6315,17 +6315,88 @@ func (x *PlacementProposal) GetAssignments() []*PlacementDatabaseAssignment {
 	return nil
 }
 
+// Immutable database residency supplied by authenticated provisioning authority.
+// This declares control metadata only; it grants no local storage or writer seat.
+type PlacementDatabaseDeclaration struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Tenant          string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	Project         string                 `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	Database        string                 `protobuf:"bytes,3,opt,name=database,proto3" json:"database,omitempty"`
+	SelectedRegions []string               `protobuf:"bytes,4,rep,name=selected_regions,json=selectedRegions,proto3" json:"selected_regions,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PlacementDatabaseDeclaration) Reset() {
+	*x = PlacementDatabaseDeclaration{}
+	mi := &file_terrabase_v1_engine_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlacementDatabaseDeclaration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlacementDatabaseDeclaration) ProtoMessage() {}
+
+func (x *PlacementDatabaseDeclaration) ProtoReflect() protoreflect.Message {
+	mi := &file_terrabase_v1_engine_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlacementDatabaseDeclaration.ProtoReflect.Descriptor instead.
+func (*PlacementDatabaseDeclaration) Descriptor() ([]byte, []int) {
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *PlacementDatabaseDeclaration) GetTenant() string {
+	if x != nil {
+		return x.Tenant
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseDeclaration) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseDeclaration) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *PlacementDatabaseDeclaration) GetSelectedRegions() []string {
+	if x != nil {
+		return x.SelectedRegions
+	}
+	return nil
+}
+
 type PlacementStageRequest struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ExpectedRevision uint64                 `protobuf:"varint,1,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"` // Local journal CAS revision, zero before first Stage.
-	Proposal         *PlacementProposal     `protobuf:"bytes,2,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	state            protoimpl.MessageState          `protogen:"open.v1"`
+	ExpectedRevision uint64                          `protobuf:"varint,1,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"` // Local journal CAS revision, zero before first Stage.
+	Proposal         *PlacementProposal              `protobuf:"bytes,2,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	Declarations     []*PlacementDatabaseDeclaration `protobuf:"bytes,3,rep,name=declarations,proto3" json:"declarations,omitempty"` // Exact provisioning scope/residency; committed with proposal CAS.
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PlacementStageRequest) Reset() {
 	*x = PlacementStageRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[76]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6337,7 +6408,7 @@ func (x *PlacementStageRequest) String() string {
 func (*PlacementStageRequest) ProtoMessage() {}
 
 func (x *PlacementStageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[76]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6350,7 +6421,7 @@ func (x *PlacementStageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementStageRequest.ProtoReflect.Descriptor instead.
 func (*PlacementStageRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{76}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *PlacementStageRequest) GetExpectedRevision() uint64 {
@@ -6367,6 +6438,13 @@ func (x *PlacementStageRequest) GetProposal() *PlacementProposal {
 	return nil
 }
 
+func (x *PlacementStageRequest) GetDeclarations() []*PlacementDatabaseDeclaration {
+	if x != nil {
+		return x.Declarations
+	}
+	return nil
+}
+
 type PlacementGetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -6375,7 +6453,7 @@ type PlacementGetRequest struct {
 
 func (x *PlacementGetRequest) Reset() {
 	*x = PlacementGetRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[77]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6387,7 +6465,7 @@ func (x *PlacementGetRequest) String() string {
 func (*PlacementGetRequest) ProtoMessage() {}
 
 func (x *PlacementGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[77]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6400,7 +6478,7 @@ func (x *PlacementGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementGetRequest.ProtoReflect.Descriptor instead.
 func (*PlacementGetRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{77}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{78}
 }
 
 type PlacementProposalResponse struct {
@@ -6414,7 +6492,7 @@ type PlacementProposalResponse struct {
 
 func (x *PlacementProposalResponse) Reset() {
 	*x = PlacementProposalResponse{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[78]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6426,7 +6504,7 @@ func (x *PlacementProposalResponse) String() string {
 func (*PlacementProposalResponse) ProtoMessage() {}
 
 func (x *PlacementProposalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[78]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6439,7 +6517,7 @@ func (x *PlacementProposalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementProposalResponse.ProtoReflect.Descriptor instead.
 func (*PlacementProposalResponse) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{78}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *PlacementProposalResponse) GetRevision() uint64 {
@@ -6471,7 +6549,7 @@ type AuthStorageIdentityRequest struct {
 
 func (x *AuthStorageIdentityRequest) Reset() {
 	*x = AuthStorageIdentityRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[79]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6483,7 +6561,7 @@ func (x *AuthStorageIdentityRequest) String() string {
 func (*AuthStorageIdentityRequest) ProtoMessage() {}
 
 func (x *AuthStorageIdentityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[79]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6496,7 +6574,7 @@ func (x *AuthStorageIdentityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthStorageIdentityRequest.ProtoReflect.Descriptor instead.
 func (*AuthStorageIdentityRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{79}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{80}
 }
 
 type AuthStorageIdentity struct {
@@ -6512,7 +6590,7 @@ type AuthStorageIdentity struct {
 
 func (x *AuthStorageIdentity) Reset() {
 	*x = AuthStorageIdentity{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[80]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6524,7 +6602,7 @@ func (x *AuthStorageIdentity) String() string {
 func (*AuthStorageIdentity) ProtoMessage() {}
 
 func (x *AuthStorageIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[80]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6537,7 +6615,7 @@ func (x *AuthStorageIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthStorageIdentity.ProtoReflect.Descriptor instead.
 func (*AuthStorageIdentity) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{80}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *AuthStorageIdentity) GetEnvironment() string {
@@ -6581,7 +6659,7 @@ type AuthGroupVoter struct {
 
 func (x *AuthGroupVoter) Reset() {
 	*x = AuthGroupVoter{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[81]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6593,7 +6671,7 @@ func (x *AuthGroupVoter) String() string {
 func (*AuthGroupVoter) ProtoMessage() {}
 
 func (x *AuthGroupVoter) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[81]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6606,7 +6684,7 @@ func (x *AuthGroupVoter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthGroupVoter.ProtoReflect.Descriptor instead.
 func (*AuthGroupVoter) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{81}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *AuthGroupVoter) GetNodeId() uint64 {
@@ -6663,7 +6741,7 @@ type AuthGroupBootstrapGrant struct {
 
 func (x *AuthGroupBootstrapGrant) Reset() {
 	*x = AuthGroupBootstrapGrant{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[82]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6675,7 +6753,7 @@ func (x *AuthGroupBootstrapGrant) String() string {
 func (*AuthGroupBootstrapGrant) ProtoMessage() {}
 
 func (x *AuthGroupBootstrapGrant) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[82]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6688,7 +6766,7 @@ func (x *AuthGroupBootstrapGrant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthGroupBootstrapGrant.ProtoReflect.Descriptor instead.
 func (*AuthGroupBootstrapGrant) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{82}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *AuthGroupBootstrapGrant) GetEnvironment() string {
@@ -6778,7 +6856,7 @@ type AuthGroupBootstrapRequest struct {
 
 func (x *AuthGroupBootstrapRequest) Reset() {
 	*x = AuthGroupBootstrapRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[83]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6790,7 +6868,7 @@ func (x *AuthGroupBootstrapRequest) String() string {
 func (*AuthGroupBootstrapRequest) ProtoMessage() {}
 
 func (x *AuthGroupBootstrapRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[83]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6803,7 +6881,7 @@ func (x *AuthGroupBootstrapRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthGroupBootstrapRequest.ProtoReflect.Descriptor instead.
 func (*AuthGroupBootstrapRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{83}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *AuthGroupBootstrapRequest) GetOperationId() string {
@@ -6835,7 +6913,7 @@ type AuthGroupBootstrapReceipt struct {
 
 func (x *AuthGroupBootstrapReceipt) Reset() {
 	*x = AuthGroupBootstrapReceipt{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[84]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6847,7 +6925,7 @@ func (x *AuthGroupBootstrapReceipt) String() string {
 func (*AuthGroupBootstrapReceipt) ProtoMessage() {}
 
 func (x *AuthGroupBootstrapReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[84]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6860,7 +6938,7 @@ func (x *AuthGroupBootstrapReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthGroupBootstrapReceipt.ProtoReflect.Descriptor instead.
 func (*AuthGroupBootstrapReceipt) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{84}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *AuthGroupBootstrapReceipt) GetGroupId() string {
@@ -6923,7 +7001,7 @@ type PlacementAcceptRequest struct {
 
 func (x *PlacementAcceptRequest) Reset() {
 	*x = PlacementAcceptRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[85]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6935,7 +7013,7 @@ func (x *PlacementAcceptRequest) String() string {
 func (*PlacementAcceptRequest) ProtoMessage() {}
 
 func (x *PlacementAcceptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[85]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6948,7 +7026,7 @@ func (x *PlacementAcceptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementAcceptRequest.ProtoReflect.Descriptor instead.
 func (*PlacementAcceptRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{85}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *PlacementAcceptRequest) GetProposalRevision() uint64 {
@@ -6978,7 +7056,7 @@ type PlacementAcceptanceResponse struct {
 
 func (x *PlacementAcceptanceResponse) Reset() {
 	*x = PlacementAcceptanceResponse{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[86]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6990,7 +7068,7 @@ func (x *PlacementAcceptanceResponse) String() string {
 func (*PlacementAcceptanceResponse) ProtoMessage() {}
 
 func (x *PlacementAcceptanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[86]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7003,7 +7081,7 @@ func (x *PlacementAcceptanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementAcceptanceResponse.ProtoReflect.Descriptor instead.
 func (*PlacementAcceptanceResponse) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{86}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *PlacementAcceptanceResponse) GetProposalRevision() uint64 {
@@ -7050,7 +7128,7 @@ type PlacementDrainRequest struct {
 
 func (x *PlacementDrainRequest) Reset() {
 	*x = PlacementDrainRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[87]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7062,7 +7140,7 @@ func (x *PlacementDrainRequest) String() string {
 func (*PlacementDrainRequest) ProtoMessage() {}
 
 func (x *PlacementDrainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[87]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7075,7 +7153,7 @@ func (x *PlacementDrainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementDrainRequest.ProtoReflect.Descriptor instead.
 func (*PlacementDrainRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{87}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *PlacementDrainRequest) GetPreparedTransition() []byte {
@@ -7094,7 +7172,7 @@ type PlacementDrainResponse struct {
 
 func (x *PlacementDrainResponse) Reset() {
 	*x = PlacementDrainResponse{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[88]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7106,7 +7184,7 @@ func (x *PlacementDrainResponse) String() string {
 func (*PlacementDrainResponse) ProtoMessage() {}
 
 func (x *PlacementDrainResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[88]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7119,7 +7197,7 @@ func (x *PlacementDrainResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementDrainResponse.ProtoReflect.Descriptor instead.
 func (*PlacementDrainResponse) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{88}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *PlacementDrainResponse) GetSignedReceipt() []byte {
@@ -7142,7 +7220,7 @@ type PlacementReadinessRequest struct {
 
 func (x *PlacementReadinessRequest) Reset() {
 	*x = PlacementReadinessRequest{}
-	mi := &file_terrabase_v1_engine_proto_msgTypes[89]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7154,7 +7232,7 @@ func (x *PlacementReadinessRequest) String() string {
 func (*PlacementReadinessRequest) ProtoMessage() {}
 
 func (x *PlacementReadinessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_terrabase_v1_engine_proto_msgTypes[89]
+	mi := &file_terrabase_v1_engine_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7167,7 +7245,7 @@ func (x *PlacementReadinessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlacementReadinessRequest.ProtoReflect.Descriptor instead.
 func (*PlacementReadinessRequest) Descriptor() ([]byte, []int) {
-	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{89}
+	return file_terrabase_v1_engine_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *PlacementReadinessRequest) GetTenant() string {
@@ -7577,10 +7655,16 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"generation\x12\x14\n" +
 	"\x05epoch\x18\x04 \x01(\x04R\x05epoch\x12<\n" +
 	"\aregions\x18\x05 \x03(\v2\".terrabase.v1.PlacementRegionSeatsR\aregions\x12K\n" +
-	"\vassignments\x18\x06 \x03(\v2).terrabase.v1.PlacementDatabaseAssignmentR\vassignments\"\x81\x01\n" +
+	"\vassignments\x18\x06 \x03(\v2).terrabase.v1.PlacementDatabaseAssignmentR\vassignments\"\x97\x01\n" +
+	"\x1cPlacementDatabaseDeclaration\x12\x16\n" +
+	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1a\n" +
+	"\bdatabase\x18\x03 \x01(\tR\bdatabase\x12)\n" +
+	"\x10selected_regions\x18\x04 \x03(\tR\x0fselectedRegions\"\xd1\x01\n" +
 	"\x15PlacementStageRequest\x12+\n" +
 	"\x11expected_revision\x18\x01 \x01(\x04R\x10expectedRevision\x12;\n" +
-	"\bproposal\x18\x02 \x01(\v2\x1f.terrabase.v1.PlacementProposalR\bproposal\"\x15\n" +
+	"\bproposal\x18\x02 \x01(\v2\x1f.terrabase.v1.PlacementProposalR\bproposal\x12N\n" +
+	"\fdeclarations\x18\x03 \x03(\v2*.terrabase.v1.PlacementDatabaseDeclarationR\fdeclarations\"\x15\n" +
 	"\x13PlacementGetRequest\"\xb3\x01\n" +
 	"\x19PlacementProposalResponse\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12;\n" +
@@ -7860,7 +7944,7 @@ func file_terrabase_v1_engine_proto_rawDescGZIP() []byte {
 }
 
 var file_terrabase_v1_engine_proto_enumTypes = make([]protoimpl.EnumInfo, 26)
-var file_terrabase_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 90)
+var file_terrabase_v1_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 91)
 var file_terrabase_v1_engine_proto_goTypes = []any{
 	(ClusterMode)(0),                                      // 0: terrabase.v1.ClusterMode
 	(ChangeKind)(0),                                       // 1: terrabase.v1.ChangeKind
@@ -7964,21 +8048,22 @@ var file_terrabase_v1_engine_proto_goTypes = []any{
 	(*PlacementRegionSeats)(nil),                          // 99: terrabase.v1.PlacementRegionSeats
 	(*PlacementDatabaseAssignment)(nil),                   // 100: terrabase.v1.PlacementDatabaseAssignment
 	(*PlacementProposal)(nil),                             // 101: terrabase.v1.PlacementProposal
-	(*PlacementStageRequest)(nil),                         // 102: terrabase.v1.PlacementStageRequest
-	(*PlacementGetRequest)(nil),                           // 103: terrabase.v1.PlacementGetRequest
-	(*PlacementProposalResponse)(nil),                     // 104: terrabase.v1.PlacementProposalResponse
-	(*AuthStorageIdentityRequest)(nil),                    // 105: terrabase.v1.AuthStorageIdentityRequest
-	(*AuthStorageIdentity)(nil),                           // 106: terrabase.v1.AuthStorageIdentity
-	(*AuthGroupVoter)(nil),                                // 107: terrabase.v1.AuthGroupVoter
-	(*AuthGroupBootstrapGrant)(nil),                       // 108: terrabase.v1.AuthGroupBootstrapGrant
-	(*AuthGroupBootstrapRequest)(nil),                     // 109: terrabase.v1.AuthGroupBootstrapRequest
-	(*AuthGroupBootstrapReceipt)(nil),                     // 110: terrabase.v1.AuthGroupBootstrapReceipt
-	(*PlacementAcceptRequest)(nil),                        // 111: terrabase.v1.PlacementAcceptRequest
-	(*PlacementAcceptanceResponse)(nil),                   // 112: terrabase.v1.PlacementAcceptanceResponse
-	(*PlacementDrainRequest)(nil),                         // 113: terrabase.v1.PlacementDrainRequest
-	(*PlacementDrainResponse)(nil),                        // 114: terrabase.v1.PlacementDrainResponse
-	(*PlacementReadinessRequest)(nil),                     // 115: terrabase.v1.PlacementReadinessRequest
-	(*Value)(nil),                                         // 116: terrabase.v1.Value
+	(*PlacementDatabaseDeclaration)(nil),                  // 102: terrabase.v1.PlacementDatabaseDeclaration
+	(*PlacementStageRequest)(nil),                         // 103: terrabase.v1.PlacementStageRequest
+	(*PlacementGetRequest)(nil),                           // 104: terrabase.v1.PlacementGetRequest
+	(*PlacementProposalResponse)(nil),                     // 105: terrabase.v1.PlacementProposalResponse
+	(*AuthStorageIdentityRequest)(nil),                    // 106: terrabase.v1.AuthStorageIdentityRequest
+	(*AuthStorageIdentity)(nil),                           // 107: terrabase.v1.AuthStorageIdentity
+	(*AuthGroupVoter)(nil),                                // 108: terrabase.v1.AuthGroupVoter
+	(*AuthGroupBootstrapGrant)(nil),                       // 109: terrabase.v1.AuthGroupBootstrapGrant
+	(*AuthGroupBootstrapRequest)(nil),                     // 110: terrabase.v1.AuthGroupBootstrapRequest
+	(*AuthGroupBootstrapReceipt)(nil),                     // 111: terrabase.v1.AuthGroupBootstrapReceipt
+	(*PlacementAcceptRequest)(nil),                        // 112: terrabase.v1.PlacementAcceptRequest
+	(*PlacementAcceptanceResponse)(nil),                   // 113: terrabase.v1.PlacementAcceptanceResponse
+	(*PlacementDrainRequest)(nil),                         // 114: terrabase.v1.PlacementDrainRequest
+	(*PlacementDrainResponse)(nil),                        // 115: terrabase.v1.PlacementDrainResponse
+	(*PlacementReadinessRequest)(nil),                     // 116: terrabase.v1.PlacementReadinessRequest
+	(*Value)(nil),                                         // 117: terrabase.v1.Value
 }
 var file_terrabase_v1_engine_proto_depIdxs = []int32{
 	1,   // 0: terrabase.v1.ChangeEvent.kind:type_name -> terrabase.v1.ChangeKind
@@ -7994,7 +8079,7 @@ var file_terrabase_v1_engine_proto_depIdxs = []int32{
 	9,   // 10: terrabase.v1.FieldTransformStep.kind:type_name -> terrabase.v1.FieldTransform
 	40,  // 11: terrabase.v1.FieldTransformStep.default:type_name -> terrabase.v1.TransformLiteral
 	7,   // 12: terrabase.v1.FieldTransformStep.coercion:type_name -> terrabase.v1.Coercion
-	116, // 13: terrabase.v1.SchemaMigrationContract.target:type_name -> terrabase.v1.Value
+	117, // 13: terrabase.v1.SchemaMigrationContract.target:type_name -> terrabase.v1.Value
 	41,  // 14: terrabase.v1.SchemaMigrationContract.transforms:type_name -> terrabase.v1.FieldTransformStep
 	10,  // 15: terrabase.v1.PlanProblem.kind:type_name -> terrabase.v1.PlanProblemKind
 	8,   // 16: terrabase.v1.PlanProblem.rejection:type_name -> terrabase.v1.TransformRejection
@@ -8004,8 +8089,8 @@ var file_terrabase_v1_engine_proto_depIdxs = []int32{
 	43,  // 20: terrabase.v1.MigrationPlan.problems:type_name -> terrabase.v1.PlanProblem
 	44,  // 21: terrabase.v1.MigrationReceipt.transform_counts:type_name -> terrabase.v1.TransformCounts
 	12,  // 22: terrabase.v1.MigrationReceipt.rollback_limit:type_name -> terrabase.v1.RollbackLimitKind
-	116, // 23: terrabase.v1.SchemaServiceDeclareRequest.schema:type_name -> terrabase.v1.Value
-	116, // 24: terrabase.v1.SchemaServiceValidateRequest.document:type_name -> terrabase.v1.Value
+	117, // 23: terrabase.v1.SchemaServiceDeclareRequest.schema:type_name -> terrabase.v1.Value
+	117, // 24: terrabase.v1.SchemaServiceValidateRequest.document:type_name -> terrabase.v1.Value
 	39,  // 25: terrabase.v1.SchemaServiceValidateResponse.violations:type_name -> terrabase.v1.SchemaViolation
 	45,  // 26: terrabase.v1.MigrationStatusResponse.state:type_name -> terrabase.v1.MigrationState
 	42,  // 27: terrabase.v1.MigrationDryRunRequest.contract:type_name -> terrabase.v1.SchemaMigrationContract
@@ -8040,80 +8125,81 @@ var file_terrabase_v1_engine_proto_depIdxs = []int32{
 	99,  // 56: terrabase.v1.PlacementProposal.regions:type_name -> terrabase.v1.PlacementRegionSeats
 	100, // 57: terrabase.v1.PlacementProposal.assignments:type_name -> terrabase.v1.PlacementDatabaseAssignment
 	101, // 58: terrabase.v1.PlacementStageRequest.proposal:type_name -> terrabase.v1.PlacementProposal
-	101, // 59: terrabase.v1.PlacementProposalResponse.proposal:type_name -> terrabase.v1.PlacementProposal
-	23,  // 60: terrabase.v1.PlacementProposalResponse.status:type_name -> terrabase.v1.PlacementProposalStatus
-	107, // 61: terrabase.v1.AuthGroupBootstrapGrant.voters:type_name -> terrabase.v1.AuthGroupVoter
-	108, // 62: terrabase.v1.AuthGroupBootstrapRequest.grant:type_name -> terrabase.v1.AuthGroupBootstrapGrant
-	24,  // 63: terrabase.v1.AuthGroupBootstrapReceipt.status:type_name -> terrabase.v1.AuthGroupBootstrapStatus
-	108, // 64: terrabase.v1.AuthGroupBootstrapReceipt.grant:type_name -> terrabase.v1.AuthGroupBootstrapGrant
-	25,  // 65: terrabase.v1.PlacementAcceptanceResponse.status:type_name -> terrabase.v1.PlacementAcceptanceStatus
-	78,  // 66: terrabase.v1.ChannelService.Bind:input_type -> terrabase.v1.ChannelServiceBindRequest
-	29,  // 67: terrabase.v1.BackboneService.Subscribe:input_type -> terrabase.v1.BackboneServiceSubscribeRequest
-	31,  // 68: terrabase.v1.BackboneService.Acknowledge:input_type -> terrabase.v1.BackboneServiceAcknowledgeRequest
-	33,  // 69: terrabase.v1.BackboneService.Unsubscribe:input_type -> terrabase.v1.BackboneServiceUnsubscribeRequest
-	48,  // 70: terrabase.v1.SchemaService.Declare:input_type -> terrabase.v1.SchemaServiceDeclareRequest
-	50,  // 71: terrabase.v1.SchemaService.Status:input_type -> terrabase.v1.SchemaServiceStatusRequest
-	52,  // 72: terrabase.v1.SchemaService.Validate:input_type -> terrabase.v1.SchemaServiceValidateRequest
-	54,  // 73: terrabase.v1.SchemaService.MigrationStatus:input_type -> terrabase.v1.MigrationStatusRequest
-	56,  // 74: terrabase.v1.SchemaService.MigrationDryRun:input_type -> terrabase.v1.MigrationDryRunRequest
-	58,  // 75: terrabase.v1.SchemaService.MigrationApply:input_type -> terrabase.v1.MigrationApplyRequest
-	60,  // 76: terrabase.v1.ReplicationService.Conflicts:input_type -> terrabase.v1.ReplicationServiceConflictsRequest
-	65,  // 77: terrabase.v1.ReplicationService.Fenced:input_type -> terrabase.v1.ReplicationServiceFencedRequest
-	68,  // 78: terrabase.v1.ReplicationService.Depositions:input_type -> terrabase.v1.ReplicationServiceDepositionsRequest
-	71,  // 79: terrabase.v1.ReplicationService.Cursor:input_type -> terrabase.v1.ReplicationServiceCursorRequest
-	73,  // 80: terrabase.v1.ReplicationService.Health:input_type -> terrabase.v1.ReplicationServiceHealthRequest
-	75,  // 81: terrabase.v1.ReplicationService.Denials:input_type -> terrabase.v1.ReplicationServiceDenialsRequest
-	96,  // 82: terrabase.v1.MaintenanceService.CatchUpStatus:input_type -> terrabase.v1.MaintenanceServiceCatchUpStatusRequest
-	80,  // 83: terrabase.v1.MaintenanceService.TopologyRead:input_type -> terrabase.v1.MaintenanceServiceTopologyReadRequest
-	82,  // 84: terrabase.v1.MaintenanceService.AdminStatus:input_type -> terrabase.v1.MaintenanceServiceAdminStatusRequest
-	84,  // 85: terrabase.v1.MaintenanceService.SupervisionHealth:input_type -> terrabase.v1.MaintenanceServiceSupervisionHealthRequest
-	86,  // 86: terrabase.v1.MaintenanceService.SupervisionShutdown:input_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
-	88,  // 87: terrabase.v1.UsageService.Record:input_type -> terrabase.v1.UsageServiceRecordRequest
-	91,  // 88: terrabase.v1.UsageService.Export:input_type -> terrabase.v1.UsageServiceExportRequest
-	102, // 89: terrabase.v1.PlacementControlService.Stage:input_type -> terrabase.v1.PlacementStageRequest
-	103, // 90: terrabase.v1.PlacementControlService.Get:input_type -> terrabase.v1.PlacementGetRequest
-	111, // 91: terrabase.v1.PlacementControlService.Accept:input_type -> terrabase.v1.PlacementAcceptRequest
-	103, // 92: terrabase.v1.PlacementControlService.GetAccepted:input_type -> terrabase.v1.PlacementGetRequest
-	113, // 93: terrabase.v1.PlacementControlService.Drain:input_type -> terrabase.v1.PlacementDrainRequest
-	115, // 94: terrabase.v1.PlacementControlService.Readiness:input_type -> terrabase.v1.PlacementReadinessRequest
-	105, // 95: terrabase.v1.AuthGroupBootstrapService.Identity:input_type -> terrabase.v1.AuthStorageIdentityRequest
-	109, // 96: terrabase.v1.AuthGroupBootstrapService.Bootstrap:input_type -> terrabase.v1.AuthGroupBootstrapRequest
-	79,  // 97: terrabase.v1.ChannelService.Bind:output_type -> terrabase.v1.ChannelServiceBindResponse
-	38,  // 98: terrabase.v1.BackboneService.Subscribe:output_type -> terrabase.v1.SubscribeResponse
-	32,  // 99: terrabase.v1.BackboneService.Acknowledge:output_type -> terrabase.v1.BackboneServiceAcknowledgeResponse
-	34,  // 100: terrabase.v1.BackboneService.Unsubscribe:output_type -> terrabase.v1.BackboneServiceUnsubscribeResponse
-	49,  // 101: terrabase.v1.SchemaService.Declare:output_type -> terrabase.v1.SchemaServiceDeclareResponse
-	51,  // 102: terrabase.v1.SchemaService.Status:output_type -> terrabase.v1.SchemaServiceStatusResponse
-	53,  // 103: terrabase.v1.SchemaService.Validate:output_type -> terrabase.v1.SchemaServiceValidateResponse
-	55,  // 104: terrabase.v1.SchemaService.MigrationStatus:output_type -> terrabase.v1.MigrationStatusResponse
-	57,  // 105: terrabase.v1.SchemaService.MigrationDryRun:output_type -> terrabase.v1.MigrationDryRunResponse
-	59,  // 106: terrabase.v1.SchemaService.MigrationApply:output_type -> terrabase.v1.MigrationApplyResponse
-	64,  // 107: terrabase.v1.ReplicationService.Conflicts:output_type -> terrabase.v1.ReplicationServiceConflictsResponse
-	67,  // 108: terrabase.v1.ReplicationService.Fenced:output_type -> terrabase.v1.ReplicationServiceFencedResponse
-	70,  // 109: terrabase.v1.ReplicationService.Depositions:output_type -> terrabase.v1.ReplicationServiceDepositionsResponse
-	72,  // 110: terrabase.v1.ReplicationService.Cursor:output_type -> terrabase.v1.ReplicationServiceCursorResponse
-	74,  // 111: terrabase.v1.ReplicationService.Health:output_type -> terrabase.v1.ReplicationServiceHealthResponse
-	77,  // 112: terrabase.v1.ReplicationService.Denials:output_type -> terrabase.v1.ReplicationServiceDenialsResponse
-	98,  // 113: terrabase.v1.MaintenanceService.CatchUpStatus:output_type -> terrabase.v1.MaintenanceServiceCatchUpStatusResponse
-	81,  // 114: terrabase.v1.MaintenanceService.TopologyRead:output_type -> terrabase.v1.MaintenanceServiceTopologyReadResponse
-	83,  // 115: terrabase.v1.MaintenanceService.AdminStatus:output_type -> terrabase.v1.MaintenanceServiceAdminStatusResponse
-	85,  // 116: terrabase.v1.MaintenanceService.SupervisionHealth:output_type -> terrabase.v1.MaintenanceServiceSupervisionHealthResponse
-	87,  // 117: terrabase.v1.MaintenanceService.SupervisionShutdown:output_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
-	89,  // 118: terrabase.v1.UsageService.Record:output_type -> terrabase.v1.UsageServiceRecordResponse
-	92,  // 119: terrabase.v1.UsageService.Export:output_type -> terrabase.v1.UsageServiceExportResponse
-	104, // 120: terrabase.v1.PlacementControlService.Stage:output_type -> terrabase.v1.PlacementProposalResponse
-	104, // 121: terrabase.v1.PlacementControlService.Get:output_type -> terrabase.v1.PlacementProposalResponse
-	112, // 122: terrabase.v1.PlacementControlService.Accept:output_type -> terrabase.v1.PlacementAcceptanceResponse
-	112, // 123: terrabase.v1.PlacementControlService.GetAccepted:output_type -> terrabase.v1.PlacementAcceptanceResponse
-	114, // 124: terrabase.v1.PlacementControlService.Drain:output_type -> terrabase.v1.PlacementDrainResponse
-	114, // 125: terrabase.v1.PlacementControlService.Readiness:output_type -> terrabase.v1.PlacementDrainResponse
-	106, // 126: terrabase.v1.AuthGroupBootstrapService.Identity:output_type -> terrabase.v1.AuthStorageIdentity
-	110, // 127: terrabase.v1.AuthGroupBootstrapService.Bootstrap:output_type -> terrabase.v1.AuthGroupBootstrapReceipt
-	97,  // [97:128] is the sub-list for method output_type
-	66,  // [66:97] is the sub-list for method input_type
-	66,  // [66:66] is the sub-list for extension type_name
-	66,  // [66:66] is the sub-list for extension extendee
-	0,   // [0:66] is the sub-list for field type_name
+	102, // 59: terrabase.v1.PlacementStageRequest.declarations:type_name -> terrabase.v1.PlacementDatabaseDeclaration
+	101, // 60: terrabase.v1.PlacementProposalResponse.proposal:type_name -> terrabase.v1.PlacementProposal
+	23,  // 61: terrabase.v1.PlacementProposalResponse.status:type_name -> terrabase.v1.PlacementProposalStatus
+	108, // 62: terrabase.v1.AuthGroupBootstrapGrant.voters:type_name -> terrabase.v1.AuthGroupVoter
+	109, // 63: terrabase.v1.AuthGroupBootstrapRequest.grant:type_name -> terrabase.v1.AuthGroupBootstrapGrant
+	24,  // 64: terrabase.v1.AuthGroupBootstrapReceipt.status:type_name -> terrabase.v1.AuthGroupBootstrapStatus
+	109, // 65: terrabase.v1.AuthGroupBootstrapReceipt.grant:type_name -> terrabase.v1.AuthGroupBootstrapGrant
+	25,  // 66: terrabase.v1.PlacementAcceptanceResponse.status:type_name -> terrabase.v1.PlacementAcceptanceStatus
+	78,  // 67: terrabase.v1.ChannelService.Bind:input_type -> terrabase.v1.ChannelServiceBindRequest
+	29,  // 68: terrabase.v1.BackboneService.Subscribe:input_type -> terrabase.v1.BackboneServiceSubscribeRequest
+	31,  // 69: terrabase.v1.BackboneService.Acknowledge:input_type -> terrabase.v1.BackboneServiceAcknowledgeRequest
+	33,  // 70: terrabase.v1.BackboneService.Unsubscribe:input_type -> terrabase.v1.BackboneServiceUnsubscribeRequest
+	48,  // 71: terrabase.v1.SchemaService.Declare:input_type -> terrabase.v1.SchemaServiceDeclareRequest
+	50,  // 72: terrabase.v1.SchemaService.Status:input_type -> terrabase.v1.SchemaServiceStatusRequest
+	52,  // 73: terrabase.v1.SchemaService.Validate:input_type -> terrabase.v1.SchemaServiceValidateRequest
+	54,  // 74: terrabase.v1.SchemaService.MigrationStatus:input_type -> terrabase.v1.MigrationStatusRequest
+	56,  // 75: terrabase.v1.SchemaService.MigrationDryRun:input_type -> terrabase.v1.MigrationDryRunRequest
+	58,  // 76: terrabase.v1.SchemaService.MigrationApply:input_type -> terrabase.v1.MigrationApplyRequest
+	60,  // 77: terrabase.v1.ReplicationService.Conflicts:input_type -> terrabase.v1.ReplicationServiceConflictsRequest
+	65,  // 78: terrabase.v1.ReplicationService.Fenced:input_type -> terrabase.v1.ReplicationServiceFencedRequest
+	68,  // 79: terrabase.v1.ReplicationService.Depositions:input_type -> terrabase.v1.ReplicationServiceDepositionsRequest
+	71,  // 80: terrabase.v1.ReplicationService.Cursor:input_type -> terrabase.v1.ReplicationServiceCursorRequest
+	73,  // 81: terrabase.v1.ReplicationService.Health:input_type -> terrabase.v1.ReplicationServiceHealthRequest
+	75,  // 82: terrabase.v1.ReplicationService.Denials:input_type -> terrabase.v1.ReplicationServiceDenialsRequest
+	96,  // 83: terrabase.v1.MaintenanceService.CatchUpStatus:input_type -> terrabase.v1.MaintenanceServiceCatchUpStatusRequest
+	80,  // 84: terrabase.v1.MaintenanceService.TopologyRead:input_type -> terrabase.v1.MaintenanceServiceTopologyReadRequest
+	82,  // 85: terrabase.v1.MaintenanceService.AdminStatus:input_type -> terrabase.v1.MaintenanceServiceAdminStatusRequest
+	84,  // 86: terrabase.v1.MaintenanceService.SupervisionHealth:input_type -> terrabase.v1.MaintenanceServiceSupervisionHealthRequest
+	86,  // 87: terrabase.v1.MaintenanceService.SupervisionShutdown:input_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownRequest
+	88,  // 88: terrabase.v1.UsageService.Record:input_type -> terrabase.v1.UsageServiceRecordRequest
+	91,  // 89: terrabase.v1.UsageService.Export:input_type -> terrabase.v1.UsageServiceExportRequest
+	103, // 90: terrabase.v1.PlacementControlService.Stage:input_type -> terrabase.v1.PlacementStageRequest
+	104, // 91: terrabase.v1.PlacementControlService.Get:input_type -> terrabase.v1.PlacementGetRequest
+	112, // 92: terrabase.v1.PlacementControlService.Accept:input_type -> terrabase.v1.PlacementAcceptRequest
+	104, // 93: terrabase.v1.PlacementControlService.GetAccepted:input_type -> terrabase.v1.PlacementGetRequest
+	114, // 94: terrabase.v1.PlacementControlService.Drain:input_type -> terrabase.v1.PlacementDrainRequest
+	116, // 95: terrabase.v1.PlacementControlService.Readiness:input_type -> terrabase.v1.PlacementReadinessRequest
+	106, // 96: terrabase.v1.AuthGroupBootstrapService.Identity:input_type -> terrabase.v1.AuthStorageIdentityRequest
+	110, // 97: terrabase.v1.AuthGroupBootstrapService.Bootstrap:input_type -> terrabase.v1.AuthGroupBootstrapRequest
+	79,  // 98: terrabase.v1.ChannelService.Bind:output_type -> terrabase.v1.ChannelServiceBindResponse
+	38,  // 99: terrabase.v1.BackboneService.Subscribe:output_type -> terrabase.v1.SubscribeResponse
+	32,  // 100: terrabase.v1.BackboneService.Acknowledge:output_type -> terrabase.v1.BackboneServiceAcknowledgeResponse
+	34,  // 101: terrabase.v1.BackboneService.Unsubscribe:output_type -> terrabase.v1.BackboneServiceUnsubscribeResponse
+	49,  // 102: terrabase.v1.SchemaService.Declare:output_type -> terrabase.v1.SchemaServiceDeclareResponse
+	51,  // 103: terrabase.v1.SchemaService.Status:output_type -> terrabase.v1.SchemaServiceStatusResponse
+	53,  // 104: terrabase.v1.SchemaService.Validate:output_type -> terrabase.v1.SchemaServiceValidateResponse
+	55,  // 105: terrabase.v1.SchemaService.MigrationStatus:output_type -> terrabase.v1.MigrationStatusResponse
+	57,  // 106: terrabase.v1.SchemaService.MigrationDryRun:output_type -> terrabase.v1.MigrationDryRunResponse
+	59,  // 107: terrabase.v1.SchemaService.MigrationApply:output_type -> terrabase.v1.MigrationApplyResponse
+	64,  // 108: terrabase.v1.ReplicationService.Conflicts:output_type -> terrabase.v1.ReplicationServiceConflictsResponse
+	67,  // 109: terrabase.v1.ReplicationService.Fenced:output_type -> terrabase.v1.ReplicationServiceFencedResponse
+	70,  // 110: terrabase.v1.ReplicationService.Depositions:output_type -> terrabase.v1.ReplicationServiceDepositionsResponse
+	72,  // 111: terrabase.v1.ReplicationService.Cursor:output_type -> terrabase.v1.ReplicationServiceCursorResponse
+	74,  // 112: terrabase.v1.ReplicationService.Health:output_type -> terrabase.v1.ReplicationServiceHealthResponse
+	77,  // 113: terrabase.v1.ReplicationService.Denials:output_type -> terrabase.v1.ReplicationServiceDenialsResponse
+	98,  // 114: terrabase.v1.MaintenanceService.CatchUpStatus:output_type -> terrabase.v1.MaintenanceServiceCatchUpStatusResponse
+	81,  // 115: terrabase.v1.MaintenanceService.TopologyRead:output_type -> terrabase.v1.MaintenanceServiceTopologyReadResponse
+	83,  // 116: terrabase.v1.MaintenanceService.AdminStatus:output_type -> terrabase.v1.MaintenanceServiceAdminStatusResponse
+	85,  // 117: terrabase.v1.MaintenanceService.SupervisionHealth:output_type -> terrabase.v1.MaintenanceServiceSupervisionHealthResponse
+	87,  // 118: terrabase.v1.MaintenanceService.SupervisionShutdown:output_type -> terrabase.v1.MaintenanceServiceSupervisionShutdownResponse
+	89,  // 119: terrabase.v1.UsageService.Record:output_type -> terrabase.v1.UsageServiceRecordResponse
+	92,  // 120: terrabase.v1.UsageService.Export:output_type -> terrabase.v1.UsageServiceExportResponse
+	105, // 121: terrabase.v1.PlacementControlService.Stage:output_type -> terrabase.v1.PlacementProposalResponse
+	105, // 122: terrabase.v1.PlacementControlService.Get:output_type -> terrabase.v1.PlacementProposalResponse
+	113, // 123: terrabase.v1.PlacementControlService.Accept:output_type -> terrabase.v1.PlacementAcceptanceResponse
+	113, // 124: terrabase.v1.PlacementControlService.GetAccepted:output_type -> terrabase.v1.PlacementAcceptanceResponse
+	115, // 125: terrabase.v1.PlacementControlService.Drain:output_type -> terrabase.v1.PlacementDrainResponse
+	115, // 126: terrabase.v1.PlacementControlService.Readiness:output_type -> terrabase.v1.PlacementDrainResponse
+	107, // 127: terrabase.v1.AuthGroupBootstrapService.Identity:output_type -> terrabase.v1.AuthStorageIdentity
+	111, // 128: terrabase.v1.AuthGroupBootstrapService.Bootstrap:output_type -> terrabase.v1.AuthGroupBootstrapReceipt
+	98,  // [98:129] is the sub-list for method output_type
+	67,  // [67:98] is the sub-list for method input_type
+	67,  // [67:67] is the sub-list for extension type_name
+	67,  // [67:67] is the sub-list for extension extendee
+	0,   // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_terrabase_v1_engine_proto_init() }
@@ -8144,7 +8230,7 @@ func file_terrabase_v1_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_terrabase_v1_engine_proto_rawDesc), len(file_terrabase_v1_engine_proto_rawDesc)),
 			NumEnums:      26,
-			NumMessages:   90,
+			NumMessages:   91,
 			NumExtensions: 0,
 			NumServices:   8,
 		},

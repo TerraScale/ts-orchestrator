@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -188,6 +189,10 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 	if err != nil {
 		return databaseadmission.Plan{}, err
 	}
+	declarations, err := databasePlacementDeclarations(config.Environment, records, r)
+	if err != nil {
+		return databaseadmission.Plan{}, err
+	}
 	// A successor proposal must not overtake an unresolved operation on a host.
 	for _, prior := range records {
 		if prior.State != "placement_pending" && prior.State != "ready" {
@@ -269,18 +274,68 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		return databaseadmission.Plan{}, fmt.Errorf("runtime database plan: %w", err)
 	}
 	for i := range targets {
-		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical})
+		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
 		if err != nil {
 			return databaseadmission.Plan{}, err
 		}
 	}
 	for i := range placementTargets {
-		placementTargets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[placementTargets[i].ServerIdentity], Proposal: canonical})
+		placementTargets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[placementTargets[i].ServerIdentity], Proposal: canonical, Declarations: declarations})
 		if err != nil {
 			return databaseadmission.Plan{}, err
 		}
 	}
 	return databaseadmission.Plan{Members: targets, Placements: placementTargets}, nil
+}
+
+// databasePlacementDeclarations carries the complete authenticated database
+// scope into every placement CAS request. Declarations are control metadata;
+// they do not add storage targets or member assignments.
+func databasePlacementDeclarations(environment string, records []databaseadmission.Record, current databaseadmission.Record) ([]*pb.PlacementDatabaseDeclaration, error) {
+	type scope struct {
+		tenant, project, database string
+		regions                   []string
+	}
+	declarations := map[string]scope{}
+	add := func(record databaseadmission.Record) error {
+		if record.Request.Environment != environment || record.Request.TenantID == "" || record.Request.ProjectID == "" || record.DatabaseID == "" || len(record.Request.Regions) == 0 {
+			return databaseadmission.ErrInvalid
+		}
+		regions := slices.Clone(record.Request.Regions)
+		slices.Sort(regions)
+		for i := 1; i < len(regions); i++ {
+			if regions[i] == regions[i-1] {
+				return databaseadmission.ErrInvalid
+			}
+		}
+		key := record.Request.TenantID + "\x00" + record.Request.ProjectID + "\x00" + record.DatabaseID
+		candidate := scope{tenant: record.Request.TenantID, project: record.Request.ProjectID, database: record.DatabaseID, regions: regions}
+		if prior, ok := declarations[key]; ok && (!slices.Equal(prior.regions, candidate.regions) || prior.tenant != candidate.tenant || prior.project != candidate.project || prior.database != candidate.database) {
+			return databaseadmission.ErrConflict
+		}
+		declarations[key] = candidate
+		return nil
+	}
+	for _, record := range records {
+		if err := add(record); err != nil {
+			return nil, err
+		}
+	}
+	if err := add(current); err != nil {
+		return nil, err
+	}
+	ordered := make([]scope, 0, len(declarations))
+	for _, declaration := range declarations {
+		ordered = append(ordered, declaration)
+	}
+	slices.SortFunc(ordered, func(a, b scope) int {
+		return cmp.Or(cmp.Compare(a.tenant, b.tenant), cmp.Compare(a.project, b.project), cmp.Compare(a.database, b.database))
+	})
+	out := make([]*pb.PlacementDatabaseDeclaration, 0, len(ordered))
+	for _, declaration := range ordered {
+		out = append(out, &pb.PlacementDatabaseDeclaration{Tenant: declaration.tenant, Project: declaration.project, Database: declaration.database, SelectedRegions: declaration.regions})
+	}
+	return out, nil
 }
 
 // Unreachable hosts retain their durable intent and retry. Authority loss and

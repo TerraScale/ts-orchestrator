@@ -13,6 +13,7 @@ import (
 	"terrascale.tech/orchestrator/internal/testengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 )
 
@@ -95,7 +96,7 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 	}
 }
 
-func TestRenderedDatabaseResidencyUsesHostRegionAndOmitsUnselectedStorage(t *testing.T) {
+func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing.T) {
 	mixedBindings := []vmengineconfig.Binding{
 		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"},
 		{NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
@@ -130,12 +131,71 @@ func TestRenderedDatabaseResidencyUsesHostRegionAndOmitsUnselectedStorage(t *tes
 		if !strings.Contains(config, "region = \""+binding.Region+"\"") {
 			t.Fatalf("%s config does not bind its local Region", binding.Region)
 		}
-		wantDatabases := 1
-		if binding.Region == "GRU" {
-			wantDatabases = 2
+		if got := strings.Count(config, "[[databases]]"); got != 2 {
+			t.Fatalf("%s rendered %d databases, want 2", binding.Region, got)
 		}
-		if got := strings.Count(config, "[[databases]]"); got != wantDatabases {
-			t.Fatalf("%s rendered %d databases, want %d", binding.Region, got, wantDatabases)
+		if binding.Region == "SFO" {
+			if !strings.Contains(config, "region = \"GRU\"\nselected_regions = [\"GRU\"]") || !strings.Contains(config, "enabled = false") {
+				t.Fatal("SFO config omitted disabled GRU control declaration")
+			}
+		}
+	}
+}
+
+func TestPendingHostRequiresDatabaseAdmission(t *testing.T) {
+	mixedBindings := []vmengineconfig.Binding{
+		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"},
+		{NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
+		{NodeID: "sfo-member-1", Region: "SFO", Address: "10.77.1.10"},
+		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
+	}
+	d, path := testengineconfig.DatabaseDeclaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
+	for i := 2; i < len(d.Hosts); i++ {
+		d.Hosts[i].ObserverDatabase = ""
+		d.Hosts[i].DatabaseHost = nil
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vmengineconfig.Load(path, d.ArtifactSHA256, d.Release, mixedBindings); err == nil {
+		t.Fatal("pending host without database admission accepted")
+	}
+}
+
+func TestPendingHostMayOmitObserverDatabase(t *testing.T) {
+	mixedBindings := []vmengineconfig.Binding{
+		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"},
+		{NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
+		{NodeID: "sfo-member-1", Region: "SFO", Address: "10.77.1.10"},
+		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
+	}
+	d, path := testengineconfig.DatabaseDeclaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
+	for i := 2; i < len(d.Hosts); i++ {
+		d.Hosts[i].ObserverDatabase = ""
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := vmengineconfig.Load(path, d.ArtifactSHA256, d.Release, mixedBindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, material := range m {
+			material.Clear()
+		}
+	}()
+	for _, nodeID := range []string{"sfo-member-1", "sfo-member-2"} {
+		if got := m[nodeID].Observation(); got != (tbep.FileConfig{}) {
+			t.Fatalf("pending host %s has fabricated observation scope: %#v", nodeID, got)
 		}
 	}
 }

@@ -179,3 +179,19 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal("engine mode tampering accepted")
 	}
 }
+
+func TestNoCloudOmitsObservationForPendingEngine(t *testing.T) {
+	spec := validNoCloudSpec(t)
+	spec.TSNode.Engine = nil
+	material, err := canonicalTSNodeBootstrap(spec.TSNode, ArchitectureARM64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config tsNodeConfigurationFile
+	if err := json.Unmarshal(material.config, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.EngineObservation != nil {
+		t.Fatal("pending engine unexpectedly serialized an observation config")
+	}
+}

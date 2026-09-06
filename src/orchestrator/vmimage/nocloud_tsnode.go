@@ -228,7 +228,10 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 	}
 	if input.Engine != nil {
 		observation := input.Engine.Observation()
-		input.Config.engineObservation = &observation
+		input.Config.engineObservation = nil
+		if observation != (tbep.FileConfig{}) {
+			input.Config.engineObservation = &observation
+		}
 	}
 	config, err := canonicalTSNodeConfig(input.Config, input.ReleasePublicKey)
 	if err != nil {

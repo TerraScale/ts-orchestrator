@@ -303,14 +303,18 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 	}
 	for _, h := range d.Hosts {
 		region := nodes[h.NodeID].Region
+		localDatabases := 0
 		bound := false
 		for _, db := range d.Databases {
-			if db.Database == h.ObserverDatabase && slices.Contains(db.SelectedRegions, region) {
+			if !slices.Contains(db.SelectedRegions, region) {
+				continue
+			}
+			localDatabases++
+			if db.Database == h.ObserverDatabase {
 				bound = true
-				break
 			}
 		}
-		if !bound {
+		if (localDatabases == 0 && (h.ObserverDatabase != "" || h.DatabaseHost == nil)) || (localDatabases > 0 && !bound) {
 			return nil, bad
 		}
 	}
@@ -326,19 +330,21 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	fmt.Fprintf(&b, "mode = \"production\"\n[environment]\nname = %q\ncluster = %q\nmember = %q\n", d.Environment, d.Cluster, h.Member)
 	localRegion := nodes[h.NodeID].Region
 	for _, db := range d.Databases {
-		if !slices.Contains(db.SelectedRegions, localRegion) {
-			continue
+		enabled := slices.Contains(db.SelectedRegions, localRegion)
+		renderedRegion := db.Region
+		if enabled {
+			renderedRegion = localRegion
 		}
 		selected := slices.Clone(db.SelectedRegions)
 		slices.Sort(selected)
-		fmt.Fprintf(&b, "\n[[databases]]\ntenant = %q\nproject = %q\ndatabase = %q\nregion = %q\nselected_regions = [", db.Tenant, db.Project, db.Database, localRegion)
+		fmt.Fprintf(&b, "\n[[databases]]\ntenant = %q\nproject = %q\ndatabase = %q\nregion = %q\nselected_regions = [", db.Tenant, db.Project, db.Database, renderedRegion)
 		for i, region := range selected {
 			if i > 0 {
 				b.WriteString(", ")
 			}
 			fmt.Fprintf(&b, "%q", region)
 		}
-		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = true\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
+		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
 	}
 	fmt.Fprintf(&b, "\n[placement]\ngeneration = %d\nepoch = %d\n", d.Generation, d.Epoch)
 	for _, region := range []string{"GRU", "SFO", "FRA"} {

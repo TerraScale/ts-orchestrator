@@ -217,6 +217,9 @@ func validateObserver(m *Material, d Declaration, h Host) error {
 	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return bad
 	}
+	if h.ObserverDatabase == "" {
+		return nil
+	}
 	for _, db := range d.Databases {
 		if db.Database == h.ObserverDatabase {
 			m.observation = tbep.FileConfig{Endpoint: "127.0.0.1:8421", ServerIdentity: identity(d, h), CertificateFile: ObserverCertificatePath, PrivateKeyFile: ObserverPrivateKeyPath, TrustBundleFile: ObserverCAPath, Tenant: db.Tenant, Project: db.Project, Database: db.Database}
