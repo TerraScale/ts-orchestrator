@@ -22,10 +22,10 @@ import (
 type placementTestServer struct {
 	pb.UnimplementedPlacementControlServiceServer
 	t       *testing.T
-	request *pb.PlacementStageRequest
+	request *pb.PlacementControlServiceStageRequest
 }
 
-func (server *placementTestServer) Stage(ctx context.Context, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
+func (server *placementTestServer) Stage(ctx context.Context, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
 	scope, _ := metadata.FromIncomingContext(ctx)
 	for _, key := range []string{"x-tb-tenant", "x-tb-project", "x-tb-database"} {
 		if len(scope.Get(key)) != 0 {
@@ -42,7 +42,7 @@ func (server *placementTestServer) Stage(ctx context.Context, request *pb.Placem
 		server.t.Error("retry request changed")
 	}
 	server.request = request
-	return &pb.PlacementProposalResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
+	return &pb.PlacementControlServiceStageResponse{Revision: 1, Proposal: request.Proposal, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING}, nil
 }
 func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	ca := newTestCA(t)
@@ -62,7 +62,7 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	request := &pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "cluster", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"b", "a"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "tenant", Project: "project", Database: "database", Region: "GRU", WriterMember: "a", FollowerMember: "b"}}}}
+	request := &pb.PlacementControlServiceStageRequest{Proposal: &pb.PlacementProposal{Environment: "production", Cluster: "cluster", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"b", "a"}}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: "tenant", Project: "project", Database: "database", Region: "GRU", WriterMember: "a", FollowerMember: "b"}}}}
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-tb-principal", "foreign", "x-tb-tenant", "foreign", "x-tb-idempotency-key", "foreign"))
 	for range 2 {
 		result, err := client.Stage(ctx, "op-1", request)
@@ -72,7 +72,7 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	}
 	proofPayload, _ := json.Marshal(placementtransition.Proof{SchemaVersion: 1, Kind: "accepted_epoch", Request: placementtransition.Request{OperationID: "proof-op", Epoch: 2, Generation: 3}, AuthorityEpoch: 1, JournalRevision: 7})
 	proofEnvelope, _ := json.Marshal(placementtransition.Signed{KeyID: "authority", Payload: proofPayload, Signature: make([]byte, 64)})
-	proofRequest := &pb.PlacementAcceptRequest{ProposalRevision: 1, Proof: proofEnvelope}
+	proofRequest := &pb.PlacementControlServiceAcceptRequest{ProposalRevision: 1, Proof: proofEnvelope}
 	if receipt, err := client.Accept(ctx, "proof-op", proofRequest); err != nil || receipt.Status != pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP {
 		t.Fatalf("proof transport: %v %v", receipt, err)
 	}
@@ -86,10 +86,10 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	}
 	preparePayload, _ := json.Marshal(placementtransition.Prepared{SchemaVersion: 1, Kind: "prepared_epoch", Request: next, RequestDigest: nextDigest, PriorGeneration: 1, PreviousProofDigest: strings.Repeat("d", 64), AuthorityEpoch: 1, LeaseID: "lease", JournalRevision: 8})
 	prepareEnvelope, _ := json.Marshal(placementtransition.Signed{KeyID: "authority", Payload: preparePayload, Signature: make([]byte, 64)})
-	if _, err := client.Drain(ctx, "next", &pb.PlacementDrainRequest{PreparedTransition: prepareEnvelope}); err != nil {
+	if _, err := client.Drain(ctx, "next", &pb.PlacementControlServiceDrainRequest{PreparedTransition: prepareEnvelope}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Readiness(ctx, &pb.PlacementReadinessRequest{Tenant: "tenant", Project: "project", Database: "database", OperationId: "next", Nonce: strings.Repeat("a", 64)}); err != nil {
+	if _, err := client.Readiness(ctx, &pb.PlacementControlServiceReadinessRequest{Tenant: "tenant", Project: "project", Database: "database", OperationId: "next", Nonce: strings.Repeat("a", 64)}); err != nil {
 		t.Fatal(err)
 	}
 	if request.Proposal.Regions[0].Members[0] != "b" {
@@ -111,7 +111,7 @@ func TestPlacementHostScopeAndExactTLS(t *testing.T) {
 	}
 }
 
-func (server *placementTestServer) Accept(ctx context.Context, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
+func (server *placementTestServer) Accept(ctx context.Context, request *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error) {
 	scope, _ := metadata.FromIncomingContext(ctx)
 	if len(scope.Get("x-tb-tenant")) != 0 || len(scope.Get("x-tb-project")) != 0 || len(scope.Get("x-tb-database")) != 0 {
 		server.t.Error("proof received forbidden database scope")
@@ -127,7 +127,7 @@ func (server *placementTestServer) Accept(ctx context.Context, request *pb.Place
 	return AcceptanceBinding(values[0], request)
 }
 
-func (server *placementTestServer) Drain(ctx context.Context, request *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error) {
+func (server *placementTestServer) Drain(ctx context.Context, request *pb.PlacementControlServiceDrainRequest) (*pb.PlacementControlServiceDrainResponse, error) {
 	scope, _ := metadata.FromIncomingContext(ctx)
 	if len(scope.Get("x-tb-tenant")) != 0 || len(scope.Get("x-tb-project")) != 0 || len(scope.Get("x-tb-database")) != 0 {
 		server.t.Error("drain received database scope")
@@ -142,9 +142,9 @@ func (server *placementTestServer) Drain(ctx context.Context, request *pb.Placem
 	}
 	payload, _ := json.Marshal(placementtransition.DrainReceipt{Kind: "old_epoch_drained_fenced", MemberIdentity: serverIdentity, ScopeID: prepared.Request.ScopeID, PriorEpoch: prepared.Request.PriorEpoch, PriorGeneration: prepared.PriorGeneration, RequestDigest: prepared.RequestDigest, FrontierDigest: strings.Repeat("f", 64)})
 	signed, _ := json.Marshal(placementtransition.Signed{KeyID: serverIdentity, Payload: payload, Signature: make([]byte, 64)})
-	return &pb.PlacementDrainResponse{SignedReceipt: signed}, nil
+	return &pb.PlacementControlServiceDrainResponse{SignedReceipt: signed}, nil
 }
-func (server *placementTestServer) Readiness(ctx context.Context, request *pb.PlacementReadinessRequest) (*pb.PlacementDrainResponse, error) {
+func (server *placementTestServer) Readiness(ctx context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceReadinessResponse, error) {
 	scope, _ := metadata.FromIncomingContext(ctx)
 	for _, key := range []string{"x-tb-tenant", "x-tb-project", "x-tb-database", "x-tb-idempotency-key"} {
 		if len(scope.Get(key)) != 0 {
@@ -156,5 +156,5 @@ func (server *placementTestServer) Readiness(ctx context.Context, request *pb.Pl
 	}
 	payload, _ := json.Marshal(map[string]string{"nonce": request.Nonce})
 	signed, _ := json.Marshal(placementtransition.Signed{KeyID: "member-key", Payload: payload, Signature: make([]byte, 64)})
-	return &pb.PlacementDrainResponse{SignedReceipt: signed}, nil
+	return &pb.PlacementControlServiceReadinessResponse{SignedReceipt: signed}, nil
 }

@@ -137,6 +137,16 @@ type productionRuntime struct {
 	release        func() error
 	closeOnce      sync.Once
 	closeError     error
+	autoscale      *productionAutoscaleWiring
+}
+
+// productionAutoscaleWiring carries the already admitted real observation and
+// OCI seams into the GRU worker constructor. It deliberately contains no
+// durable store; the worker creates its single NATS-backed target store.
+type productionAutoscaleWiring struct {
+	Source  autoscale.ObservationSource
+	Regions []string
+	Apply   func(string, int) error
 }
 
 type productionGlobalWorkers struct {
@@ -545,6 +555,11 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 	}
 	if err := session.CheckEffectAuthority(ctx); err != nil {
 		return ownedGlobalWorkers(config), err
+	}
+	if r.autoscale != nil {
+		config.AutoscaleSource = r.autoscale.Source
+		config.AutoscaleRegions = append([]string(nil), r.autoscale.Regions...)
+		config.ApplyScaleOutTarget = r.autoscale.Apply
 	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
 	if err != nil {

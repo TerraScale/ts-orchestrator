@@ -34,7 +34,7 @@ other producer working-tree changes are outside this contract.
 
 | Asset | SHA256 |
 | --- | --- |
-| `engine.proto` | `bfa148f78e96cb5f65e1cac60b0ff7bd1b8b8685df38e957a2607bcbc46882b5` |
+| `engine.proto` | `3bd6fbd2bb6cfef1e809ac10fc5dc76f24e0d62c9c8758888d5b1b485f07025d` |
 | `family.proto` | `cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec` |
 
 Generation uses protoc 34.1, protoc-gen-go 1.36.12 and

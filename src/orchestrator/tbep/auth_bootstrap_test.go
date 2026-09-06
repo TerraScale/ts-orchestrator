@@ -30,17 +30,17 @@ func (server *authBootstrapTestServer) check(ctx context.Context) {
 		}
 	}
 }
-func (server *authBootstrapTestServer) Identity(ctx context.Context, _ *pb.AuthStorageIdentityRequest) (*pb.AuthStorageIdentity, error) {
+func (server *authBootstrapTestServer) Identity(ctx context.Context, _ *pb.AuthGroupBootstrapServiceIdentityRequest) (*pb.AuthGroupBootstrapServiceIdentityResponse, error) {
 	server.check(ctx)
-	return &pb.AuthStorageIdentity{Member: "01ARZ3NDEKTSV4RRFFQ69G5FA5", StorageIncarnation: "01ARZ3NDEKTSV4RRFFQ69G5FA5"}, nil
+	return &pb.AuthGroupBootstrapServiceIdentityResponse{Member: "01ARZ3NDEKTSV4RRFFQ69G5FA5", StorageIncarnation: "01ARZ3NDEKTSV4RRFFQ69G5FA5"}, nil
 }
-func (server *authBootstrapTestServer) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error) {
+func (server *authBootstrapTestServer) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapServiceBootstrapRequest) (*pb.AuthGroupBootstrapServiceBootstrapResponse, error) {
 	server.check(ctx)
 	scope, _ := metadata.FromIncomingContext(ctx)
 	if values := scope.Get("x-tb-idempotency-key"); len(values) != 1 || values[0] != request.OperationId {
 		server.t.Error("retry identity changed")
 	}
-	return &pb.AuthGroupBootstrapReceipt{GroupId: request.Grant.GroupId, Generation: 1, AuthorityRevision: request.Grant.AuthorityRevision, StorageIncarnation: request.Grant.Voters[0].StorageIncarnation, Status: 1, Grant: request.Grant, OperationId: request.OperationId}, nil
+	return &pb.AuthGroupBootstrapServiceBootstrapResponse{GroupId: request.Grant.GroupId, Generation: 1, AuthorityRevision: request.Grant.AuthorityRevision, StorageIncarnation: request.Grant.Voters[0].StorageIncarnation, Status: 1, Grant: request.Grant, OperationId: request.OperationId}, nil
 }
 func TestAuthBootstrapHostScopeAndPinnedTLS(t *testing.T) {
 	const serverIdentity = "spiffe://terrascale.tech/production/terrabase-member/01ARZ3NDEKTSV4RRFFQ69G5FA0/01ARZ3NDEKTSV4RRFFQ69G5FA5"
@@ -74,7 +74,7 @@ func TestAuthBootstrapHostScopeAndPinnedTLS(t *testing.T) {
 	if _, err := client.Identity(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Bootstrap(ctx, &pb.AuthGroupBootstrapRequest{OperationId: grant.GroupId, Grant: grant}); err != nil {
+	if _, err := client.Bootstrap(ctx, &pb.AuthGroupBootstrapServiceBootstrapRequest{OperationId: grant.GroupId, Grant: grant}); err != nil {
 		t.Fatal(err)
 	}
 	config.ServerIdentity = "spiffe://terrascale.test/foreign"

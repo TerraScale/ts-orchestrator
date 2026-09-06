@@ -39,6 +39,20 @@ const (
 	reconcilePlacementFileEnvironment = "TS_ORCH_PLACEMENT_FILE"
 )
 
+type productionAutoscaleContextKey struct{}
+
+func withProductionAutoscaleWiring(ctx context.Context, wiring productionAutoscaleWiring) context.Context {
+	return context.WithValue(ctx, productionAutoscaleContextKey{}, wiring)
+}
+
+func productionAutoscaleFromContext(ctx context.Context) (productionAutoscaleWiring, bool) {
+	if ctx == nil {
+		return productionAutoscaleWiring{}, false
+	}
+	wiring, ok := ctx.Value(productionAutoscaleContextKey{}).(productionAutoscaleWiring)
+	return wiring, ok && wiring.Source != nil && wiring.Apply != nil && len(wiring.Regions) > 0
+}
+
 // runReconcile drives the observed estate to the declared estate (D-67).
 // With --dry-run it prints the plan derived from an empty observation — the
 // greenfield/bootstrap plan — and exits.
@@ -57,6 +71,7 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
+	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan})
 	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
 	if err != nil {
@@ -84,14 +99,16 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 // and refuses to start until every authority and telemetry boundary is
 // explicitly configured.
 type productionReconcileDependencies struct {
-	Spec          estate.Spec
-	OCI           *ociReconcileController
-	Cloudflare    *cloudflareReconcileController
-	KVStore       cloudflare.KVWriterStore
-	KVWriter      *cloudflare.KVWriter
-	Observability observability.Config
-	Telemetry     *reconcileTelemetry
-	Progress      reconcile.ProgressStore
+	Spec             estate.Spec
+	OCI              *ociReconcileController
+	Cloudflare       *cloudflareReconcileController
+	KVStore          cloudflare.KVWriterStore
+	KVWriter         *cloudflare.KVWriter
+	Observability    observability.Config
+	Telemetry        *reconcileTelemetry
+	Progress         reconcile.ProgressStore
+	AutoscaleSource  autoscale.ObservationSource
+	AutoscaleRegions []string
 }
 
 func newProductionReconcileLoop(lookup envLookup, output io.Writer) (*reconcile.Loop, error) {
@@ -287,14 +304,16 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		return nil, fmt.Errorf("reconcile: KV writer configuration is invalid: %w", err)
 	}
 	return &productionReconcileDependencies{
-		Spec:          spec,
-		OCI:           ociController,
-		Cloudflare:    cloudflareController,
-		KVStore:       cloudflareController.Client,
-		KVWriter:      kvWriter,
-		Observability: telemetry,
-		Telemetry:     telemetrySink,
-		Progress:      progress,
+		Spec:             spec,
+		OCI:              ociController,
+		Cloudflare:       cloudflareController,
+		KVStore:          cloudflareController.Client,
+		KVWriter:         kvWriter,
+		Observability:    telemetry,
+		Telemetry:        telemetrySink,
+		Progress:         progress,
+		AutoscaleSource:  health,
+		AutoscaleRegions: append([]string(nil), registeredRegions...),
 	}, nil
 }
 

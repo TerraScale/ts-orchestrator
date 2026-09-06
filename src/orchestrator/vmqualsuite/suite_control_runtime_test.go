@@ -111,7 +111,7 @@ func TestRuntimeControlBootstrapRequiresFreshProofForBothActions(t *testing.T) {
 	}
 }
 func TestRuntimeControlCandidateNeverSynthesizesReadinessOnFailureOrStaleEvidence(t *testing.T) {
-	for _, mode := range []string{"unavailable", "missing-digest", "stale"} {
+	for _, mode := range []string{"unavailable", "missing-digest", "stale", "lagging"} {
 		t.Run(mode, func(t *testing.T) {
 			fixture := explicitControlRuntimeFixture{execute: func(_ context.Context, request bootstrap.ControlActionRequest) (bootstrap.ControlRuntimeEvidence, error) {
 				if mode == "unavailable" {
@@ -120,6 +120,8 @@ func TestRuntimeControlCandidateNeverSynthesizesReadinessOnFailureOrStaleEvidenc
 				evidence := fixtureRuntimeEvidence(request)
 				if mode == "missing-digest" {
 					evidence.StorageDigest = ""
+				} else if mode == "lagging" {
+					evidence.Candidate = &bootstrap.CandidateRuntimeEvidence{IdentityReady: true, StorageReady: true, HealthReady: true}
 				} else {
 					evidence.ObservedAt = time.Now().Add(-time.Minute)
 				}
@@ -127,7 +129,11 @@ func TestRuntimeControlCandidateNeverSynthesizesReadinessOnFailureOrStaleEvidenc
 			}}
 			provider := &runtimeControlProvider{runtime: fixture}
 			candidate, err := provider.VerifyCandidate(context.Background(), bootstrap.ControlActionRequest{Action: bootstrap.ControlAction{Kind: bootstrap.ControlActionVerifyCandidate, Region: "sfo"}})
-			if !errors.Is(err, bootstrap.ErrControlRuntimeUnavailable) || candidate.Ready() || len(provider.calls) != 0 {
+			wantCalls := 0
+			if mode == "lagging" {
+				wantCalls = 1 // The real runtime was consulted before its lag proof was rejected.
+			}
+			if !errors.Is(err, bootstrap.ErrControlRuntimeUnavailable) || candidate.Ready() || len(provider.calls) != wantCalls {
 				t.Fatalf("invalid proof became ready: %+v, %v", candidate, err)
 			}
 		})

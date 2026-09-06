@@ -48,7 +48,7 @@ func validIdentity(value string) bool {
 	return err == nil && u.Scheme == "spiffe" && u.Host != "" && u.Hostname() == u.Host && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.RawPath == "" && u.Path != "" && u.String() == value
 }
 
-func NewRecord(operationID, serverIdentity, principal string, request *pb.PlacementStageRequest) (Record, error) {
+func NewRecord(operationID, serverIdentity, principal string, request *pb.PlacementControlServiceStageRequest) (Record, error) {
 	if !validToken(operationID) || !validIdentity(serverIdentity) || !validIdentity(principal) || request == nil {
 		return Record{}, ErrInvalidConfig
 	}
@@ -56,17 +56,17 @@ func NewRecord(operationID, serverIdentity, principal string, request *pb.Placem
 	if err != nil {
 		return Record{}, err
 	}
-	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal, Declarations: request.Declarations})
+	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementControlServiceStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal, Declarations: request.Declarations})
 	if err != nil {
 		return Record{}, err
 	}
 	return Record{OperationID: operationID, ServerIdentity: serverIdentity, Principal: principal, Request: data}, nil
 }
-func decodeRecord(record Record) (*pb.PlacementStageRequest, error) {
+func decodeRecord(record Record) (*pb.PlacementControlServiceStageRequest, error) {
 	if len(record.Request) == 0 || len(record.Request) > 480<<10 || len(record.Receipt) > 512<<10 {
 		return nil, ErrInvalidConfig
 	}
-	request := new(pb.PlacementStageRequest)
+	request := new(pb.PlacementControlServiceStageRequest)
 	if proto.Unmarshal(record.Request, request) != nil {
 		return nil, ErrInvalidConfig
 	}
@@ -75,7 +75,7 @@ func decodeRecord(record Record) (*pb.PlacementStageRequest, error) {
 		return nil, ErrInvalidConfig
 	}
 	if len(record.Receipt) > 0 {
-		receipt := new(pb.PlacementProposalResponse)
+		receipt := new(pb.PlacementControlServiceStageResponse)
 		if proto.Unmarshal(record.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, request.Proposal) != nil || receipt.Revision != request.ExpectedRevision+1 || request.ExpectedRevision == ^uint64(0) {
 			return nil, ErrInvalidConfig
 		}
@@ -91,10 +91,10 @@ func sameIntent(a, b Record) bool {
 type Journal interface {
 	Accept(context.Context, Record) error
 	Load(context.Context, string) (Record, error)
-	Acknowledge(context.Context, Record, *pb.PlacementProposalResponse) error
+	Acknowledge(context.Context, Record, *pb.PlacementControlServiceStageResponse) error
 }
 type Target interface {
-	Stage(context.Context, string, *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error)
+	Stage(context.Context, string, *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error)
 	Principal() string
 	ServerIdentity() string
 }
@@ -113,7 +113,7 @@ func New(journal Journal, target Target, checkEffectAuthority func(context.Conte
 
 // Accept persists the exact target and request before any RPC. The authority
 // owner must validate the requested placement/residency policy before calling.
-func (p *Publisher) Accept(ctx context.Context, operationID string, request *pb.PlacementStageRequest) error {
+func (p *Publisher) Accept(ctx context.Context, operationID string, request *pb.PlacementControlServiceStageRequest) error {
 	record, err := NewRecord(operationID, p.target.ServerIdentity(), p.target.Principal(), request)
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func (p *Publisher) Accept(ctx context.Context, operationID string, request *pb.
 // Reconcile resolves the accepted operation, including after a process restart.
 // Failure leaves the exact request retryable. It never increments a revision,
 // chooses a new operation ID, or treats a newer Get head as an old receipt.
-func (p *Publisher) Reconcile(ctx context.Context) (*pb.PlacementProposalResponse, error) {
+func (p *Publisher) Reconcile(ctx context.Context) (*pb.PlacementControlServiceStageResponse, error) {
 	record, err := p.journal.Load(ctx, p.target.ServerIdentity())
 	if err != nil {
 		return nil, err
@@ -140,7 +140,7 @@ func (p *Publisher) Reconcile(ctx context.Context) (*pb.PlacementProposalRespons
 		return nil, ErrInvalidConfig
 	}
 	if len(record.Receipt) > 0 {
-		result := new(pb.PlacementProposalResponse)
+		result := new(pb.PlacementControlServiceStageResponse)
 		if proto.Unmarshal(record.Receipt, result) != nil {
 			return nil, ErrInvalidConfig
 		}

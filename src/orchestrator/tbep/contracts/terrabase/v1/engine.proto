@@ -836,16 +836,16 @@ service UsageService {
 service PlacementControlService {
   // Persists an intent only. x-tb-idempotency-key binds the exact canonical
   // request and authenticated principal. A retry returns its original revision.
-  rpc Stage(PlacementStageRequest) returns (PlacementProposalResponse);
-  rpc Get(PlacementGetRequest) returns (PlacementProposalResponse);
+  rpc Stage(PlacementControlServiceStageRequest) returns (PlacementControlServiceStageResponse);
+  rpc Get(PlacementControlServiceGetRequest) returns (PlacementControlServiceGetResponse);
   // Verifies and durably retains a signed GRU epoch proof matching staged intent.
   // Admission permits catch-up only; it does not assert data readiness.
-  rpc Accept(PlacementAcceptRequest) returns (PlacementAcceptanceResponse);
-  rpc GetAccepted(PlacementGetRequest) returns (PlacementAcceptanceResponse);
+  rpc Accept(PlacementControlServiceAcceptRequest) returns (PlacementControlServiceAcceptResponse);
+  rpc GetAccepted(PlacementControlServiceGetAcceptedRequest) returns (PlacementControlServiceGetAcceptedResponse);
   // Executes a durably authorized old-epoch fence and returns a member-signed
   // frontier receipt only after origin+physical work has durably drained.
-  rpc Drain(PlacementDrainRequest) returns (PlacementDrainResponse);
-  rpc Readiness(PlacementReadinessRequest) returns (PlacementDrainResponse);
+  rpc Drain(PlacementControlServiceDrainRequest) returns (PlacementControlServiceDrainResponse);
+  rpc Readiness(PlacementControlServiceReadinessRequest) returns (PlacementControlServiceReadinessResponse);
 }
 
 // Authenticated private lifecycle control. Every mutation is bound to the
@@ -926,13 +926,13 @@ message PlacementDatabaseDeclaration {
   repeated string selected_regions = 4;
 }
 
-message PlacementStageRequest {
+message PlacementControlServiceStageRequest {
   uint64 expected_revision = 1; // Local journal CAS revision, zero before first Stage.
   PlacementProposal proposal = 2;
   repeated PlacementDatabaseDeclaration declarations = 3; // Exact provisioning scope/residency; committed with proposal CAS.
 }
 
-message PlacementGetRequest {}
+message PlacementControlServiceGetRequest {}
 
 enum PlacementProposalStatus {
   PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED = 0;
@@ -940,7 +940,7 @@ enum PlacementProposalStatus {
   PLACEMENT_PROPOSAL_STATUS_PENDING = 1;
 }
 
-message PlacementProposalResponse {
+message PlacementControlServiceStageResponse {
   uint64 revision = 1;
   PlacementProposal proposal = 2;
   PlacementProposalStatus status = 3;
@@ -949,11 +949,11 @@ message PlacementProposalResponse {
 // Dedicated GRU-authorized auth consensus bootstrap control. No user data.
 // A pending placement proposal never authorizes this service's grants.
 service AuthGroupBootstrapService {
-  rpc Identity(AuthStorageIdentityRequest) returns (AuthStorageIdentity);
-  rpc Bootstrap(AuthGroupBootstrapRequest) returns (AuthGroupBootstrapReceipt);
+  rpc Identity(AuthGroupBootstrapServiceIdentityRequest) returns (AuthGroupBootstrapServiceIdentityResponse);
+  rpc Bootstrap(AuthGroupBootstrapServiceBootstrapRequest) returns (AuthGroupBootstrapServiceBootstrapResponse);
 }
-message AuthStorageIdentityRequest {}
-message AuthStorageIdentity {
+message AuthGroupBootstrapServiceIdentityRequest {}
+message AuthGroupBootstrapServiceIdentityResponse {
   string environment = 1;
   string cluster = 2;
   string member = 3;
@@ -980,7 +980,7 @@ message AuthGroupBootstrapGrant {
   uint64 authority_revision = 10; // Exact committed GRU control journal sequence.
   uint64 genesis_node = 11; // Only this voter may initialize the new Raft group.
 }
-message AuthGroupBootstrapRequest {
+message AuthGroupBootstrapServiceBootstrapRequest {
   string operation_id = 1; // Stable control retry identity.
   AuthGroupBootstrapGrant grant = 2;
 }
@@ -989,7 +989,7 @@ enum AuthGroupBootstrapStatus {
   // Persisted grant; this does not report quorum, durability, or API readiness.
   AUTH_GROUP_BOOTSTRAP_STATUS_PERSISTED = 1;
 }
-message AuthGroupBootstrapReceipt {
+message AuthGroupBootstrapServiceBootstrapResponse {
   string group_id = 1;
   uint64 generation = 2;
   uint64 authority_revision = 3;
@@ -1000,7 +1000,7 @@ message AuthGroupBootstrapReceipt {
 }
 
 // Exact Signed JSON envelope from the GRU placementtransition producer.
-message PlacementAcceptRequest {
+message PlacementControlServiceAcceptRequest {
   uint64 proposal_revision = 1;
   bytes proof = 2; // <=256 KiB; raw signed payload authenticated before decoding.
 }
@@ -1010,7 +1010,7 @@ enum PlacementAcceptanceStatus {
   PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP = 1;
 }
 
-message PlacementAcceptanceResponse {
+message PlacementControlServiceAcceptResponse {
   uint64 proposal_revision = 1;
   uint64 epoch = 2;
   uint64 generation = 3;
@@ -1018,17 +1018,37 @@ message PlacementAcceptanceResponse {
   PlacementAcceptanceStatus status = 5;
 }
 
-message PlacementDrainRequest {
+message PlacementControlServiceDrainRequest {
   bytes prepared_transition = 1; // <=256KiB Signed prepared_epoch GRU envelope.
 }
-message PlacementDrainResponse {
+message PlacementControlServiceDrainResponse {
   bytes signed_receipt = 1; // Signed old_epoch_drained_fenced envelope.
 }
 
-message PlacementReadinessRequest {
+message PlacementControlServiceReadinessRequest {
   string tenant = 1; // Canonical tenant ULID.
   string project = 2; // Canonical project ULID.
   string database = 3; // Canonical database ULID.
   string operation_id = 4; // Exact durable provisioning operation.
   string nonce = 5; // Fresh challenge, exactly64 lowercase hex characters.
+}
+
+message PlacementControlServiceGetAcceptedRequest {}
+
+message PlacementControlServiceGetResponse {
+  uint64 revision = 1;
+  PlacementProposal proposal = 2;
+  PlacementProposalStatus status = 3;
+}
+
+message PlacementControlServiceGetAcceptedResponse {
+  uint64 proposal_revision = 1;
+  uint64 epoch = 2;
+  uint64 generation = 3;
+  string proof_digest = 4;
+  PlacementAcceptanceStatus status = 5;
+}
+
+message PlacementControlServiceReadinessResponse {
+  bytes signed_receipt = 1;
 }

@@ -61,7 +61,7 @@ func CanonicalPlacement(proposal *pb.PlacementProposal) (*pb.PlacementProposal, 
 
 // Stage sends once. After any unknown outcome the durable publisher must reuse
 // the same operation ID, expected revision and canonical proposal.
-func (c *PlacementClient) Stage(ctx context.Context, operationID string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
+func (c *PlacementClient) Stage(ctx context.Context, operationID string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
 	if !validMetadata(operationID, 128) || request == nil {
 		return nil, errors.New("TBEP placement operation identity and request required")
 	}
@@ -74,7 +74,7 @@ func (c *PlacementClient) Stage(ctx context.Context, operationID string, request
 	scope := c.transport.scope.Copy()
 	scope.Set("x-tb-idempotency-key", operationID)
 	ctx = metadata.NewOutgoingContext(ctx, scope)
-	response, err := c.rpc.Stage(ctx, &pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal})
+	response, err := c.rpc.Stage(ctx, &pb.PlacementControlServiceStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (c *PlacementClient) Stage(ctx context.Context, operationID string, request
 	return response, nil
 }
 
-func ValidatePlacementReceipt(response *pb.PlacementProposalResponse, proposal *pb.PlacementProposal) error {
+func ValidatePlacementReceipt(response *pb.PlacementControlServiceStageResponse, proposal *pb.PlacementProposal) error {
 	if response == nil || response.Revision == 0 || response.Status != pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING {
 		return errors.New("TBEP placement returned invalid pending receipt")
 	}
@@ -105,19 +105,27 @@ func ValidatePlacementReceipt(response *pb.PlacementProposalResponse, proposal *
 	return nil
 }
 
+func ValidatePlacementGetResponse(response *pb.PlacementControlServiceGetResponse) error {
+	if response == nil || response.Revision == 0 || response.Status != pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING {
+		return errors.New("TBEP placement returned invalid pending response")
+	}
+	_, err := CanonicalPlacement(response.Proposal)
+	return err
+}
+
 // Get observes only the latest pending proposal; it cannot resolve a historic
 // operation after a later proposal. Stage's idempotent receipt resolves retries.
-func (c *PlacementClient) Get(ctx context.Context) (*pb.PlacementProposalResponse, error) {
+func (c *PlacementClient) Get(ctx context.Context) (*pb.PlacementControlServiceGetResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.transport.timeout)
 	defer cancel()
-	response, err := c.rpc.Get(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.PlacementGetRequest{})
+	response, err := c.rpc.Get(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.PlacementControlServiceGetRequest{})
 	if err != nil {
 		return nil, err
 	}
 	if response == nil {
 		return nil, errors.New("TBEP placement returned empty response")
 	}
-	if err := ValidatePlacementReceipt((*pb.PlacementProposalResponse)(response), response.Proposal); err != nil {
+	if err := ValidatePlacementGetResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil

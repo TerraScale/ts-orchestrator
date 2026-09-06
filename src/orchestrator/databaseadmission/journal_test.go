@@ -15,7 +15,7 @@ func journalFixture(t *testing.T) Record {
 	t.Helper()
 	r := Record{CreatedAt: time.Now().UTC(), Request: Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", Name: "example", OperationID: "create-example", Regions: []string{"GRU"}}, DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FB0", KeyVersion: "01ARZ3NDEKTSV4RRFFQ69G5FB1", State: "accepted"}
 	members := []string{"01ARZ3NDEKTSV4RRFFQ69G5FAW", "01ARZ3NDEKTSV4RRFFQ69G5FAX"}
-	proposal, err := proto.Marshal(&pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: r.Request.Environment, Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: members}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: r.Request.TenantID, Project: r.Request.ProjectID, Database: r.DatabaseID, Region: "GRU", WriterMember: members[0], FollowerMember: members[1]}}}})
+	proposal, err := proto.Marshal(&pb.PlacementControlServiceStageRequest{Proposal: &pb.PlacementProposal{Environment: r.Request.Environment, Cluster: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Generation: 1, Epoch: 1, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: members}}, Assignments: []*pb.PlacementDatabaseAssignment{{Tenant: r.Request.TenantID, Project: r.Request.ProjectID, Database: r.DatabaseID, Region: "GRU", WriterMember: members[0], FollowerMember: members[1]}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

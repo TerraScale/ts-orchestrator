@@ -161,7 +161,7 @@ func ValidateRecord(r Record) error {
 			return ErrInvalid
 		}
 		provisions[t.Region] = t.Provision
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if proto.Unmarshal(t.Proposal, stage) != nil || stage.Proposal == nil || stage.Proposal.Environment != r.Request.Environment || !canonicalID.MatchString(stage.Proposal.Cluster) || stage.Proposal.Generation == 0 || stage.Proposal.Epoch == 0 {
 			return ErrInvalid
 		}
@@ -257,7 +257,7 @@ func validatePlacementTargets(r Record) error {
 	seen := map[string]PlacementTarget{}
 	var shared *pb.PlacementProposal
 	for _, target := range r.PlacementTargets {
-		stage := new(pb.PlacementStageRequest)
+		stage := new(pb.PlacementControlServiceStageRequest)
 		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil {
 			return ErrInvalid
 		}

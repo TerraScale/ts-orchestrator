@@ -133,6 +133,9 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 			_ = closeConn()
 			return nil, err
 		}
+		if wiring, ok := productionAutoscaleFromContext(constructCtx); ok {
+			runtime.autoscale = &wiring
+		}
 		return runtime, nil
 	}}, nil
 }

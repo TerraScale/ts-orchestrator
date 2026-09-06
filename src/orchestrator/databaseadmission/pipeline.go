@@ -24,7 +24,7 @@ type Config struct {
 	CheckAuthority  func(context.Context) error
 	Plan            func(context.Context, Record) (Plan, error)
 	Install         func(context.Context, Record, Target, []keylease.Entry) error
-	AcceptPlacement func(context.Context, string, string, *pb.PlacementStageRequest) error
+	AcceptPlacement func(context.Context, string, string, *pb.PlacementControlServiceStageRequest) error
 	// ActivatePlacement delivers a separately authorized accepted-membership
 	// proof. Success does not establish RF2 or caught-up serving readiness.
 	ActivatePlacement func(context.Context, Record) error
@@ -243,7 +243,7 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
-		request := new(pb.PlacementStageRequest)
+		request := new(pb.PlacementControlServiceStageRequest)
 		if proto.Unmarshal(target.Proposal, request) != nil {
 			return ErrInvalid
 		}

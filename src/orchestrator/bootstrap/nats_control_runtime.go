@@ -533,6 +533,12 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 		if err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
+		members, membersOK := id.([]directory.RegionalRuntimeMember)
+		snapshot, snapshotOK := state.(controlStoreSnapshot)
+		hostFacts, factsOK := facts.([]hostagent.NodeStatusReport)
+		if !membersOK || !snapshotOK || !factsOK {
+			return ControlRuntimeEvidence{}, ErrControlRuntimeUnavailable
+		}
 		identities = append(identities, id)
 		storage = append(storage, state)
 		health = append(health, facts)
@@ -541,10 +547,10 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 			// passed: signed members, stream assignments, fresh host facts and
 			// source/mirror watermark comparisons. Generic action success alone
 			// must not imply candidate readiness.
-			candidate.IdentityReady = candidate.IdentityReady || len(check.Members) > 0 && len(id) == len(check.Members)
-			candidate.StorageReady = candidate.StorageReady || len(check.Streams) > 0 && len(state.Streams) == len(check.Streams)
-			candidate.HealthReady = candidate.HealthReady || len(check.Members) > 0 && len(facts) == len(check.Members)
-			candidate.CaughtUp = candidate.CaughtUp || len(check.Mirrors) > 0 && len(state.Mirrors) == len(check.Mirrors)
+			candidate.IdentityReady = candidate.IdentityReady || len(check.Members) > 0 && len(members) == len(check.Members)
+			candidate.StorageReady = candidate.StorageReady || len(check.Streams) > 0 && len(snapshot.Streams) == len(check.Streams)
+			candidate.HealthReady = candidate.HealthReady || len(check.Members) > 0 && len(hostFacts) == len(check.Members)
+			candidate.CaughtUp = candidate.CaughtUp || len(check.Mirrors) > 0 && len(snapshot.Mirrors) == len(check.Mirrors)
 		}
 	}
 	if plan.RevokedCredential != nil {

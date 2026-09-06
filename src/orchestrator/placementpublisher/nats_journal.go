@@ -83,7 +83,7 @@ func (journal *NATSJournal) Accept(ctx context.Context, record Record) error {
 			if old.OperationID == record.OperationID || len(old.Receipt) == 0 {
 				return ErrPlacementJournalConflict
 			}
-			receipt := new(pb.PlacementProposalResponse)
+			receipt := new(pb.PlacementControlServiceStageResponse)
 			if proto.Unmarshal(old.Receipt, receipt) != nil {
 				return ErrInvalidConfig
 			}
@@ -125,7 +125,7 @@ func (journal *NATSJournal) Load(ctx context.Context, serverIdentity string) (re
 	})
 	return
 }
-func (journal *NATSJournal) Acknowledge(ctx context.Context, record Record, receipt *pb.PlacementProposalResponse) error {
+func (journal *NATSJournal) Acknowledge(ctx context.Context, record Record, receipt *pb.PlacementControlServiceStageResponse) error {
 	request, err := decodeRecord(record)
 	if err != nil {
 		return err

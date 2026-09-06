@@ -23,7 +23,7 @@ func DrainHostSubject(identity string) (string, error) {
 }
 
 type DrainTarget interface {
-	Drain(context.Context, string, *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error)
+	Drain(context.Context, string, *pb.PlacementControlServiceDrainRequest) (*pb.PlacementControlServiceDrainResponse, error)
 	Principal() string
 	ServerIdentity() string
 }
@@ -58,7 +58,7 @@ func (target *RemoteTarget) controlRequest(ctx context.Context, subject, id stri
 	}
 	return reply.Receipt, nil
 }
-func (target *RemoteTarget) Drain(ctx context.Context, id string, request *pb.PlacementDrainRequest) (*pb.PlacementDrainResponse, error) {
+func (target *RemoteTarget) Drain(ctx context.Context, id string, request *pb.PlacementControlServiceDrainRequest) (*pb.PlacementControlServiceDrainResponse, error) {
 	prepared, err := tbep.DrainBinding(id, request)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (target *RemoteTarget) Drain(ctx context.Context, id string, request *pb.Pl
 	if err != nil {
 		return nil, err
 	}
-	response := new(pb.PlacementDrainResponse)
+	response := new(pb.PlacementControlServiceDrainResponse)
 	if proto.Unmarshal(raw, response) != nil {
 		return nil, ErrInvalidConfig
 	}
@@ -145,7 +145,7 @@ func StartDrainHostBridge(ctx context.Context, connection *nats.Conn, target Dra
 		return nil, err
 	}
 	return startControlBridge(ctx, connection, subject, target.ServerIdentity(), target.Principal(), func(ctx context.Context, id string, raw []byte) (proto.Message, error) {
-		request := new(pb.PlacementDrainRequest)
+		request := new(pb.PlacementControlServiceDrainRequest)
 		if proto.Unmarshal(raw, request) != nil {
 			return nil, ErrInvalidConfig
 		}
