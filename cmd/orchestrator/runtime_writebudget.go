@@ -140,7 +140,7 @@ func (r *runtimeWriteBudget) Allocate(ctx context.Context, request writebudget.R
 	if !grant.ExpiresAt.After(time.Now().UTC()) || grant.Revoked || grant.Fenced {
 		return writebudget.Grant{}, writebudget.ErrInvalid
 	}
-	signed, err := writebudget.SignAllocation(r.signer, grant, r.policy.CycleID, r.policy.RateNanoDollar, r.placement)
+	signed, err := writebudget.SignAllocation(r.signer, grant, grant.CycleID, grant.RateNanoDollar, r.placement)
 	if err != nil {
 		return writebudget.Grant{}, err
 	}

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"slices"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -11,6 +13,46 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 )
+
+// databaseActivitySource is the durable product activity authority. A
+// database admission timestamp describes creation, never a customer request.
+type databaseActivitySource interface {
+	LastAuthorizedRequest(context.Context, databaseadmission.Record) (*time.Time, error)
+}
+
+// policyDatabaseActivitySource is the production bridge to the billing
+// authority's durable activity fact. It intentionally returns nil when the
+// policy has no successful customer request; callers must preserve that
+// unknown value rather than substitute admission or process timestamps.
+type policyDatabaseActivitySource struct {
+	policy *reaper.LifecyclePolicyClient
+}
+
+func newPolicyDatabaseActivitySource(policy *reaper.LifecyclePolicyClient) databaseActivitySource {
+	if policy == nil {
+		return nil
+	}
+	return policyDatabaseActivitySource{policy: policy}
+}
+
+func (s policyDatabaseActivitySource) LastAuthorizedRequest(ctx context.Context, record databaseadmission.Record) (*time.Time, error) {
+	if s.policy == nil {
+		return nil, errors.New("native lifecycle durable activity policy is unavailable")
+	}
+	facts, err := s.policy.Evaluate(ctx, reaper.LifecyclePolicyScope{
+		OrganizationID: record.Request.TenantID,
+		ProjectID:      record.Request.ProjectID,
+		DatabaseID:     record.DatabaseID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if facts.LastAuthorizedRequestAt == nil {
+		return nil, nil
+	}
+	last := facts.LastAuthorizedRequestAt.UTC()
+	return &last, nil
+}
 
 // nativeLifecycleDatabase is the production reaper database adapter. Native
 // mutations always resolve an admitted member endpoint and forward the full
@@ -90,19 +132,11 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 		return nil, errors.New("native lifecycle admission is incomplete")
 	}
 	return &nativeLifecycleDatabase{
-		catalog: databaseCatalog(database),
+		catalog: databaseCatalog(database, config.Activity),
 		resolve: func(ctx context.Context, databaseID string) (tbep.LifecycleAssignment, *tbep.Client, error) {
-			record, ok, err := database.lifecycleJournal.Load(ctx, databaseID)
-			if err != nil || !ok || databaseadmission.ValidateRecord(record) != nil || record.DatabaseID != databaseID {
+			record, err := database.AcceptedRecord(ctx, databaseID)
+			if err != nil || databaseadmission.ValidateRecord(record) != nil || record.DatabaseID != databaseID {
 				return tbep.LifecycleAssignment{}, nil, errors.New("native lifecycle database admission is unavailable")
-			}
-			head, err := transition.issuer.Head(ctx, databaseadmission.ScopeKey(record.Request))
-			if err != nil {
-				return tbep.LifecycleAssignment{}, nil, err
-			}
-			signed, err := json.Marshal(head)
-			if err != nil {
-				return tbep.LifecycleAssignment{}, nil, err
 			}
 			target := record.Targets[0]
 			for _, candidate := range record.Targets {
@@ -118,6 +152,16 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 					break
 				}
 			}
+			var acceptedTarget databaseadmission.PlacementTarget
+			for _, candidate := range record.PlacementTargets {
+				if candidate.ServerIdentity == host.ServerIdentity {
+					acceptedTarget = candidate
+					break
+				}
+			}
+			if len(acceptedTarget.AcceptedProof) == 0 {
+				return tbep.LifecycleAssignment{}, nil, errors.New("native lifecycle accepted proof is unavailable")
+			}
 			tlsConfig, err := host.LifecycleTLS.LoadTLS()
 			if err != nil {
 				return tbep.LifecycleAssignment{}, nil, err
@@ -127,7 +171,11 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 			if err != nil {
 				return tbep.LifecycleAssignment{}, nil, err
 			}
-			return tbep.LifecycleAssignment{Environment: record.Request.Environment, Tenant: record.Request.TenantID, Project: record.Request.ProjectID, Database: record.DatabaseID, Region: target.Region, Member: target.MemberID, PlacementRevision: record.Revision, AuthorityEpoch: headProofEpoch(head), AuthorityLease: headProofLease(head), AuthoritySignature: signed}, client, nil
+			var acceptedProof placementtransition.Signed
+			if json.Unmarshal(acceptedTarget.AcceptedProof, &acceptedProof) != nil {
+				return tbep.LifecycleAssignment{}, nil, errors.New("native lifecycle accepted proof is unavailable")
+			}
+			return tbep.LifecycleAssignment{Environment: record.Request.Environment, Tenant: record.Request.TenantID, Project: record.Request.ProjectID, Database: record.DatabaseID, Region: target.Region, Member: target.MemberID, PlacementRevision: acceptedTarget.AcceptedRevision, AuthorityEpoch: acceptedTarget.AcceptedEpoch, AuthorityLease: headProofLease(acceptedProof), AuthoritySignature: acceptedTarget.AcceptedProof}, client, nil
 		},
 	}, nil
 }
@@ -143,21 +191,52 @@ func headProofLease(s placementtransition.Signed) string {
 	return p.LeaseID
 }
 
-type databaseCatalogAdapter struct{ database *productionDatabase }
+type databaseCatalogAdapter struct {
+	database *productionDatabase
+	activity databaseActivitySource
+}
 
-func databaseCatalog(d *productionDatabase) reaper.Catalog {
-	return databaseCatalogAdapter{database: d}
+func databaseCatalog(d *productionDatabase, activity databaseActivitySource) reaper.Catalog {
+	return databaseCatalogAdapter{database: d, activity: activity}
 }
 func (c databaseCatalogAdapter) List(ctx context.Context, cursor string, limit int) (reaper.Page, error) {
+	if c.database == nil || c.database.lifecycleJournal == nil || c.activity == nil || limit < 1 || limit > 1000 {
+		return reaper.Page{}, errors.New("native lifecycle catalog activity source is unavailable")
+	}
 	records, err := c.database.lifecycleJournal.List(ctx)
 	if err != nil {
 		return reaper.Page{}, err
 	}
-	out := reaper.Page{}
+	return pageDatabaseActivityRecords(ctx, records, cursor, limit, c.activity)
+}
+
+func pageDatabaseActivityRecords(ctx context.Context, records []databaseadmission.Record, cursor string, limit int, activity databaseActivitySource) (reaper.Page, error) {
+	if ctx == nil || activity == nil || limit < 1 || limit > 1000 {
+		return reaper.Page{}, errors.New("native lifecycle catalog activity source is unavailable")
+	}
+	records = slices.Clone(records)
+	slices.SortFunc(records, func(a, b databaseadmission.Record) int { return cmp.Compare(a.DatabaseID, b.DatabaseID) })
+	out := reaper.Page{Databases: make([]reaper.Database, 0, min(limit, len(records)))}
 	for _, r := range records {
-		if r.State == "accepted" || r.State == "ready" {
-			out.Databases = append(out.Databases, reaper.Database{ID: r.DatabaseID, LastRequest: r.CreatedAt})
+		if r.DatabaseID <= cursor || (r.State != "accepted" && r.State != "ready") {
+			continue
 		}
+		if len(out.Databases) == limit {
+			out.NextCursor = out.Databases[len(out.Databases)-1].ID
+			break
+		}
+		lastRequest, err := activity.LastAuthorizedRequest(ctx, r)
+		if err != nil {
+			return reaper.Page{}, err
+		}
+		out.Databases = append(out.Databases, reaper.Database{ID: r.DatabaseID, LastRequest: valueOrZero(lastRequest)})
 	}
 	return out, nil
+}
+
+func valueOrZero(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return value.UTC()
 }

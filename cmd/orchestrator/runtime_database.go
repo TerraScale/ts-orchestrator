@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
+	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -43,6 +45,9 @@ type productionDatabaseConfig struct {
 	Authorize                         func(context.Context, databaseadmission.Request) error
 	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) error
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
+	// Activity is the durable source of the last successful customer request.
+	// Admission timestamps are never valid activity facts.
+	Activity databaseActivitySource
 }
 type productionDatabase struct {
 	inventoryConfig      databaseInventoryFileConfig
@@ -168,7 +173,7 @@ func (d *productionDatabase) Close() error {
 	return errors.Join(errs...)
 }
 
-func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, record databaseadmission.Record, host string, receipt *pb.PlacementControlServiceAcceptResponse) error {
+func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, record databaseadmission.Record, host string, proof placementtransition.Signed, receipt *pb.PlacementControlServiceAcceptResponse) error {
 	if d == nil || d.lifecycleJournal == nil || receipt == nil {
 		return databaseadmission.ErrInvalid
 	}
@@ -192,6 +197,11 @@ func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, rec
 			return marshalErr
 		}
 		current.PlacementTargets[i].AcceptedReceipt = encoded
+		proofBytes, marshalErr := json.Marshal(proof)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		current.PlacementTargets[i].AcceptedProof = proofBytes
 		_, err = d.lifecycleJournal.Save(ctx, databaseadmission.ScopeKey(current.Request), current.Revision, current)
 		return err
 	}

@@ -116,11 +116,14 @@ type productionGlobalWorkerConfig struct {
 	Edge        control.GlobalEdgeDelivery
 	// Close releases every client allocated by Construct, including partial
 	// results returned with an error. It is required even for an empty bundle.
-	Close               func() error
-	EstateClient        any
-	EstateSnapshot      estatepublisher.SnapshotSource
-	Rotation            keyrotation.Config
-	Reaper              reaper.ProductionConfig
+	Close          func() error
+	EstateClient   any
+	EstateSnapshot estatepublisher.SnapshotSource
+	Rotation       keyrotation.Config
+	Reaper         reaper.ProductionConfig
+	// LifecyclePolicy is the accepted billing/lifecycle authority used for
+	// durable last-request activity; it is never inferred from admission.
+	LifecyclePolicy     *reaper.LifecyclePolicyClient
 	Restore             productionRestoreConfig
 	Placement           productionPlacementConfig
 	PlacementTransition productionPlacementTransitionConfig
@@ -322,6 +325,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime placement transition: %w", err)
 	}
 	config.Database.ActivatePlacement = transition.Activate
+	config.Database.Activity = newPolicyDatabaseActivitySource(config.LifecyclePolicy)
 	group.transition = transition
 	database, err := newProductionDatabase(config.Database, session, placement)
 	if err != nil {
@@ -337,7 +341,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		if !issuerOK {
 			return group, errors.New("runtime host removal: placement issuer lacks prepare binding")
 		}
-		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Issuer: issuer})
+		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Admission: database.lifecycleJournal, Issuer: issuer})
 		if ownerErr != nil {
 			return group, fmt.Errorf("runtime host removal: %w", ownerErr)
 		}

@@ -171,8 +171,8 @@ func TestProductionCacheRuleMarksExactlySnapshotAndLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Production failed: %v", err)
 	}
-	if len(z.CacheRules) != 1 {
-		t.Fatalf("want one cache rule, got %d", len(z.CacheRules))
+	if len(z.CacheRules) != 2 {
+		t.Fatalf("want global plus regional cache rules, got %d", len(z.CacheRules))
 	}
 	if got := z.CacheRules[0].rule().Expression; got != declaredCacheExpression {
 		t.Fatalf("declared expression:\n %s\nwant:\n %s", got, declaredCacheExpression)

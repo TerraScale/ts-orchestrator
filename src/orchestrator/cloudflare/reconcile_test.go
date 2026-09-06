@@ -331,8 +331,8 @@ func TestFullZoneReconcilePass(t *testing.T) {
 		counts[ch.Resource][ch.Action]++
 	}
 	wantCounts := map[string]map[Action]int{
-		"dns-record":   {Create: 10, Update: 1, Alert: 1}, // app drifts (update); legacy is unowned (alert); apex/api/docs/status + 3 sync + 3 region creates
-		"cache-rule":   {Create: 1, Alert: 1},
+		"dns-record":   {Create: 13, Update: 1, Alert: 1}, // app drifts (update); legacy is unowned (alert); apex/api/docs/status + 3 sync + 3 region REST + 3 region sync creates
+		"cache-rule":   {Create: 4, Alert: 1},
 		"tiered-cache": {Update: 1},
 		"snippet-rule": {Update: 1},
 		"worker-route": {Create: 1, Update: 1, Delete: 1},
@@ -345,8 +345,8 @@ func TestFullZoneReconcilePass(t *testing.T) {
 	if !reflect.DeepEqual(counts, wantCounts) {
 		t.Fatalf("plan counts = %v\nwant %v\nplan:\n%s", counts, wantCounts, plan)
 	}
-	if len(plan.Changes) != 28 {
-		t.Fatalf("want 28 changes, got %d:\n%s", len(plan.Changes), plan)
+	if len(plan.Changes) != 34 {
+		t.Fatalf("want 34 changes, got %d:\n%s", len(plan.Changes), plan)
 	}
 
 	if err := Apply(context.Background(), plan); err != nil {
@@ -390,12 +390,12 @@ func TestFullZoneReconcilePass(t *testing.T) {
 	rateRules := len(m.phases["http_ratelimit"])
 	tiered := m.tiered
 	m.mu.Unlock()
-	for _, want := range []string{"", "api.", "sync.api.", "gru.api.", "sfo.api.", "fra.api.", "app.", "docs.", "status.", "legacy."} {
+	for _, want := range []string{"", "api.", "sync.api.", "gru.api.", "sfo.api.", "fra.api.", "gru.sync.api.", "sfo.sync.api.", "fra.sync.api.", "app.", "docs.", "status.", "legacy."} {
 		if names[want+ZoneName] == 0 {
 			t.Errorf("D-24 hostname %s missing after reconcile (dns=%v)", want+ZoneName, names)
 		}
 	}
-	if len(names) != 10 { // the apex (A + NS + SOA) + 8 declared hostnames + preserved legacy
+	if len(names) != 13 { // the apex (A + NS + SOA) + 11 declared hostnames + preserved legacy
 		t.Errorf("stray DNS names remain: %v", names)
 	}
 	if !kvTitles[DBPlacementNamespace] || kvTitles["old-maps"] {
@@ -418,7 +418,7 @@ func TestRunDryRunPrintsWithoutTouching(t *testing.T) {
 	if err := Run(context.Background(), c, z, true, &out); err != nil {
 		t.Fatalf("dry run failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "zone terrascale.tech: 28 change(s)") {
+	if !strings.Contains(out.String(), "zone terrascale.tech: 34 change(s)") {
 		t.Fatalf("dry-run output wrong:\n%s", out.String())
 	}
 	m.mu.Lock()
@@ -440,12 +440,12 @@ func TestRunAppliesUntilConverged(t *testing.T) {
 	if err := Run(context.Background(), c, z, false, &out); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
-	// Fresh zone: 11 DNS creates (apex, api, app, docs, status, 3 sync,
-	// 3 region), 1 cache rule, tiered cache, 2 routes, 2 KV namespaces,
+	// Fresh zone: 14 DNS creates (apex, api, app, docs, status, 3 sync,
+	// 3 region REST, 3 region sync), 4 cache rules, tiered cache, 2 routes, 2 KV namespaces,
 	// 1 WAF rule, 1 rate rule, 4 settings, total TLS, and one alert: the
 	// gate snippet is not deployed yet.
-	if !strings.Contains(out.String(), "zone terrascale.tech: 25 change(s)") {
-		t.Fatalf("fresh zone should need 25 changes:\n%s", out.String())
+	if !strings.Contains(out.String(), "zone terrascale.tech: 31 change(s)") {
+		t.Fatalf("fresh zone should need 31 changes:\n%s", out.String())
 	}
 	again, err := ReconcileZone(context.Background(), c, z)
 	if err != nil {

@@ -150,6 +150,49 @@ func TestPaidAndExemptNeverInvokeExecutor(t *testing.T) {
 	}
 }
 
+func TestDueBillingGraceDeletesPaidDatabaseDespiteIdleExemption(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	catalog := &testCatalog{databases: []Database{{
+		ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanPaid,
+		Exemption:            Exemption{Active: true, Reason: "deletion protection"},
+		BillingGraceDeadline: &deadline, BillingDeletionEligible: true,
+	}}}
+	executor, mailer, audit, store := &testExecutor{}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+	if result, err := reaper.Run(context.Background()); err != nil || result.Paused != 1 {
+		t.Fatalf("billing pause: result=%+v err=%v", result, err)
+	}
+	if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
+		t.Fatalf("billing delete: result=%+v err=%v", result, err)
+	}
+	if len(executor.calls) != 6 || store.Snapshot().Entries["billing-db"].Phase != PhaseDeleted {
+		t.Fatalf("billing effects/state: calls=%v state=%+v", executor.calls, store.Snapshot().Entries["billing-db"])
+	}
+}
+
+func TestRestoredBillingCoverageReactivatesBeforeIdleReaper(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
+	catalog := &testCatalog{databases: []Database{database}}
+	executor, mailer, audit, store := &testExecutor{}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	database.BillingGraceDeadline, database.BillingDeletionEligible = nil, false
+	catalog.databases[0] = database
+	if result, err := reaper.Run(context.Background()); err != nil || result.Reactivated != 1 {
+		t.Fatalf("restored coverage: result=%+v err=%v", result, err)
+	}
+	if store.Snapshot().Entries["billing-db"].Phase != PhaseActive {
+		t.Fatalf("restored billing state=%+v", store.Snapshot().Entries["billing-db"])
+	}
+}
+
 func TestPartialFailureRetriesSameOperationAndPauseEmail(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(30 * 24 * time.Hour)}

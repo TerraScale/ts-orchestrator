@@ -15,7 +15,7 @@ import (
 )
 
 func policyFixture() map[string]any {
-	return map[string]any{"coverage": map[string]any{"paidThrough": nil, "cardLoss": nil, "unpaidStorageInvoices": map[string]any{}}, "schemaVersion": 1, "organizationId": "org", "projectId": "project", "databaseId": "db", "revision": "revision-1", "observedAt": "2026-09-05T12:00:00Z", "plan": "free", "lastAuthorizedRequestAt": "2026-07-01T00:00:00Z", "deletionProtection": false, "ownerEmails": []string{"owner@example.com"}, "pauseEligible": true, "deletionEligible": false, "deletionReasons": []string{"verified_notice_schedule_unavailable"}, "accessRevoked": false, "usageStoppedAt": nil, "retainUntil": nil}
+	return map[string]any{"coverage": map[string]any{"paidThrough": nil, "cardLoss": nil, "unpaidStorageInvoices": map[string]any{}}, "schemaVersion": 1, "organizationId": "org", "projectId": "project", "databaseId": "db", "revision": "revision-1", "observedAt": "2026-09-05T12:00:00Z", "plan": "free", "lastAuthorizedRequestAt": "2026-07-01T00:00:00Z", "deletionProtection": false, "ownerEmails": []string{"owner@example.com"}, "pauseEligible": true, "deletionEligible": false, "deletionReasons": []string{"verified_notice_schedule_unavailable"}, "accessRevoked": false, "usageStoppedAt": nil, "retainUntil": nil, "billingGraceDeadline": nil, "billingDeletionEligible": false}
 }
 func policyTestNow() time.Time { return time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC) }
 func policyTestScope() LifecyclePolicyScope {

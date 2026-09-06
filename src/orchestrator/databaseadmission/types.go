@@ -49,6 +49,7 @@ type PlacementTarget struct {
 	Receipt             []byte
 	Revision            uint64
 	AcceptedReceipt     []byte
+	AcceptedProof       []byte
 	AcceptedRevision    uint64
 	AcceptedEpoch       uint64
 	AcceptedGeneration  uint64
@@ -255,6 +256,7 @@ func ImmutableEqual(a, b Record) bool {
 		a.PlacementTargets[i].Receipt = nil
 		a.PlacementTargets[i].Revision = 0
 		a.PlacementTargets[i].AcceptedReceipt = nil
+		a.PlacementTargets[i].AcceptedProof = nil
 		a.PlacementTargets[i].AcceptedRevision = 0
 		a.PlacementTargets[i].AcceptedEpoch = 0
 		a.PlacementTargets[i].AcceptedGeneration = 0
@@ -265,6 +267,7 @@ func ImmutableEqual(a, b Record) bool {
 		b.PlacementTargets[i].Receipt = nil
 		b.PlacementTargets[i].Revision = 0
 		b.PlacementTargets[i].AcceptedReceipt = nil
+		b.PlacementTargets[i].AcceptedProof = nil
 		b.PlacementTargets[i].AcceptedRevision = 0
 		b.PlacementTargets[i].AcceptedEpoch = 0
 		b.PlacementTargets[i].AcceptedGeneration = 0

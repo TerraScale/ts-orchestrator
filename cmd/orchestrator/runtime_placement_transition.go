@@ -116,7 +116,7 @@ type productionPlacementTransition struct {
 	check               func(context.Context) error
 	bootstrapPublishers map[string]*placementpublisher.Publisher
 	completion          func(context.Context, string, string, bool) error
-	acceptance          func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error
+	acceptance          func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error
 	allocateStreams     func(context.Context, databaseadmission.Record, string) error
 	registerUsage       func(context.Context, databaseadmission.Record, string) error
 }
@@ -396,7 +396,7 @@ deliver:
 		if response.ProofDigest != hex.EncodeToString(proofDigest[:]) {
 			return errors.New("runtime transition: accepted placement proof digest differs from issued proof")
 		}
-		if err := t.acceptance(ctx, record, target.ServerIdentity, response); err != nil {
+		if err := t.acceptance(ctx, record, target.ServerIdentity, signed, response); err != nil {
 			return err
 		}
 	}

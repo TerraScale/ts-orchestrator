@@ -42,6 +42,9 @@ func TestDeclaredZoneMatchesD24(t *testing.T) {
 		ZoneName,
 		"api.terrascale.tech",
 		"sync.api.terrascale.tech",
+		"gru.sync.api.terrascale.tech",
+		"sfo.sync.api.terrascale.tech",
+		"fra.sync.api.terrascale.tech",
 		"gru.api.terrascale.tech",
 		"sfo.api.terrascale.tech",
 		"fra.api.terrascale.tech",
@@ -65,6 +68,9 @@ func TestDeclaredZoneMatchesD24(t *testing.T) {
 		if counts[region+".api.terrascale.tech"] != 2 {
 			t.Errorf("%s.api should carry its 2 members, got %d", region, counts[region+".api.terrascale.tech"])
 		}
+		if counts[region+".sync.api.terrascale.tech"] != 2 {
+			t.Errorf("%s.sync.api should carry its 2 members, got %d", region, counts[region+".sync.api.terrascale.tech"])
+		}
 	}
 }
 
@@ -82,7 +88,7 @@ func TestProductionFollowsTheEstate(t *testing.T) {
 	if seen["sfo.api.terrascale.tech"] || seen["fra.api.terrascale.tech"] {
 		t.Error("regions without members must not declare records")
 	}
-	if !seen["sync.api.terrascale.tech"] || !seen["gru.api.terrascale.tech"] {
+	if !seen["sync.api.terrascale.tech"] || !seen["gru.api.terrascale.tech"] || !seen["gru.sync.api.terrascale.tech"] {
 		t.Error("present regions must declare records")
 	}
 }
@@ -103,8 +109,13 @@ func TestProductionEncodesTheDecisions(t *testing.T) {
 	}
 	// D-55: the cache rule marks the reactive paths eligible, origin owns
 	// the TTL.
-	if len(z.CacheRules) != 1 {
-		t.Fatalf("want one cache rule, got %d", len(z.CacheRules))
+	if len(z.CacheRules) != 4 {
+		t.Fatalf("want global plus three regional cache rules, got %d", len(z.CacheRules))
+	}
+	if len(z.SnippetRules) != 1 || !reflect.DeepEqual(z.SnippetRules[0].Hostnames, []string{
+		"sync.api.terrascale.tech", "gru.sync.api.terrascale.tech", "sfo.sync.api.terrascale.tech", "fra.sync.api.terrascale.tech",
+	}) {
+		t.Fatalf("gate must bind one authorization Snippet to every sync ingress: %+v", z.SnippetRules)
 	}
 	cr := z.CacheRules[0].rule()
 	if !strings.Contains(cr.Expression, `http.host eq "sync.api.terrascale.tech"`) ||
@@ -113,6 +124,18 @@ func TestProductionEncodesTheDecisions(t *testing.T) {
 	}
 	if cr.Action != "set_cache_settings" || !strings.Contains(string(cr.ActionParameters), "respect_origin") {
 		t.Errorf("cache rule must be eligible with respect-origin edge TTL: %s", cr.ActionParameters)
+	}
+	for _, region := range []string{"gru", "sfo", "fra"} {
+		cr := z.CacheRules[0]
+		for _, candidate := range z.CacheRules {
+			if candidate.Hostname == region+".sync.api.terrascale.tech" {
+				cr = candidate
+				break
+			}
+		}
+		if cr.Hostname != region+".sync.api.terrascale.tech" || !strings.Contains(cr.rule().Expression, `starts_with(http.request.uri.path, "/api/v1/reactive/views/")`) {
+			t.Errorf("regional cache rule missing or too broad for %s: %+v", region, cr)
+		}
 	}
 	// D-58/D-59: exactly two Worker routes, none on sync.api.
 	routes := map[string]string{}

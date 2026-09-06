@@ -82,10 +82,7 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	}
 	request.OperationID = config.OperationID
 	digest, _ := placementtransition.RequestDigest(request)
-	worker.acceptance = func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error {
-		return nil
-	}
-	worker.acceptance = func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error {
+	worker.acceptance = func(context.Context, databaseadmission.Record, string, placementtransition.Signed, *pb.PlacementControlServiceAcceptResponse) error {
 		return nil
 	}
 	key := ed25519.NewKeyFromSeed(make([]byte, 32))

@@ -16,9 +16,12 @@ import (
 // (D-63) — one gate is all we need.
 type SnippetRule struct {
 	SnippetName string
-	Hostname    string
-	PathPrefix  string
-	Enabled     bool
+	// One binding covers every ingress hostname. The rule is emitted as one
+	// OR expression so Cloudflare executes the
+	// same authorization code before cache lookup on every ingress hostname.
+	Hostnames  []string
+	PathPrefix string
+	Enabled    bool
 }
 
 // SnippetRuleWire is the wire shape of one snippet rule.
@@ -190,7 +193,7 @@ func (z *Zone) reconcileSnippets(ctx context.Context, c *Client, p *Plan) error 
 			continue
 		}
 		rules := []SnippetRuleWire{{
-			Expression:  snippetGateExpression(want.Hostname, want.PathPrefix),
+			Expression:  snippetGateExpression(declarationHosts(want), want.PathPrefix),
 			Description: refDescription(want.SnippetName),
 			Enabled:     want.Enabled,
 		}}
@@ -218,10 +221,10 @@ func (z *Zone) validateGateDeclaration() error {
 			return fmt.Errorf("cloudflare: snippet %q declared twice; one snippet carries one binding", want.SnippetName)
 		}
 		seen[want.SnippetName] = true
-		for _, route := range z.WorkerRoutes {
-			if routeCoversHost(route.Pattern, want.Hostname) {
+		for _, hostname := range declarationHosts(want) {
+			if routeCoversAnyHost(z.WorkerRoutes, hostname) {
 				return fmt.Errorf("cloudflare: worker route %q covers gate hostname %s; no Worker runs on the reactive path (D-55)",
-					route.Pattern, want.Hostname)
+					workerRouteForHost(z.WorkerRoutes, hostname), hostname)
 			}
 		}
 	}
@@ -251,6 +254,27 @@ func routeCoversHost(pattern, host string) bool {
 }
 
 // The authenticated generation probe is executed by the same Snippet as reads.
-func snippetGateExpression(hostname, pathPrefix string) string {
-	return "(" + hostPathExpression(hostname, pathPrefix) + ") or (" + hostPathExpression(hostname, "/.well-known/terrascale-capability-generation") + ")"
+func snippetGateExpression(hostnames []string, pathPrefix string) string {
+	var paths []string
+	for _, hostname := range hostnames {
+		paths = append(paths, "("+hostPathExpression(hostname, pathPrefix)+")", "("+hostPathExpression(hostname, "/.well-known/terrascale-capability-generation")+")")
+	}
+	return strings.Join(paths, " or ")
+}
+
+func declarationHosts(rule SnippetRule) []string {
+	return append([]string(nil), rule.Hostnames...)
+}
+
+func routeCoversAnyHost(routes []WorkerRoute, host string) bool {
+	return workerRouteForHost(routes, host) != ""
+}
+
+func workerRouteForHost(routes []WorkerRoute, host string) string {
+	for _, route := range routes {
+		if routeCoversHost(route.Pattern, host) {
+			return route.Pattern
+		}
+	}
+	return ""
 }

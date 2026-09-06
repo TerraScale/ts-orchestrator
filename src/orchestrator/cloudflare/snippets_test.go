@@ -172,6 +172,15 @@ func TestGateDeclarationGuards(t *testing.T) {
 	}
 }
 
+func TestSnippetGateExpressionBindsRegionalAliases(t *testing.T) {
+	expression := snippetGateExpression([]string{"sync.api.terrascale.tech", "gru.sync.api.terrascale.tech"}, "/api/v1/reactive/")
+	for _, host := range []string{"sync.api.terrascale.tech", "gru.sync.api.terrascale.tech"} {
+		if !strings.Contains(expression, `http.host eq "`+host+`"`) {
+			t.Fatalf("gate expression omits %s: %s", host, expression)
+		}
+	}
+}
+
 func TestRouteCoversHost(t *testing.T) {
 	cases := []struct {
 		pattern string

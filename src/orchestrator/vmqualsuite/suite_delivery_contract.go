@@ -562,7 +562,7 @@ func deliveryContractRequest(operation, service, kind, architecture, digest, man
 		SchemaVersion:         delivery.ContractVersion,
 		OperationID:           operation,
 		Source:                &delivery.Source{Repository: "terrascale/" + service, Commit: strings.Repeat("a", 40), TreeDigest: delivery.SHA256Digest([]byte("tree:" + operation))},
-		Artifact:              &delivery.Artifact{Digest: digest, ManifestDigest: manifestDigest, Kind: kind, Architecture: architecture},
+		Artifact:              &delivery.Artifact{Name: service + "-" + strings.ReplaceAll(architecture, "/", "-"), ManifestName: "release-manifest.json", Digest: digest, SignatureDigest: delivery.SHA256Digest([]byte("fixture-signature:" + operation)), ManifestDigest: manifestDigest, ManifestSignatureDigest: delivery.SHA256Digest([]byte("fixture-manifest-signature:" + operation)), Kind: kind, Architecture: architecture},
 		Target:                &delivery.Target{Service: service, Environment: "local", Regions: []string{"gru", "sfo", "fra"}},
 		ConfigurationRevision: delivery.SHA256Digest([]byte("configuration:v1")),
 		RequestedBy:           "vmqual", Reason: "local delivery qualification", Rollback: rollback,

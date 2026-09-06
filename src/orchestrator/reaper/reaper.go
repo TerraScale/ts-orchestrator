@@ -80,12 +80,14 @@ func (e Exemption) activeAt(now time.Time) bool {
 // successful customer request, not an orchestrator heartbeat. A zero value is
 // unknown and is handled fail-closed (it is never reaped).
 type Database struct {
-	ID             string    `json:"id"`
-	OwnerEmail     string    `json:"ownerEmail"`
-	Plan           Plan      `json:"plan"`
-	LastRequest    time.Time `json:"lastRequest"`
-	Exemption      Exemption `json:"exemption"`
-	OwnershipProof string    `json:"ownershipProof,omitempty"`
+	ID                      string     `json:"id"`
+	OwnerEmail              string     `json:"ownerEmail"`
+	Plan                    Plan       `json:"plan"`
+	LastRequest             time.Time  `json:"lastRequest"`
+	Exemption               Exemption  `json:"exemption"`
+	OwnershipProof          string     `json:"ownershipProof,omitempty"`
+	BillingGraceDeadline    *time.Time `json:"billingGraceDeadline,omitempty"`
+	BillingDeletionEligible bool       `json:"billingDeletionEligible,omitempty"`
 }
 
 // Page is one deterministic catalog page. NextCursor is empty at the end.
@@ -180,6 +182,7 @@ type Entry struct {
 	FirstNoticeAt  time.Time            `json:"firstNoticeAt,omitempty"`
 	SecondNoticeAt time.Time            `json:"secondNoticeAt,omitempty"`
 	DeletedAt      time.Time            `json:"deletedAt,omitempty"`
+	BillingGrace   bool                 `json:"billingGrace,omitempty"`
 	Operations     map[string]Operation `json:"operations,omitempty"`
 	Audits         map[string]bool      `json:"audits,omitempty"`
 }
@@ -426,6 +429,32 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		entry.Plan = database.Plan
 	}
 	state.Entries[database.ID] = entry
+	if database.BillingGraceDeadline == nil && entry.BillingGrace && entry.Phase == PhasePaused {
+		if err := r.reactivateLocked(ctx, state, database.ID, entry.LastRequest); err != nil {
+			return "", err
+		}
+		return "reactivated", nil
+	}
+	if database.BillingGraceDeadline != nil {
+		if !database.BillingDeletionEligible || now.Before(*database.BillingGraceDeadline) {
+			return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "billing-covered", "eligibility/"+database.ID+"/billing-covered", now, "")
+		}
+		if entry.Phase == PhaseActive {
+			entry.BillingGrace = true
+			state.Entries[database.ID] = entry
+			if err := r.pauseLocked(ctx, state, database, now); err != nil {
+				return "", err
+			}
+			return "paused", nil
+		}
+		if entry.Phase == PhasePaused {
+			if err := r.deleteLocked(ctx, state, database, now); err != nil {
+				return "", err
+			}
+			return "deleted", nil
+		}
+		return "skipped", nil
+	}
 	if database.Plan != PlanFree {
 		return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "paid", "eligibility/"+database.ID+"/paid", now, "")
 	}
@@ -717,7 +746,7 @@ func (r *Reconciler) reactivateLocked(ctx context.Context, state *State, databas
 	}
 	entry = state.Entries[databaseID]
 	entry.Cycle++
-	entry.Phase, entry.PausedAt, entry.FirstNoticeAt, entry.SecondNoticeAt = PhaseActive, time.Time{}, time.Time{}, time.Time{}
+	entry.Phase, entry.PausedAt, entry.FirstNoticeAt, entry.SecondNoticeAt, entry.BillingGrace = PhaseActive, time.Time{}, time.Time{}, time.Time{}, false
 	entry.LastRequest = requestAt.UTC()
 	state.Entries[databaseID] = entry
 	if err := r.save(ctx, state); err != nil {

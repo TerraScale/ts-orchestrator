@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
-	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 var (
@@ -49,16 +49,34 @@ type Policy struct {
 
 // VerifyAllocation checks the detached TSCS command signature over the exact
 // domain-separated payload and returns the decoded envelope.
-func VerifyAllocation(publicSPKI, signed SignedAllocation) (AllocationEnvelope, error) {
+func VerifyAllocation(publicSPKI []byte, signed SignedAllocation) (AllocationEnvelope, error) {
 	var envelope AllocationEnvelope
-	if len(publicSPKI) == 0 || len(signed.Payload) == 0 || len(signed.Signature) == 0 { return envelope, ErrInvalid }
-	key, err := x509.ParsePKIXPublicKey(publicSPKI); if err != nil { return envelope, ErrInvalid }
-	ecdsaKey, ok := key.(*ecdsa.PublicKey); if !ok { return envelope, ErrInvalid }
-	opaque, ok := protocol.OpaqueSignatureTryCopyFrom(signed.Signature); if !ok { return envelope, ErrInvalid }
-	id, _, signature, ok := security.DecodeCommandSignature(opaque); if !ok || id != signed.KeyID { return envelope, ErrInvalid }
+	if len(publicSPKI) == 0 || len(signed.Payload) == 0 || len(signed.Signature) == 0 {
+		return envelope, ErrInvalid
+	}
+	key, err := x509.ParsePKIXPublicKey(publicSPKI)
+	if err != nil {
+		return envelope, ErrInvalid
+	}
+	ecdsaKey, ok := key.(*ecdsa.PublicKey)
+	if !ok {
+		return envelope, ErrInvalid
+	}
+	opaque, ok := protocol.OpaqueSignatureTryCopyFrom(signed.Signature)
+	if !ok {
+		return envelope, ErrInvalid
+	}
+	id, _, signature, ok := security.DecodeCommandSignature(opaque)
+	if !ok || id != signed.KeyID {
+		return envelope, ErrInvalid
+	}
 	digest := sha256.Sum256(append([]byte(allocationSigningDomain), signed.Payload...))
-	if !ecdsa.VerifyASN1(ecdsaKey, digest[:], signature) { return envelope, ErrInvalid }
-	if err := json.Unmarshal(signed.Payload, &envelope); err != nil || envelope.SchemaVersion != 1 { return envelope, ErrInvalid }
+	if !ecdsa.VerifyASN1(ecdsaKey, digest[:], signature) {
+		return envelope, ErrInvalid
+	}
+	if err := json.Unmarshal(signed.Payload, &envelope); err != nil || envelope.SchemaVersion != 1 {
+		return envelope, ErrInvalid
+	}
 	return envelope, nil
 }
 
@@ -82,6 +100,8 @@ type Request struct {
 // the already multiplied chargeable amount; it must not be multiplied again by
 // a regional consumer.
 type Grant struct {
+	CycleID        string    `json:"cycle_id"`
+	RateNanoDollar int64     `json:"rate_nano_dollar"`
 	OperationID    string    `json:"operation_id"`
 	OrganizationID string    `json:"organization_id"`
 	DatabaseID     string    `json:"database_id"`
@@ -166,7 +186,10 @@ func (a *Authority) ApplyPolicyMetadata(ctx context.Context, revision, checksum 
 		if err := a.validateState(state); err != nil {
 			return err
 		}
-		if state.AccountRevision != "" && state.AccountRevision != revision {
+		if state.AccountRevision == revision && state.PolicyChecksum == checksum {
+			return nil
+		}
+		if state.AccountRevision != "" && revision == state.AccountRevision {
 			return ErrConflict
 		}
 		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
@@ -193,7 +216,10 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 				return ErrPending
 			}
 		}
-		if state.AccountRevision != "" && state.AccountRevision != revision {
+		if state.AccountRevision == revision && state.PolicyChecksum == checksum && next.CycleID == state.ActivePolicy.CycleID {
+			return nil
+		}
+		if state.AccountRevision != "" && state.AccountRevision == revision {
 			return ErrConflict
 		}
 		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
@@ -318,7 +344,7 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
 		}
-		grant := Grant{OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
@@ -427,7 +453,7 @@ func (a *Authority) validateState(state *State) error {
 		if !admitted || expectedWriterEpoch == 0 {
 			return ErrInvalid
 		}
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || !grant.Revoked && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))
@@ -438,7 +464,7 @@ func (a *Authority) validateState(state *State) error {
 		if !ok || expectedCost != grant.CostMinor {
 			return ErrInvalid
 		}
-		expectedNano, ok := multiply(grant.Units, policy.RateNanoDollar)
+		expectedNano, ok := multiply(grant.Units, grant.RateNanoDollar)
 		if !ok || expectedNano != grant.CostNanoDollar {
 			return ErrInvalid
 		}

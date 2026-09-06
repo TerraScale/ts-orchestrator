@@ -19,7 +19,7 @@ const (
 )
 
 // CacheRule declares one Cloudflare Cache Rule (D-55): the reactive snapshot
-// and log paths on sync.api are cache-eligible. Edge TTL respects the origin
+// and log paths on sync.api and its regional aliases are cache-eligible. Edge TTL respects the origin
 // because the D-14 contract already speaks for itself — data-bearing
 // responses carry their immutable retention TTL, long-poll timeouts are
 // no-store — and the cache lock plus Smart Tiered Cache do the collapsing.
@@ -42,7 +42,7 @@ func (r CacheRule) rule() Rule {
 		Action: "set_cache_settings", ActionParameters: params, Enabled: true}
 }
 
-// expression anchors the rule to the host and prefix and, when leaves are
+// expression anchors each rule to its declared host and prefix and, when leaves are
 // declared, admits exactly them: everything else under the prefix — attach
 // POSTs, unknown paths — stays at Cloudflare's default (not eligible). The
 // capability header never enters the cache key (D-14) and the Snippet strips

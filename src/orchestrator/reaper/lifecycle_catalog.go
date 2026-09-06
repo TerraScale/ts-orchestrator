@@ -86,6 +86,8 @@ func policyDatabase(facts LifecyclePolicyFacts, now time.Time) (Database, error)
 		}
 	}
 	database := Database{ID: facts.DatabaseID, OwnerEmail: owners[0], Plan: PlanPaid, OwnershipProof: facts.Revision}
+	database.BillingGraceDeadline = facts.BillingGraceDeadline
+	database.BillingDeletionEligible = facts.BillingDeletionEligible
 	if facts.Plan == "free" {
 		database.Plan = PlanFree
 	}

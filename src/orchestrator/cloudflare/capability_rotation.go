@@ -445,7 +445,7 @@ func (s *SnippetCapabilityStore) ObserveTemplate(ctx context.Context, service, d
 		if declaration.SnippetName != s.config.SnippetName {
 			continue
 		}
-		expected := SnippetRuleWire{Expression: snippetGateExpression(declaration.Hostname, declaration.PathPrefix), Description: refDescription(declaration.SnippetName), Enabled: declaration.Enabled}
+		expected := SnippetRuleWire{Expression: snippetGateExpression(declarationHosts(declaration), declaration.PathPrefix), Description: refDescription(declaration.SnippetName), Enabled: declaration.Enabled}
 		for _, snippet := range snippets {
 			if snippet.Name == s.config.SnippetName && len(snippet.Rules) == 1 && snippet.Rules[0] == expected && expected.Enabled {
 				return true, nil
@@ -461,32 +461,39 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 	if bytes.Count(source, []byte(CapabilityDeploymentMarker)) != 1 || zone == nil || snippetName == "" || len(probeURLs) == 0 || zone.validateGateDeclaration() != nil {
 		return capabilityEffectError()
 	}
-	hostname := ""
+	var hostnames []string
 	for _, rule := range zone.SnippetRules {
 		if rule.SnippetName == snippetName && rule.Enabled {
-			hostname = rule.Hostname
+			hostnames = declarationHosts(rule)
 		}
 	}
-	if hostname == "" || strings.TrimSpace(hostname) != hostname || strings.ContainsAny(hostname, "/:?#@*\\") {
+	if len(hostnames) == 0 {
 		return capabilityEffectError()
 	}
-	if len(hostname) > 253 {
-		return capabilityEffectError()
-	}
-	for label := range strings.SplitSeq(hostname, ".") {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+	for _, hostname := range hostnames {
+		if hostname == "" || strings.TrimSpace(hostname) != hostname || strings.ContainsAny(hostname, "/:?#@*\\") {
 			return capabilityEffectError()
 		}
-		for _, char := range label {
-			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-') {
+	}
+	for _, hostname := range hostnames {
+		if len(hostname) > 253 {
+			return capabilityEffectError()
+		}
+		for label := range strings.SplitSeq(hostname, ".") {
+			if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 				return capabilityEffectError()
+			}
+			for _, char := range label {
+				if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-') {
+					return capabilityEffectError()
+				}
 			}
 		}
 	}
 	seen := map[string]bool{}
 	for _, endpoint := range probeURLs {
 		u, err := url.Parse(endpoint)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || !strings.EqualFold(u.Hostname(), hostname) || u.Path != "/.well-known/terrascale-capability-generation" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || strings.Contains(endpoint, "#") {
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.Opaque != "" || u.User != nil || !containsFold(hostnames, u.Hostname()) || u.Path != "/.well-known/terrascale-capability-generation" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "" || strings.Contains(endpoint, "#") {
 			return capabilityEffectError()
 		}
 		port := u.Port()
@@ -507,6 +514,15 @@ func ValidateCapabilityDeployment(source []byte, zone *Zone, snippetName string,
 		seen[identity] = true
 	}
 	return nil
+}
+
+func containsFold(values []string, value string) bool {
+	for _, candidate := range values {
+		if strings.EqualFold(candidate, value) {
+			return true
+		}
+	}
+	return false
 }
 
 type capabilityTemplateContextKey struct{}

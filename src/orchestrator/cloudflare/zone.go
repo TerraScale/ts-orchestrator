@@ -18,6 +18,7 @@ import (
 //	sync.api.terrascale.tech  CDN-backed reactive HTTP: Snippet + Cache Rules,
 //	                          never a Worker (D-55)
 //	gru|sfo|fra.api.          pinned REST/view-attach/WebSocket to members
+//	gru|sfo|fra.sync.api.     region-pinned reactive cache targets
 //	app.                      dashboard Worker (D-59)
 //	docs., status.            docs site and status page
 //
@@ -46,7 +47,8 @@ const (
 
 // Members maps a region code (D-05: gru, sfo, fra at launch) to the public
 // addresses of its member hosts. Regions with no members yet (add-region in
-// flight) simply contribute no records; sync.api carries the union.
+// flight) simply contribute no records; sync.api carries the union and its
+// region-pinned aliases carry only that Region's members.
 type Members map[string][]string
 
 // Zone is the whole Cloudflare zone as declared state: one reconcile pass
@@ -107,6 +109,7 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 	for _, region := range sortedRegions(members) {
 		for _, addr := range members[region] {
 			z.DNSRecords = append(z.DNSRecords, DNSRecord{Type: "A", Name: region + ".api." + ZoneName, Content: addr, TTL: 1, Proxied: true})
+			z.DNSRecords = append(z.DNSRecords, DNSRecord{Type: "A", Name: region + ".sync.api." + ZoneName, Content: addr, TTL: 1, Proxied: true})
 		}
 	}
 
@@ -120,12 +123,21 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 		PathPrefix: reactiveViewsPath, PathSuffix: reactiveLogLeaf, PathSegment: reactiveSnapshotPart,
 		Eligible: true, EdgeTTLMode: "respect_origin",
 	}}
+	for _, region := range sortedRegions(members) {
+		z.CacheRules = append(z.CacheRules, CacheRule{
+			Ref: "sync-reactive-" + region, Hostname: region + ".sync.api." + ZoneName,
+			PathPrefix: reactiveViewsPath, PathSuffix: reactiveLogLeaf, PathSegment: reactiveSnapshotPart,
+			Eligible: true, EdgeTTLMode: "respect_origin",
+		})
+	}
 
 	// Snippet rules (D-55): the capability gate runs on the reactive paths.
 	// The snippet code is deployed with ts-proxy releases (X-2); only the
 	// rule is ours.
 	z.SnippetRules = []SnippetRule{{
-		SnippetName: GateSnippetName, Hostname: "sync.api." + ZoneName, PathPrefix: reactivePathPrefix, Enabled: true,
+		SnippetName: GateSnippetName, Hostname: "sync.api." + ZoneName,
+		Hostnames:  []string{"sync.api." + ZoneName, "gru.sync.api." + ZoneName, "sfo.sync.api." + ZoneName, "fra.sync.api." + ZoneName},
+		PathPrefix: reactivePathPrefix, Enabled: true,
 	}}
 
 	// Worker routes (D-58/D-59).

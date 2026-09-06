@@ -70,6 +70,8 @@ type LifecyclePolicyFacts struct {
 	AccessRevoked           bool                     `json:"accessRevoked"`
 	UsageStoppedAt          *time.Time               `json:"usageStoppedAt"`
 	RetainUntil             *time.Time               `json:"retainUntil"`
+	BillingGraceDeadline    *time.Time               `json:"billingGraceDeadline"`
+	BillingDeletionEligible bool                     `json:"billingDeletionEligible"`
 }
 
 func NewLifecyclePolicyClient(c LifecyclePolicyClientConfig) (*LifecyclePolicyClient, error) {
@@ -170,12 +172,12 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 	}
 	// Every field is required; only the three explicitly nullable timestamps may
 	// be null. Missing booleans must not silently become permission-granting false.
-	for _, name := range []string{"coverage", "schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil"} {
+	for _, name := range []string{"coverage", "schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil", "billingGraceDeadline", "billingDeletionEligible"} {
 		value, ok := fields[name]
 		if !ok {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) && name != "lastAuthorizedRequestAt" && name != "usageStoppedAt" && name != "retainUntil" {
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) && name != "lastAuthorizedRequestAt" && name != "usageStoppedAt" && name != "retainUntil" && name != "billingGraceDeadline" {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 		}
 	}
@@ -217,6 +219,12 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
 	if facts.AccessRevoked != (facts.UsageStoppedAt != nil) {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	if facts.BillingGraceDeadline != nil && facts.BillingGraceDeadline.IsZero() {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
+	if facts.BillingDeletionEligible && facts.BillingGraceDeadline == nil {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
 	return facts, nil

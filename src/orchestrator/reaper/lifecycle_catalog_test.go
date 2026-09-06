@@ -49,3 +49,23 @@ func TestLifecyclePolicyRecentActivityCanReachReactivation(t *testing.T) {
 		t.Fatalf("recent activity cannot reach reactivation: %+v %v", database, err)
 	}
 }
+
+func TestLifecyclePolicyBillingGraceFactsReachReaperDatabase(t *testing.T) {
+	now := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+	deadline := now.Add(-time.Hour)
+	facts := LifecyclePolicyFacts{
+		DatabaseID:              "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		Revision:                "revision-1",
+		Plan:                    "pro",
+		OwnerEmails:             []string{"owner@example.com"},
+		BillingGraceDeadline:    &deadline,
+		BillingDeletionEligible: true,
+	}
+	database, err := policyDatabase(facts, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if database.BillingGraceDeadline == nil || !database.BillingGraceDeadline.Equal(deadline) || !database.BillingDeletionEligible {
+		t.Fatalf("billing grace facts were dropped: %+v", database)
+	}
+}

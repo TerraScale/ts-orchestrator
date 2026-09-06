@@ -768,9 +768,26 @@ type ociMemberGateway struct {
 	Core          *provider.OCIHTTPTransport
 	CompartmentID string
 	ImageID       string
+	Adapter       *provider.OCIComputeAdapter
+	Epoch         provider.ProviderEpoch
 }
 
 // NewOCIMemberGateway validates the compartment and launch image scope.
+// NewDurableOCIMemberGateway binds member launches to the lease-owned durable
+// provider journal. Production composition must use this constructor.
+func NewDurableOCIMemberGateway(core *provider.OCIHTTPTransport, adapter *provider.OCIComputeAdapter, compartmentID, imageID string, epoch provider.ProviderEpoch) (ComputeGateway, error) {
+	if adapter == nil || epoch.Value == 0 {
+		return nil, &errs.Argument{Message: "durable member gateway requires a provider adapter and epoch"}
+	}
+	gateway, err := NewOCIMemberGateway(core, compartmentID, imageID)
+	if err != nil {
+		return nil, err
+	}
+	result := gateway.(*ociMemberGateway)
+	result.Adapter, result.Epoch = adapter, epoch
+	return result, nil
+}
+
 func NewOCIMemberGateway(core *provider.OCIHTTPTransport, compartmentID, imageID string) (ComputeGateway, error) {
 	if core == nil || core.Config.Service != provider.OCIServiceCore {
 		return nil, &errs.Argument{Message: "member gateway requires the OCI core transport"}
@@ -839,6 +856,10 @@ func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, e
 }
 
 func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error) {
+	if g.Adapter != nil {
+		return g.launchMemberDurable(ctx, spec)
+	}
+
 	if !validEstateName(strings.TrimPrefix(spec.DisplayName, "terrascale-")) || spec.Index < 1 || spec.Index > 1024 ||
 		len(spec.Shape) == 0 || len(spec.Shape) > 96 || spec.OCPUs <= 0 || spec.OCPUs > 192 || spec.MemoryGiB <= 0 || spec.MemoryGiB > 2048 ||
 		!provider.IsOCID(spec.SubnetID, "subnet") || len(spec.CloudInitBase64) == 0 || len(spec.CloudInitBase64) > 48*1024 {
@@ -912,6 +933,41 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 		return ObservedMember{}, &provider.InvalidDataError{Message: "OCI member launch response is invalid"}
 	}
 	return ObservedMember{ID: document.ID, DisplayName: document.DisplayName, Index: spec.Index, Shape: document.Shape, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain}, nil
+}
+
+func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error) {
+	candidates := make([]provider.ComputeCapacityCandidate, 0, len(spec.Candidates))
+	for _, candidate := range spec.Candidates {
+		candidates = append(candidates, provider.ComputeCapacityCandidate{
+			AvailabilityDomain: spec.AvailabilityDomain, SubnetID: spec.SubnetID,
+			Shape: candidate.Shape, Architecture: candidate.Architecture, ImageID: candidate.ImageID,
+			OCPUs: spec.OCPUs, MemoryGiB: spec.MemoryGiB,
+		})
+	}
+	if len(candidates) == 0 {
+		return ObservedMember{}, &errs.Argument{Message: "durable member launch requires qualified capacity candidates"}
+	}
+	opID, err := provider.NewProviderOperationId("member-" + spec.DisplayName)
+	if err != nil {
+		return ObservedMember{}, err
+	}
+	intent := provider.ProviderMutationIntent{
+		OperationID: opID,
+		Scope:       provider.ProviderMutationScope("compute", g.CompartmentID, spec.DisplayName),
+		Action:      "compute.launch", Epoch: g.Epoch,
+		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName)},
+	}
+	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
+		NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates,
+		Tags: map[string]string{provider.OCIManagedTag: ManagedMemberTagValue,
+			provider.OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)}}
+	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)
+	instance, err := g.Adapter.LaunchInstance(ctx, request)
+	if err != nil {
+		return ObservedMember{}, err
+	}
+	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape,
+		LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
 }
 
 func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) error {
