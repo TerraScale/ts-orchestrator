@@ -188,3 +188,41 @@ func TestProductionConstructionFailureClosesStartedBrokerWithoutSubscriptions(t 
 		t.Fatalf("composition failure=%v broker closed=%v", err, broker.closed)
 	}
 }
+
+func TestHostServicesStartAfterBrokerAndStopOnRuntimeExit(t *testing.T) {
+	restoreHostSeams(t)
+	var order []string
+	broker := &fakeEmbeddedNats{done: make(chan struct{}), ready: true, close: func() { order = append(order, "broker-close") }}
+	startEmbeddedNatsRuntime = func(context.Context, bootstrap.NatsServerConfig) (embeddedNatsRuntime, error) {
+		order = append(order, "broker-ready")
+		return broker, nil
+	}
+	hosts := &fakeComponent{done: make(chan struct{}), name: "hosts-close", order: &order}
+	failed := errors.New("regional startup failed")
+	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
+		order = append(order, "regional-start")
+		return nil, failed
+	}
+	err := runCommand(t.Context(), fakeOptions(control.OrchestratorCommandRun), &bootstrap.NatsServerConfig{}, func(context.Context) (hostServices, error) { order = append(order, "hosts-start"); return hosts, nil })
+	if !errors.Is(err, failed) || !reflect.DeepEqual(order, []string{"broker-ready", "hosts-start", "regional-start", "hosts-close", "broker-close"}) {
+		t.Fatalf("host lifetime: %v %v", err, order)
+	}
+}
+func TestHostServiceFailureIsNotReportedAsOperatorCancellation(t *testing.T) {
+	restoreHostSeams(t)
+	hosts := &fakeComponent{done: make(chan struct{})}
+	startRegionalRuntime = func(ctx context.Context, _ *control.OrchestratorOptions) (component, error) {
+		close(hosts.done)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+			t.Fatal("host failure did not cancel runtime")
+			return nil, nil
+		}
+	}
+	err := runCommand(t.Context(), fakeOptions(control.OrchestratorCommandRun), nil, func(context.Context) (hostServices, error) { return hosts, nil })
+	if err == nil || errors.Is(err, context.Canceled) || exitCode(err) != 1 || !hosts.closed {
+		t.Fatalf("wrong host failure outcome: %v", err)
+	}
+}

@@ -857,3 +857,56 @@ message PlacementProposalResponse {
   PlacementProposal proposal = 2;
   PlacementProposalStatus status = 3;
 }
+
+// Dedicated GRU-authorized auth consensus bootstrap control. No user data.
+// A pending placement proposal never authorizes this service's grants.
+service AuthGroupBootstrapService {
+  rpc Identity(AuthStorageIdentityRequest) returns (AuthStorageIdentity);
+  rpc Bootstrap(AuthGroupBootstrapRequest) returns (AuthGroupBootstrapReceipt);
+}
+message AuthStorageIdentityRequest {}
+message AuthStorageIdentity {
+  string environment = 1;
+  string cluster = 2;
+  string member = 3;
+  // Persisted, engine-generated storage identity. Changes after storage loss.
+  string storage_incarnation = 4;
+}
+message AuthGroupVoter {
+  uint64 node_id = 1;
+  string member = 2;
+  string spiffe_uri = 3;
+  string region = 4;
+  string storage_incarnation = 5;
+}
+message AuthGroupBootstrapGrant {
+  string environment = 1;
+  string cluster = 2;
+  string group_id = 3; // Canonical UUID, allocated once by GRU control authority.
+  string tenant = 4;
+  string project = 5;
+  string database = 6;
+  uint64 generation = 7; // Exactly one; this API cannot change membership.
+  repeated string regions = 8; // Immutable placement, sorted and unique.
+  repeated AuthGroupVoter voters = 9; // Sorted by positive unique node_id.
+  uint64 authority_revision = 10; // Exact committed GRU control journal sequence.
+  uint64 genesis_node = 11; // Only this voter may initialize the new Raft group.
+}
+message AuthGroupBootstrapRequest {
+  string operation_id = 1; // Stable control retry identity.
+  AuthGroupBootstrapGrant grant = 2;
+}
+enum AuthGroupBootstrapStatus {
+  AUTH_GROUP_BOOTSTRAP_STATUS_UNSPECIFIED = 0;
+  // Persisted grant; this does not report quorum, durability, or API readiness.
+  AUTH_GROUP_BOOTSTRAP_STATUS_PERSISTED = 1;
+}
+message AuthGroupBootstrapReceipt {
+  string group_id = 1;
+  uint64 generation = 2;
+  uint64 authority_revision = 3;
+  string storage_incarnation = 4;
+  AuthGroupBootstrapStatus status = 5;
+  AuthGroupBootstrapGrant grant = 6; // Exact immutable request grant echo.
+  string operation_id = 7;
+}

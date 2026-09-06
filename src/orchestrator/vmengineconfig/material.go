@@ -34,8 +34,9 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		}
 	}()
 	var sharedCA []byte
+	controlKeys := map[string]bool{}
 	for _, h := range d.Hosts {
-		m := &Material{nodeID: h.NodeID, address: nodes[h.NodeID].Address, artifact: artifact, release: release}
+		m := &Material{cell: strings.ToLower(nodes[h.NodeID].Region), nodeID: h.NodeID, address: nodes[h.NodeID].Address, artifact: artifact, release: release}
 		materials[h.NodeID] = m
 		m.settings, err = render(d, h, nodes)
 		if err != nil {
@@ -62,6 +63,15 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		}
 		if err = validateObserver(m, d, h); err != nil {
 			return nil, err
+		}
+		if err = prepareControl(m, d, h, nodes[h.NodeID]); err != nil {
+			return nil, err
+		}
+		if public := m.controlAuthorization.PublicNKey; public != "" {
+			if controlKeys[public] {
+				return nil, errors.New("vmengineconfig: control NKey reused across hosts")
+			}
+			controlKeys[public] = true
 		}
 		if err = validateTLS(m, identity(d, h)); err != nil {
 			return nil, err

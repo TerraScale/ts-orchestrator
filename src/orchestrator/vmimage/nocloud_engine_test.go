@@ -9,6 +9,7 @@ import (
 	"terrascale.tech/orchestrator/internal/testengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
@@ -20,7 +21,7 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings := []vmengineconfig.Binding{{NodeID: spec.InstanceID, Region: "GRU", Address: spec.Address}, {NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"}}
-	_, path := testengineconfig.Declaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
+	_, path := testengineconfig.ControlDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
 	materials, err := vmengineconfig.Load(path, manifest.Components[1].Sha256, manifest.Components[1].Version, bindings)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +80,42 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 	}
 	if observerCount != 3 {
 		t.Fatal("observer credentials missing")
+	}
+	controlFiles := spec.TSNode.Engine.ControlFiles()
+	if len(controlFiles) != 8 {
+		t.Fatal("control service material missing")
+	}
+	controlConfig, err := placementpublisher.ParseHostFile(controlFiles[placementpublisher.HostFilePath], "gru", spec.InstanceID)
+	if err != nil || controlConfig.EngineEndpoint != "127.0.0.1:8421" {
+		t.Fatalf("host control config=%v error=%v", controlConfig, err)
+	}
+	var runSettings map[string]string
+	if err := json.Unmarshal([]byte(manifest.Components[0].Configuration), &runSettings); err != nil || runSettings["TS_ORCH_PLACEMENT_HOST_FILE"] != placementpublisher.HostFilePath {
+		t.Fatal("signed production run omitted placement host file")
+	}
+	controlCount := 0
+	for _, file := range seed.RootFiles {
+		if !vmengineconfig.IsControlPath(file.Path) {
+			continue
+		}
+		controlCount++
+		if file.Owner != membershipServiceUser || file.Mode != 0400 || file.Validate() != nil || !bytes.Equal(file.Content, controlFiles[file.Path]) {
+			t.Fatal("control material changed or owner access invalid")
+		}
+		if bytes.Contains(seed.UserData, file.Content) {
+			t.Fatal("control credential leaked into cloud-init data")
+		}
+		wrong := file
+		wrong.Owner = ""
+		if wrong.Validate() == nil {
+			t.Fatal("root-only control material accepted for nonroot service")
+		}
+	}
+	if controlCount != 8 {
+		t.Fatal("control service files not installed")
+	}
+	if !strings.Contains(controllerOwnershipBootstrap(seed.RootFiles), placementpublisher.HostFilePath) {
+		t.Fatal("control service ownership missing")
 	}
 	count := 0
 	for _, file := range seed.RootFiles {

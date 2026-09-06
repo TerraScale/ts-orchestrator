@@ -8,3 +8,6 @@ orchestrator-tooling
 /ts-node
 /tmp/
 .codex-worktrees/
+
+# Private generated CI release candidates and signatures
+/.terrascale-develop-release/

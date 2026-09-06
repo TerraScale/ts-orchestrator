@@ -106,10 +106,9 @@ func credentialTransport() *http.Transport {
 }
 
 type boundedDispatcher struct {
-	client     *http.Client
-	ctx        context.Context
-	region     string
-	cryptoHost string
+	client *http.Client
+	ctx    context.Context
+	region string
 }
 
 func (d boundedDispatcher) Do(request *http.Request) (*http.Response, error) {
@@ -121,7 +120,7 @@ func (d boundedDispatcher) Do(request *http.Request) (*http.Response, error) {
 	}
 	host := request.URL.Host
 	metadata := request.URL.Scheme == "http" && host == "169.254.169.254" && request.Method == http.MethodGet
-	cloud := request.URL.Scheme == "https" && (host == "auth."+d.region+".oraclecloud.com" || host == "secrets.vaults."+d.region+".oci.oraclecloud.com" || (d.cryptoHost != "" && host == d.cryptoHost))
+	cloud := request.URL.Scheme == "https" && (host == "auth."+d.region+".oraclecloud.com" || host == "secrets.vaults."+d.region+".oci.oraclecloud.com")
 	if !metadata && !cloud {
 		return nil, ErrFetch
 	}

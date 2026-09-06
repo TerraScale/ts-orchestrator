@@ -52,16 +52,17 @@ type Declaration struct {
 }
 
 type Host struct {
-	OrchestratorPrincipals  []string `json:"orchestratorPrincipals,omitempty"`
-	ObserverCertificateFile string   `json:"observerCertificateFile"`
-	ObserverPrivateKeyFile  string   `json:"observerPrivateKeyFile"`
-	ObserverIdentity        string   `json:"observerIdentity"`
-	ObserverDatabase        string   `json:"observerDatabase"`
-	NodeID                  string   `json:"nodeId"`
-	Member                  string   `json:"member"`
-	CertificateFile         string   `json:"certificateFile"`
-	PrivateKeyFile          string   `json:"privateKeyFile"`
-	CAFile                  string   `json:"caFile"`
+	EngineControl           *EngineControlCredentials `json:"engineControl,omitempty"`
+	OrchestratorPrincipals  []string                  `json:"orchestratorPrincipals,omitempty"`
+	ObserverCertificateFile string                    `json:"observerCertificateFile"`
+	ObserverPrivateKeyFile  string                    `json:"observerPrivateKeyFile"`
+	ObserverIdentity        string                    `json:"observerIdentity"`
+	ObserverDatabase        string                    `json:"observerDatabase"`
+	NodeID                  string                    `json:"nodeId"`
+	Member                  string                    `json:"member"`
+	CertificateFile         string                    `json:"certificateFile"`
+	PrivateKeyFile          string                    `json:"privateKeyFile"`
+	CAFile                  string                    `json:"caFile"`
 }
 
 type Database struct {
@@ -91,9 +92,12 @@ type Binding struct{ NodeID, Region, Address string }
 // private fields prevent callers from substituting unchecked seed material.
 type Material struct {
 	nodeID, address, settings, artifact, release string
+	cell                                         string
 	certificate, privateKey, ca                  []byte
 	observerCertificate, observerPrivateKey      []byte
 	observation                                  tbep.FileConfig
+	controlFiles                                 map[string][]byte
+	controlAuthorization                         ControlNATSAuthorization
 }
 
 func (m *Material) Address() string { return m.address }
@@ -108,6 +112,9 @@ func (m *Material) Clear() {
 	}
 	clear(m.privateKey)
 	clear(m.observerPrivateKey)
+	for _, data := range m.controlFiles {
+		clear(data)
+	}
 	*m = Material{}
 }
 
@@ -116,6 +123,8 @@ func (m *Material) Clone() *Material {
 		return nil
 	}
 	copy := *m
+	copy.controlFiles = m.ControlFiles()
+	copy.controlAuthorization = m.ControlAuthorization()
 	copy.certificate, copy.privateKey, copy.ca = bytes.Clone(m.certificate), bytes.Clone(m.privateKey), bytes.Clone(m.ca)
 	copy.observerCertificate, copy.observerPrivateKey = bytes.Clone(m.observerCertificate), bytes.Clone(m.observerPrivateKey)
 	return &copy
@@ -156,7 +165,7 @@ func (m *Material) Apply(manifest hostmanifest.HostManifest) (hostmanifest.HostM
 	if !found {
 		return manifest, errors.New("vmengineconfig: engine component missing")
 	}
-	return manifest, nil
+	return m.applyControlManifest(manifest)
 }
 
 func (m *Material) ValidateManifest(nodeID, address string, manifest hostmanifest.HostManifest) error {
@@ -176,7 +185,7 @@ func (m *Material) ValidateManifest(nodeID, address string, manifest hostmanifes
 	if found != 1 {
 		return errors.New("vmengineconfig: engine component inventory differs")
 	}
-	return nil
+	return m.validateControlManifest(manifest)
 }
 
 func Load(path, artifact, release string, bindings []Binding) (map[string]*Material, error) {

@@ -107,6 +107,8 @@ type productionGlobalWorkerConfig struct {
 	Reaper         reaper.ProductionConfig
 	Restore        productionRestoreConfig
 	Placement      productionPlacementConfig
+	Database       productionDatabaseConfig
+	AuthBootstrap  productionAuthBootstrapConfig
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -120,18 +122,20 @@ type productionRuntime struct {
 }
 
 type productionGlobalWorkers struct {
-	release    func() error
-	closeOnce  sync.Once
-	closeError error
-	finished   sync.Once
-	lifetime   context.Context
-	publisher  *estatepublisher.Publisher
-	rotation   *security.Coordinator
-	reaper     *reaper.Reconciler
-	restore    *restoredrill.ProductionComposition
-	placement  *productionPlacement
-	workers    []*lifecycle.Service
-	completion chan struct{}
+	release       func() error
+	closeOnce     sync.Once
+	closeError    error
+	finished      sync.Once
+	lifetime      context.Context
+	publisher     *estatepublisher.Publisher
+	rotation      *security.Coordinator
+	reaper        *reaper.Reconciler
+	restore       *restoredrill.ProductionComposition
+	placement     *productionPlacement
+	database      *productionDatabase
+	authBootstrap *productionAuthBootstrap
+	workers       []*lifecycle.Service
+	completion    chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -223,6 +227,16 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime placement: %w", err)
 	}
 	group.placement = placement
+	database, err := newProductionDatabase(config.Database, session, placement)
+	if err != nil {
+		return group, fmt.Errorf("runtime database: %w", err)
+	}
+	group.database = database
+	authBootstrap, err := newProductionAuthBootstrap(config.AuthBootstrap, session)
+	if err != nil {
+		return group, fmt.Errorf("runtime auth bootstrap: %w", err)
+	}
+	group.authBootstrap = authBootstrap
 	group.rotation, group.reaper, group.restore = rotation, reaperRuntime, restore
 	return group, nil
 }
@@ -293,7 +307,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -315,6 +329,8 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		lifecycle.NewScheduledService("placement proposals", 5*time.Second, func(runCtx context.Context, _ time.Time) error {
 			return r.placement.Reconcile(runCtx)
 		}),
+		lifecycle.NewScheduledService("auth bootstrap", 5*time.Second, func(runCtx context.Context, _ time.Time) error { return r.authBootstrap.Reconcile(runCtx) }),
+		lifecycle.NewScheduledService("database admission", 5*time.Second, func(runCtx context.Context, _ time.Time) error { return r.database.Reconcile(runCtx) }),
 		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
 		}),
@@ -334,6 +350,9 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		case <-r.workers[1].Completion():
 		case <-r.workers[2].Completion():
 		case <-r.workers[3].Completion():
+		case <-r.workers[4].Completion():
+		case <-r.workers[5].Completion():
+		case <-r.database.service.Completion():
 		}
 		r.finished.Do(func() { close(r.completion) })
 	}()
@@ -362,6 +381,7 @@ func (r *productionGlobalWorkers) Close() error {
 	}
 	r.closeOnce.Do(func() {
 		var result error
+		result = combineErrors(result, r.database.Close())
 		for i := len(r.workers) - 1; i >= 0; i-- {
 			worker := r.workers[i]
 			var err error
@@ -431,6 +451,9 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
 	if err != nil {
+		return group, err
+	}
+	if err := group.database.Start(ctx, session); err != nil {
 		return group, err
 	}
 	if err := group.Start(ctx); err != nil {

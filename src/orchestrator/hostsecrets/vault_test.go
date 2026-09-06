@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -57,24 +58,38 @@ func TestVaultDecryptUsesFederatedIdentityExactKEKAndAAD(t *testing.T) {
 			return response(200, string(body)), nil
 		}
 		calls++
-		if request.URL.String() != endpoint+"/20180608/decrypt" || request.Method != "POST" || !strings.Contains(request.Header.Get("Authorization"), "ST$") {
+		if (request.URL.String() != endpoint+"/20180608/decrypt" && request.URL.String() != endpoint+"/20180608/encrypt") || request.Method != "POST" || !strings.Contains(request.Header.Get("Authorization"), "ST$") {
 			t.Error("wrong Vault request or unsigned principal")
 		}
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Error(err)
 		}
+		digest := sha256.Sum256(body)
+		if request.Header.Get("x-content-sha256") != base64.StdEncoding.EncodeToString(digest[:]) || !strings.Contains(request.Header.Get("Authorization"), "x-content-sha256") {
+			t.Error("body digest absent from signature")
+		}
 		var data struct {
+			Plaintext           string            `json:"plaintext"`
 			KeyID               string            `json:"keyId"`
 			KeyVersionID        string            `json:"keyVersionId"`
 			Ciphertext          string            `json:"ciphertext"`
 			AssociatedData      map[string]string `json:"associatedData"`
 			EncryptionAlgorithm string            `json:"encryptionAlgorithm"`
 		}
-		if json.Unmarshal(body, &data) != nil || data.KeyID != kek || data.KeyVersionID != version || data.Ciphertext != "wrapped-fixture" || data.AssociatedData["database_id"] != "database-fixture" || data.AssociatedData["purpose"] != "data" || data.EncryptionAlgorithm != "AES_256_GCM" {
+		if json.Unmarshal(body, &data) != nil || data.KeyID != kek || data.KeyVersionID != version || data.AssociatedData["database_id"] != "database-fixture" || data.AssociatedData["purpose"] != "data" || data.EncryptionAlgorithm != "AES_256_GCM" {
 			t.Error("scope or version not bound")
 		}
-		return response(200, `{"plaintext":"`+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))+`"}`), nil
+		if strings.HasSuffix(request.URL.Path, "/encrypt") {
+			if data.Plaintext != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)) || data.Ciphertext != "" {
+				t.Error("wrong wrapped plaintext")
+			}
+			return response(200, `{"ciphertext":"wrapped-by-vault"}`), nil
+		}
+		if data.Ciphertext != "wrapped-fixture" || data.Plaintext != "" {
+			t.Error("wrong ciphertext")
+		}
+		return response(200, `{"plaintext":"`+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))+`","plaintextChecksum":"fixture-checksum","keyId":"`+kek+`","keyVersionId":"`+version+`","encryptionAlgorithm":"AES_256_GCM"}`), nil
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -87,11 +102,44 @@ func TestVaultDecryptUsesFederatedIdentityExactKEKAndAAD(t *testing.T) {
 	if calls != 1 || !bytes.Equal(leased.Bytes(), bytes.Repeat([]byte{7}, 32)) {
 		t.Fatal("wrong leased key")
 	}
+	wrapped, err := wrapDataKey(ctx, "sa-saopaulo-1", endpoint, kek, version, leased, associated, transport)
+	if err != nil || wrapped != "wrapped-by-vault" || calls != 2 {
+		t.Fatalf("wrapped key request failed: %v", err)
+	}
 }
 func TestVaultCryptoRejectsUntrustedEndpointsBeforeIdentity(t *testing.T) {
 	for _, endpoint := range []string{"https://evil.example", "https://fixture-crypto.kms.sa-saopaulo-1.oraclecloud.com:443", "https://fixture-crypto.kms.eu-frankfurt-1.oraclecloud.com", "https://fixture-crypto.kms.sa-saopaulo-1.oraclecloud.com/path"} {
 		if ValidVaultCryptoEndpoint("sa-saopaulo-1", endpoint) {
 			t.Fatal("untrusted endpoint accepted")
 		}
+	}
+}
+
+func TestLockedDecryptParserRejectsAmbiguity(t *testing.T) {
+	for _, body := range []string{`{"plaintext":"AAAA","plaintext":"BBBB"}`, `{"plaintext":"AAAA","extra":1}`, `{"plaintext":"AA\u0041A"}`, `{"plaintext":"AAAA"} trailing`, `{"other":"AAAA"}`} {
+		if _, err := decryptFields([]byte(body), "key", "version"); err == nil {
+			t.Fatal("ambiguous response accepted")
+		}
+	}
+	body := []byte(` { "plaintext" : "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "plaintextChecksum":"checksum" } `)
+	encoded, err := decryptFields(body, "key", "version")
+	if err != nil || len(encoded) != 44 {
+		t.Fatal("valid response rejected")
+	}
+
+}
+func TestClosedLockedRequestBodyCannotReadUnmappedStorage(t *testing.T) {
+	key, err := NewDataKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := &lockedRequestBody{reader: bytes.NewReader(key.Bytes())}
+	if err := body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ReleaseDataKey(key)
+	var destination [32]byte
+	if _, err := body.Read(destination[:]); err != io.ErrClosedPipe {
+		t.Fatal("read allowed after mapping ownership ended")
 	}
 }

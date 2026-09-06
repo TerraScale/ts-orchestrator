@@ -1455,3 +1455,150 @@ var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "terrabase/v1/engine.proto",
 }
+
+const (
+	AuthGroupBootstrapService_Identity_FullMethodName  = "/terrabase.v1.AuthGroupBootstrapService/Identity"
+	AuthGroupBootstrapService_Bootstrap_FullMethodName = "/terrabase.v1.AuthGroupBootstrapService/Bootstrap"
+)
+
+// AuthGroupBootstrapServiceClient is the client API for AuthGroupBootstrapService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Dedicated GRU-authorized auth consensus bootstrap control. No user data.
+// A pending placement proposal never authorizes this service's grants.
+type AuthGroupBootstrapServiceClient interface {
+	Identity(ctx context.Context, in *AuthStorageIdentityRequest, opts ...grpc.CallOption) (*AuthStorageIdentity, error)
+	Bootstrap(ctx context.Context, in *AuthGroupBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapReceipt, error)
+}
+
+type authGroupBootstrapServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAuthGroupBootstrapServiceClient(cc grpc.ClientConnInterface) AuthGroupBootstrapServiceClient {
+	return &authGroupBootstrapServiceClient{cc}
+}
+
+func (c *authGroupBootstrapServiceClient) Identity(ctx context.Context, in *AuthStorageIdentityRequest, opts ...grpc.CallOption) (*AuthStorageIdentity, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthStorageIdentity)
+	err := c.cc.Invoke(ctx, AuthGroupBootstrapService_Identity_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authGroupBootstrapServiceClient) Bootstrap(ctx context.Context, in *AuthGroupBootstrapRequest, opts ...grpc.CallOption) (*AuthGroupBootstrapReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthGroupBootstrapReceipt)
+	err := c.cc.Invoke(ctx, AuthGroupBootstrapService_Bootstrap_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AuthGroupBootstrapServiceServer is the server API for AuthGroupBootstrapService service.
+// All implementations must embed UnimplementedAuthGroupBootstrapServiceServer
+// for forward compatibility.
+//
+// Dedicated GRU-authorized auth consensus bootstrap control. No user data.
+// A pending placement proposal never authorizes this service's grants.
+type AuthGroupBootstrapServiceServer interface {
+	Identity(context.Context, *AuthStorageIdentityRequest) (*AuthStorageIdentity, error)
+	Bootstrap(context.Context, *AuthGroupBootstrapRequest) (*AuthGroupBootstrapReceipt, error)
+	mustEmbedUnimplementedAuthGroupBootstrapServiceServer()
+}
+
+// UnimplementedAuthGroupBootstrapServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAuthGroupBootstrapServiceServer struct{}
+
+func (UnimplementedAuthGroupBootstrapServiceServer) Identity(context.Context, *AuthStorageIdentityRequest) (*AuthStorageIdentity, error) {
+	return nil, status.Error(codes.Unimplemented, "method Identity not implemented")
+}
+func (UnimplementedAuthGroupBootstrapServiceServer) Bootstrap(context.Context, *AuthGroupBootstrapRequest) (*AuthGroupBootstrapReceipt, error) {
+	return nil, status.Error(codes.Unimplemented, "method Bootstrap not implemented")
+}
+func (UnimplementedAuthGroupBootstrapServiceServer) mustEmbedUnimplementedAuthGroupBootstrapServiceServer() {
+}
+func (UnimplementedAuthGroupBootstrapServiceServer) testEmbeddedByValue() {}
+
+// UnsafeAuthGroupBootstrapServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AuthGroupBootstrapServiceServer will
+// result in compilation errors.
+type UnsafeAuthGroupBootstrapServiceServer interface {
+	mustEmbedUnimplementedAuthGroupBootstrapServiceServer()
+}
+
+func RegisterAuthGroupBootstrapServiceServer(s grpc.ServiceRegistrar, srv AuthGroupBootstrapServiceServer) {
+	// If the following call panics, it indicates UnimplementedAuthGroupBootstrapServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AuthGroupBootstrapService_ServiceDesc, srv)
+}
+
+func _AuthGroupBootstrapService_Identity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthStorageIdentityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthGroupBootstrapServiceServer).Identity(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthGroupBootstrapService_Identity_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthGroupBootstrapServiceServer).Identity(ctx, req.(*AuthStorageIdentityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthGroupBootstrapService_Bootstrap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthGroupBootstrapRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthGroupBootstrapServiceServer).Bootstrap(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthGroupBootstrapService_Bootstrap_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthGroupBootstrapServiceServer).Bootstrap(ctx, req.(*AuthGroupBootstrapRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AuthGroupBootstrapService_ServiceDesc is the grpc.ServiceDesc for AuthGroupBootstrapService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AuthGroupBootstrapService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "terrabase.v1.AuthGroupBootstrapService",
+	HandlerType: (*AuthGroupBootstrapServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Identity",
+			Handler:    _AuthGroupBootstrapService_Identity_Handler,
+		},
+		{
+			MethodName: "Bootstrap",
+			Handler:    _AuthGroupBootstrapService_Bootstrap_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "terrabase/v1/engine.proto",
+}

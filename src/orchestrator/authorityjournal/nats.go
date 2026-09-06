@@ -193,7 +193,7 @@ func (journal *Journal[S]) snapshot(ctx context.Context) (snapshot[S], error) {
 	if !validLeaseCommit(envelope.Lease, stored.Time) {
 		// A server can accept a previously sent message after its lease expires.
 		// Preserve the plain prior state in every transition, not recursively
-		// nested envelopes, so even history=1 cannot erase valid placement intent history.
+		// nested envelopes, so even history=1 cannot erase valid intent history.
 		var prior S
 		if len(envelope.PriorState) == 0 || json.Unmarshal(envelope.PriorState, &prior) != nil || journal.validate(prior) != nil {
 			return snapshot, ErrUnavailable
@@ -207,8 +207,19 @@ func (journal *Journal[S]) snapshot(ctx context.Context) (snapshot[S], error) {
 func validLeaseCommit(lease authority.RegionalAuthorityLeaseDocument, committed time.Time) bool {
 	return !committed.Before(lease.IssuedAt) && committed.Before(lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond))
 }
+
+// Transact serializes a bounded state transition with the current live lease.
+// The callback may run repeatedly after stream CAS conflicts and must not
+// perform external effects or retain pointers to the transaction state.
 func (journal *Journal[S]) Transact(ctx context.Context, write bool, change func(*S) error) error {
-	if ctx == nil {
+ return journal.TransactRevision(ctx, write, func(state *S, _ uint64) error { return change(state) })
+}
+
+// TransactRevision supplies the proposed commit sequence while the exact lease
+// and stream CAS remain fenced together. The callback can run more than once;
+// a returned revision is authoritative only after this method succeeds.
+func (journal *Journal[S]) TransactRevision(ctx context.Context, write bool, change func(*S, uint64) error) error {
+	if ctx == nil || change == nil {
 		return ErrInvalidConfig
 	}
 	operationCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -225,8 +236,11 @@ func (journal *Journal[S]) Transact(ctx context.Context, write bool, change func
 		if marshalErr != nil || len(priorState) > MaximumStateBytes {
 			return ErrUnavailable
 		}
-		if err := change(&snapshot.state); err != nil {
+		if err := change(&snapshot.state, snapshot.sequence+1); err != nil {
 			return err
+		}
+		if journal.validate(snapshot.state) != nil {
+			return ErrInvalidConfig
 		}
 		proposedState, marshalErr := json.Marshal(snapshot.state)
 		if marshalErr != nil || len(proposedState) > MaximumStateBytes {

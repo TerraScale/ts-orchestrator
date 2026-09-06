@@ -1,6 +1,8 @@
 package vmimage
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
@@ -30,6 +32,14 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 	observer := input.Engine.ObserverFiles()
 	for _, path := range []string{vmengineconfig.ObserverCertificatePath, vmengineconfig.ObserverPrivateKeyPath, vmengineconfig.ObserverCAPath} {
 		file := NoCloudRootFile{Path: path, Mode: 0600, Content: observer[path]}
+		if err := file.Validate(); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	control := input.Engine.ControlFiles()
+	for _, path := range slices.Sorted(maps.Keys(control)) {
+		file := NoCloudRootFile{Path: path, Owner: membershipServiceUser, Mode: 0400, Content: control[path]}
 		if err := file.Validate(); err != nil {
 			return nil, err
 		}

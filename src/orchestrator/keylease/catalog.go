@@ -60,14 +60,20 @@ func validULID(s string) bool {
 	}
 	return true
 }
-func (b Binding) valid() bool {
-	if len(b.Environment) < 1 || len(b.Environment) > 128 {
+func validEnvironment(environment string) bool {
+	if len(environment) < 1 || len(environment) > 128 {
 		return false
 	}
-	for _, c := range b.Environment {
+	for _, c := range environment {
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			return false
 		}
+	}
+	return true
+}
+func (b Binding) valid() bool {
+	if !validEnvironment(b.Environment) {
+		return false
 	}
 	return validULID(b.TenantID) && validULID(b.ProjectID) && validULID(b.DatabaseID) && validULID(b.KeyVersion) && ociRegion(b.Region) != "" && (b.Purpose == "data" || b.Purpose == "backup" || b.Purpose == "checkpoint")
 }
@@ -153,13 +159,13 @@ func ReadCatalog(path string) (Catalog, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > maximumCatalogBytes {
 		return Catalog{}, ErrUnavailable
 	}
-	f, err := root.OpenFile(name, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	f, err := root.OpenFile(name, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return Catalog{}, ErrUnavailable
 	}
 	defer f.Close()
 	var st unix.Stat_t
-	if unix.Fstat(int(f.Fd()), &st) != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&0777 != 0600 {
+	if unix.Fstat(int(f.Fd()), &st) != nil || st.Uid != uint32(os.Geteuid()) || st.Mode&0777 != 0600 || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Nlink != 1 {
 		return Catalog{}, ErrUnavailable
 	}
 	body, err := io.ReadAll(io.LimitReader(f, maximumCatalogBytes+1))
@@ -274,4 +280,26 @@ func sameEntry(a, b Entry) bool {
 	a.NotAfter = time.Time{}
 	b.NotAfter = time.Time{}
 	return a == b && at.Equal(bt)
+}
+
+// InitializeCatalog creates an empty durable catalog only when none exists.
+// Valid existing state is retained, and corrupt/unsafe state is never replaced.
+func InitializeCatalog(path string) error {
+	unlock, err := catalogLock(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer unlock()
+	if _, err := ReadCatalog(path); err == nil {
+		return nil
+	}
+	root, name, err := privateRoot(path)
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer root.Close()
+	if _, err := root.Lstat(name); !os.IsNotExist(err) {
+		return ErrUnavailable
+	}
+	return writeCatalog(path, Catalog{Version: 1})
 }

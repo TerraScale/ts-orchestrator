@@ -9,6 +9,7 @@ import (
 	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
+	"github.com/nats-io/nkeys"
 	"math/big"
 	"net"
 	"net/url"
@@ -21,6 +22,14 @@ import (
 )
 
 func Declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
+	t.Helper()
+	return declaration(t, bindings, artifact, release, false)
+}
+func ControlDeclaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
+	t.Helper()
+	return declaration(t, bindings, artifact, release, true)
+}
+func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string, control bool) (vmengineconfig.Declaration, string) {
 	t.Helper()
 	root := t.TempDir()
 	write := func(name string, raw []byte) string {
@@ -90,7 +99,47 @@ func Declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 		if err != nil {
 			t.Fatal(err)
 		}
-		d.Hosts = append(d.Hosts, vmengineconfig.Host{ObserverIdentity: observerIdentity, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: write(fmt.Sprintf("%d-observer.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: observerDER})), ObserverPrivateKeyFile: write(fmt.Sprintf("%d-observer.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: observerPrivate})), NodeID: binding.NodeID, Member: member, CertificateFile: write(fmt.Sprintf("%d.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), PrivateKeyFile: write(fmt.Sprintf("%d.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), CAFile: caFile})
+		host := vmengineconfig.Host{ObserverIdentity: observerIdentity, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: write(fmt.Sprintf("%d-observer.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: observerDER})), ObserverPrivateKeyFile: write(fmt.Sprintf("%d-observer.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: observerPrivate})), NodeID: binding.NodeID, Member: member, CertificateFile: write(fmt.Sprintf("%d.crt", i), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), PrivateKeyFile: write(fmt.Sprintf("%d.key", i), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), CAFile: caFile}
+		if control {
+			issue := func(suffix, identity string, serial int64) (string, string) {
+				t.Helper()
+				clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				clientURI, err := url.Parse(identity)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cert := &x509.Certificate{SerialNumber: big.NewInt(serial), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), URIs: []*url.URL{clientURI}, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+				raw, err := x509.CreateCertificate(rand.Reader, cert, ca, &clientKey.PublicKey, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				secret, err := x509.MarshalPKCS8PrivateKey(clientKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return write(fmt.Sprintf("%d-%s.crt", i, suffix), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: raw})), write(fmt.Sprintf("%d-%s.key", i, suffix), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: secret}))
+			}
+			identity := "spiffe://terrascale.tech/qualification/orchestrator-control/" + binding.NodeID
+			certificate, private := issue("control", identity, int64(300+i))
+			natsCertificate, natsPrivate := issue("nats-control", "spiffe://terrascale.tech/qualification/nats-placement/"+binding.NodeID, int64(600+i))
+			pair, err := nkeys.CreateUser()
+			if err != nil {
+				t.Fatal(err)
+			}
+			seed, err := pair.Seed()
+			if err != nil {
+				t.Fatal(err)
+			}
+			nkey := write(fmt.Sprintf("%d-placement.nkey", i), seed)
+			clear(seed)
+			pair.Wipe()
+			host.OrchestratorPrincipals = []string{identity}
+			host.EngineControl = &vmengineconfig.EngineControlCredentials{Identity: identity, CertificateFile: certificate, PrivateKeyFile: private, NATSURL: "tls://" + bindings[0].Address + ":4222", NKeyFile: nkey, NATSCertificateFile: natsCertificate, NATSPrivateKeyFile: natsPrivate, NATSCAFile: caFile}
+		}
+		d.Hosts = append(d.Hosts, host)
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {

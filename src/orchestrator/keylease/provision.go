@@ -70,7 +70,18 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 			}
 		}
 	}
+	scopeCopies := 0
+	for _, entry := range catalog.Entries {
+		binding := entry.Binding
+		binding.Region = primary.Region
+		if binding == primary {
+			scopeCopies++
+		}
+	}
 	if existing == len(targets) {
+		if scopeCopies != len(targets) {
+			return ErrUnavailable
+		}
 		return nil
 	}
 	if existing != 0 {

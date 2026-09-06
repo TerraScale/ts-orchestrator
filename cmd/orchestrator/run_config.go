@@ -21,6 +21,7 @@ const maximumRunConfigurationBytes = 64 << 10
 // tokens, private keys, and arbitrary environment variables are not supported.
 var runConfigurationKeys = map[string]bool{
 	placementHostFileEnvironment: true,
+	databaseHostFileEnvironment:  true,
 	keyLeaseSocketEnvironment:    true, keyLeaseCatalogEnvironment: true, keyLeaseEnvironment: true, keyLeaseUIDEnvironment: true,
 	"TS_ORCH_CELL": true, "TS_ORCH_INSTANCE": true, "TS_ORCH_NATS_URL": true, "TS_ORCH_REPLICAS": true,
 	"TS_ORCH_NATS_NKEY_FILE": true, "TS_ORCH_NATS_TLS_CA_FILE": true, "TS_ORCH_NATS_TLS_CERT_FILE": true, "TS_ORCH_NATS_TLS_KEY_FILE": true,

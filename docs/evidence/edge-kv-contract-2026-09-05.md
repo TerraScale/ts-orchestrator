@@ -25,7 +25,8 @@ and credential dependency are removed. Control readiness and engine serving
 readiness therefore have separate publishers.
 
 The authenticated host collector and engine observation integration are
-recorded separately alongside their tests. Live provider and six-guest
+recorded in [observed region health](../operations/observed-region-health.md).
+Live provider and six-guest
 qualification remain required; local HTTP fixtures do not establish them.
 
 Verification on the working changes:
@@ -35,6 +36,9 @@ Verification on the working changes:
   passed before the subsequent authenticated collector integration.
 - Bootstrap provider and Cloudflare package tests pass after removal of the
   control-derived edge-health publisher.
+- Race tests pass for Cloudflare, bootstrap, and the VM qualification suite.
+  Integrated race tests also pass for hostagent, hostcontrol, TBEP, ts-node,
+  and the orchestrator command after the authenticated collector changes.
 - Full repository verification must follow integration of the concurrently
   edited production adapters. No public launch or real-provider claim follows
   from these focused results.

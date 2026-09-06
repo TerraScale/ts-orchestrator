@@ -44,6 +44,9 @@ func TestProvisionCommitsAllRegionsAndRetryPreservesKey(t *testing.T) {
 	if err := provision(t.Context(), config.CatalogPath, targets, wrap); err != nil || calls != 2 {
 		t.Fatal("retry generated new keys")
 	}
+	if err := provision(t.Context(), config.CatalogPath, targets[:1], wrap); err == nil {
+		t.Fatal("retry narrowed immutable region set")
+	}
 	// A partial new region cannot turn a historical version into another key.
 	third := target
 	third.Binding.Region = "SFO"
@@ -68,5 +71,34 @@ func TestProvisionFailurePublishesNoPartialKey(t *testing.T) {
 	stored, err := ReadCatalog(config.CatalogPath)
 	if err != nil || len(stored.Entries) != 0 {
 		t.Fatal("failed issuance published partial state")
+	}
+}
+
+func TestCatalogDeliveryPreservesRevocationAndInitialization(t *testing.T) {
+	config, catalog := fixture(t)
+	if err := InitializeCatalog(config.CatalogPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeEntries(config.CatalogPath, catalog.Entries); err != nil {
+		t.Fatal("exact delivery retry rejected")
+	}
+	conflict := catalog.Entries[0]
+	conflict.Ciphertext = "different-wrapped-key"
+	if err := MergeEntries(config.CatalogPath, []Entry{conflict}); err == nil {
+		t.Fatal("conflicting wrapped key overwrote admitted version")
+	}
+	catalog.Entries[0].Revoked = true
+	if err := WriteCatalog(config.CatalogPath, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if err := MergeEntries(config.CatalogPath, []Entry{conflict}); err == nil {
+		t.Fatal("delivery revived revoked version")
+	}
+	if err := InitializeCatalog(config.CatalogPath); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := ReadCatalog(config.CatalogPath)
+	if err != nil || len(persisted.Entries) != 1 || !persisted.Entries[0].Revoked {
+		t.Fatal("initialization overwrote catalog")
 	}
 }

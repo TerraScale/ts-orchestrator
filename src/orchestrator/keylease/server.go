@@ -40,7 +40,7 @@ type Server struct {
 // key is requested; startup does not fetch or persist any plaintext keys.
 func Start(ctx context.Context, config Config) (*Server, error) { return start(ctx, config, unwrapOCI) }
 func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, error) {
-	if ctx == nil || unwrap == nil || config.AllowedUID != uint32(os.Geteuid()) || ociRegion(config.Region) == "" || len(config.Environment) == 0 {
+	if ctx == nil || unwrap == nil || config.AllowedUID != uint32(os.Geteuid()) || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) {
 		return nil, ErrUnavailable
 	}
 	_, err := ReadCatalog(config.CatalogPath)

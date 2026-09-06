@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 	"terrascale.tech/orchestrator/src/orchestrator/memberobserve"
@@ -462,16 +463,20 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 			return hostErr
 		}
 		if hosts != nil {
-			defer hosts.Close()
+			var hostFailed atomic.Bool
+			defer func() { result = combineErrors(result, hosts.Close()) }()
 			go func() {
 				select {
 				case <-hosts.Completion():
-					cancelRun()
+					if runCtx.Err() == nil {
+						hostFailed.Store(true)
+						cancelRun()
+					}
 				case <-monitorDone:
 				}
 			}()
 			defer func() {
-				if ctx.Err() == nil && runCtx.Err() != nil && result == nil {
+				if ctx.Err() == nil && hostFailed.Load() && (result == nil || errors.Is(result, context.Canceled)) {
 					result = errors.New("orchestrator: local host service stopped")
 				}
 			}()

@@ -1,0 +1,245 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"slices"
+	"sync"
+
+	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
+	"terrascale.tech/orchestrator/src/orchestrator/keylease"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
+	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
+)
+
+// This topology is resolved from admitted deployment configuration, never from
+// database-create input. Writer roles are explicit, independent of seat order.
+type productionDatabaseRegion struct {
+	Region           string
+	Writer, Follower productionDatabaseHost
+	Vault            keylease.ProvisionTarget
+}
+type productionDatabaseHost struct{ ServerIdentity, MemberID string }
+type productionDatabaseConfig struct {
+	Environment, Cluster, CatalogPath string
+	Regions                           []productionDatabaseRegion
+	Authorize                         func(context.Context, databaseadmission.Request) error
+}
+type productionDatabase struct {
+	pipeline *databaseadmission.Pipeline
+	service  *databaseadmission.Service
+	check    func(context.Context) error
+	mu       sync.Mutex
+	failure  string
+}
+
+func newProductionDatabase(config productionDatabaseConfig, session globalWorkerSession, placement *productionPlacement) (*productionDatabase, error) {
+	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || placement == nil {
+		return nil, errors.New("runtime database: admitted topology, catalog and project authorization required")
+	}
+	seenHosts, seenRegions := map[string]bool{}, map[string]bool{}
+	for _, region := range config.Regions {
+		if seenRegions[region.Region] || !slices.Contains([]string{"GRU", "SFO", "FRA"}, region.Region) {
+			return nil, databaseadmission.ErrInvalid
+		}
+		seenRegions[region.Region] = true
+		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
+			if seenHosts[host.ServerIdentity] || placement.publishers[host.ServerIdentity] == nil || host.ServerIdentity != "spiffe://terrascale.tech/"+config.Environment+"/terrabase-member/"+config.Cluster+"/"+host.MemberID {
+				return nil, databaseadmission.ErrInvalid
+			}
+			seenHosts[host.ServerIdentity] = true
+		}
+	}
+	journal, err := databaseadmission.NewNATSJournal(databaseadmission.NATSJournalConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId})
+	if err != nil {
+		return nil, err
+	}
+	placementJournal, err := placementpublisher.NewNATSJournal(placementpublisher.NATSJournalConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId})
+	if err != nil {
+		return nil, err
+	}
+	pipeline, err := databaseadmission.New(databaseadmission.Config{
+		Journal: journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
+		Authorize: func(ctx context.Context, r databaseadmission.Request) error {
+			if r.Environment != config.Environment {
+				return databaseadmission.ErrInvalid
+			}
+			return config.Authorize(ctx, r)
+		},
+		Plan: func(ctx context.Context, r databaseadmission.Record) ([]databaseadmission.Target, error) {
+			return config.plan(ctx, r, journal, placementJournal)
+		},
+		Install: databaseadmission.RemoteInstall(session.Connection),
+		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) error {
+			if err := validateDatabaseProposal(ctx, journal, host, operation, proposal); err != nil {
+				return err
+			}
+			return placement.Accept(ctx, host, operation, proposal)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &productionDatabase{pipeline: pipeline, check: session.CheckEffectAuthority}, nil
+}
+func (d *productionDatabase) Start(ctx context.Context, session globalWorkerSession) error {
+	service, err := databaseadmission.StartAuthority(ctx, session.Connection, d.pipeline)
+	if err == nil {
+		d.service = service
+	}
+	return err
+}
+func (d *productionDatabase) Close() error {
+	if d == nil || d.service == nil {
+		return nil
+	}
+	return d.service.Close()
+}
+func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementStageRequest) error {
+	records, err := journal.List(ctx)
+	if err != nil {
+		return err
+	}
+	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(proposal)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if databaseadmission.PlacementOperationID(record.Request) != operation {
+			continue
+		}
+		for _, target := range record.Targets {
+			if target.ServerIdentity == host && bytes.Equal(target.Proposal, encoded) {
+				return nil
+			}
+		}
+	}
+	return errors.New("runtime database: placement differs from accepted immutable plan")
+}
+
+func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmission.Record, journal databaseadmission.Journal, placements placementpublisher.Journal) ([]databaseadmission.Target, error) {
+	if r.Request.Environment != config.Environment {
+		return nil, databaseadmission.ErrInvalid
+	}
+	records, err := journal.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// A successor proposal must not overtake an unresolved operation on a host.
+	for _, prior := range records {
+		if prior.State != "placement_pending" {
+			return nil, errors.New("runtime database: previous database admission is unresolved")
+		}
+	}
+	proposal := &pb.PlacementProposal{Environment: config.Environment, Cluster: config.Cluster, Generation: 1, Epoch: 1}
+	targets := []databaseadmission.Target{}
+	selected := map[string]bool{}
+	for _, region := range config.Regions {
+		if !slices.Contains(r.Request.Regions, region.Region) {
+			continue
+		}
+		if selected[region.Region] {
+			return nil, databaseadmission.ErrInvalid
+		}
+		selected[region.Region] = true
+		proposal.Regions = append(proposal.Regions, &pb.PlacementRegionSeats{Region: region.Region, Members: []string{region.Writer.MemberID, region.Follower.MemberID}})
+		proposal.Assignments = append(proposal.Assignments, &pb.PlacementDatabaseAssignment{Tenant: r.Request.TenantID, Project: r.Request.ProjectID, Database: r.DatabaseID, Region: region.Region, WriterMember: region.Writer.MemberID, FollowerMember: region.Follower.MemberID})
+		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
+			vault := region.Vault
+			vault.Binding = keylease.Binding{Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: region.Region, Purpose: "data"}
+			targets = append(targets, databaseadmission.Target{ServerIdentity: host.ServerIdentity, MemberID: host.MemberID, Region: region.Region, Provision: vault})
+		}
+	}
+	if len(selected) != len(r.Request.Regions) {
+		return nil, databaseadmission.ErrInvalid
+	}
+	// Each target journal is authoritative for its local CAS revision. Merge all
+	// admitted prior assignments so a new database cannot erase an existing one.
+	revisions := map[string]uint64{}
+	for _, target := range targets {
+		prior, err := placements.Load(ctx, target.ServerIdentity)
+		if errors.Is(err, placementpublisher.ErrIntentMissing) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		receipt := new(pb.PlacementProposalResponse)
+		previous := new(pb.PlacementStageRequest)
+		if len(prior.Receipt) == 0 || proto.Unmarshal(prior.Receipt, receipt) != nil || proto.Unmarshal(prior.Request, previous) != nil || tbep.ValidatePlacementReceipt(receipt, previous.Proposal) != nil {
+			return nil, errors.New("runtime database: previous placement remains unresolved")
+		}
+		if previous.Proposal.Environment != config.Environment || previous.Proposal.Cluster != config.Cluster {
+			return nil, databaseadmission.ErrConflict
+		}
+		if previous.Proposal.Generation == ^uint64(0) || previous.Proposal.Epoch == ^uint64(0) {
+			return nil, databaseadmission.ErrInvalid
+		}
+		revisions[target.ServerIdentity] = receipt.Revision
+		proposal.Generation = max(proposal.Generation, previous.Proposal.Generation+1)
+		proposal.Epoch = max(proposal.Epoch, previous.Proposal.Epoch+1)
+		for _, seats := range previous.Proposal.Regions {
+			i := slices.IndexFunc(proposal.Regions, func(v *pb.PlacementRegionSeats) bool { return v.Region == seats.Region })
+			if i < 0 {
+				proposal.Regions = append(proposal.Regions, proto.CloneOf(seats))
+			} else if !slices.Equal(slices.Sorted(slices.Values(proposal.Regions[i].Members)), slices.Sorted(slices.Values(seats.Members))) {
+				return nil, databaseadmission.ErrConflict
+			}
+		}
+		for _, assignment := range previous.Proposal.Assignments {
+			i := slices.IndexFunc(proposal.Assignments, func(v *pb.PlacementDatabaseAssignment) bool {
+				return v.Database == assignment.Database && v.Region == assignment.Region
+			})
+			if i < 0 {
+				proposal.Assignments = append(proposal.Assignments, proto.CloneOf(assignment))
+			} else if !proto.Equal(proposal.Assignments[i], assignment) {
+				return nil, databaseadmission.ErrConflict
+			}
+		}
+	}
+	canonical, err := tbep.CanonicalPlacement(proposal)
+	if err != nil {
+		return nil, fmt.Errorf("runtime database plan: %w", err)
+	}
+	for i := range targets {
+		targets[i].Proposal, err = (proto.MarshalOptions{Deterministic: true}).Marshal(&pb.PlacementStageRequest{ExpectedRevision: revisions[targets[i].ServerIdentity], Proposal: canonical})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return targets, nil
+}
+
+// Unreachable hosts retain their durable intent and retry. Authority loss and
+// corrupt immutable records stop the session instead of repeatedly dispatching.
+func (d *productionDatabase) Reconcile(ctx context.Context) error {
+	err := d.pipeline.Reconcile(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if authorityErr := d.check(ctx); authorityErr != nil {
+			return authorityErr
+		}
+		if errors.Is(err, databaseadmission.ErrInvalid) {
+			return err
+		}
+	}
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	d.mu.Lock()
+	changed := message != d.failure
+	d.failure = message
+	d.mu.Unlock()
+	if changed && err != nil {
+		slog.ErrorContext(ctx, "database admission remains unresolved", "error", err)
+	}
+	return nil
+}
