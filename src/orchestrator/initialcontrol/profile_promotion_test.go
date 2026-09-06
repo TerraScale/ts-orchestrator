@@ -26,16 +26,6 @@ type profilePromotionBroker struct {
 	s           *server.Server
 }
 
-func profilePromotionPort(t *testing.T) int {
-	t.Helper()
-	l, e := net.Listen("tcp", "127.0.0.1:0")
-	if e != nil {
-		t.Fatal(e)
-	}
-	p := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return p
-}
 func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*profilePromotionBroker, budget int64) {
 	t.Helper()
 	accounts := map[string]any{}
@@ -49,7 +39,10 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 		cfg["server_tags"] = []string{"region:" + map[string]string{"GRU_SOURCE": "gru", "SFO_PEER": "sfo", "FRA_PEER": "fra"}[b.name]}
 		routes := []string{}
 		for _, p := range peers {
-			if p != b {
+			// A server owns its dynamically allocated route for this entire
+			// running lifetime. Stopped peers have no authoritative endpoint;
+			// they will connect to a running peer when they start.
+			if p != b && p.s != nil && p.route > 0 {
 				routes = append(routes, fmt.Sprintf("nats://127.0.0.1:%d", p.route))
 			}
 		}
@@ -70,6 +63,13 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 	if e != nil {
 		t.Fatal(e)
 	}
+	// The Go API documents -1 as a random listener, while configuration-file
+	// parsing treats the value differently. Set it on the parsed options so
+	// every restart gets a fresh listener owned by NATS.
+	opts.Port = -1
+	if cluster {
+		opts.Cluster.Port = -1
+	}
 	opts.NoSigs = true
 	opts.NoLog = true
 
@@ -80,7 +80,11 @@ func (b *profilePromotionBroker) start(t *testing.T, cluster bool, peers []*prof
 
 	b.s.Start()
 	if !b.s.ReadyForConnections(10 * time.Second) {
-		t.Fatal("broker listener unavailable", b.name)
+		t.Fatalf("broker listener unavailable %s client_port=%d route_port=%d", b.name, b.port, b.route)
+	}
+	b.port = b.s.Addr().(*net.TCPAddr).Port
+	if cluster {
+		b.route = b.s.ClusterAddr().Port
 	}
 }
 func (b *profilePromotionBroker) stop() {
@@ -306,7 +310,10 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 	runDir := t.TempDir()
 	brokers := []*profilePromotionBroker{}
 	for _, name := range []string{"GRU_SOURCE", "SFO_PEER", "FRA_PEER"} {
-		b := &profilePromotionBroker{name: name, store: filepath.Join(runDir, name, "store"), port: profilePromotionPort(t), route: profilePromotionPort(t)}
+		// NATS owns both listeners for each start and reports their actual
+		// endpoints after binding. Reusing pre-probed ports creates a TOCTOU
+		// race with concurrent package tests and with later restarts.
+		b := &profilePromotionBroker{name: name, store: filepath.Join(runDir, name, "store"), port: -1, route: -1}
 		brokers = append(brokers, b)
 		defer b.stop()
 	}
@@ -454,8 +461,6 @@ func TestInitialProfilesSnapshotRestoreR3Recovery(t *testing.T) {
 
 	brokers[1].start(t, true, brokers, budget)
 	brokers[2].start(t, true, brokers, budget)
-
-	source.start(t, true, brokers, budget)
 
 	profilePromotionWait(t, "exact healthy3-member metadata cluster", func() bool {
 		leader := ""

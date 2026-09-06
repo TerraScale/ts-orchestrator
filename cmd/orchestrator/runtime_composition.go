@@ -43,9 +43,7 @@ var (
 	// opening clients or listeners. The returned plan opens live stores only
 	// after the selected embedded broker is ready. Missing root configuration
 	// fails here, before any listener can start.
-	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
-		return nil, ErrProductionCompositionMissing
-	}
+	admitProductionRuntime = resolveProductionRuntime
 )
 
 // admittedProductionRuntime binds validated static input to its live

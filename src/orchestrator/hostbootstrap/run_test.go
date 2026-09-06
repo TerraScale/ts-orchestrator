@@ -112,7 +112,10 @@ func localBootstrapComponent(t *testing.T, component string) (LocalBootstrapConf
 	if err = os.WriteFile(path, canonical, 0600); err != nil {
 		t.Fatal(err)
 	}
-	return LocalBootstrapConfig{NodeID: "gru-1", PublicKeyPEM: public, SignedGrant: grant, Lifecycle: lifecycle, ManifestPath: path, InstallRoot: root, Timeout: 3 * time.Second}, systemd, root
+	// RunLocalBootstrap observes readiness three times at 250 ms intervals on
+	// every invocation, including an already-installed component. Keep the
+	// operation bound explicit while allowing normal suite scheduling overhead.
+	return LocalBootstrapConfig{NodeID: "gru-1", PublicKeyPEM: public, SignedGrant: grant, Lifecycle: lifecycle, ManifestPath: path, InstallRoot: root, Timeout: 10 * time.Second}, systemd, root
 }
 func TestOfflineInitialGrantActivatesWithoutBrokerAndRetires(t *testing.T) {
 	config, systemd, root := localBootstrapFixture(t)

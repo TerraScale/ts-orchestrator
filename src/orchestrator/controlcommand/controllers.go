@@ -11,6 +11,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reconcile"
 )
 
@@ -18,11 +19,12 @@ import (
 // declared Region. Gateway implementations own transport authentication,
 // mutation journals, and durable ownership evidence.
 type OCIRegionControllerConfig struct {
-	Region       estate.Region
-	ImageID      string
-	Gateways     ocireconcile.BootstrapGateways
-	Certificates ocireconcile.CertGateway
-	BlockPolicy  ocireconcile.BlockStoragePolicy
+	Region          estate.Region
+	ImageID         string
+	FallbackImageID string
+	Gateways        ocireconcile.BootstrapGateways
+	Certificates    ocireconcile.CertGateway
+	BlockPolicy     ocireconcile.BlockStoragePolicy
 }
 
 type OCIRegionControllerSource interface {
@@ -107,14 +109,15 @@ type OCIReconcileController struct {
 }
 
 type ociRegionController struct {
-	region  estate.Region
-	imageID string
-	network *ocireconcile.NetworkReconciler
-	compute *ocireconcile.ComputeReconciler
-	block   *ocireconcile.BlockStorageReconciler
-	object  *ocireconcile.ObjectStorageReconciler
-	vault   *ocireconcile.VaultReconciler
-	certs   *ocireconcile.CertReconciler
+	region          estate.Region
+	imageID         string
+	fallbackImageID string
+	network         *ocireconcile.NetworkReconciler
+	compute         *ocireconcile.ComputeReconciler
+	block           *ocireconcile.BlockStorageReconciler
+	object          *ocireconcile.ObjectStorageReconciler
+	vault           *ocireconcile.VaultReconciler
+	certs           *ocireconcile.CertReconciler
 
 	mu       sync.Mutex
 	observed *ociRegionObservation
@@ -130,13 +133,13 @@ type ociRegionObservation struct {
 }
 
 func newOCIRegionController(declared estate.Region, config OCIRegionControllerConfig) (*ociRegionController, error) {
-	if config.Region.Code != declared.Code || config.Region.OCIName != declared.OCIName || strings.TrimSpace(config.ImageID) == "" ||
+	if config.Region.Code != declared.Code || config.Region.OCIName != declared.OCIName || !provider.IsOCID(config.ImageID, "image") || !provider.IsOCID(config.FallbackImageID, "image") ||
 		config.Gateways.Network == nil || config.Gateways.Compute == nil || config.Gateways.Block == nil ||
 		config.Gateways.Object == nil || config.Gateways.Vault == nil || config.Certificates == nil {
 		return nil, ErrInvalidConfiguration
 	}
 	return &ociRegionController{
-		region: declared, imageID: config.ImageID,
+		region: declared, imageID: config.ImageID, fallbackImageID: config.FallbackImageID,
 		network: &ocireconcile.NetworkReconciler{Gateway: config.Gateways.Network},
 		compute: &ocireconcile.ComputeReconciler{Compute: config.Gateways.Compute, Network: config.Gateways.Network},
 		block:   &ocireconcile.BlockStorageReconciler{Block: config.Gateways.Block, Compute: config.Gateways.Compute, Policy: config.BlockPolicy},
@@ -181,7 +184,7 @@ func (r *ociRegionController) observe(ctx context.Context) (*ociRegionObservatio
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
-	compute, err := r.compute.Observe(ctx, ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID})
+	compute, err := r.compute.Observe(ctx, r.computeDeclared())
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
@@ -237,7 +240,7 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 			return err
 		}
 	}
-	computeDeclared := ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID}
+	computeDeclared := r.computeDeclared()
 	steps := []func() error{
 		func() error {
 			plan, err := r.network.Reconcile(ctx, r.region, observed.network)
@@ -312,6 +315,10 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 		}
 	}
 	return nil
+}
+
+func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
+	return ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID}
 }
 
 type CloudflareReconcileController struct {
@@ -467,7 +474,7 @@ func observedOCIState(region estate.Region, observed *ociRegionObservation) reco
 	liveMembers := 0
 	primaryShape := region.Members.PrimaryShape
 	for _, member := range observed.compute.Members {
-		if member.LifecycleState == "TERMINATED" || member.LifecycleState == "TERMINATING" || member.LifecycleState == "" {
+		if !knownLiveLifecycle(member.LifecycleState) {
 			continue
 		}
 		liveMembers++
@@ -545,6 +552,15 @@ func observedOCIState(region estate.Region, observed *ociRegionObservation) reco
 		}
 	}
 	return state
+}
+
+func knownLiveLifecycle(state string) bool {
+	switch state {
+	case "RUNNING", "STOPPED", "PROVISIONING", "STARTING", "STOPPING", "UPDATING", "REBOOTING":
+		return true
+	default:
+		return false
+	}
 }
 
 func observedDataVolumeSize(region estate.Region, observed ocireconcile.BlockStorageObserved) string {

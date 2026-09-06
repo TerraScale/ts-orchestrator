@@ -40,6 +40,7 @@ const (
 	ociKeyIDEnvironment                = "TS_ORCH_OCI_KEY_ID"
 	ociPrivateKeyFileEnvironment       = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
 	ociImageIDEnvironment              = "TS_ORCH_OCI_IMAGE_ID"
+	ociFallbackImageIDEnvironment      = "TS_ORCH_OCI_FALLBACK_IMAGE_ID"
 	ociCertificateAuthorityEnvironment = "TS_ORCH_OCI_CERTIFICATE_AUTHORITY_ID"
 	providerEnvironment                = "TS_ORCH_PROVIDER"
 	cloudflareTokenEnvironment         = "CLOUDFLARE_API_TOKEN"

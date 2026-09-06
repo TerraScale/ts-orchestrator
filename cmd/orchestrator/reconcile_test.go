@@ -117,6 +117,26 @@ func TestOCICompositionCoversAllDeclaredRegionsAndObservedState(t *testing.T) {
 	}
 }
 
+func TestOCIObservedStateIgnoresUnknownLifecycle(t *testing.T) {
+	region := estate.Default().Regions[0]
+	state := ociObservedState(region, &ociRegionObservation{compute: ocireconcile.ComputeObserved{
+		Members: []ocireconcile.ObservedMember{{ID: "ocid1.instance.oc1.x", LifecycleState: "MYSTERY", Shape: region.Members.PrimaryShape}},
+	}})
+	for _, resource := range state.Resources {
+		if resource.Ref.Kind == estate.ResourceCompute {
+			t.Fatal("unknown OCI lifecycle was reported as a live compute resource")
+		}
+	}
+}
+
+func TestOCIProductionCallerCarriesConfiguredFallbackImage(t *testing.T) {
+	r := &ociRegionController{region: estate.Default().Regions[0], imageID: "ocid1.image.oc1.arm64", fallbackImageID: "ocid1.image.oc1.amd64"}
+	declared := r.computeDeclared()
+	if declared.ImageID != r.imageID || declared.FallbackImageID != r.fallbackImageID {
+		t.Fatalf("production compute declaration = %+v", declared)
+	}
+}
+
 type unknownOCIAction struct{}
 
 func (unknownOCIAction) Kind() ocireconcile.OCIActionKind { return "unexpected-provider-action" }

@@ -253,6 +253,9 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 		if state == memberStateFailed {
 			return OCIPlan{}, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " failed and cannot be used"}
 		}
+		if state == memberStateUnknown {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed member " + member.DisplayName + " has an unusable lifecycle state"}
+		}
 		if state == memberStateAbsent {
 			continue
 		}
@@ -474,6 +477,9 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 	if !found || !memberOwnedInRegion(expected, region) || (computeScopeCompartment(r.Compute) != "" && expected.CompartmentID != computeScopeCompartment(r.Compute)) {
 		return &provider.InvalidOperationError{Message: "member termination requires positively owned observed instance"}
 	}
+	if observedMemberState(expected.LifecycleState) == memberStateUnknown {
+		return &provider.InvalidDataError{Message: "refusing termination of member with an unusable lifecycle state"}
+	}
 	current, err := r.Compute.ListMembers(ctx)
 	if err != nil {
 		return err
@@ -482,7 +488,13 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 		if member.ID != id {
 			continue
 		}
-		if !memberOwnedInRegion(member, region) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) || !sameObservedMember(member, expected) {
+		if !memberOwnedInRegion(member, region) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) {
+			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
+		}
+		if observedMemberState(member.LifecycleState) == memberStateUnknown {
+			return &provider.InvalidDataError{Message: "refusing termination of member with an unusable lifecycle state"}
+		}
+		if !sameObservedMember(member, expected) {
 			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
 		}
 		return r.Compute.TerminateMember(ctx, id)

@@ -441,6 +441,37 @@ func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
 	}
 }
 
+func TestComputeReconcileRefusesUnknownOwnedLifecycle(t *testing.T) {
+	declared := testComputeDeclared(t)
+	reconciler := &ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}
+	for _, index := range []int{1, 3} {
+		observed := testComputeObserved()
+		observed.Members = []ObservedMember{
+			testOwnedMember("gru", index, declared.Region.Members.PrimaryShape, "MYSTERY", "AD-1"),
+		}
+		if _, err := reconciler.Reconcile(context.Background(), declared, observed); err == nil {
+			t.Fatalf("unknown lifecycle in member slot %d was accepted", index)
+		}
+	}
+}
+
+func TestComputeApplyRefusesUnknownLifecycleRace(t *testing.T) {
+	declared := testComputeDeclared(t)
+	expected := testOwnedMember("gru", 3, declared.Region.Members.PrimaryShape, "RUNNING", "AD-1")
+	current := expected
+	current.LifecycleState = "MYSTERY"
+	gateway := &fakeComputeGateway{members: []ObservedMember{current}}
+	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
+	plan := OCIPlan{Actions: []OCIAction{TerminateMemberAction{InstanceID: expected.ID}}}
+	err := reconciler.Apply(context.Background(), declared, ComputeObserved{Members: []ObservedMember{expected}}, plan)
+	if err == nil {
+		t.Fatal("Apply accepted a lifecycle state that changed to unknown")
+	}
+	if len(gateway.terminations) != 0 {
+		t.Fatalf("termination calls = %v, want none", gateway.terminations)
+	}
+}
+
 func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	sha := strings.Repeat("0123456789abcdef", 4)
 	key := strings.Repeat("ab", 32)

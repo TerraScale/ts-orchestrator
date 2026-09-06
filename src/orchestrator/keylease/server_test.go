@@ -77,6 +77,30 @@ func request(t *testing.T, path string, b Binding) []byte {
 	}
 	return body
 }
+
+func writeCatalogWithRetry(ctx context.Context, path string, catalog Catalog) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := WriteCatalog(path, catalog)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrUnavailable) {
+			return err
+		}
+		wait := time.NewTimer(5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			wait.Stop()
+			return ctx.Err()
+		case <-wait.C:
+		}
+		if time.Until(deadline) <= 0 {
+			return ErrUnavailable
+		}
+	}
+}
+
 func TestLeaseRestartRotationAndRevocation(t *testing.T) {
 	config, catalog := fixture(t)
 	calls := 0
@@ -118,8 +142,8 @@ func TestLeaseRestartRotationAndRevocation(t *testing.T) {
 		t.Fatal("old readable version substituted")
 	}
 	catalog.Entries[0].Revoked = true
-	if WriteCatalog(config.CatalogPath, catalog) != nil {
-		t.Fatal("revocation failed")
+	if err := writeCatalogWithRetry(t.Context(), config.CatalogPath, catalog); err != nil {
+		t.Fatalf("revocation failed: %v", err)
 	}
 	before := calls
 	if body = request(t, config.SocketPath, catalog.Entries[0].Binding); !bytes.Equal(body, []byte{'T', 'B', 'K', 'L', 1, 1}) || calls != before {

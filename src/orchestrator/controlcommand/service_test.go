@@ -22,6 +22,14 @@ func TestProductionOptionsKeepCanonicalMutationPolicy(t *testing.T) {
 	}
 }
 
+func TestProductionCallerCarriesConfiguredFallbackImage(t *testing.T) {
+	r := &ociRegionController{region: estate.Default().Regions[0], imageID: "ocid1.image.oc1.arm64", fallbackImageID: "ocid1.image.oc1.amd64"}
+	declared := r.computeDeclared()
+	if declared.ImageID != r.imageID || declared.FallbackImageID != r.fallbackImageID {
+		t.Fatalf("production compute declaration = %+v", declared)
+	}
+}
+
 func TestNewServiceRejectsIncompleteDependencies(t *testing.T) {
 	if _, err := NewService(Dependencies{}, Options{ControlRetry: bootstrap.RetryPolicy{MaxAttempts: 1}}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NewService error = %v", err)

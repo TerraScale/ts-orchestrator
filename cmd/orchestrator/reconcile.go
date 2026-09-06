@@ -399,16 +399,17 @@ type ociReconcileController struct {
 }
 
 type ociRegionController struct {
-	region   estate.Region
-	imageID  string
-	network  *ocireconcile.NetworkReconciler
-	compute  *ocireconcile.ComputeReconciler
-	block    *ocireconcile.BlockStorageReconciler
-	object   *ocireconcile.ObjectStorageReconciler
-	vault    *ocireconcile.VaultReconciler
-	certs    *ocireconcile.CertReconciler
-	mu       sync.Mutex
-	observed *ociRegionObservation
+	region          estate.Region
+	imageID         string
+	fallbackImageID string
+	network         *ocireconcile.NetworkReconciler
+	compute         *ocireconcile.ComputeReconciler
+	block           *ocireconcile.BlockStorageReconciler
+	object          *ocireconcile.ObjectStorageReconciler
+	vault           *ocireconcile.VaultReconciler
+	certs           *ocireconcile.CertReconciler
+	mu              sync.Mutex
+	observed        *ociRegionObservation
 }
 
 type ociRegionObservation struct {
@@ -455,7 +456,7 @@ func (r *ociRegionController) observe(ctx context.Context) (*ociRegionObservatio
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
-	compute, err := r.compute.Observe(ctx, ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID})
+	compute, err := r.compute.Observe(ctx, r.computeDeclared())
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
@@ -516,7 +517,7 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 		}
 		_ = state
 	}
-	computeDeclared := ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID}
+	computeDeclared := r.computeDeclared()
 	networkPlan, err := r.network.Reconcile(ctx, r.region, observed.network)
 	if err != nil {
 		return err
@@ -573,6 +574,10 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 	}
 	certPlan = filterOCIPlan(certPlan, generic, r.region.Code)
 	return r.certs.Apply(ctx, r.region, observed.certs, certPlan)
+}
+
+func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
+	return ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID}
 }
 
 func planForRegion(plan reconcile.Plan, region string) reconcile.Plan {
@@ -664,7 +669,7 @@ func ociObservedState(region estate.Region, observed *ociRegionObservation) reco
 	liveMembers := 0
 	primaryShape := region.Members.PrimaryShape
 	for _, member := range observed.compute.Members {
-		if member.LifecycleState == "TERMINATED" || member.LifecycleState == "TERMINATING" || member.LifecycleState == "" {
+		if !ociKnownLiveLifecycle(member.LifecycleState) {
 			continue
 		}
 		liveMembers++
@@ -742,6 +747,15 @@ func ociObservedState(region estate.Region, observed *ociRegionObservation) reco
 		}
 	}
 	return state
+}
+
+func ociKnownLiveLifecycle(state string) bool {
+	switch state {
+	case "RUNNING", "STOPPED", "PROVISIONING", "STARTING", "STOPPING", "UPDATING", "REBOOTING":
+		return true
+	default:
+		return false
+	}
 }
 
 func observedDataVolumeSize(region estate.Region, observed ocireconcile.BlockStorageObserved) string {
@@ -882,6 +896,10 @@ func newOCIReconcileController(spec estate.Spec, lookup envLookup) (*ociReconcil
 	if err != nil {
 		return nil, err
 	}
+	fallbackImageID, err := requiredReconcileEnv(lookup, ociFallbackImageIDEnvironment)
+	if err != nil {
+		return nil, err
+	}
 	authorityID, err := requiredReconcileEnv(lookup, ociCertificateAuthorityEnvironment)
 	if err != nil {
 		return nil, err
@@ -909,7 +927,7 @@ func newOCIReconcileController(spec estate.Spec, lookup envLookup) (*ociReconcil
 		if file == "" {
 			return nil, fmt.Errorf("reconcile: OCI estate configuration for region %s is missing", region.Code)
 		}
-		controller, err := newOCIRegionController(region, file, keyID, keyFile, imageID, authorityID)
+		controller, err := newOCIRegionController(region, file, keyID, keyFile, imageID, fallbackImageID, authorityID)
 		if err != nil {
 			return nil, fmt.Errorf("reconcile: OCI region %s: %w", region.Code, err)
 		}
@@ -918,7 +936,10 @@ func newOCIReconcileController(spec estate.Spec, lookup envLookup) (*ociReconcil
 	return &ociReconcileController{regions: controllers}, nil
 }
 
-func newOCIRegionController(region estate.Region, estateFile, keyID, keyFile, imageID, authorityID string) (*ociRegionController, error) {
+func newOCIRegionController(region estate.Region, estateFile, keyID, keyFile, imageID, fallbackImageID, authorityID string) (*ociRegionController, error) {
+	if !provider.IsOCID(imageID, "image") || !provider.IsOCID(fallbackImageID, "image") {
+		return nil, errors.New("reconcile: OCI image configuration is invalid")
+	}
 	ociEstate, err := provider.LoadOCIEstateSpec(estateFile)
 	if err != nil {
 		return nil, err
@@ -963,7 +984,7 @@ func newOCIRegionController(region estate.Region, estateFile, keyID, keyFile, im
 	if err != nil {
 		return nil, err
 	}
-	return &ociRegionController{region: region, imageID: imageID, network: &ocireconcile.NetworkReconciler{Gateway: networkGateway}, compute: &ocireconcile.ComputeReconciler{Compute: computeGateway, Network: networkGateway}, block: &ocireconcile.BlockStorageReconciler{Block: blockGateway, Compute: computeGateway}, object: &ocireconcile.ObjectStorageReconciler{Object: objectGateway}, vault: &ocireconcile.VaultReconciler{Vault: vaultGateway}, certs: &ocireconcile.CertReconciler{Gateway: certGateway}}, nil
+	return &ociRegionController{region: region, imageID: imageID, fallbackImageID: fallbackImageID, network: &ocireconcile.NetworkReconciler{Gateway: networkGateway}, compute: &ocireconcile.ComputeReconciler{Compute: computeGateway, Network: networkGateway}, block: &ocireconcile.BlockStorageReconciler{Block: blockGateway, Compute: computeGateway}, object: &ocireconcile.ObjectStorageReconciler{Object: objectGateway}, vault: &ocireconcile.VaultReconciler{Vault: vaultGateway}, certs: &ocireconcile.CertReconciler{Gateway: certGateway}}, nil
 }
 
 func newCloudflareReconcileController(spec estate.Spec, lookup envLookup) (*cloudflareReconcileController, error) {
