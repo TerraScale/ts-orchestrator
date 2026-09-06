@@ -113,7 +113,7 @@ func (m *MasterDelivery) checkMaster(ctx context.Context, record *masterDelivery
 		return err
 	}
 	var current masterDeliveryRecord
-	if json.Unmarshal(entry.Value, &current) != nil || !sameReleaseEvidence(&current, record) || current.OwnerEpoch != epoch || current.head() != record.head() || !bytes.Equal(current.OriginalEnvelope, record.OriginalEnvelope) {
+	if json.Unmarshal(entry.Value, &current) != nil || (!sameReleaseEvidence(&current, record) && !releaseEvidenceEmpty(&current)) || current.OwnerEpoch != epoch || current.head() != record.head() || !bytes.Equal(current.OriginalEnvelope, record.OriginalEnvelope) {
 		return errors.New("master delivery: durable operation owner or lineage differs")
 	}
 	return nil
@@ -296,4 +296,8 @@ func validReleaseEvidence(record *masterDeliveryRecord) bool {
 
 func sameReleaseEvidence(left, right *masterDeliveryRecord) bool {
 	return bytes.Equal(left.ReleaseSignature, right.ReleaseSignature) && left.ReleaseSignatureKey == right.ReleaseSignatureKey && bytes.Equal(left.ReleaseManifest, right.ReleaseManifest) && bytes.Equal(left.ReleaseManifestSignature, right.ReleaseManifestSignature) && left.ReleaseManifestKey == right.ReleaseManifestKey
+}
+
+func releaseEvidenceEmpty(record *masterDeliveryRecord) bool {
+	return record != nil && len(record.ReleaseSignature) == 0 && record.ReleaseSignatureKey == "" && len(record.ReleaseManifest) == 0 && len(record.ReleaseManifestSignature) == 0 && record.ReleaseManifestKey == ""
 }

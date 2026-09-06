@@ -5,6 +5,9 @@ package writebudget
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json/v2"
 	"errors"
 	"math"
@@ -13,6 +16,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 var (
@@ -31,6 +35,8 @@ type Policy struct {
 	CycleID        string
 	PolicyEpoch    uint64
 	ConsentEpoch   uint64
+	WriterEpoch    uint64
+	WriterEpochs   map[string]uint64
 	Units          int64
 	CostMinor      int64
 	UnitCostMinor  int64
@@ -39,6 +45,21 @@ type Policy struct {
 	AllowanceNanoDollar int64
 	RateNanoDollar      int64
 	DatabaseCaps        map[string]int64
+}
+
+// VerifyAllocation checks the detached TSCS command signature over the exact
+// domain-separated payload and returns the decoded envelope.
+func VerifyAllocation(publicSPKI, signed SignedAllocation) (AllocationEnvelope, error) {
+	var envelope AllocationEnvelope
+	if len(publicSPKI) == 0 || len(signed.Payload) == 0 || len(signed.Signature) == 0 { return envelope, ErrInvalid }
+	key, err := x509.ParsePKIXPublicKey(publicSPKI); if err != nil { return envelope, ErrInvalid }
+	ecdsaKey, ok := key.(*ecdsa.PublicKey); if !ok { return envelope, ErrInvalid }
+	opaque, ok := protocol.OpaqueSignatureTryCopyFrom(signed.Signature); if !ok { return envelope, ErrInvalid }
+	id, _, signature, ok := security.DecodeCommandSignature(opaque); if !ok || id != signed.KeyID { return envelope, ErrInvalid }
+	digest := sha256.Sum256(append([]byte(allocationSigningDomain), signed.Payload...))
+	if !ecdsa.VerifyASN1(ecdsaKey, digest[:], signature) { return envelope, ErrInvalid }
+	if err := json.Unmarshal(signed.Payload, &envelope); err != nil || envelope.SchemaVersion != 1 { return envelope, ErrInvalid }
+	return envelope, nil
 }
 
 // Request reserves Units logical writes for one holder across Regions. Region
@@ -53,6 +74,7 @@ type Request struct {
 	Units          int64
 	PolicyEpoch    uint64
 	ConsentEpoch   uint64
+	WriterEpoch    uint64
 	ExpiresAt      time.Time
 }
 
@@ -72,6 +94,7 @@ type Grant struct {
 	CostNanoDollar int64     `json:"cost_nano_dollar"`
 	PolicyEpoch    uint64    `json:"policy_epoch"`
 	ConsentEpoch   uint64    `json:"consent_epoch"`
+	WriterEpoch    uint64    `json:"writer_epoch"`
 	IssuedAt       time.Time `json:"issued_at"`
 	ExpiresAt      time.Time `json:"expires_at"`
 	Revoked        bool      `json:"revoked,omitzero"`
@@ -117,17 +140,19 @@ func SignAllocation(signer *security.CommandSignatureSigner, grant Grant, cycleI
 // every live or unreconciled grant, while DatabaseUnits aggregates all
 // branches belonging to a database.
 type State struct {
-	ActivePolicy   Policy           `json:"active_policy"`
-	AccountRevision string           `json:"account_revision"`
-	PolicyChecksum  string           `json:"policy_checksum"`
-	CycleID         string           `json:"cycle_id"`
-	PolicyEpoch     uint64           `json:"policy_epoch"`
-	ConsentEpoch    uint64           `json:"consent_epoch"`
-	UsedUnits       int64            `json:"used_units"`
-	UsedCostMinor   int64            `json:"used_cost_minor"`
-	UsedNanoDollar  int64            `json:"used_nano_dollar"`
-	DatabaseUnits   map[string]int64 `json:"database_units"`
-	Grants          map[string]Grant `json:"grants"`
+	ActivePolicy    Policy               `json:"active_policy"`
+	AccountRevision string               `json:"account_revision"`
+	PolicyChecksum  string               `json:"policy_checksum"`
+	CycleID         string               `json:"cycle_id"`
+	PolicyEpoch     uint64               `json:"policy_epoch"`
+	ConsentEpoch    uint64               `json:"consent_epoch"`
+	UsedUnits       int64                `json:"used_units"`
+	UsedCostMinor   int64                `json:"used_cost_minor"`
+	UsedNanoDollar  int64                `json:"used_nano_dollar"`
+	DatabaseUnits   map[string]int64     `json:"database_units"`
+	Grants          map[string]Grant     `json:"grants"`
+	PendingPolicy   bool                 `json:"pending_policy,omitzero"`
+	PendingGrants   map[string]time.Time `json:"pending_grants,omitempty"`
 }
 
 // ApplyPolicyMetadata records the producer's CAS revision in the same fenced
@@ -156,18 +181,60 @@ func (a *Authority) ApplyPolicyMetadata(ctx context.Context, revision, checksum 
 // remain accounted for; the new epoch fences all newly issued old-policy
 // grants while their expiry/holder acknowledgements are observed separately.
 func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, next Policy) error {
-	if revision == "" || checksum == "" || next.OrganizationID != a.policy.OrganizationID || next.CycleID == "" || next.Units <= 0 || next.CostMinor < 0 || next.UnitCostMinor < 0 || next.RateNanoDollar < 0 {
+	if revision == "" || checksum == "" || next.OrganizationID != a.policy.OrganizationID || next.CycleID == "" || next.WriterEpoch == 0 || next.Units <= 0 || next.CostMinor < 0 || next.UnitCostMinor < 0 || next.RateNanoDollar < 0 {
 		return ErrInvalid
 	}
 	return a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
-		if err := a.validateState(state); err != nil { return err }
-		if state.AccountRevision != "" && state.AccountRevision != revision { return ErrConflict }
-		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum { return ErrConflict }
-		if next.Units < state.UsedUnits || next.CostMinor < state.UsedCostMinor || next.RateNanoDollar > 0 && next.AllowanceNanoDollar < state.UsedNanoDollar { return ErrExhausted }
+		if err := a.validateState(state); err != nil {
+			return err
+		}
+		for _, grant := range state.Grants {
+			if !grant.Fenced && a.now().Before(grant.ExpiresAt) {
+				return ErrPending
+			}
+		}
+		if state.AccountRevision != "" && state.AccountRevision != revision {
+			return ErrConflict
+		}
+		if state.PolicyChecksum != "" && state.PolicyChecksum != checksum {
+			return ErrConflict
+		}
+		// Restrictive caps are valid: existing reservations remain accounted for,
+		// while the allocation checks below expose zero available capacity.
 		next.PolicyEpoch, next.ConsentEpoch = state.ActivePolicy.PolicyEpoch+1, state.ActivePolicy.ConsentEpoch+1
 		state.ActivePolicy, state.AccountRevision, state.PolicyChecksum = next, revision, checksum
+		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = next.CycleID, next.PolicyEpoch, next.ConsentEpoch
+		state.PendingGrants = make(map[string]time.Time)
+		now := a.now().UTC()
+		for id, grant := range state.Grants {
+			if grant.ExpiresAt.After(now) {
+				grant.Revoked = true
+				state.Grants[id] = grant
+				state.PendingGrants[id] = grant.ExpiresAt
+			}
+		}
+		state.PendingPolicy = len(state.PendingGrants) != 0
 		return nil
 	})
+}
+
+func (a *Authority) PolicyPending(ctx context.Context) (bool, error) {
+	var pending bool
+	err := a.persist.TransactRevision(ctx, true, func(state *State, _ uint64) error {
+		if err := a.validateState(state); err != nil {
+			return err
+		}
+		now := a.now().UTC()
+		for id, deadline := range state.PendingGrants {
+			if !deadline.After(now) {
+				delete(state.PendingGrants, id)
+			}
+		}
+		state.PendingPolicy = len(state.PendingGrants) != 0
+		pending = state.PendingPolicy
+		return nil
+	})
+	return pending, err
 }
 
 type Persister interface {
@@ -182,7 +249,7 @@ type Authority struct {
 }
 
 func New(persist Persister, policy Policy) (*Authority, error) {
-	if persist == nil || policy.OrganizationID == "" || policy.CycleID == "" || policy.PolicyEpoch == 0 || policy.ConsentEpoch == 0 || policy.Units <= 0 || policy.CostMinor < 0 || policy.UnitCostMinor < 0 {
+	if persist == nil || policy.OrganizationID == "" || policy.CycleID == "" || policy.PolicyEpoch == 0 || policy.ConsentEpoch == 0 || policy.WriterEpoch == 0 || policy.Units <= 0 || policy.CostMinor < 0 || policy.UnitCostMinor < 0 {
 		return nil, ErrInvalid
 	}
 	if policy.RateNanoDollar < 0 || policy.AllowanceNanoDollar < 0 || policy.RateNanoDollar > 0 && policy.AllowanceNanoDollar == 0 {
@@ -190,6 +257,14 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 	}
 	for database, cap := range policy.DatabaseCaps {
 		if database == "" || cap <= 0 {
+			return nil, ErrInvalid
+		}
+	}
+	if len(policy.WriterEpochs) == 0 {
+		return nil, ErrInvalid
+	}
+	for holder, epoch := range policy.WriterEpochs {
+		if holder == "" || epoch == 0 {
 			return nil, ErrInvalid
 		}
 	}
@@ -239,7 +314,11 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if capped && state.DatabaseUnits[request.DatabaseID] > cap-units {
 			return ErrExhausted
 		}
-		grant := Grant{OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		writerEpoch, admitted := policy.WriterEpochs[request.HolderID]
+		if !admitted || writerEpoch == 0 {
+			return ErrInvalid
+		}
+		grant := Grant{OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, CostMinor: cost, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
@@ -299,6 +378,8 @@ func (a *Authority) Fence(ctx context.Context, operationID string) error {
 		grant.Fenced = true
 		grant.Revoked = true
 		state.Grants[operationID] = grant
+		delete(state.PendingGrants, operationID)
+		state.PendingPolicy = len(state.PendingGrants) != 0
 		return nil
 	})
 }
@@ -329,26 +410,35 @@ func (a *Authority) validateState(state *State) error {
 	if state.CycleID == "" {
 		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = a.policy.CycleID, a.policy.PolicyEpoch, a.policy.ConsentEpoch
 	}
-	if state.ActivePolicy.OrganizationID == "" { state.ActivePolicy = a.policy }
-	if state.ActivePolicy.OrganizationID != a.policy.OrganizationID { return ErrInvalid }
-	if state.CycleID != a.policy.CycleID || state.PolicyEpoch != a.policy.PolicyEpoch || state.ConsentEpoch != a.policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedCostMinor < 0 || state.UsedNanoDollar < 0 {
+	if state.ActivePolicy.OrganizationID == "" {
+		state.ActivePolicy = a.policy
+	}
+	if state.ActivePolicy.OrganizationID != a.policy.OrganizationID {
+		return ErrInvalid
+	}
+	policy := state.ActivePolicy
+	if state.CycleID != policy.CycleID || state.PolicyEpoch != policy.PolicyEpoch || state.ConsentEpoch != policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedCostMinor < 0 || state.UsedNanoDollar < 0 {
 		return ErrInvalid
 	}
 	var units, cost, nanoCost int64
 	databaseUnits := make(map[string]int64, len(state.DatabaseUnits))
 	for operationID, grant := range state.Grants {
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != a.policy.OrganizationID || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.PolicyEpoch != a.policy.PolicyEpoch || grant.ConsentEpoch != a.policy.ConsentEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		expectedWriterEpoch, admitted := policy.WriterEpochs[grant.HolderID]
+		if !admitted || expectedWriterEpoch == 0 {
+			return ErrInvalid
+		}
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))
 		if !ok || multiplied != grant.Units {
 			return ErrInvalid
 		}
-		expectedCost, ok := multiply(grant.Units, a.policy.UnitCostMinor)
+		expectedCost, ok := multiply(grant.Units, policy.UnitCostMinor)
 		if !ok || expectedCost != grant.CostMinor {
 			return ErrInvalid
 		}
-		expectedNano, ok := multiply(grant.Units, a.policy.RateNanoDollar)
+		expectedNano, ok := multiply(grant.Units, policy.RateNanoDollar)
 		if !ok || expectedNano != grant.CostNanoDollar {
 			return ErrInvalid
 		}

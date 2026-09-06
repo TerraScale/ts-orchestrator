@@ -98,13 +98,13 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	proposalCalls := map[string]int{}
 	loseProposal := true
 	config.AcceptPlacement = func(_ context.Context, host, operation string, request *pb.PlacementControlServiceStageRequest) (*pb.PlacementControlServiceStageResponse, error) {
-		durable, _, _ := journal.Load(t.Context(), ScopeKey(request))
+		durable, _, _ := journal.Load(t.Context(), ScopeKey(accepted.Request))
 		for _, target := range durable.Targets {
 			if !target.Installed {
 				t.Fatal("proposal preceded member key admission")
 			}
 		}
-		if operation != PlacementOperationID(request) {
+		if operation != PlacementOperationID(accepted.Request) {
 			t.Fatal("proposal retry ID changed")
 		}
 		proposalCalls[host]++

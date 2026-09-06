@@ -164,6 +164,57 @@ func TestMasterDeliveryPreparesAndRecoversSignedRegionalFanout(t *testing.T) {
 	}
 }
 
+type masterReleaseFetcher struct {
+	body, signature []byte
+	private         ed25519.PrivateKey
+	before          func() error
+}
+
+func (f *masterReleaseFetcher) Fetch(context.Context, *delivery.Request) ([]byte, []byte, error) {
+	if f.before != nil {
+		if err := f.before(); err != nil {
+			return nil, nil, err
+		}
+	}
+	return append([]byte(nil), f.body...), append([]byte(nil), f.signature...), nil
+}
+
+func (f *masterReleaseFetcher) FetchRelease(_ context.Context, request *delivery.Request) ([]byte, []byte, []byte, []byte, error) {
+	if f.before != nil {
+		if err := f.before(); err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+	manifest := struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Repository    string `json:"repository"`
+		Kind          string `json:"kind"`
+		Commit        string `json:"commit"`
+		Artifacts     []struct {
+			Name            string `json:"name"`
+			Path            string `json:"path"`
+			Architecture    string `json:"architecture"`
+			Digest          string `json:"digest"`
+			SignatureDigest string `json:"signatureDigest"`
+			Bytes           int    `json:"bytes"`
+		} `json:"artifacts"`
+	}{SchemaVersion: 1, Repository: request.Source.Repository, Kind: request.Artifact.Kind, Commit: request.Source.Commit}
+	manifest.Artifacts = append(manifest.Artifacts, struct {
+		Name            string `json:"name"`
+		Path            string `json:"path"`
+		Architecture    string `json:"architecture"`
+		Digest          string `json:"digest"`
+		SignatureDigest string `json:"signatureDigest"`
+		Bytes           int    `json:"bytes"`
+	}{request.Artifact.Name, request.Artifact.Name, request.Artifact.Architecture, delivery.SHA256Digest(f.body), delivery.SHA256Digest(f.signature), len(f.body)})
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	// The fixture intentionally signs both documents with the same release key.
+	return append([]byte(nil), f.body...), append([]byte(nil), f.signature...), body, ed25519.Sign(f.private, body), nil
+}
+
 func runMasterRecoveryFixture(t *testing.T, loss string) {
 	ctx, nc, js := masterTestNATS(t)
 	leaders := masterTestKV(t, ctx, js, "global_leaders")
@@ -184,7 +235,7 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 		t.Fatal(err)
 	}
 	body := []byte("globally mirrored regional release")
-	fetcher := &ingressReleaseFetcher{body: body, signature: ed25519.Sign(priv, body)}
+	fetcher := &masterReleaseFetcher{body: body, signature: ed25519.Sign(priv, body), private: priv}
 	mirrors := &masterMirrorFixture{}
 	mirror, err := delivery.NewArtifactMirror(estate.Default(), mirrors)
 	if err != nil {
@@ -283,6 +334,12 @@ func runMasterRecoveryFixture(t *testing.T, loss string) {
 	request.OperationID = "master-release"
 	request.Target.Regions = []string{"gru", "sfo"}
 	request.Artifact.Digest = delivery.SHA256Digest(body)
+	_, _, manifest, manifestSignature, err := fetcher.FetchRelease(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Artifact.ManifestDigest = delivery.SHA256Digest(manifest)
+	request.Artifact.ManifestSignatureDigest = delivery.SHA256Digest(manifestSignature)
 	cell, _ := contracts.CellIdTryCreate("gru")
 	aggregate, _ := contracts.AggregateIdTryCreate("delivery-master")
 	wire := signedDeliveryTestWire(t, intentSigner, cell, aggregate, request, global.Snapshot().Epoch)

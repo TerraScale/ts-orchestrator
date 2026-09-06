@@ -25,6 +25,8 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/estatepublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/keyrotation"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
+	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
@@ -107,7 +109,11 @@ type productionGlobalWorkerConfig struct {
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
 	ComputeApply                 func(context.Context, provider.ProviderMutationJournal) error
-	Edge                         control.GlobalEdgeDelivery
+	// HostRemoval constructs the owner only from the live GRU session and
+	// authenticated proof providers. It is required whenever compute is
+	// enabled; a compute worker without this owner cannot terminate members.
+	HostRemoval func(context.Context, globalWorkerSession, *databaseadmission.NATSJournal, hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error)
+	Edge        control.GlobalEdgeDelivery
 	// Close releases every client allocated by Construct, including partial
 	// results returned with an error. It is required even for an empty bundle.
 	Close               func() error
@@ -175,6 +181,7 @@ type productionGlobalWorkers struct {
 	autoscale       *productionAutoscale
 	writeBudget     *runtimeWriteBudget
 	compute         *productionComputeWorker
+	hostRemoval     ocireconcile.MemberRemovalOwner
 	workers         []*lifecycle.Service
 	completion      chan struct{}
 }
@@ -234,7 +241,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	group := ownedGlobalWorkers(config)
 	group.edge, group.check = config.Edge, session.CheckEffectAuthority
 	if config.ComputeMutationJournalBucket != "" || config.ComputeApply != nil {
-		if config.ComputeMutationJournalBucket == "" || config.ComputeApply == nil {
+		if config.ComputeMutationJournalBucket == "" || config.ComputeApply == nil || config.HostRemoval == nil {
 			return group, errors.New("runtime compute configuration is incomplete")
 		}
 		compute, err := newProductionOCIComputeWorker(session, config.ComputeMutationJournalBucket, config.ComputeApply)
@@ -242,6 +249,8 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			return group, err
 		}
 		group.compute = compute
+		// The database constructor below owns the authenticated admission NATS
+		// journal. Bind removal after all durable placement components exist.
 	}
 	if config.Close == nil {
 		return group, errors.New("runtime global client cleanup is required")
@@ -319,6 +328,24 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	if config.HostRemoval != nil {
+		issuer, issuerOK := transition.issuer.(interface {
+			Head(context.Context, string) (placementtransition.Signed, error)
+			Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
+			Issue(context.Context, placementtransition.Request, *placementtransition.Signed, []placementtransition.Signed) (placementtransition.Signed, error)
+		})
+		if !issuerOK {
+			return group, errors.New("runtime host removal: placement issuer lacks prepare binding")
+		}
+		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Issuer: issuer})
+		if ownerErr != nil {
+			return group, fmt.Errorf("runtime host removal: %w", ownerErr)
+		}
+		if owner == nil {
+			return group, errors.New("runtime host removal: constructor returned nil owner")
+		}
+		group.hostRemoval = owner
+	}
 	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition)
 	if err != nil {
 		return group, fmt.Errorf("runtime native lifecycle: %w", err)
@@ -509,6 +536,15 @@ func (r *productionGlobalWorkers) NotifyChange() {
 	if r != nil && r.publisher != nil {
 		r.publisher.NotifyChange()
 	}
+}
+
+// HostRemovalOwner exposes the lease-bound owner to the OCI reconciler
+// composition seam. A nil result is an intentional fail-closed state.
+func (r *productionGlobalWorkers) HostRemovalOwner() ocireconcile.MemberRemovalOwner {
+	if r == nil {
+		return nil
+	}
+	return r.hostRemoval
 }
 
 func (r *productionGlobalWorkers) Close() error {

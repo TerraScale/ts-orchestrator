@@ -144,6 +144,9 @@ func (a TerminateMemberAction) Summary() string     { return "terminate member "
 type ComputeReconciler struct {
 	Compute ComputeGateway
 	Network NetworkGateway
+	// RemovalOwner is the lease-owned durable removal choreography. A compute
+	// gateway must never terminate an admitted member without this proof owner.
+	RemovalOwner MemberRemovalOwner
 }
 
 func computeScopeCompartment(gateway ComputeGateway) string {
@@ -534,9 +537,13 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 		if !sameObservedMember(member, expected) {
 			return &provider.InvalidOperationError{Message: "refusing stale or ownership-changed member termination"}
 		}
-		owner, ok := r.Compute.(MemberRemovalOwner)
-		if !ok {
-			return &provider.InvalidOperationError{Message: "member termination requires a durable removal owner with placement drain/readiness proof"}
+		owner := r.RemovalOwner
+		if owner == nil {
+			var ok bool
+			owner, ok = r.Compute.(MemberRemovalOwner)
+			if !ok {
+				return &provider.InvalidOperationError{Message: "member termination requires a durable removal owner with placement drain/readiness proof"}
+			}
 		}
 		survivors := make([]ObservedMember, 0, len(current)-1)
 		for _, candidate := range current {

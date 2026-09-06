@@ -83,12 +83,14 @@ func (f preparedMirrorFetcher) Fetch(ctx context.Context, request *Request) ([]b
 	return nil, nil, errors.New("delivery: no verified prepared mirror is available")
 }
 
-func (f preparedMirrorFetcher) FetchRelease(ctx context.Context, request *Request) ([]byte, []byte, []byte, []byte, error) {
+type preparedManifestMirrorFetcher struct{ preparedMirrorFetcher }
+
+func (f preparedManifestMirrorFetcher) FetchRelease(ctx context.Context, request *Request) ([]byte, []byte, []byte, []byte, error) {
 	evidence, ok := ctx.Value(releaseEvidenceContextKey{}).(PreparedReleaseEvidence)
 	if !ok || len(evidence.Manifest) == 0 || len(evidence.ManifestSignature) != ed25519.SignatureSize {
 		return nil, nil, nil, nil, errors.New("delivery: authenticated prepared release manifest is required")
 	}
-	body, signature, err := f.Fetch(ctx, request)
+	body, signature, err := f.preparedMirrorFetcher.Fetch(ctx, request)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -116,7 +118,7 @@ func LoadMasterReleaseEvidence(ctx context.Context, request *Request, fetcher Ar
 	}
 	if len(evidence.Signature) != 0 {
 		preparedContext := WithPreparedReleaseEvidence(ctx, evidence)
-		artifact, err := verifyArtifact(preparedContext, preparedMirrorFetcher{mirror}, trust, request)
+		artifact, err := verifyArtifact(preparedContext, preparedManifestMirrorFetcher{preparedMirrorFetcher{mirror}}, trust, request)
 		if err == nil && evidence.SignatureKey != "" && artifact.SignatureKey != evidence.SignatureKey {
 			err = errors.New("delivery: persisted release signature key changed")
 		}

@@ -421,8 +421,11 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	if manifestFetcher == nil {
 		return &ReleaseArtifact{Service: request.Target.Service, Digest: computed, Architecture: request.Artifact.Architecture, Body: append([]byte(nil), body...), SignatureKey: keyID, Signature: append([]byte(nil), signature...)}, nil
 	}
-	if len(manifest) == 0 || len(manifestSignature) != ed25519.SignatureSize || !trust.VerifySignature(manifest, manifestSignature) || trust.verifyingKey(manifest, manifestSignature) != keyID {
+	if len(manifest) == 0 || len(manifest) > MaxArtifactBytes || len(manifestSignature) != ed25519.SignatureSize || !trust.VerifySignature(manifest, manifestSignature) || trust.verifyingKey(manifest, manifestSignature) != keyID {
 		return nil, errors.New("delivery: release manifest signature failed verification")
+	}
+	if err := rejectDuplicateJSON(manifest); err != nil {
+		return nil, errors.New("delivery: release manifest contains duplicate fields")
 	}
 	if !SameDigest(SHA256Digest(manifest), request.Artifact.ManifestDigest) || request.Artifact.ManifestName == "" {
 		return nil, errors.New("delivery: release manifest digest or name does not match the request")
@@ -443,8 +446,10 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	found := false
 	for _, entry := range document.Artifacts {
 		if entry.Name == request.Artifact.Name && entry.Architecture == request.Artifact.Architecture && SameDigest(entry.Digest, computed) && entry.Bytes == int64(len(body)) && SameDigest(entry.SignatureDigest, SHA256Digest(signature)) {
+			if found {
+				return nil, errors.New("delivery: release manifest contains duplicate artifact identity")
+			}
 			found = true
-			break
 		}
 	}
 	if !found {
@@ -461,6 +466,58 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 		ManifestBody:      append([]byte(nil), manifest...),
 		ManifestSignature: append([]byte(nil), manifestSignature...),
 	}, nil
+}
+
+func rejectDuplicateJSON(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	var walk func(*json.Decoder) error
+	walk = func(d *json.Decoder) error {
+		token, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch delimiter := token.(type) {
+		case json.Delim:
+			switch delimiter {
+			case '{':
+				seen := map[string]struct{}{}
+				for d.More() {
+					keyToken, err := d.Token()
+					if err != nil {
+						return err
+					}
+					key := keyToken.(string)
+					if _, exists := seen[key]; exists {
+						return errors.New("duplicate object field")
+					}
+					seen[key] = struct{}{}
+					if err := walk(d); err != nil {
+						return err
+					}
+				}
+				_, err = d.Token()
+			case '[':
+				for d.More() {
+					if err := walk(d); err != nil {
+						return err
+					}
+				}
+				_, err = d.Token()
+			}
+		}
+		return err
+	}
+	if err := walk(decoder); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON")
+		}
+		return err
+	}
+	return nil
 }
 
 func mustCompactJSON(raw []byte) []byte {

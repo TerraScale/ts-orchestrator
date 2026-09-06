@@ -523,7 +523,13 @@ func validateSource(source *Source) {
 	if !commitPattern.MatchString(source.Commit) {
 		fail("source_invalid", "source.commit must be a 40-character Git commit.", "Provide the exact source commit that produced the artifact.")
 	}
-	digestField(source.TreeDigest, "source.treeDigest")
+	if strings.HasPrefix(source.TreeDigest, "git:") {
+		if source.TreeDigest != "git:"+strings.ToLower(source.Commit) {
+			fail("source_invalid", "source.treeDigest git identity must match source.commit.", "Provide git:<commit> for the exact source commit.")
+		}
+	} else {
+		digestField(source.TreeDigest, "source.treeDigest")
+	}
 }
 
 func validateArtifact(artifact *Artifact) {

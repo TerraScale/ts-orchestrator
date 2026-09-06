@@ -57,6 +57,63 @@ type transaction interface {
 
 type Journal struct{ journal transaction }
 
+// Owner executes the durable removal stages. Callers provide the existing
+// placement issuer and lifecycle/control proof providers; this type only
+// advances the fenced journal and invokes OCI termination after all providers
+// have returned success.
+type Owner struct {
+	Journal   *Journal
+	Inventory func(context.Context, string, string, []Replacement) (uint64, []Replacement, error)
+	Replace   func(context.Context, Replacement) error
+	// Revalidate rereads the authoritative admission inventory and must reject
+	// any revision change or newly assigned database before fencing.
+	Revalidate func(context.Context, string, string, uint64) error
+	Fence      func(context.Context, string, string, []Replacement) error
+	Terminate  func(context.Context, string) error
+}
+
+func (o *Owner) RemoveMember(ctx context.Context, operationID, member string, generation uint64) error {
+	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Terminate == nil {
+		return ErrInvalid
+	}
+	revision, replacements, err := o.Inventory(ctx, operationID, member, nil)
+	if err != nil {
+		return err
+	}
+	current, err := o.Journal.Begin(ctx, operationID, member, generation, revision, replacements)
+	if err != nil {
+		return err
+	}
+	if current.Stage == StageComplete {
+		return nil
+	}
+	replacements = current.Replacements
+	if current.Stage == StageInventoryCaptured {
+		if _, err = o.Journal.Advance(ctx, operationID, StageReplacing); err != nil {
+			return err
+		}
+	}
+	for _, replacement := range replacements {
+		if err := o.Replace(ctx, replacement); err != nil {
+			return err
+		}
+	}
+	if err := o.Revalidate(ctx, operationID, member, current.InventoryRevision); err != nil {
+		return err
+	}
+	if err := o.Fence(ctx, operationID, member, replacements); err != nil {
+		return err
+	}
+	if _, err := o.Journal.Advance(ctx, operationID, StageFenced); err != nil {
+		return err
+	}
+	if err := o.Terminate(ctx, member); err != nil {
+		return err
+	}
+	_, err = o.Journal.Advance(ctx, operationID, StageComplete)
+	return err
+}
+
 func New(config authorityjournal.Config) (*Journal, error) {
 	j, err := authorityjournal.New(config, func() map[string]Operation { return map[string]Operation{} }, validateMap)
 	if err != nil {
@@ -174,7 +231,7 @@ func cloneReplacements(values []Replacement) []Replacement {
 	return append([]Replacement(nil), values...)
 }
 func sameOperation(a, b Operation) bool {
-	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && a.Stage == b.Stage && jsonEqual(a.Replacements, b.Replacements)
+	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && jsonEqual(a.Replacements, b.Replacements)
 }
 func jsonEqual(a, b []Replacement) bool {
 	left, _ := json.Marshal(a)

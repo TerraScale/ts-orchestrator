@@ -11,6 +11,14 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		return productionDeploymentFile{
 			Delivery: productionDeliveryFile{MembershipFile: "/etc/terrascale/hosts.json", Cloudflare: productionDeliveryCloudflareFile{AccountID: "account", ZoneID: "zone", SnippetServices: map[string]string{"ts-proxy": "gate"}}},
 			Global: &productionGlobalFile{
+				Compute: productionGlobalComputeFile{
+					EstateFiles:       map[string]string{"gru": "/etc/terrascale/gru.estate", "sfo": "/etc/terrascale/sfo.estate", "fra": "/etc/terrascale/fra.estate"},
+					KeyID:             "oci-key",
+					PrivateKeyFile:    "/etc/terrascale/oci.key",
+					ImageID:           "ocid1.image.oc1.primary",
+					FallbackImageID:   "ocid1.image.oc1.fallback",
+					MutationJournalKV: "PROVIDER_MUTATIONS",
+				},
 				HealthFile: "/etc/terrascale/hosts.json",
 				KV:         productionKVFile{AccountID: "account", ZoneID: "zone"},
 				Rotation:   productionRotationFile{Regions: []string{"fra", "gru", "sfo"}, Edge: productionRotationEdgeFile{AccountID: "account", ZoneID: "zone", TemplateService: "ts-proxy", SnippetName: "gate"}},

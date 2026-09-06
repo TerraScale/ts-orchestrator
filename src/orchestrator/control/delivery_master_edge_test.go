@@ -62,12 +62,13 @@ func TestMasterGlobalEdgeDurableRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			body := []byte("verified edge module")
+			releaseFetcher := &masterReleaseFetcher{body: body, signature: ed25519.Sign(priv, body), private: priv}
 			mirror, err := delivery.NewArtifactMirror(estate.Default(), &masterMirrorFixture{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			edge := &masterEdgeFixture{}
-			cfg := MasterDeliveryConfig{Cell: "gru", Instance: "master", Connection: nc, Leaders: leaders, Journal: journal, Authority: global.Snapshot, Fetcher: &ingressReleaseFetcher{body: body, signature: ed25519.Sign(priv, body)}, Trust: func() *delivery.TrustSet { return trust }, Mirror: mirror, Signer: signer, IntentVerifier: verifier, GlobalEdge: edge, Regions: map[string]RegionalDeliveryRoute{}, RequestTimeout: time.Second}
+			cfg := MasterDeliveryConfig{Cell: "gru", Instance: "master", Connection: nc, Leaders: leaders, Journal: journal, Authority: global.Snapshot, Fetcher: releaseFetcher, Trust: func() *delivery.TrustSet { return trust }, Mirror: mirror, Signer: signer, IntentVerifier: verifier, GlobalEdge: edge, Regions: map[string]RegionalDeliveryRoute{}, RequestTimeout: time.Second}
 			for _, cell := range []string{"gru", "sfo"} {
 				cfg.Regions[cell] = RegionalDeliveryRoute{Connection: nc, Leaders: leaders, MasterSignerKeyID: signer.PublicKeyID()}
 			}
@@ -87,6 +88,12 @@ func TestMasterGlobalEdgeDurableRecovery(t *testing.T) {
 			}
 			request.Rollback = nil
 			request.Artifact.Digest = delivery.SHA256Digest(body)
+			_, _, manifest, manifestSignature, err := releaseFetcher.FetchRelease(ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Artifact.ManifestDigest = delivery.SHA256Digest(manifest)
+			request.Artifact.ManifestSignatureDigest = delivery.SHA256Digest(manifestSignature)
 			wire := masterGenerationWire(t, signer, request, global.Snapshot().Epoch, 1)
 			live := true
 			if kind == "lease-loss" {

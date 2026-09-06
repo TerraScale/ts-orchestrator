@@ -157,6 +157,8 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	signature := ed25519.Sign(private, body)
+	manifest := []byte(`{"schemaVersion":1,"repository":"terrabase","kind":"service","commit":"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3","artifacts":[{"name":"terrabase-linux-arm64","path":"terrabase-linux-arm64","architecture":"linux/arm64","digest":"` + SHA256Digest(body) + `","signatureDigest":"` + SHA256Digest(signature) + `","bytes":13}]}`)
+	manifestSignature := ed25519.Sign(private, manifest)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, incoming *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch incoming.URL.Path {
@@ -169,12 +171,18 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 				"assets": []map[string]any{
 					{"name": "terrabase-linux-arm64", "browser_download_url": serverURL(incoming) + "/download/terrabase-linux-arm64"},
 					{"name": "terrabase-linux-arm64.sig", "browser_download_url": serverURL(incoming) + "/download/terrabase-linux-arm64.sig"},
+					{"name": "release-manifest.json", "browser_download_url": serverURL(incoming) + "/download/release-manifest.json"},
+					{"name": "release-manifest.json.sig", "browser_download_url": serverURL(incoming) + "/download/release-manifest.json.sig"},
 				},
 			}})
 		case "/download/terrabase-linux-arm64":
 			_, _ = writer.Write(body)
 		case "/download/terrabase-linux-arm64.sig":
 			_, _ = writer.Write(signature)
+		case "/download/release-manifest.json":
+			_, _ = writer.Write(manifest)
+		case "/download/release-manifest.json.sig":
+			_, _ = writer.Write(manifestSignature)
 		default:
 			http.NotFound(writer, incoming)
 		}
@@ -182,6 +190,9 @@ func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {
 	defer server.Close()
 
 	request, _, _, _ := testRelease(t, nil)
+	request.Artifact.ManifestName = "release-manifest.json"
+	request.Artifact.ManifestDigest = SHA256Digest(manifest)
+	request.Artifact.ManifestSignatureDigest = SHA256Digest(manifestSignature)
 	fetcher := &ForgejoArtifactFetcher{BaseURL: server.URL}
 	fetchedBody, fetchedSignature, err := fetcher.Fetch(context.Background(), request)
 	if err != nil {
@@ -211,8 +222,25 @@ func serverURL(request *http.Request) string {
 }
 
 func TestDetachedArtifactSignaturesAreRawEd25519Only(t *testing.T) {
-	request, original, trust, body := testRelease(t, nil)
-	signature := original.(*staticFetcher).signature
+	body := []byte("terrabase-release-bytes")
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := ed25519.Sign(private, body)
+	trust, err := NewTrustSet(map[string]ed25519.PublicKey{"release": public})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ParseRequest(golden(t, goldenRequestPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Artifact.Digest = SHA256Digest(body)
+	request.Artifact.ManifestName = "release-manifest.json"
+	manifest := []byte(`{"schemaVersion":1,"repository":"terrabase","kind":"service","commit":"` + request.Source.Commit + `","artifacts":[{"name":"` + request.Artifact.Name + `","path":"` + request.Artifact.Name + `","architecture":"` + request.Artifact.Architecture + `","digest":"` + request.Artifact.Digest + `","signatureDigest":"` + SHA256Digest(signature) + `","bytes":` + fmt.Sprint(len(body)) + `}]}`)
+	request.Artifact.ManifestDigest = SHA256Digest(manifest)
+	request.Artifact.ManifestSignatureDigest = SHA256Digest(ed25519.Sign(private, manifest))
 	variants := []struct {
 		name      string
 		signature []byte
@@ -237,6 +265,8 @@ func TestDetachedArtifactSignaturesAreRawEd25519Only(t *testing.T) {
 						"assets": []map[string]any{
 							{"name": "terrabase-linux-arm64", "browser_download_url": serverURL(r) + "/download/terrabase-linux-arm64"},
 							{"name": "terrabase-linux-arm64.sig", "browser_download_url": serverURL(r) + "/download/terrabase-linux-arm64.sig"},
+							{"name": "release-manifest.json", "browser_download_url": serverURL(r) + "/download/release-manifest.json"},
+							{"name": "release-manifest.json.sig", "browser_download_url": serverURL(r) + "/download/release-manifest.json.sig"},
 						},
 					}})
 				case "/download/terrabase-linux-arm64":
@@ -244,6 +274,12 @@ func TestDetachedArtifactSignaturesAreRawEd25519Only(t *testing.T) {
 				case "/download/terrabase-linux-arm64.sig":
 					w.Header().Set("Content-Type", "application/octet-stream")
 					_, _ = w.Write(variant.signature)
+				case "/download/release-manifest.json":
+					variantManifest := []byte(`{"schemaVersion":1,"repository":"terrabase","kind":"service","commit":"` + request.Source.Commit + `","artifacts":[{"name":"` + request.Artifact.Name + `","path":"` + request.Artifact.Name + `","architecture":"` + request.Artifact.Architecture + `","digest":"` + request.Artifact.Digest + `","signatureDigest":"` + SHA256Digest(variant.signature) + `","bytes":` + fmt.Sprint(len(body)) + `}]}`)
+					_, _ = w.Write(variantManifest)
+				case "/download/release-manifest.json.sig":
+					variantManifest := []byte(`{"schemaVersion":1,"repository":"terrabase","kind":"service","commit":"` + request.Source.Commit + `","artifacts":[{"name":"` + request.Artifact.Name + `","path":"` + request.Artifact.Name + `","architecture":"` + request.Artifact.Architecture + `","digest":"` + request.Artifact.Digest + `","signatureDigest":"` + SHA256Digest(variant.signature) + `","bytes":` + fmt.Sprint(len(body)) + `}]}`)
+					_, _ = w.Write(ed25519.Sign(private, variantManifest))
 				default:
 					http.NotFound(w, r)
 				}

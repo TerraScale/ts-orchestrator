@@ -197,6 +197,41 @@ func (d *productionDatabase) PersistPlacementAcceptance(ctx context.Context, rec
 	}
 	return databaseadmission.ErrInvalid
 }
+
+// AcceptedRecord returns a database only after every admitted member has the
+// same durable accepted placement tuple. Staged receipts alone are never
+// sufficient for lifecycle mutation.
+func (d *productionDatabase) AcceptedRecord(ctx context.Context, databaseID string) (databaseadmission.Record, error) {
+	if d == nil || d.lifecycleJournal == nil || databaseID == "" {
+		return databaseadmission.Record{}, databaseadmission.ErrInvalid
+	}
+	records, err := d.lifecycleJournal.List(ctx)
+	if err != nil {
+		return databaseadmission.Record{}, err
+	}
+	for _, record := range records {
+		if record.DatabaseID != databaseID {
+			continue
+		}
+		if len(record.PlacementTargets) == 0 {
+			return databaseadmission.Record{}, databaseadmission.ErrInvalid
+		}
+		var epoch, generation uint64
+		var digest string
+		for i, target := range record.PlacementTargets {
+			if len(target.AcceptedReceipt) == 0 || target.AcceptedRevision == 0 || target.AcceptedEpoch == 0 || target.AcceptedGeneration == 0 || len(target.AcceptedProofDigest) != 64 {
+				return databaseadmission.Record{}, databaseadmission.ErrInvalid
+			}
+			if i == 0 {
+				epoch, generation, digest = target.AcceptedEpoch, target.AcceptedGeneration, target.AcceptedProofDigest
+			} else if target.AcceptedEpoch != epoch || target.AcceptedGeneration != generation || target.AcceptedProofDigest != digest {
+				return databaseadmission.Record{}, databaseadmission.ErrInvalid
+			}
+		}
+		return record, nil
+	}
+	return databaseadmission.Record{}, databaseadmission.ErrInvalid
+}
 func validateDatabaseProposal(ctx context.Context, journal databaseadmission.Journal, host, operation string, proposal *pb.PlacementControlServiceStageRequest) error {
 	records, err := journal.List(ctx)
 	if err != nil {

@@ -1,18 +1,47 @@
 package writebudget
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"math/big"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
+
+func TestAllocationGoldenVector(t *testing.T) {
+	key := &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: elliptic.P256()}, D: new(big.Int).SetInt64(1)}
+	key.PublicKey.X, key.PublicKey.Y = key.Curve.ScalarBaseMult(key.D.Bytes())
+	signer, err := security.NewCommandSignatureSignerFromKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := Grant{OperationID: "op-vector", OrganizationID: "org", DatabaseID: "db", HolderID: "writer-vector", RequestedUnits: 1, Regions: []string{"GRU", "SFO"}, Units: 2, PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 9, IssuedAt: time.Unix(1700000000, 0).UTC(), ExpiresAt: time.Unix(1700003600, 0).UTC()}
+	vector, err := SignAllocation(signer, grant, "cycle", 1000, "db-placement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("key_id=%s spki=%x payload=%s signature=%x", signer.PublicKeyID(), spki, vector.Payload, vector.Signature)
+}
 
 func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 	t.Helper()
 	persist := NewMemoryPersister()
-	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, Units: 10, CostMinor: 1000, UnitCostMinor: 2, DatabaseCaps: map[string]int64{"db": 8}})
+	epochs := map[string]uint64{"writer-one": 1, "writer-two": 1, "writer-same": 1, "writer-revoke": 1, "writer-split-a": 1, "writer-split-b": 1, "writer-combined": 1}
+	for i := range 20 {
+		epochs[fmt.Sprintf("writer-concurrent-%d", i)] = 1
+	}
+	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, WriterEpochs: epochs, Units: 10, CostMinor: 1000, UnitCostMinor: 2, DatabaseCaps: map[string]int64{"db": 8}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +49,7 @@ func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 }
 
 func request(id, db, branch string, units int64, expiry time.Time) Request {
-	return Request{OperationID: id, OrganizationID: "org", DatabaseID: db, BranchID: branch, HolderID: "writer-" + id, Regions: []string{"gru", "sfo"}, Units: units, PolicyEpoch: 3, ConsentEpoch: 4, ExpiresAt: expiry}
+	return Request{OperationID: id, OrganizationID: "org", DatabaseID: db, BranchID: branch, HolderID: "writer-" + id, Regions: []string{"gru", "sfo"}, Units: units, PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, ExpiresAt: expiry}
 }
 
 func TestAllocateMultipliesRegionsOnceAndBranchesShareCaps(t *testing.T) {

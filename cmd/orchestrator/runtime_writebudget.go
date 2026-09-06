@@ -55,18 +55,27 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	var published struct {
 		OrganizationID     string `json:"organizationId"`
 		CycleID            string `json:"cycleId"`
-		PolicyEpoch        uint64 `json:"policyEpoch"`
-		ConsentEpoch       uint64 `json:"consentEpoch"`
 		IncludedWriteUnits int64  `json:"includedWriteUnits"`
 		SpendCapCents      int64  `json:"spendCapCents"`
+		RateNanoDollar     int64  `json:"rateNanoDollar"`
 	}
-	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != r.policy.OrganizationID || published.CycleID != envelope.CycleID || published.PolicyEpoch != r.policy.PolicyEpoch || published.ConsentEpoch != r.policy.ConsentEpoch || published.IncludedWriteUnits != r.policy.Units || published.SpendCapCents != r.policy.CostMinor {
-		return writebudget.PolicyResult{}, errors.New("runtime write budget: policy payload differs from admitted policy")
+	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != envelope.OrganizationID || published.CycleID != envelope.CycleID {
+		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid policy payload")
 	}
-	if err := r.authority.ApplyPolicyMetadata(ctx, envelope.AccountRevision, envelope.Checksum); err != nil {
+	next := r.policy
+	next.CycleID, next.Units, next.CostMinor, next.RateNanoDollar = envelope.CycleID, published.IncludedWriteUnits, published.SpendCapCents, published.RateNanoDollar
+	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, next); err != nil {
 		return writebudget.PolicyResult{}, err
 	}
-	return writebudget.PolicyResult{Status: "accepted", AccountRevision: envelope.AccountRevision, Checksum: envelope.Checksum}, nil
+	pending, err := r.authority.PolicyPending(ctx)
+	if err != nil {
+		return writebudget.PolicyResult{}, err
+	}
+	status := "accepted"
+	if pending {
+		status = "pending"
+	}
+	return writebudget.PolicyResult{Status: status, AccountRevision: envelope.AccountRevision, CycleID: envelope.CycleID, Checksum: envelope.Checksum}, nil
 }
 
 // newRuntimeWriteBudget binds the authority to the exact live current GRU

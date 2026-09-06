@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +141,7 @@ func TestTransitionAllocationFailureBlocksUsageAndCompletion(t *testing.T) {
 	issuer := &runtimeTestIssuer{}
 	worker := &productionPlacementTransition{
 		issuer: issuer, pending: pending, check: func(context.Context) error { return nil },
+		acceptance: func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error { return nil },
 		config: productionPlacementTransitionConfig{
 			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
 			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
@@ -270,8 +270,8 @@ func TestTransitionAllocatesCommittedStreamsBeforeUsageDelivery(t *testing.T) {
 		},
 		config: productionPlacementTransitionConfig{
 			GenesisGrants: map[string]placementtransition.Signed{databaseadmission.PlacementOperationID(record.Request): {Payload: []byte("explicit")}},
-			Deliver: func(_ context.Context, _ string, _ string, revision uint64, _ placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
-				return &pb.PlacementControlServiceAcceptResponse{ProposalRevision: revision, Epoch: 1, Generation: 1, ProofDigest: strings.Repeat("0", 64), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}, nil
+			Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+				return testAcceptanceResponse(revision, proof), nil
 			},
 		},
 		allocateStreams: func(ctx context.Context, r databaseadmission.Record, digest string) error {

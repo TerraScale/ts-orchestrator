@@ -432,7 +432,21 @@ type ociRegionController struct {
 	// seam. Zero means the declared target remains in force.
 	scaleOutTarget uint16
 	mu             sync.Mutex
+	removalOwner   ocireconcile.MemberRemovalOwner
 	observed       *ociRegionObservation
+}
+
+// bindHostRemovalOwner is the runtime handoff from the GRU lease-owned
+// composition to every regional compute reconciler. Clearing the owner is
+// allowed only to return to the fail-closed state.
+func (r *ociRegionController) bindHostRemovalOwner(owner ocireconcile.MemberRemovalOwner) {
+	if r == nil || r.compute == nil {
+		return
+	}
+	r.mu.Lock()
+	r.removalOwner = owner
+	r.compute.RemovalOwner = owner
+	r.mu.Unlock()
 }
 
 type ociRegionObservation struct {

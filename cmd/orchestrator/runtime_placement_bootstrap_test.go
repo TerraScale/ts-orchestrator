@@ -82,13 +82,19 @@ func TestEmptyClusterBootstrapUsesConfiguredGrantAndNeverRecreatesMissingHead(t 
 	}
 	request.OperationID = config.OperationID
 	digest, _ := placementtransition.RequestDigest(request)
+	worker.acceptance = func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error {
+		return nil
+	}
+	worker.acceptance = func(context.Context, databaseadmission.Record, string, *pb.PlacementControlServiceAcceptResponse) error {
+		return nil
+	}
 	key := ed25519.NewKeyFromSeed(make([]byte, 32))
 	grant, err := placementtransition.SignEvidence("genesis", key, placementtransition.GenesisGrant{Kind: "genesis_grant", GrantID: "explicit-cluster-grant", RequestDigest: digest})
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker.config = productionPlacementTransitionConfig{Bootstrap: config, Issuer: placementtransition.Config{GenesisKeys: map[string]ed25519.PublicKey{"genesis": key.Public().(ed25519.PublicKey)}}, GenesisGrants: map[string]placementtransition.Signed{config.OperationID: grant}, Deliver: func(context.Context, string, string, uint64, placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
-		return &pb.PlacementControlServiceAcceptResponse{ProposalRevision: 1, Epoch: 1, Generation: 1, ProofDigest: strings.Repeat("0", 64), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}, nil
+	worker.config = productionPlacementTransitionConfig{Bootstrap: config, Issuer: placementtransition.Config{GenesisKeys: map[string]ed25519.PublicKey{"genesis": key.Public().(ed25519.PublicKey)}}, GenesisGrants: map[string]placementtransition.Signed{config.OperationID: grant}, Deliver: func(_ context.Context, _ string, _ string, revision uint64, proof placementtransition.Signed) (*pb.PlacementControlServiceAcceptResponse, error) {
+		return testAcceptanceResponse(revision, proof), nil
 	}}
 	if err := worker.Bootstrap(t.Context()); err != nil {
 		t.Fatal(err)
