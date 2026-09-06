@@ -101,10 +101,45 @@ Provision a separate P-256 host receipt key in the configured root-owned private
 file before first acknowledgement. The plan must bind its public PEM in the
 corresponding source or destination `receiptPublicKeyPem` field. This is not the
 owner key or a fallback to a service-owned membership key. Host receipt-key
-provisioning and remote receipt collection are not automated yet.
+provisioning and acknowledgement upload are not automated yet. The operator
+check below can read acknowledgements already present in OCI.
 
 Once written, the receipt is retained in the private command journal as
 `storage-transition-pin-receipt.json`. Recovery validates and returns those
 exact bytes without opening the key file again. Missing or incorrect first-use
 key material leaves the plan pin in place and refuses acknowledgement. Do not
 remove or replace a conflicting receipt to force a retry.
+
+## Check independently published host acknowledgements
+
+```sh
+terrascale-orchestrator check-storage-plan-pins --config /absolute/path/check-plan-pins.json
+```
+
+The private JSON input contains:
+
+| Field | Value |
+| --- | --- |
+| `ownerPublicKeyFile` | Original bootstrap owner's public PEM used to verify the signed plan. |
+| `signedPlanFile` | The exact signed plan retained by the hosts. |
+| `ociKeyId` | Explicit OCI HTTP-signing key ID for the operator's read access. |
+| `ociPrivateKeyFile` | Absolute path to the private RSA OCI signing key, in PKCS#1 or PKCS#8 PEM. |
+
+Use OCI credentials scoped to reading the declared buckets and objects. The
+command makes only GET requests to the three fixed regional Object Storage
+endpoints. It has a one-minute overall deadline and ten-second transport
+timeouts. Input and key files require private caller-owned regular files without
+symlinks or additional hard links. The source broker is not needed.
+
+The acknowledgement objects must already exist at the exact locations in the
+[receipt-read contract](../contracts/control-transition-plan.md#independent-oci-acknowledgement-reads).
+Automatic host upload is still unfinished. Preserve each host's signed bytes
+and the required OCI digest metadata when publishing; the check cannot create
+or repair missing receipts.
+
+On success, the command prints `status: "plan-pins-verified"`, `planSha256`,
+source-first ordered `receiptSha256` values, and `checkedAt`. It emits no success
+report for a partial or conflicting set. This report confirms the supplied
+signed host agreements, not destination health, prepared storage, R3 readiness
+or permission to retire the source. It is an unsigned operator report and must
+not be consumed as an authorization document.

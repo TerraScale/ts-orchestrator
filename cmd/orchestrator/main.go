@@ -29,6 +29,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/storageplan"
 	"terrascale.tech/orchestrator/src/orchestrator/transferplan"
+	"terrascale.tech/orchestrator/src/orchestrator/transitionreceipts"
 )
 
 const (
@@ -135,6 +136,12 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	}
 	if name == "initial-gru-r1" {
 		if err := initialcontrolcli.Run(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
+	if name == "check-storage-plan-pins" {
+		if err := transitionreceipts.Run(ctx, args[2], output); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil
@@ -297,7 +304,7 @@ func requestedCommand(args []string) (string, error) {
 	if args[0] == "run" && len(args) == 3 && args[1] == "--config" && args[2] != "" {
 		return "run", nil
 	}
-	if args[0] == "initial-gru-r1" || args[0] == "prepare-control-candidate" || args[0] == "plan-control-candidates" || args[0] == "plan-preliminary-capture" || args[0] == "plan-preliminary-transfer" || args[0] == "plan-storage-transition" {
+	if args[0] == "initial-gru-r1" || args[0] == "prepare-control-candidate" || args[0] == "plan-control-candidates" || args[0] == "plan-preliminary-capture" || args[0] == "plan-preliminary-transfer" || args[0] == "plan-storage-transition" || args[0] == "check-storage-plan-pins" {
 		if len(args) == 3 && args[1] == "--config" && args[2] != "" {
 			return args[0], nil
 		}
@@ -342,7 +349,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates", "plan-preliminary-capture", "plan-preliminary-transfer", "plan-storage-transition":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates", "plan-preliminary-capture", "plan-preliminary-transfer", "plan-storage-transition", "check-storage-plan-pins":
 		return args[0]
 	default:
 		return "unsupported"

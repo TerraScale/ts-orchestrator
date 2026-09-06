@@ -120,7 +120,8 @@ verifiable for audit. Corrupt, unsafe, or conflicting acknowledgement files are
 retained and refused, never replaced to force a retry.
 
 These acknowledgements are stored locally and returned to the trusted caller.
-No external publication or independent receipt-delivery transport is wired yet.
+Host publication is not wired yet. The independent OCI reader described below
+can verify receipts once their exact bytes are present in the regional buckets.
 The complete preparation barrier must combine them with synchronization,
 identity, storage and health evidence before retirement. The first private
 acknowledgement is not a general phase journal or permission to execute effects.
@@ -217,10 +218,53 @@ A completed acknowledgement is recovered byte-for-byte without reopening the
 key, including after a `ts-node` restart. This permits recovery while that key
 file is unavailable; it does not authorize new signatures after key retirement.
 The receipt remains in `storage-transition-pin-receipt.json` inside the private
-host journal. No remote acknowledgement publication or collection is wired yet.
+host journal. Host acknowledgement publication is not wired yet; the independent reader
+below collects receipts that have already been published.
 A local receipt still cannot satisfy the unfinished preparation barrier alone.
 
 Configured `storageTransition` values now require the receipt-key path. The
 previous prelaunch two-field draft is refused. Configurations without this
 optional value keep their original canonical bytes; no deployed transition
 history is migrated or rewritten.
+
+## Independent OCI acknowledgement reads
+
+`transitionreceipts.ReadPlanPins` collects each distinct host acknowledgement
+without contacting NATS. `check-storage-plan-pins` exposes this as an operator
+command. It requires a live verified owner plan and one OCI Object Storage
+transport for each of GRU, SFO and FRA, with region identity matching the plan.
+
+Each host's receipt belongs in that host's regional bucket from the plan. The
+source uses GRU. A shared source/GRU host has only its source receipt; a separate
+GRU destination has another object. `PinObjectKey` derives the exact key:
+
+```text
+<objects.prefix>/<signed-plan-sha256>/plan-pinned/<node-id>.json
+```
+
+The object contains the unmodified signed acknowledgement from the host's
+private journal. OCI metadata must include its exact byte length, an ETag and
+`opc-meta-terrascale-sha256` with the bare lowercase SHA-256 of those bytes.
+Receipts are bounded to 8 KiB. The reader refuses redirects, missing objects,
+changed or truncated bytes, incorrect metadata, foreign hosts/signatures,
+future receipts, and incomplete host inventory. It returns no verified result
+on a partial read failure.
+
+Before and after object reads, the reader obtains each bucket observation and
+compares its resource ID, compartment, namespace, name and observation digest
+with the signed plan. `BucketObservationDigest` defines that digest as SHA-256
+of `provider.OCIBucketObservation` serialized with deterministic Go JSON v2.
+The projection includes `id`, `compartmentId`, `namespace`, `name` and the entire
+`freeformTags` map; unrelated OCI response fields are excluded. The same utility
+must be used when preparing the plan's `ownershipObservationSha256` value.
+
+The complete source-first, then distinct GRU/SFO/FRA receipt set passes through
+`VerifyPlanPins` after the reads. The returned proof and digest copies remain
+usable only within the plan's lifetime. `PinObjectKey` can identify historical
+objects, but key derivation itself establishes no current authority.
+
+This is independent evidence collection, not publication or a complete
+preparation barrier. Host upload, automated collection in the transition
+executor, storage/health checks and source retirement remain unfinished.
+The operator's JSON summary is an unsigned report and cannot substitute for
+verification of the original signed receipts.

@@ -1,0 +1,96 @@
+test -z "$(gofmt -l .)"
+go vet ./...
+go build ./...
+go test -race -count=1 ./...
+ok  	terrascale.tech/orchestrator/cmd/orchestrator	46.383s
+ok  	terrascale.tech/orchestrator/cmd/ts-node	1.209s
+ok  	terrascale.tech/orchestrator/cmd/vm-artifacts	3.905s
+ok  	terrascale.tech/orchestrator/cmd/vm-guest-control	3.451s
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify	1.112s
+?   	terrascale.tech/orchestrator/internal/testengineconfig	[no test files]
+ok  	terrascale.tech/orchestrator/src/node	1.458s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrap	44.607s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials	1.171s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidateplan	3.195s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	26.427s
+ok  	terrascale.tech/orchestrator/src/orchestrator/captureplan	2.648s
+ok  	terrascale.tech/orchestrator/src/orchestrator/cloudflare	2.380s
+?   	terrascale.tech/orchestrator/src/orchestrator/contracts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control	11.971s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/authority	4.179s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/directory	1.152s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/engines	[no test files]
+?   	terrascale.tech/orchestrator/src/orchestrator/control/internal/shared	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/journal	1.046s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/messaging	1.274s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/monitoring	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/placement	1.037s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controlcandidatecli	7.859s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controlcommand	2.180s
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	1.355s
+ok  	terrascale.tech/orchestrator/src/orchestrator/delivery	9.931s
+?   	terrascale.tech/orchestrator/src/orchestrator/errs	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/estate	1.394s
+ok  	terrascale.tech/orchestrator/src/orchestrator/estatepublisher	1.055s
+ok  	terrascale.tech/orchestrator/src/orchestrator/globalclient	2.174s
+ok  	terrascale.tech/orchestrator/src/orchestrator/guestdiagnostic	4.039s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostagent	4.618s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostbootstrap	5.592s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostcontrol	2.348s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostmanifest	1.059s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostplatform	1.463s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostsecrets	3.718s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrol	19.399s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrolcli	1.069s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialgrant	1.593s
+?   	terrascale.tech/orchestrator/src/orchestrator/internal/ociworker	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/keyrotation	34.272s
+ok  	terrascale.tech/orchestrator/src/orchestrator/lifecycle	1.038s
+ok  	terrascale.tech/orchestrator/src/orchestrator/memberobserve	1.095s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natsconnect	1.040s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natspolicy	1.073s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	10.431s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodebootstrap	1.120s
+ok  	terrascale.tech/orchestrator/src/orchestrator/observability	1.237s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ociinstance	10.698s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ocireconcile	1.700s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarycapture	2.680s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarytransfer	4.031s
+ok  	terrascale.tech/orchestrator/src/orchestrator/protocol	3.468s
+ok  	terrascale.tech/orchestrator/src/orchestrator/provider	5.243s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reaper	41.860s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reconcile	2.577s
+ok  	terrascale.tech/orchestrator/src/orchestrator/residency	1.025s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoredrill	31.208s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoresnapshot	1.108s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runtime	1.200s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare	1.088s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/edge	1.067s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/objectstore	1.075s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci	1.100s
+?   	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/ociinstance	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxvm	1.939s
+ok  	terrascale.tech/orchestrator/src/orchestrator/scheduling	8.459s
+ok  	terrascale.tech/orchestrator/src/orchestrator/security	1.157s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sourcepublication	98.854s
+ok  	terrascale.tech/orchestrator/src/orchestrator/storageplan	2.171s
+ok  	terrascale.tech/orchestrator/src/orchestrator/tbep	1.365s
+?   	terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/transferplan	5.865s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitiongrant	1.133s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitionreceipts	2.290s
+ok  	terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap	1.028s
+?   	terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed	1.744s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmdisk	3.688s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	1.317s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmguest	13.493s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	4.725s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmnet	8.714s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqual	7.529s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualartifact	1.076s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap	1.310s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	1.653s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualsuite	28.510s
+?   	terrascale.tech/orchestrator/tests/journalchild	[no test files]
+ok  	terrascale.tech/orchestrator/tools/orchestrator-tooling	2.376s

@@ -1,0 +1,2 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitionreceipts	2.193s
+ok  	terrascale.tech/orchestrator/cmd/orchestrator	45.418s
