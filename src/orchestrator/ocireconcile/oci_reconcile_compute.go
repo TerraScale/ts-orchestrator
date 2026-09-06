@@ -43,6 +43,7 @@ func MemberDisplayName(regionCode string, index int) string {
 
 type ObservedMember struct {
 	ID                 string
+	Region             string
 	DisplayName        string
 	Index              int
 	Shape              string
@@ -82,6 +83,7 @@ type MemberLaunchCandidate struct {
 	Architecture     string
 	QualificationRef string
 	CostRef          string
+	CloudInitBase64  string
 }
 
 type ComputeDeclared struct {
@@ -198,6 +200,9 @@ func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclare
 	}
 	if observed.Members, err = r.Compute.ListMembers(ctx); err != nil {
 		return ComputeObserved{}, err
+	}
+	for i := range observed.Members {
+		observed.Members[i].Region = declared.Region.Code
 	}
 	network, err := (&NetworkReconciler{Gateway: r.Network}).Observe(ctx, declared.Region)
 	if err != nil {

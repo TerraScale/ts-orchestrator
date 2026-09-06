@@ -554,6 +554,7 @@ func (f *deliveryContractFetcher) Fetch(ctx context.Context, request *delivery.R
 	if !ok {
 		return nil, nil, fmt.Errorf("vmqual: no artifact for operation %s", request.OperationID)
 	}
+	request.Artifact.SignatureDigest = delivery.SHA256Digest(artifact.signature)
 	return append([]byte(nil), artifact.body...), append([]byte(nil), artifact.signature...), nil
 }
 

@@ -130,7 +130,7 @@ func materializeGuestControl(ctx context.Context, config Config) error {
 		return fmt.Errorf("vmqual: close guest control staging file: %w", err)
 	}
 	defer os.Remove(tmp)
-	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", tmp, "./cmd/vm-guest-control")
+	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-ldflags=-s -w", "-o", tmp, "./cmd/vm-guest-control")
 	command.Dir = repositoryRoot()
 	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
 	if output, err := command.CombinedOutput(); err != nil {

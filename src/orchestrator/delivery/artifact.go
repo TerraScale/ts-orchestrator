@@ -493,6 +493,12 @@ func rejectDuplicateJSON(raw []byte) error {
 						return err
 					}
 					key := keyToken.(string)
+					canonical := map[string]struct{}{"schemaVersion": {}, "operationId": {}, "source": {}, "artifact": {}, "target": {}, "configurationRevision": {}, "migrationRevision": {}, "requestedBy": {}, "reason": {}, "rollback": {}, "informational": {}, "repository": {}, "commit": {}, "treeDigest": {}, "name": {}, "manifestName": {}, "digest": {}, "signatureDigest": {}, "manifestDigest": {}, "manifestSignatureDigest": {}, "kind": {}, "architecture": {}, "path": {}, "bytes": {}}
+					for field := range canonical {
+						if strings.EqualFold(key, field) && key != field {
+							return errors.New("aliased object field")
+						}
+					}
 					if key != "" && key[0] >= 'A' && key[0] <= 'Z' {
 						return errors.New("aliased object field")
 					}

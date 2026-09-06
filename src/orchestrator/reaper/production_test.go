@@ -75,6 +75,9 @@ func (k *productionKey) DestroyDEK(_ context.Context, id, _ string) error {
 	k.calls = append(k.calls, id)
 	return nil
 }
+func (k *productionKey) ObserveDEKDestruction(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 
 func productionConfig(database *productionDatabase, key *productionKey, clock Clock, store *NATSStateStoreConfig) ProductionConfig {
 	return ProductionConfig{

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
@@ -53,21 +54,35 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		return writebudget.PolicyResult{}, err
 	}
 	var published struct {
-		OrganizationID         string `json:"organizationId"`
-		CycleID                string `json:"cycleId"`
-		IncludedWriteUnits     int64  `json:"includedWriteUnits"`
-		IncludedAllowanceUnits int64  `json:"includedAllowanceUnits"`
-		PaidExcessEnabled      bool   `json:"paidExcessEnabled"`
-		OrganizationSpendNano  int64  `json:"organizationSpendNano"`
-		SpendCapCents          int64  `json:"spendCapCents"`
-		RateNanoDollar         int64  `json:"rateNanoDollar"`
+		OrganizationID         string           `json:"organizationId"`
+		CycleID                string           `json:"cycleId"`
+		IncludedWriteUnits     string           `json:"includedWriteUnits"`
+		IncludedAllowanceUnits int64            `json:"includedAllowanceUnits"`
+		PaidExcessEnabled      bool             `json:"paidExcessEnabled"`
+		OrganizationSpendNano  int64            `json:"organizationSpendNano"`
+		SpendCapCents          int64            `json:"spendCapCents"`
+		RateNanoDollar         int64            `json:"rateNanoDollar"`
+		DatabaseSpendCapsCents map[string]int64 `json:"databaseSpendCapsCents"`
 	}
 	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != envelope.OrganizationID || published.CycleID != envelope.CycleID {
 		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid policy payload")
 	}
+	included, err := strconv.ParseInt(published.IncludedWriteUnits, 10, 64)
+	if err != nil || included < 0 {
+		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance")
+	}
 	next := r.policy
-	next.CycleID, next.IncludedAllowanceUnits, next.RateNanoDollar = envelope.CycleID, published.IncludedAllowanceUnits, published.RateNanoDollar
-	next.IncludedAllowanceUnits, next.PaidExcessEnabled, next.OrganizationSpendNano = published.IncludedAllowanceUnits, published.PaidExcessEnabled, published.OrganizationSpendNano
+	next.CycleID, next.IncludedAllowanceUnits, next.RateNanoDollar = envelope.CycleID, included, published.RateNanoDollar
+	next.PaidExcessEnabled, next.OrganizationSpendNano = published.PaidExcessEnabled, published.OrganizationSpendNano
+	if published.DatabaseSpendCapsCents != nil {
+		next.DatabaseCaps = make(map[string]int64, len(published.DatabaseSpendCapsCents))
+		for database, cap := range published.DatabaseSpendCapsCents {
+			if cap < 0 {
+				return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid database cap")
+			}
+			next.DatabaseCaps[database] = cap
+		}
+	}
 	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, envelope.PolicyGeneration, next); err != nil {
 		return writebudget.PolicyResult{}, err
 	}

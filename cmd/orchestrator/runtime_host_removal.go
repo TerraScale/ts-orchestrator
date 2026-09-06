@@ -56,12 +56,10 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	observations := make([]hostremoval.MemberObservation, 0, len(survivors))
 	for _, candidate := range survivors {
 		candidateGeneration, _ := strconv.ParseUint(candidate.FreeformTags["terrascale-generation"], 10, 64)
-		observations = append(observations, hostremoval.MemberObservation{Identity: candidate.ID, Region: regionFromIdentity(candidate.ID), Slot: candidate.Index, Generation: candidateGeneration})
+		observations = append(observations, hostremoval.MemberObservation{Identity: candidate.ID, Region: candidate.Region, Slot: candidate.Index, Generation: candidateGeneration, EvidenceRefs: []string{candidate.FreeformTags["terrascale-observation-ref"]}})
 	}
-	return r.owner.RemoveMember(ctx, operationID, hostremoval.MemberObservation{Identity: member.ID, Region: regionFromIdentity(member.ID), Slot: member.Index, Generation: generation}, generation, observations...)
+	return r.owner.RemoveMember(ctx, operationID, hostremoval.MemberObservation{Identity: member.ID, Region: member.Region, Slot: member.Index, Generation: generation, EvidenceRefs: []string{member.FreeformTags["terrascale-observation-ref"]}}, generation, observations...)
 }
-
-func regionFromIdentity(identity string) string { return "" }
 
 // hostRemovalTransitionPorts documents the exact authenticated providers used
 // by the runtime factory. It intentionally does not provide mock readiness or

@@ -95,6 +95,21 @@ func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 	}
 }
 
+func TestZeroAllowancePAYGAllocatesPaidUnits(t *testing.T) {
+	persist := NewMemoryPersister()
+	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "payg", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-payg": 4}, IncludedAllowanceUnits: 0, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := request("payg", "db", "main", 1, time.Now().Add(time.Hour))
+	r.PolicyEpoch, r.ConsentEpoch = 1, 1
+	r.HolderID = "writer-payg"
+	grant, err := a.Allocate(t.Context(), r)
+	if err != nil || grant.IncludedUnits != 0 || grant.PaidUnits != 2 || grant.CostNanoDollar != 2000 {
+		t.Fatalf("grant=%+v err=%v", grant, err)
+	}
+}
+
 func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 	t.Helper()
 	persist := NewMemoryPersister()

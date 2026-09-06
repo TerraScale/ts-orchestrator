@@ -20,10 +20,8 @@ func testRelease(t *testing.T, mutate func(*Request)) (*Request, ArtifactFetcher
 	t.Helper()
 	body := []byte("terrabase-release-bytes")
 	digest := SHA256Digest(body)
-	public, private, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		t.Fatalf("generate signing key: %v", err)
-	}
+	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	public := private.Public().(ed25519.PublicKey)
 	signature := ed25519.Sign(private, body)
 	request, err := ParseRequest(golden(t, goldenRequestPath))
 	if err != nil {

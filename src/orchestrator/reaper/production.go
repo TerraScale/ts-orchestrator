@@ -35,6 +35,7 @@ type DatabaseAdapter interface {
 // key-management implementation.
 type KeyAdapter interface {
 	DestroyDEK(ctx context.Context, databaseID, operationKey string) error
+	ObserveDEKDestruction(ctx context.Context, databaseID, operationKey string) (bool, error)
 }
 
 // MailAdapter is the production email delivery boundary. Templates contain
@@ -113,6 +114,13 @@ func (e productionExecutor) DestroyDEK(ctx context.Context, databaseID, operatio
 		return err
 	}
 	return e.key.DestroyDEK(ctx, databaseID, operationKey)
+}
+
+func (e productionExecutor) ObserveDEKDestruction(ctx context.Context, databaseID, operationKey string) (bool, error) {
+	if err := checkReaperEffect(ctx, e.check); err != nil {
+		return false, err
+	}
+	return e.key.ObserveDEKDestruction(ctx, databaseID, operationKey)
 }
 
 func (e productionExecutor) DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error {

@@ -112,6 +112,7 @@ type Executor interface {
 	Reactivate(ctx context.Context, databaseID, operationKey string) error
 	PurgeCDN(ctx context.Context, databaseID, operationKey string) error
 	DestroyDEK(ctx context.Context, databaseID, operationKey string) error
+	ObserveDEKDestruction(ctx context.Context, databaseID, operationKey string) (bool, error)
 	DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error
 }
 
@@ -430,6 +431,23 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 	}
 	state.Entries[database.ID] = entry
 	if entry.BillingGrace && entry.Phase == PhaseDeleting && billingIrreversibleFence(entry) {
+		due := database.BillingDeletionEligible && database.BillingGraceDeadline != nil && !now.Before(*database.BillingGraceDeadline)
+		if due {
+			if err := r.deleteLocked(ctx, state, database, now); err != nil {
+				return "", err
+			}
+			return "deleted", nil
+		}
+		confirmed, err := r.billingDestructionConfirmed(ctx, entry, database.ID)
+		if err != nil {
+			return "", err
+		}
+		if !confirmed {
+			if err := r.cancelBillingDeletionLocked(ctx, state, database, now); err != nil {
+				return "", err
+			}
+			return "reactivated", nil
+		}
 		if err := r.deleteLocked(ctx, state, database, now); err != nil {
 			return "", err
 		}
@@ -783,6 +801,19 @@ func billingIrreversibleFence(entry Entry) bool {
 		}
 	}
 	return false
+}
+
+func (r *Reconciler) billingDestructionConfirmed(ctx context.Context, entry Entry, databaseID string) (bool, error) {
+	for _, base := range []string{"delete/crypto-shred", "delete/data"} {
+		key := r.operationName(entry, base)
+		if entry.Operations[key].Status == operationDone {
+			continue
+		}
+		if entry.Operations[key].Status != "" {
+			return r.executor.ObserveDEKDestruction(ctx, databaseID, key)
+		}
+	}
+	return true, nil
 }
 
 func (r *Reconciler) cancelBillingDeletionLocked(ctx context.Context, state *State, database Database, now time.Time) error {

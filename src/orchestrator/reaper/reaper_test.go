@@ -29,9 +29,10 @@ func (c *testCatalog) List(ctx context.Context, cursor string, limit int) (Page,
 }
 
 type testExecutor struct {
-	mu    sync.Mutex
-	calls []string
-	fail  map[string]int
+	mu       sync.Mutex
+	calls    []string
+	fail     map[string]int
+	observed bool
 }
 
 func (e *testExecutor) call(name, id string) error {
@@ -58,6 +59,9 @@ func (e *testExecutor) Reactivate(_ context.Context, id, _ string) error {
 }
 func (e *testExecutor) PurgeCDN(_ context.Context, id, _ string) error   { return e.call("purge", id) }
 func (e *testExecutor) DestroyDEK(_ context.Context, id, _ string) error { return e.call("shred", id) }
+func (e *testExecutor) ObserveDEKDestruction(_ context.Context, _, _ string) (bool, error) {
+	return e.observed, nil
+}
 func (e *testExecutor) DeleteOwnedData(_ context.Context, id, _ string) error {
 	return e.call("delete", id)
 }
@@ -272,7 +276,7 @@ func TestRestoredCoverageCannotUndoCryptoShredFence(t *testing.T) {
 	deadline := base.Add(30 * 24 * time.Hour)
 	clock := &testClock{now: deadline}
 	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
-	executor := &testExecutor{fail: map[string]int{"shred": 1}}
+	executor := &testExecutor{fail: map[string]int{"shred": 1}, observed: true}
 	catalog := &testCatalog{databases: []Database{database}}
 	audit, store := &testAudit{}, &MemoryStore{}
 	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, audit)

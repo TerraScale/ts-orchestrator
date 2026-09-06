@@ -38,26 +38,40 @@ type productionGlobalFile struct {
 
 // productionGlobalComputeFile declares the lease-owned OCI mutation inputs.
 // Credentials remain file references; secrets are never embedded here.
-type productionGlobalComputeFile struct {
-	EstateFiles       map[string]string `json:"estate_files"`
-	KeyID             string            `json:"key_id"`
-	PrivateKeyFile    string            `json:"private_key_file"`
-	ImageID           string            `json:"image_id"`
-	FallbackImageID   string            `json:"fallback_image_id"`
-	MutationJournalKV string            `json:"mutation_journal_kv"`
-	ReleaseVersion    string            `json:"release_version"`
-	ArtifactURL       string            `json:"artifact_url"`
-	ArtifactSHA256    string            `json:"artifact_sha256"`
-	ReleasePublicKey  string            `json:"release_public_key"`
-	HostFiles         map[string]string `json:"host_files"`
+type productionComputeArtifactFile struct {
+	Version   string `json:"version"`
+	URL       string `json:"url"`
+	SHA256    string `json:"sha256"`
+	PublicKey string `json:"public_key"`
 }
 
-func (f productionGlobalComputeFile) cloudInit() (string, error) {
+type productionGlobalComputeFile struct {
+	EstateFiles       map[string]string                        `json:"estate_files"`
+	KeyID             string                                   `json:"key_id"`
+	PrivateKeyFile    string                                   `json:"private_key_file"`
+	ImageID           string                                   `json:"image_id"`
+	FallbackImageID   string                                   `json:"fallback_image_id"`
+	MutationJournalKV string                                   `json:"mutation_journal_kv"`
+	ReleaseVersion    string                                   `json:"release_version"`
+	ArtifactURL       string                                   `json:"artifact_url"`
+	ArtifactSHA256    string                                   `json:"artifact_sha256"`
+	ReleasePublicKey  string                                   `json:"release_public_key"`
+	HostFiles         map[string]string                        `json:"host_files"`
+	Artifacts         map[string]productionComputeArtifactFile `json:"artifacts"`
+}
+
+func (f productionGlobalComputeFile) cloudInit() (string, error) { return f.cloudInitFor("arm64") }
+
+func (f productionGlobalComputeFile) cloudInitFor(architecture string) (string, error) {
+	a, ok := f.Artifacts[architecture]
+	if !ok {
+		return "", fmt.Errorf("missing %s release artifact", architecture)
+	}
 	files := make([]ocireconcile.BootstrapHostFile, 0, len(f.HostFiles))
 	for path, content := range f.HostFiles {
 		files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: []byte(content), Private: true})
 	}
-	return ocireconcile.TSNodeCloudInit(f.ReleaseVersion, f.ArtifactSHA256, f.ArtifactURL, f.ArtifactURL+".sig", f.ReleasePublicKey, files)
+	return ocireconcile.TSNodeCloudInit(a.Version, a.SHA256, a.URL, a.URL+".sig", a.PublicKey, files)
 }
 
 func loadProductionDeployment(options *control.OrchestratorOptions) (productionDeploymentFile, error) {
@@ -88,7 +102,7 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	if g == nil {
 		return errors.New("global runtime deployment is missing")
 	}
-	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 {
+	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 || len(g.Compute.Artifacts) != 2 || g.Compute.Artifacts["arm64"].URL == "" || g.Compute.Artifacts["amd64"].URL == "" {
 		return errors.New("global compute declaration is incomplete")
 	}
 	for _, region := range spec.Regions {

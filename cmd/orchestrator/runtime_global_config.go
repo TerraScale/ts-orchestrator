@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"sync"
 
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
+	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 )
 
 // ErrProductionGlobalDependency identifies a provider which has not yet been
@@ -20,14 +22,17 @@ import (
 var ErrProductionGlobalDependency = errors.New("production global dependency is unavailable")
 
 type productionGlobalBuildInput struct {
-	Global     *productionGlobalFile
-	Auth       productionAuthBootstrapConfig
-	Spec       estate.Spec
-	Mirror     *delivery.ArtifactMirror
-	Shared     provider.DeliveryRegionStoreConfig
-	Ownership  *provider.DurableOwnershipJournal
-	Close      func() error
-	Transition productionPlacementTransitionConfig
+	Global          *productionGlobalFile
+	Auth            productionAuthBootstrapConfig
+	Spec            estate.Spec
+	Mirror          *delivery.ArtifactMirror
+	Shared          provider.DeliveryRegionStoreConfig
+	Ownership       *provider.DurableOwnershipJournal
+	Close           func() error
+	Transition      productionPlacementTransitionConfig
+	RestoreBackup   restoredrill.BackupPort
+	RestoreBranches restoredrill.BranchPort
+	HostRemoval     func(context.Context, globalWorkerSession, *databaseadmission.NATSJournal, hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error)
 }
 
 // buildProductionGlobalConfig is the lease-owned composition stage. All
@@ -85,6 +90,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.SnapshotMirror = recovery.SnapshotMirror
 	config.Restore.Drill = recovery.Drill
 	config.Restore.SnapshotRegions = recovery.SnapshotRegions
+	config.Restore.Backup = input.RestoreBackup
+	config.Restore.Branches = input.RestoreBranches
+	config.HostRemoval = input.HostRemoval
 
 	rotation, _, closeRotation, err := input.Global.Rotation.Construct(ctx, session, productionDeliveryMirrorSource{mirror: input.Mirror, region: input.Global.Recovery.SourceRegion})
 	if err != nil {
@@ -109,9 +117,13 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
 	config.Close = closeAll
-	cloudInit, err := input.Global.Compute.cloudInit()
-	if err != nil {
-		return fail(fmt.Errorf("global compute cloud-init: %w", err))
+	cloudInitByArch := make(map[string]string, 2)
+	for arch := range input.Global.Compute.Artifacts {
+		value, err := input.Global.Compute.cloudInitFor(arch)
+		if err != nil {
+			return fail(fmt.Errorf("global compute %s cloud-init: %w", arch, err))
+		}
+		cloudInitByArch[arch] = value
 	}
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
 	config.ComputeApply = func(applyCtx context.Context, journal provider.ProviderMutationJournal) error {
@@ -148,11 +160,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 				if candidate.Architecture == ocireconcile.MemberArchAMD64 {
 					image = input.Global.Compute.FallbackImageID
 				}
-				candidates = append(candidates, ocireconcile.MemberLaunchCandidate{Shape: candidate.Shape, ImageID: image, Architecture: candidate.Architecture, QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef})
+				candidates = append(candidates, ocireconcile.MemberLaunchCandidate{Shape: candidate.Shape, ImageID: image, Architecture: candidate.Architecture, QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef, CloudInitBase64: cloudInitByArch[candidate.Architecture]})
 			}
 			cloudInitByMember := make(map[int]string, int(region.Members.Count))
 			for index := 1; index <= int(region.Members.Count); index++ {
-				cloudInitByMember[index] = cloudInit
+				cloudInitByMember[index] = cloudInitByArch[ocireconcile.MemberArchArm64]
 			}
 			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember}
 			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: nil}
@@ -171,8 +183,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		return nil
 	}
 
-	// The remaining ports are intentionally reported by name until their
-	// assigned owners hand off concrete production adapters. Returning this
-	// staged bundle lets callers retain and close all providers already opened.
-	return config, fmt.Errorf("%w: restore backup and branch lifecycle adapters", ErrProductionGlobalDependency)
+	if input.RestoreBackup == nil || input.RestoreBranches == nil {
+		return config, fmt.Errorf("%w: restore backup and branch lifecycle adapters", ErrProductionGlobalDependency)
+	}
+	// Reaper database/key and estate snapshot are installed after the database,
+	// placement transition, and accepted lease-bound lifecycle client exist.
+	// Keep this stage fail closed while preserving the already opened clients.
+	return config, fmt.Errorf("%w: lifecycle reaper database/key and estate snapshot adapters", ErrProductionGlobalDependency)
 }

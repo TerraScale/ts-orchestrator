@@ -99,11 +99,7 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	if err != nil {
 		return err
 	}
-	identities := make([]string, 0, len(request.Survivors))
-	for _, survivor := range request.Survivors {
-		identities = append(identities, survivor.Identity)
-	}
-	current, err := o.Journal.Begin(ctx, operationID, member.Identity, generation, revision, replacements, identities)
+	current, err := o.Journal.Begin(ctx, operationID, member.Identity, generation, revision, replacements, request.Survivors)
 	if err != nil {
 		return err
 	}
@@ -166,15 +162,11 @@ func (j *typedJournal) Transact(ctx context.Context, write bool, change func(*st
 	})
 }
 
-func (j *Journal) Begin(ctx context.Context, operationID, member string, generation, inventoryRevision uint64, replacements []Replacement, survivors []string) (Operation, error) {
+func (j *Journal) Begin(ctx context.Context, operationID, member string, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
 	if j == nil || j.journal == nil || !token(operationID) || !token(member) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
 		return Operation{}, ErrInvalid
 	}
-	observed := make([]MemberObservation, 0, len(survivors))
-	for _, survivor := range survivors {
-		observed = append(observed, MemberObservation{Identity: survivor})
-	}
-	want := Operation{OperationID: operationID, MemberIdentity: member, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: observed, Stage: StageInventoryCaptured}
+	want := Operation{OperationID: operationID, MemberIdentity: member, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
 	var result Operation
 	err := j.journal.Transact(ctx, true, func(s *state) error {
 		if old, ok := s.Operations[operationID]; ok {
