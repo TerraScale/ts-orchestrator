@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -233,10 +234,13 @@ func checkKeyDestructionFence(ctx context.Context, nc *nats.Conn, r keyDestructi
 		return err
 	}
 	entry, ok := state.Entries[r.Scope.DatabaseID]
-	if !ok || entry.DatabaseID != r.Scope.DatabaseID || entry.Plan != PlanFree || entry.Phase != PhaseDeleting || entry.SecondNoticeAt.IsZero() {
+	if !ok || entry.DatabaseID != r.Scope.DatabaseID || (entry.Plan != PlanFree && !(entry.Plan == PlanPaid && entry.BillingGrace)) || entry.Phase != PhaseDeleting || entry.SecondNoticeAt.IsZero() {
 		return ErrStateFenced
 	}
 	name := "delete/crypto-shred"
+	if entry.Cycle > 0 {
+		name += fmt.Sprintf("/cycle-%d", entry.Cycle)
+	}
 	if r.OperationKey != name+"/"+entry.DatabaseID || entry.Operations[name].Status != operationStarted {
 		return ErrStateFenced
 	}

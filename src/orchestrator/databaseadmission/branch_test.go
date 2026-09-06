@@ -91,6 +91,25 @@ func TestCaptureBranchSourceBindsAuthenticatedRestorePoint(t *testing.T) {
 	}
 }
 
+func TestOrdinaryBranchCaptureAllowsProviderSelectedPoint(t *testing.T) {
+	record := journalFixture(t)
+	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	nonce := strings.Repeat("a", 64)
+	payload, err := json.Marshal(BranchSourceEvidence{SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: record.Targets[0].ServerIdentity, Region: record.Targets[0].Region, RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", SourceSnapshotDigest: strings.Repeat("b", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := &BranchSource{Nonce: nonce, Evidence: SignedReadiness{Payload: payload, Signature: make([]byte, ed25519.SignatureSize)}}
+	if _, err := validateBranchSource(record, source, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	partial := record.Request
+	partial.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	if validBranchProvenance(partial) {
+		t.Fatal("partial historical provenance accepted")
+	}
+}
+
 func TestBranchAdmissionWithoutRestoreCannotAllocateEmptyDatabase(t *testing.T) {
 	journal := NewMemoryJournal()
 	pipeline, err := New(pipelineConfig(t, journal))

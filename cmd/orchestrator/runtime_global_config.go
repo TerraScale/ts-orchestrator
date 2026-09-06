@@ -117,7 +117,10 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	// pipeline as ordinary databases; it never mints a local identity.
 	var databaseRef *productionDatabase
 	config.BranchDatabaseRef = &databaseRef
-	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef}
+	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef, config: config.Database}
+	var backupDatabaseRef *productionDatabase
+	config.BackupDatabaseRef = &backupDatabaseRef
+	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database}
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
@@ -131,6 +134,26 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		cloudInitByArch[arch] = value
 	}
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
+	config.ComputeGateways = make(map[string]ocireconcile.ComputeGateway, len(input.Spec.Regions))
+	for _, region := range input.Spec.Regions {
+		estateSpec, err := provider.LoadOCIEstateSpec(input.Global.Compute.EstateFiles[region.Code])
+		if err != nil {
+			return fail(fmt.Errorf("compute estate %s: %w", region.Code, err))
+		}
+		reader, err := provider.NewOCIEstateHTTPReader(estateSpec, input.Global.Compute.KeyID, input.Global.Compute.PrivateKeyFile)
+		if err != nil {
+			return fail(fmt.Errorf("compute OCI reader %s: %w", region.Code, err))
+		}
+		adapter, err := provider.NewOCIComputeAdapter(reader.Transports[provider.OCIServiceCore], input.Shared.Journal)
+		if err != nil {
+			return fail(fmt.Errorf("compute OCI adapter %s: %w", region.Code, err))
+		}
+		gateway, err := ocireconcile.NewDurableOCIMemberGateway(reader.Transports[provider.OCIServiceCore], adapter, estateSpec.WorkloadCompartmentID, input.Global.Compute.ImageID, provider.ProviderEpoch{Value: uint64(session.Lease.Epoch)})
+		if err != nil {
+			return fail(fmt.Errorf("compute gateway %s: %w", region.Code, err))
+		}
+		config.ComputeGateways[region.Code] = gateway
+	}
 	config.ComputeApply = func(applyCtx context.Context, journal provider.ProviderMutationJournal) error {
 		if err := session.CheckEffectAuthority(applyCtx); err != nil {
 			return err
@@ -146,14 +169,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 				return fmt.Errorf("compute OCI reader %s: %w", region.Code, err)
 			}
 			core := reader.Transports[provider.OCIServiceCore]
-			adapter, err := provider.NewOCIComputeAdapter(core, journal)
-			if err != nil {
-				return fmt.Errorf("compute OCI adapter %s: %w", region.Code, err)
-			}
-			epoch := provider.ProviderEpoch{Value: uint64(session.Lease.Epoch)}
-			gateway, err := ocireconcile.NewDurableOCIMemberGateway(core, adapter, estateSpec.WorkloadCompartmentID, input.Global.Compute.ImageID, epoch)
-			if err != nil {
-				return fmt.Errorf("compute gateway %s: %w", region.Code, err)
+			gateway := config.ComputeGateways[region.Code]
+			if gateway == nil {
+				return fmt.Errorf("compute gateway %s: unavailable", region.Code)
 			}
 			network, err := ocireconcile.NewOCINetworkGateway(core, estateSpec.NetworkCompartmentID)
 			if err != nil {
@@ -188,8 +206,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		return nil
 	}
 
-	if input.RestoreBackup == nil || input.RestoreBranches == nil {
-		return config, fmt.Errorf("%w: restore backup and branch lifecycle adapters", ErrProductionGlobalDependency)
+	if input.RestoreBackup != nil {
+		config.Restore.Backup = input.RestoreBackup
+	}
+	if input.RestoreBranches != nil {
+		config.Restore.Branches = input.RestoreBranches
 	}
 	// Reaper database/key and estate snapshot are installed after the database,
 	// placement transition, and accepted lease-bound lifecycle client exist.

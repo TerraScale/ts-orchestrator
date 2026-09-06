@@ -1656,6 +1656,7 @@ var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	LifecycleControlService_RestoreToTarget_FullMethodName         = "/terrabase.v1.LifecycleControlService/RestoreToTarget"
+	LifecycleControlService_RestoreStats_FullMethodName            = "/terrabase.v1.LifecycleControlService/RestoreStats"
 	LifecycleControlService_EnsureSnapshot_FullMethodName          = "/terrabase.v1.LifecycleControlService/EnsureSnapshot"
 	LifecycleControlService_VerifySnapshotPlacement_FullMethodName = "/terrabase.v1.LifecycleControlService/VerifySnapshotPlacement"
 	LifecycleControlService_CloseDatabase_FullMethodName           = "/terrabase.v1.LifecycleControlService/CloseDatabase"
@@ -1672,6 +1673,7 @@ const (
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 type LifecycleControlServiceClient interface {
 	RestoreToTarget(ctx context.Context, in *RestoreToTargetRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
+	RestoreStats(ctx context.Context, in *RestoreStatsRequest, opts ...grpc.CallOption) (*RestoreStatsResponse, error)
 	EnsureSnapshot(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	VerifySnapshotPlacement(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	CloseDatabase(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
@@ -1692,6 +1694,16 @@ func (c *lifecycleControlServiceClient) RestoreToTarget(ctx context.Context, in 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LifecycleControlResponse)
 	err := c.cc.Invoke(ctx, LifecycleControlService_RestoreToTarget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lifecycleControlServiceClient) RestoreStats(ctx context.Context, in *RestoreStatsRequest, opts ...grpc.CallOption) (*RestoreStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreStatsResponse)
+	err := c.cc.Invoke(ctx, LifecycleControlService_RestoreStats_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1766,6 +1778,7 @@ func (c *lifecycleControlServiceClient) DeleteOwnedData(ctx context.Context, in 
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 type LifecycleControlServiceServer interface {
 	RestoreToTarget(context.Context, *RestoreToTargetRequest) (*LifecycleControlResponse, error)
+	RestoreStats(context.Context, *RestoreStatsRequest) (*RestoreStatsResponse, error)
 	EnsureSnapshot(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	VerifySnapshotPlacement(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
 	CloseDatabase(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
@@ -1784,6 +1797,9 @@ type UnimplementedLifecycleControlServiceServer struct{}
 
 func (UnimplementedLifecycleControlServiceServer) RestoreToTarget(context.Context, *RestoreToTargetRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RestoreToTarget not implemented")
+}
+func (UnimplementedLifecycleControlServiceServer) RestoreStats(context.Context, *RestoreStatsRequest) (*RestoreStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreStats not implemented")
 }
 func (UnimplementedLifecycleControlServiceServer) EnsureSnapshot(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EnsureSnapshot not implemented")
@@ -1839,6 +1855,24 @@ func _LifecycleControlService_RestoreToTarget_Handler(srv interface{}, ctx conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LifecycleControlServiceServer).RestoreToTarget(ctx, req.(*RestoreToTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _LifecycleControlService_RestoreStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LifecycleControlServiceServer).RestoreStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LifecycleControlService_RestoreStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LifecycleControlServiceServer).RestoreStats(ctx, req.(*RestoreStatsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1961,6 +1995,10 @@ var LifecycleControlService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RestoreToTarget",
 			Handler:    _LifecycleControlService_RestoreToTarget_Handler,
+		},
+		{
+			MethodName: "RestoreStats",
+			Handler:    _LifecycleControlService_RestoreStats_Handler,
 		},
 		{
 			MethodName: "EnsureSnapshot",

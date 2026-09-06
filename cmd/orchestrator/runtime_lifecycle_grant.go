@@ -50,6 +50,9 @@ var lifecycleActions = map[string]struct{}{
 // and bounds the grant by the currently observed authority lease.
 func issueLifecycleOperationGrant(keyID string, key ed25519.PrivateKey, check func() error, grant lifecycleOperationGrant, now, leaseExpiresAt time.Time, minLease time.Duration) (placementtransition.Signed, error) {
 	now = now.UTC()
+	// The wire contract is millisecond precision; validate against the same
+	// precision used for the signed timestamps.
+	now = time.UnixMilli(now.UnixMilli()).UTC()
 	leaseExpiresAt = leaseExpiresAt.UTC()
 	issued := time.UnixMilli(grant.IssuedAtUnixMillis).UTC()
 	expires := time.UnixMilli(grant.ExpiresAtUnixMillis).UTC()

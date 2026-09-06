@@ -24,6 +24,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/estatepublisher"
+	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/keyrotation"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
@@ -109,6 +110,7 @@ type productionGlobalWorkerConfig struct {
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
 	ComputeApply                 func(context.Context, provider.ProviderMutationJournal) error
+	ComputeGateways              map[string]ocireconcile.ComputeGateway
 	// HostRemoval constructs the owner only from the live GRU session and
 	// authenticated proof providers. It is required whenever compute is
 	// enabled; a compute worker without this owner cannot terminate members.
@@ -139,6 +141,7 @@ type productionGlobalWorkerConfig struct {
 	ApplyScaleOutTarget func(string, int) error
 	WriteBudget         *runtimeWriteBudgetConfig
 	BranchDatabaseRef   **productionDatabase
+	BackupDatabaseRef   **productionDatabase
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -336,6 +339,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	if config.BranchDatabaseRef != nil {
 		*config.BranchDatabaseRef = database
 	}
+	if config.BackupDatabaseRef != nil {
+		*config.BackupDatabaseRef = database
+	}
 	if config.HostRemoval != nil {
 		issuer, issuerOK := transition.issuer.(interface {
 			Head(context.Context, string) (placementtransition.Signed, error)
@@ -345,7 +351,11 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		if !issuerOK {
 			return group, errors.New("runtime host removal: placement issuer lacks prepare binding")
 		}
-		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Admission: database.lifecycleJournal, Issuer: issuer})
+		observers := make(map[string]func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error), len(config.ComputeGateways))
+		for region, gateway := range config.ComputeGateways {
+			observers[region] = newProductionAcceptedMemberObserver(database.lifecycleJournal, gateway)
+		}
+		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Admission: database.lifecycleJournal, Issuer: issuer, Gateways: config.ComputeGateways, Observers: observers, Placement: placement, Transition: transition})
 		if ownerErr != nil {
 			return group, fmt.Errorf("runtime host removal: %w", ownerErr)
 		}

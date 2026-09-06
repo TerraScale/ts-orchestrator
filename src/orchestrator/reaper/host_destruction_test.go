@@ -52,7 +52,7 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 		}
 		entry.Operations[name] = Operation{Status: operationDone, Attempts: 1, StartedAt: now, CompletedAt: now}
 	}
-	entry.Operations["delete/crypto-shred"] = Operation{Status: operationStarted, Attempts: 1, StartedAt: now}
+	entry.Operations[reaperCycleName(entry, "delete/crypto-shred")] = Operation{Status: operationStarted, Attempts: 1, StartedAt: now}
 	state := State{Version: 1, Entries: map[string]Entry{scope.DatabaseID: entry}}
 	session := newReaperTestSession(t, nc, lease)
 	snapshot, err := session.snapshot(ctx)
@@ -78,7 +78,7 @@ func TestHostKeyDestructionRealCatalogAndNATS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op := "delete/crypto-shred/" + scope.DatabaseID
+	op := reaperCycleName(entry, "delete/crypto-shred") + "/" + scope.DatabaseID
 	if _, err := adapter.RevokeWrappedCopies(ctx, scope.DatabaseID, "wrong"); err == nil {
 		t.Fatal("wrong operation accepted")
 	}

@@ -16,6 +16,7 @@ type BranchRestoreEvidence struct {
 	RecoveryPointID        string `json:"recovery_point_id"`
 	JournalCut             string `json:"journal_cut"`
 	RestoreEpoch           uint64 `json:"restore_epoch"`
+	RestoreProvider        string `json:"restore_provider"`
 	SchemaVersion          int    `json:"schema_version"`
 	Environment            string `json:"environment"`
 	TenantID               string `json:"tenant_id"`
@@ -71,7 +72,10 @@ func validateBranchRestore(r Record, receipts []SignedReadiness, nonce string, k
 		if proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Region != r.Targets[index].Region || proof.Nonce != nonce || proof.ObservedAtUnixMS <= 0 {
 			return ErrInvalid
 		}
-		if proof.RecoveryPointID != frozen.RecoveryPointID || proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.SourceSnapshotDigest != frozen.SourceSnapshotDigest || proof.CutDigest != frozen.CutDigest {
+		if proof.RecoveryPointID != frozen.RecoveryPointID || proof.SourceSnapshotDigest != frozen.SourceSnapshotDigest || proof.CutDigest != frozen.CutDigest {
+			return ErrInvalid
+		}
+		if !validRestoreProvider(proof.RestoreProvider) || branchProvenancePinned(r.Request) && (proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.RestoreProvider != r.Request.RestoreProvider) {
 			return ErrInvalid
 		}
 		if !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.RestoredSnapshotDigest) || !validDigest(proof.CutDigest) {

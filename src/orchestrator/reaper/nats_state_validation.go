@@ -49,7 +49,7 @@ func reaperOperationName(entry Entry, name string) bool {
 	case "pause/snapshot", "pause/close", "pause/native-backup", "notice/pause/" + entry.DatabaseID, "notice/second/" + entry.DatabaseID, "notice/final/" + entry.DatabaseID:
 		return true
 	case "delete/cdn-purge", "delete/crypto-shred", "delete/data":
-		return base == name
+		return true
 	}
 	prefix := "reactivate/" + entry.DatabaseID + "/"
 	if !strings.HasPrefix(name, prefix) {

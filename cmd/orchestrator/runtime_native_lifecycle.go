@@ -112,12 +112,17 @@ func (d *nativeLifecycleDatabase) invoke(ctx context.Context, databaseID, operat
 	if len(targets) == 0 {
 		return errors.New("native lifecycle targets are unavailable")
 	}
-	for _, target := range targets {
+	for index, target := range targets {
 		assignment, client := target.assignment, target.client
 		if client == nil {
 			return errors.New("native lifecycle client is unavailable")
 		}
 		if err := d.invokeTarget(ctx, databaseID, operation, action, assignment, client, call); err != nil {
+			for _, pending := range targets[index+1:] {
+				if pending.client != nil {
+					_ = pending.client.Close()
+				}
+			}
 			return err
 		}
 	}
@@ -250,6 +255,16 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 				return cmp.Or(cmp.Compare(a.Region, b.Region), cmp.Compare(a.MemberID, b.MemberID))
 			})
 			out := make([]lifecycleTarget, 0, len(record.Targets))
+			success := false
+			defer func() {
+				if !success {
+					for _, pending := range out {
+						if pending.client != nil {
+							_ = pending.client.Close()
+						}
+					}
+				}
+			}()
 			for _, target := range record.Targets {
 				var host productionDatabaseHost
 				for _, region := range config.Regions {
@@ -288,6 +303,7 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 				}
 				out = append(out, lifecycleTarget{assignment: tbep.LifecycleAssignment{Environment: record.Request.Environment, Tenant: record.Request.TenantID, Project: record.Request.ProjectID, Database: record.DatabaseID, Region: target.Region, Member: target.MemberID, PlacementRevision: acceptedTarget.AcceptedRevision, AuthorityEpoch: acceptedTarget.AcceptedEpoch, AuthorityLease: headProofLease(acceptedProof), AuthoritySignature: acceptedTarget.AcceptedProof}, client: client})
 			}
+			success = true
 			return out, nil
 		},
 	}, nil

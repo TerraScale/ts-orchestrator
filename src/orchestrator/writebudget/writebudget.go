@@ -449,10 +449,7 @@ func (a *Authority) validateState(state *State) error {
 	databaseUnits := make(map[string]int64, len(state.DatabaseUnits))
 	for operationID, grant := range state.Grants {
 		expectedWriterEpoch, admitted := policy.WriterEpochs[grant.HolderID]
-		if !admitted || expectedWriterEpoch == 0 {
-			return ErrInvalid
-		}
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && (!admitted || expectedWriterEpoch == 0 || grant.WriterEpoch != expectedWriterEpoch) || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))

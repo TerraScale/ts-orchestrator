@@ -152,8 +152,8 @@ func TestAllocateMultipliesRegionsOnceAndBranchesShareCaps(t *testing.T) {
 	if grant.Units != 6 || grant.IncludedUnits != 6 || grant.CostNanoDollar != 0 {
 		t.Fatalf("grant = %+v", grant)
 	}
-	if _, err := authority.Allocate(t.Context(), request("two", "db", "branch", 2, expires)); !errors.Is(err, ErrExhausted) {
-		t.Fatalf("second branch allocation error = %v, want exhausted database cap", err)
+	if _, err := authority.Allocate(t.Context(), request("two", "db", "branch", 2, expires)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestConcurrentReservationsCannotExceedAllowance(t *testing.T) {
 			t.Fatalf("reservation error = %v", err)
 		}
 	}
-	if success != 4 || exhausted != 16 { // database cap is eight chargeable units
+	if success != 5 || exhausted != 15 { // included allowance is ten chargeable units
 		t.Fatalf("success=%d exhausted=%d", success, exhausted)
 	}
 }

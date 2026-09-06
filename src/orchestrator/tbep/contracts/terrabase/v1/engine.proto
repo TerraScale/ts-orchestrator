@@ -852,12 +852,31 @@ service PlacementControlService {
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 service LifecycleControlService {
   rpc RestoreToTarget(RestoreToTargetRequest) returns (LifecycleControlResponse);
+  rpc RestoreStats(RestoreStatsRequest) returns (RestoreStatsResponse);
   rpc EnsureSnapshot(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc VerifySnapshotPlacement(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc CloseDatabase(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc StopNativeBackup(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc Reactivate(LifecycleReactivateRequest) returns (LifecycleControlResponse);
   rpc DeleteOwnedData(LifecycleControlRequest) returns (LifecycleControlResponse);
+}
+
+message RestoreStatsRequest {
+  LifecycleControlContext context = 1;
+  string operation_id = 2;
+  string target_owner = 3;
+  string target_database = 4;
+  string journal_cut = 5;
+  uint64 restore_epoch = 6;
+}
+message RestoreStatsResponse {
+  string operation_id = 1;
+  string target_owner = 2;
+  string target_database = 3;
+  string checksum = 4;
+  int64 row_count = 5;
+  string journal_cut = 6;
+  repeated string placement = 7;
 }
 
 message RestoreToTargetRequest {
@@ -871,6 +890,13 @@ message RestoreToTargetRequest {
   string target_database = 8;
   string journal_cut = 9;
   uint64 restore_epoch = 10;
+  RestoreProvider provider = 11;
+}
+
+enum RestoreProvider {
+  RESTORE_PROVIDER_UNSPECIFIED = 0;
+  RESTORE_PROVIDER_OCI = 1;
+  RESTORE_PROVIDER_TIGRIS = 2;
 }
 
 message LifecycleControlContext {

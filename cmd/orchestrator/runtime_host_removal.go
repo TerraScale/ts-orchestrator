@@ -30,6 +30,32 @@ type exactOCIMemberObserver interface {
 	ObserveMember(context.Context, string) (ocireconcile.ObservedMember, error)
 }
 
+// newProductionOCITerminator binds termination to an exact provider reread.
+// Unknown or replaced instances fail closed; callers retry the same journal
+// operation and perform this reread again.
+func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway) func(context.Context, string) error {
+	return func(ctx context.Context, id string) error {
+		for _, gateway := range gateways {
+			observer, ok := gateway.(exactOCIMemberObserver)
+			if !ok {
+				continue
+			}
+			current, err := observer.ObserveMember(ctx, id)
+			if err != nil {
+				continue
+			}
+			if current.ID != id || current.LifecycleState == "" {
+				continue
+			}
+			if err := gateway.TerminateMember(ctx, id); err != nil {
+				return err
+			}
+			return nil
+		}
+		return errors.New("runtime host removal: exact OCI member is unavailable or replaced")
+	}
+}
+
 // newProductionOCIObservationResolver binds removal evidence to an exact OCI
 // reread. The list observation supplies the admitted slot/Region; the exact
 // reread supplies provider ETag and ownership. Missing either fails closed.
@@ -102,10 +128,58 @@ func (r *productionHostRemoval) observe(ctx context.Context, member ocireconcile
 // by the runtime factory. It intentionally does not provide mock readiness or
 // proof values; absent providers keep removal fail closed.
 type hostRemovalTransitionPorts struct {
-	Admission *databaseadmission.NATSJournal
-	Issuer    interface {
+	Admission  *databaseadmission.NATSJournal
+	Gateways   map[string]ocireconcile.ComputeGateway
+	Observers  map[string]func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
+	Placement  *productionPlacement
+	Transition *productionPlacementTransition
+	Issuer     interface {
 		Head(context.Context, string) (placementtransition.Signed, error)
 		Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
 		Issue(context.Context, placementtransition.Request, *placementtransition.Signed, []placementtransition.Signed) (placementtransition.Signed, error)
 	}
+	Inventory  func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
+	Replace    func(context.Context, hostremoval.Replacement) error
+	Revalidate func(context.Context, string, string, uint64) error
+	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
+	Terminate  func(context.Context, string) error
+}
+
+func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal *hostremoval.Journal) (ocireconcile.MemberRemovalOwner, error) {
+	if len(ports.Observers) == 0 {
+		return nil, errors.New("runtime host removal: authenticated OCI observers are required")
+	}
+	var observe func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
+	observe = func(ctx context.Context, member ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
+		if fn := ports.Observers[member.Region]; fn != nil {
+			return fn(ctx, member)
+		}
+		return hostremoval.MemberObservation{}, errors.New("runtime host removal: Region observer is unavailable")
+	}
+	if ports.Inventory == nil && ports.Admission != nil {
+		inventory, revalidate, err := newProductionHostRemovalInventory(ports.Admission, journal)
+		if err != nil {
+			return nil, err
+		}
+		ports.Inventory, ports.Revalidate = inventory, revalidate
+	}
+	terminate := ports.Terminate
+	if terminate == nil {
+		terminate = newProductionOCITerminator(ports.Gateways)
+	}
+	replace, fence, err := productionHostRemovalCallbacks(ports)
+	if err != nil {
+		return nil, err
+	}
+	if ports.Replace == nil {
+		ports.Replace = replace
+	}
+	if ports.Fence == nil {
+		ports.Fence = fence
+	}
+	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Inventory, Replace: ports.Replace, Revalidate: ports.Revalidate, Fence: ports.Fence, Terminate: terminate}, journal)
+	if err != nil {
+		return nil, err
+	}
+	return owner, nil
 }
