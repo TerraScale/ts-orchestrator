@@ -6379,11 +6379,11 @@ type RestoreToTargetRequest struct {
 	state               protoimpl.MessageState   `protogen:"open.v1"`
 	Context             *LifecycleControlContext `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
 	OperationId         string                   `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	SourceOwner         string                   `protobuf:"bytes,3,opt,name=source_owner,json=sourceOwner,proto3" json:"source_owner,omitempty"`
+	SourceOwner         string                   `protobuf:"bytes,3,opt,name=source_owner,json=sourceOwner,proto3" json:"source_owner,omitempty"` // Exact tenantID/projectID tuple.
 	SourceDatabase      string                   `protobuf:"bytes,4,opt,name=source_database,json=sourceDatabase,proto3" json:"source_database,omitempty"`
 	RecoveryPointId     string                   `protobuf:"bytes,5,opt,name=recovery_point_id,json=recoveryPointId,proto3" json:"recovery_point_id,omitempty"`
 	RecoveryPointDigest string                   `protobuf:"bytes,6,opt,name=recovery_point_digest,json=recoveryPointDigest,proto3" json:"recovery_point_digest,omitempty"`
-	TargetOwner         string                   `protobuf:"bytes,7,opt,name=target_owner,json=targetOwner,proto3" json:"target_owner,omitempty"`
+	TargetOwner         string                   `protobuf:"bytes,7,opt,name=target_owner,json=targetOwner,proto3" json:"target_owner,omitempty"` // Exact tenantID/projectID tuple.
 	TargetDatabase      string                   `protobuf:"bytes,8,opt,name=target_database,json=targetDatabase,proto3" json:"target_database,omitempty"`
 	JournalCut          string                   `protobuf:"bytes,9,opt,name=journal_cut,json=journalCut,proto3" json:"journal_cut,omitempty"`
 	RestoreEpoch        uint64                   `protobuf:"varint,10,opt,name=restore_epoch,json=restoreEpoch,proto3" json:"restore_epoch,omitempty"`
@@ -6720,12 +6720,15 @@ func (x *LifecycleReactivateRequest) GetRequest() *LifecycleControlRequest {
 }
 
 type LifecycleControlResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        LifecycleStatus        `protobuf:"varint,1,opt,name=status,proto3,enum=terrabase.v1.LifecycleStatus" json:"status,omitempty"`
-	OperationId   string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Detail        string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Status              LifecycleStatus        `protobuf:"varint,1,opt,name=status,proto3,enum=terrabase.v1.LifecycleStatus" json:"status,omitempty"`
+	OperationId         string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Detail              string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	RecoveryPointId     string                 `protobuf:"bytes,4,opt,name=recovery_point_id,json=recoveryPointId,proto3" json:"recovery_point_id,omitempty"`
+	RecoveryPointDigest string                 `protobuf:"bytes,5,opt,name=recovery_point_digest,json=recoveryPointDigest,proto3" json:"recovery_point_digest,omitempty"`
+	Placement           []string               `protobuf:"bytes,6,rep,name=placement,proto3" json:"placement,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *LifecycleControlResponse) Reset() {
@@ -6777,6 +6780,27 @@ func (x *LifecycleControlResponse) GetDetail() string {
 		return x.Detail
 	}
 	return ""
+}
+
+func (x *LifecycleControlResponse) GetRecoveryPointId() string {
+	if x != nil {
+		return x.RecoveryPointId
+	}
+	return ""
+}
+
+func (x *LifecycleControlResponse) GetRecoveryPointDigest() string {
+	if x != nil {
+		return x.RecoveryPointDigest
+	}
+	return ""
+}
+
+func (x *LifecycleControlResponse) GetPlacement() []string {
+	if x != nil {
+		return x.Placement
+	}
+	return nil
 }
 
 type PlacementRegionSeats struct {
@@ -8369,11 +8393,14 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\acontext\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlContextR\acontext\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\"]\n" +
 	"\x1aLifecycleReactivateRequest\x12?\n" +
-	"\arequest\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlRequestR\arequest\"\x8c\x01\n" +
+	"\arequest\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlRequestR\arequest\"\x8a\x02\n" +
 	"\x18LifecycleControlResponse\x125\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1d.terrabase.v1.LifecycleStatusR\x06status\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"H\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\x12*\n" +
+	"\x11recovery_point_id\x18\x04 \x01(\tR\x0frecoveryPointId\x122\n" +
+	"\x15recovery_point_digest\x18\x05 \x01(\tR\x13recoveryPointDigest\x12\x1c\n" +
+	"\tplacement\x18\x06 \x03(\tR\tplacement\"H\n" +
 	"\x14PlacementRegionSeats\x12\x16\n" +
 	"\x06region\x18\x01 \x01(\tR\x06region\x12\x18\n" +
 	"\amembers\x18\x02 \x03(\tR\amembers\"\xd1\x01\n" +

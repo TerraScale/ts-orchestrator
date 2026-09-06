@@ -139,23 +139,25 @@ type productionGlobalWorkerConfig struct {
 	AutoscaleSource     autoscale.ObservationSource
 	AutoscaleRegions    []string
 	ApplyScaleOutTarget func(string, int) error
+	AutoscaleRequired   bool
 	WriteBudget         *runtimeWriteBudgetConfig
 	BranchDatabaseRef   **productionDatabase
 	BackupDatabaseRef   **productionDatabase
 }
 type productionRuntime struct {
-	connection     *globalclient.Plan
-	plan           *productionGlobalWorkerPlan
-	mirror         *delivery.ArtifactMirror
-	supervisor     *leaseOwnedGlobalWorkers
-	mu             sync.Mutex
-	active         *productionGlobalWorkers
-	delivery       *control.SignedDeliveryRuntimeConfig
-	masterDelivery *control.MasterDeliveryRuntimeConfig
-	release        func() error
-	closeOnce      sync.Once
-	closeError     error
-	autoscale      *productionAutoscaleWiring
+	connection        *globalclient.Plan
+	plan              *productionGlobalWorkerPlan
+	mirror            *delivery.ArtifactMirror
+	supervisor        *leaseOwnedGlobalWorkers
+	mu                sync.Mutex
+	active            *productionGlobalWorkers
+	delivery          *control.SignedDeliveryRuntimeConfig
+	masterDelivery    *control.MasterDeliveryRuntimeConfig
+	release           func() error
+	closeOnce         sync.Once
+	closeError        error
+	autoscale         *productionAutoscaleWiring
+	autoscaleRequired bool
 }
 
 // productionAutoscaleWiring carries the already admitted real observation and
@@ -265,10 +267,10 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	if config.Edge == nil {
 		return group, errors.New("runtime global edge provider is required")
 	}
-	if config.AutoscaleSource != nil || config.ApplyScaleOutTarget != nil {
-		if config.AutoscaleSource == nil || config.ApplyScaleOutTarget == nil || len(config.AutoscaleRegions) == 0 {
-			return group, errors.New("runtime autoscale configuration is incomplete")
-		}
+	if err := validateProductionAutoscaleConfig(config); err != nil {
+		return group, err
+	}
+	if config.AutoscaleSource != nil {
 		journal, err := authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "autoscale"}, func() map[string]autoscale.Target { return map[string]autoscale.Target{} }, func(map[string]autoscale.Target) error { return nil })
 		if err != nil {
 			return group, fmt.Errorf("runtime autoscale journal: %w", err)
@@ -397,6 +399,17 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	group.authBootstrap = authBootstrap
 	group.rotation, group.reaper, group.restore = rotation, reaperRuntime, restore
 	return group, nil
+}
+
+func validateProductionAutoscaleConfig(config productionGlobalWorkerConfig) error {
+	configured := config.AutoscaleSource != nil || config.ApplyScaleOutTarget != nil || len(config.AutoscaleRegions) != 0
+	if config.AutoscaleRequired && !configured {
+		return errors.New("runtime autoscale configuration is required")
+	}
+	if configured && (config.AutoscaleSource == nil || config.ApplyScaleOutTarget == nil || len(config.AutoscaleRegions) == 0) {
+		return errors.New("runtime autoscale configuration is incomplete")
+	}
+	return nil
 }
 
 func composeProductionDelivery(config productionDeliveryConfig, spec estate.Spec, mirror *delivery.ArtifactMirror) (*control.SignedDeliveryRuntimeConfig, *control.MasterDeliveryRuntimeConfig, error) {
@@ -650,6 +663,7 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 		config.AutoscaleRegions = append([]string(nil), r.autoscale.Regions...)
 		config.ApplyScaleOutTarget = r.autoscale.Apply
 	}
+	config.AutoscaleRequired = r.autoscaleRequired
 	var writeBudget *runtimeWriteBudget
 	if config.WriteBudget != nil {
 		writeBudget, err = newRuntimeWriteBudget(session, *config.WriteBudget)

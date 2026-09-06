@@ -882,11 +882,11 @@ message RestoreStatsResponse {
 message RestoreToTargetRequest {
   LifecycleControlContext context = 1;
   string operation_id = 2;
-  string source_owner = 3;
+  string source_owner = 3; // Exact tenantID/projectID tuple.
   string source_database = 4;
   string recovery_point_id = 5;
   string recovery_point_digest = 6;
-  string target_owner = 7;
+  string target_owner = 7; // Exact tenantID/projectID tuple.
   string target_database = 8;
   string journal_cut = 9;
   uint64 restore_epoch = 10;
@@ -934,6 +934,9 @@ message LifecycleControlResponse {
   LifecycleStatus status = 1;
   string operation_id = 2;
   string detail = 3;
+  string recovery_point_id = 4;
+  string recovery_point_digest = 5;
+  repeated string placement = 6;
 }
 
 message PlacementRegionSeats {

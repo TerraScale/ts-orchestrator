@@ -36,6 +36,9 @@ type JournalFacts struct {
 	RecoveryPointID string
 	JournalCut      string
 	RestoreProvider string
+	// ManifestDigest identifies the immutable backup artifact (SHA-256).
+	ManifestDigest string
+	// Checksum is the logical restored content digest (BLAKE3).
 	Checksum        string
 	RowCount        int64
 }
@@ -48,6 +51,7 @@ type RestoreStats struct {
 
 type RestoreRequest struct {
 	RecoveryPointID  string
+	ManifestDigest   string
 	SourceDatabaseID string
 	BranchID         string
 	JournalCut       string

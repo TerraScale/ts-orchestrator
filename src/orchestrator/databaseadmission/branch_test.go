@@ -97,7 +97,7 @@ func TestOrdinaryBranchCaptureAllowsProviderSelectedPoint(t *testing.T) {
 	record := journalFixture(t)
 	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
 	nonce := strings.Repeat("a", 64)
-	payload, err := json.Marshal(BranchSourceEvidence{SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: record.Targets[0].ServerIdentity, Region: record.Targets[0].Region, RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", RestoreProvider: "oci", SourceSnapshotDigest: strings.Repeat("b", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli()})
+	payload, err := json.Marshal(BranchSourceEvidence{SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: record.Targets[0].ServerIdentity, Region: record.Targets[0].Region, RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", JournalCut: "provider-cut-1", RestoreEpoch: 4, RestoreProvider: "oci", SourceSnapshotDigest: strings.Repeat("b", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +109,24 @@ func TestOrdinaryBranchCaptureAllowsProviderSelectedPoint(t *testing.T) {
 	partial.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
 	if validBranchProvenance(partial) {
 		t.Fatal("partial historical provenance accepted")
+	}
+}
+
+func TestOrdinaryBranchRestoreRejectsCapturedPointMismatch(t *testing.T) {
+	record := journalFixture(t)
+	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	nonce := strings.Repeat("a", 64)
+	base := BranchSourceEvidence{SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", JournalCut: "provider-cut-1", RestoreEpoch: 4, RestoreProvider: "oci", SourceSnapshotDigest: strings.Repeat("b", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli()}
+	sourcePayload, _ := json.Marshal(base)
+	record.BranchSource = &BranchSource{Nonce: nonce, Evidence: SignedReadiness{Payload: sourcePayload, Signature: make([]byte, ed25519.SignatureSize)}}
+	var receipts []SignedReadiness
+	for _, target := range record.Targets {
+		proof := BranchRestoreEvidence{RecoveryPointID: base.RecoveryPointID, JournalCut: "different-cut", RestoreEpoch: base.RestoreEpoch, RestoreProvider: base.RestoreProvider, SchemaVersion: 1, Environment: base.Environment, TenantID: base.TenantID, ProjectID: base.ProjectID, ParentDatabaseID: base.ParentDatabaseID, DatabaseID: base.DatabaseID, KeyVersion: base.KeyVersion, OperationID: base.OperationID, MemberIdentity: target.ServerIdentity, Region: target.Region, SourceSnapshotDigest: base.SourceSnapshotDigest, RestoredSnapshotDigest: strings.Repeat("c", 64), CutDigest: base.CutDigest, Nonce: nonce, ObservedAtUnixMS: base.ObservedAtUnixMS}
+		payload, _ := json.Marshal(proof)
+		receipts = append(receipts, SignedReadiness{Payload: payload, Signature: make([]byte, ed25519.SignatureSize)})
+	}
+	if validateBranchRestore(record, receipts, nonce, nil, time.Time{}) == nil {
+		t.Fatal("restore accepted evidence with a different captured cut")
 	}
 }
 

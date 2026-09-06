@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
@@ -120,7 +124,10 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef, config: config.Database}
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef
-	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database, refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: input.Transition.Issuer.ProofKeyID, key: slices.Clone(input.Transition.Issuer.ProofKey)}
+	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database, refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: input.Transition.Issuer.ProofKeyID, key: slices.Clone(input.Transition.Issuer.ProofKey), grantJournal: func(op string) (*authorityjournal.Journal[lifecycleGrantRecord], error) {
+		h := sha256.Sum256([]byte(op))
+		return authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "restore-grant-" + hex.EncodeToString(h[:])}, func() lifecycleGrantRecord { return lifecycleGrantRecord{} }, func(lifecycleGrantRecord) error { return nil })
+	}}
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient

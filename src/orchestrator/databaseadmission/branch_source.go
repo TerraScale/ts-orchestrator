@@ -54,7 +54,7 @@ func validateBranchSource(r Record, source *BranchSource, keys map[string]Readin
 	if !validBranchProvenance(r.Request) || proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Nonce != source.Nonce || !canonicalID.MatchString(proof.RecoveryPointID) || !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.CutDigest) || proof.ObservedAtUnixMS <= 0 {
 		return proof, ErrInvalid
 	}
-	if !validRestoreProvider(proof.RestoreProvider) || branchProvenancePinned(r.Request) && (proof.RecoveryPointID != r.Request.RecoveryPointID || proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.RestoreProvider != r.Request.RestoreProvider) {
+	if !validRestoreProvider(proof.RestoreProvider) || !validJournalCut(proof.JournalCut) || proof.RestoreEpoch == 0 || branchProvenancePinned(r.Request) && (proof.RecoveryPointID != r.Request.RecoveryPointID || proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.RestoreProvider != r.Request.RestoreProvider) {
 		return proof, ErrInvalid
 	}
 	if _, err := HostSubject(proof.MemberIdentity); err != nil {
@@ -73,13 +73,8 @@ func validBranchProvenance(r Request) bool {
 	if !branchProvenancePinned(r) {
 		return true
 	}
-	if r.ParentDatabaseID == "" || !canonicalID.MatchString(r.RecoveryPointID) || r.RestoreEpoch == 0 || len(r.JournalCut) == 0 || len(r.JournalCut) > 255 || !validRestoreProvider(r.RestoreProvider) {
+	if r.ParentDatabaseID == "" || !canonicalID.MatchString(r.RecoveryPointID) || r.RestoreEpoch == 0 || !validJournalCut(r.JournalCut) || !validRestoreProvider(r.RestoreProvider) {
 		return false
-	}
-	for _, c := range r.JournalCut {
-		if c < 33 || c > 126 {
-			return false
-		}
 	}
 	return true
 }
@@ -87,6 +82,17 @@ func branchProvenancePinned(r Request) bool {
 	return r.RecoveryPointID != "" || r.JournalCut != "" || r.RestoreEpoch != 0 || r.RestoreProvider != ""
 }
 func validRestoreProvider(provider string) bool { return provider == "oci" || provider == "tigris" }
+func validJournalCut(cut string) bool {
+	if len(cut) == 0 || len(cut) > 255 {
+		return false
+	}
+	for _, c := range cut {
+		if c < 33 || c > 126 {
+			return false
+		}
+	}
+	return true
+}
 func (p *Pipeline) captureBranchSource(ctx context.Context, r *Record) error {
 	config := p.config.BranchRestore
 	if r.BranchSource != nil {

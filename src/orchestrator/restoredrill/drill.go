@@ -308,7 +308,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	if !current {
 		return cleanupAndFinish(ErrRestoreEpochFenced)
 	}
-	operationErr = d.backup.Restore(itemCtx, RestoreRequest{RecoveryPointID: facts.RecoveryPointID, SourceDatabaseID: databaseID, BranchID: branch.ID, JournalCut: facts.JournalCut, RestoreEpoch: epoch, IdempotencyKey: key, RestoreProvider: facts.RestoreProvider})
+	operationErr = d.backup.Restore(itemCtx, RestoreRequest{RecoveryPointID: facts.RecoveryPointID, ManifestDigest: facts.ManifestDigest, SourceDatabaseID: databaseID, BranchID: branch.ID, JournalCut: facts.JournalCut, RestoreEpoch: epoch, IdempotencyKey: key, RestoreProvider: facts.RestoreProvider})
 	if operationErr == nil {
 		current, operationErr = d.journal.RestoreEpochCurrent(itemCtx, databaseID, epoch)
 		if operationErr == nil && !current {

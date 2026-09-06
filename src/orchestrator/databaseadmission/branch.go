@@ -75,7 +75,7 @@ func validateBranchRestore(r Record, receipts []SignedReadiness, nonce string, k
 		if proof.RecoveryPointID != frozen.RecoveryPointID || proof.SourceSnapshotDigest != frozen.SourceSnapshotDigest || proof.CutDigest != frozen.CutDigest {
 			return ErrInvalid
 		}
-		if !validRestoreProvider(proof.RestoreProvider) || branchProvenancePinned(r.Request) && (proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.RestoreProvider != r.Request.RestoreProvider) {
+		if !validRestoreProvider(proof.RestoreProvider) || !validJournalCut(proof.JournalCut) || proof.RestoreEpoch == 0 || proof.JournalCut != frozen.JournalCut || proof.RestoreEpoch != frozen.RestoreEpoch || proof.RestoreProvider != frozen.RestoreProvider {
 			return ErrInvalid
 		}
 		if !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.RestoredSnapshotDigest) || !validDigest(proof.CutDigest) {

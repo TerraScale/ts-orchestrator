@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -159,8 +161,8 @@ func (c *Client) lifecycleCall(ctx context.Context, request *pb.LifecycleControl
 // target assignment is carried in the accepted placement context; source and
 // recovery facts are explicit so a caller cannot silently restore a different
 // point or owner.
-func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation, sourceOwner, sourceDatabase, recoveryPointID, recoveryPointDigest, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64, provider pb.RestoreProvider) (*pb.LifecycleControlResponse, error) {
-	if !validMetadata(sourceOwner, 255) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validMetadata(targetOwner, 255) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 || (provider != pb.RestoreProvider_RESTORE_PROVIDER_OCI && provider != pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS) {
+func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation, sourceOwner, sourceDatabase, recoveryPointID, recoveryPointDigest, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64, expectedPlacement []string, provider pb.RestoreProvider) (*pb.LifecycleControlResponse, error) {
+	if !validOwner(sourceOwner) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validOwner(targetOwner) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 || (provider != pb.RestoreProvider_RESTORE_PROVIDER_OCI && provider != pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS) {
 		return nil, errors.New("TBEP restore request is incomplete")
 	}
 	r, err := c.lifecycleRequest(a, operation)
@@ -175,10 +177,18 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 	if err != nil {
 		return nil, err
 	}
-	if response.GetOperationId() != operation || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ACCEPTED) {
+	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
+	slices.Sort(want)
+	slices.Sort(got)
+	if response.GetOperationId() != operation || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED) {
 		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
 	}
 	return response, nil
+}
+
+func validOwner(value string) bool {
+	parts := strings.Split(value, "/")
+	return len(parts) == 2 && validMetadata(parts[0], 64) && validMetadata(parts[1], 255) && !strings.Contains(parts[0], "/") && !strings.Contains(parts[1], "/")
 }
 
 // RestoreStats reads facts from the admitted restored target. The member

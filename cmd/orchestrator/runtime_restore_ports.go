@@ -8,8 +8,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
@@ -19,12 +21,13 @@ import (
 )
 
 type productionDatabaseBackupPort struct {
-	database **productionDatabase
-	config   productionDatabaseConfig
-	refresh  func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
-	check    func(context.Context) error
-	keyID    string
-	key      ed25519.PrivateKey
+	database     **productionDatabase
+	config       productionDatabaseConfig
+	refresh      func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
+	check        func(context.Context) error
+	keyID        string
+	key          ed25519.PrivateKey
+	grantJournal func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
 }
 
 func (p productionDatabaseBackupPort) ListDatabases(ctx context.Context) ([]restoredrill.Database, error) {
@@ -47,9 +50,13 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	if err != nil {
 		return err
 	}
-	if target.Request.ParentDatabaseID != source.DatabaseID || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.BranchSource == nil {
+	if len(source.Targets) == 0 || target.Request.ParentDatabaseID != source.DatabaseID || target.Request.TenantID != source.Request.TenantID || target.Request.ProjectID != source.Request.ProjectID || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.BranchSource == nil {
 		return errors.New("restore backup: source and target provenance differs")
 	}
+	// TBEP owner is the stable tenant/project scope. Host identities belong in
+	// the placement assignment and must never be sent as the owner.
+	sourceOwner := strings.Join([]string{source.Request.TenantID, source.Request.ProjectID}, "/")
+	targetOwner := strings.Join([]string{target.Request.TenantID, target.Request.ProjectID}, "/")
 	var evidence databaseadmission.BranchSourceEvidence
 	if json.Unmarshal(target.BranchSource.Evidence.Payload, &evidence) != nil || evidence.SourceSnapshotDigest == "" || evidence.RecoveryPointID != request.RecoveryPointID || evidence.JournalCut != request.JournalCut || evidence.RestoreEpoch != request.RestoreEpoch {
 		return errors.New("restore backup: authenticated source point is unavailable")
@@ -67,8 +74,51 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	if provider == pb.RestoreProvider_RESTORE_PROVIDER_UNSPECIFIED || target.Request.RestoreProvider != evidence.RestoreProvider {
 		return errors.New("restore backup: authenticated restore provider is unavailable")
 	}
-	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, source.Targets[0].ServerIdentity, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, host.ServerIdentity, target.DatabaseID, request.JournalCut, request.RestoreEpoch, provider)
-	return err
+	if p.refresh == nil || p.check == nil || len(p.key) != ed25519.PrivateKeySize {
+		return errors.New("restore backup: lifecycle grant authority is unavailable")
+	}
+	lease, err := p.refresh(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.UnixMilli(time.Now().UTC().UnixMilli())
+	leaseExpiry := lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds) * time.Millisecond)
+	expires := now.Add(30 * time.Second)
+	if leaseExpiry.Before(expires) {
+		expires = leaseExpiry
+	}
+	digest := restoreRequestDigest(sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, uint32(provider))
+	proofDigest := sha256.Sum256(placement.AuthoritySignature)
+	grant, err := issueLifecycleOperationGrant(p.keyID, p.key, func() error { return p.check(ctx) }, lifecycleOperationGrant{Version: 1, Domain: lifecycleGrantDomain, Environment: placement.Environment, Tenant: placement.Tenant, Project: placement.Project, Database: placement.Database, Region: placement.Region, Member: placement.Member, Action: "restore_to_target", OperationID: request.IdempotencyKey, AcceptedProofDigest: hex.EncodeToString(proofDigest[:]), AcceptedPlacementRevision: placement.PlacementRevision, AuthorityEpoch: uint64(lease.Epoch), AuthorityLease: lease.LeaseId, IssuedAtUnixMillis: now.UnixMilli(), ExpiresAtUnixMillis: expires.UnixMilli(), AcceptedRestoreRequestDigest: digest}, now, leaseExpiry, time.Second)
+	if err != nil {
+		return err
+	}
+	placement.AuthorityEpoch, placement.AuthorityLease = uint64(lease.Epoch), lease.LeaseId
+	placement.OperationGrant, err = json.Marshal(grant)
+	if err != nil {
+		return err
+	}
+	if p.grantJournal == nil {
+		return errors.New("restore backup: grant journal unavailable")
+	}
+	j, err := p.grantJournal(request.IdempotencyKey)
+	if err != nil {
+		return err
+	}
+	if err = j.Transact(ctx, true, func(r *lifecycleGrantRecord) error {
+		if r.Operation != "" && (r.Operation != request.IdempotencyKey || r.ProofDigest != digest) {
+			return errors.New("restore backup: operation identity conflict")
+		}
+		*r = lifecycleGrantRecord{Scope: placement.Tenant + ":" + placement.Project + ":" + placement.Database + ":" + target.DatabaseID, Action: "restore_to_target", Operation: request.IdempotencyKey, ProofDigest: digest, Revision: placement.PlacementRevision, Grant: append([]byte(nil), placement.OperationGrant...)}
+		return nil
+	}); err != nil {
+		return err
+	}
+	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions, provider)
+	if err != nil {
+		return err
+	}
+	return j.Transact(ctx, true, func(r *lifecycleGrantRecord) error { r.Completed = true; return nil })
 }
 
 func (p productionDatabaseBackupPort) targetAssignment(record databaseadmission.Record) (tbep.LifecycleAssignment, productionDatabaseHost, error) {
@@ -138,6 +188,9 @@ func (p productionDatabaseBranchPort) CreateScratch(ctx context.Context, request
 	childRequest.RecoveryPointID = request.RecoveryPointID
 	childRequest.JournalCut = request.JournalCut
 	childRequest.RestoreEpoch = request.RestoreEpoch
+	// RestoreProvider is authenticated capture provenance. Do not inherit a
+	// provider from the parent admission record when creating the child.
+	childRequest.RestoreProvider = request.RestoreProvider
 	childRequest.Name = "restore-" + hex.EncodeToString(digest[:])[:32]
 	childRequest.OperationID = request.IdempotencyKey
 	child, err := database.pipeline.Accept(ctx, childRequest)
@@ -166,7 +219,8 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 	}
 	defer client.Close()
 	operation := "restore-stats-" + branch.ID
-	response, err := client.RestoreStats(ctx, placement, operation, host.ServerIdentity, record.DatabaseID, record.Request.JournalCut, record.Request.RestoreEpoch)
+	targetOwner := strings.Join([]string{record.Request.TenantID, record.Request.ProjectID}, "/")
+	response, err := client.RestoreStats(ctx, placement, operation, targetOwner, record.DatabaseID, record.Request.JournalCut, record.Request.RestoreEpoch)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
