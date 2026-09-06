@@ -1412,6 +1412,7 @@ const (
 	LifecycleStatus_LIFECYCLE_STATUS_APPLIED         LifecycleStatus = 1
 	LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED LifecycleStatus = 2
 	LifecycleStatus_LIFECYCLE_STATUS_UNAVAILABLE     LifecycleStatus = 3
+	LifecycleStatus_LIFECYCLE_STATUS_ACCEPTED        LifecycleStatus = 4
 )
 
 // Enum value maps for LifecycleStatus.
@@ -1421,12 +1422,14 @@ var (
 		1: "LIFECYCLE_STATUS_APPLIED",
 		2: "LIFECYCLE_STATUS_ALREADY_APPLIED",
 		3: "LIFECYCLE_STATUS_UNAVAILABLE",
+		4: "LIFECYCLE_STATUS_ACCEPTED",
 	}
 	LifecycleStatus_value = map[string]int32{
 		"LIFECYCLE_STATUS_UNSPECIFIED":     0,
 		"LIFECYCLE_STATUS_APPLIED":         1,
 		"LIFECYCLE_STATUS_ALREADY_APPLIED": 2,
 		"LIFECYCLE_STATUS_UNAVAILABLE":     3,
+		"LIFECYCLE_STATUS_ACCEPTED":        4,
 	}
 )
 
@@ -8619,12 +8622,13 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\x0fRestoreProvider\x12 \n" +
 	"\x1cRESTORE_PROVIDER_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RESTORE_PROVIDER_OCI\x10\x01\x12\x1b\n" +
-	"\x17RESTORE_PROVIDER_TIGRIS\x10\x02*\x99\x01\n" +
+	"\x17RESTORE_PROVIDER_TIGRIS\x10\x02*\xb8\x01\n" +
 	"\x0fLifecycleStatus\x12 \n" +
 	"\x1cLIFECYCLE_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18LIFECYCLE_STATUS_APPLIED\x10\x01\x12$\n" +
 	" LIFECYCLE_STATUS_ALREADY_APPLIED\x10\x02\x12 \n" +
-	"\x1cLIFECYCLE_STATUS_UNAVAILABLE\x10\x03*k\n" +
+	"\x1cLIFECYCLE_STATUS_UNAVAILABLE\x10\x03\x12\x1d\n" +
+	"\x19LIFECYCLE_STATUS_ACCEPTED\x10\x04*k\n" +
 	"\x17PlacementProposalStatus\x12)\n" +
 	"%PLACEMENT_PROPOSAL_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
 	"!PLACEMENT_PROPOSAL_STATUS_PENDING\x10\x01*r\n" +

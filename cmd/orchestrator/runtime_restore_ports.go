@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
@@ -19,6 +21,10 @@ import (
 type productionDatabaseBackupPort struct {
 	database **productionDatabase
 	config   productionDatabaseConfig
+	refresh  func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
+	check    func(context.Context) error
+	keyID    string
+	key      ed25519.PrivateKey
 }
 
 func (p productionDatabaseBackupPort) ListDatabases(ctx context.Context) ([]restoredrill.Database, error) {
@@ -57,7 +63,11 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 		return err
 	}
 	defer client.Close()
-	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, source.Targets[0].ServerIdentity, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, host.ServerIdentity, target.DatabaseID, request.JournalCut, request.RestoreEpoch, pb.RestoreProvider_RESTORE_PROVIDER_OCI)
+	provider := map[string]pb.RestoreProvider{"oci": pb.RestoreProvider_RESTORE_PROVIDER_OCI, "tigris": pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS}[target.Request.RestoreProvider]
+	if provider == pb.RestoreProvider_RESTORE_PROVIDER_UNSPECIFIED || target.Request.RestoreProvider != evidence.RestoreProvider {
+		return errors.New("restore backup: authenticated restore provider is unavailable")
+	}
+	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, source.Targets[0].ServerIdentity, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, host.ServerIdentity, target.DatabaseID, request.JournalCut, request.RestoreEpoch, provider)
 	return err
 }
 

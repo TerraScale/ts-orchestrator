@@ -445,8 +445,9 @@ func (a *Authority) validateState(state *State) error {
 	if state.CycleID != policy.CycleID || state.PolicyEpoch != policy.PolicyEpoch || state.ConsentEpoch != policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedNanoDollar < 0 {
 		return ErrInvalid
 	}
-	var units, nanoCost int64
+	var units, nanoCost, includedUsed, paidUsed int64
 	databaseUnits := make(map[string]int64, len(state.DatabaseUnits))
+	databaseSpend := make(map[string]int64, len(state.DatabaseSpendNano))
 	for operationID, grant := range state.Grants {
 		expectedWriterEpoch, admitted := policy.WriterEpochs[grant.HolderID]
 		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && (!admitted || expectedWriterEpoch == 0 || grant.WriterEpoch != expectedWriterEpoch) || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
@@ -455,9 +456,6 @@ func (a *Authority) validateState(state *State) error {
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))
 		if !ok || multiplied != grant.Units {
 			return ErrInvalid
-		}
-		if grant.CycleID != policy.CycleID {
-			continue
 		}
 		includedTotal, totalOK := add(grant.IncludedUnits, grant.PaidUnits)
 		if grant.IncludedUnits < 0 || grant.PaidUnits < 0 || !totalOK || includedTotal != grant.Units {
@@ -471,6 +469,9 @@ func (a *Authority) validateState(state *State) error {
 		if !ok || expectedNano != grant.CostNanoDollar {
 			return ErrInvalid
 		}
+		if grant.CycleID != policy.CycleID {
+			continue
+		}
 		units, ok = add(units, grant.Units)
 		if !ok {
 			return ErrInvalid
@@ -479,16 +480,36 @@ func (a *Authority) validateState(state *State) error {
 		if !ok {
 			return ErrInvalid
 		}
+		databaseSpend[grant.DatabaseID], ok = add(databaseSpend[grant.DatabaseID], grant.CostNanoDollar)
+		if !ok {
+			return ErrInvalid
+		}
+		includedUsed, ok = add(includedUsed, grant.IncludedUnits)
+		if !ok {
+			return ErrInvalid
+		}
+		paidUsed, ok = add(paidUsed, grant.PaidUnits)
+		if !ok {
+			return ErrInvalid
+		}
 		databaseUnits[grant.DatabaseID], ok = add(databaseUnits[grant.DatabaseID], grant.Units)
 		if !ok {
 			return ErrInvalid
 		}
 	}
-	if units != state.UsedUnits || nanoCost != state.UsedNanoDollar || len(databaseUnits) != len(state.DatabaseUnits) {
+	if units != state.UsedUnits || nanoCost != state.UsedNanoDollar || includedUsed != state.UsedIncluded || paidUsed != state.UsedPaid || len(databaseUnits) != len(state.DatabaseUnits) {
 		return ErrInvalid
 	}
 	for database, used := range databaseUnits {
 		if state.DatabaseUnits[database] != used {
+			return ErrInvalid
+		}
+	}
+	if len(databaseSpend) != len(state.DatabaseSpendNano) {
+		return ErrInvalid
+	}
+	for database, used := range databaseSpend {
+		if state.DatabaseSpendNano[database] != used {
 			return ErrInvalid
 		}
 	}

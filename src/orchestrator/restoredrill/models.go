@@ -35,6 +35,7 @@ type Database struct {
 type JournalFacts struct {
 	RecoveryPointID string
 	JournalCut      string
+	RestoreProvider string
 	Checksum        string
 	RowCount        int64
 }
@@ -52,6 +53,7 @@ type RestoreRequest struct {
 	JournalCut       string
 	RestoreEpoch     uint64
 	IdempotencyKey   string
+	RestoreProvider  string
 }
 
 type ScratchBranchRequest struct {
@@ -63,6 +65,7 @@ type ScratchBranchRequest struct {
 	// JournalCut binds atomic restore-and-create providers to the exact facts
 	// already persisted for this item. It must not be replaced with live state.
 	JournalCut string
+	RestoreProvider string
 }
 
 type ScratchBranch struct {

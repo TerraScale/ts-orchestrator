@@ -175,7 +175,7 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 	if err != nil {
 		return nil, err
 	}
-	if response.GetOperationId() != operation || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED) {
+	if response.GetOperationId() != operation || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ACCEPTED) {
 		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
 	}
 	return response, nil

@@ -120,7 +120,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef, config: config.Database}
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef
-	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database}
+	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database, refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: input.Transition.Issuer.ProofKeyID, key: slices.Clone(input.Transition.Issuer.ProofKey)}
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
