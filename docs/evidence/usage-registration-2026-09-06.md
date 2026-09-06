@@ -52,9 +52,11 @@ mutation, and real NATS restart with stale authority rejection. An integrated
 transition test (`43060`) verifies registrations match the actual committed
 partitions. Independent review found and resolved same-epoch proof reuse and
 historical retry defects; final review found no material issues in these fixes
-or the key reservation change. Full repository verification is pending for this
-allocation continuation. These checks do not qualify the Rust daemon entrypoint
-or establish production billing readiness.
+or the key reservation change. Full repository `make check` passed for this
+allocation continuation (`50810`, exit 0): formatting, vet, build and all race
+tests. The exact log is `/tmp/terrascale-orchestrator-allocation-check.log`.
+These checks do not qualify the Rust daemon entrypoint or establish production
+billing readiness.
 
 The private database admission payload now transmits the original journal
 `CreatedAt` as integer Unix milliseconds for install, branch capture, and restore.
