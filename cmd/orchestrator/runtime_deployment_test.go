@@ -18,6 +18,7 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 					ImageID:           "ocid1.image.oc1.primary",
 					FallbackImageID:   "ocid1.image.oc1.fallback",
 					MutationJournalKV: "PROVIDER_MUTATIONS",
+					ReleaseVersion:    "v1.2.3", ArtifactURL: "https://releases.example/ts-node", ArtifactSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ReleasePublicKey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", HostFiles: map[string]string{"/etc/terrascale/ts-node.json": "{}", "/var/lib/terrascale/ts-node/manifest.json": "{}"},
 				},
 				HealthFile: "/etc/terrascale/hosts.json",
 				KV:         productionKVFile{AccountID: "account", ZoneID: "zone"},

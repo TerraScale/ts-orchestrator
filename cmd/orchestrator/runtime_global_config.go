@@ -8,6 +8,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 )
@@ -108,6 +109,67 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
 	config.Close = closeAll
+	cloudInit, err := input.Global.Compute.cloudInit()
+	if err != nil {
+		return fail(fmt.Errorf("global compute cloud-init: %w", err))
+	}
+	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
+	config.ComputeApply = func(applyCtx context.Context, journal provider.ProviderMutationJournal) error {
+		if err := session.CheckEffectAuthority(applyCtx); err != nil {
+			return err
+		}
+		for _, region := range input.Spec.Regions {
+			estateFile := input.Global.Compute.EstateFiles[region.Code]
+			estateSpec, err := provider.LoadOCIEstateSpec(estateFile)
+			if err != nil {
+				return fmt.Errorf("compute estate %s: %w", region.Code, err)
+			}
+			reader, err := provider.NewOCIEstateHTTPReader(estateSpec, input.Global.Compute.KeyID, input.Global.Compute.PrivateKeyFile)
+			if err != nil {
+				return fmt.Errorf("compute OCI reader %s: %w", region.Code, err)
+			}
+			core := reader.Transports[provider.OCIServiceCore]
+			adapter, err := provider.NewOCIComputeAdapter(core, journal)
+			if err != nil {
+				return fmt.Errorf("compute OCI adapter %s: %w", region.Code, err)
+			}
+			epoch := provider.ProviderEpoch{Value: uint64(session.Lease.Epoch)}
+			gateway, err := ocireconcile.NewDurableOCIMemberGateway(core, adapter, estateSpec.WorkloadCompartmentID, input.Global.Compute.ImageID, epoch)
+			if err != nil {
+				return fmt.Errorf("compute gateway %s: %w", region.Code, err)
+			}
+			network, err := ocireconcile.NewOCINetworkGateway(core, estateSpec.NetworkCompartmentID)
+			if err != nil {
+				return fmt.Errorf("compute network %s: %w", region.Code, err)
+			}
+			candidates := make([]ocireconcile.MemberLaunchCandidate, 0, len(region.Members.Candidates))
+			for _, candidate := range region.Members.Candidates {
+				image := input.Global.Compute.ImageID
+				if candidate.Architecture == ocireconcile.MemberArchAMD64 {
+					image = input.Global.Compute.FallbackImageID
+				}
+				candidates = append(candidates, ocireconcile.MemberLaunchCandidate{Shape: candidate.Shape, ImageID: image, Architecture: candidate.Architecture, QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef})
+			}
+			cloudInitByMember := make(map[int]string, int(region.Members.Count))
+			for index := 1; index <= int(region.Members.Count); index++ {
+				cloudInitByMember[index] = cloudInit
+			}
+			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember}
+			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: nil}
+			observed, err := reconciler.Observe(applyCtx, declared)
+			if err != nil {
+				return fmt.Errorf("compute observe %s: %w", region.Code, err)
+			}
+			plan, err := reconciler.Reconcile(applyCtx, declared, observed)
+			if err != nil {
+				return fmt.Errorf("compute reconcile %s: %w", region.Code, err)
+			}
+			if err := reconciler.Apply(applyCtx, declared, observed, plan); err != nil {
+				return fmt.Errorf("compute apply %s: %w", region.Code, err)
+			}
+		}
+		return nil
+	}
 
 	// The remaining ports are intentionally reported by name until their
 	// assigned owners hand off concrete production adapters. Returning this

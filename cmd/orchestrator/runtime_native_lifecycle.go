@@ -3,11 +3,16 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"slices"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
@@ -59,9 +64,20 @@ func (s policyDatabaseActivitySource) LastAuthorizedRequest(ctx context.Context,
 // signed placement envelope to TBEP; the command root supplies catalog and CDN
 // owners separately.
 type nativeLifecycleDatabase struct {
-	catalog  reaper.Catalog
-	resolve  func(context.Context, string) (tbep.LifecycleAssignment, *tbep.Client, error)
-	purgeCDN func(context.Context, string, string) error
+	catalog      reaper.Catalog
+	resolve      func(context.Context, string) (tbep.LifecycleAssignment, *tbep.Client, error)
+	purgeCDN     func(context.Context, string, string) error
+	refresh      func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
+	check        func(context.Context) error
+	keyID        string
+	key          ed25519.PrivateKey
+	grantJournal func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+}
+
+type lifecycleGrantRecord struct {
+	Scope, Action, Operation, ProofDigest string
+	Revision                              uint64
+	Grant                                 []byte
 }
 
 func (d *nativeLifecycleDatabase) List(ctx context.Context, cursor string, limit int) (reaper.Page, error) {
@@ -71,7 +87,7 @@ func (d *nativeLifecycleDatabase) List(ctx context.Context, cursor string, limit
 	return d.catalog.List(ctx, cursor, limit)
 }
 
-func (d *nativeLifecycleDatabase) invoke(ctx context.Context, databaseID, operation string, call func(*tbep.Client, context.Context, tbep.LifecycleAssignment, string) error) error {
+func (d *nativeLifecycleDatabase) invoke(ctx context.Context, databaseID, operation, action string, call func(*tbep.Client, context.Context, tbep.LifecycleAssignment, string) error) error {
 	if d == nil || d.resolve == nil {
 		return errors.New("native lifecycle resolver is unavailable")
 	}
@@ -83,31 +99,83 @@ func (d *nativeLifecycleDatabase) invoke(ctx context.Context, databaseID, operat
 		return errors.New("native lifecycle client is unavailable")
 	}
 	defer client.Close()
-	return call(client, ctx, assignment, operation)
+	if d.refresh == nil || d.keyID == "" || len(d.key) != ed25519.PrivateKeySize {
+		return errors.New("native lifecycle authority issuer is unavailable")
+	}
+	lease, err := d.refresh(ctx)
+	if err != nil {
+		return err
+	}
+	if lease.Epoch <= 0 || !lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds)*time.Millisecond).After(time.Now().UTC()) {
+		return errors.New("native lifecycle authority lease is unavailable")
+	}
+	now := time.Now().UTC()
+	dispatchOperation := operation + "-" + assignment.Member
+	expires := now.Add(30 * time.Second)
+	leaseExpiry := lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds) * time.Millisecond)
+	if leaseExpiry.Before(expires) {
+		expires = leaseExpiry
+	}
+	digest := sha256.Sum256(assignment.AuthoritySignature)
+	grant, err := issueLifecycleOperationGrant(d.keyID, d.key, func() error { return d.check(ctx) }, lifecycleOperationGrant{
+		Version: 1, Domain: lifecycleGrantDomain, Environment: assignment.Environment, Tenant: assignment.Tenant,
+		Project: assignment.Project, Database: assignment.Database, Region: assignment.Region, Member: assignment.Member,
+		Action: action, OperationID: dispatchOperation, AcceptedProofDigest: hex.EncodeToString(digest[:]),
+		AcceptedPlacementRevision: assignment.PlacementRevision, AuthorityEpoch: uint64(lease.Epoch), AuthorityLease: lease.LeaseId,
+		IssuedAtUnixMillis: now.UnixMilli(), ExpiresAtUnixMillis: expires.UnixMilli(),
+	}, now, leaseExpiry, time.Second)
+	if err != nil {
+		return err
+	}
+	grantBytes, err := json.Marshal(grant)
+	if err != nil {
+		return err
+	}
+	assignment.AuthorityEpoch = uint64(lease.Epoch)
+	assignment.AuthorityLease = lease.LeaseId
+	assignment.OperationGrant = grantBytes
+	if d.grantJournal == nil {
+		return errors.New("native lifecycle grant journal is unavailable")
+	}
+	grantJournal, err := d.grantJournal(dispatchOperation)
+	if err != nil {
+		return err
+	}
+	binding := assignment.Environment + ":" + assignment.Tenant + ":" + assignment.Project + ":" + assignment.Database + ":" + assignment.Region + ":" + assignment.Member
+	if err := grantJournal.Transact(ctx, true, func(prior *lifecycleGrantRecord) error {
+		if prior.Operation != "" && (prior.Scope != binding || prior.Action != action || prior.Operation != dispatchOperation || prior.ProofDigest != hex.EncodeToString(digest[:]) || prior.Revision != assignment.PlacementRevision) {
+			return errors.New("native lifecycle operation identity conflict")
+		}
+		*prior = lifecycleGrantRecord{Scope: binding, Action: action, Operation: dispatchOperation, ProofDigest: hex.EncodeToString(digest[:]), Revision: assignment.PlacementRevision, Grant: append([]byte(nil), grantBytes...)}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return call(client, ctx, assignment, dispatchOperation)
 }
 
 func (d *nativeLifecycleDatabase) EnsureSnapshot(ctx context.Context, databaseID, operation string) error {
-	return d.invoke(ctx, databaseID, operation, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, operation, "ensure_snapshot", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.EnsureSnapshot(ctx, a, op)
 	})
 }
 func (d *nativeLifecycleDatabase) VerifySnapshotPlacement(ctx context.Context, databaseID string) error {
-	return d.invoke(ctx, databaseID, "verify-placement-"+databaseID, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, "verify-placement-"+databaseID, "verify_snapshot_placement", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.VerifySnapshotPlacement(ctx, a, op)
 	})
 }
 func (d *nativeLifecycleDatabase) CloseDatabase(ctx context.Context, databaseID, operation string) error {
-	return d.invoke(ctx, databaseID, operation, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, operation, "close_database", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.CloseDatabase(ctx, a, op)
 	})
 }
 func (d *nativeLifecycleDatabase) StopNativeBackup(ctx context.Context, databaseID, operation string) error {
-	return d.invoke(ctx, databaseID, operation, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, operation, "stop_native_backup", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.StopNativeBackup(ctx, a, op)
 	})
 }
 func (d *nativeLifecycleDatabase) Reactivate(ctx context.Context, databaseID, operation string) error {
-	return d.invoke(ctx, databaseID, operation, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, operation, "reactivate", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.Reactivate(ctx, a, op)
 	})
 }
@@ -118,7 +186,7 @@ func (d *nativeLifecycleDatabase) PurgeCDN(ctx context.Context, databaseID, oper
 	return d.purgeCDN(ctx, databaseID, operation)
 }
 func (d *nativeLifecycleDatabase) DeleteOwnedData(ctx context.Context, databaseID, operation string) error {
-	return d.invoke(ctx, databaseID, operation, func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
+	return d.invoke(ctx, databaseID, operation, "delete_owned_data", func(c *tbep.Client, ctx context.Context, a tbep.LifecycleAssignment, op string) error {
 		return c.DeleteOwnedData(ctx, a, op)
 	})
 }
@@ -128,12 +196,17 @@ var _ reaper.DatabaseAdapter = (*nativeLifecycleDatabase)(nil)
 // admittedNativeLifecycleDatabase resolves the durable database record and
 // current GRU placement head on every operation. The signed head envelope is
 // forwarded unchanged; no request epoch or mTLS identity is used as authority.
-func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *productionDatabase, transition *productionPlacementTransition) (*nativeLifecycleDatabase, error) {
-	if database == nil || database.lifecycleJournal == nil || transition == nil || transition.issuer == nil || len(config.Regions) == 0 {
+func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *productionDatabase, transition *productionPlacementTransition, session globalWorkerSession) (*nativeLifecycleDatabase, error) {
+	if database == nil || database.lifecycleJournal == nil || transition == nil || transition.issuer == nil || len(config.Regions) == 0 || session.guard == nil || session.check == nil || len(transition.config.Issuer.ProofKey) != ed25519.PrivateKeySize {
 		return nil, errors.New("native lifecycle admission is incomplete")
 	}
 	return &nativeLifecycleDatabase{
 		catalog: databaseCatalog(database, config.Activity),
+		refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: transition.config.Issuer.ProofKeyID, key: slices.Clone(transition.config.Issuer.ProofKey),
+		grantJournal: func(operation string) (*authorityjournal.Journal[lifecycleGrantRecord], error) {
+			h := sha256.Sum256([]byte(operation))
+			return authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "lifecycle-grant-" + hex.EncodeToString(h[:])}, func() lifecycleGrantRecord { return lifecycleGrantRecord{} }, func(lifecycleGrantRecord) error { return nil })
+		},
 		resolve: func(ctx context.Context, databaseID string) (tbep.LifecycleAssignment, *tbep.Client, error) {
 			record, err := database.AcceptedRecord(ctx, databaseID)
 			if err != nil || databaseadmission.ValidateRecord(record) != nil || record.DatabaseID != databaseID {

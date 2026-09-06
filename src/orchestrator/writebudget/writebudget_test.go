@@ -68,6 +68,26 @@ func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 		t.Logf("canonical units=%d payload=%s signature=%x", units, signed.Payload, signed.Signature)
 		vectors = append(vectors, map[string]any{"units": grant.Units, "includedUnits": grant.IncludedUnits, "paidUnits": grant.PaidUnits, "costNanoDollar": grant.CostNanoDollar, "payload": base64.StdEncoding.EncodeToString(signed.Payload), "signature": base64.StdEncoding.EncodeToString(signed.Signature)})
 	}
+	// Independent crossing-policy vector: four regional units consume three
+	// included units and one paid unit.
+	cross, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "cycle-cross", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-crossing": 9}, IncludedAllowanceUnits: 3, PaidExcessEnabled: true, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := request("vector-crossing", "db", "main", 2, time.Now().Add(time.Hour))
+	r.PolicyEpoch, r.ConsentEpoch = 1, 1
+	grant, err := cross.Allocate(t.Context(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := SignAllocation(signer, grant, grant.CycleID, grant.RateNanoDollar, "db-placement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.IncludedUnits != 3 || grant.PaidUnits != 1 || grant.CostNanoDollar != 1000 {
+		t.Fatalf("crossing grant=%+v", grant)
+	}
+	vectors = append(vectors, map[string]any{"units": grant.Units, "includedUnits": grant.IncludedUnits, "paidUnits": grant.PaidUnits, "costNanoDollar": grant.CostNanoDollar, "payload": base64.StdEncoding.EncodeToString(signed.Payload), "signature": base64.StdEncoding.EncodeToString(signed.Signature)})
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
 		spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
 		raw, _ := json.MarshalIndent(map[string]any{"keyID": signer.PublicKeyID(), "publicSPKI": base64.StdEncoding.EncodeToString(spki), "vectors": vectors}, "", "  ")

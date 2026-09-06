@@ -11,6 +11,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
 )
 
@@ -44,6 +45,19 @@ type productionGlobalComputeFile struct {
 	ImageID           string            `json:"image_id"`
 	FallbackImageID   string            `json:"fallback_image_id"`
 	MutationJournalKV string            `json:"mutation_journal_kv"`
+	ReleaseVersion    string            `json:"release_version"`
+	ArtifactURL       string            `json:"artifact_url"`
+	ArtifactSHA256    string            `json:"artifact_sha256"`
+	ReleasePublicKey  string            `json:"release_public_key"`
+	HostFiles         map[string]string `json:"host_files"`
+}
+
+func (f productionGlobalComputeFile) cloudInit() (string, error) {
+	files := make([]ocireconcile.BootstrapHostFile, 0, len(f.HostFiles))
+	for path, content := range f.HostFiles {
+		files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: []byte(content), Private: true})
+	}
+	return ocireconcile.TSNodeCloudInit(f.ReleaseVersion, f.ArtifactSHA256, f.ArtifactURL, f.ArtifactURL+".sig", f.ReleasePublicKey, files)
 }
 
 func loadProductionDeployment(options *control.OrchestratorOptions) (productionDeploymentFile, error) {
@@ -74,7 +88,7 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	if g == nil {
 		return errors.New("global runtime deployment is missing")
 	}
-	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" {
+	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 {
 		return errors.New("global compute declaration is incomplete")
 	}
 	for _, region := range spec.Regions {

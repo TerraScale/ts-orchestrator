@@ -350,7 +350,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		}
 		group.hostRemoval = owner
 	}
-	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition)
+	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime native lifecycle: %w", err)
 	}

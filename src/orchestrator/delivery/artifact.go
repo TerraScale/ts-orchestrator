@@ -493,6 +493,9 @@ func rejectDuplicateJSON(raw []byte) error {
 						return err
 					}
 					key := keyToken.(string)
+					if key != "" && key[0] >= 'A' && key[0] <= 'Z' {
+						return errors.New("aliased object field")
+					}
 					if _, exists := seen[key]; exists {
 						return errors.New("duplicate object field")
 					}

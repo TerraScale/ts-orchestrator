@@ -137,7 +137,7 @@ func (c *Client) lifecycleRequest(a LifecycleAssignment, operation string) (*pb.
 		Region: a.Region, Member: a.Member, PlacementRevision: a.PlacementRevision,
 		AuthorityEpoch: a.AuthorityEpoch, AuthorityLease: a.AuthorityLease,
 		AuthoritySignature: append([]byte(nil), a.AuthoritySignature...),
-		OperationGrant: append([]byte(nil), a.OperationGrant...),
+		OperationGrant:     append([]byte(nil), a.OperationGrant...),
 	}, OperationId: operation}, nil
 }
 
