@@ -166,7 +166,7 @@ func TestDeliverDatabaseUsageGuardsEffects(t *testing.T) {
 				}
 				return nil
 			}
-		}, wantSends: 0},
+		}, wantSends: 1},
 		{name: "revision change", check: func(*usageSourceFixture) func(context.Context) error {
 			return func(context.Context) error { return nil }
 		}, mutate: func(s *usageSourceFixture) { s.changeAfterFirst = true }, wantSends: 1},

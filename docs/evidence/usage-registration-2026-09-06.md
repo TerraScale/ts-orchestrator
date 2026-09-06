@@ -21,7 +21,10 @@ Verified transport tests include authenticated NATS through the host listener to
 a Unix HTTP fake engine, exact success, changed tuples, wrong state, unknown
 fields, oversized responses and redirect refusal. Usage-focused race tests pass.
 Transition tests verify usage failure blocks completion and retries reuse the
-same issued proof.
+same issued proof. The full `make check` passed, including formatting, vet, build,
+and the repository-wide race test suite. Planner and effect regressions cover
+missing or ambiguous streams, changed lifecycle authority, retained deletion,
+and stopping a partially delivered batch on authority loss.
 
 Normal creation still does not allocate authoritative lifecycle streams. Missing
 streams keep activation pending. This delivery work does not invent partitions,
