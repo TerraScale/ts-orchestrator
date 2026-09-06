@@ -617,7 +617,7 @@ func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberL
 func (r *ComputeReconciler) launchCandidates(ctx context.Context, spec MemberLaunchSpec) error {
 	var lastCapacity error
 	for index, candidate := range spec.Candidates {
-		if candidate.Shape == "" || candidate.ImageID == "" || candidate.QualificationRef == "" || candidate.CostRef == "" {
+		if candidate.Shape == "" || candidate.ImageID == "" || candidate.QualificationRef == "" || candidate.CostRef == "" || candidate.CloudInitBase64 == "" {
 			return &provider.InvalidDataError{Message: "qualified member launch candidate is incomplete"}
 		}
 		architecture, ok := ShapeArch(candidate.Shape)
@@ -630,6 +630,7 @@ func (r *ComputeReconciler) launchCandidates(ctx context.Context, spec MemberLau
 		attempt.FallbackShape = ""
 		attempt.FallbackImageID = ""
 		attempt.Candidates = nil
+		attempt.CloudInitBase64 = candidate.CloudInitBase64
 		_, err := r.Compute.LaunchMember(ctx, attempt)
 		if err == nil {
 			return nil

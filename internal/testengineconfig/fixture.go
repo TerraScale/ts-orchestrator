@@ -56,6 +56,7 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 	}
 	caFile := write("ca.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	d := vmengineconfig.Declaration{Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
+		Keys:      &vmengineconfig.Keys{Socket: "/run/terrascale/keys.sock", OrchestratorUID: 1000, SocketGID: 1000},
 		Databases: []vmengineconfig.Database{{Tenant: fmt.Sprintf("%026d", 200), Project: fmt.Sprintf("%026d", 201), Database: fmt.Sprintf("%026d", 202), Region: bindings[0].Region, SelectedRegions: []string{bindings[0].Region}, EncryptionKey: fmt.Sprintf("%026d", 203), MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8}},
 		Limits:    vmengineconfig.Limits{MaxMessageBytes: 1 << 20, MaxInflight: 32, RequestTimeoutMillis: 5000, TLSHandshakeTimeoutMillis: 5000, ShutdownGraceMillis: 5000},
 	}

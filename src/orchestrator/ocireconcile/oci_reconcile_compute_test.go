@@ -265,9 +265,9 @@ func TestComputeApplyFallsBackFromA1ToE5(t *testing.T) {
 func TestComputeApplyAdvancesThroughQualifiedCandidates(t *testing.T) {
 	declared := testComputeDeclared(t)
 	declared.Candidates = []MemberLaunchCandidate{
-		{Shape: "VM.Standard.A1.Flex", ImageID: "ocid1.image.oc1.arm64", Architecture: MemberArchArm64, QualificationRef: "qual-a1", CostRef: "cost-a1"},
-		{Shape: "VM.Standard.E5.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e5", CostRef: "cost-e5"},
-		{Shape: "VM.Standard.E4.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e4", CostRef: "cost-e4"},
+		{Shape: "VM.Standard.A1.Flex", ImageID: "ocid1.image.oc1.arm64", Architecture: MemberArchArm64, QualificationRef: "qual-a1", CostRef: "cost-a1", CloudInitBase64: "arm-bootstrap"},
+		{Shape: "VM.Standard.E5.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e5", CostRef: "cost-e5", CloudInitBase64: "x86-bootstrap"},
+		{Shape: "VM.Standard.E4.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e4", CostRef: "cost-e4", CloudInitBase64: "x86-bootstrap-2"},
 	}
 	gateway := &fakeComputeGateway{noCapacity: map[string]bool{"VM.Standard.A1.Flex": true, "VM.Standard.E5.Flex": true}}
 	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}

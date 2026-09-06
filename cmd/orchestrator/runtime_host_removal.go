@@ -56,26 +56,6 @@ func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway)
 	}
 }
 
-// newProductionOCIObservationResolver binds removal evidence to an exact OCI
-// reread. The list observation supplies the admitted slot/Region; the exact
-// reread supplies provider ETag and ownership. Missing either fails closed.
-func newProductionOCIObservationResolver(gateway ocireconcile.ComputeGateway) func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
-	exact, ok := gateway.(exactOCIMemberObserver)
-	if !ok {
-		return nil
-	}
-	return func(ctx context.Context, listed ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
-		current, err := exact.ObserveMember(ctx, listed.ID)
-		if err != nil {
-			return hostremoval.MemberObservation{}, err
-		}
-		if current.ID != listed.ID || current.CompartmentID == "" || current.ETag == "" || listed.Region == "" || listed.Index < 1 {
-			return hostremoval.MemberObservation{}, errors.New("runtime host removal: exact OCI observation is incomplete")
-		}
-		return hostremoval.MemberObservation{}, errors.New("runtime host removal: accepted generation resolver is required")
-	}
-}
-
 type productionHostRemoval struct {
 	owner     *hostremoval.Owner
 	observeFn func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
@@ -100,14 +80,11 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	if operationID == "" {
 		return errors.New("runtime host removal: operation identity is missing")
 	}
-	survivorIDs := make([]string, 0, len(survivors))
-	for _, candidate := range survivors {
-		survivorIDs = append(survivorIDs, candidate.ID)
-	}
 	observedMember, err := r.observe(ctx, member)
 	if err != nil {
 		return err
 	}
+	observedMember.ResourceID = member.ID
 	generation := observedMember.Generation
 	observations := make([]hostremoval.MemberObservation, 0, len(survivors))
 	for _, candidate := range survivors {
@@ -115,9 +92,38 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 		if observeErr != nil {
 			return observeErr
 		}
+		observation.ResourceID = candidate.ID
 		observations = append(observations, observation)
 	}
-	return r.owner.RemoveMember(ctx, operationID, observedMember, generation, observations...)
+	// Keep provider resource identity separate from the SPIFFE identity used by
+	// placement. Bind callbacks per invocation so concurrent removals cannot
+	// redirect one another's termination target.
+	owner := r.ownerFor(member, observedMember)
+	return owner.RemoveMember(ctx, operationID, observedMember, generation, observations...)
+}
+
+func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, observedMember hostremoval.MemberObservation) *hostremoval.Owner {
+	owner := *r.owner
+	owner.Observe = func(ctx context.Context, identity string) (bool, error) {
+		if identity != observedMember.Identity {
+			return false, hostremoval.ErrConflict
+		}
+		current, err := r.observe(ctx, member)
+		if err != nil {
+			return false, err
+		}
+		if current.Identity != observedMember.Identity || current.Region != observedMember.Region || current.Slot != observedMember.Slot || current.Generation != observedMember.Generation {
+			return false, hostremoval.ErrConflict
+		}
+		return true, nil
+	}
+	owner.Terminate = func(ctx context.Context, identity string) error {
+		if identity != observedMember.Identity {
+			return hostremoval.ErrConflict
+		}
+		return r.owner.Terminate(ctx, member.ID)
+	}
+	return &owner
 }
 
 func (r *productionHostRemoval) observe(ctx context.Context, member ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {

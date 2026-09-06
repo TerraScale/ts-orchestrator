@@ -40,6 +40,7 @@ type Replacement struct {
 
 type Operation struct {
 	OperationID       string              `json:"operation_id"`
+	ResourceID        string              `json:"resource_id"`
 	MemberIdentity    string              `json:"member_identity"`
 	Generation        uint64              `json:"generation"`
 	InventoryRevision uint64              `json:"inventory_revision"`
@@ -58,6 +59,7 @@ type RemovalRequest struct {
 	Survivors   []MemberObservation
 }
 type MemberObservation struct {
+	ResourceID   string   `json:"resource_id"`
 	Identity     string   `json:"identity"`
 	Region       string   `json:"region"`
 	Slot         int      `json:"slot"`
@@ -97,37 +99,47 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Observe == nil || o.Terminate == nil {
 		return ErrInvalid
 	}
-	request := RemovalRequest{OperationID: operationID, Member: member, Generation: generation, Survivors: append([]MemberObservation(nil), survivors...)}
-	revision, replacements, err := o.Inventory(ctx, request, nil)
+	if !token(member.ResourceID) || member.Identity == "" || generation == 0 || member.Generation != generation {
+		return ErrInvalid
+	}
+	current, err := o.Journal.Load(ctx, operationID)
+	if errors.Is(err, ErrMissing) {
+		request := RemovalRequest{OperationID: operationID, Member: member, Generation: generation, Survivors: append([]MemberObservation(nil), survivors...)}
+		revision, replacements, inventoryErr := o.Inventory(ctx, request, nil)
+		if inventoryErr != nil {
+			return inventoryErr
+		}
+		current, err = o.Journal.Begin(ctx, operationID, member, generation, revision, replacements, request.Survivors)
+	}
 	if err != nil {
 		return err
 	}
-	current, err := o.Journal.Begin(ctx, operationID, member.Identity, generation, revision, replacements, request.Survivors)
-	if err != nil {
-		return err
+	if current.ResourceID != member.ResourceID || current.MemberIdentity != member.Identity || current.Generation != generation {
+		return ErrConflict
 	}
 	if current.Stage == StageComplete {
 		return nil
 	}
-	replacements = current.Replacements
-	if current.Stage == StageInventoryCaptured {
-		if _, err = o.Journal.Advance(ctx, operationID, StageReplacing); err != nil {
+	if current.Stage != StageFenced {
+		if current.Stage == StageInventoryCaptured {
+			if _, err = o.Journal.Advance(ctx, operationID, StageReplacing); err != nil {
+				return err
+			}
+		}
+		for _, replacement := range current.Replacements {
+			if err := o.Replace(ctx, replacement); err != nil {
+				return err
+			}
+		}
+		if err := o.Revalidate(ctx, operationID, member.Identity, current.InventoryRevision); err != nil {
 			return err
 		}
-	}
-	for _, replacement := range replacements {
-		if err := o.Replace(ctx, replacement); err != nil {
+		if err := o.Fence(ctx, operationID, member.Identity, current.Replacements); err != nil {
 			return err
 		}
-	}
-	if err := o.Revalidate(ctx, operationID, member.Identity, current.InventoryRevision); err != nil {
-		return err
-	}
-	if err := o.Fence(ctx, operationID, member.Identity, replacements); err != nil {
-		return err
-	}
-	if _, err := o.Journal.Advance(ctx, operationID, StageFenced); err != nil {
-		return err
+		if _, err := o.Journal.Advance(ctx, operationID, StageFenced); err != nil {
+			return err
+		}
 	}
 	present, err := o.Observe(ctx, member.Identity)
 	if err != nil {
@@ -172,11 +184,11 @@ func (j *typedJournal) Transact(ctx context.Context, write bool, change func(*st
 	})
 }
 
-func (j *Journal) Begin(ctx context.Context, operationID, member string, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
-	if j == nil || j.journal == nil || !token(operationID) || !token(member) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
+func (j *Journal) Begin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
+	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
 		return Operation{}, ErrInvalid
 	}
-	want := Operation{OperationID: operationID, MemberIdentity: member, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
+	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
 	var result Operation
 	err := j.journal.Transact(ctx, true, func(s *state) error {
 		if old, ok := s.Operations[operationID]; ok {
@@ -238,7 +250,7 @@ func validateMap(values map[string]Operation) error {
 		return ErrInvalid
 	}
 	for key, operation := range values {
-		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || operation.Generation == 0 || operation.InventoryRevision == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
+		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || operation.Generation == 0 || operation.InventoryRevision == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
 			return ErrInvalid
 		}
 	}
@@ -270,7 +282,7 @@ func cloneReplacements(values []Replacement) []Replacement {
 	return append([]Replacement(nil), values...)
 }
 func sameOperation(a, b Operation) bool {
-	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && jsonEqual(a.Replacements, b.Replacements) && jsonEqualMembers(a.Survivors, b.Survivors)
+	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.ResourceID == b.ResourceID && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && jsonEqual(a.Replacements, b.Replacements) && jsonEqualMembers(a.Survivors, b.Survivors)
 }
 func jsonEqual(a, b []Replacement) bool {
 	left, _ := json.Marshal(a)

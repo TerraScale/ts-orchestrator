@@ -111,6 +111,7 @@ type productionGlobalWorkerConfig struct {
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
 	ComputeApply                 func(context.Context, provider.ProviderMutationJournal) error
+	ComputeRemovalOwner          ocireconcile.MemberRemovalOwner
 	ComputeGateways              map[string]ocireconcile.ComputeGateway
 	// HostRemoval constructs the owner only from the live GRU session and
 	// authenticated proof providers. It is required whenever compute is
@@ -366,6 +367,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			return group, errors.New("runtime host removal: constructor returned nil owner")
 		}
 		group.hostRemoval = owner
+		config.ComputeRemovalOwner = owner
 	}
 	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition, session)
 	if err != nil {

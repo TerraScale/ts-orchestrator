@@ -143,6 +143,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
 	config.Ownership = input.Ownership
 	config.ComputeGateways = make(map[string]ocireconcile.ComputeGateway, len(input.Spec.Regions))
+	computeAdapters := make(map[string]*provider.OCIComputeAdapter, len(input.Spec.Regions))
 	for _, region := range input.Spec.Regions {
 		estateSpec, err := provider.LoadOCIEstateSpec(input.Global.Compute.EstateFiles[region.Code])
 		if err != nil {
@@ -157,6 +158,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			return fail(fmt.Errorf("compute OCI adapter %s: %w", region.Code, err))
 		}
 		adapter.Ownership = input.Ownership
+		computeAdapters[region.Code] = adapter
 		gateway, err := ocireconcile.NewDurableOCIMemberGateway(reader.Transports[provider.OCIServiceCore], adapter, estateSpec.WorkloadCompartmentID, input.Global.Compute.ImageID, provider.ProviderEpoch{Value: uint64(session.Lease.Epoch)})
 		if err != nil {
 			return fail(fmt.Errorf("compute gateway %s: %w", region.Code, err))
@@ -168,6 +170,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			return err
 		}
 		for _, region := range input.Spec.Regions {
+			if adapter := computeAdapters[region.Code]; adapter != nil {
+				adapter.Journal = journal
+			}
 			estateFile := input.Global.Compute.EstateFiles[region.Code]
 			estateSpec, err := provider.LoadOCIEstateSpec(estateFile)
 			if err != nil {
@@ -198,17 +203,26 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			for index := 1; index <= int(region.Members.Count); index++ {
 				cloudInitByMember[index] = cloudInitByArch[ocireconcile.MemberArchArm64]
 			}
-			bindings := make(map[int]ocireconcile.MemberBinding, 2)
+			bindings := make(map[int]ocireconcile.MemberBinding, int(region.Members.Count))
 			for _, databaseRegion := range config.Database.Regions {
 				if databaseRegion.Region != region.Code {
 					continue
 				}
-				bindings[1] = ocireconcile.MemberBinding{ServerIdentity: databaseRegion.Writer.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: databaseRegion.Writer.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
-				bindings[2] = ocireconcile.MemberBinding{ServerIdentity: databaseRegion.Follower.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: databaseRegion.Follower.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
+				for index := 1; index <= int(region.Members.Count); index++ {
+					var host productionDatabaseHost
+					if index == 1 {
+						host = databaseRegion.Writer
+					} else if index == 2 {
+						host = databaseRegion.Follower
+					} else {
+						continue
+					}
+					bindings[index] = ocireconcile.MemberBinding{ServerIdentity: host.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: host.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
+				}
 				break
 			}
 			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember, MemberBindings: bindings}
-			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: nil}
+			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: config.ComputeRemovalOwner}
 			observed, err := reconciler.Observe(applyCtx, declared)
 			if err != nil {
 				return fmt.Errorf("compute observe %s: %w", region.Code, err)

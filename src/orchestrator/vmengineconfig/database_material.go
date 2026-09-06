@@ -86,6 +86,20 @@ func prepareDatabase(m *Material, d Declaration, h Host, binding Binding) error 
 		}
 		m.databaseFiles[file.target] = raw
 	}
+	for _, db := range d.Databases {
+		if db.Database != d.Databases[0].Database || db.Backup == nil {
+			continue
+		}
+		for i, dest := range db.Backup.Destinations {
+			for _, item := range []struct{ source, target string }{{dest.AccessKeyFile, fmt.Sprintf("/etc/terrascale/backup/%s-%d-access", d.Databases[0].Database, i)}, {dest.SecretKeyFile, fmt.Sprintf("/etc/terrascale/backup/%s-%d-secret", d.Databases[0].Database, i)}} {
+				raw, err := initialgrant.ReadMaterialFile(item.source, 16<<10, true)
+				if err != nil {
+					return bad
+				}
+				m.databaseFiles[item.target] = raw
+			}
+		}
+	}
 	leaf, err := validateClientMaterial(m.databaseFiles[databaseCertificatePath], m.databaseFiles[databasePrivateKeyPath], m.databaseFiles[databaseCAPath], "")
 	if err != nil {
 		return err

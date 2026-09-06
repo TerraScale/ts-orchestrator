@@ -51,6 +51,7 @@ type Declaration struct {
 	Hosts           []Host           `json:"hosts"`
 	Databases       []Database       `json:"databases"`
 	Limits          Limits           `json:"limits"`
+	Keys            *Keys            `json:"keys,omitempty"`
 }
 
 type Host struct {
@@ -69,16 +70,42 @@ type Host struct {
 }
 
 type Database struct {
-	Tenant          string   `json:"tenant"`
-	Project         string   `json:"project"`
-	Database        string   `json:"database"`
-	Region          string   `json:"region"`
-	AllowedRegions  []string `json:"allowedRegions"`
-	SelectedRegions []string `json:"selectedRegions"`
-	EncryptionKey   string   `json:"encryptionKey"`
-	MaxStorageBytes uint64   `json:"maxStorageBytes"`
-	MaxDocuments    uint64   `json:"maxDocuments"`
-	MaxInflight     uint64   `json:"maxInflight"`
+	Tenant          string        `json:"tenant"`
+	Project         string        `json:"project"`
+	Database        string        `json:"database"`
+	Region          string        `json:"region"`
+	AllowedRegions  []string      `json:"allowedRegions"`
+	SelectedRegions []string      `json:"selectedRegions"`
+	EncryptionKey   string        `json:"encryptionKey"`
+	MaxStorageBytes uint64        `json:"maxStorageBytes"`
+	MaxDocuments    uint64        `json:"maxDocuments"`
+	MaxInflight     uint64        `json:"maxInflight"`
+	Backup          *BackupConfig `json:"backup,omitempty"`
+}
+
+type BackupDestination struct {
+	Provider             string   `json:"provider"`
+	Endpoint             string   `json:"endpoint"`
+	SigningRegion        string   `json:"signingRegion"`
+	Bucket               string   `json:"bucket"`
+	VerifiedGeography    string   `json:"verifiedGeography"`
+	PermittedGeographies []string `json:"permittedGeographies"`
+	PlacementRevision    string   `json:"placementRevision"`
+	AccessKeyFile        string   `json:"accessKeyFile"`
+	SecretKeyFile        string   `json:"secretKeyFile"`
+	MaxArtifactBytes     uint64   `json:"maxArtifactBytes"`
+	MaxPointBytes        uint64   `json:"maxPointBytes"`
+}
+type BackupConfig struct {
+	PolicyRevision string              `json:"policyRevision"`
+	RetentionDays  uint8               `json:"retentionDays"`
+	Destinations   []BackupDestination `json:"destinations"`
+}
+
+type Keys struct {
+	Socket          string `json:"socket"`
+	OrchestratorUID uint32 `json:"orchestratorUid"`
+	SocketGID       uint32 `json:"socketGid"`
 }
 
 type Limits struct {
@@ -221,12 +248,28 @@ func Load(path, artifact, release string, bindings []Binding) (map[string]*Mater
 
 func validate(d Declaration, artifact, release string, bindings []Binding) (map[string]Binding, error) {
 	bad := errors.New("vmengineconfig: explicit production identities, placement, release, or bounds invalid")
-	if d.Version != 1 || d.Contract != Contract || !digest.MatchString(artifact) || d.ArtifactSHA256 != artifact || d.Release != release || len(release) == 0 || len(release) > 128 || !environment.MatchString(d.Environment) || !ulid.MatchString(d.Cluster) || d.Generation == 0 || d.Epoch == 0 || d.Generation > math.MaxInt64 || d.Epoch > math.MaxInt64 {
+	if d.Keys == nil || d.Keys.Socket == "" || d.Keys.OrchestratorUID == 0 || d.Keys.SocketGID == 0 || d.Version != 1 || d.Contract != Contract || !digest.MatchString(artifact) || d.ArtifactSHA256 != artifact || d.Release != release || len(release) == 0 || len(release) > 128 || !environment.MatchString(d.Environment) || !ulid.MatchString(d.Cluster) || d.Generation == 0 || d.Epoch == 0 || d.Generation > math.MaxInt64 || d.Epoch > math.MaxInt64 {
 		return nil, bad
 	}
 	for _, r := range release {
 		if r < 33 || r > 126 || r == '"' || r == '\\' {
 			return nil, bad
+		}
+	}
+	for _, db := range d.Databases {
+		if db.Backup == nil {
+			continue
+		}
+		if db.Backup.PolicyRevision == "" || db.Backup.RetentionDays == 0 || len(db.Backup.Destinations) == 0 {
+			return nil, bad
+		}
+		for _, dest := range db.Backup.Destinations {
+			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes == 0 || dest.MaxPointBytes == 0 {
+				return nil, bad
+			}
+			if !slices.Contains(dest.PermittedGeographies, dest.VerifiedGeography) {
+				return nil, bad
+			}
 		}
 	}
 	if len(bindings) < 2 || len(bindings) > 6 || len(d.Hosts) != len(bindings) || len(d.Databases) == 0 || len(d.Databases) > 1024 {
@@ -345,6 +388,12 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 			fmt.Fprintf(&b, "%q", region)
 		}
 		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
+		if db.Backup != nil {
+			fmt.Fprintf(&b, "[databases.backup]\npolicy_revision = %q\nretention_days = %d\n", db.Backup.PolicyRevision, db.Backup.RetentionDays)
+			for _, d := range db.Backup.Destinations {
+				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, d.AccessKeyFile, d.SecretKeyFile, d.MaxArtifactBytes, d.MaxPointBytes)
+			}
+		}
 	}
 	fmt.Fprintf(&b, "\n[placement]\ngeneration = %d\nepoch = %d\n", d.Generation, d.Epoch)
 	for _, region := range []string{"GRU", "SFO", "FRA"} {
@@ -374,6 +423,9 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		return "", err
 	}
 	renderTransitionTrust(&b, d.TransitionTrust)
+	if d.TransitionTrust != nil && d.TransitionTrust.ReceiptKeyID != "" {
+		fmt.Fprintf(&b, "\n[control.transition.receipt_signing_key]\nkey_id = %q\nprivate_key_file = %q\n", d.TransitionTrust.ReceiptKeyID, receiptSignerPath)
+	}
 	renderDatabaseAdmission(&b, h.DatabaseHost)
 	l := d.Limits
 	fmt.Fprintf(&b, "\n[transport]\ntbep_listen = \"127.0.0.1:8421\"\nquic_listen = %q\nmetrics_listen = \"127.0.0.1:8423\"\nserver_certificate = %q\nserver_private_key = %q\nclient_ca = %q\nmax_message_bytes = %d\nmax_inflight = %d\nrequest_timeout_millis = %d\ntls_handshake_timeout_millis = %d\nshutdown_grace_millis = %d\n", nodes[h.NodeID].Address+":8422", CertificatePath, PrivateKeyPath, CAPath, l.MaxMessageBytes, l.MaxInflight, l.RequestTimeoutMillis, l.TLSHandshakeTimeoutMillis, l.ShutdownGraceMillis)
@@ -384,6 +436,7 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		fmt.Fprintf(&b, "[[transport.peers]]\nmember = %q\nendpoint = %q\nspiffe_identity = %q\n", peer.Member, nodes[peer.NodeID].Address+":8422", identity(d, peer))
 	}
 	fmt.Fprintf(&b, "\n[release]\nrelease = %q\ncapabilities = [\"production\", \"tbep\", \"quic\", \"metrics\", \"oci-vault\"]\n", d.Release)
+	fmt.Fprintf(&b, "\n[keys]\nsocket = %q\norchestrator_uid = %d\nsocket_gid = %d\n", d.Keys.Socket, d.Keys.OrchestratorUID, d.Keys.SocketGID)
 	if b.Len() > hostmanifest.MaximumConfigurationBytes {
 		return "", errors.New("vmengineconfig: rendered configuration exceeds engine bound")
 	}

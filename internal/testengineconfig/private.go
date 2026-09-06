@@ -89,7 +89,7 @@ func prepareAt(parent, artifact, release string) (PrivateFixture, error) {
 	if err != nil {
 		return PrivateFixture{}, err
 	}
-	d := vmengineconfig.Declaration{Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
+	d := vmengineconfig.Declaration{Keys: &vmengineconfig.Keys{Socket: "/run/terrascale/keys.sock", OrchestratorUID: 1000, SocketGID: 1000}, Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
 		Databases: []vmengineconfig.Database{{Tenant: fmt.Sprintf("%026d", 200), Project: fmt.Sprintf("%026d", 201), Database: fmt.Sprintf("%026d", 202), Region: "GRU", AllowedRegions: []string{"GRU", "SFO", "FRA"}, SelectedRegions: []string{"GRU", "SFO", "FRA"}, EncryptionKey: fmt.Sprintf("%026d", 203), MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8}},
 		Limits:    vmengineconfig.Limits{MaxMessageBytes: 1 << 20, MaxInflight: 32, RequestTimeoutMillis: 5000, TLSHandshakeTimeoutMillis: 5000, ShutdownGraceMillis: 5000}}
 	issue := func(name, identity string, serial int64, usages []x509.ExtKeyUsage, address net.IP) (string, string, error) {
