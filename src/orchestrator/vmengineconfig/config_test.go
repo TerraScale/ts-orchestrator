@@ -50,7 +50,7 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 			t.Fatal(err)
 		}
 		config := planned.Components[0].Configuration
-		for _, required := range []string{"mode = \"production\"", "member = \"" + d.Hosts[i].Member + "\"", "endpoint = \"" + bindings[1-i].Address + ":8422\"", "encryption_provider = \"oci-vault\"", "tbep_listen = \"127.0.0.1:8421\""} {
+		for _, required := range []string{"mode = \"production\"", "member = \"" + d.Hosts[i].Member + "\"", "endpoint = \"" + bindings[1-i].Address + ":8422\"", "encryption_provider = \"oci-vault\"", "selected_regions = [\"GRU\"]", "tbep_listen = \"127.0.0.1:8421\""} {
 			if !strings.Contains(config, required) {
 				t.Fatalf("missing production field %s", required)
 			}
@@ -95,6 +95,51 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 	}
 }
 
+func TestRenderedDatabaseResidencyUsesHostRegionAndOmitsUnselectedStorage(t *testing.T) {
+	mixedBindings := []vmengineconfig.Binding{
+		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"},
+		{NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
+		{NodeID: "sfo-member-1", Region: "SFO", Address: "10.77.1.10"},
+		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
+	}
+	d, path := testengineconfig.Declaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
+	d.Databases[0].SelectedRegions = []string{"GRU", "SFO"}
+	d.Databases = append(d.Databases, vmengineconfig.Database{
+		Tenant: d.Databases[0].Tenant, Project: d.Databases[0].Project, Database: "000000000000000000000000CB",
+		Region: "GRU", SelectedRegions: []string{"GRU"}, AllowedRegions: []string{"GRU"},
+		EncryptionKey: "000000000000000000000000CC", MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8,
+	})
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	materials, err := vmengineconfig.Load(path, d.ArtifactSHA256, d.Release, mixedBindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, material := range materials {
+			material.Clear()
+		}
+	}()
+	for _, binding := range mixedBindings {
+		config := manifest(t, materials[binding.NodeID]).Components[0].Configuration
+		if !strings.Contains(config, "region = \""+binding.Region+"\"") {
+			t.Fatalf("%s config does not bind its local Region", binding.Region)
+		}
+		wantDatabases := 1
+		if binding.Region == "GRU" {
+			wantDatabases = 2
+		}
+		if got := strings.Count(config, "[[databases]]"); got != wantDatabases {
+			t.Fatalf("%s rendered %d databases, want %d", binding.Region, got, wantDatabases)
+		}
+	}
+}
+
 func TestDeclarationRejectsUnprovenInputs(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -129,6 +174,9 @@ func TestDeclarationRejectsUnprovenInputs(t *testing.T) {
 		{"missing-residency-lock", func(d *vmengineconfig.Declaration) { d.Databases[0].AllowedRegions = nil }},
 		{"cross-residency-placement", func(d *vmengineconfig.Declaration) { d.Databases[0].AllowedRegions = []string{"FRA"} }},
 		{"duplicate-residency-region", func(d *vmengineconfig.Declaration) { d.Databases[0].AllowedRegions = []string{"GRU", "GRU"} }},
+		{"missing-selected-regions", func(d *vmengineconfig.Declaration) { d.Databases[0].SelectedRegions = nil }},
+		{"duplicate-selected-region", func(d *vmengineconfig.Declaration) { d.Databases[0].SelectedRegions = []string{"GRU", "GRU"} }},
+		{"selected-region-outside-lock", func(d *vmengineconfig.Declaration) { d.Databases[0].SelectedRegions = []string{"FRA"} }},
 		{"quota", func(d *vmengineconfig.Declaration) { d.Databases[0].MaxStorageBytes = 0 }},
 		{"key-version", func(d *vmengineconfig.Declaration) { d.Databases[0].EncryptionKey = "ocid1.key.wrong-kind" }},
 		{"timeout", func(d *vmengineconfig.Declaration) { d.Limits.RequestTimeoutMillis = 0 }},

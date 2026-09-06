@@ -74,6 +74,7 @@ type Database struct {
 	Database        string   `json:"database"`
 	Region          string   `json:"region"`
 	AllowedRegions  []string `json:"allowedRegions"`
+	SelectedRegions []string `json:"selectedRegions"`
 	EncryptionKey   string   `json:"encryptionKey"`
 	MaxStorageBytes uint64   `json:"maxStorageBytes"`
 	MaxDocuments    uint64   `json:"maxDocuments"`
@@ -273,6 +274,19 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		if !ulid.MatchString(db.Tenant) || !ulid.MatchString(db.Project) || !ulid.MatchString(db.Database) || !ulid.MatchString(db.EncryptionKey) || databases[db.Database] || regions[db.Region] != 2 || projects[db.Project] != "" && projects[db.Project] != db.Tenant || db.MaxStorageBytes == 0 || db.MaxStorageBytes > 1<<50 || db.MaxDocuments == 0 || db.MaxDocuments > 1_000_000_000 || db.MaxInflight == 0 || db.MaxInflight > 1_000_000 {
 			return nil, bad
 		}
+		if len(db.SelectedRegions) == 0 || len(db.SelectedRegions) > 3 {
+			return nil, bad
+		}
+		selected := map[string]bool{}
+		for _, region := range db.SelectedRegions {
+			if selected[region] || !slices.Contains([]string{"GRU", "SFO", "FRA"}, region) || regions[region] != 2 {
+				return nil, bad
+			}
+			selected[region] = true
+		}
+		if !selected[db.Region] {
+			return nil, bad
+		}
 		allowed := map[string]bool{}
 		for _, region := range db.AllowedRegions {
 			if allowed[region] || !slices.Contains([]string{"GRU", "SFO", "FRA"}, region) {
@@ -280,14 +294,25 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 			}
 			allowed[region] = true
 		}
-		// The current engine schema has one placement for the whole catalog.
-		// Never render a database into a topology outside its explicit lock.
-		for region := range regions {
+		for region := range selected {
 			if !allowed[region] {
-				return nil, errors.New("vmengineconfig: shared engine placement exceeds a database residency lock")
+				return nil, bad
 			}
 		}
 		projects[db.Project], databases[db.Database] = db.Tenant, true
+	}
+	for _, h := range d.Hosts {
+		region := nodes[h.NodeID].Region
+		bound := false
+		for _, db := range d.Databases {
+			if db.Database == h.ObserverDatabase && slices.Contains(db.SelectedRegions, region) {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			return nil, bad
+		}
 	}
 	l := d.Limits
 	if l.MaxMessageBytes < 1024 || l.MaxMessageBytes > 16<<20 || l.MaxInflight == 0 || l.MaxInflight > 4096 || l.RequestTimeoutMillis < 100 || l.RequestTimeoutMillis > 300000 || l.TLSHandshakeTimeoutMillis < 100 || l.TLSHandshakeTimeoutMillis > 30000 || l.ShutdownGraceMillis < 100 || l.ShutdownGraceMillis > 300000 {
@@ -299,8 +324,21 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mode = \"production\"\n[environment]\nname = %q\ncluster = %q\nmember = %q\n", d.Environment, d.Cluster, h.Member)
+	localRegion := nodes[h.NodeID].Region
 	for _, db := range d.Databases {
-		fmt.Fprintf(&b, "\n[[databases]]\ntenant = %q\nproject = %q\ndatabase = %q\nregion = %q\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = true\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", db.Tenant, db.Project, db.Database, db.Region, dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
+		if !slices.Contains(db.SelectedRegions, localRegion) {
+			continue
+		}
+		selected := slices.Clone(db.SelectedRegions)
+		slices.Sort(selected)
+		fmt.Fprintf(&b, "\n[[databases]]\ntenant = %q\nproject = %q\ndatabase = %q\nregion = %q\nselected_regions = [", db.Tenant, db.Project, db.Database, localRegion)
+		for i, region := range selected {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "%q", region)
+		}
+		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = true\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
 	}
 	fmt.Fprintf(&b, "\n[placement]\ngeneration = %d\nepoch = %d\n", d.Generation, d.Epoch)
 	for _, region := range []string{"GRU", "SFO", "FRA"} {
