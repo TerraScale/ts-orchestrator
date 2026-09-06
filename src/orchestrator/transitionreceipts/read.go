@@ -1,5 +1,5 @@
-// Package transitionreceipts reads signed host acknowledgements independently
-// of the control broker. It neither publishes objects nor authorizes retirement.
+// Package transitionreceipts publishes and reads signed host acknowledgements
+// independently of the control broker. It never authorizes retirement.
 package transitionreceipts
 
 import (

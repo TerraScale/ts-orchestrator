@@ -268,3 +268,25 @@ preparation barrier. Host upload, automated collection in the transition
 executor, storage/health checks and source retirement remain unfinished.
 The operator's JSON summary is an unsigned report and cannot substitute for
 verification of the original signed receipts.
+
+## Immutable acknowledgement publication
+
+`transitionreceipts.PublishPlanPin` accepts the exact signed acknowledgement
+recovered from the private host journal and one regional OCI transport. Host
+composition must supply instance-principal credentials. The function verifies
+host identity, signature, live plan, nonfuture receipt time, regional endpoint,
+and the signed bucket ownership observation before creating an object at
+`PinObjectKey`.
+
+Every attempt uses `If-None-Match: *` and the exact receipt SHA-256 metadata.
+After the PUT, including a failed or lost response, an independent bounded GET
+must return identical bytes and matching size, digest, and a nonempty ETag.
+Bucket ownership and plan lifetime are checked again before success. A conflict
+is retained. A failed read leaves the outcome unresolved and the caller must
+retry with the same durable signed bytes. There is no broker journal dependency
+or cached success that could skip remote verification.
+
+This function does not establish local persistence itself. Automatic host
+invocation, instance-principal acquisition, and retry scheduling remain to be
+connected to the existing private acknowledgement recovery path. Publication
+proves neither destination preparation nor permission to retire the source.
