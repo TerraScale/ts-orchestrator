@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -437,12 +438,22 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 		return nil, errors.New("delivery: manifest signature digest does not match the request")
 	}
 	var document struct {
-		SchemaVersion            int `json:"schemaVersion"`
-		Repository, Kind, Commit string
-		Artifacts                []struct {
-			Name, Path, Architecture, Digest, SignatureDigest string
-			Bytes                                             int64
+		SchemaVersion int    `json:"schemaVersion"`
+		Repository    string `json:"repository"`
+		Kind          string `json:"kind"`
+		Commit        string `json:"commit"`
+		Artifacts     []struct {
+			Name            string `json:"name"`
+			Path            string `json:"path"`
+			Architecture    string `json:"architecture"`
+			Digest          string `json:"digest"`
+			SignatureDigest string `json:"signatureDigest"`
+			Bytes           int64  `json:"bytes"`
 		} `json:"artifacts"`
+	}
+	var rawManifest any
+	if json.Unmarshal(manifest, &rawManifest) != nil || !exactJSONFields(rawManifest, reflect.TypeOf(document)) {
+		return nil, errors.New("delivery: release manifest fields are not exact")
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(manifest)))
 	decoder.DisallowUnknownFields()
@@ -493,15 +504,6 @@ func rejectDuplicateJSON(raw []byte) error {
 						return err
 					}
 					key := keyToken.(string)
-					canonical := map[string]struct{}{"schemaVersion": {}, "operationId": {}, "source": {}, "artifact": {}, "target": {}, "configurationRevision": {}, "migrationRevision": {}, "requestedBy": {}, "reason": {}, "rollback": {}, "informational": {}, "repository": {}, "commit": {}, "treeDigest": {}, "name": {}, "manifestName": {}, "digest": {}, "signatureDigest": {}, "manifestDigest": {}, "manifestSignatureDigest": {}, "kind": {}, "architecture": {}, "path": {}, "bytes": {}}
-					for field := range canonical {
-						if strings.EqualFold(key, field) && key != field {
-							return errors.New("aliased object field")
-						}
-					}
-					if key != "" && key[0] >= 'A' && key[0] <= 'Z' {
-						return errors.New("aliased object field")
-					}
 					if _, exists := seen[key]; exists {
 						return errors.New("duplicate object field")
 					}

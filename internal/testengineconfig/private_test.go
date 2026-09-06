@@ -23,4 +23,20 @@ func TestPrepareCreatesLoadableSixGuestFixture(t *testing.T) {
 	if _, err := vmengineconfig.Load(f.DeclarationPath, f.Declaration.ArtifactSHA256, f.Declaration.Release, f.Bindings); err != nil {
 		t.Fatalf("prepared declaration failed Load: %v", err)
 	}
+	wantGateway := map[string]string{"GRU": "10.77.0.1", "SFO": "10.77.1.1", "FRA": "10.77.2.1"}
+	for _, host := range f.Declaration.Hosts {
+		want := "tls://" + wantGateway[hostRegion(f.Bindings, host.NodeID)] + ":4222"
+		if host.EngineControl.NATSURL != want || host.DatabaseHost.NATSURL != want {
+			t.Errorf("%s NATS URLs = %q and %q, want %q", host.NodeID, host.EngineControl.NATSURL, host.DatabaseHost.NATSURL, want)
+		}
+	}
+}
+
+func hostRegion(bindings []vmengineconfig.Binding, nodeID string) string {
+	for _, binding := range bindings {
+		if binding.NodeID == nodeID {
+			return binding.Region
+		}
+	}
+	return ""
 }

@@ -14,6 +14,9 @@ import (
 func TestBranchRestoreRequiresEveryTargetAndParentBoundSignatures(t *testing.T) {
 	record := journalFixture(t)
 	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	record.Request.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	record.Request.JournalCut = "journal-cut-1"
+	record.Request.RestoreEpoch = 1
 	nonce := strings.Repeat("a", 64)
 	now := time.Now()
 	keys := map[string]ReadinessKey{}
@@ -24,9 +27,9 @@ func TestBranchRestoreRequiresEveryTargetAndParentBoundSignatures(t *testing.T) 
 			t.Fatal(err)
 		}
 		keys[target.ServerIdentity] = ReadinessKey{KeyID: target.MemberID, PublicKey: public}
-		proof := BranchRestoreEvidence{RecoveryPointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: target.ServerIdentity, Region: target.Region, SourceSnapshotDigest: strings.Repeat("b", 64), RestoredSnapshotDigest: strings.Repeat("c", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: now.UnixMilli()}
+		proof := BranchRestoreEvidence{RecoveryPointID: record.Request.RecoveryPointID, JournalCut: record.Request.JournalCut, RestoreEpoch: record.Request.RestoreEpoch, SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, OperationID: PlacementOperationID(record.Request), MemberIdentity: target.ServerIdentity, Region: target.Region, SourceSnapshotDigest: strings.Repeat("b", 64), RestoredSnapshotDigest: strings.Repeat("c", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: now.UnixMilli()}
 		if record.BranchSource == nil {
-			source := BranchSourceEvidence{SchemaVersion: 1, Environment: proof.Environment, TenantID: proof.TenantID, ProjectID: proof.ProjectID, ParentDatabaseID: proof.ParentDatabaseID, DatabaseID: proof.DatabaseID, KeyVersion: proof.KeyVersion, OperationID: proof.OperationID, MemberIdentity: proof.MemberIdentity, Region: proof.Region, RecoveryPointID: proof.RecoveryPointID, SourceSnapshotDigest: proof.SourceSnapshotDigest, CutDigest: proof.CutDigest, Nonce: nonce, ObservedAtUnixMS: proof.ObservedAtUnixMS}
+			source := BranchSourceEvidence{SchemaVersion: 1, Environment: proof.Environment, TenantID: proof.TenantID, ProjectID: proof.ProjectID, ParentDatabaseID: proof.ParentDatabaseID, DatabaseID: proof.DatabaseID, KeyVersion: proof.KeyVersion, OperationID: proof.OperationID, MemberIdentity: proof.MemberIdentity, Region: proof.Region, RecoveryPointID: proof.RecoveryPointID, JournalCut: proof.JournalCut, RestoreEpoch: proof.RestoreEpoch, SourceSnapshotDigest: proof.SourceSnapshotDigest, CutDigest: proof.CutDigest, Nonce: nonce, ObservedAtUnixMS: proof.ObservedAtUnixMS}
 			data, err := json.Marshal(source)
 			if err != nil {
 				t.Fatal(err)
@@ -62,6 +65,32 @@ func TestBranchRestoreRequiresEveryTargetAndParentBoundSignatures(t *testing.T) 
 	}
 }
 
+func TestCaptureBranchSourceBindsAuthenticatedRestorePoint(t *testing.T) {
+	parent := journalFixture(t)
+	parent.State = "ready"
+	child := journalFixture(t)
+	child.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FB2"
+	child.Request.Name = "branch"
+	child.Request.ParentDatabaseID = parent.DatabaseID
+	child.Request.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	child.Request.JournalCut = "journal-cut-1"
+	child.Request.RestoreEpoch = 7
+	journal := &branchParentJournal{Journal: NewMemoryJournal(), parent: parent}
+	pipeline := &Pipeline{config: Config{Journal: journal, BranchRestore: &BranchRestoreConfig{Capture: func(_ context.Context, got, source Record, nonce string) (SignedReadiness, error) {
+		if got.Request.RecoveryPointID != child.Request.RecoveryPointID || got.Request.JournalCut != child.Request.JournalCut || got.Request.RestoreEpoch != child.Request.RestoreEpoch || source.DatabaseID != parent.DatabaseID {
+			return SignedReadiness{}, ErrInvalid
+		}
+		payload, err := json.Marshal(BranchSourceEvidence{SchemaVersion: 1, Environment: got.Request.Environment, TenantID: got.Request.TenantID, ProjectID: got.Request.ProjectID, ParentDatabaseID: got.Request.ParentDatabaseID, DatabaseID: got.DatabaseID, KeyVersion: got.KeyVersion, OperationID: PlacementOperationID(got.Request), MemberIdentity: source.Targets[0].ServerIdentity, Region: source.Targets[0].Region, RecoveryPointID: got.Request.RecoveryPointID, JournalCut: got.Request.JournalCut, RestoreEpoch: got.Request.RestoreEpoch, SourceSnapshotDigest: strings.Repeat("b", 64), CutDigest: strings.Repeat("d", 64), Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli()})
+		return SignedReadiness{Payload: payload, Signature: make([]byte, ed25519.SignatureSize)}, err
+	}, Restore: func(context.Context, Record, string) ([]SignedReadiness, error) { return nil, ErrInvalid }}, CheckAuthority: func(context.Context) error { return nil }}}
+	if err := pipeline.captureBranchSource(t.Context(), &child); err != nil {
+		t.Fatal(err)
+	}
+	if child.BranchSource == nil {
+		t.Fatal("capture did not persist branch source")
+	}
+}
+
 func TestBranchAdmissionWithoutRestoreCannotAllocateEmptyDatabase(t *testing.T) {
 	journal := NewMemoryJournal()
 	pipeline, err := New(pipelineConfig(t, journal))
@@ -85,6 +114,9 @@ type branchParentJournal struct {
 }
 
 func (j branchParentJournal) List(context.Context) ([]Record, error) { return []Record{j.parent}, nil }
+func (j branchParentJournal) Save(context.Context, string, uint64, Record) (uint64, error) {
+	return 1, nil
+}
 
 func TestBranchParentScopeAndImmutablePlacement(t *testing.T) {
 	parent := journalFixture(t)
@@ -120,6 +152,9 @@ func TestBranchParentScopeAndImmutablePlacement(t *testing.T) {
 func TestBranchRestoreTransportBindsHostAndAuthorityOperation(t *testing.T) {
 	record := journalFixture(t)
 	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	record.Request.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+	record.Request.JournalCut = "journal-cut-1"
+	record.Request.RestoreEpoch = 1
 	target := record.Targets[0]
 	config := HostConfig{Environment: record.Request.Environment, Region: target.Region, MemberID: target.MemberID}
 	request := BranchRestoreRequest{Capture: true, Admission: Admission{CreatedAt: record.CreatedAt.UnixMilli(), Request: record.Request, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}, AuthorityOperationID: PlacementOperationID(record.Request), Nonce: strings.Repeat("a", 64)}

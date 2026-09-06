@@ -223,7 +223,7 @@ func TestBillingDeletionResumesAfterEachIrreversibleStepFailure(t *testing.T) {
 			deadline := base.Add(30 * 24 * time.Hour)
 			clock := &testClock{now: deadline}
 			catalog := &testCatalog{databases: []Database{{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanPaid, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}}}
-			executor, mailer, audit, store := &testExecutor{fail: map[string]int{failedStep: 1}}, &testMailer{}, &testAudit{}, &MemoryStore{}
+			executor, mailer, audit, store := &testExecutor{fail: map[string]int{failedStep: 1}, observed: failedStep != "purge"}, &testMailer{}, &testAudit{}, &MemoryStore{}
 			reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
 			if _, err := reaper.Run(context.Background()); err != nil {
 				t.Fatal(err)
@@ -293,6 +293,25 @@ func TestRestoredCoverageCannotUndoCryptoShredFence(t *testing.T) {
 	}
 	if store.Snapshot().Entries["billing-db"].Phase != PhaseDeleted {
 		t.Fatalf("state=%+v", store.Snapshot().Entries["billing-db"])
+	}
+}
+
+func TestNoEffectObservationRetriesWhileBillingStillDue(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	catalog := &testCatalog{databases: []Database{{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}}}
+	executor := &testExecutor{fail: map[string]int{"shred": 1}}
+	audit, store := &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, audit)
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reaper.Run(context.Background()); err == nil {
+		t.Fatal("expected crypto shred failure")
+	}
+	if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
+		t.Fatalf("retry due deletion: result=%+v err=%v", result, err)
 	}
 }
 

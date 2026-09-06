@@ -87,11 +87,14 @@ type Owner struct {
 	// any revision change or newly assigned database before fencing.
 	Revalidate func(context.Context, string, string, uint64) error
 	Fence      func(context.Context, string, string, []Replacement) error
-	Terminate  func(context.Context, string) error
+	// Observe rereads the exact provider identity after an unknown termination
+	// outcome. A retry is allowed only while that member is still present.
+	Observe   func(context.Context, string) (bool, error)
+	Terminate func(context.Context, string) error
 }
 
 func (o *Owner) RemoveMember(ctx context.Context, operationID string, member MemberObservation, generation uint64, survivors ...MemberObservation) error {
-	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Terminate == nil {
+	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Observe == nil || o.Terminate == nil {
 		return ErrInvalid
 	}
 	request := RemovalRequest{OperationID: operationID, Member: member, Generation: generation, Survivors: append([]MemberObservation(nil), survivors...)}
@@ -125,6 +128,13 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	}
 	if _, err := o.Journal.Advance(ctx, operationID, StageFenced); err != nil {
 		return err
+	}
+	present, err := o.Observe(ctx, member.Identity)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return ErrMissing
 	}
 	if err := o.Terminate(ctx, member.Identity); err != nil {
 		return err

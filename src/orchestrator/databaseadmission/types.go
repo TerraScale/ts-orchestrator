@@ -24,14 +24,20 @@ var ErrConflict = errors.New("database admission: immutable create conflict")
 var ErrForbidden = errors.New("database admission: organization admission denied")
 
 type Request struct {
-	ParentDatabaseID string   `json:"parent_database_id,omitempty"`
-	Environment      string   `json:"environment"`
-	TenantID         string   `json:"tenant_id"`
-	ProjectID        string   `json:"project_id"`
-	Name             string   `json:"name"`
-	OperationID      string   `json:"operation_id"`
-	Regions          []string `json:"regions"`
-	Residency        string   `json:"residency"`
+	ParentDatabaseID string `json:"parent_database_id,omitempty"`
+	// These fields are authenticated restore provenance. They are required for
+	// branch admissions and are persisted with the immutable request so a retry
+	// cannot select a newer source point.
+	RecoveryPointID string   `json:"recovery_point_id,omitempty"`
+	JournalCut      string   `json:"journal_cut,omitempty"`
+	RestoreEpoch    uint64   `json:"restore_epoch,omitempty"`
+	Environment     string   `json:"environment"`
+	TenantID        string   `json:"tenant_id"`
+	ProjectID       string   `json:"project_id"`
+	Name            string   `json:"name"`
+	OperationID     string   `json:"operation_id"`
+	Regions         []string `json:"regions"`
+	Residency       string   `json:"residency"`
 }
 type Target struct {
 	ServerIdentity string

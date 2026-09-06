@@ -851,12 +851,26 @@ service PlacementControlService {
 // Authenticated private lifecycle control. Every mutation is bound to the
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 service LifecycleControlService {
+  rpc RestoreToTarget(RestoreToTargetRequest) returns (LifecycleControlResponse);
   rpc EnsureSnapshot(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc VerifySnapshotPlacement(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc CloseDatabase(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc StopNativeBackup(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc Reactivate(LifecycleReactivateRequest) returns (LifecycleControlResponse);
   rpc DeleteOwnedData(LifecycleControlRequest) returns (LifecycleControlResponse);
+}
+
+message RestoreToTargetRequest {
+  LifecycleControlContext context = 1;
+  string operation_id = 2;
+  string source_owner = 3;
+  string source_database = 4;
+  string recovery_point_id = 5;
+  string recovery_point_digest = 6;
+  string target_owner = 7;
+  string target_database = 8;
+  string journal_cut = 9;
+  uint64 restore_epoch = 10;
 }
 
 message LifecycleControlContext {

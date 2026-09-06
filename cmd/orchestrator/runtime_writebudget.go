@@ -59,7 +59,7 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		IncludedWriteUnits     string           `json:"includedWriteUnits"`
 		IncludedAllowanceUnits int64            `json:"includedAllowanceUnits"`
 		PaidExcessEnabled      bool             `json:"paidExcessEnabled"`
-		OrganizationSpendNano  int64            `json:"organizationSpendNano"`
+		OrganizationSpendNano  *int64           `json:"organizationSpendNano"`
 		SpendCapCents          int64            `json:"spendCapCents"`
 		RateNanoDollar         int64            `json:"rateNanoDollar"`
 		DatabaseSpendCapsCents map[string]int64 `json:"databaseSpendCapsCents"`
@@ -73,14 +73,24 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	}
 	next := r.policy
 	next.CycleID, next.IncludedAllowanceUnits, next.RateNanoDollar = envelope.CycleID, included, published.RateNanoDollar
-	next.PaidExcessEnabled, next.OrganizationSpendNano = published.PaidExcessEnabled, published.OrganizationSpendNano
+	next.PaidExcessEnabled = published.PaidExcessEnabled
+	if published.OrganizationSpendNano != nil {
+		cap := *published.OrganizationSpendNano
+		next.OrganizationSpendCap = &cap
+	} else {
+		next.OrganizationSpendCap = nil
+	}
 	if published.DatabaseSpendCapsCents != nil {
-		next.DatabaseCaps = make(map[string]int64, len(published.DatabaseSpendCapsCents))
+		next.DatabaseSpendCaps = make(map[string]*int64, len(published.DatabaseSpendCapsCents))
 		for database, cap := range published.DatabaseSpendCapsCents {
 			if cap < 0 {
 				return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid database cap")
 			}
-			next.DatabaseCaps[database] = cap
+			if cap > (1<<63-1)/10_000_000 {
+				return writebudget.PolicyResult{}, errors.New("runtime write budget: database cap overflow")
+			}
+			nano := cap * 10_000_000
+			next.DatabaseSpendCaps[database] = &nano
 		}
 	}
 	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, envelope.PolicyGeneration, next); err != nil {

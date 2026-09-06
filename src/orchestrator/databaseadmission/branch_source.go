@@ -27,6 +27,8 @@ type BranchSourceEvidence struct {
 	MemberIdentity       string `json:"member_identity"`
 	Region               string `json:"region"`
 	RecoveryPointID      string `json:"recovery_point_id"`
+	JournalCut           string `json:"journal_cut"`
+	RestoreEpoch         uint64 `json:"restore_epoch"`
 	SourceSnapshotDigest string `json:"source_snapshot_digest"`
 	CutDigest            string `json:"cut_digest"`
 	Nonce                string `json:"nonce"`
@@ -48,7 +50,7 @@ func validateBranchSource(r Record, source *BranchSource, keys map[string]Readin
 			return proof, ErrInvalid
 		}
 	}
-	if proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Nonce != source.Nonce || !canonicalID.MatchString(proof.RecoveryPointID) || !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.CutDigest) || proof.ObservedAtUnixMS <= 0 {
+	if !validBranchProvenance(r.Request) || proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Nonce != source.Nonce || proof.RecoveryPointID != r.Request.RecoveryPointID || proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || !canonicalID.MatchString(proof.RecoveryPointID) || !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.CutDigest) || proof.ObservedAtUnixMS <= 0 {
 		return proof, ErrInvalid
 	}
 	if _, err := HostSubject(proof.MemberIdentity); err != nil {
@@ -61,6 +63,18 @@ func validateBranchSource(r Record, source *BranchSource, keys map[string]Readin
 		}
 	}
 	return proof, nil
+}
+
+func validBranchProvenance(r Request) bool {
+	if r.ParentDatabaseID == "" || !canonicalID.MatchString(r.RecoveryPointID) || r.RestoreEpoch == 0 || len(r.JournalCut) == 0 || len(r.JournalCut) > 255 {
+		return false
+	}
+	for _, c := range r.JournalCut {
+		if c < 33 || c > 126 {
+			return false
+		}
+	}
+	return true
 }
 func (p *Pipeline) captureBranchSource(ctx context.Context, r *Record) error {
 	config := p.config.BranchRestore

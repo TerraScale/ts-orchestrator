@@ -74,7 +74,7 @@ func RemoteBranchRestore(nc *nats.Conn) func(context.Context, Record, string) ([
 
 func validateBranchRestoreRequest(c HostConfig, request BranchRestoreRequest) error {
 	a := request.Admission
-	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
+	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || !validBranchProvenance(a.Request) || a.ParentDatabaseID == "" || a.ParentDatabaseID == a.DatabaseID || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !slices.Contains(a.Regions, a.Region) || request.AuthorityOperationID != PlacementOperationID(a.Request) || !validDigest(request.Nonce) {
 		return ErrInvalid
 	}
 	if request.Capture {

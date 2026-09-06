@@ -21,6 +21,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
+	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
 
 // PrivateFixture is a complete, private qualification declaration and its
@@ -37,12 +38,22 @@ type PrivateFixture struct {
 // loader: two members each in GRU, SFO, and FRA. artifact and release are the
 // exact TerraBase artifact identity that the run will load.
 func Prepare(artifact, release string) (PrivateFixture, error) {
+	return prepareAt("", artifact, release)
+}
+
+// PrepareAt is the CLI-facing variant. parent must be an existing private
+// directory; a uniquely named child is created below it.
+func PrepareAt(parent, artifact, release string) (PrivateFixture, error) {
+	return prepareAt(parent, artifact, release)
+}
+
+func prepareAt(parent, artifact, release string) (PrivateFixture, error) {
 	bindings := []vmengineconfig.Binding{
 		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"}, {NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},
 		{NodeID: "sfo-member-1", Region: "SFO", Address: "10.77.1.10"}, {NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
 		{NodeID: "fra-member-1", Region: "FRA", Address: "10.77.2.10"}, {NodeID: "fra-member-2", Region: "FRA", Address: "10.77.2.11"},
 	}
-	root, err := os.MkdirTemp("", "terrascale-vm-qualification-")
+	root, err := os.MkdirTemp(parent, "terrascale-vm-qualification-")
 	if err != nil {
 		return PrivateFixture{}, fmt.Errorf("create private fixture root: %w", err)
 	}
@@ -123,6 +134,10 @@ func Prepare(artifact, release string) (PrivateFixture, error) {
 		return write(name+".nkey", raw)
 	}
 	for i, b := range bindings {
+		gateway, err := regionGateway(b.Region)
+		if err != nil {
+			return PrivateFixture{}, err
+		}
 		member := fmt.Sprintf("%026d", i+1)
 		memberID := "spiffe://terrascale.tech/qualification/terrabase-member/" + d.Cluster + "/" + member
 		memberCert, memberKey, err := issue(fmt.Sprintf("%d-member", i), memberID, int64(i+2), []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, net.ParseIP(b.Address))
@@ -159,7 +174,8 @@ func Prepare(artifact, release string) (PrivateFixture, error) {
 		if err != nil {
 			return PrivateFixture{}, err
 		}
-		h := vmengineconfig.Host{NodeID: b.NodeID, Member: member, ObserverIdentity: observerID, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: observerCert, ObserverPrivateKeyFile: observerKey, CertificateFile: memberCert, PrivateKeyFile: memberKey, CAFile: caFile, OrchestratorPrincipals: []string{controlID}, EngineControl: &vmengineconfig.EngineControlCredentials{Identity: controlID, CertificateFile: controlCert, PrivateKeyFile: controlKey, NATSURL: "tls://" + bindings[0].Address + ":4222", NATSAccount: "$G", NKeyFile: hostNKey, NATSCertificateFile: natsCert, NATSPrivateKeyFile: natsKey, NATSCAFile: caFile}, DatabaseHost: &vmengineconfig.DatabaseHostCredentials{DataRoot: "/var/lib/terrascale/terrabase/member", NATSURL: "tls://" + bindings[0].Address + ":4222", NATSAccount: "$G", NKeyFile: dbNKey, LifecycleNKeyFile: lifecycleNKey, CertificateFile: dbCert, PrivateKeyFile: dbKey, CAFile: caFile, CatalogPath: "/var/lib/terrascale/orchestrator/keys/catalog.json", EngineSocket: "/run/terrascale-database/engine.sock", IngressSocket: "/var/lib/terrascale/orchestrator/database/ingress.sock", IngressUID: 62013}}
+		natsURL := "tls://" + gateway + ":4222"
+		h := vmengineconfig.Host{NodeID: b.NodeID, Member: member, ObserverIdentity: observerID, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: observerCert, ObserverPrivateKeyFile: observerKey, CertificateFile: memberCert, PrivateKeyFile: memberKey, CAFile: caFile, OrchestratorPrincipals: []string{controlID}, EngineControl: &vmengineconfig.EngineControlCredentials{Identity: controlID, CertificateFile: controlCert, PrivateKeyFile: controlKey, NATSURL: natsURL, NATSAccount: "$G", NKeyFile: hostNKey, NATSCertificateFile: natsCert, NATSPrivateKeyFile: natsKey, NATSCAFile: caFile}, DatabaseHost: &vmengineconfig.DatabaseHostCredentials{DataRoot: "/var/lib/terrascale/terrabase/member", NATSURL: natsURL, NATSAccount: "$G", NKeyFile: dbNKey, LifecycleNKeyFile: lifecycleNKey, CertificateFile: dbCert, PrivateKeyFile: dbKey, CAFile: caFile, CatalogPath: "/var/lib/terrascale/orchestrator/keys/catalog.json", EngineSocket: "/run/terrascale-database/engine.sock", IngressSocket: "/var/lib/terrascale/orchestrator/database/ingress.sock", IngressUID: 62013}}
 		d.Hosts = append(d.Hosts, h)
 	}
 	raw, err := json.Marshal(d)
@@ -176,6 +192,15 @@ func Prepare(artifact, release string) (PrivateFixture, error) {
 	}
 	removeOnError = false
 	return f, nil
+}
+
+func regionGateway(region string) (string, error) {
+	switch region {
+	case "GRU", "SFO", "FRA":
+		return vmnet.StableGateway(vmnet.RegionCode(region)), nil
+	default:
+		return "", fmt.Errorf("unsupported qualification region %q", region)
+	}
 }
 
 // Remove deletes only the private root created by Prepare.

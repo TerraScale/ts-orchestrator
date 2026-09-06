@@ -110,6 +110,18 @@ func TestZeroAllowancePAYGAllocatesPaidUnits(t *testing.T) {
 	}
 }
 
+func TestZeroAllowanceWithoutPaidConsentDeniesWrites(t *testing.T) {
+	a, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "free", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-free": 1}, IncludedAllowanceUnits: 0, PaidExcessEnabled: false, RateNanoDollar: 1000, AllowanceNanoDollar: 100000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := request("free", "db", "main", 1, time.Now().Add(time.Hour))
+	r.PolicyEpoch, r.ConsentEpoch, r.HolderID = 1, 1, "writer-free"
+	if _, err := a.Allocate(t.Context(), r); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("allocation error=%v", err)
+	}
+}
+
 func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 	t.Helper()
 	persist := NewMemoryPersister()
@@ -117,7 +129,9 @@ func testAuthority(t *testing.T) (*Authority, *MemoryPersister) {
 	for i := range 20 {
 		epochs[fmt.Sprintf("writer-concurrent-%d", i)] = 1
 	}
-	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, WriterEpochs: epochs, IncludedAllowanceUnits: 10, PaidExcessEnabled: false, RateNanoDollar: 1000, AllowanceNanoDollar: 100000, OrganizationSpendNano: 100000, DatabaseCaps: map[string]int64{"db": 8}})
+	organizationCap := int64(100000)
+	databaseCap := int64(80000)
+	authority, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 3, ConsentEpoch: 4, WriterEpoch: 1, WriterEpochs: epochs, IncludedAllowanceUnits: 10, PaidExcessEnabled: false, RateNanoDollar: 1000, AllowanceNanoDollar: 100000, OrganizationSpendCap: &organizationCap, DatabaseSpendCaps: map[string]*int64{"db": &databaseCap}})
 	if err != nil {
 		t.Fatal(err)
 	}

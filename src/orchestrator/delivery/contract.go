@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"regexp"
 	"strings"
 	"unicode"
@@ -206,6 +207,10 @@ func deserialize[T any](jsonText, code string) (*T, error) {
 	if err := rejectDuplicateJSON([]byte(jsonText)); err != nil {
 		return nil, &ValidationError{Code: code, Message: "The delivery document contains duplicate or aliased fields.", Remediation: "Use each version-1 field exactly once with its exact camelCase name."}
 	}
+	var raw any
+	if err := json.Unmarshal([]byte(jsonText), &raw); err != nil || !exactJSONFields(raw, reflect.TypeOf((*T)(nil)).Elem()) {
+		return nil, &ValidationError{Code: code, Message: "The delivery document contains an aliased field.", Remediation: "Use exact version-1 JSON field names."}
+	}
 	if err := checkJSONDepth(jsonText, maxJSONDepth); err != nil {
 		return nil, &ValidationError{
 			Code:        code,
@@ -232,6 +237,68 @@ func deserialize[T any](jsonText, code string) (*T, error) {
 		}
 	}
 	return &value, nil
+}
+
+func exactJSONFields(value any, typ reflect.Type) bool {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	switch typ.Kind() {
+	case reflect.Struct:
+		object, ok := value.(map[string]any)
+		if !ok {
+			return true
+		}
+		fields := map[string]reflect.Type{}
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			if field.PkgPath != "" {
+				continue
+			}
+			tag := strings.Split(field.Tag.Get("json"), ",")[0]
+			if tag == "" {
+				tag = field.Name
+			}
+			if tag != "-" {
+				fields[tag] = field.Type
+			}
+		}
+		for key, child := range object {
+			fieldType, ok := fields[key]
+			if !ok {
+				for canonical := range fields {
+					if strings.EqualFold(key, canonical) {
+						return false
+					}
+				}
+				continue
+			}
+			if !exactJSONFields(child, fieldType) {
+				return false
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		items, ok := value.([]any)
+		if !ok {
+			return true
+		}
+		for _, item := range items {
+			if !exactJSONFields(item, typ.Elem()) {
+				return false
+			}
+		}
+	case reflect.Map:
+		object, ok := value.(map[string]any)
+		if !ok {
+			return true
+		}
+		for _, item := range object {
+			if !exactJSONFields(item, typ.Elem()) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func checkJSONDepth(jsonText string, maxDepth int) error {

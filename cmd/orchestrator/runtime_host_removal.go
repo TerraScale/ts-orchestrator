@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"strconv"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
@@ -16,6 +15,10 @@ import (
 // supplied by an admitted production component; this adapter owns only the
 // durable stage choreography.
 type productionHostRemovalConfig struct {
+	// Observe resolves authenticated provider identity metadata (revision/ETag,
+	// generation and evidence) for an exact OCI instance. User freeform tags
+	// are never accepted as proof.
+	Observe    func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
 	Inventory  func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
 	Replace    func(context.Context, hostremoval.Replacement) error
 	Revalidate func(context.Context, string, string, uint64) error
@@ -23,15 +26,42 @@ type productionHostRemovalConfig struct {
 	Terminate  func(context.Context, string) error
 }
 
-type productionHostRemoval struct{ owner *hostremoval.Owner }
+type exactOCIMemberObserver interface {
+	ObserveMember(context.Context, string) (ocireconcile.ObservedMember, error)
+}
+
+// newProductionOCIObservationResolver binds removal evidence to an exact OCI
+// reread. The list observation supplies the admitted slot/Region; the exact
+// reread supplies provider ETag and ownership. Missing either fails closed.
+func newProductionOCIObservationResolver(gateway ocireconcile.ComputeGateway) func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
+	exact, ok := gateway.(exactOCIMemberObserver)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, listed ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
+		current, err := exact.ObserveMember(ctx, listed.ID)
+		if err != nil {
+			return hostremoval.MemberObservation{}, err
+		}
+		if current.ID != listed.ID || current.CompartmentID == "" || current.ETag == "" || listed.Region == "" || listed.Index < 1 {
+			return hostremoval.MemberObservation{}, errors.New("runtime host removal: exact OCI observation is incomplete")
+		}
+		return hostremoval.MemberObservation{}, errors.New("runtime host removal: accepted generation resolver is required")
+	}
+}
+
+type productionHostRemoval struct {
+	owner     *hostremoval.Owner
+	observeFn func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
+}
 
 var _ ocireconcile.MemberRemovalOwner = (*productionHostRemoval)(nil)
 
 func newProductionHostRemoval(config productionHostRemovalConfig, journal *hostremoval.Journal) (*productionHostRemoval, error) {
-	if journal == nil || config.Inventory == nil || config.Replace == nil || config.Revalidate == nil || config.Fence == nil || config.Terminate == nil {
+	if journal == nil || config.Observe == nil || config.Inventory == nil || config.Replace == nil || config.Revalidate == nil || config.Fence == nil || config.Terminate == nil {
 		return nil, errors.New("runtime host removal: durable inventory, transition, fence and termination providers are required")
 	}
-	return &productionHostRemoval{owner: &hostremoval.Owner{
+	return &productionHostRemoval{observeFn: config.Observe, owner: &hostremoval.Owner{
 		Journal: journal, Inventory: config.Inventory, Replace: config.Replace,
 		Revalidate: config.Revalidate, Fence: config.Fence, Terminate: config.Terminate,
 	}}, nil
@@ -41,11 +71,6 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	if r == nil || r.owner == nil {
 		return errors.New("runtime host removal: owner is unavailable")
 	}
-	generationText := member.FreeformTags["terrascale-generation"]
-	generation, err := strconv.ParseUint(generationText, 10, 64)
-	if err != nil || generation == 0 {
-		return errors.New("runtime host removal: observed member generation is missing")
-	}
 	if operationID == "" {
 		return errors.New("runtime host removal: operation identity is missing")
 	}
@@ -53,12 +78,24 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	for _, candidate := range survivors {
 		survivorIDs = append(survivorIDs, candidate.ID)
 	}
+	observedMember, err := r.observe(ctx, member)
+	if err != nil {
+		return err
+	}
+	generation := observedMember.Generation
 	observations := make([]hostremoval.MemberObservation, 0, len(survivors))
 	for _, candidate := range survivors {
-		candidateGeneration, _ := strconv.ParseUint(candidate.FreeformTags["terrascale-generation"], 10, 64)
-		observations = append(observations, hostremoval.MemberObservation{Identity: candidate.ID, Region: candidate.Region, Slot: candidate.Index, Generation: candidateGeneration, EvidenceRefs: []string{candidate.FreeformTags["terrascale-observation-ref"]}})
+		observation, observeErr := r.observe(ctx, candidate)
+		if observeErr != nil {
+			return observeErr
+		}
+		observations = append(observations, observation)
 	}
-	return r.owner.RemoveMember(ctx, operationID, hostremoval.MemberObservation{Identity: member.ID, Region: member.Region, Slot: member.Index, Generation: generation, EvidenceRefs: []string{member.FreeformTags["terrascale-observation-ref"]}}, generation, observations...)
+	return r.owner.RemoveMember(ctx, operationID, observedMember, generation, observations...)
+}
+
+func (r *productionHostRemoval) observe(ctx context.Context, member ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
+	return r.observeFn(ctx, member)
 }
 
 // hostRemovalTransitionPorts documents the exact authenticated providers used

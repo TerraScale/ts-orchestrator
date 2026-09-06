@@ -155,6 +155,32 @@ func (c *Client) lifecycleCall(ctx context.Context, request *pb.LifecycleControl
 	return nil
 }
 
+// RestoreToTarget invokes the authenticated native restore operation. The
+// target assignment is carried in the accepted placement context; source and
+// recovery facts are explicit so a caller cannot silently restore a different
+// point or owner.
+func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation, sourceOwner, sourceDatabase, recoveryPointID, recoveryPointDigest, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64) (*pb.LifecycleControlResponse, error) {
+	if !validMetadata(sourceOwner, 255) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validMetadata(targetOwner, 255) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 {
+		return nil, errors.New("TBEP restore request is incomplete")
+	}
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return nil, err
+	}
+	request := &pb.RestoreToTargetRequest{Context: r.Context, OperationId: r.OperationId, SourceOwner: sourceOwner, SourceDatabase: sourceDatabase, RecoveryPointId: recoveryPointID, RecoveryPointDigest: recoveryPointDigest, TargetOwner: targetOwner, TargetDatabase: targetDatabase, JournalCut: journalCut, RestoreEpoch: restoreEpoch}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	ctx = metadata.NewOutgoingContext(ctx, c.scope)
+	response, err := c.lifecycle.RestoreToTarget(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if response.GetOperationId() != operation || (response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED) {
+		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
+	}
+	return response, nil
+}
+
 // EnsureSnapshot invokes the authenticated native snapshot operation.
 func (c *Client) EnsureSnapshot(ctx context.Context, a LifecycleAssignment, operation string) error {
 	r, err := c.lifecycleRequest(a, operation)

@@ -113,6 +113,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		return fail(fmt.Errorf("global database configuration: %w", err))
 	}
 	config.Database = database
+	// The child branch is admitted through the same durable provisioning
+	// pipeline as ordinary databases; it never mints a local identity.
+	var databaseRef *productionDatabase
+	config.BranchDatabaseRef = &databaseRef
+	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef}
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient

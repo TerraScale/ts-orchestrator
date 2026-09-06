@@ -43,6 +43,7 @@ func MemberDisplayName(regionCode string, index int) string {
 
 type ObservedMember struct {
 	ID                 string
+	ETag               string
 	Region             string
 	DisplayName        string
 	Index              int
@@ -775,6 +776,22 @@ type ociMemberGateway struct {
 	ImageID       string
 	Adapter       *provider.OCIComputeAdapter
 	Epoch         provider.ProviderEpoch
+}
+
+// ObserveMember rereads one exact instance through the durable OCI adapter.
+// The adapter supplies the provider ETag used as the identity revision.
+func (g *ociMemberGateway) ObserveMember(ctx context.Context, id string) (ObservedMember, error) {
+	if g == nil || g.Adapter == nil || !provider.IsOCID(id, "instance") {
+		return ObservedMember{}, &provider.InvalidOperationError{Message: "exact OCI member observation is unavailable"}
+	}
+	instance, found, err := g.Adapter.GetInstance(ctx, id)
+	if err != nil {
+		return ObservedMember{}, err
+	}
+	if !found || instance.ID != id || instance.ETag == "" {
+		return ObservedMember{}, &provider.InvalidDataError{Message: "exact OCI member observation is not owned"}
+	}
+	return ObservedMember{ID: instance.ID, ETag: instance.ETag, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, Shape: instance.Shape, CompartmentID: g.CompartmentID}, nil
 }
 
 // NewOCIMemberGateway validates the compartment and launch image scope.

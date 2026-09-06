@@ -138,6 +138,7 @@ type productionGlobalWorkerConfig struct {
 	AutoscaleRegions    []string
 	ApplyScaleOutTarget func(string, int) error
 	WriteBudget         *runtimeWriteBudgetConfig
+	BranchDatabaseRef   **productionDatabase
 }
 type productionRuntime struct {
 	connection     *globalclient.Plan
@@ -332,6 +333,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	if config.BranchDatabaseRef != nil {
+		*config.BranchDatabaseRef = database
+	}
 	if config.HostRemoval != nil {
 		issuer, issuerOK := transition.issuer.(interface {
 			Head(context.Context, string) (placementtransition.Signed, error)

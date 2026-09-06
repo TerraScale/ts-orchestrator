@@ -41,11 +41,10 @@ type Policy struct {
 	// and avoids fractional-cent rounding at grant boundaries.
 	AllowanceNanoDollar    int64
 	RateNanoDollar         int64
-	DatabaseCaps           map[string]int64
 	IncludedAllowanceUnits int64
 	PaidExcessEnabled      bool
-	OrganizationSpendNano  int64
-	DatabaseSpendNano      map[string]int64
+	OrganizationSpendCap   *int64
+	DatabaseSpendCaps      map[string]*int64
 }
 
 // VerifyAllocation checks the detached TSCS command signature over the exact
@@ -267,11 +266,6 @@ func New(persist Persister, policy Policy) (*Authority, error) {
 	if policy.RateNanoDollar < 0 || policy.AllowanceNanoDollar < 0 || policy.RateNanoDollar > 0 && policy.AllowanceNanoDollar == 0 {
 		return nil, ErrInvalid
 	}
-	for database, cap := range policy.DatabaseCaps {
-		if database == "" || cap <= 0 {
-			return nil, ErrInvalid
-		}
-	}
 	if len(policy.WriterEpochs) == 0 {
 		return nil, ErrInvalid
 	}
@@ -324,23 +318,19 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 			}
 		}
 		nanoCost, ok := multiply(units, policy.RateNanoDollar)
-		if policy.IncludedAllowanceUnits > 0 {
+		{
 			nanoCost, ok = multiply(paid, policy.RateNanoDollar)
 		}
 		if policy.RateNanoDollar > 0 && (!ok || state.UsedNanoDollar > policy.AllowanceNanoDollar-nanoCost) {
 			return ErrExhausted
 		}
 		if policy.PaidExcessEnabled && paid > 0 {
-			if policy.OrganizationSpendNano > 0 && state.UsedNanoDollar > policy.OrganizationSpendNano-nanoCost {
+			if policy.OrganizationSpendCap != nil && state.UsedNanoDollar > *policy.OrganizationSpendCap-nanoCost {
 				return ErrExhausted
 			}
-			if cap, ok := policy.DatabaseSpendNano[request.DatabaseID]; ok && state.DatabaseSpendNano[request.DatabaseID] > cap-nanoCost {
+			if cap, ok := policy.DatabaseSpendCaps[request.DatabaseID]; ok && cap != nil && state.DatabaseSpendNano[request.DatabaseID] > *cap-nanoCost {
 				return ErrExhausted
 			}
-		}
-		cap, capped := policy.DatabaseCaps[request.DatabaseID]
-		if capped && state.DatabaseUnits[request.DatabaseID] > cap-units {
-			return ErrExhausted
 		}
 		writerEpoch, admitted := policy.WriterEpochs[request.HolderID]
 		if !admitted || writerEpoch == 0 {
@@ -462,7 +452,7 @@ func (a *Authority) validateState(state *State) error {
 		if !admitted || expectedWriterEpoch == 0 {
 			return ErrInvalid
 		}
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && grant.WriterEpoch != expectedWriterEpoch || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))

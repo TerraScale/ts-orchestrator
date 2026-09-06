@@ -431,18 +431,18 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 	}
 	state.Entries[database.ID] = entry
 	if entry.BillingGrace && entry.Phase == PhaseDeleting && billingIrreversibleFence(entry) {
-		due := database.BillingDeletionEligible && database.BillingGraceDeadline != nil && !now.Before(*database.BillingGraceDeadline)
-		if due {
-			if err := r.deleteLocked(ctx, state, database, now); err != nil {
-				return "", err
-			}
-			return "deleted", nil
-		}
 		confirmed, err := r.billingDestructionConfirmed(ctx, entry, database.ID)
 		if err != nil {
 			return "", err
 		}
 		if !confirmed {
+			due := database.BillingDeletionEligible && database.BillingGraceDeadline != nil && !now.Before(*database.BillingGraceDeadline)
+			if due {
+				if err := r.deleteLocked(ctx, state, database, now); err != nil {
+					return "", err
+				}
+				return "deleted", nil
+			}
 			if err := r.cancelBillingDeletionLocked(ctx, state, database, now); err != nil {
 				return "", err
 			}
@@ -672,8 +672,8 @@ func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Da
 		run  func(context.Context, string) error
 	}{
 		{"delete/cdn-purge", func(ctx context.Context, key string) error { return r.executor.PurgeCDN(ctx, database.ID, key) }},
-		{"delete/crypto-shred", func(ctx context.Context, key string) error { return r.executor.DestroyDEK(ctx, database.ID, key) }},
-		{"delete/data", func(ctx context.Context, key string) error { return r.executor.DeleteOwnedData(ctx, database.ID, key) }},
+		{r.operationName(entry, "delete/crypto-shred"), func(ctx context.Context, key string) error { return r.executor.DestroyDEK(ctx, database.ID, key) }},
+		{r.operationName(entry, "delete/data"), func(ctx context.Context, key string) error { return r.executor.DeleteOwnedData(ctx, database.ID, key) }},
 	} {
 		if err := r.operationLocked(ctx, state, database.ID, operation.name, operation.run, now); err != nil {
 			return err
@@ -804,14 +804,13 @@ func billingIrreversibleFence(entry Entry) bool {
 }
 
 func (r *Reconciler) billingDestructionConfirmed(ctx context.Context, entry Entry, databaseID string) (bool, error) {
-	for _, base := range []string{"delete/crypto-shred", "delete/data"} {
-		key := r.operationName(entry, base)
-		if entry.Operations[key].Status == operationDone {
-			continue
-		}
-		if entry.Operations[key].Status != "" {
-			return r.executor.ObserveDEKDestruction(ctx, databaseID, key)
-		}
+	key := r.operationName(entry, "delete/crypto-shred")
+	status := entry.Operations[key].Status
+	if status == operationDone {
+		return true, nil
+	}
+	if status != "" {
+		return r.executor.ObserveDEKDestruction(ctx, databaseID, key+"/"+databaseID)
 	}
 	return true, nil
 }

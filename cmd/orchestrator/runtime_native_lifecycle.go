@@ -269,7 +269,8 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 						break
 					}
 				}
-				if host.ServerIdentity == "" || len(acceptedTarget.AcceptedProof) == 0 {
+				proofDigest := sha256.Sum256(acceptedTarget.AcceptedProof)
+				if host.ServerIdentity == "" || len(acceptedTarget.AcceptedProof) == 0 || acceptedTarget.AcceptedRevision == 0 || acceptedTarget.AcceptedEpoch == 0 || acceptedTarget.AcceptedGeneration == 0 || acceptedTarget.AcceptedProofDigest != hex.EncodeToString(proofDigest[:]) {
 					return nil, errors.New("native lifecycle accepted target is unavailable")
 				}
 				tlsConfig, err := host.LifecycleTLS.LoadTLS()
