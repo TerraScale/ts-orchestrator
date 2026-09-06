@@ -254,7 +254,7 @@ func (s *Server) serveOperation(writer http.ResponseWriter, request *http.Reques
 			s.writeError(writer, http.StatusConflict, "delivery_fenced", "Delivery authority is unavailable.", "Retry under the current regional writer.")
 			return
 		}
-		receipt, err := s.config.Journal.RecoverUnknown(operationID)
+		receipt, err := s.recoverUnknown(request.Context(), operationID)
 		if err != nil {
 			if errors.Is(err, ErrOperationLeaseActive) {
 				s.writeError(writer, http.StatusConflict, "operation_in_progress", "The operation is still running.", "Wait for the terminal receipt or retry recovery after the owner lease expires.")
@@ -300,6 +300,43 @@ func (s *Server) serveOperation(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	s.writeJSON(writer, http.StatusOK, operation.Receipt)
+}
+
+func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Receipt, error) {
+	op, ok, err := s.config.Journal.GetWithError(operationID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	lease := OperationLease{OwnerID: s.config.OwnerID + "-recovery", TTL: s.config.LeaseTTL}
+	claimed, err := s.config.Journal.Takeover(operationID, op.RequestDigest, lease)
+	if err != nil {
+		return nil, err
+	}
+	artifact, err := verifyArtifact(context.WithoutCancel(ctx), s.config.Fetcher, s.config.Trust(), claimed.Request)
+	if err != nil {
+		return nil, err
+	}
+	recovery, ok := s.config.Rollout.(RolloutRecovery)
+	if !ok {
+		return nil, errors.New("delivery: rollout recovery is unavailable")
+	}
+	check := s.checker(context.WithoutCancel(ctx), claimed.Request)
+	fenced, err := WithExecutionFence(context.WithoutCancel(ctx), fenceFor(claimed), check)
+	if err != nil {
+		return nil, err
+	}
+	rollback, err := recovery.Recover(fenced, claimed.Request, artifact, claimed.Rollout)
+	if err != nil {
+		return nil, err
+	}
+	receipt, err := buildReceipt(claimed.Request, RolloutResult{Status: StatusFailed, Checks: []*HealthCheck{{Name: "recovery", Status: "passed"}}, Rollback: rollback}, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.config.Journal.Finish(operationID, claimed.RequestDigest, receipt, leaseFor(claimed, ExecutorConfig{OwnerID: lease.OwnerID, LeaseTTL: lease.TTL})); err != nil {
+		return nil, err
+	}
+	return receipt, nil
 }
 
 func (s *Server) handleSubmit(writer http.ResponseWriter, request *http.Request) {
@@ -536,6 +573,18 @@ func (s *Executor) deliver(ctx context.Context, request *Request, operation *Ope
 	verified = true
 	fence := fenceFor(operation)
 	check := s.checker(ctx, request)
+	roller := s.config.Rollout
+	if rollout, ok := s.config.Rollout.(*Rollout); ok && rollout != nil {
+		copy := *rollout
+		copy.config.Progress = func(host string, mutated, completed bool) error {
+			priorDigest, priorManifest := "", ""
+			if request.Rollback != nil {
+				priorDigest, priorManifest = request.Rollback.ArtifactDigest, request.Rollback.ManifestDigest
+			}
+			return s.config.Journal.RecordRollout(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), host, priorDigest, priorManifest, artifact.Digest, mutated, completed)
+		}
+		roller = &copy
+	}
 	mirrorArtifact := s.config.Mirror.MirrorAllFenced
 	if s.config.MirrorMode == MirrorModeVerifyAll {
 		mirrorArtifact = s.config.Mirror.VerifyAllFenced
@@ -553,7 +602,7 @@ func (s *Executor) deliver(ctx context.Context, request *Request, operation *Ope
 	if err != nil {
 		return nil, err
 	}
-	result, err := rollSafely(ctx, s.config.Rollout, request, artifact, fence, check)
+	result, err := rollSafely(ctx, roller, request, artifact, fence, check)
 	if err != nil {
 		return buildReceipt(request, rolloutFailureResult(rolloutFailureCode(ctx, err), s.recoverOwnedRollout(ctx, request, artifact, operation)), true)
 	}

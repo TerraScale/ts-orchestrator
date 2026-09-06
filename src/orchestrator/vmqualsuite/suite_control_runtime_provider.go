@@ -72,7 +72,10 @@ func (p *runtimeControlProvider) VerifyCandidate(ctx context.Context, r bootstra
 	if err != nil {
 		return bootstrap.CandidateEvidence{}, err
 	}
-	candidate := bootstrap.CandidateEvidence{Region: r.Action.Region, IdentityDigest: evidence.IdentityDigest, StorageDigest: evidence.StorageDigest, HealthDigest: evidence.HealthDigest, CaughtUp: true, IdentityReady: true, StorageReady: true, HealthReady: true}
+	if evidence.Candidate == nil || !evidence.Candidate.CaughtUp || !evidence.Candidate.IdentityReady || !evidence.Candidate.StorageReady || !evidence.Candidate.HealthReady {
+		return bootstrap.CandidateEvidence{}, bootstrap.ErrControlRuntimeUnavailable
+	}
+	candidate := bootstrap.CandidateEvidence{Region: r.Action.Region, IdentityDigest: evidence.IdentityDigest, StorageDigest: evidence.StorageDigest, HealthDigest: evidence.HealthDigest, CaughtUp: evidence.Candidate.CaughtUp, IdentityReady: evidence.Candidate.IdentityReady, StorageReady: evidence.Candidate.StorageReady, HealthReady: evidence.Candidate.HealthReady}
 	if p.candidates == nil {
 		p.candidates = make(map[string]bootstrap.CandidateEvidence)
 	}

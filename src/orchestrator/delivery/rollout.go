@@ -20,6 +20,41 @@ type Rollout struct {
 	config RolloutConfig
 }
 
+func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *ReleaseArtifact, progress *RolloutProgress) (*Rollback, error) {
+	failed := func(err error) (*Rollback, error) { return &Rollback{Attempted: true, Status: RollbackFailed}, err }
+	if r == nil || request == nil || request.Rollback == nil || progress == nil {
+		return failed(errors.New("delivery: rollback state is incomplete"))
+	}
+	observer, ok := r.config.Control.(HostReleaseObserver)
+	if !ok {
+		return failed(errors.New("delivery: host release observation is unavailable"))
+	}
+	for i := len(progress.Hosts) - 1; i >= 0; i-- {
+		h := progress.Hosts[i]
+		if !h.Mutated {
+			continue
+		}
+		state, err := observer.ObserveRelease(ctx, h.Host)
+		if err != nil {
+			return failed(err)
+		}
+		if SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) {
+			continue
+		}
+		if !SameDigest(state.ArtifactDigest, artifact.Digest) {
+			return failed(fmt.Errorf("delivery: host %s has an unrecognized release", h.Host))
+		}
+		plan, err := hostPlanForArtifact(&ReleaseArtifact{Service: artifact.Service, Digest: request.Rollback.ArtifactDigest, Architecture: request.Rollback.Architecture})
+		if err != nil {
+			return failed(err)
+		}
+		if err := r.config.Control.Converge(ctx, h.Host, plan); err != nil {
+			return failed(err)
+		}
+	}
+	return &Rollback{Attempted: true, TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest), TargetManifestDigest: ptr(request.Rollback.ManifestDigest), Status: RollbackSucceeded}, nil
+}
+
 // RolloutConfig is the fully explicit rollout configuration.
 type RolloutConfig struct {
 	// Spec is the declared estate; its Regions and home Region shape the
@@ -53,6 +88,8 @@ type RolloutConfig struct {
 	// context is canceled. It is injectable so gate polling can be
 	// deterministic in tests.
 	Wait func(context.Context, time.Duration) error
+	// Progress persists host state before and after each mutation.
+	Progress func(host string, mutated, completed bool) error
 }
 
 // HostInventory lists the hosts of one Region in rollout order. The
@@ -72,6 +109,19 @@ type HostControl interface {
 	DrainStatus(ctx context.Context, host string) (DrainReport, error)
 	// Converge drives the host to one serialized runtime plan.
 	Converge(ctx context.Context, host string, plan []byte) error
+}
+
+type HostReleaseState struct {
+	ArtifactDigest string
+	ManifestDigest string
+}
+
+type HostReleaseObserver interface {
+	ObserveRelease(context.Context, string) (HostReleaseState, error)
+}
+
+type RolloutRecovery interface {
+	Recover(context.Context, *Request, *ReleaseArtifact, *RolloutProgress) (*Rollback, error)
 }
 
 // DrainReport is the drained/cordoned answer of one host.
@@ -466,6 +516,11 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 		label = step.host + " (canary)"
 	}
 	checks := []*HealthCheck{}
+	if r.config.Progress != nil {
+		if err := r.config.Progress(step.host, false, false); err != nil {
+			return checks, false, err
+		}
+	}
 
 	if err := r.config.Control.Cordon(ctx, step.host, true); err != nil {
 		failedChecks, failedErr := r.failStep(checks, "cordon:"+label, err)
@@ -492,6 +547,11 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 		failedChecks, failedErr := r.failStep(checks, "converge:"+label, err)
 		return failedChecks, true, failedErr
 	}
+	if r.config.Progress != nil {
+		if err := r.config.Progress(step.host, true, false); err != nil {
+			return checks, true, err
+		}
+	}
 	for _, gate := range r.config.Gates {
 		if gate == nil {
 			failedChecks, failedErr := r.failStep(checks, "gate:"+label, errors.New("delivery: rollout contains a nil gate"))
@@ -509,6 +569,11 @@ func (r *Rollout) step(ctx context.Context, step hostStep, artifact *ReleaseArti
 	if err := r.config.Control.Cordon(ctx, step.host, false); err != nil {
 		failedChecks, failedErr := r.failStep(checks, "uncordon:"+label, err)
 		return failedChecks, true, failedErr
+	}
+	if r.config.Progress != nil {
+		if err := r.config.Progress(step.host, true, true); err != nil {
+			return checks, true, err
+		}
 	}
 	return checks, true, nil
 }

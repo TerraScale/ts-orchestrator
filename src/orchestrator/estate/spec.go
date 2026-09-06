@@ -55,8 +55,18 @@ type Region struct {
 	Certificates []Certificate
 }
 
-// MemberPool declares plain systemd hosts. PrimaryShape is the Ampere shape;
-// FallbackShape is used when Ampere capacity is unavailable.
+// MemberShapeCandidate declares one qualified placement option for a member.
+// QualificationRef and CostRef point at operator-maintained evidence; the
+// estate never invents provider catalog or price data.
+type MemberShapeCandidate struct {
+	Shape            string
+	Architecture     string
+	QualificationRef string
+	CostRef          string
+}
+
+// MemberPool declares plain systemd hosts. Candidates are ordered from the
+// cheapest preferred placement to progressively more expensive fallbacks.
 type MemberPool struct {
 	Count           uint16
 	PrimaryShape    string
@@ -66,6 +76,7 @@ type MemberPool struct {
 	BootVolumeGiB   uint16
 	DataVolumeGiB   uint32
 	ControlReplicas uint16
+	Candidates      []MemberShapeCandidate
 }
 
 type Network struct {
@@ -333,9 +344,36 @@ func validateRegion(path string, region Region) error {
 	if region.Members.Count < 2 {
 		return invalid(path+".members.count", "must keep at least two members")
 	}
+	if len(region.Members.Candidates) > 0 {
+		if len(region.Members.Candidates) < 2 {
+			return invalid(path+".members.candidates", "must declare at least a primary and fallback candidate")
+		}
+		seen := make(map[string]struct{}, len(region.Members.Candidates))
+		for i, candidate := range region.Members.Candidates {
+			candidatePath := fmt.Sprintf("%s.members.candidates[%d]", path, i)
+			if !validShape(candidate.Shape) || candidate.Shape == "" {
+				return invalid(candidatePath+".shape", "must name a valid OCI shape")
+			}
+			if candidate.Architecture != "arm64" && candidate.Architecture != "amd64" {
+				return invalid(candidatePath+".architecture", "must be arm64 or amd64")
+			}
+			if candidate.QualificationRef == "" || candidate.CostRef == "" {
+				return invalid(candidatePath, "must include qualification and cost evidence")
+			}
+			if _, exists := seen[candidate.Shape]; exists {
+				return invalid(candidatePath+".shape", "duplicates another candidate")
+			}
+			seen[candidate.Shape] = struct{}{}
+		}
+		return validateRegionResources(path, region)
+	}
 	if !validShape(region.Members.PrimaryShape) || !validShape(region.Members.FallbackShape) || region.Members.PrimaryShape == region.Members.FallbackShape {
 		return invalid(path+".members", "must declare distinct primary and fallback OCI shapes")
 	}
+	return validateRegionResources(path, region)
+}
+
+func validateRegionResources(path string, region Region) error {
 	if region.Members.OCPUs == 0 || region.Members.MemoryGiB == 0 || region.Members.BootVolumeGiB == 0 || region.Members.DataVolumeGiB == 0 {
 		return invalid(path+".members", "must declare non-zero host resources")
 	}

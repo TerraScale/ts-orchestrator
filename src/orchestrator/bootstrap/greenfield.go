@@ -393,14 +393,6 @@ func PlanBootstrap(c BootstrapConfig) (Plan, error) {
 	if err := c.Validate(); err != nil {
 		return Plan{}, err
 	}
-	cloudInit1, err := renderCloudInit(c.CloudInit, "gru-member-1")
-	if err != nil {
-		return Plan{}, err
-	}
-	cloudInit2, err := renderCloudInit(c.CloudInit, "gru-member-2")
-	if err != nil {
-		return Plan{}, err
-	}
 	steps := []Step{
 		{ID: "compartment", Kind: ResourceCompartment, Name: c.CompartmentName},
 		{ID: "vcn", Kind: ResourceVCN, Name: c.VCNName, DependsOn: []string{"compartment"}, Compartment: c.CompartmentName, CIDR: c.VCNCIDR},
@@ -412,9 +404,12 @@ func PlanBootstrap(c BootstrapConfig) (Plan, error) {
 		id := "bucket-" + bucket.Name
 		steps = append(steps, Step{ID: id, Kind: ResourceBucket, Name: bucket.Name, DependsOn: []string{"compartment"}, Compartment: c.CompartmentName, Bucket: &bucket})
 	}
+	// Host user-data is supplied later by the admitted control seed. Keeping
+	// this planning model free of a second renderer prevents stale bootstrap
+	// instructions from reaching OCI.
 	steps = append(steps,
-		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB, CloudInit: cloudInit1}},
-		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB, CloudInit: cloudInit2}},
+		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
+		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
 	)
 	if c.Edge != nil {
 		edge := *c.Edge
@@ -466,159 +461,6 @@ func stableStepKey(c BootstrapConfig, step Step) string {
 	}{c.TenancyID, c.OCIRegion, step})
 	sum := sha256.Sum256(raw)
 	return "bootstrap-" + hex.EncodeToString(sum[:])[:48]
-}
-
-func renderCloudInit(c CloudInitConfig, hostname string) (string, error) {
-	if err := validateCloudInit(c); err != nil {
-		return "", err
-	}
-	publicKey, err := canonicalEd25519PublicKey(c.SignaturePublicKey)
-	if err != nil {
-		return "", ErrInvalidBootstrap
-	}
-	natsURL := c.NATSURL
-	if natsURL == "" {
-		natsURL = "nats://127.0.0.1:4222"
-	}
-
-	// The image is expected to contain curl, sha256sum, OpenSSL, and the
-	// standard install/mv utilities. Their absence makes the installer fail
-	// before the service is enabled. The signature is detached Ed25519 over
-	// the exact artifact bytes; the pinned key is never fetched from the URL.
-	return fmt.Sprintf(`#cloud-config
-preserve_hostname: false
-hostname: %s
-package_update: false
-packages: []
-users:
-  - default
-  - name: terrascale-node
-    system: true
-    shell: /usr/sbin/nologin
-    lock_passwd: true
-write_files:
-  - path: /etc/terrascale/ts-node.manifest
-    owner: root:root
-    permissions: '0600'
-    content: |
-      artifact: %s
-      signature: %s
-      sha256: %s
-      public_key: /etc/terrascale/ts-node.pub
-  - path: /etc/terrascale/ts-node.pub
-    owner: root:root
-    permissions: '0644'
-    content: |
-%s  - path: /usr/local/sbin/terrascale-install-ts-node
-    owner: root:root
-    permissions: '0750'
-    content: |
-      #!/bin/sh
-      set -eu
-      umask 077
-      artifact=$(/usr/bin/mktemp /run/terrascale-ts-node.XXXXXX)
-      signature=$(/usr/bin/mktemp /run/terrascale-ts-node.XXXXXX)
-      candidate=$(/usr/bin/mktemp /usr/local/bin/.ts-node.XXXXXX)
-      cleanup() {
-        /usr/bin/rm -f "$artifact" "$signature" "$candidate"
-      }
-      trap cleanup 0 1 2 3 15
-      /usr/bin/curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-redirs 3 --connect-timeout 10 --max-time 300 --max-filesize 67108864 --output "$artifact" %s
-      /usr/bin/curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-redirs 3 --connect-timeout 10 --max-time 300 --max-filesize 128 --output "$signature" %s
-      if ! /usr/bin/printf '%%s  %%s\\n' %s "$artifact" | /usr/bin/sha256sum --check --strict
-      then
-        exit 1
-      fi
-      /usr/bin/openssl pkeyutl -verify -pubin -inkey /etc/terrascale/ts-node.pub -in "$artifact" -sigfile "$signature"
-      /usr/bin/install -o root -g root -m 0755 "$artifact" "$candidate"
-      /usr/bin/mv -f "$candidate" /usr/local/bin/ts-node
-      /usr/bin/install -d -o terrascale-node -g terrascale-node -m 0700 /var/lib/terrascale/ts-node
-  - path: /etc/systemd/system/terrascale-ts-node.service
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=TerraScale node agent
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=exec
-      User=terrascale-node
-      Group=terrascale-node
-      ExecStart=/usr/local/bin/ts-node --node-id %s --node-class greenfield --nats-url %s
-      Restart=on-failure
-      RestartSec=5s
-      NoNewPrivileges=yes
-      ProtectSystem=strict
-      ProtectHome=yes
-      PrivateTmp=yes
-      PrivateDevices=yes
-      ProtectKernelTunables=yes
-      ProtectKernelModules=yes
-      ProtectControlGroups=yes
-      CapabilityBoundingSet=
-      SystemCallFilter=@system-service
-      RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-      RestrictSUIDSGID=yes
-      LockPersonality=yes
-      UMask=0077
-      ReadWritePaths=/var/lib/terrascale/ts-node
-
-      [Install]
-      WantedBy=multi-user.target
-runcmd:
-  - ["/usr/bin/install", "-d", "-o", "root", "-g", "root", "-m", "0750", "/etc/terrascale"]
-  - ["/usr/local/sbin/terrascale-install-ts-node"]
-  - ["/usr/bin/systemctl", "daemon-reload"]
-  - ["/usr/bin/systemctl", "enable", "--now", "terrascale-ts-node.service"]
-`, hostname, c.ArtifactURL, c.SignatureURL, c.SHA256,
-		indentCloudInit(publicKey, "      "), shellQuote(c.ArtifactURL), shellQuote(c.SignatureURL), c.SHA256,
-		hostname, systemdQuote(natsURL)), nil
-}
-
-// shellQuote returns one POSIX shell word. URLs are validated as HTTPS before
-// this function is called, but quoting still keeps the generated installer
-// safe if a valid URL contains a shell metacharacter.
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func systemdQuote(value string) string {
-	value = strings.ReplaceAll(value, `\`, `\\`)
-	value = strings.ReplaceAll(value, `"`, `\"`)
-	value = strings.ReplaceAll(value, `$`, `\$`)
-	value = strings.ReplaceAll(value, "`", "\\`")
-	return `"` + value + `"`
-}
-
-func indentCloudInit(value, prefix string) string {
-	lines := strings.Split(strings.TrimSuffix(value, "\n"), "\n")
-	for index := range lines {
-		lines[index] = prefix + lines[index]
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
-// RenderCloudInit exposes the exact document embedded in every host step for
-// callers that want to inspect it before submitting a plan.
-func RenderCloudInit(c CloudInitConfig, hostname string) (string, error) {
-	if !validTsNodeToken(hostname) {
-		return "", ErrInvalidBootstrap
-	}
-	return renderCloudInit(c, hostname)
-}
-
-func validTsNodeToken(value string) bool {
-	if value == "" || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' {
-		return false
-	}
-	for _, r := range value {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-			return false
-		}
-	}
-	return true
 }
 
 // ResourceReceipt contains provider identity only.  Secret material is never

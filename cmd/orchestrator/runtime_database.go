@@ -21,11 +21,19 @@ import (
 // This topology is resolved from admitted deployment configuration, never from
 // database-create input. Writer roles are explicit, independent of seat order.
 type productionDatabaseRegion struct {
-	Region           string
-	Writer, Follower productionDatabaseHost
-	Vault            keylease.ProvisionTarget
+	Region            string
+	Writer, Follower  productionDatabaseHost
+	Vault             keylease.ProvisionTarget
+	LifecycleEndpoint string
+	LifecycleIdentity string
+	LifecycleTLS      placementpublisher.TLSFiles
 }
-type productionDatabaseHost struct{ ServerIdentity, MemberID string }
+type productionDatabaseHost struct {
+	ServerIdentity, MemberID string
+	LifecycleEndpoint        string
+	LifecycleIdentity        string
+	LifecycleTLS             placementpublisher.TLSFiles
+}
 type productionDatabaseConfig struct {
 	ReadinessKeys                     map[string]databaseadmission.ReadinessKey
 	Inventory                         databaseInventoryFileConfig

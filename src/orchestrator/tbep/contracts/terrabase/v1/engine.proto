@@ -877,15 +877,8 @@ message LifecycleControlRequest {
   string operation_id = 2; // Stable durable operation identity.
 }
 
-message LifecycleRestoreTarget {
-  LifecycleControlContext context = 1;
-  string target_incarnation = 2; // Fresh target storage incarnation.
-  string operation_id = 3; // New restore operation identity.
-}
-
 message LifecycleReactivateRequest {
-  LifecycleControlRequest source = 1;
-  LifecycleRestoreTarget target = 2;
+  LifecycleControlRequest request = 1; // Resume the same retained database.
 }
 
 enum LifecycleStatus {

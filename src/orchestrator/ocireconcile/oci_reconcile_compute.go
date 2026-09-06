@@ -69,6 +69,19 @@ type MemberLaunchSpec struct {
 	NSGIDs             []string
 	AvailabilityDomain string
 	CloudInitBase64    string
+	Candidates         []MemberLaunchCandidate
+}
+
+// MemberLaunchCandidate is an ordered, independently qualified OCI launch
+// option. Capacity errors may advance to the next option; unknown outcomes
+// and quota errors must stop so a possibly accepted mutation is never
+// replaced by another request.
+type MemberLaunchCandidate struct {
+	Shape            string
+	ImageID          string
+	Architecture     string
+	QualificationRef string
+	CostRef          string
 }
 
 type ComputeDeclared struct {
@@ -77,6 +90,7 @@ type ComputeDeclared struct {
 	// shape whenever the two shapes span architectures (D-69).
 	ImageID           string
 	FallbackImageID   string
+	Candidates        []MemberLaunchCandidate
 	CloudInitByMember map[int]string
 }
 
@@ -226,11 +240,23 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	if pool.Count < provider.PlacementMinimumMemberHosts {
 		return OCIPlan{}, &errs.Argument{Message: "declared member pool is below the placement host floor"}
 	}
-	if _, ok := ShapeArch(pool.PrimaryShape); !ok {
-		return OCIPlan{}, &provider.InvalidDataError{Message: "declared primary shape " + pool.PrimaryShape + " has an unrecognized architecture"}
-	}
-	if _, ok := ShapeArch(pool.FallbackShape); !ok {
-		return OCIPlan{}, &provider.InvalidDataError{Message: "declared fallback shape " + pool.FallbackShape + " has an unrecognized architecture"}
+	if len(declared.Candidates) > 0 {
+		if len(declared.Candidates) < 2 {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "declared member candidates are incomplete"}
+		}
+		for _, candidate := range declared.Candidates {
+			architecture, ok := ShapeArch(candidate.Shape)
+			if !ok || candidate.Architecture != architecture || !provider.IsOCID(candidate.ImageID, "image") || candidate.QualificationRef == "" || candidate.CostRef == "" {
+				return OCIPlan{}, &provider.InvalidDataError{Message: "declared member candidate is unqualified or has an invalid architecture/image"}
+			}
+		}
+	} else {
+		if _, ok := ShapeArch(pool.PrimaryShape); !ok {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "declared primary shape " + pool.PrimaryShape + " has an unrecognized architecture"}
+		}
+		if _, ok := ShapeArch(pool.FallbackShape); !ok {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "declared fallback shape " + pool.FallbackShape + " has an unrecognized architecture"}
+		}
 	}
 	live := make(map[int]ObservedMember, len(observed.Members))
 	plan := OCIPlan{}
@@ -395,6 +421,8 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 		domain = observed.AvailabilityDomains[(index-1)%len(observed.AvailabilityDomains)]
 	}
 	cloudInit := declared.CloudInitByMember[index]
+	candidates := make([]MemberLaunchCandidate, len(declared.Candidates))
+	copy(candidates, declared.Candidates)
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
 		DisplayName:        MemberDisplayName(declared.Region.Code, index),
 		Index:              index,
@@ -402,6 +430,7 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 		FallbackShape:      pool.FallbackShape,
 		ImageID:            declared.ImageID,
 		FallbackImageID:    declared.FallbackImageID,
+		Candidates:         candidates,
 		OCPUs:              float64(pool.OCPUs),
 		MemoryGiB:          float64(pool.MemoryGiB),
 		SubnetID:           subnetID,
@@ -510,6 +539,9 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 // instead of launching an unbootable host. Quota errors are never retried
 // on another shape: they need an owner decision.
 func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberLaunchSpec) error {
+	if len(spec.Candidates) > 0 {
+		return r.launchCandidates(ctx, spec)
+	}
 	_, err := r.Compute.LaunchMember(ctx, spec)
 	if err == nil {
 		return nil
@@ -535,6 +567,38 @@ func (r *ComputeReconciler) launchWithFallback(ctx context.Context, spec MemberL
 	fallback.ImageID = image
 	_, err = r.Compute.LaunchMember(ctx, fallback)
 	return err
+}
+
+func (r *ComputeReconciler) launchCandidates(ctx context.Context, spec MemberLaunchSpec) error {
+	var lastCapacity error
+	for index, candidate := range spec.Candidates {
+		if candidate.Shape == "" || candidate.ImageID == "" || candidate.QualificationRef == "" || candidate.CostRef == "" {
+			return &provider.InvalidDataError{Message: "qualified member launch candidate is incomplete"}
+		}
+		architecture, ok := ShapeArch(candidate.Shape)
+		if !ok || candidate.Architecture != architecture {
+			return &provider.InvalidDataError{Message: "qualified member launch candidate architecture does not match its shape"}
+		}
+		attempt := spec
+		attempt.Shape = candidate.Shape
+		attempt.ImageID = candidate.ImageID
+		attempt.FallbackShape = ""
+		attempt.FallbackImageID = ""
+		attempt.Candidates = nil
+		_, err := r.Compute.LaunchMember(ctx, attempt)
+		if err == nil {
+			return nil
+		}
+		var capacity *OCIShapeCapacityError
+		if !errors.As(err, &capacity) {
+			return err
+		}
+		lastCapacity = err
+		if index == len(spec.Candidates)-1 {
+			break
+		}
+	}
+	return lastCapacity
 }
 
 const (
@@ -600,6 +664,11 @@ func renderTSNodeCloudInit(version, sha256Hex, artifactURL, signatureURL, public
 		b.WriteString("      " + line + "\n")
 	}
 	b.WriteString("runcmd:\n")
+	// These are the only host executables used by this seed. Fail before
+	// downloading anything when the selected OCI image cannot run bootstrap.
+	for _, executable := range []string{"/usr/bin/install", "/usr/bin/curl", "/usr/bin/sha256sum", "/usr/bin/openssl", "/usr/bin/systemctl"} {
+		b.WriteString("  - [/usr/bin/test, -x, " + executable + "]\n")
+	}
 	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0755, /opt/terrascale/ts-node/" + version + "]\n")
 	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0700, " + tsNodeDataVolume + "]\n")
 	b.WriteString("  - [/usr/bin/test, -s, " + publicKeyPath + "]\n")

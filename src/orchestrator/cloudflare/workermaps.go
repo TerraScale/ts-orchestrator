@@ -60,6 +60,22 @@ type WorkerHealthDoc struct {
 	V       int                           `json:"v"`
 	Updated int64                         `json:"updated"` // unix seconds, writer clock
 	Regions map[string]WorkerRegionHealth `json:"regions"` // keys are region codes
+	Catalog []WorkerRegionCatalog         `json:"catalog,omitempty"`
+}
+
+// WorkerRegionCatalog is the public, provider-independent Region identity.
+type WorkerRegionCatalog struct {
+	Code    string  `json:"code"`
+	Name    string  `json:"name"`
+	Country string  `json:"country"`
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+}
+
+var publicRegionCatalog = []WorkerRegionCatalog{
+	{Code: "GRU", Name: "Sao Paulo", Country: "BR", Lat: -23.43, Lon: -46.47},
+	{Code: "SFO", Name: "San Francisco", Country: "US", Lat: 37.37, Lon: -121.92},
+	{Code: "FRA", Name: "Frankfurt", Country: "DE", Lat: 50.03, Lon: 8.57},
 }
 
 // WorkerRegionHealth is one region inside the health document. Coordinates
@@ -271,7 +287,7 @@ func (d WorkerHealthDoc) normalized() (WorkerHealthDoc, error) {
 		return WorkerHealthDoc{}, fmt.Errorf("cloudflare: health document holds at most %d regions", maxWorkerHealthRegions)
 	}
 	out := WorkerHealthDoc{V: workerMapVersion, Updated: d.Updated,
-		Regions: make(map[string]WorkerRegionHealth, len(d.Regions))}
+		Regions: make(map[string]WorkerRegionHealth, len(d.Regions)), Catalog: append([]WorkerRegionCatalog(nil), publicRegionCatalog...)}
 	for region, entry := range d.Regions {
 		code, err := canonicalWorkerRegion(region)
 		if err != nil {

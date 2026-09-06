@@ -262,6 +262,32 @@ func TestComputeApplyFallsBackFromA1ToE5(t *testing.T) {
 	}
 }
 
+func TestComputeApplyAdvancesThroughQualifiedCandidates(t *testing.T) {
+	declared := testComputeDeclared(t)
+	declared.Candidates = []MemberLaunchCandidate{
+		{Shape: "VM.Standard.A1.Flex", ImageID: "ocid1.image.oc1.arm64", Architecture: MemberArchArm64, QualificationRef: "qual-a1", CostRef: "cost-a1"},
+		{Shape: "VM.Standard.E5.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e5", CostRef: "cost-e5"},
+		{Shape: "VM.Standard.E4.Flex", ImageID: "ocid1.image.oc1.amd64", Architecture: MemberArchAMD64, QualificationRef: "qual-e4", CostRef: "cost-e4"},
+	}
+	gateway := &fakeComputeGateway{noCapacity: map[string]bool{"VM.Standard.A1.Flex": true, "VM.Standard.E5.Flex": true}}
+	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
+	plan, err := reconciler.Reconcile(context.Background(), declared, testComputeObserved())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Apply(context.Background(), declared, testComputeObserved(), plan); err != nil {
+		t.Fatalf("Apply through qualified candidates failed: %v", err)
+	}
+	if len(gateway.launches) != 6 {
+		t.Fatalf("launch attempts = %d, want three candidates for each member", len(gateway.launches))
+	}
+	for _, launch := range gateway.launches {
+		if launch.Shape == "VM.Standard.E4.Flex" && launch.ImageID != "ocid1.image.oc1.amd64" {
+			t.Fatalf("x86 candidate image = %s", launch.ImageID)
+		}
+	}
+}
+
 func TestComputeApplyRefusesCrossArchFallbackWithoutImage(t *testing.T) {
 	declared := testComputeDeclared(t)
 	declared.FallbackImageID = ""
@@ -503,7 +529,7 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 			t.Fatalf("cloud-init installs more than ts-node: found %q", forbidden)
 		}
 	}
-	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=root", "Group=root", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100"} {
+	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=root", "Group=root", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100", "[/usr/bin/test, -x, /usr/bin/install]", "[/usr/bin/test, -x, /usr/bin/curl]", "[/usr/bin/test, -x, /usr/bin/sha256sum]", "[/usr/bin/test, -x, /usr/bin/openssl]", "[/usr/bin/test, -x, /usr/bin/systemctl]"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("cloud-init lacks %q", required)
 		}

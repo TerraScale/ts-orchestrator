@@ -35,6 +35,13 @@ type EngineFacts struct {
 	ObservedAtUnixMS        int64                  `json:"observedAtUnixMs"`
 	LagMeasured             bool                   `json:"lagMeasured"`
 	LagMS                   int                    `json:"lagMs"`
+	// Resource metrics are signed by the host agent and are intentionally
+	// absent until the local sampler can provide a bounded measurement.
+	ObservationSequence int64   `json:"observationSequence"`
+	CPUPercent          float64 `json:"cpuPercent"`
+	MemoryPercent       float64 `json:"memoryPercent"`
+	QueueDepth          int     `json:"queueDepth"`
+	QueueCapacity       int     `json:"queueCapacity"`
 }
 
 // SampleEngine opens a short-lived authenticated same-host observation. Failed

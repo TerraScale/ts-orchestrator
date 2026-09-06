@@ -37,8 +37,8 @@ func TestPlanBootstrapIsDeterministicAndSafe(t *testing.T) {
 			if len(step.Host.Candidates) != 2 || step.Host.Candidates[0].Shape != BootstrapPrimaryShape || step.Host.Candidates[1].Shape != BootstrapFallbackShape {
 				t.Fatalf("host candidates = %#v", step.Host.Candidates)
 			}
-			if strings.Contains(step.Host.CloudInit, "docker") || strings.Contains(step.Host.CloudInit, "podman") || !strings.Contains(step.Host.CloudInit, "ts-node") {
-				t.Fatal("cloud-init contains an unsafe or missing installation")
+			if step.Host.CloudInit != "" {
+				t.Fatal("retired greenfield renderer populated host cloud-init")
 			}
 		}
 	}
@@ -62,46 +62,6 @@ func TestPlanBootstrapRejectsUntrustedArtifactInputs(t *testing.T) {
 				t.Fatalf("plan error = %v, want ErrInvalidBootstrap", err)
 			}
 		})
-	}
-}
-
-func TestRenderCloudInitInstallsAndStartsAuthenticatedRootlessTsNode(t *testing.T) {
-	config := testConfig()
-	config.CloudInit.NATSURL = "tls://nats.internal:4222"
-	document, err := RenderCloudInit(config.CloudInit, "gru-member-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, required := range []string{
-		"name: terrascale-node",
-		"system: true",
-		"/usr/bin/curl --fail --silent --show-error --location",
-		"--max-filesize 67108864",
-		"--max-filesize 128",
-		"/usr/bin/sha256sum --check --strict",
-		"/usr/bin/openssl pkeyutl -verify -pubin -inkey /etc/terrascale/ts-node.pub -in",
-		"/usr/bin/mv -f \"$candidate\" /usr/local/bin/ts-node",
-		"User=terrascale-node",
-		"Group=terrascale-node",
-		"NoNewPrivileges=yes",
-		"ProtectSystem=strict",
-		"CapabilityBoundingSet=",
-		"ExecStart=/usr/local/bin/ts-node --node-id gru-member-1 --node-class greenfield --nats-url \"tls://nats.internal:4222\"",
-		"[\"/usr/bin/systemctl\", \"enable\", \"--now\", \"terrascale-ts-node.service\"]",
-	} {
-		if !strings.Contains(document, required) {
-			t.Errorf("cloud-init does not contain %q", required)
-		}
-	}
-	for _, forbidden := range []string{"\"bootstrap\"", "\"--manifest\"", "docker", "podman"} {
-		if strings.Contains(document, forbidden) {
-			t.Errorf("cloud-init contains retired or unsafe value %q", forbidden)
-		}
-	}
-	for lineNumber, line := range strings.Split(document, "\n") {
-		if strings.HasPrefix(line, "\t") {
-			t.Fatalf("cloud-init line %d starts with a tab and is not valid YAML indentation", lineNumber+1)
-		}
 	}
 }
 

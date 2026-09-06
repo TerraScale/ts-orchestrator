@@ -51,7 +51,6 @@ const (
 var (
 	errRecoveryCatchUpUnavailable = errors.New("vmqual: TerraBase exposes no guest-bound replication commit or catch-up observation")
 	errRecoveryClockUnavailable   = errors.New("vmqual: TerraBase exposes no guest-bound write fence or HLC observation")
-	errRecoveryIOFaultUnavailable = errors.New("vmqual: no real Firecracker data-drive I/O-failure adapter is configured")
 )
 
 // KillReplaceAndCatchUp proves the lifecycle and durable-volume prerequisites
@@ -149,8 +148,8 @@ func (factory *firecrackerFactory) recoveryVM(guest vmqual.Guest) (*sandboxVM, e
 
 // ExerciseDiskFault consumes vmdisk's next-boot contract through the live
 // Firecracker provider and derives every result from the guest storage
-// diagnostic. The I/O-failure mode stays unavailable until the provider is
-// constructed with a real faulting block-device adapter.
+// diagnostic. I/O failure uses a private device-mapper error target attached
+// only to the data drive.
 func (factory *firecrackerFactory) ExerciseDiskFault(ctx context.Context, guest vmqual.Guest, mode vmqual.DiskFaultMode) (vmqual.DiskFaultObservation, error) {
 	observation := vmqual.DiskFaultObservation{VMID: guest.ID, Mode: mode}
 	if ctx == nil {
@@ -179,9 +178,7 @@ func (factory *firecrackerFactory) ExerciseDiskFault(ctx context.Context, guest 
 	case vmqual.DiskFaultENOSPC:
 		return exerciseRecoveryENOSPC(ctx, vm, before, baseline, observation)
 	case vmqual.DiskFaultIOFailure:
-		observation.Disposition = vmqual.FaultDispositionFailClosed
-		observation.FailClosed = true
-		return observation, errRecoveryIOFaultUnavailable
+		return exerciseRecoveryIOFailure(ctx, vm, before, observation)
 	case vmqual.DiskFaultReadOnly:
 		return exerciseRecoveryReadOnly(ctx, vm, before, observation)
 	case vmqual.DiskFaultMissingAtBoot:
@@ -283,6 +280,50 @@ func exerciseRecoveryReadOnly(ctx context.Context, vm *sandboxVM, before vmqual.
 	}
 	if _, err := recoveryStartVM(ctx, vm, faultVM, true); err != nil {
 		return observation, fmt.Errorf("vmqual: start repaired read-only guest: %w", err)
+	}
+	return recoveryFinishDiskRepair(ctx, vm, observation)
+}
+
+func exerciseRecoveryIOFailure(ctx context.Context, vm *sandboxVM, before vmqual.VMObservation, observation vmqual.DiskFaultObservation) (vmqual.DiskFaultObservation, error) {
+	if err := recoveryStopVM(ctx, vm); err != nil {
+		return observation, err
+	}
+	if _, err := vm.disks.PrepareFaultPlan(ctx, vm.id, vmdisk.FaultPlan{IOFailure: true}); err != nil {
+		return observation, fmt.Errorf("vmqual: prepare I/O-failure next-boot plan: %w", err)
+	}
+	if _, err := recoveryApplyDataPlan(ctx, vm, recoveryPlanExpectation{attached: true, ioFault: true}); err != nil {
+		return observation, err
+	}
+	faultVM, err := recoveryStartVM(ctx, vm, before, false)
+	if err != nil {
+		return observation, fmt.Errorf("vmqual: start guest with I/O-failure data drive: %w", err)
+	}
+	observation.RestartObserved = recoveryProcessChanged(before, faultVM)
+	observed, err := recoveryStorageRequest(ctx, vm, vmguest.StorageActionObserve, true)
+	if err != nil {
+		return observation, fmt.Errorf("vmqual: observe I/O-failure data drive: %w", err)
+	}
+	probe, err := recoveryStorageRequest(ctx, vm, vmguest.StorageActionProbeWrite, true)
+	if err != nil {
+		return observation, fmt.Errorf("vmqual: probe I/O-failure data drive: %w", err)
+	}
+	observation.GuestVisible = recoveryStorageIdentity(observed) && observed.Mounted
+	observation.FailureObserved = observation.GuestVisible && probe.Errno == vmguest.StorageErrnoEIO && probe.AttemptedBytes > 0 && probe.WrittenBytes == 0
+	if !observation.GuestVisible || !observation.FailureObserved {
+		return observation, fmt.Errorf("vmqual: guest did not observe an EIO data-drive failure: observe=%+v probe=%+v", observed, probe)
+	}
+	observation.RepairAttempted = true
+	if err := recoveryStopVM(ctx, vm); err != nil {
+		return observation, err
+	}
+	if _, err := vm.disks.PrepareClearFaults(ctx, vm.id); err != nil {
+		return observation, fmt.Errorf("vmqual: clear I/O-failure next-boot intent: %w", err)
+	}
+	if _, err := recoveryApplyDataPlan(ctx, vm, recoveryPlanExpectation{attached: true}); err != nil {
+		return observation, err
+	}
+	if _, err := recoveryStartVM(ctx, vm, faultVM, true); err != nil {
+		return observation, fmt.Errorf("vmqual: start repaired I/O-failure guest: %w", err)
 	}
 	return recoveryFinishDiskRepair(ctx, vm, observation)
 }

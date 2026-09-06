@@ -93,6 +93,25 @@ func (d *DeliveryControl) DrainStatus(ctx context.Context, host string) (deliver
 	return delivery.DrainReport{Cordoned: report.State != hostagent.NodeStateServing, Drained: report.Quiesced}, nil
 }
 
+func (d *DeliveryControl) ObserveRelease(ctx context.Context, host string) (delivery.HostReleaseState, error) {
+	if ctx == nil {
+		return delivery.HostReleaseState{}, errors.New("hostcontrol: context is required")
+	}
+	report, err := d.config.Client.Status(ctx, host)
+	if err != nil {
+		return delivery.HostReleaseState{}, err
+	}
+	for _, component := range report.Facts.Components {
+		if component.Name == "terrabase" {
+			if component.ArtifactSHA256 == "" || report.Facts.ManifestSha256 == "" {
+				return delivery.HostReleaseState{}, errors.New("hostcontrol: status lacks exact release identity")
+			}
+			return delivery.HostReleaseState{ArtifactDigest: "sha256:" + component.ArtifactSHA256, ManifestDigest: "sha256:" + report.Facts.ManifestSha256}, nil
+		}
+	}
+	return delivery.HostReleaseState{}, errors.New("hostcontrol: status lacks terrabase identity")
+}
+
 // Converge installs and activates the exact authenticated manifest/version.
 // Rollback reaches this same path with its explicitly admitted rollback digest;
 // it never guesses that the previous symlink is the requested artifact.

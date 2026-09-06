@@ -50,13 +50,13 @@ type databaseRegionFile struct {
 	KEKVersionID   string           `json:"kekVersionId"`
 	LeaseSeconds   uint32           `json:"leaseSeconds"`
 	NotAfter       time.Time        `json:"notAfter"`
-	LifecycleEndpoint string                       `json:"lifecycleEndpoint"`
-	LifecycleIdentity string                       `json:"lifecycleIdentity"`
-	LifecycleTLS      placementpublisher.TLSFiles `json:"lifecycleTls"`
 }
 type databaseHostFile struct {
-	ServerIdentity string `json:"serverIdentity"`
-	MemberID       string `json:"memberId"`
+	ServerIdentity    string                      `json:"serverIdentity"`
+	MemberID          string                      `json:"memberId"`
+	LifecycleEndpoint string                      `json:"lifecycleEndpoint"`
+	LifecycleIdentity string                      `json:"lifecycleIdentity"`
+	LifecycleTLS      placementpublisher.TLSFiles `json:"lifecycleTls"`
 }
 
 func validLifecycleEndpoint(value string) bool {
@@ -98,19 +98,19 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	hostMembers := map[string]string{}
 	for _, region := range config.Regions {
 		ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region.Region]
-		if ociRegion == "" || seenRegions[region.Region] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion, region.CryptoEndpoint) || !provider.IsOCID(region.KEKID, "key") || !provider.IsOCID(region.KEKVersionID, "keyversion") || region.LeaseSeconds < 1 || region.LeaseSeconds > 1800 || !region.NotAfter.After(time.Now()) || !validLifecycleEndpoint(region.LifecycleEndpoint) || !validLifecycleIdentity(region.LifecycleIdentity, config.Environment, config.Cluster) || !validLifecycleTLS(region.LifecycleTLS) {
+		if ociRegion == "" || seenRegions[region.Region] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion, region.CryptoEndpoint) || !provider.IsOCID(region.KEKID, "key") || !provider.IsOCID(region.KEKVersionID, "keyversion") || region.LeaseSeconds < 1 || region.LeaseSeconds > 1800 || !region.NotAfter.After(time.Now()) {
 			return result, databaseadmission.ErrInvalid
 		}
 		seenRegions[region.Region] = true
 		for _, host := range []databaseHostFile{region.Writer, region.Follower} {
-			if !canonicalID.MatchString(host.MemberID) || seenMembers[host.MemberID] || host.ServerIdentity != "spiffe://terrascale.tech/"+config.Environment+"/terrabase-member/"+config.Cluster+"/"+host.MemberID || !slices.ContainsFunc(placement.Targets, func(t productionPlacementTarget) bool { return t.ServerIdentity == host.ServerIdentity }) {
+			if !canonicalID.MatchString(host.MemberID) || seenMembers[host.MemberID] || host.ServerIdentity != "spiffe://terrascale.tech/"+config.Environment+"/terrabase-member/"+config.Cluster+"/"+host.MemberID || !slices.ContainsFunc(placement.Targets, func(t productionPlacementTarget) bool { return t.ServerIdentity == host.ServerIdentity }) || !validLifecycleEndpoint(host.LifecycleEndpoint) || !validLifecycleIdentity(host.LifecycleIdentity, config.Environment, config.Cluster) || !validLifecycleTLS(host.LifecycleTLS) {
 				return result, databaseadmission.ErrInvalid
 			}
 			seenMembers[host.MemberID] = true
 			hostRegions[host.ServerIdentity] = region.Region
 			hostMembers[host.ServerIdentity] = host.MemberID
 		}
-		result.Regions = append(result.Regions, productionDatabaseRegion{Region: region.Region, Writer: productionDatabaseHost(region.Writer), Follower: productionDatabaseHost(region.Follower), Vault: keylease.ProvisionTarget{CryptoEndpoint: region.CryptoEndpoint, KEKID: region.KEKID, KEKVersionID: region.KEKVersionID, LeaseSeconds: region.LeaseSeconds, NotAfter: region.NotAfter}})
+		result.Regions = append(result.Regions, productionDatabaseRegion{Region: region.Region, Writer: productionDatabaseHost{ServerIdentity: region.Writer.ServerIdentity, MemberID: region.Writer.MemberID, LifecycleEndpoint: region.Writer.LifecycleEndpoint, LifecycleIdentity: region.Writer.LifecycleIdentity, LifecycleTLS: region.Writer.LifecycleTLS}, Follower: productionDatabaseHost{ServerIdentity: region.Follower.ServerIdentity, MemberID: region.Follower.MemberID, LifecycleEndpoint: region.Follower.LifecycleEndpoint, LifecycleIdentity: region.Follower.LifecycleIdentity, LifecycleTLS: region.Follower.LifecycleTLS}, Vault: keylease.ProvisionTarget{CryptoEndpoint: region.CryptoEndpoint, KEKID: region.KEKID, KEKVersionID: region.KEKVersionID, LeaseSeconds: region.LeaseSeconds, NotAfter: region.NotAfter}})
 	}
 	for _, grant := range auth.Grants {
 		if grant == nil || grant.Environment != config.Environment || grant.Cluster != config.Cluster {

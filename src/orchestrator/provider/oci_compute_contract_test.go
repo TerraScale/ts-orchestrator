@@ -191,6 +191,16 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		},
 	}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
+	changed := request
+	changed.Candidates = append([]ComputeCapacityCandidate(nil), request.Candidates...)
+	changed.Candidates[1].ImageID = "ocid1.image.oc1.amd64.changed"
+	if ComputeLaunchMutationFingerprint(changed) == ComputeLaunchMutationFingerprint(request) {
+		t.Fatal("candidate image must be part of the durable launch fingerprint")
+	}
+	changed.Mutation = request.Mutation
+	if _, err := adapter.LaunchInstance(context.Background(), changed); err == nil {
+		t.Fatal("a changed candidate image must not cross the original mutation fence")
+	}
 	if _, err := adapter.LaunchInstance(context.Background(), request); err == nil || len(posts) != 1 {
 		t.Fatalf("interrupted fallback posts=%d err=%v", len(posts), err)
 	}

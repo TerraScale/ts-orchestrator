@@ -15,7 +15,7 @@ import (
 // AcceptanceBinding validates request identity and extracts an expected receipt.
 // It does not verify the grant signature or grant membership: the issuer's
 // durable journal and the engine's independently pinned verifier own authority.
-func AcceptanceBinding(operationID string, request *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error) {
+func AcceptanceBinding(operationID string, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
 	if !validMetadata(operationID, 128) || request == nil || request.ProposalRevision == 0 || len(request.Proof) == 0 || len(request.Proof) > 256<<10 {
 		return nil, errors.New("TBEP accepted placement request is incomplete or exceeds bounds")
 	}
@@ -28,9 +28,9 @@ func AcceptanceBinding(operationID string, request *pb.PlacementControlServiceAc
 		return nil, errors.New("TBEP accepted placement proof does not bind the operation")
 	}
 	sum := sha256.Sum256(signed.Payload)
-	return &pb.PlacementControlServiceAcceptResponse{ProposalRevision: request.ProposalRevision, Epoch: proof.Request.Epoch, Generation: proof.Request.Generation, ProofDigest: hex.EncodeToString(sum[:]), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}, nil
+	return &pb.PlacementAcceptanceResponse{ProposalRevision: request.ProposalRevision, Epoch: proof.Request.Epoch, Generation: proof.Request.Generation, ProofDigest: hex.EncodeToString(sum[:]), Status: pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP}, nil
 }
-func ValidateAcceptanceReceipt(response, expected *pb.PlacementControlServiceAcceptResponse) error {
+func ValidateAcceptanceReceipt(response, expected *pb.PlacementAcceptanceResponse) error {
 	if response == nil || expected == nil || response.ProposalRevision != expected.ProposalRevision || response.Epoch != expected.Epoch || response.Generation != expected.Generation || response.ProofDigest != expected.ProofDigest || response.Status != pb.PlacementAcceptanceStatus_PLACEMENT_ACCEPTANCE_STATUS_ADMITTED_CATCHING_UP {
 		return errors.New("TBEP accepted placement receipt differs from issued proof")
 	}
@@ -40,7 +40,7 @@ func ValidateAcceptanceReceipt(response, expected *pb.PlacementControlServiceAcc
 // Accept sends a durably issued proof once using its embedded operation ID.
 // Unknown outcomes must retry these exact bytes and revision. A receipt permits
 // catch-up only; it never establishes physical or causal data readiness.
-func (c *PlacementClient) Accept(ctx context.Context, operationID string, request *pb.PlacementControlServiceAcceptRequest) (*pb.PlacementControlServiceAcceptResponse, error) {
+func (c *PlacementClient) Accept(ctx context.Context, operationID string, request *pb.PlacementAcceptRequest) (*pb.PlacementAcceptanceResponse, error) {
 	expected, err := AcceptanceBinding(operationID, request)
 	if err != nil {
 		return nil, err
@@ -58,10 +58,10 @@ func (c *PlacementClient) Accept(ctx context.Context, operationID string, reques
 	}
 	return response, nil
 }
-func (c *PlacementClient) GetAccepted(ctx context.Context) (*pb.PlacementControlServiceGetAcceptedResponse, error) {
+func (c *PlacementClient) GetAccepted(ctx context.Context) (*pb.PlacementAcceptanceResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.transport.timeout)
 	defer cancel()
-	response, err := c.rpc.GetAccepted(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.PlacementControlServiceGetAcceptedRequest{})
+	response, err := c.rpc.GetAccepted(metadata.NewOutgoingContext(ctx, c.transport.scope.Copy()), &pb.PlacementGetRequest{})
 	if err != nil {
 		return nil, err
 	}

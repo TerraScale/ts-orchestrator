@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
@@ -85,6 +87,51 @@ func TestProductionReconcileRequiresDurableProgress(t *testing.T) {
 	dependencies.Progress = progress
 	if _, err := newReconcileLoop(dependencies, &bytes.Buffer{}); err != nil {
 		t.Fatalf("production reconcile rejected configured progress: %v", err)
+	}
+}
+
+func TestAutoscaleTargetStorePersistsAndCASFencesTargets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "autoscale-progress.json")
+	store, err := reconcile.NewFileProgressStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := &autoscaleTargetStore{store: store, cas: store}
+	first := autoscale.Target{Region: "gru", Members: 2, OperationID: "autoscale-one"}
+	if err := targets.CompareAndSwap(t.Context(), "gru", nil, first); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := reconcile.NewFileProgressStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenedTargets := &autoscaleTargetStore{store: reopened, cas: reopened}
+	loaded, found, err := reopenedTargets.Load(t.Context(), "gru")
+	if err != nil || !found || loaded != first {
+		t.Fatalf("loaded target = %+v found=%v err=%v", loaded, found, err)
+	}
+	second := first
+	second.Members = 3
+	second.OperationID = "autoscale-two"
+	if err := targets.CompareAndSwap(t.Context(), "gru", &first, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := targets.CompareAndSwap(t.Context(), "gru", &first, second); !errors.Is(err, reconcile.ErrProgressConflict) {
+		t.Fatalf("stale target CAS error = %v", err)
+	}
+}
+
+func TestOCIReconcileAppliesAutoscalePlanToComputeDeclaration(t *testing.T) {
+	region := estate.Default().Regions[0]
+	controller := &ociReconcileController{regions: map[string]*ociRegionController{
+		region.Code: {region: region},
+	}}
+	plan := autoscale.Plan{Region: region.Code, PreviousMembers: int(region.Members.Count), DesiredMembers: int(region.Members.Count) + 1, OperationID: "autoscale-plan"}
+	if err := controller.applyAutoscalePlan(plan); err != nil {
+		t.Fatal(err)
+	}
+	if got := controller.regions[region.Code].computeDeclared().Members.Count; got != region.Members.Count+1 {
+		t.Fatalf("autoscale target members = %d, want %d", got, region.Members.Count+1)
 	}
 }
 

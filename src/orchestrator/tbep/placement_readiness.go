@@ -11,7 +11,7 @@ import (
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
-func ValidateReadinessRequest(request *pb.PlacementControlServiceReadinessRequest) error {
+func ValidateReadinessRequest(request *pb.PlacementReadinessRequest) error {
 	if request == nil || !validMetadata(request.OperationId, 128) || !validMetadata(request.Tenant, 64) || !validMetadata(request.Project, 64) || !validMetadata(request.Database, 64) {
 		return errors.New("TBEP readiness requires exact operation and database scope")
 	}
@@ -25,7 +25,7 @@ func ValidateReadinessRequest(request *pb.PlacementControlServiceReadinessReques
 // ValidateReadinessEnvelope bounds only the transport envelope. The provisioning
 // owner verifies the member signature and exact tuple, nonce, frontier, physical
 // checkpoint and causal cut across all required members before declaring ready.
-func ValidateReadinessEnvelope(response *pb.PlacementControlServiceReadinessResponse) error {
+func ValidateReadinessEnvelope(response *pb.PlacementDrainResponse) error {
 	if response == nil || len(response.SignedReceipt) == 0 || len(response.SignedReceipt) > 64<<10 {
 		return errors.New("TBEP readiness returned no bounded signed evidence")
 	}
@@ -39,7 +39,7 @@ func ValidateReadinessEnvelope(response *pb.PlacementControlServiceReadinessResp
 	}
 	return nil
 }
-func (c *PlacementClient) Readiness(ctx context.Context, request *pb.PlacementControlServiceReadinessRequest) (*pb.PlacementControlServiceReadinessResponse, error) {
+func (c *PlacementClient) Readiness(ctx context.Context, request *pb.PlacementReadinessRequest) (*pb.PlacementDrainResponse, error) {
 	if err := ValidateReadinessRequest(request); err != nil {
 		return nil, err
 	}

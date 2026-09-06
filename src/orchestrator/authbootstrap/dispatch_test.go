@@ -34,7 +34,7 @@ func TestAuthenticatedHostDispatchBindsBothIdentities(t *testing.T) {
 	if err != nil || identity.Member != target.voter.Member {
 		t.Fatal("identity dispatch failed", err)
 	}
-	request := &pb.AuthGroupBootstrapServiceBootstrapRequest{OperationId: grant.GroupId, Grant: grant}
+	request := &pb.AuthGroupBootstrapRequest{OperationId: grant.GroupId, Grant: grant}
 	for range 2 {
 		receipt, err := remote.Bootstrap(ctx, request)
 		if err != nil || receipt.AuthorityRevision != 8 {

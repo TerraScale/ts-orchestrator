@@ -134,6 +134,21 @@ func TestRuntimeControlCandidateNeverSynthesizesReadinessOnFailureOrStaleEvidenc
 	}
 }
 
+func TestRuntimeControlCandidateRequiresExplicitRuntimeGates(t *testing.T) {
+	digest := sha256.Sum256([]byte("candidate-proof"))
+	runtime := explicitControlRuntimeFixture{execute: func(_ context.Context, request bootstrap.ControlActionRequest) (bootstrap.ControlRuntimeEvidence, error) {
+		return bootstrap.ControlRuntimeEvidence{
+			IdentityDigest: hex.EncodeToString(digest[:]), StorageDigest: hex.EncodeToString(digest[:]), HealthDigest: hex.EncodeToString(digest[:]), ObservedAt: time.Now(),
+			Candidate: &bootstrap.CandidateRuntimeEvidence{CaughtUp: true, IdentityReady: true, StorageReady: true, HealthReady: true},
+		}, nil
+	}}
+	provider := &runtimeControlProvider{runtime: runtime}
+	candidate, err := provider.VerifyCandidate(t.Context(), bootstrap.ControlActionRequest{Action: bootstrap.ControlAction{Kind: bootstrap.ControlActionVerifyCandidate, Region: "sfo"}})
+	if err != nil || !candidate.Ready() {
+		t.Fatalf("explicit candidate proof was rejected: %+v, %v", candidate, err)
+	}
+}
+
 type quorumAvailabilityFixture struct {
 	explicitControlRuntimeFixture
 	verify func(context.Context, uint64) error

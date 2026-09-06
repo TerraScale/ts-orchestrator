@@ -97,13 +97,13 @@ func (target *RemoteTarget) call(ctx context.Context, subject string, request, r
 	}
 	return nil
 }
-func (target *RemoteTarget) Identity(ctx context.Context) (*pb.AuthGroupBootstrapServiceIdentityResponse, error) {
+func (target *RemoteTarget) Identity(ctx context.Context) (*pb.AuthStorageIdentity, error) {
 	subject, _, _ := HostSubjects(target.serverIdentity)
-	reply := new(pb.AuthGroupBootstrapServiceIdentityResponse)
+	reply := new(pb.AuthStorageIdentity)
 	err := target.call(ctx, subject, nil, reply)
 	return reply, err
 }
-func (target *RemoteTarget) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapServiceBootstrapRequest) (*pb.AuthGroupBootstrapServiceBootstrapResponse, error) {
+func (target *RemoteTarget) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error) {
 	if request == nil {
 		return nil, ErrInvalid
 	}
@@ -111,7 +111,7 @@ func (target *RemoteTarget) Bootstrap(ctx context.Context, request *pb.AuthGroup
 		return nil, err
 	}
 	_, subject, _ := HostSubjects(target.serverIdentity)
-	reply := new(pb.AuthGroupBootstrapServiceBootstrapResponse)
+	reply := new(pb.AuthGroupBootstrapReceipt)
 	if err := target.call(ctx, subject, request, reply); err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 					if index == 0 && len(request.Request) == 0 {
 						response, err = target.Identity(lifetime)
 					} else if index == 1 {
-						grant := new(pb.AuthGroupBootstrapServiceBootstrapRequest)
+						grant := new(pb.AuthGroupBootstrapRequest)
 						err = proto.Unmarshal(request.Request, grant)
 						if err == nil {
 							_, err = CanonicalGrant(grant.Grant, false)

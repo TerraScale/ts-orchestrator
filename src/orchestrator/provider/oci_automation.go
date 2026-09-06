@@ -203,6 +203,13 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 		return &errs.Argument{Message: "compute launch bootstrap is invalid"}
 	}
 	for _, candidate := range request.Candidates {
+		if candidate.Architecture != "arm64" && candidate.Architecture != "amd64" {
+			return &errs.Argument{Message: "compute launch candidate architecture is not admitted"}
+		}
+		shapeArchitecture := computeShapeArchitecture(candidate.Shape)
+		if shapeArchitecture != "" && shapeArchitecture != candidate.Architecture {
+			return &errs.Argument{Message: "compute launch candidate architecture does not match its shape"}
+		}
 		if len(candidate.AvailabilityDomain) < 1 || len(candidate.AvailabilityDomain) > 128 ||
 			!IsOCID(candidate.SubnetID, "subnet") ||
 			len(candidate.FaultDomain) > 64 || len(candidate.Shape) < 1 || len(candidate.Shape) > 128 ||
@@ -217,6 +224,17 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 		return err
 	}
 	return expectJSONMutation(request.Mutation, "compute.launch", ComputeLaunchMutationScope(request), computeLaunchBinding(request))
+}
+
+func computeShapeArchitecture(shape string) string {
+	switch {
+	case strings.HasPrefix(shape, "VM.Standard.A1"):
+		return "arm64"
+	case strings.HasPrefix(shape, "VM.Standard.E3"), strings.HasPrefix(shape, "VM.Standard.E4"), strings.HasPrefix(shape, "VM.Standard.E5"):
+		return "amd64"
+	default:
+		return ""
+	}
 }
 
 type ociAutomatedInstance struct {

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/observability"
@@ -305,6 +306,66 @@ type fileKVPlacementSource struct {
 	registered map[string]struct{}
 }
 
+// autoscaleTargetStore stores GRU-authorized scale-out decisions in the same
+// durable, lock/CAS-backed progress journal used by provider reconciliation.
+// It is deliberately only a target projection: OCI reconcile remains the sole
+// owner of provider creation and stable member slots.
+type autoscaleTargetStore struct {
+	store reconcile.ProgressStore
+	cas   reconcile.ProgressCAS
+}
+
+func autoscaleTargetKey(region string) string { return "autoscale-target/" + region }
+
+func (s *autoscaleTargetStore) Load(ctx context.Context, region string) (autoscale.Target, bool, error) {
+	if s == nil || s.store == nil || s.cas == nil || strings.TrimSpace(region) != region || region == "" {
+		return autoscale.Target{}, false, errors.New("reconcile: autoscale target store is unavailable")
+	}
+	record, found, err := s.store.Load(ctx, autoscaleTargetKey(region))
+	if err != nil || !found {
+		return autoscale.Target{}, found, err
+	}
+	var target autoscale.Target
+	if err := json.Unmarshal([]byte(record.Detail), &target); err != nil || target.Region != region {
+		return autoscale.Target{}, false, errors.New("reconcile: autoscale target record is malformed")
+	}
+	return target, true, nil
+}
+
+func (s *autoscaleTargetStore) CompareAndSwap(ctx context.Context, region string, expected *autoscale.Target, next autoscale.Target) error {
+	if s == nil || s.cas == nil || strings.TrimSpace(region) != region || region == "" || next.Region != region {
+		return errors.New("reconcile: autoscale target store is unavailable")
+	}
+	body, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	key := autoscaleTargetKey(region)
+	var prior *reconcile.Progress
+	if expected != nil {
+		current, found, err := s.store.Load(ctx, key)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return reconcile.ErrProgressConflict
+		}
+		var decoded autoscale.Target
+		if err := json.Unmarshal([]byte(current.Detail), &decoded); err != nil || decoded != *expected {
+			return reconcile.ErrProgressConflict
+		}
+		prior = &current
+	}
+	attempt := 1
+	if prior != nil {
+		attempt = prior.Attempt + 1
+	}
+	nextRecord := reconcile.Progress{Key: key, Action: reconcile.ActionUpdate, Ref: region, Attempt: attempt, Outcome: "applied", UpdatedAt: time.Now().UTC(), Detail: string(body)}
+	return s.cas.CompareAndSwap(ctx, key, prior, nextRecord)
+}
+
+var _ autoscale.TargetStore = (*autoscaleTargetStore)(nil)
+
 func newFileKVPlacementSource(path string, registered ...[]string) (*fileKVPlacementSource, error) {
 	path = strings.TrimSpace(path)
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsAny(path, "\r\n\x00") {
@@ -408,8 +469,11 @@ type ociRegionController struct {
 	object          *ocireconcile.ObjectStorageReconciler
 	vault           *ocireconcile.VaultReconciler
 	certs           *ocireconcile.CertReconciler
-	mu              sync.Mutex
-	observed        *ociRegionObservation
+	// scaleOutTarget is a durable GRU decision supplied by the autoscale
+	// seam. Zero means the declared target remains in force.
+	scaleOutTarget uint16
+	mu             sync.Mutex
+	observed       *ociRegionObservation
 }
 
 type ociRegionObservation struct {
@@ -577,7 +641,43 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 }
 
 func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
-	return ocireconcile.ComputeDeclared{Region: r.region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID}
+	region := r.region
+	r.mu.Lock()
+	target := r.scaleOutTarget
+	r.mu.Unlock()
+	if target > region.Members.Count {
+		region.Members.Count = target
+	}
+	return ocireconcile.ComputeDeclared{Region: region, ImageID: r.imageID, FallbackImageID: r.fallbackImageID}
+}
+
+// setScaleOutTarget is the narrow handoff from the GRU-owned autoscale
+// decision to OCI reconciliation. It only permits monotonic scale-out and
+// leaves placement and provider fallback under their existing owners.
+func (r *ociRegionController) setScaleOutTarget(desired int) error {
+	if r == nil || desired < int(r.region.Members.Count) || desired > int(^uint16(0)) {
+		return errors.New("reconcile: invalid scale-out target")
+	}
+	r.mu.Lock()
+	if desired > int(r.scaleOutTarget) {
+		r.scaleOutTarget = uint16(desired)
+	}
+	r.mu.Unlock()
+	return nil
+}
+
+// applyAutoscalePlan hands one GRU-authorized scale-out decision to the
+// existing OCI compute declaration. Provider mutation and stable slot
+// identity remain in ocireconcile; this seam only raises the desired target.
+func (c *ociReconcileController) applyAutoscalePlan(plan autoscale.Plan) error {
+	if c == nil || plan.Region == "" || plan.DesiredMembers <= plan.PreviousMembers {
+		return errors.New("reconcile: invalid autoscale plan")
+	}
+	region, ok := c.regions[plan.Region]
+	if !ok || region == nil {
+		return errors.New("reconcile: autoscale plan names an unknown region")
+	}
+	return region.setScaleOutTarget(plan.DesiredMembers)
 }
 
 func planForRegion(plan reconcile.Plan, region string) reconcile.Plan {

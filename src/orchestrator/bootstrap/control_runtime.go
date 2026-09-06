@@ -20,6 +20,16 @@ type ControlRuntimeEvidence struct {
 	StorageDigest  string
 	HealthDigest   string
 	ObservedAt     time.Time
+	// Candidate is present only for VerifyCandidate and records the
+	// candidate-specific gates proved by the runtime observation.
+	Candidate *CandidateRuntimeEvidence
+}
+
+type CandidateRuntimeEvidence struct {
+	CaughtUp      bool
+	IdentityReady bool
+	StorageReady  bool
+	HealthReady   bool
 }
 
 var ErrControlRuntimeUnavailable = errors.New("bootstrap: verified control runtime is unavailable")

@@ -527,6 +527,7 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 	}
 	collectionStarted := time.Now().UTC()
 	var identities, storage, health []any
+	var candidate CandidateRuntimeEvidence
 	for _, check := range plan.Checks {
 		id, state, facts, err := r.checkStore(ctx, check)
 		if err != nil {
@@ -535,6 +536,16 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 		identities = append(identities, id)
 		storage = append(storage, state)
 		health = append(health, facts)
+		if plan.Kind == ControlActionVerifyCandidate {
+			// These gates are derived from the exact candidate check that just
+			// passed: signed members, stream assignments, fresh host facts and
+			// source/mirror watermark comparisons. Generic action success alone
+			// must not imply candidate readiness.
+			candidate.IdentityReady = candidate.IdentityReady || len(check.Members) > 0 && len(id) == len(check.Members)
+			candidate.StorageReady = candidate.StorageReady || len(check.Streams) > 0 && len(state.Streams) == len(check.Streams)
+			candidate.HealthReady = candidate.HealthReady || len(check.Members) > 0 && len(facts) == len(check.Members)
+			candidate.CaughtUp = candidate.CaughtUp || len(check.Mirrors) > 0 && len(state.Mirrors) == len(check.Mirrors)
+		}
 	}
 	if plan.RevokedCredential != nil {
 		connection, err := openControlNATS(ctx, *plan.RevokedCredential)
@@ -558,7 +569,11 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 	if err != nil {
 		return ControlRuntimeEvidence{}, err
 	}
-	return ControlRuntimeEvidence{IdentityDigest: identityDigest, StorageDigest: storageDigest, HealthDigest: healthDigest, ObservedAt: collectionStarted}, nil
+	evidence := ControlRuntimeEvidence{IdentityDigest: identityDigest, StorageDigest: storageDigest, HealthDigest: healthDigest, ObservedAt: collectionStarted}
+	if plan.Kind == ControlActionVerifyCandidate {
+		evidence.Candidate = &candidate
+	}
+	return evidence, nil
 }
 
 func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlActionRequest, handoff ControlHostHandoff) error {

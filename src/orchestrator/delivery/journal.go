@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -189,6 +190,21 @@ type Operation struct {
 	OwnerID       string
 	Generation    uint64
 	LeaseUntil    time.Time
+	Rollout       *RolloutProgress
+}
+
+// RolloutProgress is the durable host mutation ledger.
+type RolloutProgress struct {
+	Hosts []RolloutHostProgress
+}
+
+type RolloutHostProgress struct {
+	Host                string
+	PriorDigest         string
+	PriorManifestDigest string
+	CandidateDigest     string
+	Mutated             bool
+	Completed           bool
 }
 
 // OperationLease identifies the process that is allowed to execute and
@@ -410,6 +426,54 @@ func (j *Journal) Renew(operationID, requestDigest string, lease OperationLease,
 		return fmt.Errorf("delivery: operation renewal persistence failed: %w", err)
 	}
 	return nil
+}
+
+// RecordRollout persists progress while the owner lease is held. It is
+// intentionally compare-and-set based so a takeover cannot be overwritten.
+func (j *Journal) RecordRollout(operationID, requestDigest string, lease OperationLease, host, priorDigest, priorManifest, candidate string, mutated, completed bool) error {
+	if j == nil || j.store == nil {
+		return errors.New("delivery: rollout journal is not configured")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		entry, err := j.store.Get(operationKey(operationID))
+		if err != nil {
+			return err
+		}
+		op, err := decodeOperation(entry, operationID)
+		if err != nil {
+			return err
+		}
+		if op.State != OperationRunning || op.RequestDigest != requestDigest || op.OwnerID != lease.OwnerID || op.Generation != lease.Generation {
+			return ErrOperationLeaseActive
+		}
+		if op.Rollout == nil {
+			op.Rollout = &RolloutProgress{}
+		}
+		found := false
+		for i := range op.Rollout.Hosts {
+			if op.Rollout.Hosts[i].Host == host {
+				op.Rollout.Hosts[i].Mutated = op.Rollout.Hosts[i].Mutated || mutated
+				op.Rollout.Hosts[i].Completed = op.Rollout.Hosts[i].Completed || completed
+				found = true
+				break
+			}
+		}
+		if !found {
+			op.Rollout.Hosts = append(op.Rollout.Hosts, RolloutHostProgress{Host: host, PriorDigest: priorDigest, PriorManifestDigest: priorManifest, CandidateDigest: candidate, Mutated: mutated, Completed: completed})
+		}
+		op.UpdatedAt = j.now()
+		value, err := encodeOperation(op)
+		if err != nil {
+			return err
+		}
+		if _, err = j.store.Update(entry.Key, entry.Revision, value); err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrStoreConflict) {
+			return err
+		}
+	}
+	return ErrOperationLeaseActive
 }
 
 func (j *Journal) existingForBegin(key, operationID, digest string) (*Operation, bool, error) {
@@ -808,6 +872,9 @@ func cloneOperation(operation *Operation) *Operation {
 	copied := *operation
 	copied.Request = cloneRequest(operation.Request)
 	copied.Receipt = cloneReceipt(operation.Receipt)
+	if operation.Rollout != nil {
+		copied.Rollout = &RolloutProgress{Hosts: slices.Clone(operation.Rollout.Hosts)}
+	}
 	return &copied
 }
 

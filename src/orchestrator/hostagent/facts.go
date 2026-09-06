@@ -31,7 +31,8 @@ type ComponentFact struct {
 	// Name is the component token.
 	Name string `json:"name"`
 	// Version is the current-symlink version of the component.
-	Version string `json:"version"`
+	Version        string `json:"version"`
+	ArtifactSHA256 string `json:"artifactSha256"`
 	// Desired is the manifest's desired version.
 	Desired string `json:"desired"`
 	// Installed reports whether the desired version directory exists.
@@ -178,11 +179,12 @@ func (s *HostFactsSource) Sample(
 			active = unitProbe
 		}
 		components = append(components, ComponentFact{
-			Name:       spec.Name,
-			Version:    current,
-			Desired:    spec.Version,
-			Installed:  installed,
-			UnitActive: active,
+			Name:           spec.Name,
+			Version:        current,
+			ArtifactSHA256: spec.Sha256,
+			Desired:        spec.Version,
+			Installed:      installed,
+			UnitActive:     active,
 		})
 	}
 	engine := EngineFacts{Databases: []DatabaseCatchUpFacts{}}

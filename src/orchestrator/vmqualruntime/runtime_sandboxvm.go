@@ -62,12 +62,18 @@ func newSandboxVMProvider(config vmqual.Config) (*sandboxvm.Provider, error) {
 	transportRegistry.byStateRoot[filepath.Clean(config.StateRoot)] = transport
 	transportRegistry.Unlock()
 	probe := &sshGuestProbe{transport: transport, seedDigests: make(map[string]string), configs: make(map[string]sandboxvm.Config)}
+	dataFault, err := newDeviceMapperIOFaultAdapter()
+	if err != nil {
+		_ = releaseGuestTransport(config.StateRoot)
+		return nil, err
+	}
 	return sandboxvm.New(sandboxvm.Options{
 		MachineFactory: sandboxvm.NewSDKMachineFactory(),
 		OpenAPIFactory: func(vmConfig sandboxvm.Config) (sandboxvm.OpenAPI, error) {
 			return sandboxvm.NewUnixSocketOpenAPI(vmConfig.SocketPath)
 		},
-		Probe: probe,
+		Probe:          probe,
+		DataDriveFault: dataFault,
 	})
 }
 

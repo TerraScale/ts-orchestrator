@@ -86,9 +86,8 @@ func TestBootstrapDryRunPrintsTheRunbook(t *testing.T) {
 		kinds[step.Kind]++
 		if step.Kind == bootstrap.ResourceHost {
 			hosts++
-			if !strings.Contains(step.Host.CloudInit, "terrascale-ts-node.service") ||
-				strings.Contains(step.Host.CloudInit, "docker") || strings.Contains(step.Host.CloudInit, "podman") {
-				t.Fatalf("host cloud-init is not ts-node-only: %s", step.Host.CloudInit)
+			if step.Host.CloudInit != "" {
+				t.Fatalf("retired greenfield cloud-init is still present: %s", step.Host.CloudInit)
 			}
 		}
 	}
