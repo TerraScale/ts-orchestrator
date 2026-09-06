@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
@@ -302,6 +303,9 @@ func (s *EpochStore) retireCandidatePreparationLocked() error {
 	}
 	if r.Config.NodeID != s.node {
 		return errors.New("nodeauthority: candidate retirement host differs")
+	}
+	if r.Config.StorageTransition != (controltransition.Delivery{}) {
+		return controltransition.ErrPreparationMissing
 	}
 	path := filepath.Join(CandidatePreparationDirectory, "preparation.json")
 	current, e := readCandidateRecord(path, 0644, 0)

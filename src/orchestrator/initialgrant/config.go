@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/ociinstance"
@@ -86,6 +87,7 @@ type Peer struct {
 	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
+	StorageTransition  controltransition.Delivery `json:"storageTransition,omitzero"`
 	PreliminaryCapture *PreliminaryCaptureConfig  `json:"preliminaryCapture,omitempty"`
 	AuthorityReader    nodeauthority.ReaderConfig `json:"authorityReader"`
 	Version            int                        `json:"version"`
@@ -142,6 +144,19 @@ func (c Connection) valid() bool {
 	return cleanPath(c.NKeySeedFile) && nkeys.IsValidPublicUserKey(c.PublicNKey) && c.TLS.valid() && c.NKeySeedFile != c.TLS.KeyFile
 }
 func (c Config) Validate() error {
+	paths := []string{c.Broker.StoreDir}
+	if c.PreliminaryCapture != nil {
+		paths = append(paths, c.PreliminaryCapture.RequestFile, c.PreliminaryCapture.OutputDir)
+		if c.PreliminaryCapture.Publication != nil {
+			paths = append(paths, c.PreliminaryCapture.Publication.RequestFile, c.PreliminaryCapture.Publication.StateDir)
+		}
+	}
+	if err := c.StorageTransition.Validate(paths...); err != nil {
+		return err
+	}
+	if c.StorageTransition != (controltransition.Delivery{}) && c.Role != "seed" {
+		return errors.New("initialgrant: only the seed can accept storage transition delivery")
+	}
 	bad := func() error {
 		return errors.New("initialgrant: invalid initial GRU role, identity or finite configuration")
 	}
@@ -267,5 +282,8 @@ func ComponentConfig(spec hostmanifest.ComponentSpec) (Config, bool, error) {
 		return Config{}, true, errors.New("initialgrant: initial launch arguments differ")
 	}
 	c, err := ParseConfig([]byte(spec.Configuration))
+	if err == nil {
+		err = c.StorageTransition.Validate(spec.DataVolume)
+	}
 	return c, true, err
 }

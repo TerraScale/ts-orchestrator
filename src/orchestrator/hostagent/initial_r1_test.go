@@ -16,6 +16,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
@@ -23,7 +24,7 @@ import (
 
 // Run these tests in a root mount namespace with private tmpfs /var/lib.
 // Ordinary checks skip them rather than modify a real host's admission state.
-func initialHostFixture(t *testing.T) (*testHarness, hostmanifest.HostManifest, []byte, []byte, string) {
+func initialHostFixture(t *testing.T, delivery ...controltransition.Delivery) (*testHarness, hostmanifest.HostManifest, []byte, []byte, string) {
 	t.Helper()
 	if os.Geteuid() != 0 || os.Getenv("TS_INITIAL_R1_ISOLATED_TEST") != "1" {
 		t.Skip("requires isolated root /var/lib mount")
@@ -65,6 +66,9 @@ func initialHostFixture(t *testing.T) (*testHarness, hostmanifest.HostManifest, 
 		Regional: initialgrant.Store{Account: "GRU_CONTROL", Provisioner: &rp, Runtime: regional}, Global: &initialgrant.Store{Account: "GLOBAL_CONTROL", Provisioner: &gp, Runtime: global},
 		Membership: initialgrant.Membership{SigningKeyFile: "/keys/member.key", PublicKey: membership, PinsFile: "/keys/pins.json", PinsSHA256: digest},
 		Peers:      []initialgrant.Peer{{Instance: "gru-1", RegionalPublicNKey: regional.PublicNKey, GlobalPublicNKey: global.PublicNKey, MembershipPublicKey: membership}}}
+	if len(delivery) > 0 {
+		config.StorageTransition = delivery[0]
+	}
 	config.AuthorityReader = nodeauthority.ReaderConfig{Endpoint: config.Broker.Endpoint, ServerName: config.Broker.ServerName, Account: config.Regional.Account, NKeySeedFile: "/reader/user.seed", PublicNKey: publicKey(), CAFile: "/reader/ca.pem", CASHA256: digest, CertificateFile: "/reader/client.pem", CertificateSHA256: digest, KeyFile: "/reader/client.key"}
 	config.Peers[0].AuthorityReaderPublicNKey = config.AuthorityReader.PublicNKey
 	if err = config.Validate(); err != nil {

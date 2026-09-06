@@ -3,18 +3,25 @@ package hostagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
 func TestCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T) {
+	for _, withDelivery := range []bool{false, true} {
+		t.Run(map[bool]string{false: "preliminary", true: "storage-transition"}[withDelivery], func(t *testing.T) { testCandidatePreparationLocalAdmissionAndExpiredInitialResume(t, withDelivery) })
+	}
+}
+func testCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T, withDelivery bool) {
 	if os.Geteuid() != 0 || os.Getenv("TS_INITIAL_R1_ISOLATED_TEST") != "1" {
 		t.Skip("requires isolated root /var/lib mount")
 	}
@@ -26,6 +33,9 @@ func TestCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T)
 	spec := h.publish(t, "orchestrator", "1.0.0")
 	proofDir := t.TempDir()
 	cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-one", Region: "sfo", ServerName: "sfo-control", StoreDir: filepath.Join(spec.DataVolume, "control"), GrantFile: filepath.Join(proofDir, "prepare.json"), GrantPublicKeyFile: filepath.Join(proofDir, "owner.pem")}
+	if withDelivery {
+		cfg.StorageTransition = controltransition.Delivery{TransitionID: cfg.TransitionID, PlanFile: filepath.Join(proofDir, "transition.json")}
+	}
 	raw, _ := json.Marshal(cfg)
 	spec.Arguments = transitiongrant.Arguments
 	spec.Configuration = string(raw)
@@ -55,6 +65,16 @@ func TestCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T)
 	authority, e := parseBootstrapAuthority(cfg.NodeID, public, signedInitial)
 	if e != nil {
 		t.Fatal(e)
+	}
+	transitionPlan := hostStoragePlan(t, authority)
+	signedPlan, e := controltransition.SignPlan(signer, transitionPlan)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if withDelivery {
+		if e = os.WriteFile(cfg.StorageTransition.PlanFile, signedPlan, 0600); e != nil {
+			t.Fatal(e)
+		}
 	}
 	grant := transitiongrant.Grant{Version: 1, TransitionID: cfg.TransitionID, IssuedAt: time.Now().UTC().Add(-time.Minute), ExpiresAt: time.Now().UTC().Add(time.Hour), Source: transitiongrant.SourceIdentity{NodeID: "gru-one", ServerName: "gru-control", InitialGrantSHA256: strings.Repeat("a", 64), StoreScopeSHA256: strings.Repeat("b", 64)}, TargetEpoch: 2, MinimumControlEpoch: 1}
 	for _, region := range []string{"gru", "sfo", "fra"} {
@@ -101,6 +121,11 @@ func TestCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T)
 	transport := &NatsTransport{commandContext: context.Background(), authorizer: authority, epochs: epochs, lifecycle: h.lifecycle, journal: journal, manifestPath: manifestPath, requireManifestAdmission: true, closing: make(chan struct{})}
 	if e = transport.initializeManifestAuthority(); e != nil {
 		t.Fatal(e)
+	}
+	if withDelivery {
+		if _, e = epochs.ResumeStorageTransitionPlan(t.Context(), controltransition.Digest(signedPlan)); e != nil {
+			t.Fatal("startup did not pin delivered plan", e)
+		}
 	}
 	epochs.Close()
 	receipt, e := nodeauthority.ValidatePublishedPreparation(context.Background(), cfg)
@@ -168,6 +193,19 @@ func TestCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T)
 		t.Fatal(e)
 	}
 	defer epochs.Close()
+	if withDelivery {
+		command := nodeauthority.CommandAuthorization{NodeID: cfg.NodeID, AuthorityID: "sfo-regional", Epoch: 1, CandidateID: "sfo-controller-one", LeaseID: "lease-one"}
+		if e = epochs.Admit(command); !errors.Is(e, controltransition.ErrPreparationMissing) {
+			t.Fatal("ordinary epoch bypassed transition barrier", e)
+		}
+		if runtime, err := epochs.AdmittedManifest(authority.manifestDigest); err != nil || runtime {
+			t.Fatal("failed barrier advanced epoch", err)
+		}
+		if _, e = nodeauthority.ValidatePublishedPreparation(t.Context(), cfg); e != nil {
+			t.Fatal("failed barrier revoked candidate", e)
+		}
+		return
+	}
 	privatePin := filepath.Join(journal.dir, "candidate-preparation.json")
 	privateBytes, err := os.ReadFile(privatePin)
 	if err != nil {

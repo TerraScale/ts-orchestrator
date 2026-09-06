@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
@@ -27,16 +28,17 @@ const MaximumBytes = 64 << 10
 const domain = "TS-CONTROL-CANDIDATE-PREPARATION-V1\x00"
 
 type Config struct {
-	Sync               *CandidateSyncConfig `json:"sync,omitempty"`
-	Version            int                  `json:"version"`
-	Mode               string               `json:"mode"`
-	TransitionID       string               `json:"transitionId"`
-	NodeID             string               `json:"nodeId"`
-	Region             string               `json:"region"`
-	ServerName         string               `json:"serverName"`
-	StoreDir           string               `json:"storeDir"`
-	GrantFile          string               `json:"grantFile"`
-	GrantPublicKeyFile string               `json:"grantPublicKeyFile"`
+	StorageTransition  controltransition.Delivery `json:"storageTransition,omitzero"`
+	Sync               *CandidateSyncConfig       `json:"sync,omitempty"`
+	Version            int                        `json:"version"`
+	Mode               string                     `json:"mode"`
+	TransitionID       string                     `json:"transitionId"`
+	NodeID             string                     `json:"nodeId"`
+	Region             string                     `json:"region"`
+	ServerName         string                     `json:"serverName"`
+	StoreDir           string                     `json:"storeDir"`
+	GrantFile          string                     `json:"grantFile"`
+	GrantPublicKeyFile string                     `json:"grantPublicKeyFile"`
 }
 type SourceIdentity struct {
 	NodeID             string `json:"nodeId"`
@@ -95,6 +97,16 @@ func canonicalDecode(raw []byte, v any) error {
 	return nil
 }
 func (c Config) Validate() error {
+	protected := []string{c.StoreDir, c.GrantFile, c.GrantPublicKeyFile}
+	if c.Sync != nil {
+		protected = append(protected, c.Sync.RequestFile, c.Sync.StagingDir, c.Sync.ReceiptDir, c.Sync.ReceiptPrivateKeyFile)
+	}
+	if err := c.StorageTransition.Validate(protected...); err != nil {
+		return err
+	}
+	if c.StorageTransition != (controltransition.Delivery{}) && c.StorageTransition.TransitionID != c.TransitionID {
+		return errors.New("transitiongrant: storage transition identity differs")
+	}
 	if c.Version != 1 || c.Mode != Mode || !token(c.TransitionID) || (c.Region != "sfo" && c.Region != "fra") || !token(c.NodeID) || !strings.HasPrefix(c.NodeID, c.Region+"-") || !token(c.ServerName) || !hostmanifest.SafeAbsolutePath(c.StoreDir) || !hostmanifest.SafeAbsolutePath(c.GrantFile) || !hostmanifest.SafeAbsolutePath(c.GrantPublicKeyFile) || c.GrantFile == c.GrantPublicKeyFile {
 		return errors.New("transitiongrant: invalid candidate configuration")
 	}
@@ -153,6 +165,9 @@ func ComponentConfig(spec hostmanifest.ComponentSpec) (Config, bool, error) {
 	}
 	if !hostmanifest.SafeAbsolutePath(spec.DataVolume) || hostmanifest.PathsOverlap(spec.DataVolume, c.GrantFile) || hostmanifest.PathsOverlap(spec.DataVolume, c.GrantPublicKeyFile) {
 		return c, true, errors.New("transitiongrant: preparation admission overlaps writable data volume")
+	}
+	if err := c.StorageTransition.Validate(spec.DataVolume); err != nil {
+		return c, true, err
 	}
 	if c.Sync != nil {
 		if err := c.Sync.validateComponent(spec.DataVolume); err != nil {

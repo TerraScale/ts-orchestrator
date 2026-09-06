@@ -30,6 +30,7 @@ type BootstrapCommand = nodebootstrap.BootstrapCommand
 // BootstrapAuthority composes independently signed initial host admission with
 // real regional authority. The initial grant carries no runtime epoch or lease.
 type BootstrapAuthority struct {
+	ownerPublic            []byte
 	initialProof           *initialgrant.Proof
 	runtime                nodeauthority.CommandAuthorizer
 	verifier               *nodebootstrap.BootstrapAuthority
@@ -102,7 +103,7 @@ func parseBootstrapAuthority(node string, publicPEM, signedGrant []byte) (*Boots
 		return nil, err
 	}
 	grant := BootstrapGrant{Version: raw.Version, GrantID: raw.GrantID, NodeID: raw.NodeID, Manifest: manifest, IssuedAt: raw.IssuedAt, ExpiresAt: raw.ExpiresAt}
-	return &BootstrapAuthority{initialProof: proof, verifier: verifier, grant: grant, digest: verifier.Digest(), manifestDigest: digest}, nil
+	return &BootstrapAuthority{ownerPublic: bytes.Clone(publicPEM), initialProof: proof, verifier: verifier, grant: grant, digest: verifier.Digest(), manifestDigest: digest}, nil
 }
 func (a *BootstrapAuthority) Authorize(ctx context.Context, subject string, wire []byte) (nodeauthority.CommandAuthorization, error) {
 	if len(wire) > protocol.MaximumCommandEnvelopeBytes {

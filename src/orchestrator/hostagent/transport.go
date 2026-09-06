@@ -864,6 +864,9 @@ func (t *NatsTransport) applyManifest(ctx context.Context, command hostmanifest.
 		}
 		if t.requireManifestAdmission {
 			authorization, _ := ctx.Value(commandAuthorizationContextKey{}).(nodeauthority.CommandAuthorization)
+			if err := t.requireStorageTransitionPreparation(ctx, authorization, wantedSha256); err != nil {
+				return nil, err
+			}
 			if err := initialgrant.RetireForReplacement(ctx, t.epochs, authorization, command, currentManifest); err != nil {
 				return nil, err
 			}

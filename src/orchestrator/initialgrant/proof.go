@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/nodebootstrap"
@@ -261,6 +262,9 @@ func RetireForReplacement(ctx context.Context, epochs *nodeauthority.EpochStore,
 	}
 	if !currentInitial && command.ExpectedManifestSha256 != p.identity.ManifestSHA256 {
 		return nil
+	}
+	if p.config.StorageTransition != (controltransition.Delivery{}) {
+		return controltransition.ErrPreparationMissing
 	}
 	replacement, err := hostmanifest.HostManifestSha256(command.Manifest)
 	if err != nil {

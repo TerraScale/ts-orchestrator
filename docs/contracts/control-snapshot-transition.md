@@ -165,8 +165,9 @@ A finite, domain-separated owner-signed storage transition grant will bridge
 the source shutdown. `controltransition` now defines and verifies the immutable
 owner-signed plan, and `nodeauthority` can pin that agreement in the existing
 private host journal. These APIs do not execute phases or grant storage effects.
-The host delivery, receipt protocol, and privileged phase composition remain
-unimplemented. End-to-end verification must use the
+Local file intake now pins plans from the original signed source/candidate
+configuration using the bootstrap owner key. Remote transfer, the phase receipt
+protocol, and privileged phase composition remain unimplemented. End-to-end verification must use the
 existing ts-node `bootstrapPublicKeyFile`, together with the original verified
 `bootstrapGrantFile`; the VM image currently provisions the public key at
 `/etc/terrascale/ts-node-bootstrap/authority.pem` with mode `0400`. The key is
@@ -180,8 +181,9 @@ original bootstrap-grant digests. The trusted host executor verifies and pins
 that grant once in the existing host journal. If final identities become known
 only after initial provisioning, the initial signed configuration authorizes
 reading one bounded grant at that exact location; the source cannot retire
-until all hosts have pinned the same completed transition. This document-read
-and admission path also requires implementation.
+until all hosts have pinned the same completed transition. The local document-read and plan-pin path is implemented through the signed
+`storageTransition` configuration. Remote transfer and the complete preparation
+barrier remain unfinished.
 
 The grant binds the estate/transition identity, original source admission and
 store scope, exact destination hosts and named peers, certificates and receipt

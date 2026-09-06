@@ -1,0 +1,7 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	1.261s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitiongrant	1.099s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialgrant	1.375s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	9.365s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostagent	3.124s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostbootstrap	4.880s
+ok  	terrascale.tech/orchestrator/src/orchestrator/storageplan	1.895s

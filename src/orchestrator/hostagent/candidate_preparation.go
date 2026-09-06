@@ -164,6 +164,10 @@ func ResumeLocalCandidatePreparation(ctx context.Context, lifecycle *Lifecycle, 
 	if runtime, err := epochs.AdmittedManifest(authority.manifestDigest); err == nil && runtime {
 		return true, nil
 	}
+	executor := &NatsTransport{authorizer: authority, epochs: epochs}
+	if e = executor.pinDestinationStorageTransition(ctx); e != nil {
+		return true, e
+	}
 	receipt, e := epochs.ResumeCandidatePreparation(ctx, c, authority.digest, authority.manifestDigest)
 	if e != nil {
 		return true, e

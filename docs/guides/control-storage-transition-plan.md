@@ -58,6 +58,38 @@ covers the complete signed envelope.
 The checks authenticate the supplied evidence and its bindings. They do not
 retrieve referenced restore evidence, observe OCI ownership, compare final
 consumer state, validate actual filesystem identities, or establish the final
-preparation barrier. Host delivery, independent receipt publication, privileged
-phase execution and pre-NATS phase recovery remain unimplemented. The command
-must not be used as a substitute for those gates.
+preparation barrier. Local host intake is described below. Remote plan transfer, independent receipt
+publication, privileged phase execution and pre-NATS phase recovery remain
+unimplemented. The command must not be used as a substitute for those gates.
+
+## Authorize local intake before signing the initial manifests
+
+Include this value in the source seed and SFO/FRA candidate component
+configurations before signing their original host bootstrap grants:
+
+```json
+"storageTransition": {
+  "transitionId": "first-r3",
+  "planFile": "/etc/terrascale/storage-transition/plan.json"
+}
+```
+
+The file can be absent while preliminary capture and candidate synchronization
+run. Its location must be outside all managed component data volumes and all
+capture, staging, receipt and admission paths. The plan itself later signs the
+already prepared initial manifest hashes, so this configuration cannot contain
+the signed-plan digest. Existing signed manifests cannot gain this field by
+editing their configuration files.
+
+After the owner prepares the plan, local intake requires its exact bytes at
+each signed location in a root-owned private regular file. The current code
+implements reading and pinning that file; remote transfer to hosts is still
+unimplemented. On candidate startup, `ts-node` pins an available plan against
+its existing initial admission. The GRU source pins on the live command for its
+exact capture replacement. That command currently refuses completion before
+retirement because the full preparation barrier is not implemented.
+
+A `ts-node` restart checks any already pinned agreement before NATS dialing.
+It does not execute storage phases. Keep the delivered file and its bytes
+unchanged. Intake verifies with the original bootstrap public key; the plan
+file cannot nominate a new owner key. No owner private key is sent to a host.

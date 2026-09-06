@@ -71,15 +71,16 @@ pinned and cannot be overwritten by a renewed document.
 
 These APIs record agreement only. They do not publish a preparation receipt,
 retire a source, seal or copy files, run a broker, restore/promote a stream,
-apply a manifest, mint a lease, or revoke credentials. The owner command `plan-storage-transition` now prepares a signed plan against
-original host grants and preliminary candidate evidence; see the
-[operator guide](../guides/control-storage-transition-plan.md). No service launch
-currently delivers that plan to these APIs. Before enabling execution, implement
-the original-bootstrap-key delivery chain, phase-specific host journal and
-receipt checks, complete inventory/ownership observations, the source stop and
-seal protocol, and pre-NATS recovery in the order required by
+apply a manifest, mint a lease, or revoke credentials. The owner command
+`plan-storage-transition` prepares a signed plan against original host grants
+and preliminary candidate evidence; see the
+[operator guide](../guides/control-storage-transition-plan.md). The signed
+`storageTransition` configuration now admits local plan intake in `ts-node`, as
+described below. Remote transfer to that location, phase-specific journal and
+receipt checks, complete inventory/ownership observations, source stop and seal,
+and pre-NATS phase execution remain required by
 [the transition design](control-snapshot-transition.md). The existing manifest
-handoff must not use the plan pin as proof that all destinations are prepared.
+handoff cannot use the plan pin as proof that all destinations are prepared.
 
 ## Host acknowledgements
 
@@ -151,3 +152,43 @@ compare final consumer/configuration state, prove current host health, publish
 receipts for independent reads, or establish the final cut. Durable host-plan
 preparation and source shutdown still require their own chained evidence before
 retirement can proceed.
+
+## Local host intake
+
+The optional `storageTransition` value in the original `initialgrant.Config`
+seed configuration and `transitiongrant.Config` candidate configuration names
+`transitionId` and `planFile`. It contains no owner key and no plan digest,
+which would be circular with the manifest hash signed by that later plan.
+The zero value is omitted from existing canonical configurations.
+
+The path must remain outside every component's writable data volume, source
+capture output, candidate staging/receipt storage, and preparation admission
+files. Once delivered, the file must be a bounded private regular file owned by
+root, with no symlink traversal or additional hard links. `BootstrapAuthority`
+retains a private copy of the original verified bootstrap public key. Local
+intake verifies the plan with that key, its current lifetime, transition and
+host identity, and exact original bootstrap/manifest bindings.
+
+Candidate initialization pins an available plan after its initial preparation
+admission. The expired-initial-grant candidate recovery path also admits a
+newly delivered live plan against its retained initial host admission. It does
+not renew bootstrap or change the candidate's finite preparation lifetime.
+An absent plan permits preliminary candidate work but creates no agreement.
+A malformed, expired, foreign or conflicting delivered plan is refused.
+
+The source's live `ApplyManifest` command may pin only the plan's exact capture
+replacement. It then returns `ErrPreparationMissing` before retirement or
+replacement effects because the complete preparation barrier is unfinished.
+The published original source proof enforces that same refusal if the receiver
+has only a runtime verifier. An opted-in candidate's private preparation record
+also refuses ordinary epoch admission and publication revocation until that
+barrier exists. Removing the bootstrap wrapper cannot bypass these checks.
+
+Before NATS dialing, `ResumeLocalStorageTransitionPlan` verifies an existing
+private agreement using the exact delivered plan. It neither creates bootstrap
+admission nor resumes phase effects. The current intake covers the shared
+source/GRU host and the initial SFO/FRA candidate configurations; a separate GRU
+destination launch still needs its own admitted configuration and composition.
+There is no remote plan-upload command, continuous file poller, or automatic
+external acknowledgement publication yet. Keep the original delivered file
+available for agreement recovery and do not replace its signed bytes.

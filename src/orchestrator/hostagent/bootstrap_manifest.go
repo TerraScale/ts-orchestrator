@@ -27,6 +27,9 @@ func (t *NatsTransport) initializeManifestAuthority() error {
 		return err
 	}
 	if handled, candidateErr := t.initializeCandidatePreparation(manifest, digest); handled {
+		if candidateErr == nil {
+			candidateErr = t.pinDestinationStorageTransition(t.context())
+		}
 		return candidateErr
 	}
 	runtime, admissionErr := t.epochs.AdmittedManifest(digest)
