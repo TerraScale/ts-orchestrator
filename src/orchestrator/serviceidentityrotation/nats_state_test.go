@@ -80,11 +80,38 @@ func TestNATSIdentityJournalFencesStaleSessionsAndRepairsLateCommit(t *testing.T
 	if err := one.Save(ctx, j); !errors.Is(err, ErrStateNotLoaded) && !errors.Is(err, ErrStateFenced) {
 		t.Fatalf("stale owner: %v", err)
 	}
+	// Enrollment and rotation share the exact loaded state cursor.
+	idle := j
+	idle.Active = idle.Pending
+	idle.Pending = hostsecrets.IdentitySecretReference{}
+	idle.Phase = ""
+	idle.Deadline = time.Time{}
+	idle.NextRotation = time.Now().Add(time.Hour)
+	if err := successor.Save(ctx, idle); err != nil {
+		t.Fatal(err)
+	}
+	competitor := makeStore()
+	staleIdle, err := competitor.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := idle
+	enrolled.RosterRevision++
+	enrolled.Members = append(append([]RemoteMemberEndpoint{}, idle.Members...), RemoteMemberEndpoint{NodeID: "member-two", URL: "https://member-two.internal"})
+	if err := successor.Save(ctx, enrolled); err != nil {
+		t.Fatal(err)
+	}
+	staleIdle.Generation++
+	staleIdle.Phase = "issue"
+	staleIdle.Deadline = time.Now().Add(time.Minute)
+	if err := competitor.Save(ctx, staleIdle); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("rotation excluded concurrently enrolled member: %v", err)
+	}
 	cluster.servers[1].Shutdown()
 	cluster.servers[2].Shutdown()
 	cluster.servers[1].WaitForShutdown()
 	cluster.servers[2].WaitForShutdown()
-	if err := successor.Save(ctx, j); err == nil {
+	if err := successor.Save(ctx, enrolled); err == nil {
 		t.Fatal("minority identical Save succeeded")
 	}
 }

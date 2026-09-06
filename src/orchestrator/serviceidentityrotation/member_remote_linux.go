@@ -40,7 +40,7 @@ func NewRemoteMembers(c RemoteMembersConfig) (*RemoteMembers, error) {
 	tlsConfig.MinVersion = max(tlsConfig.MinVersion, tls.VersionTLS13)
 	return &RemoteMembers{c, &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig, DisableKeepAlives: true, ResponseHeaderTimeout: 15 * time.Second}, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
-func (m *RemoteMembers) DeliverAll(ctx context.Context, ref hostsecrets.IdentitySecretReference, generation uint64, secret []byte) error {
+func (m *RemoteMembers) DeliverTo(ctx context.Context, endpoints []RemoteMemberEndpoint, ref hostsecrets.IdentitySecretReference, generation uint64, secret []byte) error {
 	if ref.Generation == 0 || ref.VersionNumber <= 0 {
 		return ErrRotation
 	}
@@ -49,18 +49,23 @@ func (m *RemoteMembers) DeliverAll(ctx context.Context, ref hostsecrets.Identity
 	if !validMemberRequest(q) {
 		return ErrRotation
 	}
-	endpoints, err := m.config.Endpoints(ctx)
-	if err != nil || len(endpoints) == 0 {
+	if !validJournalRoster(endpoints) {
 		return ErrRotation
 	}
-	seen := map[string]bool{}
-	// Validate the complete inventory before transmitting plaintext.
-	for _, e := range endpoints {
-		u, err := url.Parse(e.URL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") || e.NodeID == "" || seen[e.NodeID] {
+	trusted, err := m.config.Endpoints(ctx)
+	if err != nil || !validJournalRoster(trusted) {
+		return ErrRotation
+	}
+	trustedEndpoints := make(map[string]struct{}, len(trusted))
+	for _, endpoint := range trusted {
+		trustedEndpoints[endpointKey(endpoint)] = struct{}{}
+	}
+	// The coordinator's roster selects the recipients, but every recipient must
+	// still be present in the independently sourced trusted inventory.
+	for _, endpoint := range endpoints {
+		if _, ok := trustedEndpoints[endpointKey(endpoint)]; !ok {
 			return ErrRotation
 		}
-		seen[e.NodeID] = true
 	}
 	for _, endpoint := range endpoints {
 		if m.deliver(ctx, endpoint, q) != nil {
@@ -68,6 +73,11 @@ func (m *RemoteMembers) DeliverAll(ctx context.Context, ref hostsecrets.Identity
 		}
 	}
 	return nil
+}
+
+func endpointKey(endpoint RemoteMemberEndpoint) string {
+	u, _ := url.Parse(endpoint.URL)
+	return endpoint.NodeID + "\x00" + strings.ToLower(u.Host)
 }
 func (m *RemoteMembers) deliver(ctx context.Context, endpoint RemoteMemberEndpoint, q MemberRequest) error {
 	epoch, lease, err := m.config.Authority(ctx)

@@ -109,3 +109,82 @@ func TestAdoptedRecoveryOnlyRemovesPrevious(t *testing.T) {
 		t.Fatal("adopted recovery restaged or rolled back", e.calls)
 	}
 }
+
+func rosterCoordinator(t *testing.T) (*Coordinator, *memoryStore, *effects) {
+	t.Helper()
+	s := &memoryStore{}
+	e := &effects{}
+	c, err := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
+	if err != nil || c.Run(t.Context()) != nil {
+		t.Fatal("bootstrap failed", err)
+	}
+	return c, s, e
+}
+func TestEnrolledMemberParticipatesInNextRotation(t *testing.T) {
+	c, s, e := rosterCoordinator(t)
+	second := RemoteMemberEndpoint{NodeID: "second", URL: "https://second.internal"}
+	if c.Enroll(t.Context(), second) != nil {
+		t.Fatal("enrollment failed")
+	}
+	if s.j.RosterRevision != 2 || len(s.j.Members) != 2 {
+		t.Fatal("roster was not persisted")
+	}
+	if last := e.targets[len(e.targets)-1]; len(last) != 1 || last[0] != second {
+		t.Fatal("enrollment did not prove new member", last)
+	}
+	s.j.NextRotation = time.Time{}
+	if c.Run(t.Context()) != nil {
+		t.Fatal("rotation failed")
+	}
+	if last := e.targets[len(e.targets)-1]; len(last) != 2 || last[1] != second {
+		t.Fatal("rotation omitted enrolled member", last)
+	}
+	if c.config.BootstrapMembers[0].NodeID != "first" || len(c.config.BootstrapMembers) != 1 {
+		t.Fatal("roster modified bootstrap config")
+	}
+}
+func TestFailedEnrollmentCannotAdmitAndRetryProvesAgain(t *testing.T) {
+	c, s, e := rosterCoordinator(t)
+	second := RemoteMemberEndpoint{NodeID: "second", URL: "https://second.internal"}
+	e.failDelivery = true
+	if c.Enroll(t.Context(), second) == nil {
+		t.Fatal("failed adoption was admitted")
+	}
+	if len(s.j.Members) != 2 || s.j.RosterRevision != 2 {
+		t.Fatal("failed enrollment lost durable roster")
+	}
+	e.failDelivery = false
+	if c.Enroll(t.Context(), second) != nil || s.j.RosterRevision != 2 {
+		t.Fatal("retry failed or changed roster revision")
+	}
+	if c.Enroll(t.Context(), RemoteMemberEndpoint{NodeID: "second", URL: "https://changed.internal"}) == nil {
+		t.Fatal("changed endpoint adopted")
+	}
+	if c.Enroll(t.Context(), RemoteMemberEndpoint{NodeID: "third", URL: "https://second.internal/"}) == nil {
+		t.Fatal("duplicate endpoint adopted")
+	}
+}
+func TestRosterChangesRejectBusyRotationAndRetainLastHost(t *testing.T) {
+	c, s, _ := rosterCoordinator(t)
+	second := RemoteMemberEndpoint{NodeID: "second", URL: "https://second.internal"}
+	s.j.Phase = "stage"
+	deadline := time.Now().Add(time.Minute)
+	s.j.Deadline = deadline
+	if c.Enroll(t.Context(), second) == nil || s.j.RosterRevision != 1 || !s.j.Deadline.Equal(deadline) {
+		t.Fatal("busy enrollment changed operation")
+	}
+	if c.RetireMember(t.Context(), s.j.Members[0]) == nil {
+		t.Fatal("busy retirement succeeded")
+	}
+	s.j.Phase = ""
+	s.j.Deadline = time.Time{}
+	if c.RetireMember(t.Context(), s.j.Members[0]) == nil {
+		t.Fatal("retired final host")
+	}
+	if c.Enroll(t.Context(), second) != nil {
+		t.Fatal("enrollment failed")
+	}
+	if c.RetireMember(t.Context(), second) != nil || len(s.j.Members) != 1 || s.j.RosterRevision != 3 {
+		t.Fatal("retirement failed")
+	}
+}

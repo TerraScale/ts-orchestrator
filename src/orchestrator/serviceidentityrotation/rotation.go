@@ -5,7 +5,6 @@ package serviceidentityrotation
 import (
 	"context"
 	"errors"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -256,21 +255,7 @@ func (c *Coordinator) bootstrap(ctx context.Context, j Journal) error {
 	return nil
 }
 
-func validRoster(members []RemoteMemberEndpoint) bool {
-	if len(members) == 0 {
-		return false
-	}
-	ids, urls := map[string]bool{}, map[string]bool{}
-	for _, m := range members {
-		u, err := url.Parse(m.URL)
-		if err != nil || m.NodeID == "" || len(m.NodeID) > 256 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") || ids[m.NodeID] || urls[strings.TrimSuffix(m.URL, "/")] {
-			return false
-		}
-		ids[m.NodeID] = true
-		urls[strings.TrimSuffix(m.URL, "/")] = true
-	}
-	return true
-}
+func validRoster(members []RemoteMemberEndpoint) bool { return validJournalRoster(members) }
 
 // Enroll must succeed before a newly provisioned host becomes admitted-ready.
 // Persisting the roster first ensures a failed delivery remains in every later
@@ -301,6 +286,9 @@ func (c *Coordinator) Enroll(ctx context.Context, member RemoteMemberEndpoint) e
 			return ErrRotation
 		}
 		j.Members = append(slices.Clone(j.Members), member)
+		if !validRoster(j.Members) {
+			return ErrRotation
+		}
 		j.RosterRevision++
 		if c.config.Store.Save(ctx, j) != nil {
 			return ErrRotation

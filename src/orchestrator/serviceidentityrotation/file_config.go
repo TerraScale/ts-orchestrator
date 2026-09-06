@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"net/url"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -119,12 +118,15 @@ func (c FileConfig) Construct(ctx context.Context, connection *nats.Conn, candid
 	if !roots.AppendCertsFromPEM(trust) {
 		return nil, ErrRotation
 	}
-	endpoints := slices.Clone(c.Members)
 	members, e := NewRemoteMembers(RemoteMembersConfig{TLS: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{pair}}, Endpoints: func(ctx context.Context) ([]RemoteMemberEndpoint, error) {
 		if check(ctx) != nil {
 			return nil, ErrRotation
 		}
-		return slices.Clone(endpoints), nil
+		journal, err := store.Load(ctx)
+		if err != nil {
+			return nil, ErrRotation
+		}
+		return append([]RemoteMemberEndpoint(nil), journal.Members...), nil
 	}, Authority: func(ctx context.Context) (uint64, string, error) {
 		if check(ctx) != nil {
 			return 0, "", ErrRotation
