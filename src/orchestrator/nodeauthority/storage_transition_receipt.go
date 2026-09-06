@@ -16,6 +16,11 @@ import (
 
 const storageTransitionReceiptName = "storage-transition-pin-receipt.json"
 
+// ErrStorageTransitionReceiptSignerRequired means a valid durable pin has no
+// acknowledgement yet. Corrupt, conflicting or unsafe evidence never returns
+// this error; callers may load a protected signer only for this case.
+var ErrStorageTransitionReceiptSignerRequired = errors.New("nodeauthority: first transition acknowledgement requires host signer")
+
 // AcknowledgeStorageTransitionPlan signs and durably retains an acknowledgement
 // of the existing private pin. The caller must be the trusted host receiver.
 // It does not publish externally or acknowledge storage preparation. A retry
@@ -82,6 +87,9 @@ func (s *EpochStore) acknowledgeStorageTransitionPlan(ctx context.Context, expec
 	}
 	if !os.IsNotExist(err) {
 		return nil, err
+	}
+	if signer == nil {
+		return nil, ErrStorageTransitionReceiptSignerRequired
 	}
 	wanted.PublishedAt = time.Now().UTC()
 	raw, err := controltransition.SignPinReceipt(signer, v, wanted)

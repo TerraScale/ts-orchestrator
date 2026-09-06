@@ -157,11 +157,13 @@ retirement can proceed.
 
 The optional `storageTransition` value in the original `initialgrant.Config`
 seed configuration and `transitiongrant.Config` candidate configuration names
-`transitionId` and `planFile`. It contains no owner key and no plan digest,
+`transitionId`, `planFile` and `receiptPrivateKeyFile`. It contains no owner
+key and no plan digest,
 which would be circular with the manifest hash signed by that later plan.
 The zero value is omitted from existing canonical configurations.
 
-The path must remain outside every component's writable data volume, source
+Both file paths must be distinct and remain outside every component's writable
+data volume, source
 capture output, candidate staging/receipt storage, and preparation admission
 files. Once delivered, the file must be a bounded private regular file owned by
 root, with no symlink traversal or additional hard links. `BootstrapAuthority`
@@ -173,11 +175,13 @@ Candidate initialization pins an available plan after its initial preparation
 admission. The expired-initial-grant candidate recovery path also admits a
 newly delivered live plan against its retained initial host admission. It does
 not renew bootstrap or change the candidate's finite preparation lifetime.
-An absent plan permits preliminary candidate work but creates no agreement.
+After pinning, the host creates its signed `plan-pinned` acknowledgement in the
+same private journal. An absent plan permits preliminary candidate work but
+creates no agreement.
 A malformed, expired, foreign or conflicting delivered plan is refused.
 
-The source's live `ApplyManifest` command may pin only the plan's exact capture
-replacement. It then returns `ErrPreparationMissing` before retirement or
+The source's live `ApplyManifest` command may pin and acknowledge only the
+plan's exact capture replacement. It then returns `ErrPreparationMissing` before retirement or
 replacement effects because the complete preparation barrier is unfinished.
 The published original source proof enforces that same refusal if the receiver
 has only a runtime verifier. An opted-in candidate's private preparation record
@@ -185,10 +189,38 @@ also refuses ordinary epoch admission and publication revocation until that
 barrier exists. Removing the bootstrap wrapper cannot bypass these checks.
 
 Before NATS dialing, `ResumeLocalStorageTransitionPlan` verifies an existing
-private agreement using the exact delivered plan. It neither creates bootstrap
-admission nor resumes phase effects. The current intake covers the shared
+private agreement using the exact delivered plan and creates or recovers its
+local acknowledgement. It neither creates bootstrap admission nor resumes
+storage effects. The current intake covers the shared
 source/GRU host and the initial SFO/FRA candidate configurations; a separate GRU
 destination launch still needs its own admitted configuration and composition.
 There is no remote plan-upload command, continuous file poller, or automatic
 external acknowledgement publication yet. Keep the original delivered file
 available for agreement recovery and do not replace its signed bytes.
+
+## Host acknowledgement composition
+
+`ts-node` calls `AcknowledgeStorageTransitionPlan` after successful pin admission
+or recovery. It first asks for the retained receipt without supplying a signer.
+Only `ErrStorageTransitionReceiptSignerRequired`, returned for a validated pin
+with no receipt, permits opening the configured host private key. Corrupt,
+unsafe and conflicting receipts remain errors and never trigger re-signing.
+
+The first-signature key must be a bounded root-owned private regular file,
+reached without symlinks or extra hard links. Its public identity must equal the
+source or destination receipt key in the owner-signed plan. It is a dedicated
+host key, distinct from the off-host owner. The read buffer is cleared after
+parsing and the signer is closed after use. Missing, wrong or unsafe key material
+leaves the already pinned plan intact without creating a receipt.
+
+A completed acknowledgement is recovered byte-for-byte without reopening the
+key, including after a `ts-node` restart. This permits recovery while that key
+file is unavailable; it does not authorize new signatures after key retirement.
+The receipt remains in `storage-transition-pin-receipt.json` inside the private
+host journal. No remote acknowledgement publication or collection is wired yet.
+A local receipt still cannot satisfy the unfinished preparation barrier alone.
+
+Configured `storageTransition` values now require the receipt-key path. The
+previous prelaunch two-field draft is refused. Configurations without this
+optional value keep their original canonical bytes; no deployed transition
+history is migrated or rewritten.

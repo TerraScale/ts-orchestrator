@@ -70,13 +70,14 @@ configurations before signing their original host bootstrap grants:
 ```json
 "storageTransition": {
   "transitionId": "first-r3",
-  "planFile": "/etc/terrascale/storage-transition/plan.json"
+  "planFile": "/etc/terrascale/storage-transition/plan.json",
+  "receiptPrivateKeyFile": "/etc/terrascale/storage-transition/host-receipt.pem"
 }
 ```
 
-The file can be absent while preliminary capture and candidate synchronization
-run. Its location must be outside all managed component data volumes and all
-capture, staging, receipt and admission paths. The plan itself later signs the
+The plan file can be absent while preliminary capture and candidate
+synchronization run. Both paths must be distinct and outside all managed
+component data volumes and all capture, staging, receipt and admission paths. The plan itself later signs the
 already prepared initial manifest hashes, so this configuration cannot contain
 the signed-plan digest. Existing signed manifests cannot gain this field by
 editing their configuration files.
@@ -86,10 +87,24 @@ each signed location in a root-owned private regular file. The current code
 implements reading and pinning that file; remote transfer to hosts is still
 unimplemented. On candidate startup, `ts-node` pins an available plan against
 its existing initial admission. The GRU source pins on the live command for its
-exact capture replacement. That command currently refuses completion before
+exact capture replacement. Each successful pin is followed by a durable local
+acknowledgement using the configured host key. That command currently refuses completion before
 retirement because the full preparation barrier is not implemented.
 
-A `ts-node` restart checks any already pinned agreement before NATS dialing.
-It does not execute storage phases. Keep the delivered file and its bytes
+A `ts-node` restart checks any already pinned agreement and creates or recovers
+its local acknowledgement before NATS dialing. It does not execute storage
+phases. Keep the delivered file and its bytes
 unchanged. Intake verifies with the original bootstrap public key; the plan
 file cannot nominate a new owner key. No owner private key is sent to a host.
+
+Provision a separate P-256 host receipt key in the configured root-owned private
+file before first acknowledgement. The plan must bind its public PEM in the
+corresponding source or destination `receiptPublicKeyPem` field. This is not the
+owner key or a fallback to a service-owned membership key. Host receipt-key
+provisioning and remote receipt collection are not automated yet.
+
+Once written, the receipt is retained in the private command journal as
+`storage-transition-pin-receipt.json`. Recovery validates and returns those
+exact bytes without opening the key file again. Missing or incorrect first-use
+key material leaves the plan pin in place and refuses acknowledgement. Do not
+remove or replace a conflicting receipt to force a retry.

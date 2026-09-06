@@ -34,7 +34,7 @@ func testCandidatePreparationLocalAdmissionAndExpiredInitialResume(t *testing.T,
 	proofDir := t.TempDir()
 	cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-one", Region: "sfo", ServerName: "sfo-control", StoreDir: filepath.Join(spec.DataVolume, "control"), GrantFile: filepath.Join(proofDir, "prepare.json"), GrantPublicKeyFile: filepath.Join(proofDir, "owner.pem")}
 	if withDelivery {
-		cfg.StorageTransition = controltransition.Delivery{TransitionID: cfg.TransitionID, PlanFile: filepath.Join(proofDir, "transition.json")}
+		cfg.StorageTransition = controltransition.Delivery{TransitionID: cfg.TransitionID, PlanFile: filepath.Join(proofDir, "transition.json"), ReceiptPrivateKeyFile: filepath.Join(proofDir, "receipt.pem")}
 	}
 	raw, _ := json.Marshal(cfg)
 	spec.Arguments = transitiongrant.Arguments

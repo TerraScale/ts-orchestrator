@@ -18,7 +18,7 @@ func TestInitialStorageTransitionDeliveryRemainsSignedAndOutsideCapture(t *testi
 	if bytes.Contains(before, []byte("storageTransition")) {
 		t.Fatal("absent delivery changed original wire")
 	}
-	c.StorageTransition = controltransition.Delivery{TransitionID: "first-r3", PlanFile: "/etc/terrascale/storage-plan.json"}
+	c.StorageTransition = controltransition.Delivery{TransitionID: "first-r3", PlanFile: "/etc/terrascale/storage-plan.json", ReceiptPrivateKeyFile: "/etc/terrascale/receipt.pem"}
 	raw, err := json.Marshal(c, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		t.Fatal(err)

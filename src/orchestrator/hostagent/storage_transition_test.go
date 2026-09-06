@@ -27,7 +27,7 @@ import (
 
 func hostStoragePlan(t *testing.T, a *BootstrapAuthority) controltransition.Plan {
 	t.Helper()
-	public := func() string {
+	public := func(keyFile ...string) string {
 		k, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if e != nil {
 			t.Fatal(e)
@@ -35,6 +35,18 @@ func hostStoragePlan(t *testing.T, a *BootstrapAuthority) controltransition.Plan
 		raw, e := x509.MarshalPKIXPublicKey(&k.PublicKey)
 		if e != nil {
 			t.Fatal(e)
+		}
+		if len(keyFile) > 0 {
+			private, e := x509.MarshalPKCS8PrivateKey(k)
+			if e != nil {
+				t.Fatal(e)
+			}
+			encoded := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})
+			if e = os.WriteFile(keyFile[0], encoded, 0600); e != nil {
+				t.Fatal(e)
+			}
+			clear(private)
+			clear(encoded)
 		}
 		return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: raw}))
 	}
@@ -68,6 +80,22 @@ func hostStoragePlan(t *testing.T, a *BootstrapAuthority) controltransition.Plan
 	for _, role := range []string{"global", "gru-regional"} {
 		p.Accounts = append(p.Accounts, controltransition.Account{Role: role, SourceName: role, DestinationName: role, Streams: []controltransition.Stream{{Name: "EVENTS", SourceConfigSHA256: h, FinalConfigSHA256: h}}})
 	}
+	delivery, source, err := a.storageTransitionDelivery()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery != (controltransition.Delivery{}) {
+		key := public(delivery.ReceiptPrivateKeyFile)
+		if source {
+			p.Source.ReceiptPublicKeyPEM = key
+		} else {
+			for i, d := range p.Destinations {
+				if d.NodeID == a.grant.NodeID {
+					p.Destinations[i].ReceiptPublicKeyPEM = key
+				}
+			}
+		}
+	}
 	return p
 }
 
@@ -79,7 +107,7 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	spec := h.publish(t, "orchestrator", "1.0.0")
 	spec.User = "terrascale-orchestrator"
 	dir := t.TempDir()
-	cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-r3", StoreDir: filepath.Join(spec.DataVolume, "store"), GrantFile: filepath.Join(dir, "prepare.json"), GrantPublicKeyFile: filepath.Join(dir, "public.pem"), StorageTransition: controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(dir, "plan.json")}}
+	cfg := transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: "first-r3", NodeID: "sfo-1", Region: "sfo", ServerName: "sfo-r3", StoreDir: filepath.Join(spec.DataVolume, "store"), GrantFile: filepath.Join(dir, "prepare.json"), GrantPublicKeyFile: filepath.Join(dir, "public.pem"), StorageTransition: controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(dir, "plan.json"), ReceiptPrivateKeyFile: filepath.Join(dir, "receipt.pem")}}
 	raw, err := json.Marshal(cfg, jsonv1.DefaultOptionsV1())
 	if err != nil {
 		t.Fatal(err)
@@ -153,11 +181,70 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	if err = os.WriteFile(cfg.StorageTransition.PlanFile, plan, 0600); err != nil {
 		t.Fatal(err)
 	}
+	keyFile := cfg.StorageTransition.ReceiptPrivateKeyFile
+	keyBytes, err := os.ReadFile(keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(keyBytes)
+	if err = os.Remove(keyFile); err != nil {
+		t.Fatal(err)
+	}
+	if err = transport.pinDestinationStorageTransition(t.Context()); err == nil {
+		t.Fatal("missing key acknowledged pin")
+	}
+	retained, err := os.ReadFile(pinPath)
+	if err != nil {
+		t.Fatal("missing key lost plan pin", err)
+	}
+	receiptPath := filepath.Join(journal.dir, "storage-transition-pin-receipt.json")
+	if _, err = os.Stat(receiptPath); !os.IsNotExist(err) {
+		t.Fatal("missing key left acknowledgement", err)
+	}
+	// Generate another host key at the same configured path. Its signature
+	// must be refused because the immutable plan binds the original key.
+	_ = hostStoragePlan(t, authority)
+	if err = transport.pinDestinationStorageTransition(t.Context()); err == nil {
+		t.Fatal("wrong key acknowledged pin")
+	}
+	if _, err = os.Stat(receiptPath); !os.IsNotExist(err) {
+		t.Fatal("wrong key left acknowledgement", err)
+	}
+	if err = os.WriteFile(keyFile, keyBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(keyFile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err = transport.pinDestinationStorageTransition(t.Context()); err == nil {
+		t.Fatal("publicly readable key accepted")
+	}
+	if err = os.Chmod(keyFile, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err = transport.pinDestinationStorageTransition(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(pinPath)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(retained, before) {
+		t.Fatal("acknowledgement retry replaced pin")
+	}
+	ack, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := controltransition.VerifyPlan(public, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := controltransition.VerifyPinReceipt(verified, ack)
+	if err != nil || receipt.NodeID != cfg.NodeID || receipt.Role != "destination" || receipt.PinSHA256 != controltransition.Digest(before) {
+		t.Fatal("lost acknowledgement binding", err)
+	}
+	if err = os.Remove(keyFile); err != nil {
 		t.Fatal(err)
 	}
 	if err = epochs.Close(); err != nil {
@@ -169,6 +256,26 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 	after, err := os.ReadFile(pinPath)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("recovery changed pin", err)
+	}
+	again, err := os.ReadFile(receiptPath)
+	if err != nil || !bytes.Equal(ack, again) {
+		t.Fatal("restart changed acknowledgement", err)
+	}
+	if err = os.WriteFile(receiptPath, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = ResumeLocalStorageTransitionPlan(t.Context(), h.lifecycle, cfg.NodeID, public, signed); err == nil || errors.Is(err, nodeauthority.ErrStorageTransitionReceiptSignerRequired) {
+		t.Fatal("corrupt receipt treated as missing signer", err)
+	}
+	corrupt, err := os.ReadFile(receiptPath)
+	if err != nil || string(corrupt) != "{}" {
+		t.Fatal("corrupt receipt overwritten", err)
+	}
+	if err = os.WriteFile(receiptPath, ack, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = ResumeLocalStorageTransitionPlan(t.Context(), h.lifecycle, cfg.NodeID, public, signed); err != nil {
+		t.Fatal("key-free receipt recovery failed", err)
 	}
 	// A new valid signature on changed intent cannot replace a retained pin.
 	p.ClusterName = "different-r3"
@@ -192,7 +299,7 @@ func TestStorageTransitionDestinationDeliveryPinsAndRecoversWithoutNATS(t *testi
 }
 
 func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T) {
-	delivery := controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(t.TempDir(), "plan.json")}
+	delivery := controltransition.Delivery{TransitionID: "first-r3", PlanFile: filepath.Join(t.TempDir(), "plan.json"), ReceiptPrivateKeyFile: filepath.Join(t.TempDir(), "receipt.pem")}
 	h, initial, _, _, path := initialHostFixture(t, delivery)
 	signer, public, wire, _ := bootstrapTestGrant(t, initial)
 	authority, err := NewBootstrapAuthority(testCommandAuthorizer{}, "gru-1", public, wire)
@@ -250,5 +357,31 @@ func TestStorageTransitionSourceCommandPinsBeforeRefusingRetirement(t *testing.T
 	after, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(before, after) || len(h.systemd.ops()) != ops {
 		t.Fatal("incomplete preparation changed manifest or units", err)
+	}
+	receiptPath := filepath.Join(transport.journal.dir, "storage-transition-pin-receipt.json")
+	ack, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := controltransition.VerifyPlan(public, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := controltransition.VerifyPinReceipt(verified, ack)
+	if err != nil || receipt.Role != "source" || receipt.CommandSHA256 != controltransition.Digest(body) {
+		t.Fatal("source acknowledgement lost command binding", err)
+	}
+	if err = os.Remove(delivery.ReceiptPrivateKeyFile); err != nil {
+		t.Fatal(err)
+	}
+	if err = transport.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = ResumeLocalStorageTransitionPlan(t.Context(), h.lifecycle, "gru-1", public, wire); err != nil {
+		t.Fatal(err)
+	}
+	again, err := os.ReadFile(receiptPath)
+	if err != nil || !bytes.Equal(ack, again) {
+		t.Fatal("source restart changed acknowledgement", err)
 	}
 }

@@ -36,6 +36,9 @@ func TestStorageTransitionAcknowledgementRecoversBothRenames(t *testing.T) {
 	}
 	directory := filepath.Dir(f.store.path)
 	path := filepath.Join(directory, storageTransitionReceiptName)
+	if _, err := f.store.acknowledgeStorageTransitionPlan(t.Context(), digest, nil, f.uid, nil); !errors.Is(err, ErrStorageTransitionReceiptSignerRequired) {
+		t.Fatal("missing signer not distinguished", err)
+	}
 	if _, err := f.store.acknowledgeStorageTransitionPlan(t.Context(), digest, owner, f.uid, nil); err == nil {
 		t.Fatal("off-host owner used for acknowledgement")
 	}

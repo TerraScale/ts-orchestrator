@@ -12,6 +12,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
@@ -113,12 +114,38 @@ func (a *BootstrapAuthority) readStorageTransition(ctx context.Context, required
 }
 
 func pinStorageTransition(ctx context.Context, epochs *nodeauthority.EpochStore, a *BootstrapAuthority, v controltransition.VerifiedPlan, raw []byte, command *nodeauthority.CommandAuthorization) error {
-	if _, err := epochs.ResumeStorageTransitionPlan(ctx, v.Digest()); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
+	if _, err := epochs.ResumeStorageTransitionPlan(ctx, v.Digest()); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if _, err = epochs.AdmitStorageTransitionPlan(ctx, a.ownerPublic, raw, command); err != nil {
+			return err
+		}
+	}
+	return acknowledgeStorageTransition(ctx, epochs, a, v)
+}
+
+func acknowledgeStorageTransition(ctx context.Context, epochs *nodeauthority.EpochStore, a *BootstrapAuthority, v controltransition.VerifiedPlan) error {
+	// A valid retained acknowledgement is returned without accessing a key.
+	// Only the explicit missing-signer result permits first-signature work.
+	if _, err := epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), nil); !errors.Is(err, nodeauthority.ErrStorageTransitionReceiptSignerRequired) {
 		return err
 	}
-	_, err := epochs.AdmitStorageTransitionPlan(ctx, a.ownerPublic, raw, command)
+	d, _, err := a.storageTransitionDelivery()
+	if err != nil {
+		return err
+	}
+	private, err := bootstrapcredentials.ReadFile(d.ReceiptPrivateKeyFile, true, 32<<10)
+	if err != nil {
+		return err
+	}
+	signer, err := security.ParseCommandSignatureSignerPEM(private)
+	clear(private)
+	if err != nil {
+		return errors.New("hostagent: invalid protected transition receipt signer")
+	}
+	defer signer.Close()
+	_, err = epochs.AcknowledgeStorageTransitionPlan(ctx, v.Digest(), signer)
 	return err
 }
 
@@ -193,8 +220,8 @@ func (t *NatsTransport) requireStorageTransitionPreparation(ctx context.Context,
 	return ErrStorageTransitionPreparationMissing
 }
 
-// ResumeLocalStorageTransitionPlan verifies an existing agreement before NATS
-// dialing and before bootstrap's retired-host return. It executes no phase,
+// ResumeLocalStorageTransitionPlan verifies and acknowledges an existing plan
+// before NATS dialing and bootstrap's retired-host return. It executes no storage effects,
 // renews no lease, and never calls AdmitBootstrap. First delivery is pinned by
 // destination admission or the source's live ApplyManifest handler.
 func ResumeLocalStorageTransitionPlan(ctx context.Context, lifecycle *Lifecycle, node string, public, signed []byte) error {
@@ -226,7 +253,8 @@ func ResumeLocalStorageTransitionPlan(ctx context.Context, lifecycle *Lifecycle,
 	defer epochs.Close()
 	if _, err := epochs.ResumeStorageTransitionPlan(ctx, v.Digest()); os.IsNotExist(err) {
 		return nil
-	} else {
+	} else if err != nil {
 		return err
 	}
+	return acknowledgeStorageTransition(ctx, epochs, a, v)
 }
