@@ -25,6 +25,20 @@ func successorFixture(t *testing.T) (journalState, Record, Record, ed25519.Publi
 	old.State = "ready"
 	old.PlacementTargets = slices.Clone(old.PlacementTargets)
 	for i := range old.PlacementTargets {
+		stage := new(pb.PlacementStageRequest)
+		if err := proto.Unmarshal(old.PlacementTargets[i].Proposal, stage); err != nil {
+			t.Fatal(err)
+		}
+		stage.Declarations = []*pb.PlacementDatabaseDeclaration{{Tenant: old.Request.TenantID, Project: old.Request.ProjectID, Database: old.DatabaseID, SelectedRegions: []string{"GRU"}}}
+		encoded, err := proto.Marshal(stage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		old.PlacementTargets[i].Proposal = encoded
+		old.Targets[i].Proposal = encoded
+	}
+
+	for i := range old.PlacementTargets {
 		old.PlacementTargets[i].AcceptedEpoch = 1
 		old.PlacementTargets[i].AcceptedGeneration = 1
 		old.PlacementTargets[i].AcceptedProofDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -86,6 +100,7 @@ func TestPlacementRelocationFenceAndImmutableHistory(t *testing.T) {
 	if _, err := beginDeletion(&state, request, time.Now(), time.Time{}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("deletion crossed fence: %v", err)
 	}
+	state.PlacementRelocationStarted = true
 	if err := commitPlacementRelocation(&state, "relocate-one", []Record{current}, key); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +110,7 @@ func TestPlacementRelocationFenceAndImmutableHistory(t *testing.T) {
 	if !reflect.DeepEqual(state.Records[ScopeKey(old.Request)], old) || !reflect.DeepEqual(currentPlacementRecords(state), []Record{current}) {
 		t.Fatal("history overwritten or successor missing")
 	}
+	state.PlacementRelocationStarted = true
 	if err := commitPlacementRelocation(&state, "relocate-one", []Record{current}, key); err != nil {
 		t.Fatal("retry failed", err)
 	}
@@ -129,6 +145,7 @@ func TestPlacementRelocationRejectsChangedAuthority(t *testing.T) {
 			case "signature":
 				key = make(ed25519.PublicKey, ed25519.PublicKeySize)
 			}
+			state.PlacementRelocationStarted = true
 			if err := commitPlacementRelocation(&state, "relocate-one", []Record{current}, key); err == nil {
 				t.Fatal("invalid successor accepted")
 			}
@@ -185,5 +202,37 @@ func TestRelocationReadinessBindsSuccessorOperation(t *testing.T) {
 	}
 	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, nil, time.Now()); err == nil {
 		t.Fatal("unpinned readiness accepted")
+	}
+}
+
+func TestPlacementRelocationStreamAllocationFailureAndRetryRetainsFence(t *testing.T) {
+	state, old, current, key := successorFixture(t)
+	if err := databaselifecycle.Apply(&state.Lifecycle, admissionLifecycleEvent(old)); err != nil {
+		t.Fatal(err)
+	}
+	if err := beginPlacementRelocation(&state, "relocate-one", []Record{old}); err != nil {
+		t.Fatal(err)
+	}
+	state.PlacementRelocationStarted = true
+	before := state.Lifecycle.Revision
+	if err := allocateRelocationStreams(&state, "relocate-one", []Record{current}, key, time.Time{}); err == nil {
+		t.Fatal("invalid stream timestamp accepted")
+	}
+	if state.Lifecycle.Revision != before || len(state.CurrentPlacements) != 0 || state.PlacementRelocation != "relocate-one" {
+		t.Fatal("failed stream allocation changed authority")
+	}
+	now := time.Now().UTC()
+	if err := allocateRelocationStreams(&state, "relocate-one", []Record{current}, key, now); err != nil {
+		t.Fatal(err)
+	}
+	allocated := state.Lifecycle.Revision
+	if allocated <= before {
+		t.Fatal("streams not allocated")
+	}
+	if err := allocateRelocationStreams(&state, "relocate-one", []Record{current}, key, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if state.Lifecycle.Revision != allocated || len(state.CurrentPlacements) != 0 || len(state.CompletedRelocations) != 0 || state.PlacementRelocation != "relocate-one" {
+		t.Fatal("allocation retry committed placement or released usage fence")
 	}
 }

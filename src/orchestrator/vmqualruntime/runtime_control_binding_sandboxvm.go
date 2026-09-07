@@ -15,6 +15,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/hostcontrol"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
 
 // QualificationControlRuntimeSource is the admitted guest producer used by
@@ -27,8 +28,8 @@ type QualificationControlRuntimeSource interface {
 }
 
 // SetQualificationControlRuntimeSource wires the admitted producer into the
-// real guest ready transition. The source is queried only after all declared
-// guests have been activated, so its observations cover the complete estate.
+// real guest ready transition. The source is queried after all launch guests
+// are ready; reserved expansion addresses do not create admitted hosts.
 func (factory *firecrackerFactory) SetQualificationControlRuntimeSource(source QualificationControlRuntimeSource) error {
 	services, ok := factory.services.(*qualificationRuntimeServices)
 	if !ok {
@@ -54,6 +55,9 @@ func (factory *firecrackerFactory) ConfigureQualificationControlRuntimeFromSourc
 	}
 	clients := make(map[string]*hostcontrol.Client)
 	for _, planned := range services.plan.Regions {
+		if planned.Code == vmqual.FourthRegion {
+			continue
+		}
 		region := strings.ToLower(string(planned.Code))
 		if len(planned.Guests) == 0 {
 			return bootstrap.ErrControlRuntimeUnavailable

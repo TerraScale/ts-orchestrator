@@ -4,6 +4,7 @@ package vmqualruntime
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,10 +14,60 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
+	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
 
+func TestGuestReadyCallsAdmittedSourceOnlyAfterAllLaunchGuests(t *testing.T) {
+	config := vmnet.DefaultConfig()
+	config.Regions = append(config.Regions, vmnet.RegionSpec{Code: vmqual.FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
+	plan, err := vmnet.Plan(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := &qualificationRuntimeServices{plan: plan}
+	factory := &firecrackerFactory{services: services, active: map[string]*sandboxVM{}}
+	if err := factory.SetQualificationControlRuntimeSource(&qualificationAdmittedControlSource{}); err != nil {
+		t.Fatal(err)
+	}
+	var launch []string
+	for _, region := range plan.Regions {
+		for _, guest := range region.Guests {
+			factory.active[guest.ID] = &sandboxVM{id: guest.ID, guest: vmqual.Guest{ID: guest.ID, Region: region.Code}}
+			if region.Code != vmqual.FourthRegion {
+				launch = append(launch, guest.ID)
+			}
+		}
+	}
+	if err := factory.guestReady(t.Context(), "iad-member-1"); err != nil || len(services.controlReady) != 0 {
+		t.Fatalf("reserved guest changed launch readiness: %v", err)
+	}
+	for _, id := range launch[:len(launch)-1] {
+		if err := factory.guestReady(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The actual admitted source has no records. Its refusal must reach the
+	// final transition, rather than silently returning a ready control runtime.
+	if err := factory.guestReady(t.Context(), launch[len(launch)-1]); !errors.Is(err, bootstrap.ErrControlRuntimeUnavailable) {
+		t.Fatalf("final ready transition did not call the admitted source: %v", err)
+	}
+	if err := factory.guestReady(t.Context(), launch[0]); !errors.Is(err, bootstrap.ErrControlRuntimeUnavailable) {
+		t.Fatalf("startup failure was lost on repeated ready transition: %v", err)
+	}
+}
+
 func TestAdmittedControlSourceSelectsLiveCandidateAndRejectsChangedMembership(t *testing.T) {
-	server, transport := startDeliveryTestNATS(t)
+	plan, err := vmnet.Plan(vmnet.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range plan.Listeners {
+		if plan.Listeners[i].Name == "nats" {
+			plan.Listeners[i].Address = "127.0.0.1"
+		}
+	}
+	server, transport := startDeliveryTestNATSPlan(t, plan)
 	options, err := transport.options(transport.controller)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +126,7 @@ func TestAdmittedControlSourceSelectsLiveCandidateAndRejectsChangedMembership(t 
 			{MemberID: "first", HostID: "gru-member-1", Region: "gru", Instance: "gru-member-1", Store: "gru"},
 			{MemberID: "second", HostID: "gru-member-2", Region: "gru", Instance: "gru-member-2", Store: "gru", IdentityPublicKey: identity.PublicKey},
 		},
-	}, admissions: map[string]qualificationControlHostAdmission{"gru-member-2": {Architecture: runtimeplan.HostArchitectureArm64, Generation: 19}}}
+	}, admissions: map[string]qualificationControlHostAdmission{"gru-member-2": {Architecture: runtimeplan.HostArchitectureArm64, Generation: 19}}, expectedStoreServers: map[string]string{"gru": connection.ConnectedServerName()}}
 	consumerConfig, _, err := source.RuntimeConfig(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)

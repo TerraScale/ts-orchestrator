@@ -127,7 +127,7 @@ func TestRecoveryStorageEvidenceRequiresGuestDeviceAndWrite(t *testing.T) {
 
 func TestRecoveryShapeFallbackUsesOCIReconcilerAndHTTPProvider(t *testing.T) {
 	factory := recoverySeedFactory(t)
-	observation, err := factory.ExhaustA1AndFallback(context.Background(), vmqual.Guest{
+	observation, err := factory.ExhaustA1AndFallback(t.Context(), vmqual.Guest{
 		ID: "gru-member-2", Region: vmnet.GRU,
 	})
 	if err != nil {

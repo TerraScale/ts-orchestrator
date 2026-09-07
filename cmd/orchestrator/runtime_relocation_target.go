@@ -130,7 +130,7 @@ func (f *productionRelocationTargets) MemberKey(ctx context.Context, identity st
 	return ed25519.PublicKey(key), nil
 }
 
-func (f *productionRelocationTargets) Resolve(ctx context.Context, identity string) (*productionRelocationTarget, error) {
+func (f *productionRelocationTargets) admit(ctx context.Context, identity string) (*productionRelocationTarget, error) {
 	member, err := f.enrolledMember(ctx, identity, false)
 	if err != nil {
 		return nil, err
@@ -144,8 +144,8 @@ func (f *productionRelocationTargets) Resolve(ctx context.Context, identity stri
 		return nil, err
 	}
 	var observed hostremoval.MemberObservation
-	observer := newProductionDurableMemberObserver(f.ownership, gateway)
-	if observer == nil {
+	exact, ok := gateway.(exactOCIMemberObserver)
+	if !ok {
 		return nil, placementrelocation.ErrInvalid
 	}
 	for _, candidate := range listed {
@@ -155,15 +155,22 @@ func (f *productionRelocationTargets) Resolve(ctx context.Context, identity stri
 		if observed.ResourceID != "" || candidate.ID == "" || candidate.LifecycleState != "RUNNING" {
 			return nil, placementrelocation.ErrConflict
 		}
-		candidate.Region = member.Region
-		current, err := observer(ctx, candidate)
+		current, err := exact.ObserveMember(ctx, candidate.ID)
 		if err != nil {
 			return nil, err
 		}
-		if current.Identity != identity || current.Generation != member.Generation || current.Region != member.Region || current.Slot != member.Slot || current.ResourceID != candidate.ID {
+		if current.ID != candidate.ID || current.LifecycleState != "RUNNING" || current.ETag == "" || current.CompartmentID == "" {
 			return nil, placementrelocation.ErrConflict
 		}
-		observed = current
+		binding, found, err := f.ownership.Lookup(ctx, provider.ProviderResourceId{Value: current.ID})
+		if err != nil {
+			return nil, err
+		}
+		if !found || binding.ResourceId.Value != current.ID || binding.CompartmentId.Value != current.CompartmentID || binding.CellId.Value != member.Region || binding.ServerIdentity != identity || binding.MemberID != member.MemberID || binding.Generation.Value != member.Generation {
+			return nil, placementrelocation.ErrConflict
+		}
+		observed = hostremoval.MemberObservation{ProviderETag: current.ETag, ResourceID: current.ID, Identity: identity, Region: member.Region, Slot: member.Slot, Generation: member.Generation, EvidenceRefs: []string{current.ETag}}
+
 	}
 	if observed.ResourceID == "" || !nkeys.IsValidPublicUserKey(member.Public.PublicKeys["placement"]) || !nkeys.IsValidPublicUserKey(member.Public.PublicKeys["database"]) {
 		return nil, placementrelocation.ErrInvalid
@@ -172,7 +179,18 @@ func (f *productionRelocationTargets) Resolve(ctx context.Context, identity stri
 	if err != nil {
 		return nil, err
 	}
-	remote, err := placementpublisher.NewRemoteTarget(f.connection, identity, enrollment.Identity(member, "placement-nats"), 10*time.Second)
+	if err := f.check(ctx); err != nil {
+		return nil, err
+	}
+	return &productionRelocationTarget{Member: member, Observed: observed, ReadinessKey: databaseadmission.ReadinessKey{KeyID: identity, PublicKey: public}}, nil
+}
+
+func (f *productionRelocationTargets) Resolve(ctx context.Context, identity string) (*productionRelocationTarget, error) {
+	target, err := f.admit(ctx, identity)
+	if err != nil {
+		return nil, err
+	}
+	remote, err := placementpublisher.NewRemoteTarget(f.connection, identity, enrollment.Identity(target.Member, "placement-nats"), 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -180,10 +198,8 @@ func (f *productionRelocationTargets) Resolve(ctx context.Context, identity stri
 	if err != nil {
 		return nil, err
 	}
-	if err := f.check(ctx); err != nil {
-		return nil, err
-	}
-	return &productionRelocationTarget{Member: member, Observed: observed, Remote: remote, Publisher: publisher, ReadinessKey: databaseadmission.ReadinessKey{KeyID: identity, PublicKey: public}}, nil
+	target.Remote, target.Publisher = remote, publisher
+	return target, nil
 }
 
 func (f *productionRelocationTargets) Stage(ctx context.Context, identity, operation string, stage *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
@@ -379,4 +395,22 @@ func (f *productionRelocationTargets) Usage(ctx context.Context, operation strin
 		}
 	}
 	return f.check(ctx)
+}
+
+func newProductionEnrolledMemberKey(session globalWorkerSession, environment, cluster string, gateways map[string]ocireconcile.ComputeGateway, ownership provider.DurableOwnershipEvidence) (func(context.Context, placementtransition.Member) (ed25519.PublicKey, error), error) {
+	journal, err := enrollment.NewJournal(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId})
+	if err != nil {
+		return nil, err
+	}
+	source := &productionRelocationTargets{enrolled: journal.Read, check: session.CheckEffectAuthority, environment: environment, cluster: cluster, gateways: gateways, ownership: ownership}
+	return func(ctx context.Context, member placementtransition.Member) (ed25519.PublicKey, error) {
+		target, err := source.admit(ctx, member.Identity)
+		if err != nil {
+			return nil, err
+		}
+		if strings.ToUpper(target.Member.Region) != member.Region {
+			return nil, placementrelocation.ErrConflict
+		}
+		return target.ReadinessKey.PublicKey, nil
+	}, nil
 }

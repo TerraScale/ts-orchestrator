@@ -18,6 +18,17 @@ host inventory. Each host supplies:
   they enter the private guest sideband. Initial credential paths cannot be
   overwritten. NKeys and TLS keys must be distinct from initial-only identities.
 
+The producer adds `TS_ORCH_RUN_MATERIAL_FILE`, whose content-addressed filename
+commits a canonical inventory of all admitted file digests. Production
+configuration loading verifies that inventory and every supplied protected file
+before starting services. Changed bytes, symlinks, and unsafe file ancestry fail
+admission. Material targets must lie outside the component data volume. The
+production systemd unit makes all other paths read-only with
+`ProtectSystem=strict`, no capabilities, and no privilege gain; service code
+cannot replace checked files before later loaders consume them. Host root
+administration remains trusted. This inventory covers supplied files and does
+not by itself prove closure of nested references or engine-owned callback files.
+
 The factory retains separate initial and run manifests. The initial launch still
 uses `initial-gru-r1`; staged engine callback configuration is checked against the
 complete run manifest. The existing authenticated host-control command signs and

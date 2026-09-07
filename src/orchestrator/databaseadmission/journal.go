@@ -20,12 +20,13 @@ var (
 )
 
 type journalState struct {
-	PlacementRelocation  string
-	CurrentPlacements    map[string]Record
-	CompletedRelocations map[string]string
-	Deletions            map[string]Deletion
-	Records              map[string]Record
-	Lifecycle            databaselifecycle.State
+	PlacementRelocationStarted bool
+	PlacementRelocation        string
+	CurrentPlacements          map[string]Record
+	CompletedRelocations       map[string]string
+	Deletions                  map[string]Deletion
+	Records                    map[string]Record
+	Lifecycle                  databaselifecycle.State
 }
 
 func newJournalState() journalState {

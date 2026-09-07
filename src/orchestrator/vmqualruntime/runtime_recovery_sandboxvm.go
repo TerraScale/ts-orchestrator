@@ -722,7 +722,7 @@ func (factory *firecrackerFactory) ExhaustA1AndFallback(ctx context.Context, gue
 			Code:   "OutOfHostCapacity",
 			Body: map[string]any{
 				"code":    "OutOfHostCapacity",
-				"message": "out of host capacity",
+				"message": "Out of host capacity.",
 			},
 		}},
 	}}})

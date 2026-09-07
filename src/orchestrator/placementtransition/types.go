@@ -53,19 +53,20 @@ type DrainReceipt struct {
 	FrontierDigest  string `json:"frontier_digest"`
 }
 type Proof struct {
-	SchemaVersion       int      `json:"schema_version"`
-	Kind                string   `json:"kind"`
-	Request             Request  `json:"request"`
-	RequestDigest       string   `json:"request_digest"`
-	AuthorityEpoch      uint64   `json:"authority_epoch"`
-	JournalRevision     uint64   `json:"journal_revision"`
-	GenesisGrantID      string   `json:"genesis_grant_id"`
-	ReceiptDigests      []string `json:"receipt_digests"`
-	DrainReceipts       []Signed `json:"drain_receipts"`
-	PriorGeneration     uint64   `json:"prior_generation"`
-	PreviousProofDigest string   `json:"previous_proof_digest"`
-	LeaseID             string   `json:"lease_id"`
-	GenesisGrant        *Signed  `json:"genesis_grant"`
+	MemberReceiptKeys   map[string][]byte `json:"member_receipt_keys,omitempty"`
+	SchemaVersion       int               `json:"schema_version"`
+	Kind                string            `json:"kind"`
+	Request             Request           `json:"request"`
+	RequestDigest       string            `json:"request_digest"`
+	AuthorityEpoch      uint64            `json:"authority_epoch"`
+	JournalRevision     uint64            `json:"journal_revision"`
+	GenesisGrantID      string            `json:"genesis_grant_id"`
+	ReceiptDigests      []string          `json:"receipt_digests"`
+	DrainReceipts       []Signed          `json:"drain_receipts"`
+	PriorGeneration     uint64            `json:"prior_generation"`
+	PreviousProofDigest string            `json:"previous_proof_digest"`
+	LeaseID             string            `json:"lease_id"`
+	GenesisGrant        *Signed           `json:"genesis_grant"`
 }
 
 func token(s string) bool {

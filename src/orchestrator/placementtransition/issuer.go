@@ -1,6 +1,7 @@
 package placementtransition
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json/v2"
@@ -33,7 +34,7 @@ type Config struct {
 	MemberKeys map[string]ed25519.PublicKey
 	// MemberKey resolves new and retired identities from durable enrollment.
 	// It must never trust a receipt-supplied key or an unadmitted endpoint.
-	MemberKey func(context.Context, string) (ed25519.PublicKey, error)
+	MemberKey func(context.Context, Member) (ed25519.PublicKey, error)
 }
 type Issuer struct {
 	journal                 transaction
@@ -42,7 +43,7 @@ type Issuer struct {
 	epoch                   uint64
 	leaseID                 string
 	genesisKeys, memberKeys map[string]ed25519.PublicKey
-	memberKey               func(context.Context, string) (ed25519.PublicKey, error)
+	memberKey               func(context.Context, Member) (ed25519.PublicKey, error)
 }
 
 func emptyState() state {
@@ -222,10 +223,17 @@ func (i *Issuer) Issue(ctx context.Context, r Request, genesis *Signed, receipts
 			for _, signed := range receipts {
 				var receipt DrainReceipt
 				// key_id must be the old member identity, not an arbitrary supplied key.
-				key := i.memberKeys[signed.KeyID]
-				if len(key) == 0 && i.memberKey != nil {
+				key := ed25519.PublicKey(prior.MemberReceiptKeys[signed.KeyID])
+				if prior.MemberReceiptKeys == nil {
+					key = i.memberKeys[signed.KeyID]
+				}
+				if prior.MemberReceiptKeys == nil && len(key) == 0 && i.memberKey != nil {
 					var err error
-					key, err = i.memberKey(ctx, signed.KeyID)
+					memberIndex := slices.IndexFunc(prior.Request.Members, func(member Member) bool { return member.Identity == signed.KeyID })
+					if memberIndex < 0 {
+						return ErrInvalid
+					}
+					key, err = i.memberKey(ctx, prior.Request.Members[memberIndex])
 					if err != nil {
 						return err
 					}
@@ -251,7 +259,25 @@ func (i *Issuer) Issue(ctx context.Context, r Request, genesis *Signed, receipts
 			}
 			slices.Sort(receiptHashes)
 		}
-		proof := Proof{SchemaVersion: 1, Kind: "accepted_epoch", Request: r, RequestDigest: d, AuthorityEpoch: i.epoch, JournalRevision: revision, GenesisGrantID: grantID, ReceiptDigests: receiptHashes, DrainReceipts: receipts, PriorGeneration: prior.Request.Generation, PreviousProofDigest: previousDigest, LeaseID: i.leaseID, GenesisGrant: genesis}
+		memberKeys := make(map[string][]byte, len(r.Members))
+		for _, member := range r.Members {
+			key := i.memberKeys[member.Identity]
+			if len(key) == 0 && i.memberKey != nil {
+				var err error
+				key, err = i.memberKey(ctx, member)
+				if err != nil {
+					return err
+				}
+			}
+			if len(key) != ed25519.PublicKeySize {
+				return ErrInvalid
+			}
+			if old, retained := prior.MemberReceiptKeys[member.Identity]; retained && !bytes.Equal(old, key) {
+				return ErrConflict
+			}
+			memberKeys[member.Identity] = slices.Clone(key)
+		}
+		proof := Proof{MemberReceiptKeys: memberKeys, SchemaVersion: 1, Kind: "accepted_epoch", Request: r, RequestDigest: d, AuthorityEpoch: i.epoch, JournalRevision: revision, GenesisGrantID: grantID, ReceiptDigests: receiptHashes, DrainReceipts: receipts, PriorGeneration: prior.Request.Generation, PreviousProofDigest: previousDigest, LeaseID: i.leaseID, GenesisGrant: genesis}
 		signed, err := SignEvidence(i.keyID, i.key, proof)
 		if err != nil {
 			return err

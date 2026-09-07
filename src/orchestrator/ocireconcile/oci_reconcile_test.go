@@ -22,6 +22,7 @@ func TestClassifyOCIRejection(t *testing.T) {
 		{name: "limit exceeded code", status: 400, code: "LimitExceeded", wantQuota: true},
 		{name: "quota exceeded code", status: 400, code: "QuotaExceeded", wantQuota: true},
 		{name: "ampere capacity out", status: 500, message: "Out of host capacity.", wantShape: true},
+		{name: "noncanonical capacity message", status: 500, code: "OutOfHostCapacity", message: "out of host capacity", wantUnknown: true},
 		{name: "capacity phrase embedded", status: 500, message: "out of host capacity in AD-1", wantUnknown: true},
 		{name: "capacity on other status", status: 503, message: "Out of host capacity.", wantUnknown: true},
 		{name: "generic internal error", status: 500, code: "InternalError", message: "boom", wantUnknown: true},

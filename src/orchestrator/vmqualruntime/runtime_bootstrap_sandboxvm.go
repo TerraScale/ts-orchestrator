@@ -6,8 +6,64 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
+
+// guestReady is called only after the provider's real ready transition. The
+// reserved expansion network is not evidence that its guests are admitted.
+func (factory *firecrackerFactory) guestReady(ctx context.Context, host string) error {
+	services, ok := factory.services.(*qualificationRuntimeServices)
+	if !ok || services == nil {
+		return nil
+	}
+	if _, err := factory.activeDeliveryVM(host); err != nil {
+		return err
+	}
+	services.mu.Lock()
+	if services.closed {
+		services.mu.Unlock()
+		return errors.New("vmqual: qualification services are closed")
+	}
+	declared := false
+	for _, region := range services.plan.Regions {
+		for _, guest := range region.Guests {
+			if guest.ID == host {
+				if region.Code == vmqual.FourthRegion {
+					services.mu.Unlock()
+					return nil
+				}
+				declared = true
+			}
+		}
+	}
+	if !declared {
+		services.mu.Unlock()
+		return errors.New("vmqual: ready guest is outside the declared launch estate")
+	}
+	if services.controlReady == nil {
+		services.controlReady = make(map[string]bool)
+	}
+	services.controlReady[host] = true
+	ready := true
+	for _, region := range services.plan.Regions {
+		if region.Code == vmqual.FourthRegion {
+			continue
+		}
+		for _, guest := range region.Guests {
+			ready = ready && services.controlReady[guest.ID]
+		}
+	}
+	source := services.controlSource
+	services.mu.Unlock()
+	if !ready || source == nil {
+		return nil
+	}
+	services.controlConfigure.Do(func() {
+		services.controlConfigureErr = factory.ConfigureQualificationControlRuntimeFromSource(ctx, source)
+	})
+	return services.controlConfigureErr
+}
 
 // Initial activation uses its separately seeded finite grant. This path never
 // supplies a regional lease and never authorizes ordinary delivery mutations.

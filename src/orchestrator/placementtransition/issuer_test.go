@@ -93,7 +93,7 @@ func setup(t *testing.T) (*Issuer, *memoryJournal, map[string]ed25519.PrivateKey
 	t.Helper()
 	keys := map[string]ed25519.PrivateKey{}
 	pubs := map[string]ed25519.PublicKey{}
-	for _, id := range []string{"gru", "genesis", "a", "b", "c"} {
+	for _, id := range []string{"gru", "genesis", "a", "b", "c", "d"} {
 		p, k, e := ed25519.GenerateKey(rand.Reader)
 		if e != nil {
 			t.Fatal(e)
@@ -102,7 +102,7 @@ func setup(t *testing.T) (*Issuer, *memoryJournal, map[string]ed25519.PrivateKey
 		pubs[id] = p
 	}
 	j := &memoryJournal{s: emptyState()}
-	return &Issuer{j, "gru", keys["gru"], 3, "lease3", map[string]ed25519.PublicKey{"genesis": pubs["genesis"]}, map[string]ed25519.PublicKey{"a": pubs["a"], "b": pubs["b"], "c": pubs["c"]}, nil}, j, keys
+	return &Issuer{j, "gru", keys["gru"], 3, "lease3", map[string]ed25519.PublicKey{"genesis": pubs["genesis"]}, map[string]ed25519.PublicKey{"a": pubs["a"], "b": pubs["b"], "c": pubs["c"], "d": pubs["d"]}, nil}, j, keys
 }
 func request() Request {
 	return Request{"op1", "prod/cluster", 0, 1, 1, []Member{{"a", "GRU", hash([]byte("a"))}, {"b", "GRU", hash([]byte("b"))}}}
@@ -199,5 +199,131 @@ func TestGenesisBoundToRequestAndNeverReused(t *testing.T) {
 	g = grant(t, altered, keys["genesis"])
 	if _, e := i.Issue(t.Context(), altered, &g, nil); !errors.Is(e, ErrConflict) {
 		t.Fatal(e)
+	}
+}
+
+func TestIssuerResolvesEnrolledMemberReceiptWithoutTrustingSuppliedKey(t *testing.T) {
+	for _, scenario := range []string{"enrolled", "unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			issuer, journal, keys := setup(t)
+			prior := request()
+			g := grant(t, prior, keys["genesis"])
+			if _, err := issuer.Issue(t.Context(), prior, &g, nil); err != nil {
+				t.Fatal(err)
+			}
+			next := prior
+			next.OperationID, next.PriorEpoch, next.Epoch, next.Generation = "successor", 1, 2, 2
+			next.Members = []Member{{"b", "GRU", hash([]byte("b2"))}, {"c", "GRU", hash([]byte("c2"))}}
+			delete(issuer.memberKeys, "c")
+			issuer.memberKey = func(_ context.Context, member Member) (ed25519.PublicKey, error) {
+				if member.Identity != "c" || member.Region != "GRU" {
+					t.Fatalf("unbound receipt lookup: %+v", member)
+				}
+				if scenario == "unavailable" {
+					return nil, errors.New("enrollment unavailable")
+				}
+				return keys["c"].Public().(ed25519.PublicKey), nil
+			}
+			before := journal.revision
+			proof, err := issuer.Issue(t.Context(), next, nil, []Signed{drain(t, next, "a", keys["a"])})
+			if scenario != "enrolled" {
+				if err == nil || len(proof.Payload) != 0 || journal.revision != before {
+					t.Fatalf("unverified key changed authority: %v", err)
+				}
+				return
+			}
+			if err != nil || len(proof.Payload) == 0 {
+				t.Fatalf("enrolled receipt rejected: %v", err)
+			}
+			var admitted Proof
+			if json.Unmarshal(proof.Payload, &admitted) != nil || len(admitted.MemberReceiptKeys) != 2 || !ed25519.PublicKey(admitted.MemberReceiptKeys["c"]).Equal(keys["c"].Public()) {
+				t.Fatal("signed successor did not bind exact admitted keys")
+			}
+		})
+	}
+}
+
+func TestIssuerCannotChangeKeyOfRetainedIdentity(t *testing.T) {
+	issuer, journal, keys := setup(t)
+	prior := request()
+	g := grant(t, prior, keys["genesis"])
+	if _, err := issuer.Issue(t.Context(), prior, &g, nil); err != nil {
+		t.Fatal(err)
+	}
+	next := prior
+	next.OperationID, next.PriorEpoch, next.Epoch, next.Generation = "successor", 1, 2, 2
+	issuer.memberKeys["b"] = keys["c"].Public().(ed25519.PublicKey)
+	before := journal.revision
+	if proof, err := issuer.Issue(t.Context(), next, nil, []Signed{drain(t, next, "a", keys["a"])}); !errors.Is(err, ErrConflict) || len(proof.Payload) != 0 || journal.revision != before {
+		t.Fatalf("retained identity key replaced: %v", err)
+	}
+}
+
+// This chain is also the independent Go wire vector consumed by TerraBase's
+// durable proof-chain verifier. Export is explicit so normal tests are read-only.
+func TestSignedDynamicMemberInventoryChain(t *testing.T) {
+	keys := map[string]ed25519.PrivateKey{}
+	for index, id := range []string{"gru", "genesis", "a", "b", "c", "d"} {
+		var seed [ed25519.SeedSize]byte
+		for i := range seed {
+			seed[i] = byte(index + 1)
+		}
+		keys[id] = ed25519.NewKeyFromSeed(seed[:])
+	}
+	public := func(id string) ed25519.PublicKey { return keys[id].Public().(ed25519.PublicKey) }
+	journal := &memoryJournal{s: emptyState()}
+	issuer := &Issuer{journal: journal, keyID: "gru", key: keys["gru"], epoch: 3, leaseID: "lease3", genesisKeys: map[string]ed25519.PublicKey{"genesis": public("genesis")}, memberKeys: map[string]ed25519.PublicKey{"a": public("a"), "b": public("b")}}
+	lookups := []string{}
+	issuer.memberKey = func(_ context.Context, member Member) (ed25519.PublicKey, error) {
+		if member.Region != "GRU" || member.Identity != "c" && member.Identity != "d" {
+			return nil, ErrInvalid
+		}
+		lookups = append(lookups, member.Identity)
+		return public(member.Identity), nil
+	}
+	first := Request{OperationID: "op1", ScopeID: "production/test-cluster", Epoch: 1, Generation: 1, Members: []Member{{"a", "GRU", hash([]byte("a1"))}, {"b", "GRU", hash([]byte("b1"))}}}
+	g := grant(t, first, keys["genesis"])
+	one, err := issuer.Issue(t.Context(), first, &g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := Request{OperationID: "op2", ScopeID: first.ScopeID, PriorEpoch: 1, Epoch: 2, Generation: 2, Members: []Member{{"b", "GRU", hash([]byte("b2"))}, {"c", "GRU", hash([]byte("c2"))}}}
+	two, err := issuer.Issue(t.Context(), second, nil, []Signed{drain(t, second, "a", keys["a"])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(issuer.memberKeys) // Successor/restart no longer has old static pins.
+	third := Request{OperationID: "op3", ScopeID: first.ScopeID, PriorEpoch: 2, Epoch: 3, Generation: 3, Members: []Member{{"c", "GRU", hash([]byte("c3"))}, {"d", "GRU", hash([]byte("d3"))}}}
+	digest, _ := RequestDigest(third)
+	fenced, err := SignEvidence("c", keys["c"], DrainReceipt{Kind: "old_epoch_drained_fenced", MemberIdentity: "c", ScopeID: third.ScopeID, PriorEpoch: 2, PriorGeneration: 2, RequestDigest: digest, FrontierDigest: hash([]byte("durable-frontier-2"))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	three, err := issuer.Issue(t.Context(), third, nil, []Signed{fenced})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof Proof
+	if err := verify(three, public("gru"), &proof); err != nil || len(proof.MemberReceiptKeys) != 2 || !ed25519.PublicKey(proof.MemberReceiptKeys["d"]).Equal(public("d")) {
+		t.Fatalf("dynamic member chain: %v", err)
+	}
+	if len(lookups) != 3 || lookups[0] != "c" || lookups[1] != "c" || lookups[2] != "d" {
+		t.Fatalf("old receipts escaped signed inventory: %v", lookups)
+	}
+	if path := os.Getenv("TS_EXPORT_PLACEMENT_INVENTORY_VECTOR"); path != "" {
+		vector := struct {
+			SchemaVersion    int               `json:"schema_version"`
+			AuthorityKeys    map[string][]byte `json:"authority_keys"`
+			GenesisKeys      map[string][]byte `json:"genesis_keys"`
+			StaticMemberKeys map[string][]byte `json:"static_member_keys"`
+			Proofs           []Signed          `json:"proofs"`
+		}{1, map[string][]byte{"gru": public("gru")}, map[string][]byte{"genesis": public("genesis")}, map[string][]byte{"a": public("a"), "b": public("b")}, []Signed{one, two, three}}
+		encoded, err := json.Marshal(vector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encoded, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

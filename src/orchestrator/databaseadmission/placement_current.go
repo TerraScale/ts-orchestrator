@@ -59,6 +59,9 @@ func sameAdmissionIdentity(original, current Record) bool {
 	return err == nil && bytes.Equal(a, b)
 }
 func validateCurrentPlacements(s journalState) error {
+	if s.PlacementRelocationStarted && s.PlacementRelocation == "" {
+		return ErrInvalid
+	}
 	for key, current := range s.CurrentPlacements {
 		original, ok := s.Records[key]
 		if !ok || !sameAdmissionIdentity(original, current) || ValidateRecord(current) != nil {
@@ -132,7 +135,7 @@ func commitPlacementRelocation(s *journalState, operation string, records []Reco
 		}
 		return ErrConflict
 	}
-	if operation == "" || s.PlacementRelocation != operation || len(records) != len(relocationRecords(*s)) || len(proofKey) != ed25519.PublicKeySize {
+	if operation == "" || s.PlacementRelocation != operation || !s.PlacementRelocationStarted || len(records) != len(relocationRecords(*s)) || len(proofKey) != ed25519.PublicKeySize {
 		return ErrConflict
 	}
 	prior := relocationRecords(*s)
@@ -233,31 +236,32 @@ func (j *NATSJournal) AllocateRelocationStreams(ctx context.Context, operation s
 	if j == nil || j.journal == nil {
 		return ErrJournalUnavailable
 	}
-	return j.journal.Transact(ctx, true, func(s *journalState) error {
-		if s.PlacementRelocation != operation || operation == "" {
-			return ErrConflict
-		}
-		candidate, err := cloneState(*s)
-		if err != nil {
+	return j.journal.Transact(ctx, true, func(s *journalState) error { return allocateRelocationStreams(s, operation, records, proofKey, now) })
+}
+func allocateRelocationStreams(s *journalState, operation string, records []Record, proofKey ed25519.PublicKey, now time.Time) error {
+	if s.PlacementRelocation != operation || operation == "" {
+		return ErrConflict
+	}
+	candidate, err := cloneState(*s)
+	if err != nil {
+		return err
+	}
+	if err := commitPlacementRelocation(&candidate, operation, records, proofKey); err != nil {
+		return err
+	}
+	// Validation above authenticates every scope and target before the first
+	// stream change. Allocation sees that complete accepted candidate view.
+	candidate.Records = maps.Clone(candidate.Records)
+	for key, record := range candidate.CurrentPlacements {
+		candidate.Records[key] = record
+	}
+	for _, record := range records {
+		if err := allocatePlacementStreams(&candidate, record, record.PlacementTargets[0].AcceptedProofDigest, now); err != nil {
 			return err
 		}
-		if err := commitPlacementRelocation(&candidate, operation, records, proofKey); err != nil {
-			return err
-		}
-		// Validation above authenticates every scope and target before the first
-		// stream change. Allocation sees that complete accepted candidate view.
-		candidate.Records = maps.Clone(candidate.Records)
-		for key, record := range candidate.CurrentPlacements {
-			candidate.Records[key] = record
-		}
-		for _, record := range records {
-			if err := allocatePlacementStreams(&candidate, record, record.PlacementTargets[0].AcceptedProofDigest, now); err != nil {
-				return err
-			}
-		}
-		s.Lifecycle = candidate.Lifecycle
-		return nil
-	})
+	}
+	s.Lifecycle = candidate.Lifecycle
+	return nil
 }
 
 // RelocationRecords excludes only databases whose physical retained cleanup is
@@ -299,6 +303,34 @@ func (j *NATSJournal) FinishPlacementRelocation(ctx context.Context, operation s
 			return nil
 		}
 		if s.PlacementRelocation != operation {
+			return ErrConflict
+		}
+		s.PlacementRelocation = ""
+		s.PlacementRelocationStarted = false
+		return nil
+	})
+}
+
+// MarkPlacementRelocationStarted is the same-CAS authorization boundary before
+// the first remote effect. A concurrent unstarted abort must win or lose here.
+func (j *NATSJournal) MarkPlacementRelocationStarted(ctx context.Context, operation string) error {
+	if j == nil || j.journal == nil {
+		return ErrJournalUnavailable
+	}
+	return j.journal.Transact(ctx, true, func(s *journalState) error {
+		if operation == "" || s.PlacementRelocation != operation {
+			return ErrConflict
+		}
+		s.PlacementRelocationStarted = true
+		return nil
+	})
+}
+func (j *NATSJournal) AbortUnstartedPlacementRelocation(ctx context.Context, operation string, expected []Record) error {
+	if j == nil || j.journal == nil {
+		return ErrJournalUnavailable
+	}
+	return j.journal.Transact(ctx, true, func(s *journalState) error {
+		if operation == "" || s.PlacementRelocation != operation || s.PlacementRelocationStarted || s.CompletedRelocations[operation] != "" || placementRecordDigest(relocationRecords(*s)) != placementRecordDigest(expected) {
 			return ErrConflict
 		}
 		s.PlacementRelocation = ""

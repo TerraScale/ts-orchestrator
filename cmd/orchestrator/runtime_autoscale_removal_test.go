@@ -115,3 +115,32 @@ func TestEnrollmentTargetProjectionPreservesAdmittedScaleDown(t *testing.T) {
 		t.Fatalf("durable scale-down was replaced by declared floor: %d %v", count, err)
 	}
 }
+
+func TestAutoscaleCompletedRemovalRetriesAdmissionFenceRelease(t *testing.T) {
+	target := autoscale.Target{Region: "gru", Members: 2, RemovalOperationID: "remove-finished", RemovalResourceID: "instance-old", RemovalHostID: "host-old", RemovalIncarnation: "boot-old", RemovalSlot: 3}
+	journal := &runtimeRemovalJournal{found: true, record: hostremoval.Operation{OperationID: target.RemovalOperationID, ResourceID: target.RemovalResourceID, Stage: hostremoval.StageComplete}}
+	failed := true
+	releases := 0
+	construct := func() *productionHostRemoval {
+		return &productionHostRemoval{owner: &hostremoval.Owner{Journal: journal}, completed: func(_ context.Context, operation string) error {
+			if operation != target.RemovalOperationID {
+				t.Fatal("release targeted another removal")
+			}
+			releases++
+			if failed {
+				return errors.New("release acknowledgement lost")
+			}
+			return nil
+		}}
+	}
+	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err == nil || complete {
+		t.Fatalf("release failure allowed autoscale completion: %v %v", complete, err)
+	}
+	failed = false
+	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err != nil || !complete {
+		t.Fatalf("restart did not retry admission release: %v %v", complete, err)
+	}
+	if releases != 2 {
+		t.Fatalf("release attempts = %d", releases)
+	}
+}

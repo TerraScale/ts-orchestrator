@@ -17,8 +17,8 @@ import (
 )
 
 // productionHostRelocation moves a complete scope under one retained successor
-// request. Admission remains frozen until every database has authenticated RF2
-// readiness and the current-placement overlay has been committed.
+// request. Admission remains frozen through authenticated RF2 readiness, the
+// current-placement overlay commit, and durable termination of the old host.
 type productionHostRelocation struct {
 	Journal   *placementrelocation.Journal
 	Admission *databaseadmission.NATSJournal
@@ -68,6 +68,16 @@ func (w *productionHostRelocation) Capture(ctx context.Context, request hostremo
 			return 0, nil, err
 		}
 		op, err = w.Journal.Begin(ctx, plan)
+		if errors.Is(err, placementrelocation.ErrInvalid) {
+			// Only a definitive rejected write plus an authoritative absence
+			// permits releasing an unstarted freeze. An unknown write remains
+			// retained, and the admission started CAS protects concurrent work.
+			if _, loadErr := w.Journal.Load(ctx, id); errors.Is(loadErr, placementrelocation.ErrMissing) {
+				if abortErr := w.Admission.AbortUnstartedPlacementRelocation(ctx, id, plan.Records); abortErr != nil {
+					return 0, nil, errors.Join(err, abortErr)
+				}
+			}
+		}
 	}
 	if err != nil {
 		return 0, nil, err
@@ -123,6 +133,9 @@ func (w *productionHostRelocation) Replace(ctx context.Context, replacement host
 		return err
 	}
 	if err = w.Admission.BeginPlacementRelocation(ctx, op.Plan.OperationID, op.Plan.Records); err != nil {
+		return err
+	}
+	if err = w.Admission.MarkPlacementRelocationStarted(ctx, op.Plan.OperationID); err != nil {
 		return err
 	}
 	if err = w.Check(ctx); err != nil {

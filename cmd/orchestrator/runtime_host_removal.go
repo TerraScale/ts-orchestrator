@@ -206,35 +206,14 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 		}
 		return hostremoval.MemberObservation{}, errors.New("runtime host removal: Region observer is unavailable")
 	}
-	if ports.Relocation != nil {
-		if !ports.Relocation.valid() {
-			return nil, errors.New("runtime host removal: relocation providers incomplete")
-		}
-		ports.Inventory, ports.Replace = ports.Relocation.Capture, ports.Relocation.Replace
-		ports.Revalidate, ports.Fence = ports.Relocation.Revalidate, ports.Relocation.Fence
+	if !ports.Relocation.valid() {
+		return nil, errors.New("runtime host removal: relocation providers incomplete")
 	}
-	if ports.Inventory == nil && ports.Admission != nil {
-		inventory, revalidate, err := newProductionHostRemovalInventory(ports.Admission, journal)
-		if err != nil {
-			return nil, err
-		}
-		ports.Inventory, ports.Revalidate = inventory, revalidate
-	}
+	ports.Inventory, ports.Replace = ports.Relocation.Capture, ports.Relocation.Replace
+	ports.Revalidate, ports.Fence = ports.Relocation.Revalidate, ports.Relocation.Fence
 	terminate := ports.Terminate
 	if terminate == nil {
 		terminate = newProductionOCITerminator(ports.Gateways)
-	}
-	if ports.Replace == nil || ports.Fence == nil {
-		replace, fence, err := productionHostRemovalCallbacks(ports)
-		if err != nil {
-			return nil, err
-		}
-		if ports.Replace == nil {
-			ports.Replace = replace
-		}
-		if ports.Fence == nil {
-			ports.Fence = fence
-		}
 	}
 	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Inventory, Replace: ports.Replace, Revalidate: ports.Revalidate, Fence: ports.Fence, Terminate: terminate}, journal)
 	if err != nil {

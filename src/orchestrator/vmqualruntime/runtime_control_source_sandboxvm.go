@@ -36,9 +36,10 @@ type qualificationControlHostAdmission struct {
 // stage. Its config contains intended effects; observations are always read
 // from authenticated guest stores when the consumer needs them.
 type qualificationAdmittedControlSource struct {
-	config     bootstrap.NATSControlRuntimeConfig
-	regions    []bootstrap.ControlRegionBinding
-	admissions map[string]qualificationControlHostAdmission
+	config               bootstrap.NATSControlRuntimeConfig
+	regions              []bootstrap.ControlRegionBinding
+	admissions           map[string]qualificationControlHostAdmission
+	expectedStoreServers map[string]string
 }
 
 func (source *qualificationAdmittedControlSource) HostControlResolvers(ctx context.Context, region string) (string, func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error) {
@@ -175,7 +176,7 @@ func (source *qualificationAdmittedControlSource) connect(ctx context.Context, n
 	}
 	store, ok := source.config.Stores[name]
 	parsed, parseErr := url.Parse(store.URL)
-	if !ok || parseErr != nil || parsed.Scheme != "tls" || parsed.Hostname() == "" {
+	if !ok || source.expectedStoreServers[name] == "" || parseErr != nil || parsed.Scheme != "tls" || parsed.Hostname() == "" {
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	options := append([]nats.Option(nil), store.Options...)
@@ -187,6 +188,10 @@ func (source *qualificationAdmittedControlSource) connect(ctx context.Context, n
 	if err := ctx.Err(); err != nil {
 		connection.Close()
 		return nil, err
+	}
+	if connection.ConnectedServerName() != source.expectedStoreServers[name] {
+		connection.Close()
+		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	state, err := connection.TLSConnectionState()
 	tlsConfig := connection.Opts.TLSConfig

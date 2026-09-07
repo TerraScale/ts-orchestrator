@@ -68,6 +68,11 @@ func (v *sandboxVM) StartReady(ctx context.Context) error {
 	if err := v.provider.WaitReady(ctx, v.id); err != nil {
 		return v.failStartup(ctx, err)
 	}
+	if v.factory != nil {
+		if err := v.factory.guestReady(ctx, v.id); err != nil {
+			return v.failStartup(ctx, fmt.Errorf("vmqual: bind admitted control runtime: %w", err))
+		}
+	}
 	return nil
 }
 func (v *sandboxVM) Stop(ctx context.Context) error {

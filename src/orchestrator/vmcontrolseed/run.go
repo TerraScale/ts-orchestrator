@@ -218,10 +218,15 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		if component.Name != "orchestrator" {
 			continue
 		}
-		if found || (component.Arguments != "" && component.Arguments != RunArguments) {
+		if found || component.User != ServiceUser || (component.Arguments != "" && component.Arguments != RunArguments) {
 			return nil, bad
 		}
 		found = true
+		for path := range result.Files {
+			if path == component.DataVolume || strings.HasPrefix(path, strings.TrimSuffix(component.DataVolume, "/")+"/") {
+				return nil, bad
+			}
+		}
 		prior := map[string]string{}
 		if component.Configuration != "" && json.Unmarshal([]byte(component.Configuration), &prior) != nil {
 			return nil, bad

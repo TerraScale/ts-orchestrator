@@ -1,11 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"encoding/json/v2"
 	"errors"
 	"slices"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -67,15 +69,7 @@ func productionRelocationPlanner(
 			return placementrelocation.Plan{}, placementrelocation.ErrConflict
 		}
 		candidates := slices.Clone(request.Survivors)
-		slices.SortFunc(candidates, func(a, b hostremoval.MemberObservation) int {
-			if a.Identity < b.Identity {
-				return -1
-			}
-			if a.Identity > b.Identity {
-				return 1
-			}
-			return 0
-		})
+		slices.SortFunc(candidates, func(a, b hostremoval.MemberObservation) int { return cmp.Compare(a.Identity, b.Identity) })
 		var replacement placementrelocation.Target
 		for _, candidate := range candidates {
 			if candidate.Region != request.Member.Region || containsMember(proof.Request.Members, candidate.Identity) {
@@ -85,7 +79,7 @@ func productionRelocationPlanner(
 			if resolveErr != nil {
 				return placementrelocation.Plan{}, resolveErr
 			}
-			if observed.ResourceID != candidate.ResourceID || observed.Identity != candidate.Identity || observed.Generation != candidate.Generation || observed.Region != candidate.Region || observed.Slot != candidate.Slot || target.ServerIdentity != candidate.Identity || target.Region != candidate.Region {
+			if observed.ResourceID != candidate.ResourceID || observed.Identity != candidate.Identity || observed.Generation != candidate.Generation || observed.Region != candidate.Region || observed.Slot != candidate.Slot || target.ServerIdentity != candidate.Identity || target.Region != strings.ToUpper(candidate.Region) {
 				return placementrelocation.Plan{}, placementrelocation.ErrConflict
 			}
 			replacement = target

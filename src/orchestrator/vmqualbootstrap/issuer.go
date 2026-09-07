@@ -24,11 +24,12 @@ import (
 type Material struct{ PublicKeyPEM, SignedGrant []byte }
 
 type Issuer struct {
-	mu     sync.Mutex
-	signer *security.CommandSignatureSigner
-	public []byte
-	issued time.Time
-	grants map[string]Material
+	mu         sync.Mutex
+	signer     *security.CommandSignatureSigner
+	public     []byte
+	issued     time.Time
+	grants     map[string]Material
+	persistent *persistentIssuer
 }
 
 func NewIssuer() (*Issuer, error) {
@@ -79,6 +80,12 @@ func (i *Issuer) Grant(host string, manifest hostmanifest.HostManifest) (Materia
 		return Material{}, err
 	}
 	material := Material{PublicKeyPEM: append([]byte(nil), i.public...), SignedGrant: signed}
+	if i.persistent != nil {
+		material, err = i.persistent.saveGrant(host, manifest, material)
+		if err != nil {
+			return Material{}, err
+		}
+	}
 	i.grants[host] = material
 	return cloneMaterial(material), nil
 }
@@ -108,6 +115,11 @@ func (i *Issuer) Close() error {
 	}
 	i.grants = nil
 	i.public = nil
+	if i.persistent != nil {
+		err := i.persistent.close()
+		i.persistent = nil
+		return err
+	}
 	return nil
 }
 func cloneMaterial(m Material) Material {

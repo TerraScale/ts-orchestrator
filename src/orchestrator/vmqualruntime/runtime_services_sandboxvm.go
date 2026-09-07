@@ -37,12 +37,13 @@ import (
 const artifactReleaseHostname = "releases.terrascale.tech"
 
 type qualificationRuntimeServices struct {
-	mu              sync.Mutex
-	bootstrapIssuer *vmqualbootstrap.Issuer
-	controlSeeds    map[string]vmcontrolseed.Material
-	engineSeeds     map[string]*vmengineconfig.Material
-	runAdmissions   map[string]vmcontrolseed.RunAdmission
-	runMaterials    map[string]*vmcontrolseed.RunMaterial
+	mu               sync.Mutex
+	bootstrapIssuer  *vmqualbootstrap.Issuer
+	controlSeeds     map[string]vmcontrolseed.Material
+	engineSeeds      map[string]*vmengineconfig.Material
+	runAdmissions    map[string]vmcontrolseed.RunAdmission
+	runMaterials     map[string]*vmcontrolseed.RunMaterial
+	controlAdmission *qualificationControlAdmission
 
 	plan           vmnet.NetworkPlan
 	artifacts      []guestArtifactInput
@@ -52,25 +53,28 @@ type qualificationRuntimeServices struct {
 	tlsCertificate tls.Certificate
 	resources      map[string][]byte
 
-	natsAuthority      *qualificationNATSAuthority
-	controlConnections []*natsclient.Conn
-	controlSigners     []*security.CommandSignatureSigner
-	controlClients     map[string]*hostcontrol.Client
-	controlRegions     []bootstrap.ControlRegionBinding
-	controlRuntime     bootstrap.ControlRuntime
-	controlSource      QualificationControlRuntimeSource
-	natsStoreParent    *os.Root
-	natsStoreName      string
-	natsStoreRunID     string
-	stateRoot          string
-	backup             *qualificationBackupFixture
-	timeService        *qualificationTimeService
-	nats               *natsserver.Server
-	httpServer         *http.Server
-	httpListener       net.Listener
-	httpDone           chan error
-	started            bool
-	closed             bool
+	natsAuthority       *qualificationNATSAuthority
+	controlConnections  []*natsclient.Conn
+	controlSigners      []*security.CommandSignatureSigner
+	controlClients      map[string]*hostcontrol.Client
+	controlRegions      []bootstrap.ControlRegionBinding
+	controlRuntime      bootstrap.ControlRuntime
+	controlSource       QualificationControlRuntimeSource
+	controlReady        map[string]bool
+	controlConfigure    sync.Once
+	controlConfigureErr error
+	natsStoreParent     *os.Root
+	natsStoreName       string
+	natsStoreRunID      string
+	stateRoot           string
+	backup              *qualificationBackupFixture
+	timeService         *qualificationTimeService
+	nats                *natsserver.Server
+	httpServer          *http.Server
+	httpListener        net.Listener
+	httpDone            chan error
+	started             bool
+	closed              bool
 }
 
 // SetQualificationControlRuntimeSource installs the admitted guest producer
@@ -81,7 +85,7 @@ func (services *qualificationRuntimeServices) SetQualificationControlRuntimeSour
 	}
 	services.mu.Lock()
 	defer services.mu.Unlock()
-	if services.closed || services.controlSource != nil {
+	if services.closed || services.controlSource != nil || len(services.controlReady) != 0 {
 		return bootstrap.ErrControlRuntimeUnavailable
 	}
 	services.controlSource = source
@@ -145,6 +149,29 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
+	var controlAdmission *qualificationControlAdmission
+	if config.QualificationControlDeclarationFile != "" {
+		artifactPins := make(map[string]vmimage.GuestArtifact, len(artifacts))
+		for _, artifact := range artifacts {
+			artifactPins[artifact.manifest.Component] = artifact.manifest
+		}
+		controlAdmission, err = loadQualificationControlDeclaration(config.QualificationControlDeclarationFile, plan, architecture, artifactPins)
+		if err != nil {
+			authority.close()
+			return nil, err
+		}
+		defer func() {
+			if cleanupArtifacts {
+				controlAdmission.Clear()
+			}
+		}()
+		for host, identity := range controlAdmission.memberships {
+			if previous := authority.memberships[host]; previous != nil {
+				clear(previous.PrivatePEM)
+			}
+			authority.memberships[host] = identity
+		}
+	}
 	var candidates []vmcontrolseed.Guest
 	for _, region := range plan.Regions {
 		if string(region.Code) != "GRU" {
@@ -194,6 +221,10 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest, controlSeeds: controlSeeds, engineSeeds: engineSeeds,
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
 		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
+	}
+	services.controlAdmission = controlAdmission
+	if controlAdmission != nil {
+		services.controlSource = controlAdmission.source
 	}
 	if config.QualificationRunDeclarationFile != "" {
 		declaration, loadErr := vmcontrolseed.LoadRunDeclaration(config.QualificationRunDeclarationFile)
@@ -334,6 +365,9 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: qualification services are closed")
 	}
 	if string(guest.Region) != "GRU" {
+		if services.controlAdmission != nil {
+			return services.bootstrapCandidate(guest)
+		}
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: non-GRU bootstrap requires admitted allocation and controller configuration")
 	}
 	controlSeed, ok := services.controlSeeds[guest.ID]
@@ -601,6 +635,10 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		return services.removeNATSStore()
 	}
 	services.closed = true
+	if services.controlAdmission != nil {
+		services.controlAdmission.Clear()
+		services.controlAdmission = nil
+	}
 	for _, seed := range services.controlSeeds {
 		seed.Clear()
 	}

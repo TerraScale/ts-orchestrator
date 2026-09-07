@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
+	"strings"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -33,7 +34,7 @@ func (relocationPlanPending) Acknowledge(context.Context, placementpublisher.Rec
 }
 
 func TestRelocationPlannerUnknownStageCannotBecomeFreshRevision(t *testing.T) {
-	record, _ := transitionFixture(t)
+	record, acknowledged := transitionFixture(t)
 	request, err := transitionRequest(record)
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +78,26 @@ func TestRelocationPlannerUnknownStageCannotBecomeFreshRevision(t *testing.T) {
 		})
 		if _, err := planner(t.Context(), removal, []databaseadmission.Record{record}); !errors.Is(err, placementrelocation.ErrConflict) {
 			t.Fatalf("changed provider incarnation: %v", err)
+		}
+	})
+	t.Run("lowercase provider Region preserves uppercase placement", func(t *testing.T) {
+		providerObservation := observation
+		providerObservation.Region = strings.ToLower(observation.Region)
+		providerRemoval := removal
+		providerRemoval.Member.Region = providerObservation.Region
+		providerRemoval.Survivors = []hostremoval.MemberObservation{providerObservation}
+		planner := productionRelocationPlanner(func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, acknowledged, func(ctx context.Context, id string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
+			if id == replacement.ServerIdentity {
+				return replacement, providerObservation, nil
+			}
+			return resolve(ctx, id)
+		})
+		plan, err := planner(t.Context(), providerRemoval, []databaseadmission.Record{record})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.ReplacementIdentity != replacement.ServerIdentity {
+			t.Fatal("wrong successor")
 		}
 	})
 	t.Run("unsigned head", func(t *testing.T) {

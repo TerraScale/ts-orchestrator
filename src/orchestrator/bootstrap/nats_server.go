@@ -39,6 +39,7 @@ const (
 // NatsServerConfig explicitly selects the local server configuration.
 // Callers omit this configuration on hosts that are not NATS replicas.
 type NatsServerConfig struct {
+	Enrollment       *EnrollmentBrokerConfig
 	PlacementHosts   []placementpublisher.BrokerGrant
 	DatabaseHosts    []databaseadmission.BrokerGrant
 	ConfigPath       string
@@ -47,12 +48,14 @@ type NatsServerConfig struct {
 
 // NatsServer owns a linked server from readiness through complete shutdown.
 type NatsServer struct {
-	instance  *server.Server
-	done      chan struct{}
-	stop      chan struct{}
-	closeOnce sync.Once
-	mu        sync.RWMutex
-	err       error
+	enrollmentMu sync.Mutex
+	enrollment   *enrollmentBrokerState
+	instance     *server.Server
+	done         chan struct{}
+	stop         chan struct{}
+	closeOnce    sync.Once
+	mu           sync.RWMutex
+	err          error
 }
 
 // StartNatsServer returns only after the authenticated listeners are ready.
@@ -83,7 +86,18 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 			return nil, err
 		}
 	}
-	return startNatsServerOptions(ctx, options, config.ReadinessTimeout, nil)
+	enrollment, err := prepareEnrollmentBroker(ctx, options, config.Enrollment)
+	if err != nil {
+		return nil, err
+	}
+	if enrollment != nil {
+		options = enrollment.options
+	}
+	handle, err := startNatsServerOptions(ctx, options, config.ReadinessTimeout, nil)
+	if handle != nil {
+		handle.enrollment = enrollment
+	}
+	return handle, err
 }
 
 // StartNatsServerConfiguration parses literal configuration without TLS paths

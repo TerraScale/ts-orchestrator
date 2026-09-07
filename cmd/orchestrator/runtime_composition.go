@@ -8,9 +8,11 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 	"terrascale.tech/orchestrator/src/orchestrator/lifecycle"
@@ -27,6 +29,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/keyrotation"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
+	"terrascale.tech/orchestrator/src/orchestrator/placementrelocation"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
@@ -353,6 +356,11 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	}
 	group.placement = placement
 	config.PlacementTransition.Targets = config.Placement.Targets
+	memberKey, err := newProductionEnrolledMemberKey(session, config.Database.Environment, config.Database.Cluster, config.ComputeGateways, config.Ownership)
+	if err != nil {
+		return group, err
+	}
+	config.PlacementTransition.Issuer.MemberKey = memberKey
 	transition, err := newProductionPlacementTransition(config.PlacementTransition, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime placement transition: %w", err)
@@ -374,6 +382,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	}
 	if config.HostRemoval != nil {
 		issuer, issuerOK := transition.issuer.(interface {
+			Load(context.Context, string) (placementtransition.Signed, error)
 			Head(context.Context, string) (placementtransition.Signed, error)
 			Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
 			Issue(context.Context, placementtransition.Request, *placementtransition.Signed, []placementtransition.Signed) (placementtransition.Signed, error)
@@ -385,7 +394,20 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		for region, gateway := range config.ComputeGateways {
 			observers[region] = newProductionDurableMemberObserver(config.Ownership, gateway)
 		}
-		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Admission: database.lifecycleJournal, Issuer: issuer, Gateways: config.ComputeGateways, Observers: observers, Placement: placement, Transition: transition})
+		targets, targetErr := newProductionRelocationTargets(session, config.Database, config.ComputeGateways, config.Ownership, transition.pending, issuer, database.lifecycleJournal)
+		if targetErr != nil {
+			return group, fmt.Errorf("runtime relocation targets: %w", targetErr)
+		}
+		proofKey := config.PlacementTransition.Issuer.ProofKey.Public().(ed25519.PublicKey)
+		relocation := &productionHostRelocation{Journal: targets.plans, Admission: database.lifecycleJournal, Issuer: issuer, ProofKey: proofKey, Check: session.CheckEffectAuthority, Install: targets.Install, Stage: targets.Stage, Drain: targets.Drain, Deliver: targets.Deliver, Usage: targets.Usage, Ready: targets.Ready}
+		relocation.Plan = productionRelocationPlanner(issuer.Head, proofKey, targets.Pending, func(ctx context.Context, identity string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
+			target, err := targets.Resolve(ctx, identity)
+			if err != nil {
+				return placementrelocation.Target{}, hostremoval.MemberObservation{}, err
+			}
+			return placementrelocation.Target{ServerIdentity: identity, MemberID: target.Member.MemberID, Region: strings.ToUpper(target.Member.Region)}, target.Observed, nil
+		})
+		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Relocation: relocation, Admission: database.lifecycleJournal, Issuer: issuer, Gateways: config.ComputeGateways, Observers: observers, Placement: placement, Transition: transition})
 		if ownerErr != nil {
 			return group, fmt.Errorf("runtime host removal: %w", ownerErr)
 		}

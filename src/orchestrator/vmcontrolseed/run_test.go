@@ -97,7 +97,7 @@ func TestRunManifestPreservesCallbacksAndBindsInitialPredecessor(t *testing.T) {
 }
 
 func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
-	for _, name := range []string{"generation", "initial key", "initial tls", "R1", "provider", "missing runtime", "changed digest", "callback conflict", "shell target"} {
+	for _, name := range []string{"generation", "initial key", "initial tls", "R1", "provider", "missing runtime", "changed digest", "callback conflict", "shell target", "writable material volume"} {
 		t.Run(name, func(t *testing.T) {
 			seed, base, admission := runAdmissionFixture(t)
 			replace := func(target string, data []byte) {
@@ -108,6 +108,8 @@ func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
 				admission.Files[target] = RunFile{Source: path, SHA256: digest(data)}
 			}
 			switch name {
+			case "writable material volume":
+				base.Components[0].DataVolume = "/etc/terrascale"
 			case "shell target":
 				admission.Files["/etc/terrascale/run/a;touch${IFS}/tmp/injected"] = admission.Files[admission.Regional.Connection.NKeySeedFile]
 			case "generation":
