@@ -10,9 +10,12 @@ import (
 	"sync"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
@@ -40,6 +43,7 @@ type productionGlobalBuildInput struct {
 	RestoreBackup        restoredrill.BackupPort
 	RestoreBranches      restoredrill.BranchPort
 	HostRemoval          func(context.Context, globalWorkerSession, *databaseadmission.NATSJournal, hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error)
+	GlobalEdge           func(*delivery.ArtifactMirror, *cloudflare.SnippetCapabilityStore, func(context.Context) error) (control.GlobalEdgeDelivery, error)
 }
 
 // buildProductionGlobalConfig is the lease-owned composition stage. All
@@ -123,6 +127,13 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	}
 	cleanup = append(cleanup, closeRotation)
 	config.Rotation = rotation
+	if input.GlobalEdge == nil {
+		return fail(fmt.Errorf("%w: global edge provider", ErrProductionGlobalDependency))
+	}
+	config.Edge, err = input.GlobalEdge(input.Mirror, capabilityStore, session.CheckEffectAuthority)
+	if err != nil {
+		return fail(fmt.Errorf("global edge provider: %w", err))
+	}
 	config.MembershipRevocations, err = input.Global.MembershipRevocations.Construct(capabilityStore, session.CheckEffectAuthority)
 	if err != nil {
 		return fail(fmt.Errorf("global membership revocations: %w", err))
@@ -140,6 +151,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		return fail(fmt.Errorf("global database configuration: %w", err))
 	}
 	config.Database = database
+	config.Placement.Targets = slices.Clone(input.Auth.Targets)
 	// The child branch is admitted through the same durable provisioning
 	// pipeline as ordinary databases; it never mints a local identity.
 	var databaseRef *productionDatabase
@@ -155,6 +167,10 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
+	config.ServiceIdentity, err = input.Global.ServiceIdentity.Construct(ctx, session.Connection, session.Lease.CandidateId, uint64(session.Lease.Epoch), session.Lease.LeaseId, session.CheckEffectAuthority)
+	if err != nil {
+		return fail(fmt.Errorf("global service identity rotation: %w", err))
+	}
 	config.Close = closeAll
 	projection, closeEnrollment, err := newProductionEnrollmentProjection(ctx, session, input.Global, config.Database.Environment, config.Database.Cluster)
 	if err != nil {
@@ -239,6 +255,17 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			}
 		}
 		return nil
+	}
+	config.HostRemoval = func(removeCtx context.Context, removeSession globalWorkerSession, admission *databaseadmission.NATSJournal, ports hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error) {
+		removalJournal, err := hostremoval.New(authorityjournal.Config{
+			Connection: removeSession.Connection, CandidateID: removeSession.Lease.CandidateId,
+			AuthorityEpoch: uint64(removeSession.Lease.Epoch), LeaseID: removeSession.Lease.LeaseId,
+			StateKey: "host-removal",
+		})
+		if err != nil {
+			return nil, err
+		}
+		return newProductionHostRemovalFromPorts(ports, removalJournal)
 	}
 
 	if input.RestoreBackup != nil {

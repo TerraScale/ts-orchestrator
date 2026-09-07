@@ -22,8 +22,9 @@ type DeleteRequest struct {
 // mistaken for owner authorization.
 type AutomaticDeleteRequest struct {
 	DeleteRequest
-	PolicyRevision string `json:"policy_revision"`
-	GraceCondition string `json:"grace_condition"`
+	PolicyRevision string    `json:"policy_revision"`
+	GraceCondition string    `json:"grace_condition"`
+	Deadline       time.Time `json:"deadline"`
 }
 type DeletionStop struct {
 	databaselifecycle.Identity
@@ -72,13 +73,16 @@ type DeletionTarget struct {
 	Receipt     *DeletionReceipt     `json:"receipt,omitempty"`
 }
 type Deletion struct {
-	RequestedAt time.Time             `json:"requested_at"`
-	EdgeReceipt *DeletionEdgeReceipt  `json:"edge_receipt,omitempty"`
-	Request     DeleteRequest         `json:"request"`
-	Cutoff      time.Time             `json:"cutoff"`
-	State       string                `json:"state"`
-	Targets     []DeletionTarget      `json:"targets"`
-	Claim       *DeletionClaimReceipt `json:"claim,omitempty"`
+	RequestedAt             time.Time             `json:"requested_at"`
+	EdgeReceipt             *DeletionEdgeReceipt  `json:"edge_receipt,omitempty"`
+	Request                 DeleteRequest         `json:"request"`
+	Cutoff                  time.Time             `json:"cutoff"`
+	State                   string                `json:"state"`
+	Targets                 []DeletionTarget      `json:"targets"`
+	Claim                   *DeletionClaimReceipt `json:"claim,omitempty"`
+	AutomaticPolicyRevision string                `json:"automatic_policy_revision,omitempty"`
+	AutomaticGraceCondition string                `json:"automatic_grace_condition,omitempty"`
+	AutomaticDeadline       time.Time             `json:"automatic_deadline,omitzero"`
 }
 type DeletionJournal interface {
 	BeginDeletion(context.Context, DeleteRequest, time.Time, time.Time) (Deletion, error)
@@ -99,6 +103,9 @@ type DeletionPolicy interface {
 }
 type DeletionClaimJournal interface {
 	BeginDeletionWithClaim(context.Context, DeleteRequest, time.Time, time.Time, DeletionClaimReceipt) (Deletion, error)
+}
+type AutomaticIntentJournal interface {
+	BeginAutomaticIntent(context.Context, AutomaticDeleteRequest, time.Time) (Deletion, error)
 }
 
 // StopDeletion must authenticate regional evidence and cover every serving host,
@@ -142,8 +149,25 @@ func (w *DeletionWorkflow) Begin(ctx context.Context, r DeleteRequest) (Deletion
 // BeginAutomatic consumes an already-issued dashboard claim and persists it
 // atomically with the deletion journal before any regional stop effect.
 func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDeleteRequest, claim DeletionClaimReceipt) (Deletion, error) {
-	if w == nil || w.Journal == nil || w.Stopper == nil || !validDeleteRequest(r.DeleteRequest) || r.PolicyRevision == "" || r.GraceCondition == "" || claim.SchemaVersion != 1 || claim.Environment != r.Environment || claim.TenantID != r.TenantID || claim.ProjectID != r.ProjectID || claim.DatabaseID != r.DatabaseID || claim.OperationID != r.OperationID || claim.PolicyRevision != r.PolicyRevision || claim.GraceCondition != r.GraceCondition || claim.Deadline.IsZero() || claim.AcceptedAt.IsZero() {
+	if w == nil || w.Journal == nil || w.Stopper == nil || !validDeleteRequest(r.DeleteRequest) || r.PolicyRevision == "" || r.GraceCondition == "" || r.Deadline.IsZero() || claim.SchemaVersion != 1 || claim.Environment != r.Environment || claim.TenantID != r.TenantID || claim.ProjectID != r.ProjectID || claim.DatabaseID != r.DatabaseID || claim.OperationID != r.OperationID || claim.PolicyRevision != r.PolicyRevision || claim.GraceCondition != r.GraceCondition || !claim.Deadline.Equal(r.Deadline) || claim.AcceptedAt.IsZero() {
 		return Deletion{}, ErrInvalid
+	}
+	records, err := w.Journal.ListDeletions(ctx)
+	if err != nil {
+		return Deletion{}, err
+	}
+	found := false
+	for _, existing := range records {
+		if existing.Request == r.DeleteRequest {
+			if existing.AutomaticPolicyRevision != r.PolicyRevision || existing.AutomaticGraceCondition != r.GraceCondition || !existing.AutomaticDeadline.Equal(r.Deadline) {
+				return Deletion{}, ErrConflict
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Deletion{}, ErrConflict
 	}
 	journal, ok := w.Journal.(DeletionClaimJournal)
 	if !ok {
@@ -413,6 +437,25 @@ func (j *NATSJournal) BeginDeletionWithClaim(ctx context.Context, r DeleteReques
 	})
 	return
 }
+func beginAutomaticIntent(s *journalState, r AutomaticDeleteRequest, at time.Time) (Deletion, error) {
+	d, err := beginDeletion(s, r.DeleteRequest, at, at)
+	if err != nil {
+		return Deletion{}, err
+	}
+	if d.AutomaticPolicyRevision != "" && (d.AutomaticPolicyRevision != r.PolicyRevision || d.AutomaticGraceCondition != r.GraceCondition) {
+		return Deletion{}, ErrConflict
+	}
+	d.AutomaticPolicyRevision, d.AutomaticGraceCondition, d.AutomaticDeadline = r.PolicyRevision, r.GraceCondition, r.Deadline
+	s.Deletions[deletionKey(r.DeleteRequest)] = d
+	return d, nil
+}
+func (j *NATSJournal) BeginAutomaticIntent(ctx context.Context, r AutomaticDeleteRequest, at time.Time) (d Deletion, err error) {
+	if j == nil || j.journal == nil {
+		return d, ErrJournalUnavailable
+	}
+	err = j.journal.Transact(ctx, true, func(s *journalState) error { var e error; d, e = beginAutomaticIntent(s, r, at); return e })
+	return
+}
 func (j *NATSJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v DeletionReceipt) (d Deletion, err error) {
 	if j == nil || j.journal == nil {
 		return d, ErrJournalUnavailable
@@ -450,6 +493,10 @@ func (j *MemoryJournal) BeginDeletionWithClaim(ctx context.Context, r DeleteRequ
 		s.Deletions[deletionKey(r)] = d
 		return nil
 	})
+	return
+}
+func (j *MemoryJournal) BeginAutomaticIntent(ctx context.Context, r AutomaticDeleteRequest, at time.Time) (d Deletion, err error) {
+	err = j.lifecycleTransact(ctx, func(s *journalState) error { var e error; d, e = beginAutomaticIntent(s, r, at); return e })
 	return
 }
 func (j *MemoryJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v DeletionReceipt) (d Deletion, err error) {

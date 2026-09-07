@@ -51,7 +51,7 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	if err != nil {
 		return err
 	}
-	if len(source.Targets) == 0 || target.Request.ParentDatabaseID != source.DatabaseID || target.Request.TenantID != source.Request.TenantID || target.Request.ProjectID != source.Request.ProjectID || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.BranchSource == nil {
+	if len(source.Targets) == 0 || target.Request.ParentDatabaseID != source.DatabaseID || target.Request.TenantID != source.Request.TenantID || target.Request.ProjectID != source.Request.ProjectID || target.Request.OperationID != request.IdempotencyKey || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.BranchSource == nil {
 		return errors.New("restore backup: source and target provenance differs")
 	}
 	// TBEP owner is the stable tenant/project scope. Host identities belong in
@@ -59,7 +59,7 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	sourceOwner := strings.Join([]string{source.Request.TenantID, source.Request.ProjectID}, "/")
 	targetOwner := strings.Join([]string{target.Request.TenantID, target.Request.ProjectID}, "/")
 	var evidence databaseadmission.BranchSourceEvidence
-	if json.Unmarshal(target.BranchSource.Evidence.Payload, &evidence) != nil || evidence.SourceSnapshotDigest == "" || evidence.RecoveryPointID != request.RecoveryPointID || evidence.JournalCut != request.JournalCut || evidence.RestoreEpoch != request.RestoreEpoch {
+	if json.Unmarshal(target.BranchSource.Evidence.Payload, &evidence) != nil || evidence.SourceSnapshotDigest == "" || evidence.SourceSnapshotDigest != request.ManifestDigest || evidence.RecoveryPointID != request.RecoveryPointID || evidence.JournalCut != request.JournalCut || evidence.RestoreEpoch != request.RestoreEpoch {
 		return errors.New("restore backup: authenticated source point is unavailable")
 	}
 	placement, host, err := (productionDatabaseBackupPort{database: p.database, config: p.config}).targetAssignment(target)

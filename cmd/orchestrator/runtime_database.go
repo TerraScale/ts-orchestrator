@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -83,11 +84,24 @@ func (a automaticDeletionAdmission) AdmitDeletion(ctx context.Context, database 
 		return databaseadmission.ErrInvalid
 	}
 	request := automaticDeletionClaimRequest{SchemaVersion: 1, Environment: a.environment, TenantID: database.OrganizationID, ProjectID: database.ProjectID, DatabaseID: database.ID, OperationID: operation, PolicyRevision: database.PolicyRevision, GraceCondition: database.SelectedGraceCondition}
+	intent := databaseadmission.AutomaticDeleteRequest{DeleteRequest: databaseadmission.DeleteRequest{Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID, OperationID: request.OperationID}, PolicyRevision: request.PolicyRevision, GraceCondition: request.GraceCondition}
+	if database.BillingGraceDeadline != nil {
+		intent.Deadline = database.BillingGraceDeadline.UTC()
+	} else {
+		intent.Deadline = database.LastRequest.UTC().Add(reaper.DefaultDeleteAfter)
+	}
+	journal, ok := a.workflow.Journal.(databaseadmission.AutomaticIntentJournal)
+	if !ok {
+		return databaseadmission.ErrInvalid
+	}
+	if _, err := journal.BeginAutomaticIntent(ctx, intent, time.Now().UTC().Truncate(time.Millisecond)); err != nil {
+		return err
+	}
 	receipt, err := a.claim(ctx, request)
 	if err != nil {
 		return err
 	}
-	_, err = a.workflow.BeginAutomatic(ctx, databaseadmission.AutomaticDeleteRequest{DeleteRequest: databaseadmission.DeleteRequest{Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID, OperationID: request.OperationID}, PolicyRevision: request.PolicyRevision, GraceCondition: request.GraceCondition}, receipt)
+	_, err = a.workflow.BeginAutomatic(ctx, intent, receipt)
 	return err
 }
 

@@ -33,6 +33,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
+	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
 const (
@@ -327,6 +328,13 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	if err != nil {
 		return group, fmt.Errorf("runtime restore drill: %w", err)
 	}
+	var placementJournal databaseadmission.Journal
+	config.Placement.ValidateProposal = func(ctx context.Context, host string, proposal *pb.PlacementStageRequest) error {
+		if placementJournal == nil {
+			return errors.New("runtime placement: database admission journal is unavailable")
+		}
+		return databasePlacementPolicy(placementJournal)(ctx, host, proposal)
+	}
 	placement, err := newProductionPlacement(config.Placement, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime placement: %w", err)
@@ -345,6 +353,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime database: %w", err)
 	}
 	group.database = database
+	placementJournal = database.lifecycleJournal
 	if config.BranchDatabaseRef != nil {
 		*config.BranchDatabaseRef = database
 	}
@@ -550,20 +559,16 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		}
 	}
 	go func() {
-		select {
-		case <-r.publisher.Completion():
-		case <-r.workers[0].Completion():
-		case <-r.workers[1].Completion():
-		case <-r.workers[2].Completion():
-		case <-r.workers[3].Completion():
-		case <-r.workers[4].Completion():
-		case <-r.workers[5].Completion():
-		case <-r.workers[6].Completion():
-		case <-r.workers[7].Completion():
-		case <-r.workers[8].Completion():
-		case <-r.database.service.Completion():
-		case <-r.database.inventory.Completion():
+		cases := make([]reflect.SelectCase, 0, len(r.workers)+3)
+		cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(r.publisher.Completion())})
+		for _, worker := range r.workers {
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(worker.Completion())})
 		}
+		cases = append(cases,
+			reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(r.database.service.Completion())},
+			reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(r.database.inventory.Completion())},
+		)
+		reflect.Select(cases)
 		r.finished.Do(func() { close(r.completion) })
 	}()
 	return nil

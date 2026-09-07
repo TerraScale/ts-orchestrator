@@ -30,10 +30,11 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 			return nil, err
 		}
 		result := make([]autoscale.Observation, 0, len(reports))
+		now := time.Now()
 		for _, report := range reports {
 			engine := report.Facts.Engine
 			metrics := report.Facts.Metrics
-			if !engine.Measured || !engine.Serving || report.State != hostagent.NodeStateServing || report.Quiesced || metrics.ObservationSequence <= 0 {
+			if !validAutoscaleEngineFacts(engine, now) || report.State != hostagent.NodeStateServing || report.Quiesced || metrics.ObservationSequence <= 0 {
 				return nil, autoscale.ErrUnavailable
 			}
 			result = append(result, autoscale.Observation{
@@ -50,6 +51,36 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 		return result, nil
 	}
 	return nil, errors.New("autoscale: region is not admitted")
+}
+
+// validAutoscaleEngineFacts admits only a complete, fresh engine observation
+// into the autoscale stream. The authenticated transport is the authority for
+// the report; these checks ensure a delayed or incomplete report cannot be
+// turned into a scale-down proof by the adapter.
+func validAutoscaleEngineFacts(engine hostagent.EngineFacts, now time.Time) bool {
+	if !engine.Measured || !engine.Serving || engine.Draining || engine.ObservedAtUnixMS <= 0 {
+		return false
+	}
+	observed := time.UnixMilli(engine.ObservedAtUnixMS)
+	if observed.After(now.Add(time.Second)) || now.Sub(observed) > 30*time.Second {
+		return false
+	}
+	if !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
+		return false
+	}
+	catchUpObserved := time.UnixMilli(int64(engine.CatchUpObservedAtUnixMS))
+	if engine.CatchUpObservedAtUnixMS > uint64(now.Add(time.Second).UnixMilli()) || now.Sub(catchUpObserved) > 30*time.Second {
+		return false
+	}
+	seen := make(map[string]bool, len(engine.Databases))
+	for _, database := range engine.Databases {
+		key := database.Tenant + "\x00" + database.Project + "\x00" + database.Database
+		if database.Tenant == "" || database.Project == "" || database.Database == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
 }
 
 func engineProof(engine hostagent.EngineFacts) autoscale.ProofSnapshot {

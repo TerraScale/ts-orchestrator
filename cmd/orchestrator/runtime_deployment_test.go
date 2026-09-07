@@ -11,6 +11,7 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		return productionDeploymentFile{
 			Delivery: productionDeliveryFile{MembershipFile: "/etc/terrascale/hosts.json", Cloudflare: productionDeliveryCloudflareFile{AccountID: "account", ZoneID: "zone", SnippetServices: map[string]string{"ts-proxy": "gate"}}},
 			Global: &productionGlobalFile{
+				Database: productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
 				Compute: productionGlobalComputeFile{
 					EstateFiles:       map[string]string{"gru": "/etc/terrascale/gru.estate", "sfo": "/etc/terrascale/sfo.estate", "fra": "/etc/terrascale/fra.estate"},
 					KeyID:             "oci-key",
@@ -30,12 +31,14 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*productionDeploymentFile){
-		"other account":    func(f *productionDeploymentFile) { f.Global.Rotation.Edge.AccountID = "foreign" },
-		"other route zone": func(f *productionDeploymentFile) { f.Global.KV.ZoneID = "foreign" },
-		"other snippet":    func(f *productionDeploymentFile) { f.Global.Rotation.Edge.SnippetName = "foreign" },
-		"missing region":   func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "sfo"} },
-		"duplicate region": func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "gru", "sfo"} },
-		"other membership": func(f *productionDeploymentFile) { f.Global.HealthFile = "/etc/foreign.json" },
+		"missing deletion claim endpoint": func(f *productionDeploymentFile) { f.Global.Database.DeletionClaim.Endpoint = "" },
+		"missing deletion claim key":      func(f *productionDeploymentFile) { f.Global.Database.DeletionClaim.ServiceKeyFile = "" },
+		"other account":                   func(f *productionDeploymentFile) { f.Global.Rotation.Edge.AccountID = "foreign" },
+		"other route zone":                func(f *productionDeploymentFile) { f.Global.KV.ZoneID = "foreign" },
+		"other snippet":                   func(f *productionDeploymentFile) { f.Global.Rotation.Edge.SnippetName = "foreign" },
+		"missing region":                  func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "sfo"} },
+		"duplicate region":                func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "gru", "sfo"} },
+		"other membership":                func(f *productionDeploymentFile) { f.Global.HealthFile = "/etc/foreign.json" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := valid()

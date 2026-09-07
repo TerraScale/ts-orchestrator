@@ -134,6 +134,7 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 					BindProjection: wiring.BindProjection, BindTargetProjection: wiring.BindTargetProjection,
 					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
 					Shared: constructed.Store, Ownership: constructed.Ownership, Transition: transition,
+					GlobalEdge: constructed.GlobalEdge,
 				})
 			}
 		}

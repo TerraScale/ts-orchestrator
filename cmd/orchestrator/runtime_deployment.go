@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -111,6 +112,13 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	}
 	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 || len(g.Compute.Artifacts) != 2 || g.Compute.Artifacts["arm64"].URL == "" || g.Compute.Artifacts["amd64"].URL == "" {
 		return errors.New("global compute declaration is incomplete")
+	}
+	claimEndpoint, err := url.Parse(g.Database.DeletionClaim.Endpoint)
+	if err != nil || claimEndpoint.Scheme != "https" || claimEndpoint.Hostname() == "" || claimEndpoint.User != nil || claimEndpoint.RawQuery != "" || claimEndpoint.ForceQuery || claimEndpoint.Fragment != "" || claimEndpoint.Opaque != "" {
+		return errors.New("global database deletion claim requires an explicit HTTPS endpoint")
+	}
+	if !filepath.IsAbs(g.Database.DeletionClaim.ServiceKeyFile) || filepath.Clean(g.Database.DeletionClaim.ServiceKeyFile) != g.Database.DeletionClaim.ServiceKeyFile {
+		return errors.New("global database deletion claim requires an absolute service key file")
 	}
 	for _, region := range spec.Regions {
 		if strings.TrimSpace(g.Compute.EstateFiles[region.Code]) == "" {
