@@ -828,6 +828,18 @@ func (j *localDrillJournal) LoadRun(_ context.Context, id string) (restoredrill.
 	return copyOperationsRun(run), found, nil
 }
 
+func (j *localDrillJournal) ActiveRuns(_ context.Context) ([]restoredrill.RunRecord, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	runs := make([]restoredrill.RunRecord, 0)
+	for _, run := range j.state.Runs {
+		if run.Status == restoredrill.RunRunning {
+			runs = append(runs, copyOperationsRun(run))
+		}
+	}
+	return runs, nil
+}
+
 func (j *localDrillJournal) SaveRun(ctx context.Context, run restoredrill.RunRecord) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()

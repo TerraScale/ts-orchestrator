@@ -115,7 +115,7 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 		if target.Region != region.Code || target.Members < 2 || target.Members > 1024 {
 			return result, enrollment.ErrInvalid
 		}
-		region.Members.Count = max(region.Members.Count, uint16(target.Members))
+		region.Members.Count = uint16(target.Members)
 	}
 	template, ok := p.templates[region.Code]
 	if !ok {
@@ -178,5 +178,5 @@ func (p *productionEnrollmentProjection) TargetCount(ctx context.Context, region
 	if target.Region != region.Code || target.Members < 2 || target.Members > 1024 {
 		return 0, enrollment.ErrInvalid
 	}
-	return max(region.Members.Count, uint16(target.Members)), nil
+	return uint16(target.Members), nil
 }

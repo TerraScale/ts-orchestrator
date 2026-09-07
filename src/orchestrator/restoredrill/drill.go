@@ -99,7 +99,7 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 		if err != nil || resumed.Status == RunRunning {
 			return resumed, err
 		}
-		}
+	}
 	run, found, err := d.journal.LoadRun(ctx, runID)
 	if err != nil {
 		return RunRecord{ID: runID, Status: RunFailed}, sanitizeError(err)
@@ -214,7 +214,7 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	if storeErr != nil {
 		runErr = sanitizeError(errors.Join(runErr, storeErr))
 	}
-	if run.Status != RunSucceeded {
+	if run.Status == RunFailed || run.Status == RunCanceled {
 		pageErr := d.pager.Page(durableContext(ctx), Page{RunID: run.ID, Reason: run.Error, Outcome: copyRun(run)})
 		if pageErr != nil {
 			runErr = sanitizeError(errors.Join(runErr, pageErr))

@@ -1,5 +1,5 @@
 // Package autoscale evaluates authenticated member observations into durable,
-// scale-out-only targets. Provider creation remains owned by OCI reconcile.
+// scaling targets. Provider creation remains owned by OCI reconcile.
 package autoscale
 
 import (
@@ -19,18 +19,20 @@ var ErrUnavailable = errors.New("autoscale: observation source unavailable")
 var ErrConflict = errors.New("autoscale: target compare-and-swap conflict")
 
 type Observation struct {
-	HostID        string
-	EngineID      string
-	Sequence      int64
-	Incarnation   string
-	ObservedAt    time.Time
-	CPUPercent    float64
-	MemoryPercent float64
-	QueueDepth    int
-	QueueCapacity int
-	Healthy       bool
-	Authenticated bool
-	Proof         ProofSnapshot
+	MemberSlot         int
+	ProviderResourceID string
+	HostID             string
+	EngineID           string
+	Sequence           int64
+	Incarnation        string
+	ObservedAt         time.Time
+	CPUPercent         float64
+	MemoryPercent      float64
+	QueueDepth         int
+	QueueCapacity      int
+	Healthy            bool
+	Authenticated      bool
+	Proof              ProofSnapshot
 }
 
 // ProofSnapshot carries only facts observed in the authenticated engine
@@ -64,6 +66,8 @@ type Target struct {
 	LastScaleAt            time.Time
 	OperationID            string
 	RemovalOperationID     string
+	RemovalSlot            int
+	RemovalResourceID      string
 	RemovalHostID          string
 	RemovalIncarnation     string
 	RemovalPhase           string
@@ -84,7 +88,10 @@ type Authority interface {
 }
 
 type Config struct {
-	Source            ObservationSource
+	Source ObservationSource
+	// RemovalComplete must verify the exact durable removal journal operation.
+	// Unknown provider outcomes must return false.
+	RemovalComplete   func(context.Context, Target) (bool, error)
 	Targets           TargetStore
 	Authority         Authority
 	MinMembers        int
@@ -105,6 +112,8 @@ type Plan struct {
 	DesiredMembers     int
 	ObservationSeq     int64
 	OperationID        string
+	RemovalSlot        int
+	RemovalResourceID  string
 	RemovalHostID      string
 	RemovalIncarnation string
 	RemovalPhase       string
@@ -158,7 +167,30 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, err
 	}
 	if found && retained.Region == region && retained.RemovalOperationID != "" {
-		return removalPlan(region, retained, retained.LastObservation), true, nil
+		if c.config.RemovalComplete == nil {
+			return removalPlan(region, retained, retained.LastObservation), true, nil
+		}
+		complete, err := c.config.RemovalComplete(ctx, retained)
+		if err != nil {
+			return Plan{}, false, err
+		}
+		if !complete {
+			return removalPlan(region, retained, retained.LastObservation), true, nil
+		}
+		if err := c.config.Authority.Check(ctx); err != nil {
+			return Plan{}, false, err
+		}
+		next := retained
+		next.RemovalOperationID, next.RemovalHostID, next.RemovalIncarnation, next.RemovalPhase = "", "", "", ""
+		next.RemovalSlot, next.RemovalResourceID = 0, ""
+		next.ConsecutiveHighSamples, next.ConsecutiveLowSamples = 0, 0
+		next.LastScaleAt = c.config.Now().UTC()
+		if err := c.config.Targets.CompareAndSwap(ctx, region, &retained, next); err != nil {
+			if errors.Is(err, ErrConflict) {
+				return Plan{}, false, nil
+			}
+			return Plan{}, false, err
+		}
 	}
 	observations, err := c.config.Source.Observe(ctx, region)
 	if err != nil {
@@ -251,11 +283,15 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	}
 	state.LastObservation = seq
 	if low && state.ConsecutiveLowSamples >= c.config.LowSamples && state.Members > c.config.MinMembers && (state.LastScaleAt.IsZero() || !now.Before(state.LastScaleAt.Add(c.config.Cooldown))) {
-		candidate := removalCandidate(observations)
+		candidate, eligible := removalCandidate(observations, state.Members)
+		if !eligible {
+			return Plan{}, false, nil
+		}
 		state.Members--
 		state.ConsecutiveLowSamples = 0
 		state.LastScaleAt = now
 		state.RemovalHostID, state.RemovalIncarnation = candidate.HostID, candidate.Incarnation
+		state.RemovalSlot, state.RemovalResourceID = candidate.MemberSlot, candidate.ProviderResourceID
 		state.RemovalPhase = "intent"
 		state.RemovalOperationID = removalOperationID(region, candidate, state.Members, seq)
 		if err := c.config.Authority.Check(ctx); err != nil {
@@ -269,7 +305,7 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 			return Plan{}, false, err
 		}
 		return Plan{Region: region, PreviousMembers: state.Members + 1, DesiredMembers: state.Members, ObservationSeq: seq,
-			OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
+			RemovalSlot: state.RemovalSlot, RemovalResourceID: state.RemovalResourceID, OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
 			RemovalIncarnation: state.RemovalIncarnation, RemovalPhase: state.RemovalPhase}, true, nil
 	}
 	if !high || state.ConsecutiveHighSamples < c.config.HighSamples || state.Members >= c.config.MaxMembers || !state.LastScaleAt.IsZero() && now.Before(state.LastScaleAt.Add(c.config.Cooldown)) {
@@ -305,7 +341,7 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 
 func removalPlan(region string, state Target, sequence int64) Plan {
 	return Plan{Region: region, PreviousMembers: state.Members + 1, DesiredMembers: state.Members, ObservationSeq: sequence,
-		OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
+		RemovalSlot: state.RemovalSlot, RemovalResourceID: state.RemovalResourceID, OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
 		RemovalIncarnation: state.RemovalIncarnation, RemovalPhase: state.RemovalPhase}
 }
 
@@ -427,16 +463,25 @@ func allRemovalProofs(values []Observation) bool {
 	return true
 }
 
-func removalCandidate(values []Observation) Observation {
-	return slices.MinFunc(values, func(a, b Observation) int {
-		if a.CPUPercent != b.CPUPercent {
-			if a.CPUPercent < b.CPUPercent {
-				return -1
-			}
-			return 1
+// The provider pool consists of contiguous stable slots. A removal may only
+// retire the highest slot from a complete, authoritatively bound member set.
+func removalCandidate(values []Observation, members int) (Observation, bool) {
+	if len(values) != members {
+		return Observation{}, false
+	}
+	seen := make(map[int]bool, members)
+	resources := make(map[string]bool, members)
+	var candidate Observation
+	for _, value := range values {
+		if value.MemberSlot < 1 || value.MemberSlot > members || value.ProviderResourceID == "" || seen[value.MemberSlot] || resources[value.ProviderResourceID] {
+			return Observation{}, false
 		}
-		return strings.Compare(a.HostID, b.HostID)
-	})
+		seen[value.MemberSlot], resources[value.ProviderResourceID] = true, true
+		if value.MemberSlot == members {
+			candidate = value
+		}
+	}
+	return candidate, candidate.MemberSlot == members
 }
 
 func operationID(region string, previous, next int, sequence int64) string {
@@ -445,6 +490,6 @@ func operationID(region string, previous, next int, sequence int64) string {
 }
 
 func removalOperationID(region string, candidate Observation, next int, sequence int64) string {
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/remove/%s/%s/%d/%d", region, candidate.HostID, candidate.Incarnation, next, sequence)))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/remove/%s/%s/%s/%d/%d", region, candidate.HostID, candidate.Incarnation, candidate.ProviderResourceID, next, sequence)))
 	return "autoscale-remove-" + hex.EncodeToString(digest[:16])
 }

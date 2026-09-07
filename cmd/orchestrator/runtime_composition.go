@@ -287,7 +287,12 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		if err != nil {
 			return group, err
 		}
-		controller, err := autoscale.New(autoscale.Config{Source: config.AutoscaleSource, Targets: targets, Authority: sessionAuthority{check: session.CheckEffectAuthority}, MinMembers: 2, MaxMembers: 1024, CPUThreshold: 80, MemoryThreshold: 80, HighSamples: 3, Cooldown: 10 * time.Minute, ObservationMaxAge: 30 * time.Second, Now: time.Now})
+		controller, err := autoscale.New(autoscale.Config{Source: config.AutoscaleSource, Targets: targets, RemovalComplete: func(ctx context.Context, target autoscale.Target) (bool, error) {
+			if progress, ok := group.hostRemoval.(autoscaleRemovalProgress); ok {
+				return progress.AutoscaleRemovalComplete(ctx, target)
+			}
+			return false, nil
+		}, Authority: sessionAuthority{check: session.CheckEffectAuthority}, MinMembers: 2, MaxMembers: 1024, CPUThreshold: 80, MemoryThreshold: 80, QueueThreshold: 8, HighSamples: 3, Cooldown: 10 * time.Minute, ObservationMaxAge: 30 * time.Second, Now: time.Now})
 		if err != nil {
 			return group, fmt.Errorf("runtime autoscale: %w", err)
 		}
@@ -379,6 +384,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		}
 		if owner == nil {
 			return group, errors.New("runtime host removal: constructor returned nil owner")
+		}
+		if group.autoscale != nil {
+			owner = &autoscaleRemovalOwner{controller: group.autoscale.controller, owner: owner}
 		}
 		group.hostRemoval = owner
 		config.ComputeRemovalOwner = owner

@@ -67,3 +67,69 @@ func TestOCIEmailPagerRejectsMissingDependencies(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPendingDrillWithOCIEmailPagerKeepsSchedulingAndResumes(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := 0
+	client, err := reaper.NewOCIMailAdapter(reaper.OCIMailConfig{
+		Endpoint:      "https://cell0.submit.email.sa-saopaulo-1.oci.oraclecloud.com",
+		CompartmentID: "ocid1.compartment.oc1..test",
+		Sender:        "sender@example.com", KeyID: "ocid1.tenancy.oc1..test/ocid1.user.oc1..test/aa:bb",
+		PrivateKey:           privateKey,
+		CheckEffectAuthority: func(ctx context.Context) error { return ctx.Err() },
+		Transport: pagerTransport(func(*http.Request) (*http.Response, error) {
+			messages++
+			return nil, errors.New("unexpected restore notification")
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pager, err := NewOCIEmailPager(client, "operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	drill, backup, branches, journal, _ := drillFixture()
+	drill.pager = pager
+	scheduler := &fakeScheduler{}
+	drill.scheduler = scheduler
+	backup.restoreErrs = []error{ErrPending, nil, nil, ErrPending}
+	if err := drill.Start(t.Context()); err != nil {
+		t.Fatalf("pending startup prevented scheduling: %v", err)
+	}
+	if scheduler.callback == nil {
+		t.Fatal("pending startup did not install the scheduled callback")
+	}
+	if err := scheduler.callback(t.Context(), drill.config.Now()); err != nil {
+		t.Fatalf("pending scheduled retry returned a worker-stopping error: %v", err)
+	}
+	runID := runIDFor(drill.config.Now())
+	run, found, err := journal.LoadRun(t.Context(), runID)
+	if err != nil || !found || run.Status != RunRunning || !run.CompletedAt.IsZero() {
+		t.Fatalf("pending run = %+v, found=%v, err=%v", run, found, err)
+	}
+	item, found, err := journal.LoadItem(t.Context(), runID+"/control")
+	if err != nil || !found || item.Status != ItemRunning || item.BranchID == "" || !item.CompletedAt.IsZero() {
+		t.Fatalf("pending item = %+v, found=%v, err=%v", item, found, err)
+	}
+	if len(branches.created) != 3 || len(branches.deleted) != 2 {
+		t.Fatalf("pending branch ownership: created=%d deleted=%d", len(branches.created), len(branches.deleted))
+	}
+	restarted, err := New(backup, branches, journal, &fakeScheduler{}, pager, drill.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := restarted.Run(t.Context())
+	if err != nil || completed.ID != runID || completed.Status != RunSucceeded || completed.CompletedAt.IsZero() {
+		t.Fatalf("resumed run = %+v, err=%v", completed, err)
+	}
+	if len(backup.restores) != 5 || backup.restores[0] != backup.restores[3] || backup.restores[0] != backup.restores[4] {
+		t.Fatalf("pending retries changed restore identity: %+v", backup.restores)
+	}
+	if len(branches.created) != 3 || len(branches.deleted) != 3 || messages != 0 {
+		t.Fatalf("completed restore: created=%d deleted=%d notifications=%d", len(branches.created), len(branches.deleted), messages)
+	}
+}
