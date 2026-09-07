@@ -3,6 +3,7 @@ package restoredrill
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -95,6 +96,18 @@ func (f *fakeJournal) LoadRun(_ context.Context, id string) (RunRecord, bool, er
 	defer f.mu.Unlock()
 	run, ok := f.runs[id]
 	return copyRun(run), ok, nil
+}
+func (f *fakeJournal) ActiveRuns(_ context.Context) ([]RunRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	runs := make([]RunRecord, 0)
+	for _, run := range f.runs {
+		if run.Status == RunRunning {
+			runs = append(runs, copyRun(run))
+		}
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].ScheduledAt.Before(runs[j].ScheduledAt) })
+	return runs, nil
 }
 func (f *fakeJournal) SaveRun(_ context.Context, run RunRecord) error {
 	f.mu.Lock()
@@ -276,6 +289,32 @@ func TestPendingRestoreKeepsRunRunningAndResumesSameBranch(t *testing.T) {
 	}
 	if len(branches.created) != 3 || len(branches.deleted) != 3 {
 		t.Fatalf("resumed branch identity = created %d, deleted %d", len(branches.created), len(branches.deleted))
+	}
+}
+
+func TestDayRolloverReconcilesPendingPriorRunBeforeNewSample(t *testing.T) {
+	drill, backup, branches, journal, _ := drillFixture()
+	backup.restoreErrs = []error{ErrPending}
+	firstDay := time.Date(2026, 9, 4, 1, 0, 0, 0, time.UTC)
+	secondDay := firstDay.AddDate(0, 0, 16)
+
+	first, err := drill.RunAt(context.Background(), firstDay)
+	if err != nil || first.Status != RunRunning {
+		t.Fatalf("first day = status %s, err %v", first.Status, err)
+	}
+	second, err := drill.RunAt(context.Background(), secondDay)
+	if err != nil || second.Status != RunSucceeded {
+		t.Fatalf("rollover = status %s, err %v", second.Status, err)
+	}
+	prior, found, err := journal.LoadRun(context.Background(), first.ID)
+	if err != nil || !found || prior.Status != RunSucceeded {
+		t.Fatalf("prior run after rollover = %+v, found=%v, err=%v", prior, found, err)
+	}
+	if len(backup.restores) != 7 {
+		t.Fatalf("restore calls = %d, want pending retry plus both daily samples", len(backup.restores))
+	}
+	if len(branches.created) != 6 || len(branches.deleted) != 6 {
+		t.Fatalf("rollover branch ownership = created %d, deleted %d", len(branches.created), len(branches.deleted))
 	}
 }
 

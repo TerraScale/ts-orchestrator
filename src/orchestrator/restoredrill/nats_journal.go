@@ -75,6 +75,7 @@ type restoreDatabaseEpoch struct {
 }
 type restoreJournalState struct {
 	Runs   map[string]RunRecord
+	Active map[string]RunRecord
 	Items  map[string]ItemRecord
 	Epochs map[string]restoreDatabaseEpoch
 	Facts  map[string]JournalFacts
@@ -102,7 +103,7 @@ type restoreJournalSnapshot struct {
 }
 
 func emptyRestoreJournalState() restoreJournalState {
-	return restoreJournalState{Runs: map[string]RunRecord{}, Items: map[string]ItemRecord{}, Epochs: map[string]restoreDatabaseEpoch{}, Facts: map[string]JournalFacts{}}
+	return restoreJournalState{Runs: map[string]RunRecord{}, Active: map[string]RunRecord{}, Items: map[string]ItemRecord{}, Epochs: map[string]restoreDatabaseEpoch{}, Facts: map[string]JournalFacts{}}
 }
 func (journal *NATSJournal) request(ctx context.Context, subject string, payload []byte, target any) error {
 	if ctx == nil {
@@ -306,6 +307,16 @@ func (journal *NATSJournal) LoadRun(ctx context.Context, id string) (run RunReco
 	err = journal.transact(ctx, false, func(state *restoreJournalState) error { run, found = state.Runs[id]; return nil })
 	return
 }
+
+func (journal *NATSJournal) ActiveRuns(ctx context.Context) (runs []RunRecord, err error) {
+	err = journal.transact(ctx, false, func(state *restoreJournalState) error {
+		for _, run := range state.Active {
+			runs = append(runs, copyRun(run))
+		}
+		return nil
+	})
+	return runs, err
+}
 func (journal *NATSJournal) SaveRun(ctx context.Context, run RunRecord) error {
 	if !validToken(run.ID) || run.StartedAt.IsZero() {
 		return ErrInvalidConfig
@@ -320,6 +331,14 @@ func (journal *NATSJournal) SaveRun(ctx context.Context, run RunRecord) error {
 			return ErrRestoreJournalConflict
 		}
 		state.Runs[run.ID] = run
+		if state.Active == nil {
+			state.Active = map[string]RunRecord{}
+		}
+		if run.Status == RunRunning {
+			state.Active[run.ID] = run
+		} else {
+			delete(state.Active, run.ID)
+		}
 		return nil
 	})
 }

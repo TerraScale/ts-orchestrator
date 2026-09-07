@@ -73,7 +73,7 @@ func TestProductionExecutorCursorRetryPreservesLaterPage(t *testing.T) {
 	db := &cursorProductionDatabase{rows: rows, fail: map[string]int{"purge": 1}}
 	key := &cursorProductionKey{}
 	store := &MemoryStore{}
-	r, err := NewReconciler(Config{Catalog: db, Executor: productionExecutor{database: db, key: key, check: func(context.Context) error { return nil }}, Mailer: &testMailer{}, Audit: &testAudit{}, Store: store, Clock: ClockFunc(func() time.Time { return deadline }), PageSize: 10})
+	r, err := NewReconciler(Config{Catalog: db, Executor: productionExecutor{database: db, key: key, check: func(context.Context) error { return nil }}, Admission: testAdmission{}, Mailer: &testMailer{}, Audit: &testAudit{}, Store: store, Clock: ClockFunc(func() time.Time { return deadline }), PageSize: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

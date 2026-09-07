@@ -226,7 +226,7 @@ func TestRecoverRequiresServingReadbackBeforeUncordon(t *testing.T) {
 		Host: "member-1", PriorDigest: request.Rollback.ArtifactDigest, PriorManifestDigest: request.Rollback.ManifestDigest,
 		CandidateDigest: request.Artifact.Digest, Mutated: true,
 	})
-	rollback, err := rollout.Recover(context.Background(), progress.Request, artifact, progress.Rollout)
+	rollback, err := rollout.Recover(t.Context(), progress.Request, artifact, progress.Rollout)
 	if err == nil || rollback == nil || rollback.Status != RollbackFailed {
 		t.Fatalf("unserving readback was accepted: rollback=%+v err=%v", rollback, err)
 	}

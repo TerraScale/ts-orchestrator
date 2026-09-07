@@ -77,11 +77,29 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	}
 	d.runMu.Lock()
 	defer d.runMu.Unlock()
+	return d.runAt(ctx, scheduledAt)
+}
+
+func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, error) {
 
 	if scheduledAt.IsZero() {
 		scheduledAt = d.config.Now()
 	}
 	runID := runIDFor(scheduledAt)
+	active, activeErr := d.journal.ActiveRuns(ctx)
+	if activeErr != nil {
+		return RunRecord{ID: runID, Status: RunFailed}, sanitizeError(activeErr)
+	}
+	sort.Slice(active, func(i, j int) bool { return active[i].ScheduledAt.Before(active[j].ScheduledAt) })
+	for _, previous := range active {
+		if !previous.ScheduledAt.Before(scheduledAt.UTC()) {
+			continue
+		}
+		resumed, err := d.runAt(ctx, previous.ScheduledAt)
+		if err != nil || resumed.Status == RunRunning {
+			return resumed, err
+		}
+		}
 	run, found, err := d.journal.LoadRun(ctx, runID)
 	if err != nil {
 		return RunRecord{ID: runID, Status: RunFailed}, sanitizeError(err)

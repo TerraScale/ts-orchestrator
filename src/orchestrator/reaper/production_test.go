@@ -83,6 +83,7 @@ func productionConfig(database *productionDatabase, key *productionKey, clock Cl
 	return ProductionConfig{
 		Database:             database,
 		Key:                  key,
+		Admission:            testAdmission{},
 		Mail:                 &testMailer{},
 		Store:                store,
 		Audit:                &testAudit{},
@@ -102,6 +103,7 @@ func TestNewProductionReconcilerFailsClosedOnMissingAuthority(t *testing.T) {
 	}{
 		{"database", func(c *ProductionConfig) { c.Database = nil }},
 		{"key", func(c *ProductionConfig) { c.Key = nil }},
+		{"admission", func(c *ProductionConfig) { c.Admission = nil }},
 		{"mail", func(c *ProductionConfig) { c.Mail = nil }},
 		{"store", func(c *ProductionConfig) { c.Store = nil }},
 		{"audit", func(c *ProductionConfig) { c.Audit = nil }},

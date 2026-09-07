@@ -253,7 +253,7 @@ type Reconciler struct {
 }
 
 func NewReconciler(config Config) (*Reconciler, error) {
-	if isNil(config.Catalog) || isNil(config.Executor) || isNil(config.Mailer) || isNil(config.Audit) || isNil(config.Store) {
+	if isNil(config.Catalog) || isNil(config.Executor) || isNil(config.Admission) || isNil(config.Mailer) || isNil(config.Audit) || isNil(config.Store) {
 		return nil, ErrMissingDependency
 	}
 	if config.Clock != nil && isNil(config.Clock) {

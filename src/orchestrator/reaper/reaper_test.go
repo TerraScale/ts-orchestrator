@@ -88,6 +88,10 @@ type testAudit struct {
 	events []AuditEvent
 }
 
+type testAdmission struct{}
+
+func (testAdmission) AdmitDeletion(context.Context, Database, string) error { return nil }
+
 func (a *testAudit) Record(_ context.Context, event AuditEvent) error {
 	a.mu.Lock()
 	a.events = append(a.events, event)
@@ -97,7 +101,7 @@ func (a *testAudit) Record(_ context.Context, event AuditEvent) error {
 
 func makeReaper(t *testing.T, clock *testClock, catalog *testCatalog, executor *testExecutor, mailer *testMailer, store *MemoryStore, audit *testAudit) *Reconciler {
 	t.Helper()
-	reaper, err := NewReconciler(Config{Catalog: catalog, Executor: executor, Mailer: mailer, Audit: audit, Store: store, Clock: clock, PageSize: 10})
+	reaper, err := NewReconciler(Config{Catalog: catalog, Executor: executor, Admission: testAdmission{}, Mailer: mailer, Audit: audit, Store: store, Clock: clock, PageSize: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

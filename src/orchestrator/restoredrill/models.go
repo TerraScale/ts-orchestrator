@@ -106,6 +106,7 @@ type JournalPort interface {
 	// under the same operation identity instead of capturing a later cut.
 	Facts(context.Context, string, string) (JournalFacts, error)
 	LoadRun(context.Context, string) (RunRecord, bool, error)
+	ActiveRuns(context.Context) ([]RunRecord, error)
 	SaveRun(context.Context, RunRecord) error
 	LoadItem(context.Context, string) (ItemRecord, bool, error)
 	SaveItem(context.Context, ItemRecord) error
