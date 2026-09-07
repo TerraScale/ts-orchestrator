@@ -208,19 +208,29 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 	if q.Consumer == "member" && q.Action != "reload" {
 		// Remove the fields that belong solely to the HTTPS/TLS consumer.
 		payload := struct {
-			OperationID        string `json:"operation_id"`
-			Action             string `json:"action"`
-			Generation         uint64 `json:"generation"`
-			ExpiresAt          int64  `json:"expires_at"`
-			CurrentKeyID       string `json:"current_key_id"`
-			CurrentKey         []byte `json:"current_key"`
-			PreviousKeyID      string `json:"previous_key_id"`
-			PreviousKey        []byte `json:"previous_key"`
-			PreviousExpiresAt  int64  `json:"previous_expires_at"`
-			PreviousGeneration uint64 `json:"previous_generation"`
-			WorkloadTLS        []byte `json:"workload_tls"`
-			TrustBundle        []byte `json:"trust_bundle"`
-		}{q.OperationID, q.Action, q.Generation, q.ExpiresAt, q.CurrentKeyID, q.CurrentKey, q.PreviousKeyID, q.PreviousKey, q.PreviousExpiresAt, q.PreviousGeneration, q.WorkloadTLS, q.TrustBundle}
+			OperationID              string `json:"operation_id"`
+			Action                   string `json:"action"`
+			Generation               uint64 `json:"generation"`
+			ExpiresAt                int64  `json:"expires_at"`
+			CurrentKeyID             string `json:"current_key_id"`
+			CurrentKey               []byte `json:"current_key"`
+			PreviousKeyID            string `json:"previous_key_id"`
+			PreviousKey              []byte `json:"previous_key"`
+			PreviousExpiresAt        int64  `json:"previous_expires_at"`
+			PreviousGeneration       uint64 `json:"previous_generation"`
+			OriginCurrentKeyID       string `json:"origin_current_key_id"`
+			OriginCurrentKey         []byte `json:"origin_current_key"`
+			OriginExpiresAt          int64  `json:"origin_expires_at"`
+			OriginPreviousKeyID      string `json:"origin_previous_key_id"`
+			OriginPreviousKey        []byte `json:"origin_previous_key"`
+			OriginPreviousGeneration uint64 `json:"origin_previous_generation"`
+			OriginPreviousExpiresAt  int64  `json:"origin_previous_expires_at"`
+			WorkloadTLS              []byte `json:"workload_tls"`
+			TrustBundle              []byte `json:"trust_bundle"`
+		}{OperationID: q.OperationID, Action: q.Action, Generation: q.Generation, ExpiresAt: q.ExpiresAt,
+			CurrentKeyID: q.CurrentKeyID, CurrentKey: q.CurrentKey, PreviousKeyID: q.PreviousKeyID, PreviousKey: q.PreviousKey, PreviousExpiresAt: q.PreviousExpiresAt, PreviousGeneration: q.PreviousGeneration,
+			OriginCurrentKeyID: q.OriginCurrentKeyID, OriginCurrentKey: q.OriginCurrentKey, OriginExpiresAt: q.OriginExpiresAt, OriginPreviousKeyID: q.OriginPreviousKeyID, OriginPreviousKey: q.OriginPreviousKey, OriginPreviousGeneration: q.OriginPreviousGeneration, OriginPreviousExpiresAt: q.OriginPreviousExpiresAt,
+			WorkloadTLS: q.WorkloadTLS, TrustBundle: q.TrustBundle}
 		data, err := json.Marshal(payload)
 		defer clear(data)
 		if err != nil {
@@ -280,6 +290,8 @@ func (r *memberReceiver) ServeHTTP(w http.ResponseWriter, request *http.Request)
 func clearRotationMaterial(q *MemberRotationRequest) {
 	clear(q.CurrentKey)
 	clear(q.PreviousKey)
+	clear(q.OriginCurrentKey)
+	clear(q.OriginPreviousKey)
 	clear(q.WorkloadTLS)
 	clear(q.ControlTLS)
 	clear(q.TrustBundle)

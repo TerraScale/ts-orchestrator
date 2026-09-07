@@ -17,9 +17,17 @@ type MemberRotationRequest struct {
 	PreviousKeyID      string `json:"previous_key_id"`
 	PreviousKey        []byte `json:"previous_key"`
 	PreviousExpiresAt  int64  `json:"previous_expires_at"`
-	WorkloadTLS        []byte `json:"workload_tls"`
-	ControlTLS         []byte `json:"control_tls"`
-	TrustBundle        []byte `json:"trust_bundle"`
+	// Independent origin-proof ring. CurrentKey fields above remain capability keys.
+	OriginCurrentKeyID       string `json:"origin_current_key_id"`
+	OriginCurrentKey         []byte `json:"origin_current_key"`
+	OriginExpiresAt          int64  `json:"origin_expires_at"`
+	OriginPreviousKeyID      string `json:"origin_previous_key_id"`
+	OriginPreviousKey        []byte `json:"origin_previous_key"`
+	OriginPreviousGeneration uint64 `json:"origin_previous_generation"`
+	OriginPreviousExpiresAt  int64  `json:"origin_previous_expires_at"`
+	WorkloadTLS              []byte `json:"workload_tls"`
+	ControlTLS               []byte `json:"control_tls"`
+	TrustBundle              []byte `json:"trust_bundle"`
 }
 
 // MemberRotationResponse reports the installed or validated generation. It

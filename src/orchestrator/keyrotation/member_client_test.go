@@ -1,8 +1,8 @@
 package keyrotation
 
 import (
+	"bytes"
 	"context"
- "bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json/v2"
@@ -53,20 +53,26 @@ func TestMemberGatewaySelectsOnlyTargetIdentityAndChecksDispatchAuthority(t *tes
 	}
 	envelope, _ := json.Marshal(map[string][]byte{"gru-1": []byte("only-this-member"), "fra-1": []byte("other-member-private-key")})
 	credentials := security.CredentialSet{Identity: security.IdentityMaterial{Version: 1, ExpiresAt: time.Now().Add(time.Hour), WorkloadTLS: envelope, TrustBundle: []byte("ca")}, Capability: security.CapabilityMaterial{ID: "key-1", Version: 1, Key: make([]byte, 32), ExpiresAt: time.Now().Add(time.Hour)}}
- credentials.OriginProof = security.OriginProofMaterial{ID:"origin-1",Reference:"origin-ref-1",Version:1,Secret:bytes.Repeat([]byte{7},32),ExpiresAt:time.Now().Add(time.Hour)}
+	credentials.OriginProof = security.OriginProofMaterial{ID: "origin-1", Reference: "origin-ref-1", Version: 1, Secret: bytes.Repeat([]byte{7}, 32), ExpiresAt: time.Now().Add(time.Hour)}
 	if err := gateway.Distribute(t.Context(), "gru-1", credentials, "operation/stage"); err != nil {
 		t.Fatal(err)
 	}
 	if string(seen.WorkloadTLS) != "only-this-member" || len(seen.ControlTLS) != 0 {
 		t.Fatal("cross-member identity disclosure")
 	}
- if seen.CurrentKeyID != "origin-1" || !bytes.Equal(seen.CurrentKey, credentials.OriginProof.Secret) || bytes.Equal(seen.CurrentKey, credentials.Capability.Key) { t.Fatal("member received capability material instead of origin proof") }
- missing := credentials
- missing.OriginProof = security.OriginProofMaterial{}
- if _,err := memberCredentialRequest("gru-1","member","stage",missing,"missing"); err == nil { t.Fatal("capability substituted for missing origin proof") }
- shared := credentials
- shared.OriginProof.Secret = bytes.Clone(credentials.Capability.Key)
- if _,err := memberCredentialRequest("gru-1","member","stage",shared,"shared"); err == nil { t.Fatal("shared material accepted") }
+	if seen.CurrentKeyID != "key-1" || !bytes.Equal(seen.CurrentKey, credentials.Capability.Key) || seen.OriginCurrentKeyID != "origin-1" || !bytes.Equal(seen.OriginCurrentKey, credentials.OriginProof.Secret) || bytes.Equal(seen.OriginCurrentKey, seen.CurrentKey) {
+		t.Fatal("member received capability material instead of origin proof")
+	}
+	missing := credentials
+	missing.OriginProof = security.OriginProofMaterial{}
+	if _, err := memberCredentialRequest("gru-1", "member", "stage", missing, "missing"); err == nil {
+		t.Fatal("capability substituted for missing origin proof")
+	}
+	shared := credentials
+	shared.OriginProof.Secret = bytes.Clone(credentials.Capability.Key)
+	if _, err := memberCredentialRequest("gru-1", "member", "stage", shared, "shared"); err == nil {
+		t.Fatal("shared material accepted")
+	}
 	allowed = false
 	if err := gateway.Activate(t.Context(), "gru-1", 1, "operation/activate"); !errors.Is(err, ErrMemberRotation) {
 		t.Fatalf("unfenced dispatch: %v", err)
@@ -82,5 +88,31 @@ func TestMemberGatewayRejectsUnknownIdentityAndInsecureTransport(t *testing.T) {
 	}
 	if _, err := NewMemberGateway(MemberGatewayConfig{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", Members: []MemberEndpoint{{ID: "gru-1", Region: "gru", URL: "http://127.0.0.1"}}, TLS: &tls.Config{InsecureSkipVerify: true}, CheckAuthority: func(context.Context) error { return nil }}); err == nil {
 		t.Fatal("insecure transport accepted")
+	}
+}
+
+func TestMemberCredentialRequestKeepsIndependentOverlap(t *testing.T) {
+	now := time.Now().UTC()
+	envelope, err := json.Marshal(map[string][]byte{"node": []byte("workload")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := security.CredentialSet{
+		Identity:            security.IdentityMaterial{Version: 3, ExpiresAt: now.Add(time.Hour), WorkloadTLS: envelope},
+		Capability:          security.CapabilityMaterial{ID: "c3", Reference: "c3", Version: 3, ExpiresAt: now.Add(time.Hour), Key: bytes.Repeat([]byte{3}, 32)},
+		PreviousCapability:  security.CapabilityMaterial{ID: "c2", Reference: "c2", Version: 2, ExpiresAt: now.Add(5 * time.Minute), Key: bytes.Repeat([]byte{2}, 32)},
+		OriginProof:         security.OriginProofMaterial{ID: "o3", Reference: "o3", Version: 3, ExpiresAt: now.Add(30 * time.Minute), Secret: bytes.Repeat([]byte{13}, 32)},
+		PreviousOriginProof: security.OriginProofMaterial{ID: "o1", Reference: "o1", Version: 1, ExpiresAt: now.Add(2 * time.Minute), Secret: bytes.Repeat([]byte{11}, 32)},
+	}
+	request, err := memberCredentialRequest("node", "member", "stage", credentials, "stage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.PreviousGeneration != 2 || request.OriginPreviousGeneration != 1 || request.PreviousExpiresAt != credentials.PreviousCapability.ExpiresAt.Unix() || request.OriginPreviousExpiresAt != credentials.PreviousOriginProof.ExpiresAt.Unix() || request.OriginExpiresAt != credentials.OriginProof.ExpiresAt.Unix() || !bytes.Equal(request.OriginPreviousKey, credentials.PreviousOriginProof.Secret) {
+		t.Fatal("independent overlap lost")
+	}
+	clearMemberRequest(&request)
+	if !bytes.Equal(request.OriginCurrentKey, make([]byte, 32)) || !bytes.Equal(request.OriginPreviousKey, make([]byte, 32)) || bytes.Equal(credentials.OriginProof.Secret, make([]byte, 32)) {
+		t.Fatal("origin transient wipe or input isolation failed")
 	}
 }

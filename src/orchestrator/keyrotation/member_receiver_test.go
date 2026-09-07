@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"net"
@@ -57,6 +58,9 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 				t.Errorf("forwarded %s", forbidden)
 			}
 		}
+		if fields["current_key_id"] != "key" || fields["origin_current_key_id"] != "origin" || fields["origin_current_key"] != base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)) || fields["current_key"] == fields["origin_current_key"] || fields["origin_expires_at"] != fields["expires_at"] {
+			t.Error("bridge lost independent origin ring")
+		}
 		seen <- true
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"operation_id":"stage","generation":1,"valid_until":4102444800,"state":"staged"}`))
@@ -88,7 +92,8 @@ func TestReceiverForwardsOnlyKeyFields(t *testing.T) {
 		second.(interface{ Close() error }).Close()
 		t.Fatal("duplicate receiver acquired state lock")
 	}
-	q := MemberRotationRequest{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", OperationID: "stage", NodeID: "node", Consumer: "member", Action: "stage", Generation: 1, ExpiresAt: time.Now().Add(time.Minute).Unix(), CurrentKeyID: "key", CurrentKey: bytes.Repeat([]byte{1}, 32), WorkloadTLS: cert, TrustBundle: ca}
+	q := MemberRotationRequest{AuthorityEpoch: 1, AuthorityLeaseID: "lease1", OperationID: "stage", NodeID: "node", Consumer: "member", Action: "stage", Generation: 1, ExpiresAt: time.Now().Add(time.Minute).Unix(), CurrentKeyID: "key", CurrentKey: bytes.Repeat([]byte{1}, 32), OriginCurrentKeyID: "origin", OriginCurrentKey: bytes.Repeat([]byte{2}, 32), OriginExpiresAt: time.Now().Add(time.Minute).Unix(), WorkloadTLS: cert, TrustBundle: ca}
+	q.OriginExpiresAt = q.ExpiresAt
 	body, err := json.Marshal(q)
 	if err != nil {
 		t.Fatal(err)

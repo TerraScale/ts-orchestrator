@@ -172,27 +172,36 @@ func memberCredentialRequest(member, consumer, action string, credentials securi
 		request.ControlTLS, err = selectMemberIdentity(credentials.Identity.ControlTLS, member)
 	} else {
 		request.WorkloadTLS, err = selectMemberIdentity(credentials.Identity.WorkloadTLS, member)
-        // Rust's credential endpoint installs current_key into its origin
-        // verifier. Customer capability keys must never enter this protocol.
-        origin := credentials.OriginProof
-        if origin.Version != request.Generation || origin.ID == "" || len(origin.Secret) != 32 || origin.ExpiresAt.IsZero() || origin.ID == credentials.Capability.ID || origin.Reference == credentials.Capability.Reference || bytes.Equal(origin.Secret, credentials.Capability.Key) {
-            clearMemberRequest(&request)
-            return MemberRotationRequest{}, ErrMemberRotation
-        }
-        request.ExpiresAt = min(request.ExpiresAt, origin.ExpiresAt.Unix())
-        request.CurrentKeyID = origin.ID
-        request.CurrentKey = bytes.Clone(origin.Secret)
-        previous := credentials.PreviousOriginProof
-        if previous.ID != "" {
-            if previous.Version == 0 || previous.Version >= origin.Version || previous.ID == origin.ID || len(previous.Secret) != 32 || previous.ExpiresAt.IsZero() || bytes.Equal(previous.Secret, credentials.PreviousCapability.Key) {
-                clearMemberRequest(&request)
-                return MemberRotationRequest{}, ErrMemberRotation
-            }
-            request.PreviousGeneration = previous.Version
-            request.PreviousKeyID = previous.ID
-            request.PreviousKey = bytes.Clone(previous.Secret)
-            request.PreviousExpiresAt = previous.ExpiresAt.Unix()
-        }
+		capability := credentials.Capability
+		origin := credentials.OriginProof
+		if capability.Version != request.Generation || capability.ID == "" || len(capability.Key) != 32 || capability.ExpiresAt.IsZero() || origin.Version != request.Generation || origin.ID == "" || origin.Reference == "" || len(origin.Secret) != 32 || origin.ExpiresAt.IsZero() || origin.ID == capability.ID || origin.Reference == capability.Reference || bytes.Equal(origin.Secret, capability.Key) {
+			clearMemberRequest(&request)
+			return MemberRotationRequest{}, ErrMemberRotation
+		}
+		request.ExpiresAt = min(request.ExpiresAt, capability.ExpiresAt.Unix())
+		request.CurrentKeyID = capability.ID
+		request.CurrentKey = bytes.Clone(capability.Key)
+		request.OriginExpiresAt = min(credentials.Identity.ExpiresAt.Unix(), origin.ExpiresAt.Unix())
+		request.OriginCurrentKeyID = origin.ID
+		request.OriginCurrentKey = bytes.Clone(origin.Secret)
+		previous := credentials.PreviousCapability
+		if previous.ID != "" {
+			request.PreviousGeneration = previous.Version
+			request.PreviousKeyID = previous.ID
+			request.PreviousKey = bytes.Clone(previous.Key)
+			request.PreviousExpiresAt = previous.ExpiresAt.Unix()
+		}
+		previousOrigin := credentials.PreviousOriginProof
+		if previousOrigin.ID != "" {
+			if previousOrigin.Version == 0 || previousOrigin.Version >= origin.Version || previousOrigin.ID == origin.ID || len(previousOrigin.Secret) != 32 || previousOrigin.ExpiresAt.IsZero() || previousOrigin.ID == previous.ID || previousOrigin.Reference == previous.Reference || bytes.Equal(previousOrigin.Secret, capability.Key) || bytes.Equal(previousOrigin.Secret, previous.Key) || bytes.Equal(origin.Secret, previous.Key) {
+				clearMemberRequest(&request)
+				return MemberRotationRequest{}, ErrMemberRotation
+			}
+			request.OriginPreviousGeneration = previousOrigin.Version
+			request.OriginPreviousKeyID = previousOrigin.ID
+			request.OriginPreviousKey = bytes.Clone(previousOrigin.Secret)
+			request.OriginPreviousExpiresAt = previousOrigin.ExpiresAt.Unix()
+		}
 	}
 	if err != nil {
 		clearMemberRequest(&request)
@@ -222,6 +231,8 @@ func selectMemberIdentity(encoded []byte, member string) ([]byte, error) {
 func clearMemberRequest(request *MemberRotationRequest) {
 	clear(request.CurrentKey)
 	clear(request.PreviousKey)
+	clear(request.OriginCurrentKey)
+	clear(request.OriginPreviousKey)
 	clear(request.WorkloadTLS)
 	clear(request.ControlTLS)
 	clear(request.TrustBundle)
