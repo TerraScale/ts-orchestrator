@@ -116,3 +116,21 @@ func TestMemberCredentialRequestKeepsIndependentOverlap(t *testing.T) {
 		t.Fatal("origin transient wipe or input isolation failed")
 	}
 }
+
+func TestMemberCredentialRequestRejectsCrossDomainCollisionWithoutOriginOverlap(t *testing.T) {
+	now := time.Now().UTC()
+	envelope, err := json.Marshal(map[string][]byte{"node": []byte("workload")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := bytes.Repeat([]byte{2}, 32)
+	credentials := security.CredentialSet{
+		Identity:           security.IdentityMaterial{Version: 3, ExpiresAt: now.Add(time.Hour), WorkloadTLS: envelope},
+		Capability:         security.CapabilityMaterial{ID: "c3", Reference: "c3", Version: 3, ExpiresAt: now.Add(time.Hour), Key: bytes.Repeat([]byte{3}, 32)},
+		PreviousCapability: security.CapabilityMaterial{ID: "c2", Reference: "c2", Version: 2, ExpiresAt: now.Add(5 * time.Minute), Key: previous},
+		OriginProof:        security.OriginProofMaterial{ID: "o3", Reference: "o3", Version: 3, ExpiresAt: now.Add(30 * time.Minute), Secret: bytes.Clone(previous)},
+	}
+	if _, err := memberCredentialRequest("node", "member", "stage", credentials, "stage"); err == nil {
+		t.Fatal("accepted origin proof equal to previous capability without previous origin")
+	}
+}

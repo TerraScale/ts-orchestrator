@@ -193,7 +193,7 @@ func memberCredentialRequest(member, consumer, action string, credentials securi
 		}
 		previousOrigin := credentials.PreviousOriginProof
 		if previousOrigin.ID != "" {
-			if previousOrigin.Version == 0 || previousOrigin.Version >= origin.Version || previousOrigin.ID == origin.ID || len(previousOrigin.Secret) != 32 || previousOrigin.ExpiresAt.IsZero() || previousOrigin.ID == previous.ID || previousOrigin.Reference == previous.Reference || bytes.Equal(previousOrigin.Secret, capability.Key) || bytes.Equal(previousOrigin.Secret, previous.Key) || bytes.Equal(origin.Secret, previous.Key) {
+			if previousOrigin.Version == 0 || previousOrigin.Version >= origin.Version || previousOrigin.ID == origin.ID || len(previousOrigin.Secret) != 32 || previousOrigin.ExpiresAt.IsZero() || previousOrigin.ID == previous.ID || previousOrigin.Reference == previous.Reference {
 				clearMemberRequest(&request)
 				return MemberRotationRequest{}, ErrMemberRotation
 			}
@@ -201,6 +201,12 @@ func memberCredentialRequest(member, consumer, action string, credentials securi
 			request.OriginPreviousKeyID = previousOrigin.ID
 			request.OriginPreviousKey = bytes.Clone(previousOrigin.Secret)
 			request.OriginPreviousExpiresAt = previousOrigin.ExpiresAt.Unix()
+		}
+		// Capability and origin-proof secrets have different trust domains. A
+		// missing previous origin entry must not bypass the cross-domain check.
+		if previous.ID != "" && bytes.Equal(origin.Secret, previous.Key) || previousOrigin.ID != "" && (bytes.Equal(previousOrigin.Secret, capability.Key) || previous.ID != "" && bytes.Equal(previousOrigin.Secret, previous.Key)) {
+			clearMemberRequest(&request)
+			return MemberRotationRequest{}, ErrMemberRotation
 		}
 	}
 	if err != nil {
