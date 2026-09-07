@@ -48,6 +48,64 @@ func highObservations(now time.Time, sequence int64) []Observation {
 	return []Observation{{HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}, {HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}}
 }
 
+func lowObservationsWithProof(now time.Time, sequence int64) []Observation {
+	proof := ProofSnapshot{HeadroomMeasured: true, ResidencyVerified: true, QuorumVerified: true, Databases: []DatabaseProof{{
+		Tenant: "tenant", Project: "project", Database: "db", RegionalCaughtUp: true, BackupCaughtUp: true,
+		CausalCaughtUp: true, SourceSequence: 7, RegionalSequence: 7, BackupSourceSequence: 7, BackupProtectedSequence: 7,
+	}}}
+	return []Observation{
+		{HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 10, MemoryPercent: 10, Healthy: true, Authenticated: true, Proof: proof},
+		{HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 20, MemoryPercent: 20, Healthy: true, Authenticated: true, Proof: proof},
+	}
+}
+
+func TestEvaluateCreatesOneDurableScaleDownIntent(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: lowObservationsWithProof(now, 1)}
+	targets := &testTargets{value: Target{Region: "gru", Members: 3}, found: true}
+	c := testController(t, source, targets, now)
+	for sequence := int64(1); sequence <= 2; sequence++ {
+		source.observations = lowObservationsWithProof(now, sequence)
+		if _, created, err := c.Evaluate(t.Context(), "gru"); err != nil || created {
+			t.Fatalf("early scale-down = %v, %v", created, err)
+		}
+	}
+	source.observations = lowObservationsWithProof(now, 3)
+	plan, created, err := c.Evaluate(t.Context(), "gru")
+	if err != nil || !created || plan.DesiredMembers != 2 || plan.PreviousMembers != 3 || plan.RemovalHostID != "host-a" || plan.RemovalPhase != "intent" || plan.OperationID == "" {
+		t.Fatalf("scale-down plan = %+v created=%v err=%v", plan, created, err)
+	}
+	if targets.value.Members != 2 || targets.value.RemovalOperationID != plan.OperationID {
+		t.Fatalf("durable removal state = %+v", targets.value)
+	}
+	// A restarted controller replays the retained operation without another
+	// target write or a second decrement.
+	writes := targets.writes
+	c = testController(t, source, targets, now)
+	replay, created, err := c.Evaluate(t.Context(), "gru")
+	if err != nil || !created || replay.OperationID != plan.OperationID || replay.DesiredMembers != 2 || targets.writes != writes {
+		t.Fatalf("removal replay = %+v created=%v writes=%d/%d err=%v", replay, created, targets.writes, writes, err)
+	}
+}
+
+func TestEvaluateScaleDownFailsClosedWithoutProof(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: lowObservationsWithProof(now, 1)}
+	source.observations[0].Proof.HeadroomMeasured = false
+	targets := &testTargets{value: Target{Region: "gru", Members: 3}, found: true}
+	c := testController(t, source, targets, now)
+	for sequence := int64(1); sequence <= 3; sequence++ {
+		source.observations = lowObservationsWithProof(now, sequence)
+		source.observations[0].Proof.HeadroomMeasured = false
+		if _, created, err := c.Evaluate(t.Context(), "gru"); err != nil || created {
+			t.Fatalf("unqualified scale-down = %v, %v", created, err)
+		}
+	}
+	if targets.value.Members != 3 || targets.value.RemovalOperationID != "" {
+		t.Fatalf("unqualified target changed = %+v", targets.value)
+	}
+}
+
 func TestEvaluateRequiresThreeSamplesAndCreatesOneNodePlan(t *testing.T) {
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	source := &testSource{observations: highObservations(now, 1)}

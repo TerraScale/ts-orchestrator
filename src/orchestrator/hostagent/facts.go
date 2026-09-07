@@ -203,6 +203,13 @@ func (s *HostFactsSource) Sample(
 			metrics = sample
 		}
 	}
+	// Storage is measured by the same statfs probe as the signed disk fact.
+	// Keep the proof incomplete when the probe returned invalid values.
+	if metrics.CapacityMeasured && disk.TotalBytes > 0 && disk.AvailableBytes > 0 && disk.AvailableBytes <= disk.TotalBytes {
+		metrics.AvailableStorageBytes = uint64(disk.AvailableBytes)
+	} else {
+		metrics.CapacityMeasured = false
+	}
 	return HostFacts{
 		Engine:            engine,
 		Metrics:           metrics,

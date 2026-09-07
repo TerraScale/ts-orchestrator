@@ -19,6 +19,10 @@ type productionAutoscale struct {
 	controller *autoscale.Controller
 	regions    []string
 	apply      func(string, int) error
+	// remove hands the retained target intent to the placement/removal owner.
+	// It is deliberately separate from apply: OCI target projection rejects
+	// decreases until the durable drain workflow has completed.
+	remove func(context.Context, autoscale.Plan) error
 }
 
 // Hydrate restores admitted targets without depending on fresh telemetry.
@@ -50,8 +54,17 @@ func (a *productionAutoscale) Reconcile(ctx context.Context) error {
 			return err
 		}
 		if created {
-			if err := a.apply(plan.Region, plan.DesiredMembers); err != nil {
-				return err
+			if plan.RemovalPhase != "" {
+				if a.remove == nil {
+					return errors.New("autoscale: scale-down removal owner is unavailable")
+				}
+				if err := a.remove(ctx, plan); err != nil {
+					return err
+				}
+			} else {
+				if err := a.apply(plan.Region, plan.DesiredMembers); err != nil {
+					return err
+				}
 			}
 		}
 	}

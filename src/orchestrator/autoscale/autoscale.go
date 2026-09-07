@@ -45,6 +45,7 @@ type ProofSnapshot struct {
 type DatabaseProof struct {
 	Tenant, Project, Database                     string
 	RegionalCaughtUp                              bool
+	CausalCaughtUp                                bool
 	BackupCaughtUp                                bool
 	SourceSequence, RegionalSequence              uint64
 	BackupSourceSequence, BackupProtectedSequence uint64
@@ -58,9 +59,14 @@ type Target struct {
 	Region                 string
 	Members                int
 	ConsecutiveHighSamples int
+	ConsecutiveLowSamples  int
 	LastObservation        int64
 	LastScaleAt            time.Time
 	OperationID            string
+	RemovalOperationID     string
+	RemovalHostID          string
+	RemovalIncarnation     string
+	RemovalPhase           string
 	HostObservedAt         map[string]time.Time
 	RetiredIncarnations    map[string]map[string]time.Time
 	ActiveHosts            []string
@@ -87,17 +93,21 @@ type Config struct {
 	MemoryThreshold   float64
 	QueueThreshold    int
 	HighSamples       int
+	LowSamples        int
 	Cooldown          time.Duration
 	ObservationMaxAge time.Duration
 	Now               func() time.Time
 }
 
 type Plan struct {
-	Region          string
-	PreviousMembers int
-	DesiredMembers  int
-	ObservationSeq  int64
-	OperationID     string
+	Region             string
+	PreviousMembers    int
+	DesiredMembers     int
+	ObservationSeq     int64
+	OperationID        string
+	RemovalHostID      string
+	RemovalIncarnation string
+	RemovalPhase       string
 }
 
 type Controller struct {
@@ -122,7 +132,10 @@ func New(config Config) (*Controller, error) {
 	if config.Source == nil || config.Targets == nil || config.Authority == nil || config.Now == nil {
 		return nil, errors.New("autoscale: incomplete configuration")
 	}
-	if config.MinMembers < 2 || config.MaxMembers < config.MinMembers || config.CPUThreshold <= 0 || config.CPUThreshold > 100 || config.MemoryThreshold <= 0 || config.MemoryThreshold > 100 || config.QueueThreshold < 0 || config.HighSamples <= 0 || config.Cooldown < 0 || config.ObservationMaxAge <= 0 {
+	if config.LowSamples == 0 {
+		config.LowSamples = 3
+	}
+	if config.MinMembers < 2 || config.MaxMembers < config.MinMembers || config.CPUThreshold <= 0 || config.CPUThreshold > 100 || config.MemoryThreshold <= 0 || config.MemoryThreshold > 100 || config.QueueThreshold < 0 || config.HighSamples <= 0 || config.LowSamples <= 0 || config.Cooldown < 0 || config.ObservationMaxAge <= 0 {
 		return nil, errors.New("autoscale: invalid bounds")
 	}
 	return &Controller{config: config}, nil
@@ -137,6 +150,15 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	}
 	if err := c.config.Authority.Check(ctx); err != nil {
 		return Plan{}, false, err
+	}
+	// A retained removal is a durable handoff and must be replayable after a
+	// restart even when telemetry is temporarily unavailable.
+	retained, found, err := c.config.Targets.Load(ctx, region)
+	if err != nil {
+		return Plan{}, false, err
+	}
+	if found && retained.Region == region && retained.RemovalOperationID != "" {
+		return removalPlan(region, retained, retained.LastObservation), true, nil
 	}
 	observations, err := c.config.Source.Observe(ctx, region)
 	if err != nil {
@@ -166,6 +188,9 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	advanced, bootChanged := observationsAdvance(observations, state, now)
 	seq := latestObservationSequence(observations)
 	if !advanced {
+		if state.RemovalOperationID != "" {
+			return removalPlan(region, state, seq), true, nil
+		}
 		return Plan{}, false, nil
 	}
 	active := slices.Sorted(maps.Keys(observationSequences(observations)))
@@ -205,15 +230,48 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		state.HostIncarnations[value.HostID] = value.Incarnation
 		state.HostObservedAt[value.HostID] = value.ObservedAt
 	}
+	// A retained removal intent is the single durable handoff to the drain
+	// owner. Replays must return the same intent and never decrement again.
+	if state.RemovalOperationID != "" {
+		return removalPlan(region, state, seq), true, nil
+	}
 	// A changed admitted set or boot establishes a baseline; pressure must
 	// then accumulate from fresh samples of that complete set and boot.
 	high := !membershipChanged && !bootChanged && allHigh(observations, c.config)
+	low := !membershipChanged && !bootChanged && allLow(observations, c.config) && allRemovalProofs(observations)
 	if high {
 		state.ConsecutiveHighSamples++
 	} else {
 		state.ConsecutiveHighSamples = 0
 	}
+	if low {
+		state.ConsecutiveLowSamples++
+	} else {
+		state.ConsecutiveLowSamples = 0
+	}
 	state.LastObservation = seq
+	if low && state.ConsecutiveLowSamples >= c.config.LowSamples && state.Members > c.config.MinMembers && (state.LastScaleAt.IsZero() || !now.Before(state.LastScaleAt.Add(c.config.Cooldown))) {
+		candidate := removalCandidate(observations)
+		state.Members--
+		state.ConsecutiveLowSamples = 0
+		state.LastScaleAt = now
+		state.RemovalHostID, state.RemovalIncarnation = candidate.HostID, candidate.Incarnation
+		state.RemovalPhase = "intent"
+		state.RemovalOperationID = removalOperationID(region, candidate, state.Members, seq)
+		if err := c.config.Authority.Check(ctx); err != nil {
+			return Plan{}, false, err
+		}
+		if err := c.config.Targets.CompareAndSwap(ctx, region, targetExpected(found, previousState), state); err != nil {
+			if errors.Is(err, ErrConflict) {
+				_, _, _ = c.config.Targets.Load(ctx, region)
+				return Plan{}, false, nil
+			}
+			return Plan{}, false, err
+		}
+		return Plan{Region: region, PreviousMembers: state.Members + 1, DesiredMembers: state.Members, ObservationSeq: seq,
+			OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
+			RemovalIncarnation: state.RemovalIncarnation, RemovalPhase: state.RemovalPhase}, true, nil
+	}
 	if !high || state.ConsecutiveHighSamples < c.config.HighSamples || state.Members >= c.config.MaxMembers || !state.LastScaleAt.IsZero() && now.Before(state.LastScaleAt.Add(c.config.Cooldown)) {
 		if err := c.config.Authority.Check(ctx); err != nil {
 			return Plan{}, false, err
@@ -243,6 +301,12 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, err
 	}
 	return Plan{Region: region, PreviousMembers: previous, DesiredMembers: state.Members, ObservationSeq: seq, OperationID: state.OperationID}, true, nil
+}
+
+func removalPlan(region string, state Target, sequence int64) Plan {
+	return Plan{Region: region, PreviousMembers: state.Members + 1, DesiredMembers: state.Members, ObservationSeq: sequence,
+		OperationID: state.RemovalOperationID, RemovalHostID: state.RemovalHostID,
+		RemovalIncarnation: state.RemovalIncarnation, RemovalPhase: state.RemovalPhase}
 }
 
 func targetExpected(found bool, state Target) *Target {
@@ -340,7 +404,47 @@ func allHigh(values []Observation, config Config) bool {
 	return true
 }
 
+func allLow(values []Observation, config Config) bool {
+	for _, value := range values {
+		if value.CPUPercent >= config.CPUThreshold || value.MemoryPercent >= config.MemoryThreshold || value.QueueCapacity > 0 && value.QueueDepth >= config.QueueThreshold {
+			return false
+		}
+	}
+	return true
+}
+
+func allRemovalProofs(values []Observation) bool {
+	for _, value := range values {
+		if !value.Proof.HeadroomMeasured || !value.Proof.ResidencyVerified || !value.Proof.QuorumVerified || len(value.Proof.Databases) == 0 {
+			return false
+		}
+		for _, database := range value.Proof.Databases {
+			if !database.RegionalCaughtUp || !database.CausalCaughtUp || !database.BackupCaughtUp || database.RegionalSequence < database.SourceSequence || database.BackupProtectedSequence < database.BackupSourceSequence {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func removalCandidate(values []Observation) Observation {
+	return slices.MinFunc(values, func(a, b Observation) int {
+		if a.CPUPercent != b.CPUPercent {
+			if a.CPUPercent < b.CPUPercent {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.HostID, b.HostID)
+	})
+}
+
 func operationID(region string, previous, next int, sequence int64) string {
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%d/%d/%d", region, previous, next, sequence)))
 	return "autoscale-" + hex.EncodeToString(digest[:16])
+}
+
+func removalOperationID(region string, candidate Observation, next int, sequence int64) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/remove/%s/%s/%d/%d", region, candidate.HostID, candidate.Incarnation, next, sequence)))
+	return "autoscale-remove-" + hex.EncodeToString(digest[:16])
 }
