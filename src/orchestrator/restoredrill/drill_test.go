@@ -9,12 +9,13 @@ import (
 )
 
 type fakeBackup struct {
-	mu         sync.Mutex
-	list       []Database
-	stats      map[string]RestoreStats
-	restores   []RestoreRequest
-	restoreErr error
-	onRestore  func(context.Context)
+	mu          sync.Mutex
+	list        []Database
+	stats       map[string]RestoreStats
+	restores    []RestoreRequest
+	restoreErr  error
+	restoreErrs []error
+	onRestore   func(context.Context)
 }
 
 func (f *fakeBackup) ListDatabases(context.Context) ([]Database, error) {
@@ -26,6 +27,10 @@ func (f *fakeBackup) Restore(ctx context.Context, request RestoreRequest) error 
 	f.mu.Lock()
 	f.restores = append(f.restores, request)
 	err := f.restoreErr
+	if len(f.restoreErrs) > 0 {
+		err = f.restoreErrs[0]
+		f.restoreErrs = f.restoreErrs[1:]
+	}
 	hook := f.onRestore
 	f.mu.Unlock()
 	if hook != nil {
@@ -237,6 +242,40 @@ func TestRestartResumesDurableSelectionAndSuccessfulItems(t *testing.T) {
 	}
 	if len(journal.items) != 3 {
 		t.Fatalf("durable item count = %d", len(journal.items))
+	}
+}
+
+func TestPendingRestoreKeepsRunRunningAndResumesSameBranch(t *testing.T) {
+	drill, backup, branches, journal, _ := drillFixture()
+	backup.restoreErrs = []error{ErrPending}
+
+	first, err := drill.Run(context.Background())
+	if err != nil || first.Status != RunRunning {
+		t.Fatalf("pending Run = status %s, err %v", first.Status, err)
+	}
+	if got, found, _ := journal.LoadRun(context.Background(), first.ID); !found || got.Status != RunRunning {
+		t.Fatalf("durable pending run = %+v, found=%v", got, found)
+	}
+	history, err := drill.SuccessHistory(context.Background(), first.ScheduledAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.SuccessfulDays != 0 || history.Ready {
+		t.Fatalf("pending run entered success history: %+v", history)
+	}
+	if len(branches.deleted) != 2 || len(branches.created) != 3 {
+		t.Fatalf("pending branch ownership = created %d, deleted %d", len(branches.created), len(branches.deleted))
+	}
+
+	second, err := drill.Run(context.Background())
+	if err != nil || second.Status != RunSucceeded {
+		t.Fatalf("resumed Run = status %s, err %v", second.Status, err)
+	}
+	if len(backup.restores) != 4 {
+		t.Fatalf("restore calls = %d, want initial items plus one pending retry", len(backup.restores))
+	}
+	if len(branches.created) != 3 || len(branches.deleted) != 3 {
+		t.Fatalf("resumed branch identity = created %d, deleted %d", len(branches.created), len(branches.deleted))
 	}
 }
 

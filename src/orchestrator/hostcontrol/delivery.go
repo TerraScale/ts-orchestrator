@@ -106,7 +106,7 @@ func (d *DeliveryControl) ObserveRelease(ctx context.Context, host string) (deli
 			if component.ArtifactSHA256 == "" || report.Facts.ManifestSha256 == "" {
 				return delivery.HostReleaseState{}, errors.New("hostcontrol: status lacks exact release identity")
 			}
-			return delivery.HostReleaseState{ArtifactDigest: "sha256:" + component.ArtifactSHA256, ManifestDigest: "sha256:" + report.Facts.ManifestSha256}, nil
+			return delivery.HostReleaseState{ArtifactDigest: "sha256:" + component.ArtifactSHA256, ManifestDigest: "sha256:" + report.Facts.ManifestSha256, Serving: report.State == hostagent.NodeStateServing}, nil
 		}
 	}
 	return delivery.HostReleaseState{}, errors.New("hostcontrol: status lacks terrabase identity")

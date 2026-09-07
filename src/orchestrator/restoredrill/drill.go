@@ -140,12 +140,16 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 	}
 
 	var runErr error
+	runPending := false
 	for _, databaseID := range run.DatabaseIDs {
 		item, itemErr := d.runItem(ctx, run, databaseID)
 		if itemErr != nil {
 			runErr = errors.Join(runErr, itemErr)
 		}
 		run.Items = upsertItem(run.Items, item)
+		if item.Status == ItemRunning {
+			runPending = true
+		}
 		if ctx.Err() != nil {
 			break
 		}
@@ -175,11 +179,19 @@ func (d *Drill) RunAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 			run.Status = RunFailed
 		}
 		run.Error = runErr.Error()
+	} else if runPending {
+		run.Status = RunRunning
+		run.Error = ErrPending.Error()
+		// A pending native restore has no completion time. Keeping the run
+		// running makes it ineligible for success history and causes the next
+		// scheduled invocation to resume the same durable identity.
 	} else {
 		run.Status = RunSucceeded
 		run.Error = ""
 	}
-	run.CompletedAt = d.config.Now().UTC()
+	if run.Status != RunRunning {
+		run.CompletedAt = d.config.Now().UTC()
+	}
 	storeErr := d.journal.SaveRun(durableContext(ctx), copyRun(run))
 	if storeErr != nil {
 		runErr = sanitizeError(errors.Join(runErr, storeErr))
@@ -245,7 +257,21 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	if found && item.Status == ItemSucceeded {
 		return item, nil
 	}
-	item = ItemRecord{Key: key, RunID: run.ID, DatabaseID: databaseID, Status: ItemRunning, StartedAt: d.config.Now().UTC()}
+	resumeBranchID := ""
+	if found && item.Status == ItemRunning {
+		resumeBranchID = item.BranchID
+	}
+	if !found {
+		item = ItemRecord{Key: key, RunID: run.ID, DatabaseID: databaseID, Status: ItemRunning, StartedAt: d.config.Now().UTC()}
+	} else {
+		item.Status = ItemRunning
+		item.Error = ""
+		item.CompletedAt = time.Time{}
+		item.BranchID = resumeBranchID
+		if item.StartedAt.IsZero() {
+			item.StartedAt = d.config.Now().UTC()
+		}
+	}
 	itemCtx := ctx
 	durableCtx := durableContext(ctx)
 	facts, err := d.journal.Facts(itemCtx, databaseID, key)
@@ -267,28 +293,31 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	if err := d.journal.SaveItem(durableCtx, copyItem(item)); err != nil {
 		return item, sanitizeError(err)
 	}
-	branch, err := d.branches.CreateScratch(itemCtx, ScratchBranchRequest{
-		RecoveryPointID:  facts.RecoveryPointID,
-		SourceDatabaseID: databaseID,
-		Name:             "restore-drill/" + run.ID + "/" + databaseID,
-		IdempotencyKey:   key,
-		RestoreEpoch:     epoch,
-		JournalCut:       facts.JournalCut,
-		RestoreProvider:  facts.RestoreProvider,
-	})
-	if err != nil {
-		if branch.ID != "" {
-			// Providers may return an indeterminate error after creating a
-			// branch. Best-effort cleanup is still mandatory for that case.
-			if cleanupErr := d.deleteScratch(branch); cleanupErr != nil {
-				err = errors.Join(err, cleanupErr)
-				item.CleanupError = cleanupErr.Error()
-			}
-		}
-		return d.finishItem(durableCtx, item, err)
-	}
+	branch := ScratchBranch{ID: resumeBranchID, Expected: facts}
 	if branch.ID == "" {
-		return d.finishItem(durableCtx, item, fmt.Errorf("%w: branch provider returned empty id", ErrInvalidConfig))
+		branch, err = d.branches.CreateScratch(itemCtx, ScratchBranchRequest{
+			RecoveryPointID:  facts.RecoveryPointID,
+			SourceDatabaseID: databaseID,
+			Name:             "restore-drill/" + run.ID + "/" + databaseID,
+			IdempotencyKey:   key,
+			RestoreEpoch:     epoch,
+			JournalCut:       facts.JournalCut,
+			RestoreProvider:  facts.RestoreProvider,
+		})
+		if err != nil {
+			if branch.ID != "" {
+				// Providers may return an indeterminate error after creating a
+				// branch. Best-effort cleanup is still mandatory for that case.
+				if cleanupErr := d.deleteScratch(branch); cleanupErr != nil {
+					err = errors.Join(err, cleanupErr)
+					item.CleanupError = cleanupErr.Error()
+				}
+			}
+			return d.finishItem(durableCtx, item, err)
+		}
+		if branch.ID == "" {
+			return d.finishItem(durableCtx, item, fmt.Errorf("%w: branch provider returned empty id", ErrInvalidConfig))
+		}
 	}
 	branch.Expected = facts
 	item.BranchID = branch.ID

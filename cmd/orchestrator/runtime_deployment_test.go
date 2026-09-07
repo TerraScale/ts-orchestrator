@@ -11,7 +11,8 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		return productionDeploymentFile{
 			Delivery: productionDeliveryFile{MembershipFile: "/etc/terrascale/hosts.json", Cloudflare: productionDeliveryCloudflareFile{AccountID: "account", ZoneID: "zone", SnippetServices: map[string]string{"ts-proxy": "gate"}}},
 			Global: &productionGlobalFile{
-				Database: productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
+				Database:    productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
+				WriteBudget: productionWriteBudgetFile{PolicyFile: "/etc/terrascale/billing/write-budget.json", StateKey: "billing-write-budget", Placement: "database-placement"},
 				Compute: productionGlobalComputeFile{
 					EstateFiles:       map[string]string{"gru": "/etc/terrascale/gru.estate", "sfo": "/etc/terrascale/sfo.estate", "fra": "/etc/terrascale/fra.estate"},
 					KeyID:             "oci-key",

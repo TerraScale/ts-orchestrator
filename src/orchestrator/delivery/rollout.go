@@ -44,8 +44,11 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		if err != nil {
 			return failed(err)
 		}
-		if SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) {
+		if SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) && state.Serving {
 			if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
+				return failed(err)
+			}
+			if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
 				return failed(err)
 			}
 			continue
@@ -60,11 +63,39 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		if err := r.config.Control.Converge(ctx, h.Host, plan); err != nil {
 			return failed(err)
 		}
+		if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
+			return failed(err)
+		}
+		for _, gate := range r.config.Gates {
+			if gate == nil {
+				return failed(errors.New("delivery: rollout contains a nil gate"))
+			}
+			if err := waitForGate(ctx, r.config.GateTimeout, r.now, r.wait, func() (bool, error) {
+				err := gate.Check(ctx, h.Host, request.Rollback.ArtifactDigest)
+				return err == nil, err
+			}); err != nil {
+				return failed(fmt.Errorf("delivery: rollback %s gate on host %s: %w", gate.Name(), h.Host, err))
+			}
+		}
 		if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
+			return failed(err)
+		}
+		if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
 			return failed(err)
 		}
 	}
 	return &Rollback{Attempted: true, TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest), TargetManifestDigest: ptr(request.Rollback.ManifestDigest), Status: RollbackSucceeded}, nil
+}
+
+func (r *Rollout) proveRollbackState(ctx context.Context, observer HostReleaseObserver, host string, request *Request) error {
+	state, err := observer.ObserveRelease(ctx, host)
+	if err != nil {
+		return err
+	}
+	if !state.Serving || !SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) || !SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) {
+		return fmt.Errorf("delivery: host %s rollback readback is not the exact serving prior release", host)
+	}
+	return nil
 }
 
 // RolloutConfig is the fully explicit rollout configuration.
@@ -126,6 +157,7 @@ type HostControl interface {
 type HostReleaseState struct {
 	ArtifactDigest string
 	ManifestDigest string
+	Serving        bool
 }
 
 type HostReleaseObserver interface {

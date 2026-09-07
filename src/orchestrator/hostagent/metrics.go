@@ -173,34 +173,55 @@ func readMemory() (uint64, uint64, error) {
 			available = n
 		}
 	}
-	groupAvailable, err := readCgroupMemoryAvailable()
+	groupLimit, groupCurrent, err := readCgroupMemoryCapacity()
 	if err != nil {
 		return 0, 0, err
 	}
+	return effectiveMemoryCapacity(total, available, groupLimit, groupCurrent)
+}
+
+// effectiveMemoryCapacity returns total and available memory in KiB for the
+// same capacity boundary. /proc/meminfo reports host capacity, while cgroup
+// memory limits and usage are byte values.
+func effectiveMemoryCapacity(hostTotal, hostAvailable, groupLimit, groupCurrent uint64) (uint64, uint64, error) {
+	if hostTotal == 0 || hostAvailable > hostTotal {
+		return 0, 0, errors.New("host memory capacity is malformed")
+	}
+	if groupLimit == ^uint64(0) {
+		return hostTotal, hostAvailable, nil
+	}
+	if groupCurrent > groupLimit {
+		return 0, 0, errors.New("cgroup memory usage exceeds its limit")
+	}
 	// /proc/meminfo is expressed in KiB while cgroup memory files are bytes.
-	groupAvailableKiB := groupAvailable / 1024
-	if groupAvailableKiB < available {
-		available = groupAvailableKiB
+	groupLimitKiB := groupLimit / 1024
+	if groupLimitKiB == 0 {
+		return 0, 0, errors.New("cgroup memory limit is below one KiB")
+	}
+	total := min(hostTotal, groupLimitKiB)
+	available := min(hostAvailable, (groupLimit-groupCurrent)/1024)
+	if available > total {
+		return 0, 0, errors.New("effective memory capacity is malformed")
 	}
 	return total, available, nil
 }
 
-func readCgroupMemoryAvailable() (uint64, error) {
+func readCgroupMemoryCapacity() (uint64, uint64, error) {
 	limit, err := readUintFile("/sys/fs/cgroup/memory.max")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	current, err := readUintFile("/sys/fs/cgroup/memory.current")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if limit == ^uint64(0) {
-		return ^uint64(0), nil
+		return limit, current, nil
 	}
 	if current > limit {
-		return 0, errors.New("cgroup memory usage exceeds its limit")
+		return 0, 0, errors.New("cgroup memory usage exceeds its limit")
 	}
-	return limit - current, nil
+	return limit, current, nil
 }
 
 func readUintFile(path string) (uint64, error) {

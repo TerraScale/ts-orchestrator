@@ -33,6 +33,7 @@ type productionGlobalFile struct {
 	Rotation              productionRotationFile              `json:"rotation"`
 	Recovery              productionRecoveryFile              `json:"recovery"`
 	Database              productionDatabaseFileConfig        `json:"database"`
+	WriteBudget           productionWriteBudgetFile           `json:"write_budget"`
 	AuthBootstrapFile     string                              `json:"auth_bootstrap_file"`
 	PlacementTransition   productionPlacementTransitionFile   `json:"placement_transition"`
 	ServiceIdentity       serviceidentityrotation.FileConfig  `json:"service_identity"`
@@ -112,6 +113,9 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	}
 	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 || len(g.Compute.Artifacts) != 2 || g.Compute.Artifacts["arm64"].URL == "" || g.Compute.Artifacts["amd64"].URL == "" {
 		return errors.New("global compute declaration is incomplete")
+	}
+	if err := g.WriteBudget.validate(); err != nil {
+		return err
 	}
 	claimEndpoint, err := url.Parse(g.Database.DeletionClaim.Endpoint)
 	if err != nil || claimEndpoint.Scheme != "https" || claimEndpoint.Hostname() == "" || claimEndpoint.User != nil || claimEndpoint.RawQuery != "" || claimEndpoint.ForceQuery || claimEndpoint.Fragment != "" || claimEndpoint.Opaque != "" {

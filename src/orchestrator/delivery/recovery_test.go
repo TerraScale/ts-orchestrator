@@ -11,12 +11,13 @@ import (
 )
 
 type recoveryObserverControl struct {
-	mu          sync.Mutex
-	state       HostReleaseState
-	converges   []string
-	fail        bool
-	requireAuth bool
-	cordons     []bool
+	mu            sync.Mutex
+	state         HostReleaseState
+	rollbackState HostReleaseState
+	converges     []string
+	fail          bool
+	requireAuth   bool
+	cordons       []bool
 }
 
 func (c *recoveryObserverControl) Cordon(_ context.Context, _ string, cordoned bool) error {
@@ -37,6 +38,9 @@ func (c *recoveryObserverControl) Converge(_ context.Context, host string, plan 
 		return errors.New("recovery converge failed")
 	}
 	c.converges = append(c.converges, host+":"+string(plan))
+	if c.rollbackState.ArtifactDigest != "" {
+		c.state = c.rollbackState
+	}
 	return nil
 }
 
@@ -114,12 +118,12 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 		t.Fatalf("verified artifact lost exact signed release")
 	}
 
-	prior := HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest}
+	prior := HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest, Serving: true}
 	candidate := HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest}
 	progress := RolloutHostProgress{Host: "member-1", PriorDigest: prior.ArtifactDigest, PriorManifestDigest: prior.ManifestDigest, CandidateDigest: candidate.ArtifactDigest, Mutated: true, Completed: false}
 
 	t.Run("pre-effect", func(t *testing.T) {
-		control := &recoveryObserverControl{state: prior}
+		control := &recoveryObserverControl{state: prior, rollbackState: prior}
 		rollout := recoveryRollout(t, control)
 		p := progress
 		p.Mutated = false
@@ -131,7 +135,7 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 	})
 
 	t.Run("after-effect-before-ack", func(t *testing.T) {
-		control := &recoveryObserverControl{state: candidate}
+		control := &recoveryObserverControl{state: candidate, rollbackState: prior}
 		rollout := recoveryRollout(t, control)
 		op := recoveryOperation(t, request, artifact.Signature, progress)
 		rollback, err := rollout.Recover(context.WithValue(context.Background(), recoveryAuthContextKey{}, true), op.Request, artifact, op.Rollout)
@@ -152,6 +156,7 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 			t.Fatal("unrecognized release triggered rollback")
 		}
 		control.state = candidate
+		control.rollbackState = prior
 		control.fail = true
 		if _, err := rollout.Recover(ctx, op.Request, artifact, op.Rollout); err == nil {
 			t.Fatal("failed rollback was reported successful")
@@ -170,7 +175,7 @@ func TestRecoverFencedChecksLeaseBeforeObservationAndUncordon(t *testing.T) {
 	if err != nil || string(artifact.Body) != string(body) {
 		t.Fatalf("verify artifact: %v", err)
 	}
-	control := &recoveryObserverControl{state: HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest}}
+	control := &recoveryObserverControl{state: HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest, Serving: true}, rollbackState: HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest, Serving: true}}
 	rollout := recoveryRollout(t, control)
 	progress := &RolloutProgress{Hosts: []RolloutHostProgress{{Host: "member-1", Mutated: true}}}
 	fence := OperationFence{OperationID: request.OperationID, RequestDigest: "request-digest", OwnerID: "owner", Generation: 1}
@@ -196,5 +201,30 @@ func TestRecoverFencedChecksLeaseBeforeObservationAndUncordon(t *testing.T) {
 	}
 	if len(control.cordons) != 1 || control.cordons[0] {
 		t.Fatalf("recovery did not uncordon after prior-state proof: %v", control.cordons)
+	}
+}
+
+func TestRecoverRequiresServingReadbackBeforeUncordon(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, nil)
+	artifact, err := verifyArtifact(context.Background(), fetcher, trust, request)
+	if err != nil {
+		t.Fatalf("verify artifact: %v", err)
+	}
+	prior := HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest, Serving: false}
+	control := &recoveryObserverControl{
+		state:         HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest},
+		rollbackState: prior,
+	}
+	rollout := recoveryRollout(t, control)
+	progress := recoveryOperation(t, request, artifact.Signature, RolloutHostProgress{
+		Host: "member-1", PriorDigest: request.Rollback.ArtifactDigest, PriorManifestDigest: request.Rollback.ManifestDigest,
+		CandidateDigest: request.Artifact.Digest, Mutated: true,
+	})
+	rollback, err := rollout.Recover(context.Background(), progress.Request, artifact, progress.Rollout)
+	if err == nil || rollback == nil || rollback.Status != RollbackFailed {
+		t.Fatalf("unserving readback was accepted: rollback=%+v err=%v", rollback, err)
+	}
+	if control.convergeCount() != 1 || len(control.cordons) != 0 {
+		t.Fatalf("recovery mutated host past failed readback: converges=%d cordons=%v", control.convergeCount(), control.cordons)
 	}
 }

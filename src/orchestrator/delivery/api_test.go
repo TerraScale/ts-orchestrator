@@ -411,7 +411,10 @@ func TestDeliveryAPIRecoveryResumesClaimedOperation(t *testing.T) {
 	// Recovery is only valid after the durable lease has expired. This models
 	// a crashed owner while retaining an explicit owner/generation fence.
 	journal.clock = func() time.Time { return now.Add(time.Hour) }
-	control := &recoveryObserverControl{state: HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest}}
+	control := &recoveryObserverControl{
+		state:         HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest},
+		rollbackState: HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest, Serving: true},
+	}
 	rollout := recoveryRollout(t, control)
 	server, err := NewServer(ServerConfig{MirrorMode: MirrorModePrepareAll, Authority: func(context.Context, *Request) error { return nil }, Token: func() (string, error) { return "delivery-token", nil }, Fetcher: fetcher, Trust: func() *TrustSet { return trust }, Mirror: mirror, Rollout: rollout, Journal: journal})
 	if err != nil {

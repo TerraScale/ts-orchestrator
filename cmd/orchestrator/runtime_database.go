@@ -105,6 +105,49 @@ func (a automaticDeletionAdmission) AdmitDeletion(ctx context.Context, database 
 	return err
 }
 
+func (a automaticDeletionAdmission) Resume(ctx context.Context) error {
+	if a.workflow == nil {
+		return databaseadmission.ErrInvalid
+	}
+	records, err := a.workflow.Journal.ListDeletions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, deletion := range records {
+		if deletion.AutomaticPolicyRevision == "" || deletion.Claim != nil {
+			continue
+		}
+		if a.claim == nil {
+			return databaseadmission.ErrInvalid
+		}
+		request := automaticDeletionClaimRequest{
+			SchemaVersion:  1,
+			Environment:    deletion.Request.Environment,
+			TenantID:       deletion.Request.TenantID,
+			ProjectID:      deletion.Request.ProjectID,
+			DatabaseID:     deletion.Request.DatabaseID,
+			OperationID:    deletion.Request.OperationID,
+			PolicyRevision: deletion.AutomaticPolicyRevision,
+			GraceCondition: deletion.AutomaticGraceCondition,
+		}
+		requestDeadline := deletion.AutomaticDeadline
+		intent := databaseadmission.AutomaticDeleteRequest{
+			DeleteRequest:  deletion.Request,
+			PolicyRevision: deletion.AutomaticPolicyRevision,
+			GraceCondition: deletion.AutomaticGraceCondition,
+			Deadline:       requestDeadline,
+		}
+		claim, err := a.claim(ctx, request)
+		if err != nil {
+			return err
+		}
+		if _, err := a.workflow.BeginAutomatic(ctx, intent, claim); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func newProductionDatabase(config productionDatabaseConfig, session globalWorkerSession, placement *productionPlacement) (*productionDatabase, error) {
 	if config.Environment == "" || config.Cluster == "" || config.CatalogPath == "" || len(config.Regions) == 0 || config.Authorize == nil || config.AuthorizeDeletion == nil || placement == nil {
 		return nil, errors.New("runtime database: admitted topology, catalog and project authorization required")
@@ -524,7 +567,7 @@ func validateDatabaseDeclarationsAgainstProposal(declarations []*pb.PlacementDat
 // Unreachable hosts retain their durable intent and retry. Authority loss and
 // corrupt immutable records stop the session instead of repeatedly dispatching.
 func (d *productionDatabase) Reconcile(ctx context.Context) error {
-	err := errors.Join(d.pipeline.Reconcile(ctx), d.deletion.Resume(ctx))
+	err := errors.Join(d.pipeline.Reconcile(ctx), automaticDeletionAdmission{workflow: d.deletion, claim: d.automaticClaim, environment: d.environment}.Resume(ctx), d.deletion.Resume(ctx))
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

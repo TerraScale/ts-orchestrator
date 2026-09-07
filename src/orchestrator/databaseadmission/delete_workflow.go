@@ -177,7 +177,7 @@ func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDelete
 	// The policy deadline is an eligibility fact, not a retention TTL. A due
 	// claim may therefore carry a deadline before this admission timestamp;
 	// storing it as retainUntil would reject the very deletion it authorizes.
-	d, err := journal.BeginDeletionWithClaim(ctx, r.DeleteRequest, at, at, claim)
+	d, err := journal.BeginDeletionWithClaim(ctx, r.DeleteRequest, at, time.Time{}, claim)
 	if err != nil {
 		return Deletion{}, err
 	}
@@ -192,6 +192,11 @@ func (w *DeletionWorkflow) Resume(ctx context.Context) error {
 		return err
 	}
 	for _, d := range records {
+		// Automatic intents are durable before the external claim is accepted.
+		// They must remain inert until that exact claim is persisted.
+		if d.AutomaticPolicyRevision != "" && d.Claim == nil {
+			continue
+		}
 		if d.State != "cleanup_pending" {
 			if _, err = w.advance(ctx, d); err != nil {
 				return err
@@ -201,6 +206,9 @@ func (w *DeletionWorkflow) Resume(ctx context.Context) error {
 	return nil
 }
 func (w *DeletionWorkflow) advance(ctx context.Context, d Deletion) (Deletion, error) {
+	if d.AutomaticPolicyRevision != "" && !automaticClaimMatches(d) {
+		return d, ErrConflict
+	}
 	if d.State == "preparing" {
 		for _, t := range d.Targets {
 			if t.Preparation != nil {
@@ -240,6 +248,13 @@ func (w *DeletionWorkflow) advance(ctx context.Context, d Deletion) (Deletion, e
 		return w.Journal.RecordDeletionEdge(ctx, d.Request, receipt)
 	}
 	return d, nil
+}
+func automaticClaimMatches(d Deletion) bool {
+	if d.Claim == nil || d.Claim.SchemaVersion != 1 || d.Claim.AcceptedAt.IsZero() {
+		return false
+	}
+	c := d.Claim
+	return c.Environment == d.Request.Environment && c.TenantID == d.Request.TenantID && c.ProjectID == d.Request.ProjectID && c.DatabaseID == d.Request.DatabaseID && c.OperationID == d.Request.OperationID && c.PolicyRevision == d.AutomaticPolicyRevision && c.GraceCondition == d.AutomaticGraceCondition && c.Deadline.Equal(d.AutomaticDeadline)
 }
 func validDeleteRequest(r DeleteRequest) bool {
 	if !environmentName.MatchString(r.Environment) || !canonicalID.MatchString(r.TenantID) || !canonicalID.MatchString(r.ProjectID) || !canonicalID.MatchString(r.DatabaseID) || len(r.OperationID) == 0 || len(r.OperationID) > 128 {
@@ -438,7 +453,9 @@ func (j *NATSJournal) BeginDeletionWithClaim(ctx context.Context, r DeleteReques
 	return
 }
 func beginAutomaticIntent(s *journalState, r AutomaticDeleteRequest, at time.Time) (Deletion, error) {
-	d, err := beginDeletion(s, r.DeleteRequest, at, at)
+	// The deadline controls eligibility, not physical retention. Automatic
+	// deletion has no customer retention period, so leave it unset.
+	d, err := beginDeletion(s, r.DeleteRequest, at, time.Time{})
 	if err != nil {
 		return Deletion{}, err
 	}
