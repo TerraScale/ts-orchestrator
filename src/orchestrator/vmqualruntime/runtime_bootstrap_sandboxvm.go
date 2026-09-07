@@ -24,7 +24,10 @@ func (factory *firecrackerFactory) activateGuest(ctx context.Context, host strin
 		return errors.New("vmqual: seeded initial grant is missing")
 	}
 	material := vmqualbootstrap.Material{PublicKeyPEM: bootstrap.InitialGrant.PublicKeyPEM, SignedGrant: bootstrap.InitialGrant.SignedGrant}
-	return vmqualbootstrap.Activate(ctx, host, material, factory.nodeStatus, factory.requestBootstrapStep)
+	if err := vmqualbootstrap.Activate(ctx, host, material, factory.nodeStatus, factory.requestBootstrapStep); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (factory *firecrackerFactory) requestBootstrapStep(ctx context.Context, host, subject string, command json.RawMessage, reply any) error {

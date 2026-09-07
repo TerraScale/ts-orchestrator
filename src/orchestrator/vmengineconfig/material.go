@@ -78,6 +78,9 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 			}
 			controlKeys[public] = true
 		}
+		if err = prepareBackup(m, d); err != nil {
+			return nil, err
+		}
 		if err = prepareDatabase(m, d, h, nodes[h.NodeID]); err != nil {
 			return nil, err
 		}

@@ -56,10 +56,12 @@ type qualificationRuntimeServices struct {
 	controlClients     map[string]*hostcontrol.Client
 	controlRegions     []bootstrap.ControlRegionBinding
 	controlRuntime     bootstrap.ControlRuntime
+	controlSource      QualificationControlRuntimeSource
 	natsStoreParent    *os.Root
 	natsStoreName      string
 	natsStoreRunID     string
 	stateRoot          string
+	backup             *qualificationBackupFixture
 	timeService        *qualificationTimeService
 	nats               *natsserver.Server
 	httpServer         *http.Server
@@ -67,6 +69,21 @@ type qualificationRuntimeServices struct {
 	httpDone           chan error
 	started            bool
 	closed             bool
+}
+
+// SetQualificationControlRuntimeSource installs the admitted guest producer
+// used when the final declared guest reaches the ready transition.
+func (services *qualificationRuntimeServices) SetQualificationControlRuntimeSource(source QualificationControlRuntimeSource) error {
+	if services == nil || source == nil {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	services.mu.Lock()
+	defer services.mu.Unlock()
+	if services.closed || services.controlSource != nil {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	services.controlSource = source
+	return nil
 }
 
 func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, architecture vmimage.Architecture) (qualificationServices, error) {
@@ -118,7 +135,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			}
 		}()
 	}
-	certificate, caCertificate, err := vmqualartifact.GenerateCertificate(artifactReleaseHostname, time.Now().UTC())
+	certificate, caCertificate, err := vmqualartifact.GenerateCertificate(artifactReleaseHostname, time.Now().UTC(), backupFixtureHostname)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +193,11 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
 		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
 	}
+	services.backup, err = loadQualificationBackup(config.TerraBaseDeclarationFile)
+	if err != nil {
+		_ = services.Close(context.Background())
+		return nil, err
+	}
 	cleanupArtifacts = false
 	return services, nil
 }
@@ -201,7 +223,7 @@ func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
 	if !ok || ntp.Protocol != vmnet.UDP || ntp.Port != 18123 || ntp.Address == "" {
 		return errors.New("vmqual: required NTP listener is not the canonical UDP/18123 endpoint")
 	}
-	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
+	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080, "backup": 19443} {
 		listener, ok := plan.Listener(name)
 		if !ok || listener.Protocol != vmnet.TCP || listener.Port != port || listener.Address == "" {
 			return fmt.Errorf("vmqual: required %s listener is not the canonical TCP/%d endpoint", name, port)
@@ -212,9 +234,13 @@ func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
 		if !ok || ntp.Protocol != vmnet.UDP || ntp.GuestPort != 123 || ntp.HostPort != 18123 {
 			return fmt.Errorf("vmqual: Region %s lacks the canonical NTP endpoint", region.Code)
 		}
-		for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
+		for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080, "backup": 443} {
 			endpoint, ok := plan.Endpoint(region.Code, name)
-			if !ok || endpoint.Protocol != vmnet.TCP || endpoint.GuestPort != port || endpoint.HostPort != port {
+			hostPort := port
+			if name == "backup" {
+				hostPort = 19443
+			}
+			if !ok || endpoint.Protocol != vmnet.TCP || endpoint.GuestPort != port || endpoint.HostPort != hostPort {
 				return fmt.Errorf("vmqual: Region %s lacks the canonical %s endpoint", region.Code, name)
 			}
 		}
@@ -227,6 +253,15 @@ func validateQualificationServicePlan(plan vmnet.NetworkPlan) error {
 		}
 		if !matched {
 			return fmt.Errorf("vmqual: Region %s lacks the artifact release DNS mapping", region.Code)
+		}
+		matched = false
+		for _, record := range records {
+			if record.Name == "fly.storage.tigris.dev" && record.Type == "A" && record.Address == region.Gateway {
+				matched = true
+			}
+		}
+		if !matched {
+			return fmt.Errorf("vmqual: Region %s lacks the backup provider DNS mapping", region.Code)
 		}
 	}
 	return nil
@@ -473,6 +508,14 @@ func (services *qualificationRuntimeServices) Start(ctx context.Context) error {
 		return err
 	}
 	services.timeService = timeService
+	if err := services.startBackup(ctx); err != nil {
+		_ = timeService.Close()
+		services.timeService = nil
+		nats.Shutdown()
+		nats.WaitForShutdown()
+		_ = services.closeHTTPLocked(ctx)
+		return err
+	}
 	services.nats, services.started = nats, true
 	return nil
 }
@@ -558,7 +601,8 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (services *qualificationRuntimeServices) closeHTTPLocked(ctx context.Context) error {
+func (services *qualificationRuntimeServices) closeHTTPLocked(ctx context.Context) (result error) {
+	defer func() { result = errors.Join(result, services.backup.close(ctx)) }()
 	if services.httpServer == nil {
 		return nil
 	}
@@ -589,7 +633,7 @@ func (services *qualificationRuntimeServices) VerifyStopped() error {
 	}
 	services.mu.Lock()
 	defer services.mu.Unlock()
-	if services.started || services.timeService != nil || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil || services.natsStoreParent != nil {
+	if (services.backup != nil && (services.backup.server != nil || services.backup.store != nil)) || services.started || services.timeService != nil || services.nats != nil || services.httpServer != nil || services.httpListener != nil || services.httpDone != nil || services.natsStoreParent != nil {
 		return errors.New("vmqual: qualification listener remains active")
 	}
 	return nil

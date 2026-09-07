@@ -17,6 +17,66 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
+// QualificationControlRuntimeSource is the admitted guest producer used by
+// the qualification caller. Implementations must read these values from the
+// authenticated guest control plane; declarations and liveness are not
+// authority or membership evidence.
+type QualificationControlRuntimeSource interface {
+	HostControlResolvers(context.Context, string, string) (func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error)
+	RuntimeConfig(context.Context, map[string]*hostcontrol.Client) (bootstrap.NATSControlRuntimeConfig, []bootstrap.ControlRegionBinding, error)
+}
+
+// SetQualificationControlRuntimeSource wires the admitted producer into the
+// real guest ready transition. The source is queried only after all declared
+// guests have been activated, so its observations cover the complete estate.
+func (factory *firecrackerFactory) SetQualificationControlRuntimeSource(source QualificationControlRuntimeSource) error {
+	services, ok := factory.services.(*qualificationRuntimeServices)
+	if !ok {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	return services.SetQualificationControlRuntimeSource(source)
+}
+
+// ConfigureQualificationControlRuntimeFromSource is the concrete initial-R1
+// caller. It binds enrolled candidate signers first, then asks the admitted
+// guest producer for lease, membership, stream and action observations before
+// installing the runtime consumed by vmqualsuite.
+func (factory *firecrackerFactory) ConfigureQualificationControlRuntimeFromSource(ctx context.Context, source QualificationControlRuntimeSource) error {
+	if ctx == nil || source == nil {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	services, ok := factory.services.(*qualificationRuntimeServices)
+	if !ok || services == nil {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	clients := make(map[string]*hostcontrol.Client)
+	for _, planned := range services.plan.Regions {
+		region := strings.ToLower(string(planned.Code))
+		if len(planned.Guests) == 0 {
+			return bootstrap.ErrControlRuntimeUnavailable
+		}
+		candidate := region + "-controller-" + planned.Guests[0].ID
+		resolve, authority, err := source.HostControlResolvers(ctx, region, candidate)
+		if err != nil {
+			return err
+		}
+		client, err := factory.QualificationHostControl(ctx, region, candidate, resolve, authority)
+		if err != nil {
+			return err
+		}
+		clients[region] = client
+	}
+	config, regions, err := source.RuntimeConfig(ctx, clients)
+	if err != nil {
+		return err
+	}
+	config.Hosts = clients
+	return factory.ConfigureQualificationControlRuntime(config, regions)
+}
+
 // QualificationHostControl binds the actual fixture transport to explicit
 // admitted-membership and live-authority resolvers. The transport itself does
 // not establish either membership or authority.

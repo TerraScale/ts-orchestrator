@@ -151,6 +151,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	}}
 	branchPort := config.Restore.Branches.(productionDatabaseBranchPort)
 	branchPort.grantJournal = config.Restore.Backup.(productionDatabaseBackupPort).grantJournal
+	branchPort.renewStatsGrant = config.Restore.Backup.(productionDatabaseBackupPort).renewRestoreStatsGrant
 	config.Restore.Branches = branchPort
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition

@@ -138,6 +138,7 @@ type Material struct {
 	observation                                  tbep.FileConfig
 	controlFiles                                 map[string][]byte
 	databaseFiles                                map[string][]byte
+	backupFiles                                  map[string][]byte
 	databaseAuthorization                        databaseadmission.BrokerGrant
 	transitionFiles                              map[string][]byte
 	controlAuthorization                         ControlNATSAuthorization
@@ -153,6 +154,10 @@ func (m *Material) Clear() {
 	if m == nil {
 		return
 	}
+	for _, raw := range m.backupFiles {
+		clear(raw)
+	}
+	m.backupFiles = nil
 	for _, raw := range m.databaseFiles {
 		clear(raw)
 	}
@@ -171,6 +176,7 @@ func (m *Material) Clone() *Material {
 	copy := *m
 	copy.controlFiles = m.ControlFiles()
 	copy.databaseFiles = m.DatabaseFiles()
+	copy.backupFiles = m.BackupFiles()
 	copy.transitionFiles = m.TransitionFiles()
 	copy.controlAuthorization = m.ControlAuthorization()
 	copy.certificate, copy.privateKey, copy.ca = bytes.Clone(m.certificate), bytes.Clone(m.privateKey), bytes.Clone(m.ca)
@@ -399,8 +405,8 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
 		if db.Backup != nil {
 			fmt.Fprintf(&b, "[databases.backup]\npolicy_revision = %q\nretention_days = %d\n", db.Backup.PolicyRevision, db.Backup.RetentionDays)
-			for _, d := range db.Backup.Destinations {
-				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, fmt.Sprintf("/etc/terrascale/backup/%s-0-access", db.Database), fmt.Sprintf("/etc/terrascale/backup/%s-0-secret", db.Database), d.MaxArtifactBytes, d.MaxPointBytes)
+			for i, d := range db.Backup.Destinations {
+				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, backupPath(db.Database, i, "access"), backupPath(db.Database, i, "secret"), d.MaxArtifactBytes, d.MaxPointBytes)
 			}
 		}
 	}

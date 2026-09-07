@@ -378,7 +378,7 @@ func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Uplinks) != len(plan.Regions) || len(plan.Forwards) != 4*len(plan.Regions) || len(plan.Listeners) != 4 {
+	if len(plan.Uplinks) != len(plan.Regions) || len(plan.Forwards) != 5*len(plan.Regions) || len(plan.Listeners) != 5 {
 		t.Fatalf("endpoint topology: uplinks=%d forwards=%d listeners=%d", len(plan.Uplinks), len(plan.Forwards), len(plan.Listeners))
 	}
 	if !reflect.DeepEqual(plan.Uplinks, plan.Cleanup.Uplinks) || !reflect.DeepEqual(plan.Forwards, plan.Cleanup.Forwards) || !reflect.DeepEqual(plan.Listeners, plan.Cleanup.Listeners) || !reflect.DeepEqual(plan.DNSRecords, plan.Cleanup.DNSRecords) {
@@ -415,12 +415,16 @@ func TestDefaultPlanOwnsExplicitHostEndpointPath(t *testing.T) {
 		if !ok || endpoint.GuestAddress != region.Gateway || endpoint.GuestPort != 8443 || endpoint.HostAddress != serviceAddress || endpoint.HostPort != 8443 {
 			t.Fatalf("Region %s artifact endpoint = %+v, found=%v", region.Code, endpoint, ok)
 		}
+		backup, ok := plan.Endpoint(region.Code, "backup")
+		if !ok || backup.GuestAddress != region.Gateway || backup.GuestPort != 443 || backup.HostAddress != serviceAddress || backup.HostPort != 19443 {
+			t.Fatalf("Region %s backup endpoint = %+v, found=%v", region.Code, backup, ok)
+		}
 		records := plan.RegionDNSRecords(region.Code)
-		if len(records) != 1 || records[0] != (DNSRecord{Region: region.Code, Name: "releases.terrascale.tech", Type: "A", Address: region.Gateway}) {
+		if len(records) != 2 || records[0] != (DNSRecord{Region: region.Code, Name: "fly.storage.tigris.dev", Type: "A", Address: region.Gateway}) || records[1] != (DNSRecord{Region: region.Code, Name: "releases.terrascale.tech", Type: "A", Address: region.Gateway}) {
 			t.Fatalf("Region %s DNS records = %+v", region.Code, records)
 		}
 	}
-	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "smoke": 18080} {
+	for name, port := range map[string]uint16{"nats": 4222, "artifacts": 8443, "backup": 19443, "smoke": 18080} {
 		listener, ok := plan.Listener(name)
 		if !ok || listener != (EndpointListener{Name: name, Protocol: TCP, Address: serviceAddress, Port: port}) {
 			t.Fatalf("listener %q = %+v, found=%v", name, listener, ok)

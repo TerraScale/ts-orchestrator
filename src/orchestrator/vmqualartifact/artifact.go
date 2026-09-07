@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func GenerateCertificate(hostname string, now time.Time) (tls.Certificate, []byte, error) {
+func GenerateCertificate(hostname string, now time.Time, additionalDNSNames ...string) (tls.Certificate, []byte, error) {
 	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, nil, err
@@ -51,7 +51,7 @@ func GenerateCertificate(hostname string, now time.Time) (tls.Certificate, []byt
 	}
 	serverTemplate := &x509.Certificate{
 		SerialNumber: serverSerial, Subject: pkix.Name{CommonName: hostname},
-		DNSNames: []string{hostname}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(12 * time.Hour),
+		DNSNames: append([]string{hostname}, additionalDNSNames...), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(12 * time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}

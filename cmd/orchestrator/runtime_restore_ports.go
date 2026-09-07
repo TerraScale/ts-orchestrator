@@ -167,9 +167,10 @@ func newProductionTBEPClient(host productionDatabaseHost, record databaseadmissi
 // parent-bound branch evidence under the same NATS authority and is therefore
 // safe to retry with the deterministic operation identity.
 type productionDatabaseBranchPort struct {
-	grantJournal func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
-	database     **productionDatabase
-	config       productionDatabaseConfig
+	renewStatsGrant func(context.Context, tbep.LifecycleAssignment, lifecycleOperationGrant) (tbep.LifecycleAssignment, error)
+	grantJournal    func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+	database        **productionDatabase
+	config          productionDatabaseConfig
 }
 
 func (p productionDatabaseBranchPort) CreateScratch(ctx context.Context, request restoredrill.ScratchBranchRequest) (restoredrill.ScratchBranch, error) {
@@ -224,24 +225,32 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 	}
 	defer client.Close()
 	operation := record.Request.OperationID
-	if operation == "" || p.grantJournal == nil {
+	if operation == "" || p.grantJournal == nil || p.renewStatsGrant == nil {
 		return restoredrill.RestoreStats{}, errors.New("restore branch: original operation grant unavailable")
 	}
 	j, err := p.grantJournal(operation)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
+	var original lifecycleOperationGrant
 	if err = j.Transact(ctx, false, func(grant *lifecycleGrantRecord) error {
 		if grant.Operation != operation || grant.Action != "restore_to_target" || grant.Scope != placement.Tenant+":"+placement.Project+":"+placement.Database+":"+record.DatabaseID || len(grant.Grant) == 0 {
 			return errors.New("restore branch: original operation grant differs")
 		}
 		var envelope placementtransition.Signed
-		var original lifecycleOperationGrant
 		if json.Unmarshal(grant.Grant, &envelope) != nil || json.Unmarshal(envelope.Payload, &original) != nil || original.OperationID != operation || original.AcceptedRestoreRequestDigest != grant.ProofDigest {
 			return errors.New("restore branch: original grant malformed")
 		}
-		placement.AuthorityEpoch, placement.AuthorityLease = original.AuthorityEpoch, original.AuthorityLease
-		placement.OperationGrant = append([]byte(nil), grant.Grant...)
+		return nil
+	}); err != nil {
+		return restoredrill.RestoreStats{}, err
+	}
+	placement, err = p.renewStatsGrant(ctx, placement, original)
+	if err != nil {
+		return restoredrill.RestoreStats{}, err
+	}
+	if err := j.Transact(ctx, true, func(grant *lifecycleGrantRecord) error {
+		grant.Grant = append([]byte(nil), placement.OperationGrant...)
 		return nil
 	}); err != nil {
 		return restoredrill.RestoreStats{}, err
@@ -319,4 +328,36 @@ func (l productionAdmissionDatabaseLister) ListDatabases(ctx context.Context) ([
 		result = append(result, restoredrill.Database{ID: record.DatabaseID, Region: record.Request.Regions[0]})
 	}
 	return result, nil
+}
+
+// renewRestoreStatsGrant authorizes observation of the same immutable restore under
+// the current authority lease. The expired mutation grant remains unchanged.
+func (p productionDatabaseBackupPort) renewRestoreStatsGrant(ctx context.Context, placement tbep.LifecycleAssignment, original lifecycleOperationGrant) (tbep.LifecycleAssignment, error) {
+	digest := sha256.Sum256(placement.AuthoritySignature)
+	if p.refresh == nil || p.check == nil || original.Action != "restore_to_target" || original.OperationID == "" || original.Environment != placement.Environment || original.Tenant != placement.Tenant || original.Project != placement.Project || original.Database != placement.Database || original.AcceptedRestoreRequestDigest == "" || original.Region != placement.Region || original.Member != placement.Member || original.AcceptedPlacementRevision != placement.PlacementRevision || original.AcceptedProofDigest != hex.EncodeToString(digest[:]) {
+		return placement, errors.New("restore stats: immutable operation authorization differs")
+	}
+	lease, err := p.refresh(ctx)
+	if err != nil {
+		return placement, err
+	}
+	now := time.UnixMilli(time.Now().UTC().UnixMilli())
+	leaseExpiry := lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds) * time.Millisecond)
+	expires := now.Add(30 * time.Second)
+	if leaseExpiry.Before(expires) {
+		expires = leaseExpiry
+	}
+	renewed := original
+	renewed.AcceptedProofDigest = hex.EncodeToString(digest[:])
+	renewed.AcceptedPlacementRevision = placement.PlacementRevision
+	renewed.Region, renewed.Member = placement.Region, placement.Member
+	renewed.AuthorityEpoch, renewed.AuthorityLease = uint64(lease.Epoch), lease.LeaseId
+	renewed.IssuedAtUnixMillis, renewed.ExpiresAtUnixMillis = now.UnixMilli(), expires.UnixMilli()
+	signed, err := issueLifecycleOperationGrant(p.keyID, p.key, func() error { return p.check(ctx) }, renewed, now, leaseExpiry, time.Second)
+	if err != nil {
+		return placement, err
+	}
+	placement.OperationGrant, err = json.Marshal(signed)
+	placement.AuthorityEpoch, placement.AuthorityLease = renewed.AuthorityEpoch, renewed.AuthorityLease
+	return placement, err
 }

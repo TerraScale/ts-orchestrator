@@ -1232,6 +1232,7 @@ func defaultEndpointSpecs(regions []RegionNetwork) []EndpointSpec {
 		endpoints = append(endpoints,
 			EndpointSpec{Name: "nats", Region: region.Code, Protocol: TCP, GuestPort: 4222, HostPort: 4222},
 			EndpointSpec{Name: "artifacts", Region: region.Code, Protocol: TCP, GuestPort: 8443, HostPort: 8443, DNSNames: []string{"releases.terrascale.tech"}},
+			EndpointSpec{Name: "backup", Region: region.Code, Protocol: TCP, GuestPort: 443, HostPort: 19443, DNSNames: []string{"fly.storage.tigris.dev"}},
 			EndpointSpec{Name: "smoke", Region: region.Code, Protocol: TCP, GuestPort: 18080, HostPort: 18080},
 			EndpointSpec{Name: "ntp", Region: region.Code, Protocol: UDP, GuestPort: 123, HostPort: 18123},
 		)
