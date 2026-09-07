@@ -16,7 +16,7 @@ import (
 
 func TestMembershipPublisherAuthenticatedRetryAndNoResurrection(t *testing.T) {
 	f := newRotationFixture(t)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1)}, "stage"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1), OriginProof: f.originMaterial(1)}, "stage"); err != nil {
 		t.Fatal(err)
 	}
 	entry := cf.CapabilityRevocation{Scope: fmt.Sprintf("scope-%064x", 7), ExpiresAt: f.now.Add(1320 * time.Second).Unix()}

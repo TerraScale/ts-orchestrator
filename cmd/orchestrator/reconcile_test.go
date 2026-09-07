@@ -3,8 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
+	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"testing"
 	"time"
 
@@ -240,3 +245,165 @@ func (declaredKVPlacementSource) ObserveDBPlacement(ctx context.Context) (map[st
 	}
 	return map[string]cloudflare.DBPlacement{}, nil
 }
+
+// Exercise the real Loop.Pass -> desired declaration -> Diff -> OCI Apply ->
+// filterOCIPlan -> ComputeReconciler.Apply call chain. OCI observations and
+// launch are isolated at the gateway boundary; the target uses the real R3
+// authority journal. Enrollment's cloud-init projection is supplied explicitly.
+func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
+	ctx := t.Context()
+	cluster := newRotationStateCluster(t)
+	connection := cluster.connect(t)
+	leases := openRotationTestLeaseStore(t, ctx, connection, true)
+	lease := rotationTestLease(1, "global-controller-gru-autoscale")
+	putRotationTestLease(t, ctx, leases, lease)
+	journalConfig := authorityjournal.Config{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId, StateKey: "autoscale"}
+	openTargets := func() *autoscale.NATSTargetStore {
+		t.Helper()
+		journal, err := authorityjournal.New(journalConfig, func() map[string]autoscale.Target { return map[string]autoscale.Target{} }, func(map[string]autoscale.Target) error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets, err := autoscale.NewNATSTargetStore(journal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return targets
+	}
+	targets := openTargets()
+	if err := targets.CompareAndSwap(ctx, "gru", nil, autoscale.Target{Region: "gru", Members: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// Reopen the store with a fresh controller. No autoscale tick or in-memory
+	// applyAutoscalePlan call supplies the desired count for this first pass.
+	targets = openTargets()
+	spec := estate.Default()
+	region := spec.Regions[0]
+	if region.Code != "gru" {
+		t.Fatal("fixture needs GRU")
+	}
+	spec.Regions = slices.Clone(spec.Regions)
+	gateway := &autoscaleLoopGateway{}
+	for slot := 1; slot <= 2; slot++ {
+		gateway.members = append(gateway.members, autoscaleLoopMember(region, slot))
+	}
+	artifact := "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/download/v1/ts-node"
+	seed, err := ocireconcile.TSNodeCloudInit("v1", strings.Repeat("a", 64), artifact, artifact+".sig", strings.Repeat("ab", 32), []ocireconcile.BootstrapHostFile{{Path: "/etc/terrascale/ts-node.json", Content: []byte("{}")}, {Path: "/var/lib/terrascale/ts-node/manifest.json", Content: []byte("{}")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	regional := &ociRegionController{region: region, network: &ocireconcile.NetworkReconciler{}, compute: &ocireconcile.ComputeReconciler{Compute: gateway}, object: &ocireconcile.ObjectStorageReconciler{}, vault: &ocireconcile.VaultReconciler{}, block: &ocireconcile.BlockStorageReconciler{Block: autoscaleLoopBlock{}, Compute: gateway}, certs: &ocireconcile.CertReconciler{Gateway: autoscaleLoopCertificates{}}}
+	regional.projection = func(ctx context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
+		target, found, err := targets.Load(ctx, region.Code)
+		if err != nil {
+			return ocireconcile.ComputeDeclared{}, err
+		}
+		if found {
+			region.Members.Count = max(region.Members.Count, uint16(target.Members))
+		}
+		seeds := map[int]string{}
+		for slot := 1; slot <= int(region.Members.Count); slot++ {
+			seeds[slot] = seed
+		}
+		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds}, nil
+	}
+	controller := &ociReconcileController{spec: spec, regions: map[string]*ociRegionController{"gru": regional}}
+	for _, other := range spec.Regions[1:] {
+		controller.regions[other.Code] = &ociRegionController{region: other, projection: func(_ context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
+			return ocireconcile.ComputeDeclared{Region: region}, nil
+		}}
+	}
+
+	observed := &autoscaleLoopProvider{ociReconcileController: controller, region: regional, gateway: gateway}
+	progress, err := reconcile.NewFileProgressStore(filepath.Join(t.TempDir(), "progress.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loop, err := reconcile.NewLoop(reconcile.LoopConfig{Spec: spec, Desired: controller.desiredSpec, Providers: []reconcile.Reconciler{observed}, Interval: time.Minute, Progress: progress})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := loop.Pass(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Empty() || len(gateway.launches) != 1 || gateway.launches[0].Index != 3 {
+		t.Fatalf("first pass plan=%+v launches=%+v", plan, gateway.launches)
+	}
+	if regional.scaleOutTarget != 0 || controller.spec.Regions[0].Members.Count != 2 || spec.Regions[0].Members.Count != 2 {
+		t.Fatal("projection mutated static declaration or depended on autoscale tick")
+	}
+	if len(gateway.members) != 3 {
+		t.Fatal("gateway did not observe launched member")
+	}
+	plan, err = loop.Pass(ctx)
+	if err != nil || !plan.Empty() || len(gateway.launches) != 1 {
+		t.Fatalf("converged pass plan=%+v launches=%d err=%v", plan, len(gateway.launches), err)
+	}
+}
+
+// Limit observation ownership to compute for this caller regression. Counts
+// come only from actual gateway members, never from the desired target.
+type autoscaleLoopProvider struct {
+	*ociReconcileController
+	region  *ociRegionController
+	gateway *autoscaleLoopGateway
+}
+
+func (p *autoscaleLoopProvider) Kinds() []estate.ResourceKind {
+	return []estate.ResourceKind{estate.ResourceCompute}
+}
+func (p *autoscaleLoopProvider) Observe(ctx context.Context) (reconcile.State, error) {
+	members, err := p.gateway.ListMembers(ctx)
+	if err != nil {
+		return reconcile.State{}, err
+	}
+	compute := ocireconcile.ComputeObserved{Members: members, AvailabilityDomains: []string{"AD-1"}, Subnets: []ocireconcile.ObservedSubnet{{ID: "ocid1.subnet.oc1.x", DisplayName: p.region.region.Network.Subnets[0].Name, LifecycleState: "AVAILABLE", FreeformTags: map[string]string{provider.OCIManagedTag: "subnet", provider.OCIScopeTag: "gru"}}}}
+	for i, group := range p.region.region.Network.SecurityGroups {
+		compute.NSGs = append(compute.NSGs, ocireconcile.ObservedNSG{ID: fmt.Sprintf("ocid1.networksecuritygroup.oc1.x%d", i), DisplayName: group.Name, LifecycleState: "AVAILABLE", FreeformTags: map[string]string{provider.OCIManagedTag: "networksecuritygroup", provider.OCIScopeTag: "gru"}})
+	}
+	observation := &ociRegionObservation{compute: compute}
+	p.region.mu.Lock()
+	p.region.observed = observation
+	p.region.mu.Unlock()
+	all := ociObservedState(p.region.region, observation)
+	for _, other := range p.spec.Regions[1:] {
+		members := make([]ocireconcile.ObservedMember, 0, other.Members.Count)
+		for slot := 1; slot <= int(other.Members.Count); slot++ {
+			members = append(members, autoscaleLoopMember(other, slot))
+		}
+		all.Resources = append(all.Resources, ociObservedState(other, &ociRegionObservation{compute: ocireconcile.ComputeObserved{Members: members}}).Resources...)
+	}
+
+	state := reconcile.State{}
+	for _, resource := range all.Resources {
+		if resource.Ref.Kind == estate.ResourceCompute {
+			state.Resources = append(state.Resources, resource)
+		}
+	}
+	return state, nil
+}
+
+type autoscaleLoopGateway struct {
+	ocireconcile.ComputeGateway
+	members  []ocireconcile.ObservedMember
+	launches []ocireconcile.MemberLaunchSpec
+}
+
+func (g *autoscaleLoopGateway) ListMembers(context.Context) ([]ocireconcile.ObservedMember, error) {
+	return slices.Clone(g.members), nil
+}
+func (g *autoscaleLoopGateway) LaunchMember(_ context.Context, launch ocireconcile.MemberLaunchSpec) (ocireconcile.ObservedMember, error) {
+	g.launches = append(g.launches, launch)
+	member := autoscaleLoopMember(estate.Default().Regions[0], launch.Index)
+	g.members = append(g.members, member)
+	return member, nil
+}
+func autoscaleLoopMember(region estate.Region, slot int) ocireconcile.ObservedMember {
+	return ocireconcile.ObservedMember{ID: fmt.Sprintf("ocid1.instance.oc1.x%d", slot), DisplayName: ocireconcile.MemberDisplayName(region.Code, slot), Index: slot, Shape: region.Members.PrimaryShape, LifecycleState: "RUNNING", AvailabilityDomain: "AD-1", FreeformTags: map[string]string{provider.OCIManagedTag: ocireconcile.ManagedMemberTagValue, provider.OCIScopeTag: region.Code}}
+}
+
+type autoscaleLoopBlock struct {
+	ocireconcile.BlockStorageGateway
+}
+type autoscaleLoopCertificates struct{ ocireconcile.CertGateway }

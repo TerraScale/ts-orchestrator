@@ -492,6 +492,11 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("orchestrator: production runtime context is required")
 	}
+	if r.autoscale != nil {
+		if err := r.autoscale.Hydrate(ctx); err != nil {
+			return err
+		}
+	}
 	r.lifetime = ctx
 	if err := r.publisher.Start(ctx); err != nil {
 		return err

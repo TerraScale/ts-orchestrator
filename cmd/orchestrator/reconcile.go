@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -143,20 +144,25 @@ func newReconcileLoop(dependencies *productionReconcileDependencies, output io.W
 	})
 }
 
-func (c *ociReconcileController) desiredSpec(_ context.Context) (estate.Spec, error) {
+func (c *ociReconcileController) desiredSpec(ctx context.Context) (estate.Spec, error) {
 	if c == nil {
 		return estate.Spec{}, errors.New("reconcile: OCI controller is unavailable")
 	}
 	spec := c.spec
-	for _, region := range spec.Regions {
-		if controller := c.regions[region.Code]; controller != nil {
-			controller.mu.Lock()
-			target := controller.scaleOutTarget
-			controller.mu.Unlock()
-			if target > region.Members.Count {
-				region.Members.Count = target
-			}
+	spec.Regions = slices.Clone(spec.Regions)
+	for i := range spec.Regions {
+		region := &spec.Regions[i]
+		controller := c.regions[region.Code]
+		if controller == nil {
+			return estate.Spec{}, errors.New("reconcile: OCI region controller is unavailable")
 		}
+		// The lease-owned projection reads the durable target, including on
+		// the first pass after restart, before the generic diff is calculated.
+		declared, err := controller.enrolledComputeDeclared(ctx)
+		if err != nil {
+			return estate.Spec{}, err
+		}
+		region.Members.Count = max(region.Members.Count, declared.Region.Members.Count)
 	}
 	return spec, nil
 }

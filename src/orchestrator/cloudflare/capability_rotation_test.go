@@ -218,13 +218,13 @@ func TestSnippetCapabilityRotationLifecycle(t *testing.T) {
 func TestSnippetCapabilityForgedProofRejected(t *testing.T) {
 	f := newRotationFixture(t)
 	f.forged.Store(true)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1)}, "stage"); err == nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1), OriginProof: f.originMaterial(1)}, "stage"); err == nil {
 		t.Fatal("accepted forged proof")
 	}
 }
 func TestSnippetCapabilityLostPublicationResponseRecoversByObservation(t *testing.T) {
 	f := newRotationFixture(t)
-	credentials := security.CredentialSet{Capability: f.material(1)}
+	credentials := security.CredentialSet{Capability: f.material(1), OriginProof: f.originMaterial(1)}
 	f.provider.AddFault(sandboxcf.Fault{Method: http.MethodPut, Path: "/zones/zone/snippets/gate", Calls: 1, Steps: []sandboxcf.FaultStep{{Status: 500, Commit: true}}})
 	if err := f.store.Distribute(t.Context(), credentials, "stage"); err == nil {
 		t.Fatal("lost response reported success")
@@ -252,7 +252,7 @@ func TestSnippetCapabilityDurabilityAndAuthorityPreventPublication(t *testing.T)
 			case "authority-after-read":
 				f.denyAfterRead.Store(true)
 			}
-			if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1)}, "stage"); err == nil {
+			if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1), OriginProof: f.originMaterial(1)}, "stage"); err == nil {
 				t.Fatal("deployment succeeded despite failed prerequisite")
 			}
 			if got := f.puts.Load(); got != 0 {
@@ -275,7 +275,9 @@ func TestSnippetCapabilityTemplateReleaseSurvivesRestartAndRotation(t *testing.T
 	}
 	first := f.material(1)
 	second := f.material(2)
-	for _, credentials := range []security.CredentialSet{{Capability: first}, {Capability: second, PreviousCapability: first}} {
+	ofirst := f.originMaterial(1)
+	osecond := f.originMaterial(2)
+	for _, credentials := range []security.CredentialSet{{Capability: first, OriginProof: ofirst}, {Capability: second, PreviousCapability: first, OriginProof: osecond, PreviousOriginProof: ofirst}} {
 		if err := f.store.Distribute(t.Context(), credentials, "stage"); err != nil {
 			t.Fatal(err)
 		}
@@ -301,14 +303,14 @@ func TestSnippetCapabilityTemplateReleaseSurvivesRestartAndRotation(t *testing.T
 		t.Fatal(err)
 	}
 	puts := f.puts.Load()
-	if err := restarted.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first}, "retry"); err != nil {
+	if err := restarted.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first, OriginProof: f.originMaterial(2), PreviousOriginProof: f.originMaterial(1)}, "retry"); err != nil {
 		t.Fatal(err)
 	}
 	if f.puts.Load() != puts {
 		t.Fatal("restart republished a template already present")
 	}
 	third := f.material(3)
-	if err := restarted.Distribute(t.Context(), security.CredentialSet{Capability: third, PreviousCapability: second}, "stage-next"); err != nil {
+	if err := restarted.Distribute(t.Context(), security.CredentialSet{Capability: third, PreviousCapability: second, OriginProof: f.originMaterial(3), PreviousOriginProof: f.originMaterial(2)}, "stage-next"); err != nil {
 		t.Fatal(err)
 	}
 	next, _, _ := f.journal.Load(t.Context())
@@ -351,7 +353,7 @@ func TestCapabilityDeploymentDeclarationValidation(t *testing.T) {
 func TestSnippetTemplateChecksDeliveryFenceBeforeDispatch(t *testing.T) {
 	f := newRotationFixture(t)
 	material := f.material(1)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: material}, "initial"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: material, OriginProof: f.originMaterial(1)}, "initial"); err != nil {
 		t.Fatal(err)
 	}
 	candidate := []byte("// candidate\n" + cf.CapabilityDeploymentMarker)
@@ -388,7 +390,7 @@ func TestSnippetTemplateChecksDeliveryFenceBeforeDispatch(t *testing.T) {
 func TestSnippetRevocationsPersistAcrossRotationAndRejectOverflow(t *testing.T) {
 	f := newRotationFixture(t)
 	first := f.material(1)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: first}, "stage"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: first, OriginProof: f.originMaterial(1)}, "stage"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Activate(t.Context(), 1, "activate"); err != nil {
@@ -406,7 +408,7 @@ func TestSnippetRevocationsPersistAcrossRotationAndRejectOverflow(t *testing.T) 
 		t.Fatal("duplicate revocation republished")
 	}
 	second := f.material(2)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first}, "next"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first, OriginProof: f.originMaterial(2), PreviousOriginProof: f.originMaterial(1)}, "next"); err != nil {
 		t.Fatal(err)
 	}
 	current, _, _ := f.journal.Load(t.Context())

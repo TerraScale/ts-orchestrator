@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -41,6 +43,9 @@ type Target struct {
 	LastObservation        int64
 	LastScaleAt            time.Time
 	OperationID            string
+	HostObservedAt         map[string]time.Time
+	RetiredIncarnations    map[string]map[string]time.Time
+	ActiveHosts            []string
 	HostSequences          map[string]int64
 	HostIncarnations       map[string]string
 }
@@ -140,14 +145,51 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, nil
 	}
 	previousState := state
-	advanced := observationsAdvance(observations, state.HostSequences, state.HostIncarnations)
+	advanced, bootChanged := observationsAdvance(observations, state, now)
 	seq := latestObservationSequence(observations)
 	if !advanced {
 		return Plan{}, false, nil
 	}
-	state.HostSequences = observationSequences(observations)
-	state.HostIncarnations = observationIncarnations(observations)
-	high := allHigh(observations, c.config)
+	active := slices.Sorted(maps.Keys(observationSequences(observations)))
+	previousHosts := state.ActiveHosts
+	if len(previousHosts) == 0 {
+		previousHosts = slices.Sorted(maps.Keys(state.HostSequences))
+	}
+	membershipChanged := len(previousHosts) != 0 && !slices.Equal(active, previousHosts)
+	state.ActiveHosts = active
+	// Keep high-water marks for removed hosts so re-admission cannot replay
+	// a previously consumed sample. Never mutate the loaded CAS expectation.
+	state.HostSequences = maps.Clone(state.HostSequences)
+	state.HostIncarnations = maps.Clone(state.HostIncarnations)
+	state.HostObservedAt = maps.Clone(state.HostObservedAt)
+	state.RetiredIncarnations = cloneRetiredIncarnations(state.RetiredIncarnations, now)
+	if state.HostSequences == nil {
+		state.HostSequences = map[string]int64{}
+	}
+	if state.HostIncarnations == nil {
+		state.HostIncarnations = map[string]string{}
+	}
+	if state.HostObservedAt == nil {
+		state.HostObservedAt = map[string]time.Time{}
+	}
+	for _, value := range observations {
+		if previous := state.HostIncarnations[value.HostID]; previous != "" && previous != value.Incarnation {
+			retired := state.RetiredIncarnations[value.HostID]
+			if retired == nil {
+				retired = map[string]time.Time{}
+				state.RetiredIncarnations[value.HostID] = retired
+			}
+			// Reports from the retired boot were signed before this transition.
+			// Once this window expires, their signed time is necessarily stale.
+			retired[previous] = now.Add(c.config.ObservationMaxAge)
+		}
+		state.HostSequences[value.HostID] = value.Sequence
+		state.HostIncarnations[value.HostID] = value.Incarnation
+		state.HostObservedAt[value.HostID] = value.ObservedAt
+	}
+	// A changed admitted set or boot establishes a baseline; pressure must
+	// then accumulate from fresh samples of that complete set and boot.
+	high := !membershipChanged && !bootChanged && allHigh(observations, c.config)
 	if high {
 		state.ConsecutiveHighSamples++
 	} else {
@@ -223,39 +265,50 @@ func latestObservationSequence(values []Observation) int64 {
 	return latest
 }
 
-func observationsAdvance(values []Observation, sequences map[string]int64, incarnations map[string]string) bool {
-	if len(sequences) == 0 {
-		return true
-	}
-	if len(sequences) != 0 && len(values) != len(sequences) {
-		return false
-	}
-	seen := make(map[string]struct{}, len(values))
+// The source authenticates current host reports, including their boot and
+// observation time. An unseen boot can establish a baseline, but cannot count
+// pressure immediately or revive a retired boot within the freshness window.
+func observationsAdvance(values []Observation, state Target, now time.Time) (bool, bool) {
+	bootChanged := false
 	for _, value := range values {
-		seen[value.HostID] = struct{}{}
-		previousIncarnation, known := incarnations[value.HostID]
-		if !known || previousIncarnation != value.Incarnation {
+		previous, known := state.HostSequences[value.HostID]
+		if !known {
 			continue
 		}
-		if value.Sequence <= sequences[value.HostID] {
-			return false
+		if state.HostIncarnations[value.HostID] != value.Incarnation {
+			if expiry, retired := state.RetiredIncarnations[value.HostID][value.Incarnation]; retired && !now.After(expiry) {
+				return false, false
+			}
+			if !value.ObservedAt.After(state.HostObservedAt[value.HostID]) {
+				return false, false
+			}
+			bootChanged = true
+		} else if value.Sequence <= previous || value.ObservedAt.Before(state.HostObservedAt[value.HostID]) {
+			return false, false
 		}
 	}
-	return len(seen) == len(sequences)
+	return true, bootChanged
+}
+
+func cloneRetiredIncarnations(previous map[string]map[string]time.Time, now time.Time) map[string]map[string]time.Time {
+	result := make(map[string]map[string]time.Time)
+	for host, boots := range previous {
+		for boot, expiry := range boots {
+			if !now.After(expiry) {
+				if result[host] == nil {
+					result[host] = make(map[string]time.Time)
+				}
+				result[host][boot] = expiry
+			}
+		}
+	}
+	return result
 }
 
 func observationSequences(values []Observation) map[string]int64 {
 	result := make(map[string]int64, len(values))
 	for _, value := range values {
 		result[value.HostID] = value.Sequence
-	}
-	return result
-}
-
-func observationIncarnations(values []Observation) map[string]string {
-	result := make(map[string]string, len(values))
-	for _, value := range values {
-		result[value.HostID] = value.Incarnation
 	}
 	return result
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,17 +18,19 @@ func TestProductionAutoscaleAppliesOneNodePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	var applied int
+	var lastTarget int
 	runtime := &productionAutoscale{controller: controller, regions: []string{"gru"}, apply: func(region string, target int) error {
-		if region != "gru" || target != 3 {
+		if region != "gru" || target != 2 && target != 3 {
 			t.Fatalf("target %s/%d", region, target)
 		}
+		lastTarget = target
 		applied++
 		return nil
 	}}
 	if err := runtime.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if applied != 1 {
+	if applied != 2 || lastTarget != 3 {
 		t.Fatalf("applied=%d", applied)
 	}
 }
@@ -53,4 +56,32 @@ func (s *runtimeAutoscaleTargets) Load(context.Context, string) (autoscale.Targe
 func (s *runtimeAutoscaleTargets) CompareAndSwap(_ context.Context, _ string, _ *autoscale.Target, next autoscale.Target) error {
 	s.target, s.found = next, true
 	return nil
+}
+
+func TestProductionAutoscaleHydratesBeforeObservationFailure(t *testing.T) {
+	store := &runtimeAutoscaleTargets{target: autoscale.Target{Region: "gru", Members: 3}, found: true}
+	var applied int
+	source := failingRuntimeAutoscaleSource{check: func() {
+		if applied != 3 {
+			t.Fatal("telemetry read before durable target restored")
+		}
+	}}
+	controller, err := autoscale.New(autoscale.Config{Source: source, Targets: store, Authority: runtimeAutoscaleAuthority{}, MinMembers: 2, MaxMembers: 6, CPUThreshold: 80, MemoryThreshold: 80, HighSamples: 3, ObservationMaxAge: time.Minute, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &productionAutoscale{controller: controller, regions: []string{"gru"}, apply: func(_ string, target int) error { applied = target; return nil }}
+	if err := runtime.Reconcile(t.Context()); err == nil {
+		t.Fatal("source failure hidden")
+	}
+	if applied != 3 {
+		t.Fatal("durable target not restored")
+	}
+}
+
+type failingRuntimeAutoscaleSource struct{ check func() }
+
+func (s failingRuntimeAutoscaleSource) Observe(context.Context, string) ([]autoscale.Observation, error) {
+	s.check()
+	return nil, errors.New("telemetry unavailable")
 }

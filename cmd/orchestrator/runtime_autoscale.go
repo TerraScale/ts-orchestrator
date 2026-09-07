@@ -21,9 +21,28 @@ type productionAutoscale struct {
 	apply      func(string, int) error
 }
 
-func (a *productionAutoscale) Reconcile(ctx context.Context) error {
+// Hydrate restores admitted targets without depending on fresh telemetry.
+func (a *productionAutoscale) Hydrate(ctx context.Context) error {
 	if a == nil || a.controller == nil || a.apply == nil {
 		return errors.New("autoscale: runtime is unavailable")
+	}
+	for _, region := range a.regions {
+		target, found, err := a.controller.Target(ctx, region)
+		if err != nil {
+			return err
+		}
+		if found {
+			if err := a.apply(target.Region, target.Members); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (a *productionAutoscale) Reconcile(ctx context.Context) error {
+	if err := a.Hydrate(ctx); err != nil {
+		return err
 	}
 	for _, region := range a.regions {
 		plan, created, err := a.controller.Evaluate(ctx, region)
@@ -32,19 +51,6 @@ func (a *productionAutoscale) Reconcile(ctx context.Context) error {
 		}
 		if created {
 			if err := a.apply(plan.Region, plan.DesiredMembers); err != nil {
-				return err
-			}
-			continue
-		}
-		// Re-apply the durable target after restart (or takeover). The
-		// authority journal is the source of truth; a new pressure sample is
-		// not required to resume an already admitted capacity decision.
-		target, found, err := a.controller.Target(ctx, region)
-		if err != nil {
-			return err
-		}
-		if found {
-			if err := a.apply(target.Region, target.Members); err != nil {
 				return err
 			}
 		}
