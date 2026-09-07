@@ -151,6 +151,7 @@ type tsNodeBootstrapMaterial struct {
 type tsNodeConfigurationFile struct {
 	EngineObservation             *tbep.FileConfig           `json:"engineObservation,omitempty"`
 	AuthorityReader               nodeauthority.ReaderConfig `json:"authorityReader"`
+	BootstrapBeforeNATS           bool                       `json:"bootstrapBeforeNats"`
 	BootstrapGrantFile            string                     `json:"bootstrapGrantFile"`
 	BootstrapPublicKeyFile        string                     `json:"bootstrapPublicKeyFile"`
 	AuthorityBucket               string                     `json:"authorityBucket"`
@@ -315,7 +316,8 @@ func canonicalTSNodeConfig(config TSNodeConfig, publicKey ed25519.PublicKey) ([]
 		return nil, err
 	}
 	wire := tsNodeConfigurationFile{EngineObservation: config.engineObservation, AuthorityReader: config.AuthorityReader,
-		BootstrapGrantFile: BootstrapGrantPath, BootstrapPublicKeyFile: BootstrapPublicKeyPath,
+		BootstrapBeforeNATS: true,
+		BootstrapGrantFile:  BootstrapGrantPath, BootstrapPublicKeyFile: BootstrapPublicKeyPath,
 		AuthorityBucket: config.AuthorityBucket, CommandTrustKeys: trustRefs,
 		NodeID: config.NodeID, NATSURL: config.NATSURL,
 		NATSNKeyFile: tsNodeNKeyPath, NATSTLSCAFile: tsNodeTLSCAPath, NATSTLSCertFile: tsNodeTLSCertPath, NATSTLSKeyFile: tsNodeTLSKeyPath,

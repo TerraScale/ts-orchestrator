@@ -52,6 +52,10 @@ type FencedRollbacker interface {
 	RollbackFenced(context.Context, *Request, *ReleaseArtifact, OperationFence, FenceChecker) (*Rollback, error)
 }
 
+type FencedRolloutRecovery interface {
+	RecoverFenced(context.Context, *Request, *ReleaseArtifact, *RolloutProgress, OperationFence, FenceChecker) (*Rollback, error)
+}
+
 // RolloutResult is the terminal outcome of one rollout.
 type RolloutResult struct {
 	Status    string
@@ -320,7 +324,7 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 	if err != nil {
 		return nil, err
 	}
-	recovery, ok := s.config.Rollout.(RolloutRecovery)
+	recovery, ok := s.config.Rollout.(FencedRolloutRecovery)
 	if !ok {
 		return nil, errors.New("delivery: rollout recovery is unavailable")
 	}
@@ -329,7 +333,7 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 	if err != nil {
 		return nil, err
 	}
-	rollback, err := recovery.Recover(fenced, claimed.Request, artifact, claimed.Rollout)
+	rollback, err := recovery.RecoverFenced(fenced, claimed.Request, artifact, claimed.Rollout, fenceFor(claimed), check)
 	if err != nil {
 		return nil, err
 	}
@@ -637,6 +641,13 @@ func (s *Executor) recoverOwnedRollout(ctx context.Context, request *Request, ar
 	}
 	if fenced, ok := s.config.Rollout.(FencedRollbacker); ok {
 		return recoverFencedRollout(ctx, fenced, request, artifact, fenceFor(operation), s.checker(ctx, request))
+	}
+	if fenced, ok := s.config.Rollout.(FencedRolloutRecovery); ok {
+		rollback, err := fenced.RecoverFenced(ctx, request, artifact, operation.Rollout, fenceFor(operation), s.checker(ctx, request))
+		if err != nil {
+			return nil
+		}
+		return rollback
 	}
 	return recoverRollout(ctx, s.config.Rollout, request, artifact)
 }

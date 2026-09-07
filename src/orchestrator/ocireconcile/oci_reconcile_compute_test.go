@@ -204,6 +204,27 @@ func TestComputeReconcilePlans(t *testing.T) {
 	}
 }
 
+func TestRemovalOperationIDIsUniquePerProviderIncarnation(t *testing.T) {
+	first := testOwnedMember("gru", 3, "VM.Standard.A1.Flex", "RUNNING", "AD-1")
+	second := testOwnedMember("gru", 4, "VM.Standard.A1.Flex", "RUNNING", "AD-1")
+	if got := removalOperationID("gru", first); got == removalOperationID("gru", second) {
+		t.Fatalf("distinct members share removal operation ID %q", got)
+	}
+	if got := removalOperationID("gru", first); got != removalOperationID("gru", first) {
+		t.Fatalf("same provider incarnation did not produce a stable operation ID")
+	}
+	changedRevision := first
+	changedRevision.ETag += "-changed"
+	if got := removalOperationID("gru", first); got != removalOperationID("gru", changedRevision) {
+		t.Fatalf("mutable provider revision changed removal operation ID %q", got)
+	}
+	changedIncarnation := first
+	changedIncarnation.ID += "-replacement"
+	if got := removalOperationID("gru", first); got == removalOperationID("gru", changedIncarnation) {
+		t.Fatalf("changed provider incarnation reused removal operation ID %q", got)
+	}
+}
+
 func TestComputeApplyPreservesUnownedAndStaleMembers(t *testing.T) {
 	declared := testComputeDeclared(t)
 	owned := testOwnedMember("gru", 3, declared.Region.Members.PrimaryShape, "RUNNING", "AD-1")

@@ -234,14 +234,13 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 }
 
 func computeShapeArchitecture(shape string) string {
-	switch {
-	case strings.HasPrefix(shape, "VM.Standard.A1"):
+	if strings.HasPrefix(shape, "VM.Standard.A1") {
 		return "arm64"
-	case strings.HasPrefix(shape, "VM.Standard.E3"), strings.HasPrefix(shape, "VM.Standard.E4"), strings.HasPrefix(shape, "VM.Standard.E5"):
-		return "amd64"
-	default:
-		return ""
 	}
+	if rest, ok := strings.CutPrefix(shape, "VM.Standard.E"); ok && rest != "" && rest[0] >= '0' && rest[0] <= '9' {
+		return "amd64"
+	}
+	return ""
 }
 
 type ociAutomatedInstance struct {

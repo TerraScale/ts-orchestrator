@@ -84,3 +84,29 @@ func TestEvaluateCooldownAndInvalidObservationsHoldTarget(t *testing.T) {
 		t.Fatalf("invalid observation plan = %v, %v", created, err)
 	}
 }
+
+func TestEvaluateAcceptsIndependentHostSequences(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: []Observation{
+		{HostID: "host-a", EngineID: "engine-a", Sequence: 17, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
+		{HostID: "host-b", EngineID: "engine-b", Sequence: 12, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
+	}}
+	targets := &testTargets{value: Target{Region: "gru", Members: 2}, found: true}
+	c := testController(t, source, targets, now)
+	_, created, err := c.Evaluate(context.Background(), "gru")
+	if err != nil || created {
+		t.Fatalf("first independent sample = created %v, err %v", created, err)
+	}
+	source.observations[0].Sequence = 18
+	source.observations[1].Sequence = 13
+	_, created, err = c.Evaluate(context.Background(), "gru")
+	if err != nil || created {
+		t.Fatalf("second independent sample = created %v, err %v", created, err)
+	}
+	source.observations[0].Sequence = 19
+	source.observations[1].Sequence = 14
+	plan, created, err := c.Evaluate(context.Background(), "gru")
+	if err != nil || !created || plan.ObservationSeq != 19 || plan.DesiredMembers != 3 {
+		t.Fatalf("independent sample plan = %+v, created %v, err %v", plan, created, err)
+	}
+}

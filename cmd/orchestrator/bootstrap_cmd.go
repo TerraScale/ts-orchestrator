@@ -51,6 +51,7 @@ const (
 var bootstrapInputs = []string{
 	ocireconcile.OCITenancyEnvironment,
 	ocireconcile.OCIImageEnvironment,
+	ociFallbackImageIDEnvironment,
 	bootstrapAvailabilityDomainsEnvironment,
 	ocireconcile.TSNodeURLEnvironment,
 	ocireconcile.TSNodeSHA256Environment,
@@ -162,6 +163,7 @@ func bootstrapConfigFromEnv(lookup envLookup) (bootstrap.BootstrapConfig, error)
 	config := bootstrap.DefaultBootstrapConfig()
 	config.TenancyID = values[ocireconcile.OCITenancyEnvironment]
 	config.ImageID = values[ocireconcile.OCIImageEnvironment]
+	config.FallbackImageID = values[ociFallbackImageIDEnvironment]
 	config.AvailabilityDomains = domains
 	config.CloudInit = bootstrap.CloudInitConfig{
 		ArtifactURL:        artifactURL,

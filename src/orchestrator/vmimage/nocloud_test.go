@@ -785,6 +785,9 @@ func TestNoCloudNATSIdentityIsPrivateAndBoundToGuest(t *testing.T) {
 	if config.NATSNKeyFile != tsNodeNKeyPath || config.NATSTLSCAFile != tsNodeTLSCAPath || config.NATSTLSCertFile != tsNodeTLSCertPath || config.NATSTLSKeyFile != tsNodeTLSKeyPath {
 		t.Fatal("ts-node did not receive private identity file paths")
 	}
+	if !config.BootstrapBeforeNATS || config.BootstrapGrantFile == "" || config.BootstrapPublicKeyFile == "" {
+		t.Fatal("ts-node config does not select pre-NATS bootstrap with its signed grant")
+	}
 	spec.TSNode.NATSIdentity.NKeySeed[0] ^= 1
 	if bytes.Equal(seed.RootFiles[2].Content, spec.TSNode.NATSIdentity.NKeySeed) {
 		t.Fatal("seed retains caller-owned secret bytes")

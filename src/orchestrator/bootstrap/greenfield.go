@@ -73,6 +73,7 @@ type BootstrapConfig struct {
 	VaultKeyName        string
 	Buckets             []BucketSpec
 	ImageID             string
+	FallbackImageID     string
 	AvailabilityDomains []string
 	PrimaryShape        string
 	FallbackShape       string
@@ -156,7 +157,7 @@ func (c BootstrapConfig) Validate() error {
 		c.RegionCode != BootstrapRegionCode || c.OCIRegion == "" || strings.ContainsAny(c.OCIRegion, "\r\n\x00") {
 		return ErrInvalidBootstrap
 	}
-	for _, value := range []string{c.CompartmentName, c.VCNName, c.NSGName, c.VaultName, c.VaultKeyName, c.ImageID} {
+	for _, value := range []string{c.CompartmentName, c.VCNName, c.NSGName, c.VaultName, c.VaultKeyName, c.ImageID, c.FallbackImageID} {
 		if !validName(value) {
 			return ErrInvalidBootstrap
 		}
@@ -312,22 +313,23 @@ const (
 )
 
 type ShapeCandidate struct {
-	AvailabilityDomain, Shape string
-	OCPUs, MemoryGiB          float64
+	AvailabilityDomain, Shape, Architecture, ImageID string
+	OCPUs, MemoryGiB                                 float64
 }
 type NetworkRule struct {
 	Direction, Protocol, Peer string
 	PortMin, PortMax          uint16
 }
 type HostSpec struct {
-	Name          string           `json:"name"`
-	PlacementLock string           `json:"placementLock"`
-	Candidates    []ShapeCandidate `json:"candidates"`
-	ImageID       string           `json:"imageId"`
-	SubnetCIDR    string           `json:"subnetCIDR"`
-	NSGName       string           `json:"nsgName"`
-	DataVolumeGiB uint64           `json:"dataVolumeGiB"`
-	CloudInit     string           `json:"cloudInit"`
+	Name            string           `json:"name"`
+	PlacementLock   string           `json:"placementLock"`
+	Candidates      []ShapeCandidate `json:"candidates"`
+	ImageID         string           `json:"imageId"`
+	FallbackImageID string           `json:"fallbackImageId"`
+	SubnetCIDR      string           `json:"subnetCIDR"`
+	NSGName         string           `json:"nsgName"`
+	DataVolumeGiB   uint64           `json:"dataVolumeGiB"`
+	CloudInit       string           `json:"cloudInit"`
 }
 
 type Step struct {
@@ -408,8 +410,8 @@ func PlanBootstrap(c BootstrapConfig) (Plan, error) {
 	// this planning model free of a second renderer prevents stale bootstrap
 	// instructions from reaching OCI.
 	steps = append(steps,
-		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
-		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
+		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
+		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
 	)
 	if c.Edge != nil {
 		edge := *c.Edge
@@ -447,7 +449,7 @@ func BootstrapPlan(c BootstrapConfig) (Plan, error) { return PlanBootstrap(c) }
 func hostCandidates(c BootstrapConfig) []ShapeCandidate {
 	out := make([]ShapeCandidate, 0, len(c.AvailabilityDomains)*2)
 	for _, ad := range c.AvailabilityDomains {
-		out = append(out, ShapeCandidate{ad, c.PrimaryShape, c.OCPUs, c.MemoryGiB}, ShapeCandidate{ad, c.FallbackShape, c.OCPUs, c.MemoryGiB})
+		out = append(out, ShapeCandidate{AvailabilityDomain: ad, Shape: c.PrimaryShape, Architecture: "arm64", ImageID: c.ImageID, OCPUs: c.OCPUs, MemoryGiB: c.MemoryGiB}, ShapeCandidate{AvailabilityDomain: ad, Shape: c.FallbackShape, Architecture: "amd64", ImageID: c.FallbackImageID, OCPUs: c.OCPUs, MemoryGiB: c.MemoryGiB})
 	}
 	return out
 }

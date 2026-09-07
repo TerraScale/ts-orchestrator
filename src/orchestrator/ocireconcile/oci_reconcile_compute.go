@@ -1,15 +1,15 @@
 package ocireconcile
 
-import "terrascale.tech/orchestrator/src/orchestrator/provider"
-
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -18,6 +18,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
@@ -575,9 +576,20 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 				survivors = append(survivors, candidate)
 			}
 		}
-		return owner.RemoveMember(ctx, region, member, survivors)
+		return owner.RemoveMember(ctx, removalOperationID(region, member), member, survivors)
 	}
 	return nil // already terminated/absent
+}
+
+// removalOperationID binds the durable removal journal entry to this exact
+// provider incarnation. A Region is a scope, not an operation identity: more
+// than one member can be removed there, and retries must address the same
+// member even after the reconciler restarts. The OCI resource ID identifies
+// the incarnation; ETag is a mutable concurrency revision and is deliberately
+// excluded so a retry can retain the same journal entry.
+func removalOperationID(region string, member ObservedMember) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", region, member.ID, member.Index)))
+	return "remove-" + hex.EncodeToString(digest[:16])
 }
 
 // launchWithFallback implements the D-69 capacity rule: an out-of-capacity

@@ -150,7 +150,10 @@ func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, obs
 		}
 		return r.terminateFn(ctx, member.ID, observedMember.ProviderETag)
 	}
-	owner.ReconcileTermination = owner.Terminate
+	// An exact terminal observation is already authoritative provider evidence.
+	// Reconciliation records that evidence in the removal journal; it must not
+	// submit a second termination mutation.
+	owner.ReconcileTermination = func(context.Context, string) error { return nil }
 	return &owner
 }
 

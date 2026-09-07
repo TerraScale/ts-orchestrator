@@ -93,7 +93,8 @@ func (g *runtimeRemovalGateway) TerminateMember(_ context.Context, id, etag stri
 		return errors.New("wrong resource")
 	}
 	if g.terminal {
-		return nil
+		g.terminations++
+		return errors.New("duplicate termination mutation")
 	}
 	g.terminations++
 	g.terminal = true

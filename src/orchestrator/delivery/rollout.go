@@ -20,6 +20,15 @@ type Rollout struct {
 	config RolloutConfig
 }
 
+func (r *Rollout) RecoverFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, progress *RolloutProgress, fence OperationFence, check FenceChecker) (*Rollback, error) {
+	if r == nil || r.config.Control == nil || check == nil {
+		return nil, ErrOperationLeaseActive
+	}
+	copy := *r
+	copy.config.Control = &fencedHostControl{inner: r.config.Control, fence: fence, check: check}
+	return copy.Recover(ctx, request, artifact, progress)
+}
+
 func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *ReleaseArtifact, progress *RolloutProgress) (*Rollback, error) {
 	failed := func(err error) (*Rollback, error) { return &Rollback{Attempted: true, Status: RollbackFailed}, err }
 	if r == nil || request == nil || request.Rollback == nil || progress == nil {
@@ -36,6 +45,9 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 			return failed(err)
 		}
 		if SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) {
+			if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
+				return failed(err)
+			}
 			continue
 		}
 		if !SameDigest(state.ArtifactDigest, artifact.Digest) {
@@ -46,6 +58,9 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 			return failed(err)
 		}
 		if err := r.config.Control.Converge(ctx, h.Host, plan); err != nil {
+			return failed(err)
+		}
+		if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
 			return failed(err)
 		}
 	}

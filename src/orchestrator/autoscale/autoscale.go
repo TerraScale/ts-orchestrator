@@ -137,7 +137,7 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, nil
 	}
 	previousState := state
-	seq := observations[0].Sequence
+	seq := latestObservationSequence(observations)
 	if seq <= state.LastObservation {
 		return Plan{}, false, nil
 	}
@@ -193,9 +193,8 @@ func validObservations(values []Observation, now time.Time, maxAge time.Duration
 		return false
 	}
 	seenHosts, seenEngines := map[string]struct{}{}, map[string]struct{}{}
-	sequence := values[0].Sequence
 	for _, value := range values {
-		if value.HostID == "" || value.EngineID == "" || value.Sequence <= 0 || value.Sequence != sequence || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity < 0 || value.QueueCapacity == 0 && value.QueueDepth != 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
+		if value.HostID == "" || value.EngineID == "" || value.Sequence <= 0 || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity < 0 || value.QueueCapacity == 0 && value.QueueDepth != 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
 			return false
 		}
 		if _, ok := seenHosts[value.HostID]; ok {
@@ -208,6 +207,14 @@ func validObservations(values []Observation, now time.Time, maxAge time.Duration
 		seenEngines[value.EngineID] = struct{}{}
 	}
 	return true
+}
+
+func latestObservationSequence(values []Observation) int64 {
+	var latest int64
+	for _, value := range values {
+		latest = max(latest, value.Sequence)
+	}
+	return latest
 }
 
 func allHigh(values []Observation, config Config) bool {
