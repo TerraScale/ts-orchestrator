@@ -166,9 +166,15 @@ func newProductionTBEPClient(host productionDatabaseHost, record databaseadmissi
 // create an isolated child identity. The pipeline persists the child and its
 // parent-bound branch evidence under the same NATS authority and is therefore
 // safe to retry with the deterministic operation identity.
+type restoreStatsGrantJournal interface {
+	Transact(context.Context, bool, func(*lifecycleGrantRecord) error) error
+}
+
 type productionDatabaseBranchPort struct {
+	acceptedRecord  func(context.Context, string) (databaseadmission.Record, error)
+	statsClient     func(productionDatabaseHost, databaseadmission.Record) (*tbep.Client, error)
 	renewStatsGrant func(context.Context, tbep.LifecycleAssignment, lifecycleOperationGrant) (tbep.LifecycleAssignment, error)
-	grantJournal    func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+	grantJournal    func(string) (restoreStatsGrantJournal, error)
 	database        **productionDatabase
 	config          productionDatabaseConfig
 }
@@ -207,11 +213,10 @@ func (p productionDatabaseBranchPort) CreateScratch(ctx context.Context, request
 }
 
 func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restoredrill.ScratchBranch) (restoredrill.RestoreStats, error) {
-	if p.database == nil || *p.database == nil || branch.ID == "" {
+	if p.acceptedRecord == nil || p.statsClient == nil || branch.ID == "" {
 		return restoredrill.RestoreStats{}, errors.New("restore branch: admitted database is unavailable")
 	}
-	database := *p.database
-	record, err := database.AcceptedRecord(ctx, branch.ID)
+	record, err := p.acceptedRecord(ctx, branch.ID)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
@@ -219,7 +224,7 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
-	client, err := newProductionTBEPClient(host, record)
+	client, err := p.statsClient(host, record)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
@@ -360,4 +365,21 @@ func (p productionDatabaseBackupPort) renewRestoreStatsGrant(ctx context.Context
 	placement.OperationGrant, err = json.Marshal(signed)
 	placement.AuthorityEpoch, placement.AuthorityLease = renewed.AuthorityEpoch, renewed.AuthorityLease
 	return placement, err
+}
+
+func newProductionDatabaseBranchPort(database **productionDatabase, config productionDatabaseConfig, backup productionDatabaseBackupPort) productionDatabaseBranchPort {
+	return productionDatabaseBranchPort{database: database, config: config, renewStatsGrant: backup.renewRestoreStatsGrant, statsClient: newProductionTBEPClient,
+		acceptedRecord: func(ctx context.Context, id string) (databaseadmission.Record, error) {
+			if database == nil || *database == nil {
+				return databaseadmission.Record{}, errors.New("restore branch: admitted database unavailable")
+			}
+			return (*database).AcceptedRecord(ctx, id)
+		},
+		grantJournal: func(op string) (restoreStatsGrantJournal, error) {
+			if backup.grantJournal == nil {
+				return nil, errors.New("restore branch: grant journal unavailable")
+			}
+			return backup.grantJournal(op)
+		},
+	}
 }

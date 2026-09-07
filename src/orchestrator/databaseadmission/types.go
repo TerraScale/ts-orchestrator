@@ -40,6 +40,26 @@ type Request struct {
 	Regions         []string `json:"regions"`
 	Residency       string   `json:"residency"`
 }
+type RestoreSelection struct {
+	Kind       string `json:"kind"`
+	PointID    string `json:"point_id,omitempty"`
+	UnixMillis int64  `json:"unix_millis,omitempty"`
+}
+type RestoreRequest struct {
+	Environment      string           `json:"environment"`
+	TenantID         string           `json:"tenant_id"`
+	ProjectID        string           `json:"project_id"`
+	SourceDatabaseID string           `json:"source_database_id"`
+	Name             string           `json:"name"`
+	Selection        RestoreSelection `json:"selection"`
+	OperationID      string           `json:"operation_id"`
+}
+type RestoreAdmissionFacts struct {
+	PointID    string `json:"point_id"`
+	Provider   string `json:"provider"`
+	JournalCut string `json:"journal_cut"`
+	Epoch      uint64 `json:"epoch"`
+}
 type Target struct {
 	ServerIdentity string
 	MemberID       string
@@ -68,6 +88,8 @@ type Plan struct {
 	Placements []PlacementTarget
 }
 type Record struct {
+	RestoreFacts     *RestoreAdmissionFacts `json:"restore_facts,omitempty"`
+	Restore          *RestoreRequest        `json:"restore,omitempty"`
 	PlacementTargets []PlacementTarget
 	BranchSource     *BranchSource
 	BranchEvidence   []SignedReadiness
@@ -149,6 +171,27 @@ func ValidateRequest(r Request) error {
 		if !slices.Contains(allowed, region) {
 			return ErrInvalid
 		}
+	}
+	return nil
+}
+func ValidateRestoreRequest(r RestoreRequest) error {
+	if !environmentName.MatchString(r.Environment) || !canonicalID.MatchString(r.TenantID) || !canonicalID.MatchString(r.ProjectID) || !canonicalID.MatchString(r.SourceDatabaseID) || !databaseName.MatchString(r.Name) || len(r.OperationID) == 0 || len(r.OperationID) > 128 {
+		return ErrInvalid
+	}
+	if r.Selection.Kind == "latest" {
+		if r.Selection.PointID != "" || r.Selection.UnixMillis != 0 {
+			return ErrInvalid
+		}
+	} else if r.Selection.Kind == "point_id" {
+		if r.Selection.PointID == "" || r.Selection.UnixMillis != 0 {
+			return ErrInvalid
+		}
+	} else if r.Selection.Kind == "unix_millis" {
+		if r.Selection.UnixMillis <= 0 || r.Selection.PointID != "" {
+			return ErrInvalid
+		}
+	} else {
+		return ErrInvalid
 	}
 	return nil
 }

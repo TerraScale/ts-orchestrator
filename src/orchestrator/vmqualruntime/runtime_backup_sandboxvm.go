@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
@@ -32,6 +33,8 @@ type backupFixtureCredential struct {
 	bucket, region string
 }
 type qualificationBackupFixture struct {
+	mu          sync.RWMutex
+	closed      bool
 	credentials []backupFixtureCredential
 	store       *objectstore.Server
 	server      *http.Server
@@ -84,6 +87,9 @@ func loadQualificationBackup(path string) (*qualificationBackupFixture, error) {
 
 func (services *qualificationRuntimeServices) startBackup(ctx context.Context) error {
 	fixture := services.backup
+	if fixture != nil && fixture.closed {
+		return errors.New("vmqual: backup fixture is closed")
+	}
 	if fixture == nil || len(fixture.credentials) == 0 {
 		return nil
 	}
@@ -123,6 +129,12 @@ func (services *qualificationRuntimeServices) startBackup(ctx context.Context) e
 // ServeHTTP adapts the signed S3 single-object contract to the durable local OCI
 // handler. It deliberately does not claim provider or residency qualification.
 func (fixture *qualificationBackupFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fixture.mu.RLock()
+	defer fixture.mu.RUnlock()
+	if fixture.closed {
+		http.Error(w, "fixture closed", http.StatusGone)
+		return
+	}
 	if r.Host != backupFixtureHostname || r.URL.RawQuery != "" || (r.Method != http.MethodPut && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodDelete) {
 		http.Error(w, "unsupported fixture request", http.StatusBadRequest)
 		return
@@ -153,7 +165,16 @@ func (fixture *qualificationBackupFixture) ServeHTTP(w http.ResponseWriter, r *h
 	forwarded.URL.Path = "/n/vmqual-backup/b/" + bucket + "/o/" + key
 	forwarded.URL.RawPath = "/n/vmqual-backup/b/" + url.PathEscape(bucket) + "/o/" + url.PathEscape(key)
 	forwarded.Body = io.NopCloser(bytes.NewReader(body))
-	fixture.store.ServeHTTP(w, forwarded)
+	response := httptest.NewRecorder()
+	fixture.store.ServeHTTP(response, forwarded)
+	for name, values := range response.Header() {
+		w.Header()[name] = values
+	}
+	if r.Method == http.MethodPut || r.Method == http.MethodDelete {
+		w.Header().Del("Content-Length")
+	}
+	w.WriteHeader(response.Code)
+	_, _ = w.Write(response.Body.Bytes())
 }
 
 func backupHMAC(key []byte, value string) []byte {
@@ -247,6 +268,9 @@ func (fixture *qualificationBackupFixture) close(ctx context.Context) error {
 		}
 		fixture.server, fixture.listener, fixture.done = nil, nil, nil
 	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	fixture.closed = true
 	if fixture.store != nil {
 		errs = append(errs, fixture.store.Close())
 		fixture.store = nil

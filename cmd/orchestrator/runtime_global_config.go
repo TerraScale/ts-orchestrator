@@ -142,17 +142,13 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	// pipeline as ordinary databases; it never mints a local identity.
 	var databaseRef *productionDatabase
 	config.BranchDatabaseRef = &databaseRef
-	config.Restore.Branches = productionDatabaseBranchPort{database: &databaseRef, config: config.Database}
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef
 	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database, refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: input.Transition.Issuer.ProofKeyID, key: slices.Clone(input.Transition.Issuer.ProofKey), grantJournal: func(op string) (*authorityjournal.Journal[lifecycleGrantRecord], error) {
 		h := sha256.Sum256([]byte(op))
 		return authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "restore-grant-" + hex.EncodeToString(h[:])}, func() lifecycleGrantRecord { return lifecycleGrantRecord{} }, func(lifecycleGrantRecord) error { return nil })
 	}}
-	branchPort := config.Restore.Branches.(productionDatabaseBranchPort)
-	branchPort.grantJournal = config.Restore.Backup.(productionDatabaseBackupPort).grantJournal
-	branchPort.renewStatsGrant = config.Restore.Backup.(productionDatabaseBackupPort).renewRestoreStatsGrant
-	config.Restore.Branches = branchPort
+	config.Restore.Branches = newProductionDatabaseBranchPort(&databaseRef, config.Database, config.Restore.Backup.(productionDatabaseBackupPort))
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient

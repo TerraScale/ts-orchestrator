@@ -104,6 +104,11 @@ func TestRestoreStatsRPCRenewsExpiredOriginalGrantWithoutChangingRestore(t *test
 	if err := call(rebound); err == nil {
 		t.Fatal("different immutable restore digest accepted")
 	}
+	changedPlacement := placement
+	changedPlacement.AuthoritySignature = []byte("changed-full-placement")
+	if _, err := issuer.renewRestoreStatsGrant(t.Context(), changedPlacement, original); err == nil {
+		t.Fatal("changed accepted placement admitted")
+	}
 	if original.ExpiresAtUnixMillis >= time.Now().UnixMilli() {
 		t.Fatal("original grant was mutated")
 	}
