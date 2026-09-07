@@ -182,10 +182,10 @@ type Vault = CapabilityVault
 // CredentialSet is passed to a member or edge provider in memory. Providers
 // must treat it as borrowed and must not persist or log it.
 type CredentialSet struct {
-	Identity           IdentityMaterial
-	Capability         CapabilityMaterial
-	PreviousCapability CapabilityMaterial
-	OriginProof        OriginProofMaterial
+	Identity            IdentityMaterial
+	Capability          CapabilityMaterial
+	PreviousCapability  CapabilityMaterial
+	OriginProof         OriginProofMaterial
 	PreviousOriginProof OriginProofMaterial
 }
 
@@ -288,64 +288,65 @@ type AuditSink interface {
 // PersistedState is the complete restart journal for one active transition.
 // References are opaque and must not be dereferenced by a StateStore.
 type PersistedState struct {
-	OperationID          string
-	Generation           uint64
-	Phase                Phase
-	LastVersion          uint64
-	LastAt               time.Time
-	Regions              []string
-	OldIdentityRef       string
-	OldCapabilityRef     string
-	OldCapabilityID      string
-	OldOriginProofRef    string
-	OldOriginProofID     string
-	OldOriginProofExpiry time.Time
-	OldVersion           uint64
-	OldExpiry            time.Time
-	CurrentIdentityRef   string
-	CurrentCapabilityRef string
-	CurrentCapabilityID  string
-	CurrentOriginProofRef string
-	CurrentOriginProofID  string
-	PreviousCapabilityID string
-	CurrentVersion       uint64
-	CurrentExpiry        time.Time
-	NewIdentityRef       string
-	NewCapabilityRef     string
-	NewCapabilityID      string
-	NewOriginProofRef    string
-	NewOriginProofID     string
-	NewVersion           uint64
-	NewBucket            int64
-	OriginProofBucket    int64
-	NewNotBefore         time.Time
-	NewExpiry            time.Time
-	OriginProofExpiry    time.Time
-	Members              map[string][]string
-	Distributed          map[string]bool
-	Verified             map[string]bool
-	Activated            map[string]bool
-	Retired              map[string]bool
-	EdgeDistributed      bool
-	EdgeVerified         bool
-	EdgeActivated        bool
-	PublicationReceipt   PublicationReceipt
-	PublicationCommitted bool
-	FailureCode          string
+	OperationID            string
+	OriginProofOperationID string
+	Generation             uint64
+	Phase                  Phase
+	LastVersion            uint64
+	LastAt                 time.Time
+	Regions                []string
+	OldIdentityRef         string
+	OldCapabilityRef       string
+	OldCapabilityID        string
+	OldOriginProofRef      string
+	OldOriginProofID       string
+	OldOriginProofExpiry   time.Time
+	OldVersion             uint64
+	OldExpiry              time.Time
+	CurrentIdentityRef     string
+	CurrentCapabilityRef   string
+	CurrentCapabilityID    string
+	CurrentOriginProofRef  string
+	CurrentOriginProofID   string
+	PreviousCapabilityID   string
+	CurrentVersion         uint64
+	CurrentExpiry          time.Time
+	NewIdentityRef         string
+	NewCapabilityRef       string
+	NewCapabilityID        string
+	NewOriginProofRef      string
+	NewOriginProofID       string
+	NewVersion             uint64
+	NewBucket              int64
+	OriginProofBucket      int64
+	NewNotBefore           time.Time
+	NewExpiry              time.Time
+	OriginProofExpiry      time.Time
+	Members                map[string][]string
+	Distributed            map[string]bool
+	Verified               map[string]bool
+	Activated              map[string]bool
+	Retired                map[string]bool
+	EdgeDistributed        bool
+	EdgeVerified           bool
+	EdgeActivated          bool
+	PublicationReceipt     PublicationReceipt
+	PublicationCommitted   bool
+	FailureCode            string
 }
 
 // RotationResult is a redacted view returned to callers.
 type RotationResult struct {
-	OperationID   string
-	Generation    uint64
-	Phase         Phase
-	Regions       []string
-	OldVersion    uint64
-	NewVersion    uint64
-	NewBucket     int64
-	NewExpiry     time.Time
-	CurrentKeyID  string
-	PreviousKeyID string
+	OperationID           string
+	Generation            uint64
+	Phase                 Phase
+	Regions               []string
+	OldVersion            uint64
+	NewVersion            uint64
+	NewBucket             int64
+	NewExpiry             time.Time
+	CurrentKeyID          string
+	PreviousKeyID         string
 	CurrentOriginProofID  string
 	PreviousOriginProofID string
 }
@@ -353,11 +354,11 @@ type RotationResult struct {
 // Config supplies all external effects. All fields are required except Clock,
 // Audit, and ExpirySafety. A clock is injected to make expiry tests hermetic.
 type Config struct {
-	Issuer  IdentityIssuer
-	Vault   CapabilityVault
+	Issuer      IdentityIssuer
+	Vault       CapabilityVault
 	OriginProof OriginProofVault
-	Members MemberGateway
-	Secrets SecretsStore
+	Members     MemberGateway
+	Secrets     SecretsStore
 	// Publisher, when supplied, is the atomic member+Snippet publication
 	// adapter. The legacy stage adapters remain available for deployments that
 	// compose those operations separately.
@@ -373,19 +374,19 @@ type Config struct {
 // Coordinator performs one serialized rotation at a time. Provider calls are
 // made without exposing secret material outside the injected interfaces.
 type Coordinator struct {
-	issuer    IdentityIssuer
-	vault     CapabilityVault
+	issuer      IdentityIssuer
+	vault       CapabilityVault
 	originProof OriginProofVault
-	members   MemberGateway
-	secrets   SecretsStore
-	publisher AtomicPublisher
-	reloader  Reloader
-	state     StateStore
-	audit     AuditSink
-	regions   []string
-	clock     func() time.Time
-	safety    time.Duration
-	mu        sync.Mutex
+	members     MemberGateway
+	secrets     SecretsStore
+	publisher   AtomicPublisher
+	reloader    Reloader
+	state       StateStore
+	audit       AuditSink
+	regions     []string
+	clock       func() time.Time
+	safety      time.Duration
+	mu          sync.Mutex
 }
 
 // RotationCoordinator is the explicit name used by integrations.
@@ -687,7 +688,7 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 	}
 	state.NewIdentityRef, state.NewCapabilityRef, state.NewCapabilityID = identity.Reference, capability.Reference, capability.ID
 	if c.originProof != nil {
-		origin, originErr := c.originProof.Generate(ctx, OriginProofRequest{OperationID: state.OperationID + "/origin-proof", Generation: state.NewVersion, Bucket: state.OriginProofBucket, NotBefore: state.NewNotBefore, ExpiresAt: state.OriginProofExpiry, IdempotencyKey: key(*state, "generate-origin-proof", "", "")})
+		origin, originErr := c.originProof.Generate(ctx, OriginProofRequest{OperationID: state.OriginProofOperationID, Generation: state.NewVersion, Bucket: state.OriginProofBucket, NotBefore: state.NewNotBefore, ExpiresAt: state.OriginProofExpiry, IdempotencyKey: key(*state, "generate-origin-proof", "", "")})
 		if originErr != nil {
 			_ = c.issuer.Retire(ctx, identity.Reference, key(*state, "identity-retire-orphan", "", ""))
 			_ = c.vault.Retire(ctx, capability.Reference, key(*state, "capability-retire-orphan", "", ""))
@@ -1106,13 +1107,16 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 		}
 	}
 	bucket := now.Unix() / int64(CapabilityPeriod/time.Second)
-	oldOriginExpiry := previous.OriginProofExpiry
+	var oldOriginExpiry time.Time
 	if currentOriginProof != "" {
+		oldOriginExpiry = previous.OriginProofExpiry
 		overlapExpiry := now.Add(CapabilityOverlap)
-		if oldOriginExpiry.IsZero() || overlapExpiry.Before(oldOriginExpiry) { oldOriginExpiry = overlapExpiry }
+		if oldOriginExpiry.IsZero() || overlapExpiry.Before(oldOriginExpiry) {
+			oldOriginExpiry = overlapExpiry
+		}
 	}
 	originBucket := OriginProofBucket(now)
-	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldOriginProofRef: currentOriginProof, OldOriginProofID: currentOriginProofID, OldOriginProofExpiry: oldOriginExpiry, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, CurrentOriginProofRef: currentOriginProof, CurrentOriginProofID: currentOriginProofID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, OriginProofBucket: originBucket, NewNotBefore: credentialStart, NewExpiry: identityExpiry, OriginProofExpiry: originProofExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
+	return PersistedState{OperationID: operationID, OriginProofOperationID: operationID + "/origin-proof", Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldOriginProofRef: currentOriginProof, OldOriginProofID: currentOriginProofID, OldOriginProofExpiry: oldOriginExpiry, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, CurrentOriginProofRef: currentOriginProof, CurrentOriginProofID: currentOriginProofID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, OriginProofBucket: originBucket, NewNotBefore: credentialStart, NewExpiry: identityExpiry, OriginProofExpiry: originProofExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {

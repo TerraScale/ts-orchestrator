@@ -49,9 +49,9 @@ type SnippetCapabilityStoreConfig struct {
 }
 
 type SnippetCapabilityStore struct {
-	config SnippetCapabilityStoreConfig
+	config      SnippetCapabilityStoreConfig
 	originVault security.OriginProofVault
-	mu     sync.Mutex
+	mu          sync.Mutex
 }
 
 var _ security.SecretsStore = (*SnippetCapabilityStore)(nil)
@@ -73,7 +73,9 @@ func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabili
 	client := *c.HTTPClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	c.HTTPClient = &client
-	if c.OriginVault == nil { return nil, capabilityEffectError() }
+	if c.OriginVault == nil {
+		return nil, capabilityEffectError()
+	}
 	return &SnippetCapabilityStore{config: c, originVault: c.OriginVault}, nil
 }
 
@@ -81,6 +83,9 @@ func capabilityEffectError() error {
 	return errors.New("cloudflare: capability deployment could not be proved")
 }
 func capabilityState(m security.CapabilityMaterial) security.CapabilityKeyState {
+	return security.CapabilityKeyState{ID: m.ID, Reference: m.Reference, Version: m.Version, Bucket: m.Bucket, NotBefore: m.NotBefore, ExpiresAt: m.ExpiresAt}
+}
+func originState(m security.OriginProofMaterial) security.CapabilityKeyState {
 	return security.CapabilityKeyState{ID: m.ID, Reference: m.Reference, Version: m.Version, Bucket: m.Bucket, NotBefore: m.NotBefore, ExpiresAt: m.ExpiresAt}
 }
 func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.CredentialSet, operation string) error {
@@ -105,7 +110,7 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 		}
 		return s.deploy(ctx, old, rev)
 	}
-	receipt := CapabilityReceipt{Generation: c.Capability.Version, Current: capabilityState(c.Capability), Previous: capabilityState(c.PreviousCapability), OriginCurrent: capabilityState(c.OriginProof), OriginPrevious: capabilityState(c.PreviousOriginProof), Phase: "staged", OperationID: operation, TemplateDigest: edgeDigest(s.config.Source)}
+	receipt := CapabilityReceipt{Generation: c.Capability.Version, Current: capabilityState(c.Capability), Previous: capabilityState(c.PreviousCapability), OriginCurrent: originState(c.OriginProof), OriginPrevious: originState(c.PreviousOriginProof), Phase: "staged", OperationID: operation, TemplateDigest: edgeDigest(s.config.Source)}
 	if old.Generation != 0 && (old.Phase != "active" || old.Current.Reference != receipt.Previous.Reference) {
 		return capabilityEffectError()
 	}
@@ -239,9 +244,13 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 	}
 	defer clear(current.Key)
 	origin, err := s.originVault.Fetch(ctx, r.OriginCurrent.Reference)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer clear(origin.Secret)
-	if origin.ID != r.OriginCurrent.ID || origin.Reference != r.OriginCurrent.Reference || origin.Version != r.OriginCurrent.Version || origin.Bucket != r.OriginCurrent.Bucket || origin.ExpiresAt.Before(r.OriginCurrent.ExpiresAt) || len(origin.Secret) < 32 || origin.ID == current.ID || origin.Reference == current.Reference { return nil, capabilityEffectError() }
+	if origin.ID != r.OriginCurrent.ID || origin.Reference != r.OriginCurrent.Reference || origin.Version != r.OriginCurrent.Version || origin.Bucket != r.OriginCurrent.Bucket || origin.ExpiresAt.Before(r.OriginCurrent.ExpiresAt) || len(origin.Secret) < 32 || origin.ID == current.ID || origin.Reference == current.Reference {
+		return nil, capabilityEffectError()
+	}
 	d := capabilityDeployment{MembershipRevocations: r.MembershipRevocations, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), OriginCurrent: originWireKey(origin, r.OriginCurrent), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
 	if r.Previous.Reference != "" && s.config.Now().Before(r.Previous.ExpiresAt) {
 		previous, e := s.fetch(ctx, r.Previous)
@@ -253,8 +262,13 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 	}
 	if r.OriginPrevious.Reference != "" && s.config.Now().Before(r.OriginPrevious.ExpiresAt) {
 		previous, e := s.originVault.Fetch(ctx, r.OriginPrevious.Reference)
-		if e != nil { return nil, e }
+		if e != nil {
+			return nil, e
+		}
 		defer clear(previous.Secret)
+		if previous.ID != r.OriginPrevious.ID || previous.Version != r.OriginPrevious.Version || previous.Bucket != r.OriginPrevious.Bucket || previous.ExpiresAt.Before(r.OriginPrevious.ExpiresAt) || len(previous.Secret) < 32 {
+			return nil, capabilityEffectError()
+		}
 		d.OriginPrevious = new(originWireKey(previous, r.OriginPrevious))
 	}
 	encoded, err := json.Marshal(d)

@@ -51,6 +51,35 @@ func OriginProofBody(method, canonicalPathQuery string, bucket int64) (string, e
 	return fmt.Sprintf("%s.%s.%s.%d", OriginProofVersion, method, canonicalPathQuery, bucket), nil
 }
 
+// OriginProofBodyForRegion binds a proof to the member Region as required by
+// the production wire format. The legacy body helper remains for old vectors;
+// production callers must use this region-bound variant.
+func OriginProofBodyForRegion(method, canonicalPathQuery, region string, bucket int64) (string, error) {
+	if strings.TrimSpace(region) == "" || strings.ContainsAny(region, ".\r\n \t") {
+		return "", ErrOriginProofMalformed
+	}
+	body, err := OriginProofBody(method, canonicalPathQuery, bucket)
+	if err != nil {
+		return "", err
+	}
+	return body + "." + strings.ToUpper(region), nil
+}
+
+// MintOriginProofForRegion emits the production v1.<bucket>.<region>.<hex>
+// header using an independent origin-proof secret.
+func MintOriginProofForRegion(secret []byte, method, canonicalPathQuery, region string, bucket int64) (string, error) {
+	if len(secret) == 0 {
+		return "", ErrOriginProofMalformed
+	}
+	body, err := OriginProofBodyForRegion(method, canonicalPathQuery, region, bucket)
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(body))
+	return fmt.Sprintf("%s.%d.%s.%s", OriginProofVersion, bucket, strings.ToUpper(region), hex.EncodeToString(mac.Sum(nil))), nil
+}
+
 // MintOriginProof emits the v1.<bucket>.<hex> header value.
 func MintOriginProof(secret []byte, method, canonicalPathQuery string, bucket int64) (string, error) {
 	if len(secret) == 0 {
