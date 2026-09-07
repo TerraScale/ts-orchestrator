@@ -7,6 +7,7 @@ test-evidence/runs/
 orchestrator-tooling
 /ts-node
 /tmp/
+.tmp-derive-rootfs/
 .codex-worktrees/
 
 # Private generated CI release candidates and signatures
