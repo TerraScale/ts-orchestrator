@@ -53,6 +53,23 @@ type rotationVault map[string]security.CapabilityMaterial
 func (v rotationVault) Generate(context.Context, security.CapabilityRequest) (security.CapabilityMaterial, error) {
 	return security.CapabilityMaterial{}, errors.New("unexpected generate")
 }
+
+type originVault map[string]security.OriginProofMaterial
+
+func (v originVault) Generate(context.Context, security.OriginProofRequest) (security.OriginProofMaterial, error) {
+	return security.OriginProofMaterial{}, errors.New("unexpected generate")
+}
+func (v originVault) Retire(context.Context, string, string) error {
+	return errors.New("unexpected retire")
+}
+func (v originVault) Fetch(_ context.Context, ref string) (security.OriginProofMaterial, error) {
+	m, ok := v[ref]
+	if !ok {
+		return m, errors.New("unknown reference")
+	}
+	m.Secret = bytes.Clone(m.Secret)
+	return m, nil
+}
 func (v rotationVault) Retire(context.Context, string, string) error {
 	return errors.New("unexpected retire")
 }
@@ -75,6 +92,7 @@ type rotationFixture struct {
 	config        cf.SnippetCapabilityStoreConfig
 	journal       *rotationJournal
 	vault         rotationVault
+	originVault   originVault
 	provider      *sandboxcf.Server
 	now           time.Time
 	puts          atomic.Int64
@@ -85,7 +103,7 @@ type rotationFixture struct {
 
 func newRotationFixture(t *testing.T) *rotationFixture {
 	t.Helper()
-	f := &rotationFixture{journal: &rotationJournal{}, vault: rotationVault{}, now: time.Unix(1800000000, 0), provider: sandboxcf.New(sandboxcf.Config{ZoneID: "zone", AccountID: "account"})}
+	f := &rotationFixture{journal: &rotationJournal{}, vault: rotationVault{}, originVault: originVault{}, now: time.Unix(1800000000, 0), provider: sandboxcf.New(sandboxcf.Config{ZoneID: "zone", AccountID: "account"})}
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receipt, revision, _ := f.journal.Load(r.Context())
 		if revision == 0 || receipt.Digest == "" {
@@ -132,7 +150,7 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 	t.Cleanup(probe.Close)
 	client := cf.NewClient("token", "zone", "account")
 	client.BaseURL = api.URL
-	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostnames: []string{"127.0.0.1"}, PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, Journal: f.journal, Authorize: func(context.Context) error {
+	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostnames: []string{"127.0.0.1"}, PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, OriginVault: f.originVault, Journal: f.journal, Authorize: func(context.Context) error {
 		if f.deny.Load() {
 			return errors.New("authority lost")
 		}
@@ -150,10 +168,15 @@ func (f *rotationFixture) material(version uint64) security.CapabilityMaterial {
 	f.vault[m.Reference] = m
 	return m
 }
+func (f *rotationFixture) originMaterial(version uint64) security.OriginProofMaterial {
+	m := security.OriginProofMaterial{ID: fmt.Sprintf("origin-%d", version), Reference: fmt.Sprintf("vault/origin-%d", version), Version: version, Bucket: f.now.Unix() / int64(security.CapabilityPeriod/time.Second), NotBefore: f.now, ExpiresAt: f.now.Add(2 * time.Hour), Secret: bytes.Repeat([]byte{byte(version + 10)}, 32)}
+	f.originVault[m.Reference] = m
+	return m
+}
 func TestSnippetCapabilityRotationLifecycle(t *testing.T) {
 	f := newRotationFixture(t)
 	first := f.material(1)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: first}, "stage-1"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: first, OriginProof: f.originMaterial(1)}, "stage-1"); err != nil {
 		t.Fatal(err)
 	}
 	r, _, _ := f.journal.Load(t.Context())
@@ -164,7 +187,7 @@ func TestSnippetCapabilityRotationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := f.material(2)
-	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first}, "stage-2"); err != nil {
+	if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: second, PreviousCapability: first, OriginProof: f.originMaterial(2), PreviousOriginProof: f.originMaterial(1)}, "stage-2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.Activate(t.Context(), 2, "activate-2"); err != nil {

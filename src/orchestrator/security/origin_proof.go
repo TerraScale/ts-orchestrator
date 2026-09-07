@@ -164,6 +164,34 @@ func VerifyOriginProof(keys [][]byte, raw, method, canonicalPathQuery string, no
 	return ErrOriginProofMismatch
 }
 
+// VerifyOriginProofForRegion verifies the production region-bound format.
+func VerifyOriginProofForRegion(keys [][]byte, raw, method, canonicalPathQuery, region string, now time.Time) error {
+	parts := strings.Split(strings.TrimSpace(raw), ".")
+	if len(parts) != 4 || parts[0] != OriginProofVersion || strings.ToUpper(parts[2]) != strings.ToUpper(region) {
+		return ErrOriginProofMalformed
+	}
+	bucket, err := parseOriginProofInt(parts[1])
+	if err != nil || bucket != OriginProofBucket(now) && bucket != OriginProofBucket(now)-1 {
+		return ErrOriginProofExpired
+	}
+	signature, err := hex.DecodeString(parts[3])
+	if err != nil || len(signature) != sha256.Size || parts[3] != strings.ToLower(parts[3]) {
+		return ErrOriginProofMalformed
+	}
+	body, err := OriginProofBodyForRegion(method, canonicalPathQuery, region, bucket)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		mac := hmac.New(sha256.New, key)
+		_, _ = mac.Write([]byte(body))
+		if hmac.Equal(mac.Sum(nil), signature) {
+			return nil
+		}
+	}
+	return ErrOriginProofMismatch
+}
+
 // VerifyOriginProofKeyRing is the identifier-bearing counterpart used by
 // restart-safe coordinators. It intentionally returns no matching key or
 // secret, only success/failure.
