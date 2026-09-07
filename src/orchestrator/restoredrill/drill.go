@@ -253,7 +253,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 		return d.finishItem(durableCtx, item, err)
 	}
 	item.Expected = facts
-	if facts.JournalCut == "" || facts.CapturedAtMillis == 0 || facts.ManifestDigest == "" || facts.Checksum == "" || facts.RowCount < 0 {
+	if facts.JournalCut == "" || facts.Checksum == "" || facts.RowCount < 0 {
 		return d.finishItem(durableCtx, item, fmt.Errorf("%w: invalid journal facts", ErrInvalidConfig))
 	}
 	epoch, err := d.journal.ClaimRestoreEpoch(durableCtx, databaseID, key)

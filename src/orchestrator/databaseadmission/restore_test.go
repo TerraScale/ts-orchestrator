@@ -41,7 +41,7 @@ func restoreRequestFixture(source Record) RestoreRequest {
 	return RestoreRequest{Environment: source.Request.Environment, TenantID: source.Request.TenantID, ProjectID: source.Request.ProjectID, SourceDatabaseID: source.DatabaseID, Name: "recovered", OperationID: "public-restore-1", Selection: RestoreSelection{Kind: "latest"}}
 }
 func restoreFactsFixture() RestoreAdmissionFacts {
-	return RestoreAdmissionFacts{PointID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Provider: "oci", JournalCut: "42", SourceDigest: strings.Repeat("b", 64), CapturedAtMillis: 1000, Checksum: strings.Repeat("c", 64), RowCount: 7}
+	return RestoreAdmissionFacts{PointID: strings.Repeat("b", 64), Provider: "oci", JournalCut: "42", SourceDigest: strings.Repeat("b", 64), CapturedAtMillis: 1000, Checksum: strings.Repeat("c", 64), RowCount: 7}
 }
 func TestUnixRestoreAdmissionAndExactRetryOverAuthenticatedNATS(t *testing.T) {
 	cluster := newAdmissionJournalCluster(t)
@@ -108,7 +108,7 @@ func TestUnixRestoreAdmissionAndExactRetryOverAuthenticatedNATS(t *testing.T) {
 	}
 	for _, change := range []func(*RestoreRequest){func(r *RestoreRequest) { r.Name = "other" }, func(r *RestoreRequest) {
 		r.Selection = RestoreSelection{Kind: "point_id", PointID: restoreFactsFixture().PointID}
-	}, func(r *RestoreRequest) { r.SourceDatabaseID = restoreFactsFixture().PointID }} {
+	}, func(r *RestoreRequest) { r.SourceDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAX" }} {
 		changed := request
 		change(&changed)
 		if code, _ := post("restore", changed); code != 409 {

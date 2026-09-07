@@ -193,7 +193,7 @@ func ValidateRestoreRequest(r RestoreRequest) error {
 			return ErrInvalid
 		}
 	} else if r.Selection.Kind == "point_id" {
-		if !canonicalID.MatchString(r.Selection.PointID) || r.Selection.UnixMillis != 0 {
+		if !validDigest(r.Selection.PointID) || r.Selection.UnixMillis != 0 {
 			return ErrInvalid
 		}
 	} else if r.Selection.Kind == "unix_millis" {
