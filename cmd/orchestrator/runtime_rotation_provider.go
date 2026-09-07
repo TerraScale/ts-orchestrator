@@ -30,12 +30,13 @@ type productionRotationEdgeFile struct {
 }
 
 type productionRotationFile struct {
-	Issuer    keyrotation.OCIIdentityIssuerFileConfig  `json:"issuer"`
-	Vault     keyrotation.OCICapabilityVaultFileConfig `json:"vault"`
-	Members   keyrotation.MemberGatewayFileConfig      `json:"members"`
-	Reloaders keyrotation.MemberGatewayFileConfig      `json:"reloaders"`
-	Edge      productionRotationEdgeFile               `json:"edge"`
-	Regions   []string                                 `json:"regions"`
+	Issuer      keyrotation.OCIIdentityIssuerFileConfig   `json:"issuer"`
+	Vault       keyrotation.OCICapabilityVaultFileConfig  `json:"vault"`
+	OriginVault keyrotation.OCIOriginProofVaultFileConfig `json:"origin_vault"`
+	Members     keyrotation.MemberGatewayFileConfig       `json:"members"`
+	Reloaders   keyrotation.MemberGatewayFileConfig       `json:"reloaders"`
+	Edge        productionRotationEdgeFile                `json:"edge"`
+	Regions     []string                                  `json:"regions"`
 }
 
 func (f productionRotationFile) Admit() error {
@@ -44,6 +45,9 @@ func (f productionRotationFile) Admit() error {
 	}
 	if err := f.Vault.Validate(); err != nil {
 		return fmt.Errorf("rotation vault: %w", err)
+	}
+	if err := f.OriginVault.Validate(); err != nil {
+		return fmt.Errorf("rotation origin-proof vault: %w", err)
 	}
 	if err := f.admitPrincipals(); err != nil {
 		return err
@@ -183,6 +187,17 @@ func (f productionRotationFile) Construct(ctx context.Context, session globalWor
 	if err != nil {
 		return fail(err)
 	}
+	originCredentials := credentials
+	if f.OriginVault.Region != f.Vault.Region {
+		originCredentials, err = hostsecrets.NewInstanceConfiguration(ctx, f.OriginVault.Region)
+		if err != nil {
+			return fail(err)
+		}
+	}
+	originVault, err := keyrotation.NewOCIOriginProofVault(keyrotation.OCIOriginProofVaultConfig{Provider: originCredentials, Region: f.OriginVault.Region, CompartmentID: f.OriginVault.CompartmentID, VaultID: f.OriginVault.VaultID, KeyID: f.OriginVault.KeyID, Authority: session.CheckEffectAuthority})
+	if err != nil {
+		return fail(err)
+	}
 	issuerCredentials := credentials
 	if f.Issuer.Region != f.Vault.Region {
 		issuerCredentials, err = hostsecrets.NewInstanceConfiguration(ctx, f.Issuer.Region)
@@ -221,14 +236,14 @@ func (f productionRotationFile) Construct(ctx context.Context, session globalWor
 	guardedTransport := rotationAuthorityTransport{transport: transport, check: session.CheckEffectAuthority}
 	client.HTTP = guardedTransport
 	cleanup = append(cleanup, func() error { client.Token = ""; return nil })
-	store, err := cloudflare.NewSnippetCapabilityStore(cloudflare.SnippetCapabilityStoreConfig{Artifacts: artifacts, TemplateService: f.Edge.TemplateService, Zone: &f.Edge.Zone, Client: client, SnippetName: f.Edge.SnippetName, Source: source, Vault: vault, Journal: journal, Authorize: session.CheckEffectAuthority, ProbeURLs: f.Edge.ProbeURLs, HTTPClient: &http.Client{Transport: guardedTransport, Timeout: 20 * time.Second}, Now: time.Now})
+	store, err := cloudflare.NewSnippetCapabilityStore(cloudflare.SnippetCapabilityStoreConfig{Artifacts: artifacts, TemplateService: f.Edge.TemplateService, Zone: &f.Edge.Zone, Client: client, SnippetName: f.Edge.SnippetName, Source: source, Vault: vault, OriginVault: originVault, Journal: journal, Authorize: session.CheckEffectAuthority, ProbeURLs: f.Edge.ProbeURLs, HTTPClient: &http.Client{Transport: guardedTransport, Timeout: 20 * time.Second}, Now: time.Now})
 	if err != nil {
 		return fail(err)
 	}
 	if err := session.CheckEffectAuthority(ctx); err != nil {
 		return fail(err)
 	}
-	config = keyrotation.Config{Issuer: issuer, Vault: vault, Members: members, Reloader: reloaders, Secrets: store, Regions: slices.Clone(f.Regions), Clock: time.Now}
+	config = keyrotation.Config{Issuer: issuer, Vault: vault, OriginProof: originVault, Members: members, Reloader: reloaders, Secrets: store, Regions: slices.Clone(f.Regions), Clock: time.Now}
 	return config, store, closeAll, nil
 }
 

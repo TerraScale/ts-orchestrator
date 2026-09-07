@@ -7,6 +7,7 @@ package keyrotation
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type Config struct {
 	Issuer       security.IdentityIssuer
 	Vault        security.CapabilityVault
+	OriginProof  security.OriginProofVault
 	Members      security.MemberGateway
 	Secrets      security.SecretsStore
 	Publisher    security.AtomicPublisher
@@ -39,6 +41,9 @@ func NewProduction(config Config) (*security.Coordinator, error) {
 	}
 	if isNil(config.Vault) {
 		return nil, configurationError("capability authority is missing")
+	}
+	if isNil(config.OriginProof) {
+		return nil, configurationError("origin-proof authority is missing")
 	}
 	if isNil(config.Secrets) {
 		return nil, configurationError("Cloudflare Secrets Store authority is missing")
@@ -72,9 +77,9 @@ func NewProduction(config Config) (*security.Coordinator, error) {
 		clock = nil
 	}
 	return security.NewCoordinator(security.Config{
-		Issuer: config.Issuer, Vault: config.Vault, Members: config.Members, Secrets: config.Secrets,
+		Issuer: config.Issuer, Vault: config.Vault, OriginProof: config.OriginProof, Members: config.Members, Secrets: config.Secrets,
 		Publisher: publisher, Reloader: config.Reloader, State: state,
-		Audit: audit, Regions: append([]string(nil), config.Regions...),
+		Audit: audit, Regions: slices.Clone(config.Regions),
 		Clock: clock, ExpirySafety: config.ExpirySafety,
 	})
 }

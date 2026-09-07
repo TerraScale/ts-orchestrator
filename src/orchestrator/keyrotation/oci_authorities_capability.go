@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -27,7 +28,7 @@ func (rotationSilentSDKLogger) LogLevel() int                 { return 0 }
 func (rotationSilentSDKLogger) Log(int, string, ...any) error { return nil }
 func init()                                                   { common.SetSDKLogger(rotationSilentSDKLogger{}) }
 
-type OCICapabilityVaultConfig struct {
+type ociHMACVaultConfig struct {
 	Provider                              common.ConfigurationProvider
 	Region, CompartmentID, VaultID, KeyID string
 	Authority                             func(context.Context) error
@@ -43,15 +44,47 @@ type capabilityBundles interface {
 	GetSecretBundle(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error)
 }
 
-type OCICapabilityVault struct {
-	config     OCICapabilityVaultConfig
+type ociHMACVault struct {
+	purpose    string
+	config     ociHMACVaultConfig
 	management capabilityManagement
 	bundles    capabilityBundles
 }
 
+// Requests and material inside the OCI implementation carry no consumer role.
+// Only constructors choose a fixed purpose; Fetch and Retire enforce it too.
+type ociHMACRequest security.CapabilityRequest
+type ociHMACMaterial security.CapabilityMaterial
+
+type OCICapabilityVaultConfig ociHMACVaultConfig
+type OCICapabilityVault struct{ *ociHMACVault }
+
 func NewOCICapabilityVault(c OCICapabilityVaultConfig) (*OCICapabilityVault, error) {
+	v, err := newOCIHMACVault(ociHMACVaultConfig(c), "ts-capability")
+	if err != nil {
+		return nil, err
+	}
+	return &OCICapabilityVault{v}, nil
+}
+func (v *OCICapabilityVault) Generate(ctx context.Context, r security.CapabilityRequest) (security.CapabilityMaterial, error) {
+	m, err := v.generate(ctx, ociHMACRequest(r))
+	return security.CapabilityMaterial(m), err
+}
+func (v *OCICapabilityVault) Fetch(ctx context.Context, reference string) (security.CapabilityMaterial, error) {
+	m, err := v.fetch(ctx, reference)
+	return security.CapabilityMaterial(m), err
+}
+func (v *OCICapabilityVault) Retire(ctx context.Context, reference, operation string) error {
+	return v.retire(ctx, reference, operation)
+}
+func (v *ociHMACVault) retryToken(key string) string {
+	digest := sha256.Sum256([]byte(v.purpose + "\x00" + key))
+	return hex.EncodeToString(digest[:])
+}
+
+func newOCIHMACVault(c ociHMACVaultConfig, purpose string) (*ociHMACVault, error) {
 	if isNil(c.Provider) || c.Region == "" || c.CompartmentID == "" || c.VaultID == "" || c.KeyID == "" || c.Authority == nil {
-		return nil, configurationError("OCI capability vault configuration is incomplete")
+		return nil, configurationError("OCI HMAC vault configuration is incomplete")
 	}
 	if (OCICapabilityVaultFileConfig{Region: c.Region, CompartmentID: c.CompartmentID, VaultID: c.VaultID, KeyID: c.KeyID}).Validate() != nil {
 		return nil, capabilityError()
@@ -68,23 +101,23 @@ func NewOCICapabilityVault(c OCICapabilityVaultConfig) (*OCICapabilityVault, err
 	}
 	b.SetRegion(c.Region)
 	b.HTTPClient = NewOCIAuthorityDispatcher(c.Region, c.Authority)
-	return &OCICapabilityVault{config: c, management: m, bundles: b}, nil
+	return &ociHMACVault{purpose: purpose, config: c, management: m, bundles: b}, nil
 }
-func capabilityError() error { return errors.New("key rotation: OCI capability authority failed") }
-func capabilityName(key string) string {
+func capabilityError() error { return errors.New("key rotation: OCI secret authority failed") }
+func (v *ociHMACVault) name(key string) string {
 	s := sha256.Sum256([]byte(key))
-	return "ts-capability-" + hex.EncodeToString(s[:])
+	return v.purpose + "-" + hex.EncodeToString(s[:])
 }
-func (v *OCICapabilityVault) authorize(ctx context.Context) error {
+func (v *ociHMACVault) authorize(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return v.config.Authority(ctx)
 }
-func capabilityMetadata(r security.CapabilityRequest) map[string]string {
-	return map[string]string{"purpose": "ts-capability", "generation": strconv.FormatUint(r.Generation, 10), "bucket": strconv.FormatInt(r.Bucket, 10), "not-before": r.NotBefore.UTC().Format(time.RFC3339Nano), "expires-at": r.ExpiresAt.UTC().Format(time.RFC3339Nano), "operation": capabilityName(r.OperationID)}
+func (v *ociHMACVault) metadata(r ociHMACRequest) map[string]string {
+	return map[string]string{"purpose": v.purpose, "generation": strconv.FormatUint(r.Generation, 10), "bucket": strconv.FormatInt(r.Bucket, 10), "not-before": r.NotBefore.UTC().Format(time.RFC3339Nano), "expires-at": r.ExpiresAt.UTC().Format(time.RFC3339Nano), "operation": v.name(r.OperationID)}
 }
-func (v *OCICapabilityVault) find(ctx context.Context, name string) (string, error) {
+func (v *ociHMACVault) find(ctx context.Context, name string) (string, error) {
 	var page *string
 	var found string
 	for {
@@ -114,54 +147,54 @@ func (v *OCICapabilityVault) find(ctx context.Context, name string) (string, err
 		page = r.OpcNextPage
 	}
 }
-func (v *OCICapabilityVault) Generate(ctx context.Context, r security.CapabilityRequest) (security.CapabilityMaterial, error) {
+func (v *ociHMACVault) generate(ctx context.Context, r ociHMACRequest) (ociHMACMaterial, error) {
 	if !validOperationKey(r.IdempotencyKey) || !validOperationKey(r.OperationID) || r.Generation == 0 || r.NotBefore.IsZero() || !r.ExpiresAt.After(r.NotBefore) {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	name := capabilityName(r.IdempotencyKey)
+	name := v.name(r.IdempotencyKey)
 	ref, e := v.find(ctx, name)
 	if e != nil {
-		return security.CapabilityMaterial{}, e
+		return ociHMACMaterial{}, e
 	}
 	if ref == "" {
 		key := make([]byte, 32)
 		rand.Read(key)
 		defer clear(key)
 		if e = v.authorize(ctx); e != nil {
-			return security.CapabilityMaterial{}, e
+			return ociHMACMaterial{}, e
 		}
 		result, createErr := ociAuthorityCall(ctx, func() (vault.CreateSecretResponse, error) {
-			return v.management.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{CompartmentId: new(v.config.CompartmentID), VaultId: new(v.config.VaultID), KeyId: new(v.config.KeyID), SecretName: new(name), FreeformTags: capabilityMetadata(r), SecretContent: vault.Base64SecretContentDetails{Content: new(base64.StdEncoding.EncodeToString(key))}}, OpcRetryToken: new(name[len("ts-capability-"):]), RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())}})
+			return v.management.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{CompartmentId: new(v.config.CompartmentID), VaultId: new(v.config.VaultID), KeyId: new(v.config.KeyID), SecretName: new(name), FreeformTags: v.metadata(r), SecretContent: vault.Base64SecretContentDetails{Content: new(base64.StdEncoding.EncodeToString(key))}}, OpcRetryToken: new(v.retryToken(r.IdempotencyKey)), RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())}})
 		})
 		if createErr == nil && result.Id != nil {
 			ref = *result.Id
 		} else {
 			ref, e = v.find(ctx, name)
 			if e != nil || ref == "" {
-				return security.CapabilityMaterial{}, capabilityError()
+				return ociHMACMaterial{}, capabilityError()
 			}
 		}
 	}
 	receipt, e := v.waitActive(ctx, ref)
 	if e != nil {
-		return security.CapabilityMaterial{}, e
+		return ociHMACMaterial{}, e
 	}
-	if receipt.FreeformTags["operation"] != capabilityName(r.OperationID) {
-		return security.CapabilityMaterial{}, capabilityError()
+	if receipt.FreeformTags["operation"] != v.name(r.OperationID) {
+		return ociHMACMaterial{}, capabilityError()
 	}
-	material, e := v.Fetch(ctx, ref)
+	material, e := v.fetch(ctx, ref)
 	if e != nil {
-		return security.CapabilityMaterial{}, e
+		return ociHMACMaterial{}, e
 	}
 	if material.ID != name || material.Version != r.Generation || material.Bucket != r.Bucket || !material.NotBefore.Equal(r.NotBefore) || !material.ExpiresAt.Equal(r.ExpiresAt) {
 		clear(material.Key)
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	return material, nil
 }
-func (v *OCICapabilityVault) waitActive(ctx context.Context, ref string) (vault.Secret, error) {
+func (v *ociHMACVault) waitActive(ctx context.Context, ref string) (vault.Secret, error) {
 	for {
 		s, e := v.secret(ctx, ref)
 		if e != nil {
@@ -182,7 +215,7 @@ func (v *OCICapabilityVault) waitActive(ctx context.Context, ref string) (vault.
 		}
 	}
 }
-func (v *OCICapabilityVault) secret(ctx context.Context, reference string) (vault.Secret, error) {
+func (v *ociHMACVault) secret(ctx context.Context, reference string) (vault.Secret, error) {
 	if !validOperationKey(reference) {
 		return vault.Secret{}, capabilityError()
 	}
@@ -195,50 +228,50 @@ func (v *OCICapabilityVault) secret(ctx context.Context, reference string) (vaul
 	if e != nil {
 		return vault.Secret{}, capabilityError()
 	}
-	if s.Id == nil || *s.Id != reference || s.CompartmentId == nil || *s.CompartmentId != v.config.CompartmentID || s.VaultId == nil || *s.VaultId != v.config.VaultID || s.KeyId == nil || *s.KeyId != v.config.KeyID || s.FreeformTags["purpose"] != "ts-capability" {
+	if s.Id == nil || *s.Id != reference || s.CompartmentId == nil || *s.CompartmentId != v.config.CompartmentID || s.VaultId == nil || *s.VaultId != v.config.VaultID || s.KeyId == nil || *s.KeyId != v.config.KeyID || s.FreeformTags["purpose"] != v.purpose || s.SecretName == nil || !strings.HasPrefix(*s.SecretName, v.purpose+"-") {
 		return vault.Secret{}, capabilityError()
 	}
 	return s.Secret, nil
 }
-func (v *OCICapabilityVault) Fetch(ctx context.Context, reference string) (security.CapabilityMaterial, error) {
+func (v *ociHMACVault) fetch(ctx context.Context, reference string) (ociHMACMaterial, error) {
 	s, e := v.secret(ctx, reference)
 	if e != nil {
-		return security.CapabilityMaterial{}, e
+		return ociHMACMaterial{}, e
 	}
 	generation, e1 := strconv.ParseUint(s.FreeformTags["generation"], 10, 64)
 	bucket, e2 := strconv.ParseInt(s.FreeformTags["bucket"], 10, 64)
 	before, e3 := time.Parse(time.RFC3339Nano, s.FreeformTags["not-before"])
 	expiry, e4 := time.Parse(time.RFC3339Nano, s.FreeformTags["expires-at"])
 	if e1 != nil || e2 != nil || e3 != nil || e4 != nil || generation == 0 || !expiry.After(before) || s.SecretName == nil || s.LifecycleState != vault.SecretLifecycleStateActive {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	if s.TimeOfDeletion != nil || (s.CurrentVersionNumber != nil && *s.CurrentVersionNumber != 1) || (s.TimeOfCurrentVersionExpiry != nil && s.TimeOfCurrentVersionExpiry.Before(expiry)) {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	if e = v.authorize(ctx); e != nil {
-		return security.CapabilityMaterial{}, e
+		return ociHMACMaterial{}, e
 	}
 	b, e := ociAuthorityCall(ctx, func() (secrets.GetSecretBundleResponse, error) {
 		return v.bundles.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{SecretId: new(reference), VersionNumber: new(int64(1)), RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())}})
 	})
 	if e != nil {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	if b.SecretId == nil || *b.SecretId != reference || b.VersionNumber == nil || *b.VersionNumber != 1 || b.TimeOfDeletion != nil || (b.TimeOfExpiry != nil && b.TimeOfExpiry.Before(expiry)) {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	content, ok := b.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
 	if !ok || content.Content == nil || len(*content.Content) != base64.StdEncoding.EncodedLen(32) {
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
 	key, e := base64.StdEncoding.Strict().DecodeString(*content.Content)
 	if e != nil || len(key) != 32 {
 		clear(key)
-		return security.CapabilityMaterial{}, capabilityError()
+		return ociHMACMaterial{}, capabilityError()
 	}
-	return security.CapabilityMaterial{ID: *s.SecretName, Reference: reference, Version: generation, Bucket: bucket, NotBefore: before, ExpiresAt: expiry, Key: key}, nil
+	return ociHMACMaterial{ID: *s.SecretName, Reference: reference, Version: generation, Bucket: bucket, NotBefore: before, ExpiresAt: expiry, Key: key}, nil
 }
-func (v *OCICapabilityVault) Retire(ctx context.Context, reference, idempotencyKey string) error {
+func (v *ociHMACVault) retire(ctx context.Context, reference, idempotencyKey string) error {
 	if !validOperationKey(idempotencyKey) {
 		return capabilityError()
 	}

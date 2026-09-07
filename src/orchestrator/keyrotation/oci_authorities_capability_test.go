@@ -61,7 +61,7 @@ func (f *capabilityFake) ScheduleSecretDeletion(context.Context, vault.ScheduleS
 }
 func capabilityFixture() (*OCICapabilityVault, *capabilityFake, security.CapabilityRequest) {
 	f := &capabilityFake{}
-	v := &OCICapabilityVault{config: OCICapabilityVaultConfig{CompartmentID: "compartment", VaultID: "vault", KeyID: "key", Authority: func(context.Context) error { return nil }}, management: f, bundles: f}
+	v := &OCICapabilityVault{&ociHMACVault{purpose: "ts-capability", config: ociHMACVaultConfig{CompartmentID: "compartment", VaultID: "vault", KeyID: "key", Authority: func(context.Context) error { return nil }}, management: f, bundles: f}}
 	r := security.CapabilityRequest{OperationID: "operation", Generation: 9, Bucket: 4, NotBefore: time.Now().UTC(), IdempotencyKey: "create"}
 	r.ExpiresAt = r.NotBefore.Add(24 * time.Hour)
 	return v, f, r
@@ -73,7 +73,7 @@ func TestOCICapabilityRecoversUncertainCreateAfterRestart(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	restarted := &OCICapabilityVault{config: v.config, management: f, bundles: f}
+	restarted := &OCICapabilityVault{&ociHMACVault{purpose: "ts-capability", config: v.config, management: f, bundles: f}}
 	second, e := restarted.Generate(t.Context(), r)
 	if e != nil {
 		t.Fatal(e)

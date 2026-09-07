@@ -26,8 +26,9 @@ func TestNATSProductionCoordinatorRotatesRestartsAndAdvancesGeneration(t *testin
 	now := time.Now().UTC()
 	issuer := &coordinatorIntegrationIssuer{materials: map[string]security.IdentityMaterial{}}
 	vault := &coordinatorIntegrationVault{materials: map[string]security.CapabilityMaterial{}}
+	origin := &productionOriginVault{}
 	publisher := &coordinatorIntegrationPublisher{receipts: map[string]security.PublicationReceipt{}}
-	config := Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, Publisher: publisher, State: &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, Regions: []string{"gru", "sfo", "fra"}, Clock: func() time.Time { return now }}
+	config := Config{Issuer: issuer, Vault: vault, OriginProof: origin, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, Publisher: publisher, State: &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, Regions: []string{"gru", "sfo", "fra"}, Clock: func() time.Time { return now }}
 	coordinator, err := NewProduction(config)
 	if err != nil {
 		t.Fatal(err)
@@ -41,6 +42,9 @@ func TestNATSProductionCoordinatorRotatesRestartsAndAdvancesGeneration(t *testin
 	if err != nil || !security.ValidCurrentRotationState(state) || !state.PublicationCommitted || state.PublicationReceipt.ReceiptID != "publication-1" || state.CurrentVersion != 1 {
 		t.Fatalf("initial durable active state: %+v %v", state, err)
 	}
+	if state.CurrentOriginProofRef != "origin-proof-1" || state.CurrentOriginProofRef == state.CurrentCapabilityRef {
+		t.Fatal("production did not persist independent origin material")
+	}
 	// Drop the old coordinator and its private state cursor. The replacement
 	// loads the accepted operation and provider receipt from NATS.
 	coordinator, err = NewProduction(config)
@@ -51,7 +55,7 @@ func TestNATSProductionCoordinatorRotatesRestartsAndAdvancesGeneration(t *testin
 	if err != nil || replay.OperationID != first.OperationID || replay.Generation != 1 || replay.Phase != security.PhaseActive {
 		t.Fatalf("restart reconciliation: %+v %v", replay, err)
 	}
-	if issuer.issues != 1 || vault.generations != 1 || len(publisher.receipts) != 1 {
+	if issuer.issues != 1 || vault.generations != 1 || origin.generations != 1 || len(publisher.receipts) != 1 {
 		t.Fatal("restart repeated issuance or publication")
 	}
 	now = first.NewExpiry.Add(-10 * time.Minute)
@@ -62,6 +66,9 @@ func TestNATSProductionCoordinatorRotatesRestartsAndAdvancesGeneration(t *testin
 	state, err = observer.Load(ctx)
 	if err != nil || !security.ValidCurrentRotationState(state) || state.PublicationReceipt.ReceiptID != "publication-2" || state.OldCapabilityRef != "capability-1" {
 		t.Fatalf("next generation lost publication or retirement obligations: %+v %v", state, err)
+	}
+	if state.CurrentOriginProofRef != "origin-proof-2" || state.OldOriginProofRef != "origin-proof-1" || origin.generations != 2 {
+		t.Fatal("restart did not retain independent origin overlap")
 	}
 	// Restart once more before retiring the previous generation. This must
 	// traverse Retire -> Active without discarding the current publication.

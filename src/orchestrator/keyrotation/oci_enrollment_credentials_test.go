@@ -20,7 +20,7 @@ func TestOCIEnrollmentCredentialRecoversExactVersionAfterUnknownCreate(t *testin
 	fake := &enrollmentVaultFake{capabilityFake: capabilityFake{uncertain: true}}
 	configuration := OCICapabilityVaultConfig{Region: "sa-saopaulo-1", CompartmentID: "compartment", VaultID: "vault", KeyID: "key", Authority: func(context.Context) error { return nil }}
 	create := func() *OCICapabilityVault {
-		return &OCICapabilityVault{config: configuration, management: fake, bundles: fake}
+		return &OCICapabilityVault{&ociHMACVault{purpose: "ts-capability", config: ociHMACVaultConfig(configuration), management: fake, bundles: fake}}
 	}
 	request := EnrollmentCredentialRequest{OperationID: "enroll-gru-3", Destination: "/etc/terrascale/placement/host.nkey", Content: []byte("private-credential-canary")}
 	first, err := create().PublishEnrollmentCredential(t.Context(), request)

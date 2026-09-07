@@ -1,7 +1,9 @@
 package keyrotation
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
@@ -30,6 +32,33 @@ func (p *productionVault) Fetch(context.Context, string) (security.CapabilityMat
 	return p.material, nil
 }
 func (*productionVault) Retire(context.Context, string, string) error { return nil }
+
+type productionOriginVault struct {
+	materials   map[string]security.OriginProofMaterial
+	generations int
+}
+
+func (v *productionOriginVault) Generate(_ context.Context, r security.OriginProofRequest) (security.OriginProofMaterial, error) {
+	if v.materials == nil {
+		v.materials = map[string]security.OriginProofMaterial{}
+	}
+	ref := fmt.Sprintf("origin-proof-%d", r.Generation)
+	if m, ok := v.materials[ref]; ok {
+		m.Secret = bytes.Clone(m.Secret)
+		return m, nil
+	}
+	v.generations++
+	m := security.OriginProofMaterial{ID: ref, Reference: ref, Version: r.Generation, Bucket: r.Bucket, NotBefore: r.NotBefore, ExpiresAt: r.ExpiresAt, Secret: bytes.Repeat([]byte{byte(r.Generation)}, 32)}
+	v.materials[ref] = m
+	m.Secret = bytes.Clone(m.Secret)
+	return m, nil
+}
+func (v *productionOriginVault) Fetch(_ context.Context, ref string) (security.OriginProofMaterial, error) {
+	m := v.materials[ref]
+	m.Secret = bytes.Clone(m.Secret)
+	return m, nil
+}
+func (*productionOriginVault) Retire(context.Context, string, string) error { return nil }
 
 type productionMembers struct{}
 
@@ -76,7 +105,13 @@ func TestNewProductionRequiresEveryAuthority(t *testing.T) {
 		t.Fatalf("missing authority error = %v", err)
 	}
 	issuer, vault := &productionIssuer{}, &productionVault{}
-	_, err := NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: &NATSStateStoreConfig{}, Regions: []string{"gru"}})
+	for _, missing := range []security.OriginProofVault{nil, (*productionOriginVault)(nil)} {
+		if _, err := NewProduction(Config{Issuer: issuer, Vault: vault, OriginProof: missing}); err == nil || !strings.Contains(err.Error(), "origin-proof authority") {
+			t.Fatalf("missing origin authority accepted: %v", err)
+		}
+	}
+
+	_, err := NewProduction(Config{Issuer: issuer, Vault: vault, OriginProof: &productionOriginVault{}, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: &NATSStateStoreConfig{}, Regions: []string{"gru"}})
 	if err == nil {
 		t.Fatal("production accepted missing live global state authority")
 	}
@@ -90,7 +125,7 @@ func TestNewProductionRequiresEveryAuthority(t *testing.T) {
 	defer coordinator.Dispose()
 	lease := readRotationTestLease(t, t.Context(), kv)
 	stateConfig := &NATSStateStoreConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}
-	_, err = NewProduction(Config{Issuer: issuer, Vault: vault, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: stateConfig, Regions: []string{"gru"}})
+	_, err = NewProduction(Config{Issuer: issuer, Vault: vault, OriginProof: &productionOriginVault{}, Members: &productionMembers{}, Secrets: &productionSecrets{}, Reloader: &productionReload{}, State: stateConfig, Regions: []string{"gru"}})
 	if err != nil {
 		t.Fatal(err)
 	}

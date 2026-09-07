@@ -63,3 +63,11 @@ func (c OCICapabilityVaultFileConfig) Validate() error {
 	}
 	return nil
 }
+
+// OCIOriginProofVaultFileConfig binds the independent origin-proof owner to OCI
+// resources. Sharing a wrapping vault does not share the role's secret material.
+type OCIOriginProofVaultFileConfig OCICapabilityVaultFileConfig
+
+func (c OCIOriginProofVaultFileConfig) Validate() error {
+	return OCICapabilityVaultFileConfig(c).Validate()
+}

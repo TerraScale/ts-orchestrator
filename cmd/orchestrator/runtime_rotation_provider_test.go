@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
@@ -119,5 +120,30 @@ func TestProductionRotationTransportRechecksEveryDispatch(t *testing.T) {
 	}
 	if next.calls != 1 {
 		t.Fatalf("dispatched %d provider requests", next.calls)
+	}
+}
+
+func TestProductionRotationRejectsMissingOriginVaultBeforeProviderEffects(t *testing.T) {
+	f := rotationPrincipalFixture()
+	f.Issuer.Region = "sa-saopaulo-1"
+	f.Issuer.CompartmentID = "ocid1.compartment.oc1..fixture"
+	f.Issuer.CertificateAuthorityID = "ocid1.certificateauthority.oc1.sa-saopaulo-1.fixture"
+	for i := range f.Issuer.Principals {
+		f.Issuer.Principals[i].SPIFFEID = "spiffe://terrascale/" + f.Issuer.Principals[i].ID
+	}
+	f.Vault = keyrotation.OCICapabilityVaultFileConfig{Region: "sa-saopaulo-1", CompartmentID: "ocid1.compartment.oc1..fixture", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.fixture", KeyID: "ocid1.key.oc1.sa-saopaulo-1.fixture"}
+	_, _, closeAll, err := f.Construct(t.Context(), globalWorkerSession{}, nil)
+	defer closeAll()
+	if err == nil || !strings.Contains(err.Error(), "origin-proof vault") {
+		t.Fatalf("missing independent origin owner: %v", err)
+	}
+	f.OriginVault = keyrotation.OCIOriginProofVaultFileConfig(f.Vault)
+	// These resources can wrap independent secrets; they never select key bytes.
+	if err := f.OriginVault.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	f.OriginVault.KeyID = f.OriginVault.VaultID
+	if err := f.Admit(); err == nil || !strings.Contains(err.Error(), "origin-proof vault") {
+		t.Fatalf("wrong origin resource accepted: %v", err)
 	}
 }

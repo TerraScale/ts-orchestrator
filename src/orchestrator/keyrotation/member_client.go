@@ -172,21 +172,27 @@ func memberCredentialRequest(member, consumer, action string, credentials securi
 		request.ControlTLS, err = selectMemberIdentity(credentials.Identity.ControlTLS, member)
 	} else {
 		request.WorkloadTLS, err = selectMemberIdentity(credentials.Identity.WorkloadTLS, member)
-		capability := credentials.Capability
-		if capability.Version != request.Generation || capability.ID == "" || len(capability.Key) < 32 || capability.ExpiresAt.IsZero() {
-			clearMemberRequest(&request)
-			return MemberRotationRequest{}, ErrMemberRotation
-		}
-		request.ExpiresAt = min(request.ExpiresAt, capability.ExpiresAt.Unix())
-		request.CurrentKeyID = capability.ID
-		request.CurrentKey = bytes.Clone(capability.Key)
-		previous := credentials.PreviousCapability
-		if previous.ID != "" {
-			request.PreviousGeneration = previous.Version
-			request.PreviousKeyID = previous.ID
-			request.PreviousKey = bytes.Clone(previous.Key)
-			request.PreviousExpiresAt = previous.ExpiresAt.Unix()
-		}
+        // Rust's credential endpoint installs current_key into its origin
+        // verifier. Customer capability keys must never enter this protocol.
+        origin := credentials.OriginProof
+        if origin.Version != request.Generation || origin.ID == "" || len(origin.Secret) != 32 || origin.ExpiresAt.IsZero() || origin.ID == credentials.Capability.ID || origin.Reference == credentials.Capability.Reference || bytes.Equal(origin.Secret, credentials.Capability.Key) {
+            clearMemberRequest(&request)
+            return MemberRotationRequest{}, ErrMemberRotation
+        }
+        request.ExpiresAt = min(request.ExpiresAt, origin.ExpiresAt.Unix())
+        request.CurrentKeyID = origin.ID
+        request.CurrentKey = bytes.Clone(origin.Secret)
+        previous := credentials.PreviousOriginProof
+        if previous.ID != "" {
+            if previous.Version == 0 || previous.Version >= origin.Version || previous.ID == origin.ID || len(previous.Secret) != 32 || previous.ExpiresAt.IsZero() || bytes.Equal(previous.Secret, credentials.PreviousCapability.Key) {
+                clearMemberRequest(&request)
+                return MemberRotationRequest{}, ErrMemberRotation
+            }
+            request.PreviousGeneration = previous.Version
+            request.PreviousKeyID = previous.ID
+            request.PreviousKey = bytes.Clone(previous.Secret)
+            request.PreviousExpiresAt = previous.ExpiresAt.Unix()
+        }
 	}
 	if err != nil {
 		clearMemberRequest(&request)

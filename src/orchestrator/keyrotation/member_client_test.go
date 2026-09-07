@@ -2,6 +2,7 @@ package keyrotation
 
 import (
 	"context"
+ "bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json/v2"
@@ -52,12 +53,20 @@ func TestMemberGatewaySelectsOnlyTargetIdentityAndChecksDispatchAuthority(t *tes
 	}
 	envelope, _ := json.Marshal(map[string][]byte{"gru-1": []byte("only-this-member"), "fra-1": []byte("other-member-private-key")})
 	credentials := security.CredentialSet{Identity: security.IdentityMaterial{Version: 1, ExpiresAt: time.Now().Add(time.Hour), WorkloadTLS: envelope, TrustBundle: []byte("ca")}, Capability: security.CapabilityMaterial{ID: "key-1", Version: 1, Key: make([]byte, 32), ExpiresAt: time.Now().Add(time.Hour)}}
+ credentials.OriginProof = security.OriginProofMaterial{ID:"origin-1",Reference:"origin-ref-1",Version:1,Secret:bytes.Repeat([]byte{7},32),ExpiresAt:time.Now().Add(time.Hour)}
 	if err := gateway.Distribute(t.Context(), "gru-1", credentials, "operation/stage"); err != nil {
 		t.Fatal(err)
 	}
 	if string(seen.WorkloadTLS) != "only-this-member" || len(seen.ControlTLS) != 0 {
 		t.Fatal("cross-member identity disclosure")
 	}
+ if seen.CurrentKeyID != "origin-1" || !bytes.Equal(seen.CurrentKey, credentials.OriginProof.Secret) || bytes.Equal(seen.CurrentKey, credentials.Capability.Key) { t.Fatal("member received capability material instead of origin proof") }
+ missing := credentials
+ missing.OriginProof = security.OriginProofMaterial{}
+ if _,err := memberCredentialRequest("gru-1","member","stage",missing,"missing"); err == nil { t.Fatal("capability substituted for missing origin proof") }
+ shared := credentials
+ shared.OriginProof.Secret = bytes.Clone(credentials.Capability.Key)
+ if _,err := memberCredentialRequest("gru-1","member","stage",shared,"shared"); err == nil { t.Fatal("shared material accepted") }
 	allowed = false
 	if err := gateway.Activate(t.Context(), "gru-1", 1, "operation/activate"); !errors.Is(err, ErrMemberRotation) {
 		t.Fatalf("unfenced dispatch: %v", err)
