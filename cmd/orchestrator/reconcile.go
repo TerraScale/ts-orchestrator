@@ -159,8 +159,10 @@ func (c *ociReconcileController) desiredSpec(ctx context.Context) (estate.Spec, 
 		// Read only the durable target before the generic diff. Enrollment and
 		// OCI issuer work belongs to typed compute observation, so a missing
 		// slot cannot block unrelated provider kinds.
-		if target, err := controller.targetMemberCount(ctx); err == nil {
-			region.Members.Count = max(region.Members.Count, target)
+		if target, err := controller.targetMemberCount(ctx); err == nil && target >= provider.PlacementMinimumMemberHosts {
+			// The durable target owns contraction as well as expansion. The
+			// placement floor is checked here and again by ComputeReconciler.
+			region.Members.Count = target
 		}
 	}
 	return spec, nil
@@ -455,8 +457,9 @@ type ociRegionController struct {
 	object           *ocireconcile.ObjectStorageReconciler
 	vault            *ocireconcile.VaultReconciler
 	certs            *ocireconcile.CertReconciler
-	// scaleOutTarget is a durable GRU decision supplied by the autoscale
-	// seam. Zero means the declared target remains in force.
+	// scaleTarget is a durable GRU decision supplied by the autoscale seam.
+	// Zero means the declared target remains in force.
+	scaleTarget    uint16
 	scaleOutTarget uint16
 	mu             sync.Mutex
 	removalOwner   ocireconcile.MemberRemovalOwner
@@ -650,9 +653,12 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
 	region := r.region
 	r.mu.Lock()
+	targetOverride := r.scaleTarget
 	target := r.scaleOutTarget
 	r.mu.Unlock()
-	if target > region.Members.Count {
+	if targetOverride != 0 {
+		region.Members.Count = targetOverride
+	} else if target > region.Members.Count {
 		region.Members.Count = target
 	}
 	candidates := make([]ocireconcile.MemberLaunchCandidate, 0, len(region.Members.Candidates))
@@ -673,11 +679,12 @@ func (r *ociRegionController) computeDeclared() ocireconcile.ComputeDeclared {
 // decision to OCI reconciliation. It only permits monotonic scale-out and
 // leaves placement and provider fallback under their existing owners.
 func (r *ociRegionController) setScaleOutTarget(desired int) error {
-	if r == nil || desired < int(r.region.Members.Count) || desired > int(^uint16(0)) {
+	if r == nil || desired < provider.PlacementMinimumMemberHosts || desired > int(^uint16(0)) {
 		return errors.New("reconcile: invalid scale-out target")
 	}
 	r.mu.Lock()
-	if desired > int(r.scaleOutTarget) {
+	r.scaleTarget = uint16(desired)
+	if desired > int(r.region.Members.Count) {
 		r.scaleOutTarget = uint16(desired)
 	}
 	r.mu.Unlock()

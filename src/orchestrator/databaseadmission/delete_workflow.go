@@ -150,7 +150,10 @@ func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDelete
 		return Deletion{}, ErrInvalid
 	}
 	at := time.Now().UTC().Truncate(time.Millisecond)
-	d, err := journal.BeginDeletionWithClaim(ctx, r.DeleteRequest, at, claim.Deadline, claim)
+	// The policy deadline is an eligibility fact, not a retention TTL. A due
+	// claim may therefore carry a deadline before this admission timestamp;
+	// storing it as retainUntil would reject the very deletion it authorizes.
+	d, err := journal.BeginDeletionWithClaim(ctx, r.DeleteRequest, at, at, claim)
 	if err != nil {
 		return Deletion{}, err
 	}

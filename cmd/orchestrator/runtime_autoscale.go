@@ -55,10 +55,11 @@ func (a *productionAutoscale) Reconcile(ctx context.Context) error {
 		}
 		if created {
 			if plan.RemovalPhase != "" {
-				if a.remove == nil {
-					return errors.New("autoscale: scale-down removal owner is unavailable")
-				}
-				if err := a.remove(ctx, plan); err != nil {
+				if a.remove != nil {
+					if err := a.remove(ctx, plan); err != nil {
+						return err
+					}
+				} else if err := a.apply(plan.Region, plan.DesiredMembers); err != nil {
 					return err
 				}
 			} else {

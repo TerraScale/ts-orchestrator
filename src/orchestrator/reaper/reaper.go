@@ -657,10 +657,11 @@ func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Dat
 
 func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Database, now time.Time) error {
 	entry := state.Entries[database.ID]
-	if database.BillingGrace && r.admission != nil {
-		if err := r.admission.AdmitDeletion(ctx, database, r.operationName(entry, "automatic-delete")); err != nil {
-			return err
-		}
+	if r.admission == nil {
+		return ErrMissingDependency
+	}
+	if err := r.admission.AdmitDeletion(ctx, database, r.operationName(entry, "automatic-delete")); err != nil {
+		return err
 	}
 	entry.Phase = PhaseDeleting
 	state.Entries[database.ID] = entry

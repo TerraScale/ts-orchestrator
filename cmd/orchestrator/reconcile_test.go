@@ -299,7 +299,10 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 			return ocireconcile.ComputeDeclared{}, err
 		}
 		if found {
-			region.Members.Count = max(region.Members.Count, uint16(target.Members))
+			// Durable autoscale owns both contraction and expansion. The
+			// placement floor is enforced by the OCI reconciler, so a target
+			// below the static declaration must reach ComputeReconciler.
+			region.Members.Count = uint16(target.Members)
 		}
 		seeds := map[int]string{}
 		for slot := 1; slot <= int(region.Members.Count); slot++ {
@@ -315,7 +318,7 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 		if !found {
 			return region.Members.Count, nil
 		}
-		return max(region.Members.Count, uint16(target.Members)), nil
+		return uint16(target.Members), nil
 	}
 	controller := &ociReconcileController{spec: spec, regions: map[string]*ociRegionController{"gru": regional}}
 	for _, other := range spec.Regions[1:] {

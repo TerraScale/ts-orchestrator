@@ -36,6 +36,7 @@ type productionDatabaseFileConfig struct {
 	CatalogPath           string                                `json:"catalogPath"`
 	Authorization         databaseAuthorizationFile             `json:"authorization"`
 	DeletionAuthorization databaseAuthorizationFile             `json:"deletionAuthorization"`
+	DeletionClaim         databaseDeletionClaimConfig           `json:"deletionClaim"`
 	Regions               []databaseRegionFile                  `json:"regions"`
 }
 type databaseAuthorizationFile struct {
@@ -153,6 +154,10 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	}
 	result.Authorize = authorize
 	result.AuthorizeDeletion, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
+	if err != nil {
+		return result, err
+	}
+	result.AutomaticDeletionClaim, err = newDatabaseDeletionClaimClient(config.DeletionClaim)
 	if err != nil {
 		return result, err
 	}

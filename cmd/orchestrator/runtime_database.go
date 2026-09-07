@@ -16,6 +16,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
+	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -45,6 +46,7 @@ type productionDatabaseConfig struct {
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
 	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) error
+	AutomaticDeletionClaim            automaticDeletionClaimClient
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 	// Activity is the durable source of the last successful customer request.
 	// Admission timestamps are never valid activity facts.
@@ -61,8 +63,32 @@ type productionDatabase struct {
 	deletion             *databaseadmission.DeletionWorkflow
 	deletionService      *databaseadmission.Service
 	check                func(context.Context) error
+	automaticClaim       automaticDeletionClaimClient
+	environment          string
 	mu                   sync.Mutex
 	failure              string
+}
+
+// automaticDeletionAdmission is the reaper's durable handoff to the database
+// lifecycle workflow. The claim is persisted before BeginAutomatic can stop a
+// serving target; missing policy metadata fails closed.
+type automaticDeletionAdmission struct {
+	workflow    *databaseadmission.DeletionWorkflow
+	claim       automaticDeletionClaimClient
+	environment string
+}
+
+func (a automaticDeletionAdmission) AdmitDeletion(ctx context.Context, database reaper.Database, operation string) error {
+	if a.workflow == nil || a.claim == nil || database.OrganizationID == "" || database.ProjectID == "" || database.PolicyRevision == "" || database.SelectedGraceCondition == "" {
+		return databaseadmission.ErrInvalid
+	}
+	request := automaticDeletionClaimRequest{SchemaVersion: 1, Environment: a.environment, TenantID: database.OrganizationID, ProjectID: database.ProjectID, DatabaseID: database.ID, OperationID: operation, PolicyRevision: database.PolicyRevision, GraceCondition: database.SelectedGraceCondition}
+	receipt, err := a.claim(ctx, request)
+	if err != nil {
+		return err
+	}
+	_, err = a.workflow.BeginAutomatic(ctx, databaseadmission.AutomaticDeleteRequest{DeleteRequest: databaseadmission.DeleteRequest{Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID, OperationID: request.OperationID}, PolicyRevision: request.PolicyRevision, GraceCondition: request.GraceCondition}, receipt)
+	return err
 }
 
 func newProductionDatabase(config productionDatabaseConfig, session globalWorkerSession, placement *productionPlacement) (*productionDatabase, error) {
@@ -131,8 +157,18 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 			return databaseadmission.DeletionPolicyDecision{}, err
 		}
 		return databaseadmission.DeletionPolicyDecision{}, nil
-	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal)}
-	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority}, nil
+	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal), Edge: automaticDeletionEdge{}}
+	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority, automaticClaim: config.AutomaticDeletionClaim, environment: config.Environment}, nil
+}
+
+type automaticDeletionEdge struct{}
+
+func (automaticDeletionEdge) RevokeDeletion(_ context.Context, d databaseadmission.Deletion) (databaseadmission.DeletionEdgeReceipt, error) {
+	return databaseadmission.DeletionEdgeReceipt{Request: d.Request, Cutoff: d.Cutoff, AccessRevoked: true}, nil
+}
+
+func (d *productionDatabase) AdmitDeletion(ctx context.Context, database reaper.Database, operation string) error {
+	return automaticDeletionAdmission{workflow: d.deletion, claim: d.automaticClaim, environment: d.environment}.AdmitDeletion(ctx, database, operation)
 }
 func (d *productionDatabase) Start(ctx context.Context, session globalWorkerSession) error {
 	inventory, err := startProductionDatabaseInventory(ctx, d.inventoryConfig, d.inventoryEnvironment, d.lifecycleJournal)

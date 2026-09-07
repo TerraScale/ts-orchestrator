@@ -379,6 +379,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime native lifecycle: %w", err)
 	}
 	config.Reaper.Database = nativeDatabase
+	config.Reaper.Admission = database
 	config.Reaper.Store = &reaper.NATSStateStoreConfig{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: epoch, LeaseID: session.Lease.LeaseId}
 	config.Reaper.CheckEffectAuthority = session.CheckEffectAuthority
 	reaperRuntime, err := reaper.NewProduction(config.Reaper)
