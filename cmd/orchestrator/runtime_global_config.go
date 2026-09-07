@@ -27,6 +27,7 @@ import (
 var ErrProductionGlobalDependency = errors.New("production global dependency is unavailable")
 
 type productionGlobalBuildInput struct {
+	BindProjection  func(computeProjection)
 	Global          *productionGlobalFile
 	Auth            productionAuthBootstrapConfig
 	Spec            estate.Spec
@@ -153,13 +154,14 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient
 	config.Close = closeAll
-	cloudInitByArch := make(map[string]string, 2)
-	for arch := range input.Global.Compute.Artifacts {
-		value, err := input.Global.Compute.cloudInitFor(arch)
-		if err != nil {
-			return fail(fmt.Errorf("global compute %s cloud-init: %w", arch, err))
-		}
-		cloudInitByArch[arch] = value
+	projection, closeEnrollment, err := newProductionEnrollmentProjection(ctx, session, input.Global, config.Database.Environment, config.Database.Cluster)
+	if err != nil {
+		return fail(err)
+	}
+	cleanup = append(cleanup, closeEnrollment)
+	if input.BindProjection != nil {
+		input.BindProjection(projection.Declared)
+		cleanup = append(cleanup, func() error { input.BindProjection(nil); return nil })
 	}
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
 	config.Ownership = input.Ownership
@@ -212,37 +214,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			if err != nil {
 				return fmt.Errorf("compute network %s: %w", region.Code, err)
 			}
-			candidates := make([]ocireconcile.MemberLaunchCandidate, 0, len(region.Members.Candidates))
-			for _, candidate := range region.Members.Candidates {
-				image := input.Global.Compute.ImageID
-				if candidate.Architecture == ocireconcile.MemberArchAMD64 {
-					image = input.Global.Compute.FallbackImageID
-				}
-				candidates = append(candidates, ocireconcile.MemberLaunchCandidate{Shape: candidate.Shape, ImageID: image, Architecture: candidate.Architecture, QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef, CloudInitBase64: cloudInitByArch[candidate.Architecture]})
+			declared, err := projection.Declared(applyCtx, region)
+			if err != nil {
+				return err
 			}
-			cloudInitByMember := make(map[int]string, int(region.Members.Count))
-			for index := 1; index <= int(region.Members.Count); index++ {
-				cloudInitByMember[index] = cloudInitByArch[ocireconcile.MemberArchArm64]
-			}
-			bindings := make(map[int]ocireconcile.MemberBinding, int(region.Members.Count))
-			for _, databaseRegion := range config.Database.Regions {
-				if databaseRegion.Region != region.Code {
-					continue
-				}
-				for index := 1; index <= int(region.Members.Count); index++ {
-					var host productionDatabaseHost
-					if index == 1 {
-						host = databaseRegion.Writer
-					} else if index == 2 {
-						host = databaseRegion.Follower
-					} else {
-						continue
-					}
-					bindings[index] = ocireconcile.MemberBinding{ServerIdentity: host.ServerIdentity, Environment: config.Database.Environment, Cluster: config.Database.Cluster, MemberID: host.MemberID, CellID: region.Code, Generation: uint64(session.Lease.Epoch)}
-				}
-				break
-			}
-			declared := ocireconcile.ComputeDeclared{Region: region, ImageID: input.Global.Compute.ImageID, FallbackImageID: input.Global.Compute.FallbackImageID, Candidates: candidates, CloudInitByMember: cloudInitByMember, MemberBindings: bindings}
+
 			reconciler := &ocireconcile.ComputeReconciler{Compute: gateway, Network: network, RemovalOwner: config.ComputeRemovalOwner}
 			observed, err := reconciler.Observe(applyCtx, declared)
 			if err != nil {

@@ -71,7 +71,7 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
-	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan})
+	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan, BindProjection: dependencies.OCI.bindComputeProjection})
 	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
 	if err != nil {
@@ -419,6 +419,7 @@ type ociReconcileController struct {
 }
 
 type ociRegionController struct {
+	projection      computeProjection
 	region          estate.Region
 	imageID         string
 	fallbackImageID string
@@ -493,7 +494,11 @@ func (r *ociRegionController) observe(ctx context.Context) (*ociRegionObservatio
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
-	compute, err := r.compute.Observe(ctx, r.computeDeclared())
+	declared, err := r.enrolledComputeDeclared(ctx)
+	if err != nil {
+		return nil, reconcile.State{}, err
+	}
+	compute, err := r.compute.Observe(ctx, declared)
 	if err != nil {
 		return nil, reconcile.State{}, err
 	}
@@ -554,7 +559,10 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 		}
 		_ = state
 	}
-	computeDeclared := r.computeDeclared()
+	computeDeclared, err := r.enrolledComputeDeclared(ctx)
+	if err != nil {
+		return err
+	}
 	networkPlan, err := r.network.Reconcile(ctx, r.region, observed.network)
 	if err != nil {
 		return err
@@ -1196,4 +1204,21 @@ func printReconcilePlan(output io.Writer) error {
 		EstateVersion: estate.SchemaVersion,
 		Actions:       plan.Actions,
 	})
+}
+
+func (c *ociReconcileController) bindComputeProjection(project computeProjection) {
+	for _, region := range c.regions {
+		region.mu.Lock()
+		region.projection = project
+		region.mu.Unlock()
+	}
+}
+func (r *ociRegionController) enrolledComputeDeclared(ctx context.Context) (ocireconcile.ComputeDeclared, error) {
+	r.mu.Lock()
+	project := r.projection
+	r.mu.Unlock()
+	if project == nil {
+		return ocireconcile.ComputeDeclared{}, errors.New("reconcile: lease-owned enrollment projection is unavailable")
+	}
+	return project(ctx, r.region)
 }

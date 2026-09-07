@@ -55,10 +55,14 @@ type RestoreRequest struct {
 	OperationID      string           `json:"operation_id"`
 }
 type RestoreAdmissionFacts struct {
-	PointID    string `json:"point_id"`
-	Provider   string `json:"provider"`
-	JournalCut string `json:"journal_cut"`
-	Epoch      uint64 `json:"epoch"`
+	SourceDigest     string `json:"source_digest"`
+	CapturedAtMillis uint64 `json:"captured_at_millis"`
+	Checksum         string `json:"checksum"`
+	RowCount         uint64 `json:"row_count"`
+	PointID          string `json:"point_id"`
+	Provider         string `json:"provider"`
+	JournalCut       string `json:"journal_cut"`
+	Epoch            uint64 `json:"epoch"`
 }
 type Target struct {
 	ServerIdentity string
@@ -88,6 +92,7 @@ type Plan struct {
 	Placements []PlacementTarget
 }
 type Record struct {
+	RestoreReceipt   []byte                 `json:"restore_receipt,omitempty"`
 	RestoreFacts     *RestoreAdmissionFacts `json:"restore_facts,omitempty"`
 	Restore          *RestoreRequest        `json:"restore,omitempty"`
 	PlacementTargets []PlacementTarget
@@ -178,16 +183,21 @@ func ValidateRestoreRequest(r RestoreRequest) error {
 	if !environmentName.MatchString(r.Environment) || !canonicalID.MatchString(r.TenantID) || !canonicalID.MatchString(r.ProjectID) || !canonicalID.MatchString(r.SourceDatabaseID) || !databaseName.MatchString(r.Name) || len(r.OperationID) == 0 || len(r.OperationID) > 128 {
 		return ErrInvalid
 	}
+	for _, c := range r.OperationID {
+		if c < 33 || c > 126 {
+			return ErrInvalid
+		}
+	}
 	if r.Selection.Kind == "latest" {
 		if r.Selection.PointID != "" || r.Selection.UnixMillis != 0 {
 			return ErrInvalid
 		}
 	} else if r.Selection.Kind == "point_id" {
-		if r.Selection.PointID == "" || r.Selection.UnixMillis != 0 {
+		if !canonicalID.MatchString(r.Selection.PointID) || r.Selection.UnixMillis != 0 {
 			return ErrInvalid
 		}
 	} else if r.Selection.Kind == "unix_millis" {
-		if r.Selection.UnixMillis <= 0 || r.Selection.PointID != "" {
+		if r.Selection.UnixMillis < 0 || r.Selection.PointID != "" {
 			return ErrInvalid
 		}
 	} else {
@@ -196,6 +206,9 @@ func ValidateRestoreRequest(r RestoreRequest) error {
 	return nil
 }
 func ValidateRecord(r Record) error {
+	if err := validateRestoreRecord(r); err != nil {
+		return err
+	}
 	if r.Request.ParentDatabaseID == r.DatabaseID {
 		return ErrInvalid
 	}
@@ -279,6 +292,8 @@ func ImmutableEqual(a, b Record) bool {
 	b.State = ""
 	a.Wrapped = nil
 	b.Wrapped = nil
+	a.RestoreReceipt = nil
+	b.RestoreReceipt = nil
 	a.BranchSource = nil
 	b.BranchSource = nil
 	a.BranchEvidence = nil

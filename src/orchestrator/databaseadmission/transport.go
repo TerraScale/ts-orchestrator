@@ -24,11 +24,13 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
+const RestoreSubject = subjects.Restore
 const CreateSubject = subjects.Create
 const StatusSubject = subjects.Status
 const maxMessage = 256 << 10
 
 type Result struct {
+	RestoreReceipt   []byte    `json:"restore_receipt,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	ParentDatabaseID string    `json:"parent_database_id,omitempty"`
 	Environment      string    `json:"environment"`
@@ -52,7 +54,11 @@ func result(r Record) Result {
 	if r.State == "ready" {
 		state = "ready"
 	}
-	return Result{CreatedAt: r.CreatedAt, ParentDatabaseID: r.Request.ParentDatabaseID, Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: state}
+	var receipt []byte
+	if r.State == "ready" {
+		receipt = r.RestoreReceipt
+	}
+	return Result{RestoreReceipt: receipt, CreatedAt: r.CreatedAt, ParentDatabaseID: r.Request.ParentDatabaseID, Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, OperationID: r.Request.OperationID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Name: r.Request.Name, Regions: r.Request.Regions, Residency: r.Request.Residency, State: state}
 }
 
 type Service struct {
@@ -103,7 +109,7 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
+	return []string{CreateSubject, RestoreSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -118,7 +124,7 @@ func StartAuthority(ctx context.Context, nc *nats.Conn, pipeline *Pipeline) (*Se
 	}
 	_ = listSubscription.SetPendingLimits(128, 8<<20)
 	subscriptions := []*nats.Subscription{listSubscription}
-	for _, subject := range []string{CreateSubject, StatusSubject} {
+	for _, subject := range []string{CreateSubject, RestoreSubject, StatusSubject} {
 		sub, err := nc.Subscribe(subject, func(message *nats.Msg) {
 			if len(message.Data) > maxMessage || message.Reply == "" {
 				return
@@ -127,7 +133,19 @@ func StartAuthority(ctx context.Context, nc *nats.Conn, pipeline *Pipeline) (*Se
 			defer cancel()
 			var request Request
 			reply := response{}
-			if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil {
+			if message.Subject == RestoreSubject {
+				var restore RestoreRequest
+				if json.Unmarshal(message.Data, &restore, json.RejectUnknownMembers(true)) != nil {
+					reply.Error = "invalid"
+				} else {
+					record, err := pipeline.AcceptRestore(opctx, restore)
+					if err != nil {
+						reply.Error = lifecycleError(err)
+					} else {
+						reply.Result = new(result(record))
+					}
+				}
+			} else if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil {
 				reply.Error = "invalid"
 			} else {
 				var record Record
@@ -205,7 +223,7 @@ func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 	registerLifecycleIngress(mux, c.Lifecycle)
 	registerDeletionIngress(mux, c)
 	registerOperationListIngress(mux, c)
-	for path, subject := range map[string]string{"/internal/v1/databases/create": CreateSubject, "/internal/v1/databases/status": StatusSubject} {
+	for path, subject := range map[string]string{"/internal/v1/databases/create": CreateSubject, "/internal/v1/databases/restore": RestoreSubject, "/internal/v1/databases/status": StatusSubject} {
 		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 			uid, ok := r.Context().Value(peerUIDKey{}).(uint32)
 			if !ok || uid != c.AllowedUID {
@@ -222,6 +240,10 @@ func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 			validationError := ValidateRequest(request)
 			if subject == StatusSubject {
 				validationError = validateLookup(request)
+			} else if subject == RestoreSubject {
+				var restore RestoreRequest
+				decodeError = json.Unmarshal(data, &restore, json.RejectUnknownMembers(true))
+				validationError = ValidateRestoreRequest(restore)
 			}
 			if decodeError != nil || validationError != nil {
 				http.Error(w, "invalid", 400)

@@ -129,8 +129,10 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		if g != nil {
 			globalPlan = &productionGlobalWorkerPlan{CandidateID: "global-controller-" + strings.ToLower(options.Cell) + "-" + options.Instance}
 			globalPlan.Construct = func(workerCtx context.Context, session globalWorkerSession) (productionGlobalWorkerConfig, error) {
+				wiring, _ := productionAutoscaleFromContext(constructCtx)
 				return buildProductionGlobalConfig(workerCtx, session, productionGlobalBuildInput{
-					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
+					BindProjection: wiring.BindProjection,
+					Global:         g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
 					Shared: constructed.Store, Ownership: constructed.Ownership, Transition: transition,
 				})
 			}

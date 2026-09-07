@@ -4,6 +4,7 @@ package subjects
 
 const (
 	OperationList            = "orch.database.operations.list"
+	Restore                  = "orch.database.restore"
 	Create                   = "orch.database.create"
 	Status                   = "orch.database.status"
 	DeletionBegin            = "orch.database.delete.begin"

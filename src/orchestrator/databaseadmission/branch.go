@@ -101,6 +101,9 @@ func validateBranchRestore(r Record, receipts []SignedReadiness, nonce string, k
 }
 
 func (p *Pipeline) restoreBranch(ctx context.Context, r *Record) error {
+	if r.Restore != nil {
+		return nil
+	}
 	if r.Request.ParentDatabaseID == "" {
 		return nil
 	}

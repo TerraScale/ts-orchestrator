@@ -47,6 +47,7 @@ type productionComputeArtifactFile struct {
 }
 
 type productionGlobalComputeFile struct {
+	Enrollment        *productionEnrollmentFile                `json:"enrollment"`
 	EstateFiles       map[string]string                        `json:"estate_files"`
 	KeyID             string                                   `json:"key_id"`
 	PrivateKeyFile    string                                   `json:"private_key_file"`

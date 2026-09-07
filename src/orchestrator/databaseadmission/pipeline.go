@@ -16,6 +16,7 @@ import (
 )
 
 type Config struct {
+	Restore       *RestoreConfig
 	BranchRestore *BranchRestoreConfig
 	Journal       Journal
 	CatalogPath   string
@@ -72,7 +73,7 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 		return Record{}, err
 	}
 	if found {
-		if !reflect.DeepEqual(existing.Request, request) {
+		if existing.Restore != nil || !reflect.DeepEqual(existing.Request, request) {
 			return Record{}, ErrConflict
 		}
 		return existing, nil
@@ -85,6 +86,11 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 			return Record{}, err
 		}
 	}
+	return p.acceptRecord(ctx, Record{Request: request})
+}
+
+// acceptRecord is shared target identity, placement and durable reservation ownership.
+func (p *Pipeline) acceptRecord(ctx context.Context, record Record) (Record, error) {
 	id, err := ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
 	if err != nil {
 		return Record{}, err
@@ -93,7 +99,7 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 	if err != nil {
 		return Record{}, err
 	}
-	record := Record{Request: request, DatabaseID: id.String(), KeyVersion: version.String(), State: "accepted", CreatedAt: time.Now().UTC().Truncate(time.Millisecond)}
+	record.DatabaseID, record.KeyVersion, record.State, record.CreatedAt = id.String(), version.String(), "accepted", time.Now().UTC().Truncate(time.Millisecond)
 	plan, err := p.config.Plan(ctx, record)
 	record.Targets, record.PlacementTargets = plan.Members, plan.Placements
 	if err != nil {
@@ -102,7 +108,7 @@ func (p *Pipeline) Accept(ctx context.Context, request Request) (Record, error) 
 	if ValidateRecord(record) != nil {
 		return Record{}, ErrInvalid
 	}
-	record.Revision, err = p.config.Journal.Save(ctx, key, 0, record)
+	record.Revision, err = p.config.Journal.Save(ctx, ScopeKey(record.Request), 0, record)
 	if err != nil {
 		return Record{}, err
 	}
@@ -286,6 +292,34 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
 	if err := p.config.ActivatePlacement(ctx, r); err != nil {
 		return err
+	}
+	if r.Restore != nil {
+		if p.config.Restore == nil || p.config.Restore.Restore == nil {
+			return errors.New("database restore: native authority unavailable")
+		}
+		// Activation persists accepted proof through the journal; reload that exact
+		// authoritative placement before native restore. Do not publish serving yet.
+		current, found, err := p.config.Journal.Load(ctx, ScopeKey(r.Request))
+		if err != nil {
+			return err
+		}
+		if !found {
+			return ErrConflict
+		}
+		r = current
+		if len(r.RestoreReceipt) == 0 {
+			receipt, err := p.config.Restore.Restore(ctx, r)
+			if err != nil {
+				return err
+			}
+			if len(receipt) == 0 || len(receipt) > 32<<10 {
+				return ErrInvalid
+			}
+			r.RestoreReceipt = receipt
+			if err := p.save(ctx, &r); err != nil {
+				return err
+			}
+		}
 	}
 	// The original install registered a closed encrypted scope so Stage could
 	// validate it. Replay after accepted membership lets the engine publish that

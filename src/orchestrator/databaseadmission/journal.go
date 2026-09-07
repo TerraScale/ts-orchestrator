@@ -57,6 +57,9 @@ func operationKey(request Request) string {
 }
 func validateProgress(record Record) error {
 	rank := stateRank(record.State)
+	if record.Restore != nil && (len(record.RestoreReceipt) != 0 && rank < 3 || rank == 4 && len(record.RestoreReceipt) == 0) {
+		return ErrInvalid
+	}
 	if rank < 0 {
 		return ErrInvalid
 	}
@@ -111,7 +114,7 @@ func validateProgress(record Record) error {
 	} else if len(record.ReadyEvidence) != 0 || record.ReadinessNonce != "" {
 		return ErrInvalid
 	}
-	if record.Request.ParentDatabaseID == "" {
+	if record.Request.ParentDatabaseID == "" || record.Restore != nil {
 		if record.BranchSource != nil || len(record.BranchEvidence) != 0 || record.BranchNonce != "" {
 			return ErrInvalid
 		}
@@ -153,6 +156,9 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 		if !ImmutableEqual(old, record) || stateRank(record.State) < stateRank(old.State) || !wrappedPreserved(old.Wrapped, record.Wrapped) {
 			return 0, ErrConflict
 		}
+		if len(old.RestoreReceipt) != 0 && !slices.Equal(old.RestoreReceipt, record.RestoreReceipt) {
+			return 0, ErrConflict
+		}
 		if old.BranchSource != nil && !reflect.DeepEqual(old.BranchSource, record.BranchSource) {
 			return 0, ErrConflict
 		}
@@ -187,6 +193,11 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			return 0, ErrInvalid
 		}
 		for _, other := range state.Records {
+			// Epoch uniqueness is checked inside the same fenced journal CAS
+			// that reserves the target, across Pipeline instances.
+			if record.Restore != nil && record.Request.RestoreEpoch <= other.Request.RestoreEpoch {
+				return 0, ErrConflict
+			}
 			if operationKey(other.Request) == operationKey(record.Request) || other.DatabaseID == record.DatabaseID {
 				return 0, ErrConflict
 			}
@@ -236,6 +247,9 @@ func validateReservedCapacity(state journalState) error {
 			for range record.Targets {
 				record.BranchEvidence = append(record.BranchEvidence, SignedReadiness{KeyID: strings.Repeat("k", 128), Payload: make([]byte, 32<<10), Signature: make([]byte, 64)})
 			}
+		}
+		if record.Restore != nil && len(record.RestoreReceipt) == 0 {
+			record.RestoreReceipt = make([]byte, 32<<10)
 		}
 		record.Revision = math.MaxUint64
 		reserved.Records[key] = record

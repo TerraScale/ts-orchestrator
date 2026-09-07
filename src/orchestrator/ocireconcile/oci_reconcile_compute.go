@@ -94,7 +94,8 @@ type MemberLaunchCandidate struct {
 }
 
 type ComputeDeclared struct {
-	Region estate.Region
+	CandidatesByMember map[int][]MemberLaunchCandidate
+	Region             estate.Region
 	// ImageID boots the primary shape; FallbackImageID boots the fallback
 	// shape whenever the two shapes span architectures (D-69).
 	ImageID           string
@@ -452,6 +453,9 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 	cloudInit := declared.CloudInitByMember[index]
 	candidates := make([]MemberLaunchCandidate, len(declared.Candidates))
 	copy(candidates, declared.Candidates)
+	if enrolled, ok := declared.CandidatesByMember[index]; ok {
+		candidates = append([]MemberLaunchCandidate(nil), enrolled...)
+	}
 	binding := declared.MemberBindings[index]
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
 		DisplayName:    MemberDisplayName(declared.Region.Code, index),
