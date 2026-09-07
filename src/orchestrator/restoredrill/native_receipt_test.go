@@ -14,6 +14,8 @@ import (
 // order. Verification must authenticate these exact bytes, never reserialize.
 const nativeReceiptTestPayload = `{
  "completed_at_millis":1700000001000,
+ "recovery_point_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+ "target_incarnation":"01ARZ3NDEKTSV4RRFFQ69G5FAY",
  "schema_version":1,"tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV",
  "project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW",
  "source_database_id":"01ARZ3NDEKTSV4RRFFQ69G5FAX",
@@ -26,7 +28,7 @@ const nativeReceiptTestPayload = `{
  "operation_id":"operation-1","recovery_point_id":"recovery-1","placement":["GRU","VCP"]}`
 
 func nativeReceiptExpected() NativeReceiptBinding {
-	return NativeReceiptBinding{TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", SourceDatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", TargetDatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", SourceJournalCut: 42, CapturedAtMillis: 1700000000000, SourceChecksum: strings.Repeat("a", 64), SourceRowCount: 7, RestoreEpoch: 8, IdempotencyKey: "restore/8", OperationID: "operation-1", RecoveryPointID: "recovery-1", Placement: []string{"GRU", "VCP"}}
+	return NativeReceiptBinding{TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", SourceDatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", TargetDatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", SourceJournalCut: 42, CapturedAtMillis: 1700000000000, SourceChecksum: strings.Repeat("a", 64), SourceRowCount: 7, RestoreEpoch: 8, IdempotencyKey: "restore/8", OperationID: "operation-1", RecoveryPointID: "recovery-1", RecoveryPointDigest: strings.Repeat("b", 64), TargetIncarnation: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Placement: []string{"GRU", "VCP"}}
 }
 func nativeTestEnvelope(t *testing.T, key ed25519.PrivateKey, payload, domain string) []byte {
 	t.Helper()

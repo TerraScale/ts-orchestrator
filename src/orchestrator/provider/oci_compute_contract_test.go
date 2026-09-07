@@ -277,3 +277,73 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 		t.Fatal("Identity signer accepted an authority without the OCI service label")
 	}
 }
+
+func TestOCIComputeTerminationWaitsForTerminalAndNeverRepeatsSubmission(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(map[bool]string{false: "accepted asynchronously", true: "response lost"}[lost], func(t *testing.T) {
+			state := "RUNNING"
+			reads404 := false
+			deletes := 0
+			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path != "/20160918/instances/ocid1.instance.oc1.x" {
+					t.Fatalf("resource %s", request.URL.Path)
+				}
+				if request.Method == http.MethodGet {
+					if reads404 {
+						return testHTTPResponse(404, `{}`, nil), nil
+					}
+					etag := "etag-before"
+					if state != "RUNNING" {
+						etag = "etag-after"
+					}
+					body := `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"` + state + `"}`
+					return testHTTPResponse(200, body, http.Header{"Etag": []string{etag}}), nil
+				}
+				if request.Method != http.MethodDelete || request.Header.Get("If-Match") != "etag-before" {
+					t.Fatalf("unconditional mutation %s %+v", request.Method, request.Header)
+				}
+				deletes++
+				state = "TERMINATING"
+				if lost {
+					return nil, io.ErrUnexpectedEOF
+				}
+				return testHTTPResponse(202, ``, nil), nil
+			})
+			ownership, err := NewDurableOwnershipJournal(newTestOwnershipCAS(), 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ownership.Record(t.Context(), ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: "ocid1.instance.oc1.x"}, CompartmentId: ProviderCompartmentId{Value: "ocid1.compartment.oc1.x"}, CellId: ProviderCellId{Value: "gru"}, Generation: ProviderGeneration{Value: 1}}); err != nil {
+				t.Fatal(err)
+			}
+			journal := testJournal(t)
+			construct := func() *OCIComputeAdapter {
+				return &OCIComputeAdapter{Core: transport, Journal: journal, Ownership: ownership}
+			}
+			request := ComputeTerminateRequest{InstanceID: "ocid1.instance.oc1.x", IfMatch: "etag-before"}
+			request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
+			if err := construct().TerminateInstance(t.Context(), request); err == nil {
+				t.Fatal("accepted or unknown result completed before terminal")
+			}
+			reads404 = true
+			if err := construct().TerminateInstance(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
+				t.Fatalf("404 interpreted as terminal: %v", err)
+			}
+			reads404 = false
+			if err := construct().TerminateInstance(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
+				t.Fatalf("terminating restart: %v", err)
+			}
+			if deletes != 1 {
+				t.Fatalf("duplicate destructive request: %d", deletes)
+			}
+			state = "TERMINATED"
+			if err := construct().TerminateInstance(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+			record, err := journal.Prepare(t.Context(), request.Mutation)
+			if err != nil || record.State != MutationSucceeded || deletes != 1 {
+				t.Fatalf("terminal record=%+v calls=%d err=%v", record, deletes, err)
+			}
+		})
+	}
+}

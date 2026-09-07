@@ -431,10 +431,10 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	if err := validateTransitionTrust(d.TransitionTrust); err != nil {
 		return "", err
 	}
-	renderTransitionTrust(&b, d.TransitionTrust)
 	if d.TransitionTrust != nil && d.TransitionTrust.ReceiptKeyID != "" {
-		fmt.Fprintf(&b, "receipt_signing_key_file = %q\n", receiptSignerPath)
+		fmt.Fprintf(&b, "receipt_signing_key_file = %q\nreceipt_signing_key_id = %q\n", receiptSignerPath, d.TransitionTrust.ReceiptKeyID)
 	}
+	renderTransitionTrust(&b, d.TransitionTrust)
 	renderDatabaseAdmission(&b, h.DatabaseHost)
 	l := d.Limits
 	fmt.Fprintf(&b, "\n[transport]\ntbep_listen = \"127.0.0.1:8421\"\nquic_listen = %q\nmetrics_listen = \"127.0.0.1:8423\"\nserver_certificate = %q\nserver_private_key = %q\nclient_ca = %q\nmax_message_bytes = %d\nmax_inflight = %d\nrequest_timeout_millis = %d\ntls_handshake_timeout_millis = %d\nshutdown_grace_millis = %d\n", nodes[h.NodeID].Address+":8422", CertificatePath, PrivateKeyPath, CAPath, l.MaxMessageBytes, l.MaxInflight, l.RequestTimeoutMillis, l.TLSHandshakeTimeoutMillis, l.ShutdownGraceMillis)

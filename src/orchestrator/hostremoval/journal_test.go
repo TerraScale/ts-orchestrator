@@ -14,10 +14,10 @@ func (m *removalMemory) Transact(_ context.Context, _ bool, fn func(*state) erro
 
 func TestRemovalRetainsInventoryAndResumesOnlyTerminationAfterUnknownOutcome(t *testing.T) {
 	journal := &Journal{journal: &removalMemory{state: state{Operations: map[string]Operation{}}}}
-	member := MemberObservation{Identity: "spiffe://member", ResourceID: "ocid1.instance.original", Generation: 7}
+	member := MemberObservation{ProviderETag: "etag", Identity: "spiffe://member", ResourceID: "ocid1.instance.original", Generation: 7}
 	var inventory, replace, revalidate, fence, observe, terminate int
 	unknown := errors.New("unknown provider outcome")
-	owner := &Owner{Journal: journal,
+	owner := &Owner{Journal: journal, ReconcileTermination: func(context.Context, string) error { return nil },
 		Inventory: func(context.Context, RemovalRequest, []Replacement) (uint64, []Replacement, error) {
 			inventory++
 			return 1, []Replacement{{DatabaseID: "db", IssuerOperationID: "replace", ProposalDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, nil
@@ -25,7 +25,7 @@ func TestRemovalRetainsInventoryAndResumesOnlyTerminationAfterUnknownOutcome(t *
 		Replace:    func(context.Context, Replacement) error { replace++; return nil },
 		Revalidate: func(context.Context, string, string, uint64) error { revalidate++; return nil },
 		Fence:      func(context.Context, string, string, []Replacement) error { fence++; return nil },
-		Observe:    func(context.Context, string) (bool, error) { observe++; return true, nil },
+		Observe:    func(context.Context, string) (bool, error) { observe++; return terminate < 2, nil },
 		Terminate: func(context.Context, string) error {
 			terminate++
 			if terminate == 1 {
@@ -48,18 +48,18 @@ func TestRemovalRetainsInventoryAndResumesOnlyTerminationAfterUnknownOutcome(t *
 	if err := owner.RemoveMember(t.Context(), "remove", member, 7); err != nil {
 		t.Fatal(err)
 	}
-	if inventory != 1 || replace != 1 || revalidate != 1 || fence != 1 || observe != 2 || terminate != 2 {
+	if inventory != 1 || replace != 1 || revalidate != 1 || fence != 1 || observe != 3 || terminate != 2 {
 		t.Fatalf("effects replayed: inventory=%d replace=%d revalidate=%d fence=%d observe=%d terminate=%d", inventory, replace, revalidate, fence, observe, terminate)
 	}
 }
 
 func TestRemovalLostTerminationAcknowledgementCompletesFromAuthoritativeAbsence(t *testing.T) {
 	journal := &Journal{journal: &removalMemory{state: state{Operations: map[string]Operation{}}}}
-	member := MemberObservation{Identity: "spiffe://member", ResourceID: "ocid1.instance.original", Generation: 7}
+	member := MemberObservation{ProviderETag: "etag", Identity: "spiffe://member", ResourceID: "ocid1.instance.original", Generation: 7}
 	exists := true
 	calls := 0
 	unknown := errors.New("response lost")
-	owner := &Owner{Journal: journal,
+	owner := &Owner{Journal: journal, ReconcileTermination: func(context.Context, string) error { return nil },
 		Inventory: func(context.Context, RemovalRequest, []Replacement) (uint64, []Replacement, error) {
 			return 1, nil, nil
 		},

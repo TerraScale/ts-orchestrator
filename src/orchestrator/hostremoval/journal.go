@@ -18,6 +18,7 @@ var (
 	ErrInvalid  = errors.New("host removal: invalid operation")
 	ErrConflict = errors.New("host removal: immutable operation conflict")
 	ErrMissing  = errors.New("host removal: operation missing")
+	ErrPending  = errors.New("host removal: provider termination pending")
 )
 
 type Stage string
@@ -40,6 +41,7 @@ type Replacement struct {
 
 type Operation struct {
 	OperationID       string              `json:"operation_id"`
+	ProviderETag      string              `json:"provider_etag"`
 	ResourceID        string              `json:"resource_id"`
 	MemberIdentity    string              `json:"member_identity"`
 	Generation        uint64              `json:"generation"`
@@ -59,6 +61,7 @@ type RemovalRequest struct {
 	Survivors   []MemberObservation
 }
 type MemberObservation struct {
+	ProviderETag string   `json:"provider_etag"`
 	ResourceID   string   `json:"resource_id"`
 	Identity     string   `json:"identity"`
 	Region       string   `json:"region"`
@@ -97,15 +100,16 @@ type Owner struct {
 	Fence      func(context.Context, string, string, []Replacement) error
 	// Observe rereads the exact provider identity after an unknown termination
 	// outcome. A retry is allowed only while that member is still present.
-	Observe   func(context.Context, string) (bool, error)
-	Terminate func(context.Context, string) error
+	Observe              func(context.Context, string) (bool, error)
+	ReconcileTermination func(context.Context, string) error
+	Terminate            func(context.Context, string) error
 }
 
 func (o *Owner) RemoveMember(ctx context.Context, operationID string, member MemberObservation, generation uint64, survivors ...MemberObservation) error {
-	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Observe == nil || o.Terminate == nil {
+	if o == nil || o.Journal == nil || o.Inventory == nil || o.Replace == nil || o.Revalidate == nil || o.Fence == nil || o.Observe == nil || o.Terminate == nil || o.ReconcileTermination == nil {
 		return ErrInvalid
 	}
-	if !token(member.ResourceID) || member.Identity == "" || generation == 0 || member.Generation != generation {
+	if !token(member.ResourceID) || !token(member.ProviderETag) || member.Identity == "" || generation == 0 || member.Generation != generation {
 		return ErrInvalid
 	}
 	current, err := o.Journal.Load(ctx, operationID)
@@ -120,7 +124,7 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	if err != nil {
 		return err
 	}
-	if current.ResourceID != member.ResourceID || current.MemberIdentity != member.Identity || current.Generation != generation {
+	if current.ResourceID != member.ResourceID || current.MemberIdentity != member.Identity || current.Generation != generation || current.ProviderETag != member.ProviderETag {
 		return ErrConflict
 	}
 	if current.Stage == StageComplete {
@@ -154,10 +158,23 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	if !present {
 		// Observe may report absence only from an authoritative terminal read
 		// bound to the retained resource, never from an unavailable lookup.
+		if err := o.ReconcileTermination(ctx, member.Identity); err != nil {
+			return err
+		}
 		_, err = o.Journal.Advance(ctx, operationID, StageComplete)
 		return err
 	}
 	if err := o.Terminate(ctx, member.Identity); err != nil {
+		return err
+	}
+	present, err = o.Observe(ctx, member.Identity)
+	if err != nil {
+		return err
+	}
+	if present {
+		return ErrPending
+	}
+	if err := o.ReconcileTermination(ctx, member.Identity); err != nil {
 		return err
 	}
 	_, err = o.Journal.Advance(ctx, operationID, StageComplete)
@@ -194,10 +211,10 @@ func (j *typedJournal) Transact(ctx context.Context, write bool, change func(*st
 }
 
 func (j *Journal) Begin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
-	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
+	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || !token(member.ProviderETag) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
 		return Operation{}, ErrInvalid
 	}
-	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
+	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, ProviderETag: member.ProviderETag, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
 	var result Operation
 	err := j.journal.Transact(ctx, true, func(s *state) error {
 		if old, ok := s.Operations[operationID]; ok {
@@ -259,7 +276,7 @@ func validateMap(values map[string]Operation) error {
 		return ErrInvalid
 	}
 	for key, operation := range values {
-		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || operation.Generation == 0 || operation.InventoryRevision == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
+		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || !token(operation.ProviderETag) || operation.Generation == 0 || operation.InventoryRevision == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
 			return ErrInvalid
 		}
 	}
@@ -291,7 +308,7 @@ func cloneReplacements(values []Replacement) []Replacement {
 	return append([]Replacement(nil), values...)
 }
 func sameOperation(a, b Operation) bool {
-	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.ResourceID == b.ResourceID && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && jsonEqual(a.Replacements, b.Replacements) && jsonEqualMembers(a.Survivors, b.Survivors)
+	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.ResourceID == b.ResourceID && a.ProviderETag == b.ProviderETag && a.Generation == b.Generation && a.InventoryRevision == b.InventoryRevision && jsonEqual(a.Replacements, b.Replacements) && jsonEqualMembers(a.Survivors, b.Survivors)
 }
 func jsonEqual(a, b []Replacement) bool {
 	left, _ := json.Marshal(a)

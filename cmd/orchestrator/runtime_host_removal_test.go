@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
@@ -16,7 +20,8 @@ func TestRemovalRuntimeBindsSPIFFEToExactOCIResourcePerInvocation(t *testing.T) 
 	observed := hostremoval.MemberObservation{Identity: "spiffe://terrascale.tech/prod/member/one", Region: "gru", Slot: 1, Generation: 4}
 	var terminated string
 	runtime := &productionHostRemoval{
-		owner: &hostremoval.Owner{Terminate: func(_ context.Context, id string) error { terminated = id; return nil }},
+		owner:       &hostremoval.Owner{},
+		terminateFn: func(_ context.Context, id, etag string) error { terminated = id; return nil },
 		observeFn: func(_ context.Context, member ocireconcile.ObservedMember) (hostremoval.MemberObservation, error) {
 			if member.ID != first.ID {
 				t.Fatalf("wrong exact observation: %s", member.ID)
@@ -53,7 +58,7 @@ func (j *runtimeRemovalJournal) Load(context.Context, string) (hostremoval.Opera
 	return j.record, nil
 }
 func (j *runtimeRemovalJournal) Begin(_ context.Context, op string, m hostremoval.MemberObservation, generation, revision uint64, r []hostremoval.Replacement, s []hostremoval.MemberObservation) (hostremoval.Operation, error) {
-	j.record = hostremoval.Operation{OperationID: op, ResourceID: m.ResourceID, MemberIdentity: m.Identity, Generation: generation, InventoryRevision: revision, Replacements: r, Survivors: s, Stage: hostremoval.StageInventoryCaptured}
+	j.record = hostremoval.Operation{OperationID: op, ProviderETag: m.ProviderETag, ResourceID: m.ResourceID, MemberIdentity: m.Identity, Generation: generation, InventoryRevision: revision, Replacements: r, Survivors: s, Stage: hostremoval.StageInventoryCaptured}
 	j.found = true
 	return j.record, nil
 }
@@ -83,9 +88,12 @@ func (g *runtimeRemovalGateway) ObserveMember(_ context.Context, id string) (oci
 	}
 	return g.current, nil
 }
-func (g *runtimeRemovalGateway) TerminateMember(_ context.Context, id string) error {
+func (g *runtimeRemovalGateway) TerminateMember(_ context.Context, id, etag string) error {
 	if id != g.current.ID {
 		return errors.New("wrong resource")
+	}
+	if g.terminal {
+		return nil
 	}
 	g.terminations++
 	g.terminal = true
@@ -110,14 +118,13 @@ func TestRemovalRuntimeRestartAfterLostTerminationResponse(t *testing.T) {
 	ownership := &runtimeRemovalOwnership{record: provider.ProviderOwnershipRecord{ResourceId: provider.ProviderResourceId{Value: member.ID}, CompartmentId: provider.ProviderCompartmentId{Value: member.CompartmentID}, CellId: provider.ProviderCellId{Value: "gru"}, Generation: provider.ProviderGeneration{Value: 7}, ServerIdentity: "spiffe://terrascale.tech/prod/member/original"}}
 	journal := &runtimeRemovalJournal{}
 	construct := func() *productionHostRemoval {
-		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), owner: &hostremoval.Owner{Journal: journal,
+		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: journal,
 			Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
 				return 1, nil, nil
 			},
 			Replace:    func(context.Context, hostremoval.Replacement) error { return nil },
 			Revalidate: func(context.Context, string, string, uint64) error { return nil },
 			Fence:      func(context.Context, string, string, []hostremoval.Replacement) error { return nil },
-			Terminate:  newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}),
 		}}
 	}
 	if err := construct().RemoveMember(t.Context(), "remove", member, nil); err == nil {
@@ -149,5 +156,99 @@ func TestRemovalRuntimeRestartAfterLostTerminationResponse(t *testing.T) {
 	gateway.failure = unavailable
 	if err := construct().RemoveMember(t.Context(), "remove", member, nil); err != nil {
 		t.Fatalf("completed journal reread provider: %v", err)
+	}
+}
+
+type removalProviderCAS struct {
+	values    map[string][]byte
+	revisions map[string]uint64
+}
+
+func (c *removalProviderCAS) Get(_ context.Context, key string) ([]byte, uint64, error) {
+	return slices.Clone(c.values[key]), c.revisions[key], nil
+}
+func (c *removalProviderCAS) CompareAndSwap(_ context.Context, key string, expected uint64, value []byte) error {
+	if c.revisions[key] != expected {
+		return provider.OwnershipCASConflict{}
+	}
+	c.values[key] = slices.Clone(value)
+	c.revisions[key]++
+	return nil
+}
+
+type removalProviderHTTP func(*http.Request) (*http.Response, error)
+
+func (f removalProviderHTTP) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRemovalRuntimeUsesDurableConditionalProviderTermination(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(map[bool]string{false: "asynchronous", true: "dropped response"}[lost], func(t *testing.T) {
+			member := ocireconcile.ObservedMember{ID: "ocid1.instance.oc1.x", CompartmentID: "ocid1.compartment.oc1.x", Region: "gru", Index: 1}
+			state := "RUNNING"
+			deletes := 0
+			host, _ := provider.OCIServiceHost(provider.OCIServiceCore, "sa-saopaulo-1")
+			transportConfig, err := provider.NewOCIServiceTransportConfig(provider.OCIServiceCore, "sa-saopaulo-1", "https://"+host)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transport, err := provider.NewOCIHTTPTransport(transportConfig, &http.Client{Transport: removalProviderHTTP(func(request *http.Request) (*http.Response, error) {
+				if request.Method == http.MethodDelete {
+					if request.Header.Get("If-Match") != "original-etag" {
+						t.Fatalf("changed precondition %s", request.Header.Get("If-Match"))
+					}
+					deletes++
+					state = "TERMINATING"
+					if lost {
+						return nil, io.ErrUnexpectedEOF
+					}
+					return &http.Response{StatusCode: 202, Header: http.Header{}, Body: http.NoBody}, nil
+				}
+				if request.Method != http.MethodGet || request.URL.Path != "/20160918/instances/"+member.ID {
+					t.Fatalf("unexpected provider call %s %s", request.Method, request.URL.Path)
+				}
+				etag := "original-etag"
+				if state != "RUNNING" {
+					etag = "next-etag"
+				}
+				body := `{"id":"` + member.ID + `","compartmentId":"` + member.CompartmentID + `","lifecycleState":"` + state + `"}`
+				return &http.Response{StatusCode: 200, Header: http.Header{"Etag": []string{etag}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			providerJournal, err := provider.NewCASProviderMutationJournal(&removalProviderCAS{values: map[string][]byte{}, revisions: map[string]uint64{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownership := &runtimeRemovalOwnership{record: provider.ProviderOwnershipRecord{ResourceId: provider.ProviderResourceId{Value: member.ID}, CompartmentId: provider.ProviderCompartmentId{Value: member.CompartmentID}, CellId: provider.ProviderCellId{Value: "gru"}, Generation: provider.ProviderGeneration{Value: 7}, ServerIdentity: "spiffe://terrascale.tech/prod/member/original"}}
+			removalJournal := &runtimeRemovalJournal{}
+			construct := func(epoch uint64) *productionHostRemoval {
+				adapter := &provider.OCIComputeAdapter{Core: transport, Journal: providerJournal, Ownership: ownership}
+				gateway, err := ocireconcile.NewDurableOCIMemberGateway(transport, adapter, member.CompartmentID, "ocid1.image.oc1.x", provider.ProviderEpoch{Value: epoch})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: removalJournal,
+					Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
+						return 1, nil, nil
+					}, Replace: func(context.Context, hostremoval.Replacement) error { return nil }, Revalidate: func(context.Context, string, string, uint64) error { return nil }, Fence: func(context.Context, string, string, []hostremoval.Replacement) error { return nil }}}
+			}
+			if err := construct(1).RemoveMember(t.Context(), "remove", member, nil); err == nil {
+				t.Fatal("submission reported complete")
+			}
+			if err := construct(2).RemoveMember(t.Context(), "remove", member, nil); !errors.Is(err, provider.ErrComputeTerminationPending) {
+				t.Fatalf("restart during terminating: %v", err)
+			}
+			if deletes != 1 || removalJournal.record.Stage != hostremoval.StageFenced {
+				t.Fatalf("pending calls=%d stage=%s", deletes, removalJournal.record.Stage)
+			}
+			state = "TERMINATED"
+			if err := construct(2).RemoveMember(t.Context(), "remove", member, nil); err != nil {
+				t.Fatal(err)
+			}
+			if deletes != 1 || removalJournal.record.Stage != hostremoval.StageComplete {
+				t.Fatalf("terminal calls=%d stage=%s", deletes, removalJournal.record.Stage)
+			}
+		})
 	}
 }

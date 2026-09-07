@@ -24,19 +24,21 @@ var nativeChecksumPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // NativeReceiptBinding consists of facts admitted before restore. Placement is
 // ordered and must come from that admission, never from the receipt itself.
 type NativeReceiptBinding struct {
-	TenantID         string   `json:"tenant_id"`
-	ProjectID        string   `json:"project_id"`
-	SourceDatabaseID string   `json:"source_database_id"`
-	TargetDatabaseID string   `json:"target_database_id"`
-	SourceJournalCut uint64   `json:"source_journal_cut"`
-	CapturedAtMillis uint64   `json:"captured_at_millis"`
-	SourceChecksum   string   `json:"source_checksum"`
-	SourceRowCount   uint64   `json:"source_row_count"`
-	RestoreEpoch     uint64   `json:"restore_epoch"`
-	IdempotencyKey   string   `json:"idempotency_key"`
-	OperationID      string   `json:"operation_id"`
-	RecoveryPointID  string   `json:"recovery_point_id"`
-	Placement        []string `json:"placement"`
+	TenantID            string   `json:"tenant_id"`
+	ProjectID           string   `json:"project_id"`
+	SourceDatabaseID    string   `json:"source_database_id"`
+	TargetDatabaseID    string   `json:"target_database_id"`
+	SourceJournalCut    uint64   `json:"source_journal_cut"`
+	CapturedAtMillis    uint64   `json:"captured_at_millis"`
+	SourceChecksum      string   `json:"source_checksum"`
+	SourceRowCount      uint64   `json:"source_row_count"`
+	RestoreEpoch        uint64   `json:"restore_epoch"`
+	IdempotencyKey      string   `json:"idempotency_key"`
+	OperationID         string   `json:"operation_id"`
+	RecoveryPointID     string   `json:"recovery_point_id"`
+	RecoveryPointDigest string   `json:"recovery_point_digest"`
+	TargetIncarnation   string   `json:"target_incarnation"`
+	Placement           []string `json:"placement"`
 }
 
 // VerifiedNativeReceipt contains only signature-verified, request-bound facts.
@@ -115,14 +117,14 @@ func (v *NativeReceiptVerifier) Verify(raw []byte, expected NativeReceiptBinding
 	if err != nil || len(signature) != ed25519.SignatureSize || base64.StdEncoding.EncodeToString(signature) != envelope.Signature || !ed25519.Verify(v.key, append([]byte(nativeReceiptDomain), payload...), signature) {
 		return VerifiedNativeReceipt{}, ErrNativeReceipt
 	}
-	if err := nativeRequiredJSON(payload, []string{"schema_version", "tenant_id", "project_id", "source_database_id", "target_database_id", "source_journal_cut", "captured_at_millis", "source_checksum", "source_row_count", "target_checksum", "target_row_count", "restore_epoch", "idempotency_key", "operation_id", "recovery_point_id", "placement", "completed_at_millis"}); err != nil {
+	if err := nativeRequiredJSON(payload, []string{"schema_version", "tenant_id", "project_id", "source_database_id", "target_database_id", "source_journal_cut", "captured_at_millis", "source_checksum", "source_row_count", "target_checksum", "target_row_count", "restore_epoch", "idempotency_key", "operation_id", "recovery_point_id", "placement", "completed_at_millis", "recovery_point_digest", "target_incarnation"}); err != nil {
 		return VerifiedNativeReceipt{}, err
 	}
 	var receipt VerifiedNativeReceipt
 	if err := json.Unmarshal(payload, &receipt, json.RejectUnknownMembers(true)); err != nil {
 		return VerifiedNativeReceipt{}, ErrNativeReceipt
 	}
-	if receipt.SchemaVersion != 1 || receipt.SourceJournalCut > math.MaxInt64 || receipt.SourceRowCount > math.MaxInt64 || receipt.TargetRowCount != receipt.SourceRowCount || !nativeChecksumPattern.MatchString(receipt.SourceChecksum) || receipt.TargetChecksum != receipt.SourceChecksum || receipt.RestoreEpoch == 0 || receipt.CapturedAtMillis == 0 || receipt.CompletedAtMillis < receipt.CapturedAtMillis || receipt.CompletedAtMillis > uint64(time.Now().Add(5*time.Second).UnixMilli()) || receipt.SourceDatabaseID == receipt.TargetDatabaseID || len(receipt.Placement) == 0 || len(receipt.Placement) > 20 {
+	if receipt.SchemaVersion != 1 || !nativeChecksumPattern.MatchString(receipt.RecoveryPointDigest) || receipt.TargetIncarnation != receipt.TargetDatabaseID || receipt.SourceJournalCut > math.MaxInt64 || receipt.SourceRowCount > math.MaxInt64 || receipt.TargetRowCount != receipt.SourceRowCount || !nativeChecksumPattern.MatchString(receipt.SourceChecksum) || receipt.TargetChecksum != receipt.SourceChecksum || receipt.RestoreEpoch == 0 || receipt.CapturedAtMillis == 0 || receipt.CompletedAtMillis < receipt.CapturedAtMillis || receipt.CompletedAtMillis > uint64(time.Now().Add(5*time.Second).UnixMilli()) || receipt.SourceDatabaseID == receipt.TargetDatabaseID || len(receipt.Placement) == 0 || len(receipt.Placement) > 20 {
 		return VerifiedNativeReceipt{}, ErrNativeReceipt
 	}
 	for _, id := range []string{receipt.TenantID, receipt.ProjectID, receipt.SourceDatabaseID, receipt.TargetDatabaseID} {
@@ -143,7 +145,7 @@ func (v *NativeReceiptVerifier) Verify(raw []byte, expected NativeReceiptBinding
 		seen[region] = true
 	}
 	actual := receipt.NativeReceiptBinding
-	if actual.TenantID != expected.TenantID || actual.ProjectID != expected.ProjectID || actual.SourceDatabaseID != expected.SourceDatabaseID || actual.TargetDatabaseID != expected.TargetDatabaseID || actual.SourceJournalCut != expected.SourceJournalCut || actual.CapturedAtMillis != expected.CapturedAtMillis || actual.SourceChecksum != expected.SourceChecksum || actual.SourceRowCount != expected.SourceRowCount || actual.RestoreEpoch != expected.RestoreEpoch || actual.IdempotencyKey != expected.IdempotencyKey || actual.OperationID != expected.OperationID || actual.RecoveryPointID != expected.RecoveryPointID || !slices.Equal(actual.Placement, expected.Placement) {
+	if actual.RecoveryPointDigest != expected.RecoveryPointDigest || actual.TargetIncarnation != expected.TargetIncarnation || actual.TenantID != expected.TenantID || actual.ProjectID != expected.ProjectID || actual.SourceDatabaseID != expected.SourceDatabaseID || actual.TargetDatabaseID != expected.TargetDatabaseID || actual.SourceJournalCut != expected.SourceJournalCut || actual.CapturedAtMillis != expected.CapturedAtMillis || actual.SourceChecksum != expected.SourceChecksum || actual.SourceRowCount != expected.SourceRowCount || actual.RestoreEpoch != expected.RestoreEpoch || actual.IdempotencyKey != expected.IdempotencyKey || actual.OperationID != expected.OperationID || actual.RecoveryPointID != expected.RecoveryPointID || !slices.Equal(actual.Placement, expected.Placement) {
 		return VerifiedNativeReceipt{}, ErrNativeReceipt
 	}
 	return receipt, nil

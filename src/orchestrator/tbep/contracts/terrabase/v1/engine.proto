@@ -877,6 +877,7 @@ message RestoreStatsResponse {
   int64 row_count = 5;
   string journal_cut = 6;
   repeated string placement = 7;
+  bytes signed_completed_receipt = 8; // Complete-only pinned Ed25519 observation.
 }
 
 message RestoreToTargetRequest {
@@ -937,6 +938,7 @@ message LifecycleControlResponse {
   string recovery_point_id = 4;
   string recovery_point_digest = 5;
   repeated string placement = 6;
+  bytes signed_completed_receipt = 7; // Empty until restore completion.
 }
 
 message PlacementRegionSeats {

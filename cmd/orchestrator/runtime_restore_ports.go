@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,8 +167,9 @@ func newProductionTBEPClient(host productionDatabaseHost, record databaseadmissi
 // parent-bound branch evidence under the same NATS authority and is therefore
 // safe to retry with the deterministic operation identity.
 type productionDatabaseBranchPort struct {
-	database **productionDatabase
-	config   productionDatabaseConfig
+	grantJournal func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+	database     **productionDatabase
+	config       productionDatabaseConfig
 }
 
 func (p productionDatabaseBranchPort) CreateScratch(ctx context.Context, request restoredrill.ScratchBranchRequest) (restoredrill.ScratchBranch, error) {
@@ -221,13 +223,52 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 		return restoredrill.RestoreStats{}, err
 	}
 	defer client.Close()
-	operation := "restore-stats-" + branch.ID
+	operation := record.Request.OperationID
+	if operation == "" || p.grantJournal == nil {
+		return restoredrill.RestoreStats{}, errors.New("restore branch: original operation grant unavailable")
+	}
+	j, err := p.grantJournal(operation)
+	if err != nil {
+		return restoredrill.RestoreStats{}, err
+	}
+	if err = j.Transact(ctx, false, func(grant *lifecycleGrantRecord) error {
+		if grant.Operation != operation || grant.Action != "restore_to_target" || grant.Scope != placement.Tenant+":"+placement.Project+":"+placement.Database+":"+record.DatabaseID || len(grant.Grant) == 0 {
+			return errors.New("restore branch: original operation grant differs")
+		}
+		var envelope placementtransition.Signed
+		var original lifecycleOperationGrant
+		if json.Unmarshal(grant.Grant, &envelope) != nil || json.Unmarshal(envelope.Payload, &original) != nil || original.OperationID != operation || original.AcceptedRestoreRequestDigest != grant.ProofDigest {
+			return errors.New("restore branch: original grant malformed")
+		}
+		placement.AuthorityEpoch, placement.AuthorityLease = original.AuthorityEpoch, original.AuthorityLease
+		placement.OperationGrant = append([]byte(nil), grant.Grant...)
+		return nil
+	}); err != nil {
+		return restoredrill.RestoreStats{}, err
+	}
 	targetOwner := strings.Join([]string{record.Request.TenantID, record.Request.ProjectID}, "/")
 	response, err := client.RestoreStats(ctx, placement, operation, targetOwner, record.DatabaseID, record.Request.JournalCut, record.Request.RestoreEpoch, record.Request.Regions)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
-	return restoredrill.RestoreStats{Checksum: response.GetChecksum(), RowCount: response.GetRowCount()}, nil
+	pin, ok := p.config.NativeReceiptKeys[host.ServerIdentity]
+	if !ok {
+		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt
+	}
+	verifier, err := restoredrill.NewNativeReceiptVerifier(pin.KeyID, pin.PublicKey)
+	if err != nil {
+		return restoredrill.RestoreStats{}, err
+	}
+	cut, err := strconv.ParseUint(record.Request.JournalCut, 10, 64)
+	if err != nil || branch.Expected.RowCount < 0 {
+		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt
+	}
+	expected := restoredrill.NativeReceiptBinding{TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, SourceDatabaseID: record.Request.ParentDatabaseID, TargetDatabaseID: record.DatabaseID, TargetIncarnation: record.DatabaseID, SourceJournalCut: cut, CapturedAtMillis: branch.Expected.CapturedAtMillis, SourceChecksum: branch.Expected.Checksum, SourceRowCount: uint64(branch.Expected.RowCount), RestoreEpoch: record.Request.RestoreEpoch, IdempotencyKey: operation, OperationID: operation, RecoveryPointID: record.Request.RecoveryPointID, RecoveryPointDigest: branch.Expected.ManifestDigest, Placement: record.Request.Regions}
+	verified, err := verifier.Verify(response.GetSignedCompletedReceipt(), expected)
+	if err != nil || verified.TargetChecksum != response.GetChecksum() || verified.TargetRowCount != uint64(response.GetRowCount()) {
+		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt
+	}
+	return verified.Stats(), nil
 }
 
 func (p productionDatabaseBranchPort) Delete(ctx context.Context, branch restoredrill.ScratchBranch) error {

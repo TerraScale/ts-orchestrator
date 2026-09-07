@@ -37,6 +37,7 @@ type productionDatabaseHost struct {
 	LifecycleTLS             placementpublisher.TLSFiles
 }
 type productionDatabaseConfig struct {
+	NativeReceiptKeys                 map[string]databaseadmission.ReadinessKey
 	ReadinessKeys                     map[string]databaseadmission.ReadinessKey
 	Inventory                         databaseInventoryFileConfig
 	BranchRestoreKeys                 map[string]databaseadmission.ReadinessKey

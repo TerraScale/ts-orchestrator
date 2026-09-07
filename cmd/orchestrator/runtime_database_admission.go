@@ -27,6 +27,7 @@ import (
 )
 
 type productionDatabaseFileConfig struct {
+	NativeReceiptKeys     map[string]databaseBranchKeyFile      `json:"nativeReceiptKeys"`
 	ReadinessKeys         map[string]productionReadinessKeyFile `json:"readinessKeys"`
 	Inventory             databaseInventoryFileConfig           `json:"inventory"`
 	BranchRestoreKeys     map[string]databaseBranchKeyFile      `json:"branchRestoreKeys"`
@@ -141,6 +142,11 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 		return result, err
 	}
 	result.BranchRestoreKeys = branchKeys
+	receiptKeys, err := loadDatabaseBranchKeys(config.NativeReceiptKeys, hostMembers)
+	if err != nil {
+		return result, err
+	}
+	result.NativeReceiptKeys = receiptKeys
 	authorize, err := newDatabaseAuthorizer(config.Authorization)
 	if err != nil {
 		return result, err

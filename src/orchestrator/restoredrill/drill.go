@@ -290,6 +290,7 @@ func (d *Drill) runItem(ctx context.Context, run RunRecord, databaseID string) (
 	if branch.ID == "" {
 		return d.finishItem(durableCtx, item, fmt.Errorf("%w: branch provider returned empty id", ErrInvalidConfig))
 	}
+	branch.Expected = facts
 	item.BranchID = branch.ID
 	// The cleanup-and-finish closure is used on every path after ownership is
 	// established. It uses a context independent of cancellation, ensuring a

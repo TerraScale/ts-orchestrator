@@ -6284,16 +6284,17 @@ func (x *RestoreStatsRequest) GetRestoreEpoch() uint64 {
 }
 
 type RestoreStatsResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	OperationId    string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	TargetOwner    string                 `protobuf:"bytes,2,opt,name=target_owner,json=targetOwner,proto3" json:"target_owner,omitempty"`
-	TargetDatabase string                 `protobuf:"bytes,3,opt,name=target_database,json=targetDatabase,proto3" json:"target_database,omitempty"`
-	Checksum       string                 `protobuf:"bytes,4,opt,name=checksum,proto3" json:"checksum,omitempty"`
-	RowCount       int64                  `protobuf:"varint,5,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
-	JournalCut     string                 `protobuf:"bytes,6,opt,name=journal_cut,json=journalCut,proto3" json:"journal_cut,omitempty"`
-	Placement      []string               `protobuf:"bytes,7,rep,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	OperationId            string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	TargetOwner            string                 `protobuf:"bytes,2,opt,name=target_owner,json=targetOwner,proto3" json:"target_owner,omitempty"`
+	TargetDatabase         string                 `protobuf:"bytes,3,opt,name=target_database,json=targetDatabase,proto3" json:"target_database,omitempty"`
+	Checksum               string                 `protobuf:"bytes,4,opt,name=checksum,proto3" json:"checksum,omitempty"`
+	RowCount               int64                  `protobuf:"varint,5,opt,name=row_count,json=rowCount,proto3" json:"row_count,omitempty"`
+	JournalCut             string                 `protobuf:"bytes,6,opt,name=journal_cut,json=journalCut,proto3" json:"journal_cut,omitempty"`
+	Placement              []string               `protobuf:"bytes,7,rep,name=placement,proto3" json:"placement,omitempty"`
+	SignedCompletedReceipt []byte                 `protobuf:"bytes,8,opt,name=signed_completed_receipt,json=signedCompletedReceipt,proto3" json:"signed_completed_receipt,omitempty"` // Complete-only pinned Ed25519 observation.
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *RestoreStatsResponse) Reset() {
@@ -6371,6 +6372,13 @@ func (x *RestoreStatsResponse) GetJournalCut() string {
 func (x *RestoreStatsResponse) GetPlacement() []string {
 	if x != nil {
 		return x.Placement
+	}
+	return nil
+}
+
+func (x *RestoreStatsResponse) GetSignedCompletedReceipt() []byte {
+	if x != nil {
+		return x.SignedCompletedReceipt
 	}
 	return nil
 }
@@ -6720,15 +6728,16 @@ func (x *LifecycleReactivateRequest) GetRequest() *LifecycleControlRequest {
 }
 
 type LifecycleControlResponse struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Status              LifecycleStatus        `protobuf:"varint,1,opt,name=status,proto3,enum=terrabase.v1.LifecycleStatus" json:"status,omitempty"`
-	OperationId         string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Detail              string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
-	RecoveryPointId     string                 `protobuf:"bytes,4,opt,name=recovery_point_id,json=recoveryPointId,proto3" json:"recovery_point_id,omitempty"`
-	RecoveryPointDigest string                 `protobuf:"bytes,5,opt,name=recovery_point_digest,json=recoveryPointDigest,proto3" json:"recovery_point_digest,omitempty"`
-	Placement           []string               `protobuf:"bytes,6,rep,name=placement,proto3" json:"placement,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Status                 LifecycleStatus        `protobuf:"varint,1,opt,name=status,proto3,enum=terrabase.v1.LifecycleStatus" json:"status,omitempty"`
+	OperationId            string                 `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Detail                 string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	RecoveryPointId        string                 `protobuf:"bytes,4,opt,name=recovery_point_id,json=recoveryPointId,proto3" json:"recovery_point_id,omitempty"`
+	RecoveryPointDigest    string                 `protobuf:"bytes,5,opt,name=recovery_point_digest,json=recoveryPointDigest,proto3" json:"recovery_point_digest,omitempty"`
+	Placement              []string               `protobuf:"bytes,6,rep,name=placement,proto3" json:"placement,omitempty"`
+	SignedCompletedReceipt []byte                 `protobuf:"bytes,7,opt,name=signed_completed_receipt,json=signedCompletedReceipt,proto3" json:"signed_completed_receipt,omitempty"` // Empty until restore completion.
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *LifecycleControlResponse) Reset() {
@@ -6799,6 +6808,13 @@ func (x *LifecycleControlResponse) GetRecoveryPointDigest() string {
 func (x *LifecycleControlResponse) GetPlacement() []string {
 	if x != nil {
 		return x.Placement
+	}
+	return nil
+}
+
+func (x *LifecycleControlResponse) GetSignedCompletedReceipt() []byte {
+	if x != nil {
+		return x.SignedCompletedReceipt
 	}
 	return nil
 }
@@ -8352,7 +8368,7 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\x0ftarget_database\x18\x04 \x01(\tR\x0etargetDatabase\x12\x1f\n" +
 	"\vjournal_cut\x18\x05 \x01(\tR\n" +
 	"journalCut\x12#\n" +
-	"\rrestore_epoch\x18\x06 \x01(\x04R\frestoreEpoch\"\xfd\x01\n" +
+	"\rrestore_epoch\x18\x06 \x01(\x04R\frestoreEpoch\"\xb7\x02\n" +
 	"\x14RestoreStatsResponse\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12!\n" +
 	"\ftarget_owner\x18\x02 \x01(\tR\vtargetOwner\x12'\n" +
@@ -8361,7 +8377,8 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\trow_count\x18\x05 \x01(\x03R\browCount\x12\x1f\n" +
 	"\vjournal_cut\x18\x06 \x01(\tR\n" +
 	"journalCut\x12\x1c\n" +
-	"\tplacement\x18\a \x03(\tR\tplacement\"\xf5\x03\n" +
+	"\tplacement\x18\a \x03(\tR\tplacement\x128\n" +
+	"\x18signed_completed_receipt\x18\b \x01(\fR\x16signedCompletedReceipt\"\xf5\x03\n" +
 	"\x16RestoreToTargetRequest\x12?\n" +
 	"\acontext\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlContextR\acontext\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12!\n" +
@@ -8393,14 +8410,15 @@ const file_terrabase_v1_engine_proto_rawDesc = "" +
 	"\acontext\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlContextR\acontext\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\"]\n" +
 	"\x1aLifecycleReactivateRequest\x12?\n" +
-	"\arequest\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlRequestR\arequest\"\x8a\x02\n" +
+	"\arequest\x18\x01 \x01(\v2%.terrabase.v1.LifecycleControlRequestR\arequest\"\xc4\x02\n" +
 	"\x18LifecycleControlResponse\x125\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1d.terrabase.v1.LifecycleStatusR\x06status\x12!\n" +
 	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12\x16\n" +
 	"\x06detail\x18\x03 \x01(\tR\x06detail\x12*\n" +
 	"\x11recovery_point_id\x18\x04 \x01(\tR\x0frecoveryPointId\x122\n" +
 	"\x15recovery_point_digest\x18\x05 \x01(\tR\x13recoveryPointDigest\x12\x1c\n" +
-	"\tplacement\x18\x06 \x03(\tR\tplacement\"H\n" +
+	"\tplacement\x18\x06 \x03(\tR\tplacement\x128\n" +
+	"\x18signed_completed_receipt\x18\a \x01(\fR\x16signedCompletedReceipt\"H\n" +
 	"\x14PlacementRegionSeats\x12\x16\n" +
 	"\x06region\x18\x01 \x01(\tR\x06region\x12\x18\n" +
 	"\amembers\x18\x02 \x03(\tR\amembers\"\xd1\x01\n" +

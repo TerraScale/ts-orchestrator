@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -458,6 +459,10 @@ func ComputeTerminateMutationScope(request ComputeTerminateRequest) string {
 	return ProviderMutationScope("compute", request.InstanceID)
 }
 
+// ErrComputeTerminationPending means submission is unresolved or accepted but
+// the exact instance has not yet been observed in TERMINATED state.
+var ErrComputeTerminationPending = errors.New("OCI compute termination is pending")
+
 func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request ComputeTerminateRequest) error {
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
@@ -478,15 +483,32 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	if _, done, err := completedMutation(record); done {
 		return err
 	}
-	_, found, err := a.GetInstance(ctx, request.InstanceID)
+	current, found, err := a.GetInstance(ctx, request.InstanceID)
 	if err != nil {
 		return err
 	}
 	if !found {
+		return ErrComputeTerminationPending
+	}
+	if current.LifecycleState == "TERMINATED" {
+		if record.State == MutationPrepared {
+			if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
+				return err
+			}
+		}
 		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
 	}
-	if record.State == MutationUnknown {
-		return &ProviderOutcomeUnknownError{}
+	if record.State == MutationSubmitted || record.State == MutationUnknown {
+		return ErrComputeTerminationPending
+	}
+	if current.LifecycleState == "TERMINATING" {
+		if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
+			return err
+		}
+		return ErrComputeTerminationPending
+	}
+	if current.ETag != request.IfMatch {
+		return &InvalidOperationError{Message: "OCI termination ETag changed before submission"}
 	}
 	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 		return err
@@ -494,16 +516,17 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodDelete, "/20160918/instances/"+url.PathEscape(request.InstanceID), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
 		if IsOutcomeIndeterminate(err) {
-			if _, found, readErr := a.GetInstance(ctx, request.InstanceID); readErr == nil && !found {
-				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
-			}
 			return finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
 		_, _ = ReadBoundedBody(resp, 64<<10)
-		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.InstanceID, request.IfMatch))
+		return ErrComputeTerminationPending
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return finishUnknown(ctx, a.Journal, request.Mutation)
 	}
 	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
 }

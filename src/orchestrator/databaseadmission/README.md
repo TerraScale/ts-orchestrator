@@ -91,3 +91,23 @@ complete project directory. Authentication failures return 401, invalid scopes
 The same listener and credential serve
 `POST /internal/v1/databases/inventory/freeze` for billing lifecycle snapshots.
 Both endpoints require HTTPS directly and never accept an expired cached view.
+
+### Operation discovery
+
+`POST /internal/v1/operations/list` uses the dedicated
+`orch.database.operations.list` subject and the same authenticated local ingress.
+It accepts verified environment, tenant and project identities, a limit from 1
+through 50, and an optional opaque `after` cursor bound to that scope. The public
+member exposes this as delegated project administration at `GET /api/v1/operations`.
+
+Discovery projects the existing bounded admission journal, including accepted
+creates whose HTTP response was lost. It reauthorizes each returned immutable
+request and exposes database/branch creation identity, committed stage and
+revision, creation time, and an explicitly unavailable cancellation action.
+Encryption material, provider targets and internal placement receipts are absent.
+Reads retain the journal's existing authority barrier but do not advance operation
+revisions or trigger reconciliation. Pages use stable journal keys; they are a
+live listing, so a new operation sorting before a cursor appears on a fresh scan.
+`covered_kinds` explicitly identifies database and branch creation; other operation
+owners, including engine exports and restore, remain separate until their actual
+journals are connected. This is not complete shared-operation coverage.

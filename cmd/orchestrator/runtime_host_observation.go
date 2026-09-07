@@ -40,7 +40,7 @@ func newProductionDurableMemberObserver(ownership provider.DurableOwnershipEvide
 		if listed.Region != "" && record.CellId.Value != "" && listed.Region != record.CellId.Value {
 			return hostremoval.MemberObservation{}, errors.New("runtime host observation: OCI identity binding is outside the declared cell")
 		}
-		observed := hostremoval.MemberObservation{ResourceID: current.ID, Identity: record.ServerIdentity, Region: listed.Region, Slot: listed.Index, Generation: record.Generation.Value, EvidenceRefs: []string{current.ETag}}
+		observed := hostremoval.MemberObservation{ProviderETag: current.ETag, ResourceID: current.ID, Identity: record.ServerIdentity, Region: listed.Region, Slot: listed.Index, Generation: record.Generation.Value, EvidenceRefs: []string{current.ETag}}
 		if terminal {
 			return observed, ocireconcile.ErrMemberTerminated
 		}

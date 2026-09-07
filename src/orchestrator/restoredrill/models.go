@@ -36,9 +36,10 @@ type Database struct {
 // JournalFacts are the immutable facts at a journal cut. A restore is proved
 // against these facts rather than against a live, changing source database.
 type JournalFacts struct {
-	RecoveryPointID string
-	JournalCut      string
-	RestoreProvider string
+	CapturedAtMillis uint64
+	RecoveryPointID  string
+	JournalCut       string
+	RestoreProvider  string
 	// ManifestDigest identifies the immutable backup artifact (SHA-256).
 	ManifestDigest string
 	// Checksum is the logical restored content digest (BLAKE3).
@@ -76,7 +77,8 @@ type ScratchBranchRequest struct {
 }
 
 type ScratchBranch struct {
-	ID string
+	Expected JournalFacts
+	ID       string
 }
 
 // BackupPort lists source databases and restores a TerraBase native backup into an

@@ -179,6 +179,9 @@ func (m *Material) applyDatabaseManifest(manifest hostmanifest.HostManifest) (ho
 	return manifest, nil
 }
 func (m *Material) validateDatabaseManifest(manifest hostmanifest.HostManifest) error {
+	if len(m.databaseFiles) == 0 {
+		return nil
+	}
 	copy := manifest
 	copy.Components = slices.Clone(manifest.Components)
 	applied, err := m.applyDatabaseManifest(copy)

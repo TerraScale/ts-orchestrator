@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -25,14 +26,11 @@ func TestOperationDiscoverySurvivesAuthorityRestartAndLostResponse(t *testing.T)
 		t.Fatal(err)
 	}
 	request := journalFixture(t).Request
-	for _, name := range []string{"first", "second", "third"} {
-		request.Name = name
-		request.OperationID = name
-		// The caller loses the accepted response and never learns the database ID.
-		if _, err := pipeline.Accept(t.Context(), request); err != nil {
-			t.Fatalf("accept %s: %v",name,err)
-		}
+	// Lose the accepted response before the client learns the database ID.
+	if _, err := pipeline.Accept(t.Context(), request); err != nil {
+		t.Fatal(err)
 	}
+
 	cluster.restart(t)
 	connection = cluster.connect(t)
 	store = openAdmissionLeaseStore(t, t.Context(), connection, false)
@@ -103,7 +101,7 @@ func TestOperationDiscoverySurvivesAuthorityRestartAndLostResponse(t *testing.T)
 		}
 		query.After = page.NextCursor
 	}
-	if len(seen) != 3 {
+	if len(seen) != 1 {
 		t.Fatal(seen)
 	}
 	query.After = ""
@@ -133,5 +131,57 @@ func TestOperationDiscoverySurvivesAuthorityRestartAndLostResponse(t *testing.T)
 	query.Limit = 1
 	if _, err := denied.ListOperations(t.Context(), query); !errors.Is(err, ErrForbidden) {
 		t.Fatal("authorization ignored", err)
+	}
+}
+
+// Snapshot fixture only replaces the read contract; production remains NATS-backed.
+type operationSnapshotJournal struct {
+	Journal
+	records []Record
+}
+
+func (j operationSnapshotJournal) List(context.Context) ([]Record, error) {
+	return slices.Clone(j.records), nil
+}
+func TestOperationDiscoveryPaginationScopeAndCursor(t *testing.T) {
+	records := []Record{}
+	for _, name := range []string{"first", "second", "third"} {
+		r := journalFixture(t)
+		r.Request.Name = name
+		r.Request.OperationID = name
+		r.Revision = 1
+		records = append(records, r)
+	}
+	config := pipelineConfig(t, operationSnapshotJournal{records: records})
+	pipeline, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := records[0].Request
+	query := OperationListRequest{Environment: r.Environment, TenantID: r.TenantID, ProjectID: r.ProjectID, Limit: 1}
+	seen := map[string]bool{}
+	for {
+		page, err := pipeline.ListOperations(t.Context(), query)
+		if err != nil || len(page.Operations) != 1 {
+			t.Fatal(page, err)
+		}
+		id := page.Operations[0].OperationID
+		if seen[id] {
+			t.Fatal("duplicate", id)
+		}
+		seen[id] = true
+		if page.NextCursor == "" {
+			break
+		}
+		foreign := query
+		foreign.ProjectID = "01ARZ3NDEKTSV4RRFFQ69G5FB9"
+		foreign.After = page.NextCursor
+		if _, err := pipeline.ListOperations(t.Context(), foreign); !errors.Is(err, ErrInvalid) {
+			t.Fatal("foreign cursor accepted", err)
+		}
+		query.After = page.NextCursor
+	}
+	if len(seen) != 3 {
+		t.Fatal(seen)
 	}
 }

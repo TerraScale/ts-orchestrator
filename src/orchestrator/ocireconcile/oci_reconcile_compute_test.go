@@ -85,7 +85,7 @@ func (f *fakeComputeGateway) StartMember(ctx context.Context, instanceID string)
 	return nil
 }
 
-func (f *fakeComputeGateway) TerminateMember(ctx context.Context, instanceID string) error {
+func (f *fakeComputeGateway) TerminateMember(ctx context.Context, instanceID, ifMatch string) error {
 	f.terminations = append(f.terminations, instanceID)
 	remaining := f.members[:0]
 	for _, member := range f.members {

@@ -123,7 +123,7 @@ type ComputeGateway interface {
 	ListMembers(ctx context.Context) ([]ObservedMember, error)
 	LaunchMember(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error)
 	StartMember(ctx context.Context, instanceID string) error
-	TerminateMember(ctx context.Context, instanceID string) error
+	TerminateMember(ctx context.Context, instanceID, ifMatch string) error
 }
 
 // MemberRemovalOwner performs the durable removal choreography before OCI
@@ -1023,9 +1023,16 @@ func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) e
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPost, "/20160918/instances/"+url.PathEscape(instanceID)+"/actions/start", struct{}{}, nil, nil)
 }
 
-func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID string) error {
-	if !provider.IsOCID(instanceID, "instance") {
-		return &errs.Argument{Message: "member terminate requires an instance identity"}
+func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID, ifMatch string) error {
+	if g == nil || g.Adapter == nil || g.Epoch.Value == 0 || !provider.IsOCID(instanceID, "instance") {
+		return &errs.Argument{Message: "member termination requires the durable provider adapter"}
 	}
-	return doOCIJSON[struct{}](ctx, g.Core, http.MethodDelete, "/20160918/instances/"+url.PathEscape(instanceID), nil, nil, nil)
+	operation, err := provider.NewProviderOperationId("member-terminate-" + provider.ProviderMutationFingerprint(instanceID))
+	if err != nil {
+		return err
+	}
+	request := provider.ComputeTerminateRequest{InstanceID: instanceID, IfMatch: ifMatch}
+	request.Mutation = provider.ProviderMutationIntent{OperationID: operation, Scope: provider.ComputeTerminateMutationScope(request), Action: "compute.terminate", Epoch: g.Epoch, IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.terminate", instanceID)}}
+	request.Mutation.Fingerprint = provider.ComputeTerminateMutationFingerprint(request)
+	return g.Adapter.TerminateInstance(ctx, request)
 }

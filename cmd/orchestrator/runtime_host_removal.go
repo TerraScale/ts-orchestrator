@@ -23,7 +23,7 @@ type productionHostRemovalConfig struct {
 	Replace    func(context.Context, hostremoval.Replacement) error
 	Revalidate func(context.Context, string, string, uint64) error
 	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
-	Terminate  func(context.Context, string) error
+	Terminate  func(context.Context, string, string) error
 }
 
 type exactOCIMemberObserver interface {
@@ -33,21 +33,21 @@ type exactOCIMemberObserver interface {
 // newProductionOCITerminator binds termination to an exact provider reread.
 // Unknown or replaced instances fail closed; callers retry the same journal
 // operation and perform this reread again.
-func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway) func(context.Context, string) error {
-	return func(ctx context.Context, id string) error {
+func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway) func(context.Context, string, string) error {
+	return func(ctx context.Context, id, etag string) error {
 		for _, gateway := range gateways {
 			observer, ok := gateway.(exactOCIMemberObserver)
 			if !ok {
 				continue
 			}
 			current, err := observer.ObserveMember(ctx, id)
-			if err != nil {
+			if err != nil && !errors.Is(err, ocireconcile.ErrMemberTerminated) {
 				continue
 			}
 			if current.ID != id || current.LifecycleState == "" {
 				continue
 			}
-			if err := gateway.TerminateMember(ctx, id); err != nil {
+			if err := gateway.TerminateMember(ctx, id, etag); err != nil {
 				return err
 			}
 			return nil
@@ -57,8 +57,9 @@ func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway)
 }
 
 type productionHostRemoval struct {
-	owner     *hostremoval.Owner
-	observeFn func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
+	terminateFn func(context.Context, string, string) error
+	owner       *hostremoval.Owner
+	observeFn   func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
 }
 
 var _ ocireconcile.MemberRemovalOwner = (*productionHostRemoval)(nil)
@@ -67,9 +68,9 @@ func newProductionHostRemoval(config productionHostRemovalConfig, journal *hostr
 	if journal == nil || config.Observe == nil || config.Inventory == nil || config.Replace == nil || config.Revalidate == nil || config.Fence == nil || config.Terminate == nil {
 		return nil, errors.New("runtime host removal: durable inventory, transition, fence and termination providers are required")
 	}
-	return &productionHostRemoval{observeFn: config.Observe, owner: &hostremoval.Owner{
+	return &productionHostRemoval{observeFn: config.Observe, terminateFn: config.Terminate, owner: &hostremoval.Owner{
 		Journal: journal, Inventory: config.Inventory, Replace: config.Replace,
-		Revalidate: config.Revalidate, Fence: config.Fence, Terminate: config.Terminate,
+		Revalidate: config.Revalidate, Fence: config.Fence,
 	}}, nil
 }
 
@@ -99,6 +100,9 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	}
 	if err != nil && !terminal {
 		return err
+	}
+	if loadErr == nil {
+		observedMember.ProviderETag = retained.ProviderETag
 	}
 	observedMember.ResourceID = member.ID
 	generation := observedMember.Generation
@@ -144,8 +148,9 @@ func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, obs
 		if identity != observedMember.Identity {
 			return hostremoval.ErrConflict
 		}
-		return r.owner.Terminate(ctx, member.ID)
+		return r.terminateFn(ctx, member.ID, observedMember.ProviderETag)
 	}
+	owner.ReconcileTermination = owner.Terminate
 	return &owner
 }
 
@@ -171,7 +176,7 @@ type hostRemovalTransitionPorts struct {
 	Replace    func(context.Context, hostremoval.Replacement) error
 	Revalidate func(context.Context, string, string, uint64) error
 	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
-	Terminate  func(context.Context, string) error
+	Terminate  func(context.Context, string, string) error
 }
 
 func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal *hostremoval.Journal) (ocireconcile.MemberRemovalOwner, error) {
