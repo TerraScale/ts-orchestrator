@@ -795,6 +795,11 @@ type ociMemberGateway struct {
 
 // ObserveMember rereads one exact instance through the durable OCI adapter.
 // The adapter supplies the provider ETag used as the identity revision.
+// ErrMemberTerminated is authoritative only when returned with the exact
+// instance identity and provider ETag from a successful terminal-state read.
+// OCI 404 also means unauthorized and must never be converted to this result.
+var ErrMemberTerminated = errors.New("OCI member is terminated")
+
 func (g *ociMemberGateway) ObserveMember(ctx context.Context, id string) (ObservedMember, error) {
 	if g == nil || g.Adapter == nil || !provider.IsOCID(id, "instance") {
 		return ObservedMember{}, &provider.InvalidOperationError{Message: "exact OCI member observation is unavailable"}
@@ -803,10 +808,14 @@ func (g *ociMemberGateway) ObserveMember(ctx context.Context, id string) (Observ
 	if err != nil {
 		return ObservedMember{}, err
 	}
-	if !found || instance.ID != id || instance.ETag == "" {
+	if !found || instance.ID != id || instance.ETag == "" || instance.CompartmentID != g.CompartmentID {
 		return ObservedMember{}, &provider.InvalidDataError{Message: "exact OCI member observation is not owned"}
 	}
-	return ObservedMember{ID: instance.ID, ETag: instance.ETag, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, Shape: instance.Shape, CompartmentID: g.CompartmentID}, nil
+	observed := ObservedMember{ID: instance.ID, ETag: instance.ETag, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, Shape: instance.Shape, CompartmentID: instance.CompartmentID}
+	if instance.LifecycleState == "TERMINATED" {
+		return observed, ErrMemberTerminated
+	}
+	return observed, nil
 }
 
 // NewOCIMemberGateway validates the compartment and launch image scope.

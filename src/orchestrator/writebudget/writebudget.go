@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"math"
 	"sync"
 	"time"
@@ -44,6 +45,10 @@ type Policy struct {
 	PaidExcessEnabled      bool
 	OrganizationSpendCap   *int64
 	DatabaseSpendCaps      map[string]*int64
+	// Cumulative non-write charges, already rated across all Regions. Write
+	// reservations remain separately accounted so receipt write totals are never added twice.
+	AccruedNonWriteNano         int64
+	DatabaseAccruedNonWriteNano map[string]int64
 }
 
 // VerifyAllocation checks the detached TSCS command signature over the exact
@@ -156,27 +161,35 @@ func SignAllocation(signer *security.CommandSignatureSigner, grant Grant, cycleI
 	return SignedAllocation{Payload: payload, Signature: signature.Bytes(), KeyID: signer.PublicKeyID()}, nil
 }
 
-// State is the authorityjournal payload. UsedUnits and UsedCostMinor include
-// every live or unreconciled grant, while DatabaseUnits aggregates all
-// branches belonging to a database.
+// CycleSpend retains the final policy and reserved write spend at renewal.
+type CycleSpend struct {
+	Policy                    Policy           `json:"policy"`
+	ReservedWriteNano         int64            `json:"reserved_write_nano"`
+	DatabaseReservedWriteNano map[string]int64 `json:"database_reserved_write_nano"`
+}
+
+// State is the authorityjournal payload. UsedUnits and UsedNanoDollar include
+// every live or unreconciled grant; database totals include their branches.
 type State struct {
-	ActivePolicy      Policy               `json:"active_policy"`
-	AccountRevision   string               `json:"account_revision"`
-	RevisionSequence  uint64               `json:"revision_sequence"`
-	PolicyChecksum    string               `json:"policy_checksum"`
-	PolicyGeneration  int                  `json:"policy_generation"`
-	CycleID           string               `json:"cycle_id"`
-	PolicyEpoch       uint64               `json:"policy_epoch"`
-	ConsentEpoch      uint64               `json:"consent_epoch"`
-	UsedUnits         int64                `json:"used_units"`
-	UsedNanoDollar    int64                `json:"used_nano_dollar"`
-	UsedIncluded      int64                `json:"used_included"`
-	UsedPaid          int64                `json:"used_paid"`
-	DatabaseUnits     map[string]int64     `json:"database_units"`
-	DatabaseSpendNano map[string]int64     `json:"database_spend_nano"`
-	Grants            map[string]Grant     `json:"grants"`
-	PendingPolicy     bool                 `json:"pending_policy,omitzero"`
-	PendingGrants     map[string]time.Time `json:"pending_grants,omitempty"`
+	ClosedCycles            map[string]CycleSpend `json:"closed_cycles,omitempty"`
+	RetiredAccountRevisions map[string]bool       `json:"retired_account_revisions,omitempty"`
+	ActivePolicy            Policy                `json:"active_policy"`
+	AccountRevision         string                `json:"account_revision"`
+	RevisionSequence        uint64                `json:"revision_sequence"`
+	PolicyChecksum          string                `json:"policy_checksum"`
+	PolicyGeneration        int                   `json:"policy_generation"`
+	CycleID                 string                `json:"cycle_id"`
+	PolicyEpoch             uint64                `json:"policy_epoch"`
+	ConsentEpoch            uint64                `json:"consent_epoch"`
+	UsedUnits               int64                 `json:"used_units"`
+	UsedNanoDollar          int64                 `json:"used_nano_dollar"`
+	UsedIncluded            int64                 `json:"used_included"`
+	UsedPaid                int64                 `json:"used_paid"`
+	DatabaseUnits           map[string]int64      `json:"database_units"`
+	DatabaseSpendNano       map[string]int64      `json:"database_spend_nano"`
+	Grants                  map[string]Grant      `json:"grants"`
+	PendingPolicy           bool                  `json:"pending_policy,omitzero"`
+	PendingGrants           map[string]time.Time  `json:"pending_grants,omitempty"`
 }
 
 // ApplyPolicy atomically installs a new billing policy. Existing reservations
@@ -196,20 +209,42 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 		if state.AccountRevision == revision && state.PolicyChecksum == checksum && state.PolicyGeneration == generation && next.CycleID == state.ActivePolicy.CycleID {
 			return nil
 		}
-		if state.AccountRevision != "" && state.AccountRevision == revision {
+		if state.RetiredAccountRevisions[revision] {
 			return ErrConflict
 		}
 		if generation <= state.PolicyGeneration {
 			return ErrConflict
 		}
+		if next.CycleID == state.ActivePolicy.CycleID {
+			if next.AccruedNonWriteNano < state.ActivePolicy.AccruedNonWriteNano {
+				return ErrConflict
+			}
+			for database, accrued := range state.ActivePolicy.DatabaseAccruedNonWriteNano {
+				if next.DatabaseAccruedNonWriteNano[database] < accrued {
+					return ErrConflict
+				}
+			}
+		}
 		if state.RevisionSequence == math.MaxUint64 {
 			return ErrConflict
+		}
+		if next.CycleID != state.ActivePolicy.CycleID {
+			if _, retired := state.ClosedCycles[next.CycleID]; retired {
+				return ErrConflict
+			}
+		}
+		if state.AccountRevision != "" && state.AccountRevision != revision {
+			state.RetiredAccountRevisions[state.AccountRevision] = true
 		}
 		state.RevisionSequence++
 		// Restrictive caps are valid: existing reservations remain accounted for,
 		// while the allocation checks below expose zero available capacity.
 		next.PolicyEpoch, next.ConsentEpoch = state.ActivePolicy.PolicyEpoch+1, state.ActivePolicy.ConsentEpoch+1
 		if next.CycleID != state.ActivePolicy.CycleID {
+			state.ClosedCycles[state.ActivePolicy.CycleID] = CycleSpend{
+				Policy: state.ActivePolicy, ReservedWriteNano: state.UsedNanoDollar,
+				DatabaseReservedWriteNano: maps.Clone(state.DatabaseSpendNano),
+			}
 			state.UsedUnits, state.UsedNanoDollar, state.UsedIncluded, state.UsedPaid = 0, 0, 0, 0
 			clear(state.DatabaseUnits)
 			clear(state.DatabaseSpendNano)
@@ -324,10 +359,10 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 			return ErrInvalid
 		}
 		if policy.PaidExcessEnabled && paid > 0 {
-			if policy.OrganizationSpendCap != nil && state.UsedNanoDollar > *policy.OrganizationSpendCap-nanoCost {
+			if policy.OrganizationSpendCap != nil && !withinCap(*policy.OrganizationSpendCap, policy.AccruedNonWriteNano, state.UsedNanoDollar, nanoCost) {
 				return ErrExhausted
 			}
-			if cap, ok := policy.DatabaseSpendCaps[request.DatabaseID]; ok && cap != nil && state.DatabaseSpendNano[request.DatabaseID] > *cap-nanoCost {
+			if cap, ok := policy.DatabaseSpendCaps[request.DatabaseID]; ok && cap != nil && !withinCap(*cap, policy.DatabaseAccruedNonWriteNano[request.DatabaseID], state.DatabaseSpendNano[request.DatabaseID], nanoCost) {
 				return ErrExhausted
 			}
 		}
@@ -420,6 +455,12 @@ func (a *Authority) validateState(state *State) error {
 	if state == nil {
 		return ErrInvalid
 	}
+	if state.ClosedCycles == nil {
+		state.ClosedCycles = map[string]CycleSpend{}
+	}
+	if state.RetiredAccountRevisions == nil {
+		state.RetiredAccountRevisions = map[string]bool{}
+	}
 	if state.Grants == nil {
 		state.Grants = map[string]Grant{}
 	}
@@ -439,6 +480,9 @@ func (a *Authority) validateState(state *State) error {
 		return ErrInvalid
 	}
 	policy := state.ActivePolicy
+	if err := validateCaps(policy); err != nil {
+		return err
+	}
 	if state.CycleID != policy.CycleID || state.PolicyEpoch != policy.PolicyEpoch || state.ConsentEpoch != policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedNanoDollar < 0 {
 		return ErrInvalid
 	}
@@ -513,7 +557,30 @@ func (a *Authority) validateState(state *State) error {
 	return nil
 }
 
+func withinCap(cap, accrued, reserved, next int64) bool {
+	// Subtract in stages; adding legitimate retained storage to reservations
+	// can overflow even though each independent ledger quantity is valid.
+	if accrued > cap {
+		return false
+	}
+	remaining := cap - accrued
+	if reserved > remaining {
+		return false
+	}
+	return next <= remaining-reserved
+}
+
 func validateCaps(policy Policy) error {
+	if policy.AccruedNonWriteNano < 0 {
+		return ErrInvalid
+	}
+	var total int64
+	for database, accrued := range policy.DatabaseAccruedNonWriteNano {
+		if database == "" || accrued < 0 || accrued > policy.AccruedNonWriteNano-total {
+			return ErrInvalid
+		}
+		total += accrued
+	}
 	if policy.OrganizationSpendCap != nil && *policy.OrganizationSpendCap < 0 {
 		return ErrInvalid
 	}

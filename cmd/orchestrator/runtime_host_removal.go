@@ -80,14 +80,33 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	if operationID == "" {
 		return errors.New("runtime host removal: operation identity is missing")
 	}
+	retained, loadErr := r.owner.Journal.Load(ctx, operationID)
+	if loadErr != nil && !errors.Is(loadErr, hostremoval.ErrMissing) {
+		return loadErr
+	}
+	if loadErr == nil {
+		if retained.ResourceID != member.ID {
+			return hostremoval.ErrConflict
+		}
+		if retained.Stage == hostremoval.StageComplete {
+			return nil
+		}
+	}
 	observedMember, err := r.observe(ctx, member)
-	if err != nil {
+	terminal := errors.Is(err, ocireconcile.ErrMemberTerminated)
+	if terminal && (loadErr != nil || retained.Stage != hostremoval.StageFenced || observedMember.ResourceID != retained.ResourceID || observedMember.Identity != retained.MemberIdentity || observedMember.Generation != retained.Generation) {
+		return hostremoval.ErrConflict
+	}
+	if err != nil && !terminal {
 		return err
 	}
 	observedMember.ResourceID = member.ID
 	generation := observedMember.Generation
 	observations := make([]hostremoval.MemberObservation, 0, len(survivors))
 	for _, candidate := range survivors {
+		if loadErr == nil {
+			break // Resume the retained survivor inventory, not a new provider list.
+		}
 		observation, observeErr := r.observe(ctx, candidate)
 		if observeErr != nil {
 			return observeErr
@@ -109,13 +128,17 @@ func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, obs
 			return false, hostremoval.ErrConflict
 		}
 		current, err := r.observe(ctx, member)
-		if err != nil {
+		terminal := errors.Is(err, ocireconcile.ErrMemberTerminated)
+		if err != nil && !terminal {
 			return false, err
 		}
 		if current.Identity != observedMember.Identity || current.Region != observedMember.Region || current.Slot != observedMember.Slot || current.Generation != observedMember.Generation {
 			return false, hostremoval.ErrConflict
 		}
-		return true, nil
+		if terminal && current.ResourceID != member.ID {
+			return false, hostremoval.ErrConflict
+		}
+		return !terminal, nil
 	}
 	owner.Terminate = func(ctx context.Context, identity string) error {
 		if identity != observedMember.Identity {

@@ -52,3 +52,32 @@ func TestRemovalRetainsInventoryAndResumesOnlyTerminationAfterUnknownOutcome(t *
 		t.Fatalf("effects replayed: inventory=%d replace=%d revalidate=%d fence=%d observe=%d terminate=%d", inventory, replace, revalidate, fence, observe, terminate)
 	}
 }
+
+func TestRemovalLostTerminationAcknowledgementCompletesFromAuthoritativeAbsence(t *testing.T) {
+	journal := &Journal{journal: &removalMemory{state: state{Operations: map[string]Operation{}}}}
+	member := MemberObservation{Identity: "spiffe://member", ResourceID: "ocid1.instance.original", Generation: 7}
+	exists := true
+	calls := 0
+	unknown := errors.New("response lost")
+	owner := &Owner{Journal: journal,
+		Inventory: func(context.Context, RemovalRequest, []Replacement) (uint64, []Replacement, error) {
+			return 1, nil, nil
+		},
+		Replace:    func(context.Context, Replacement) error { return nil },
+		Revalidate: func(context.Context, string, string, uint64) error { return nil },
+		Fence:      func(context.Context, string, string, []Replacement) error { return nil },
+		Observe:    func(context.Context, string) (bool, error) { return exists, nil },
+		Terminate:  func(context.Context, string) error { calls++; exists = false; return unknown },
+	}
+	if err := owner.RemoveMember(t.Context(), "remove", member, 7); !errors.Is(err, unknown) {
+		t.Fatal(err)
+	}
+	successor := *owner
+	if err := successor.RemoveMember(t.Context(), "remove", member, 7); err != nil {
+		t.Fatal(err)
+	}
+	record, err := journal.Load(t.Context(), "remove")
+	if err != nil || record.Stage != StageComplete || calls != 1 {
+		t.Fatalf("lost response recovery record=%+v calls=%d err=%v", record, calls, err)
+	}
+}

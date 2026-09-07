@@ -54,14 +54,16 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		return writebudget.PolicyResult{}, err
 	}
 	var published struct {
-		OrganizationID         string           `json:"organizationId"`
-		CycleID                string           `json:"cycleId"`
-		IncludedWriteUnits     string           `json:"includedWriteUnits"`
-		IncludedAllowanceUnits int64            `json:"includedAllowanceUnits"`
-		PaidExcessEnabled      bool             `json:"paidExcessEnabled"`
-		OrganizationSpendNano  *int64           `json:"organizationSpendNano"`
-		RateNanoDollar         int64            `json:"rateNanoDollar"`
-		DatabaseSpendCapsCents map[string]int64 `json:"databaseSpendCapsCents"`
+		OrganizationID              string            `json:"organizationId"`
+		CycleID                     string            `json:"cycleId"`
+		IncludedWriteUnits          string            `json:"includedWriteUnits"`
+		IncludedAllowanceUnits      int64             `json:"includedAllowanceUnits"`
+		PaidExcessEnabled           bool              `json:"paidExcessEnabled"`
+		OrganizationSpendNano       *int64            `json:"organizationSpendNano"`
+		RateNanoDollar              int64             `json:"rateNanoDollar"`
+		DatabaseSpendCapsCents      map[string]int64  `json:"databaseSpendCapsCents"`
+		AccruedNonWriteNano         string            `json:"accruedNonWriteNano"`
+		DatabaseAccruedNonWriteNano map[string]string `json:"databaseAccruedNonWriteNano"`
 	}
 	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != envelope.OrganizationID || published.CycleID != envelope.CycleID {
 		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid policy payload")
@@ -70,7 +72,32 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	if err != nil || included < 0 {
 		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance")
 	}
+	parseAccrued := func(value string) (int64, error) {
+		if value == "" {
+			return 0, nil
+		}
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 || strconv.FormatInt(parsed, 10) != value {
+			return 0, errors.New("runtime write budget: invalid accrued spend")
+		}
+		return parsed, nil
+	}
 	next := r.policy
+	next.AccruedNonWriteNano, err = parseAccrued(published.AccruedNonWriteNano)
+	if err != nil {
+		return writebudget.PolicyResult{}, err
+	}
+	next.DatabaseAccruedNonWriteNano = make(map[string]int64, len(published.DatabaseAccruedNonWriteNano))
+	for database, value := range published.DatabaseAccruedNonWriteNano {
+		if value == "" {
+			return writebudget.PolicyResult{}, errors.New("runtime write budget: missing database accrued spend")
+		}
+		accrued, err := parseAccrued(value)
+		if err != nil {
+			return writebudget.PolicyResult{}, err
+		}
+		next.DatabaseAccruedNonWriteNano[database] = accrued
+	}
 	next.CycleID, next.IncludedAllowanceUnits, next.RateNanoDollar = envelope.CycleID, included, published.RateNanoDollar
 	next.PaidExcessEnabled = published.PaidExcessEnabled
 	if published.OrganizationSpendNano != nil {

@@ -98,12 +98,16 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.Branches = input.RestoreBranches
 	config.HostRemoval = input.HostRemoval
 
-	rotation, _, closeRotation, err := input.Global.Rotation.Construct(ctx, session, productionDeliveryMirrorSource{mirror: input.Mirror, region: input.Global.Recovery.SourceRegion})
+	rotation, capabilityStore, closeRotation, err := input.Global.Rotation.Construct(ctx, session, productionDeliveryMirrorSource{mirror: input.Mirror, region: input.Global.Recovery.SourceRegion})
 	if err != nil {
 		return fail(fmt.Errorf("global rotation providers: %w", err))
 	}
 	cleanup = append(cleanup, closeRotation)
 	config.Rotation = rotation
+	config.MembershipRevocations, err = input.Global.MembershipRevocations.Construct(capabilityStore, session.CheckEffectAuthority)
+	if err != nil {
+		return fail(fmt.Errorf("global membership revocations: %w", err))
+	}
 
 	kv, closeKV, err := constructProductionKVWriter(input.Global.KV, input.Spec, input.Global.HealthFile, session)
 	if err != nil {

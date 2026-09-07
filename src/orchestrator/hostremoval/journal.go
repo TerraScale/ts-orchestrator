@@ -81,8 +81,14 @@ type Journal struct{ journal transaction }
 // placement issuer and lifecycle/control proof providers; this type only
 // advances the fenced journal and invokes OCI termination after all providers
 // have returned success.
+type OperationJournal interface {
+	Load(context.Context, string) (Operation, error)
+	Begin(context.Context, string, MemberObservation, uint64, uint64, []Replacement, []MemberObservation) (Operation, error)
+	Advance(context.Context, string, Stage) (Operation, error)
+}
+
 type Owner struct {
-	Journal   *Journal
+	Journal   OperationJournal
 	Inventory func(context.Context, RemovalRequest, []Replacement) (uint64, []Replacement, error)
 	Replace   func(context.Context, Replacement) error
 	// Revalidate rereads the authoritative admission inventory and must reject
@@ -146,7 +152,10 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 		return err
 	}
 	if !present {
-		return ErrMissing
+		// Observe may report absence only from an authoritative terminal read
+		// bound to the retained resource, never from an unavailable lookup.
+		_, err = o.Journal.Advance(ctx, operationID, StageComplete)
+		return err
 	}
 	if err := o.Terminate(ctx, member.Identity); err != nil {
 		return err
@@ -218,7 +227,7 @@ func (j *Journal) Advance(ctx context.Context, operationID string, stage Stage) 
 		if !ok {
 			return ErrMissing
 		}
-		if stageRank(stage) < stageRank(current.Stage) {
+		if stageRank(stage) < stageRank(current.Stage) || stageRank(stage) > stageRank(current.Stage)+1 {
 			return ErrConflict
 		}
 		current.Stage = stage

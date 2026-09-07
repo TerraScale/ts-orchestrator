@@ -101,6 +101,13 @@ func prepareControl(m *Material, d Declaration, h Host, binding Binding) error {
 		return errors.New("vmengineconfig: control principal is not explicitly admitted")
 	}
 	m.controlFiles = map[string][]byte{controlCAPath: bytes.Clone(m.ca)}
+	if d.PublicAPI != nil && d.PublicAPI.BootstrapKeyFile != "" {
+		raw, err := initialgrant.ReadMaterialFile(d.PublicAPI.BootstrapKeyFile, 16<<10, true)
+		if err != nil || len(raw) == 0 {
+			return errors.New("vmengineconfig: public API bootstrap key is unavailable")
+		}
+		m.controlFiles[publicAPIBootstrapKeyPath] = raw
+	}
 	for _, file := range []struct {
 		source, target string
 		private        bool

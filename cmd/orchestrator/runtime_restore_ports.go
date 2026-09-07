@@ -223,7 +223,7 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 	defer client.Close()
 	operation := "restore-stats-" + branch.ID
 	targetOwner := strings.Join([]string{record.Request.TenantID, record.Request.ProjectID}, "/")
-	response, err := client.RestoreStats(ctx, placement, operation, targetOwner, record.DatabaseID, record.Request.JournalCut, record.Request.RestoreEpoch)
+	response, err := client.RestoreStats(ctx, placement, operation, targetOwner, record.DatabaseID, record.Request.JournalCut, record.Request.RestoreEpoch, record.Request.Regions)
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}

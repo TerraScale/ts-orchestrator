@@ -106,7 +106,8 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
-	Ownership *provider.DurableOwnershipJournal
+	MembershipRevocations *cloudflare.MembershipRevocationPublisher
+	Ownership             *provider.DurableOwnershipJournal
 	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
@@ -172,29 +173,30 @@ type productionAutoscaleWiring struct {
 }
 
 type productionGlobalWorkers struct {
-	edge            control.GlobalEdgeDelivery
-	check           func(context.Context) error
-	release         func() error
-	closeOnce       sync.Once
-	closeError      error
-	finished        sync.Once
-	lifetime        context.Context
-	publisher       *estatepublisher.Publisher
-	rotation        *security.Coordinator
-	reaper          *reaper.Reconciler
-	restore         *restoredrill.ProductionComposition
-	placement       *productionPlacement
-	transition      *productionPlacementTransition
-	database        *productionDatabase
-	authBootstrap   *productionAuthBootstrap
-	kv              *cloudflare.KVWriter
-	serviceIdentity *serviceidentityrotation.Coordinator
-	autoscale       *productionAutoscale
-	writeBudget     *runtimeWriteBudget
-	compute         *productionComputeWorker
-	hostRemoval     ocireconcile.MemberRemovalOwner
-	workers         []*lifecycle.Service
-	completion      chan struct{}
+	membershipRevocations *cloudflare.MembershipRevocationPublisher
+	edge                  control.GlobalEdgeDelivery
+	check                 func(context.Context) error
+	release               func() error
+	closeOnce             sync.Once
+	closeError            error
+	finished              sync.Once
+	lifetime              context.Context
+	publisher             *estatepublisher.Publisher
+	rotation              *security.Coordinator
+	reaper                *reaper.Reconciler
+	restore               *restoredrill.ProductionComposition
+	placement             *productionPlacement
+	transition            *productionPlacementTransition
+	database              *productionDatabase
+	authBootstrap         *productionAuthBootstrap
+	kv                    *cloudflare.KVWriter
+	serviceIdentity       *serviceidentityrotation.Coordinator
+	autoscale             *productionAutoscale
+	writeBudget           *runtimeWriteBudget
+	compute               *productionComputeWorker
+	hostRemoval           ocireconcile.MemberRemovalOwner
+	workers               []*lifecycle.Service
+	completion            chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -391,6 +393,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, errors.New("runtime global KV publisher is required")
 	}
 	group.kv = config.KV
+	group.membershipRevocations = config.MembershipRevocations
 	if config.ServiceIdentity == nil {
 		return group, errors.New("runtime service identity rotation is required")
 	}
@@ -481,7 +484,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil || r.serviceIdentity == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil || r.membershipRevocations == nil || r.serviceIdentity == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -520,6 +523,7 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
 		}),
+		lifecycle.NewScheduledService("membership revocations", 10*time.Second, func(runCtx context.Context, _ time.Time) error { return r.membershipRevocations.Tick(runCtx) }),
 		lifecycle.NewScheduledService("global edge maps", cloudflare.DefaultKVWriterHealthInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.kv.Step(runCtx)
 			return err

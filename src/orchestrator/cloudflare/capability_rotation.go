@@ -107,6 +107,7 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 		receipt.TemplateDigest = old.TemplateDigest
 		receipt.RevocationRevision = old.RevocationRevision
 		receipt.Revocations = slices.Clone(old.Revocations)
+		receipt.MembershipRevocations = old.MembershipRevocations
 	}
 	if receipt.Previous.Reference != "" {
 		receipt.Previous.ExpiresAt = minTime(receipt.Previous.ExpiresAt, receipt.Current.NotBefore.Add(security.CapabilityOverlap))
@@ -193,12 +194,13 @@ type capabilityWireKey struct {
 	NotAfter  int64  `json:"notAfter"`
 }
 type capabilityDeployment struct {
-	Revocations capabilityRevocationWire `json:"revocations"`
-	Generation  string                   `json:"generation"`
-	Phase       string                   `json:"phase"`
-	ValidUntil  int64                    `json:"validUntil"`
-	Current     capabilityWireKey        `json:"current"`
-	Previous    *capabilityWireKey       `json:"previous,omitzero"`
+	MembershipRevocations *MembershipRevocationSnapshot `json:"membershipRevocations,omitzero"`
+	Revocations           capabilityRevocationWire      `json:"revocations"`
+	Generation            string                        `json:"generation"`
+	Phase                 string                        `json:"phase"`
+	ValidUntil            int64                         `json:"validUntil"`
+	Current               capabilityWireKey             `json:"current"`
+	Previous              *capabilityWireKey            `json:"previous,omitzero"`
 }
 
 func (s *SnippetCapabilityStore) fetch(ctx context.Context, state security.CapabilityKeyState) (security.CapabilityMaterial, error) {
@@ -222,7 +224,7 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 		return nil, err
 	}
 	defer clear(current.Key)
-	d := capabilityDeployment{Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
+	d := capabilityDeployment{MembershipRevocations: r.MembershipRevocations, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
 	if r.Previous.Reference != "" && s.config.Now().Before(r.Previous.ExpiresAt) {
 		previous, e := s.fetch(ctx, r.Previous)
 		if e != nil {
@@ -331,18 +333,27 @@ func (s *SnippetCapabilityStore) probe(ctx context.Context, endpoint string, r C
 		return capabilityEffectError()
 	}
 	var proof struct {
-		Nonce              string `json:"nonce"`
-		Generation         string `json:"generation"`
-		Phase              string `json:"phase"`
-		ValidUntil         int64  `json:"validUntil"`
-		Proof              string `json:"proof"`
-		RevocationRevision string `json:"revocationRevision"`
-		RevocationDigest   string `json:"revocationDigest"`
+		Nonce                string `json:"nonce"`
+		Generation           string `json:"generation"`
+		Phase                string `json:"phase"`
+		ValidUntil           int64  `json:"validUntil"`
+		Proof                string `json:"proof"`
+		RevocationRevision   string `json:"revocationRevision"`
+		RevocationDigest     string `json:"revocationDigest"`
+		MembershipRevision   string `json:"membershipRevision"`
+		MembershipValidUntil int64  `json:"membershipValidUntil"`
 	}
 	if json.Unmarshal(raw, &proof) != nil || proof.Nonce != nonce || proof.Generation != strconv.FormatUint(r.Generation, 10) || proof.Phase != r.Phase || proof.ValidUntil != r.Current.ExpiresAt.Unix() || proof.RevocationRevision != strconv.FormatUint(r.RevocationRevision, 10) || proof.RevocationDigest != capabilityRevocationDigest(r.Revocations) {
 		return capabilityEffectError()
 	}
-	expected := capabilityMAC(key, "terrascale-capability-generation-response-v2\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10)+"\n"+proof.RevocationRevision+"\n"+proof.RevocationDigest)
+	membershipRevision, membershipValidUntil := "", int64(0)
+	if r.MembershipRevocations != nil {
+		membershipRevision, membershipValidUntil = r.MembershipRevocations.Revision, r.MembershipRevocations.ValidUntil
+	}
+	if proof.MembershipRevision != membershipRevision || proof.MembershipValidUntil != membershipValidUntil {
+		return capabilityEffectError()
+	}
+	expected := capabilityMAC(key, "terrascale-capability-generation-response-v3\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10)+"\n"+proof.RevocationRevision+"\n"+proof.RevocationDigest+"\n"+proof.MembershipRevision+"\n"+strconv.FormatInt(proof.MembershipValidUntil, 10))
 	if !hmac.Equal([]byte(expected), []byte(proof.Proof)) {
 		return capabilityEffectError()
 	}

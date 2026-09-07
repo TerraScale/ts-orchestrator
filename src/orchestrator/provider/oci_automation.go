@@ -244,6 +244,7 @@ func computeShapeArchitecture(shape string) string {
 }
 
 type ociAutomatedInstance struct {
+	CompartmentID      string            `json:"compartmentId"`
 	ID                 string            `json:"id"`
 	LifecycleState     string            `json:"lifecycleState"`
 	ETag               string            `json:"etag"`
@@ -442,7 +443,7 @@ func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (Compute
 	if json.Unmarshal(body, &item) != nil || item.ID != id {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI compute response is invalid"}
 	}
-	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
+	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: resp.Header.Get("ETag"), CompartmentID: item.CompartmentID, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
 }
 
 func computeTerminateBinding(request ComputeTerminateRequest) any {

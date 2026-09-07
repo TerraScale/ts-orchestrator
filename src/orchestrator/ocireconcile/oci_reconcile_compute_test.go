@@ -639,3 +639,35 @@ func testTSNodeCloudInit(version, digest, artifact string, trust ...string) (str
 	}
 	return TSNodeCloudInit(version, digest, artifact, signature, key, []BootstrapHostFile{{Path: "/etc/terrascale/ts-node.json", Content: []byte("{}"), Private: true}, {Path: "/var/lib/terrascale/ts-node/manifest.json", Content: []byte("{}"), Private: true}})
 }
+
+func TestExactMemberTerminalObservationRequiresProviderResourceAndETag(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		status   int
+		body     string
+		etag     string
+		terminal bool
+	}{
+		{"terminated", 200, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"TERMINATED"}`, "provider-etag", true},
+		{"ambiguous 404", 404, `{}`, "", false},
+		{"body etag is not provider header", 200, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"TERMINATED","etag":"untrusted"}`, "", false},
+		{"different compartment", 200, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"TERMINATED"}`, "provider-etag", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := testOCITransport(t, provider.OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+				if request.Method != http.MethodGet || request.URL.Path != "/20160918/instances/ocid1.instance.oc1.x" {
+					t.Fatalf("request %s %s", request.Method, request.URL.Path)
+				}
+				return testHTTPResponse(test.status, test.body, http.Header{"Etag": []string{test.etag}}), nil
+			})
+			gateway := &ociMemberGateway{Adapter: &provider.OCIComputeAdapter{Core: transport}, CompartmentID: "ocid1.compartment.oc1.x"}
+			observed, err := gateway.ObserveMember(t.Context(), "ocid1.instance.oc1.x")
+			if errors.Is(err, ErrMemberTerminated) != test.terminal || err == nil {
+				t.Fatalf("terminal=%v observed=%+v err=%v", test.terminal, observed, err)
+			}
+			if test.terminal && (observed.ID != "ocid1.instance.oc1.x" || observed.ETag != "provider-etag" || observed.CompartmentID != gateway.CompartmentID) {
+				t.Fatalf("lost provider binding: %+v", observed)
+			}
+		})
+	}
+}

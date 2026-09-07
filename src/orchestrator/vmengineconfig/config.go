@@ -52,6 +52,7 @@ type Declaration struct {
 	Databases       []Database       `json:"databases"`
 	Limits          Limits           `json:"limits"`
 	Keys            *Keys            `json:"keys,omitempty"`
+	PublicAPI       *PublicAPI       `json:"publicApi,omitempty"`
 }
 
 type Host struct {
@@ -106,6 +107,14 @@ type Keys struct {
 	Socket          string `json:"socket"`
 	OrchestratorUID uint32 `json:"orchestratorUid"`
 	SocketGID       uint32 `json:"socketGid"`
+}
+
+const publicAPIBootstrapKeyPath = "/etc/terrascale/public-api/bootstrap.key"
+
+type PublicAPI struct {
+	Listen           string `json:"listen"`
+	DataRoot         string `json:"dataRoot"`
+	BootstrapKeyFile string `json:"bootstrapKeyFile,omitempty"`
 }
 
 type Limits struct {
@@ -267,7 +276,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes == 0 || dest.MaxPointBytes == 0 {
 				return nil, bad
 			}
-			if !slices.Contains(dest.PermittedGeographies, dest.VerifiedGeography) {
+			if !slices.Contains(db.SelectedRegions, db.Region) || !slices.Contains(dest.PermittedGeographies, dest.VerifiedGeography) {
 				return nil, bad
 			}
 		}
@@ -391,7 +400,7 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		if db.Backup != nil {
 			fmt.Fprintf(&b, "[databases.backup]\npolicy_revision = %q\nretention_days = %d\n", db.Backup.PolicyRevision, db.Backup.RetentionDays)
 			for _, d := range db.Backup.Destinations {
-				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, d.AccessKeyFile, d.SecretKeyFile, d.MaxArtifactBytes, d.MaxPointBytes)
+				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, fmt.Sprintf("/etc/terrascale/backup/%s-0-access", db.Database), fmt.Sprintf("/etc/terrascale/backup/%s-0-secret", db.Database), d.MaxArtifactBytes, d.MaxPointBytes)
 			}
 		}
 	}
@@ -437,6 +446,9 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	}
 	fmt.Fprintf(&b, "\n[release]\nrelease = %q\ncapabilities = [\"production\", \"tbep\", \"quic\", \"metrics\", \"oci-vault\"]\n", d.Release)
 	fmt.Fprintf(&b, "\n[keys]\nsocket = %q\norchestrator_uid = %d\nsocket_gid = %d\n", d.Keys.Socket, d.Keys.OrchestratorUID, d.Keys.SocketGID)
+	if d.PublicAPI != nil {
+		fmt.Fprintf(&b, "\n[public_api]\nlisten = %q\ndata_root = %q\n", d.PublicAPI.Listen, d.PublicAPI.DataRoot)
+	}
 	if b.Len() > hostmanifest.MaximumConfigurationBytes {
 		return "", errors.New("vmengineconfig: rendered configuration exceeds engine bound")
 	}

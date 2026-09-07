@@ -118,11 +118,15 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 		revocationHash := sha256.Sum256([]byte(revocationCanonical))
 		revocationDigest := hex.EncodeToString(revocationHash[:])
 		revocationRevision := fmt.Sprint(receipt.RevocationRevision)
-		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v2\n%s\n%s\n%s\n%d\n%s\n%s", nonce, generation, receipt.Phase, expires, revocationRevision, revocationDigest))
+		membershipRevision, membershipValidUntil := "", int64(0)
+		if receipt.MembershipRevocations != nil {
+			membershipRevision, membershipValidUntil = receipt.MembershipRevocations.Revision, receipt.MembershipRevocations.ValidUntil
+		}
+		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v3\n%s\n%s\n%s\n%d\n%s\n%s\n%s\n%d", nonce, generation, receipt.Phase, expires, revocationRevision, revocationDigest, membershipRevision, membershipValidUntil))
 		if f.forged.Load() {
 			proof = rotationMAC([]byte("attacker"), nonce)
 		}
-		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof, "revocationRevision": revocationRevision, "revocationDigest": revocationDigest})
+		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof, "revocationRevision": revocationRevision, "revocationDigest": revocationDigest, "membershipRevision": membershipRevision, "membershipValidUntil": membershipValidUntil})
 		w.Write(body)
 	}))
 	t.Cleanup(probe.Close)

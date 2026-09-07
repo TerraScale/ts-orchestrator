@@ -19,15 +19,16 @@ var ErrCapabilityJournalConflict = errors.New("cloudflare: capability journal re
 
 // CapabilityReceipt contains only provider identities and secret-free key metadata.
 type CapabilityReceipt struct {
-	Generation         uint64
-	Current            security.CapabilityKeyState
-	Previous           security.CapabilityKeyState
-	Phase              string
-	Digest             string
-	TemplateDigest     string
-	OperationID        string
-	RevocationRevision uint64
-	Revocations        []CapabilityRevocation
+	Generation            uint64
+	Current               security.CapabilityKeyState
+	Previous              security.CapabilityKeyState
+	Phase                 string
+	Digest                string
+	TemplateDigest        string
+	OperationID           string
+	RevocationRevision    uint64
+	Revocations           []CapabilityRevocation
+	MembershipRevocations *MembershipRevocationSnapshot
 }
 
 // CapabilityJournal does not grant authority; callers fence their provider effects.
@@ -183,7 +184,7 @@ func decodeCapabilityReceipt(raw []byte) (CapabilityReceipt, error) {
 	if len(receipt.Previous.ID) > 1024 || len(receipt.Previous.Reference) > 1024 {
 		return CapabilityReceipt{}, ErrCapabilityJournalUnavailable
 	}
-	if !validCapabilityRevocations(receipt.Revocations) {
+	if !validCapabilityRevocations(receipt.Revocations) || (receipt.MembershipRevocations != nil && !receipt.MembershipRevocations.valid()) {
 		return CapabilityReceipt{}, ErrCapabilityJournalUnavailable
 	}
 	return receipt, nil

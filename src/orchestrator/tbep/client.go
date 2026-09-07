@@ -206,7 +206,7 @@ func validOwner(value string) bool {
 
 // RestoreStats reads facts from the admitted restored target. The member
 // computes these facts; callers never synthesize them from the request.
-func (c *Client) RestoreStats(ctx context.Context, a LifecycleAssignment, operation, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64) (*pb.RestoreStatsResponse, error) {
+func (c *Client) RestoreStats(ctx context.Context, a LifecycleAssignment, operation, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64, expectedPlacement []string) (*pb.RestoreStatsResponse, error) {
 	if !validMetadata(targetOwner, 255) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 {
 		return nil, errors.New("TBEP restore stats request is incomplete")
 	}
@@ -221,7 +221,10 @@ func (c *Client) RestoreStats(ctx context.Context, a LifecycleAssignment, operat
 	if err != nil {
 		return nil, err
 	}
-	if response.GetOperationId() != operation || response.GetTargetOwner() != targetOwner || response.GetTargetDatabase() != targetDatabase || response.GetJournalCut() != journalCut || response.GetRowCount() < 0 || response.GetChecksum() == "" {
+	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
+	slices.Sort(want)
+	slices.Sort(got)
+	if response.GetOperationId() != operation || response.GetTargetOwner() != targetOwner || response.GetTargetDatabase() != targetDatabase || response.GetJournalCut() != journalCut || response.GetRowCount() < 0 || response.GetChecksum() == "" || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
 		return nil, errors.New("TBEP restore stats response is unbound or incomplete")
 	}
 	return response, nil

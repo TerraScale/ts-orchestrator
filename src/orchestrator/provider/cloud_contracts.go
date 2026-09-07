@@ -435,6 +435,7 @@ type ComputeTerminateRequest struct {
 }
 
 type ComputeInstance struct {
+	CompartmentID      string
 	ID                 string
 	LifecycleState     string
 	ETag               string

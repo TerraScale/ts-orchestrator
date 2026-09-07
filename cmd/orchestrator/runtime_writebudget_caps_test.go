@@ -72,3 +72,38 @@ func TestRuntimeWriteBudgetDecodesZeroAndNilDatabaseCaps(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeWriteBudgetAccruedSpendCanonicalIngress(t *testing.T) {
+	for _, amount := range []string{"9007199254740993", "01", "-1", "9223372036854775808"} {
+		t.Run(amount, func(t *testing.T) {
+			policy := writebudget.Policy{OrganizationID: "org", CycleID: "old", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"holder": 1}, PaidExcessEnabled: true, RateNanoDollar: 1000}
+			authority, err := writebudget.New(writebudget.NewMemoryPersister(), policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := &runtimeWriteBudget{authority: authority, policy: policy}
+			_, err = runtime.ApplyPolicy(t.Context(), writebudget.PolicyEnvelope{SchemaVersion: 1, OrganizationID: "org", CycleID: "new", AccountRevision: "rev", PolicyGeneration: 2, Checksum: "sum", Policy: map[string]any{
+				"organizationId": "org", "cycleId": "new", "includedWriteUnits": "0", "paidExcessEnabled": true,
+				"rateNanoDollar": int64(1000), "organizationSpendNano": int64(9007199254741993),
+				"accruedNonWriteNano": amount, "databaseAccruedNonWriteNano": map[string]string{"db": "2000"},
+			}})
+			if amount != "9007199254740993" {
+				if err == nil {
+					t.Fatal("invalid canonical amount accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := writebudget.Request{OperationID: "write", OrganizationID: "org", DatabaseID: "db", BranchID: "main", HolderID: "holder", Regions: []string{"gru"}, Units: 1, PolicyEpoch: 2, ConsentEpoch: 2, WriterEpoch: 1, ExpiresAt: testWriteBudgetExpiry()}
+			if _, err := authority.Allocate(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+			request.OperationID = "over-limit"
+			if _, err := authority.Allocate(t.Context(), request); !errors.Is(err, writebudget.ErrExhausted) {
+				t.Fatalf("accrual cap bypass: %v", err)
+			}
+		})
+	}
+}
