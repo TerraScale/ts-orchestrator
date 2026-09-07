@@ -81,11 +81,15 @@ func (e Exemption) activeAt(now time.Time) bool {
 // unknown and is handled fail-closed (it is never reaped).
 type Database struct {
 	ID                      string     `json:"id"`
+	OrganizationID          string     `json:"organizationId,omitempty"`
+	ProjectID               string     `json:"projectId,omitempty"`
 	OwnerEmail              string     `json:"ownerEmail"`
 	Plan                    Plan       `json:"plan"`
 	LastRequest             time.Time  `json:"lastRequest"`
 	Exemption               Exemption  `json:"exemption"`
 	OwnershipProof          string     `json:"ownershipProof,omitempty"`
+	PolicyRevision          string     `json:"policyRevision,omitempty"`
+	SelectedGraceCondition  string     `json:"selectedGraceCondition,omitempty"`
 	BillingGraceDeadline    *time.Time `json:"billingGraceDeadline,omitempty"`
 	BillingDeletionEligible bool       `json:"billingDeletionEligible,omitempty"`
 }

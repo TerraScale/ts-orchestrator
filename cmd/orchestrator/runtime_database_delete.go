@@ -61,14 +61,17 @@ func databaseDeletionAuthorizer(client *http.Client, endpoint, key string) func(
 			return errors.New("database deletion authorization: invalid response")
 		}
 		var decision struct {
-			Allowed                bool `json:"allowed"`
-			Action, Subject, Actor string
-			IssuedAt, ExpiresAt    int64
-			Environment            string `json:"environment"`
-			TenantID               string `json:"tenant_id"`
-			ProjectID              string `json:"project_id"`
-			DatabaseID             string `json:"database_id"`
-			OperationID            string `json:"operation_id"`
+			Allowed     bool   `json:"allowed"`
+			Action      string `json:"action"`
+			Subject     string `json:"subject"`
+			Actor       string `json:"actor"`
+			IssuedAt    int64  `json:"issued_at"`
+			ExpiresAt   int64  `json:"expires_at"`
+			Environment string `json:"environment"`
+			TenantID    string `json:"tenant_id"`
+			ProjectID   string `json:"project_id"`
+			DatabaseID  string `json:"database_id"`
+			OperationID string `json:"operation_id"`
 		}
 		if json.Unmarshal(body, &decision) != nil || decision.Environment != request.Environment || decision.TenantID != request.TenantID || decision.ProjectID != request.ProjectID || decision.DatabaseID != request.DatabaseID || decision.OperationID != request.OperationID || decision.ExpiresAt <= time.Now().Unix() || decision.ExpiresAt > time.Now().Add(30*time.Second).Unix() || decision.Action != "delete" || decision.Subject == "" || decision.Actor == "" || decision.IssuedAt > time.Now().Unix() || decision.IssuedAt < time.Now().Add(-30*time.Second).Unix() || decision.ExpiresAt <= decision.IssuedAt {
 			return errors.New("database deletion authorization: response scope or freshness mismatch")

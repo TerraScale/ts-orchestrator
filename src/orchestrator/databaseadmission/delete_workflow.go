@@ -16,6 +16,15 @@ type DeleteRequest struct {
 	DatabaseID  string `json:"database_id"`
 	OperationID string `json:"operation_id"`
 }
+
+// AutomaticDeleteRequest is the reaper-only deletion intent. It is kept
+// separate from customer DeleteRequest so a dashboard claim can never be
+// mistaken for owner authorization.
+type AutomaticDeleteRequest struct {
+	DeleteRequest
+	PolicyRevision string `json:"policy_revision"`
+	GraceCondition string `json:"grace_condition"`
+}
 type DeletionStop struct {
 	databaselifecycle.Identity
 	OperationID string    `json:"operation_id"`
@@ -124,6 +133,24 @@ func (w *DeletionWorkflow) Begin(ctx context.Context, r DeleteRequest) (Deletion
 	} else {
 		d, err = w.Journal.BeginDeletion(ctx, r, at, decision.RetainUntil)
 	}
+	if err != nil {
+		return Deletion{}, err
+	}
+	return w.advance(ctx, d)
+}
+
+// BeginAutomatic consumes an already-issued dashboard claim and persists it
+// atomically with the deletion journal before any regional stop effect.
+func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDeleteRequest, claim DeletionClaimReceipt) (Deletion, error) {
+	if w == nil || w.Journal == nil || w.Stopper == nil || !validDeleteRequest(r.DeleteRequest) || r.PolicyRevision == "" || r.GraceCondition == "" || claim.SchemaVersion != 1 || claim.Environment != r.Environment || claim.TenantID != r.TenantID || claim.ProjectID != r.ProjectID || claim.DatabaseID != r.DatabaseID || claim.OperationID != r.OperationID || claim.PolicyRevision != r.PolicyRevision || claim.GraceCondition != r.GraceCondition || claim.Deadline.IsZero() || claim.AcceptedAt.IsZero() {
+		return Deletion{}, ErrInvalid
+	}
+	journal, ok := w.Journal.(DeletionClaimJournal)
+	if !ok {
+		return Deletion{}, ErrInvalid
+	}
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	d, err := journal.BeginDeletionWithClaim(ctx, r.DeleteRequest, at, claim.Deadline, claim)
 	if err != nil {
 		return Deletion{}, err
 	}

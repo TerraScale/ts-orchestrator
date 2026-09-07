@@ -85,7 +85,10 @@ func policyDatabase(facts LifecyclePolicyFacts, now time.Time) (Database, error)
 			return Database{}, ErrInvalidDatabase
 		}
 	}
-	database := Database{ID: facts.DatabaseID, OwnerEmail: owners[0], Plan: PlanPaid, OwnershipProof: facts.Revision}
+	database := Database{ID: facts.DatabaseID, OrganizationID: facts.OrganizationID, ProjectID: facts.ProjectID, OwnerEmail: owners[0], Plan: PlanPaid, OwnershipProof: facts.Revision, PolicyRevision: facts.Revision}
+	if len(facts.DeletionReasons) > 0 {
+		database.SelectedGraceCondition = facts.DeletionReasons[0]
+	}
 	database.BillingGraceDeadline = facts.BillingGraceDeadline
 	database.BillingDeletionEligible = facts.BillingDeletionEligible
 	if facts.Plan == "free" {
