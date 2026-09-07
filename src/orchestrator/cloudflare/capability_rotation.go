@@ -40,6 +40,7 @@ type SnippetCapabilityStoreConfig struct {
 	SnippetName     string
 	Source          []byte
 	Vault           security.CapabilityVault
+	OriginVault     security.OriginProofVault
 	Journal         CapabilityJournal
 	Authorize       func(context.Context) error
 	ProbeURLs       []string
@@ -49,6 +50,7 @@ type SnippetCapabilityStoreConfig struct {
 
 type SnippetCapabilityStore struct {
 	config SnippetCapabilityStoreConfig
+	originVault security.OriginProofVault
 	mu     sync.Mutex
 }
 
@@ -71,7 +73,8 @@ func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabili
 	client := *c.HTTPClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	c.HTTPClient = &client
-	return &SnippetCapabilityStore{config: c}, nil
+	if c.OriginVault == nil { return nil, capabilityEffectError() }
+	return &SnippetCapabilityStore{config: c, originVault: c.OriginVault}, nil
 }
 
 func capabilityEffectError() error {
@@ -84,6 +87,9 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if operation == "" || c.Capability.Version == 0 || !s.config.Now().Before(c.Capability.ExpiresAt) {
+		return capabilityEffectError()
+	}
+	if c.OriginProof.ID == "" || c.OriginProof.Reference == "" || len(c.OriginProof.Secret) < 32 || !s.config.Now().Before(c.OriginProof.ExpiresAt) {
 		return capabilityEffectError()
 	}
 	old, rev, err := s.config.Journal.Load(ctx)
@@ -99,7 +105,7 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 		}
 		return s.deploy(ctx, old, rev)
 	}
-	receipt := CapabilityReceipt{Generation: c.Capability.Version, Current: capabilityState(c.Capability), Previous: capabilityState(c.PreviousCapability), Phase: "staged", OperationID: operation, TemplateDigest: edgeDigest(s.config.Source)}
+	receipt := CapabilityReceipt{Generation: c.Capability.Version, Current: capabilityState(c.Capability), Previous: capabilityState(c.PreviousCapability), OriginCurrent: capabilityState(c.OriginProof), OriginPrevious: capabilityState(c.PreviousOriginProof), Phase: "staged", OperationID: operation, TemplateDigest: edgeDigest(s.config.Source)}
 	if old.Generation != 0 && (old.Phase != "active" || old.Current.Reference != receipt.Previous.Reference) {
 		return capabilityEffectError()
 	}
@@ -111,6 +117,9 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 	}
 	if receipt.Previous.Reference != "" {
 		receipt.Previous.ExpiresAt = minTime(receipt.Previous.ExpiresAt, receipt.Current.NotBefore.Add(security.CapabilityOverlap))
+	}
+	if receipt.OriginPrevious.Reference != "" {
+		receipt.OriginPrevious.ExpiresAt = minTime(receipt.OriginPrevious.ExpiresAt, receipt.OriginCurrent.NotBefore.Add(security.CapabilityOverlap))
 	}
 	return s.deploy(ctx, receipt, rev)
 }
@@ -201,6 +210,8 @@ type capabilityDeployment struct {
 	ValidUntil            int64                         `json:"validUntil"`
 	Current               capabilityWireKey             `json:"current"`
 	Previous              *capabilityWireKey            `json:"previous,omitzero"`
+	OriginCurrent         capabilityWireKey             `json:"originCurrent"`
+	OriginPrevious        *capabilityWireKey            `json:"originPrevious,omitzero"`
 }
 
 func (s *SnippetCapabilityStore) fetch(ctx context.Context, state security.CapabilityKeyState) (security.CapabilityMaterial, error) {
@@ -214,6 +225,9 @@ func (s *SnippetCapabilityStore) fetch(ctx context.Context, state security.Capab
 func wireKey(m security.CapabilityMaterial, state security.CapabilityKeyState) capabilityWireKey {
 	return capabilityWireKey{ID: m.ID, Key: hex.EncodeToString(m.Key), NotBefore: state.NotBefore.Unix(), NotAfter: state.ExpiresAt.Unix()}
 }
+func originWireKey(m security.OriginProofMaterial, state security.CapabilityKeyState) capabilityWireKey {
+	return capabilityWireKey{ID: m.ID, Key: hex.EncodeToString(m.Secret), NotBefore: state.NotBefore.Unix(), NotAfter: state.ExpiresAt.Unix()}
+}
 func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt) ([]byte, error) {
 	template, err := s.template(ctx, r.TemplateDigest)
 	if err != nil {
@@ -224,7 +238,11 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 		return nil, err
 	}
 	defer clear(current.Key)
-	d := capabilityDeployment{MembershipRevocations: r.MembershipRevocations, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
+	origin, err := s.originVault.Fetch(ctx, r.OriginCurrent.Reference)
+	if err != nil { return nil, err }
+	defer clear(origin.Secret)
+	if origin.ID != r.OriginCurrent.ID || origin.Reference != r.OriginCurrent.Reference || origin.Version != r.OriginCurrent.Version || origin.Bucket != r.OriginCurrent.Bucket || origin.ExpiresAt.Before(r.OriginCurrent.ExpiresAt) || len(origin.Secret) < 32 || origin.ID == current.ID || origin.Reference == current.Reference { return nil, capabilityEffectError() }
+	d := capabilityDeployment{MembershipRevocations: r.MembershipRevocations, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), OriginCurrent: originWireKey(origin, r.OriginCurrent), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
 	if r.Previous.Reference != "" && s.config.Now().Before(r.Previous.ExpiresAt) {
 		previous, e := s.fetch(ctx, r.Previous)
 		if e != nil {
@@ -232,6 +250,12 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 		}
 		defer clear(previous.Key)
 		d.Previous = new(wireKey(previous, r.Previous))
+	}
+	if r.OriginPrevious.Reference != "" && s.config.Now().Before(r.OriginPrevious.ExpiresAt) {
+		previous, e := s.originVault.Fetch(ctx, r.OriginPrevious.Reference)
+		if e != nil { return nil, e }
+		defer clear(previous.Secret)
+		d.OriginPrevious = new(originWireKey(previous, r.OriginPrevious))
 	}
 	encoded, err := json.Marshal(d)
 	if err != nil {

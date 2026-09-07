@@ -22,6 +22,8 @@ type CapabilityReceipt struct {
 	Generation            uint64
 	Current               security.CapabilityKeyState
 	Previous              security.CapabilityKeyState
+	OriginCurrent         security.CapabilityKeyState
+	OriginPrevious        security.CapabilityKeyState
 	Phase                 string
 	Digest                string
 	TemplateDigest        string

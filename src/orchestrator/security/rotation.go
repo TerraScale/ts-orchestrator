@@ -89,6 +89,37 @@ type CapabilityMaterial struct {
 	Key       []byte
 }
 
+// OriginProofRequest describes the independent HMAC key used to authenticate
+// origin requests. Its provider and operation identity are deliberately
+// separate from the capability key lifecycle.
+type OriginProofRequest struct {
+	OperationID    string
+	Generation     uint64
+	Bucket         int64
+	NotBefore      time.Time
+	ExpiresAt      time.Time
+	IdempotencyKey string
+}
+
+// OriginProofMaterial is transient provider material. Secret is never
+// persisted and must be wiped after the provider call completes.
+type OriginProofMaterial struct {
+	ID        string
+	Reference string
+	Version   uint64
+	Bucket    int64
+	NotBefore time.Time
+	ExpiresAt time.Time
+	Secret    []byte
+}
+
+// OriginProofVault owns origin-proof keys independently of capability keys.
+type OriginProofVault interface {
+	Generate(ctx context.Context, request OriginProofRequest) (OriginProofMaterial, error)
+	Fetch(ctx context.Context, reference string) (OriginProofMaterial, error)
+	Retire(ctx context.Context, reference string, idempotencyKey string) error
+}
+
 // CapabilityKeyState is the persisted, secret-free half of a key-ring entry.
 // The corresponding bytes are fetched only for a provider call.
 type CapabilityKeyState struct {
@@ -154,6 +185,8 @@ type CredentialSet struct {
 	Identity           IdentityMaterial
 	Capability         CapabilityMaterial
 	PreviousCapability CapabilityMaterial
+	OriginProof        OriginProofMaterial
+	PreviousOriginProof OriginProofMaterial
 }
 
 // ConsumerObservation is the provider's signed/attested answer that a
@@ -264,21 +297,30 @@ type PersistedState struct {
 	OldIdentityRef       string
 	OldCapabilityRef     string
 	OldCapabilityID      string
+	OldOriginProofRef    string
+	OldOriginProofID     string
+	OldOriginProofExpiry time.Time
 	OldVersion           uint64
 	OldExpiry            time.Time
 	CurrentIdentityRef   string
 	CurrentCapabilityRef string
 	CurrentCapabilityID  string
+	CurrentOriginProofRef string
+	CurrentOriginProofID  string
 	PreviousCapabilityID string
 	CurrentVersion       uint64
 	CurrentExpiry        time.Time
 	NewIdentityRef       string
 	NewCapabilityRef     string
 	NewCapabilityID      string
+	NewOriginProofRef    string
+	NewOriginProofID     string
 	NewVersion           uint64
 	NewBucket            int64
+	OriginProofBucket    int64
 	NewNotBefore         time.Time
 	NewExpiry            time.Time
+	OriginProofExpiry    time.Time
 	Members              map[string][]string
 	Distributed          map[string]bool
 	Verified             map[string]bool
@@ -304,6 +346,8 @@ type RotationResult struct {
 	NewExpiry     time.Time
 	CurrentKeyID  string
 	PreviousKeyID string
+	CurrentOriginProofID  string
+	PreviousOriginProofID string
 }
 
 // Config supplies all external effects. All fields are required except Clock,
@@ -311,6 +355,7 @@ type RotationResult struct {
 type Config struct {
 	Issuer  IdentityIssuer
 	Vault   CapabilityVault
+	OriginProof OriginProofVault
 	Members MemberGateway
 	Secrets SecretsStore
 	// Publisher, when supplied, is the atomic member+Snippet publication
@@ -330,6 +375,7 @@ type Config struct {
 type Coordinator struct {
 	issuer    IdentityIssuer
 	vault     CapabilityVault
+	originProof OriginProofVault
 	members   MemberGateway
 	secrets   SecretsStore
 	publisher AtomicPublisher
@@ -375,7 +421,7 @@ func NewCoordinator(config Config) (*Coordinator, error) {
 	if safety >= CapabilityPeriod {
 		return nil, &RotationError{Code: "expiry_safety_invalid"}
 	}
-	return &Coordinator{issuer: config.Issuer, vault: config.Vault, members: config.Members, secrets: config.Secrets, publisher: config.Publisher, reloader: config.Reloader, state: config.State, audit: config.Audit, regions: regions, clock: clock, safety: safety}, nil
+	return &Coordinator{issuer: config.Issuer, vault: config.Vault, originProof: config.OriginProof, members: config.Members, secrets: config.Secrets, publisher: config.Publisher, reloader: config.Reloader, state: config.State, audit: config.Audit, regions: regions, clock: clock, safety: safety}, nil
 }
 
 // NewRotationCoordinator is an explicit constructor alias.
@@ -497,15 +543,25 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 	defer wipe(identity.ControlTLS)
 	defer wipe(identity.TrustBundle)
 	defer wipe(capability.Key)
+	originProof, err := c.originProofMaterial(ctx, state)
+	if err != nil {
+		return RotationResult{}, c.failClosed(ctx, state, "origin_proof_material_unavailable")
+	}
+	defer wipe(originProof.Secret)
 	previousCapability, err := c.previousCapability(ctx, state, now)
 	if err != nil {
 		return RotationResult{}, c.failClosed(ctx, state, "previous_material_unavailable")
 	}
 	defer wipe(previousCapability.Key)
+	previousOriginProof, err := c.previousOriginProof(ctx, state, now)
+	if err != nil {
+		return RotationResult{}, c.failClosed(ctx, state, "previous_origin_proof_unavailable")
+	}
+	defer wipe(previousOriginProof.Secret)
 	if now.After(state.NewExpiry) || state.NewExpiry.Sub(now) <= c.safety {
 		return RotationResult{}, c.failClosed(ctx, state, "generation_expired")
 	}
-	credentials := CredentialSet{Identity: identity, Capability: capability, PreviousCapability: previousCapability}
+	credentials := CredentialSet{Identity: identity, Capability: capability, PreviousCapability: previousCapability, OriginProof: originProof, PreviousOriginProof: previousOriginProof}
 	if state.Phase == PhaseDistribute {
 		if err := c.distribute(ctx, &state, credentials); err != nil {
 			return RotationResult{}, c.transitionFailure(ctx, state, "distribution_failed")
@@ -531,6 +587,7 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 		state.Phase = PhaseActive
 		state.CurrentIdentityRef, state.CurrentCapabilityRef = state.NewIdentityRef, state.NewCapabilityRef
 		state.CurrentCapabilityID = state.NewCapabilityID
+		state.CurrentOriginProofRef, state.CurrentOriginProofID = state.NewOriginProofRef, state.NewOriginProofID
 		state.PreviousCapabilityID = state.OldCapabilityID
 		state.CurrentVersion, state.CurrentExpiry = state.NewVersion, state.NewExpiry
 		state.LastAt = now
@@ -547,6 +604,8 @@ func (c *Coordinator) resume(ctx context.Context, state PersistedState, now time
 			return RotationResult{}, c.retirementFailure(ctx, state, "retire_failed")
 		}
 		state.OldIdentityRef, state.OldCapabilityRef, state.OldCapabilityID, state.OldVersion = "", "", "", 0
+		state.OldOriginProofRef, state.OldOriginProofID = "", ""
+		state.OldOriginProofExpiry = time.Time{}
 		state.PreviousCapabilityID = ""
 		state.OldExpiry = time.Time{}
 		state.Phase = PhaseActive
@@ -576,6 +635,8 @@ func (c *Coordinator) retireAt(ctx context.Context, state *PersistedState) error
 		return err
 	}
 	state.OldIdentityRef, state.OldCapabilityRef, state.OldCapabilityID, state.OldVersion = "", "", "", 0
+	state.OldOriginProofRef, state.OldOriginProofID = "", ""
+	state.OldOriginProofExpiry = time.Time{}
 	state.PreviousCapabilityID = ""
 	state.OldExpiry = time.Time{}
 	state.Phase = PhaseActive
@@ -625,6 +686,21 @@ func (c *Coordinator) prepare(ctx context.Context, state *PersistedState, now ti
 		return errors.New("provider returned invalid material")
 	}
 	state.NewIdentityRef, state.NewCapabilityRef, state.NewCapabilityID = identity.Reference, capability.Reference, capability.ID
+	if c.originProof != nil {
+		origin, originErr := c.originProof.Generate(ctx, OriginProofRequest{OperationID: state.OperationID + "/origin-proof", Generation: state.NewVersion, Bucket: state.OriginProofBucket, NotBefore: state.NewNotBefore, ExpiresAt: state.OriginProofExpiry, IdempotencyKey: key(*state, "generate-origin-proof", "", "")})
+		if originErr != nil {
+			_ = c.issuer.Retire(ctx, identity.Reference, key(*state, "identity-retire-orphan", "", ""))
+			_ = c.vault.Retire(ctx, capability.Reference, key(*state, "capability-retire-orphan", "", ""))
+			wipe(origin.Secret)
+			return originErr
+		}
+		defer wipe(origin.Secret)
+		if origin.ID == "" || origin.Reference == "" || state.NewOriginProofRef != "" && origin.Reference != state.NewOriginProofRef || state.NewOriginProofID != "" && origin.ID != state.NewOriginProofID || origin.Version != state.NewVersion || origin.Bucket != state.OriginProofBucket || origin.ExpiresAt.Before(state.OriginProofExpiry) {
+			_ = c.originProof.Retire(ctx, origin.Reference, key(*state, "origin-proof-retire-orphan", "", ""))
+			return errors.New("provider returned invalid origin proof material")
+		}
+		state.NewOriginProofRef, state.NewOriginProofID = origin.Reference, origin.ID
+	}
 	state.Phase = PhaseDistribute
 	return c.save(ctx, *state)
 }
@@ -857,6 +933,11 @@ func (c *Coordinator) retireOld(ctx context.Context, state PersistedState) error
 	if err := c.vault.Retire(ctx, state.OldCapabilityRef, key(state, "capability-retire", "", "")); err != nil {
 		return err
 	}
+	if c.originProof != nil && state.OldOriginProofRef != "" {
+		if err := c.originProof.Retire(ctx, state.OldOriginProofRef, key(state, "origin-proof-retire", "", "")); err != nil {
+			return err
+		}
+	}
 	if err := c.secrets.Retire(ctx, state.OldVersion, key(state, "edge-retire", "", "")); err != nil {
 		return err
 	}
@@ -913,6 +994,37 @@ func (c *Coordinator) previousCapability(ctx context.Context, state PersistedSta
 	}
 	material.ExpiresAt = state.OldExpiry
 	return material, nil
+}
+
+func (c *Coordinator) originProofMaterial(ctx context.Context, state PersistedState) (OriginProofMaterial, error) {
+	if c.originProof == nil {
+		return OriginProofMaterial{}, nil
+	}
+	m, err := c.originProof.Fetch(ctx, state.NewOriginProofRef)
+	if err != nil {
+		return OriginProofMaterial{}, err
+	}
+	if m.ID != state.NewOriginProofID || m.Reference != state.NewOriginProofRef || m.Version != state.NewVersion || m.Bucket != state.OriginProofBucket || m.ExpiresAt.Before(state.OriginProofExpiry) {
+		wipe(m.Secret)
+		return OriginProofMaterial{}, errors.New("origin proof material mismatch")
+	}
+	return m, nil
+}
+
+func (c *Coordinator) previousOriginProof(ctx context.Context, state PersistedState, now time.Time) (OriginProofMaterial, error) {
+	if c.originProof == nil || state.OldOriginProofRef == "" {
+		return OriginProofMaterial{}, nil
+	}
+	m, err := c.originProof.Fetch(ctx, state.OldOriginProofRef)
+	if err != nil {
+		return OriginProofMaterial{}, err
+	}
+	if m.ID != state.OldOriginProofID || m.Reference != state.OldOriginProofRef || m.Version != state.OldVersion || !now.Before(m.ExpiresAt) || m.ExpiresAt.Before(state.OldOriginProofExpiry) {
+		wipe(m.Secret)
+		return OriginProofMaterial{}, errors.New("previous origin proof material mismatch")
+	}
+	m.ExpiresAt = state.OldOriginProofExpiry
+	return m, nil
 }
 
 func (c *Coordinator) failClosed(ctx context.Context, state PersistedState, code string) error {
@@ -976,10 +1088,12 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 	}
 	version := base + 1
 	currentIdentity, currentCapability, currentCapabilityID := previous.CurrentIdentityRef, previous.CurrentCapabilityRef, previous.CurrentCapabilityID
+	currentOriginProof, currentOriginProofID := previous.CurrentOriginProofRef, previous.CurrentOriginProofID
 	currentVersion, currentExpiry := previous.CurrentVersion, previous.CurrentExpiry
 	// Capability consumers enforce Unix-second validity windows.
 	credentialStart := now.Truncate(time.Second)
 	identityExpiry := credentialStart.Add(CapabilityPeriod)
+	originProofExpiry := credentialStart.Add(CapabilityPeriod)
 	// A previous key is retained only for the edge overlap window. The
 	// provider material itself may have a longer not-after, but keeping it in
 	// the active ring longer than one bucket would violate D-70 and needlessly
@@ -992,11 +1106,17 @@ func (c *Coordinator) newState(previous PersistedState, operationID string, now 
 		}
 	}
 	bucket := now.Unix() / int64(CapabilityPeriod/time.Second)
-	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, NewNotBefore: credentialStart, NewExpiry: identityExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
+	oldOriginExpiry := previous.OriginProofExpiry
+	if currentOriginProof != "" {
+		overlapExpiry := now.Add(CapabilityOverlap)
+		if oldOriginExpiry.IsZero() || overlapExpiry.Before(oldOriginExpiry) { oldOriginExpiry = overlapExpiry }
+	}
+	originBucket := OriginProofBucket(now)
+	return PersistedState{OperationID: operationID, Generation: version, Phase: PhasePrepare, LastVersion: version, LastAt: now, Regions: append([]string(nil), c.regions...), OldIdentityRef: currentIdentity, OldCapabilityRef: currentCapability, OldCapabilityID: currentCapabilityID, OldOriginProofRef: currentOriginProof, OldOriginProofID: currentOriginProofID, OldOriginProofExpiry: oldOriginExpiry, OldVersion: currentVersion, OldExpiry: oldExpiry, CurrentIdentityRef: currentIdentity, CurrentCapabilityRef: currentCapability, CurrentCapabilityID: currentCapabilityID, CurrentOriginProofRef: currentOriginProof, CurrentOriginProofID: currentOriginProofID, PreviousCapabilityID: previous.PreviousCapabilityID, CurrentVersion: currentVersion, CurrentExpiry: currentExpiry, NewVersion: version, NewBucket: bucket, OriginProofBucket: originBucket, NewNotBefore: credentialStart, NewExpiry: identityExpiry, OriginProofExpiry: originProofExpiry, Members: map[string][]string{}, Distributed: map[string]bool{}, Verified: map[string]bool{}, Activated: map[string]bool{}, Retired: map[string]bool{}}
 }
 
 func (c *Coordinator) result(state PersistedState) RotationResult {
-	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: state.NewVersion, NewBucket: state.NewBucket, NewExpiry: state.NewExpiry, CurrentKeyID: state.CurrentCapabilityID, PreviousKeyID: state.PreviousCapabilityID}
+	return RotationResult{OperationID: state.OperationID, Generation: state.Generation, Phase: state.Phase, Regions: append([]string(nil), state.Regions...), OldVersion: state.OldVersion, NewVersion: state.NewVersion, NewBucket: state.NewBucket, NewExpiry: state.NewExpiry, CurrentKeyID: state.CurrentCapabilityID, PreviousKeyID: state.PreviousCapabilityID, CurrentOriginProofID: state.CurrentOriginProofID, PreviousOriginProofID: state.OldOriginProofID}
 }
 
 func emptyState(regions []string) PersistedState {

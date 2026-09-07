@@ -130,6 +130,44 @@ func TestOrdinaryBranchRestoreRejectsCapturedPointMismatch(t *testing.T) {
 	}
 }
 
+func TestSignedBranchSourceAcceptsAuthenticatedDigestRecoveryPoint(t *testing.T) {
+	record := journalFixture(t)
+	record.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	record.Request.RecoveryPointID = strings.Repeat("b", 64)
+	record.Request.JournalCut = "provider-cut-1"
+	record.Request.RestoreEpoch = 4
+	record.Request.RestoreProvider = "oci"
+	nonce := strings.Repeat("a", 64)
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := map[string]ReadinessKey{record.Targets[0].ServerIdentity: {KeyID: record.Targets[0].MemberID, PublicKey: public}}
+	proof := BranchSourceEvidence{
+		SchemaVersion: 1, Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID,
+		ParentDatabaseID: record.Request.ParentDatabaseID, DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion,
+		OperationID: PlacementOperationID(record.Request), MemberIdentity: record.Targets[0].ServerIdentity, Region: record.Targets[0].Region,
+		RecoveryPointID: record.Request.RecoveryPointID, JournalCut: record.Request.JournalCut, RestoreEpoch: record.Request.RestoreEpoch,
+		RestoreProvider: record.Request.RestoreProvider, SourceSnapshotDigest: strings.Repeat("c", 64), CutDigest: strings.Repeat("d", 64),
+		Nonce: nonce, ObservedAtUnixMS: time.Now().UnixMilli(),
+	}
+	sign := func(value BranchSourceEvidence) SignedReadiness {
+		payload, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return SignedReadiness{KeyID: record.Targets[0].MemberID, Payload: payload, Signature: ed25519.Sign(private, append([]byte("terrabase-database-branch-source-v1\x00"), payload...))}
+	}
+	source := &BranchSource{Nonce: nonce, Evidence: sign(proof)}
+	if _, err := validateBranchSource(record, source, key, time.Time{}); err != nil {
+		t.Fatalf("digest recovery point was rejected: %v", err)
+	}
+	proof.RecoveryPointID = strings.Repeat("e", 64)
+	if _, err := validateBranchSource(record, &BranchSource{Nonce: nonce, Evidence: sign(proof)}, key, time.Time{}); err == nil {
+		t.Fatal("mismatched digest recovery point was accepted")
+	}
+}
+
 func TestBranchAdmissionWithoutRestoreCannotAllocateEmptyDatabase(t *testing.T) {
 	journal := NewMemoryJournal()
 	pipeline, err := New(pipelineConfig(t, journal))

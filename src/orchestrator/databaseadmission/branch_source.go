@@ -51,7 +51,7 @@ func validateBranchSource(r Record, source *BranchSource, keys map[string]Readin
 			return proof, ErrInvalid
 		}
 	}
-	if !validBranchProvenance(r.Request) || proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Nonce != source.Nonce || !canonicalID.MatchString(proof.RecoveryPointID) || !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.CutDigest) || proof.ObservedAtUnixMS <= 0 {
+	if !validBranchProvenance(r.Request) || proof.SchemaVersion != 1 || proof.Environment != r.Request.Environment || proof.TenantID != r.Request.TenantID || proof.ProjectID != r.Request.ProjectID || proof.ParentDatabaseID != r.Request.ParentDatabaseID || proof.DatabaseID != r.DatabaseID || proof.KeyVersion != r.KeyVersion || proof.OperationID != PlacementOperationID(r.Request) || proof.Nonce != source.Nonce || !(canonicalID.MatchString(proof.RecoveryPointID) || validDigest(proof.RecoveryPointID)) || !validDigest(proof.SourceSnapshotDigest) || !validDigest(proof.CutDigest) || proof.ObservedAtUnixMS <= 0 {
 		return proof, ErrInvalid
 	}
 	if !validRestoreProvider(proof.RestoreProvider) || !validJournalCut(proof.JournalCut) || proof.RestoreEpoch == 0 || branchProvenancePinned(r.Request) && (proof.RecoveryPointID != r.Request.RecoveryPointID || proof.JournalCut != r.Request.JournalCut || proof.RestoreEpoch != r.Request.RestoreEpoch || proof.RestoreProvider != r.Request.RestoreProvider) {

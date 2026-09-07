@@ -6,17 +6,17 @@ package security
 // by treating a missing version as an empty key ring.
 func ValidCurrentRotationState(state PersistedState) bool {
 	if state.CurrentVersion == 0 {
-		if state.CurrentIdentityRef != "" || state.CurrentCapabilityRef != "" || state.CurrentCapabilityID != "" || !state.CurrentExpiry.IsZero() {
+		if state.CurrentIdentityRef != "" || state.CurrentCapabilityRef != "" || state.CurrentCapabilityID != "" || state.CurrentOriginProofRef != "" || state.CurrentOriginProofID != "" || !state.CurrentExpiry.IsZero() {
 			return false
 		}
-	} else if state.CurrentIdentityRef == "" || state.CurrentCapabilityRef == "" || state.CurrentCapabilityID == "" || state.CurrentExpiry.IsZero() {
+	} else if state.CurrentIdentityRef == "" || state.CurrentCapabilityRef == "" || state.CurrentCapabilityID == "" || state.CurrentExpiry.IsZero() || state.CurrentOriginProofRef != "" && state.CurrentOriginProofID == "" || state.CurrentOriginProofRef == "" && state.CurrentOriginProofID != "" {
 		return false
 	}
 	if state.OldVersion == 0 {
-		if state.OldIdentityRef != "" || state.OldCapabilityRef != "" || state.OldCapabilityID != "" || !state.OldExpiry.IsZero() {
+		if state.OldIdentityRef != "" || state.OldCapabilityRef != "" || state.OldCapabilityID != "" || state.OldOriginProofRef != "" || state.OldOriginProofID != "" || !state.OldExpiry.IsZero() || !state.OldOriginProofExpiry.IsZero() {
 			return false
 		}
-	} else if state.OldIdentityRef == "" || state.OldCapabilityRef == "" || state.OldCapabilityID == "" || state.OldExpiry.IsZero() {
+	} else if state.OldIdentityRef == "" || state.OldCapabilityRef == "" || state.OldCapabilityID == "" || state.OldExpiry.IsZero() || state.OldOriginProofRef != "" && (state.OldOriginProofID == "" || state.OldOriginProofExpiry.IsZero()) || state.OldOriginProofRef == "" && (state.OldOriginProofID != "" || !state.OldOriginProofExpiry.IsZero()) {
 		return false
 	}
 	if state.Phase == PhaseActive || state.Phase == PhaseRetire {

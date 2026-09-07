@@ -163,3 +163,38 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 		}
 	})
 }
+
+func TestRecoverFencedChecksLeaseBeforeObservationAndUncordon(t *testing.T) {
+	request, fetcher, trust, body := testRelease(t, nil)
+	artifact, err := verifyArtifact(context.Background(), fetcher, trust, request)
+	if err != nil || string(artifact.Body) != string(body) {
+		t.Fatalf("verify artifact: %v", err)
+	}
+	control := &recoveryObserverControl{state: HostReleaseState{ArtifactDigest: request.Rollback.ArtifactDigest, ManifestDigest: request.Rollback.ManifestDigest}}
+	rollout := recoveryRollout(t, control)
+	progress := &RolloutProgress{Hosts: []RolloutHostProgress{{Host: "member-1", Mutated: true}}}
+	fence := OperationFence{OperationID: request.OperationID, RequestDigest: "request-digest", OwnerID: "owner", Generation: 1}
+	checks := 0
+	_, err = rollout.RecoverFenced(context.Background(), request, artifact, progress, fence, func(OperationFence) error {
+		checks++
+		return ErrOperationLeaseActive
+	})
+	if !errors.Is(err, ErrOperationLeaseActive) || checks != 1 {
+		t.Fatalf("lease loss was not enforced before observation: err=%v checks=%d", err, checks)
+	}
+	if control.convergeCount() != 0 || len(control.cordons) != 0 {
+		t.Fatalf("lease loss caused provider mutation: converges=%d cordons=%v", control.convergeCount(), control.cordons)
+	}
+
+	checks = 0
+	rollback, err := rollout.RecoverFenced(context.Background(), request, artifact, progress, fence, func(OperationFence) error {
+		checks++
+		return nil
+	})
+	if err != nil || rollback == nil || rollback.Status != RollbackSucceeded || checks < 2 {
+		t.Fatalf("fenced recovery did not complete: rollback=%+v err=%v checks=%d", rollback, err, checks)
+	}
+	if len(control.cordons) != 1 || control.cordons[0] {
+		t.Fatalf("recovery did not uncordon after prior-state proof: %v", control.cordons)
+	}
+}

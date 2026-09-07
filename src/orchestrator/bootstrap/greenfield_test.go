@@ -12,8 +12,9 @@ func testConfig() BootstrapConfig {
 	c := DefaultBootstrapConfig()
 	c.TenancyID = "tenancy-1"
 	c.ImageID = "image-1"
+	c.FallbackImageID = "image-2-amd64"
 	c.AvailabilityDomains = []string{"AD-1"}
-	c.CloudInit = CloudInitConfig{ArtifactURL: "https://releases.example/ts-node", SignatureURL: "https://releases.example/ts-node.sig", SHA256: strings.Repeat("a", 64), SignaturePublicKey: strings.Repeat("ab", 32)}
+	c.CloudInit = CloudInitConfig{ArtifactURL: "https://releases.example/ts-node", SignatureURL: "https://releases.example/ts-node.sig", SHA256: strings.Repeat("a", 64), SignaturePublicKey: strings.Repeat("ab", 32), NATSURL: "tls://nats.example:4222"}
 	return c
 }
 
