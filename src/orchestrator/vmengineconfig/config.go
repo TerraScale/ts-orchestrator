@@ -22,7 +22,7 @@ import (
 )
 
 // Contract identifies the inspected producer parser, not a published release.
-const Contract = "terrabase-worktree-config-e4b65dcdbc8e85824d14e233738d4c13a6c4abd7ca4488b423f75cfa1c2dbe5a"
+const Contract = "terrabase-worktree-config-bafba567958b96de5c63563e85ed975f9f681ba1e0b74eeb99eb5af46089c21b"
 const ServiceUser = "terrascale-terrabase"
 const CertificatePath = "/etc/terrascale/terrabase/server.pem"
 const PrivateKeyPath = "/etc/terrascale/terrabase/key.pem"
@@ -59,8 +59,9 @@ type Declaration struct {
 // BackupDisk declares disk reserved per database and across one member. Half
 // of each stream is reserved for rotation/restore; this is unrelated to RAM.
 type BackupDisk struct {
-	StagingBytesPerStream uint64 `json:"stagingBytesPerStream"`
-	TotalStagingBytes     uint64 `json:"totalStagingBytes"`
+	StagingBytesPerStream   uint64 `json:"stagingBytesPerStream"`
+	InventoryBytesPerStream uint64 `json:"inventoryBytesPerStream"`
+	TotalStagingBytes       uint64 `json:"totalStagingBytes"`
 }
 
 type Host struct {
@@ -275,7 +276,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		return nil, bad
 	}
 	activeBackupBytes := d.BackupDisk.StagingBytesPerStream / 2
-	if activeBackupBytes <= 2<<20 || d.BackupDisk.TotalStagingBytes > math.MaxInt64 || d.BackupDisk.StagingBytesPerStream > d.BackupDisk.TotalStagingBytes {
+	if activeBackupBytes <= 2<<20 || d.BackupDisk.InventoryBytesPerStream < 4<<20 || d.BackupDisk.TotalStagingBytes > math.MaxInt64 || d.BackupDisk.InventoryBytesPerStream > d.BackupDisk.TotalStagingBytes || d.BackupDisk.StagingBytesPerStream > d.BackupDisk.TotalStagingBytes-d.BackupDisk.InventoryBytesPerStream {
 		return nil, bad
 	}
 	for _, r := range release {
@@ -291,7 +292,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 			return nil, bad
 		}
 		for _, dest := range db.Backup.Destinations {
-			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes == 0 || dest.MaxPointBytes < activeBackupBytes {
+			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes < 16<<20 || dest.MaxArtifactBytes > 256<<20 || dest.MaxPointBytes < dest.MaxArtifactBytes || dest.MaxPointBytes < activeBackupBytes {
 				return nil, bad
 			}
 			if !slices.Contains(db.SelectedRegions, db.Region) || !slices.Contains(dest.PermittedGeographies, dest.VerifiedGeography) {
@@ -386,7 +387,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		}
 		// Division checks the aggregate reservation without overflowing a
 		// multiplication. Idle members reserve one stream for admission.
-		if uint64(max(localDatabases, 1)) > d.BackupDisk.TotalStagingBytes/d.BackupDisk.StagingBytesPerStream {
+		if uint64(max(localDatabases, 1)) > d.BackupDisk.TotalStagingBytes/(d.BackupDisk.StagingBytesPerStream+d.BackupDisk.InventoryBytesPerStream) {
 			return nil, bad
 		}
 		if (localDatabases == 0 && (h.ObserverDatabase != "" || h.DatabaseHost == nil)) || (localDatabases > 0 && !bound) {
@@ -403,7 +404,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mode = \"production\"\n[environment]\nname = %q\ncluster = %q\nmember = %q\n", d.Environment, d.Cluster, h.Member)
-	fmt.Fprintf(&b, "\n[backup_disk]\nstaging_bytes_per_stream = %d\ntotal_staging_bytes = %d\n", d.BackupDisk.StagingBytesPerStream, d.BackupDisk.TotalStagingBytes)
+	fmt.Fprintf(&b, "\n[backup_disk]\nstaging_bytes_per_stream = %d\ninventory_bytes_per_stream = %d\ntotal_staging_bytes = %d\n", d.BackupDisk.StagingBytesPerStream, d.BackupDisk.InventoryBytesPerStream, d.BackupDisk.TotalStagingBytes)
 	localRegion := nodes[h.NodeID].Region
 	for _, db := range d.Databases {
 		enabled := slices.Contains(db.SelectedRegions, localRegion)

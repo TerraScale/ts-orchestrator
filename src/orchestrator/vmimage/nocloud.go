@@ -2,6 +2,7 @@ package vmimage
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"debug/elf"
 	"encoding/base64"
 	"encoding/binary"
@@ -60,6 +61,8 @@ type NoCloudSeed struct {
 // NoCloudRootFile is validated bootstrap material installed in the private root before boot.
 // Paths and modes are fixed by BuildNoCloudSeed, never supplied by guest input.
 type NoCloudRootFile struct {
+	runPath   string
+	runDigest [32]byte
 	// Owner is the verified final bootstrap principal; empty means root.
 	Owner   string
 	Path    string
@@ -69,6 +72,12 @@ type NoCloudRootFile struct {
 
 // Validate rejects root file destinations, permissions and sizes outside the seed contract.
 func (file NoCloudRootFile) Validate() error {
+	if file.runPath != "" {
+		if file.Path != file.runPath || file.Owner != membershipServiceUser || file.Mode != 0400 || len(file.Content) == 0 || len(file.Content) > 1<<20 || sha256.Sum256(file.Content) != file.runDigest {
+			return errors.New("vmimage: run root file differs from admitted sideband")
+		}
+		return nil
+	}
 	engineOwner := (vmengineconfig.IsTLSPath(file.Path) || vmengineconfig.IsTransitionTrustPath(file.Path) || vmengineconfig.IsBackupPath(file.Path)) && file.Owner == vmengineconfig.ServiceUser
 	if file.Owner != "" && !engineOwner && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) && !vmengineconfig.IsDatabasePath(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
@@ -193,7 +202,7 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 	if err != nil {
 		return NoCloudSeed{}, err
 	}
-	return NoCloudSeed{
+	seed := NoCloudSeed{
 		MetaData:      buildNoCloudMetaData(spec),
 		NetworkConfig: buildNoCloudNetwork(address, spec.PrefixBits, gateway, guestMAC, nameservers),
 		UserData:      buildNoCloudUserData(spec, dataDevice, dataMount, tsNode),
@@ -207,7 +216,18 @@ func BuildNoCloudSeed(spec NoCloudSeedSpec) (NoCloudSeed, error) {
 			{Path: MembershipIdentityPath, Mode: 0400, Owner: membershipServiceUser, Content: tsNode.membershipPrivate},
 			{Path: MembershipPinsPath, Mode: 0444, Content: tsNode.membershipPins},
 		}, tsNode.commandTrustFiles...),
-	}, nil
+	}
+	seen := map[string]bool{}
+	for _, file := range seed.RootFiles {
+		if seen[file.Path] {
+			return NoCloudSeed{}, errors.New("vmimage: repeated root payload path")
+		}
+		seen[file.Path] = true
+		if err := file.Validate(); err != nil {
+			return NoCloudSeed{}, err
+		}
+	}
+	return seed, nil
 }
 
 func validateNoCloudBindings(spec NoCloudSeedSpec, guestSeed GuestChannelSeed, gateway netip.Addr, tsNode tsNodeBootstrapMaterial) error {

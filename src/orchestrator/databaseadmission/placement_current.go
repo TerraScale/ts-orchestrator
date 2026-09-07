@@ -1,14 +1,16 @@
 package databaseadmission
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"reflect"
+	"maps"
 	"slices"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -49,7 +51,12 @@ func placementRecordDigest(records []Record) string {
 func sameAdmissionIdentity(original, current Record) bool {
 	original.Targets, original.PlacementTargets = nil, nil
 	current.Targets, current.PlacementTargets = nil, nil
-	return reflect.DeepEqual(original, current)
+	a, err := json.Marshal(original, json.Deterministic(true))
+	if err != nil {
+		return false
+	}
+	b, err := json.Marshal(current, json.Deterministic(true))
+	return err == nil && bytes.Equal(a, b)
 }
 func validateCurrentPlacements(s journalState) error {
 	for key, current := range s.CurrentPlacements {
@@ -70,19 +77,37 @@ func beginPlacementRelocation(s *journalState, operation string, expected []Reco
 	if s.PlacementRelocation != "" && s.PlacementRelocation != operation {
 		return ErrConflict
 	}
-	current := currentPlacementRecords(*s)
+	current := relocationRecords(*s)
 	if placementRecordDigest(current) != placementRecordDigest(expected) {
 		return ErrConflict
 	}
 	for _, r := range current {
+		for _, resource := range s.Lifecycle.Resources {
+			if resource.DatabaseID == r.DatabaseID && (!resource.DeletedAt.IsZero() || resource.AccessRevoked || !resource.UsageStoppedAt.IsZero()) {
+				return ErrConflict
+			}
+		}
 		if r.State != "ready" {
 			return ErrConflict
 		}
 	}
 	// A deletion captures regional preparation and stop effects. Its current
 	// member targets must remain fixed until its retained cleanup is complete.
-	if len(s.Deletions) != 0 {
-		return ErrConflict
+	for _, deletion := range s.Deletions {
+		if len(deletion.Targets) == 0 {
+			return ErrConflict
+		}
+		for _, target := range deletion.Targets {
+			completed := false
+			for _, resource := range s.Lifecycle.Resources {
+				if resource.Identity == target.Stop.Identity && inactivePlacementResource(resource) {
+					completed = true
+				}
+			}
+			if !completed {
+				return ErrConflict
+			}
+		}
 	}
 	s.PlacementRelocation = operation
 	return nil
@@ -107,32 +132,45 @@ func commitPlacementRelocation(s *journalState, operation string, records []Reco
 		}
 		return ErrConflict
 	}
-	if operation == "" || s.PlacementRelocation != operation || len(records) != len(s.Records) || len(proofKey) != ed25519.PublicKeySize {
+	if operation == "" || s.PlacementRelocation != operation || len(records) != len(relocationRecords(*s)) || len(proofKey) != ed25519.PublicKeySize {
 		return ErrConflict
 	}
-	prior := currentPlacementRecords(*s)
+	prior := relocationRecords(*s)
 	previous := map[string]Record{}
 	for _, record := range prior {
 		previous[ScopeKey(record.Request)] = record
 	}
-	next := make(map[string]Record, len(records))
+	next := maps.Clone(s.CurrentPlacements)
+	if next == nil {
+		next = map[string]Record{}
+	}
+	seen := map[string]bool{}
+	var acceptedDigest string
 	for _, record := range records {
 		key := ScopeKey(record.Request)
 		old, ok := previous[key]
-		if !ok || next[key].DatabaseID != "" || !sameAdmissionIdentity(old, record) || ValidateRecord(record) != nil {
+		if !ok || seen[key] || !sameAdmissionIdentity(old, record) || ValidateRecord(record) != nil {
 			return ErrConflict
 		}
+		if len(record.PlacementTargets) == 0 {
+			return ErrInvalid
+		}
+		candidateDigest := record.PlacementTargets[0].AcceptedProofDigest
+		if acceptedDigest != "" && candidateDigest != acceptedDigest {
+			return ErrConflict
+		}
+		acceptedDigest = candidateDigest
 		if err := verifySuccessorPlacement(old, record, operation, proofKey); err != nil {
 			return err
 		}
 		next[key] = record
+		seen[key] = true
 	}
 	s.CurrentPlacements = next
 	if s.CompletedRelocations == nil {
 		s.CompletedRelocations = map[string]string{}
 	}
 	s.CompletedRelocations[operation] = digest
-	s.PlacementRelocation = ""
 	return nil
 }
 func verifySuccessorPlacement(old, current Record, operation string, key ed25519.PublicKey) error {
@@ -208,13 +246,62 @@ func (j *NATSJournal) AllocateRelocationStreams(ctx context.Context, operation s
 		}
 		// Validation above authenticates every scope and target before the first
 		// stream change. Allocation sees that complete accepted candidate view.
-		candidate.Records = candidate.CurrentPlacements
+		candidate.Records = maps.Clone(candidate.Records)
+		for key, record := range candidate.CurrentPlacements {
+			candidate.Records[key] = record
+		}
 		for _, record := range records {
 			if err := allocatePlacementStreams(&candidate, record, record.PlacementTargets[0].AcceptedProofDigest, now); err != nil {
 				return err
 			}
 		}
 		s.Lifecycle = candidate.Lifecycle
+		return nil
+	})
+}
+
+// RelocationRecords excludes only databases whose physical retained cleanup is
+// authoritatively complete. Stopped usage or revoked access alone is insufficient.
+func (j *NATSJournal) RelocationRecords(ctx context.Context) (out []Record, err error) {
+	if j == nil || j.journal == nil {
+		return nil, ErrJournalUnavailable
+	}
+	err = j.journal.Transact(ctx, false, func(s *journalState) error { out = relocationRecords(*s); return nil })
+	return out, err
+}
+func inactivePlacementResource(r databaselifecycle.Resource) bool {
+	return !r.DeletedAt.IsZero() && r.AccessRevoked && !r.UsageStoppedAt.IsZero() && !r.EffectsCompletedAt.IsZero() && !r.EffectsCompletedAt.Before(r.DeletedAt)
+}
+func relocationRecords(s journalState) []Record {
+	records := currentPlacementRecords(s)
+	return slices.DeleteFunc(records, func(record Record) bool {
+		for _, resource := range s.Lifecycle.Resources {
+			if resource.Environment == record.Request.Environment && resource.OrganizationID == record.Request.TenantID && resource.ProjectID == record.Request.ProjectID && resource.DatabaseID == record.DatabaseID && inactivePlacementResource(resource) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// FinishPlacementRelocation releases the admission fence after the caller has
+// observed the durable terminal host-removal result. A committed successor
+// alone does not prove that destructive host effects are complete.
+func (j *NATSJournal) FinishPlacementRelocation(ctx context.Context, operation string) error {
+	if j == nil || j.journal == nil {
+		return ErrJournalUnavailable
+	}
+	return j.journal.Transact(ctx, true, func(s *journalState) error {
+		if operation == "" || s.CompletedRelocations[operation] == "" {
+			return ErrConflict
+		}
+		if s.PlacementRelocation == "" {
+			return nil
+		}
+		if s.PlacementRelocation != operation {
+			return ErrConflict
+		}
+		s.PlacementRelocation = ""
 		return nil
 	})
 }

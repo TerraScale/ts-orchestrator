@@ -42,9 +42,12 @@ type Policy struct {
 	// and avoids fractional-cent rounding at grant boundaries.
 	RateNanoDollar         int64
 	IncludedAllowanceUnits int64
-	PaidExcessEnabled      bool
-	OrganizationSpendCap   *int64
-	DatabaseSpendCaps      map[string]*int64
+	// IncludedAllowanceEndsAt bounds all writes authorized by this policy, including
+	// paid excess. Every signed grant expires by this deadline.
+	IncludedAllowanceEndsAt time.Time `json:"included_allowance_ends_at,omitzero"`
+	PaidExcessEnabled       bool
+	OrganizationSpendCap    *int64
+	DatabaseSpendCaps       map[string]*int64
 	// Cumulative non-write charges, already rated across all Regions. Write
 	// reservations remain separately accounted so receipt write totals are never added twice.
 	AccruedNonWriteNano         int64
@@ -328,7 +331,16 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 			return err
 		}
 		policy := state.ActivePolicy
-		if err := validateRequest(request, policy, a.now()); err != nil {
+		now := a.now().UTC()
+		if !policy.IncludedAllowanceEndsAt.IsZero() {
+			if !now.Before(policy.IncludedAllowanceEndsAt) {
+				return ErrExhausted
+			}
+			if request.ExpiresAt.After(policy.IncludedAllowanceEndsAt) {
+				request.ExpiresAt = policy.IncludedAllowanceEndsAt
+			}
+		}
+		if err := validateRequest(request, policy, now); err != nil {
 			return err
 		}
 		if old, ok := state.Grants[request.OperationID]; ok {
@@ -370,7 +382,7 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
 		}
-		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: included, PaidUnits: paid, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: a.now().UTC(), ExpiresAt: request.ExpiresAt.UTC()}
+		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: included, PaidUnits: paid, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: now, ExpiresAt: request.ExpiresAt.UTC()}
 		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units

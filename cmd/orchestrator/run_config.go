@@ -14,6 +14,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
+	"terrascale.tech/orchestrator/src/orchestrator/runmaterial"
 )
 
 const maximumRunConfigurationBytes = 64 << 10
@@ -22,6 +23,7 @@ const maximumRunConfigurationBytes = 64 << 10
 // Values are nonsecret settings and credential file references. Inline provider
 // tokens, private keys, and arbitrary environment variables are not supported.
 var runConfigurationKeys = map[string]bool{
+	runmaterial.Environment:                    true,
 	placementpublisher.BrokerGrantsEnvironment: true,
 	databaseadmission.BrokerGrantsEnvironment:  true,
 	"TS_ORCH_PRODUCTION_RUNTIME_FILE":          true,
@@ -119,6 +121,11 @@ func parseRunConfiguration(data []byte) (envLookup, error) {
 	}
 	if values["TS_ORCH_CELL"] == "local" {
 		return nil, errors.New("run file configuration requires a production cell and OCI provider")
+	}
+	if inventory, present := values[runmaterial.Environment]; present {
+		if err := runmaterial.Verify(inventory); err != nil {
+			return nil, err
+		}
 	}
 	lookup := func(key string) (string, bool) { value, present := values[key]; return value, present }
 	if err := validateConfiguredProvider(values["TS_ORCH_CELL"], lookup); err != nil {

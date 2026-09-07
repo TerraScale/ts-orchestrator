@@ -35,7 +35,7 @@ func (p productionHostRemovalInventory) Capture(ctx context.Context, request hos
 	if ctx == nil || request.OperationID == "" || request.Member.Identity == "" || request.Generation == 0 {
 		return 0, nil, errors.New("runtime host removal: invalid inventory request")
 	}
-	records, err := p.admission.List(ctx)
+	records, err := p.admission.CurrentRecords(ctx)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -60,7 +60,7 @@ func (p productionHostRemovalInventory) Revalidate(ctx context.Context, operatio
 	if operation.MemberIdentity != member {
 		return errors.New("runtime host removal: operation member identity changed")
 	}
-	records, err := p.admission.List(ctx)
+	records, err := p.admission.CurrentRecords(ctx)
 	if err != nil {
 		return err
 	}

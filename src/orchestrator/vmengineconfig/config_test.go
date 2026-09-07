@@ -51,7 +51,7 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 			t.Fatal(err)
 		}
 		config := planned.Components[0].Configuration
-		for _, required := range []string{"[backup_disk]", "staging_bytes_per_stream = 33554432", "total_staging_bytes = 33554432", "mode = \"production\"", "member = \"" + d.Hosts[i].Member + "\"", "endpoint = \"" + bindings[1-i].Address + ":8422\"", "encryption_provider = \"oci-vault\"", "selected_regions = [\"GRU\"]", "tbep_listen = \"127.0.0.1:8421\""} {
+		for _, required := range []string{"[backup_disk]", "staging_bytes_per_stream = 33554432", "inventory_bytes_per_stream = 16777216", "total_staging_bytes = 50331648", "mode = \"production\"", "member = \"" + d.Hosts[i].Member + "\"", "endpoint = \"" + bindings[1-i].Address + ":8422\"", "encryption_provider = \"oci-vault\"", "selected_regions = [\"GRU\"]", "tbep_listen = \"127.0.0.1:8421\""} {
 			if !strings.Contains(config, required) {
 				t.Fatalf("missing production field %s", required)
 			}
@@ -105,7 +105,7 @@ func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing
 	}
 	d, path := testengineconfig.Declaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
 	d.Databases[0].SelectedRegions = []string{"GRU", "SFO"}
-	d.BackupDisk.TotalStagingBytes = 64 << 20 // GRU hosts reserve two database streams.
+	d.BackupDisk.TotalStagingBytes = 96 << 20 // GRU hosts reserve two database streams.
 	d.Databases = append(d.Databases, vmengineconfig.Database{
 		Tenant: d.Databases[0].Tenant, Project: d.Databases[0].Project, Database: "000000000000000000000000CB",
 		Region: "GRU", SelectedRegions: []string{"GRU"}, AllowedRegions: []string{"GRU"},
@@ -298,9 +298,11 @@ func TestBackupDiskReservationRefusesMissingSmallAndOverflowBudgets(t *testing.T
 		disk vmengineconfig.BackupDisk
 	}{
 		{"missing", vmengineconfig.BackupDisk{}},
-		{"no-rotation-space", vmengineconfig.BackupDisk{StagingBytesPerStream: 4 << 20, TotalStagingBytes: 4 << 20}},
-		{"aggregate-shortfall", vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, TotalStagingBytes: (32 << 20) - 1}},
-		{"overflow", vmengineconfig.BackupDisk{StagingBytesPerStream: math.MaxUint64, TotalStagingBytes: math.MaxUint64}},
+		{"missing-inventory", vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, TotalStagingBytes: 48 << 20}},
+		{"inventory-overflow", vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, InventoryBytesPerStream: math.MaxUint64, TotalStagingBytes: 48 << 20}},
+		{"no-rotation-space", vmengineconfig.BackupDisk{StagingBytesPerStream: 4 << 20, InventoryBytesPerStream: 16 << 20, TotalStagingBytes: 20 << 20}},
+		{"aggregate-shortfall", vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, InventoryBytesPerStream: 16 << 20, TotalStagingBytes: (48 << 20) - 1}},
+		{"overflow", vmengineconfig.BackupDisk{StagingBytesPerStream: math.MaxUint64, InventoryBytesPerStream: 16 << 20, TotalStagingBytes: math.MaxUint64}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, path := testengineconfig.Declaration(t, bindings, strings.Repeat("a", 64), "1.0.0")

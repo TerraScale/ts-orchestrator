@@ -416,6 +416,22 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		}
 		services.runMaterials[guest.ID] = runMaterial
 	}
+	if runMaterial != nil {
+		if err := runMaterial.ValidateStage(controlSeed, desired); err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
+	}
+	if engineSeed != nil {
+		var stageErr error
+		if runMaterial == nil {
+			stageErr = engineSeed.ValidateManifest(guest.ID, engineSeed.Address(), desired)
+		} else {
+			stageErr = engineSeed.ValidateStagedManifest(guest.ID, engineSeed.Address(), desired, runMaterial.Manifest)
+		}
+		if stageErr != nil {
+			return vmimage.TSNodeBootstrap{}, nil, fmt.Errorf("vmqual: initial/run manifest admission: %w", stageErr)
+		}
+	}
 	manifest, err := hostmanifest.CanonicalHostManifestJSON(desired)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err

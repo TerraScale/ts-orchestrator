@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json/v2"
+	"encoding/pem"
 	"errors"
 	"maps"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -15,9 +17,12 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/runmaterial"
 )
 
 const RunArguments = "run --config @config"
+
+var runTargetPattern = regexp.MustCompile(`^/etc/terrascale/[A-Za-z0-9_./-]+$`)
 
 // RunDeclaration is owner input for the post-promotion production stage. It
 // never grants permission to run ordinary global journals on initial GRU R1.
@@ -54,6 +59,7 @@ type RunMaterial struct {
 	Global              *RunConnection
 	HostID              string
 	manifestSHA         string
+	identitySHA         string
 	fileDigests         map[string]string
 }
 
@@ -67,11 +73,16 @@ func LoadRunDeclaration(path string) (RunDeclaration, error) {
 		return RunDeclaration{}, errors.New("vmcontrolseed: invalid GRU run declaration")
 	}
 	seen := map[string]bool{}
+	global := false
 	for _, host := range declaration.Hosts {
 		if !identifierPattern.MatchString(host.HostID) || !strings.HasPrefix(host.HostID, "gru-") || seen[host.HostID] || host.Generation == 0 || host.Generation > 1<<63-1 {
 			return RunDeclaration{}, errors.New("vmcontrolseed: invalid run host or desired generation")
 		}
 		seen[host.HostID] = true
+		global = global || host.Global != nil
+	}
+	if !global {
+		return RunDeclaration{}, errors.New("vmcontrolseed: run declaration requires explicit GRU global authority credentials")
 	}
 	return declaration, nil
 }
@@ -117,9 +128,6 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 	if err != nil {
 		return nil, err
 	}
-	if (admission.Global != nil) != m.Selected {
-		return nil, bad
-	}
 	result := &RunMaterial{HostID: m.HostID, Generation: admission.Generation, Regional: admission.Regional, Global: admission.Global, Files: map[string][]byte{}, fileDigests: map[string]string{}}
 	defer func() {
 		if err != nil {
@@ -127,7 +135,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		}
 	}()
 	for target, file := range admission.Files {
-		if !hostmanifest.SafeAbsolutePath(target) || !strings.HasPrefix(target, "/etc/terrascale/") || !hostmanifest.ValidDigest(file.SHA256) || m.Files[target] != nil || target == MembershipKeyPath || target == MembershipPinsPath {
+		if !hostmanifest.SafeAbsolutePath(target) || !runTargetPattern.MatchString(target) || !hostmanifest.ValidDigest(file.SHA256) || m.Files[target] != nil || target == MembershipKeyPath || target == MembershipPinsPath {
 			return nil, bad
 		}
 		raw, readErr := initialgrant.ReadMaterialFile(file.Source, 1<<20, true)
@@ -139,6 +147,13 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 			return nil, bad
 		}
 		result.fileDigests[target] = file.SHA256
+	}
+	if admission.Global == nil {
+		for key := range admission.Settings {
+			if strings.HasPrefix(key, "TS_ORCH_GLOBAL_NATS_") {
+				return nil, bad
+			}
+		}
 	}
 	settings := maps.Clone(admission.Settings)
 	if settings == nil {
@@ -185,9 +200,18 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 	if admission.Global != nil && (admission.Global.Connection.PublicNKey == admission.Regional.Connection.PublicNKey || bytes.Equal(result.Files[admission.Global.Connection.TLS.KeyFile], result.Files[admission.Regional.Connection.TLS.KeyFile])) {
 		return nil, bad
 	}
-	if m.Selected && result.Files[settings["TS_ORCH_NATS_SERVER_CONFIG_FILE"]] == nil {
+	if broker, selected := settings["TS_ORCH_NATS_SERVER_CONFIG_FILE"]; selected && result.Files[broker] == nil {
 		return nil, bad
 	}
+	inventoryPath, inventoryBytes, inventoryErr := runmaterial.Build(result.Files)
+	if inventoryErr != nil {
+		return nil, inventoryErr
+	}
+	if !put(runmaterial.Environment, inventoryPath) || result.Files[inventoryPath] != nil {
+		return nil, bad
+	}
+	result.Files[inventoryPath] = inventoryBytes
+	result.fileDigests[inventoryPath] = digest(inventoryBytes)
 	base.Components = slices.Clone(base.Components)
 	found := false
 	for i, component := range base.Components {
@@ -234,13 +258,17 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		return nil, err
 	}
 	result.manifestSHA, err = hostmanifest.HostManifestSha256(result.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	result.identitySHA, err = result.identityDigest()
 	return result, err
 }
 
 func validateRunConnection(c RunConnection, files, initial map[string][]byte) error {
 	bad := errors.New("vmcontrolseed: production connection material invalid")
 	u, err := url.Parse(c.Endpoint)
-	if err != nil || u.Scheme != "tls" || u.Hostname() == "" || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || c.ServerName == "" || c.Account == "" {
+	if err != nil || u.Scheme != "tls" || u.Hostname() == "" || u.Port() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || !identifierPattern.MatchString(c.ServerName) || c.Account == "" {
 		return bad
 	}
 	conn := c.Connection
@@ -268,10 +296,24 @@ func validateRunConnection(c RunConnection, files, initial map[string][]byte) er
 	if !roots.AppendCertsFromPEM(files[conn.TLS.CAFile]) {
 		return bad
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+	intermediates := x509.NewCertPool()
+	for _, raw := range identity.Certificate[1:] {
+		cert, err := x509.ParseCertificate(raw)
+		if err != nil {
+			return bad
+		}
+		intermediates.AddCert(cert)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return bad
 	}
 	for _, data := range initial {
+		if block, _ := pem.Decode(data); block != nil && block.Type == "CERTIFICATE" {
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err == nil && bytes.Equal(cert.RawSubjectPublicKeyInfo, leaf.RawSubjectPublicKeyInfo) {
+				return bad
+			}
+		}
 		if bytes.Equal(data, files[conn.NKeySeedFile]) || bytes.Equal(data, files[conn.TLS.KeyFile]) {
 			return bad
 		}
@@ -283,6 +325,10 @@ func validateRunConnection(c RunConnection, files, initial map[string][]byte) er
 func (m *RunMaterial) ValidateStage(initial Material, manifest hostmanifest.HostManifest) error {
 	bad := errors.New("vmcontrolseed: run sideband differs from admitted stage")
 	if m == nil || initial.HostID != m.HostID || m.Generation == 0 || len(m.fileDigests) == 0 || len(m.Files) != len(m.fileDigests) {
+		return bad
+	}
+	identity, err := m.identityDigest()
+	if err != nil || identity != m.identitySHA {
 		return bad
 	}
 	predecessor, err := hostmanifest.HostManifestSha256(manifest)
@@ -299,4 +345,17 @@ func (m *RunMaterial) ValidateStage(initial Material, manifest hostmanifest.Host
 		}
 	}
 	return nil
+}
+
+func (m *RunMaterial) identityDigest() (string, error) {
+	raw, err := json.Marshal(struct {
+		HostID     string
+		Generation uint64
+		Regional   RunConnection
+		Global     *RunConnection
+	}{m.HostID, m.Generation, m.Regional, m.Global}, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	return digest(raw), nil
 }

@@ -2,6 +2,7 @@ package vmimage
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"maps"
 	"slices"
@@ -69,7 +70,7 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 			return nil, err
 		}
 		for _, path := range slices.Sorted(maps.Keys(input.ControllerRun.Files)) {
-			files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: vmcontrolseed.ServiceUser, Content: bytes.Clone(input.ControllerRun.Files[path])})
+			files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: vmcontrolseed.ServiceUser, Content: bytes.Clone(input.ControllerRun.Files[path]), runPath: path, runDigest: sha256.Sum256(input.ControllerRun.Files[path])})
 		}
 	}
 	return files, nil

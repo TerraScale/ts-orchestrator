@@ -91,7 +91,7 @@ func loadReplacementRecord(ctx context.Context, journal *databaseadmission.NATSJ
 	if replacement.DatabaseID == "" || replacement.IssuerOperationID == "" || replacement.ProposalDigest == "" {
 		return databaseadmission.Record{}, placementtransition.ErrInvalid
 	}
-	records, err := journal.List(ctx)
+	records, err := journal.CurrentRecords(ctx)
 	if err != nil {
 		return databaseadmission.Record{}, err
 	}

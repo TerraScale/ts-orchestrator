@@ -16,18 +16,13 @@ import (
 // embedded admission journal; only placement consumers use this read view.
 type currentDatabaseJournal struct {
 	*databaseadmission.NATSJournal
-	currentPlacements func(context.Context, []databaseadmission.Record) ([]databaseadmission.Record, error)
 }
 
 func (j *currentDatabaseJournal) List(ctx context.Context) ([]databaseadmission.Record, error) {
 	if j == nil || j.NATSJournal == nil {
 		return nil, databaseadmission.ErrJournalUnavailable
 	}
-	records, err := j.NATSJournal.CurrentRecords(ctx)
-	if err != nil || j.currentPlacements == nil {
-		return records, err
-	}
-	return j.currentPlacements(ctx, records)
+	return j.NATSJournal.CurrentRecords(ctx)
 }
 
 func (d *productionDatabase) currentRecords(ctx context.Context) ([]databaseadmission.Record, error) {
@@ -40,11 +35,11 @@ func (d *productionDatabase) currentRecords(ctx context.Context) ([]databaseadmi
 	return d.lifecycleJournal.List(ctx)
 }
 
-// relocatedDatabaseRecords builds the successor view only from a fully
-// delivered relocation. CommitPlacementRelocation verifies its signatures and
+// relocatedDatabaseRecords builds the successor view only after every target
+// accepted the relocation. CommitPlacementRelocation verifies its signatures and
 // predecessor tuple atomically against the still-fenced admission state.
 func relocatedDatabaseRecords(operation placementrelocation.Operation) ([]databaseadmission.Record, error) {
-	if !operation.Ready || placementrelocation.ValidateOperation(operation) != nil {
+	if len(operation.Acceptances) != len(operation.Plan.Targets) || placementrelocation.ValidateOperation(operation) != nil {
 		return nil, databaseadmission.ErrInvalid
 	}
 	proof, err := json.Marshal(operation.Accepted)
@@ -86,4 +81,15 @@ func relocatedDatabaseRecords(operation placementrelocation.Operation) ([]databa
 		out = append(out, record)
 	}
 	return out, nil
+}
+
+// relocationUsageSource exposes the already authenticated candidate records
+// while lifecycle stream authority remains in the admission journal.
+type relocationUsageSource struct {
+	*databaseadmission.NATSJournal
+	records []databaseadmission.Record
+}
+
+func (s relocationUsageSource) List(context.Context) ([]databaseadmission.Record, error) {
+	return slices.Clone(s.records), nil
 }

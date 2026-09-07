@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,6 +42,9 @@ type qualificationAdmittedControlSource struct {
 }
 
 func (source *qualificationAdmittedControlSource) HostControlResolvers(ctx context.Context, region string) (string, func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error) {
+	if source == nil || ctx == nil {
+		return "", nil, nil, bootstrap.ErrControlRuntimeUnavailable
+	}
 	var first bootstrap.ControlRuntimeMember
 	for _, member := range source.config.Members {
 		if member.Region == region {
@@ -74,7 +78,7 @@ func (source *qualificationAdmittedControlSource) HostControlResolvers(ctx conte
 }
 
 func (source *qualificationAdmittedControlSource) RuntimeConfig(ctx context.Context, clients map[string]*hostcontrol.Client) (bootstrap.NATSControlRuntimeConfig, []bootstrap.ControlRegionBinding, error) {
-	if ctx == nil {
+	if source == nil || ctx == nil {
 		return bootstrap.NATSControlRuntimeConfig{}, nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	if err := ctx.Err(); err != nil {
@@ -82,8 +86,37 @@ func (source *qualificationAdmittedControlSource) RuntimeConfig(ctx context.Cont
 	}
 	config := source.config
 	config.Hosts = maps.Clone(clients)
+	config.Stores = make(map[string]bootstrap.ControlNATSStore, len(source.config.Stores))
+	for name, store := range source.config.Stores {
+		store.Options = slices.Clone(store.Options)
+		config.Stores[name] = store
+	}
+	config.Members = slices.Clone(source.config.Members)
+	config.Actions = make([]bootstrap.ControlRuntimeActionPlan, len(source.config.Actions))
+	for i, plan := range source.config.Actions {
+		// Function-valued NATS options are immutable transport capabilities;
+		// copy their slice separately from the JSON-shaped action declaration.
+		revoked := plan.RevokedCredential
+		plan.RevokedCredential = nil
+		raw, err := json.Marshal(plan)
+		if err != nil {
+			return bootstrap.NATSControlRuntimeConfig{}, nil, err
+		}
+		if err := json.Unmarshal(raw, &config.Actions[i]); err != nil {
+			return bootstrap.NATSControlRuntimeConfig{}, nil, err
+		}
+		if revoked != nil {
+			copy := *revoked
+			copy.Options = slices.Clone(revoked.Options)
+			config.Actions[i].RevokedCredential = &copy
+		}
+	}
 	config.ResolveChecks = source.resolveChecks
-	return config, source.regions, nil
+	regions := slices.Clone(source.regions)
+	for i := range regions {
+		regions[i].MemberIDs = slices.Clone(regions[i].MemberIDs)
+	}
+	return config, regions, nil
 }
 
 func (source *qualificationAdmittedControlSource) readHost(ctx context.Context, region, candidate, id string) (hostcontrol.Host, authority.RegionalAuthorityLeaseDocument, error) {
@@ -109,13 +142,17 @@ func (source *qualificationAdmittedControlSource) readHost(ctx context.Context, 
 		return hostcontrol.Host{}, lease, err
 	}
 	defer connection.Close()
+	confirmed, leaseRevision, err := nodeauthority.ReadRegionalCommandLease(ctx, connection, "ORCH_LEADERS")
+	if err != nil || confirmed.Epoch != lease.Epoch || confirmed.CandidateId != lease.CandidateId || confirmed.LeaseId != lease.LeaseId {
+		return hostcontrol.Host{}, lease, errors.Join(bootstrap.ErrControlRuntimeUnavailable, err)
+	}
 	raw, _, err := nodeauthority.ReadLeaderKV(ctx, connection, "ORCH_RUNTIME", "controller."+member.Instance)
 	if err != nil {
 		return hostcontrol.Host{}, lease, err
 	}
 	var record directory.RegionalRuntimeMember
 	now := time.Now().UTC()
-	if len(raw) > 64<<10 || json.Unmarshal(raw, &record) != nil || !record.IsValidFor(region, now) || !record.VerifySignedIdentity() || record.Instance != member.Instance || record.IdentityPublicKey != member.IdentityPublicKey || record.AuthorityEpoch != lease.Epoch || record.ObservedAt.After(now.Add(time.Second)) || now.Sub(record.ObservedAt) > 30*time.Second || !now.Before(record.LeaseExpiresAt) || record.IsAuthorityLeader != (region+"-controller-"+record.Instance == candidate) {
+	if len(raw) > 64<<10 || json.Unmarshal(raw, &record, json.RejectUnknownMembers(true)) != nil || !record.IsValidFor(region, now) || !record.VerifySignedIdentity() || record.Instance != member.Instance || record.IdentityPublicKey != member.IdentityPublicKey || record.AuthorityEpoch != lease.Epoch || record.AuthorityRevision <= 0 || uint64(record.AuthorityRevision) > leaseRevision || record.ObservedAt.After(now.Add(time.Second)) || now.Sub(record.ObservedAt) > 30*time.Second || !now.Before(record.LeaseExpiresAt) || record.IsAuthorityLeader != (region+"-controller-"+record.Instance == candidate) {
 		return hostcontrol.Host{}, lease, bootstrap.ErrControlRuntimeUnavailable
 	}
 	after, err := source.readLease(ctx, member.Store, region, "authority.regional")
@@ -147,6 +184,10 @@ func (source *qualificationAdmittedControlSource) connect(ctx context.Context, n
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		connection.Close()
+		return nil, err
+	}
 	state, err := connection.TLSConnectionState()
 	tlsConfig := connection.Opts.TLSConfig
 	if err != nil || !connection.AuthRequired() || state.Version < tls.VersionTLS13 || len(state.VerifiedChains) == 0 || connection.Opts.SignatureCB == nil || (connection.Opts.Nkey == "" && connection.Opts.UserJWT == nil) || tlsConfig == nil || tlsConfig.InsecureSkipVerify || tlsConfig.ServerName != "" && tlsConfig.ServerName != parsed.Hostname() || len(tlsConfig.Certificates) == 0 && tlsConfig.GetClientCertificate == nil {
@@ -168,8 +209,10 @@ func (source *qualificationAdmittedControlSource) readLease(ctx context.Context,
 	} else if key == "authority.global" {
 		var raw []byte
 		raw, _, err = nodeauthority.ReadLeaderKV(ctx, connection, "ORCH_LEADERS", key)
-		if err == nil {
-			err = json.Unmarshal(raw, &lease)
+		if err == nil && len(raw) <= 16<<10 {
+			err = json.Unmarshal(raw, &lease, json.RejectUnknownMembers(true))
+		} else if err == nil {
+			err = bootstrap.ErrControlRuntimeUnavailable
 		}
 	} else {
 		return lease, bootstrap.ErrControlRuntimeUnavailable
@@ -190,7 +233,7 @@ func (source *qualificationAdmittedControlSource) readLease(ctx context.Context,
 			}
 			candidate = "global-controller-gru-" + member.Instance
 		}
-		if member.Region == region && lease.CandidateId == candidate {
+		if member.Region == region && (key == "authority.global" || member.Store == store) && lease.CandidateId == candidate {
 			return lease, nil
 		}
 	}

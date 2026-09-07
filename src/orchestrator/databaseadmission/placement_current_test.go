@@ -9,10 +9,12 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -87,6 +89,9 @@ func TestPlacementRelocationFenceAndImmutableHistory(t *testing.T) {
 	if err := commitPlacementRelocation(&state, "relocate-one", []Record{current}, key); err != nil {
 		t.Fatal(err)
 	}
+	if state.PlacementRelocation != "relocate-one" {
+		t.Fatal("commit released destructive-effect fence")
+	}
 	if !reflect.DeepEqual(state.Records[ScopeKey(old.Request)], old) || !reflect.DeepEqual(currentPlacementRecords(state), []Record{current}) {
 		t.Fatal("history overwritten or successor missing")
 	}
@@ -131,5 +136,54 @@ func TestPlacementRelocationRejectsChangedAuthority(t *testing.T) {
 				t.Fatal("failed commit released fence")
 			}
 		})
+	}
+}
+
+func TestPlacementRelocationInactiveScopeRequiresCompletedEffects(t *testing.T) {
+	state, old, _, _ := successorFixture(t)
+	retired := old
+	retired.Request.Name = "retired"
+	retired.Request.OperationID = "create-retired"
+	retired.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FB2"
+	state.Records[ScopeKey(retired.Request)] = retired
+	at := time.Now().UTC()
+	resource := databaselifecycle.Resource{Identity: databaselifecycle.Identity{Environment: retired.Request.Environment, OrganizationID: retired.Request.TenantID, ProjectID: retired.Request.ProjectID, DatabaseID: retired.DatabaseID}, DeletedAt: at, UsageStoppedAt: at, AccessRevoked: true}
+	key := databaselifecycle.Key(resource.Identity)
+	state.Lifecycle.Resources[key] = resource
+	state.Deletions["retired"] = Deletion{Targets: []DeletionTarget{{Stop: DeletionStop{Identity: resource.Identity}}}}
+	if err := beginPlacementRelocation(&state, "relocate-one", []Record{old}); !errors.Is(err, ErrConflict) {
+		t.Fatal("cleanup-active record omitted", err)
+	}
+	resource.EffectsCompletedAt = at.Add(time.Second)
+	state.Lifecycle.Resources[key] = resource
+	if err := beginPlacementRelocation(&state, "relocate-one", []Record{old}); err != nil {
+		t.Fatal("completed inactive history blocked relocation", err)
+	}
+	if len(state.Records) != 2 || len(currentPlacementRecords(state)) != 2 {
+		t.Fatal("retired admission history deleted")
+	}
+}
+
+func TestRelocationReadinessBindsSuccessorOperation(t *testing.T) {
+	_, _, record, _ := successorFixture(t)
+	nonce := strings.Repeat("e", 64)
+	receipts, keys, private := readinessFixture(t, record, nonce)
+	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, keys, time.Now()); err == nil {
+		t.Fatal("original admission operation authorized relocation")
+	}
+	for i := range receipts {
+		var proof Readiness
+		if err := json.Unmarshal(receipts[i].Payload, &proof); err != nil {
+			t.Fatal(err)
+		}
+		proof.OperationID = "relocate-one"
+		receipts[i].Payload, _ = json.Marshal(proof)
+		receipts[i].Signature = ed25519.Sign(private[proof.MemberIdentity], append([]byte("terrabase-database-readiness-v1\x00"), receipts[i].Payload...))
+	}
+	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, keys, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, nil, time.Now()); err == nil {
+		t.Fatal("unpinned readiness accepted")
 	}
 }

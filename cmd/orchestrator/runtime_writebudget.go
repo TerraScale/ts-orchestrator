@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
@@ -56,6 +57,7 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	var published struct {
 		OrganizationID              string            `json:"organizationId"`
 		CycleID                     string            `json:"cycleId"`
+		IncludedAllowanceEndsAt     *string           `json:"includedAllowanceEndsAt"`
 		IncludedWriteUnits          string            `json:"includedWriteUnits"`
 		IncludedAllowanceUnits      int64             `json:"includedAllowanceUnits"`
 		PaidExcessEnabled           bool              `json:"paidExcessEnabled"`
@@ -83,6 +85,17 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		return parsed, nil
 	}
 	next := r.policy
+	next.IncludedAllowanceEndsAt = time.Time{}
+	if _, present := envelope.Policy["includedAllowanceEndsAt"]; present && published.IncludedAllowanceEndsAt == nil {
+		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance deadline")
+	}
+	if published.IncludedAllowanceEndsAt != nil {
+		cutoff, err := time.Parse(time.RFC3339Nano, *published.IncludedAllowanceEndsAt)
+		if err != nil || cutoff.IsZero() || !strings.HasSuffix(*published.IncludedAllowanceEndsAt, "Z") {
+			return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance deadline")
+		}
+		next.IncludedAllowanceEndsAt = cutoff.UTC()
+	}
 	next.AccruedNonWriteNano, err = parseAccrued(published.AccruedNonWriteNano)
 	if err != nil {
 		return writebudget.PolicyResult{}, err

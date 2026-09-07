@@ -116,6 +116,20 @@ func TestGuestBootstrapSignsConfiguredGRUManifest(t *testing.T) {
 			t.Fatal("bootstrap manifest changed")
 		}
 	}
+	_, completeDeclaration := testengineconfig.DatabaseDeclaration(t, bindings, strings.Repeat("b", 64), "1.0.0")
+	completeMaterials, err := vmengineconfig.Load(completeDeclaration, strings.Repeat("b", 64), "1.0.0", bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, material := range completeMaterials {
+			material.Clear()
+		}
+	})
+	services.engineSeeds = completeMaterials
+	if _, _, err := services.Bootstrap(vmqual.Guest{ID: guests[0].ID, Region: vmnet.GRU}); err == nil || !strings.Contains(err.Error(), "initial/run manifest admission") {
+		t.Fatalf("complete production settings were signed after initial mode overwrote them: %v", err)
+	}
 	if _, _, err := services.Bootstrap(vmqual.Guest{ID: "sfo-member-1", Region: vmnet.SFO}); err == nil || !strings.Contains(err.Error(), "admitted allocation") {
 		t.Fatalf("non-GRU bootstrap: %v", err)
 	}

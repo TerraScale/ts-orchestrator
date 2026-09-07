@@ -168,7 +168,7 @@ func (p *Producer) Enroll(ctx context.Context, r Record, template Template) (Rec
 		receipt    bool
 		pkcs8      bool
 	}{
-		{"placement", "/etc/terrascale/placement/host.nkey", false, false}, {"database", "/etc/terrascale/database/host.nkey", false, false}, {"lifecycle", "/etc/terrascale/database/lifecycle.nkey", false, false}, {"node", "/etc/terrascale/ts-node-bootstrap/user.seed", false, false}, {"reader", "/etc/terrascale/ts-node-authority/user.seed", false, false}, {"regional", "/etc/terrascale/orchestrator/regional/user.seed", false, false}, {"receipt", "/etc/terrascale/terrabase/transition/receipt-signer.key", true, false}, {"native-recovery-receipt", hostsecrets.NativeRecoveryReceiptKeyPath, true, true},
+		{"placement", "/etc/terrascale/placement/host.nkey", false, false}, {"database", "/etc/terrascale/database/host.nkey", false, false}, {"lifecycle", "/etc/terrascale/database/lifecycle.nkey", false, false}, {"node", "/etc/terrascale/ts-node-bootstrap/user.seed", false, false}, {"reader", "/etc/terrascale/ts-node-authority/user.seed", false, false}, {"regional", "/etc/terrascale/orchestrator/regional/user.seed", false, false}, {"receipt", "/etc/terrascale/terrabase/transition/receipt-signer.key", true, true}, {"native-recovery-receipt", hostsecrets.NativeRecoveryReceiptKeyPath, true, true},
 	} {
 		if err := p.Check(ctx); err != nil {
 			return Record{}, PublicBootstrap{}, err

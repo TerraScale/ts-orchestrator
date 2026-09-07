@@ -249,12 +249,17 @@ func (proof *runtimeControlProof) refreshRemoteBinding(ctx context.Context, regi
 			}
 			identities[id] = true
 		}
-		if prior, exists := proof.bindings[binding.Code]; exists && !slices.Equal(prior.MemberIDs, binding.MemberIDs) {
+		if prior, exists := proof.bindings[binding.Code]; exists && (prior.OCIRegion != binding.OCIRegion || prior.CompartmentID != binding.CompartmentID || !slices.Equal(prior.MemberIDs, binding.MemberIDs)) {
 			return ErrControlContractInvalid
 		}
-		next[binding.Code] = bootstrap.ControlRegionBinding{Code: binding.Code, MemberIDs: slices.Clone(binding.MemberIDs)}
+		binding.MemberIDs = slices.Clone(binding.MemberIDs)
+		next[binding.Code] = binding
 	}
-	if next[region].Code == "" || len(next) != len(proof.bindings)+1 {
+	expectedRegions := len(proof.bindings)
+	if proof.bindings[region].Code == "" {
+		expectedRegions++
+	}
+	if next[region].Code == "" || len(next) != expectedRegions {
 		return bootstrap.ErrControlRuntimeUnavailable
 	}
 	for admitted := range proof.bindings {

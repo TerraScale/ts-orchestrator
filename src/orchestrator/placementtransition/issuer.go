@@ -31,6 +31,9 @@ type Config struct {
 	GenesisKeys map[string]ed25519.PublicKey
 	// MemberKeys binds each exact old member identity to its receipt key.
 	MemberKeys map[string]ed25519.PublicKey
+	// MemberKey resolves new and retired identities from durable enrollment.
+	// It must never trust a receipt-supplied key or an unadmitted endpoint.
+	MemberKey func(context.Context, string) (ed25519.PublicKey, error)
 }
 type Issuer struct {
 	journal                 transaction
@@ -39,6 +42,7 @@ type Issuer struct {
 	epoch                   uint64
 	leaseID                 string
 	genesisKeys, memberKeys map[string]ed25519.PublicKey
+	memberKey               func(context.Context, string) (ed25519.PublicKey, error)
 }
 
 func emptyState() state {
@@ -133,7 +137,7 @@ func New(config Config) (*Issuer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Issuer{&shardedJournal{config: config.Authority}, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members}, nil
+	return &Issuer{&shardedJournal{config: config.Authority}, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members, config.MemberKey}, nil
 }
 
 // Issue commits exactly one transition per scope and preserves every retry
@@ -218,7 +222,15 @@ func (i *Issuer) Issue(ctx context.Context, r Request, genesis *Signed, receipts
 			for _, signed := range receipts {
 				var receipt DrainReceipt
 				// key_id must be the old member identity, not an arbitrary supplied key.
-				if verify(signed, i.memberKeys[signed.KeyID], &receipt) != nil || receipt.Kind != "old_epoch_drained_fenced" || receipt.MemberIdentity != signed.KeyID || seen[receipt.MemberIdentity] || receipt.ScopeID != r.ScopeID || receipt.PriorEpoch != r.PriorEpoch || receipt.PriorGeneration != prior.Request.Generation || receipt.RequestDigest != d || !digest(receipt.FrontierDigest) {
+				key := i.memberKeys[signed.KeyID]
+				if len(key) == 0 && i.memberKey != nil {
+					var err error
+					key, err = i.memberKey(ctx, signed.KeyID)
+					if err != nil {
+						return err
+					}
+				}
+				if verify(signed, key, &receipt) != nil || receipt.Kind != "old_epoch_drained_fenced" || receipt.MemberIdentity != signed.KeyID || seen[receipt.MemberIdentity] || receipt.ScopeID != r.ScopeID || receipt.PriorEpoch != r.PriorEpoch || receipt.PriorGeneration != prior.Request.Generation || receipt.RequestDigest != d || !digest(receipt.FrontierDigest) {
 					return ErrInvalid
 				}
 				if !slices.ContainsFunc(prior.Request.Members, func(m Member) bool { return m.Identity == receipt.MemberIdentity }) {

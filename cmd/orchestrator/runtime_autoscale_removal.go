@@ -67,6 +67,11 @@ func (r *productionHostRemoval) AutoscaleRemovalComplete(ctx context.Context, ta
 		return false, hostremoval.ErrConflict
 	}
 	if operation.Stage == hostremoval.StageComplete {
+		if r.completed != nil {
+			if err := r.completed(ctx, operation.OperationID); err != nil {
+				return false, err
+			}
+		}
 		return true, nil
 	}
 	member := ocireconcile.ObservedMember{ID: target.RemovalResourceID, Region: target.Region, Index: target.RemovalSlot}

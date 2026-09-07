@@ -55,7 +55,7 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 		t.Fatal(err)
 	}
 	caFile := write("ca.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
-	d := vmengineconfig.Declaration{BackupDisk: vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, TotalStagingBytes: 32 << 20}, Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
+	d := vmengineconfig.Declaration{BackupDisk: vmengineconfig.BackupDisk{StagingBytesPerStream: 32 << 20, InventoryBytesPerStream: 16 << 20, TotalStagingBytes: 48 << 20}, Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
 		Keys:      &vmengineconfig.Keys{Socket: "/run/terrascale/keys.sock", OrchestratorUID: 1000, SocketGID: 1000},
 		Databases: []vmengineconfig.Database{{Tenant: fmt.Sprintf("%026d", 200), Project: fmt.Sprintf("%026d", 201), Database: fmt.Sprintf("%026d", 202), Region: bindings[0].Region, SelectedRegions: []string{bindings[0].Region}, EncryptionKey: fmt.Sprintf("%026d", 203), MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8}},
 		Limits:    vmengineconfig.Limits{MaxMessageBytes: 1 << 20, MaxInflight: 32, RequestTimeoutMillis: 5000, TLSHandshakeTimeoutMillis: 5000, ShutdownGraceMillis: 5000},
@@ -69,7 +69,7 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 		if err != nil {
 			t.Fatal(err)
 		}
-		d.Databases[0].Backup = &vmengineconfig.BackupConfig{PolicyRevision: "qualification-backup-policy-1", RetentionDays: 7, Destinations: []vmengineconfig.BackupDestination{{Provider: "tigris", Endpoint: "https://fly.storage.tigris.dev", SigningRegion: "auto", Bucket: "terrascale-qualification-backups", VerifiedGeography: "BR", PermittedGeographies: []string{"BR"}, PlacementRevision: "qualification-backup-placement-1", AccessKeyFile: write("backup-access", []byte(access)), SecretKeyFile: write("backup-secret", []byte(secret)), MaxArtifactBytes: 1 << 20, MaxPointBytes: 16 << 20}}}
+		d.Databases[0].Backup = &vmengineconfig.BackupConfig{PolicyRevision: "qualification-backup-policy-1", RetentionDays: 7, Destinations: []vmengineconfig.BackupDestination{{Provider: "tigris", Endpoint: "https://fly.storage.tigris.dev", SigningRegion: "auto", Bucket: "terrascale-qualification-backups", VerifiedGeography: "BR", PermittedGeographies: []string{"BR"}, PlacementRevision: "qualification-backup-placement-1", AccessKeyFile: write("backup-access", []byte(access)), SecretKeyFile: write("backup-secret", []byte(secret)), MaxArtifactBytes: 16 << 20, MaxPointBytes: 16 << 20}}}
 	}
 	seen := map[string]bool{}
 	for _, binding := range bindings {

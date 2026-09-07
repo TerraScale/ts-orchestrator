@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/runmaterial"
 )
 
 const validRunConfig = `{"TS_ORCH_CELL":"gru","TS_ORCH_INSTANCE":"gru-1","TS_ORCH_NATS_URL":"tls://nats.internal:4222","TS_ORCH_REPLICAS":"3","TS_ORCH_PROVIDER":"oci"}`
@@ -159,5 +160,43 @@ func TestRunConfigurationReplacesEnvironmentForOptionsAndEstate(t *testing.T) {
 		if _, err := requestedCommand(args); err == nil {
 			t.Fatalf("accepted args %v", args)
 		}
+	}
+}
+
+func TestRunConfigurationVerifiesSignedMaterialBeforeStartup(t *testing.T) {
+	dir := t.TempDir()
+	broker := filepath.Join(dir, "broker.conf")
+	content := []byte("admitted-broker")
+	if err := os.WriteFile(broker, content, 0400); err != nil {
+		t.Fatal(err)
+	}
+	inventory, raw, err := runmaterial.Build(map[string][]byte{broker: content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory = filepath.Join(dir, filepath.Base(inventory))
+	if err := os.WriteFile(inventory, raw, 0400); err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]string
+	if err := json.Unmarshal([]byte(validRunConfig), &settings); err != nil {
+		t.Fatal(err)
+	}
+	settings[runmaterial.Environment] = inventory
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseRunConfiguration(encoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(broker, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broker, []byte("replaced-broker"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseRunConfiguration(encoded); err == nil {
+		t.Fatal("production configuration accepted changed signed broker material")
 	}
 }

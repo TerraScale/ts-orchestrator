@@ -37,15 +37,52 @@ type runtimeBoundScenarioFactory struct {
 	runtime    bootstrap.ControlRuntime
 	resolveErr error
 	resolves   int
+	bindings   []bootstrap.ControlRegionBinding
 }
 
 func (factory *runtimeBoundScenarioFactory) QualificationControlRuntime(context.Context) (bootstrap.ControlRuntime, []bootstrap.ControlRegionBinding, error) {
 	factory.resolves++
+	if factory.bindings != nil {
+		return factory.runtime, factory.bindings, factory.resolveErr
+	}
 	bindings := []bootstrap.ControlRegionBinding{}
-	for _, region := range []string{"gru", "sfo", "fra", "iad"} {
+	for _, region := range []string{"gru", "sfo", "fra"} {
 		bindings = append(bindings, bootstrap.ControlRegionBinding{Code: region, MemberIDs: []string{region + "-admitted-1", region + "-admitted-2"}})
 	}
 	return factory.runtime, bindings, factory.resolveErr
+}
+
+func TestRuntimeControlExpansionRequiresFreshBindingAndPreservesAdmittedHosts(t *testing.T) {
+	factory := &runtimeBoundScenarioFactory{scenarioTestFactory: newScenarioTestFactory(), runtime: explicitControlRuntimeFixture{}}
+	stack, err := vmqual.NewStack(vmqual.StackConfig{StateRoot: t.TempDir(), VMFactory: factory, Network: &scenarioTestNetwork{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := &runtimeControlProof{stack: stack, journalRoot: filepath.Join(stack.Config().StateRoot, "control-contract")}
+	if err := proof.initialize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := proof.refreshRemoteBinding(t.Context(), "iad"); !errors.Is(err, bootstrap.ErrControlRuntimeUnavailable) {
+		t.Fatalf("reserved Region without fresh admission: %v", err)
+	}
+	for _, region := range []string{"gru", "sfo", "fra"} {
+		factory.bindings = append(factory.bindings, proof.bindings[region])
+	}
+	factory.bindings = append(factory.bindings, bootstrap.ControlRegionBinding{Code: "iad", MemberIDs: []string{"iad-admitted-1", "iad-admitted-2"}})
+	factory.bindings[0].CompartmentID = "foreign"
+	if err := proof.refreshRemoteBinding(t.Context(), "iad"); !errors.Is(err, ErrControlContractInvalid) {
+		t.Fatalf("changed prior admission: %v", err)
+	}
+	factory.bindings[0].CompartmentID = ""
+	if err := proof.refreshRemoteBinding(t.Context(), "iad"); err != nil {
+		t.Fatal(err)
+	}
+	if len(proof.bindings) != 4 || proof.bindings["iad"].MemberIDs[0] != "iad-admitted-1" {
+		t.Fatal("fresh expansion binding was not installed")
+	}
+	if err := proof.refreshRemoteBinding(t.Context(), "iad"); err != nil {
+		t.Fatalf("retry after binding installation: %v", err)
+	}
 }
 func fixtureRuntimeEvidence(request bootstrap.ControlActionRequest) bootstrap.ControlRuntimeEvidence {
 	digest := sha256.Sum256([]byte("explicit-unit-record:" + string(request.Action.Kind) + request.Action.Region))

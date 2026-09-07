@@ -78,6 +78,18 @@ func validDigest(value string) bool {
 	return err == nil && len(decoded) == 32 && strings.ToLower(value) == value
 }
 func validateReadinessSet(record Record, receipts []SignedReadiness, nonce string, keys map[string]ReadinessKey, now time.Time) error {
+	return validateReadinessOperation(record, PlacementOperationID(record.Request), receipts, nonce, keys, now)
+}
+
+// ValidateRelocationReadiness authenticates the successor operation without
+// rewriting the original database-create operation or its readiness history.
+func ValidateRelocationReadiness(record Record, operation string, receipts []SignedReadiness, nonce string, keys map[string]ReadinessKey, now time.Time) error {
+	if operation == "" || keys == nil || now.IsZero() || ValidateRecord(record) != nil || validateReadinessKeys(keys) != nil {
+		return ErrInvalid
+	}
+	return validateReadinessOperation(record, operation, receipts, nonce, keys, now)
+}
+func validateReadinessOperation(record Record, operation string, receipts []SignedReadiness, nonce string, keys map[string]ReadinessKey, now time.Time) error {
 	if len(receipts) != len(record.Targets) || !validDigest(nonce) {
 		return ErrInvalid
 	}
@@ -113,7 +125,7 @@ func validateReadinessSet(record Record, receipts []SignedReadiness, nonce strin
 			return ErrInvalid
 		}
 		digest := sha256.Sum256(encoded)
-		if proof.SchemaVersion != 1 || proof.Environment != record.Request.Environment || proof.TenantID != record.Request.TenantID || proof.ProjectID != record.Request.ProjectID || proof.DatabaseID != record.DatabaseID || proof.KeyVersion != record.KeyVersion || proof.OperationID != PlacementOperationID(record.Request) || proof.Region != target.Region || proof.MembershipEpoch != stage.Proposal.Epoch || proof.Generation != stage.Proposal.Generation || proof.PlacementDigest != hex.EncodeToString(digest[:]) || proof.Nonce != nonce {
+		if proof.SchemaVersion != 1 || proof.Environment != record.Request.Environment || proof.TenantID != record.Request.TenantID || proof.ProjectID != record.Request.ProjectID || proof.DatabaseID != record.DatabaseID || proof.KeyVersion != record.KeyVersion || proof.OperationID != operation || proof.Region != target.Region || proof.MembershipEpoch != stage.Proposal.Epoch || proof.Generation != stage.Proposal.Generation || proof.PlacementDigest != hex.EncodeToString(digest[:]) || proof.Nonce != nonce {
 			return ErrInvalid
 		}
 		if !validDigest(proof.Physical.SnapshotDigest) || !validDigest(proof.Physical.WALCheckpointDigest) || !validDigest(proof.Causal.CutDigest) || !validDigest(proof.Causal.RootDigest) || proof.Causal.Frontier == nil || len(proof.Causal.Frontier) > 20 || proof.ObservedAtUnixMS == 0 || proof.ObservedAtUnixMS > 1<<63-1 {

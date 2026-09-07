@@ -57,6 +57,7 @@ func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway)
 }
 
 type productionHostRemoval struct {
+	completed   func(context.Context, string) error
 	terminateFn func(context.Context, string, string) error
 	owner       *hostremoval.Owner
 	observeFn   func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
@@ -90,6 +91,9 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 			return hostremoval.ErrConflict
 		}
 		if retained.Stage == hostremoval.StageComplete {
+			if r.completed != nil {
+				return r.completed(ctx, operationID)
+			}
 			return nil
 		}
 	}
@@ -122,7 +126,15 @@ func (r *productionHostRemoval) RemoveMember(ctx context.Context, operationID st
 	// placement. Bind callbacks per invocation so concurrent removals cannot
 	// redirect one another's termination target.
 	owner := r.ownerFor(member, observedMember)
-	return owner.RemoveMember(ctx, operationID, observedMember, generation, observations...)
+	if err := owner.RemoveMember(ctx, operationID, observedMember, generation, observations...); err != nil {
+		return err
+	}
+	// The relocation admission fence outlives the overlay commit and is only
+	// released after exact OCI termination is durably recorded.
+	if r.completed != nil {
+		return r.completed(ctx, operationID)
+	}
+	return nil
 }
 
 func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, observedMember hostremoval.MemberObservation) *hostremoval.Owner {
@@ -165,6 +177,7 @@ func (r *productionHostRemoval) observe(ctx context.Context, member ocireconcile
 // by the runtime factory. It intentionally does not provide mock readiness or
 // proof values; absent providers keep removal fail closed.
 type hostRemovalTransitionPorts struct {
+	Relocation *productionHostRelocation
 	Admission  *databaseadmission.NATSJournal
 	Gateways   map[string]ocireconcile.ComputeGateway
 	Observers  map[string]func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
@@ -193,6 +206,13 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 		}
 		return hostremoval.MemberObservation{}, errors.New("runtime host removal: Region observer is unavailable")
 	}
+	if ports.Relocation != nil {
+		if !ports.Relocation.valid() {
+			return nil, errors.New("runtime host removal: relocation providers incomplete")
+		}
+		ports.Inventory, ports.Replace = ports.Relocation.Capture, ports.Relocation.Replace
+		ports.Revalidate, ports.Fence = ports.Relocation.Revalidate, ports.Relocation.Fence
+	}
 	if ports.Inventory == nil && ports.Admission != nil {
 		inventory, revalidate, err := newProductionHostRemovalInventory(ports.Admission, journal)
 		if err != nil {
@@ -204,19 +224,26 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 	if terminate == nil {
 		terminate = newProductionOCITerminator(ports.Gateways)
 	}
-	replace, fence, err := productionHostRemovalCallbacks(ports)
-	if err != nil {
-		return nil, err
-	}
-	if ports.Replace == nil {
-		ports.Replace = replace
-	}
-	if ports.Fence == nil {
-		ports.Fence = fence
+	if ports.Replace == nil || ports.Fence == nil {
+		replace, fence, err := productionHostRemovalCallbacks(ports)
+		if err != nil {
+			return nil, err
+		}
+		if ports.Replace == nil {
+			ports.Replace = replace
+		}
+		if ports.Fence == nil {
+			ports.Fence = fence
+		}
 	}
 	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Inventory, Replace: ports.Replace, Revalidate: ports.Revalidate, Fence: ports.Fence, Terminate: terminate}, journal)
 	if err != nil {
 		return nil, err
+	}
+	if ports.Relocation != nil {
+		owner.completed = func(ctx context.Context, operation string) error {
+			return ports.Relocation.Admission.FinishPlacementRelocation(ctx, operation+"/placement")
+		}
 	}
 	return owner, nil
 }
