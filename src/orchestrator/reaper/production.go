@@ -50,6 +50,7 @@ type MailAdapter interface {
 type ProductionConfig struct {
 	Database             DatabaseAdapter
 	Key                  KeyAdapter
+	Admission            DeletionAdmission
 	Mail                 MailAdapter
 	Store                *NATSStateStoreConfig
 	Audit                AuditSink
@@ -151,7 +152,7 @@ func missingProductionDependency(value any) bool {
 func NewProductionReconciler(config ProductionConfig) (*Reconciler, error) {
 	if missingProductionDependency(config.Database) || missingProductionDependency(config.Key) ||
 		missingProductionDependency(config.Mail) || missingProductionDependency(config.Store) ||
-		missingProductionDependency(config.Audit) || config.CheckEffectAuthority == nil {
+		missingProductionDependency(config.Audit) || missingProductionDependency(config.Admission) || config.CheckEffectAuthority == nil {
 		return nil, ErrMissingDependency
 	}
 	store, err := NewNATSStateStore(*config.Store)
@@ -161,6 +162,7 @@ func NewProductionReconciler(config ProductionConfig) (*Reconciler, error) {
 	return NewReconciler(Config{
 		Catalog:     config.Database,
 		Executor:    productionExecutor{database: config.Database, key: config.Key, check: config.CheckEffectAuthority},
+		Admission:   config.Admission,
 		Mailer:      guardedReaperMail{config.Mail, config.CheckEffectAuthority},
 		Audit:       guardedReaperAudit{config.Audit, config.CheckEffectAuthority},
 		Store:       store,

@@ -120,6 +120,12 @@ type Executor interface {
 	DeleteOwnedData(ctx context.Context, databaseID, operationKey string) error
 }
 
+// DeletionAdmission atomically claims an automatic billing deletion and
+// persists the native admission journal before destructive effects begin.
+type DeletionAdmission interface {
+	AdmitDeletion(context.Context, Database, string) error
+}
+
 // Email is intentionally plain metadata; no database data is included.
 type Email struct {
 	To           string
@@ -209,6 +215,7 @@ type StateStore interface {
 type Config struct {
 	Catalog     Catalog
 	Executor    Executor
+	Admission   DeletionAdmission
 	Mailer      Mailer
 	Audit       AuditSink
 	Store       StateStore
@@ -234,6 +241,7 @@ type Result struct {
 type Reconciler struct {
 	catalog                 Catalog
 	executor                Executor
+	admission               DeletionAdmission
 	mailer                  Mailer
 	audit                   AuditSink
 	store                   StateStore
@@ -292,7 +300,7 @@ func NewReconciler(config Config) (*Reconciler, error) {
 	if pauseAfter <= 0 || deleteAfter <= pauseAfter || (len(reminders) != 1 && len(reminders) != 2) || reminders[0] <= pauseAfter || reminders[0] >= deleteAfter || (len(reminders) == 2 && (reminders[1] < reminders[0] || reminders[1] > deleteAfter)) {
 		return nil, errors.New("reaper: invalid pause, reminder, or deletion thresholds")
 	}
-	return &Reconciler{catalog: config.Catalog, executor: config.Executor, mailer: config.Mailer, audit: config.Audit, store: config.Store, clock: clock, pageSize: pageSize, pauseAfter: pauseAfter, deleteAfter: deleteAfter, reminderAt: reminders}, nil
+	return &Reconciler{catalog: config.Catalog, executor: config.Executor, admission: config.Admission, mailer: config.Mailer, audit: config.Audit, store: config.Store, clock: clock, pageSize: pageSize, pauseAfter: pauseAfter, deleteAfter: deleteAfter, reminderAt: reminders}, nil
 }
 
 // Run scans all catalog pages. A page cursor is not advanced if any database
@@ -649,6 +657,11 @@ func (r *Reconciler) pauseLocked(ctx context.Context, state *State, database Dat
 
 func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Database, now time.Time) error {
 	entry := state.Entries[database.ID]
+	if database.BillingGrace && r.admission != nil {
+		if err := r.admission.AdmitDeletion(ctx, database, r.operationName(entry, "automatic-delete")); err != nil {
+			return err
+		}
+	}
 	entry.Phase = PhaseDeleting
 	state.Entries[database.ID] = entry
 	if err := r.save(ctx, state); err != nil {
