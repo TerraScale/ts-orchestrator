@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
@@ -92,6 +93,23 @@ func prepareAt(parent, artifact, release string) (PrivateFixture, error) {
 	d := vmengineconfig.Declaration{Keys: &vmengineconfig.Keys{Socket: "/run/terrascale/keys.sock", OrchestratorUID: 1000, SocketGID: 1000}, PublicAPI: &vmengineconfig.PublicAPI{Listen: "127.0.0.1:8443", DataRoot: "/var/lib/terrascale/terrabase"}, Version: 1, Contract: vmengineconfig.Contract, ArtifactSHA256: artifact, Release: release, Environment: "qualification", Cluster: fmt.Sprintf("%026d", 100), Generation: 1, Epoch: 1,
 		Databases: []vmengineconfig.Database{{Tenant: fmt.Sprintf("%026d", 200), Project: fmt.Sprintf("%026d", 201), Database: fmt.Sprintf("%026d", 202), Region: "GRU", AllowedRegions: []string{"GRU", "SFO", "FRA"}, SelectedRegions: []string{"GRU", "SFO", "FRA"}, EncryptionKey: fmt.Sprintf("%026d", 203), MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8}},
 		Limits:    vmengineconfig.Limits{MaxMessageBytes: 1 << 20, MaxInflight: 32, RequestTimeoutMillis: 5000, TLSHandshakeTimeoutMillis: 5000, ShutdownGraceMillis: 5000}}
+	access, err := randomSecret()
+	if err != nil {
+		return PrivateFixture{}, err
+	}
+	secret, err := randomSecret()
+	if err != nil {
+		return PrivateFixture{}, err
+	}
+	accessFile, err := write("backup-access", []byte(access))
+	if err != nil {
+		return PrivateFixture{}, err
+	}
+	secretFile, err := write("backup-secret", []byte(secret))
+	if err != nil {
+		return PrivateFixture{}, err
+	}
+	d.Databases[0].Backup = &vmengineconfig.BackupConfig{PolicyRevision: "qualification-backup-policy-1", RetentionDays: 7, Destinations: []vmengineconfig.BackupDestination{{Provider: "tigris", Endpoint: "https://fly.storage.tigris.dev", SigningRegion: "auto", Bucket: "terrascale-qualification-backups", VerifiedGeography: "BR", PermittedGeographies: []string{"BR"}, PlacementRevision: "qualification-backup-placement-1", AccessKeyFile: accessFile, SecretKeyFile: secretFile, MaxArtifactBytes: 1 << 20, MaxPointBytes: 16 << 20}}}
 	issue := func(name, identity string, serial int64, usages []x509.ExtKeyUsage, address net.IP) (string, string, error) {
 		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
@@ -201,6 +219,14 @@ func regionGateway(region string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported qualification region %q", region)
 	}
+}
+
+func randomSecret() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 // Remove deletes only the private root created by Prepare.

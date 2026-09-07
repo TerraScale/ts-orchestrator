@@ -84,10 +84,6 @@ type DurableStore interface {
 	List(prefix string) ([]StoreEntry, error)
 }
 
-// OperationStore is retained as a descriptive alias for integrations that
-// prefer the operation-specific name.
-type OperationStore = DurableStore
-
 // InMemoryStore is a deterministic, concurrency-safe DurableStore adapter for
 // tests. It is deliberately not selected by any durable constructor; a
 // production process must be given a store backed by JetStream (or another
@@ -102,9 +98,6 @@ type InMemoryStore struct {
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{entries: make(map[string]StoreEntry)}
 }
-
-// NewInMemoryDurableStore is an explicit name for NewInMemoryStore.
-func NewInMemoryDurableStore() *InMemoryStore { return NewInMemoryStore() }
 
 func (s *InMemoryStore) Get(key string) (StoreEntry, error) {
 	if s == nil {
@@ -264,11 +257,6 @@ func NewDurableJournal(store DurableStore) (*Journal, error) {
 		return nil, errors.New("delivery: journal requires a durable store")
 	}
 	return &Journal{store: store}, nil
-}
-
-// NewJournalWithStore is the explicit constructor name for integrations.
-func NewJournalWithStore(store DurableStore) (*Journal, error) {
-	return NewDurableJournal(store)
 }
 
 // Begin admits one operation. Create is atomic, so concurrent callers cannot

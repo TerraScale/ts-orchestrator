@@ -37,7 +37,7 @@ func TestJournalRecoversAcceptedAndTerminalOperationsAcrossRestart(t *testing.T)
 	}
 
 	// A new Journal has no process-local state, but sees the accepted record.
-	second, err := NewJournalWithStore(store)
+	second, err := NewDurableJournal(store)
 	if err != nil {
 		t.Fatalf("restart journal: %v", err)
 	}

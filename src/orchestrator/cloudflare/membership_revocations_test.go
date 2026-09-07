@@ -23,10 +23,11 @@ func TestMembershipPublisherAuthenticatedRetryAndNoResurrection(t *testing.T) {
 	digest := sha256.Sum256(fmt.Appendf(nil, "%s.%d\n", entry.Scope, entry.ExpiresAt))
 	snapshot := cf.MembershipRevocationSnapshot{Revision: hex.EncodeToString(digest[:]), ValidUntil: f.now.Add(30 * time.Second).Unix(), Entries: []cf.CapabilityRevocation{entry}}
 	status := http.StatusOK
+	serviceKey := "issuer-secret"
 	calls := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.Method != "POST" || r.URL.Path != "/api/internal/identity/introspect" || r.Header.Get("x-terrascale-identity-service-key") != "issuer-secret" {
+		if r.Method != "POST" || r.URL.Path != "/api/internal/identity/introspect" || r.Header.Get("x-terrascale-identity-service-key") != serviceKey {
 			t.Error("unauthenticated snapshot request")
 			w.WriteHeader(401)
 			return
@@ -45,7 +46,7 @@ func TestMembershipPublisherAuthenticatedRetryAndNoResurrection(t *testing.T) {
 		}{false, snapshot})
 	}))
 	defer server.Close()
-	publisher, err := cf.NewMembershipRevocationPublisher(cf.MembershipRevocationPublisherConfig{Endpoint: server.URL + "/api/internal/identity/introspect", Audience: "https://api.terrascale.tech", ServiceKey: "issuer-secret", HTTPClient: server.Client(), Store: f.store, Authorize: f.config.Authorize})
+	publisher, err := cf.NewMembershipRevocationPublisher(cf.MembershipRevocationPublisherConfig{Endpoint: server.URL + "/api/internal/identity/introspect", Audience: "https://api.terrascale.tech", ServiceKey: func() (string, error) { return serviceKey, nil }, HTTPClient: server.Client(), Store: f.store, Authorize: f.config.Authorize})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +59,7 @@ func TestMembershipPublisherAuthenticatedRetryAndNoResurrection(t *testing.T) {
 		t.Fatal("forged ingress acknowledgement accepted")
 	}
 	f.forged.Store(false)
+	serviceKey = "rotated-secret"
 	puts := f.puts.Load()
 	if err = publisher.Tick(t.Context()); err != nil {
 		t.Fatal(err)

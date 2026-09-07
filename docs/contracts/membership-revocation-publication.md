@@ -14,14 +14,14 @@ with `x-terrascale-identity-service-key`. Redirects are rejected. The response i
 Entries are sorted unique `scope-` plus 64 lowercase hex characters, capped at
 32. Revision is SHA256 hex over each `${scope}.${expiresAt}\n` in order. The
 source supplies the thirty-second Unix-seconds lease; the publisher never
-extends it locally. Durable publication rejects disappearance or shortening of
+extends it locally. The protected service-key file is reloaded on each poll so issuer key rotation takes effect without a restart. Durable publication rejects disappearance or shortening of
 live tombstones. A failed read or deployment is retried at the next tick.
 
 The Snippet deployment keeps database revocations and membership revocations
 separate. A delegated capability authenticates
-`<database scope>:<membership scope>` inside its existing v1 scope field. The
+`<database scope>:<membership scope>[:<feature scope>]` inside its existing v1 scope field. The
 native issuer binds both to the same organization before signing. The edge
-checks both after HMAC verification and before cache lookup. Missing or expired
+checks the database scope and every delegated scope after HMAC verification and before cache lookup. Missing or expired
 membership authority denies delegated reads; native database credentials retain
 their database-scoped authorization. Membership never enters the shared URL
 cache key. No Worker executes on the reactive read path.

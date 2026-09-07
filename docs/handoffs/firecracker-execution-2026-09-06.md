@@ -41,6 +41,18 @@ partition-heal, placement, and cleanup scenario bodies were **not executed**.
 Automatic failure cleanup did run: provider paths were absent, six local provider
 listeners were unreachable, and no owned network namespaces or VMM process remained.
 
+Attempt 9 repeated the actual guest boot using a recorded local diagnostic Go
+overlay (runner SHA-256
+`e33c58d345b6952720282ab84faa622fa8918133786d053271b7298e8139c339`).
+Before normal cleanup, it retained the existing allowlisted bounded journal query
+in root-private files. TerraBase reported `Error: InvalidProductionBoundary` twice.
+The frozen parser's `config.rs:1061` rejects an enabled database without backup
+configuration. `internal/testengineconfig/private.go` declares a selected database
+without `Backup`, and the renderer emits `enabled = true`. A real explicit backup
+destination policy and protected credentials must be supplied; removing the
+production requirement would not qualify the intended runtime. The recorded
+overlay and journal files remain in the private run evidence directory.
+
 ## Concrete blockers and corrections
 
 1. The original run directory was user-owned while root read protected

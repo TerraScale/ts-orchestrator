@@ -23,6 +23,16 @@ func TestPrepareCreatesLoadableSixGuestFixture(t *testing.T) {
 	if _, err := vmengineconfig.Load(f.DeclarationPath, f.Declaration.ArtifactSHA256, f.Declaration.Release, f.Bindings); err != nil {
 		t.Fatalf("prepared declaration failed Load: %v", err)
 	}
+	destination := f.Declaration.Databases[0].Backup.Destinations[0]
+	if destination.Provider != "tigris" || destination.Endpoint != "https://fly.storage.tigris.dev" || destination.VerifiedGeography != "BR" || len(destination.PermittedGeographies) != 1 || destination.PermittedGeographies[0] != "BR" {
+		t.Fatalf("backup destination is not the approved qualification target: %+v", destination)
+	}
+	for _, path := range []string{destination.AccessKeyFile, destination.SecretKeyFile} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0o600 || info.Size() == 0 {
+			t.Fatalf("backup credential %q is not a private nonempty file: %v", path, err)
+		}
+	}
 	wantGateway := map[string]string{"GRU": "10.77.0.1", "SFO": "10.77.1.1", "FRA": "10.77.2.1"}
 	for _, host := range f.Declaration.Hosts {
 		want := "tls://" + wantGateway[hostRegion(f.Bindings, host.NodeID)] + ":4222"

@@ -84,3 +84,10 @@ func (j *Journal) Reserve(ctx context.Context, record Record) (Record, error) {
 	})
 	return record, err
 }
+
+func (j *Journal) Read(ctx context.Context) (State, error) {
+	if j == nil || j.journal == nil {
+		return State{}, ErrInvalid
+	}
+	return j.journal.Read(ctx)
+}

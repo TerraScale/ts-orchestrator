@@ -215,6 +215,17 @@ func (journal *Journal[S]) Transact(ctx context.Context, write bool, change func
 	return journal.TransactRevision(ctx, write, func(state *S, _ uint64) error { return change(state) })
 }
 
+// Read returns the current lease-valid state without mutating the journal.
+// Callers use it to rebuild public projections after a process restart.
+func (journal *Journal[S]) Read(ctx context.Context) (S, error) {
+	snapshot, err := journal.snapshot(ctx)
+	if err != nil {
+		var zero S
+		return zero, err
+	}
+	return snapshot.state, nil
+}
+
 // TransactRevision supplies the proposed commit sequence while the exact lease
 // and stream CAS remain fenced together. The callback can run more than once;
 // a returned revision is authoritative only after this method succeeds.

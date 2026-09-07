@@ -57,7 +57,7 @@ func (s *SnippetCapabilityStore) PublishMembershipRevocations(ctx context.Contex
 type MembershipRevocationPublisherConfig struct {
 	Endpoint   string
 	Audience   string
-	ServiceKey string
+	ServiceKey func() (string, error)
 	HTTPClient *http.Client
 	Store      *SnippetCapabilityStore
 	Authorize  func(context.Context) error
@@ -69,7 +69,7 @@ type MembershipRevocationPublisher struct {
 func NewMembershipRevocationPublisher(c MembershipRevocationPublisherConfig) (*MembershipRevocationPublisher, error) {
 	u, err := url.Parse(c.Endpoint)
 	audience, audienceErr := url.Parse(c.Audience)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/api/internal/identity/introspect" || audienceErr != nil || audience.Scheme != "https" || audience.Host == "" || c.ServiceKey == "" || c.HTTPClient == nil || c.Store == nil || c.Authorize == nil {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/api/internal/identity/introspect" || audienceErr != nil || audience.Scheme != "https" || audience.Host == "" || c.ServiceKey == nil || c.HTTPClient == nil || c.Store == nil || c.Authorize == nil {
 		return nil, capabilityEffectError()
 	}
 	client := *c.HTTPClient
@@ -98,7 +98,11 @@ func (p *MembershipRevocationPublisher) Tick(ctx context.Context) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cache-Control", "no-store")
-	req.Header.Set("x-terrascale-identity-service-key", p.config.ServiceKey)
+	key, err := p.config.ServiceKey()
+	if err != nil || key == "" {
+		return capabilityEffectError()
+	}
+	req.Header.Set("x-terrascale-identity-service-key", key)
 	response, err := p.config.HTTPClient.Do(req)
 	if err != nil {
 		return capabilityEffectError()

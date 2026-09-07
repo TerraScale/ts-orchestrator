@@ -17,10 +17,16 @@ type productionMembershipRevocationsFile struct {
 }
 
 func (f productionMembershipRevocationsFile) Construct(store *cloudflare.SnippetCapabilityStore, authorize func(context.Context) error) (*cloudflare.MembershipRevocationPublisher, error) {
-	key, err := bootstrapcredentials.ReadFile(f.ServiceKeyFile, true, 4096)
-	if err != nil {
+	readKey := func() (string, error) {
+		key, err := bootstrapcredentials.ReadFile(f.ServiceKeyFile, true, 4096)
+		if err != nil {
+			return "", err
+		}
+		defer clear(key)
+		return strings.TrimSpace(string(key)), nil
+	}
+	if _, err := readKey(); err != nil {
 		return nil, err
 	}
-	defer clear(key)
-	return cloudflare.NewMembershipRevocationPublisher(cloudflare.MembershipRevocationPublisherConfig{Endpoint: f.Endpoint, Audience: f.Audience, ServiceKey: strings.TrimSpace(string(key)), Store: store, Authorize: authorize, HTTPClient: &http.Client{Timeout: 20 * time.Second}})
+	return cloudflare.NewMembershipRevocationPublisher(cloudflare.MembershipRevocationPublisherConfig{Endpoint: f.Endpoint, Audience: f.Audience, ServiceKey: readKey, Store: store, Authorize: authorize, HTTPClient: &http.Client{Timeout: 20 * time.Second}})
 }
