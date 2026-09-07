@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/internal/testnats"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -71,13 +73,13 @@ func (j *uncertainAccept) Accept(ctx context.Context, grant *pb.AuthGroupBootstr
 	return nil
 }
 func TestR3GrantRestartUnknownOutcomeAndAuthorityConflict(t *testing.T) {
-	cluster := newAuthJournalCluster(t)
+	cluster := testnats.New(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Second)
 	defer cancel()
-	connection := cluster.connect(t)
-	store := openAuthLeaseStore(t, ctx, connection, true)
+	connection := cluster.Connect(t)
+	store := testnats.OpenLeaseStore(t, ctx, connection, true)
 	candidate := "global-controller-gru-one"
-	putAuthLease(t, ctx, store, authLease(1, candidate))
+	testnats.PutLease(t, ctx, store, testnats.Lease(1, candidate))
 	newJournal := func(epoch uint64, candidate string) *Journal {
 		j, err := NewJournal(authorityjournal.Config{Connection: connection, CandidateID: candidate, AuthorityEpoch: epoch, LeaseID: "lease-" + string(rune('0'+epoch))})
 		if err != nil {
@@ -124,9 +126,9 @@ func TestR3GrantRestartUnknownOutcomeAndAuthorityConflict(t *testing.T) {
 		}
 	}
 	connection.Close()
-	cluster.restart(t)
-	connection = cluster.connect(t)
-	store = openAuthLeaseStore(t, ctx, connection, false)
+	cluster.Restart(t)
+	connection = cluster.Connect(t)
+	store = testnats.OpenLeaseStore(t, ctx, connection, false)
 	journal = newJournal(1, candidate)
 	service, _ = New(journal, targets, func(context.Context) error { return nil })
 	if err := service.Reconcile(ctx, grant); err != nil {
@@ -150,7 +152,7 @@ func TestR3GrantRestartUnknownOutcomeAndAuthorityConflict(t *testing.T) {
 	if err := journal.Accept(ctx, conflict); !errors.Is(err, ErrConflict) {
 		t.Fatal("same database got a second group", err)
 	}
-	putAuthLease(t, ctx, store, authLease(2, "global-controller-gru-two"))
+	testnats.PutLease(t, ctx, store, testnats.Lease(2, "global-controller-gru-two"))
 	if err := service.Reconcile(ctx, grant); !errors.Is(err, authorityjournal.ErrFenced) {
 		t.Fatal("old controller remained authoritative", err)
 	}
@@ -167,7 +169,7 @@ func TestR3GrantRestartUnknownOutcomeAndAuthorityConflict(t *testing.T) {
 	if err != nil || !proto.Equal(request, resolved) {
 		t.Fatal("authority successor changed genesis request", err)
 	}
-	for _, server := range cluster.servers[1:] {
+	for _, server := range cluster.Servers[1:] {
 		server.Shutdown()
 		server.WaitForShutdown()
 	}

@@ -15,6 +15,8 @@ import (
 )
 
 const transitionTrustRoot = "/etc/terrascale/terrabase/transition"
+const exportCursorKeyPath = "/etc/terrascale/terrabase/transition/export-cursor.key"
+
 const receiptSignerPath = "/etc/terrascale/terrabase/transition/receipt-signer.key"
 
 type TransitionPublicKey struct {
@@ -22,6 +24,7 @@ type TransitionPublicKey struct {
 	PublicKeyFile string `json:"publicKeyFile"`
 }
 type TransitionTrust struct {
+	ExportCursorKeyFile   string                `json:"exportCursorKeyFile,omitempty"`
 	Authority             []TransitionPublicKey `json:"authority"`
 	Genesis               []TransitionPublicKey `json:"genesis"`
 	Members               []TransitionPublicKey `json:"members"`
@@ -96,6 +99,13 @@ func prepareTransitionTrust(m *Material, trust *TransitionTrust) error {
 		return nil
 	}
 	m.transitionFiles = map[string][]byte{}
+	if trust.ExportCursorKeyFile != "" {
+		raw, err := initialgrant.ReadMaterialFile(trust.ExportCursorKeyFile, 32, true)
+		if err != nil || len(raw) != 32 || bytes.Equal(raw, make([]byte, 32)) {
+			return errors.New("vmengineconfig: export cursor key unavailable")
+		}
+		m.transitionFiles[exportCursorKeyPath] = raw
+	}
 	if trust.ReceiptKeyID != "" {
 		raw, err := initialgrant.ReadMaterialFile(trust.ReceiptPrivateKeyFile, 16<<10, true)
 		if err != nil || len(raw) == 0 {

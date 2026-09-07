@@ -59,6 +59,11 @@ type productionGlobalComputeFile struct {
 	ReleasePublicKey  string                                   `json:"release_public_key"`
 	HostFiles         map[string]string                        `json:"host_files"`
 	Artifacts         map[string]productionComputeArtifactFile `json:"artifacts"`
+	// BootstrapSignerFile and BootstrapSignerPublicKeyPin are mandatory for
+	// dynamically enrolled members. The private key is read only by GRU and
+	// never copied into a host declaration.
+	BootstrapSignerFile         string `json:"bootstrap_signer_file"`
+	BootstrapSignerPublicKeyPin string `json:"bootstrap_signer_public_key_pin"`
 }
 
 func (f productionGlobalComputeFile) cloudInit() (string, error) { return f.cloudInitFor("arm64") }

@@ -81,3 +81,18 @@ func TestRemovalLostTerminationAcknowledgementCompletesFromAuthoritativeAbsence(
 		t.Fatalf("lost response recovery record=%+v calls=%d err=%v", record, calls, err)
 	}
 }
+
+func TestRemovalNilTerminationAcknowledgementDoesNotComplete(t *testing.T) {
+	journal := &Journal{journal: &removalMemory{state: state{Operations: map[string]Operation{}}}}
+	member := MemberObservation{Identity: "spiffe://member", ResourceID: "ocid1.instance.original", ProviderETag: "etag", Generation: 7}
+	owner := &Owner{Journal: journal, Inventory: func(context.Context, RemovalRequest, []Replacement) (uint64, []Replacement, error) {
+		return 1, nil, nil
+	}, Replace: func(context.Context, Replacement) error { return nil }, Revalidate: func(context.Context, string, string, uint64) error { return nil }, Fence: func(context.Context, string, string, []Replacement) error { return nil }, Observe: func(context.Context, string) (bool, error) { return true, nil }, Terminate: func(context.Context, string) error { return nil }, ReconcileTermination: func(context.Context, string) error { t.Fatal("unconfirmed terminal reconciliation"); return nil }}
+	if err := owner.RemoveMember(t.Context(), "remove", member, 7); !errors.Is(err, ErrPending) {
+		t.Fatalf("nil provider acknowledgement completed: %v", err)
+	}
+	record, err := journal.Load(t.Context(), "remove")
+	if err != nil || record.Stage != StageFenced {
+		t.Fatalf("unconfirmed stage=%s err=%v", record.Stage, err)
+	}
+}

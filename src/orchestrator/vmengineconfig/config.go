@@ -434,6 +434,9 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	if d.TransitionTrust != nil && d.TransitionTrust.ReceiptKeyID != "" {
 		fmt.Fprintf(&b, "receipt_signing_key_file = %q\nreceipt_signing_key_id = %q\n", receiptSignerPath, d.TransitionTrust.ReceiptKeyID)
 	}
+	if d.TransitionTrust != nil && d.TransitionTrust.ExportCursorKeyFile != "" {
+		fmt.Fprintf(&b, "export_cursor_key_file = %q\n", exportCursorKeyPath)
+	}
 	renderTransitionTrust(&b, d.TransitionTrust)
 	renderDatabaseAdmission(&b, h.DatabaseHost)
 	l := d.Limits

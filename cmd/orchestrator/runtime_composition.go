@@ -106,6 +106,7 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
+	BootstrapSigner       *security.CommandSignatureSigner
 	MembershipRevocations *cloudflare.MembershipRevocationPublisher
 	Ownership             *provider.DurableOwnershipJournal
 	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI

@@ -10,6 +10,22 @@ import (
 	"testing"
 )
 
+func TestReleaseAssetsUsesAuthenticatedCustomName(t *testing.T) {
+	request, _, _, _ := testRelease(t, nil)
+	request.Artifact.Name = "sdk-package.tgz"
+	release := &forgejoRelease{Assets: []forgejoAsset{{Name: "terrabase-linux-arm64", BrowserDownloadURL: "wrong"}, {Name: "terrabase-linux-arm64.sig", BrowserDownloadURL: "wrong-sig"}, {Name: "sdk-package.tgz", BrowserDownloadURL: "exact"}, {Name: "sdk-package.tgz.sig", BrowserDownloadURL: "exact-sig"}}}
+	artifact, signature, err := releaseAssets(release, request)
+	if err != nil || artifact.BrowserDownloadURL != "exact" || signature.BrowserDownloadURL != "exact-sig" {
+		t.Fatalf("assets=%+v,%+v err=%v", artifact, signature, err)
+	}
+	for _, name := range []string{"", "..", "../x", `..\\x`} {
+		request.Artifact.Name = name
+		if _, _, err := releaseAssets(release, request); err == nil {
+			t.Fatalf("accepted invalid name %q", name)
+		}
+	}
+}
+
 func TestForgejoFetcherRejectsUntrustedAssetOrigin(t *testing.T) {
 	var attackerHits int
 	var attackerAuthorization string

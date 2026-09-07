@@ -17,6 +17,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 // ErrProductionGlobalDependency identifies a provider which has not yet been
@@ -47,11 +48,27 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	if input.Global == nil || input.Mirror == nil || input.Ownership == nil || input.Shared.Journal == nil {
 		return config, fmt.Errorf("%w: admitted delivery ownership and artifact mirror", ErrProductionGlobalDependency)
 	}
+	if input.Global.Compute.BootstrapSignerFile == "" || len(input.Global.Compute.BootstrapSignerPublicKeyPin) != 64 {
+		return config, fmt.Errorf("%w: explicit delegated bootstrap signer and public pin", ErrProductionGlobalDependency)
+	}
+	if _, err := hex.DecodeString(input.Global.Compute.BootstrapSignerPublicKeyPin); err != nil {
+		return config, fmt.Errorf("%w: delegated bootstrap signer pin is invalid", ErrProductionGlobalDependency)
+	}
+	signer, err := security.LoadCommandSignatureSignerPEM(input.Global.Compute.BootstrapSignerFile)
+	if err != nil || signer.PublicKeyID() != input.Global.Compute.BootstrapSignerPublicKeyPin {
+		if signer != nil {
+			_ = signer.Close()
+		}
+		return config, fmt.Errorf("%w: delegated bootstrap signer does not match public pin", ErrProductionGlobalDependency)
+	}
+	config.BootstrapSigner = signer
 	if err := session.CheckEffectAuthority(ctx); err != nil {
+		_ = signer.Close()
 		return config, err
 	}
 
 	cleanup := make([]func() error, 0, 4)
+	cleanup = append(cleanup, signer.Close)
 	closeAll := sync.OnceValue(func() error {
 		var result error
 		for i := len(cleanup) - 1; i >= 0; i-- {

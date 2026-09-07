@@ -193,7 +193,7 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
 	slices.Sort(want)
 	slices.Sort(got)
-	if response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
+	if response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED || len(response.GetSignedCompletedReceipt()) == 0 || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
 		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
 	}
 	return response, nil
@@ -224,7 +224,7 @@ func (c *Client) RestoreStats(ctx context.Context, a LifecycleAssignment, operat
 	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
 	slices.Sort(want)
 	slices.Sort(got)
-	if response.GetOperationId() != operation || response.GetTargetOwner() != targetOwner || response.GetTargetDatabase() != targetDatabase || response.GetJournalCut() != journalCut || response.GetRowCount() < 0 || response.GetChecksum() == "" || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
+	if response.GetOperationId() != operation || response.GetTargetOwner() != targetOwner || response.GetTargetDatabase() != targetDatabase || response.GetJournalCut() != journalCut || len(response.GetSignedCompletedReceipt()) == 0 || response.GetRowCount() < 0 || response.GetChecksum() == "" || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
 		return nil, errors.New("TBEP restore stats response is unbound or incomplete")
 	}
 	return response, nil

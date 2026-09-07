@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json/v2"
 	"testing"
+
+	"terrascale.tech/orchestrator/internal/testnats"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -11,8 +13,8 @@ import (
 )
 
 func TestAuthenticatedHostDispatchBindsBothIdentities(t *testing.T) {
-	cluster := newAuthJournalCluster(t)
-	connection := cluster.connect(t)
+	cluster := testnats.New(t)
+	connection := cluster.Connect(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	grant := testGrant()

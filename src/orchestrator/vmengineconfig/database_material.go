@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nats-io/nkeys"
@@ -156,7 +157,7 @@ func (m *Material) applyDatabaseManifest(manifest hostmanifest.HostManifest) (ho
 		if c.Configuration != "" && json.Unmarshal([]byte(c.Configuration), &settings) != nil {
 			return manifest, errors.New("vmengineconfig: database host run settings invalid")
 		}
-		for key, value := range map[string]string{databaseadmission.HostFileEnvironment: databaseadmission.HostFilePath, databaseadmission.BrokerGrantsEnvironment: databaseadmission.BrokerGrantsPath, "TS_ORCH_CELL": config.Cell, "TS_ORCH_INSTANCE": config.Instance, "TS_ORCH_KEY_LEASE_CATALOG_FILE": config.CatalogPath, "TS_ORCH_KEY_LEASE_ENVIRONMENT": config.Environment} {
+		for key, value := range map[string]string{databaseadmission.HostFileEnvironment: databaseadmission.HostFilePath, databaseadmission.BrokerGrantsEnvironment: databaseadmission.BrokerGrantsPath, "TS_ORCH_CELL": config.Cell, "TS_ORCH_INSTANCE": config.Instance, "TS_ORCH_KEY_LEASE_SOCKET_FILE": serviceidentity.SocketPath, "TS_ORCH_KEY_LEASE_CATALOG_FILE": config.CatalogPath, "TS_ORCH_KEY_LEASE_ENVIRONMENT": config.Environment, "TS_ORCH_KEY_LEASE_PEER_UID": strconv.Itoa(serviceidentity.TerraBaseUID), "TS_ORCH_KEY_LEASE_SOCKET_GID": strconv.Itoa(serviceidentity.SocketGID)} {
 			if previous, ok := settings[key]; ok && previous != value {
 				return manifest, errors.New("vmengineconfig: database host environment differs")
 			}

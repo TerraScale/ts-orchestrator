@@ -251,7 +251,12 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 	if err != nil {
 		return restoredrill.RestoreStats{}, err
 	}
-	pin, ok := p.config.NativeReceiptKeys[host.ServerIdentity]
+	return verifyProductionRestoreStats(p.config.NativeReceiptKeys, host, record, branch.Expected, response)
+}
+
+// Verifies the member observation against independently retained drill facts and admission.
+func verifyProductionRestoreStats(keys map[string]databaseadmission.ReadinessKey, host productionDatabaseHost, record databaseadmission.Record, facts restoredrill.JournalFacts, response *pb.RestoreStatsResponse) (restoredrill.RestoreStats, error) {
+	pin, ok := keys[host.ServerIdentity]
 	if !ok {
 		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt
 	}
@@ -260,10 +265,10 @@ func (p productionDatabaseBranchPort) Stats(ctx context.Context, branch restored
 		return restoredrill.RestoreStats{}, err
 	}
 	cut, err := strconv.ParseUint(record.Request.JournalCut, 10, 64)
-	if err != nil || branch.Expected.RowCount < 0 {
+	if err != nil || facts.RowCount < 0 {
 		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt
 	}
-	expected := restoredrill.NativeReceiptBinding{TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, SourceDatabaseID: record.Request.ParentDatabaseID, TargetDatabaseID: record.DatabaseID, TargetIncarnation: record.DatabaseID, SourceJournalCut: cut, CapturedAtMillis: branch.Expected.CapturedAtMillis, SourceChecksum: branch.Expected.Checksum, SourceRowCount: uint64(branch.Expected.RowCount), RestoreEpoch: record.Request.RestoreEpoch, IdempotencyKey: operation, OperationID: operation, RecoveryPointID: record.Request.RecoveryPointID, RecoveryPointDigest: branch.Expected.ManifestDigest, Placement: record.Request.Regions}
+	expected := restoredrill.NativeReceiptBinding{TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, SourceDatabaseID: record.Request.ParentDatabaseID, TargetDatabaseID: record.DatabaseID, TargetIncarnation: record.DatabaseID, SourceJournalCut: cut, CapturedAtMillis: facts.CapturedAtMillis, SourceChecksum: facts.Checksum, SourceRowCount: uint64(facts.RowCount), RestoreEpoch: record.Request.RestoreEpoch, IdempotencyKey: record.Request.OperationID, OperationID: record.Request.OperationID, RecoveryPointID: record.Request.RecoveryPointID, RecoveryPointDigest: facts.ManifestDigest, Placement: record.Request.Regions}
 	verified, err := verifier.Verify(response.GetSignedCompletedReceipt(), expected)
 	if err != nil || verified.TargetChecksum != response.GetChecksum() || verified.TargetRowCount != uint64(response.GetRowCount()) {
 		return restoredrill.RestoreStats{}, restoredrill.ErrNativeReceipt

@@ -174,17 +174,15 @@ func (f *ForgejoArtifactFetcher) releaseForCommit(ctx context.Context, request *
 	return nil, fmt.Errorf("delivery: no release of %s at commit %s", request.Source.Repository, request.Source.Commit)
 }
 
-// releaseAssets picks the artifact asset by the ts-deploy naming convention
-// (<service>-linux-<arch>) plus its <name>.sig sidecar.
+// releaseAssets picks the exact artifact name authenticated by the request.
 func releaseAssets(release *forgejoRelease, request *Request) (forgejoAsset, forgejoAsset, error) {
 	if release == nil || request == nil || request.Artifact == nil || request.Target == nil {
 		return forgejoAsset{}, forgejoAsset{}, errors.New("delivery: release asset lookup requires a complete request")
 	}
-	arch := strings.TrimPrefix(request.Artifact.Architecture, "linux/")
-	if arch == "multi" {
-		arch = "arm64"
+	artifactName := request.Artifact.Name
+	if artifactName == "" || strings.ContainsAny(artifactName, "/\\\x00") || artifactName == "." || artifactName == ".." {
+		return forgejoAsset{}, forgejoAsset{}, errors.New("delivery: artifact name is invalid")
 	}
-	artifactName := fmt.Sprintf("%s-linux-%s", request.Target.Service, arch)
 	var artifact, signature forgejoAsset
 	for _, asset := range release.Assets {
 		switch asset.Name {
