@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 )
