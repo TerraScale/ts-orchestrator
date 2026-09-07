@@ -17,6 +17,7 @@ type recoveryObserverControl struct {
 	converges     []string
 	fail          bool
 	requireAuth   bool
+	failServing   bool
 	cordons       []bool
 }
 
@@ -24,6 +25,9 @@ func (c *recoveryObserverControl) Cordon(_ context.Context, _ string, cordoned b
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cordons = append(c.cordons, cordoned)
+	if !cordoned && c.state.ArtifactDigest != "" && !c.failServing {
+		c.state.Serving = true
+	}
 	return nil
 }
 
@@ -39,6 +43,7 @@ func (c *recoveryObserverControl) Converge(_ context.Context, host string, plan 
 	}
 	c.converges = append(c.converges, host+":"+string(plan))
 	if c.rollbackState.ArtifactDigest != "" {
+		c.rollbackState.Serving = false
 		c.state = c.rollbackState
 	}
 	return nil
@@ -214,6 +219,7 @@ func TestRecoverRequiresServingReadbackBeforeUncordon(t *testing.T) {
 	control := &recoveryObserverControl{
 		state:         HostReleaseState{ArtifactDigest: request.Artifact.Digest, ManifestDigest: request.Artifact.ManifestDigest},
 		rollbackState: prior,
+		failServing:   true,
 	}
 	rollout := recoveryRollout(t, control)
 	progress := recoveryOperation(t, request, artifact.Signature, RolloutHostProgress{
@@ -224,7 +230,7 @@ func TestRecoverRequiresServingReadbackBeforeUncordon(t *testing.T) {
 	if err == nil || rollback == nil || rollback.Status != RollbackFailed {
 		t.Fatalf("unserving readback was accepted: rollback=%+v err=%v", rollback, err)
 	}
-	if control.convergeCount() != 1 || len(control.cordons) != 0 {
-		t.Fatalf("recovery mutated host past failed readback: converges=%d cordons=%v", control.convergeCount(), control.cordons)
+	if control.convergeCount() != 1 || len(control.cordons) != 1 || control.cordons[0] {
+		t.Fatalf("recovery did not leave failed serving readback visible: converges=%d cordons=%v", control.convergeCount(), control.cordons)
 	}
 }

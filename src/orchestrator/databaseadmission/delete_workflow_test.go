@@ -1,6 +1,7 @@
 package databaseadmission
 
 import (
+	"context"
 	"errors"
 	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"testing"
@@ -106,5 +107,92 @@ func TestDeletionRejectsClosedCutoffAndScopeChange(t *testing.T) {
 	r.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
 	if _, err := beginDeletion(&s, r, cutoff, cutoff.Add(time.Hour)); !errors.Is(err, ErrConflict) {
 		t.Fatal("operation rebound", err)
+	}
+}
+
+type automaticDeletionStopper struct {
+	prepare int
+	stop    int
+	retains []time.Time
+}
+
+func (s *automaticDeletionStopper) PrepareDeletion(_ context.Context, stop DeletionStop) (DeletionPreparation, error) {
+	s.prepare++
+	s.retains = append(s.retains, stop.RetainUntil)
+	return DeletionPreparation{Identity: stop.Identity, OperationID: stop.OperationID, Region: stop.Region, Prepared: true, LastAccountedAt: time.Now().UTC().Truncate(time.Millisecond)}, nil
+}
+func (s *automaticDeletionStopper) StopDeletion(_ context.Context, stop DeletionStop) (DeletionReceipt, error) {
+	s.stop++
+	s.retains = append(s.retains, stop.RetainUntil)
+	return DeletionReceipt{DeletionStop: stop, AccessRevoked: true, UsageStopped: true}, nil
+}
+
+type automaticDeletionEdge struct{}
+
+func (automaticDeletionEdge) RevokeDeletion(_ context.Context, d Deletion) (DeletionEdgeReceipt, error) {
+	return DeletionEdgeReceipt{Request: d.Request, Cutoff: d.Cutoff, AccessRevoked: true}, nil
+}
+
+func automaticWorkflowFixture(t *testing.T) (*MemoryJournal, AutomaticDeleteRequest, DeletionClaimReceipt) {
+	t.Helper()
+	s, request, _ := deletionFixture(t)
+	journal := NewMemoryJournal()
+	automatic := AutomaticDeleteRequest{DeleteRequest: request, PolicyRevision: "policy-v1", GraceCondition: "card-loss", Deadline: time.Now().UTC().Add(-time.Hour)}
+	if _, err := beginAutomaticIntent(&s, automatic, time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	journal.state = s
+	claim := DeletionClaimReceipt{SchemaVersion: 1, Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID, OperationID: request.OperationID, PolicyRevision: automatic.PolicyRevision, PolicyFingerprint: "fingerprint", GraceCondition: automatic.GraceCondition, Deadline: automatic.Deadline, AcceptedAt: time.Now().UTC()}
+	return journal, automatic, claim
+}
+
+func TestAutomaticIntentWithoutClaimIsInertOnResume(t *testing.T) {
+	journal, _, _ := automaticWorkflowFixture(t)
+	stopper := new(automaticDeletionStopper)
+	workflow := &DeletionWorkflow{Journal: journal, Stopper: stopper, Edge: automaticDeletionEdge{}}
+	err := workflow.Resume(t.Context())
+	if stopper.prepare != 0 || stopper.stop != 0 {
+		t.Fatalf("unclaimed intent caused effects: prepare=%d stop=%d err=%v", stopper.prepare, stopper.stop, err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAutomaticClaimAcceptedAfterDelayUsesZeroRetention(t *testing.T) {
+	journal, automatic, claim := automaticWorkflowFixture(t)
+	stopper := new(automaticDeletionStopper)
+	workflow := &DeletionWorkflow{Journal: journal, Stopper: stopper, Edge: automaticDeletionEdge{}}
+	// The claim arrives after the eligibility deadline and must still authorize
+	// deletion without turning the deadline into a physical retention cutoff.
+	time.Sleep(time.Millisecond)
+	_, err := workflow.BeginAutomatic(t.Context(), automatic, claim)
+	if stopper.prepare == 0 || stopper.stop == 0 {
+		t.Fatalf("accepted claim did not progress: prepare=%d stop=%d err=%v", stopper.prepare, stopper.stop, err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, retain := range stopper.retains {
+		if !retain.IsZero() {
+			t.Fatalf("effect %d carried non-zero automatic retention %v", i, retain)
+		}
+	}
+}
+
+func TestAutomaticClaimPolicyMismatchFailsBeforeEffects(t *testing.T) {
+	journal, automatic, claim := automaticWorkflowFixture(t)
+	journal.state.Deletions[deletionKey(automatic.DeleteRequest)] = func() Deletion {
+		d := journal.state.Deletions[deletionKey(automatic.DeleteRequest)]
+		d.AutomaticPolicyRevision = "policy-v2"
+		return d
+	}()
+	stopper := new(automaticDeletionStopper)
+	workflow := &DeletionWorkflow{Journal: journal, Stopper: stopper, Edge: automaticDeletionEdge{}}
+	if _, err := workflow.BeginAutomatic(t.Context(), automatic, claim); !errors.Is(err, ErrConflict) && !errors.Is(err, ErrInvalid) {
+		t.Fatalf("mismatched persisted policy returned %v, want explicit rejection", err)
+	}
+	if stopper.prepare != 0 || stopper.stop != 0 {
+		t.Fatalf("mismatched policy caused effects: prepare=%d stop=%d", stopper.prepare, stopper.stop)
 	}
 }

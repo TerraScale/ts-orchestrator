@@ -44,11 +44,11 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		if err != nil {
 			return failed(err)
 		}
-		if SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) && state.Serving {
+		if r.matchesRollbackState(state, request) {
 			if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
 				return failed(err)
 			}
-			if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
+			if err := r.proveServingRollbackState(ctx, observer, h.Host, request); err != nil {
 				return failed(err)
 			}
 			continue
@@ -63,7 +63,7 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		if err := r.config.Control.Converge(ctx, h.Host, plan); err != nil {
 			return failed(err)
 		}
-		if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
+		if err := r.proveRollbackIdentity(ctx, observer, h.Host, request); err != nil {
 			return failed(err)
 		}
 		for _, gate := range r.config.Gates {
@@ -80,19 +80,34 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		if err := r.config.Control.Cordon(ctx, h.Host, false); err != nil {
 			return failed(err)
 		}
-		if err := r.proveRollbackState(ctx, observer, h.Host, request); err != nil {
+		if err := r.proveServingRollbackState(ctx, observer, h.Host, request); err != nil {
 			return failed(err)
 		}
 	}
 	return &Rollback{Attempted: true, TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest), TargetManifestDigest: ptr(request.Rollback.ManifestDigest), Status: RollbackSucceeded}, nil
 }
 
-func (r *Rollout) proveRollbackState(ctx context.Context, observer HostReleaseObserver, host string, request *Request) error {
+func (r *Rollout) matchesRollbackState(state HostReleaseState, request *Request) bool {
+	return SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) && SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest)
+}
+
+func (r *Rollout) proveRollbackIdentity(ctx context.Context, observer HostReleaseObserver, host string, request *Request) error {
 	state, err := observer.ObserveRelease(ctx, host)
 	if err != nil {
 		return err
 	}
-	if !state.Serving || !SameDigest(state.ArtifactDigest, request.Rollback.ArtifactDigest) || !SameDigest(state.ManifestDigest, request.Rollback.ManifestDigest) {
+	if !r.matchesRollbackState(state, request) {
+		return fmt.Errorf("delivery: host %s rollback readback is not the exact prior release", host)
+	}
+	return nil
+}
+
+func (r *Rollout) proveServingRollbackState(ctx context.Context, observer HostReleaseObserver, host string, request *Request) error {
+	state, err := observer.ObserveRelease(ctx, host)
+	if err != nil {
+		return err
+	}
+	if !state.Serving || !r.matchesRollbackState(state, request) {
 		return fmt.Errorf("delivery: host %s rollback readback is not the exact serving prior release", host)
 	}
 	return nil
