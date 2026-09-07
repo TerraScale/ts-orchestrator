@@ -12,7 +12,7 @@ import (
 )
 
 // OpenLocalBootstrap authenticates immutable initial state and prepares its
-// installation. handoff receives only the verified orchestrator user and full
+// installation. handoff receives only the verified component service user and full
 // manifest digest, after account creation and before any service can start.
 func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, public, grant []byte, path string, handoff func(context.Context, string, string) error) (session *nodebootstrap.InitialSession[hostmanifest.HostManifest], result error) {
 	if ctx == nil || lifecycle == nil {
@@ -63,7 +63,7 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 	defer cancel()
 	if handoff != nil {
 		for _, spec := range manifest.Components {
-			if spec.Name == "orchestrator" {
+			if spec.Name == "orchestrator" || spec.Name == "terrabase" {
 				if err = executor.admitBootstrapCommand(authority.digest, digest); err != nil {
 					return nil, err
 				}

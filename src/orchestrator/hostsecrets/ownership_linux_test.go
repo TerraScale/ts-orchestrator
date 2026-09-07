@@ -207,3 +207,58 @@ func TestRootServiceOwnershipHandoff(t *testing.T) {
 		t.Fatal("retry accepted unjournaled service GID")
 	}
 }
+
+func TestEnrollmentCredentialsKeepExactServiceOwnersAcrossRestart(t *testing.T) {
+	fd, root := directoryFixture(t)
+	seed := testSeed()
+	for _, destination := range []string{"/etc/terrascale/terrabase/key.pem", "/etc/terrascale/terrabase/transition/receipt-signer.key", "/etc/terrascale/placement/host.nkey", "/etc/terrascale/database/host.nkey"} {
+		entry := testEntry()
+		entry.Destination = destination
+		seed.Entries = append(seed.Entries, entry)
+	}
+	p := prepareFixture(t, fd, seed)
+	for _, entry := range seed.Entries {
+		if err := p.publish(entry, []byte("private-canary")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := ownershipRecord{SeedDigest: seedDigest(seed), ManifestDigest: digest([]byte("signed-full-manifest")), User: OrchestratorUser, UID: os.Geteuid(), GID: os.Getgid()}
+	if err := p.admitOwnership(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+	if p.entryOwnership(seed.Entries[1]) != nil {
+		t.Fatal("orchestrator admitted ownership of engine private key")
+	}
+	record.User = TerraBaseUser
+	different := record
+	different.ManifestDigest = digest([]byte("unrelated manifest"))
+	if err := p.admitOwnership(t.Context(), different); !errors.Is(err, ErrJournal) {
+		t.Fatalf("mixed manifest accepted: %v", err)
+	}
+	if err := p.admitOwnership(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+	p.close()
+	p = prepareFixture(t, fd, seed)
+	defer p.close()
+	for _, entry := range seed.Entries {
+		owner := p.entryOwnership(entry)
+		if expected := entryService(entry); expected != "" && (owner == nil || owner.User != expected) {
+			t.Fatalf("wrong owner for %s", entry.Destination)
+		}
+		if ready, err := p.ready(entry); err != nil || !ready {
+			t.Fatalf("restart credential %s: %v", entry.Destination, err)
+		}
+	}
+	if err := os.Remove(filepath.Join(root, entryName(seed.Entries[1]))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ready(seed.Entries[1]); !errors.Is(err, ErrOwnership) {
+		t.Fatalf("missing admitted engine credential may be recreated: %v", err)
+	}
+	for _, path := range []string{"/etc/terrascale/terrabase/../orchestrator/command.key", "/etc/terrascale/terrabase/arbitrary.key", "/etc/shadow"} {
+		if allowedDestination(path) {
+			t.Fatalf("unbounded destination accepted %s", path)
+		}
+	}
+}

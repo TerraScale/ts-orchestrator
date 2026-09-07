@@ -188,36 +188,40 @@ func bootstrapTestGrant(t *testing.T, manifest hostmanifest.HostManifest) (*secu
 }
 
 func TestCredentialHandoffUsesSignedAccountBeforeAnyServiceStart(t *testing.T) {
-	config, systemd, root := localBootstrapComponent(t, "orchestrator")
-	systemd.requireCredentials = true
-	observed := false
-	config.CredentialHandoff = func(ctx context.Context, user, digest string) error {
-		if !systemd.accountReady || systemd.starts != 0 || user != "terrascale-orchestrator" {
-			t.Fatalf("handoff ordering/account differs: user=%s account=%v starts=%d", user, systemd.accountReady, systemd.starts)
-		}
-		grant, err := VerifyBootstrapGrant(config.NodeID, config.PublicKeyPEM, config.SignedGrant)
-		if err != nil {
-			return err
-		}
-		expected, err := hostmanifest.HostManifestSha256(grant.Manifest)
-		if err != nil || expected != digest {
-			t.Fatal("handoff did not receive authenticated full manifest digest")
-		}
-		observed = true
-		return errors.New("injected ownership journal interruption")
-	}
-	if err := RunLocalBootstrap(context.Background(), config); err == nil {
-		t.Fatal("failed credential handoff reported success")
-	}
-	if !observed || systemd.starts != 0 || InstalledVersion(root, "orchestrator", "1.0.0") {
-		t.Fatal("failed handoff allowed install/service effects")
-	}
-	config.CredentialHandoff = func(context.Context, string, string) error { systemd.credentialReady = true; return nil }
-	if err := RunLocalBootstrap(context.Background(), config); err != nil {
-		t.Fatalf("handoff retry: %v", err)
-	}
-	if !systemd.active {
-		t.Fatal("service did not activate after credentials were handed off")
+	for _, component := range []string{"orchestrator", "terrabase"} {
+		t.Run(component, func(t *testing.T) {
+			config, systemd, root := localBootstrapComponent(t, component)
+			systemd.requireCredentials = true
+			observed := false
+			config.CredentialHandoff = func(ctx context.Context, user, digest string) error {
+				if !systemd.accountReady || systemd.starts != 0 || user != "terrascale-"+component {
+					t.Fatalf("handoff ordering/account differs: user=%s account=%v starts=%d", user, systemd.accountReady, systemd.starts)
+				}
+				grant, err := VerifyBootstrapGrant(config.NodeID, config.PublicKeyPEM, config.SignedGrant)
+				if err != nil {
+					return err
+				}
+				expected, err := hostmanifest.HostManifestSha256(grant.Manifest)
+				if err != nil || expected != digest {
+					t.Fatal("handoff did not receive authenticated full manifest digest")
+				}
+				observed = true
+				return errors.New("injected ownership journal interruption")
+			}
+			if err := RunLocalBootstrap(context.Background(), config); err == nil {
+				t.Fatal("failed credential handoff reported success")
+			}
+			if !observed || systemd.starts != 0 || InstalledVersion(root, component, "1.0.0") {
+				t.Fatal("failed handoff allowed install/service effects")
+			}
+			config.CredentialHandoff = func(context.Context, string, string) error { systemd.credentialReady = true; return nil }
+			if err := RunLocalBootstrap(context.Background(), config); err != nil {
+				t.Fatalf("handoff retry: %v", err)
+			}
+			if !systemd.active {
+				t.Fatal("service did not activate after credentials were handed off")
+			}
+		})
 	}
 }
 

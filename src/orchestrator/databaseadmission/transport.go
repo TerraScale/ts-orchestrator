@@ -103,7 +103,7 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, StatusSubject, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
+	return []string{CreateSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -112,7 +112,12 @@ func StartAuthority(ctx context.Context, nc *nats.Conn, pipeline *Pipeline) (*Se
 	if ctx == nil || !secureConnection(nc) || pipeline == nil {
 		return nil, ErrInvalid
 	}
-	subscriptions := []*nats.Subscription{}
+	listSubscription, err := subscribeOperationList(ctx, nc, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	_ = listSubscription.SetPendingLimits(128, 8<<20)
+	subscriptions := []*nats.Subscription{listSubscription}
 	for _, subject := range []string{CreateSubject, StatusSubject} {
 		sub, err := nc.Subscribe(subject, func(message *nats.Msg) {
 			if len(message.Data) > maxMessage || message.Reply == "" {
@@ -199,6 +204,7 @@ func StartIngress(ctx context.Context, c IngressConfig) (*Service, error) {
 	mux := http.NewServeMux()
 	registerLifecycleIngress(mux, c.Lifecycle)
 	registerDeletionIngress(mux, c)
+	registerOperationListIngress(mux, c)
 	for path, subject := range map[string]string{"/internal/v1/databases/create": CreateSubject, "/internal/v1/databases/status": StatusSubject} {
 		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 			uid, ok := r.Context().Value(peerUIDKey{}).(uint32)

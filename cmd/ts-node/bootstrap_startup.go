@@ -57,7 +57,7 @@ func activateTsNodeBeforeNATS(ctx context.Context, configuration tsNodeConfigura
 		return err
 	}
 	return hostbootstrap.RunLocalBootstrap(ctx, hostbootstrap.LocalBootstrapConfig{NodeID: configuration.NodeId, PublicKeyPEM: public, SignedGrant: grant, Lifecycle: lifecycle, ManifestPath: configuration.ManifestPath, InstallRoot: configuration.InstallRoot, Timeout: 2 * time.Minute, CredentialHandoff: func(ctx context.Context, user, digest string) error {
-		err := hostsecrets.AdmitOrchestratorOwnershipFile(ctx, hostsecrets.SeedPath, user, digest)
+		err := hostsecrets.AdmitServiceOwnershipFile(ctx, hostsecrets.SeedPath, user, digest)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}

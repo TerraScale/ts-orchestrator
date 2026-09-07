@@ -114,6 +114,7 @@ type publication struct {
 	root, lock, uid int
 	seed            Seed
 	ownership       *ownershipRecord
+	engineOwnership *ownershipRecord
 }
 
 func (p *publication) close() { _ = unix.Flock(p.lock, unix.LOCK_UN); _ = unix.Close(p.lock) }
@@ -326,7 +327,7 @@ func (p *publication) ready(entry Entry) (bool, error) {
 	defer unix.Close(parent)
 	file, err := p.openCredential(parent, leaf, entry)
 	if errors.Is(err, unix.ENOENT) {
-		if p.ownership != nil && orchestratorEntry(entry) {
+		if p.entryOwnership(entry) != nil {
 			return false, ErrOwnership
 		}
 		return false, nil
@@ -343,7 +344,7 @@ func (p *publication) ready(entry Entry) (bool, error) {
 	if digest(body) != entry.SHA256 {
 		return false, ErrDigest
 	}
-	if p.ownership != nil && orchestratorEntry(entry) {
+	if p.entryOwnership(entry) != nil {
 		if err = p.finishOwnership(file, entry); err != nil {
 			return false, err
 		}

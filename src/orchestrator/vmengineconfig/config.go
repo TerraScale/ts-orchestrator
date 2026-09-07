@@ -433,7 +433,7 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	}
 	renderTransitionTrust(&b, d.TransitionTrust)
 	if d.TransitionTrust != nil && d.TransitionTrust.ReceiptKeyID != "" {
-		fmt.Fprintf(&b, "\n[control.transition.receipt_signing_key]\nkey_id = %q\nprivate_key_file = %q\n", d.TransitionTrust.ReceiptKeyID, receiptSignerPath)
+		fmt.Fprintf(&b, "receipt_signing_key_file = %q\n", receiptSignerPath)
 	}
 	renderDatabaseAdmission(&b, h.DatabaseHost)
 	l := d.Limits
@@ -448,6 +448,9 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	fmt.Fprintf(&b, "\n[keys]\nsocket = %q\norchestrator_uid = %d\nsocket_gid = %d\n", d.Keys.Socket, d.Keys.OrchestratorUID, d.Keys.SocketGID)
 	if d.PublicAPI != nil {
 		fmt.Fprintf(&b, "\n[public_api]\nlisten = %q\ndata_root = %q\n", d.PublicAPI.Listen, d.PublicAPI.DataRoot)
+		if d.PublicAPI.BootstrapKeyFile != "" {
+			fmt.Fprintf(&b, "bootstrap_key_file = %q\n", publicAPIBootstrapKeyPath)
+		}
 	}
 	if b.Len() > hostmanifest.MaximumConfigurationBytes {
 		return "", errors.New("vmengineconfig: rendered configuration exceeds engine bound")
