@@ -44,7 +44,7 @@ type productionDatabaseConfig struct {
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
-	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) (databaseadmission.DeletionClaimReceipt, error)
+	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) error
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 	// Activity is the durable source of the last successful customer request.
 	// Admission timestamps are never valid activity facts.
@@ -126,11 +126,11 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		if err := session.CheckEffectAuthority(ctx); err != nil {
 			return databaseadmission.DeletionPolicyDecision{}, err
 		}
-		claim, err := config.AuthorizeDeletion(ctx, request)
+		err := config.AuthorizeDeletion(ctx, request)
 		if err != nil {
 			return databaseadmission.DeletionPolicyDecision{}, err
 		}
-		return databaseadmission.DeletionPolicyDecision{Claim: &claim}, nil
+		return databaseadmission.DeletionPolicyDecision{}, nil
 	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal)}
 	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority}, nil
 }

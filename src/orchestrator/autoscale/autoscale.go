@@ -30,6 +30,24 @@ type Observation struct {
 	QueueCapacity int
 	Healthy       bool
 	Authenticated bool
+	Proof         ProofSnapshot
+}
+
+// ProofSnapshot carries only facts observed in the authenticated engine
+// report. Missing producers remain false; consumers must fail closed.
+type ProofSnapshot struct {
+	HeadroomMeasured  bool
+	ResidencyVerified bool
+	QuorumVerified    bool
+	Databases         []DatabaseProof
+}
+
+type DatabaseProof struct {
+	Tenant, Project, Database                     string
+	RegionalCaughtUp                              bool
+	BackupCaughtUp                                bool
+	SourceSequence, RegionalSequence              uint64
+	BackupSourceSequence, BackupProtectedSequence uint64
 }
 
 type ObservationSource interface {

@@ -37,7 +37,7 @@ func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing
 				_ = json.MarshalWrite(w, decision)
 			}))
 			defer server.Close()
-			_, err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(databaseadmission.WithDeletionAuthorization(t.Context(), "Bearer customer-token"), request)
+			err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(databaseadmission.WithDeletionAuthorization(t.Context(), "Bearer customer-token"), request)
 			if scenario == "allowed" {
 				if err != nil {
 					t.Fatal(err)
@@ -50,7 +50,7 @@ func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing
 }
 func TestDatabaseDeletionAuthorizationRequiresCustomerBearer(t *testing.T) {
 	policy := databaseDeletionAuthorizer(&http.Client{}, "https://example.invalid", "secret")
-	if _, err := policy(t.Context(), databaseadmission.DeleteRequest{}); !errors.Is(err, databaseadmission.ErrForbidden) {
+	if err := policy(t.Context(), databaseadmission.DeleteRequest{}); !errors.Is(err, databaseadmission.ErrForbidden) {
 		t.Fatalf("missing customer bearer: %v", err)
 	}
 }
