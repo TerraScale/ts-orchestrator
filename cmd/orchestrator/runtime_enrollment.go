@@ -24,6 +24,7 @@ type productionEnrollmentFile struct {
 	Templates     map[string]enrollment.Template `json:"templates"`
 }
 type computeProjection func(context.Context, estate.Region) (ocireconcile.ComputeDeclared, error)
+type computeTargetProjection func(context.Context, estate.Region) (uint16, error)
 type productionEnrollmentProjection struct {
 	mu                   sync.Mutex
 	producer             *enrollment.Producer
@@ -155,4 +156,27 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 	}
 	result.Candidates = slices.Clone(result.CandidatesByMember[1])
 	return result, nil
+}
+
+// TargetCount reads the durable target without enrolling slots or constructing
+// provider credentials. Typed compute reconciliation continues to use Declared
+// for real launches.
+func (p *productionEnrollmentProjection) TargetCount(ctx context.Context, region estate.Region) (uint16, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.targets == nil {
+		return 0, errors.New("runtime enrollment: durable target source is unavailable")
+	}
+	targets, err := p.targets(ctx)
+	if err != nil {
+		return 0, err
+	}
+	target, ok := targets[region.Code]
+	if !ok {
+		return region.Members.Count, nil
+	}
+	if target.Region != region.Code || target.Members < 2 || target.Members > 1024 {
+		return 0, enrollment.ErrInvalid
+	}
+	return max(region.Members.Count, uint16(target.Members)), nil
 }

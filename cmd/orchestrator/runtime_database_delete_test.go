@@ -15,7 +15,7 @@ func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing
 	for _, scenario := range []string{"allowed", "missing-actor", "wrong-action", "wrong-database", "expired", "future-issued", "denied"} {
 		t.Run(scenario, func(t *testing.T) {
 			now := time.Now()
-			decision := map[string]any{"allowed": true, "action": "delete", "subject": "owner-id", "actor": "token-id", "environment": request.Environment, "tenant_id": request.TenantID, "project_id": request.ProjectID, "database_id": request.DatabaseID, "operation_id": request.OperationID, "issued_at": now.Unix(), "expires_at": now.Add(30 * time.Second).Unix()}
+			decision := map[string]any{"allowed": true, "action": "delete", "subject": "owner-id", "actor": "token-id", "environment": request.Environment, "tenant_id": request.TenantID, "project_id": request.ProjectID, "database_id": request.DatabaseID, "operation_id": request.OperationID, "issued_at": now.Unix(), "expires_at": now.Add(29 * time.Second).Unix(), "schemaVersion": 1, "policy_revision": "revision", "policy_fingerprint": "fingerprint", "grace_condition": "card-loss", "deadline": now.Add(time.Hour), "accepted_at": now, "authority_epoch": "epoch"}
 			switch scenario {
 			case "missing-actor":
 				delete(decision, "actor")
@@ -37,7 +37,7 @@ func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing
 				_ = json.MarshalWrite(w, decision)
 			}))
 			defer server.Close()
-			err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(databaseadmission.WithDeletionAuthorization(t.Context(), "Bearer customer-token"), request)
+			_, err := databaseDeletionAuthorizer(server.Client(), server.URL, "secret")(databaseadmission.WithDeletionAuthorization(t.Context(), "Bearer customer-token"), request)
 			if scenario == "allowed" {
 				if err != nil {
 					t.Fatal(err)
@@ -50,7 +50,7 @@ func TestDatabaseDeletionAuthorizationRequiresExactFreshOwnerDecision(t *testing
 }
 func TestDatabaseDeletionAuthorizationRequiresCustomerBearer(t *testing.T) {
 	policy := databaseDeletionAuthorizer(&http.Client{}, "https://example.invalid", "secret")
-	if err := policy(t.Context(), databaseadmission.DeleteRequest{}); !errors.Is(err, databaseadmission.ErrForbidden) {
+	if _, err := policy(t.Context(), databaseadmission.DeleteRequest{}); !errors.Is(err, databaseadmission.ErrForbidden) {
 		t.Fatalf("missing customer bearer: %v", err)
 	}
 }

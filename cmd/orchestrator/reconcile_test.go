@@ -307,6 +307,16 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 		}
 		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds}, nil
 	}
+	regional.targetProjection = func(ctx context.Context, region estate.Region) (uint16, error) {
+		target, found, err := targets.Load(ctx, region.Code)
+		if err != nil {
+			return 0, err
+		}
+		if !found {
+			return region.Members.Count, nil
+		}
+		return max(region.Members.Count, uint16(target.Members)), nil
+	}
 	controller := &ociReconcileController{spec: spec, regions: map[string]*ociRegionController{"gru": regional}}
 	for _, other := range spec.Regions[1:] {
 		controller.regions[other.Code] = &ociRegionController{region: other, projection: func(_ context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {

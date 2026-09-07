@@ -131,8 +131,8 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 			globalPlan.Construct = func(workerCtx context.Context, session globalWorkerSession) (productionGlobalWorkerConfig, error) {
 				wiring, _ := productionAutoscaleFromContext(constructCtx)
 				return buildProductionGlobalConfig(workerCtx, session, productionGlobalBuildInput{
-					BindProjection: wiring.BindProjection,
-					Global:         g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
+					BindProjection: wiring.BindProjection, BindTargetProjection: wiring.BindTargetProjection,
+					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
 					Shared: constructed.Store, Ownership: constructed.Ownership, Transition: transition,
 				})
 			}

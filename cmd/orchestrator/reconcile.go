@@ -72,7 +72,7 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
-	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan, BindProjection: dependencies.OCI.bindComputeProjection})
+	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan, BindProjection: dependencies.OCI.bindComputeProjection, BindTargetProjection: dependencies.OCI.bindComputeTargetProjection})
 	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
 	if err != nil {
@@ -156,13 +156,12 @@ func (c *ociReconcileController) desiredSpec(ctx context.Context) (estate.Spec, 
 		if controller == nil {
 			return estate.Spec{}, errors.New("reconcile: OCI region controller is unavailable")
 		}
-		// The lease-owned projection reads the durable target, including on
-		// the first pass after restart, before the generic diff is calculated.
-		declared, err := controller.enrolledComputeDeclared(ctx)
-		if err != nil {
-			return estate.Spec{}, err
+		// Read only the durable target before the generic diff. Enrollment and
+		// OCI issuer work belongs to typed compute observation, so a missing
+		// slot cannot block unrelated provider kinds.
+		if target, err := controller.targetMemberCount(ctx); err == nil {
+			region.Members.Count = max(region.Members.Count, target)
 		}
-		region.Members.Count = max(region.Members.Count, declared.Region.Members.Count)
 	}
 	return spec, nil
 }
@@ -445,16 +444,17 @@ type ociReconcileController struct {
 }
 
 type ociRegionController struct {
-	projection      computeProjection
-	region          estate.Region
-	imageID         string
-	fallbackImageID string
-	network         *ocireconcile.NetworkReconciler
-	compute         *ocireconcile.ComputeReconciler
-	block           *ocireconcile.BlockStorageReconciler
-	object          *ocireconcile.ObjectStorageReconciler
-	vault           *ocireconcile.VaultReconciler
-	certs           *ocireconcile.CertReconciler
+	projection       computeProjection
+	targetProjection computeTargetProjection
+	region           estate.Region
+	imageID          string
+	fallbackImageID  string
+	network          *ocireconcile.NetworkReconciler
+	compute          *ocireconcile.ComputeReconciler
+	block            *ocireconcile.BlockStorageReconciler
+	object           *ocireconcile.ObjectStorageReconciler
+	vault            *ocireconcile.VaultReconciler
+	certs            *ocireconcile.CertReconciler
 	// scaleOutTarget is a durable GRU decision supplied by the autoscale
 	// seam. Zero means the declared target remains in force.
 	scaleOutTarget uint16
@@ -1239,6 +1239,25 @@ func (c *ociReconcileController) bindComputeProjection(project computeProjection
 		region.mu.Unlock()
 	}
 }
+
+func (c *ociReconcileController) bindComputeTargetProjection(project computeTargetProjection) {
+	for _, region := range c.regions {
+		region.mu.Lock()
+		region.targetProjection = project
+		region.mu.Unlock()
+	}
+}
+
+func (r *ociRegionController) targetMemberCount(ctx context.Context) (uint16, error) {
+	r.mu.Lock()
+	project := r.targetProjection
+	r.mu.Unlock()
+	if project == nil {
+		return 0, errors.New("reconcile: durable autoscale target projection is unavailable")
+	}
+	return project(ctx, r.region)
+}
+
 func (r *ociRegionController) enrolledComputeDeclared(ctx context.Context) (ocireconcile.ComputeDeclared, error) {
 	r.mu.Lock()
 	project := r.projection

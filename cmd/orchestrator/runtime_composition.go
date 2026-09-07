@@ -168,10 +168,11 @@ type productionRuntime struct {
 // OCI seams into the GRU worker constructor. It deliberately contains no
 // durable store; the worker creates its single NATS-backed target store.
 type productionAutoscaleWiring struct {
-	BindProjection func(computeProjection)
-	Source         autoscale.ObservationSource
-	Regions        []string
-	Apply          func(string, int) error
+	BindProjection       func(computeProjection)
+	BindTargetProjection func(computeTargetProjection)
+	Source               autoscale.ObservationSource
+	Regions              []string
+	Apply                func(string, int) error
 }
 
 type productionGlobalWorkers struct {

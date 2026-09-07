@@ -28,6 +28,20 @@ type DeletionReceipt struct {
 	AccessRevoked bool `json:"access_revoked"`
 	UsageStopped  bool `json:"usage_stopped"`
 }
+type DeletionClaimReceipt struct {
+	SchemaVersion     uint8     `json:"schemaVersion"`
+	Environment       string    `json:"environment"`
+	TenantID          string    `json:"tenant_id"`
+	ProjectID         string    `json:"project_id"`
+	DatabaseID        string    `json:"database_id"`
+	OperationID       string    `json:"operation_id"`
+	PolicyRevision    string    `json:"policy_revision"`
+	PolicyFingerprint string    `json:"policy_fingerprint"`
+	GraceCondition    string    `json:"grace_condition"`
+	Deadline          time.Time `json:"deadline"`
+	AcceptedAt        time.Time `json:"accepted_at"`
+	AuthorityEpoch    string    `json:"authority_epoch"`
+}
 type DeletionPreparation struct {
 	databaselifecycle.Identity
 	OperationID     string    `json:"operation_id"`
@@ -49,12 +63,13 @@ type DeletionTarget struct {
 	Receipt     *DeletionReceipt     `json:"receipt,omitempty"`
 }
 type Deletion struct {
-	RequestedAt time.Time            `json:"requested_at"`
-	EdgeReceipt *DeletionEdgeReceipt `json:"edge_receipt,omitempty"`
-	Request     DeleteRequest        `json:"request"`
-	Cutoff      time.Time            `json:"cutoff"`
-	State       string               `json:"state"`
-	Targets     []DeletionTarget     `json:"targets"`
+	RequestedAt time.Time             `json:"requested_at"`
+	EdgeReceipt *DeletionEdgeReceipt  `json:"edge_receipt,omitempty"`
+	Request     DeleteRequest         `json:"request"`
+	Cutoff      time.Time             `json:"cutoff"`
+	State       string                `json:"state"`
+	Targets     []DeletionTarget      `json:"targets"`
+	Claim       *DeletionClaimReceipt `json:"claim,omitempty"`
 }
 type DeletionJournal interface {
 	BeginDeletion(context.Context, DeleteRequest, time.Time, time.Time) (Deletion, error)
@@ -66,9 +81,15 @@ type DeletionJournal interface {
 
 // AuthorizeDeletion must verify the caller's organization/project membership and
 // current deletion policy/protection before any durable deletion is accepted.
-type DeletionPolicyDecision struct{ RetainUntil time.Time }
+type DeletionPolicyDecision struct {
+	RetainUntil time.Time
+	Claim       *DeletionClaimReceipt
+}
 type DeletionPolicy interface {
 	AuthorizeDeletion(context.Context, DeleteRequest) (DeletionPolicyDecision, error)
+}
+type DeletionClaimJournal interface {
+	BeginDeletionWithClaim(context.Context, DeleteRequest, time.Time, time.Time, DeletionClaimReceipt) (Deletion, error)
 }
 
 // StopDeletion must authenticate regional evidence and cover every serving host,
@@ -92,7 +113,17 @@ func (w *DeletionWorkflow) Begin(ctx context.Context, r DeleteRequest) (Deletion
 	if err != nil {
 		return Deletion{}, err
 	}
-	d, err := w.Journal.BeginDeletion(ctx, r, time.Now().UTC().Truncate(time.Millisecond), decision.RetainUntil)
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	var d Deletion
+	if decision.Claim != nil {
+		journal, ok := w.Journal.(DeletionClaimJournal)
+		if !ok || decision.Claim.OperationID != r.OperationID || decision.Claim.Environment != r.Environment || decision.Claim.TenantID != r.TenantID || decision.Claim.ProjectID != r.ProjectID || decision.Claim.DatabaseID != r.DatabaseID {
+			return Deletion{}, ErrConflict
+		}
+		d, err = journal.BeginDeletionWithClaim(ctx, r, at, decision.RetainUntil, *decision.Claim)
+	} else {
+		d, err = w.Journal.BeginDeletion(ctx, r, at, decision.RetainUntil)
+	}
 	if err != nil {
 		return Deletion{}, err
 	}
@@ -333,6 +364,25 @@ func (j *NATSJournal) BeginDeletion(ctx context.Context, r DeleteRequest, at tim
 	err = j.journal.Transact(ctx, true, func(s *journalState) error { var e error; d, e = beginDeletion(s, r, at, retainUntil); return e })
 	return
 }
+func (j *NATSJournal) BeginDeletionWithClaim(ctx context.Context, r DeleteRequest, at time.Time, retainUntil time.Time, claim DeletionClaimReceipt) (d Deletion, err error) {
+	if j == nil || j.journal == nil {
+		return d, ErrJournalUnavailable
+	}
+	err = j.journal.Transact(ctx, true, func(s *journalState) error {
+		var e error
+		d, e = beginDeletion(s, r, at, retainUntil)
+		if e != nil {
+			return e
+		}
+		if d.Claim != nil && *d.Claim != claim {
+			return ErrConflict
+		}
+		d.Claim = &claim
+		s.Deletions[deletionKey(r)] = d
+		return nil
+	})
+	return
+}
 func (j *NATSJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v DeletionReceipt) (d Deletion, err error) {
 	if j == nil || j.journal == nil {
 		return d, ErrJournalUnavailable
@@ -354,6 +404,22 @@ func (j *NATSJournal) ListDeletions(ctx context.Context) (out []Deletion, err er
 }
 func (j *MemoryJournal) BeginDeletion(ctx context.Context, r DeleteRequest, at time.Time, retainUntil time.Time) (d Deletion, err error) {
 	err = j.lifecycleTransact(ctx, func(s *journalState) error { var e error; d, e = beginDeletion(s, r, at, retainUntil); return e })
+	return
+}
+func (j *MemoryJournal) BeginDeletionWithClaim(ctx context.Context, r DeleteRequest, at time.Time, retainUntil time.Time, claim DeletionClaimReceipt) (d Deletion, err error) {
+	err = j.lifecycleTransact(ctx, func(s *journalState) error {
+		var e error
+		d, e = beginDeletion(s, r, at, retainUntil)
+		if e != nil {
+			return e
+		}
+		if d.Claim != nil && *d.Claim != claim {
+			return ErrConflict
+		}
+		d.Claim = &claim
+		s.Deletions[deletionKey(r)] = d
+		return nil
+	})
 	return
 }
 func (j *MemoryJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v DeletionReceipt) (d Deletion, err error) {

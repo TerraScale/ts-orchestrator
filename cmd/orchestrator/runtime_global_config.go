@@ -27,18 +27,19 @@ import (
 var ErrProductionGlobalDependency = errors.New("production global dependency is unavailable")
 
 type productionGlobalBuildInput struct {
-	BindProjection  func(computeProjection)
-	Global          *productionGlobalFile
-	Auth            productionAuthBootstrapConfig
-	Spec            estate.Spec
-	Mirror          *delivery.ArtifactMirror
-	Shared          provider.DeliveryRegionStoreConfig
-	Ownership       *provider.DurableOwnershipJournal
-	Close           func() error
-	Transition      productionPlacementTransitionConfig
-	RestoreBackup   restoredrill.BackupPort
-	RestoreBranches restoredrill.BranchPort
-	HostRemoval     func(context.Context, globalWorkerSession, *databaseadmission.NATSJournal, hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error)
+	BindProjection       func(computeProjection)
+	BindTargetProjection func(computeTargetProjection)
+	Global               *productionGlobalFile
+	Auth                 productionAuthBootstrapConfig
+	Spec                 estate.Spec
+	Mirror               *delivery.ArtifactMirror
+	Shared               provider.DeliveryRegionStoreConfig
+	Ownership            *provider.DurableOwnershipJournal
+	Close                func() error
+	Transition           productionPlacementTransitionConfig
+	RestoreBackup        restoredrill.BackupPort
+	RestoreBranches      restoredrill.BranchPort
+	HostRemoval          func(context.Context, globalWorkerSession, *databaseadmission.NATSJournal, hostRemovalTransitionPorts) (ocireconcile.MemberRemovalOwner, error)
 }
 
 // buildProductionGlobalConfig is the lease-owned composition stage. All
@@ -163,6 +164,10 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	if input.BindProjection != nil {
 		input.BindProjection(projection.Declared)
 		cleanup = append(cleanup, func() error { input.BindProjection(nil); return nil })
+	}
+	if input.BindTargetProjection != nil {
+		input.BindTargetProjection(projection.TargetCount)
+		cleanup = append(cleanup, func() error { input.BindTargetProjection(nil); return nil })
 	}
 	config.ComputeMutationJournalBucket = input.Global.Compute.MutationJournalKV
 	config.Ownership = input.Ownership
