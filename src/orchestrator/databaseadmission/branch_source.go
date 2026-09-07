@@ -73,7 +73,7 @@ func validBranchProvenance(r Request) bool {
 	if !branchProvenancePinned(r) {
 		return true
 	}
-	if r.ParentDatabaseID == "" || !canonicalID.MatchString(r.RecoveryPointID) || r.RestoreEpoch == 0 || !validJournalCut(r.JournalCut) || !validRestoreProvider(r.RestoreProvider) {
+	if r.ParentDatabaseID == "" || !(canonicalID.MatchString(r.RecoveryPointID) || validDigest(r.RecoveryPointID)) || r.RestoreEpoch == 0 || !validJournalCut(r.JournalCut) || !validRestoreProvider(r.RestoreProvider) {
 		return false
 	}
 	return true

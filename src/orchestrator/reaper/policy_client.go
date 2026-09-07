@@ -149,7 +149,8 @@ func (c *LifecyclePolicyClient) Evaluate(ctx context.Context, scope LifecyclePol
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
 	validGrace := func(g LifecycleBillingGrace) bool {
-		return !g.StartedAt.IsZero() && !g.Deadline.IsZero() && !g.Deadline.Before(g.StartedAt)
+		return !g.StartedAt.IsZero() && !g.Deadline.IsZero() && !g.Deadline.Before(g.StartedAt) &&
+			g.Deadline.Sub(g.StartedAt) >= 30*24*time.Hour
 	}
 	if facts.Coverage.CardLoss != nil && !validGrace(*facts.Coverage.CardLoss) {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy

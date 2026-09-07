@@ -17,6 +17,7 @@ func bootstrapRunbookLookup() envLookup {
 	values := map[string]string{
 		ocireconcile.OCITenancyEnvironment:      "ocid1.tenancy.oc1..aaaaaaaa",
 		ocireconcile.OCIImageEnvironment:        "ocid1.image.oc1..aaaaaaaa",
+		ociFallbackImageIDEnvironment:           "ocid1.image.oc1..bbbbbbbb",
 		bootstrapAvailabilityDomainsEnvironment: "AD-1,AD-2",
 		ocireconcile.TSNodeURLEnvironment:       "https://releases.example/ts-node",
 		ocireconcile.TSNodeSHA256Environment:    strings.Repeat("a", 64),

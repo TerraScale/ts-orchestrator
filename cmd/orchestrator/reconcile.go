@@ -133,6 +133,7 @@ func newReconcileLoop(dependencies *productionReconcileDependencies, output io.W
 	}
 	return reconcile.NewLoop(reconcile.LoopConfig{
 		Spec:         dependencies.Spec,
+		Desired:      dependencies.OCI.desiredSpec,
 		Providers:    []reconcile.Reconciler{dependencies.OCI, dependencies.Cloudflare},
 		Interval:     reconcileInterval,
 		AllowDeletes: true,
@@ -140,6 +141,24 @@ func newReconcileLoop(dependencies *productionReconcileDependencies, output io.W
 		Drift:        &reconcileDriftSink{telemetry: dependencies.Telemetry, output: output},
 		Progress:     dependencies.Progress,
 	})
+}
+
+func (c *ociReconcileController) desiredSpec(_ context.Context) (estate.Spec, error) {
+	if c == nil {
+		return estate.Spec{}, errors.New("reconcile: OCI controller is unavailable")
+	}
+	spec := c.spec
+	for _, region := range spec.Regions {
+		if controller := c.regions[region.Code]; controller != nil {
+			controller.mu.Lock()
+			target := controller.scaleOutTarget
+			controller.mu.Unlock()
+			if target > region.Members.Count {
+				region.Members.Count = target
+			}
+		}
+	}
+	return spec, nil
 }
 
 func (d *productionReconcileDependencies) close() error {
@@ -414,6 +433,7 @@ func loadReconcileEstate(lookup envLookup) (estate.Spec, error) {
 // typed observations; only normalized, provider-neutral attributes cross the
 // generic loop boundary.
 type ociReconcileController struct {
+	spec     estate.Spec
 	regions  map[string]*ociRegionController
 	onChange func()
 }
@@ -519,47 +539,7 @@ func (r *ociRegionController) observe(ctx context.Context) (*ociRegionObservatio
 		return nil, reconcile.State{}, err
 	}
 	observation := &ociRegionObservation{network: network, compute: compute, block: block, object: object, vault: vault, certs: certs}
-	return observation, r.ociObservedState(observation), nil
-}
-
-// ociObservedState keeps the generic ownership plan connected to a durable
-// scale-out target. The typed compute reconciler already sees the raised
-// declaration; expose a bounded compute drift marker so the generic loop
-// dispatches the owned provider action even while the old estate declaration
-// is being replaced by the next persisted projection.
-func (r *ociRegionController) ociObservedState(observed *ociRegionObservation) reconcile.State {
-	state := ociObservedState(r.region, observed)
-	r.mu.Lock()
-	target := int(r.scaleOutTarget)
-	r.mu.Unlock()
-	if target == 0 || observed == nil {
-		return state
-	}
-	live := 0
-	for _, member := range observed.compute.Members {
-		if ociKnownLiveLifecycle(member.LifecycleState) {
-			live++
-		}
-	}
-	if target <= live {
-		return state
-	}
-	for index := range state.Resources {
-		resource := &state.Resources[index]
-		if resource.Ref.Kind != estate.ResourceCompute || resource.Ref.Region != r.region.Code {
-			continue
-		}
-		for attribute := range resource.Attributes {
-			if resource.Attributes[attribute].Name == "member.count" {
-				// The marker is deliberately below the static declaration, so
-				// Diff emits an owned update while ComputeReconciler plans the
-				// actual missing stable slot from the raised declaration.
-				resource.Attributes[attribute].Value = fmt.Sprint(max(0, int(r.region.Members.Count)-1))
-				return state
-			}
-		}
-	}
-	return state
+	return observation, ociObservedState(r.region, observation), nil
 }
 
 func (c *ociReconcileController) Apply(ctx context.Context, plan reconcile.Plan) error {
@@ -1065,7 +1045,7 @@ func newOCIReconcileController(spec estate.Spec, lookup envLookup) (*ociReconcil
 		}
 		controllers[region.Code] = controller
 	}
-	return &ociReconcileController{regions: controllers}, nil
+	return &ociReconcileController{spec: spec, regions: controllers}, nil
 }
 
 func newOCIRegionController(region estate.Region, estateFile, keyID, keyFile, imageID, fallbackImageID, authorityID string) (*ociRegionController, error) {

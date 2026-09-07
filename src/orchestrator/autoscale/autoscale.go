@@ -20,6 +20,7 @@ type Observation struct {
 	HostID        string
 	EngineID      string
 	Sequence      int64
+	Incarnation   string
 	ObservedAt    time.Time
 	CPUPercent    float64
 	MemoryPercent float64
@@ -40,6 +41,8 @@ type Target struct {
 	LastObservation        int64
 	LastScaleAt            time.Time
 	OperationID            string
+	HostSequences          map[string]int64
+	HostIncarnations       map[string]string
 }
 
 type TargetStore interface {
@@ -137,10 +140,13 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, nil
 	}
 	previousState := state
+	advanced := observationsAdvance(observations, state.HostSequences, state.HostIncarnations)
 	seq := latestObservationSequence(observations)
-	if seq <= state.LastObservation {
+	if !advanced {
 		return Plan{}, false, nil
 	}
+	state.HostSequences = observationSequences(observations)
+	state.HostIncarnations = observationIncarnations(observations)
 	high := allHigh(observations, c.config)
 	if high {
 		state.ConsecutiveHighSamples++
@@ -194,7 +200,7 @@ func validObservations(values []Observation, now time.Time, maxAge time.Duration
 	}
 	seenHosts, seenEngines := map[string]struct{}{}, map[string]struct{}{}
 	for _, value := range values {
-		if value.HostID == "" || value.EngineID == "" || value.Sequence <= 0 || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity < 0 || value.QueueCapacity == 0 && value.QueueDepth != 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
+		if value.HostID == "" || value.EngineID == "" || value.Incarnation == "" || value.Sequence <= 0 || !value.Authenticated || !value.Healthy || value.ObservedAt.IsZero() || value.ObservedAt.After(now) || now.Sub(value.ObservedAt) > maxAge || value.CPUPercent < 0 || value.CPUPercent > 100 || value.MemoryPercent < 0 || value.MemoryPercent > 100 || value.QueueDepth < 0 || value.QueueCapacity < 0 || value.QueueCapacity == 0 && value.QueueDepth != 0 || value.QueueDepth > value.QueueCapacity || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || math.IsNaN(value.MemoryPercent) || math.IsInf(value.MemoryPercent, 0) {
 			return false
 		}
 		if _, ok := seenHosts[value.HostID]; ok {
@@ -215,6 +221,43 @@ func latestObservationSequence(values []Observation) int64 {
 		latest = max(latest, value.Sequence)
 	}
 	return latest
+}
+
+func observationsAdvance(values []Observation, sequences map[string]int64, incarnations map[string]string) bool {
+	if len(sequences) == 0 {
+		return true
+	}
+	if len(sequences) != 0 && len(values) != len(sequences) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		seen[value.HostID] = struct{}{}
+		previousIncarnation, known := incarnations[value.HostID]
+		if !known || previousIncarnation != value.Incarnation {
+			continue
+		}
+		if value.Sequence <= sequences[value.HostID] {
+			return false
+		}
+	}
+	return len(seen) == len(sequences)
+}
+
+func observationSequences(values []Observation) map[string]int64 {
+	result := make(map[string]int64, len(values))
+	for _, value := range values {
+		result[value.HostID] = value.Sequence
+	}
+	return result
+}
+
+func observationIncarnations(values []Observation) map[string]string {
+	result := make(map[string]string, len(values))
+	for _, value := range values {
+		result[value.HostID] = value.Incarnation
+	}
+	return result
 }
 
 func allHigh(values []Observation, config Config) bool {

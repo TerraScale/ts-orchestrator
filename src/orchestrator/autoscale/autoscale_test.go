@@ -3,6 +3,7 @@ package autoscale
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func (s *testTargets) Load(context.Context, string) (Target, bool, error) {
 	return s.value, s.found, nil
 }
 func (s *testTargets) CompareAndSwap(_ context.Context, _ string, expected *Target, next Target) error {
-	if expected == nil && s.found || expected != nil && (!s.found || *expected != s.value) {
+	if expected == nil && s.found || expected != nil && (!s.found || !reflect.DeepEqual(*expected, s.value)) {
 		return errors.New("conflict")
 	}
 	s.value, s.found, s.writes = next, true, s.writes+1
@@ -44,7 +45,7 @@ func testController(t *testing.T, source ObservationSource, targets TargetStore,
 }
 
 func highObservations(now time.Time, sequence int64) []Observation {
-	return []Observation{{HostID: "host-a", EngineID: "engine-a", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}, {HostID: "host-b", EngineID: "engine-b", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}}
+	return []Observation{{HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}, {HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, QueueDepth: 10, QueueCapacity: 20, Healthy: true, Authenticated: true}}
 }
 
 func TestEvaluateRequiresThreeSamplesAndCreatesOneNodePlan(t *testing.T) {
@@ -88,8 +89,8 @@ func TestEvaluateCooldownAndInvalidObservationsHoldTarget(t *testing.T) {
 func TestEvaluateAcceptsIndependentHostSequences(t *testing.T) {
 	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
 	source := &testSource{observations: []Observation{
-		{HostID: "host-a", EngineID: "engine-a", Sequence: 17, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
-		{HostID: "host-b", EngineID: "engine-b", Sequence: 12, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
+		{HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: 17, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
+		{HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: 12, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true},
 	}}
 	targets := &testTargets{value: Target{Region: "gru", Members: 2}, found: true}
 	c := testController(t, source, targets, now)
@@ -108,5 +109,30 @@ func TestEvaluateAcceptsIndependentHostSequences(t *testing.T) {
 	plan, created, err := c.Evaluate(context.Background(), "gru")
 	if err != nil || !created || plan.ObservationSeq != 19 || plan.DesiredMembers != 3 {
 		t.Fatalf("independent sample plan = %+v, created %v, err %v", plan, created, err)
+	}
+}
+
+func TestEvaluateHoldsWhenOneHostIsStaleOrRebootedAlone(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: highObservations(now, 1)}
+	targets := &testTargets{value: Target{Region: "gru", Members: 2}, found: true}
+	c := testController(t, source, targets, now)
+	for sequence := int64(1); sequence <= 2; sequence++ {
+		source.observations = highObservations(now, sequence)
+		if _, _, err := c.Evaluate(context.Background(), "gru"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.observations = highObservations(now, 3)
+	source.observations[1].Sequence = 2
+	if _, created, err := c.Evaluate(context.Background(), "gru"); err != nil || created {
+		t.Fatalf("stale host created=%v err=%v", created, err)
+	}
+	source.observations = highObservations(now, 4)
+	source.observations[0].Incarnation = "boot-a-new"
+	source.observations[0].Sequence = 1
+	source.observations[1].Sequence = 2
+	if _, created, err := c.Evaluate(context.Background(), "gru"); err != nil || created {
+		t.Fatalf("single-host reboot created=%v err=%v", created, err)
 	}
 }

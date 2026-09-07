@@ -137,6 +137,9 @@ func ValidateRequest(r Request) error {
 	if r.ParentDatabaseID != "" && !canonicalID.MatchString(r.ParentDatabaseID) {
 		return ErrInvalid
 	}
+	if !validBranchProvenance(r) {
+		return ErrInvalid
+	}
 	if !environmentName.MatchString(r.Environment) || !canonicalID.MatchString(r.TenantID) || !canonicalID.MatchString(r.ProjectID) || !databaseName.MatchString(r.Name) || len(r.OperationID) < 1 || len(r.OperationID) > 128 || len(r.Regions) < 1 || len(r.Regions) > 3 {
 		return ErrInvalid
 	}

@@ -306,6 +306,9 @@ func TestComputeApplyAdvancesThroughQualifiedCandidates(t *testing.T) {
 		if launch.Shape == "VM.Standard.E4.Flex" && launch.ImageID != "ocid1.image.oc1.amd64" {
 			t.Fatalf("x86 candidate image = %s", launch.ImageID)
 		}
+		if launch.Shape == "VM.Standard.E5.Flex" && launch.CloudInitBase64 != "x86-bootstrap" {
+			t.Fatalf("x86 candidate cloud-init = %q, want architecture-matched bootstrap", launch.CloudInitBase64)
+		}
 	}
 }
 

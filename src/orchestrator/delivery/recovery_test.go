@@ -16,9 +16,15 @@ type recoveryObserverControl struct {
 	converges   []string
 	fail        bool
 	requireAuth bool
+	cordons     []bool
 }
 
-func (c *recoveryObserverControl) Cordon(context.Context, string, bool) error { return nil }
+func (c *recoveryObserverControl) Cordon(_ context.Context, _ string, cordoned bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cordons = append(c.cordons, cordoned)
+	return nil
+}
 
 func (c *recoveryObserverControl) DrainStatus(context.Context, string) (DrainReport, error) {
 	return DrainReport{Cordoned: true, Drained: true}, nil
@@ -119,7 +125,7 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 		p.Mutated = false
 		op := recoveryOperation(t, request, artifact.Signature, p)
 		rollback, err := rollout.Recover(context.WithValue(context.Background(), recoveryAuthContextKey{}, true), op.Request, artifact, op.Rollout)
-		if err != nil || rollback.Status != RollbackSucceeded || control.convergeCount() != 0 {
+		if err != nil || rollback.Status != RollbackSucceeded || control.convergeCount() != 0 || len(control.cordons) != 1 || control.cordons[0] {
 			t.Fatalf("pre-effect recovery: rollback=%+v err=%v converges=%d", rollback, err, control.convergeCount())
 		}
 	})
@@ -129,7 +135,7 @@ func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.
 		rollout := recoveryRollout(t, control)
 		op := recoveryOperation(t, request, artifact.Signature, progress)
 		rollback, err := rollout.Recover(context.WithValue(context.Background(), recoveryAuthContextKey{}, true), op.Request, artifact, op.Rollout)
-		if err != nil || rollback.Status != RollbackSucceeded || control.convergeCount() != 1 {
+		if err != nil || rollback.Status != RollbackSucceeded || control.convergeCount() != 1 || len(control.cordons) != 1 || control.cordons[0] {
 			t.Fatalf("post-effect recovery: rollback=%+v err=%v converges=%d", rollback, err, control.convergeCount())
 		}
 	})

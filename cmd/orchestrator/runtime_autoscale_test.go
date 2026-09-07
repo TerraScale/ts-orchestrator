@@ -10,7 +10,7 @@ import (
 
 func TestProductionAutoscaleAppliesOneNodePlan(t *testing.T) {
 	now := time.Now().UTC()
-	source := &runtimeAutoscaleSource{observations: []autoscale.Observation{{HostID: "h1", EngineID: "e1", Sequence: 1, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true}, {HostID: "h2", EngineID: "e2", Sequence: 1, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true}}}
+	source := &runtimeAutoscaleSource{observations: []autoscale.Observation{{HostID: "h1", EngineID: "e1", Incarnation: "boot-1", Sequence: 1, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true}, {HostID: "h2", EngineID: "e2", Incarnation: "boot-2", Sequence: 1, ObservedAt: now, CPUPercent: 90, MemoryPercent: 90, Healthy: true, Authenticated: true}}}
 	store := &runtimeAutoscaleTargets{target: autoscale.Target{Region: "gru", Members: 2}, found: true}
 	controller, err := autoscale.New(autoscale.Config{Source: source, Targets: store, Authority: runtimeAutoscaleAuthority{}, MinMembers: 2, MaxMembers: 3, CPUThreshold: 80, MemoryThreshold: 80, HighSamples: 1, ObservationMaxAge: time.Minute, Now: func() time.Time { return now }})
 	if err != nil {

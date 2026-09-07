@@ -42,12 +42,6 @@ func Prepare(artifact, release string) (PrivateFixture, error) {
 	return prepareAt("", artifact, release)
 }
 
-// PrepareAt is the CLI-facing variant. parent must be an existing private
-// directory; a uniquely named child is created below it.
-func PrepareAt(parent, artifact, release string) (PrivateFixture, error) {
-	return prepareAt(parent, artifact, release)
-}
-
 func prepareAt(parent, artifact, release string) (PrivateFixture, error) {
 	bindings := []vmengineconfig.Binding{
 		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"}, {NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"},

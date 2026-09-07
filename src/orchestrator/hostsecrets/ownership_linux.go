@@ -77,7 +77,7 @@ func AdmitServiceOwnershipFile(ctx context.Context, path, serviceUser, manifestD
 
 func entryService(entry Entry) string {
 	switch entry.Destination {
-	case "/etc/terrascale/terrabase/key.pem", "/etc/terrascale/terrabase/transition/receipt-signer.key":
+	case "/etc/terrascale/terrabase/key.pem", "/etc/terrascale/terrabase/transition/receipt-signer.key", NativeRecoveryReceiptKeyPath:
 		return TerraBaseUser
 	case "/etc/terrascale/engine-observer/client.key", "/etc/terrascale/placement/engine-client.key", "/etc/terrascale/placement/host.nkey", "/etc/terrascale/placement/nats-client.key", "/etc/terrascale/database/host.nkey", "/etc/terrascale/database/lifecycle.nkey", "/etc/terrascale/database/nats-client.key":
 		return OrchestratorUser

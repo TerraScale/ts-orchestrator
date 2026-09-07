@@ -83,6 +83,12 @@ func TestLifecyclePolicyClientRejectsInvalidFacts(t *testing.T) {
 		{"invalid grace", func(m map[string]any) {
 			m["coverage"].(map[string]any)["cardLoss"] = map[string]any{"startedAt": "2026-09-05T00:00:00Z"}
 		}},
+		{"short grace", func(m map[string]any) {
+			m["coverage"].(map[string]any)["cardLoss"] = map[string]any{"startedAt": "2026-09-05T00:00:00Z", "deadline": "2026-09-05T00:01:00Z"}
+		}},
+		{"29-day grace", func(m map[string]any) {
+			m["coverage"].(map[string]any)["cardLoss"] = map[string]any{"startedAt": "2026-09-05T00:00:00Z", "deadline": "2026-10-04T00:00:00Z"}
+		}},
 		{"schema", func(m map[string]any) { m["schemaVersion"] = 2 }},
 		{"scope", func(m map[string]any) { m["organizationId"] = "another" }},
 		{"revision", func(m map[string]any) { m["revision"] = "" }},

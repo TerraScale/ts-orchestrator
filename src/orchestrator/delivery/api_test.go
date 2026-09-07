@@ -51,6 +51,10 @@ func (r *fakeRoller) Recover(context.Context, *Request, *ReleaseArtifact, *Rollo
 	return &Rollback{Attempted: true, Status: RollbackSucceeded}, nil
 }
 
+func (r *fakeRoller) RecoverFenced(ctx context.Context, request *Request, artifact *ReleaseArtifact, progress *RolloutProgress, _ OperationFence, _ FenceChecker) (*Rollback, error) {
+	return r.Recover(ctx, request, artifact, progress)
+}
+
 type panicAfterMutationRoller struct {
 	mu             sync.Mutex
 	mutated        bool

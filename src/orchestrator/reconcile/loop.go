@@ -36,6 +36,9 @@ type Status struct {
 type LoopConfig struct {
 	// Spec is the declared estate. Required.
 	Spec estate.Spec
+	// Desired optionally refreshes the authoritative declaration before each
+	// pass. It is used by GRU-owned projections such as autoscale targets.
+	Desired func(context.Context) (estate.Spec, error)
 	// Providers own disjoint resource kinds. Required for the running loop;
 	// an empty set is only valid for one-shot planning (dry runs).
 	Providers []Reconciler
@@ -170,6 +173,19 @@ func (l *Loop) Run(ctx context.Context) error {
 // recorded and returned after the pass completes.
 func (l *Loop) Pass(ctx context.Context) (Plan, error) {
 	start := l.now()
+	if l.config.Desired != nil {
+		spec, err := l.config.Desired(ctx)
+		if err != nil {
+			l.finishPass(start, Plan{}, err)
+			return Plan{}, err
+		}
+		declared, err := Declared(spec)
+		if err != nil {
+			l.finishPass(start, Plan{}, err)
+			return Plan{}, err
+		}
+		l.declared = declared
+	}
 	plan, planErr := l.observeAndPlan(ctx)
 	if plan.Empty() {
 		// Nothing to apply: either converged, or no usable observation to

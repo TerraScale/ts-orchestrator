@@ -324,6 +324,17 @@ func (c *fencedHostControl) Converge(ctx context.Context, host string, plan []by
 	return c.inner.Converge(ctx, host, plan)
 }
 
+func (c *fencedHostControl) ObserveRelease(ctx context.Context, host string) (HostReleaseState, error) {
+	if err := c.before(); err != nil {
+		return HostReleaseState{}, err
+	}
+	observer, ok := c.inner.(HostReleaseObserver)
+	if !ok {
+		return HostReleaseState{}, errors.New("delivery: release observation is unavailable")
+	}
+	return observer.ObserveRelease(ctx, host)
+}
+
 type fencedEdgePromoter struct {
 	inner EdgePromoter
 	fence OperationFence

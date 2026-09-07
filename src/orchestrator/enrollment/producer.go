@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
@@ -165,8 +166,9 @@ func (p *Producer) Enroll(ctx context.Context, r Record, template Template) (Rec
 	for _, role := range []struct {
 		name, path string
 		receipt    bool
+		pkcs8      bool
 	}{
-		{"placement", "/etc/terrascale/placement/host.nkey", false}, {"database", "/etc/terrascale/database/host.nkey", false}, {"lifecycle", "/etc/terrascale/database/lifecycle.nkey", false}, {"node", "/etc/terrascale/ts-node-bootstrap/user.seed", false}, {"reader", "/etc/terrascale/ts-node-authority/user.seed", false}, {"regional", "/etc/terrascale/orchestrator/regional/user.seed", false}, {"receipt", "/etc/terrascale/terrabase/transition/receipt-signer.key", true},
+		{"placement", "/etc/terrascale/placement/host.nkey", false, false}, {"database", "/etc/terrascale/database/host.nkey", false, false}, {"lifecycle", "/etc/terrascale/database/lifecycle.nkey", false, false}, {"node", "/etc/terrascale/ts-node-bootstrap/user.seed", false, false}, {"reader", "/etc/terrascale/ts-node-authority/user.seed", false, false}, {"regional", "/etc/terrascale/orchestrator/regional/user.seed", false, false}, {"receipt", "/etc/terrascale/terrabase/transition/receipt-signer.key", true, false}, {"native-recovery-receipt", hostsecrets.NativeRecoveryReceiptKeyPath, true, true},
 	} {
 		if err := p.Check(ctx); err != nil {
 			return Record{}, PublicBootstrap{}, err
@@ -201,6 +203,13 @@ func (p *Producer) Enroll(ctx context.Context, r Record, template Template) (Rec
 			}
 		}
 		clear(seed.Key)
+		if role.pkcs8 {
+			credential, e = x509.MarshalPKCS8PrivateKey(ed25519.PrivateKey(credential))
+			if e != nil {
+				clear(credential)
+				return Record{}, PublicBootstrap{}, e
+			}
+		}
 		e = publish(role.path, credential)
 		clear(credential)
 		if e != nil {

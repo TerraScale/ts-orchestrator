@@ -37,7 +37,7 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 				return nil, autoscale.ErrUnavailable
 			}
 			result = append(result, autoscale.Observation{
-				HostID: report.NodeId, EngineID: report.NodeId, Sequence: metrics.ObservationSequence,
+				HostID: report.NodeId, EngineID: report.NodeId, Incarnation: metrics.BootGeneration, Sequence: metrics.ObservationSequence,
 				ObservedAt: time.UnixMilli(metrics.ObservedAtUnixMS), CPUPercent: metrics.CPUPercent,
 				MemoryPercent: metrics.MemoryPercent, QueueDepth: metrics.QueueDepth,
 				QueueCapacity: metrics.QueueCapacity, Healthy: true, Authenticated: true,

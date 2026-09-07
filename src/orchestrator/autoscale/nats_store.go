@@ -3,6 +3,7 @@ package autoscale
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 )
@@ -37,7 +38,7 @@ func (s *NATSTargetStore) CompareAndSwap(ctx context.Context, region string, exp
 			*state = make(map[string]Target)
 		}
 		current, found := (*state)[region]
-		if expected == nil && found || expected != nil && (!found || *expected != current) {
+		if expected == nil && found || expected != nil && (!found || !reflect.DeepEqual(*expected, current)) {
 			return ErrConflict
 		}
 		if next.Region != region {

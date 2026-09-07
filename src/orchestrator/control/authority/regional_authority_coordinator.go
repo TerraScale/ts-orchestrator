@@ -306,6 +306,13 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 				c.publish("fenced", false, AuthorityObservation{AuthorityId: c.authorityId}, "initial-admission-or-lease-failed", time.Now().UTC())
 				return
 			}
+			if err != nil && c.withinMutation == nil && !(c.tolerateTransientFailures && shared.IsNatsTransientError(err)) {
+				// A failed refresh cannot leave the last leader projection visible.
+				// Keep the coordinator alive so an admitted data plane can continue
+				// serving, but make every snapshot-only caller fail closed until a
+				// subsequent quorum-backed tick succeeds.
+				c.publish("unavailable", false, AuthorityObservation{AuthorityId: c.authorityId}, "regional-authority-unverified", time.Now().UTC())
+			}
 			if err != nil && c.tolerateTransientFailures && shared.IsNatsTransientError(err) {
 				c.stateMu.Lock()
 				confirmed := AuthorityObservation{

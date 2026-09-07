@@ -174,3 +174,28 @@ func TestRestorePreAdmissionDenialLeavesNoTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRequestRejectsIncompleteRestoreProvenance(t *testing.T) {
+	base := Request{
+		Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+		Name: "recovered", OperationID: "restore-operation", Regions: []string{"GRU"},
+	}
+	for name, mutate := range map[string]func(*Request){
+		"point-without-parent":   func(r *Request) { r.RecoveryPointID = "01ARZ3NDEKTSV4RRFFQ69G5FAX" },
+		"cut-without-point":      func(r *Request) { r.JournalCut = "cut-1" },
+		"epoch-without-parent":   func(r *Request) { r.RestoreEpoch = 1 },
+		"provider-without-point": func(r *Request) { r.RestoreProvider = "oci" },
+		"invalid-provider": func(r *Request) {
+			r.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+			r.RecoveryPointID, r.JournalCut, r.RestoreEpoch, r.RestoreProvider = "01ARZ3NDEKTSV4RRFFQ69G5FAY", "cut-1", 1, "s3"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := base
+			mutate(&request)
+			if err := ValidateRequest(request); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("ValidateRequest = %v, want ErrInvalid", err)
+			}
+		})
+	}
+}

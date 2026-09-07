@@ -18,6 +18,10 @@ const TerraBaseUser = "terrascale-terrabase"
 // StorageTransitionReceiptKeyPath remains root-owned across service handoff.
 const StorageTransitionReceiptKeyPath = "/etc/terrascale/ts-node-bootstrap/storage-transition-receipt.key"
 
+// NativeRecoveryReceiptKeyPath is a dedicated TerraBase-owned observation
+// signer. It is separate from the placement-transition receipt authority.
+const NativeRecoveryReceiptKeyPath = "/etc/terrascale/terrabase/native-recovery/receipt-signer.key"
+
 const SeedPath = "/etc/terrascale/host-secrets.json"
 const MaxSeedBytes = 32 << 10
 const MaxSecretBytes = 64 << 10
@@ -53,7 +57,7 @@ var operationPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 func allowedDestination(path string) bool {
 	switch path {
-	case "/etc/terrascale/terrabase/key.pem", "/etc/terrascale/terrabase/transition/receipt-signer.key",
+	case "/etc/terrascale/terrabase/key.pem", "/etc/terrascale/terrabase/transition/receipt-signer.key", NativeRecoveryReceiptKeyPath,
 		"/etc/terrascale/engine-observer/client.key", "/etc/terrascale/placement/engine-client.key", "/etc/terrascale/placement/host.nkey", "/etc/terrascale/placement/nats-client.key",
 		"/etc/terrascale/database/host.nkey", "/etc/terrascale/database/lifecycle.nkey", "/etc/terrascale/database/nats-client.key", StorageTransitionReceiptKeyPath, "/etc/terrascale/ts-node-authority/user.seed", "/etc/terrascale/ts-node-authority/client.key", "/etc/terrascale/ts-node-bootstrap/client.key", "/etc/terrascale/ts-node-bootstrap/user.seed", "/etc/terrascale/orchestrator/membership.key", "/etc/terrascale/orchestrator/command.key":
 		return true

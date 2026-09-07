@@ -145,6 +145,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.BranchDatabaseRef = &databaseRef
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef
+	config.EstateSnapshot = deferredProductionEstateSnapshot(input.Spec, input.Global.HealthFile, &databaseRef)
 	config.Restore.Backup = productionDatabaseBackupPort{database: &backupDatabaseRef, config: config.Database, refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: input.Transition.Issuer.ProofKeyID, key: slices.Clone(input.Transition.Issuer.ProofKey), grantJournal: func(op string) (*authorityjournal.Journal[lifecycleGrantRecord], error) {
 		h := sha256.Sum256([]byte(op))
 		return authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "restore-grant-" + hex.EncodeToString(h[:])}, func() lifecycleGrantRecord { return lifecycleGrantRecord{} }, func(lifecycleGrantRecord) error { return nil })
@@ -241,8 +242,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	if input.RestoreBranches != nil {
 		config.Restore.Branches = input.RestoreBranches
 	}
-	// Reaper database/key and estate snapshot are installed after the database,
-	// placement transition, and accepted lease-bound lifecycle client exist.
-	// Keep this stage fail closed while preserving the already opened clients.
-	return config, fmt.Errorf("%w: lifecycle reaper database/key and estate snapshot adapters", ErrProductionGlobalDependency)
+	// The native lifecycle database adapter is created by the composition root
+	// after the retained production database exists. EstateSnapshot is deferred
+	// through databaseRef for the same reason; both are concrete lease-bound
+	// seams, so returning here permits the root to finish composition.
+	return config, nil
 }

@@ -262,3 +262,15 @@ func TestEnrollmentCredentialsKeepExactServiceOwnersAcrossRestart(t *testing.T) 
 		}
 	}
 }
+
+func TestNativeRecoveryReceiptCredentialIsDedicatedToTerraBase(t *testing.T) {
+	if !allowedDestination(NativeRecoveryReceiptKeyPath) {
+		t.Fatal("native recovery receipt path is not an approved destination")
+	}
+	if got := entryService(Entry{Destination: NativeRecoveryReceiptKeyPath}); got != TerraBaseUser {
+		t.Fatalf("native recovery receipt owner = %q, want %q", got, TerraBaseUser)
+	}
+	if NativeRecoveryReceiptKeyPath == StorageTransitionReceiptKeyPath {
+		t.Fatal("native recovery receipt signer must not reuse transition signer path")
+	}
+}
