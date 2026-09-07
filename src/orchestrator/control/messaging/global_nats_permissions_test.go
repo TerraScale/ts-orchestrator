@@ -119,7 +119,7 @@ func TestGlobalAuthorityScopedStateAndDirectoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"authority.global", "security.rotation.state", "security.rotation.barrier", "security.identity-rotation.state", "security.identity-rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier", "placement.proposal.state", "placement.proposal.barrier", "auth.bootstrap.state", "auth.bootstrap.barrier", "database.admission.state", "database.admission.barrier"} {
+	for _, key := range []string{"member.enrollment.state", "member.enrollment.barrier", "autoscale.state", "autoscale.barrier", "authority.global", "security.rotation.state", "security.rotation.barrier", "security.identity-rotation.state", "security.identity-rotation.barrier", "restore.drill.state", "restore.drill.barrier", "reaper.state", "reaper.barrier", "placement.proposal.state", "placement.proposal.barrier", "auth.bootstrap.state", "auth.bootstrap.barrier", "database.admission.state", "database.admission.barrier"} {
 		revision, err := controllerLeaders.Create(ctx, key, []byte("first"))
 		if err != nil {
 			t.Fatalf("state create %s: %v", key, err)

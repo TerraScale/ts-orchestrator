@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"sort"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
@@ -111,6 +112,10 @@ type NATSControlRuntimeConfig struct {
 	Stores  map[string]ControlNATSStore
 	Members []ControlRuntimeMember
 	Actions []ControlRuntimeActionPlan
+	// ResolveChecks binds each action to live election identities after its
+	// handoffs. Only term, candidate and lease ID may differ from the admitted
+	// checks; topology and membership remain owner-pinned.
+	ResolveChecks func(context.Context, ControlActionRequest, []ControlStoreCheck) ([]ControlStoreCheck, error)
 }
 
 type NATSControlRuntime struct {
@@ -130,6 +135,7 @@ func NewNATSControlRuntime(config NATSControlRuntimeConfig) (*NATSControlRuntime
 		return nil, ErrControlRuntimeUnavailable
 	}
 	runtime := &NATSControlRuntime{config: NATSControlRuntimeConfig{Hosts: map[string]*hostcontrol.Client{}, Stores: map[string]ControlNATSStore{}}, members: map[string]ControlRuntimeMember{}, actions: map[string]ControlRuntimeActionPlan{}}
+	runtime.config.ResolveChecks = config.ResolveChecks
 	for region, client := range config.Hosts {
 		if !validControlRegion(region) || client == nil {
 			return nil, ErrControlProviderInvalid
@@ -212,6 +218,10 @@ func validateControlNATSStore(store ControlNATSStore) error {
 }
 
 func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
+	return r.validatePlanMode(plan, r.config.ResolveChecks != nil)
+}
+
+func (r *NATSControlRuntime) validatePlanMode(plan ControlRuntimeActionPlan, resolveLive bool) error {
 	if !validControlRegion(plan.Region) || plan.TargetEpoch == 0 || plan.ExpectedEpoch > plan.TargetEpoch || len(plan.Checks) == 0 {
 		return ErrControlProviderInvalid
 	}
@@ -256,7 +266,7 @@ func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
 		}
 	}
 	for _, check := range plan.Checks {
-		if _, ok := r.config.Stores[check.Store]; !ok || !validControlRegion(check.Region) || check.AuthorityID == "" || check.LeaseKey == "" || check.AuthorityTerm == 0 || len(check.Streams) == 0 {
+		if _, ok := r.config.Stores[check.Store]; !ok || !validControlRegion(check.Region) || check.AuthorityID == "" || check.LeaseKey == "" || (!resolveLive && check.AuthorityTerm == 0) || len(check.Streams) == 0 {
 			return ErrControlProviderInvalid
 		}
 		names := map[string]bool{}
@@ -424,8 +434,24 @@ func (r *NATSControlRuntime) validatePlan(plan ControlRuntimeActionPlan) error {
 			return ErrControlProviderInvalid
 		}
 	}
-	if _, err := r.controlMutationPins(plan); err != nil {
-		return err
+	if resolveLive {
+		targets := map[string]bool{}
+		for _, mirror := range plan.MirrorUpdates {
+			targets[mirror.Store] = true
+		}
+		for _, update := range plan.ReplicaUpdates {
+			targets[update.Store] = true
+		}
+		for _, check := range plan.Checks {
+			delete(targets, check.Store)
+		}
+		if len(targets) != 0 {
+			return ErrControlProviderInvalid
+		}
+	} else {
+		if _, err := r.controlMutationPins(plan); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -511,6 +537,10 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 			return ControlRuntimeEvidence{}, err
 		}
 	}
+	plan, err := r.resolveActionChecks(ctx, request, plan)
+	if err != nil {
+		return ControlRuntimeEvidence{}, err
+	}
 	pins, err := r.controlMutationPins(plan)
 	if err != nil {
 		return ControlRuntimeEvidence{}, err
@@ -577,6 +607,69 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 		evidence.Candidate = &candidate
 	}
 	return evidence, nil
+}
+
+func (r *NATSControlRuntime) resolveActionChecks(ctx context.Context, request ControlActionRequest, plan ControlRuntimeActionPlan) (ControlRuntimeActionPlan, error) {
+	checks, err := r.resolveCheckIdentities(ctx, request, plan.Checks)
+	if err != nil {
+		return ControlRuntimeActionPlan{}, err
+	}
+	plan.Checks = checks
+	if err := r.validatePlanMode(plan, false); err != nil {
+		return ControlRuntimeActionPlan{}, err
+	}
+	return plan, nil
+}
+
+func (r *NATSControlRuntime) resolveCheckIdentities(ctx context.Context, request ControlActionRequest, declared []ControlStoreCheck) ([]ControlStoreCheck, error) {
+	if r.config.ResolveChecks == nil {
+		return declared, nil
+	}
+	// Never lend the resolver slices backed by the admitted declaration.
+	raw, err := json.Marshal(declared)
+	if err != nil {
+		return nil, err
+	}
+	var input []ControlStoreCheck
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return nil, err
+	}
+	resolved, err := r.config.ResolveChecks(ctx, request, input)
+	if err != nil {
+		return nil, err
+	}
+	if len(resolved) != len(declared) {
+		return nil, ErrControlProviderInvalid
+	}
+	// Copy only validated election fields into our own checks. A resolver may
+	// retain its output; it cannot later mutate the action's inventory or pins.
+	var checks []ControlStoreCheck
+	if err := json.Unmarshal(raw, &checks); err != nil {
+		return nil, err
+	}
+	for i, check := range resolved {
+		pinned := checks[i]
+		pinned.AuthorityTerm, pinned.AuthorityCandidateID, pinned.AuthorityLeaseID = check.AuthorityTerm, check.AuthorityCandidateID, check.AuthorityLeaseID
+		if !reflect.DeepEqual(pinned, check) || check.AuthorityTerm == 0 || check.AuthorityCandidateID == "" || check.AuthorityLeaseID == "" || !r.admittedControlAuthority(check, check.AuthorityCandidateID) || check.AuthorityID == "global" && check.Region != "gru" {
+			return nil, ErrControlProviderInvalid
+		}
+		checks[i] = pinned
+	}
+	for _, check := range checks {
+		connection, err := openControlNATS(ctx, r.config.Stores[check.Store])
+		if err != nil {
+			return nil, err
+		}
+		js, err := jetstream.New(connection)
+		if err == nil {
+			err = verifyControlMutationLease(ctx, js, check)
+		}
+		connection.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return checks, nil
 }
 
 func (r *NATSControlRuntime) applyHandoff(ctx context.Context, request ControlActionRequest, handoff ControlHostHandoff) error {
@@ -982,6 +1075,12 @@ func (r *NATSControlRuntime) VerifyQuorumAvailability(ctx context.Context, epoch
 		if !global {
 			continue
 		}
+		request := ControlActionRequest{Action: ControlAction{Kind: admitted.Kind, Region: admitted.Region, ExpectedEpoch: admitted.ExpectedEpoch, TargetEpoch: admitted.TargetEpoch}}
+		resolved, err := r.resolveCheckIdentities(ctx, request, []ControlStoreCheck{check})
+		if err != nil {
+			return err
+		}
+		check = resolved[0]
 		// Storage majority and its live authority lease are the availability
 		// evidence. Initial admission separately requires all signed members.
 		check.Members = nil

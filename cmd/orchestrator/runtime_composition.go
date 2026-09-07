@@ -114,7 +114,7 @@ type productionGlobalWorkerConfig struct {
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
 	ComputeApply                 func(context.Context, provider.ProviderMutationJournal) error
-	ComputeRemovalOwner          ocireconcile.MemberRemovalOwner
+	ComputeRemovalOwner          *computeRemovalOwnerBinding
 	ComputeGateways              map[string]ocireconcile.ComputeGateway
 	// HostRemoval constructs the owner only from the live GRU session and
 	// authenticated proof providers. It is required whenever compute is
@@ -279,6 +279,13 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, err
 	}
 	if config.AutoscaleSource != nil {
+		if len(config.ComputeGateways) != 0 {
+			source, sourceErr := newProductionAutoscaleObservationSource(session, config.AutoscaleSource, config.ComputeGateways, config.Ownership, config.Database.Environment, config.Database.Cluster)
+			if sourceErr != nil {
+				return group, sourceErr
+			}
+			config.AutoscaleSource = source
+		}
 		journal, err := authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "autoscale"}, func() map[string]autoscale.Target { return map[string]autoscale.Target{} }, func(map[string]autoscale.Target) error { return nil })
 		if err != nil {
 			return group, fmt.Errorf("runtime autoscale journal: %w", err)
@@ -389,7 +396,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			owner = &autoscaleRemovalOwner{controller: group.autoscale.controller, owner: owner}
 		}
 		group.hostRemoval = owner
-		config.ComputeRemovalOwner = owner
+		if config.ComputeRemovalOwner != nil {
+			config.ComputeRemovalOwner.Bind(owner)
+		}
 	}
 	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition, session)
 	if err != nil {
@@ -408,7 +417,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return database.lifecycleJournal.AllocatePlacementStreams(ctx, record, digest, time.Now())
 	}
 	transition.registerUsage = func(ctx context.Context, record databaseadmission.Record, digest string) error {
-		return deliverDatabaseUsage(ctx, database.lifecycleJournal, session.CheckEffectAuthority, databaseadmission.RemoteUsageRegistration(session.Connection), record, digest)
+		return deliverDatabaseUsage(ctx, database.currentJournal, session.CheckEffectAuthority, databaseadmission.RemoteUsageRegistration(session.Connection), record, digest)
 	}
 	if config.KV == nil {
 		return group, errors.New("runtime global KV publisher is required")

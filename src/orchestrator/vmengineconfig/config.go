@@ -22,7 +22,7 @@ import (
 )
 
 // Contract identifies the inspected producer parser, not a published release.
-const Contract = "terrabase-worktree-config-3e598c24c6762893748dfe6fdaa2cb04c4ef072e5db65d80ef20110e4c3538a6"
+const Contract = "terrabase-worktree-config-e4b65dcdbc8e85824d14e233738d4c13a6c4abd7ca4488b423f75cfa1c2dbe5a"
 const ServiceUser = "terrascale-terrabase"
 const CertificatePath = "/etc/terrascale/terrabase/server.pem"
 const PrivateKeyPath = "/etc/terrascale/terrabase/key.pem"
@@ -39,6 +39,7 @@ var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // Declaration contains nonsecret, explicit qualification assignments. Artifact
 // binding prevents reusing a declaration with a different engine binary.
 type Declaration struct {
+	BackupDisk      BackupDisk       `json:"backupDisk"`
 	TransitionTrust *TransitionTrust `json:"transitionTrust,omitempty"`
 	Version         int              `json:"version"`
 	Contract        string           `json:"contract"`
@@ -53,6 +54,13 @@ type Declaration struct {
 	Limits          Limits           `json:"limits"`
 	Keys            *Keys            `json:"keys,omitempty"`
 	PublicAPI       *PublicAPI       `json:"publicApi,omitempty"`
+}
+
+// BackupDisk declares disk reserved per database and across one member. Half
+// of each stream is reserved for rotation/restore; this is unrelated to RAM.
+type BackupDisk struct {
+	StagingBytesPerStream uint64 `json:"stagingBytesPerStream"`
+	TotalStagingBytes     uint64 `json:"totalStagingBytes"`
 }
 
 type Host struct {
@@ -266,6 +274,10 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 	if d.Keys == nil || d.Keys.Socket == "" || d.Keys.OrchestratorUID == 0 || d.Keys.SocketGID == 0 || d.Version != 1 || d.Contract != Contract || !digest.MatchString(artifact) || d.ArtifactSHA256 != artifact || d.Release != release || len(release) == 0 || len(release) > 128 || !environment.MatchString(d.Environment) || !ulid.MatchString(d.Cluster) || d.Generation == 0 || d.Epoch == 0 || d.Generation > math.MaxInt64 || d.Epoch > math.MaxInt64 {
 		return nil, bad
 	}
+	activeBackupBytes := d.BackupDisk.StagingBytesPerStream / 2
+	if activeBackupBytes <= 2<<20 || d.BackupDisk.TotalStagingBytes > math.MaxInt64 || d.BackupDisk.StagingBytesPerStream > d.BackupDisk.TotalStagingBytes {
+		return nil, bad
+	}
 	for _, r := range release {
 		if r < 33 || r > 126 || r == '"' || r == '\\' {
 			return nil, bad
@@ -279,7 +291,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 			return nil, bad
 		}
 		for _, dest := range db.Backup.Destinations {
-			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes == 0 || dest.MaxPointBytes == 0 {
+			if dest.Provider != "oci" && dest.Provider != "tigris" || dest.Endpoint == "" || dest.SigningRegion == "" || dest.Bucket == "" || dest.VerifiedGeography == "" || len(dest.PermittedGeographies) == 0 || dest.PlacementRevision == "" || dest.AccessKeyFile == "" || dest.SecretKeyFile == "" || dest.MaxArtifactBytes == 0 || dest.MaxPointBytes < activeBackupBytes {
 				return nil, bad
 			}
 			if !slices.Contains(db.SelectedRegions, db.Region) || !slices.Contains(dest.PermittedGeographies, dest.VerifiedGeography) {
@@ -329,7 +341,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 	}
 	projects, databases := map[string]string{}, map[string]bool{}
 	for _, db := range d.Databases {
-		if !ulid.MatchString(db.Tenant) || !ulid.MatchString(db.Project) || !ulid.MatchString(db.Database) || !ulid.MatchString(db.EncryptionKey) || databases[db.Database] || regions[db.Region] != 2 || projects[db.Project] != "" && projects[db.Project] != db.Tenant || db.MaxStorageBytes == 0 || db.MaxStorageBytes > 1<<50 || db.MaxDocuments == 0 || db.MaxDocuments > 1_000_000_000 || db.MaxInflight == 0 || db.MaxInflight > 1_000_000 {
+		if !ulid.MatchString(db.Tenant) || !ulid.MatchString(db.Project) || !ulid.MatchString(db.Database) || !ulid.MatchString(db.EncryptionKey) || databases[db.Database] || regions[db.Region] != 2 || projects[db.Project] != "" && projects[db.Project] != db.Tenant || db.MaxStorageBytes == 0 || db.MaxStorageBytes > activeBackupBytes-(2<<20) || db.MaxStorageBytes > 1<<50 || db.MaxDocuments == 0 || db.MaxDocuments > 1_000_000_000 || db.MaxInflight == 0 || db.MaxInflight > 1_000_000 {
 			return nil, bad
 		}
 		if len(db.SelectedRegions) == 0 || len(db.SelectedRegions) > 3 {
@@ -372,6 +384,11 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 				bound = true
 			}
 		}
+		// Division checks the aggregate reservation without overflowing a
+		// multiplication. Idle members reserve one stream for admission.
+		if uint64(max(localDatabases, 1)) > d.BackupDisk.TotalStagingBytes/d.BackupDisk.StagingBytesPerStream {
+			return nil, bad
+		}
 		if (localDatabases == 0 && (h.ObserverDatabase != "" || h.DatabaseHost == nil)) || (localDatabases > 0 && !bound) {
 			return nil, bad
 		}
@@ -386,6 +403,7 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "mode = \"production\"\n[environment]\nname = %q\ncluster = %q\nmember = %q\n", d.Environment, d.Cluster, h.Member)
+	fmt.Fprintf(&b, "\n[backup_disk]\nstaging_bytes_per_stream = %d\ntotal_staging_bytes = %d\n", d.BackupDisk.StagingBytesPerStream, d.BackupDisk.TotalStagingBytes)
 	localRegion := nodes[h.NodeID].Region
 	for _, db := range d.Databases {
 		enabled := slices.Contains(db.SelectedRegions, localRegion)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
@@ -80,4 +81,27 @@ func (r *productionHostRemoval) AutoscaleRemovalComplete(ctx context.Context, ta
 		return false, err
 	}
 	return operation.OperationID == target.RemovalOperationID && operation.ResourceID == target.RemovalResourceID && operation.Stage == hostremoval.StageComplete, nil
+}
+
+// The factory's compute closure and the worker constructor receive copies of
+// productionGlobalWorkerConfig. This shared binding publishes the final lease-owned
+// removal adapter to that real closure without copying an obsolete nil owner.
+type computeRemovalOwnerBinding struct {
+	mu    sync.RWMutex
+	owner ocireconcile.MemberRemovalOwner
+}
+
+func (b *computeRemovalOwnerBinding) Bind(owner ocireconcile.MemberRemovalOwner) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.owner = owner
+}
+func (b *computeRemovalOwnerBinding) RemoveMember(ctx context.Context, operation string, member ocireconcile.ObservedMember, survivors []ocireconcile.ObservedMember) error {
+	b.mu.RLock()
+	owner := b.owner
+	b.mu.RUnlock()
+	if owner == nil {
+		return errors.New("compute: durable removal owner is not bound")
+	}
+	return owner.RemoveMember(ctx, operation, member, survivors)
 }

@@ -57,7 +57,13 @@ type ObservationSource interface {
 	Observe(context.Context, string) ([]Observation, error)
 }
 
+type CompletedRemoval struct {
+	OperationID string
+	ResourceID  string
+}
+
 type Target struct {
+	CompletedRemovals      map[int]CompletedRemoval
 	Region                 string
 	Members                int
 	ConsecutiveHighSamples int
@@ -181,6 +187,11 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 			return Plan{}, false, err
 		}
 		next := retained
+		next.CompletedRemovals = maps.Clone(retained.CompletedRemovals)
+		if next.CompletedRemovals == nil {
+			next.CompletedRemovals = map[int]CompletedRemoval{}
+		}
+		next.CompletedRemovals[retained.RemovalSlot] = CompletedRemoval{OperationID: retained.RemovalOperationID, ResourceID: retained.RemovalResourceID}
 		next.RemovalOperationID, next.RemovalHostID, next.RemovalIncarnation, next.RemovalPhase = "", "", "", ""
 		next.RemovalSlot, next.RemovalResourceID = 0, ""
 		next.ConsecutiveHighSamples, next.ConsecutiveLowSamples = 0, 0

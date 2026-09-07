@@ -22,7 +22,7 @@ import (
 // authenticated guest control plane; declarations and liveness are not
 // authority or membership evidence.
 type QualificationControlRuntimeSource interface {
-	HostControlResolvers(context.Context, string, string) (func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error)
+	HostControlResolvers(context.Context, string) (string, func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error)
 	RuntimeConfig(context.Context, map[string]*hostcontrol.Client) (bootstrap.NATSControlRuntimeConfig, []bootstrap.ControlRegionBinding, error)
 }
 
@@ -58,8 +58,7 @@ func (factory *firecrackerFactory) ConfigureQualificationControlRuntimeFromSourc
 		if len(planned.Guests) == 0 {
 			return bootstrap.ErrControlRuntimeUnavailable
 		}
-		candidate := region + "-controller-" + planned.Guests[0].ID
-		resolve, authority, err := source.HostControlResolvers(ctx, region, candidate)
+		candidate, resolve, authority, err := source.HostControlResolvers(ctx, region)
 		if err != nil {
 			return err
 		}

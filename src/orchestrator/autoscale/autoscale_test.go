@@ -54,8 +54,9 @@ func lowObservationsWithProof(now time.Time, sequence int64) []Observation {
 		CausalCaughtUp: true, SourceSequence: 7, RegionalSequence: 7, BackupSourceSequence: 7, BackupProtectedSequence: 7,
 	}}}
 	return []Observation{
-		{HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 10, MemoryPercent: 10, Healthy: true, Authenticated: true, Proof: proof},
-		{HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 20, MemoryPercent: 20, Healthy: true, Authenticated: true, Proof: proof},
+		{MemberSlot: 1, ProviderResourceID: "oci-a", HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 10, MemoryPercent: 10, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
+		{MemberSlot: 2, ProviderResourceID: "oci-b", HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 20, MemoryPercent: 20, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
+		{MemberSlot: 3, ProviderResourceID: "oci-c", HostID: "host-c", EngineID: "engine-c", Incarnation: "boot-c", Sequence: sequence, ObservedAt: now, CPUPercent: 30, MemoryPercent: 30, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
 	}
 }
 
@@ -72,7 +73,7 @@ func TestEvaluateCreatesOneDurableScaleDownIntent(t *testing.T) {
 	}
 	source.observations = lowObservationsWithProof(now, 3)
 	plan, created, err := c.Evaluate(t.Context(), "gru")
-	if err != nil || !created || plan.DesiredMembers != 2 || plan.PreviousMembers != 3 || plan.RemovalHostID != "host-a" || plan.RemovalPhase != "intent" || plan.OperationID == "" {
+	if err != nil || !created || plan.DesiredMembers != 2 || plan.PreviousMembers != 3 || plan.RemovalHostID != "host-c" || plan.RemovalSlot != 3 || plan.RemovalResourceID != "oci-c" || plan.RemovalPhase != "intent" || plan.OperationID == "" {
 		t.Fatalf("scale-down plan = %+v created=%v err=%v", plan, created, err)
 	}
 	if targets.value.Members != 2 || targets.value.RemovalOperationID != plan.OperationID {
@@ -298,5 +299,112 @@ func TestRebootBaselinesAndRetiredBootReplayCannotAccumulatePressure(t *testing.
 	writes = targets.writes
 	if evaluate() || targets.writes != writes {
 		t.Fatal("expired retired boot report passed freshness")
+	}
+}
+
+func TestRemovalCompletionSurvivesRestartAndReleasesFreshPressure(t *testing.T) {
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: lowObservationsWithProof(now, 1)}
+	targets := &testTargets{value: Target{Region: "gru", Members: 3}, found: true}
+	config := Config{Source: source, Targets: targets, Authority: testAuthority{}, MinMembers: 2, MaxMembers: 5, CPUThreshold: 80, MemoryThreshold: 80, QueueThreshold: 8, HighSamples: 3, LowSamples: 1, ObservationMaxAge: time.Minute, Now: func() time.Time { return now }}
+	c, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, created, err := c.Evaluate(t.Context(), "gru")
+	if err != nil || !created {
+		t.Fatalf("intent: %+v %v %v", plan, created, err)
+	}
+	retained := targets.value
+	complete := false
+	config.RemovalComplete = func(_ context.Context, target Target) (bool, error) {
+		if target.RemovalOperationID != plan.OperationID || target.RemovalResourceID != "oci-c" || target.RemovalIncarnation != "boot-c" {
+			t.Fatalf("completion identity: %+v", target)
+		}
+		return complete, nil
+	}
+	// A successor with high-pressure telemetry still retains an unknown removal.
+	c, err = New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for sequence := int64(2); sequence <= 5; sequence++ {
+		source.observations = highObservations(now, sequence)
+		replay, created, err := c.Evaluate(t.Context(), "gru")
+		if err != nil || !created || replay.OperationID != plan.OperationID || !reflect.DeepEqual(targets.value, retained) {
+			t.Fatalf("unknown outcome changed intent: %+v %v %v", replay, created, err)
+		}
+	}
+	complete = true
+	// The first complete survivor set establishes a baseline. The same old
+	// pressure samples cannot immediately trigger another resize after removal.
+	if _, created, err := c.Evaluate(t.Context(), "gru"); err != nil || created {
+		t.Fatalf("completion: %v %v", created, err)
+	}
+	if targets.value.RemovalOperationID != "" || targets.value.RemovalResourceID != "" || targets.value.RemovalSlot != 0 || targets.value.Members != 2 {
+		t.Fatalf("completion target: %+v", targets.value)
+	}
+	if completed := targets.value.CompletedRemovals[3]; completed.OperationID != plan.OperationID || completed.ResourceID != "oci-c" {
+		t.Fatalf("exact completion receipt was not retained for slot reuse: %+v", completed)
+	}
+	for sequence := int64(6); sequence <= 8; sequence++ {
+		source.observations = highObservations(now, sequence)
+		plan, created, err = c.Evaluate(t.Context(), "gru")
+		if err != nil || created != (sequence == 8) {
+			t.Fatalf("fresh pressure %d: %+v %v %v", sequence, plan, created, err)
+		}
+	}
+	if plan.DesiredMembers != 3 {
+		t.Fatalf("scale-out remained frozen: %+v", plan)
+	}
+}
+
+func TestRemovalCompletionRechecksAuthorityAndRetainsFailedRead(t *testing.T) {
+	for _, denied := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unknown journal", true: "lost authority"}[denied], func(t *testing.T) {
+			now := time.Now().UTC()
+			targets := &testTargets{value: Target{Region: "gru", Members: 2, RemovalOperationID: "operation", RemovalHostID: "host-c", RemovalIncarnation: "boot-c", RemovalResourceID: "oci-c", RemovalSlot: 3}, found: true}
+			c := testController(t, &testSource{}, targets, now)
+			retained := targets.value
+			c.config.RemovalComplete = func(context.Context, Target) (bool, error) {
+				if denied {
+					c.config.Authority = testAuthority{err: errors.New("lease lost")}
+					return true, nil
+				}
+				return false, errors.New("journal unavailable")
+			}
+			if _, _, err := c.Evaluate(t.Context(), "gru"); err == nil {
+				t.Fatal("failure hidden")
+			}
+			if !reflect.DeepEqual(targets.value, retained) || targets.writes != 0 {
+				t.Fatal("unverified completion cleared intent")
+			}
+		})
+	}
+}
+
+func TestRemovalRequiresCompleteAuthoritativeSlotBindings(t *testing.T) {
+	now := time.Now().UTC()
+	for _, corrupt := range []string{"missing resource", "duplicate slot", "partial membership"} {
+		t.Run(corrupt, func(t *testing.T) {
+			observations := lowObservationsWithProof(now, 1)
+			switch corrupt {
+			case "missing resource":
+				observations[2].ProviderResourceID = ""
+			case "duplicate slot":
+				observations[2].MemberSlot = 2
+			case "partial membership":
+				observations = observations[:2]
+			}
+			targets := &testTargets{value: Target{Region: "gru", Members: 3}, found: true}
+			c := testController(t, &testSource{observations: observations}, targets, now)
+			c.config.LowSamples = 1
+			if _, created, err := c.Evaluate(t.Context(), "gru"); err != nil || created {
+				t.Fatalf("unbound removal: %v %v", created, err)
+			}
+			if targets.value.Members != 3 || targets.value.RemovalOperationID != "" {
+				t.Fatal("unbound target decremented")
+			}
+		})
 	}
 }

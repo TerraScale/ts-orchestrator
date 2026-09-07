@@ -20,9 +20,12 @@ var (
 )
 
 type journalState struct {
-	Deletions map[string]Deletion
-	Records   map[string]Record
-	Lifecycle databaselifecycle.State
+	PlacementRelocation  string
+	CurrentPlacements    map[string]Record
+	CompletedRelocations map[string]string
+	Deletions            map[string]Deletion
+	Records              map[string]Record
+	Lifecycle            databaselifecycle.State
 }
 
 func newJournalState() journalState {
@@ -34,6 +37,9 @@ func validateJournalState(state journalState) error {
 		return ErrInvalid
 	}
 	if err := validateDeletions(state); err != nil {
+		return err
+	}
+	if err := validateCurrentPlacements(state); err != nil {
 		return err
 	}
 	operations := map[string]bool{}
@@ -145,6 +151,9 @@ func stateRank(state string) int {
 }
 
 func saveRecord(state *journalState, key string, expected uint64, record Record) (uint64, error) {
+	if state.PlacementRelocation != "" {
+		return 0, ErrConflict
+	}
 	if key != ScopeKey(record.Request) || ValidateRecord(record) != nil || validateProgress(record) != nil || expected == math.MaxUint64 || record.Revision != expected {
 		return 0, ErrInvalid
 	}

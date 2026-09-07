@@ -9,6 +9,17 @@ import (
 // ValidateControlRuntimeDeclarations validates logical host identities before
 // OCI allocates instance IDs. No connection or observed evidence is created.
 func ValidateControlRuntimeDeclarations(stores []string, members []ControlRuntimeMember, plans []ControlRuntimeActionPlan) error {
+	return validateControlRuntimeDeclarations(stores, members, plans, false)
+}
+
+// ValidateLiveControlRuntimeDeclarations validates owner-pinned inventory for
+// actions whose election identity will be resolved after their host handoffs.
+// It does not produce evidence or authorize mutations without live lease checks.
+func ValidateLiveControlRuntimeDeclarations(stores []string, members []ControlRuntimeMember, plans []ControlRuntimeActionPlan) error {
+	return validateControlRuntimeDeclarations(stores, members, plans, true)
+}
+
+func validateControlRuntimeDeclarations(stores []string, members []ControlRuntimeMember, plans []ControlRuntimeActionPlan, resolveLive bool) error {
 	runtime := &NATSControlRuntime{config: NATSControlRuntimeConfig{Stores: map[string]ControlNATSStore{}}, members: map[string]ControlRuntimeMember{}}
 	for _, name := range stores {
 		if name == "" {
@@ -47,7 +58,7 @@ func ValidateControlRuntimeDeclarations(stores []string, members []ControlRuntim
 			return ErrControlProviderInvalid
 		}
 		actions[key] = true
-		if err := runtime.validatePlan(plan); err != nil {
+		if err := runtime.validatePlanMode(plan, resolveLive); err != nil {
 			return err
 		}
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
@@ -31,14 +32,19 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 		}
 		result := make([]autoscale.Observation, 0, len(reports))
 		now := time.Now()
+		seen := map[string]bool{}
 		for _, report := range reports {
+			if seen[report.NodeId] || !slices.ContainsFunc(entry.Members, func(member healthMember) bool { return member.ID == report.NodeId }) {
+				return nil, autoscale.ErrUnavailable
+			}
+			seen[report.NodeId] = true
 			engine := report.Facts.Engine
 			metrics := report.Facts.Metrics
 			if !validAutoscaleEngineFacts(engine, now) || report.State != hostagent.NodeStateServing || report.Quiesced || metrics.ObservationSequence <= 0 {
 				return nil, autoscale.ErrUnavailable
 			}
 			result = append(result, autoscale.Observation{
-				HostID: report.NodeId, EngineID: report.NodeId, Incarnation: metrics.BootGeneration, Sequence: metrics.ObservationSequence,
+				HostID: report.NodeId, Incarnation: metrics.BootGeneration, Sequence: metrics.ObservationSequence,
 				ObservedAt: time.UnixMilli(metrics.ObservedAtUnixMS), CPUPercent: metrics.CPUPercent,
 				MemoryPercent: metrics.MemoryPercent, QueueDepth: metrics.QueueDepth,
 				QueueCapacity: metrics.QueueCapacity, Healthy: true, Authenticated: true,

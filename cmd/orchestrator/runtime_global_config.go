@@ -210,6 +210,8 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		}
 		config.ComputeGateways[region.Code] = gateway
 	}
+	projection.gateways = config.ComputeGateways
+	config.ComputeRemovalOwner = &computeRemovalOwnerBinding{}
 	config.ComputeApply = func(applyCtx context.Context, journal provider.ProviderMutationJournal) error {
 		if err := session.CheckEffectAuthority(applyCtx); err != nil {
 			return err

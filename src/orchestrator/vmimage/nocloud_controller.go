@@ -1,7 +1,10 @@
 package vmimage
 
 import (
+	"bytes"
 	"errors"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
@@ -13,6 +16,9 @@ import (
 
 func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) {
 	if input.Controller == nil {
+		if input.ControllerRun != nil {
+			return nil, errors.New("vmimage: run stage requires initial controller")
+		}
 		return nil, nil
 	}
 	m := input.Controller
@@ -58,13 +64,21 @@ func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, err
 		}
 		files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: owner, Content: append([]byte(nil), m.Files[path]...)})
 	}
+	if input.ControllerRun != nil {
+		if err := input.ControllerRun.ValidateStage(*m, manifest); err != nil {
+			return nil, err
+		}
+		for _, path := range slices.Sorted(maps.Keys(input.ControllerRun.Files)) {
+			files = append(files, NoCloudRootFile{Path: path, Mode: 0400, Owner: vmcontrolseed.ServiceUser, Content: bytes.Clone(input.ControllerRun.Files[path])})
+		}
+	}
 	return files, nil
 }
 
 func controllerOwnershipBootstrap(files []NoCloudRootFile) string {
 	var script strings.Builder
 	for _, file := range files {
-		if !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) && !vmengineconfig.IsDatabasePath(file.Path) {
+		if file.Owner != vmcontrolseed.ServiceUser && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) && !vmengineconfig.IsDatabasePath(file.Path) {
 			continue
 		}
 		script.WriteString("/usr/bin/chown " + vmcontrolseed.ServiceUser + ":" + vmcontrolseed.ServiceUser + " " + file.Path + "\n")

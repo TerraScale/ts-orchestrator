@@ -332,7 +332,7 @@ func (c databaseCatalogAdapter) List(ctx context.Context, cursor string, limit i
 	if c.database == nil || c.database.lifecycleJournal == nil || c.activity == nil || limit < 1 || limit > 1000 {
 		return reaper.Page{}, errors.New("native lifecycle catalog activity source is unavailable")
 	}
-	records, err := c.database.lifecycleJournal.List(ctx)
+	records, err := c.database.currentRecords(ctx)
 	if err != nil {
 		return reaper.Page{}, err
 	}

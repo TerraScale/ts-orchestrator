@@ -576,6 +576,12 @@ func (r *ComputeReconciler) terminateOwnedMember(ctx context.Context, region str
 				survivors = append(survivors, candidate)
 			}
 		}
+		// Bind refreshed provider rows to the validated declaration scope before
+		// handing them to the durable owner; list rows need not carry Region.
+		member.Region = region
+		for index := range survivors {
+			survivors[index].Region = region
+		}
 		return owner.RemoveMember(ctx, removalOperationID(region, member), member, survivors)
 	}
 	return nil // already terminated/absent
@@ -1009,7 +1015,8 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 	if len(candidates) == 0 {
 		return ObservedMember{}, &errs.Argument{Message: "durable member launch requires qualified capacity candidates"}
 	}
-	opID, err := provider.NewProviderOperationId("member-" + spec.DisplayName)
+	incarnation := provider.ProviderMutationFingerprint(spec.ServerIdentity, spec.MemberID, strconv.FormatUint(spec.Generation, 10))
+	opID, err := provider.NewProviderOperationId("member-" + incarnation)
 	if err != nil {
 		return ObservedMember{}, err
 	}
@@ -1017,7 +1024,7 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 		OperationID: opID,
 		Scope:       provider.ProviderMutationScope("compute", g.CompartmentID, spec.DisplayName),
 		Action:      "compute.launch", Epoch: g.Epoch,
-		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName)},
+		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName, incarnation)},
 	}
 	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
 		ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, CellID: spec.CellID, Generation: spec.Generation,

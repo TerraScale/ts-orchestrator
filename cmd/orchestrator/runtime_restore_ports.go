@@ -35,7 +35,7 @@ func (p productionDatabaseBackupPort) ListDatabases(ctx context.Context) ([]rest
 	if p.database == nil || *p.database == nil {
 		return nil, errors.New("restore database inventory: admitted database is unavailable")
 	}
-	return (productionAdmissionDatabaseLister{journal: (*p.database).lifecycleJournal}).ListDatabases(ctx)
+	return (productionAdmissionDatabaseLister{journal: (*p.database).currentJournal}).ListDatabases(ctx)
 }
 
 func (p productionDatabaseBackupPort) Restore(ctx context.Context, request restoredrill.RestoreRequest) error {
@@ -311,7 +311,7 @@ func (p productionDatabaseBranchPort) Delete(ctx context.Context, branch restore
 // It projects only durable, validated admission records; no creation timestamp
 // or process-local inventory is treated as a serving database fact.
 type productionAdmissionDatabaseLister struct {
-	journal *databaseadmission.NATSJournal
+	journal databaseadmission.Journal
 }
 
 func (l productionAdmissionDatabaseLister) ListDatabases(ctx context.Context) ([]restoredrill.Database, error) {

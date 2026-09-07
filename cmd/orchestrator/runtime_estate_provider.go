@@ -99,10 +99,10 @@ func constructProductionEstateClient(config productionEstateFile) (*estate.Contr
 // measures engine health, clock, disk, and component convergence only.
 type productionEstateSource struct {
 	health    *observedKVHealthSource
-	databases *databaseadmission.NATSJournal
+	databases databaseadmission.Journal
 }
 
-func constructProductionEstateSource(spec estate.Spec, healthFile string, databases *databaseadmission.NATSJournal) (*productionEstateSource, error) {
+func constructProductionEstateSource(spec estate.Spec, healthFile string, databases databaseadmission.Journal) (*productionEstateSource, error) {
 	if databases == nil {
 		return nil, errors.New("production estate: live database admission journal is required")
 	}

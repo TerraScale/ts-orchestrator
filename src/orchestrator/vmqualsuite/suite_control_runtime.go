@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"time"
@@ -75,10 +76,13 @@ func (proof *runtimeControlProof) initialize(ctx context.Context) error {
 		}
 		byRegion[binding.Code] = binding
 	}
-	for _, region := range []string{"gru", "sfo", "fra", "iad"} {
+	for _, region := range []string{"gru", "sfo", "fra"} {
 		if byRegion[region].Code == "" {
 			return fmt.Errorf("vmqual: actual %s host identities are missing: %w", region, bootstrap.ErrControlRuntimeUnavailable)
 		}
+	}
+	if len(byRegion) != 3 {
+		return fmt.Errorf("vmqual: only launch Regions may be bound before expansion admission: %w", bootstrap.ErrControlRuntimeUnavailable)
 	}
 	journal, err := bootstrap.NewFileControlJournal(filepath.Join(proof.journalRoot, "control.json"))
 	if err != nil {
@@ -207,6 +211,9 @@ func (proof *runtimeControlProof) VerifyRemoteRegion(ctx context.Context, region
 	if !proof.r3Checked || proof.state.Topology != bootstrap.ControlTopologyGlobalR3 {
 		return ControlRemoteRegionProof{}, ErrControlContractOrder
 	}
+	if err := proof.refreshRemoteBinding(ctx, region); err != nil {
+		return ControlRemoteRegionProof{}, err
+	}
 	_, floorErr := bootstrap.PlanControlTransition(proof.state, bootstrap.ControlTransitionRequest{Operation: bootstrap.ControlOperationAddRegion, Region: region, MemberHosts: 2, EligibleHosts: 2, RegionalControl: true})
 	if !errors.Is(floorErr, bootstrap.ErrControlRegionalMembersFloor) {
 		return ControlRemoteRegionProof{}, ErrControlContractInvalid
@@ -217,4 +224,45 @@ func (proof *runtimeControlProof) VerifyRemoteRegion(ctx context.Context, region
 		return ControlRemoteRegionProof{}, err
 	}
 	return ControlRemoteRegionProof{Region: region, MemberHosts: 2, GlobalState: result.State, RegionState: result.State, GlobalReplicas: append([]string(nil), result.State.ControlRegions...), RemoteManaged: true, HasGlobalReplica: false, RegionalR3BelowFloorRejected: true, JournalPath: filepath.Join(proof.journalRoot, "control.json"), Calls: append([]ControlContractCall(nil), proof.provider.calls[start:]...)}, nil
+}
+
+// The fourth Region is admitted by Stack.AdmitRegion immediately before this
+// scenario. Reserved addresses are insufficient to create its control binding.
+func (proof *runtimeControlProof) refreshRemoteBinding(ctx context.Context, region string) error {
+	binder, ok := proof.stack.Config().VMFactory.(qualificationControlRuntimeBinding)
+	if !ok {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	runtime, bindings, err := binder.QualificationControlRuntime(ctx)
+	if err != nil || runtime == nil {
+		return errors.Join(bootstrap.ErrControlRuntimeUnavailable, err)
+	}
+	next := make(map[string]bootstrap.ControlRegionBinding, len(bindings))
+	identities := make(map[string]bool)
+	for _, binding := range bindings {
+		if binding.Code == "" || len(binding.MemberIDs) < 2 || next[binding.Code].Code != "" {
+			return ErrControlContractInvalid
+		}
+		for _, id := range binding.MemberIDs {
+			if id == "" || identities[id] {
+				return ErrControlContractInvalid
+			}
+			identities[id] = true
+		}
+		if prior, exists := proof.bindings[binding.Code]; exists && !slices.Equal(prior.MemberIDs, binding.MemberIDs) {
+			return ErrControlContractInvalid
+		}
+		next[binding.Code] = bootstrap.ControlRegionBinding{Code: binding.Code, MemberIDs: slices.Clone(binding.MemberIDs)}
+	}
+	if next[region].Code == "" || len(next) != len(proof.bindings)+1 {
+		return bootstrap.ErrControlRuntimeUnavailable
+	}
+	for admitted := range proof.bindings {
+		if next[admitted].Code == "" {
+			return ErrControlContractInvalid
+		}
+	}
+	proof.runtime, proof.bindings = runtime, next
+	proof.provider.runtime = runtime
+	return nil
 }

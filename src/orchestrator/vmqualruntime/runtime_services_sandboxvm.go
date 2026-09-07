@@ -41,6 +41,8 @@ type qualificationRuntimeServices struct {
 	bootstrapIssuer *vmqualbootstrap.Issuer
 	controlSeeds    map[string]vmcontrolseed.Material
 	engineSeeds     map[string]*vmengineconfig.Material
+	runAdmissions   map[string]vmcontrolseed.RunAdmission
+	runMaterials    map[string]*vmcontrolseed.RunMaterial
 
 	plan           vmnet.NetworkPlan
 	artifacts      []guestArtifactInput
@@ -192,6 +194,25 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		plan: plan, artifacts: artifacts, publicKey: publicKey, manifest: manifest, controlSeeds: controlSeeds, engineSeeds: engineSeeds,
 		caCertificate: caCertificate, tlsCertificate: certificate, resources: resources,
 		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
+	}
+	if config.QualificationRunDeclarationFile != "" {
+		declaration, loadErr := vmcontrolseed.LoadRunDeclaration(config.QualificationRunDeclarationFile)
+		if loadErr != nil {
+			_ = services.Close(context.Background())
+			return nil, loadErr
+		}
+		services.runAdmissions = make(map[string]vmcontrolseed.RunAdmission, len(declaration.Hosts))
+		for _, admission := range declaration.Hosts {
+			if _, owned := services.controlSeeds[admission.HostID]; !owned {
+				_ = services.Close(context.Background())
+				return nil, errors.New("vmqual: run declaration contains an unowned initial controller")
+			}
+			services.runAdmissions[admission.HostID] = admission
+		}
+		if len(services.runAdmissions) != len(services.controlSeeds) {
+			_ = services.Close(context.Background())
+			return nil, errors.New("vmqual: run declaration omits an initial controller")
+		}
 	}
 	services.backup, err = loadQualificationBackup(config.TerraBaseDeclarationFile)
 	if err != nil {
@@ -380,6 +401,21 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
+	runMaterial := services.runMaterials[guest.ID]
+	if admission, admitted := services.runAdmissions[guest.ID]; admitted && runMaterial == nil {
+		base, err := hostmanifest.ParseHostManifest(baseManifest)
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
+		runMaterial, err = controlSeed.RunManifest(base, admission)
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
+		if services.runMaterials == nil {
+			services.runMaterials = make(map[string]*vmcontrolseed.RunMaterial)
+		}
+		services.runMaterials[guest.ID] = runMaterial
+	}
 	manifest, err := hostmanifest.CanonicalHostManifestJSON(desired)
 	if err != nil {
 		return vmimage.TSNodeBootstrap{}, nil, err
@@ -396,6 +432,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	bootstrap := vmimage.TSNodeBootstrap{
 		Engine:                       engineSeed.Clone(),
 		Controller:                   &controlSeed,
+		ControllerRun:                runMaterial.Clone(),
 		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: initialGrant.PublicKeyPEM, SignedGrant: initialGrant.SignedGrant},
 		MembershipIdentityPrivateKey: append([]byte(nil), membership.PrivatePEM...), MembershipPins: pins,
 		Version: tsNode.manifest.Version, Binary: append([]byte(nil), tsNode.binary...),
@@ -552,6 +589,10 @@ func (services *qualificationRuntimeServices) Close(ctx context.Context) error {
 		seed.Clear()
 	}
 	services.controlSeeds = nil
+	for _, material := range services.runMaterials {
+		material.Clear()
+	}
+	services.runMaterials, services.runAdmissions = nil, nil
 	for _, seed := range services.engineSeeds {
 		seed.Clear()
 	}

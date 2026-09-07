@@ -12,6 +12,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/enrollment"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/keyrotation"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
@@ -26,6 +27,14 @@ type productionEnrollmentFile struct {
 type computeProjection func(context.Context, estate.Region) (ocireconcile.ComputeDeclared, error)
 type computeTargetProjection func(context.Context, estate.Region) (uint16, error)
 type productionEnrollmentProjection struct {
+	journal interface {
+		Read(context.Context) (enrollment.State, error)
+		Retire(context.Context, string, int, hostremoval.Operation) error
+	}
+	removals interface {
+		Load(context.Context, string) (hostremoval.Operation, error)
+	}
+	gateways             map[string]ocireconcile.ComputeGateway
 	mu                   sync.Mutex
 	producer             *enrollment.Producer
 	templates            map[string]enrollment.Template
@@ -55,6 +64,11 @@ func newProductionEnrollmentProjection(ctx context.Context, session globalWorker
 	}
 	authority := authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
 	journal, err := enrollment.NewJournal(authority)
+	if err != nil {
+		return fail(err)
+	}
+	authority.StateKey = "host-removal"
+	removals, err := hostremoval.New(authority)
 	if err != nil {
 		return fail(err)
 	}
@@ -98,7 +112,7 @@ func newProductionEnrollmentProjection(ctx context.Context, session globalWorker
 		template.Files = files
 		templates[region] = template
 	}
-	return &productionEnrollmentProjection{producer: producer, templates: templates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}, signer.Close, nil
+	return &productionEnrollmentProjection{journal: journal, removals: removals, producer: producer, templates: templates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}, signer.Close, nil
 }
 func (p *productionEnrollmentProjection) Declared(ctx context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
 	p.mu.Lock()
@@ -124,6 +138,11 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 	result = ocireconcile.ComputeDeclared{Region: region, ImageID: p.compute.ImageID, FallbackImageID: p.compute.FallbackImageID, CloudInitByMember: map[int]string{}, MemberBindings: map[int]ocireconcile.MemberBinding{}, CandidatesByMember: map[int][]ocireconcile.MemberLaunchCandidate{}}
 	for slot := 1; slot <= int(region.Members.Count); slot++ {
 		now := p.now().UTC().Truncate(time.Second)
+		if completed, ok := targets[region.Code].CompletedRemovals[slot]; ok {
+			if err := p.prepareReenrollment(ctx, region.Code, slot, completed); err != nil {
+				return ocireconcile.ComputeDeclared{}, err
+			}
+		}
 		record, public, err := p.producer.Enroll(ctx, enrollment.Record{Environment: p.environment, Cluster: p.cluster, Region: region.Code, Slot: slot, Generation: p.generation, IssuedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, template)
 		if err != nil {
 			return ocireconcile.ComputeDeclared{}, err
@@ -179,4 +198,42 @@ func (p *productionEnrollmentProjection) TargetCount(ctx context.Context, region
 		return 0, enrollment.ErrInvalid
 	}
 	return uint16(target.Members), nil
+}
+
+// prepareReenrollment only retires an incarnation which the durable removal
+// owner completed and the exact provider still reports terminal. Completed
+// references remain harmless on retries after a successor reservation exists.
+func (p *productionEnrollmentProjection) prepareReenrollment(ctx context.Context, region string, slot int, completed autoscale.CompletedRemoval) error {
+	if p.journal == nil || p.removals == nil || completed.OperationID == "" || completed.ResourceID == "" {
+		return enrollment.ErrInvalid
+	}
+	state, err := p.journal.Read(ctx)
+	if err != nil {
+		return err
+	}
+	if archived, ok := state.Retired[completed.OperationID]; ok {
+		if archived.Region != region || archived.Slot != slot || archived.Retirement == nil || archived.Retirement.ResourceID != completed.ResourceID {
+			return enrollment.ErrInvalid
+		}
+		return nil
+	}
+	removal, err := p.removals.Load(ctx, completed.OperationID)
+	if err != nil {
+		return err
+	}
+	if removal.Stage != hostremoval.StageComplete || removal.OperationID != completed.OperationID || removal.ResourceID != completed.ResourceID {
+		return enrollment.ErrInvalid
+	}
+	observer, ok := p.gateways[region].(exactOCIMemberObserver)
+	if !ok {
+		return enrollment.ErrInvalid
+	}
+	current, err := observer.ObserveMember(ctx, completed.ResourceID)
+	if !errors.Is(err, ocireconcile.ErrMemberTerminated) || current.ID != completed.ResourceID || current.LifecycleState != "TERMINATED" || current.ETag == "" {
+		if err != nil {
+			return err
+		}
+		return enrollment.ErrInvalid
+	}
+	return p.journal.Retire(ctx, region, slot, removal)
 }

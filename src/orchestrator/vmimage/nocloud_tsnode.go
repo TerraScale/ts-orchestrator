@@ -113,6 +113,7 @@ type TSNodeNATSIdentity struct {
 type TSNodeBootstrap struct {
 	Engine                       *vmengineconfig.Material
 	Controller                   *vmcontrolseed.Material
+	ControllerRun                *vmcontrolseed.RunMaterial
 	Candidate                    *vmcandidateseed.Material
 	InitialGrant                 *TSNodeInitialGrant
 	MembershipIdentityPrivateKey []byte

@@ -23,12 +23,13 @@ Do not put credentials or PEM material in this document.
 
 | Fields | Required values |
 | --- | --- |
-| `version`, `contract` | `1` and `terrabase-worktree-config-3e598c24c6762893748dfe6fdaa2cb04c4ef072e5db65d80ef20110e4c3538a6` |
+| `version`, `contract` | `1` and `terrabase-worktree-config-e4b65dcdbc8e85824d14e233738d4c13a6c4abd7ca4488b423f75cfa1c2dbe5a` |
 | `artifactSha256`, `release` | Exact bare SHA-256 and version of the supplied signed TerraBase artifact |
 | `environment`, `cluster` | Explicit bounded environment name and canonical cluster ULID |
 | `generation`, `epoch` | Positive declared placement values representable as TOML integers; these claims do not establish admitted membership |
 | `hosts` | One entry for every launch host in GRU/SFO/FRA, with `nodeId`, unique canonical `member` ULID, `certificateFile`, `privateKeyFile`, and `caFile` |
 | `databases` | Explicit database records containing `tenant`, `project`, `database`, home `region`, `selectedRegions`, `allowedRegions`, `encryptionKey`, `maxStorageBytes`, `maxDocuments`, and `maxInflight` |
+| `backupDisk` | Explicit `stagingBytesPerStream` and `totalStagingBytes` reserved on each member backup filesystem |
 | `limits` | Explicit `maxMessageBytes`, `maxInflight`, `requestTimeoutMillis`, `tlsHandshakeTimeoutMillis`, and `shutdownGraceMillis` |
 
 Database scope and encryption-key versions are canonical ULIDs. The key
@@ -64,6 +65,23 @@ documents, and 1 through 1,000,000 concurrent operations. Transport bounds are
 100 through 300,000 milliseconds for requests and shutdown, and 100 through
 30,000 milliseconds for TLS handshakes. These are parser limits, not measured
 production recommendations.
+
+`backupDisk` is disk capacity, independent of the guest RAM limit. Half of each
+stream allowance holds the active encrypted archive chain; the other half is
+reserved for root rotation, provider migration, or restoring a retained chain.
+Two MiB within the active half is reserved for manifests. The archive ceiling
+must exceed the database storage quota, and every destination's `maxPointBytes`
+must hold the complete active half. Encoded record and encryption overhead also
+consume this allowance: the quota check is only a necessary floor. Size the
+explicit allowance from the database's encoded backup size and document count;
+a larger logical quota alone does not guarantee its backups fit.
+
+Each member checks `max(enabled database count, 1) * stagingBytesPerStream`
+against `totalStagingBytes` without integer overflow. The total must fit a signed
+64-bit TOML integer. Supply real disk capacity for this reservation in addition
+to database files and retained inventory metadata; the declaration does not
+provision a filesystem or prove available disk space. The qualification fixture
+reserves 32 MiB disk for its single 1 MiB database; production has no default.
 
 ## Installed result
 

@@ -20,6 +20,7 @@ func (factory *firecrackerFactory) activateGuest(ctx context.Context, host strin
 	if err != nil {
 		return err
 	}
+	defer bootstrap.ControllerRun.Clear()
 	if bootstrap.InitialGrant == nil {
 		return errors.New("vmqual: seeded initial grant is missing")
 	}

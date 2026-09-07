@@ -307,6 +307,9 @@ func validateDeletions(s journalState) error {
 	return nil
 }
 func beginDeletion(s *journalState, r DeleteRequest, at time.Time, retainUntil time.Time) (Deletion, error) {
+	if s.PlacementRelocation != "" {
+		return Deletion{}, ErrConflict
+	}
 	if !validDeleteRequest(r) || at.IsZero() || (!retainUntil.IsZero() && retainUntil.Before(at)) {
 		return Deletion{}, ErrInvalid
 	}

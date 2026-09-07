@@ -804,6 +804,7 @@ func (factory *firecrackerFactory) recoveryHostCloudInit(guest vmqual.Guest) (st
 	if err != nil {
 		return "", err
 	}
+	defer seed.ControllerRun.Clear()
 	if seed.Controller != nil {
 		defer seed.Controller.Clear()
 	}

@@ -58,6 +58,7 @@ type productionDatabase struct {
 	inventoryEnvironment string
 	inventory            *productionDatabaseInventory
 	lifecycleJournal     *databaseadmission.NATSJournal
+	currentJournal       *currentDatabaseJournal
 	lifecycleService     *databaseadmission.Service
 	pipeline             *databaseadmission.Pipeline
 	service              *databaseadmission.Service
@@ -177,6 +178,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 	if err != nil {
 		return nil, err
 	}
+	currentJournal := &currentDatabaseJournal{NATSJournal: journal}
 	pipeline, err := databaseadmission.New(databaseadmission.Config{
 		Readiness: readiness,
 		Journal:   journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
@@ -187,7 +189,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 			return config.Authorize(ctx, r)
 		},
 		Plan: func(ctx context.Context, r databaseadmission.Record) (databaseadmission.Plan, error) {
-			return config.plan(ctx, r, journal, placementJournal)
+			return config.plan(ctx, r, currentJournal, placementJournal)
 		},
 		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
 		Install:           databaseadmission.RemoteInstall(session.Connection),
@@ -214,8 +216,8 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 			return databaseadmission.DeletionPolicyDecision{}, err
 		}
 		return databaseadmission.DeletionPolicyDecision{}, nil
-	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, journal), Edge: automaticDeletionEdge{}}
-	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority, automaticClaim: config.AutomaticDeletionClaim, environment: config.Environment}, nil
+	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, currentJournal), Edge: automaticDeletionEdge{}}
+	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, currentJournal: currentJournal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority, automaticClaim: config.AutomaticDeletionClaim, environment: config.Environment}, nil
 }
 
 type automaticDeletionEdge struct{}
@@ -310,7 +312,7 @@ func (d *productionDatabase) AcceptedRecord(ctx context.Context, databaseID stri
 	if d == nil || d.lifecycleJournal == nil || databaseID == "" {
 		return databaseadmission.Record{}, databaseadmission.ErrInvalid
 	}
-	records, err := d.lifecycleJournal.List(ctx)
+	records, err := d.currentRecords(ctx)
 	if err != nil {
 		return databaseadmission.Record{}, err
 	}

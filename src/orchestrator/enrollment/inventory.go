@@ -15,12 +15,19 @@ import (
 
 	"github.com/oklog/ulid"
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
+	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
 
 var ErrInvalid = errors.New("enrollment: invalid reservation")
 
+type Retirement struct {
+	OperationID string `json:"operation_id"`
+	ResourceID  string `json:"resource_id"`
+}
+
 type Record struct {
+	Retirement        *Retirement      `json:"retirement,omitempty"`
 	MemberID          string           `json:"member_id"`
 	NodeID            string           `json:"node_id"`
 	Environment       string           `json:"environment"`
@@ -36,6 +43,7 @@ type Record struct {
 	Public            *PublicBootstrap `json:"public,omitempty"`
 }
 type State struct {
+	Retired map[string]Record `json:"retired,omitempty"`
 	Records map[string]Record `json:"records"`
 }
 type transaction interface {
@@ -46,7 +54,7 @@ type Journal struct{ journal transaction }
 
 func keyFor(region string, slot int) string { return fmt.Sprintf("%s:%d", region, slot) }
 func validate(s State) error {
-	if len(s.Records) > 1024 {
+	if len(s.Records) > 1024 || len(s.Retired) > 4096 {
 		return ErrInvalid
 	}
 	seen := map[string]bool{}
@@ -58,9 +66,21 @@ func validate(s State) error {
 			return ErrInvalid
 		}
 		seen[r.MemberID] = true
+		if r.Retirement != nil && (r.Retirement.OperationID == "" || r.Retirement.ResourceID == "") {
+			return ErrInvalid
+		}
 		if r.Public != nil && (len(r.Public.Grant) == 0 || len(r.Public.Files) == 0 || hostsecrets.ValidateSeed(r.Public.Seed) != nil) {
 			return ErrInvalid
 		}
+	}
+	for operation, record := range s.Retired {
+		if record.Retirement == nil || operation != record.Retirement.OperationID || record.Retirement.ResourceID == "" || seen[record.MemberID] {
+			return ErrInvalid
+		}
+		if err := validate(State{Records: map[string]Record{keyFor(record.Region, record.Slot): record}}); err != nil {
+			return err
+		}
+		seen[record.MemberID] = true
 	}
 	return nil
 }
@@ -75,7 +95,7 @@ func NewJournal(c authorityjournal.Config) (*Journal, error) {
 
 // Reserve returns an existing immutable slot before generating any new identity.
 func (j *Journal) Reserve(ctx context.Context, r Record) (Record, error) {
-	if j == nil || j.journal == nil || ctx == nil || r.Region == "" || strings.TrimSpace(r.Region) != r.Region || r.Slot < 1 {
+	if j == nil || j.journal == nil || ctx == nil || r.Region == "" || strings.TrimSpace(r.Region) != r.Region || r.Slot < 1 || r.Retirement != nil {
 		return Record{}, ErrInvalid
 	}
 	err := j.journal.Transact(ctx, true, func(s *State) error {
@@ -83,8 +103,23 @@ func (j *Journal) Reserve(ctx context.Context, r Record) (Record, error) {
 			if prior.Environment != r.Environment || prior.Cluster != r.Cluster || prior.TemplateDigest != r.TemplateDigest {
 				return ErrInvalid
 			}
-			r = prior
-			return nil
+			if prior.Retirement == nil {
+				r = prior
+				return nil
+			}
+			if prior.Generation == ^uint64(0) || len(s.Retired) >= 4096 {
+				return ErrInvalid
+			}
+			if s.Retired == nil {
+				s.Retired = map[string]Record{}
+			}
+			if _, exists := s.Retired[prior.Retirement.OperationID]; exists {
+				return ErrInvalid
+			}
+			s.Retired[prior.Retirement.OperationID] = prior
+			r.Generation = max(r.Generation, prior.Generation+1)
+			r.MemberID, r.OperationID, r.IdentityReference = "", "", ""
+			r.Public, r.Retirement = nil, nil
 		}
 		if r.MemberID == "" {
 			id, e := ulid.New(ulid.Timestamp(r.IssuedAt), rand.Reader)
@@ -111,6 +146,35 @@ func (j *Journal) Reserve(ctx context.Context, r Record) (Record, error) {
 	})
 	return r, err
 }
+
+// Retire records exact completed removal evidence before Reserve may create a
+// new incarnation. The runtime must first reread the exact terminal resource;
+// neither an absent listing nor an OCI 404 authorizes this transition.
+func (j *Journal) Retire(ctx context.Context, region string, slot int, removal hostremoval.Operation) error {
+	if j == nil || j.journal == nil || ctx == nil || removal.Stage != hostremoval.StageComplete || removal.OperationID == "" || removal.ResourceID == "" {
+		return ErrInvalid
+	}
+	return j.journal.Transact(ctx, true, func(s *State) error {
+		if prior, ok := s.Retired[removal.OperationID]; ok {
+			if prior.Region == region && prior.Slot == slot && prior.Retirement.ResourceID == removal.ResourceID && Identity(prior, "member") == removal.MemberIdentity && prior.Generation == removal.Generation {
+				return nil
+			}
+			return ErrInvalid
+		}
+		current, ok := s.Records[keyFor(region, slot)]
+		if !ok || Identity(current, "member") != removal.MemberIdentity || current.Generation != removal.Generation {
+			return ErrInvalid
+		}
+		retirement := Retirement{OperationID: removal.OperationID, ResourceID: removal.ResourceID}
+		if current.Retirement != nil && *current.Retirement != retirement {
+			return ErrInvalid
+		}
+		current.Retirement = &retirement
+		s.Records[keyFor(region, slot)] = current
+		return nil
+	})
+}
+
 func (j *Journal) Read(ctx context.Context) (State, error) {
 	if j == nil || j.journal == nil {
 		return State{}, ErrInvalid

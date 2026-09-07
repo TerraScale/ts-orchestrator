@@ -17,7 +17,7 @@ func deferredProductionEstateSnapshot(spec estate.Spec, healthFile string, datab
 		if database == nil || *database == nil || (*database).lifecycleJournal == nil {
 			return estate.Snapshot{}, errors.New("production estate: admitted database journal is unavailable")
 		}
-		source, err := constructProductionEstateSource(spec, healthFile, (*database).lifecycleJournal)
+		source, err := constructProductionEstateSource(spec, healthFile, (*database).currentJournal)
 		if err != nil {
 			return estate.Snapshot{}, err
 		}

@@ -1,6 +1,7 @@
 package vmimage
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -18,7 +19,19 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 	if err != nil {
 		return nil, err
 	}
-	if err := input.Engine.ValidateManifest(input.Config.NodeID, input.Engine.Address(), manifest); err != nil {
+	validate := func() error {
+		if input.ControllerRun != nil {
+			if input.Controller == nil {
+				return errors.New("vmimage: run stage requires initial controller")
+			}
+			if err := input.ControllerRun.ValidateStage(*input.Controller, manifest); err != nil {
+				return err
+			}
+			return input.Engine.ValidateStagedManifest(input.Config.NodeID, input.Engine.Address(), manifest, input.ControllerRun.Manifest)
+		}
+		return input.Engine.ValidateManifest(input.Config.NodeID, input.Engine.Address(), manifest)
+	}
+	if err := validate(); err != nil {
 		return nil, err
 	}
 	material := input.Engine.Files()

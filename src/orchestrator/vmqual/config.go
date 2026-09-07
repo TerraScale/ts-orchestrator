@@ -78,6 +78,7 @@ type Config struct {
 	PreliminaryCaptureMaxTotalBytes    int64
 	PreliminaryPublicationFile         string
 	TerraBaseDeclarationFile           string
+	QualificationRunDeclarationFile    string
 	configurationError                 string
 }
 
@@ -98,35 +99,36 @@ func defaultConfigForArchitecture(architecture string) Config {
 		root = absolutePath(root, repoRoot)
 	}
 	c := Config{
-		Root:                       root,
-		StateRoot:                  filepath.Join(root, "state"),
-		JournalPath:                filepath.Join(root, "cleanup-journal.json"),
-		PinsPath:                   absolutePath(defaultOrEnv("TS_VM_PINS", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "pins-"+architecture+".json")), repoRoot),
-		ImageManifestPath:          absolutePath(defaultOrEnv("TS_VM_IMAGE_MANIFEST", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "ubuntu-24.04.3-"+architecture+".json")), repoRoot),
-		ImageCacheRoot:             filepath.Join(root, "images"),
-		ReadinessRoot:              filepath.Join(root, "readiness"),
-		GuestControlPath:           filepath.Join(root, "bin", "vm-guest-control"),
-		ReleasePublicKeyPath:       os.Getenv("TS_VM_RELEASE_PUBLIC_KEY"),
-		TSNode:                     productionArtifactFromEnvironment("TS_VM_TS_NODE"),
-		Orchestrator:               productionArtifactFromEnvironment("TS_VM_ORCHESTRATOR"),
-		TerraBase:                  productionArtifactFromEnvironment("TS_VM_TERRABASE"),
-		FirecrackerPath:            os.Getenv("TS_VM_FIRECRACKER"),
-		JailerPath:                 os.Getenv("TS_VM_JAILER"),
-		KernelPath:                 os.Getenv("TS_VM_KERNEL"),
-		RootFSPath:                 os.Getenv("TS_VM_ROOTFS"),
-		ExpectedVersion:            os.Getenv("TS_VM_FIRECRACKER_VERSION"),
-		ExpectedKernelSHA256:       os.Getenv("TS_VM_KERNEL_SHA256"),
-		ExpectedRootFSSHA256:       os.Getenv("TS_VM_ROOTFS_SHA256"),
-		ExpectedFirecrackerSHA256:  os.Getenv("TS_VM_FIRECRACKER_SHA256"),
-		ExpectedJailerSHA256:       os.Getenv("TS_VM_JAILER_SHA256"),
-		SDKModule:                  os.Getenv("TS_VM_SDK_MODULE"),
-		SDKVersion:                 os.Getenv("TS_VM_SDK_VERSION"),
-		MemoryMiB:                  DefaultMemoryMiB,
-		ReadinessTimeout:           2 * time.Minute,
-		StopTimeout:                30 * time.Second,
-		MaxDiskBytes:               8 << 30,
-		PreliminaryPublicationFile: os.Getenv("TS_VM_PRELIMINARY_PUBLICATION_FILE"),
-		TerraBaseDeclarationFile:   os.Getenv("TS_VM_TERRABASE_DECLARATION_FILE"),
+		Root:                            root,
+		StateRoot:                       filepath.Join(root, "state"),
+		JournalPath:                     filepath.Join(root, "cleanup-journal.json"),
+		PinsPath:                        absolutePath(defaultOrEnv("TS_VM_PINS", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "pins-"+architecture+".json")), repoRoot),
+		ImageManifestPath:               absolutePath(defaultOrEnv("TS_VM_IMAGE_MANIFEST", filepath.Join(repoRoot, "src", "orchestrator", "vmimage", "ubuntu-24.04.3-"+architecture+".json")), repoRoot),
+		ImageCacheRoot:                  filepath.Join(root, "images"),
+		ReadinessRoot:                   filepath.Join(root, "readiness"),
+		GuestControlPath:                filepath.Join(root, "bin", "vm-guest-control"),
+		ReleasePublicKeyPath:            os.Getenv("TS_VM_RELEASE_PUBLIC_KEY"),
+		TSNode:                          productionArtifactFromEnvironment("TS_VM_TS_NODE"),
+		Orchestrator:                    productionArtifactFromEnvironment("TS_VM_ORCHESTRATOR"),
+		TerraBase:                       productionArtifactFromEnvironment("TS_VM_TERRABASE"),
+		FirecrackerPath:                 os.Getenv("TS_VM_FIRECRACKER"),
+		JailerPath:                      os.Getenv("TS_VM_JAILER"),
+		KernelPath:                      os.Getenv("TS_VM_KERNEL"),
+		RootFSPath:                      os.Getenv("TS_VM_ROOTFS"),
+		ExpectedVersion:                 os.Getenv("TS_VM_FIRECRACKER_VERSION"),
+		ExpectedKernelSHA256:            os.Getenv("TS_VM_KERNEL_SHA256"),
+		ExpectedRootFSSHA256:            os.Getenv("TS_VM_ROOTFS_SHA256"),
+		ExpectedFirecrackerSHA256:       os.Getenv("TS_VM_FIRECRACKER_SHA256"),
+		ExpectedJailerSHA256:            os.Getenv("TS_VM_JAILER_SHA256"),
+		SDKModule:                       os.Getenv("TS_VM_SDK_MODULE"),
+		SDKVersion:                      os.Getenv("TS_VM_SDK_VERSION"),
+		MemoryMiB:                       DefaultMemoryMiB,
+		ReadinessTimeout:                2 * time.Minute,
+		StopTimeout:                     30 * time.Second,
+		MaxDiskBytes:                    8 << 30,
+		PreliminaryPublicationFile:      os.Getenv("TS_VM_PRELIMINARY_PUBLICATION_FILE"),
+		TerraBaseDeclarationFile:        os.Getenv("TS_VM_TERRABASE_DECLARATION_FILE"),
+		QualificationRunDeclarationFile: os.Getenv("TS_VM_RUN_DECLARATION_FILE"),
 	}
 	snapshotText, snapshotSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_SNAPSHOT_BYTES")
 	totalText, totalSet := os.LookupEnv("TS_VM_PRELIMINARY_CAPTURE_MAX_TOTAL_BYTES")
@@ -196,6 +198,7 @@ func defaultConfigForArchitecture(architecture string) Config {
 	c.ReleasePublicKeyPath = absoluteIfSet(c.ReleasePublicKeyPath, repoRoot)
 	c.PreliminaryPublicationFile = absoluteIfSet(c.PreliminaryPublicationFile, repoRoot)
 	c.TerraBaseDeclarationFile = absoluteIfSet(c.TerraBaseDeclarationFile, repoRoot)
+	c.QualificationRunDeclarationFile = absoluteIfSet(c.QualificationRunDeclarationFile, repoRoot)
 	c.TSNode = absoluteProductionArtifact(c.TSNode, repoRoot)
 	c.Orchestrator = absoluteProductionArtifact(c.Orchestrator, repoRoot)
 	c.TerraBase = absoluteProductionArtifact(c.TerraBase, repoRoot)
@@ -324,6 +327,9 @@ func findGoModuleRoot(start string) string {
 }
 
 func (c Config) Validate() error {
+	if c.QualificationRunDeclarationFile != "" && (!filepath.IsAbs(c.QualificationRunDeclarationFile) || filepath.Clean(c.QualificationRunDeclarationFile) != c.QualificationRunDeclarationFile) {
+		return errors.New("vmqual: run declaration requires an absolute protected file path")
+	}
 	if c.TerraBaseDeclarationFile != "" && (!filepath.IsAbs(c.TerraBaseDeclarationFile) || filepath.Clean(c.TerraBaseDeclarationFile) != c.TerraBaseDeclarationFile) {
 		return errors.New("vmqual: TerraBase declaration requires an absolute protected file path")
 	}
