@@ -1026,3 +1026,127 @@ ok  	terrascale.tech/orchestrator/src/orchestrator/hostmanifest	1.074s
 ok  	terrascale.tech/orchestrator/src/orchestrator/hostplatform	1.851s
 ok  	terrascale.tech/orchestrator/src/orchestrator/hostremoval	1.432s
 ok  	terrascale.tech/orchestrator/src/orchestrator/hostsecrets	6.965s
+--- FAIL: TestInitialProfilesSnapshotRestoreR3Recovery (114.65s)
+    profile_promotion_test.go:324: NATS=2.14.6 storage budget per server=4144234496
+    profile_promotion_test.go:370: production snapshotter initial GRU_CONTROL inventory=11 empty=10
+    profile_promotion_test.go:438: ORIGINAL CONSUMER GRU_CONTROL/CELL_EVENTS/runtime_startup replicas=1 delivered={Consumer:1 Stream:1 Last:2026-09-08 13:23:30.626052829 +0000 UTC} ackFloor={Consumer:1 Stream:1 Last:2026-09-08 13:23:30.627442742 +0000 UTC}
+    profile_promotion_test.go:438: ORIGINAL CONSUMER GRU_CONTROL/CELL_SPEC/gitops_cell_spec_gru-1 replicas=1 delivered={Consumer:1 Stream:1 Last:2026-09-08 13:23:30.631106465 +0000 UTC} ackFloor={Consumer:1 Stream:1 Last:2026-09-08 13:23:30.632212848 +0000 UTC}
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/CELL_EVENTS envelope_bytes=6144 envelope_sha256=bdce4da517bd9d9f7d2b60c5d01d24a068b97e73246552111c555ddf6c462a64 archive_bytes=1629 archive_sha256=6b6e51cdfa40bf76cbd1d64eea5be7294e2541f81155b897e6cb2d4f2d669e45
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/CELL_SPEC envelope_bytes=6144 envelope_sha256=770e81ec555c3f846ecedfc3b3fad0c3e5a78a376a6001d67b273408cb81eba5 archive_bytes=1626 archive_sha256=a43200e956fd1ad3c35526e2350859d4f325e55909252fdf770b1d6a5e6fa582
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_COMMAND_REPLAY envelope_bytes=5120 envelope_sha256=385c072f52c91e70ad9d1235b3779a48f47f5ed061901870acbe6cd5a7409968 archive_bytes=1228 archive_sha256=9f5cef0c41636d800e99890ed72a16322c9112a5a6bb847cac9dc59079b60aea
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_LEADERS envelope_bytes=5120 envelope_sha256=67128e93260f0d1814ca0463b165f8453119f5265bcf00ef2af15c6b4c855d45 archive_bytes=1178 archive_sha256=68f1a3b91d11ef2c6205d24f628b95cce8fe2b9fb4edc9c168d9dd90fe264d50
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_OPERATIONS envelope_bytes=5120 envelope_sha256=49f5f676b49a972664fc8b64e7442ce43db105e32b682d8532abfece7bb3f97d archive_bytes=1206 archive_sha256=e61b24d02e50edb521004117510bb482753e84bfa49c11ab18d3617c5c8a12de
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_RUNTIME envelope_bytes=5120 envelope_sha256=8656d99f31ab4adaabae159aa593b151b57552d8ed7a3ac9219eea7726ad0130 archive_bytes=1174 archive_sha256=83d46de2a467ac50599329c325272c5a05a79a519c1e3b0b801919b8ea764583
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/OBJ_CELL_BUNDLES envelope_bytes=5120 envelope_sha256=25cb3e84566d95f942465382b674c1a8aa1f65622b97d6840f214e727b0ad7a9 archive_bytes=1373 archive_sha256=42dc2966351f86dabbb18d56b2b920a3ee9e701e8e2273ac599c09f0ca9fc1c6
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/CELL_OPERATIONS envelope_bytes=5120 envelope_sha256=9e06a58af7f1adcf2da8e2843488ef50ad9f9368e108672966e204ffeea5c9dd archive_bytes=1140 archive_sha256=bf9128876fa3764f833c3cb4fad27d1db469d2a3ec87f9992dd0a46e9d49418a
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_DELIVERY envelope_bytes=5120 envelope_sha256=418388887efdd14904bb29da481af562c07b88ef240207af13a8337530893249 archive_bytes=1218 archive_sha256=4e7fa0832a894d995bc584dd7e81361a42aed0d4deb96409d7ced686424ea98f
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/KV_ORCH_OPERATION_PROOFS envelope_bytes=5120 envelope_sha256=6c3b954cdc319bc5f2c9c3198f9e9654b5d8099f38a5a201bce920a5297c98d8 archive_bytes=1237 archive_sha256=9e1250cc3a915c85d3308036535bf82c0eba9956015c553dfcf8c30afb2a4346
+    profile_promotion_test.go:457: SNAPSHOT GRU_CONTROL/OBJ_ORCH_PROTOCOL_PACKAGE envelope_bytes=5632 envelope_sha256=a9fb4ea808c39e37aaa897ee201d2eed7bedfc94cd4b83ee513c317f061b0a82 archive_bytes=1617 archive_sha256=d5fbdb9f2ea3228109f6e63e9e6947f77a233c420e87753104ff5364988c8d89
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_OPERATIONS records=3
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_RUNTIME records=3
+    profile_promotion_test.go:463: original GRU_CONTROL/OBJ_CELL_BUNDLES records=2
+    profile_promotion_test.go:463: original GRU_CONTROL/CELL_OPERATIONS records=1
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_DELIVERY records=3
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_OPERATION_PROOFS records=2
+    profile_promotion_test.go:463: original GRU_CONTROL/OBJ_ORCH_PROTOCOL_PACKAGE records=4
+    profile_promotion_test.go:463: original GRU_CONTROL/CELL_EVENTS records=1
+    profile_promotion_test.go:463: original GRU_CONTROL/CELL_SPEC records=1
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_COMMAND_REPLAY records=2
+    profile_promotion_test.go:463: original GRU_CONTROL/KV_ORCH_LEADERS records=3
+    profile_promotion_test.go:465: GRU_CONTROL original streams=11 records=25
+    profile_promotion_test.go:370: production snapshotter initial GLOBAL_CONTROL inventory=4 empty=4
+    profile_promotion_test.go:438: ORIGINAL CONSUMER GLOBAL_CONTROL/GLOBAL_SPEC/global_cell_spec_gru replicas=1 delivered={Consumer:1 Stream:1 Last:2026-09-08 13:23:32.819463204 +0000 UTC} ackFloor={Consumer:1 Stream:1 Last:2026-09-08 13:23:32.820437108 +0000 UTC}
+    profile_promotion_test.go:457: SNAPSHOT GLOBAL_CONTROL/GLOBAL_SPEC envelope_bytes=6144 envelope_sha256=2114e1783be7aa6e13ee202880e83c6b79af334503a8cc35a59b85f3314b7929 archive_bytes=1665 archive_sha256=18ee8a900301c03ad82a9debb991006edc90774788fc695671c5e55981231b56
+    profile_promotion_test.go:457: SNAPSHOT GLOBAL_CONTROL/KV_GLOBAL_CELLS envelope_bytes=5120 envelope_sha256=f7643b5a230a47b223335d0fd1cb06605b24f9ecbfe6bf3dc5c62c64ce6dcbb9 archive_bytes=1198 archive_sha256=3945e193fff60a15bf42a523fef7a44943568f3f8a3b715bc01acc787a6e3769
+    profile_promotion_test.go:457: SNAPSHOT GLOBAL_CONTROL/KV_GLOBAL_DELIVERIES envelope_bytes=5120 envelope_sha256=7b93082c56df63601a0a4885d0d94c25b4463d87f67f7a688f44b0feffeec0b5 archive_bytes=1241 archive_sha256=30c99e3d1e318b0f0b0ddfb0d717feb65de32810cd2be4e19d5f079805fc316d
+    profile_promotion_test.go:457: SNAPSHOT GLOBAL_CONTROL/KV_ORCH_LEADERS envelope_bytes=5120 envelope_sha256=1a6ec69fdfdc75c0270bfc7336e4ba1d843c335a3827fc3df06317e6608ffe7c archive_bytes=1176 archive_sha256=dd8008a23d390a13ec566a15479421c31425d3624f8438140d1b2873d702f10b
+    profile_promotion_test.go:463: original GLOBAL_CONTROL/KV_GLOBAL_DELIVERIES records=2
+    profile_promotion_test.go:463: original GLOBAL_CONTROL/KV_ORCH_LEADERS records=3
+    profile_promotion_test.go:463: original GLOBAL_CONTROL/GLOBAL_SPEC records=1
+    profile_promotion_test.go:463: original GLOBAL_CONTROL/KV_GLOBAL_CELLS records=3
+    profile_promotion_test.go:465: GLOBAL_CONTROL original streams=4 records=9
+    profile_promotion_test.go:507: exact GRU/SFO/FRA metadata quorum healthy
+    profile_promotion_test.go:536: all15 original stream archives restored onto fresh clustered GRU R1 source
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_DELIVERY Created: 2026-09-08 13:23:27.852839279 +0000 UTC -> 2026-09-08 13:23:44.933844726 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_OPERATION_PROOFS Created: 2026-09-08 13:23:28.605524816 +0000 UTC -> 2026-09-08 13:23:43.552504302 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/OBJ_ORCH_PROTOCOL_PACKAGE Created: 2026-09-08 13:23:28.876749277 +0000 UTC -> 2026-09-08 13:23:43.791241304 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/CELL_EVENTS Created: 2026-09-08 13:23:27.218088555 +0000 UTC -> 2026-09-08 13:23:42.149883858 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/CELL_SPEC Created: 2026-09-08 13:23:26.672189001 +0000 UTC -> 2026-09-08 13:23:42.465359776 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_COMMAND_REPLAY Created: 2026-09-08 13:23:28.12758317 +0000 UTC -> 2026-09-08 13:23:42.732651862 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_LEADERS Created: 2026-09-08 13:23:27.557797488 +0000 UTC -> 2026-09-08 13:23:44.044626674 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_OPERATIONS Created: 2026-09-08 13:23:28.438591835 +0000 UTC -> 2026-09-08 13:23:43.003246642 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/KV_ORCH_RUNTIME Created: 2026-09-08 13:23:27.650230028 +0000 UTC -> 2026-09-08 13:23:44.280566988 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/OBJ_CELL_BUNDLES Created: 2026-09-08 13:23:28.827567605 +0000 UTC -> 2026-09-08 13:23:44.630535341 +0000 UTC
+    profile_promotion_test.go:549: restored GRU_CONTROL/CELL_OPERATIONS Created: 2026-09-08 13:23:26.953087531 +0000 UTC -> 2026-09-08 13:23:43.281700224 +0000 UTC
+    profile_promotion_test.go:549: restored GLOBAL_CONTROL/GLOBAL_SPEC Created: 2026-09-08 13:23:31.935859778 +0000 UTC -> 2026-09-08 13:23:46.899000873 +0000 UTC
+    profile_promotion_test.go:549: restored GLOBAL_CONTROL/KV_GLOBAL_CELLS Created: 2026-09-08 13:23:32.013150025 +0000 UTC -> 2026-09-08 13:23:45.56433481 +0000 UTC
+    profile_promotion_test.go:549: restored GLOBAL_CONTROL/KV_GLOBAL_DELIVERIES Created: 2026-09-08 13:23:32.034854322 +0000 UTC -> 2026-09-08 13:23:45.869732124 +0000 UTC
+    profile_promotion_test.go:549: restored GLOBAL_CONTROL/KV_ORCH_LEADERS Created: 2026-09-08 13:23:31.957532153 +0000 UTC -> 2026-09-08 13:23:46.483156514 +0000 UTC
+    profile_promotion_test.go:666: promoted GRU_CONTROL: exact GRU/SFO/FRA replicas, in-memory Created/data/headers preserved before restart
+    profile_promotion_test.go:666: promoted GLOBAL_CONTROL: exact GRU/SFO/FRA replicas, in-memory Created/data/headers preserved before restart
+    profile_promotion_test.go:681: GRU offline: retained records and consumer checkpoints remain readable through SFO/FRA (read availability only)
+    profile_promotion_test.go:686: timed out stream and consumer leadership recovered
+    profile_promotion_test.go:893: last recovery observation: stream CELL_EVENTS: peer GRU_SOURCE current=false offline=false
+    profile_promotion_test.go:569: last retained-stream probe: 
+    profile_promotion_test.go:569: last retained-stream probe: 
+    profile_promotion_test.go:339: failure server=GRU_SOURCE routes=8 jsz={"memory":0,"storage":4438,"reserved_memory":0,"reserved_storage":3875799040,"accounts":2,"ha_assets":11,"api":{"level":4,"total":0,"errors":0},"server_id":"NALN4AHMOFZZXQP37CHNI2KSQPYRU5T5HIBRJE2IHPM6MCNN46DPFEAE","now":"2026-09-08T13:24:44.435707493Z","config":{"max_memory":67108864,"max_storage":4144234496,"store_dir":"/tmp/TestInitialProfilesSnapshotRestoreR3Recovery1926735645/001/GRU_CLUSTER_STORE/jetstream","sync_interval":120000000000,"compress_ok":true,"strict":true},"limits":{},"streams":15,"consumers":3,"messages":34,"bytes":4438,"meta_cluster":{"name":"CONTROL","leader":"SFO_PEER","peer":"XycRGzZP","cluster_size":3,"pending":0,"pending_requests":0,"pending_infos":0,"snapshot":{"pending_entries":6,"pending_size":4299,"last_time":"0001-01-01T00:00:00Z"}},"total":2} error=<nil>
+    profile_promotion_test.go:339: failure server=SFO_PEER routes=8 jsz={"memory":0,"storage":4438,"reserved_memory":0,"reserved_storage":3875799040,"accounts":2,"ha_assets":19,"api":{"level":4,"total":1174,"errors":6},"server_id":"NBATFQAHQODVUMDJD4SQTIGUWZGO2DLLZL2UDAOPL3HUBIKKYAAMW6WD","now":"2026-09-08T13:24:44.43720076Z","config":{"max_memory":67108864,"max_storage":4144234496,"store_dir":"/tmp/TestInitialProfilesSnapshotRestoreR3Recovery1926735645/001/SFO_PEER/store/jetstream","sync_interval":120000000000,"compress_ok":true,"strict":true},"limits":{},"streams":15,"consumers":3,"messages":34,"bytes":4438,"meta_cluster":{"name":"CONTROL","leader":"SFO_PEER","peer":"XycRGzZP","replicas":[{"name":"FRA_PEER","current":true,"active":212740565,"peer":"DVPusfEE"},{"name":"GRU_SOURCE","current":true,"active":213319808,"peer":"W2Lh2dcR"}],"cluster_size":3,"pending":0,"pending_requests":0,"pending_infos":0,"snapshot":{"pending_entries":0,"pending_size":0,"last_time":"2026-09-08T13:24:34.406331849Z","last_duration":4587068}},"total":2} error=<nil>
+    profile_promotion_test.go:339: failure server=FRA_PEER routes=8 jsz={"memory":0,"storage":4438,"reserved_memory":0,"reserved_storage":3875799040,"accounts":2,"ha_assets":19,"api":{"level":4,"total":223,"errors":8},"server_id":"NCRPYZVW6ZFLZBNZVY3I2DYW3YQMQKBCGOFIEALEUGGI7W2F2RPCJBPN","now":"2026-09-08T13:24:44.437850874Z","config":{"max_memory":67108864,"max_storage":4144234496,"store_dir":"/tmp/TestInitialProfilesSnapshotRestoreR3Recovery1926735645/001/FRA_PEER/store/jetstream","sync_interval":120000000000,"compress_ok":true,"strict":true},"limits":{},"streams":15,"consumers":3,"messages":34,"bytes":4438,"meta_cluster":{"name":"CONTROL","leader":"SFO_PEER","peer":"XycRGzZP","cluster_size":3,"pending":0,"pending_requests":0,"pending_infos":0,"snapshot":{"pending_entries":0,"pending_size":0,"last_time":"2026-09-08T13:24:35.416402713Z","last_duration":3848388}},"total":2} error=<nil>
+FAIL
+FAIL	terrascale.tech/orchestrator/src/orchestrator/initialcontrol	118.043s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrolcli	1.088s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialgrant	4.815s
+?   	terrascale.tech/orchestrator/src/orchestrator/internal/ociworker	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/keylease	1.282s
+ok  	terrascale.tech/orchestrator/src/orchestrator/keyrotation	116.874s
+ok  	terrascale.tech/orchestrator/src/orchestrator/lifecycle	1.036s
+ok  	terrascale.tech/orchestrator/src/orchestrator/lifecycleaggregate	1.031s
+ok  	terrascale.tech/orchestrator/src/orchestrator/memberobserve	1.447s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natsconnect	1.044s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natspolicy	1.093s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	18.372s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodebootstrap	1.295s
+ok  	terrascale.tech/orchestrator/src/orchestrator/observability	1.507s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ociinstance	15.089s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ocireconcile	2.472s
+ok  	terrascale.tech/orchestrator/src/orchestrator/placementpublisher	17.873s
+?   	terrascale.tech/orchestrator/src/orchestrator/placementrelocation	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/placementtransition	5.368s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarycapture	5.114s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarytransfer	4.897s
+ok  	terrascale.tech/orchestrator/src/orchestrator/protocol	4.608s
+ok  	terrascale.tech/orchestrator/src/orchestrator/provider	6.726s
+ok  	terrascale.tech/orchestrator/src/orchestrator/qualificationstate	1.327s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reaper	68.636s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reconcile	3.457s
+ok  	terrascale.tech/orchestrator/src/orchestrator/residency	1.084s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoredrill	45.482s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoresnapshot	1.110s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runmaterial	1.063s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runtime	1.192s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare	1.174s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/edge	1.084s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/objectstore	1.081s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci	1.094s
+?   	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/ociinstance	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxvm	1.605s
+ok  	terrascale.tech/orchestrator/src/orchestrator/scheduling	10.089s
+ok  	terrascale.tech/orchestrator/src/orchestrator/security	1.152s
+ok  	terrascale.tech/orchestrator/src/orchestrator/serviceidentity	1.952s
+ok  	terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation	7.393s
+?   	terrascale.tech/orchestrator/src/orchestrator/snapshotfacts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/sourcepublication	180.872s
+ok  	terrascale.tech/orchestrator/src/orchestrator/storageplan	2.569s
+?   	terrascale.tech/orchestrator/src/orchestrator/systemdlimits	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/tbep	1.774s
+?   	terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/transferplan	8.405s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitiongrant	1.154s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitionreceipts	5.258s
+ok  	terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap	1.028s
+?   	terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed	5.442s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmdisk	6.502s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	5.876s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmguest	55.184s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	46.973s

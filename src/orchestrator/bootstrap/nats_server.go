@@ -444,10 +444,33 @@ func validateNatsServerOptions(options *server.Options) error {
 	if options.NoAuthUser != "" {
 		return errors.New("nats server must not configure a no-auth user")
 	}
-	if len(options.Users) == 0 && len(options.Nkeys) == 0 && options.Username == "" && options.Password == "" && options.Authorization == "" && options.AuthCallout == nil {
+	if !hasNatsClientAuthentication(options) {
 		return errors.New("nats server must configure non-empty authorization")
 	}
 	return nil
+}
+
+func hasNatsClientAuthentication(options *server.Options) bool {
+	if options.AuthCallout != nil || options.CustomClientAuthentication != nil {
+		return true
+	}
+	if strings.TrimSpace(options.Authorization) != "" {
+		return true
+	}
+	if strings.TrimSpace(options.Username) != "" && strings.TrimSpace(options.Password) != "" {
+		return true
+	}
+	for _, user := range options.Users {
+		if user != nil && strings.TrimSpace(user.Username) != "" && strings.TrimSpace(user.Password) != "" {
+			return true
+		}
+	}
+	for _, user := range options.Nkeys {
+		if user != nil && strings.TrimSpace(user.Nkey) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectSymlinkPath checks each existing component, including the final

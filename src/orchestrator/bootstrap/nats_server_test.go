@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -73,6 +74,39 @@ func TestValidateNatsServerOptionsRequiresProductionSecurity(t *testing.T) {
 	options.StoreDir = filepath.Join(t.TempDir(), "store")
 	if err := validateNatsServerOptions(options); err == nil {
 		t.Fatal("expected TLS rejection")
+	}
+}
+
+func TestValidateNatsServerOptionsRejectsEmptyAuthenticationEntries(t *testing.T) {
+	t.Parallel()
+	base := func() *server.Options {
+		return &server.Options{
+			JetStream: true,
+			StoreDir:  filepath.Join(t.TempDir(), "store"),
+			TLSConfig: &tls.Config{
+				MinVersion:   tls.VersionTLS13,
+				Certificates: []tls.Certificate{{}},
+				ClientAuth:   tls.RequireAndVerifyClientCert,
+				ClientCAs:    x509.NewCertPool(),
+			},
+			Accounts: []*server.Account{server.NewAccount("CONTROL")},
+		}
+	}
+	for _, test := range []struct {
+		name  string
+		apply func(*server.Options)
+	}{
+		{name: "empty user", apply: func(options *server.Options) { options.Users = []*server.User{{}} }},
+		{name: "empty nkey", apply: func(options *server.Options) { options.Nkeys = []*server.NkeyUser{{}} }},
+		{name: "whitespace token", apply: func(options *server.Options) { options.Authorization = "  " }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := base()
+			test.apply(options)
+			if err := validateNatsServerOptions(options); err == nil {
+				t.Fatal("empty authentication was accepted")
+			}
+		})
 	}
 }
 

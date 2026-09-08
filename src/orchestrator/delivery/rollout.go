@@ -891,7 +891,7 @@ func (r *Rollout) rollWorkerAndSnippet(ctx context.Context, request *Request, ar
 		if r.config.EdgeProgress != nil {
 			prior := priors[index]
 			if err := r.config.EdgeProgress(entry.kind, entry.service, prior.prior.Digest, prior.state, entry.digest, 100, true, true); err != nil {
-				return r.failure("edge_progress_failed", err)
+				return r.rollbackWorkerAndSnippet(ctx, request, priors, checks, fmt.Errorf("edge progress: %w", err))
 			}
 		}
 		checks = append(checks, &HealthCheck{Name: entry.kind + "-promotion:" + entry.service, Status: "passed"})

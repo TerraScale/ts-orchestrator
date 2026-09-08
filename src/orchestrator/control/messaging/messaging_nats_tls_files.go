@@ -102,7 +102,7 @@ func (t *NatsTlsFiles) Options() []nats.Option {
 	}
 
 	return []nats.Option{
-		nats.Secure(&tls.Config{MinVersion: tls.VersionTLS12}),
+		nats.Secure(&tls.Config{MinVersion: tls.VersionTLS13}),
 		nats.RootCAs(t.CaFile),
 		nats.ClientCert(t.CertificateFile, t.KeyFile),
 	}
