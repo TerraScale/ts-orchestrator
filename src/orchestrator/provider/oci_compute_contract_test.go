@@ -249,6 +249,7 @@ func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 func TestOCIComputeAdapterRecoveryRecordsOwnershipBeforeCompleting(t *testing.T) {
 	posts, reads := 0, 0
 	operation := ""
+	intent := ""
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		switch request.Method {
 		case http.MethodPost:
@@ -256,7 +257,7 @@ func TestOCIComputeAdapterRecoveryRecordsOwnershipBeforeCompleting(t *testing.T)
 			return nil, io.ErrUnexpectedEOF
 		case http.MethodGet:
 			reads++
-			body := `[{"id":"ocid1.instance.oc1.recovered","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","shape":"VM.Standard.A1.Flex","freeformTags":{"terrascale-operation":"` + operation + `","terrascale-intent":"recovery-intent"}}]`
+			body := `[{"id":"ocid1.instance.oc1.recovered","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","shape":"VM.Standard.A1.Flex","freeformTags":{"terrascale-operation":"` + operation + `","terrascale-intent":"` + intent + `"}}]`
 			return testHTTPResponse(http.StatusOK, body, nil), nil
 		default:
 			return nil, errors.New("unexpected compute method")
@@ -278,8 +279,9 @@ func TestOCIComputeAdapterRecoveryRecordsOwnershipBeforeCompleting(t *testing.T)
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
 		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", Architecture: "arm64", ImageID: "ocid1.image.oc1.x", OCPUs: 1, MemoryGiB: 6}},
 	}
-	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), "recovery-intent", 1)
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	operation = request.Mutation.OperationID.Value
+	intent = request.Mutation.Fingerprint
 	if _, err := adapter.LaunchInstance(t.Context(), request); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
 		t.Fatalf("lost response error = %v", err)
 	}

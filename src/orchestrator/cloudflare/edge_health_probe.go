@@ -144,10 +144,8 @@ func (p CanaryEdgeHealthProbe) CheckEdge(ctx context.Context, kind, service, dig
 		if err != nil || len(bound) == 0 {
 			return errors.New("cloudflare: downstream Worker deployment is unavailable")
 		}
-		for primaryID, downstreamID := range downstream {
-			if !deploymentContains(bound[0], downstreamID) {
-				return fmt.Errorf("cloudflare: downstream version for %s is not in the current deployment", primaryID)
-			}
+		if !deploymentMatchesAllocation(bound[0], p.DownstreamCandidateID, candidatePercentage, p.DownstreamPreviousID, previous, previousPercentage) {
+			return errors.New("cloudflare: downstream Worker allocation does not match the current edge stage")
 		}
 	}
 	if previous != "" {
@@ -237,6 +235,33 @@ func deploymentContains(deployment WorkerDeployment, versionID string) bool {
 		}
 	}
 	return false
+}
+
+func deploymentMatchesAllocation(deployment WorkerDeployment, candidateID string, candidatePercentage int, previousID string, previousPercentage int) bool {
+	if candidateID == "" || previousID == candidateID {
+		return false
+	}
+	want := map[string]int{candidateID: candidatePercentage}
+	if previousID != "" {
+		want[previousID] = previousPercentage
+	}
+	if len(want) != 1 && len(want) != 2 {
+		return false
+	}
+	seen := make(map[string]bool, len(want))
+	total := 0
+	for _, version := range deployment.Versions {
+		if version.Percentage <= 0 {
+			continue
+		}
+		percentage, ok := want[version.VersionID]
+		if !ok || seen[version.VersionID] || percentage != version.Percentage {
+			return false
+		}
+		seen[version.VersionID] = true
+		total += version.Percentage
+	}
+	return total == 100 && len(seen) == len(want)
 }
 
 func workerName(value string) bool {

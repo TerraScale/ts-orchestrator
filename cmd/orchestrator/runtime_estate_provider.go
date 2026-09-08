@@ -215,6 +215,7 @@ type productionKVFile struct {
 	ZoneID        string `json:"zoneId"`
 	TokenFile     string `json:"tokenFile"`
 	PlacementFile string `json:"placementFile"`
+	Catalog       []cloudflare.WorkerRegionCatalog `json:"catalog"`
 }
 
 func (c productionKVFile) validate() error {
@@ -285,7 +286,7 @@ func constructProductionKVWriter(config productionKVFile, spec estate.Spec, heal
 	}
 	client := cloudflare.NewClient(token, config.ZoneID, config.AccountID)
 	client.HTTP = &productionKVTransport{transport: transport, session: session, tokenFile: config.TokenFile}
-	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{Store: client, Health: health, Placement: placement, HealthInterval: cloudflare.DefaultKVWriterHealthInterval})
+	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{Store: client, Health: health, Placement: placement, Catalog: config.Catalog, HealthInterval: cloudflare.DefaultKVWriterHealthInterval})
 	if err != nil {
 		transport.CloseIdleConnections()
 		return nil, nil, err

@@ -74,10 +74,16 @@ func TestAuthorizationLeasePublicationReplaysAfterRestart(t *testing.T) {
 	if replay, err := second.Issue(ctx, request); err != nil || replay != issued {
 		t.Fatalf("authority replay diverged: %+v %v", replay, err)
 	}
+	if err := second.Revoke(ctx, request.TenantID, request.CredentialGeneration, request.PermissionSetGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Issue(ctx, request); !errors.Is(err, ErrAuthorizationLeaseRevoked) {
+		t.Fatalf("revoked lease replayed: %v", err)
+	}
 	changed := request
 	changed.PermissionSetGeneration++
-	if _, err := second.Issue(ctx, changed); !errors.Is(err, ErrAuthorizationLeaseConflict) {
-		t.Fatalf("changed generation replaced durable lease: %v", err)
+	if _, err := second.Issue(ctx, changed); !errors.Is(err, ErrAuthorizationLeaseRevoked) {
+		t.Fatalf("revoked generation was accepted: %v", err)
 	}
 	cluster.servers[1].Shutdown()
 	cluster.servers[2].Shutdown()
