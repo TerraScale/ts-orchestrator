@@ -333,7 +333,8 @@ func (r *Rollout) Roll(ctx context.Context, request *Request, artifact *ReleaseA
 	}
 	if artifact.Service != request.Target.Service || !SameDigest(artifact.Digest, request.Artifact.Digest) ||
 		len(artifact.Body) == 0 || !SameDigest(SHA256Digest(artifact.Body), artifact.Digest) ||
-		(artifact.Architecture != "" && artifact.Architecture != request.Artifact.Architecture) {
+		(artifact.Architecture != "" && artifact.Architecture != request.Artifact.Architecture) ||
+		!sameSnippetArtifact(artifact.Snippet, request.Artifact.Snippet) {
 		return r.failure("artifact_identity_mismatch", errors.New("verified rollout artifact does not match the requested candidate identity"))
 	}
 	regions, err := r.targetRegions(request)
@@ -352,6 +353,9 @@ func (r *Rollout) Roll(ctx context.Context, request *Request, artifact *ReleaseA
 	case "site":
 		if r.config.Edge == nil {
 			return r.failure("edge_promoter_missing", errors.New("no edge promoter is configured"))
+		}
+		if artifact.Snippet != nil {
+			return r.rollWorkerAndSnippet(ctx, request, artifact)
 		}
 		return r.rollEdge(ctx, request, artifact, r.promoteWorker, r.promoteWorker)
 	case "package":
@@ -822,6 +826,113 @@ func (r *Rollout) rollbackTouched(ctx context.Context, request *Request, artifac
 		result.Error = &Error{Code: ptr("rollout_gate_failed"), Message: ptr(message), Remediation: ptr("Inspect the failing gate on the named host, then retry with a fresh operation ID.")}
 	}
 	return result, nil
+}
+
+func sameSnippetArtifact(left, right *SnippetArtifact) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
+type edgePrior struct {
+	kind, service, digest, state string
+	prior                        EdgeReleaseState
+}
+
+// rollWorkerAndSnippet promotes the two edge artifacts as one rollout unit.
+// Cloudflare has no cross-resource transaction, so every successful mutation
+// is retained in the edge progress journal and any later failure restores all
+// predecessors before the operation is reported failed.
+func (r *Rollout) rollWorkerAndSnippet(ctx context.Context, request *Request, artifact *ReleaseArtifact) (RolloutResult, error) {
+	snippet := artifact.Snippet
+	if snippet.Name == "" || !strings.HasPrefix(snippet.Digest, "sha256:") {
+		return r.failure("snippet_identity_invalid", errors.New("verified Snippet identity is incomplete"))
+	}
+	observer, ok := r.config.Edge.(EdgeReleaseObserver)
+	if !ok {
+		return r.failure("edge_predecessor_unavailable", errors.New("edge release observation is unavailable"))
+	}
+	entries := []struct {
+		kind, service, digest string
+		promote               func(context.Context) error
+	}{
+		{kind: "site", service: artifact.Service, digest: artifact.Digest, promote: func(ctx context.Context) error { return r.promoteWorker(ctx, artifact.Service, artifact.Digest) }},
+		{kind: "package", service: snippet.Name, digest: snippet.Digest, promote: func(ctx context.Context) error { return r.promoteSnippet(ctx, snippet.Name, snippet.Digest) }},
+	}
+	priors := make([]edgePrior, 0, len(entries))
+	checks := make([]*HealthCheck, 0, len(entries))
+	for _, entry := range entries {
+		state, err := observer.ObserveEdge(ctx, entry.kind, entry.service)
+		if err != nil {
+			return r.failure("edge_predecessor_unavailable", err)
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			return r.failure("edge_predecessor_unavailable", err)
+		}
+		prior := edgePrior{kind: entry.kind, service: entry.service, digest: entry.digest, state: string(encoded), prior: state}
+		priors = append(priors, prior)
+		if r.config.EdgeProgress != nil {
+			if err := r.config.EdgeProgress(entry.kind, entry.service, state.Digest, string(encoded), entry.digest, 0, true, false); err != nil {
+				return r.failure("edge_progress_failed", err)
+			}
+		}
+	}
+	for index, entry := range entries {
+		if err := entry.promote(ctx); err != nil {
+			return r.rollbackWorkerAndSnippet(ctx, request, priors, checks, err)
+		}
+		if checker, ok := r.config.Edge.(EdgeHealthChecker); ok {
+			if err := checker.CheckEdge(ctx, entry.kind, entry.service, entry.digest); err != nil {
+				return r.rollbackWorkerAndSnippet(ctx, request, priors, append(checks, &HealthCheck{Name: entry.kind + "-promotion:health", Status: "failed"}), err)
+			}
+		}
+		if r.config.EdgeProgress != nil {
+			prior := priors[index]
+			if err := r.config.EdgeProgress(entry.kind, entry.service, prior.prior.Digest, prior.state, entry.digest, 100, true, true); err != nil {
+				return r.failure("edge_progress_failed", err)
+			}
+		}
+		checks = append(checks, &HealthCheck{Name: entry.kind + "-promotion:" + entry.service, Status: "passed"})
+	}
+	if published, err := r.publishKV(ctx, artifact); err != nil {
+		return r.kvPublishFailure(artifact, checks, err)
+	} else if published {
+		checks = append(checks, kvPublishCheck(artifact.Service, "passed"))
+	}
+	return RolloutResult{Status: StatusSucceeded, Checks: checks, Converged: true, Rollback: &Rollback{Status: RollbackNotRequired}}, nil
+}
+
+func (r *Rollout) rollbackWorkerAndSnippet(ctx context.Context, request *Request, priors []edgePrior, checks []*HealthCheck, cause error) (RolloutResult, error) {
+	message := "The Worker and Snippet promotion failed: " + cause.Error()
+	restorer, ok := r.config.Edge.(EdgeReleaseRestorer)
+	observer, observed := r.config.Edge.(EdgeReleaseObserver)
+	if !ok || !observed {
+		return RolloutResult{Status: StatusFailed, Checks: checks, Error: &Error{Code: ptr("edge_rollback_unavailable"), Message: ptr(message), Remediation: ptr("Restore the prior Cloudflare edge release, then retry with a fresh operation ID.")}, Rollback: &Rollback{Attempted: true, Status: RollbackFailed}}, nil
+	}
+	rollbackContext := context.WithoutCancel(ctx)
+	rollbackContext, cancel := context.WithTimeout(rollbackContext, rolloutRecoveryTimeout)
+	defer cancel()
+	for i := len(priors) - 1; i >= 0; i-- {
+		prior := priors[i]
+		if err := restorer.RestoreEdge(rollbackContext, prior.kind, prior.service, prior.prior); err != nil {
+			return RolloutResult{Status: StatusFailed, Checks: checks, Error: &Error{Code: ptr("edge_rollback_failed"), Message: ptr(message + " Edge rollback failed: " + err.Error()), Remediation: ptr("Restore the prior Cloudflare edge release, then retry with a fresh operation ID.")}, Rollback: &Rollback{Attempted: true, Status: RollbackFailed}}, nil
+		}
+		state, err := observer.ObserveEdge(rollbackContext, prior.kind, prior.service)
+		if err != nil || state.Digest != prior.prior.Digest || state.Allocation != prior.prior.Allocation {
+			if err == nil {
+				err = errors.New("edge rollback readback did not reach the prior release")
+			}
+			return RolloutResult{Status: StatusFailed, Checks: checks, Error: &Error{Code: ptr("edge_rollback_failed"), Message: ptr(message + " Edge rollback readback failed: " + err.Error()), Remediation: ptr("Restore the prior Cloudflare edge release, then retry with a fresh operation ID.")}, Rollback: &Rollback{Attempted: true, Status: RollbackFailed}}, nil
+		}
+	}
+	rollback := &Rollback{Attempted: true, Status: RollbackSucceeded}
+	if request.Rollback != nil {
+		rollback.TargetArtifactDigest = ptr(request.Rollback.ArtifactDigest)
+		rollback.TargetManifestDigest = ptr(request.Rollback.ManifestDigest)
+	}
+	return RolloutResult{Status: StatusRolledBack, Checks: checks, Error: &Error{Code: ptr("edge_promotion_failed"), Message: ptr(message), Remediation: ptr("Inspect the Cloudflare plan output, then retry with a fresh operation ID.")}, Rollback: rollback}, nil
 }
 
 // rollEdge promotes a Worker or Snippet through the Cloudflare reconcilers;

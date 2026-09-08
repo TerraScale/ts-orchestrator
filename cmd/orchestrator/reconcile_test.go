@@ -335,9 +335,15 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 	}
 	controller := &ociReconcileController{spec: spec, regions: map[string]*ociRegionController{"gru": regional}}
 	for _, other := range spec.Regions[1:] {
-		controller.regions[other.Code] = &ociRegionController{region: other, projection: func(_ context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
-			return ocireconcile.ComputeDeclared{Region: region}, nil
-		}}
+		controller.regions[other.Code] = &ociRegionController{
+			region: other,
+			projection: func(_ context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
+				return ocireconcile.ComputeDeclared{Region: region}, nil
+			},
+			targetProjection: func(_ context.Context, region estate.Region) (uint16, error) {
+				return region.Members.Count, nil
+			},
+		}
 	}
 
 	observed := &autoscaleLoopProvider{ociReconcileController: controller, region: regional, gateway: gateway}

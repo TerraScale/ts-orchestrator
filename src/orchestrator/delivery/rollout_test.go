@@ -508,11 +508,36 @@ func TestRolloutEdgePromotion(t *testing.T) {
 	}
 }
 
+func TestRolloutWorkerAndSnippetPromotionIsAtomic(t *testing.T) {
+	promoter := &fakeEdgePromoter{worker: "sha256:prior-worker", snippet: "sha256:prior-snippet", failSnippet: true}
+	_, control, _ := rolloutTestBed(t)
+	rollout, err := NewRollout(RolloutConfig{Spec: estate.Default(), Hosts: fakeInventory{hosts: map[string][]string{}}, Control: control, Edge: promoter})
+	if err != nil {
+		t.Fatalf("build rollout: %v", err)
+	}
+	request := testDeliveryRequest(t)
+	request.Artifact.Kind = "site"
+	request.Artifact.Snippet = &SnippetArtifact{Kind: "cloudflare-snippet", Name: "ts-gate", SourcePath: "snippet.ts", MainModule: "index.js", ContentType: "application/javascript", Digest: "sha256:candidate-snippet", Bytes: 1}
+	artifact := rolloutArtifact()
+	artifact.Snippet = request.Artifact.Snippet
+	result, err := rollout.Roll(context.Background(), request, artifact)
+	if err != nil {
+		t.Fatalf("roll: %v", err)
+	}
+	if result.Status != StatusRolledBack || result.Rollback == nil || result.Rollback.Status != RollbackSucceeded {
+		t.Fatalf("result = %+v", result)
+	}
+	if promoter.worker != "sha256:prior-worker" || promoter.snippet != "sha256:prior-snippet" {
+		t.Fatalf("atomic rollback left worker=%q snippet=%q", promoter.worker, promoter.snippet)
+	}
+}
+
 type fakeEdgePromoter struct {
-	worker     string
-	snippet    string
-	allocation map[string]string
-	failWorker bool
+	worker      string
+	snippet     string
+	allocation  map[string]string
+	failWorker  bool
+	failSnippet bool
 }
 
 func (p *fakeEdgePromoter) ObserveEdge(_ context.Context, kind, service string) (EdgeReleaseState, error) {
@@ -547,6 +572,11 @@ func (p *fakeEdgePromoter) PromoteWorker(_ context.Context, service, digest stri
 }
 
 func (p *fakeEdgePromoter) PromoteSnippet(_ context.Context, service, digest string) error {
+	if p.failSnippet {
+		p.failSnippet = false
+		p.snippet = digest
+		return errors.New("snippet promotion rejected")
+	}
 	p.snippet = digest
 	return nil
 }

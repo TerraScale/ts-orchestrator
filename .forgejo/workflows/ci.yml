@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 
+# vm-test builds the TerraBase artifact from this exact source revision. Keep
+# this pin in the consuming workflow so a clean checkout has the sibling
+# repository that Makefile's default local path expects.
+env:
+  TS_TERRABASE_REV: de48591e0e37263c47b1a3ee6ce272346587d50d
+
 jobs:
   ci:
     runs-on: terrascale-builder
@@ -20,6 +26,19 @@ jobs:
           ref: ${{ forgejo.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          repository: TerraScale/terrabase
+          ref: de48591e0e37263c47b1a3ee6ce272346587d50d
+          path: terrabase
+          fetch-depth: 1
+          persist-credentials: false
+      - run: |
+          set -eu
+          test "$(git -C terrabase rev-parse HEAD)" = "$TS_TERRABASE_REV"
+          test -f terrabase/Cargo.toml
+          test -f terrabase/rust-toolchain.toml
       - run: |
           set -eu
           case "$(uname -m)" in
@@ -35,4 +54,4 @@ jobs:
           fj release view "${release}" --repo TerraScale/ts-deploy >/dev/null
           fj release asset download "${release}" "${asset}" --repo TerraScale/ts-deploy --output ts-deploy
           chmod +x ts-deploy
-      - run: ./ts-deploy ci --repo ts-orchestrator
+      - run: VM_TERRABASE_REPO="$PWD/terrabase" ./ts-deploy ci --repo ts-orchestrator

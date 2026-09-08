@@ -73,3 +73,36 @@ func TestGlobalDeliveryObservesPartialWorkerAsRecoverable(t *testing.T) {
 		t.Fatalf("partial deployment must permit recovery: reached=%v calls=%d err=%v", reached, recorder.calls, err)
 	}
 }
+
+func TestGlobalDeliverySnippetRejectsArtifactDigestMismatchBeforeProvider(t *testing.T) {
+	recorder := &globalDeliveryHTTPRecorder{}
+	edge := &productionGlobalDeliveryEdge{
+		client:    cloudflare.NewClient("fixture", "zone", "account"),
+		authorize: func(context.Context) error { return nil },
+	}
+	edge.client.HTTP = recorder
+	body := []byte("verified source")
+	request := &delivery.Request{
+		OperationID: "operation",
+		Target:      &delivery.Target{Service: "ts-proxy-snippet"},
+		Artifact:    &delivery.Artifact{Kind: "package", Digest: delivery.SHA256Digest([]byte("declared source"))},
+	}
+	artifact := &delivery.ReleaseArtifact{Service: "ts-proxy-snippet", Digest: request.Artifact.Digest, Body: body}
+	fence := delivery.OperationFence{OperationID: "operation", RequestDigest: "request", OwnerID: "owner", Generation: 1}
+	if _, err := edge.Observe(t.Context(), request, artifact, fence, func(delivery.OperationFence) error { return nil }); err == nil {
+		t.Fatal("accepted Snippet artifact whose bytes do not match its declared digest")
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("provider received mismatched Snippet artifact: %d calls", recorder.calls)
+	}
+}
+
+func TestGlobalDeliverySnippetFailsClosedWithoutCapabilityPromoter(t *testing.T) {
+	edge := &productionGlobalDeliveryEdge{authorize: func(context.Context) error { return nil }}
+	if err := edge.PromoteSnippet(t.Context(), "ts-proxy-snippet", "sha256:bad"); err == nil {
+		t.Fatal("Snippet promotion succeeded without its runtime promoter")
+	}
+	if err := edge.CoordinateSnippetZoneRules(t.Context(), "ts-proxy-snippet", "sha256:bad"); err == nil {
+		t.Fatal("Snippet rule coordination succeeded without its runtime promoter")
+	}
+}

@@ -105,6 +105,9 @@ func (e *productionGlobalDeliveryEdge) PromoteWorkerGradual(ctx context.Context,
 	return e.check(ctx)
 }
 func (e *productionGlobalDeliveryEdge) PromoteSnippet(ctx context.Context, service, digest string) error {
+	if e == nil || e.capabilities == nil {
+		return errors.New("delivery: global Snippet promoter is unavailable")
+	}
 	if err := e.check(ctx); err != nil {
 		return err
 	}
@@ -114,6 +117,9 @@ func (e *productionGlobalDeliveryEdge) PromoteSnippet(ctx context.Context, servi
 	return e.check(ctx)
 }
 func (e *productionGlobalDeliveryEdge) CoordinateSnippetZoneRules(ctx context.Context, service, digest string) error {
+	if e == nil || e.capabilities == nil {
+		return errors.New("delivery: global Snippet rule coordinator is unavailable")
+	}
 	if err := e.check(ctx); err != nil {
 		return err
 	}

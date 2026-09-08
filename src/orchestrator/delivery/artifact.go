@@ -31,6 +31,10 @@ type ReleaseArtifact struct {
 	Body              []byte
 	Signature         []byte // verified raw detached signature
 	SignatureKey      string // the trust-set key ID that verified the signature
+	// Snippet carries the separately signed edge source identity from the
+	// authenticated handoff. Keep it on the verified release so edge rollout
+	// code cannot accidentally use the Worker digest for Snippet delivery.
+	Snippet *SnippetArtifact
 }
 
 // ArtifactFetcher retrieves the artifact bytes and detached signature named
@@ -421,7 +425,7 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 	}
 	keyID := trust.verifyingKey(body, signature)
 	if manifestFetcher == nil {
-		return &ReleaseArtifact{Service: request.Target.Service, Digest: computed, Architecture: request.Artifact.Architecture, Body: append([]byte(nil), body...), SignatureKey: keyID, Signature: append([]byte(nil), signature...)}, nil
+		return &ReleaseArtifact{Service: request.Target.Service, Digest: computed, Architecture: request.Artifact.Architecture, Body: append([]byte(nil), body...), SignatureKey: keyID, Signature: append([]byte(nil), signature...), Snippet: cloneSnippetArtifact(request.Artifact.Snippet)}, nil
 	}
 	if len(manifest) == 0 || len(manifest) > MaxArtifactBytes || len(manifestSignature) != ed25519.SignatureSize || !trust.VerifySignature(manifest, manifestSignature) || trust.verifyingKey(manifest, manifestSignature) != keyID {
 		return nil, errors.New("delivery: release manifest signature failed verification")
@@ -480,7 +484,16 @@ func verifyArtifact(ctx context.Context, fetcher ArtifactFetcher, trust *TrustSe
 		ManifestName:      request.Artifact.ManifestName,
 		ManifestBody:      append([]byte(nil), manifest...),
 		ManifestSignature: append([]byte(nil), manifestSignature...),
+		Snippet:           cloneSnippetArtifact(request.Artifact.Snippet),
 	}, nil
+}
+
+func cloneSnippetArtifact(value *SnippetArtifact) *SnippetArtifact {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func rejectDuplicateJSON(raw []byte) error {

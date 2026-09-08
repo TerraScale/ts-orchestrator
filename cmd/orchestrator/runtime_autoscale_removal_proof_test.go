@@ -75,7 +75,7 @@ func TestObservedRemovalProofUsesSignedScopeAndExactProviderSurvivors(t *testing
 				gateway.members = append(gateway.members, member)
 				ownership.records[member.ID] = provider.ProviderOwnershipRecord{ResourceId: provider.ProviderResourceId{Value: member.ID}, CompartmentId: provider.ProviderCompartmentId{Value: member.CompartmentID}, CellId: provider.ProviderCellId{Value: "gru"}, Generation: provider.ProviderGeneration{Value: record.Generation}, MemberID: id, ServerIdentity: identity}
 				health.Members = append(health.Members, healthMember{ID: node, Address: fmt.Sprintf("198.51.100.%d", index+1), Architecture: new(runtimeplan.HostArchitectureArm64)})
-				reports = append(reports, hostagent.NodeStatusReport{NodeId: node, State: hostagent.NodeStateServing, Facts: hostagent.HostFacts{Engine: hostagent.EngineFacts{Measured: true, ObservedAtUnixMS: now.UnixMilli()}, Metrics: hostagent.HostMetrics{ObservationSequence: 1, BootGeneration: "boot-" + node, ObservedAtUnixMS: now.UnixMilli(), CPUPercent: 10, MemoryPercent: 10, QueueCapacity: 20, CapacityMeasured: true, CPUCount: 2, CPUBudgetMilli: 2000, AvailableMemoryBytes: 1, AvailableStorageBytes: 1}}})
+				reports = append(reports, hostagent.NodeStatusReport{NodeId: node, State: hostagent.NodeStateServing, Facts: hostagent.HostFacts{Engine: hostagent.EngineFacts{Measured: true, Serving: true, ObservedAtUnixMS: now.UnixMilli()}, Metrics: hostagent.HostMetrics{ObservationSequence: 1, BootGeneration: "boot-" + node, ObservedAtUnixMS: now.UnixMilli(), CPUPercent: 10, MemoryPercent: 10, QueueCapacity: 20, CapacityMeasured: true, CPUCount: 2, CPUBudgetMilli: 2000, AvailableMemoryBytes: 1, AvailableStorageBytes: 1}}})
 			}
 			public, key, err := ed25519.GenerateKey(rand.Reader)
 			if err != nil {

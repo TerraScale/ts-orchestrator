@@ -147,6 +147,27 @@ func TestVerifyArtifactFailsClosed(t *testing.T) {
 	}
 }
 
+func TestVerifyArtifactCarriesSignedSnippetIdentityIntoRollout(t *testing.T) {
+	request, fetcher, trust, _ := testRelease(t, func(request *Request) {
+		request.Artifact.Snippet = &SnippetArtifact{
+			Kind: "cloudflare-snippet", Name: "ts-gate", SourcePath: "snippet/snippet.ts",
+			MainModule: "snippet.ts", ContentType: "application/javascript",
+			Digest: SHA256Digest([]byte("snippet")), Bytes: len("snippet"),
+		}
+	})
+	artifact, err := verifyArtifact(t.Context(), fetcher, trust, request)
+	if err != nil {
+		t.Fatalf("verify artifact: %v", err)
+	}
+	if artifact.Snippet == nil || artifact.Snippet.Digest != request.Artifact.Snippet.Digest {
+		t.Fatalf("verified Snippet identity = %+v, want %+v", artifact.Snippet, request.Artifact.Snippet)
+	}
+	request.Artifact.Snippet.Digest = SHA256Digest([]byte("changed"))
+	if artifact.Snippet.Digest == request.Artifact.Snippet.Digest {
+		t.Fatal("verified Snippet identity aliases the mutable request")
+	}
+}
+
 // TestForgejoFetcherDownloadsReleasePair exercises the real fetcher against
 // a fake Forgejo: release listing by commit, asset pair download.
 func TestForgejoFetcherDownloadsReleasePair(t *testing.T) {

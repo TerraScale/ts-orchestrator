@@ -987,3 +987,42 @@ FAIL	terrascale.tech/orchestrator/src/orchestrator/authbootstrap	314.291s
 ?   	terrascale.tech/orchestrator/src/orchestrator/authorityjournal	[no test files]
 ok  	terrascale.tech/orchestrator/src/orchestrator/authorizationlease	1.157s
 ok  	terrascale.tech/orchestrator/src/orchestrator/autoscale	1.057s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrap	62.213s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials	1.193s
+ok  	terrascale.tech/orchestrator/src/orchestrator/brokeradmission	1.095s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidateplan	3.388s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	28.009s
+ok  	terrascale.tech/orchestrator/src/orchestrator/captureplan	2.284s
+ok  	terrascale.tech/orchestrator/src/orchestrator/cloudflare	2.726s
+?   	terrascale.tech/orchestrator/src/orchestrator/contracts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control	16.639s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/authority	4.136s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/directory	1.134s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/engines	[no test files]
+?   	terrascale.tech/orchestrator/src/orchestrator/control/internal/shared	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/journal	1.069s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/messaging	1.615s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/monitoring	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/placement	1.037s
+?   	terrascale.tech/orchestrator/src/orchestrator/controlcandidate	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/controlcandidatecli	7.907s
+?   	terrascale.tech/orchestrator/src/orchestrator/controlrestore	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	3.684s
+ok  	terrascale.tech/orchestrator/src/orchestrator/databaseadmission	84.276s
+?   	terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/databaselifecycle	1.056s
+ok  	terrascale.tech/orchestrator/src/orchestrator/delivery	10.569s
+ok  	terrascale.tech/orchestrator/src/orchestrator/enrollment	1.107s
+?   	terrascale.tech/orchestrator/src/orchestrator/errs	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/estate	1.450s
+ok  	terrascale.tech/orchestrator/src/orchestrator/estatepublisher	1.071s
+?   	terrascale.tech/orchestrator/src/orchestrator/finalcapture	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/globalclient	2.872s
+ok  	terrascale.tech/orchestrator/src/orchestrator/guestdiagnostic	4.044s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostagent	32.528s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostbootstrap	17.572s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostcontrol	5.601s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostmanifest	1.074s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostplatform	1.851s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostremoval	1.432s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostsecrets	6.965s
