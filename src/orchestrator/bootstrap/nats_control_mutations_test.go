@@ -96,7 +96,7 @@ func TestControlReplicaMutationRechecksLeaseBetweenActualUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updateControlReplicaStreams(ctx, traced, plan.ReplicaUpdates[0], pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := updateControlReplicaStreams(ctx, traced, plan.ReplicaUpdates[0], pins); !errors.Is(err, ErrControlMutationUnknown) {
 		t.Fatalf("multi-update expiry: %v", err)
 	}
 	if !changed {

@@ -457,6 +457,11 @@ type ociRegionController struct {
 	object           *ocireconcile.ObjectStorageReconciler
 	vault            *ocireconcile.VaultReconciler
 	certs            *ocireconcile.CertReconciler
+	// computeMutationsDelegated marks the generic controller's compute plan as
+	// observation-only. Production compute effects run through the
+	// lease-owned global worker, which supplies the durable mutation journal,
+	// ownership evidence, and removal owner.
+	computeMutationsDelegated bool
 	// scaleTarget is a durable GRU decision supplied by the autoscale seam.
 	// Zero means the declared target remains in force.
 	scaleTarget    uint16
@@ -627,7 +632,7 @@ func (r *ociRegionController) apply(ctx context.Context, generic reconcile.Plan)
 		return err
 	}
 	computePlan = filterOCIPlan(computePlan, generic, r.region.Code)
-	if !computePlan.Empty() {
+	if !computePlan.Empty() && !r.computeMutationsDelegated {
 		if err := r.compute.Apply(ctx, computeDeclared, observed.compute, computePlan); err != nil {
 			return err
 		}
@@ -1109,7 +1114,7 @@ func newOCIRegionController(region estate.Region, estateFile, keyID, keyFile, im
 	if err != nil {
 		return nil, err
 	}
-	return &ociRegionController{region: region, imageID: imageID, fallbackImageID: fallbackImageID, network: &ocireconcile.NetworkReconciler{Gateway: networkGateway}, compute: &ocireconcile.ComputeReconciler{Compute: computeGateway, Network: networkGateway}, block: &ocireconcile.BlockStorageReconciler{Block: blockGateway, Compute: computeGateway}, object: &ocireconcile.ObjectStorageReconciler{Object: objectGateway}, vault: &ocireconcile.VaultReconciler{Vault: vaultGateway}, certs: &ocireconcile.CertReconciler{Gateway: certGateway}}, nil
+	return &ociRegionController{region: region, imageID: imageID, fallbackImageID: fallbackImageID, network: &ocireconcile.NetworkReconciler{Gateway: networkGateway}, compute: &ocireconcile.ComputeReconciler{Compute: computeGateway, Network: networkGateway}, computeMutationsDelegated: true, block: &ocireconcile.BlockStorageReconciler{Block: blockGateway, Compute: computeGateway}, object: &ocireconcile.ObjectStorageReconciler{Object: objectGateway}, vault: &ocireconcile.VaultReconciler{Vault: vaultGateway}, certs: &ocireconcile.CertReconciler{Gateway: certGateway}}, nil
 }
 
 func newCloudflareReconcileController(spec estate.Spec, lookup envLookup) (*cloudflareReconcileController, error) {

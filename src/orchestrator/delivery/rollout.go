@@ -34,6 +34,39 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 	if r == nil || request == nil || request.Rollback == nil || progress == nil {
 		return failed(errors.New("delivery: rollback state is incomplete"))
 	}
+	if len(progress.Edges) != 0 {
+		observer, ok := r.config.Edge.(EdgeReleaseObserver)
+		if !ok || r.config.Edge == nil {
+			return failed(errors.New("delivery: edge release observation is unavailable"))
+		}
+		for i := len(progress.Edges) - 1; i >= 0; i-- {
+			edge := progress.Edges[i]
+			state, err := observer.ObserveEdge(ctx, edge.Kind, edge.Service)
+			if err != nil {
+				return failed(err)
+			}
+			if SameDigest(state.Digest, request.Rollback.ArtifactDigest) {
+				continue
+			}
+			if !SameDigest(state.Digest, edge.CandidateDigest) {
+				return failed(fmt.Errorf("delivery: edge %s has an unrecognized release", edge.Service))
+			}
+			var promote func(context.Context, string, string) error
+			if edge.Kind == "package" {
+				promote = r.promoteSnippet
+			} else {
+				promote = r.promoteWorker
+			}
+			if err := promote(ctx, edge.Service, request.Rollback.ArtifactDigest); err != nil {
+				return failed(err)
+			}
+			state, err = observer.ObserveEdge(ctx, edge.Kind, edge.Service)
+			if err != nil || !SameDigest(state.Digest, request.Rollback.ArtifactDigest) {
+				return failed(errors.New("delivery: edge rollback readback did not reach the prior release"))
+			}
+		}
+		return &Rollback{Attempted: true, TargetArtifactDigest: ptr(request.Rollback.ArtifactDigest), TargetManifestDigest: ptr(request.Rollback.ManifestDigest), Status: RollbackSucceeded}, nil
+	}
 	observer, ok := r.config.Control.(HostReleaseObserver)
 	if !ok {
 		return failed(errors.New("delivery: host release observation is unavailable"))
@@ -148,6 +181,8 @@ type RolloutConfig struct {
 	Wait func(context.Context, time.Duration) error
 	// Progress persists host state before and after each mutation.
 	Progress func(host string, mutated, completed bool) error
+	// EdgeProgress persists edge mutation intent and provider readback state.
+	EdgeProgress func(kind, service, priorDigest, candidateDigest string, stage int, applied, completed bool) error
 }
 
 // HostInventory lists the hosts of one Region in rollout order. The
@@ -203,6 +238,12 @@ type EdgePromoter interface {
 	PromoteWorker(ctx context.Context, service, digest string) error
 	PromoteSnippet(ctx context.Context, service, digest string) error
 }
+
+type EdgeReleaseObserver interface {
+	ObserveEdge(context.Context, string, string) (EdgeReleaseState, error)
+}
+
+type EdgeReleaseState struct{ Digest string }
 
 // WorkerGradualPromoter is an optional stronger edge seam. Implementations
 // use Cloudflare gradual deployments (with their provider-side health
@@ -766,8 +807,23 @@ func (r *Rollout) rollEdge(ctx context.Context, request *Request, artifact *Rele
 		name = "snippet-promotion:" + artifact.Service
 	}
 	checks := []*HealthCheck{}
+	kind := request.Artifact.Kind
+	prior := ""
+	if request.Rollback != nil {
+		prior = request.Rollback.ArtifactDigest
+	}
+	if r.config.EdgeProgress != nil {
+		if err := r.config.EdgeProgress(kind, artifact.Service, prior, artifact.Digest, 0, true, false); err != nil {
+			return r.failure("edge_progress_failed", err)
+		}
+	}
 	if err := promote(ctx, artifact.Service, artifact.Digest); err != nil {
 		return r.rollbackEdge(ctx, request, append(checks, &HealthCheck{Name: name, Status: "failed"}), err, rollback)
+	}
+	if r.config.EdgeProgress != nil {
+		if err := r.config.EdgeProgress(kind, artifact.Service, prior, artifact.Digest, 100, true, true); err != nil {
+			return r.failure("edge_progress_failed", err)
+		}
 	}
 	checks = append(checks, &HealthCheck{Name: name, Status: "passed"})
 	// The ts-proxy Worker routes first contact from the KV maps, so a Worker

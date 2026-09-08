@@ -161,6 +161,18 @@ type fakePager struct {
 	pages []Page
 }
 
+type fakeTelemetry struct {
+	mu    sync.Mutex
+	facts []RunTelemetry
+}
+
+func (f *fakeTelemetry) Record(_ context.Context, facts RunTelemetry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.facts = append(f.facts, facts)
+	return nil
+}
+
 func (f *fakePager) Page(_ context.Context, page Page) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -205,6 +217,24 @@ func TestRunIncludesControlPlaneAndCleansEveryScratchBranch(t *testing.T) {
 		if request.IdempotencyKey == "" || request.RestoreEpoch == 0 || request.JournalCut == "" {
 			t.Fatalf("incomplete restore request: %+v", request)
 		}
+	}
+}
+
+func TestRunRecordsBoundedAggregateTelemetry(t *testing.T) {
+	drill, _, _, _, _ := drillFixture()
+	telemetry := &fakeTelemetry{}
+	drill.config.Telemetry = telemetry
+
+	run, err := drill.Run(t.Context())
+	if err != nil || run.Status != RunSucceeded {
+		t.Fatalf("Run = status %s, err %v", run.Status, err)
+	}
+	if len(telemetry.facts) != 1 {
+		t.Fatalf("telemetry records = %d, want 1", len(telemetry.facts))
+	}
+	facts := telemetry.facts[0]
+	if facts != (RunTelemetry{Status: RunSucceeded, DatabaseCount: 3, SucceededItems: 3}) {
+		t.Fatalf("telemetry facts = %+v", facts)
 	}
 }
 

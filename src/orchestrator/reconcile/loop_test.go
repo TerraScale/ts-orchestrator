@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -187,6 +188,103 @@ func TestLoopConvergesAndDetectsDrift(t *testing.T) {
 	if results["planned"] == 0 || results["applied"] == 0 {
 		t.Fatalf("audit trail results = %v", results)
 	}
+}
+
+func TestLoopRefreshesDesiredAutoscaleTargetBeforeEachPass(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceCompute)
+	base := estate.Default()
+	if len(base.Regions) == 0 {
+		t.Fatal("default estate has no regions")
+	}
+	region := base.Regions[0].Code
+	pass := 0
+	desired := func(context.Context) (estate.Spec, error) {
+		pass++
+		spec := base
+		spec.Regions = append([]estate.Region(nil), base.Regions...)
+		spec.Regions[0].Members.Count = base.Regions[0].Members.Count
+		if pass <= 2 {
+			spec.Regions[0].Members.Count++
+		}
+		return spec, nil
+	}
+	config := testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{})
+	config.Spec = base
+	config.Desired = desired
+	loop, err := NewLoop(config)
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+
+	plan, err := loop.Pass(t.Context())
+	if err != nil {
+		t.Fatalf("expansion pass failed: %v", err)
+	}
+	var expansion *Action
+	for index := range plan.Actions {
+		if plan.Actions[index].Ref.Region == region {
+			expansion = &plan.Actions[index]
+			break
+		}
+	}
+	if expansion == nil || expansion.Kind != ActionCreate {
+		t.Fatalf("expansion plan = %+v, want a compute create for %s", plan.Actions, region)
+	}
+	wantExpanded := strconv.FormatUint(uint64(base.Regions[0].Members.Count+1), 10)
+	if got := attributeValue(expansion.Attributes, "member.count"); got != wantExpanded {
+		t.Fatalf("expansion declared count = %q, want %s", got, wantExpanded)
+	}
+
+	plan, err = loop.Pass(t.Context())
+	if err != nil {
+		t.Fatalf("convergence pass failed: %v", err)
+	}
+	if !plan.Empty() {
+		t.Fatalf("target 3 did not converge: %+v", plan.Actions)
+	}
+
+	plan, err = loop.Pass(t.Context())
+	if err != nil {
+		t.Fatalf("contraction pass failed: %v", err)
+	}
+	if len(plan.Actions) != 1 || plan.Actions[0].Kind != ActionUpdate {
+		t.Fatalf("contraction plan = %+v, want one compute update", plan.Actions)
+	}
+	wantContracted := strconv.FormatUint(uint64(base.Regions[0].Members.Count), 10)
+	if got := attributeValue(plan.Actions[0].Attributes, "member.count"); got != wantContracted {
+		t.Fatalf("contraction declared count = %q, want %s", got, wantContracted)
+	}
+}
+
+func TestLoopHoldsLastDeclarationWhenDesiredProjectionFails(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceCompute)
+	config := testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{})
+	config.Desired = func(context.Context) (estate.Spec, error) {
+		return estate.Spec{}, errors.New("autoscale target unavailable")
+	}
+	loop, err := NewLoop(config)
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	plan, err := loop.Pass(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "autoscale target unavailable") {
+		t.Fatalf("projection failure = %v, want source error", err)
+	}
+	if !plan.Empty() {
+		t.Fatalf("projection failure produced plan %+v", plan.Actions)
+	}
+	if provider.applies != 0 {
+		t.Fatalf("projection failure applied %d provider plans", provider.applies)
+	}
+}
+
+func attributeValue(attributes []Attribute, name string) string {
+	for _, attribute := range attributes {
+		if attribute.Name == name {
+			return attribute.Value
+		}
+	}
+	return ""
 }
 
 func TestLoopSkipsAndAppliesDeletesPerPolicy(t *testing.T) {

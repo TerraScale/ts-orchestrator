@@ -1,0 +1,4 @@
+test -z "$(gofmt -l .)"
+make: *** [Makefile:43: check] Error 1
+
+exit_code=2

@@ -129,10 +129,10 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 		config := info.Config
 		config.Replicas = update.Replicas
 		if _, err := js.UpdateStream(ctx, config); err != nil {
-			return err
+			return fmt.Errorf("%w: stream %s request outcome is unknown: %v", ErrControlMutationUnknown, name, err)
 		}
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
-			return err
+			return fmt.Errorf("%w: stream %s was accepted before authority loss: %w", ErrControlMutationUnknown, name, err)
 		}
 	}
 	for _, consumer := range update.Consumers {
@@ -221,10 +221,10 @@ func (r *NATSControlRuntime) createMirror(ctx context.Context, plan ControlMirro
 	}
 	stream, err = js.CreateStream(ctx, wanted)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: mirror %s request outcome is unknown: %v", ErrControlMutationUnknown, plan.Name, err)
 	}
 	if err := checkControlMutation(ctx, js, plan.Store, pins); err != nil {
-		return err
+		return fmt.Errorf("%w: mirror %s was accepted before authority loss: %w", ErrControlMutationUnknown, plan.Name, err)
 	}
 	info, err := stream.Info(ctx)
 	if err != nil {

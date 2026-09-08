@@ -121,6 +121,7 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 				run.CompletedAt = d.config.Now().UTC()
 				_ = d.journal.SaveRun(durableContext(ctx), copyRun(run))
 				_ = d.pager.Page(durableContext(ctx), Page{RunID: runID, Reason: run.Error, Outcome: copyRun(run)})
+				d.recordTelemetry(ctx, run)
 				return copyRun(run), snapshotErr
 			}
 			if err := d.journal.SaveRun(durableContext(ctx), copyRun(run)); err != nil {
@@ -137,6 +138,7 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 			durableCtx := durableContext(ctx)
 			persistErr := d.journal.SaveRun(durableCtx, copyRun(run))
 			pageErr := d.pager.Page(durableCtx, Page{RunID: runID, Reason: selectionErr.Error(), Outcome: copyRun(run)})
+			d.recordTelemetry(ctx, run)
 			return run, sanitizeError(errors.Join(selectionErr, persistErr, pageErr))
 		}
 		now := d.config.Now().UTC()
@@ -220,7 +222,29 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 			runErr = sanitizeError(errors.Join(runErr, pageErr))
 		}
 	}
+	d.recordTelemetry(ctx, run)
 	return copyRun(run), runErr
+}
+
+func (d *Drill) recordTelemetry(ctx context.Context, run RunRecord) {
+	if d == nil || isNil(d.config.Telemetry) {
+		return
+	}
+	var facts RunTelemetry
+	facts.Status = run.Status
+	facts.DatabaseCount = len(run.DatabaseIDs)
+	facts.SnapshotRegions = len(run.SnapshotRegions)
+	for _, item := range run.Items {
+		switch item.Status {
+		case ItemSucceeded:
+			facts.SucceededItems++
+		case ItemFailed:
+			facts.FailedItems++
+		case ItemRunning:
+			facts.PendingItems++
+		}
+	}
+	_ = d.config.Telemetry.Record(durableContext(ctx), facts)
 }
 
 func (d *Drill) selectDatabases(ctx context.Context, scheduledAt time.Time) ([]string, error) {

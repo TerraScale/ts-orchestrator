@@ -53,6 +53,11 @@ var (
 	ErrControlRegionalMembersFloor = errors.New("regional R3 requires at least three eligible hosts")
 	ErrControlCustomersPresent     = errors.New("temporary R1 is only permitted before customers")
 	ErrControlJournalUnavailable   = errors.New("control bootstrap requires an authoritative durable journal")
+	// ErrControlMutationUnknown means the provider may have accepted an
+	// external mutation, but authority was lost before the effect was
+	// acknowledged locally. The durable action must remain pending until a
+	// successor observes the effect.
+	ErrControlMutationUnknown = errors.New("control mutation effect is unknown")
 )
 
 // CandidateEvidence is the only evidence accepted for a synchronized
@@ -664,7 +669,7 @@ func (m *ControlStateMachine) executeControlPlan(ctx context.Context, plan Contr
 					callErr = ErrControlPromotionNotReady
 				}
 			}
-			if callErr == nil || !retryable(callErr) || attempt == m.Retry.MaxAttempts {
+			if callErr == nil || errors.Is(callErr, ErrControlMutationUnknown) || !retryable(callErr) || attempt == m.Retry.MaxAttempts {
 				break
 			}
 			if m.Retry.Backoff != nil {

@@ -168,12 +168,36 @@ func RenderSystemdUnit(config Config) (string, error) {
 	// the more specific TerraScale configuration tree after that exception.
 	unit.WriteString("ReadWritePaths=/etc\n")
 	unit.WriteString("ReadOnlyPaths=" + productionConfigRoot + "\n")
+	// ts-node fetches pinned Vault material before it can connect to NATS.
+	// These are the only subtrees permitted to receive those credentials;
+	// keeping the exceptions explicit preserves the read-only config tree.
+	for _, directory := range productionCredentialDirectories {
+		unit.WriteString("ReadWritePaths=" + directory + "\n")
+	}
 	unit.WriteString("CPUWeight=100\n")
 	unit.WriteString("MemoryMax=536870912\n")
 	unit.WriteString("IOWeight=100\n")
 	unit.WriteString("\n[Install]\n")
 	unit.WriteString("WantedBy=multi-user.target\n")
 	return unit.String(), nil
+}
+
+// productionCredentialDirectories is the directory closure of the fixed
+// destinations accepted by hostsecrets.ValidateCredentialDestination. Keep
+// this list explicit so a newly accepted credential destination cannot silently
+// become writable by the root host agent's unit.
+var productionCredentialDirectories = []string{
+	"/etc/terrascale/database",
+	"/etc/terrascale/engine-observer",
+	"/etc/terrascale/orchestrator",
+	"/etc/terrascale/orchestrator/global",
+	"/etc/terrascale/orchestrator/regional",
+	"/etc/terrascale/placement",
+	"/etc/terrascale/terrabase",
+	"/etc/terrascale/terrabase/native-recovery",
+	"/etc/terrascale/terrabase/transition",
+	"/etc/terrascale/ts-node-authority",
+	"/etc/terrascale/ts-node-bootstrap",
 }
 
 func safeSystemdPath(value string) bool {

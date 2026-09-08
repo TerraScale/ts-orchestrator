@@ -87,7 +87,7 @@ type Peer struct {
 	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
-	SourceQuiescence    *QuiescenceConfig           `json:"sourceQuiescence,omitempty"`
+	SourceQuiescence   *QuiescenceConfig          `json:"sourceQuiescence,omitempty"`
 	StorageTransition  controltransition.Delivery `json:"storageTransition,omitzero"`
 	PreliminaryCapture *PreliminaryCaptureConfig  `json:"preliminaryCapture,omitempty"`
 	AuthorityReader    nodeauthority.ReaderConfig `json:"authorityReader"`

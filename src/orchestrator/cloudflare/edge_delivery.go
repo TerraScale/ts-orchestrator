@@ -169,23 +169,21 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 	if err != nil {
 		return err
 	}
-	active, activeErr := p.client.workerPromotionBaseline(ctx, service)
+	active, activeErr := p.client.workerPromotionBaseline(ctx, service, target.ID)
 	if activeErr != nil && !errors.Is(activeErr, ErrNotFound) {
 		return activeErr
 	}
 	stages := p.stages
-	if activeErr != nil || active.ID == target.ID {
+	if activeErr != nil || workerAllocationHas(active, target.ID) {
 		// A single 100% deployment creates the initial release and also clears
 		// any partial deployment left by an indeterminate prior attempt.
 		stages = []int{100}
 	}
 	for _, percentage := range stages {
 		versions := []WorkerDeploymentVersion{{VersionID: target.ID, Percentage: 100}}
-		if percentage < 100 && activeErr == nil && active.ID != target.ID {
-			versions = []WorkerDeploymentVersion{
-				{VersionID: active.ID, Percentage: 100 - percentage},
-				{VersionID: target.ID, Percentage: percentage},
-			}
+		if percentage < 100 && activeErr == nil && !workerAllocationHas(active, target.ID) {
+			versions = scaleWorkerAllocation(active.Versions, 100-percentage)
+			versions = append(versions, WorkerDeploymentVersion{VersionID: target.ID, Percentage: percentage})
 		}
 		_, deployErr := p.client.CreateWorkerDeployment(ctx, service, versions)
 		p.record(EdgePromotionEvent{Kind: "worker", Service: service, Digest: digest, Percentage: percentage, Err: deployErr != nil})
@@ -193,12 +191,12 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 			return deployErr
 		}
 	}
-	active, err = p.client.ActiveWorkerVersion(ctx, service)
+	observed, err := p.client.ActiveWorkerVersion(ctx, service)
 	if err != nil {
 		return err
 	}
-	if !sameEdgeDigest(active.Digest, digest) {
-		return fmt.Errorf("cloudflare: Worker provider readback digest %q did not reach %q", active.Digest, digest)
+	if !sameEdgeDigest(observed.Digest, digest) {
+		return fmt.Errorf("cloudflare: Worker provider readback digest %q did not reach %q", observed.Digest, digest)
 	}
 	return nil
 }
@@ -377,26 +375,75 @@ func (c *Client) ActiveWorkerVersion(ctx context.Context, script string) (Worker
 
 // A failed response can leave a partial deployment serving. The most recent
 // full deployment is the durable predecessor for retry or rollback.
-func (c *Client) workerPromotionBaseline(ctx context.Context, script string) (WorkerVersion, error) {
+func (c *Client) workerPromotionBaseline(ctx context.Context, script, targetID string) (WorkerDeployment, error) {
 	deployments, err := c.ListWorkerDeployments(ctx, script)
 	if err != nil {
-		return WorkerVersion{}, err
+		return WorkerDeployment{}, err
 	}
-	for _, deployment := range deployments {
-		if len(deployment.Versions) != 1 || deployment.Versions[0].Percentage != 100 {
-			continue
+	if len(deployments) == 0 {
+		return WorkerDeployment{}, ErrNotFound
+	}
+	baseline := deployments[0]
+	// A failed response may leave the candidate in a partial allocation. If
+	// the requested target is an older version, prefer its exact historical
+	// full allocation when one exists; otherwise retain the exact observed
+	// allocation instead of inventing a predecessor that was never read back.
+	if targetID != "" && workerAllocationHas(baseline, targetID) && len(baseline.Versions) > 1 {
+		for _, deployment := range deployments[1:] {
+			if len(deployment.Versions) == 1 && deployment.Versions[0].VersionID == targetID && deployment.Versions[0].Percentage == 100 {
+				return deployment, nil
+			}
 		}
-		var version WorkerVersion
-		err := c.do(ctx, "read Worker promotion baseline", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/versions/"+url.PathEscape(deployment.Versions[0].VersionID)), nil, &version)
-		if err == nil && version.ID != deployment.Versions[0].VersionID {
-			return WorkerVersion{}, errors.New("cloudflare: Worker detail returned a different version")
+	}
+	if !validWorkerAllocation(baseline.Versions) {
+		return WorkerDeployment{}, errors.New("cloudflare: Worker promotion baseline allocation is invalid")
+	}
+	return baseline, nil
+}
+
+func workerAllocationHas(deployment WorkerDeployment, versionID string) bool {
+	for _, version := range deployment.Versions {
+		if version.VersionID == versionID {
+			return true
 		}
-		return version, err
 	}
-	if len(deployments) != 0 {
-		return WorkerVersion{}, errors.New("cloudflare: partial deployment has no full predecessor")
+	return false
+}
+
+func validWorkerAllocation(versions []WorkerDeploymentVersion) bool {
+	if len(versions) == 0 {
+		return false
 	}
-	return WorkerVersion{}, ErrNotFound
+	total := 0
+	seen := make(map[string]struct{}, len(versions))
+	for _, version := range versions {
+		if version.VersionID == "" || version.Percentage <= 0 || version.Percentage > 100 {
+			return false
+		}
+		if _, ok := seen[version.VersionID]; ok {
+			return false
+		}
+		seen[version.VersionID] = struct{}{}
+		total += version.Percentage
+	}
+	return total == 100
+}
+
+func scaleWorkerAllocation(versions []WorkerDeploymentVersion, total int) []WorkerDeploymentVersion {
+	if total <= 0 || total >= 100 || !validWorkerAllocation(versions) {
+		return nil
+	}
+	result := make([]WorkerDeploymentVersion, len(versions))
+	remaining := total
+	for index, version := range versions {
+		share := version.Percentage * total / 100
+		if index == len(versions)-1 {
+			share = remaining
+		}
+		result[index] = WorkerDeploymentVersion{VersionID: version.VersionID, Percentage: share}
+		remaining -= share
+	}
+	return result
 }
 
 func (c *Client) CreateWorkerDeployment(ctx context.Context, script string, versions []WorkerDeploymentVersion) (WorkerDeployment, error) {

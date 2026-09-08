@@ -13,3 +13,4 @@ orchestrator-tooling
 # Private generated CI release candidates and signatures
 /.terrascale-develop-release/
 /orchestrator
+/vm-declaration

@@ -236,6 +236,25 @@ type RunRecord struct {
 	SnapshotRegions []string
 }
 
+// RunTelemetry contains only bounded aggregate facts from one drill. It is
+// deliberately free of database IDs, provider errors, checksums, and branch
+// names so telemetry cannot become a data export path.
+type RunTelemetry struct {
+	Status          RunStatus
+	DatabaseCount   int
+	SucceededItems  int
+	FailedItems     int
+	PendingItems    int
+	SnapshotRegions int
+}
+
+// TelemetryPort receives best-effort drill outcome facts. Telemetry failures
+// must never change the durable drill result or introduce a second paging
+// path.
+type TelemetryPort interface {
+	Record(context.Context, RunTelemetry) error
+}
+
 // RestoreHistory is calculated solely from durable RunRecords. Missing days
 // are left missing; in particular, callers cannot manufacture a passing
 // 14-day soak by advancing a clock or by filling in synthetic records.
@@ -269,6 +288,7 @@ type Config struct {
 	// preferred when fencing can advance while a run is in progress.
 	AcceptedControlEpoch uint64
 	ControlEpoch         func() uint64
+	Telemetry            TelemetryPort
 }
 
 func (c Config) withDefaults() Config {

@@ -33,7 +33,7 @@ func (i *Issuer) PrepareStorageTransition(ctx context.Context, plan controltrans
 		}
 		evidence.Destinations = append(evidence.Destinations, bytes.Clone(grant.SignedGrant))
 	}
-	signed, err := i.persistent.store.LoadOrCreate("storage-plan-"+plan.TransitionID+".json", controltransition.MaximumPlanBytes, func() ([]byte, error) { return storageplan.Prepare(ctx, plan, evidence, i.public, i.signer) }, func(raw []byte) error { _, err := storageplan.Verify(ctx, plan, evidence, i.public, raw); return err })
+	signed, err := i.persistent.store.LoadOrCreate("storage-plan-"+plan.TransitionID+".json", controltransition.MaximumBytes, func() ([]byte, error) { return storageplan.Prepare(ctx, plan, evidence, i.public, i.signer) }, func(raw []byte) error { _, err := storageplan.Verify(ctx, plan, evidence, i.public, raw); return err })
 	if err != nil {
 		return nil, err
 	}

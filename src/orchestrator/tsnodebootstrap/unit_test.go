@@ -55,6 +55,17 @@ ReadWritePaths=/opt/terrascale
 ReadWritePaths=/var/lib/terrascale
 ReadWritePaths=/etc
 ReadOnlyPaths=/etc/terrascale
+ReadWritePaths=/etc/terrascale/database
+ReadWritePaths=/etc/terrascale/engine-observer
+ReadWritePaths=/etc/terrascale/orchestrator
+ReadWritePaths=/etc/terrascale/orchestrator/global
+ReadWritePaths=/etc/terrascale/orchestrator/regional
+ReadWritePaths=/etc/terrascale/placement
+ReadWritePaths=/etc/terrascale/terrabase
+ReadWritePaths=/etc/terrascale/terrabase/native-recovery
+ReadWritePaths=/etc/terrascale/terrabase/transition
+ReadWritePaths=/etc/terrascale/ts-node-authority
+ReadWritePaths=/etc/terrascale/ts-node-bootstrap
 CPUWeight=100
 MemoryMax=536870912
 IOWeight=100
@@ -165,6 +176,15 @@ func TestPrivilegeExceptionsStayNarrowAndOrdered(t *testing.T) {
 	if writableEtc < 0 || readonlyConfig <= writableEtc {
 		t.Fatal("the specific read-only config overlay must follow the useradd /etc write exception")
 	}
+	for _, directory := range productionCredentialDirectories {
+		line := "ReadWritePaths=" + directory + "\n"
+		if strings.Count(rendered, line) != 1 {
+			t.Fatalf("credential directory exception %q is missing or duplicated", directory)
+		}
+	}
+	if strings.Contains(rendered, "ReadWritePaths=/etc/terrascale\n") {
+		t.Fatal("the complete TerraScale configuration tree must remain read-only")
+	}
 	var writable []string
 	for _, line := range strings.Split(rendered, "\n") {
 		if strings.HasPrefix(line, "ReadWritePaths=") {
@@ -175,6 +195,9 @@ func TestPrivilegeExceptionsStayNarrowAndOrdered(t *testing.T) {
 		"ReadWritePaths=/opt/terrascale",
 		"ReadWritePaths=/var/lib/terrascale",
 		"ReadWritePaths=/etc",
+	}
+	for _, directory := range productionCredentialDirectories {
+		wantWritable = append(wantWritable, "ReadWritePaths="+directory)
 	}
 	if strings.Join(writable, "\n") != strings.Join(wantWritable, "\n") {
 		t.Fatalf("writable host paths drifted: %v", writable)

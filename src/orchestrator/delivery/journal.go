@@ -191,6 +191,7 @@ type Operation struct {
 // RolloutProgress is the durable host mutation ledger.
 type RolloutProgress struct {
 	Hosts []RolloutHostProgress
+	Edges []EdgeRolloutProgress
 }
 
 type RolloutHostProgress struct {
@@ -200,6 +201,18 @@ type RolloutHostProgress struct {
 	CandidateDigest     string
 	Mutated             bool
 	Completed           bool
+}
+
+// EdgeRolloutProgress records an edge mutation before calling the provider.
+// Applied remains conservative when a provider returns an indeterminate error.
+type EdgeRolloutProgress struct {
+	Kind            string
+	Service         string
+	PriorDigest     string
+	CandidateDigest string
+	Stage           int
+	Applied         bool
+	Completed       bool
 }
 
 // OperationLease identifies the process that is allowed to execute and
@@ -450,6 +463,56 @@ func (j *Journal) RecordRollout(operationID, requestDigest string, lease Operati
 		}
 		if !found {
 			op.Rollout.Hosts = append(op.Rollout.Hosts, RolloutHostProgress{Host: host, PriorDigest: priorDigest, PriorManifestDigest: priorManifest, CandidateDigest: candidate, Mutated: mutated, Completed: completed})
+		}
+		op.UpdatedAt = j.now()
+		value, err := encodeOperation(op)
+		if err != nil {
+			return err
+		}
+		if _, err = j.store.Update(entry.Key, entry.Revision, value); err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrStoreConflict) {
+			return err
+		}
+	}
+	return ErrOperationLeaseActive
+}
+
+// RecordEdgeRollout persists edge intent and readback progress under the owner lease.
+func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease OperationLease, kind, service, priorDigest, candidate string, stage int, applied, completed bool) error {
+	if j == nil || j.store == nil {
+		return errors.New("delivery: rollout journal is not configured")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		entry, err := j.store.Get(operationKey(operationID))
+		if err != nil {
+			return err
+		}
+		op, err := decodeOperation(entry, operationID)
+		if err != nil {
+			return err
+		}
+		if op.State != OperationRunning || op.RequestDigest != requestDigest || op.OwnerID != lease.OwnerID || op.Generation != lease.Generation {
+			return ErrOperationLeaseActive
+		}
+		if op.Rollout == nil {
+			op.Rollout = &RolloutProgress{}
+		}
+		found := false
+		for i := range op.Rollout.Edges {
+			if op.Rollout.Edges[i].Kind == kind && op.Rollout.Edges[i].Service == service {
+				e := &op.Rollout.Edges[i]
+				e.PriorDigest, e.CandidateDigest = priorDigest, candidate
+				e.Stage = max(e.Stage, stage)
+				e.Applied = e.Applied || applied
+				e.Completed = e.Completed || completed
+				found = true
+				break
+			}
+		}
+		if !found {
+			op.Rollout.Edges = append(op.Rollout.Edges, EdgeRolloutProgress{Kind: kind, Service: service, PriorDigest: priorDigest, CandidateDigest: candidate, Stage: stage, Applied: applied, Completed: completed})
 		}
 		op.UpdatedAt = j.now()
 		value, err := encodeOperation(op)
@@ -898,7 +961,7 @@ func cloneOperation(operation *Operation) *Operation {
 	copied.Request = cloneRequest(operation.Request)
 	copied.Receipt = cloneReceipt(operation.Receipt)
 	if operation.Rollout != nil {
-		copied.Rollout = &RolloutProgress{Hosts: slices.Clone(operation.Rollout.Hosts)}
+		copied.Rollout = &RolloutProgress{Hosts: slices.Clone(operation.Rollout.Hosts), Edges: slices.Clone(operation.Rollout.Edges)}
 	}
 	copied.ReleaseSignature = bytes.Clone(operation.ReleaseSignature)
 	return &copied
