@@ -131,6 +131,43 @@ func TestJournalRejectsSecretMaterialAndChangedReferences(t *testing.T) {
 	}
 }
 
+func TestJournalRejectsCurrentEpochLeaseIdentityMismatch(t *testing.T) {
+	cluster := newRotationStateCluster(t)
+	ctx := t.Context()
+	nc := cluster.connect(t)
+	kv := openRotationTestLeaseStore(t, ctx, nc, true)
+	lease := rotationTestLease(1, "global-controller-gru-first")
+	putRotationTestLease(t, ctx, kv, lease)
+	storeValue, err := NewNATSStore(nc, lease.CandidateId, uint64(lease.Epoch), lease.LeaseId, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := storeValue.(*NATSStateStore)
+	if _, err := store.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state := Journal{RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "member-one", URL: "https://member-one.internal"}}, Generation: 1, Phase: "bootstrap", Deadline: time.Now().UTC()}
+	if err := store.Save(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := snapshot.lease
+	forged.LeaseId = "lease-forged"
+	raw, err := json.Marshal(rotationEnvelope{SchemaVersion: 1, Lease: forged, LeaseRevision: snapshot.leaseRevision, State: &state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.js.Publish(ctx, rotationStateSubject, raw, jetstream.WithExpectStream(rotationStream), jetstream.WithExpectLastSequence(snapshot.sequence)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(ctx); !errors.Is(err, ErrStateUnavailable) {
+		t.Fatalf("accepted journal under replacement lease identity: %v", err)
+	}
+}
+
 func TestJournalRosterMutationsSerializeWithRotation(t *testing.T) {
 	ref := hostsecrets.IdentitySecretReference{SecretID: "ocid1.vaultsecret.oc1.active", VersionNumber: 1, Generation: 1, OperationID: "bootstrap-1"}
 	idle := Journal{Generation: 1, Active: ref, NextRotation: time.Now().Add(time.Hour), RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "one", URL: "https://one.internal"}}}

@@ -509,7 +509,7 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 	// Cleanup is a safety operation. Anchor its cancellation-independent
 	// budget at invocation time so coordination and host allocation work cannot
 	// consume the command deadline before cleanup starts.
-	cleanupContext, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	cleanupContext, cleanupCancel := cleanupContext(ctx)
 	defer cleanupCancel()
 	p = p.copy()
 	if err := p.Validate(); err != nil {
@@ -554,9 +554,17 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 func (p CleanupPlan) runLocked(ctx context.Context, runner Runner) error {
 	// Cleanup is a safety operation. It must still run when the controller's
 	// request was cancelled, but no individual host command may hang forever.
-	cleanupContext, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	cleanupContext, cleanupCancel := cleanupContext(ctx)
 	defer cleanupCancel()
 	return p.runLockedContext(cleanupContext, runner)
+}
+
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(base, deadline)
+	}
+	return context.WithTimeout(base, 45*time.Second)
 }
 
 func (p CleanupPlan) runLockedContext(cleanupContext context.Context, runner Runner) error {

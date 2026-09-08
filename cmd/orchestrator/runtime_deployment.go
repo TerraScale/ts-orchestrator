@@ -139,7 +139,7 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 		}
 	}
 	edge := g.Rotation.Edge
-	if f.Delivery.Cloudflare.AccountID != edge.AccountID || f.Delivery.Cloudflare.ZoneID != edge.ZoneID || f.Delivery.Cloudflare.SnippetServices[edge.TemplateService] != edge.SnippetName || g.KV.AccountID != edge.AccountID || g.KV.ZoneID != edge.ZoneID || edge.AccountID == "" || edge.ZoneID == "" || edge.TemplateService == "" || edge.SnippetName == "" {
+	if f.Delivery.Cloudflare.AccountID != edge.AccountID || f.Delivery.Cloudflare.ZoneID != edge.ZoneID || f.Delivery.Cloudflare.SnippetServices[edge.TemplateService] != edge.SnippetName || g.KV.AccountID != edge.AccountID || g.KV.ZoneID != edge.ZoneID || g.ServiceIdentity.CloudflareAccountID != edge.AccountID || edge.AccountID == "" || edge.ZoneID == "" || edge.TemplateService == "" || edge.SnippetName == "" {
 		return errors.New("global delivery, rotation and routing must use the same Cloudflare deployment")
 	}
 	regions := make([]string, 0, len(spec.Regions))

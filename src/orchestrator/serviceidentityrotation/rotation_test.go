@@ -20,7 +20,7 @@ func rotationTestReference(name string, generation uint64) hostsecrets.IdentityS
 }
 
 func (fakeIssuer) Generate(_ context.Context, r hostsecrets.IdentitySecretRequest) (hostsecrets.IdentitySecretReference, error) {
-	return hostsecrets.IdentitySecretReference{SecretID: "new", Generation: r.Generation, VersionNumber: 1, OperationID: r.OperationID}, nil
+	return hostsecrets.IdentitySecretReference{SecretID: "ocid1.vaultsecret.oc1.new", Generation: r.Generation, VersionNumber: 1, OperationID: r.OperationID}, nil
 }
 func (fakeIssuer) Fetch(context.Context, hostsecrets.IdentitySecretReference) (*hostsecrets.IdentitySecret, error) {
 	return &hostsecrets.IdentitySecret{}, nil
@@ -65,7 +65,7 @@ func (e *effects) DeliverTo(_ context.Context, targets []RemoteMemberEndpoint, _
 	return nil
 }
 func TestAdoptionFailureRestoresDashboardBeforeMember(t *testing.T) {
-	s := &memoryStore{Journal{Generation: 1, RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Active: rotationTestReference("old", 1), NextRotation: time.Now().Add(time.Hour)}}
+	s := &memoryStore{Journal{Generation: 1, RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Active: rotationTestReference("old", 1), NextRotation: time.Now().Add(-time.Hour)}}
 	e := &effects{fail: true}
 	c, err := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
 	if err != nil {
@@ -83,7 +83,7 @@ func TestAdoptionFailureRestoresDashboardBeforeMember(t *testing.T) {
 			t.Fatal(e.calls)
 		}
 	}
-	if s.j.Active.SecretID != "old" || s.j.Phase != "" {
+	if s.j.Active.SecretID != "ocid1.vaultsecret.oc1.old" || s.j.Phase != "" {
 		t.Fatal("failed adoption promoted pending key")
 	}
 }
@@ -102,11 +102,26 @@ func TestEmptyJournalBootstrapsIssuedReference(t *testing.T) {
 	s := &memoryStore{}
 	e := &effects{}
 	c, _ := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
-	if c.Run(t.Context()) != nil || s.j.Active.SecretID != "new" || s.j.Generation != 1 {
+	if c.Run(t.Context()) != nil || s.j.Active.SecretID != "ocid1.vaultsecret.oc1.new" || s.j.Generation != 1 {
 		t.Fatal("bootstrap failed")
 	}
 	if len(e.calls) != 2 || e.calls[0] != "single" || e.calls[1] != "adopt" {
 		t.Fatal(e.calls)
+	}
+}
+
+func TestRunRejectsInvalidLoadedJournal(t *testing.T) {
+	s := &memoryStore{j: Journal{Generation: 1, Active: hostsecrets.IdentitySecretReference{SecretID: "plaintext"}}}
+	e := &effects{}
+	c, err := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Run(t.Context()); err != ErrRotation {
+		t.Fatalf("invalid journal was admitted: %v", err)
+	}
+	if len(e.calls) != 0 {
+		t.Fatalf("invalid journal triggered effects: %v", e.calls)
 	}
 }
 
@@ -117,7 +132,7 @@ func TestAdoptedRecoveryOnlyRemovesPrevious(t *testing.T) {
 	if c.Run(t.Context()) != nil {
 		t.Fatal("commit recovery failed")
 	}
-	if len(e.calls) != 1 || e.calls[0] != "single" || s.j.Active.SecretID != "new" {
+	if len(e.calls) != 1 || e.calls[0] != "single" || s.j.Active.SecretID != "ocid1.vaultsecret.oc1.new" {
 		t.Fatal("adopted recovery restaged or rolled back", e.calls)
 	}
 }
@@ -144,7 +159,7 @@ func TestEnrolledMemberParticipatesInNextRotation(t *testing.T) {
 	if last := e.targets[len(e.targets)-1]; len(last) != 2 || last[0].NodeID != "first" || last[1] != second {
 		t.Fatal("enrollment did not prove complete roster", last)
 	}
-	s.j.NextRotation = time.Time{}
+	s.j.NextRotation = time.Now().Add(-time.Second)
 	if c.Run(t.Context()) != nil {
 		t.Fatal("rotation failed")
 	}
