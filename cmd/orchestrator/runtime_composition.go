@@ -751,10 +751,14 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 		}
 	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
+	if group != nil {
+		// Attach the journal-backed budget before checking construction error so
+		// a partially built worker graph retains every cleanup owner.
+		group.writeBudget = writeBudget
+	}
 	if err != nil {
 		return group, err
 	}
-	group.writeBudget = writeBudget
 	if err := writeBudget.startPoolRefills(ctx, session.Connection); err != nil {
 		return group, err
 	}

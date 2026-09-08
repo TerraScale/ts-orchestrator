@@ -27,7 +27,7 @@ func TestReenrollmentRequiresExactTerminalProviderAndCompleteRemoval(t *testing.
 			completed := autoscale.CompletedRemoval{OperationID: "remove", ResourceID: "ocid1.instance.original"}
 			journal := &runtimeRetirementEnrollment{}
 			removals := &runtimeRemovalJournal{found: true, record: hostremoval.Operation{OperationID: completed.OperationID, ResourceID: completed.ResourceID, Stage: hostremoval.StageComplete}}
-			gateway := &runtimeRemovalGateway{current: ocireconcile.ObservedMember{ID: completed.ResourceID, ETag: "terminal-etag", LifecycleState: "RUNNING"}, terminal: true}
+			gateway := &runtimeRemovalGateway{current: ocireconcile.ObservedMember{ID: completed.ResourceID, ETag: "terminal-etag", Region: "gru", Index: 3, LifecycleState: "RUNNING"}, terminal: true}
 			switch scenario {
 			case "pending removal":
 				removals.record.Stage = hostremoval.StageFenced

@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"terrascale.tech/orchestrator/src/orchestrator/enrollment"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 )
 
@@ -14,6 +15,7 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 				Database:    productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
 				WriteBudget: productionWriteBudgetFile{PolicyFile: "/etc/terrascale/billing/write-budget.json", StateKey: "billing-write-budget", Placement: "database-placement"},
 				Compute: productionGlobalComputeFile{
+					Enrollment: &productionEnrollmentFile{BrokerIDs: []string{"broker-gru", "broker-sfo", "broker-fra"}, SignerFile: "/etc/terrascale/enrollment.key", PublicKeyFile: "/etc/terrascale/enrollment.pub", Templates: map[string]enrollment.Template{"gru": enrollment.Template{}, "sfo": enrollment.Template{}, "fra": enrollment.Template{}},
 					EstateFiles:       map[string]string{"gru": "/etc/terrascale/gru.estate", "sfo": "/etc/terrascale/sfo.estate", "fra": "/etc/terrascale/fra.estate"},
 					KeyID:             "oci-key",
 					PrivateKeyFile:    "/etc/terrascale/oci.key",
@@ -40,6 +42,8 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		"missing region":                  func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "sfo"} },
 		"duplicate region":                func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "gru", "sfo"} },
 		"other membership":                func(f *productionDeploymentFile) { f.Global.HealthFile = "/etc/foreign.json" },
+		"missing enrollment":               func(f *productionDeploymentFile) { f.Global.Compute.Enrollment = nil },
+		"missing enrollment region":        func(f *productionDeploymentFile) { delete(f.Global.Compute.Enrollment.Templates, "fra") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := valid()

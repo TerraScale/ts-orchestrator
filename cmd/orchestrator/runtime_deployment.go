@@ -113,6 +113,10 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 || len(g.Compute.Artifacts) != 2 || g.Compute.Artifacts["arm64"].URL == "" || g.Compute.Artifacts["amd64"].URL == "" {
 		return errors.New("global compute declaration is incomplete")
 	}
+	enrollment := g.Compute.Enrollment
+	if enrollment == nil || !filepath.IsAbs(enrollment.SignerFile) || !filepath.IsAbs(enrollment.PublicKeyFile) || len(enrollment.BrokerIDs) == 0 || len(enrollment.Templates) != len(spec.Regions) {
+		return errors.New("global enrollment declaration is incomplete")
+	}
 	if err := g.WriteBudget.validate(); err != nil {
 		return err
 	}
@@ -126,6 +130,9 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	for _, region := range spec.Regions {
 		if strings.TrimSpace(g.Compute.EstateFiles[region.Code]) == "" {
 			return fmt.Errorf("global compute estate file for region %s is missing", region.Code)
+		}
+		if _, ok := enrollment.Templates[region.Code]; !ok {
+			return fmt.Errorf("global enrollment template for region %s is missing", region.Code)
 		}
 	}
 	edge := g.Rotation.Edge
