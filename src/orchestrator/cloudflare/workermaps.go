@@ -60,7 +60,7 @@ type WorkerHealthDoc struct {
 	V       int                           `json:"v"`
 	Updated int64                         `json:"updated"` // unix seconds, writer clock
 	Regions map[string]WorkerRegionHealth `json:"regions"` // keys are region codes
-	Catalog []WorkerRegionCatalog         `json:"catalog,omitempty"`
+	Catalog []WorkerRegionCatalog         `json:"catalog"`
 }
 
 // WorkerRegionCatalog is the public, provider-independent Region identity.
@@ -288,7 +288,7 @@ func (d WorkerHealthDoc) normalized() (WorkerHealthDoc, error) {
 	}
 	catalog := d.Catalog
 	if catalog == nil {
-		catalog = publicRegionCatalog
+		return WorkerHealthDoc{}, errors.New("cloudflare: health document admitted catalog is required")
 	}
 	normalizedCatalog, err := normalizeWorkerCatalog(catalog)
 	if err != nil {

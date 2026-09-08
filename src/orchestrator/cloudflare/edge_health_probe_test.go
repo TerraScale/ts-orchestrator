@@ -52,7 +52,11 @@ func TestCanaryEdgeHealthProbeChecksCandidateAndPredecessor(t *testing.T) {
 		case strings.Contains(req.URL.Path, "/versions"):
 			body = `{"success":true,"result":{"items":[{"id":"` + candidate + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("a", 64) + `"}},{"id":"` + previous + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("b", 64) + `"}}]}}`
 		case strings.Contains(req.URL.Path, "/deployments"):
-			body = `{"success":true,"result":{"deployments":[{"id":"deployment-1","versions":[{"version_id":"` + candidate + `","percentage":10},{"version_id":"` + previous + `","percentage":90}]}]}}`
+			if strings.Contains(req.URL.Path, "terrascale-dashboard") {
+				body = `{"success":true,"result":{"deployments":[{"id":"dashboard-deployment","versions":[{"version_id":"dashboard-candidate","percentage":10},{"version_id":"dashboard-previous","percentage":90}]}]}}`
+			} else {
+				body = `{"success":true,"result":{"deployments":[{"id":"deployment-1","versions":[{"version_id":"` + candidate + `","percentage":10},{"version_id":"` + previous + `","percentage":90}]}]}}`
+			}
 		default:
 			return nil, io.ErrUnexpectedEOF
 		}
@@ -61,6 +65,7 @@ func TestCanaryEdgeHealthProbeChecksCandidateAndPredecessor(t *testing.T) {
 	probe := cf.CanaryEdgeHealthProbe{
 		Client: client, HTTPClient: server.Client(), RouteURL: server.URL + "/api/v1/projects/" + project + "/databases/" + database,
 		ProjectID: project, DatabaseID: database, CanaryToken: "canary", ForeignToken: "foreign", ExpectedMarker: marker, MinimumRevision: 7,
+		DownstreamService: "terrascale-dashboard", DownstreamCandidateID: "dashboard-candidate", DownstreamPreviousID: "dashboard-previous",
 	}
 	if err := probe.CheckEdge(t.Context(), "site", "ts-proxy", "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
@@ -70,9 +75,9 @@ func TestCanaryEdgeHealthProbeChecksCandidateAndPredecessor(t *testing.T) {
 	if len(checks) != 4 {
 		t.Fatalf("requests = %d, want candidate and predecessor with two credentials", len(checks))
 	}
-	for _, id := range []string{candidate, previous} {
+	for _, pair := range []struct{ primary, downstream string }{{candidate, "dashboard-candidate"}, {previous, "dashboard-previous"}} {
 		for _, token := range []string{"Bearer canary", "Bearer foreign"} {
-			want := token + ` ts-proxy="` + id + `"`
+			want := token + ` ts-proxy="` + pair.primary + `", terrascale-dashboard="` + pair.downstream + `"`
 			found := false
 			for _, check := range checks {
 				if check == want {

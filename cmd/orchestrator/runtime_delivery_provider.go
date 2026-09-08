@@ -42,19 +42,22 @@ type productionDeliveryFile struct {
 	Registry              productionDeliveryRegistryFile    `json:"registry"`
 }
 type productionDeliveryCloudflareFile struct {
-	AccountID              string            `json:"account_id"`
-	ZoneID                 string            `json:"zone_id"`
-	TokenFile              string            `json:"token_file"`
-	CanaryRouteURL         string            `json:"canary_route_url"`
-	CanaryProjectID        string            `json:"canary_project_id"`
-	CanaryDatabaseID       string            `json:"canary_database_id"`
-	CanaryTokenFile        string            `json:"canary_token_file"`
-	CanaryForeignTokenFile string            `json:"canary_foreign_token_file"`
-	CanaryExpectedMarker   string            `json:"canary_expected_marker"`
-	CanaryMinimumRevision  int64             `json:"canary_minimum_revision"`
-	TailscaleEgressCIDRs   []string          `json:"tailscale_egress_cidrs"`
-	SnippetServices        map[string]string `json:"snippet_services"`
-	WorkerStages           []int             `json:"worker_stages"`
+	AccountID                   string            `json:"account_id"`
+	ZoneID                      string            `json:"zone_id"`
+	TokenFile                   string            `json:"token_file"`
+	CanaryRouteURL              string            `json:"canary_route_url"`
+	CanaryProjectID             string            `json:"canary_project_id"`
+	CanaryDatabaseID            string            `json:"canary_database_id"`
+	CanaryTokenFile             string            `json:"canary_token_file"`
+	CanaryForeignTokenFile      string            `json:"canary_foreign_token_file"`
+	CanaryExpectedMarker        string            `json:"canary_expected_marker"`
+	CanaryMinimumRevision       int64             `json:"canary_minimum_revision"`
+	CanaryDownstreamService     string            `json:"canary_downstream_service"`
+	CanaryDownstreamCandidateID string            `json:"canary_downstream_candidate_version_id"`
+	CanaryDownstreamPreviousID  string            `json:"canary_downstream_previous_version_id"`
+	TailscaleEgressCIDRs        []string          `json:"tailscale_egress_cidrs"`
+	SnippetServices             map[string]string `json:"snippet_services"`
+	WorkerStages                []int             `json:"worker_stages"`
 }
 type productionDeliveryRegistryFile struct {
 	URL       string `json:"url"`

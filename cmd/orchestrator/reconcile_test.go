@@ -106,6 +106,19 @@ func TestOCIReconcileAppliesAutoscalePlanToComputeDeclaration(t *testing.T) {
 	}
 }
 
+func TestOCIReconcileDesiredSpecHoldsWhenDurableTargetProjectionFails(t *testing.T) {
+	spec := estate.Default()
+	regions := make(map[string]*ociRegionController, len(spec.Regions))
+	for _, region := range spec.Regions {
+		regions[region.Code] = &ociRegionController{region: region}
+	}
+	controller := &ociReconcileController{spec: spec, regions: regions}
+	_, err := controller.desiredSpec(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "durable autoscale target projection is unavailable") {
+		t.Fatalf("desired spec projection error = %v, want durable target failure", err)
+	}
+}
+
 func TestProductionReconcileRefusesMissingConfiguration(t *testing.T) {
 	lookup := func(string) (string, bool) { return "", false }
 	if _, err := newProductionReconcileDependencies(lookup); err == nil {

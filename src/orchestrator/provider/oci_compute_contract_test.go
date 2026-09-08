@@ -246,6 +246,56 @@ func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	}
 }
 
+func TestOCIComputeAdapterRecoveryRecordsOwnershipBeforeCompleting(t *testing.T) {
+	posts, reads := 0, 0
+	operation := ""
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		switch request.Method {
+		case http.MethodPost:
+			posts++
+			return nil, io.ErrUnexpectedEOF
+		case http.MethodGet:
+			reads++
+			body := `[{"id":"ocid1.instance.oc1.recovered","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","shape":"VM.Standard.A1.Flex","freeformTags":{"terrascale-operation":"` + operation + `","terrascale-intent":"recovery-intent"}}]`
+			return testHTTPResponse(http.StatusOK, body, nil), nil
+		default:
+			return nil, errors.New("unexpected compute method")
+		}
+	})
+	ownership, err := NewDurableOwnershipJournal(newTestOwnershipCAS(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = ownership
+	request := ComputeLaunchRequest{
+		CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-recovery", CellID: "gru", Generation: 1,
+		ServerIdentity: "spiffe://terrascale/member/gru-1", Environment: "production", Cluster: "cluster", MemberID: "member-1",
+		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
+		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", Architecture: "arm64", ImageID: "ocid1.image.oc1.x", OCPUs: 1, MemoryGiB: 6}},
+	}
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), "recovery-intent", 1)
+	operation = request.Mutation.OperationID.Value
+	if _, err := adapter.LaunchInstance(t.Context(), request); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
+		t.Fatalf("lost response error = %v", err)
+	}
+	instance, err := adapter.LaunchInstance(t.Context(), request)
+	if err != nil || instance.ID != "ocid1.instance.oc1.recovered" {
+		t.Fatalf("recovered instance = %+v, %v", instance, err)
+	}
+	if posts != 1 || reads != 2 {
+		t.Fatalf("recovery calls = posts %d reads %d; want one post and two observations", posts, reads)
+	}
+	record, found, err := ownership.Lookup(t.Context(), ProviderResourceId{Value: instance.ID})
+	if err != nil || !found || record.CompartmentId.Value != request.CompartmentID || record.Generation.Value != request.Generation {
+		t.Fatalf("recovered ownership = %+v found=%v err=%v", record, found, err)
+	}
+}
+
 func TestOCIWorkRequestAdapterToleratesEventualVisibility(t *testing.T) {
 	reads := 0
 	transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {

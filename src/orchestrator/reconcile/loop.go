@@ -354,6 +354,13 @@ func (l *Loop) applyWithRetry(ctx context.Context, provider Reconciler, plan Pla
 	var last error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		if err := ctx.Err(); err != nil {
+			// The admission record was written before this check. A cancellation
+			// before dispatch therefore has to release that admission so a later
+			// pass can retry the operation; leaving it pending would permanently
+			// treat a mutation that never ran as unresolved.
+			if persistErr := l.recordProgressOutcome(ctx, plan, attempt, "failed", err); persistErr != nil {
+				return persistErr
+			}
 			return err
 		}
 		if keyed, ok := provider.(ApplyWithKey); ok {
@@ -363,7 +370,7 @@ func (l *Loop) applyWithRetry(ctx context.Context, provider Reconciler, plan Pla
 		}
 		if last == nil {
 			for _, action := range plan.Actions {
-				if err := l.config.Progress.Save(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: "applied", UpdatedAt: l.now().UTC()}); err != nil {
+				if err := l.saveProgress(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: "applied", UpdatedAt: l.now().UTC()}); err != nil {
 					// The provider returned success, but the durable outcome could
 					// not be recorded. Treat it as unknown: a later process must
 					// not replay a potentially destructive mutation.
@@ -372,18 +379,16 @@ func (l *Loop) applyWithRetry(ctx context.Context, provider Reconciler, plan Pla
 			}
 			return nil
 		}
-		unknown := IsUnknownOutcome(last)
-		for _, action := range plan.Actions {
-			outcome := "failed"
-			if unknown {
-				outcome = "unknown"
-			}
-			if err := l.config.Progress.Save(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: outcome, Detail: last.Error(), UpdatedAt: l.now().UTC()}); err != nil {
-				// Even a provider error may follow a partial mutation. Losing
-				// its durable progress record therefore has the same safety
-				// posture as an indeterminate provider response.
-				return &UnknownOutcomeError{Err: fmt.Errorf("persist %s outcome for %s: %w", outcome, OperationKey(action), err)}
-			}
+		// A cancellation returned by an in-flight provider call has the same
+		// ambiguity as a lost response: the request may already have committed.
+		// Preserve that fact durably instead of allowing a destructive replay.
+		unknown := IsUnknownOutcome(last) || errors.Is(last, context.Canceled) || errors.Is(last, context.DeadlineExceeded)
+		outcome := "failed"
+		if unknown {
+			outcome = "unknown"
+		}
+		if err := l.recordProgressOutcome(ctx, plan, attempt, outcome, last); err != nil {
+			return err
 		}
 		if unknown || errors.Is(last, context.Canceled) || errors.Is(last, context.DeadlineExceeded) {
 			return last
@@ -414,6 +419,35 @@ func (l *Loop) applyWithRetry(ctx context.Context, provider Reconciler, plan Pla
 		}
 	}
 	return last
+}
+
+// saveProgress persists terminal state even after caller cancellation. The
+// provider call may have completed after the caller detached, and losing its
+// durable outcome would leave a permanent pending admission token.
+func (l *Loop) saveProgress(ctx context.Context, progress Progress) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
+	return l.config.Progress.Save(ctx, progress)
+}
+
+func (l *Loop) recordProgressOutcome(ctx context.Context, plan Plan, attempt int, outcome string, cause error) error {
+	detail := ""
+	if cause != nil {
+		detail = cause.Error()
+	}
+	for _, action := range plan.Actions {
+		if err := l.saveProgress(ctx, Progress{Key: OperationKey(action), Action: action.Kind, Ref: RefKey(action.Ref), Attempt: attempt, Outcome: outcome, Detail: detail, UpdatedAt: l.now().UTC()}); err != nil {
+			// Even a provider error may follow a partial mutation. Losing
+			// its durable progress record therefore has the same safety
+			// posture as an indeterminate provider response.
+			return &UnknownOutcomeError{Err: fmt.Errorf("persist %s outcome for %s: %w", outcome, OperationKey(action), err)}
+		}
+	}
+	return nil
 }
 
 func planOperationKey(plan Plan) string {

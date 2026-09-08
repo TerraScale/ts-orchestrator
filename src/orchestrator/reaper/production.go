@@ -14,10 +14,12 @@ import (
 // production implementation must verify the immutable placement lock before
 // making the retained snapshot visible, and must enforce that same lock while
 // creating it. The reaper never chooses a backup Region itself.
-// Snapshot, close, backup-stop and reactivation operations belong to TerraBase
+// Snapshot, close, backup-stop, retained backup deletion, and reactivation operations belong to TerraBase
 // and must use its admitted TBEP lifecycle contract. StopNativeBackup stops the
 // selected database's native backup stream; it must not stop shared engine
 // workers, supervise an external process, or delete the retained snapshot.
+// DeleteOwnedData must delete the selected member's retained native backup
+// points before deleting owned database files and returning success.
 type DatabaseAdapter interface {
 	Catalog
 	EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error

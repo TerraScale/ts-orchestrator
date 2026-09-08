@@ -285,7 +285,10 @@ func (c *Client) Reactivate(ctx context.Context, a LifecycleAssignment, operatio
 	})
 }
 
-// DeleteOwnedData deletes only data owned by this member after authority validation.
+// DeleteOwnedData deletes only data owned by this member after authority
+// validation. The lifecycle implementation must purge this database's
+// retained native backup points before deleting owned database files and
+// returning success; the reaper performs crypto-shred only afterward.
 func (c *Client) DeleteOwnedData(ctx context.Context, a LifecycleAssignment, operation string) error {
 	r, err := c.lifecycleRequest(a, operation)
 	if err != nil {

@@ -110,6 +110,9 @@ type Catalog interface {
 // Executor is the infrastructure seam. Every method must be idempotent for
 // the supplied operation key. EnsureSnapshot must leave the retained
 // TerraBase native backup snapshot available before CloseDatabase is allowed to complete.
+// DeleteOwnedData must remove the member's retained native backup points and
+// owned database files before returning; the reaper destroys the DEK only
+// after this operation succeeds.
 type Executor interface {
 	EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error
 	CloseDatabase(ctx context.Context, databaseID, operationKey string) error
@@ -685,14 +688,17 @@ func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Da
 			return err
 		}
 	}
-	// Purging first ensures an edge copy cannot outlive the DEK destruction.
+	// Purging edge and member-owned native backup copies must complete before
+	// crypto-shred. The native lifecycle DeleteOwnedData operation is the
+	// narrow caller for retained backup points; it must not be treated as a
+	// generic filesystem purge.
 	for _, operation := range []struct {
 		name string
 		run  func(context.Context, string) error
 	}{
 		{"delete/cdn-purge", func(ctx context.Context, key string) error { return r.executor.PurgeCDN(ctx, database.ID, key) }},
-		{r.operationName(entry, "delete/crypto-shred"), func(ctx context.Context, key string) error { return r.executor.DestroyDEK(ctx, database.ID, key) }},
 		{r.operationName(entry, "delete/data"), func(ctx context.Context, key string) error { return r.executor.DeleteOwnedData(ctx, database.ID, key) }},
+		{r.operationName(entry, "delete/crypto-shred"), func(ctx context.Context, key string) error { return r.executor.DestroyDEK(ctx, database.ID, key) }},
 	} {
 		if err := r.operationLocked(ctx, state, database.ID, operation.name, operation.run, now); err != nil {
 			return err

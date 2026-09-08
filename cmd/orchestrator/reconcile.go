@@ -156,14 +156,20 @@ func (c *ociReconcileController) desiredSpec(ctx context.Context) (estate.Spec, 
 		if controller == nil {
 			return estate.Spec{}, errors.New("reconcile: OCI region controller is unavailable")
 		}
-		// Read only the durable target before the generic diff. Enrollment and
-		// OCI issuer work belongs to typed compute observation, so a missing
-		// slot cannot block unrelated provider kinds.
-		if target, err := controller.targetMemberCount(ctx); err == nil && target >= provider.PlacementMinimumMemberHosts {
-			// The durable target owns contraction as well as expansion. The
-			// placement floor is checked here and again by ComputeReconciler.
-			region.Members.Count = target
+		// Read the durable target before the generic diff. Falling back to the
+		// static declaration after a failed read could contract a live pool or
+		// undo an admitted expansion, so target projection failure holds the
+		// entire pass before any provider plan is derived.
+		target, err := controller.targetMemberCount(ctx)
+		if err != nil {
+			return estate.Spec{}, fmt.Errorf("reconcile: durable target for %s: %w", region.Code, err)
 		}
+		// The durable target owns contraction as well as expansion. The
+		// placement floor is checked here and again by ComputeReconciler.
+		if target < provider.PlacementMinimumMemberHosts {
+			return estate.Spec{}, fmt.Errorf("reconcile: durable target for %s is below the placement host floor", region.Code)
+		}
+		region.Members.Count = target
 	}
 	return spec, nil
 }

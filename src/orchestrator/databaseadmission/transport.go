@@ -22,6 +22,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
+	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
 const RestoreSubject = subjects.Restore
@@ -487,7 +488,30 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		return nil, err
 	}
 	_ = sub.SetPendingLimits(128, 8<<20)
+	poolSubject, err := PoolSubject(c.ServerIdentity)
+	if err != nil {
+		_ = sub.Unsubscribe()
+		return nil, err
+	}
+	poolSub, err := c.Connection.Subscribe(poolSubject, func(message *nats.Msg) {
+		if message.Reply == "" || len(message.Data) > maxMessage {
+			return
+		}
+		var envelope writebudget.AllocationEnvelopeV2
+		if json.Unmarshal(message.Data, &envelope, json.RejectUnknownMembers(true)) != nil || envelope.SchemaVersion != 2 {
+			return
+		}
+		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		_ = handleHostBudgetPoolRefill(opctx, c, client, message)
+	})
+	if err != nil {
+		_ = sub.Unsubscribe()
+		return nil, err
+	}
+	_ = poolSub.SetPendingLimits(128, 8<<20)
 	if err := c.Connection.FlushTimeout(5 * time.Second); err != nil {
+		_ = poolSub.Unsubscribe()
 		_ = sub.Unsubscribe()
 		return nil, err
 	}
@@ -498,6 +522,7 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		stopPool()
 		<-poolDone
 		transport.CloseIdleConnections()
+		_ = poolSub.Unsubscribe()
 		return sub.Unsubscribe()
 	}}
 	context.AfterFunc(ctx, func() { _ = service.Close() })

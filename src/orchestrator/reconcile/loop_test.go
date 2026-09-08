@@ -429,6 +429,49 @@ func TestLoopFailsClosedForPersistedPendingOutcome(t *testing.T) {
 	}
 }
 
+func TestLoopPersistsAppliedOutcomeAfterCallerCancellation(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceBucket)
+	ctx, cancel := context.WithCancel(context.Background())
+	provider.onApply = cancel
+	loop, err := NewLoop(testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{}))
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	if _, err := loop.Pass(ctx); err != nil {
+		t.Fatalf("completed provider effect was reported as failed: %v", err)
+	}
+	plan, err := loop.observeAndPlan(context.Background())
+	if err != nil || !plan.Empty() {
+		t.Fatalf("provider effect was not retained after cancellation: plan=%+v err=%v", plan.Actions, err)
+	}
+	for _, resource := range provider.state {
+		progress, found, loadErr := loop.config.Progress.Load(context.Background(), OperationKey(Action{Kind: ActionCreate, Ref: resource.Ref, Attributes: resource.Attributes}))
+		if loadErr != nil || !found || progress.Outcome != "applied" {
+			t.Fatalf("applied outcome = %+v found=%v err=%v", progress, found, loadErr)
+		}
+	}
+}
+
+func TestLoopMarksInFlightCancellationUnknown(t *testing.T) {
+	provider := newFakeProvider(estate.ResourceBucket)
+	provider.applyErr = context.Canceled
+	loop, err := NewLoop(testConfig([]Reconciler{provider}, &captureAudit{}, &captureDrift{}))
+	if err != nil {
+		t.Fatalf("loop creation failed: %v", err)
+	}
+	if _, err := loop.Pass(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("in-flight cancellation = %v, want cancellation", err)
+	}
+	plan, err := loop.observeAndPlan(context.Background())
+	if err != nil || len(plan.Actions) == 0 {
+		t.Fatalf("expected original plan after canceled provider: plan=%+v err=%v", plan.Actions, err)
+	}
+	progress, found, err := loop.config.Progress.Load(context.Background(), OperationKey(plan.Actions[0]))
+	if err != nil || !found || progress.Outcome != "unknown" {
+		t.Fatalf("canceled outcome = %+v found=%v err=%v, want unknown", progress, found, err)
+	}
+}
+
 func TestLoopRejectsOverlappingKindOwnership(t *testing.T) {
 	first := newFakeProvider(estate.ResourceBucket)
 	second := newFakeProvider(estate.ResourceBucket, estate.ResourceDNS)

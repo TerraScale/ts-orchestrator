@@ -30,6 +30,12 @@ type CanaryEdgeHealthProbe struct {
 	ExpectedMarker  string
 	MinimumRevision int64
 	BodyLimit       int64
+	// DownstreamService and its role IDs are required for production routes
+	// that cross a service binding. IDs are never inferred from the primary
+	// Worker: Cloudflare version IDs are scoped to each Worker.
+	DownstreamService     string
+	DownstreamCandidateID string
+	DownstreamPreviousID  string
 }
 
 // EdgeHealthRouter keeps Worker application checks separate from the existing
@@ -122,27 +128,53 @@ func (p CanaryEdgeHealthProbe) CheckEdge(ctx context.Context, kind, service, dig
 		return errors.New("cloudflare: canary deployment allocation is invalid")
 	}
 	ids := []string{versionID}
+	downstream := map[string]string{}
+	if strings.TrimSpace(p.DownstreamService) != "" {
+		if p.DownstreamCandidateID == "" || !workerName(p.DownstreamService) {
+			return errors.New("cloudflare: downstream Worker binding configuration is incomplete")
+		}
+		downstream[versionID] = p.DownstreamCandidateID
+		if previous != "" {
+			if p.DownstreamPreviousID == "" {
+				return errors.New("cloudflare: downstream predecessor version is missing")
+			}
+			downstream[previous] = p.DownstreamPreviousID
+		}
+		bound, err := p.Client.ListWorkerDeployments(ctx, p.DownstreamService)
+		if err != nil || len(bound) == 0 {
+			return errors.New("cloudflare: downstream Worker deployment is unavailable")
+		}
+		for primaryID, downstreamID := range downstream {
+			if !deploymentContains(bound[0], downstreamID) {
+				return fmt.Errorf("cloudflare: downstream version for %s is not in the current deployment", primaryID)
+			}
+		}
+	}
 	if previous != "" {
 		ids = append(ids, previous)
 	}
 	for _, id := range ids {
-		if err := p.checkVersion(ctx, route, id, p.CanaryToken, true); err != nil {
+		if err := p.checkVersion(ctx, route, id, downstream[id], p.CanaryToken, true); err != nil {
 			return err
 		}
-		if err := p.checkVersion(ctx, route, id, p.ForeignToken, false); err != nil {
+		if err := p.checkVersion(ctx, route, id, downstream[id], p.ForeignToken, false); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (p CanaryEdgeHealthProbe) checkVersion(ctx context.Context, route, versionID, token string, allowed bool) error {
+func (p CanaryEdgeHealthProbe) checkVersion(ctx context.Context, route, versionID, downstreamID, token string, allowed bool) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, route, nil)
 	if err != nil {
 		return errors.New("cloudflare: canary probe request is invalid")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set(workerVersionOverrideHeader, `ts-proxy="`+versionID+`"`)
+	override := `ts-proxy="` + versionID + `"`
+	if downstreamID != "" {
+		override += `, ` + p.DownstreamService + `="` + downstreamID + `"`
+	}
+	req.Header.Set(workerVersionOverrideHeader, override)
 	req.Header.Set("Cache-Control", "no-store")
 	client := p.HTTPClient
 	if client == nil {
@@ -205,4 +237,17 @@ func deploymentContains(deployment WorkerDeployment, versionID string) bool {
 		}
 	}
 	return false
+}
+
+func workerName(value string) bool {
+	if value == "" || len(value) > 63 {
+		return false
+	}
+	for index, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (index > 0 && char >= '0' && char <= '9') || (index > 0 && char == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }

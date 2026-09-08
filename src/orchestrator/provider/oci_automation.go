@@ -277,6 +277,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		if err != nil {
 			return ComputeInstance{}, err
 		}
+		if err := a.recordComputeOwnership(ctx, request, result.ResourceID); err != nil {
+			return ComputeInstance{}, err
+		}
 		return mutationResultInstance(result)
 	}
 	if record.State == MutationSubmitted || record.State == MutationUnknown {
@@ -286,6 +289,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		if found {
 			result := ProviderMutationResult{ResourceID: instance.ID, ETag: instance.ETag, WorkRequestID: instance.WorkRequestID}
+			if err := a.recordComputeOwnership(ctx, request, result.ResourceID); err != nil {
+				return ComputeInstance{}, err
+			}
 			if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 				return ComputeInstance{}, err
 			}
@@ -378,13 +384,11 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		instance := ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: safeHeader(resp, "opc-work-request-id"), AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}
-		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
+		if err := a.recordComputeOwnership(ctx, request, result.ResourceID); err != nil {
 			return ComputeInstance{}, err
 		}
-		if a.Ownership != nil {
-			if err := a.Ownership.Record(ctx, ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: item.ID}, CellId: ProviderCellId{Value: request.CellID}, CompartmentId: ProviderCompartmentId{Value: request.CompartmentID}, Generation: ProviderGeneration{Value: request.Generation}, ServerIdentity: request.ServerIdentity, MemberID: request.MemberID}); err != nil {
-				return ComputeInstance{}, err
-			}
+		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
+			return ComputeInstance{}, err
 		}
 		return instance, nil
 	}
@@ -392,6 +396,20 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		return ComputeInstance{}, err
 	}
 	return ComputeInstance{}, &ProviderCapacityError{Attempts: len(request.Candidates)}
+}
+
+func (a *OCIComputeAdapter) recordComputeOwnership(ctx context.Context, request ComputeLaunchRequest, resourceID string) error {
+	if a.Ownership == nil {
+		return nil
+	}
+	if !IsOCID(resourceID, "instance") {
+		return &InvalidDataError{Message: "OCI compute ownership resource identity is invalid"}
+	}
+	return a.Ownership.Record(ctx, ProviderOwnershipRecord{
+		ResourceId: ProviderResourceId{Value: resourceID}, CellId: ProviderCellId{Value: request.CellID},
+		CompartmentId: ProviderCompartmentId{Value: request.CompartmentID}, Generation: ProviderGeneration{Value: request.Generation},
+		ServerIdentity: request.ServerIdentity, MemberID: request.MemberID,
+	})
 }
 
 func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, bool, error) {

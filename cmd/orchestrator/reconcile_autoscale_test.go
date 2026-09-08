@@ -69,3 +69,13 @@ func TestEngineProofPreservesMeasuredCatchupAndFailsClosedOnMissingEvidence(t *t
 		t.Fatal("unprovided scale-down evidence was fabricated")
 	}
 }
+
+func TestValidAutoscaleEngineFactsRejectsUnservingEmptyReport(t *testing.T) {
+	now := time.Now()
+	if validAutoscaleEngineFacts(hostagent.EngineFacts{
+		Measured:         true,
+		ObservedAtUnixMS: now.UnixMilli(),
+	}, now) {
+		t.Fatal("unserving empty engine report admitted")
+	}
+}

@@ -95,3 +95,38 @@ func TestReservePoolReplayAndConflict(t *testing.T) {
 		t.Fatalf("changed operation identity error=%v", err)
 	}
 }
+
+func TestPoolRefillsConsumeOnlyTheirSignedTrancheAndExhaustBeforeMint(t *testing.T) {
+	authority, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 2, ConsentEpoch: 2, WriterEpoch: 1, WriterEpochs: map[string]uint64{"holder": 3}, IncludedAllowanceUnits: 100, PaidExcessEnabled: true, RateNanoDollar: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := authority.ReservePool(t.Context(), poolRequest("refill-a", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := authority.ReservePool(t.Context(), poolRequest("refill-b", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PoolSequence != first.PoolSequence+1 {
+		t.Fatalf("sequences=%d,%d", first.PoolSequence, second.PoolSequence)
+	}
+	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{RefillOperationID: "refill-b", OperationID: "op-b", PoolID: first.PoolID, DatabaseID: "db", BodyDigest: "b", LocalUnits: 3}); err != nil {
+		t.Fatal(err)
+	}
+	state, _, err := authority.LookupState(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.PoolRefills["refill-a"].RemainingLocal != 10 || state.PoolRefills["refill-b"].RemainingLocal != 7 {
+		t.Fatalf("wrong tranche consumption: %+v", state.PoolRefills)
+	}
+	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{RefillOperationID: "refill-a", OperationID: "op-a", PoolID: first.PoolID, DatabaseID: "db", BodyDigest: "a", LocalUnits: 11}); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("over-consumed tranche: %v", err)
+	}
+	large := poolRequest("too-large", 91)
+	if _, err := authority.ReservePool(t.Context(), large); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("pool exhaustion minted credits: %v", err)
+	}
+}

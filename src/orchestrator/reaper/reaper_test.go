@@ -133,11 +133,39 @@ func TestLifecyclePauseNoticesAndDelete(t *testing.T) {
 	if state.Phase != PhaseDeleted || len(mailer.emails) != 3 || mailer.emails[2].Template != "free-tier-final" {
 		t.Fatalf("state=%+v emails=%d", state, len(mailer.emails))
 	}
-	if got := executor.calls; len(got) != 6 || got[3][:5] != "purge" || got[4][:5] != "shred" || got[5][:6] != "delete" {
+	if got := executor.calls; len(got) != 6 || got[3][:5] != "purge" || got[4][:6] != "delete" || got[5][:5] != "shred" {
 		t.Fatalf("calls=%v", got)
 	}
 	if len(audit.events) < 6 {
 		t.Fatalf("expected audit outcomes, got %d", len(audit.events))
+	}
+}
+
+func TestRetainedBackupPurgeFailurePreventsCryptoShred(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: base.Add(DefaultPauseAfter)}
+	catalog := &testCatalog{databases: []Database{freeDatabase(base)}}
+	executor := &testExecutor{fail: map[string]int{"delete": 1}}
+	store := &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, &testAudit{})
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(base.Add(DefaultDeleteAfter))
+	if _, err := reaper.Run(context.Background()); err == nil {
+		t.Fatal("expected retained backup/data purge failure")
+	}
+	for _, call := range executor.calls {
+		if len(call) >= 5 && call[:5] == "shred" {
+			t.Fatalf("crypto-shred ran after retained purge failure: %v", executor.calls)
+		}
+	}
+	result, err := reaper.Run(context.Background())
+	if err != nil || result.Deleted != 1 {
+		t.Fatalf("retry did not complete deletion: result=%+v err=%v", result, err)
+	}
+	if len(executor.calls) < 7 || executor.calls[len(executor.calls)-2][:6] != "delete" || executor.calls[len(executor.calls)-1][:5] != "shred" {
+		t.Fatalf("retry order=%v", executor.calls)
 	}
 }
 

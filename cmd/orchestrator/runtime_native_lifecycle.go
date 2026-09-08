@@ -80,6 +80,8 @@ type lifecycleRPC interface {
 	CloseDatabase(context.Context, tbep.LifecycleAssignment, string) error
 	StopNativeBackup(context.Context, tbep.LifecycleAssignment, string) error
 	Reactivate(context.Context, tbep.LifecycleAssignment, string) error
+	// DeleteOwnedData must purge retained native backup points before member
+	// files and only then acknowledge completion to the deletion reaper.
 	DeleteOwnedData(context.Context, tbep.LifecycleAssignment, string) error
 }
 type lifecycleTarget struct {

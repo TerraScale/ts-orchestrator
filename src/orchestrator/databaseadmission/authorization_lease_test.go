@@ -14,7 +14,7 @@ func authorizationLeaseFixture(t *testing.T) (AuthorizationLeaseRequest, []byte,
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	return AuthorizationLeaseRequest{OperationID: "request-1", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Scope: "scope-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:authz-01ARZ3NDEKTSV4RRFFQ69G5FAA-7-11", CredentialGeneration: 7, PermissionSetGeneration: 11, Audience: "https://api.terrascale.tech", Region: "GRU", IssuedAt: now, ValidUntil: now.Add(30 * time.Second)}, key, key
+	return AuthorizationLeaseRequest{OperationID: "request-1", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Scope: `{"database_ids":["db-a","db-b"],"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAB"}`, CredentialGeneration: 7, PermissionSetGeneration: 11, Audience: "https://api.terrascale.tech", Region: "GRU", IssuedAt: now, ValidUntil: now.Add(30 * time.Second)}, key, key
 }
 
 func TestAuthorizationLeaseSignsExactScopeAndRejectsContractDrift(t *testing.T) {

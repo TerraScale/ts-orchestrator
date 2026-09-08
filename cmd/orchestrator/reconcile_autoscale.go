@@ -64,7 +64,7 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 // the report; these checks ensure a delayed or incomplete report cannot be
 // turned into a scale-down proof by the adapter.
 func validAutoscaleEngineFacts(engine hostagent.EngineFacts, now time.Time) bool {
-	if !engine.Measured || engine.Draining || engine.ObservedAtUnixMS <= 0 {
+	if !engine.Measured || !engine.Serving || engine.Draining || engine.ObservedAtUnixMS <= 0 {
 		return false
 	}
 	observed := time.UnixMilli(engine.ObservedAtUnixMS)
@@ -76,7 +76,7 @@ func validAutoscaleEngineFacts(engine hostagent.EngineFacts, now time.Time) bool
 	if len(engine.Databases) == 0 {
 		return true
 	}
-	if !engine.Serving || !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
+	if !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
 		return false
 	}
 	catchUpObserved := time.UnixMilli(int64(engine.CatchUpObservedAtUnixMS))
