@@ -45,6 +45,7 @@ func TestProductionAutoscaleConcurrentControllersUseNATSTargetStoreCAS(t *testin
 	if err != nil || !found {
 		t.Fatalf("load predecessor: found=%v err=%v", found, err)
 	}
+	predecessor := left
 	right := left
 	left.OperationID, right.OperationID = "controller-left", "controller-right"
 
@@ -55,12 +56,12 @@ func TestProductionAutoscaleConcurrentControllersUseNATSTargetStoreCAS(t *testin
 	go func() {
 		defer wg.Done()
 		<-start
-		results <- open().CompareAndSwap(ctx, "gru", &initial, left)
+		results <- open().CompareAndSwap(ctx, "gru", &predecessor, left)
 	}()
 	go func() {
 		defer wg.Done()
 		<-start
-		results <- open().CompareAndSwap(ctx, "gru", &initial, right)
+		results <- open().CompareAndSwap(ctx, "gru", &predecessor, right)
 	}()
 	close(start)
 	wg.Wait()
