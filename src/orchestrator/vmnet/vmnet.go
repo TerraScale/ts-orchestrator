@@ -506,6 +506,11 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 	if ctx == nil {
 		return errors.New("vmnet: nil context")
 	}
+	// Cleanup is a safety operation. Anchor its cancellation-independent
+	// budget at invocation time so coordination and host allocation work cannot
+	// consume the command deadline before cleanup starts.
+	cleanupContext, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	defer cleanupCancel()
 	p = p.copy()
 	if err := p.Validate(); err != nil {
 		return err
@@ -534,7 +539,7 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 	if err := coordinator.hostLease.publish(); err != nil {
 		return fmt.Errorf("vmnet: publish host allocation for cleanup: %w", err)
 	}
-	err := p.runLocked(ctx, runner)
+	err := p.runLockedContext(cleanupContext, runner)
 	if err != nil {
 		return err
 	}
@@ -549,9 +554,12 @@ func (p CleanupPlan) Run(ctx context.Context, runner Runner) error {
 func (p CleanupPlan) runLocked(ctx context.Context, runner Runner) error {
 	// Cleanup is a safety operation. It must still run when the controller's
 	// request was cancelled, but no individual host command may hang forever.
-	baseContext := context.WithoutCancel(ctx)
-	cleanupContext, cleanupCancel := context.WithTimeout(baseContext, 45*time.Second)
+	cleanupContext, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cleanupCancel()
+	return p.runLockedContext(cleanupContext, runner)
+}
+
+func (p CleanupPlan) runLockedContext(cleanupContext context.Context, runner Runner) error {
 	var first error
 	for _, c := range append(append([]Command(nil), p.HostInput...), p.Commands...) {
 		commandContext, cancel := context.WithTimeout(cleanupContext, 10*time.Second)

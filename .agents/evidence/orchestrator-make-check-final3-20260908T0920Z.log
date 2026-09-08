@@ -1150,3 +1150,20 @@ ok  	terrascale.tech/orchestrator/src/orchestrator/vmdisk	6.502s
 ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	5.876s
 ok  	terrascale.tech/orchestrator/src/orchestrator/vmguest	55.184s
 ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	46.973s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmnet	378.939s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqual	185.019s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualartifact	1.050s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap	13.045s
+--- FAIL: TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands (4.22s)
+    network_test.go:238: cleanup command deadline = 2026-09-08 10:41:17.058872916 -0300 -03 m=+26.646523613, started 2026-09-08 10:41:04.840595032 -0300 -03 m=+14.428245752
+FAIL
+FAIL	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	26.463s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualsuite	64.649s
+ok  	terrascale.tech/orchestrator/src/orchestrator/writebudget	1.188s
+?   	terrascale.tech/orchestrator/tests/journalchild	[no test files]
+ok  	terrascale.tech/orchestrator/tools/orchestrator-tooling	2.993s
+FAIL
+make: *** [Makefile:46: check] Error 1
+9848
+d7954b64b6060259d24eb9a5fe0811b2d5a021793c3f9c1ed35bb872f152c0ab
+exit_code=2

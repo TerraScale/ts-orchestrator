@@ -149,7 +149,11 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		writeUnavailable(connection)
 		return
 	}
-	defer unlock()
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 	current, err := s.lookup(binding, time.Now())
 	if err != nil || current != entry {
 		writeUnavailable(connection)
@@ -160,6 +164,11 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		writeUnavailable(connection)
 		return
 	}
+	// The catalog check is the linearization point for this lease. Release the
+	// lock before writing the response so a completed request cannot make a
+	// concurrent catalog update spuriously fail on the socket write.
+	unlock()
+	unlock = nil
 	var response [40]byte
 	defer clear(response[:])
 	binary.BigEndian.PutUint32(response[:4], 68)

@@ -55,15 +55,16 @@ type NATSJetStreamSnapshotterConfig struct {
 // uploads a versioned envelope containing those exact bytes and the API metadata
 // needed to restore them to the control Region's Object Storage bucket.
 type NATSJetStreamSnapshotter struct {
-	connection *nats.Conn
-	stream     string
-	store      SnapshotObjectStore
-	region     string
-	bucket     string
-	maxBytes   int64
-	timeout    time.Duration
-	now        func() time.Time
-	mu         sync.Mutex
+	connection   *nats.Conn
+	stream       string
+	store        SnapshotObjectStore
+	region       string
+	bucket       string
+	maxBytes     int64
+	timeout      time.Duration
+	now          func() time.Time
+	mu           sync.Mutex
+	snapshotGate chan struct{}
 }
 
 func NewNATSJetStreamSnapshotter(config NATSJetStreamSnapshotterConfig) (*NATSJetStreamSnapshotter, error) {
@@ -89,8 +90,35 @@ func NewNATSJetStreamSnapshotter(config NATSJetStreamSnapshotterConfig) (*NATSJe
 	return &NATSJetStreamSnapshotter{
 		connection: config.Connection, stream: config.Stream, store: config.Store,
 		region: config.Region, bucket: config.Bucket, maxBytes: config.MaxBytes,
-		timeout: config.Timeout, now: config.Now,
+		timeout: config.Timeout, now: config.Now, snapshotGate: snapshotGate(),
 	}, nil
+}
+
+func snapshotGate() chan struct{} {
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	return gate
+}
+
+func (s *NATSJetStreamSnapshotter) acquireSnapshot(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		return nil, errors.New("restore drill: snapshot context is required")
+	}
+	// A few internal callers construct this type directly for read-only
+	// evidence helpers. Keep those values safe while making the production
+	// Snapshot path's serialization wait interruptible by its deadline.
+	s.mu.Lock()
+	if s.snapshotGate == nil {
+		s.snapshotGate = snapshotGate()
+	}
+	gate := s.snapshotGate
+	s.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-gate:
+		return func() { gate <- struct{}{} }, nil
+	}
 }
 
 func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request SnapshotRequest) (ControlStateSnapshot, error) {
@@ -108,8 +136,11 @@ func (s *NATSJetStreamSnapshotter) Snapshot(ctx context.Context, request Snapsho
 	operationCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	release, err := s.acquireSnapshot(operationCtx)
+	if err != nil {
+		return ControlStateSnapshot{}, err
+	}
+	defer release()
 	if existing, found, err := s.store.Head(operationCtx, s.region, s.bucket, request.ObjectKey); err != nil {
 		return ControlStateSnapshot{}, err
 	} else if found {

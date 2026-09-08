@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -49,6 +50,21 @@ func TestSnapshotTransferRequiresOrderedBoundedChunksAndSuccess(t *testing.T) {
 				t.Fatal("accepted data after completion")
 			}
 		}
+	}
+}
+
+func TestSnapshotWaitHonorsDeadline(t *testing.T) {
+	snapshotter := &NATSJetStreamSnapshotter{snapshotGate: snapshotGate()}
+	release, err := snapshotter.acquireSnapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+	if _, err := snapshotter.acquireSnapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("acquireSnapshot error = %v, want deadline exceeded", err)
 	}
 }
 
