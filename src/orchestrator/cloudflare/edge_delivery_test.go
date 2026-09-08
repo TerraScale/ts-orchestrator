@@ -302,3 +302,67 @@ func TestWorkerRollbackRecoversCommittedPartialDeployment(t *testing.T) {
 		t.Fatalf("rollback = %+v, %v", active, err)
 	}
 }
+
+func TestWorkerRollbackRestoresHistoricalPartialAllocation(t *testing.T) {
+	provider := sandboxcf.New(sandboxcf.Config{ZoneID: "zone", AccountID: "account"})
+	server := httptest.NewServer(provider)
+	t.Cleanup(server.Close)
+	client := cf.NewClient("token", "zone", "account")
+	client.BaseURL = server.URL
+	zone, err := cf.Production(cf.Members{"gru": {"10.0.0.1"}, "sfo": {"10.0.1.1"}, "fra": {"10.0.2.1"}}, []string{"100.64.0.0/10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior, other, candidate := []byte("prior"), []byte("other"), []byte("candidate")
+	priorDigest, otherDigest, candidateDigest := testEdgeDigest(prior), testEdgeDigest(other), testEdgeDigest(candidate)
+	for _, item := range []struct {
+		digest string
+		body   []byte
+	}{{priorDigest, prior}, {otherDigest, other}} {
+		if _, err := client.UploadWorkerVersion(t.Context(), "ts-dashboard", item.digest, item.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	versions, err := client.ListWorkerVersions(t.Context(), "ts-dashboard")
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("versions = %+v, err = %v", versions, err)
+	}
+	ids := map[string]string{}
+	for _, version := range versions {
+		ids[version.Digest] = version.ID
+	}
+	priorAllocation := []cf.WorkerDeploymentVersion{{VersionID: ids[priorDigest], Percentage: 40}, {VersionID: ids[otherDigest], Percentage: 60}}
+	if _, err := client.CreateWorkerDeployment(t.Context(), "ts-dashboard", priorAllocation); err != nil {
+		t.Fatal(err)
+	}
+
+	promoter, err := cf.NewEdgeReleasePromoter(cf.EdgeReleasePromoterConfig{
+		Client: client, Zone: zone, Artifacts: edgeArtifactMap{"ts-dashboard\x00" + candidateDigest: candidate, "ts-dashboard\x00" + priorDigest: prior},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.AddFault(sandboxcf.Fault{Method: http.MethodPost, Path: "/accounts/account/workers/scripts/ts-dashboard/deployments", Calls: 1, Steps: []sandboxcf.FaultStep{{Status: http.StatusInternalServerError, Commit: true}}})
+	if err := promoter.PromoteWorkerGradual(t.Context(), "ts-dashboard", candidateDigest); err == nil {
+		t.Fatal("committed failed-response deployment reported success")
+	}
+	if err := promoter.PromoteWorkerGradual(t.Context(), "ts-dashboard", priorDigest); err != nil {
+		t.Fatal(err)
+	}
+	deployments, err := client.ListWorkerDeployments(t.Context(), "ts-dashboard")
+	if err != nil || len(deployments) == 0 || !sameWorkerDeployment(deployments[0].Versions, priorAllocation) {
+		t.Fatalf("rollback allocation = %+v, err = %v", deployments, err)
+	}
+}
+
+func sameWorkerDeployment(left, right []cf.WorkerDeploymentVersion) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}

@@ -29,6 +29,9 @@ func (t *productionRestoreTelemetry) Record(ctx context.Context, facts restoredr
 	if t == nil || t.exporter == nil {
 		return errors.New("restore telemetry: exporter is unavailable")
 	}
+	if ctx == nil {
+		return errors.New("restore telemetry: context is required")
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

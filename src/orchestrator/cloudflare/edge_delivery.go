@@ -66,6 +66,11 @@ type WorkerDeployment struct {
 	Versions []WorkerDeploymentVersion `json:"versions"`
 }
 
+type workerPromotionBaseline struct {
+	WorkerDeployment
+	restore bool
+}
+
 // SnippetCode is the provider-observed identity of deployed Snippet source.
 // Digest is computed from the source bytes returned by the content endpoint.
 type SnippetCode struct {
@@ -174,14 +179,16 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 		return activeErr
 	}
 	stages := p.stages
-	if activeErr != nil || workerAllocationHas(active, target.ID) {
+	if activeErr != nil || workerAllocationHas(active.WorkerDeployment, target.ID) {
 		// A single 100% deployment creates the initial release and also clears
 		// any partial deployment left by an indeterminate prior attempt.
 		stages = []int{100}
 	}
 	for _, percentage := range stages {
 		versions := []WorkerDeploymentVersion{{VersionID: target.ID, Percentage: 100}}
-		if percentage < 100 && activeErr == nil && !workerAllocationHas(active, target.ID) {
+		if active.restore {
+			versions = append([]WorkerDeploymentVersion(nil), active.Versions...)
+		} else if percentage < 100 && activeErr == nil && !workerAllocationHas(active.WorkerDeployment, target.ID) {
 			versions = scaleWorkerAllocation(active.Versions, 100-percentage)
 			versions = append(versions, WorkerDeploymentVersion{VersionID: target.ID, Percentage: percentage})
 		}
@@ -190,6 +197,16 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 		if deployErr != nil {
 			return deployErr
 		}
+	}
+	if active.restore {
+		deployments, err := p.client.ListWorkerDeployments(ctx, service)
+		if err != nil {
+			return err
+		}
+		if len(deployments) == 0 || !sameWorkerAllocation(deployments[0].Versions, active.Versions) {
+			return errors.New("cloudflare: Worker rollback allocation readback does not match the exact prior allocation")
+		}
+		return nil
 	}
 	observed, err := p.client.ActiveWorkerVersion(ctx, service)
 	if err != nil {
@@ -373,32 +390,33 @@ func (c *Client) ActiveWorkerVersion(ctx context.Context, script string) (Worker
 	return version, err
 }
 
-// A failed response can leave a partial deployment serving. The most recent
-// full deployment is the durable predecessor for retry or rollback.
-func (c *Client) workerPromotionBaseline(ctx context.Context, script, targetID string) (WorkerDeployment, error) {
+// A failed response can leave a partial deployment serving. Recover from the
+// exact provider-observed allocation; a historical allocation for the target
+// is preferred when the operation is a rollback.
+func (c *Client) workerPromotionBaseline(ctx context.Context, script, targetID string) (workerPromotionBaseline, error) {
 	deployments, err := c.ListWorkerDeployments(ctx, script)
 	if err != nil {
-		return WorkerDeployment{}, err
+		return workerPromotionBaseline{}, err
 	}
 	if len(deployments) == 0 {
-		return WorkerDeployment{}, ErrNotFound
+		return workerPromotionBaseline{}, ErrNotFound
 	}
 	baseline := deployments[0]
 	// A failed response may leave the candidate in a partial allocation. If
 	// the requested target is an older version, prefer its exact historical
-	// full allocation when one exists; otherwise retain the exact observed
+	// allocation when one exists; otherwise retain the exact observed
 	// allocation instead of inventing a predecessor that was never read back.
 	if targetID != "" && workerAllocationHas(baseline, targetID) && len(baseline.Versions) > 1 {
 		for _, deployment := range deployments[1:] {
-			if len(deployment.Versions) == 1 && deployment.Versions[0].VersionID == targetID && deployment.Versions[0].Percentage == 100 {
-				return deployment, nil
+			if workerAllocationHas(deployment, targetID) && validWorkerAllocation(deployment.Versions) {
+				return workerPromotionBaseline{WorkerDeployment: deployment, restore: true}, nil
 			}
 		}
 	}
 	if !validWorkerAllocation(baseline.Versions) {
-		return WorkerDeployment{}, errors.New("cloudflare: Worker promotion baseline allocation is invalid")
+		return workerPromotionBaseline{}, errors.New("cloudflare: Worker promotion baseline allocation is invalid")
 	}
-	return baseline, nil
+	return workerPromotionBaseline{WorkerDeployment: baseline}, nil
 }
 
 func workerAllocationHas(deployment WorkerDeployment, versionID string) bool {
