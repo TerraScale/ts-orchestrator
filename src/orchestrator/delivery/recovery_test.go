@@ -113,6 +113,29 @@ func recoveryOperation(t *testing.T, request *Request, signature []byte, progres
 	return recovered
 }
 
+func TestJournalPersistsCompleteReleaseEvidence(t *testing.T) {
+	request, _, _, _ := testRelease(t, nil)
+	signature := bytes.Repeat([]byte{2}, ed25519.SignatureSize)
+	manifest := []byte(`{"schemaVersion":1}`)
+	manifestSignature := bytes.Repeat([]byte{3}, ed25519.SignatureSize)
+	j := NewJournal()
+	lease := OperationLease{OwnerID: "owner", TTL: time.Minute, Generation: 1}
+	operation, exists, err := j.Begin(request, lease)
+	if err != nil || exists {
+		t.Fatalf("begin operation: exists=%v err=%v", exists, err)
+	}
+	if err := j.RecordReleaseEvidence(request.OperationID, operation.RequestDigest, lease, signature, manifest, manifestSignature, "release-2026-08"); err != nil {
+		t.Fatalf("record release evidence: %v", err)
+	}
+	stored, _, err := j.GetWithError(request.OperationID)
+	if err != nil {
+		t.Fatalf("read operation: %v", err)
+	}
+	if string(stored.ReleaseManifest) != string(manifest) || string(stored.ReleaseManifestSignature) != string(manifestSignature) || stored.ReleaseSignatureKey != "release-2026-08" {
+		t.Fatalf("stored evidence does not match verified release")
+	}
+}
+
 func TestRolloutRecoverUsesSignedHostLedgerAndRetriesUnresolvedState(t *testing.T) {
 	request, fetcher, trust, body := testRelease(t, nil)
 	artifact, err := verifyArtifact(context.Background(), fetcher, trust, request)

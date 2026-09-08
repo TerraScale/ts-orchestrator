@@ -173,19 +173,22 @@ func cloneStoreEntry(entry StoreEntry) StoreEntry {
 // Operation is one durable delivery operation: the request, its canonical
 // digest (idempotency), and the terminal receipt once it exists.
 type Operation struct {
-	OperationID      string
-	Request          *Request
-	RequestDigest    string
-	State            string
-	Receipt          *Receipt
-	StartedAt        time.Time
-	FinishedAt       time.Time
-	UpdatedAt        time.Time
-	OwnerID          string
-	Generation       uint64
-	LeaseUntil       time.Time
-	Rollout          *RolloutProgress
-	ReleaseSignature []byte
+	OperationID              string
+	Request                  *Request
+	RequestDigest            string
+	State                    string
+	Receipt                  *Receipt
+	StartedAt                time.Time
+	FinishedAt               time.Time
+	UpdatedAt                time.Time
+	OwnerID                  string
+	Generation               uint64
+	LeaseUntil               time.Time
+	Rollout                  *RolloutProgress
+	ReleaseSignature         []byte
+	ReleaseManifest          []byte
+	ReleaseManifestSignature []byte
+	ReleaseSignatureKey      string
 }
 
 // RolloutProgress is the durable host mutation ledger.
@@ -531,8 +534,19 @@ func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease Ope
 }
 
 func (j *Journal) RecordReleaseSignature(operationID, requestDigest string, lease OperationLease, signature []byte) error {
+	return j.recordReleaseEvidence(operationID, requestDigest, lease, signature, nil, nil, "", false)
+}
+
+func (j *Journal) RecordReleaseEvidence(operationID, requestDigest string, lease OperationLease, signature, manifest, manifestSignature []byte, signatureKey string) error {
+	return j.recordReleaseEvidence(operationID, requestDigest, lease, signature, manifest, manifestSignature, signatureKey, true)
+}
+
+func (j *Journal) recordReleaseEvidence(operationID, requestDigest string, lease OperationLease, signature, manifest, manifestSignature []byte, signatureKey string, requireManifest bool) error {
 	if len(signature) != ed25519.SignatureSize {
 		return errors.New("delivery: release signature has invalid size")
+	}
+	if requireManifest && (len(manifest) == 0 || len(manifestSignature) != ed25519.SignatureSize || signatureKey == "") {
+		return errors.New("delivery: complete release evidence is required")
 	}
 	for attempt := 0; attempt < 3; attempt++ {
 		entry, err := j.store.Get(operationKey(operationID))
@@ -549,7 +563,19 @@ func (j *Journal) RecordReleaseSignature(operationID, requestDigest string, leas
 		if len(op.ReleaseSignature) != 0 && !bytes.Equal(op.ReleaseSignature, signature) {
 			return errors.New("delivery: release signature changed")
 		}
+		if len(op.ReleaseManifest) != 0 && !bytes.Equal(op.ReleaseManifest, manifest) {
+			return errors.New("delivery: release manifest changed")
+		}
+		if len(op.ReleaseManifestSignature) != 0 && !bytes.Equal(op.ReleaseManifestSignature, manifestSignature) {
+			return errors.New("delivery: release manifest signature changed")
+		}
+		if op.ReleaseSignatureKey != "" && op.ReleaseSignatureKey != signatureKey {
+			return errors.New("delivery: release signature key changed")
+		}
 		op.ReleaseSignature = bytes.Clone(signature)
+		op.ReleaseManifest = bytes.Clone(manifest)
+		op.ReleaseManifestSignature = bytes.Clone(manifestSignature)
+		op.ReleaseSignatureKey = signatureKey
 		op.UpdatedAt = j.now()
 		value, err := encodeOperation(op)
 		if err != nil {
@@ -965,6 +991,8 @@ func cloneOperation(operation *Operation) *Operation {
 		copied.Rollout = &RolloutProgress{Hosts: slices.Clone(operation.Rollout.Hosts), Edges: slices.Clone(operation.Rollout.Edges)}
 	}
 	copied.ReleaseSignature = bytes.Clone(operation.ReleaseSignature)
+	copied.ReleaseManifest = bytes.Clone(operation.ReleaseManifest)
+	copied.ReleaseManifestSignature = bytes.Clone(operation.ReleaseManifestSignature)
 	return &copied
 }
 

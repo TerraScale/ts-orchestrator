@@ -91,3 +91,38 @@ func TestGlobalClientOwnershipSurvivesPartialConstruction(t *testing.T) {
 		})
 	}
 }
+
+func TestGlobalWorkerCloseStopsWorkersBeforeDatabase(t *testing.T) {
+	order := make(chan string, 2)
+	workerStarted := make(chan struct{})
+	databaseStarted := make(chan struct{})
+	worker := lifecycle.NewScheduledService("worker", time.Hour, func(ctx context.Context, _ time.Time) error {
+		close(workerStarted)
+		<-ctx.Done()
+		order <- "worker"
+		return nil
+	})
+	database := lifecycle.NewScheduledService("database", time.Hour, func(ctx context.Context, _ time.Time) error {
+		close(databaseStarted)
+		<-ctx.Done()
+		order <- "database"
+		return nil
+	})
+	if err := worker.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	<-workerStarted
+	<-databaseStarted
+
+	group := &productionGlobalWorkers{workers: []*lifecycle.Service{worker}, database: &productionDatabase{service: database}, completion: make(chan struct{})}
+	if err := group.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got := []string{<-order, <-order}
+	if got[0] != "worker" || got[1] != "database" {
+		t.Fatalf("close order = %v, want [worker database]", got)
+	}
+}

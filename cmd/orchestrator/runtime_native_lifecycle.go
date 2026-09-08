@@ -343,11 +343,33 @@ func (c databaseCatalogAdapter) List(ctx context.Context, cursor string, limit i
 	if err != nil {
 		return reaper.Page{}, err
 	}
+	deletions, err := c.database.lifecycleJournal.ListDeletions(ctx)
+	if err != nil {
+		return reaper.Page{}, err
+	}
+	records = filterDeletingCatalogRecords(records, deletions, c.environment)
 	records, err = scopeCatalogRecords(records, c.environment)
 	if err != nil {
 		return reaper.Page{}, err
 	}
 	return pageDatabaseActivityRecords(ctx, records, cursor, limit, c.activity)
+}
+
+func filterDeletingCatalogRecords(records []databaseadmission.Record, deletions []databaseadmission.Deletion, environment string) []databaseadmission.Record {
+	deleting := make(map[string]struct{}, len(deletions))
+	for _, deletion := range deletions {
+		if deletion.Request.Environment == environment {
+			deleting[deletion.Request.TenantID+"/"+deletion.Request.ProjectID+"/"+deletion.Request.DatabaseID] = struct{}{}
+		}
+	}
+	if len(deleting) == 0 {
+		return records
+	}
+	return slices.DeleteFunc(slices.Clone(records), func(record databaseadmission.Record) bool {
+		key := record.Request.TenantID + "/" + record.Request.ProjectID + "/" + record.DatabaseID
+		_, found := deleting[key]
+		return found
+	})
 }
 
 // scopeCatalogRecords is the reaper boundary for the journal's current

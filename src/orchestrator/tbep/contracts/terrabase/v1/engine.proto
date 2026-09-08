@@ -870,6 +870,34 @@ message ResolveRecoveryPointRequest {
   string point_id = 4;
   uint64 unix_millis = 5;
 }
+
+// One physical participant in a logical recovery envelope. Participants are
+// ordered by participant_id in the canonical envelope and each local cut is
+// retained independently; a logical recovery point must never collapse these
+// boundaries into one scalar.
+message RecoveryParticipant {
+  string participant_id = 1;
+  string database_id = 2;
+  uint64 journal_cut = 3;
+  string manifest_digest = 4;
+  string checksum = 5;
+  uint64 row_count = 6;
+  uint64 captured_at_millis = 7;
+  uint64 retained_until_millis = 8;
+}
+
+// Authenticated logical recovery-point facts. The envelope_digest binds the
+// complete ordered participant set, including unequal journal boundaries.
+// Producers must reject duplicate, missing, or reordered participants before
+// exposing this message as a restore point.
+message RecoveryEnvelopeFacts {
+  string envelope_digest = 1;
+  string database_id = 2;
+  string database_incarnation = 3; // lowercase 32-digit hexadecimal u128.
+  uint64 route_generation = 4;
+  repeated RecoveryParticipant participants = 5;
+}
+
 message ResolveRecoveryPointResponse {
   string operation_id = 1;
   string source_database = 2;
@@ -881,6 +909,10 @@ message ResolveRecoveryPointResponse {
   string checksum = 8;
   uint64 row_count = 9;
   repeated string placement = 10;
+  // Set for a multi-participant logical point. Scalar fields above remain
+  // populated for current callers during the coordinated migration; restore
+  // authorization must use this complete envelope when present.
+  RecoveryEnvelopeFacts envelope = 11;
 }
 
 message RestoreStatsRequest {
@@ -890,6 +922,9 @@ message RestoreStatsRequest {
   string target_database = 4;
   string journal_cut = 5;
   uint64 restore_epoch = 6;
+  // Required for envelope restores once the coordinated consumer migration
+  // lands; absent means the legacy single-participant shape.
+  RecoveryEnvelopeFacts envelope = 7;
 }
 message RestoreStatsResponse {
   string operation_id = 1;
@@ -900,6 +935,7 @@ message RestoreStatsResponse {
   string journal_cut = 6;
   repeated string placement = 7;
   bytes signed_completed_receipt = 8; // Complete-only pinned Ed25519 observation.
+  RecoveryEnvelopeFacts envelope = 9;
 }
 
 message RestoreToTargetRequest {
@@ -914,6 +950,9 @@ message RestoreToTargetRequest {
   string journal_cut = 9;
   uint64 restore_epoch = 10;
   RestoreProvider provider = 11;
+  // Carries every participant boundary and manifest identity for a logical
+  // envelope restore. The scalar journal_cut remains during migration only.
+  RecoveryEnvelopeFacts envelope = 12;
 }
 
 enum RestoreProvider {

@@ -100,3 +100,19 @@ func TestScopeCatalogRecordsRejectsDuplicateAdmittedIdentity(t *testing.T) {
 		t.Fatalf("duplicate identity error = %v", err)
 	}
 }
+
+func TestFilterDeletingCatalogRecordsExcludesOnlyScopedDeletion(t *testing.T) {
+	records := []databaseadmission.Record{
+		{DatabaseID: "db-a", Request: databaseadmission.Request{Environment: "gru", TenantID: "tenant-a", ProjectID: "project-a"}},
+		{DatabaseID: "db-b", Request: databaseadmission.Request{Environment: "gru", TenantID: "tenant-b", ProjectID: "project-b"}},
+		{DatabaseID: "db-c", Request: databaseadmission.Request{Environment: "sfo", TenantID: "tenant-a", ProjectID: "project-a"}},
+	}
+	deletions := []databaseadmission.Deletion{
+		{Request: databaseadmission.DeleteRequest{Environment: "gru", TenantID: "tenant-a", ProjectID: "project-a", DatabaseID: "db-a"}, State: "preparing"},
+		{Request: databaseadmission.DeleteRequest{Environment: "sfo", TenantID: "tenant-a", ProjectID: "project-a", DatabaseID: "db-c"}, State: "stopping"},
+	}
+	filtered := filterDeletingCatalogRecords(records, deletions, "gru")
+	if len(filtered) != 2 || filtered[0].DatabaseID != "db-b" || filtered[1].DatabaseID != "db-c" {
+		t.Fatalf("filtered records = %+v", filtered)
+	}
+}

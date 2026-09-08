@@ -660,7 +660,6 @@ func (r *productionGlobalWorkers) Close() error {
 		if r.writeBudget != nil {
 			result = combineErrors(result, r.writeBudget.Close())
 		}
-		result = combineErrors(result, r.database.Close())
 		for i := len(r.workers) - 1; i >= 0; i-- {
 			worker := r.workers[i]
 			var err error
@@ -671,6 +670,9 @@ func (r *productionGlobalWorkers) Close() error {
 			}
 			result = combineErrors(result, err)
 		}
+		// Database services are dependencies of the scheduled workers. Stop
+		// those workers before releasing the database services they use.
+		result = combineErrors(result, r.database.Close())
 		if r.publisher != nil {
 			result = combineErrors(result, r.publisher.Close())
 		}

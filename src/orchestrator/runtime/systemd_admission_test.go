@@ -165,6 +165,36 @@ func TestEveryCanonicalPlanTamperClassIsRejectedBeforeRunnerCall(t *testing.T) {
 	}
 }
 
+func TestAdmissionPlanSnapshotCannotMutateExecutedSystemdPlan(t *testing.T) {
+	plan := nativeTestPlan(t, AdmittedRoleNats, "gru-nats-1")
+	runner := newRecordingHostRunner(
+		HostCommandResult{ExitCode: 1, StandardOutput: "LoadState=not-found\n"},
+		HostCommandResult{ExitCode: 0})
+	admission, err := NewNativeSystemdRuntimeAdmissionWithRunner(plan, admittedHostProbe(), runner)
+	if err != nil {
+		t.Fatalf("admission: %v", err)
+	}
+
+	snapshot := admission.Plan()
+	snapshot.Systemd.Executable = "/bin/sh"
+	snapshot.Systemd.Arguments[0] = "-c"
+	snapshot.Systemd.Properties[0] = "Environment=INJECTED=1"
+
+	if err := admission.Converge(context.Background()); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+	start := runner.commands[1]
+	if start.Executable != "/usr/bin/systemd-run" {
+		t.Fatalf("start executable = %q, want /usr/bin/systemd-run", start.Executable)
+	}
+	if containsArgument(start.Arguments, "/bin/sh") || containsArgument(start.Arguments, "-c") {
+		t.Fatal("mutated snapshot must not alter the admitted executable or arguments")
+	}
+	if containsArgument(start.Arguments, "Environment=INJECTED=1") {
+		t.Fatal("mutated snapshot must not alter the admitted properties")
+	}
+}
+
 func TestAcceptedAdmissionUsesSystemManagerFixedPathsArgumentListsAndHardenedProperties(t *testing.T) {
 	plan := nativeTestPlan(t, AdmittedRoleNats, "gru-nats-1")
 	runner := newRecordingHostRunner(

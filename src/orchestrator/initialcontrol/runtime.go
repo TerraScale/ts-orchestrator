@@ -97,6 +97,38 @@ func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runt
 			return fn(op)
 		})
 	}
+	// Re-read the signed membership material before opening the broker or
+	// starting any authority coordinator. VerifyMaterial protects the initial
+	// admission, while this read binds the material consumed by this runtime
+	// attempt before it can produce any NATS effects.
+	signerBytes, err := readCredential(cfg.Membership.SigningKeyFile, "", true)
+	if err != nil {
+		return nil, err
+	}
+	r.identity, err = directory.RegionalRuntimeMembershipIdentityFromPEM(signerBytes)
+	clear(signerBytes)
+	if err != nil {
+		return nil, err
+	}
+	if r.identity.PublicKey != cfg.Membership.PublicKey {
+		return nil, errors.New("initial control: membership signer differs from owner pin")
+	}
+	pinsData, err := readCredential(cfg.Membership.PinsFile, cfg.Membership.PinsSHA256, false)
+	if err != nil {
+		return nil, err
+	}
+	pins := map[string]string{}
+	if err = json.Unmarshal(pinsData, &pins); err != nil {
+		return nil, err
+	}
+	if len(pins) != len(cfg.Peers) {
+		return nil, errors.New("initial control: membership pin inventory differs from admitted peers")
+	}
+	for _, peer := range cfg.Peers {
+		if pins[peer.Instance] != peer.MembershipPublicKey {
+			return nil, errors.New("initial control: membership peer pin differs from signed configuration")
+		}
+	}
 	if cfg.Role == "seed" {
 		if err = validateBrokerJSON(cfg.Broker.Configuration); err != nil {
 			return nil, err
@@ -207,34 +239,6 @@ func Start(ctx context.Context, admission *initialgrant.Admission) (result *Runt
 		r.global, err = authority.RegionalAuthorityCoordinatorStartGlobalAsyncGuarded(operation, globalLeaders, cfg.Cell, cfg.Instance, guard)
 		if err != nil {
 			return nil, err
-		}
-	}
-	signerBytes, err := readCredential(cfg.Membership.SigningKeyFile, "", true)
-	if err != nil {
-		return nil, err
-	}
-	r.identity, err = directory.RegionalRuntimeMembershipIdentityFromPEM(signerBytes)
-	clear(signerBytes)
-	if err != nil {
-		return nil, err
-	}
-	if r.identity.PublicKey != cfg.Membership.PublicKey {
-		return nil, errors.New("initial control: membership signer differs from owner pin")
-	}
-	pinsData, err := readCredential(cfg.Membership.PinsFile, cfg.Membership.PinsSHA256, false)
-	if err != nil {
-		return nil, err
-	}
-	pins := map[string]string{}
-	if err = json.Unmarshal(pinsData, &pins); err != nil {
-		return nil, err
-	}
-	if len(pins) != len(cfg.Peers) {
-		return nil, errors.New("initial control: membership pin inventory differs from admitted peers")
-	}
-	for _, peer := range cfg.Peers {
-		if pins[peer.Instance] != peer.MembershipPublicKey {
-			return nil, errors.New("initial control: membership peer pin differs from signed configuration")
 		}
 	}
 	store, err := regionalJS.KeyValue(operation, "ORCH_RUNTIME")

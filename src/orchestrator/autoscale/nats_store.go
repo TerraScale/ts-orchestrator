@@ -33,7 +33,7 @@ func (s *NATSTargetStore) Load(ctx context.Context, region string) (Target, bool
 }
 
 func (s *NATSTargetStore) CompareAndSwap(ctx context.Context, region string, expected *Target, next Target) error {
-	return s.journal.Transact(ctx, true, func(state *map[string]Target) error {
+	err := s.journal.Transact(ctx, true, func(state *map[string]Target) error {
 		if *state == nil {
 			*state = make(map[string]Target)
 		}
@@ -47,4 +47,8 @@ func (s *NATSTargetStore) CompareAndSwap(ctx context.Context, region string, exp
 		(*state)[region] = next
 		return nil
 	})
+	if errors.Is(err, authorityjournal.ErrConflict) {
+		return ErrConflict
+	}
+	return err
 }

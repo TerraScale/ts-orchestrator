@@ -317,10 +317,15 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 		return nil, err
 	}
 	recoveryContext := context.WithoutCancel(ctx)
-	if len(claimed.ReleaseSignature) != 0 {
-		recoveryContext = WithPreparedReleaseSignature(recoveryContext, claimed.ReleaseSignature)
+	evidence := PreparedReleaseEvidence{Signature: claimed.ReleaseSignature, Manifest: claimed.ReleaseManifest, ManifestSignature: claimed.ReleaseManifestSignature, SignatureKey: claimed.ReleaseSignatureKey}
+	var artifact *ReleaseArtifact
+	if len(evidence.Manifest) != 0 {
+		artifact, err = LoadMasterReleaseEvidence(recoveryContext, claimed.Request, s.config.Fetcher, s.config.Trust(), s.config.Mirror, evidence, true)
+	} else {
+		// Legacy test-only journals predate manifest evidence. Production
+		// admissions always persist the complete evidence above.
+		artifact, err = verifyArtifact(recoveryContext, s.config.Fetcher, s.config.Trust(), claimed.Request)
 	}
-	artifact, err := verifyArtifact(recoveryContext, s.config.Fetcher, s.config.Trust(), claimed.Request)
 	if err != nil {
 		return nil, err
 	}
@@ -582,8 +587,14 @@ func (s *Executor) deliver(ctx context.Context, request *Request, operation *Ope
 		return failed("artifact_unverified", "The release artifact could not be fetched or verified.", "Confirm the release is published with a valid detached signature, then retry the same operation ID.")
 	}
 	verified = true
-	if err := s.config.Journal.RecordReleaseSignature(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), artifact.Signature); err != nil {
-		return nil, err
+	var recordErr error
+	if len(artifact.ManifestBody) == 0 {
+		recordErr = s.config.Journal.RecordReleaseSignature(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), artifact.Signature)
+	} else {
+		recordErr = s.config.Journal.RecordReleaseEvidence(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), artifact.Signature, artifact.ManifestBody, artifact.ManifestSignature, artifact.SignatureKey)
+	}
+	if recordErr != nil {
+		return nil, recordErr
 	}
 	fence := fenceFor(operation)
 	check := s.checker(ctx, request)

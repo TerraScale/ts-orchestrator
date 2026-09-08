@@ -159,8 +159,19 @@ func NewNativeSystemdRuntimeAdmissionWithRunner(
 	return &NativeSystemdRuntimeAdmission{plan: canonicalPlan, adapter: runtimeAdapter}, nil
 }
 
-// Plan returns the immutable canonical snapshot admitted at composition time.
-func (a *NativeSystemdRuntimeAdmission) Plan() HostRuntimePlan { return a.plan }
+// Plan returns an immutable snapshot of the canonical plan admitted at
+// composition time. The nested execution plan and its slices are copied so a
+// caller cannot mutate the command that the admission will execute.
+func (a *NativeSystemdRuntimeAdmission) Plan() HostRuntimePlan {
+	plan := a.plan
+	if a.plan.Systemd != nil {
+		systemd := *a.plan.Systemd
+		systemd.Arguments = append([]string(nil), a.plan.Systemd.Arguments...)
+		systemd.Properties = append([]string(nil), a.plan.Systemd.Properties...)
+		plan.Systemd = &systemd
+	}
+	return plan
+}
 
 // Converge converges the admitted plan.
 func (a *NativeSystemdRuntimeAdmission) Converge(ctx context.Context) error {

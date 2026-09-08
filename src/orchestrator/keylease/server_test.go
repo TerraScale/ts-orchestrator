@@ -214,6 +214,56 @@ func TestRejectsUnsafeFilesystemAndProtocol(t *testing.T) {
 	}
 }
 
+func TestMalformedAndTruncatedRequestsReceiveRefusal(t *testing.T) {
+	config, _ := fixture(t)
+	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {
+		t.Error("invalid request reached Vault")
+		return nil, ErrUnavailable
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	for name, frame := range map[string][]byte{
+		"malformed body": append(binary.BigEndian.AppendUint32(nil, 5), []byte("BAD!!")...),
+		"truncated body": append(binary.BigEndian.AppendUint32(nil, 10), []byte("TBK")...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			connection, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: config.SocketPath, Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			if _, err := connection.Write(frame); err != nil {
+				t.Fatal(err)
+			}
+			if name == "truncated body" {
+				if err := connection.CloseWrite(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := connection.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			var prefix [4]byte
+			if _, err := io.ReadFull(connection, prefix[:]); err != nil {
+				t.Fatal(err)
+			}
+			if got := binary.BigEndian.Uint32(prefix[:]); got != 6 {
+				t.Fatalf("refusal length = %d, want 6", got)
+			}
+			body := make([]byte, 6)
+			if _, err := io.ReadFull(connection, body); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(body, []byte{'T', 'B', 'K', 'L', 1, 1}) {
+				t.Fatalf("refusal = %x", body)
+			}
+		})
+	}
+}
+
 func testDataKey(t *testing.T, value byte) *hostsecrets.DataKey {
 	t.Helper()
 	key, err := hostsecrets.NewDataKey()
