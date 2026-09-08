@@ -14,6 +14,18 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 )
 
+type productionLifecycleCatalogJournal struct{ resources []databaselifecycle.Resource }
+
+func (j productionLifecycleCatalogJournal) LifecycleResources(context.Context) (uint64, []databaselifecycle.Resource, error) {
+	return 1, j.resources, nil
+}
+func (productionLifecycleCatalogJournal) ApplyLifecycle(context.Context, databaselifecycle.Event) error {
+	return nil
+}
+func (productionLifecycleCatalogJournal) FreezeInventory(context.Context, string, time.Time, time.Time) (databaselifecycle.Snapshot, error) {
+	return databaselifecycle.Snapshot{}, nil
+}
+
 func TestPolicyDatabaseActivitySourceConstructorBindsAcceptedPolicy(t *testing.T) {
 	policy, err := reaper.NewLifecyclePolicyClient(reaper.LifecyclePolicyClientConfig{
 		Endpoint:             "https://dashboard.example/api/internal/lifecycle/evaluate",
@@ -43,11 +55,11 @@ func TestProductionLifecycleCatalogPreservesPolicyAndBillingFields(t *testing.T)
 			t.Errorf("decode policy scope: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(reaper.LifecyclePolicyFacts{
-			SchemaVersion: 1, OrganizationID: request.OrganizationID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID,
+			SchemaVersion: 1, OrganizationID: request.OrganizationID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID, ObservedAt: now,
 			Revision: "policy-revision", Plan: "pro", OwnerEmails: []string{"owner@example.com"},
 			LastAuthorizedRequestAt: new(now.Add(-time.Hour)), DeletionEligible: true, DeletionReasons: []string{"card-loss"},
 			BillingGraceDeadline: &deadline, BillingDeletionEligible: true,
-			Coverage: reaper.LifecycleBillingCoverage{CardLoss: &reaper.LifecycleBillingGrace{StartedAt: deadline.Add(-31 * 24 * time.Hour), Deadline: deadline}},
+			Coverage: reaper.LifecycleBillingCoverage{CardLoss: &reaper.LifecycleBillingGrace{StartedAt: deadline.Add(-31 * 24 * time.Hour), Deadline: deadline}, UnpaidStorageInvoices: map[string]reaper.LifecycleBillingGrace{}},
 		})
 	}))
 	t.Cleanup(server.Close)
@@ -58,18 +70,9 @@ func TestProductionLifecycleCatalogPreservesPolicyAndBillingFields(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := databaseadmission.NewMemoryJournal()
 	identity := databaselifecycle.Identity{Environment: "production", OrganizationID: organization, ProjectID: project, DatabaseID: database}
-	if err := journal.ApplyLifecycle(t.Context(), databaselifecycle.Event{OperationID: "create-database", Kind: "create", Identity: identity, At: now.Add(-2 * time.Hour), Regions: []string{"GRU"}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := journal.ApplyLifecycle(t.Context(), databaselifecycle.Event{
-		OperationID: "route-database", Kind: "streams", Identity: identity,
-		At: now.Add(-2 * time.Hour), Streams: []databaselifecycle.Stream{{Region: "GRU", Partition: "partition", Epoch: 1, StartedAt: now.Add(-2 * time.Hour)}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := newProductionLifecycleCatalog(journal, policy, "production")
+	source := productionLifecycleCatalogJournal{resources: []databaselifecycle.Resource{{Identity: identity, Regions: []string{"GRU"}, CreatedAt: now.Add(-2 * time.Hour), RoutingComplete: true, Streams: []databaselifecycle.Stream{{Region: "GRU", Partition: "partition", Epoch: 1, StartedAt: now.Add(-2 * time.Hour)}}}}}
+	catalog, err := newProductionLifecycleCatalog(source, policy, "production")
 	if err != nil {
 		t.Fatal(err)
 	}
