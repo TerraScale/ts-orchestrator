@@ -94,3 +94,49 @@ func (d *runtimeWriteBudgetDelivery) SendAllocation(ctx context.Context, signed 
 	}
 	return nil
 }
+
+// SendPoolRefill delivers a schema-2 pool refill to exactly the admitted
+// holder. The host-scoped NATS identity authenticates the destination; the
+// member's local journal verifies the detached GRU signature and persists the
+// refill before acknowledging.
+func (d *runtimeWriteBudgetDelivery) SendPoolRefill(ctx context.Context, signed writebudget.SignedPoolAllocation) error {
+	if d == nil || !secureWriteBudgetConnection(d.connection) || ctx == nil || d.resolve == nil || d.check == nil {
+		return errors.New("write budget pool delivery: unavailable")
+	}
+	if err := d.check(ctx); err != nil {
+		return err
+	}
+	var envelope writebudget.AllocationEnvelopeV2
+	if len(signed.Payload) == 0 || len(signed.Signature) == 0 || signed.KeyID == "" || json.Unmarshal(signed.Payload, &envelope, json.RejectUnknownMembers(true)) != nil || envelope.SchemaVersion != 2 || envelope.Grant.SchemaVersion != 2 || envelope.Grant.Kind != "regional_write_pool_refill" {
+		return errors.New("write budget pool delivery: malformed refill")
+	}
+	grant := envelope.Grant
+	if grant.RefillOperationID == "" || grant.PoolID == "" || grant.DatabaseID == "" || grant.HolderID == "" || grant.Region == "" || len(grant.Regions) == 0 || !slices.IsSorted(grant.Regions) || slices.Contains(grant.Regions[1:], grant.Regions[0]) || !slices.Contains(grant.Regions, grant.Region) || grant.LocalUnits <= 0 || grant.AggregateUnits <= 0 {
+		return errors.New("write budget pool delivery: invalid refill identity")
+	}
+	payload, err := json.Marshal(databaseadmission.BudgetPoolRefillDelivery{Allocation: signed})
+	if err != nil || len(payload) > writeBudgetDeliveryLimit {
+		return errors.New("write budget pool delivery: refill exceeds transport limit")
+	}
+	target, err := d.resolve(ctx, writebudget.AllocationEnvelope{Placement: grant.Placement, Grant: writebudget.Grant{OrganizationID: grant.OrganizationID, DatabaseID: grant.DatabaseID, HolderID: grant.HolderID, Regions: grant.Regions, WriterEpoch: grant.WriterEpoch}})
+	if err != nil {
+		return err
+	}
+	if target.ServerIdentity == "" || target.MemberID != grant.HolderID || target.Region != grant.Region {
+		return errors.New("write budget pool delivery: holder is not the admitted writer")
+	}
+	subject, err := databaseadmission.HostSubject(target.ServerIdentity)
+	if err != nil {
+		return err
+	}
+	opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	reply, err := d.connection.RequestWithContext(opctx, subject, payload)
+	if err != nil {
+		return errors.New("write budget pool delivery: holder unavailable")
+	}
+	if len(reply.Data) > writeBudgetDeliveryLimit || string(reply.Data) != "installed" {
+		return errors.New("write budget pool delivery: installation unresolved")
+	}
+	return nil
+}

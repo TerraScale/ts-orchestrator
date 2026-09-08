@@ -172,6 +172,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		_, err := budgetTarget(ctx, writebudget.AllocationEnvelope{Placement: budgetConfig.Placement, Grant: writebudget.Grant{OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, HolderID: request.HolderID, Regions: request.Regions, WriterEpoch: budgetConfig.Policy.WriterEpochs[request.HolderID]}})
 		return err
 	}
+	budgetConfig.PoolDelivery = budgetDelivery
 	config.WriteBudget = &budgetConfig
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef

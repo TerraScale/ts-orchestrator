@@ -1,0 +1,10 @@
+2026-09-07T23:11:21-03:00
+live_handle=1972211
+source_head=824fac09f8e69a7371b2d558d05d1e05bbb2334a
+diff_sha256=768a9db96cc07e9c774cc5694fd3d7fddcada5a289f4a257b2793575514927ce
+source_tree_sha256=cd20a8d0eac217f68a48009f0c895e037652083436c2bc59cfe2275f3e70916d
+artifact_sha256=75b31ac2fb89863ccac1c0718fb02738eebc2be5c4043230922971a4ea5b1ad1
+test -z "$(gofmt -l .)"
+go vet ./...
+go build ./...
+go test -race -count=1 ./...
