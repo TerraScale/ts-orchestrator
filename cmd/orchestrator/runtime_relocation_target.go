@@ -397,13 +397,13 @@ func (f *productionRelocationTargets) Usage(ctx context.Context, operation strin
 	return f.check(ctx)
 }
 
-func newProductionEnrolledMemberKey(session globalWorkerSession, environment, cluster string, gateways map[string]ocireconcile.ComputeGateway, ownership provider.DurableOwnershipEvidence) (func(context.Context, placementtransition.Member) (ed25519.PublicKey, error), error) {
+func newProductionEnrolledMemberResolvers(session globalWorkerSession, environment, cluster string, gateways map[string]ocireconcile.ComputeGateway, ownership provider.DurableOwnershipEvidence) (func(context.Context, placementtransition.Member) (ed25519.PublicKey, error), func(context.Context, placementtransition.Member) (placementtransition.JoinRecipient, error), error) {
 	journal, err := enrollment.NewJournal(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	source := &productionRelocationTargets{enrolled: journal.Read, check: session.CheckEffectAuthority, environment: environment, cluster: cluster, gateways: gateways, ownership: ownership}
-	return func(ctx context.Context, member placementtransition.Member) (ed25519.PublicKey, error) {
+	admit := func(ctx context.Context, member placementtransition.Member) (*productionRelocationTarget, error) {
 		target, err := source.admit(ctx, member.Identity)
 		if err != nil {
 			return nil, err
@@ -411,6 +411,21 @@ func newProductionEnrolledMemberKey(session globalWorkerSession, environment, cl
 		if strings.ToUpper(target.Member.Region) != member.Region {
 			return nil, placementrelocation.ErrConflict
 		}
+		return target, nil
+	}
+	key := func(ctx context.Context, member placementtransition.Member) (ed25519.PublicKey, error) {
+		target, err := admit(ctx, member)
+		if err != nil {
+			return nil, err
+		}
 		return target.ReadinessKey.PublicKey, nil
-	}, nil
+	}
+	join := func(ctx context.Context, member placementtransition.Member) (placementtransition.JoinRecipient, error) {
+		target, err := admit(ctx, member)
+		if err != nil {
+			return placementtransition.JoinRecipient{}, err
+		}
+		return placementtransition.JoinRecipient{Identity: member.Identity, Region: member.Region, Generation: target.Member.Generation, ResourceID: target.Observed.ResourceID, PublicKey: target.ReadinessKey.PublicKey}, nil
+	}
+	return key, join, nil
 }

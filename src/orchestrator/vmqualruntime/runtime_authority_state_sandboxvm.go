@@ -36,6 +36,75 @@ type qualificationStoredAuthority struct {
 	CommandKeys    map[string][]byte                      `json:"commandKeys"`
 }
 
+type qualificationStoredArtifactTLS struct {
+	Version int                         `json:"version"`
+	RunID   string                      `json:"runId"`
+	CA      []byte                      `json:"ca"`
+	Server  qualificationStoredIdentity `json:"server"`
+}
+
+func persistQualificationArtifactTLS(path, runID string, generated tls.Certificate, ca []byte) (tls.Certificate, []byte, error) {
+	if private, ok := generated.PrivateKey.(ed25519.PrivateKey); ok {
+		defer clear(private)
+	}
+	store, err := qualificationstate.Open(path)
+	if err != nil {
+		return tls.Certificate{}, nil, err
+	}
+	defer store.Close()
+	parse := func(raw []byte) (tls.Certificate, []byte, error) {
+		var record qualificationStoredArtifactTLS
+		defer func() { clear(record.Server.PrivateKey) }()
+		bad := errors.New("vmqual: stored artifact TLS admission is invalid or expired")
+		if json.Unmarshal(raw, &record, json.RejectUnknownMembers(true)) != nil || record.Version != 1 || record.RunID != runID || len(record.Server.Seed) != 0 {
+			return tls.Certificate{}, nil, bad
+		}
+		certificate, err := tls.X509KeyPair(record.Server.Certificate, record.Server.PrivateKey)
+		if err != nil || len(certificate.Certificate) != 2 {
+			return tls.Certificate{}, nil, bad
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(record.CA) {
+			return tls.Certificate{}, nil, bad
+		}
+		leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+		if err != nil {
+			return tls.Certificate{}, nil, bad
+		}
+		for _, hostname := range []string{artifactReleaseHostname, backupFixtureHostname} {
+			if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, DNSName: hostname, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+				return tls.Certificate{}, nil, bad
+			}
+		}
+		return certificate, bytes.Clone(record.CA), nil
+	}
+	raw, err := store.LoadOrCreate("artifact-tls.json", 64<<10, func() ([]byte, error) {
+		key, err := x509.MarshalPKCS8PrivateKey(generated.PrivateKey)
+		if err != nil {
+			return nil, err
+		}
+		defer clear(key)
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})
+		defer clear(keyPEM)
+		var certificate []byte
+		for _, der := range generated.Certificate {
+			certificate = append(certificate, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+		}
+		return json.Marshal(qualificationStoredArtifactTLS{Version: 1, RunID: runID, CA: ca, Server: qualificationStoredIdentity{Certificate: certificate, PrivateKey: keyPEM}}, json.Deterministic(true))
+	}, func(raw []byte) error {
+		certificate, _, err := parse(raw)
+		if private, ok := certificate.PrivateKey.(ed25519.PrivateKey); ok {
+			clear(private)
+		}
+		return err
+	})
+	if err != nil {
+		return tls.Certificate{}, nil, err
+	}
+	defer clear(raw)
+	return parse(raw)
+}
+
 // persistQualificationAuthority preserves all fixture TLS, NKey, membership
 // and command identities before any guest can receive them. A corrupt or
 // expired existing record is an error, never permission to create new keys.

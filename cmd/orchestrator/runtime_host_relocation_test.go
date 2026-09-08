@@ -158,11 +158,17 @@ func TestHostRelocationUnknownStageRestartRequiresFinalProof(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		removalConfig := config
+		removalConfig.StateKey = "host.removal"
+		removalJournal, err := hostremoval.New(removalConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
 		restartedAdmission, err := databaseadmission.NewNATSJournal(admissionConfig)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &productionHostRelocation{Journal: journal, Admission: restartedAdmission, Issuer: issuer, ProofKey: public, Check: func(context.Context) error { return nil }, Plan: func(context.Context, hostremoval.RemovalRequest, []databaseadmission.Record) (placementrelocation.Plan, error) {
+		return &productionHostRelocation{Removal: removalJournal, Journal: journal, Admission: restartedAdmission, Issuer: issuer, ProofKey: public, Check: func(context.Context) error { return nil }, Plan: func(context.Context, hostremoval.RemovalRequest, []databaseadmission.Record) (placementrelocation.Plan, error) {
 			return plan, nil
 		}, Install: func(context.Context, placementrelocation.Plan) error { installs++; return nil }, Stage: func(_ context.Context, host, op string, request *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 			stages++
@@ -196,9 +202,16 @@ func TestHostRelocationUnknownStageRestartRequiresFinalProof(t *testing.T) {
 		}}
 	}
 	worker := makeWorker()
-	revision, replacements, err := worker.Capture(t.Context(), hostremoval.RemovalRequest{OperationID: "remove-stage", Member: hostremoval.MemberObservation{Identity: removed.ServerIdentity}}, nil)
+	member := hostremoval.MemberObservation{Identity: removed.ServerIdentity, ResourceID: "instance-old", ProviderETag: "etag-old", Region: removed.Region, Slot: 3, Generation: 7}
+	if _, err := worker.Removal.Reserve(t.Context(), "remove-stage", member, member.Generation, nil); err != nil {
+		t.Fatal(err)
+	}
+	revision, replacements, err := worker.Capture(t.Context(), hostremoval.RemovalRequest{OperationID: "remove-stage", Member: member, Generation: member.Generation}, nil)
 	if err != nil || len(replacements) != 1 {
 		t.Fatalf("capture: %v %+v", err, replacements)
+	}
+	if _, err := worker.Removal.Begin(t.Context(), "remove-stage", member, member.Generation, revision, replacements, nil); err != nil {
+		t.Fatal(err)
 	}
 	for attempt := range 2 {
 		if attempt == 1 {

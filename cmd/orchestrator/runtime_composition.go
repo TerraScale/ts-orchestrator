@@ -356,11 +356,12 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	}
 	group.placement = placement
 	config.PlacementTransition.Targets = config.Placement.Targets
-	memberKey, err := newProductionEnrolledMemberKey(session, config.Database.Environment, config.Database.Cluster, config.ComputeGateways, config.Ownership)
+	memberKey, joinMember, err := newProductionEnrolledMemberResolvers(session, config.Database.Environment, config.Database.Cluster, config.ComputeGateways, config.Ownership)
 	if err != nil {
 		return group, err
 	}
 	config.PlacementTransition.Issuer.MemberKey = memberKey
+	config.PlacementTransition.Issuer.JoinMember = joinMember
 	transition, err := newProductionPlacementTransition(config.PlacementTransition, session)
 	if err != nil {
 		return group, fmt.Errorf("runtime placement transition: %w", err)

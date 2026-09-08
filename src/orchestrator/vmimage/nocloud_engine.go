@@ -21,13 +21,24 @@ func canonicalEngineBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) 
 	}
 	validate := func() error {
 		if input.ControllerRun != nil {
-			if input.Controller == nil {
-				return errors.New("vmimage: run stage requires initial controller")
+			if input.Controller != nil {
+				if err := input.ControllerRun.ValidateStage(*input.Controller, manifest); err != nil {
+					return err
+				}
+				return input.Engine.ValidateStagedManifest(input.Config.NodeID, input.Engine.Address(), manifest, input.ControllerRun.Manifest)
 			}
-			if err := input.ControllerRun.ValidateStage(*input.Controller, manifest); err != nil {
+			if input.Candidate != nil {
+				if err := input.ControllerRun.ValidatePredecessor(input.Config.NodeID, manifest); err != nil {
+					return err
+				}
+				return input.Engine.ValidateStagedManifest(input.Config.NodeID, input.Engine.Address(), manifest, input.ControllerRun.Manifest)
+			}
+			if input.InitialGrant == nil {
+				return errors.New("vmimage: ordinary run requires finite owner grant")
+			}
+			if err := input.ControllerRun.ValidateManifest(input.Config.NodeID, manifest); err != nil {
 				return err
 			}
-			return input.Engine.ValidateStagedManifest(input.Config.NodeID, input.Engine.Address(), manifest, input.ControllerRun.Manifest)
 		}
 		return input.Engine.ValidateManifest(input.Config.NodeID, input.Engine.Address(), manifest)
 	}

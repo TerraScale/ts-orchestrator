@@ -16,12 +16,14 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
+	"terrascale.tech/orchestrator/src/orchestrator/candidateplan"
 	"terrascale.tech/orchestrator/src/orchestrator/control/directory"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
@@ -68,18 +70,23 @@ type qualificationControlCandidateDeclaration struct {
 	PlanSHA256               string                   `json:"planSha256"`
 }
 type qualificationControlPayload struct {
-	Version    int                                             `json:"version"`
-	RunID      string                                          `json:"runId"`
-	IssuedAt   time.Time                                       `json:"issuedAt"`
-	ExpiresAt  time.Time                                       `json:"expiresAt"`
-	Artifacts  []vmimage.GuestArtifact                         `json:"artifacts"`
-	Stores     map[string]qualificationControlStoreDeclaration `json:"stores"`
-	Members    []qualificationControlMemberDeclaration         `json:"members"`
-	Regions    []bootstrap.ControlRegionBinding                `json:"regions"`
-	Actions    []qualificationControlActionDeclaration         `json:"actions"`
-	Candidates []qualificationControlCandidateDeclaration      `json:"candidates"`
+	Version       int                                             `json:"version"`
+	RunID         string                                          `json:"runId"`
+	IssuedAt      time.Time                                       `json:"issuedAt"`
+	ExpiresAt     time.Time                                       `json:"expiresAt"`
+	Artifacts     []vmimage.GuestArtifact                         `json:"artifacts"`
+	Stores        map[string]qualificationControlStoreDeclaration `json:"stores"`
+	Members       []qualificationControlMemberDeclaration         `json:"members"`
+	Regions       []bootstrap.ControlRegionBinding                `json:"regions"`
+	Actions       []qualificationControlActionDeclaration         `json:"actions"`
+	Candidates    []qualificationControlCandidateDeclaration      `json:"candidates,omitempty"`
+	CandidatePlan *candidateplan.Plan                             `json:"candidatePlan,omitempty"`
 }
 type qualificationControlAdmission struct {
+	prepareMu          sync.Mutex
+	candidatePlan      *candidateplan.Plan
+	ownerPublic        []byte
+	candidateBundle    []byte
 	source             *qualificationAdmittedControlSource
 	candidates         map[string]vmcandidateseed.Material
 	candidateManifests map[string][]byte
@@ -267,6 +274,27 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		}
 		result.source.config.Actions = append(result.source.config.Actions, action.Plan)
 	}
+	result.ownerPublic = bytes.Clone(public)
+	if admitted.CandidatePlan != nil {
+		plan := admitted.CandidatePlan
+		if len(admitted.Candidates) != 0 || len(plan.Candidates) != 2 || guests[plan.SourceNodeID] != "gru" || plan.PrivateMaterialDirectory == "" || plan.IssuedAt.Before(admitted.IssuedAt) || plan.ExpiresAt.After(admitted.ExpiresAt) || plan.BootstrapExpiresAt.After(plan.ExpiresAt) {
+			return nil, errQualificationControlDeclaration
+		}
+		seen := map[string]bool{}
+		for _, entry := range plan.Candidates {
+			region := guests[entry.Config.NodeID]
+			if region != "sfo" && region != "fra" || seen[region] || entry.Config.Region != region || entry.Config.ServerName != membersByHost[entry.Config.NodeID].ServerName || entry.SyncGeneration == nil {
+				return nil, errQualificationControlDeclaration
+			}
+			staged, err := bootstrap.PlanControlLaunchManifest(entry.Manifest)
+			if err != nil || validateQualificationManifestArtifacts(staged, artifacts) != nil {
+				return nil, errQualificationControlDeclaration
+			}
+			seen[region] = true
+		}
+		result.candidatePlan = plan
+		return result, nil
+	}
 	if len(admitted.Candidates) != 2 {
 		return nil, errQualificationControlDeclaration
 	}
@@ -287,6 +315,11 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 			return nil, loadErr
 		}
 		result.candidates[candidate.NodeID] = material
+		if result.candidateBundle == nil {
+			result.candidateBundle = bytes.Clone(bundle)
+		} else if !bytes.Equal(result.candidateBundle, bundle) {
+			return nil, errQualificationControlDeclaration
+		}
 		if material.PlanSHA256 != candidate.PlanSHA256 || material.Config.ServerName != membersByHost[candidate.NodeID].ServerName || !bytes.Equal(material.PublicKeyPEM, public) {
 			return nil, errQualificationControlDeclaration
 		}

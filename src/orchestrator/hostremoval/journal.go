@@ -25,6 +25,7 @@ var (
 type Stage string
 
 const (
+	StageInventoryPending  Stage = "inventory-pending"
 	StageInventoryCaptured Stage = "inventory-captured"
 	StageReplacing         Stage = "replacing"
 	StageFenced            Stage = "fenced"
@@ -50,6 +51,7 @@ type Operation struct {
 	Replacements      []Replacement       `json:"replacements"`
 	Survivors         []MemberObservation `json:"survivors"`
 	Stage             Stage               `json:"stage"`
+	PendingRequest    *RemovalRequest     `json:"pending_request,omitempty"`
 }
 
 // RemovalRequest is the exact provider observation used for inventory
@@ -87,6 +89,7 @@ type Journal struct{ journal transaction }
 // have returned success.
 type OperationJournal interface {
 	Load(context.Context, string) (Operation, error)
+	Reserve(context.Context, string, MemberObservation, uint64, []MemberObservation) (Operation, error)
 	Begin(context.Context, string, MemberObservation, uint64, uint64, []Replacement, []MemberObservation) (Operation, error)
 	Advance(context.Context, string, Stage) (Operation, error)
 }
@@ -115,12 +118,24 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	}
 	current, err := o.Journal.Load(ctx, operationID)
 	if errors.Is(err, ErrMissing) {
-		request := RemovalRequest{OperationID: operationID, Member: member, Generation: generation, Survivors: append([]MemberObservation(nil), survivors...)}
+		current, err = o.Journal.Reserve(ctx, operationID, member, generation, survivors)
+	}
+	if err != nil {
+		return err
+	}
+	if current.ResourceID != member.ResourceID || current.MemberIdentity != member.Identity || current.Generation != generation || current.ProviderETag != member.ProviderETag {
+		return ErrConflict
+	}
+	if current.Stage == StageInventoryPending {
+		if current.PendingRequest == nil {
+			return ErrInvalid
+		}
+		request := *current.PendingRequest
 		revision, replacements, inventoryErr := o.Inventory(ctx, request, nil)
 		if inventoryErr != nil {
 			return inventoryErr
 		}
-		current, err = o.Journal.Begin(ctx, operationID, member, generation, revision, replacements, request.Survivors)
+		current, err = o.Journal.Begin(ctx, operationID, request.Member, generation, revision, replacements, request.Survivors)
 	}
 	if err != nil {
 		return err
@@ -211,51 +226,162 @@ func (j *typedJournal) Transact(ctx context.Context, write bool, change func(*st
 	})
 }
 
-func (j *Journal) Begin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
-	return j.begin(ctx, true, operationID, member, generation, inventoryRevision, replacements, survivors)
-}
-
-// CheckBegin verifies that the exact inventory can be retained without writing
-// an operation. Callers must recheck under their exclusive admission freeze;
-// this read alone does not reserve capacity against another concurrent writer.
-func (j *Journal) CheckBegin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) error {
-	_, err := j.begin(ctx, false, operationID, member, generation, inventoryRevision, replacements, survivors)
-	return err
-}
-
-func (j *Journal) begin(ctx context.Context, write bool, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
-	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || !token(member.ProviderETag) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
+// Reserve durably owns the remaining inventory capacity before Capture can
+// freeze admission. Only one pending reservation may exist; unrelated Begin
+// and Reserve calls cannot consume its capacity. Existing stages may advance,
+// with their maximum future encoded growth accounted for by capacityFits.
+func (j *Journal) Reserve(ctx context.Context, operationID string, member MemberObservation, generation uint64, survivors []MemberObservation) (Operation, error) {
+	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || !token(member.ProviderETag) || generation == 0 || member.Generation != generation || validSurvivors(member.Identity, survivors) != nil {
 		return Operation{}, ErrInvalid
 	}
-	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, ProviderETag: member.ProviderETag, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
-	var result Operation
-	err := j.journal.Transact(ctx, write, func(s *state) error {
-		if old, ok := s.Operations[operationID]; ok {
-			if !sameOperation(old, want) {
+	request := RemovalRequest{OperationID: operationID, Member: cloneObservation(member), Generation: generation, Survivors: cloneObservations(survivors)}
+	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, ProviderETag: member.ProviderETag, Generation: generation, Survivors: cloneObservations(survivors), Stage: StageInventoryPending, PendingRequest: &request}
+	var out Operation
+	err := j.journal.Transact(ctx, true, func(s *state) error {
+		if old, found := s.Operations[operationID]; found {
+			if !sameIdentity(old, want) {
 				return ErrConflict
 			}
-			result = old
+			if old.Stage == StageInventoryPending && !sameRequest(old.PendingRequest, &request) {
+				return ErrConflict
+			}
+			out = cloneOperation(old)
 			return nil
+		}
+		if pendingOther(s.Operations, operationID) {
+			return ErrConflict
 		}
 		candidate := maps.Clone(s.Operations)
 		if candidate == nil {
 			candidate = map[string]Operation{}
 		}
 		candidate[operationID] = want
-		if err := validateMap(candidate); err != nil {
+		if err := capacityFits(candidate); err != nil {
 			return err
 		}
-		encoded, err := json.Marshal(candidate)
-		if err != nil || len(encoded) > authorityjournal.MaximumStateBytes {
-			return ErrInvalid
+		s.Operations = candidate
+		out = cloneOperation(want)
+		return nil
+	})
+	return out, err
+}
+
+// CheckFill validates exact facts against a durable reservation before Capture
+// freezes admission. It never reserves capacity itself: an existing pending
+// request must own that capacity, so concurrent writers cannot invalidate it.
+func (j *Journal) CheckFill(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) error {
+	_, err := j.fill(ctx, false, operationID, member, generation, inventoryRevision, replacements, survivors)
+	return err
+}
+
+func (j *Journal) Begin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
+	return j.fill(ctx, true, operationID, member, generation, inventoryRevision, replacements, survivors)
+}
+
+func (j *Journal) fill(ctx context.Context, write bool, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
+	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || !token(member.ProviderETag) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
+		return Operation{}, ErrInvalid
+	}
+	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, ProviderETag: member.ProviderETag, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: cloneObservations(survivors), Stage: StageInventoryCaptured}
+	var out Operation
+	err := j.journal.Transact(ctx, write, func(s *state) error {
+		old, found := s.Operations[operationID]
+		if !found {
+			return ErrMissing
+		}
+		if old.Stage != StageInventoryPending {
+			if !sameOperation(old, want) {
+				return ErrConflict
+			}
+			out = cloneOperation(old)
+			return nil
+		}
+		if !sameIdentity(old, want) || old.PendingRequest == nil || !sameRequest(old.PendingRequest, &RemovalRequest{OperationID: operationID, Member: member, Generation: generation, Survivors: survivors}) {
+			return ErrConflict
+		}
+		if pendingOther(s.Operations, operationID) {
+			return ErrConflict
+		}
+		candidate := maps.Clone(s.Operations)
+		candidate[operationID] = want
+		if err := capacityFits(candidate); err != nil {
+			return err
 		}
 		if write {
 			s.Operations = candidate
 		}
-		result = want
+		out = cloneOperation(want)
 		return nil
 	})
-	return result, err
+	return out, err
+}
+
+func pendingOther(operations map[string]Operation, id string) bool {
+	for key, operation := range operations {
+		if key != id && operation.Stage == StageInventoryPending {
+			return true
+		}
+	}
+	return false
+}
+func sameIdentity(a, b Operation) bool {
+	return a.OperationID == b.OperationID && a.MemberIdentity == b.MemberIdentity && a.ResourceID == b.ResourceID && a.ProviderETag == b.ProviderETag && a.Generation == b.Generation && jsonEqualMembers(a.Survivors, b.Survivors)
+}
+func sameRequest(a, b *RemovalRequest) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return string(left) == string(right)
+}
+func cloneObservation(member MemberObservation) MemberObservation {
+	member.EvidenceRefs = append([]string(nil), member.EvidenceRefs...)
+	return member
+}
+func cloneObservations(members []MemberObservation) []MemberObservation {
+	if members == nil {
+		return nil
+	}
+	result := make([]MemberObservation, len(members))
+	for n, member := range members {
+		result[n] = cloneObservation(member)
+	}
+	return result
+}
+func cloneOperation(operation Operation) Operation {
+	operation.Survivors = cloneObservations(operation.Survivors)
+	operation.Replacements = cloneReplacements(operation.Replacements)
+	if operation.PendingRequest != nil {
+		r := *operation.PendingRequest
+		r.Member = cloneObservation(r.Member)
+		r.Survivors = cloneObservations(r.Survivors)
+		operation.PendingRequest = &r
+	}
+	return operation
+}
+
+// The authority journal permits 480 KiB for each of previous and next state,
+// leaving over 64 KiB for its 1 MiB envelope metadata. Replacements and identity
+// are immutable after fill. The only later growth is fenced -> complete (+2).
+func capacityFits(operations map[string]Operation) error {
+	if err := validateMap(operations); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(operations)
+	if err != nil {
+		return ErrInvalid
+	}
+	reserve := len(encoded)
+	for _, operation := range operations {
+		if operation.Stage == StageFenced {
+			reserve += len(StageComplete) - len(StageFenced)
+		}
+	}
+	if reserve > authorityjournal.MaximumStateBytes {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func (j *Journal) Advance(ctx context.Context, operationID string, stage Stage) (Operation, error) {
@@ -267,6 +393,9 @@ func (j *Journal) Advance(ctx context.Context, operationID string, stage Stage) 
 		current, ok := s.Operations[operationID]
 		if !ok {
 			return ErrMissing
+		}
+		if current.Stage == StageInventoryPending || stage == StageInventoryPending {
+			return ErrConflict
 		}
 		if stageRank(stage) < stageRank(current.Stage) || stageRank(stage) > stageRank(current.Stage)+1 {
 			return ErrConflict
@@ -299,10 +428,23 @@ func validateMap(values map[string]Operation) error {
 	if len(values) > 512 {
 		return ErrInvalid
 	}
+	pending := 0
 	for key, operation := range values {
-		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || !token(operation.ProviderETag) || operation.Generation == 0 || operation.InventoryRevision == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
+		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || !token(operation.ProviderETag) || operation.Generation == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
 			return ErrInvalid
 		}
+		if operation.Stage == StageInventoryPending {
+			pending++
+			r := operation.PendingRequest
+			if operation.InventoryRevision != 0 || len(operation.Replacements) != 0 || r == nil || r.OperationID != key || r.Generation != operation.Generation || r.Member.Generation != operation.Generation || r.Member.Identity != operation.MemberIdentity || r.Member.ResourceID != operation.ResourceID || r.Member.ProviderETag != operation.ProviderETag || !jsonEqualMembers(r.Survivors, operation.Survivors) {
+				return ErrInvalid
+			}
+		} else if operation.PendingRequest != nil || operation.InventoryRevision == 0 {
+			return ErrInvalid
+		}
+	}
+	if pending > 1 {
+		return ErrInvalid
 	}
 	return nil
 }
@@ -345,7 +487,7 @@ func jsonEqualMembers(a, b []MemberObservation) bool {
 	return string(left) == string(right)
 }
 func validStage(value Stage) bool {
-	return value == StageInventoryCaptured || value == StageReplacing || value == StageFenced || value == StageComplete
+	return value == StageInventoryPending || value == StageInventoryCaptured || value == StageReplacing || value == StageFenced || value == StageComplete
 }
 func stageRank(value Stage) int {
 	switch value {

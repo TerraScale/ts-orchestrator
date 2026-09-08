@@ -102,7 +102,7 @@ func setup(t *testing.T) (*Issuer, *memoryJournal, map[string]ed25519.PrivateKey
 		pubs[id] = p
 	}
 	j := &memoryJournal{s: emptyState()}
-	return &Issuer{j, "gru", keys["gru"], 3, "lease3", map[string]ed25519.PublicKey{"genesis": pubs["genesis"]}, map[string]ed25519.PublicKey{"a": pubs["a"], "b": pubs["b"], "c": pubs["c"], "d": pubs["d"]}, nil}, j, keys
+	return &Issuer{j, "gru", keys["gru"], 3, "lease3", map[string]ed25519.PublicKey{"genesis": pubs["genesis"]}, map[string]ed25519.PublicKey{"a": pubs["a"], "b": pubs["b"], "c": pubs["c"], "d": pubs["d"]}, nil, nil, "candidate"}, j, keys
 }
 func request() Request {
 	return Request{"op1", "prod/cluster", 0, 1, 1, []Member{{"a", "GRU", hash([]byte("a"))}, {"b", "GRU", hash([]byte("b"))}}}

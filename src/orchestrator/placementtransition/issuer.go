@@ -34,7 +34,8 @@ type Config struct {
 	MemberKeys map[string]ed25519.PublicKey
 	// MemberKey resolves new and retired identities from durable enrollment.
 	// It must never trust a receipt-supplied key or an unadmitted endpoint.
-	MemberKey func(context.Context, Member) (ed25519.PublicKey, error)
+	MemberKey  func(context.Context, Member) (ed25519.PublicKey, error)
+	JoinMember func(context.Context, Member) (JoinRecipient, error)
 }
 type Issuer struct {
 	journal                 transaction
@@ -44,6 +45,8 @@ type Issuer struct {
 	leaseID                 string
 	genesisKeys, memberKeys map[string]ed25519.PublicKey
 	memberKey               func(context.Context, Member) (ed25519.PublicKey, error)
+	joinMember              func(context.Context, Member) (JoinRecipient, error)
+	candidateID             string
 }
 
 func emptyState() state {
@@ -138,7 +141,7 @@ func New(config Config) (*Issuer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Issuer{&shardedJournal{config: config.Authority}, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members, config.MemberKey}, nil
+	return &Issuer{&shardedJournal{config: config.Authority}, config.ProofKeyID, slices.Clone(config.ProofKey), config.Authority.AuthorityEpoch, config.Authority.LeaseID, genesis, members, config.MemberKey, config.JoinMember, config.Authority.CandidateID}, nil
 }
 
 // Issue commits exactly one transition per scope and preserves every retry

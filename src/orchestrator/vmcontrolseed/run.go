@@ -69,16 +69,19 @@ func LoadRunDeclaration(path string) (RunDeclaration, error) {
 		return RunDeclaration{}, errors.New("vmcontrolseed: run declaration read refused")
 	}
 	var declaration RunDeclaration
-	if json.Unmarshal(raw, &declaration, json.RejectUnknownMembers(true)) != nil || declaration.Version != 1 || len(declaration.Hosts) == 0 || len(declaration.Hosts) > 3 {
-		return RunDeclaration{}, errors.New("vmcontrolseed: invalid GRU run declaration")
+	if json.Unmarshal(raw, &declaration, json.RejectUnknownMembers(true)) != nil || declaration.Version != 1 || len(declaration.Hosts) == 0 || len(declaration.Hosts) > 6 {
+		return RunDeclaration{}, errors.New("vmcontrolseed: invalid run declaration")
 	}
 	seen := map[string]bool{}
 	global := false
 	for _, host := range declaration.Hosts {
-		if !identifierPattern.MatchString(host.HostID) || !strings.HasPrefix(host.HostID, "gru-") || seen[host.HostID] || host.Generation == 0 || host.Generation > 1<<63-1 {
+		if !identifierPattern.MatchString(host.HostID) || (!strings.HasPrefix(host.HostID, "gru-") && !strings.HasPrefix(host.HostID, "sfo-") && !strings.HasPrefix(host.HostID, "fra-")) || seen[host.HostID] || host.Generation == 0 || host.Generation > 1<<63-1 {
 			return RunDeclaration{}, errors.New("vmcontrolseed: invalid run host or desired generation")
 		}
 		seen[host.HostID] = true
+		if host.Global != nil && !strings.HasPrefix(host.HostID, "gru-") {
+			return RunDeclaration{}, errors.New("vmcontrolseed: global authority must remain in GRU")
+		}
 		global = global || host.Global != nil
 	}
 	if !global {
@@ -116,26 +119,44 @@ func (m *RunMaterial) Clone() *RunMaterial {
 // constructs a CAS handoff from this host's initial manifest. Credentials are
 // separately admitted production identities; initial-only NKeys and TLS private
 // keys cannot be reused. This function does not observe or manufacture a lease.
-func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmission, dependencies map[string][]byte) (_ *RunMaterial, err error) {
-	bad := errors.New("vmcontrolseed: production run admission differs from host, settings or protected material")
+func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmission, dependencies map[string][]byte) (*RunMaterial, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	if admission.HostID != m.HostID || admission.Generation == 0 || admission.Generation > 1<<63-1 || len(admission.Files) == 0 || len(admission.Files) > 128 {
-		return nil, bad
-	}
-	initialConfig, err := initialgrant.ParseConfig([]byte(m.Settings))
+	config, err := initialgrant.ParseConfig([]byte(m.Settings))
 	if err != nil {
 		return nil, err
 	}
-	result := &RunMaterial{HostID: m.HostID, Generation: admission.Generation, Regional: admission.Regional, Global: admission.Global, Files: map[string][]byte{}, fileDigests: map[string]string{}}
+	raw, err := hostmanifest.CanonicalHostManifestJSON(base)
+	if err != nil {
+		return nil, err
+	}
+	initial, err := m.LaunchManifest(raw)
+	if err != nil {
+		return nil, err
+	}
+	return PrepareRunManifest(base, admission, dependencies, RunHost{HostID: m.HostID, Cell: config.Cell, Membership: config.Membership, Predecessor: initial, InitialFiles: m.Files})
+}
+
+// PrepareRunManifest plans a production manifest for an explicitly admitted host.
+// A fresh host has no predecessor and still needs the owner's finite bootstrap
+// grant; a staged host binds its exact preparation manifest. No lease is minted.
+func PrepareRunManifest(base hostmanifest.HostManifest, admission RunAdmission, dependencies map[string][]byte, host RunHost) (_ *RunMaterial, err error) {
+	bad := errors.New("vmcontrolseed: production run admission differs from host, settings or protected material")
+	if !identifierPattern.MatchString(host.HostID) || !strings.HasPrefix(host.HostID, host.Cell+"-") || (host.Cell != "gru" && host.Cell != "sfo" && host.Cell != "fra") || admission.HostID != host.HostID || admission.Generation == 0 || admission.Generation > 1<<63-1 || len(admission.Files) == 0 || len(admission.Files) > 128 || host.Cell != "gru" && admission.Global != nil {
+		return nil, bad
+	}
+	if err := host.validateMembership(dependencies); err != nil {
+		return nil, err
+	}
+	result := &RunMaterial{HostID: host.HostID, Generation: admission.Generation, Regional: admission.Regional, Global: admission.Global, Files: map[string][]byte{}, fileDigests: map[string]string{}}
 	defer func() {
 		if err != nil {
 			result.Clear()
 		}
 	}()
 	for target, file := range admission.Files {
-		if !hostmanifest.SafeAbsolutePath(target) || !runTargetPattern.MatchString(target) || !hostmanifest.ValidDigest(file.SHA256) || m.Files[target] != nil || target == MembershipKeyPath || target == MembershipPinsPath {
+		if !hostmanifest.SafeAbsolutePath(target) || !runTargetPattern.MatchString(target) || !hostmanifest.ValidDigest(file.SHA256) || host.InitialFiles[target] != nil || target == MembershipKeyPath || target == MembershipPinsPath {
 			return nil, bad
 		}
 		raw, readErr := initialgrant.ReadMaterialFile(file.Source, 1<<20, true)
@@ -177,7 +198,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		settings[key] = value
 		return true
 	}
-	if !put("TS_ORCH_CELL", initialConfig.Cell) || !put("TS_ORCH_INSTANCE", initialConfig.Instance) || !put("TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE", MembershipKeyPath) || !put("TS_ORCH_MEMBERSHIP_PINS_FILE", MembershipPinsPath) {
+	if !put("TS_ORCH_CELL", host.Cell) || !put("TS_ORCH_INSTANCE", host.HostID) || !put("TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE", MembershipKeyPath) || !put("TS_ORCH_MEMBERSHIP_PINS_FILE", MembershipPinsPath) {
 		return nil, bad
 	}
 	for _, entry := range []struct {
@@ -187,7 +208,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		if entry.connection == nil {
 			continue
 		}
-		if validateRunConnection(*entry.connection, result.Files, m.Files) != nil {
+		if validateRunConnection(*entry.connection, result.Files, protectedRunIdentities(host.InitialFiles, dependencies)) != nil {
 			return nil, bad
 		}
 		c := entry.connection.Connection
@@ -206,10 +227,6 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 			return nil, bad
 		}
 	}
-	var membershipPins map[string]string
-	if json.Unmarshal(dependencies[MembershipPinsPath], &membershipPins) != nil || m.ValidateMembership(dependencies[MembershipKeyPath], membershipPins) != nil {
-		return nil, bad
-	}
 	allFiles := maps.Clone(result.Files)
 	for path, raw := range dependencies {
 		if allFiles[path] != nil {
@@ -217,7 +234,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 		}
 		allFiles[path] = raw
 	}
-	inventoryPath, inventoryBytes, inventoryErr := runmaterial.Build(allFiles)
+	inventoryPath, inventoryBytes, inventoryErr := runmaterial.Build(allFiles, []string{MembershipPinsPath})
 	if inventoryErr != nil {
 		return nil, inventoryErr
 	}
@@ -268,17 +285,14 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 	if err != nil {
 		return nil, err
 	}
-	raw, err := hostmanifest.CanonicalHostManifestJSON(base)
-	if err != nil {
-		return nil, err
-	}
-	initial, err := m.LaunchManifest(raw)
-	if err != nil {
-		return nil, err
-	}
-	result.ExpectedManifestSHA, err = hostmanifest.HostManifestSha256(initial)
-	if err != nil {
-		return nil, err
+	if len(host.Predecessor.Components) != 0 {
+		if err := validateRunPredecessor(host, result.Manifest); err != nil {
+			return nil, err
+		}
+		result.ExpectedManifestSHA, err = hostmanifest.HostManifestSha256(host.Predecessor)
+		if err != nil {
+			return nil, err
+		}
 	}
 	result.manifestSHA, err = hostmanifest.HostManifestSha256(result.Manifest)
 	if err != nil {
@@ -346,16 +360,38 @@ func validateRunConnection(c RunConnection, files, initial map[string][]byte) er
 
 // ValidateStage rejects a mutated sideband or a different initial predecessor.
 func (m *RunMaterial) ValidateStage(initial Material, manifest hostmanifest.HostManifest) error {
+	if err := initial.Validate(); err != nil {
+		return err
+	}
+	return m.ValidatePredecessor(initial.HostID, manifest)
+}
+func (m *RunMaterial) ValidatePredecessor(hostID string, manifest hostmanifest.HostManifest) error {
+	if err := m.validateIdentity(hostID); err != nil {
+		return err
+	}
+	predecessor, err := hostmanifest.HostManifestSha256(manifest)
+	if err != nil || m.ExpectedManifestSHA == "" || predecessor != m.ExpectedManifestSHA {
+		return errors.New("vmcontrolseed: run predecessor differs")
+	}
+	return nil
+}
+func (m *RunMaterial) ValidateManifest(hostID string, manifest hostmanifest.HostManifest) error {
+	if err := m.validateIdentity(hostID); err != nil {
+		return err
+	}
+	final, err := hostmanifest.HostManifestSha256(manifest)
+	if err != nil || final != m.manifestSHA {
+		return errors.New("vmcontrolseed: run manifest differs")
+	}
+	return nil
+}
+func (m *RunMaterial) validateIdentity(hostID string) error {
 	bad := errors.New("vmcontrolseed: run sideband differs from admitted stage")
-	if m == nil || initial.HostID != m.HostID || m.Generation == 0 || len(m.fileDigests) == 0 || len(m.Files) != len(m.fileDigests) {
+	if m == nil || hostID != m.HostID || m.Generation == 0 || len(m.fileDigests) == 0 || len(m.Files) != len(m.fileDigests) {
 		return bad
 	}
 	identity, err := m.identityDigest()
 	if err != nil || identity != m.identitySHA {
-		return bad
-	}
-	predecessor, err := hostmanifest.HostManifestSha256(manifest)
-	if err != nil || predecessor != m.ExpectedManifestSHA {
 		return bad
 	}
 	final, err := hostmanifest.HostManifestSha256(m.Manifest)
@@ -373,10 +409,11 @@ func (m *RunMaterial) ValidateStage(initial Material, manifest hostmanifest.Host
 func (m *RunMaterial) identityDigest() (string, error) {
 	raw, err := json.Marshal(struct {
 		HostID     string
+		Expected   string
 		Generation uint64
 		Regional   RunConnection
 		Global     *RunConnection
-	}{m.HostID, m.Generation, m.Regional, m.Global}, json.Deterministic(true))
+	}{m.HostID, m.ExpectedManifestSHA, m.Generation, m.Regional, m.Global}, json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}

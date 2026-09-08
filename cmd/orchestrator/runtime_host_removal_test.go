@@ -57,6 +57,16 @@ func (j *runtimeRemovalJournal) Load(context.Context, string) (hostremoval.Opera
 	}
 	return j.record, nil
 }
+func (j *runtimeRemovalJournal) Reserve(_ context.Context, op string, m hostremoval.MemberObservation, generation uint64, s []hostremoval.MemberObservation) (hostremoval.Operation, error) {
+	if j.found {
+		return j.record, nil
+	}
+	request := hostremoval.RemovalRequest{OperationID: op, Member: m, Generation: generation, Survivors: s}
+	j.record = hostremoval.Operation{OperationID: op, ProviderETag: m.ProviderETag, ResourceID: m.ResourceID, MemberIdentity: m.Identity, Generation: generation, Survivors: s, Stage: hostremoval.StageInventoryPending, PendingRequest: &request}
+	j.found = true
+	return j.record, nil
+}
+
 func (j *runtimeRemovalJournal) Begin(_ context.Context, op string, m hostremoval.MemberObservation, generation, revision uint64, r []hostremoval.Replacement, s []hostremoval.MemberObservation) (hostremoval.Operation, error) {
 	j.record = hostremoval.Operation{OperationID: op, ProviderETag: m.ProviderETag, ResourceID: m.ResourceID, MemberIdentity: m.Identity, Generation: generation, InventoryRevision: revision, Replacements: r, Survivors: s, Stage: hostremoval.StageInventoryCaptured}
 	j.found = true

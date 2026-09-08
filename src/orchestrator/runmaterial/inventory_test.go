@@ -13,7 +13,7 @@ func TestVerifyBindsExactProtectedBytesAndRejectsReplacement(t *testing.T) {
 	if err := os.WriteFile(target, original, 0400); err != nil {
 		t.Fatal(err)
 	}
-	path, raw, err := Build(map[string][]byte{target: original})
+	path, raw, err := Build(map[string][]byte{target: original}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestVerifyRejectsChangedInventoryAndWritableAncestry(t *testing.T) {
 	if err := os.WriteFile(target, []byte("admitted"), 0400); err != nil {
 		t.Fatal(err)
 	}
-	path, raw, err := Build(map[string][]byte{target: []byte("admitted")})
+	path, raw, err := Build(map[string][]byte{target: []byte("admitted")}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +78,35 @@ func TestVerifyRejectsChangedInventoryAndWritableAncestry(t *testing.T) {
 	}
 	if Verify(path) == nil {
 		t.Fatal("modified inventory accepted under original digest filename")
+	}
+}
+
+func TestInventoryExplicitPublicPinDoesNotRelaxPrivateFiles(t *testing.T) {
+	dir := t.TempDir()
+	pin := filepath.Join(dir, "membership-pins.json")
+	key := filepath.Join(dir, "identity.key")
+	files := map[string][]byte{pin: []byte(`{"member":"public-pin"}`), key: []byte("private-identity")}
+	if err := os.WriteFile(pin, files[pin], 0444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(key, files[key], 0400); err != nil {
+		t.Fatal(err)
+	}
+	path, raw, err := Build(files, []string{pin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path = filepath.Join(dir, filepath.Base(path))
+	if err := os.WriteFile(path, raw, 0400); err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(key, 0444); err != nil {
+		t.Fatal(err)
+	}
+	if Verify(path) == nil {
+		t.Fatal("public membership pin permission widened private key admission")
 	}
 }

@@ -150,6 +150,10 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err != nil {
 		return nil, err
 	}
+	certificate, caCertificate, err = persistQualificationArtifactTLS(admissionDirectory, plan.RunID, certificate, caCertificate)
+	if err != nil {
+		return nil, err
+	}
 	authority, err := newQualificationNATSAuthority(plan)
 	if err != nil {
 		return nil, err
@@ -471,7 +475,7 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 			}
 		}()
 		if engineSeed != nil {
-			for _, files := range []map[string][]byte{engineSeed.ControlFiles(), engineSeed.DatabaseFiles(), engineSeed.TransitionFiles(), engineSeed.BackupFiles(), engineSeed.Files(), engineSeed.ObserverFiles()} {
+			for _, files := range []map[string][]byte{engineSeed.ControlFiles(), engineSeed.DatabaseFiles()} {
 				for path, raw := range files {
 					if previous, exists := dependencies[path]; exists {
 						if !bytes.Equal(previous, raw) {

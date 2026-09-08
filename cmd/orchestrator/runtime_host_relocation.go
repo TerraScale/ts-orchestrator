@@ -20,6 +20,7 @@ import (
 // request. Admission remains frozen through authenticated RF2 readiness, the
 // current-placement overlay commit, and durable termination of the old host.
 type productionHostRelocation struct {
+	Removal   *hostremoval.Journal
 	Journal   *placementrelocation.Journal
 	Admission *databaseadmission.NATSJournal
 	Issuer    interface {
@@ -44,7 +45,7 @@ func (w *productionHostRelocation) valid() bool {
 }
 
 func (w *productionHostRelocation) Capture(ctx context.Context, request hostremoval.RemovalRequest, _ []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
-	if !w.valid() {
+	if !w.valid() || w.Removal == nil {
 		return 0, nil, placementrelocation.ErrInvalid
 	}
 	id := request.OperationID + "/placement"
@@ -60,6 +61,16 @@ func (w *productionHostRelocation) Capture(ctx context.Context, request hostremo
 		}
 		if plan.OperationID != id || plan.RemovedIdentity != request.Member.Identity {
 			return 0, nil, placementrelocation.ErrConflict
+		}
+		revision, replacements, inventoryErr := relocationInventory(plan)
+		if inventoryErr != nil {
+			return 0, nil, inventoryErr
+		}
+		// The removal owner durably reserved this request before Capture.
+		// Validate the exact final inventory against that reserved capacity
+		// before acquiring the admission freeze or persisting relocation intent.
+		if err = w.Removal.CheckFill(ctx, request.OperationID, request.Member, request.Generation, revision, replacements, request.Survivors); err != nil {
+			return 0, nil, err
 		}
 		// Freeze the exact admission snapshot before retaining an immutable
 		// plan. A concurrent admission can reject this attempt without leaving
@@ -89,17 +100,21 @@ func (w *productionHostRelocation) Capture(ctx context.Context, request hostremo
 	if err = w.Admission.BeginPlacementRelocation(ctx, id, op.Plan.Records); err != nil {
 		return 0, nil, err
 	}
-	revision, err := removalInventoryRevision(op.Plan.Records)
+	return relocationInventory(op.Plan)
+}
+
+func relocationInventory(plan placementrelocation.Plan) (uint64, []hostremoval.Replacement, error) {
+	revision, err := removalInventoryRevision(plan.Records)
 	if err != nil {
 		return 0, nil, err
 	}
-	digest, err := placementtransition.RequestDigest(op.Plan.Request)
+	digest, err := placementtransition.RequestDigest(plan.Request)
 	if err != nil {
 		return 0, nil, err
 	}
-	replacements := make([]hostremoval.Replacement, 0, len(op.Plan.Records))
-	for _, record := range op.Plan.Records {
-		replacements = append(replacements, hostremoval.Replacement{DatabaseID: record.DatabaseID, IssuerOperationID: id, ProposalDigest: digest})
+	replacements := make([]hostremoval.Replacement, 0, len(plan.Records))
+	for _, record := range plan.Records {
+		replacements = append(replacements, hostremoval.Replacement{DatabaseID: record.DatabaseID, IssuerOperationID: plan.OperationID, ProposalDigest: digest})
 	}
 	return revision, replacements, nil
 }

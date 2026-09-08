@@ -18,7 +18,7 @@ import (
 func canonicalControllerBootstrap(input TSNodeBootstrap) ([]NoCloudRootFile, error) {
 	if input.Controller == nil {
 		if input.ControllerRun != nil {
-			return nil, errors.New("vmimage: run stage requires initial controller")
+			return canonicalOrdinaryRunBootstrap(input)
 		}
 		return nil, nil
 	}

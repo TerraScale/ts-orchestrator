@@ -51,3 +51,20 @@ Initial issuer and grants persist in the protected per-run admission directory.
 `grant-<host>.json` retains exact signed bytes. Valid pending publication is
 recovered unchanged. Corruption, a changed run, a changed manifest or expiry
 fails closed instead of issuing a replacement source hash.
+
+For staged creation, use `candidatePlan` instead of `candidates`. This is the
+`candidateplan.Plan` schema: explicit `sourceNodeId`, transition identity and
+epoch bounds, finite issue/expiry times, protected `privateMaterialDirectory`,
+and the two `candidates` entries. Each entry carries its exact base `manifest`,
+preparation `config`, `bootstrapGrantId`, and `syncGeneration` reader credential
+references. The plan must fit the signed declaration's time window and declared
+member/artifact inventory. It contains no owner private-key file.
+
+Before allocating a remote candidate, the factory reads the original GRU broker
+with its admitted NKey and TLS credentials. It checks a fresh signed membership
+record against the actual regional lease, signs the declared candidate plan
+through the persisted issuer, then rereads that lease. A changed source election
+fails the attempt. Persisted candidate material and signed bundle remain exact
+on retry. The issuer registers the two original candidate grants for the
+existing finite bootstrap command verifier. Candidate activation therefore
+requires no invented regional election authority.

@@ -19,10 +19,11 @@ func AcceptanceBinding(operationID string, request *pb.PlacementAcceptRequest) (
 	if !validMetadata(operationID, 128) || request == nil || request.ProposalRevision == 0 || len(request.Proof) == 0 || len(request.Proof) > 256<<10 {
 		return nil, errors.New("TBEP accepted placement request is incomplete or exceeds bounds")
 	}
-	var signed placementtransition.Signed
-	if json.Unmarshal(request.Proof, &signed, json.RejectUnknownMembers(true)) != nil || signed.KeyID == "" || len(signed.Signature) != 64 || len(signed.Payload) == 0 {
+	envelope, err := placementtransition.ValidateAcceptanceEnvelope(request.Proof)
+	if err != nil {
 		return nil, errors.New("TBEP accepted placement proof envelope is malformed")
 	}
+	signed := envelope.Signed()
 	var proof placementtransition.Proof
 	if json.Unmarshal(signed.Payload, &proof, json.RejectUnknownMembers(true)) != nil || proof.SchemaVersion != 1 || proof.Kind != "accepted_epoch" || proof.Request.OperationID != operationID || proof.Request.Epoch == 0 || proof.Request.Generation == 0 || proof.AuthorityEpoch == 0 || proof.JournalRevision == 0 {
 		return nil, errors.New("TBEP accepted placement proof does not bind the operation")

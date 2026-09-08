@@ -21,6 +21,8 @@ const brokerAdmissionEnvironment = "TS_ORCH_BROKER_ADMISSION_FILE"
 type productionBrokerAdmissionFile struct {
 	Version               int                                 `json:"version"`
 	BrokerID              string                              `json:"broker_id"`
+	BrokerIDs             []string                            `json:"broker_ids"`
+	ReaderGrants          []brokeradmission.ReaderGrant       `json:"readers"`
 	Environment           string                              `json:"environment"`
 	Cluster               string                              `json:"cluster"`
 	SignerPublicKeyFile   string                              `json:"signer_public_key_file"`
@@ -89,6 +91,12 @@ func configureEnrollmentBroker(config *bootstrap.NatsServerConfig, lookup envLoo
 	if _, _, err := brokeradmission.ReaderPermissions(file.BrokerID); err != nil {
 		return err
 	}
+	policy := brokeradmission.Policy{Environment: file.Environment, Cluster: file.Cluster, Regions: file.Regions, RegionalPermissions: func(region, nodeID string) ([]string, []string, error) {
+		return initialcontrol.Permissions(region, nodeID, false, false)
+	}}
+	if err := brokeradmission.ValidateReaderGrants(file.ReaderGrants, file.BrokerIDs, policy); err != nil {
+		return err
+	}
 	public, err := bootstrapcredentials.ReadFile(file.SignerPublicKeyFile, false, 32<<10)
 	if err != nil {
 		return err
@@ -101,6 +109,16 @@ func configureEnrollmentBroker(config *bootstrap.NatsServerConfig, lookup envLoo
 	if err != nil {
 		return err
 	}
+	matched := false
+	for _, grant := range file.ReaderGrants {
+		if grant.BrokerID == file.BrokerID && grant.PublicNKey == credentials.PublicIdentity().PublicNKey {
+			matched = true
+		}
+	}
+	if !matched {
+		credentials.Close()
+		return brokeradmission.ErrInvalid
+	}
 	options := nats.GetDefaultOptions()
 	for _, apply := range credentials.Options {
 		if err = apply(&options); err != nil {
@@ -109,9 +127,7 @@ func configureEnrollmentBroker(config *bootstrap.NatsServerConfig, lookup envLoo
 		}
 	}
 	source := &productionBrokerSource{credentials: credentials, brokerID: file.BrokerID, verifier: verifier, connection: natsconnect.Config{URL: credentials.URL, TLS: options.TLSConfig, PublicNKey: options.Nkey, Sign: options.SignatureCB, Timeout: 2 * time.Second}}
-	config.Enrollment = &bootstrap.EnrollmentBrokerConfig{Verifier: verifier, Policy: brokeradmission.Policy{Environment: file.Environment, Cluster: file.Cluster, Regions: file.Regions, RegionalPermissions: func(region, nodeID string) ([]string, []string, error) {
-		return initialcontrol.Permissions(region, nodeID, false, false)
-	}}, CheckpointPath: file.CheckpointPath, MinimumRevision: file.MinimumRevision, AllowInitialBootstrap: file.AllowInitialBootstrap, Source: source, CheckAuthority: source.check}
+	config.Enrollment = &bootstrap.EnrollmentBrokerConfig{Verifier: verifier, Policy: policy, ReaderGrants: file.ReaderGrants, BrokerIDs: file.BrokerIDs, CheckpointPath: file.CheckpointPath, MinimumRevision: file.MinimumRevision, AllowInitialBootstrap: file.AllowInitialBootstrap, Source: source, CheckAuthority: source.check}
 	return nil
 }
 

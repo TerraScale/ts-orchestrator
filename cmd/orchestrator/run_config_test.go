@@ -170,7 +170,7 @@ func TestRunConfigurationVerifiesSignedMaterialBeforeStartup(t *testing.T) {
 	if err := os.WriteFile(broker, content, 0400); err != nil {
 		t.Fatal(err)
 	}
-	inventory, raw, err := runmaterial.Build(map[string][]byte{broker: content})
+	inventory, raw, err := runmaterial.Build(map[string][]byte{broker: content}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

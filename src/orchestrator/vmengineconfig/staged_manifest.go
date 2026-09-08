@@ -2,10 +2,10 @@ package vmengineconfig
 
 import (
 	"errors"
-	"reflect"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 )
 
 // ValidateStagedManifest checks an initial control launch against the complete
@@ -26,20 +26,22 @@ func (m *Material) ValidateStagedManifest(nodeID, address string, initial, run h
 	for i, component := range initial.Components {
 		final := run.Components[i]
 		if component.Name != "orchestrator" {
-			if !reflect.DeepEqual(component, final) {
+			if component != final {
 				return bad
 			}
 			continue
 		}
 		config, initialMode, err := initialgrant.ComponentConfig(component)
-		if found || !initialMode || err != nil || config.NodeID != nodeID || final.Name != "orchestrator" || final.Arguments != "run --config @config" {
+		candidate, candidateMode, candidateErr := transitiongrant.ComponentConfig(component)
+		admitted := (initialMode && err == nil && config.NodeID == nodeID) || (candidateMode && candidateErr == nil && candidate.NodeID == nodeID)
+		if found || !admitted || final.Name != "orchestrator" || final.Arguments != "run --config @config" {
 			return bad
 		}
 		found = true
 		// Only the content-addressed launch version and launch settings may
 		// change; artifacts, service identity, and resource limits stay pinned.
 		component.Version, component.Arguments, component.Configuration = final.Version, final.Arguments, final.Configuration
-		if !reflect.DeepEqual(component, final) {
+		if component != final {
 			return bad
 		}
 	}
