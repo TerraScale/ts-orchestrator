@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 	controllerPublic, _ := controller.PublicKey()
 	baseline := &server.Options{Host: "127.0.0.1", Port: -1, NoSigs: true, NoLog: true, Nkeys: []*server.NkeyUser{{Nkey: controllerPublic}}}
 	authorityLost := false
-	config := &EnrollmentBrokerConfig{Verifier: verifier, CheckpointPath: filepath.Join(t.TempDir(), "grants.json"), Policy: brokeradmission.Policy{Environment: desired.Environment, Cluster: desired.Cluster, Regions: map[string]brokeradmission.Accounts{"gru": {Global: "$G", Regional: "$G", Node: "$G"}}, RegionalPermissions: func(string, string) ([]string, []string, error) {
+	config := &EnrollmentBrokerConfig{AllowInitialBootstrap: true, Verifier: verifier, CheckpointPath: filepath.Join(t.TempDir(), "grants.json"), Policy: brokeradmission.Policy{Environment: desired.Environment, Cluster: desired.Cluster, Regions: map[string]brokeradmission.Accounts{"gru": {Global: "$G", Regional: "$G", Node: "$G"}}, RegionalPermissions: func(string, string) ([]string, []string, error) {
 		return []string{"test.regional"}, []string{"_INBOX.>"}, nil
 	}}, CheckAuthority: func(context.Context, brokeradmission.Desired) error {
 		if authorityLost {
@@ -68,9 +69,33 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 		}
 		return nil
 	}}
+	deniedBootstrap := *config
+	deniedBootstrap.AllowInitialBootstrap = false
+	if _, err := prepareEnrollmentBroker(t.Context(), baseline, &deniedBootstrap); err == nil {
+		t.Fatal("missing checkpoint silently opened bootstrap grants")
+	}
+	fourth := first
+	fourth.Region = "iad"
+	fourth.NodeID = "iad-3"
+	expanded := desired
+	expanded.Members = []brokeradmission.Member{fourth}
+	if err := brokeradmission.Validate(expanded); err != nil {
+		t.Fatalf("canonical fourth Region refused: %v", err)
+	}
+	if _, err := brokeradmission.ApplyOptions(baseline, expanded, config.Policy); err == nil {
+		t.Fatal("unadmitted fourth Region accepted")
+	}
+	expandedPolicy := config.Policy
+	expandedPolicy.Regions = map[string]brokeradmission.Accounts{"iad": {Global: "$G", Regional: "$G", Node: "$G"}}
+	if _, err := brokeradmission.ApplyOptions(baseline, expanded, expandedPolicy); err != nil {
+		t.Fatalf("admitted fourth Region refused: %v", err)
+	}
 	state, err := prepareEnrollmentBroker(t.Context(), baseline, config)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := prepareEnrollmentBroker(t.Context(), baseline, config); err == nil {
+		t.Fatal("consumed initial bootstrap reused after checkpoint loss")
 	}
 	instance, err := server.NewServer(state.options)
 	if err != nil {
@@ -85,6 +110,50 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 	firstWire, err := brokeradmission.Sign(desired, signer)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, scenario := range []string{"ancestor symlink", "writable ancestor", "leaf symlink", "hardlink"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			directory := filepath.Join(root, "state")
+			if err := os.Mkdir(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "grants.json")
+			if err := brokeradmission.PersistCheckpoint(path, firstWire); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "ancestor symlink":
+				link := filepath.Join(root, "alias")
+				if err := os.Symlink(directory, link); err != nil {
+					t.Fatal(err)
+				}
+				path = filepath.Join(link, "grants.json")
+			case "writable ancestor":
+				if err := os.Chmod(directory, 0777); err != nil {
+					t.Fatal(err)
+				}
+			case "leaf symlink":
+				link := filepath.Join(directory, "alias")
+				if err := os.Symlink(path, link); err != nil {
+					t.Fatal(err)
+				}
+				path = link
+			case "hardlink":
+				if err := os.Link(path, path+".alias"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := brokeradmission.ReadCheckpoint(path, verifier); err == nil {
+				t.Fatal("unsafe checkpoint read accepted")
+			}
+			if err := brokeradmission.PersistCheckpoint(path, firstWire); err == nil {
+				t.Fatal("unsafe checkpoint write accepted")
+			}
+			if err := brokeradmission.ClaimInitialBootstrap(path); err == nil {
+				t.Fatal("unsafe bootstrap marker accepted")
+			}
+		})
 	}
 	if err := handle.ApplyEnrollmentGrants(t.Context(), firstWire); err != nil {
 		t.Fatal(err)

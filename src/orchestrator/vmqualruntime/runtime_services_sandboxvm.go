@@ -3,6 +3,7 @@
 package vmqualruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
@@ -99,6 +100,10 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if err := validateQualificationServicePlan(plan); err != nil {
 		return nil, err
 	}
+	if !filepath.IsAbs(config.StateRoot) || filepath.Clean(config.StateRoot) != config.StateRoot {
+		return nil, errors.New("vmqual: durable qualification admission requires an absolute owned state root")
+	}
+	admissionDirectory := filepath.Join(config.StateRoot, "qualification-admission-"+plan.RunID)
 	artifacts, publicKey, err := loadProductionArtifacts(config, architecture)
 	if err != nil {
 		return nil, err
@@ -169,7 +174,21 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			if previous := authority.memberships[host]; previous != nil {
 				clear(previous.PrivatePEM)
 			}
-			authority.memberships[host] = identity
+			copy := *identity
+			copy.PrivatePEM = bytes.Clone(identity.PrivatePEM)
+			authority.memberships[host] = &copy
+		}
+	}
+	authority, err = persistQualificationAuthority(admissionDirectory, plan, authority)
+	if err != nil {
+		return nil, err
+	}
+	if controlAdmission != nil {
+		for host, identity := range controlAdmission.memberships {
+			if authority.memberships[host] == nil || authority.memberships[host].PublicKey != identity.PublicKey {
+				authority.close()
+				return nil, errors.New("vmqual: declared membership differs from durable initial admission")
+			}
 		}
 	}
 	var candidates []vmcontrolseed.Guest
@@ -199,17 +218,17 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		}
 		defer publication.Clear()
 	}
-	var controlSeeds map[string]vmcontrolseed.Material
-	if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
-		controlSeeds, err = vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes, Publication: publication})
-	} else {
-		controlSeeds, err = vmcontrolseed.GenerateGRU(plan.RunID, candidates)
-	}
+	controlSeeds, err := vmcontrolseed.LoadOrCreateGRU(admissionDirectory, plan.RunID, candidates, func() (map[string]vmcontrolseed.Material, error) {
+		if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
+			return vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes, Publication: publication})
+		}
+		return vmcontrolseed.GenerateGRU(plan.RunID, candidates)
+	})
 	if err != nil {
 		authority.close()
 		return nil, err
 	}
-	bootstrapIssuer, err := vmqualbootstrap.NewIssuer()
+	bootstrapIssuer, err := vmqualbootstrap.NewPersistentIssuer(admissionDirectory, plan.RunID)
 	if err != nil {
 		for _, seed := range controlSeeds {
 			seed.Clear()
@@ -441,7 +460,30 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 		if err != nil {
 			return vmimage.TSNodeBootstrap{}, nil, err
 		}
-		runMaterial, err = controlSeed.RunManifest(base, admission)
+		membershipPins, err := json.Marshal(pins)
+		if err != nil {
+			return vmimage.TSNodeBootstrap{}, nil, err
+		}
+		dependencies := map[string][]byte{vmcontrolseed.MembershipKeyPath: bytes.Clone(membership.PrivatePEM), vmcontrolseed.MembershipPinsPath: membershipPins}
+		defer func() {
+			for _, raw := range dependencies {
+				clear(raw)
+			}
+		}()
+		if engineSeed != nil {
+			for _, files := range []map[string][]byte{engineSeed.ControlFiles(), engineSeed.DatabaseFiles(), engineSeed.TransitionFiles(), engineSeed.BackupFiles(), engineSeed.Files(), engineSeed.ObserverFiles()} {
+				for path, raw := range files {
+					if previous, exists := dependencies[path]; exists {
+						if !bytes.Equal(previous, raw) {
+							return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: run admission has conflicting staged dependencies")
+						}
+						clear(previous)
+					}
+					dependencies[path] = raw
+				}
+			}
+		}
+		runMaterial, err = controlSeed.RunManifest(base, admission, dependencies)
 		if err != nil {
 			return vmimage.TSNodeBootstrap{}, nil, err
 		}

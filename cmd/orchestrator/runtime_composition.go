@@ -407,7 +407,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			}
 			return placementrelocation.Target{ServerIdentity: identity, MemberID: target.Member.MemberID, Region: strings.ToUpper(target.Member.Region)}, target.Observed, nil
 		})
-		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Relocation: relocation, Admission: database.lifecycleJournal, Issuer: issuer, Gateways: config.ComputeGateways, Observers: observers, Placement: placement, Transition: transition})
+		owner, ownerErr := config.HostRemoval(context.Background(), session, database.lifecycleJournal, hostRemovalTransitionPorts{Relocation: relocation, Gateways: config.ComputeGateways, Observers: observers})
 		if ownerErr != nil {
 			return group, fmt.Errorf("runtime host removal: %w", ownerErr)
 		}

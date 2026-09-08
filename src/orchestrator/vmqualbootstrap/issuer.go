@@ -125,3 +125,15 @@ func (i *Issuer) Close() error {
 func cloneMaterial(m Material) Material {
 	return Material{PublicKeyPEM: append([]byte(nil), m.PublicKeyPEM...), SignedGrant: append([]byte(nil), m.SignedGrant...)}
 }
+
+// AdmittedGrant returns only a grant already issued by this run. It never signs
+// or renews admission while a candidate asks for its source identity.
+func (i *Issuer) AdmittedGrant(host string) (Material, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	material, ok := i.grants[host]
+	if i.signer == nil || !ok {
+		return Material{}, errors.New("vmqual: initial source grant has not been issued")
+	}
+	return cloneMaterial(material), nil
+}

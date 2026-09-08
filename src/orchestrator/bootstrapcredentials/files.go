@@ -21,33 +21,13 @@ func ReadFile(path string, private bool, limit int64) ([]byte, error) {
 	if limit <= 0 || limit > MaximumFileBytes || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.ContainsAny(path, "\x00\r\n") {
 		return nil, invalid
 	}
-	directory, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	parent, err := OpenProtectedDirectory(filepath.Dir(path), false)
 	if err != nil {
 		return nil, invalid
 	}
-	defer func() { unix.Close(directory) }()
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	for i := 0; ; i++ {
-		var stat unix.Stat_t
-		if unix.Fstat(directory, &stat) != nil {
-			return nil, invalid
-		}
-		owner := stat.Uid == 0 || stat.Uid == uint32(os.Geteuid())
-		stickyRoot := stat.Uid == 0 && stat.Mode&unix.S_ISVTX != 0
-		if !owner || (stat.Mode&0022 != 0 && !stickyRoot) {
-			return nil, invalid
-		}
-		if i == len(parts)-1 {
-			break
-		}
-		next, e := unix.Openat(directory, parts[i], unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if e != nil {
-			return nil, invalid
-		}
-		unix.Close(directory)
-		directory = next
-	}
-	fd, err := unix.Openat(directory, parts[len(parts)-1], unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	defer parent.Close()
+	directory := int(parent.Fd())
+	fd, err := unix.Openat(directory, filepath.Base(path), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, invalid
 	}

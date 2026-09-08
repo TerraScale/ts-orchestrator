@@ -19,9 +19,13 @@ type embeddedNatsRuntime interface {
 var startEmbeddedNatsRuntime = func(ctx context.Context, config bootstrap.NatsServerConfig) (embeddedNatsRuntime, error) {
 	runtime, err := bootstrap.StartNatsServer(ctx, config)
 	if runtime == nil {
+		closeBrokerEnrollmentSource(config.Enrollment)
 		return nil, err
 	}
-	return runtime, err
+	if err != nil {
+		return runtime, err
+	}
+	return reconcileBrokerEnrollment(ctx, runtime, config.Enrollment), nil
 }
 
 func selectedNatsConfiguration(lookup envLookup) (*bootstrap.NatsServerConfig, error) {
@@ -34,7 +38,10 @@ func selectedNatsConfiguration(lookup envLookup) (*bootstrap.NatsServerConfig, e
 		if err := configurePlacementBroker(nil, lookup); err != nil {
 			return nil, err
 		}
-		return nil, configureDatabaseBroker(nil, lookup)
+		if err := configureDatabaseBroker(nil, lookup); err != nil {
+			return nil, err
+		}
+		return nil, configureEnrollmentBroker(nil, lookup)
 	}
 	config, err := natsServerConfiguration(lookup)
 	if err != nil {
@@ -46,8 +53,12 @@ func selectedNatsConfiguration(lookup envLookup) (*bootstrap.NatsServerConfig, e
 	if err := configureDatabaseBroker(&config, lookup); err != nil {
 		return nil, err
 	}
+	if err := configureEnrollmentBroker(&config, lookup); err != nil {
+		return nil, err
+	}
 	// Static reference admission performs no listener or JetStream startup.
 	if _, err := bootstrap.NewNatsServerRunner(config); err != nil {
+		closeBrokerEnrollmentSource(config.Enrollment)
 		return nil, err
 	}
 	return &config, nil

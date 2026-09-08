@@ -59,6 +59,7 @@ type Policy struct {
 func validToken(s string) bool {
 	return s != "" && len(s) <= 256 && !strings.ContainsAny(s, "\x00\r\n\t *>")
 }
+func canonicalRegion(region string) bool { _, err := hostagent.NewNodeId(region); return err == nil }
 func Validate(d Desired) error {
 	if d.Version != 1 || !validToken(d.Environment) || !validToken(d.Cluster) || d.Revision == 0 || d.AuthorityEpoch == 0 || !validToken(d.LeaseID) || len(d.Members) > 1024 || len(d.Retired) > 4096 {
 		return ErrInvalid
@@ -66,10 +67,10 @@ func Validate(d Desired) error {
 	nodes := map[string]bool{}
 	identities, keys, slots := map[string]bool{}, map[string]bool{}, map[string]map[int]bool{}
 	validateMember := func(m Member, active bool) error {
-		if !validToken(m.MemberID) || !validToken(m.NodeID) || !validToken(m.OperationID) || !slices.Contains([]string{"gru", "sfo", "fra"}, m.Region) || m.Slot < 1 || m.Slot > 1024 || m.Generation == 0 || identities[m.MemberID] || len(m.PublicKeys) != len(Roles) {
+		if !validToken(m.MemberID) || !validToken(m.NodeID) || !validToken(m.OperationID) || !canonicalRegion(m.Region) || m.Slot < 1 || m.Slot > 1024 || m.Generation == 0 || identities[m.MemberID] || len(m.PublicKeys) != len(Roles) {
 			return ErrInvalid
 		}
-		if _, err := hostagent.NewNodeId(m.NodeID); err != nil {
+		if _, err := hostagent.NewNodeId(m.NodeID); err != nil || !strings.HasPrefix(m.NodeID, m.Region+"-") {
 			return ErrInvalid
 		}
 		identities[m.MemberID] = true
@@ -134,11 +135,17 @@ func ApplyOptions(baseline *server.Options, d Desired, p Policy) (*server.Option
 	}
 	managed := map[string]bool{}
 	for _, m := range d.Members {
+		if _, ok := p.Regions[m.Region]; !ok {
+			return nil, ErrInvalid
+		}
 		for _, key := range m.PublicKeys {
 			managed[key] = true
 		}
 	}
 	for _, r := range d.Retired {
+		if _, ok := p.Regions[r.Member.Region]; !ok {
+			return nil, ErrInvalid
+		}
 		for _, key := range r.Member.PublicKeys {
 			managed[key] = true
 		}

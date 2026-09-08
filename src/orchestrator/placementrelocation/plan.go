@@ -53,8 +53,11 @@ type BuildInput struct {
 	Replacement     Target
 	PriorProof      placementtransition.Signed
 	PriorStage      []byte
-	Records         []databaseadmission.Record
-	Revisions       map[string]uint64
+	// Records must come from admission.RelocationRecords and be reserved by
+	// BeginPlacementRelocation before any effect. Only that authoritative
+	// snapshot can establish that omitted scopes completed retirement.
+	Records   []databaseadmission.Record
+	Revisions map[string]uint64
 }
 
 func Digest(value any) (string, error) {
@@ -106,6 +109,17 @@ func Build(input BuildInput) (Plan, error) {
 	if removed == "" || removed != input.Replacement.Region || !strings.HasPrefix(input.RemovedIdentity, prefix) {
 		return Plan{}, ErrInvalid
 	}
+	// Completed inactive scopes can remain in the preceding accepted epoch.
+	// Drop them only from the successor built from the authoritative active
+	// snapshot; active database roles and residency remain immutable.
+	active := activeDatabases(input.Records)
+	canonical.Assignments = slices.DeleteFunc(canonical.Assignments, func(a *pb.PlacementDatabaseAssignment) bool { return !active[a.Database] })
+	for _, declaration := range old.Declarations {
+		if declaration == nil {
+			return Plan{}, ErrInvalid
+		}
+	}
+	old.Declarations = slices.DeleteFunc(old.Declarations, func(d *pb.PlacementDatabaseDeclaration) bool { return !active[d.Database] })
 	removedID := strings.TrimPrefix(input.RemovedIdentity, prefix)
 	replaced := 0
 	for _, region := range canonical.Regions {
@@ -206,6 +220,8 @@ func ValidatePlan(plan Plan) error {
 			return ErrInvalid
 		}
 	}
+	active := activeDatabases(plan.Records)
+	expected.Assignments = slices.DeleteFunc(expected.Assignments, func(a *pb.PlacementDatabaseAssignment) bool { return !active[a.Database] })
 	prefix := "spiffe://terrascale.tech/" + expected.Environment + "/terrabase-member/" + expected.Cluster + "/"
 	if !strings.HasPrefix(plan.RemovedIdentity, prefix) || !strings.HasPrefix(plan.ReplacementIdentity, prefix) {
 		return ErrInvalid
@@ -273,7 +289,7 @@ func ValidatePlan(plan Plan) error {
 		}
 		if i == 0 {
 			for _, declaration := range stage.Declarations {
-				if declarations[declaration.Database] != nil {
+				if declaration == nil || declarations[declaration.Database] != nil {
 					return ErrInvalid
 				}
 				declarations[declaration.Database] = declaration
@@ -322,4 +338,12 @@ func clone[T any](value T) T {
 	var result T
 	_ = json.Unmarshal(encoded, &result)
 	return result
+}
+
+func activeDatabases(records []databaseadmission.Record) map[string]bool {
+	active := make(map[string]bool, len(records))
+	for _, record := range records {
+		active[record.DatabaseID] = true
+	}
+	return active
 }

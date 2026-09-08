@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"maps"
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
@@ -30,9 +31,9 @@ const (
 	StageComplete          Stage = "complete"
 )
 
-// Replacement identifies one database's already-issued placement proposal.
-// ProposalDigest binds the reference to the exact signed proposal retained by
-// the placement issuer; this journal never manufactures a proposal.
+// Replacement identifies one database in a durably retained successor intent.
+// ProposalDigest binds the exact placement request before final proof issuance;
+// the relocation owner verifies the accepted proof against that same request.
 type Replacement struct {
 	DatabaseID        string `json:"database_id"`
 	IssuerOperationID string `json:"issuer_operation_id"`
@@ -211,12 +212,24 @@ func (j *typedJournal) Transact(ctx context.Context, write bool, change func(*st
 }
 
 func (j *Journal) Begin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
+	return j.begin(ctx, true, operationID, member, generation, inventoryRevision, replacements, survivors)
+}
+
+// CheckBegin verifies that the exact inventory can be retained without writing
+// an operation. Callers must recheck under their exclusive admission freeze;
+// this read alone does not reserve capacity against another concurrent writer.
+func (j *Journal) CheckBegin(ctx context.Context, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) error {
+	_, err := j.begin(ctx, false, operationID, member, generation, inventoryRevision, replacements, survivors)
+	return err
+}
+
+func (j *Journal) begin(ctx context.Context, write bool, operationID string, member MemberObservation, generation, inventoryRevision uint64, replacements []Replacement, survivors []MemberObservation) (Operation, error) {
 	if j == nil || j.journal == nil || !token(operationID) || !token(member.Identity) || !token(member.ResourceID) || !token(member.ProviderETag) || generation == 0 || inventoryRevision == 0 || validateReplacements(replacements) != nil {
 		return Operation{}, ErrInvalid
 	}
 	want := Operation{OperationID: operationID, MemberIdentity: member.Identity, ResourceID: member.ResourceID, ProviderETag: member.ProviderETag, Generation: generation, InventoryRevision: inventoryRevision, Replacements: cloneReplacements(replacements), Survivors: append([]MemberObservation(nil), survivors...), Stage: StageInventoryCaptured}
 	var result Operation
-	err := j.journal.Transact(ctx, true, func(s *state) error {
+	err := j.journal.Transact(ctx, write, func(s *state) error {
 		if old, ok := s.Operations[operationID]; ok {
 			if !sameOperation(old, want) {
 				return ErrConflict
@@ -224,10 +237,21 @@ func (j *Journal) Begin(ctx context.Context, operationID string, member MemberOb
 			result = old
 			return nil
 		}
-		if s.Operations == nil {
-			s.Operations = map[string]Operation{}
+		candidate := maps.Clone(s.Operations)
+		if candidate == nil {
+			candidate = map[string]Operation{}
 		}
-		s.Operations[operationID] = want
+		candidate[operationID] = want
+		if err := validateMap(candidate); err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(candidate)
+		if err != nil || len(encoded) > authorityjournal.MaximumStateBytes {
+			return ErrInvalid
+		}
+		if write {
+			s.Operations = candidate
+		}
 		result = want
 		return nil
 	})

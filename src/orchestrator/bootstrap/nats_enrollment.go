@@ -14,10 +14,11 @@ type EnrollmentBrokerConfig struct {
 		Read(context.Context) ([]byte, error)
 		Ack(context.Context, []byte) error
 	}
-	MinimumRevision uint64
-	Verifier        *brokeradmission.Verifier
-	Policy          brokeradmission.Policy
-	CheckpointPath  string
+	MinimumRevision       uint64
+	AllowInitialBootstrap bool
+	Verifier              *brokeradmission.Verifier
+	Policy                brokeradmission.Policy
+	CheckpointPath        string
 	// CheckAuthority checks the exact live desired epoch/lease before applying a
 	// newly read signed journal record. Restart recovery uses only the retained
 	// signed checkpoint and keeps serving when control authority is unavailable.
@@ -40,6 +41,14 @@ func prepareEnrollmentBroker(ctx context.Context, baseline *server.Options, conf
 	_, desired, err := brokeradmission.ReadCheckpoint(config.CheckpointPath, config.Verifier)
 	if err != nil {
 		return nil, err
+	}
+	if desired.Revision == 0 && config.MinimumRevision == 0 {
+		if !config.AllowInitialBootstrap {
+			return nil, brokeradmission.ErrInvalid
+		}
+		if err := brokeradmission.ClaimInitialBootstrap(config.CheckpointPath); err != nil {
+			return nil, err
+		}
 	}
 	if desired.Revision < config.MinimumRevision {
 		if config.Source == nil {

@@ -10,6 +10,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
+	"terrascale.tech/orchestrator/src/orchestrator/brokeradmission"
 	"terrascale.tech/orchestrator/src/orchestrator/enrollment"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
@@ -20,6 +21,7 @@ import (
 )
 
 type productionEnrollmentFile struct {
+	BrokerIDs     []string                       `json:"broker_ids"`
 	SignerFile    string                         `json:"signer_file"`
 	PublicKeyFile string                         `json:"public_key_file"`
 	Templates     map[string]enrollment.Template `json:"templates"`
@@ -27,7 +29,8 @@ type productionEnrollmentFile struct {
 type computeProjection func(context.Context, estate.Region) (ocireconcile.ComputeDeclared, error)
 type computeTargetProjection func(context.Context, estate.Region) (uint16, error)
 type productionEnrollmentProjection struct {
-	journal interface {
+	publishGrants func(context.Context) error
+	journal       interface {
 		Read(context.Context) (enrollment.State, error)
 		Retire(context.Context, string, int, hostremoval.Operation) error
 	}
@@ -47,7 +50,7 @@ type productionEnrollmentProjection struct {
 
 func newProductionEnrollmentProjection(ctx context.Context, session globalWorkerSession, global *productionGlobalFile, environment, cluster string) (*productionEnrollmentProjection, func() error, error) {
 	config := global.Compute.Enrollment
-	if config == nil || config.SignerFile == "" || config.PublicKeyFile == "" || len(config.Templates) == 0 {
+	if config == nil || config.SignerFile == "" || config.PublicKeyFile == "" || len(config.Templates) == 0 || len(config.BrokerIDs) == 0 {
 		return nil, nil, errors.New("runtime enrollment: signed bootstrap templates and delegated signer are required")
 	}
 	signer, err := security.LoadCommandSignatureSignerPEM(config.SignerFile)
@@ -64,6 +67,21 @@ func newProductionEnrollmentProjection(ctx context.Context, session globalWorker
 	}
 	authority := authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId}
 	journal, err := enrollment.NewJournal(authority)
+	if err != nil {
+		return fail(err)
+	}
+	verifier, err := brokeradmission.NewVerifier(public, signer.PublicKeyID())
+	if err != nil {
+		return fail(err)
+	}
+	seenBrokers := map[string]bool{}
+	for _, id := range config.BrokerIDs {
+		if _, _, err := brokeradmission.ReaderPermissions(id); err != nil || seenBrokers[id] {
+			return fail(brokeradmission.ErrInvalid)
+		}
+		seenBrokers[id] = true
+	}
+	grants, err := brokeradmission.NewPublisher(authority, signer, verifier, environment, cluster)
 	if err != nil {
 		return fail(err)
 	}
@@ -112,7 +130,26 @@ func newProductionEnrollmentProjection(ctx context.Context, session globalWorker
 		template.Files = files
 		templates[region] = template
 	}
-	return &productionEnrollmentProjection{journal: journal, removals: removals, producer: producer, templates: templates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}, signer.Close, nil
+	projection := &productionEnrollmentProjection{journal: journal, removals: removals, producer: producer, templates: templates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}
+	brokers := slices.Clone(config.BrokerIDs)
+	projection.publishGrants = func(ctx context.Context) error {
+		state, err := journal.Read(ctx)
+		if err != nil {
+			return err
+		}
+		wire, err := grants.Publish(ctx, state)
+		if err != nil {
+			return err
+		}
+		if err := session.CheckEffectAuthority(ctx); err != nil {
+			return err
+		}
+		if err := brokeradmission.Acknowledged(ctx, session.Connection, brokers, wire, verifier); err != nil {
+			return errors.Join(errBrokerGrantsPending, err)
+		}
+		return session.CheckEffectAuthority(ctx)
+	}
+	return projection, signer.Close, nil
 }
 func (p *productionEnrollmentProjection) Declared(ctx context.Context, region estate.Region) (ocireconcile.ComputeDeclared, error) {
 	p.mu.Lock()
@@ -174,7 +211,43 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 		}
 	}
 	result.Candidates = slices.Clone(result.CandidatesByMember[1])
+	if p.publishGrants != nil {
+		if err := p.publishGrants(ctx); err != nil {
+			return ocireconcile.ComputeDeclared{}, err
+		}
+	}
 	return result, nil
+}
+
+var errBrokerGrantsPending = errors.New("runtime enrollment: broker grant acknowledgements pending")
+
+func (p *productionEnrollmentProjection) retireCompleted(ctx context.Context, operation string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	removal, err := p.removals.Load(ctx, operation)
+	if err != nil {
+		return err
+	}
+	if removal.Stage != hostremoval.StageComplete {
+		return enrollment.ErrInvalid
+	}
+	state, err := p.journal.Read(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range state.Records {
+		if enrollment.Identity(record, "member") != removal.MemberIdentity || record.Generation != removal.Generation {
+			continue
+		}
+		if err := p.prepareReenrollment(ctx, record.Region, record.Slot, autoscale.CompletedRemoval{OperationID: operation, ResourceID: removal.ResourceID}); err != nil {
+			return err
+		}
+		return p.publishGrants(ctx)
+	}
+	if _, ok := state.Retired[operation]; ok {
+		return p.publishGrants(ctx)
+	}
+	return enrollment.ErrInvalid
 }
 
 // TargetCount reads the durable target without enrolling slots or constructing

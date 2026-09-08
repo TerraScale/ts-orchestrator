@@ -9,8 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
-	"os"
-	"path/filepath"
 	"reflect"
 
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
@@ -128,65 +126,4 @@ func CheckAdvance(prior, next Desired) error {
 		}
 	}
 	return nil
-}
-
-// ReadCheckpoint loads the last durable signed desired state before a broker
-// opens its listener. Missing files mean first enrollment; corrupt files fail.
-func ReadCheckpoint(path string, v *Verifier) ([]byte, Desired, error) {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return nil, Desired{}, nil
-	}
-	if err != nil {
-		return nil, Desired{}, err
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > MaximumBytes {
-		return nil, Desired{}, ErrInvalid
-	}
-	wire, err := os.ReadFile(path)
-	if err != nil {
-		return nil, Desired{}, err
-	}
-	desired, err := v.Verify(wire)
-	return wire, desired, err
-}
-
-// PersistCheckpoint uses fsync+rename+directory fsync. Call before native
-// reload so a crash can never restore already-revoked bootstrap credentials.
-func PersistCheckpoint(path string, wire []byte) error {
-	if !filepath.IsAbs(path) || len(wire) == 0 || len(wire) > MaximumBytes {
-		return ErrInvalid
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(dir, ".broker-grants-*")
-	if err != nil {
-		return err
-	}
-	name := file.Name()
-	defer os.Remove(name)
-	if err = file.Chmod(0600); err == nil {
-		_, err = file.Write(wire)
-	}
-	if err == nil {
-		err = file.Sync()
-	}
-	closeErr := file.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = os.Rename(name, path); err != nil {
-		return err
-	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
 }

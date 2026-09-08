@@ -36,7 +36,7 @@ func relocationEnrolledFixture(t *testing.T) (enrollment.Record, ed25519.PublicK
 }
 
 func TestRelocationTargetAdmitsNewSurvivorOnlyFromExactDurableIdentity(t *testing.T) {
-	for _, scenario := range []string{"new survivor", "retired member", "wrong generation", "wrong provider incarnation", "duplicate slot", "missing principal", "invalid receipt key", "lost authority"} {
+	for _, scenario := range []string{"new survivor", "retired member", "wrong generation", "wrong provider incarnation", "foreign Region", "stopped exact resource", "duplicate slot", "missing principal", "invalid receipt key", "lost authority"} {
 		t.Run(scenario, func(t *testing.T) {
 			record, public := relocationEnrolledFixture(t)
 			identity := enrollment.Identity(record, "member")
@@ -61,6 +61,10 @@ func TestRelocationTargetAdmitsNewSurvivorOnlyFromExactDurableIdentity(t *testin
 				ownership.record.Generation.Value++
 			case "wrong provider incarnation":
 				gateway.current.ID = "oci-replacement"
+			case "foreign Region":
+				ownership.record.CellId.Value = "fra"
+			case "stopped exact resource":
+				gateway.current.LifecycleState = "STOPPED"
 			case "duplicate slot":
 				gateway.listed = append(gateway.listed, listed)
 			case "missing principal":

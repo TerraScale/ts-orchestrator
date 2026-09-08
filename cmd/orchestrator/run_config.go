@@ -23,6 +23,7 @@ const maximumRunConfigurationBytes = 64 << 10
 // Values are nonsecret settings and credential file references. Inline provider
 // tokens, private keys, and arbitrary environment variables are not supported.
 var runConfigurationKeys = map[string]bool{
+	brokerAdmissionEnvironment:                 true,
 	runmaterial.Environment:                    true,
 	placementpublisher.BrokerGrantsEnvironment: true,
 	databaseadmission.BrokerGrantsEnvironment:  true,
@@ -123,7 +124,7 @@ func parseRunConfiguration(data []byte) (envLookup, error) {
 		return nil, errors.New("run file configuration requires a production cell and OCI provider")
 	}
 	if inventory, present := values[runmaterial.Environment]; present {
-		if err := runmaterial.Verify(inventory); err != nil {
+		if err := runmaterial.VerifySettings(inventory, values); err != nil {
 			return nil, err
 		}
 	}

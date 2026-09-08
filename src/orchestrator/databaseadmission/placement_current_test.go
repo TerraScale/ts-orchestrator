@@ -182,7 +182,7 @@ func TestPlacementRelocationInactiveScopeRequiresCompletedEffects(t *testing.T) 
 }
 
 func TestRelocationReadinessBindsSuccessorOperation(t *testing.T) {
-	_, _, record, _ := successorFixture(t)
+	state, old, record, proofKey := successorFixture(t)
 	nonce := strings.Repeat("e", 64)
 	receipts, keys, private := readinessFixture(t, record, nonce)
 	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, keys, time.Now()); err == nil {
@@ -203,6 +203,23 @@ func TestRelocationReadinessBindsSuccessorOperation(t *testing.T) {
 	if err := ValidateRelocationReadiness(record, "relocate-one", receipts, nonce, nil, time.Now()); err == nil {
 		t.Fatal("unpinned readiness accepted")
 	}
+	// Match production Ready: fresh validated evidence is stored in the candidate
+	// record before Commit, while original admission evidence remains untouched.
+	record.ReadinessNonce, record.ReadyEvidence, record.State = nonce, receipts, "ready"
+	if err := beginPlacementRelocation(&state, "relocate-one", []Record{old}); err != nil {
+		t.Fatal(err)
+	}
+	state.PlacementRelocationStarted = true
+	if err := commitPlacementRelocation(&state, "relocate-one", []Record{record}, proofKey); err != nil {
+		t.Fatal("Ready output failed commit", err)
+	}
+	if !reflect.DeepEqual(state.Records[ScopeKey(old.Request)], old) || !reflect.DeepEqual(currentPlacementRecords(state)[0].ReadyEvidence, receipts) {
+		t.Fatal("readiness history overwritten or current evidence lost")
+	}
+	if err := validateCurrentPlacements(state); err != nil {
+		t.Fatal("persisted readiness failed validation", err)
+	}
+
 }
 
 func TestPlacementRelocationStreamAllocationFailureAndRetryRetainsFence(t *testing.T) {

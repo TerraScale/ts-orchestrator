@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
+	"terrascale.tech/orchestrator/src/orchestrator/transitiongrant"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
@@ -29,6 +31,23 @@ func (services *qualificationRuntimeServices) bootstrapCandidate(guest vmqual.Gu
 	material, ok := services.controlAdmission.candidates[guest.ID]
 	manifest := services.controlAdmission.candidateManifests[guest.ID]
 	if !ok || material.Config.Region != strings.ToLower(string(guest.Region)) || material.ValidateManifest(manifest) != nil {
+		return vmimage.TSNodeBootstrap{}, nil, bad
+	}
+	preparation, err := transitiongrant.VerifyGrant(material.PublicKeyPEM, material.PreparationGrant)
+	if err != nil || services.bootstrapIssuer == nil || !services.controlReady[preparation.Grant.Source.NodeID] {
+		return vmimage.TSNodeBootstrap{}, nil, bad
+	}
+	source, err := services.bootstrapIssuer.AdmittedGrant(preparation.Grant.Source.NodeID)
+	if err != nil || !bytes.Equal(source.PublicKeyPEM, material.PublicKeyPEM) {
+		return vmimage.TSNodeBootstrap{}, nil, bad
+	}
+	proof, err := initialgrant.VerifyProof(preparation.Grant.Source.NodeID, source.PublicKeyPEM, source.SignedGrant)
+	if err != nil || proof == nil {
+		return vmimage.TSNodeBootstrap{}, nil, bad
+	}
+	sourceIdentity := proof.Identity()
+	expected := preparation.Grant.Source
+	if proof.Config().Role != "seed" || proof.Config().Broker.ServerName != expected.ServerName || sourceIdentity.GrantSHA256 != expected.InitialGrantSHA256 || sourceIdentity.StoreScopeSHA256 != expected.StoreScopeSHA256 {
 		return vmimage.TSNodeBootstrap{}, nil, bad
 	}
 	identity := services.natsAuthority.guests[guest.ID]

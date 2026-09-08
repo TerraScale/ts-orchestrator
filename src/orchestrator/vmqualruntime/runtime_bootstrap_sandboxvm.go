@@ -10,6 +10,14 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
 
+func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest vmqual.Guest) error {
+	services, ok := factory.services.(*qualificationRuntimeServices)
+	if !ok || services == nil || guest.Region == "GRU" {
+		return nil
+	}
+	return services.prepareCandidate(ctx, guest)
+}
+
 // guestReady is called only after the provider's real ready transition. The
 // reserved expansion network is not evidence that its guests are admitted.
 func (factory *firecrackerFactory) guestReady(ctx context.Context, host string) error {

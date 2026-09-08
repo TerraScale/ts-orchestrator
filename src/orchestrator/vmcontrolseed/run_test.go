@@ -1,7 +1,13 @@
 package vmcontrolseed
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json/v2"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +17,32 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/initialgrant"
 )
 
-func runAdmissionFixture(t *testing.T) (Material, hostmanifest.HostManifest, RunAdmission) {
+func runAdmissionFixture(t *testing.T) (Material, hostmanifest.HostManifest, RunAdmission, map[string][]byte) {
 	t.Helper()
-	guest := Guest{ID: "gru-member-1", Address: "10.77.0.10", MembershipPublicKey: membershipPublic(t)}
+	member, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&member.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateDER, err := x509.MarshalPKCS8PrivateKey(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(privateDER)
+	guest := Guest{ID: "gru-member-1", Address: "10.77.0.10", MembershipPublicKey: base64.StdEncoding.EncodeToString(publicDER)}
+	pins, err := json.Marshal(map[string]string{guest.ID: guest.MembershipPublicKey}, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := map[string][]byte{MembershipKeyPath: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), MembershipPinsPath: pins, "/etc/terrascale/database/host.json": []byte(`{"version":1}`)}
+	t.Cleanup(func() {
+		for _, raw := range dependencies {
+			clear(raw)
+		}
+	})
 	seeds, err := GenerateGRU("run-admission", []Guest{guest})
 	if err != nil {
 		t.Fatal(err)
@@ -54,12 +83,12 @@ func runAdmissionFixture(t *testing.T) (Material, hostmanifest.HostManifest, Run
 		admission.Files[target] = RunFile{Source: path, SHA256: digest(data)}
 	}
 	base := hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{{Name: "orchestrator", Version: "1.0.0", Sha256: strings.Repeat("a", 64), ArtifactURL: "https://releases.terrascale.tech/releases/orchestrator/1.0.0/orchestrator", SignatureURL: "https://releases.terrascale.tech/releases/orchestrator/1.0.0/orchestrator.sig", User: ServiceUser, DataVolume: "/var/lib/terrascale/orchestrator", CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100, Arguments: RunArguments, Configuration: `{"TS_ORCH_DATABASE_HOST_FILE":"/etc/terrascale/database/host.json"}`}}}
-	return seed, base, admission
+	return seed, base, admission, dependencies
 }
 
 func TestRunManifestPreservesCallbacksAndBindsInitialPredecessor(t *testing.T) {
-	seed, base, admission := runAdmissionFixture(t)
-	run, err := seed.RunManifest(base, admission)
+	seed, base, admission, dependencies := runAdmissionFixture(t)
+	run, err := seed.RunManifest(base, admission, dependencies)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +126,9 @@ func TestRunManifestPreservesCallbacksAndBindsInitialPredecessor(t *testing.T) {
 }
 
 func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
-	for _, name := range []string{"generation", "initial key", "initial tls", "R1", "provider", "missing runtime", "changed digest", "callback conflict", "shell target", "writable material volume"} {
+	for _, name := range []string{"generation", "initial key", "initial tls", "R1", "provider", "missing runtime", "changed digest", "callback conflict", "shell target", "writable material volume", "unbound runtime reference", "unbound broker reference", "missing callback dependency"} {
 		t.Run(name, func(t *testing.T) {
-			seed, base, admission := runAdmissionFixture(t)
+			seed, base, admission, dependencies := runAdmissionFixture(t)
 			replace := func(target string, data []byte) {
 				path := filepath.Join(t.TempDir(), "replacement")
 				if err := os.WriteFile(path, data, 0400); err != nil {
@@ -108,6 +137,12 @@ func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
 				admission.Files[target] = RunFile{Source: path, SHA256: digest(data)}
 			}
 			switch name {
+			case "unbound runtime reference":
+				replace(admission.Settings["TS_ORCH_PRODUCTION_RUNTIME_FILE"], []byte(`{"version":1,"serviceKeyFile":"/etc/terrascale/not-admitted.key"}`))
+			case "unbound broker reference":
+				replace(admission.Settings["TS_ORCH_NATS_SERVER_CONFIG_FILE"], []byte(`{"tls":{"cert_file":"/etc/terrascale/not-admitted.pem"}}`))
+			case "missing callback dependency":
+				delete(dependencies, "/etc/terrascale/database/host.json")
 			case "writable material volume":
 				base.Components[0].DataVolume = "/etc/terrascale"
 			case "shell target":
@@ -137,7 +172,7 @@ func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
 			case "callback conflict":
 				admission.Settings["TS_ORCH_DATABASE_HOST_FILE"] = "/etc/terrascale/foreign.json"
 			}
-			if material, err := seed.RunManifest(base, admission); err == nil {
+			if material, err := seed.RunManifest(base, admission, dependencies); err == nil {
 				material.Clear()
 				t.Fatal("unsafe production run admission accepted")
 			}

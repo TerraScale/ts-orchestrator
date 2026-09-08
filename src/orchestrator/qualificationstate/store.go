@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -16,7 +17,10 @@ import (
 var recordName = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,126}[a-z0-9]$`)
 var ErrState = errors.New("qualificationstate: protected immutable admission unavailable")
 
-type Store struct{ directory *os.File }
+type Store struct {
+	mu        sync.Mutex
+	directory *os.File
+}
 
 // Open creates missing protected directories while traversing verified directory
 // descriptors. No symlink or writable untrusted ancestor is followed.
@@ -56,7 +60,12 @@ func Open(path string) (*Store, error) {
 	return &Store{directory: os.NewFile(uintptr(fd), path)}, nil
 }
 func (s *Store) Close() error {
-	if s == nil || s.directory == nil {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.directory == nil {
 		return nil
 	}
 	err := s.directory.Close()
@@ -68,7 +77,12 @@ func (s *Store) Close() error {
 // created bytes once. A valid pending record from interrupted publication is
 // recovered; an incomplete pending record fails closed and is never regenerated.
 func (s *Store) LoadOrCreate(name string, maximum int64, create func() ([]byte, error), validate func([]byte) error) ([]byte, error) {
-	if s == nil || s.directory == nil || !recordName.MatchString(name) || strings.HasSuffix(name, ".pending") || maximum <= 0 || maximum > 16<<20 || create == nil || validate == nil {
+	if s == nil {
+		return nil, ErrState
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.directory == nil || !recordName.MatchString(name) || strings.HasSuffix(name, ".pending") || maximum <= 0 || maximum > 16<<20 || create == nil || validate == nil {
 		return nil, ErrState
 	}
 	fd := int(s.directory.Fd())

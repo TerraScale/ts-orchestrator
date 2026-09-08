@@ -210,11 +210,6 @@ func startDeliveryTestNATS(t *testing.T) (*natsserver.Server, *qualificationNATS
 	if err != nil {
 		t.Fatal(err)
 	}
-	return startDeliveryTestNATSPlan(t, plan)
-}
-
-func startDeliveryTestNATSPlan(t *testing.T, plan vmnet.NetworkPlan) (*natsserver.Server, *qualificationNATSAuthority) {
-	t.Helper()
 	authority, err := newQualificationNATSAuthority(plan)
 	if err != nil {
 		t.Fatal(err)

@@ -162,7 +162,7 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		}
 		seenArtifacts[artifact.Component] = true
 	}
-	result := &qualificationControlAdmission{source: &qualificationAdmittedControlSource{config: bootstrap.NATSControlRuntimeConfig{Stores: map[string]bootstrap.ControlNATSStore{}}, admissions: map[string]qualificationControlHostAdmission{}, expectedStoreServers: map[string]string{}}, candidates: map[string]vmcandidateseed.Material{}, candidateManifests: map[string][]byte{}, memberships: map[string]*qualificationMembershipIdentity{}}
+	result := &qualificationControlAdmission{source: &qualificationAdmittedControlSource{config: bootstrap.NATSControlRuntimeConfig{Stores: map[string]bootstrap.ControlNATSStore{}}, admissions: map[string]qualificationControlHostAdmission{}, expectedStoreServers: map[string]string{}, admittedIssuedAt: admitted.IssuedAt, admittedExpiresAt: admitted.ExpiresAt}, candidates: map[string]vmcandidateseed.Material{}, candidateManifests: map[string][]byte{}, memberships: map[string]*qualificationMembershipIdentity{}}
 	defer func() {
 		if err != nil {
 			result.Clear()
@@ -196,6 +196,7 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		result.source.expectedStoreServers[name] = store.Reader.ServerName
 	}
 	members := map[string]string{}
+	membersByHost := map[string]bootstrap.ControlRuntimeMember{}
 	arch := runtimeplan.HostArchitectureX64
 	if architecture == vmimage.ARM64 {
 		arch = runtimeplan.HostArchitectureArm64
@@ -223,6 +224,7 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		result.source.admissions[member.HostID] = qualificationControlHostAdmission{Architecture: arch, Generation: entry.Generation}
 		result.source.config.Members = append(result.source.config.Members, member)
 		members[member.MemberID] = member.Region
+		membersByHost[member.HostID] = member
 	}
 	bound := map[string]bool{}
 	regions := map[string]bool{}
@@ -269,6 +271,8 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		return nil, errQualificationControlDeclaration
 	}
 	candidateRegions := map[string]bool{}
+	var preparation []byte
+	candidatePlan := ""
 	for _, candidate := range admitted.Candidates {
 		region := guests[candidate.NodeID]
 		if region != "sfo" && region != "fra" || candidateRegions[region] {
@@ -283,7 +287,13 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 			return nil, loadErr
 		}
 		result.candidates[candidate.NodeID] = material
-		if material.PlanSHA256 != candidate.PlanSHA256 || !bytes.Equal(material.PublicKeyPEM, public) {
+		if material.PlanSHA256 != candidate.PlanSHA256 || material.Config.ServerName != membersByHost[candidate.NodeID].ServerName || !bytes.Equal(material.PublicKeyPEM, public) {
+			return nil, errQualificationControlDeclaration
+		}
+		if preparation == nil {
+			preparation = material.PreparationGrant
+			candidatePlan = material.PlanSHA256
+		} else if !bytes.Equal(preparation, material.PreparationGrant) || candidatePlan != material.PlanSHA256 {
 			return nil, errQualificationControlDeclaration
 		}
 		var document struct {
@@ -318,7 +328,7 @@ func validateQualificationManifestArtifacts(manifest hostmanifest.HostManifest, 
 	}
 	for i, component := range manifest.Components {
 		artifact, ok := artifacts[component.Name]
-		if !ok || component.Name == "ts-node" || component.Version != planned.Components[i].Version || component.Sha256 != artifact.SHA256 || component.ArtifactURL != artifact.Source {
+		if !ok || component.Name == "ts-node" || component.Version != planned.Components[i].Version || component.Sha256 != artifact.SHA256 || component.ArtifactURL != artifact.Source || component.SignatureURL != artifact.Source+".sig" {
 			return errQualificationControlDeclaration
 		}
 	}

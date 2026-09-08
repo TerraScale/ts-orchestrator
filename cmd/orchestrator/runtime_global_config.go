@@ -240,6 +240,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 			}
 			declared, err := projection.Declared(applyCtx, region)
 			if err != nil {
+				if errors.Is(err, errBrokerGrantsPending) {
+					return nil
+				}
 				return err
 			}
 
@@ -253,6 +256,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 				return fmt.Errorf("compute reconcile %s: %w", region.Code, err)
 			}
 			if err := reconciler.Apply(applyCtx, declared, observed, plan); err != nil {
+				if errors.Is(err, errBrokerGrantsPending) {
+					return nil
+				}
 				return fmt.Errorf("compute apply %s: %w", region.Code, err)
 			}
 		}
@@ -267,7 +273,19 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		if err != nil {
 			return nil, err
 		}
-		return newProductionHostRemovalFromPorts(ports, removalJournal)
+		owner, err := newProductionHostRemovalFromPorts(ports, removalJournal)
+		if err != nil {
+			return nil, err
+		}
+		production := owner.(*productionHostRemoval)
+		completed := production.completed
+		production.completed = func(ctx context.Context, operation string) error {
+			if err := completed(ctx, operation); err != nil {
+				return err
+			}
+			return projection.retireCompleted(ctx, operation)
+		}
+		return production, nil
 	}
 
 	if input.RestoreBackup != nil {

@@ -69,6 +69,9 @@ func (r *productionHostRemoval) AutoscaleRemovalComplete(ctx context.Context, ta
 	if operation.Stage == hostremoval.StageComplete {
 		if r.completed != nil {
 			if err := r.completed(ctx, operation.OperationID); err != nil {
+				if errors.Is(err, errBrokerGrantsPending) {
+					return false, nil
+				}
 				return false, err
 			}
 		}
@@ -76,7 +79,7 @@ func (r *productionHostRemoval) AutoscaleRemovalComplete(ctx context.Context, ta
 	}
 	member := ocireconcile.ObservedMember{ID: target.RemovalResourceID, Region: target.Region, Index: target.RemovalSlot}
 	if err := r.RemoveMember(ctx, target.RemovalOperationID, member, nil); err != nil {
-		if errors.Is(err, hostremoval.ErrPending) || errors.Is(err, provider.ErrComputeTerminationPending) {
+		if errors.Is(err, hostremoval.ErrPending) || errors.Is(err, provider.ErrComputeTerminationPending) || errors.Is(err, errBrokerGrantsPending) {
 			return false, nil
 		}
 		return false, err

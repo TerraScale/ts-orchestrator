@@ -116,7 +116,7 @@ func (m *RunMaterial) Clone() *RunMaterial {
 // constructs a CAS handoff from this host's initial manifest. Credentials are
 // separately admitted production identities; initial-only NKeys and TLS private
 // keys cannot be reused. This function does not observe or manufacture a lease.
-func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmission) (_ *RunMaterial, err error) {
+func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmission, dependencies map[string][]byte) (_ *RunMaterial, err error) {
 	bad := errors.New("vmcontrolseed: production run admission differs from host, settings or protected material")
 	if err := m.Validate(); err != nil {
 		return nil, err
@@ -200,10 +200,24 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 	if admission.Global != nil && (admission.Global.Connection.PublicNKey == admission.Regional.Connection.PublicNKey || bytes.Equal(result.Files[admission.Global.Connection.TLS.KeyFile], result.Files[admission.Regional.Connection.TLS.KeyFile])) {
 		return nil, bad
 	}
-	if broker, selected := settings["TS_ORCH_NATS_SERVER_CONFIG_FILE"]; selected && result.Files[broker] == nil {
+	if broker, selected := settings["TS_ORCH_NATS_SERVER_CONFIG_FILE"]; selected {
+		var document map[string]any
+		if result.Files[broker] == nil || json.Unmarshal(result.Files[broker], &document) != nil || document == nil {
+			return nil, bad
+		}
+	}
+	var membershipPins map[string]string
+	if json.Unmarshal(dependencies[MembershipPinsPath], &membershipPins) != nil || m.ValidateMembership(dependencies[MembershipKeyPath], membershipPins) != nil {
 		return nil, bad
 	}
-	inventoryPath, inventoryBytes, inventoryErr := runmaterial.Build(result.Files)
+	allFiles := maps.Clone(result.Files)
+	for path, raw := range dependencies {
+		if allFiles[path] != nil {
+			return nil, bad
+		}
+		allFiles[path] = raw
+	}
+	inventoryPath, inventoryBytes, inventoryErr := runmaterial.Build(allFiles)
 	if inventoryErr != nil {
 		return nil, inventoryErr
 	}
@@ -212,6 +226,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 	}
 	result.Files[inventoryPath] = inventoryBytes
 	result.fileDigests[inventoryPath] = digest(inventoryBytes)
+	allFiles[inventoryPath] = inventoryBytes
 	base.Components = slices.Clone(base.Components)
 	found := false
 	for i, component := range base.Components {
@@ -222,7 +237,7 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 			return nil, bad
 		}
 		found = true
-		for path := range result.Files {
+		for path := range allFiles {
 			if path == component.DataVolume || strings.HasPrefix(path, strings.TrimSuffix(component.DataVolume, "/")+"/") {
 				return nil, bad
 			}
@@ -235,6 +250,9 @@ func (m Material) RunManifest(base hostmanifest.HostManifest, admission RunAdmis
 			if !put(key, value) {
 				return nil, bad
 			}
+		}
+		if referenceErr := runmaterial.ValidateReferences(settings, allFiles); referenceErr != nil {
+			return nil, referenceErr
 		}
 		raw, marshalErr := json.Marshal(settings, json.Deterministic(true))
 		if marshalErr != nil {

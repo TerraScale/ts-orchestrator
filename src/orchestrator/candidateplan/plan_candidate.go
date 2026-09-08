@@ -56,6 +56,26 @@ type candidatePlanOutput struct {
 
 // Run emits public preparation artifacts only. The owner
 // signs the exact candidate manifests first, then the separate transition grant.
+// Plan is the immutable candidate intent. It contains no owner private-key path;
+// the command-line and live qualification callers supply their signing capability.
+type Plan struct {
+	PrivateMaterialDirectory string    `json:"privateMaterialDirectory,omitempty"`
+	SourceNodeID             string    `json:"sourceNodeId"`
+	TargetEpoch              uint64    `json:"targetEpoch"`
+	MinimumControlEpoch      uint64    `json:"minimumControlEpoch"`
+	TransitionID             string    `json:"transitionId"`
+	IssuedAt                 time.Time `json:"issuedAt"`
+	ExpiresAt                time.Time `json:"expiresAt"`
+	BootstrapExpiresAt       time.Time `json:"bootstrapExpiresAt"`
+	Candidates               []Entry   `json:"candidates"`
+}
+type Entry struct {
+	SyncGeneration   *vmcandidateseed.Declaration `json:"syncGeneration,omitempty"`
+	Manifest         hostmanifest.HostManifest    `json:"manifest"`
+	Config           transitiongrant.Config       `json:"config"`
+	BootstrapGrantID string                       `json:"bootstrapGrantId"`
+}
+
 func Run(ctx context.Context, path string, output io.Writer) error {
 	bad := errors.New("candidate plan: invalid protected input, owner identity or finite preparation binding")
 	if ctx == nil || output == nil {
@@ -70,44 +90,15 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 	}
 	defer clear(raw)
 	var input candidatePlanInput
-	if err := decodeCandidatePlan(raw, &input); err != nil {
-		return bad
-	}
-	if len(input.Candidates) != 2 {
-		return bad
-	}
-	canonicalInput, err := json.Marshal(input)
-	if err != nil {
-		return bad
-	}
-	defer clear(canonicalInput)
-	now := time.Now().UTC()
-	if input.IssuedAt.IsZero() || now.Before(input.IssuedAt) || !now.Before(input.ExpiresAt) || !input.BootstrapExpiresAt.After(input.IssuedAt) || input.BootstrapExpiresAt.After(input.ExpiresAt) || !now.Before(input.BootstrapExpiresAt) {
+	if decodeCandidatePlan(raw, &input) != nil {
 		return bad
 	}
 	public, err := bootstrapcredentials.ReadFile(input.PublicKeyFile, false, 32<<10)
 	if err != nil {
 		return bad
 	}
-	sourceSigned, err := bootstrapcredentials.ReadFile(input.SourceBootstrapGrantFile, true, 2<<20)
+	source, err := bootstrapcredentials.ReadFile(input.SourceBootstrapGrantFile, true, 2<<20)
 	if err != nil {
-		return bad
-	}
-	planHash := sha256.New()
-	_, _ = planHash.Write(canonicalInput)
-	_, _ = planHash.Write(public)
-	_, _ = planHash.Write(sourceSigned)
-	planSHA256 := hex.EncodeToString(planHash.Sum(nil))
-	proof, err := initialgrant.VerifyProof(input.SourceNodeID, public, sourceSigned)
-	if err != nil || proof == nil || proof.Config().Role != "seed" {
-		return bad
-	}
-	source, err := nodebootstrap.NewBootstrapAuthority(input.SourceNodeID, public, sourceSigned)
-	if err != nil {
-		return bad
-	}
-	identity := proof.Identity()
-	if now.Before(identity.IssuedAt) || !now.Before(identity.ExpiresAt) {
 		return bad
 	}
 	private, err := bootstrapcredentials.ReadFile(input.OwnerPrivateKeyFile, true, 32<<10)
@@ -120,93 +111,155 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 		return bad
 	}
 	defer signer.Close()
-	ownerBlock, _ := pem.Decode(public)
-	if ownerBlock == nil {
-		return bad
+	plan := Plan{PrivateMaterialDirectory: input.PrivateMaterialDirectory, SourceNodeID: input.SourceNodeID, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, BootstrapExpiresAt: input.BootstrapExpiresAt}
+	for _, entry := range input.Candidates {
+		plan.Candidates = append(plan.Candidates, Entry{SyncGeneration: entry.SyncGeneration, Manifest: entry.Manifest, Config: entry.Config, BootstrapGrantID: entry.BootstrapGrantID})
 	}
-	ownerSum := sha256.Sum256(ownerBlock.Bytes)
-	if signer.PublicKeyID() != hex.EncodeToString(ownerSum[:]) {
-		return bad
-	}
-	sourceConfig := proof.Config()
-	grant := transitiongrant.Grant{Version: 1, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, Source: transitiongrant.SourceIdentity{NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, InitialGrantSHA256: source.Digest(), StoreScopeSHA256: identity.StoreScopeSHA256}, Peers: []transitiongrant.Peer{{Region: "gru", NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, BootstrapGrantSHA256: source.Digest(), PreparedManifestSHA256: identity.ManifestSHA256}}}
-	bundle := candidatePlanBundle{PublicKeyPEM: string(public)}
-	for i, region := range []string{"sfo", "fra"} {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		entry := input.Candidates[i]
-		if entry.Config.Region != region || entry.Config.TransitionID != input.TransitionID {
-			return bad
-		}
-		if entry.SyncGeneration != nil {
-			if input.PrivateMaterialDirectory == "" {
-				return bad
-			}
-			material, err := vmcandidateseed.Generate(input.PrivateMaterialDirectory, entry.Config, *entry.SyncGeneration, planSHA256)
-			if err != nil {
-				return err
-			}
-			entry.Config = material.Config
-			input.Candidates[i].Config = material.Config
-			material.Clear()
-		} else if input.PrivateMaterialDirectory != "" {
-			return bad
-		}
-		manifest, err := bootstrap.PlanControlCandidateManifest(entry.Manifest, entry.Config)
-		if err != nil {
-			return bad
-		}
-		manifestJSON, err := hostmanifest.CanonicalHostManifestJSON(manifest)
-		if err != nil {
-			return bad
-		}
-		signed, err := nodebootstrap.SignBootstrapGrant(signer, nodebootstrap.BootstrapGrant{Version: 1, GrantID: entry.BootstrapGrantID, NodeID: entry.Config.NodeID, Manifest: manifestJSON, IssuedAt: input.IssuedAt, ExpiresAt: input.BootstrapExpiresAt})
-		if err != nil {
-			return bad
-		}
-		// Verification with the source's owner public key also rejects a mismatched
-		// private signing credential before any output is emitted.
-		peer, err := bootstrap.PlanControlCandidatePeer(entry.Config, public, signed)
-		if err != nil {
-			return bad
-		}
-		grant.Peers = append(grant.Peers, peer)
-		bundle.Candidates = append(bundle.Candidates, candidatePlanOutput{NodeID: entry.Config.NodeID, Manifest: manifestJSON, BootstrapGrant: signed})
-	}
-	signed, err := transitiongrant.SignGrant(signer, grant)
+	encoded, err := Prepare(ctx, plan, public, source, signer)
 	if err != nil {
-		return bad
-	}
-	verified, err := transitiongrant.VerifyGrant(public, signed)
-	if err != nil {
-		return bad
-	}
-	for i, entry := range input.Candidates {
-		peer := grant.Peers[i+1]
-		if err := verified.CheckCandidate(time.Now().UTC(), entry.Config, peer.BootstrapGrantSHA256, peer.PreparedManifestSHA256); err != nil {
-			return bad
-		}
-	}
-	bundle.PreparationGrant = signed
-	encoded, err := json.Marshal(bundle)
-	if err != nil {
-		return bad
-	}
-	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if input.PrivateMaterialDirectory != "" {
-		encoded, err = vmcandidateseed.PersistBundle(input.PrivateMaterialDirectory, planSHA256, encoded)
-		if err != nil {
-			return err
-		}
 	}
 	encoded = append(encoded, '\n')
 	if n, err := output.Write(encoded); err != nil || n != len(encoded) {
 		return errors.New("candidate plan: could not write public bundle")
 	}
 	return nil
+}
+
+// Prepare binds the exact issued source grant to both finite preparation peers.
+// It does not establish source liveness; the live caller verifies its source
+// store before entering this function. Private identity and bundle persistence
+// complete before any signed bytes are returned.
+func Prepare(ctx context.Context, input Plan, public, sourceSigned []byte, signer *security.CommandSignatureSigner) ([]byte, error) {
+	bad := errors.New("candidate plan: invalid source, owner identity or finite preparation binding")
+	if ctx == nil || signer == nil || len(public) > 32<<10 || len(sourceSigned) > 2<<20 {
+		return nil, bad
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Copy nested configurations before generated receipt identities are bound.
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var copied Plan
+	if err := json.Unmarshal(raw, &copied); err != nil {
+		return nil, err
+	}
+	input = copied
+	if len(input.Candidates) != 2 {
+		return nil, bad
+	}
+	canonicalInput, err := json.Marshal(input)
+	if err != nil {
+		return nil, bad
+	}
+	defer clear(canonicalInput)
+	now := time.Now().UTC()
+	if input.IssuedAt.IsZero() || now.Before(input.IssuedAt) || !now.Before(input.ExpiresAt) || !input.BootstrapExpiresAt.After(input.IssuedAt) || input.BootstrapExpiresAt.After(input.ExpiresAt) || !now.Before(input.BootstrapExpiresAt) {
+		return nil, bad
+	}
+	planHash := sha256.New()
+	_, _ = planHash.Write(canonicalInput)
+	_, _ = planHash.Write(public)
+	_, _ = planHash.Write(sourceSigned)
+	planSHA256 := hex.EncodeToString(planHash.Sum(nil))
+	proof, err := initialgrant.VerifyProof(input.SourceNodeID, public, sourceSigned)
+	if err != nil || proof == nil || proof.Config().Role != "seed" {
+		return nil, bad
+	}
+	source, err := nodebootstrap.NewBootstrapAuthority(input.SourceNodeID, public, sourceSigned)
+	if err != nil {
+		return nil, bad
+	}
+	identity := proof.Identity()
+	if now.Before(identity.IssuedAt) || !now.Before(identity.ExpiresAt) {
+		return nil, bad
+	}
+	ownerBlock, _ := pem.Decode(public)
+	if ownerBlock == nil {
+		return nil, bad
+	}
+	ownerSum := sha256.Sum256(ownerBlock.Bytes)
+	if signer.PublicKeyID() != hex.EncodeToString(ownerSum[:]) {
+		return nil, bad
+	}
+	sourceConfig := proof.Config()
+	grant := transitiongrant.Grant{Version: 1, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, Source: transitiongrant.SourceIdentity{NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, InitialGrantSHA256: source.Digest(), StoreScopeSHA256: identity.StoreScopeSHA256}, Peers: []transitiongrant.Peer{{Region: "gru", NodeID: input.SourceNodeID, ServerName: sourceConfig.Broker.ServerName, BootstrapGrantSHA256: source.Digest(), PreparedManifestSHA256: identity.ManifestSHA256}}}
+	bundle := candidatePlanBundle{PublicKeyPEM: string(public)}
+	for i, region := range []string{"sfo", "fra"} {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		entry := input.Candidates[i]
+		if entry.Config.Region != region || entry.Config.TransitionID != input.TransitionID {
+			return nil, bad
+		}
+		if entry.SyncGeneration != nil {
+			if input.PrivateMaterialDirectory == "" {
+				return nil, bad
+			}
+			material, err := vmcandidateseed.Generate(input.PrivateMaterialDirectory, entry.Config, *entry.SyncGeneration, planSHA256)
+			if err != nil {
+				return nil, err
+			}
+			entry.Config = material.Config
+			input.Candidates[i].Config = material.Config
+			material.Clear()
+		} else if input.PrivateMaterialDirectory != "" {
+			return nil, bad
+		}
+		manifest, err := bootstrap.PlanControlCandidateManifest(entry.Manifest, entry.Config)
+		if err != nil {
+			return nil, bad
+		}
+		manifestJSON, err := hostmanifest.CanonicalHostManifestJSON(manifest)
+		if err != nil {
+			return nil, bad
+		}
+		signed, err := nodebootstrap.SignBootstrapGrant(signer, nodebootstrap.BootstrapGrant{Version: 1, GrantID: entry.BootstrapGrantID, NodeID: entry.Config.NodeID, Manifest: manifestJSON, IssuedAt: input.IssuedAt, ExpiresAt: input.BootstrapExpiresAt})
+		if err != nil {
+			return nil, bad
+		}
+		// Verification with the source's owner public key also rejects a mismatched
+		// private signing credential before any output is emitted.
+		peer, err := bootstrap.PlanControlCandidatePeer(entry.Config, public, signed)
+		if err != nil {
+			return nil, bad
+		}
+		grant.Peers = append(grant.Peers, peer)
+		bundle.Candidates = append(bundle.Candidates, candidatePlanOutput{NodeID: entry.Config.NodeID, Manifest: manifestJSON, BootstrapGrant: signed})
+	}
+	signed, err := transitiongrant.SignGrant(signer, grant)
+	if err != nil {
+		return nil, bad
+	}
+	verified, err := transitiongrant.VerifyGrant(public, signed)
+	if err != nil {
+		return nil, bad
+	}
+	for i, entry := range input.Candidates {
+		peer := grant.Peers[i+1]
+		if err := verified.CheckCandidate(time.Now().UTC(), entry.Config, peer.BootstrapGrantSHA256, peer.PreparedManifestSHA256); err != nil {
+			return nil, bad
+		}
+	}
+	bundle.PreparationGrant = signed
+	encoded, err := json.Marshal(bundle)
+	if err != nil {
+		return nil, bad
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if input.PrivateMaterialDirectory != "" {
+		encoded, err = vmcandidateseed.PersistBundle(input.PrivateMaterialDirectory, planSHA256, encoded)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return encoded, nil
 }
 
 func decodeCandidatePlan(raw []byte, out *candidatePlanInput) error {

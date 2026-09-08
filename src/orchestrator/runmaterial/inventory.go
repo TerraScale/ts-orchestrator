@@ -46,7 +46,9 @@ func Build(files map[string][]byte) (string, []byte, error) {
 // Verify reads through the existing descriptor-relative no-symlink reader. It
 // hashes the bytes captured through each checked descriptor, never a later
 // reopening after a separate path stat. All verification precedes startup.
-func Verify(path string) error {
+func Verify(path string) error { return VerifySettings(path, nil) }
+
+func VerifySettings(path string, settings map[string]string) error {
 	bad := errors.New("runmaterial: signed protected material inventory verification failed")
 	if !hostmanifest.SafeAbsolutePath(path) {
 		return bad
@@ -72,6 +74,12 @@ func Verify(path string) error {
 	if err != nil || string(canonical) != string(raw) {
 		return bad
 	}
+	files := map[string][]byte{}
+	defer func() {
+		for _, raw := range files {
+			clear(raw)
+		}
+	}()
 	for target, want := range value.Files {
 		if !hostmanifest.SafeAbsolutePath(target) || target == path || !hostmanifest.ValidDigest(want) {
 			return bad
@@ -81,10 +89,10 @@ func Verify(path string) error {
 			return bad
 		}
 		actual := digest(data)
-		clear(data)
+		files[target] = data
 		if actual != want {
 			return bad
 		}
 	}
-	return nil
+	return ValidateReferences(settings, files)
 }

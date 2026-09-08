@@ -5,6 +5,8 @@ package vmqualruntime
 import (
 	"encoding/json/v2"
 	"errors"
+	"net"
+	"net/url"
 	"testing"
 	"time"
 
@@ -58,20 +60,17 @@ func TestGuestReadyCallsAdmittedSourceOnlyAfterAllLaunchGuests(t *testing.T) {
 }
 
 func TestAdmittedControlSourceSelectsLiveCandidateAndRejectsChangedMembership(t *testing.T) {
-	plan, err := vmnet.Plan(vmnet.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range plan.Listeners {
-		if plan.Listeners[i].Name == "nats" {
-			plan.Listeners[i].Address = "127.0.0.1"
-		}
-	}
-	server, transport := startDeliveryTestNATSPlan(t, plan)
+	server, transport := startDeliveryTestNATS(t)
 	options, err := transport.options(transport.controller)
 	if err != nil {
 		t.Fatal(err)
 	}
+	endpoint, err := url.Parse(server.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint.Host = net.JoinHostPort(transport.serverName, endpoint.Port())
+	options = append(options, nats.SetCustomDialer(controlDeclarationTestDialer{address: server.Addr().String()}))
 	connection, err := nats.Connect(server.ClientURL(), options...)
 	if err != nil {
 		t.Fatal(err)
@@ -121,12 +120,12 @@ func TestAdmittedControlSourceSelectsLiveCandidateAndRejectsChangedMembership(t 
 	}
 	writeMember()
 	source := &qualificationAdmittedControlSource{config: bootstrap.NATSControlRuntimeConfig{
-		Stores: map[string]bootstrap.ControlNATSStore{"gru": {URL: server.ClientURL(), Options: options}},
+		Stores: map[string]bootstrap.ControlNATSStore{"gru": {URL: endpoint.String(), Options: options}},
 		Members: []bootstrap.ControlRuntimeMember{
 			{MemberID: "first", HostID: "gru-member-1", Region: "gru", Instance: "gru-member-1", Store: "gru"},
 			{MemberID: "second", HostID: "gru-member-2", Region: "gru", Instance: "gru-member-2", Store: "gru", IdentityPublicKey: identity.PublicKey},
 		},
-	}, admissions: map[string]qualificationControlHostAdmission{"gru-member-2": {Architecture: runtimeplan.HostArchitectureArm64, Generation: 19}}, expectedStoreServers: map[string]string{"gru": connection.ConnectedServerName()}}
+	}, admissions: map[string]qualificationControlHostAdmission{"gru-member-2": {Architecture: runtimeplan.HostArchitectureArm64, Generation: 19}}, expectedStoreServers: map[string]string{"gru": connection.ConnectedServerName()}, admittedIssuedAt: now.Add(-time.Minute), admittedExpiresAt: now.Add(time.Hour)}
 	consumerConfig, _, err := source.RuntimeConfig(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)

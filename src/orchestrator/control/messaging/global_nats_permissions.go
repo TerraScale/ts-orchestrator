@@ -121,6 +121,8 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 		"$KV."+topology.Leaders().Bucket+".security.identity-rotation.barrier",
 		"$KV."+topology.Leaders().Bucket+".member.enrollment.state",
 		"$KV."+topology.Leaders().Bucket+".member.enrollment.barrier",
+		"$KV."+topology.Leaders().Bucket+".broker.enrollment.state",
+		"$KV."+topology.Leaders().Bucket+".broker.enrollment.barrier",
 		"$KV."+topology.Leaders().Bucket+".autoscale.state",
 		"$KV."+topology.Leaders().Bucket+".autoscale.barrier",
 		"$KV."+topology.Leaders().Bucket+".restore.drill.state",

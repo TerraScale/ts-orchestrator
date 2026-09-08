@@ -49,6 +49,11 @@ func placementRecordDigest(records []Record) string {
 	return hex.EncodeToString(sum[:])
 }
 func sameAdmissionIdentity(original, current Record) bool {
+	// Readiness belongs to the accepted placement incarnation. The original
+	// admission evidence stays in Records; current readiness is separately bound
+	// to the signed successor operation by validateCurrentReadiness.
+	original.ReadinessNonce, original.ReadyEvidence = "", nil
+	current.ReadinessNonce, current.ReadyEvidence = "", nil
 	original.Targets, original.PlacementTargets = nil, nil
 	current.Targets, current.PlacementTargets = nil, nil
 	a, err := json.Marshal(original, json.Deterministic(true))
@@ -64,7 +69,7 @@ func validateCurrentPlacements(s journalState) error {
 	}
 	for key, current := range s.CurrentPlacements {
 		original, ok := s.Records[key]
-		if !ok || !sameAdmissionIdentity(original, current) || ValidateRecord(current) != nil {
+		if !ok || !sameAdmissionIdentity(original, current) || ValidateRecord(current) != nil || validateCurrentReadiness(original, current) != nil {
 			return ErrInvalid
 		}
 	}
@@ -163,6 +168,9 @@ func commitPlacementRelocation(s *journalState, operation string, records []Reco
 			return ErrConflict
 		}
 		acceptedDigest = candidateDigest
+		if err := validateCurrentReadiness(old, record); err != nil {
+			return err
+		}
 		if err := verifySuccessorPlacement(old, record, operation, proofKey); err != nil {
 			return err
 		}
@@ -336,4 +344,30 @@ func (j *NATSJournal) AbortUnstartedPlacementRelocation(ctx context.Context, ope
 		s.PlacementRelocation = ""
 		return nil
 	})
+}
+
+// Pinned member signatures and freshness are checked by the runtime Ready
+// collector before commit. Retained current evidence must continue to match
+// the exact accepted successor operation, placement tuple and RF2 boundary.
+func validateCurrentReadiness(original, current Record) error {
+	a, err := json.Marshal(original.ReadyEvidence, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(current.ReadyEvidence, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	if original.ReadinessNonce == current.ReadinessNonce && bytes.Equal(a, b) {
+		return nil
+	}
+	if len(current.PlacementTargets) == 0 {
+		return ErrInvalid
+	}
+	var signed placementtransition.Signed
+	var proof placementtransition.Proof
+	if json.Unmarshal(current.PlacementTargets[0].AcceptedProof, &signed, json.RejectUnknownMembers(true)) != nil || json.Unmarshal(signed.Payload, &proof, json.RejectUnknownMembers(true)) != nil || proof.Kind != "accepted_epoch" {
+		return ErrInvalid
+	}
+	return validateReadinessOperation(current, proof.Request.OperationID, current.ReadyEvidence, current.ReadinessNonce, nil, time.Time{})
 }

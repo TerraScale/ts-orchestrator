@@ -40,10 +40,12 @@ type qualificationAdmittedControlSource struct {
 	regions              []bootstrap.ControlRegionBinding
 	admissions           map[string]qualificationControlHostAdmission
 	expectedStoreServers map[string]string
+	admittedIssuedAt     time.Time
+	admittedExpiresAt    time.Time
 }
 
 func (source *qualificationAdmittedControlSource) HostControlResolvers(ctx context.Context, region string) (string, func(context.Context, string) (hostcontrol.Host, error), func(context.Context, hostcontrol.Host) (delivery.RegionalCommandAuthority, error), error) {
-	if source == nil || ctx == nil {
+	if source == nil || ctx == nil || !source.admissionLive() {
 		return "", nil, nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	var first bootstrap.ControlRuntimeMember
@@ -79,7 +81,7 @@ func (source *qualificationAdmittedControlSource) HostControlResolvers(ctx conte
 }
 
 func (source *qualificationAdmittedControlSource) RuntimeConfig(ctx context.Context, clients map[string]*hostcontrol.Client) (bootstrap.NATSControlRuntimeConfig, []bootstrap.ControlRegionBinding, error) {
-	if source == nil || ctx == nil {
+	if source == nil || ctx == nil || !source.admissionLive() {
 		return bootstrap.NATSControlRuntimeConfig{}, nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	if err := ctx.Err(); err != nil {
@@ -168,7 +170,7 @@ func (source *qualificationAdmittedControlSource) readHost(ctx context.Context, 
 }
 
 func (source *qualificationAdmittedControlSource) connect(ctx context.Context, name string) (*nats.Conn, error) {
-	if ctx == nil {
+	if source == nil || ctx == nil || !source.admissionLive() {
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	if err := ctx.Err(); err != nil {
@@ -200,6 +202,11 @@ func (source *qualificationAdmittedControlSource) connect(ctx context.Context, n
 		return nil, bootstrap.ErrControlRuntimeUnavailable
 	}
 	return connection, nil
+}
+
+func (source *qualificationAdmittedControlSource) admissionLive() bool {
+	now := time.Now().UTC()
+	return !source.admittedIssuedAt.IsZero() && !now.Before(source.admittedIssuedAt) && now.Before(source.admittedExpiresAt)
 }
 
 func (source *qualificationAdmittedControlSource) readLease(ctx context.Context, store, region, key string) (authority.RegionalAuthorityLeaseDocument, error) {

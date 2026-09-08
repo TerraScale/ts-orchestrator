@@ -10,6 +10,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/placementrelocation"
 	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
+	"terrascale.tech/orchestrator/src/orchestrator/tbep"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
@@ -43,6 +44,53 @@ func TestRelocationBuildPreservesDatabaseResidencyAndSurvivingSeats(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("completed inactive scope leaves successor active scopes intact", func(t *testing.T) {
+		retiredStage := newPlacementStageRequest(input.PriorStage)
+		retired := proto.CloneOf(retiredStage.Proposal.Assignments[0])
+		retired.Database = "01ARZ3NDEKTSV4RRFFQ69G5FB1"
+		retiredStage.Proposal.Assignments = append(retiredStage.Proposal.Assignments, retired)
+		retiredStage.Declarations = append(retiredStage.Declarations, &pb.PlacementDatabaseDeclaration{Tenant: retired.Tenant, Project: retired.Project, Database: retired.Database, SelectedRegions: []string{retired.Region}})
+		canonical, err := tbep.CanonicalPlacement(retiredStage.Proposal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retiredStage.Proposal = canonical
+		encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var proof placementtransition.Proof
+		if err := json.Unmarshal(input.PriorProof.Payload, &proof); err != nil {
+			t.Fatal(err)
+		}
+		for n := range proof.Request.Members {
+			proof.Request.Members[n].PlacementDigest = placementrelocation.BytesDigest(encoded)
+		}
+		proof.RequestDigest, err = placementtransition.RequestDigest(proof.Request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		activeInput := input
+		activeInput.PriorStage, _ = proto.Marshal(retiredStage)
+		activeInput.PriorProof.Payload, _ = json.Marshal(proof)
+		activePlan, err := placementrelocation.Build(activeInput)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range activePlan.Targets {
+			next := newPlacementStageRequest(target.Proposal)
+			if next == nil || len(next.Proposal.Assignments) != 1 || next.Proposal.Assignments[0].Database != record.DatabaseID || len(next.Declarations) != 1 || next.Declarations[0].Database != record.DatabaseID {
+				t.Fatal("inactive scope retained or active scope lost")
+			}
+		}
+		if err := placementrelocation.ValidatePlan(activePlan); err != nil {
+			t.Fatal(err)
+		}
+		activeInput.Records = nil
+		if _, err := placementrelocation.Build(activeInput); err == nil {
+			t.Fatal("empty active snapshot authorized removal")
+		}
+	})
 	t.Run("durable plan survives restart and fences old authority", func(t *testing.T) {
 		cluster := newRotationStateCluster(t)
 		connection := cluster.connect(t)

@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostremoval"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
-	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 )
 
 // productionHostRemovalConfig is the deliberately narrow handoff from the
@@ -178,21 +176,8 @@ func (r *productionHostRemoval) observe(ctx context.Context, member ocireconcile
 // proof values; absent providers keep removal fail closed.
 type hostRemovalTransitionPorts struct {
 	Relocation *productionHostRelocation
-	Admission  *databaseadmission.NATSJournal
 	Gateways   map[string]ocireconcile.ComputeGateway
 	Observers  map[string]func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
-	Placement  *productionPlacement
-	Transition *productionPlacementTransition
-	Issuer     interface {
-		Head(context.Context, string) (placementtransition.Signed, error)
-		Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
-		Issue(context.Context, placementtransition.Request, *placementtransition.Signed, []placementtransition.Signed) (placementtransition.Signed, error)
-	}
-	Inventory  func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
-	Replace    func(context.Context, hostremoval.Replacement) error
-	Revalidate func(context.Context, string, string, uint64) error
-	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
-	Terminate  func(context.Context, string, string) error
 }
 
 func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal *hostremoval.Journal) (ocireconcile.MemberRemovalOwner, error) {
@@ -209,20 +194,13 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 	if !ports.Relocation.valid() {
 		return nil, errors.New("runtime host removal: relocation providers incomplete")
 	}
-	ports.Inventory, ports.Replace = ports.Relocation.Capture, ports.Relocation.Replace
-	ports.Revalidate, ports.Fence = ports.Relocation.Revalidate, ports.Relocation.Fence
-	terminate := ports.Terminate
-	if terminate == nil {
-		terminate = newProductionOCITerminator(ports.Gateways)
-	}
-	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Inventory, Replace: ports.Replace, Revalidate: ports.Revalidate, Fence: ports.Fence, Terminate: terminate}, journal)
+	terminate := newProductionOCITerminator(ports.Gateways)
+	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Relocation.Capture, Replace: ports.Relocation.Replace, Revalidate: ports.Relocation.Revalidate, Fence: ports.Relocation.Fence, Terminate: terminate}, journal)
 	if err != nil {
 		return nil, err
 	}
-	if ports.Relocation != nil {
-		owner.completed = func(ctx context.Context, operation string) error {
-			return ports.Relocation.Admission.FinishPlacementRelocation(ctx, operation+"/placement")
-		}
+	owner.completed = func(ctx context.Context, operation string) error {
+		return ports.Relocation.Admission.FinishPlacementRelocation(ctx, operation+"/placement")
 	}
 	return owner, nil
 }
