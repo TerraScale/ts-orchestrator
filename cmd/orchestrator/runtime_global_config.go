@@ -120,6 +120,11 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.SnapshotRegions = recovery.SnapshotRegions
 	config.Restore.Backup = input.RestoreBackup
 	config.Restore.Branches = input.RestoreBranches
+	config.RestoreTelemetry, err = newProductionRestoreTelemetryFromEnv(session.Lease.CandidateId, "gru")
+	if err != nil {
+		return fail(fmt.Errorf("global recovery telemetry: %w", err))
+	}
+	cleanup = append(cleanup, func() error { return config.RestoreTelemetry.Close(context.Background()) })
 	config.HostRemoval = input.HostRemoval
 
 	rotation, capabilityStore, closeRotation, err := input.Global.Rotation.Construct(ctx, session, productionDeliveryMirrorSource{mirror: input.Mirror, region: input.Global.Recovery.SourceRegion})

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 	"testing"
 	"time"
 
@@ -62,6 +63,11 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 	for _, expected := range []string{"#cloud-config", "ssh_pwauth: false", "lock_passwd: true", `restrict,command="/usr/local/libexec/terrascale-vmqual-control"`, GuestSeedPath, "terrascale-data", "/var/lib/terrascale", "terrascale-ts-node.service", "sha256sum --check --strict", "openssl pkeyutl -verify", "10.77.0.1 releases.terrascale.tech", cloudHostsTemplatePath, "cloud-init single --name update_etc_hosts", "update-ca-certificates", "set -eu", "server 10.77.0.1 iburst minpoll 4 maxpoll 5", "chronyc waitsync", "systemctl enable --now terrascale-vmqual-chrony.service", tsNodeBootstrapManifestPath, desiredHostManifestPath} {
 		if !strings.Contains(string(first.UserData), expected) {
 			t.Fatalf("user data does not contain %q", expected)
+		}
+	}
+	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
+		if !strings.Contains(string(first.UserData), "/usr/bin/install -d -o root -g root -m 0700 "+directory) {
+			t.Fatalf("NoCloud bootstrap does not provision credential directory %q", directory)
 		}
 	}
 	if strings.Contains(string(first.UserData), "is-system-running") {

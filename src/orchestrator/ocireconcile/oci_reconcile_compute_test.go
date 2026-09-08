@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap"
 )
 
 func testComputeRegion() estate.Region {
@@ -602,6 +603,11 @@ func TestTSNodeCloudInitInstallsOnlyTSNode(t *testing.T) {
 	for _, required := range []string{sha, "ts-node.sig", "/etc/terrascale/ts-node.pub", "openssl, pkeyutl, -verify", "/opt/terrascale/ts-node/1.2.3/ts-node", "sha256sum -c", "terrascale-ts-node.service", "User=root", "Group=root", "ProtectSystem=strict", "ReadWritePaths=/var/lib/terrascale", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "SystemCallFilter=@system-service", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", "CPUWeight=100", "MemoryMax=536870912", "IOWeight=100", "[/usr/bin/test, -x, /usr/bin/install]", "[/usr/bin/test, -x, /usr/bin/curl]", "[/usr/bin/test, -x, /usr/bin/sha256sum]", "[/usr/bin/test, -x, /usr/bin/openssl]", "[/usr/bin/test, -x, /usr/bin/systemctl]"} {
 		if !strings.Contains(document, required) {
 			t.Fatalf("cloud-init lacks %q", required)
+		}
+	}
+	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
+		if !strings.Contains(document, "[/usr/bin/install, -d, -o, root, -g, root, -m, 0700, "+directory+"]") {
+			t.Fatalf("cloud-init does not provision credential directory %q", directory)
 		}
 	}
 	if !strings.Contains(document, "BEGIN PUBLIC KEY") || !strings.Contains(document, "User=root") {

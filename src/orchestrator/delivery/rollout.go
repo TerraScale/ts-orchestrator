@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -41,27 +42,29 @@ func (r *Rollout) Recover(ctx context.Context, request *Request, artifact *Relea
 		}
 		for i := len(progress.Edges) - 1; i >= 0; i-- {
 			edge := progress.Edges[i]
+			var prior EdgeReleaseState
+			if err := json.Unmarshal([]byte(edge.PriorState), &prior); err != nil || prior.Digest == "" {
+				return failed(errors.New("delivery: edge predecessor allocation is unavailable"))
+			}
 			state, err := observer.ObserveEdge(ctx, edge.Kind, edge.Service)
 			if err != nil {
 				return failed(err)
 			}
-			if SameDigest(state.Digest, request.Rollback.ArtifactDigest) {
+			if state.Digest == prior.Digest && state.Allocation == prior.Allocation {
 				continue
 			}
 			if !SameDigest(state.Digest, edge.CandidateDigest) {
 				return failed(fmt.Errorf("delivery: edge %s has an unrecognized release", edge.Service))
 			}
-			var promote func(context.Context, string, string) error
-			if edge.Kind == "package" {
-				promote = r.promoteSnippet
-			} else {
-				promote = r.promoteWorker
+			restorer, ok := r.config.Edge.(EdgeReleaseRestorer)
+			if !ok {
+				return failed(errors.New("delivery: exact edge predecessor restoration is unavailable"))
 			}
-			if err := promote(ctx, edge.Service, request.Rollback.ArtifactDigest); err != nil {
+			if err := restorer.RestoreEdge(ctx, edge.Kind, edge.Service, prior); err != nil {
 				return failed(err)
 			}
 			state, err = observer.ObserveEdge(ctx, edge.Kind, edge.Service)
-			if err != nil || !SameDigest(state.Digest, request.Rollback.ArtifactDigest) {
+			if err != nil || state.Digest != prior.Digest || state.Allocation != prior.Allocation {
 				return failed(errors.New("delivery: edge rollback readback did not reach the prior release"))
 			}
 		}
@@ -182,7 +185,7 @@ type RolloutConfig struct {
 	// Progress persists host state before and after each mutation.
 	Progress func(host string, mutated, completed bool) error
 	// EdgeProgress persists edge mutation intent and provider readback state.
-	EdgeProgress func(kind, service, priorDigest, candidateDigest string, stage int, applied, completed bool) error
+	EdgeProgress func(kind, service, priorDigest, priorState, candidateDigest string, stage int, applied, completed bool) error
 }
 
 // HostInventory lists the hosts of one Region in rollout order. The
@@ -243,7 +246,14 @@ type EdgeReleaseObserver interface {
 	ObserveEdge(context.Context, string, string) (EdgeReleaseState, error)
 }
 
-type EdgeReleaseState struct{ Digest string }
+type EdgeReleaseState struct {
+	Digest     string `json:"digest"`
+	Allocation string `json:"allocation"`
+}
+
+type EdgeReleaseRestorer interface {
+	RestoreEdge(context.Context, string, string, EdgeReleaseState) error
+}
 
 // WorkerGradualPromoter is an optional stronger edge seam. Implementations
 // use Cloudflare gradual deployments (with their provider-side health
@@ -812,8 +822,21 @@ func (r *Rollout) rollEdge(ctx context.Context, request *Request, artifact *Rele
 	if request.Rollback != nil {
 		prior = request.Rollback.ArtifactDigest
 	}
+	priorState := ""
+	if observer, ok := r.config.Edge.(EdgeReleaseObserver); ok {
+		state, err := observer.ObserveEdge(ctx, kind, artifact.Service)
+		if err != nil {
+			return r.failure("edge_predecessor_unavailable", err)
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			return r.failure("edge_predecessor_unavailable", err)
+		}
+		priorState = string(encoded)
+		prior = state.Digest
+	}
 	if r.config.EdgeProgress != nil {
-		if err := r.config.EdgeProgress(kind, artifact.Service, prior, artifact.Digest, 0, true, false); err != nil {
+		if err := r.config.EdgeProgress(kind, artifact.Service, prior, priorState, artifact.Digest, 0, true, false); err != nil {
 			return r.failure("edge_progress_failed", err)
 		}
 	}
@@ -821,7 +844,7 @@ func (r *Rollout) rollEdge(ctx context.Context, request *Request, artifact *Rele
 		return r.rollbackEdge(ctx, request, append(checks, &HealthCheck{Name: name, Status: "failed"}), err, rollback)
 	}
 	if r.config.EdgeProgress != nil {
-		if err := r.config.EdgeProgress(kind, artifact.Service, prior, artifact.Digest, 100, true, true); err != nil {
+		if err := r.config.EdgeProgress(kind, artifact.Service, prior, priorState, artifact.Digest, 100, true, true); err != nil {
 			return r.failure("edge_progress_failed", err)
 		}
 	}

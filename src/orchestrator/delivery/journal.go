@@ -209,6 +209,7 @@ type EdgeRolloutProgress struct {
 	Kind            string
 	Service         string
 	PriorDigest     string
+	PriorState      string
 	CandidateDigest string
 	Stage           int
 	Applied         bool
@@ -480,7 +481,7 @@ func (j *Journal) RecordRollout(operationID, requestDigest string, lease Operati
 }
 
 // RecordEdgeRollout persists edge intent and readback progress under the owner lease.
-func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease OperationLease, kind, service, priorDigest, candidate string, stage int, applied, completed bool) error {
+func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease OperationLease, kind, service, priorDigest, priorState, candidate string, stage int, applied, completed bool) error {
 	if j == nil || j.store == nil {
 		return errors.New("delivery: rollout journal is not configured")
 	}
@@ -503,7 +504,7 @@ func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease Ope
 		for i := range op.Rollout.Edges {
 			if op.Rollout.Edges[i].Kind == kind && op.Rollout.Edges[i].Service == service {
 				e := &op.Rollout.Edges[i]
-				e.PriorDigest, e.CandidateDigest = priorDigest, candidate
+				e.PriorDigest, e.PriorState, e.CandidateDigest = priorDigest, priorState, candidate
 				e.Stage = max(e.Stage, stage)
 				e.Applied = e.Applied || applied
 				e.Completed = e.Completed || completed
@@ -512,7 +513,7 @@ func (j *Journal) RecordEdgeRollout(operationID, requestDigest string, lease Ope
 			}
 		}
 		if !found {
-			op.Rollout.Edges = append(op.Rollout.Edges, EdgeRolloutProgress{Kind: kind, Service: service, PriorDigest: priorDigest, CandidateDigest: candidate, Stage: stage, Applied: applied, Completed: completed})
+			op.Rollout.Edges = append(op.Rollout.Edges, EdgeRolloutProgress{Kind: kind, Service: service, PriorDigest: priorDigest, PriorState: priorState, CandidateDigest: candidate, Stage: stage, Applied: applied, Completed: completed})
 		}
 		op.UpdatedAt = j.now()
 		value, err := encodeOperation(op)

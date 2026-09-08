@@ -597,8 +597,8 @@ func (s *Executor) deliver(ctx context.Context, request *Request, operation *Ope
 			}
 			return s.config.Journal.RecordRollout(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), host, priorDigest, priorManifest, artifact.Digest, mutated, completed)
 		}
-		copy.config.EdgeProgress = func(kind, service, priorDigest, candidateDigest string, stage int, applied, completed bool) error {
-			return s.config.Journal.RecordEdgeRollout(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), kind, service, priorDigest, candidateDigest, stage, applied, completed)
+		copy.config.EdgeProgress = func(kind, service, priorDigest, priorState, candidateDigest string, stage int, applied, completed bool) error {
+			return s.config.Journal.RecordEdgeRollout(request.OperationID, operation.RequestDigest, leaseFor(operation, s.config), kind, service, priorDigest, priorState, candidateDigest, stage, applied, completed)
 		}
 		roller = &copy
 	}

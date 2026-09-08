@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 )
 
 const workerDigestAnnotationPrefix = "terrascale-artifact:"
@@ -64,11 +66,6 @@ type WorkerDeploymentVersion struct {
 type WorkerDeployment struct {
 	ID       string                    `json:"id"`
 	Versions []WorkerDeploymentVersion `json:"versions"`
-}
-
-type workerPromotionBaseline struct {
-	WorkerDeployment
-	restore bool
 }
 
 // SnippetCode is the provider-observed identity of deployed Snippet source.
@@ -159,6 +156,160 @@ func (p *EdgeReleasePromoter) PromoteWorker(ctx context.Context, service, digest
 	return p.PromoteWorkerGradual(ctx, service, digest)
 }
 
+// ObserveEdge provides delivery recovery with provider readback. A partial
+// Worker allocation is intentionally reported as an error: its predecessor
+// must come from durable rollout state, never from an inferred version.
+func (p *EdgeReleasePromoter) ObserveEdge(ctx context.Context, kind, service string) (delivery.EdgeReleaseState, error) {
+	if p == nil || ctx == nil {
+		return delivery.EdgeReleaseState{}, errors.New("cloudflare: edge observation requires a promoter and context")
+	}
+	switch kind {
+	case "site":
+		if !p.workerDeclared(service) {
+			return delivery.EdgeReleaseState{}, fmt.Errorf("cloudflare: Worker service %q has no declared route", service)
+		}
+		deployments, err := p.client.ListWorkerDeployments(ctx, service)
+		if err != nil {
+			return delivery.EdgeReleaseState{}, err
+		}
+		if len(deployments) == 0 {
+			return delivery.EdgeReleaseState{}, nil
+		}
+		allocation, err := encodeWorkerAllocation(deployments[0].Versions)
+		if err != nil {
+			return delivery.EdgeReleaseState{}, err
+		}
+		state := delivery.EdgeReleaseState{Allocation: allocation}
+		if len(deployments[0].Versions) == 1 && deployments[0].Versions[0].Percentage == 100 {
+			version, err := p.client.ActiveWorkerVersion(ctx, service)
+			if err != nil {
+				return delivery.EdgeReleaseState{}, err
+			}
+			state.Digest = version.Digest
+		}
+		return state, nil
+	case "package":
+		snippet, ok := p.snippets[service]
+		if !ok {
+			return delivery.EdgeReleaseState{}, fmt.Errorf("cloudflare: Snippet service %q is not mapped", service)
+		}
+		code, err := p.client.SnippetCode(ctx, snippet)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return delivery.EdgeReleaseState{}, nil
+			}
+			return delivery.EdgeReleaseState{}, err
+		}
+		allocation, _ := json.Marshal(map[string]string{"snippet": snippet})
+		return delivery.EdgeReleaseState{Digest: code.Digest, Allocation: string(allocation)}, nil
+	default:
+		return delivery.EdgeReleaseState{}, fmt.Errorf("cloudflare: edge observation kind %q is unsupported", kind)
+	}
+}
+
+// RestoreEdge applies the exact allocation captured by ObserveEdge. It never
+// reconstructs a predecessor from version history.
+func (p *EdgeReleasePromoter) RestoreEdge(ctx context.Context, kind, service string, prior delivery.EdgeReleaseState) error {
+	if p == nil || ctx == nil {
+		return errors.New("cloudflare: edge restoration requires a promoter and context")
+	}
+	switch kind {
+	case "site":
+		if !p.workerDeclared(service) {
+			return fmt.Errorf("cloudflare: Worker service %q has no declared route", service)
+		}
+		allocation, err := decodeWorkerAllocation(prior.Allocation)
+		if err != nil {
+			return err
+		}
+		versions, err := p.client.ListWorkerVersions(ctx, service)
+		if err != nil {
+			return err
+		}
+		known := make(map[string]struct{}, len(versions))
+		for _, version := range versions {
+			known[version.ID] = struct{}{}
+			if version.Digest == prior.Digest && len(allocation) == 1 && allocation[0].VersionID != version.ID {
+				return errors.New("cloudflare: edge predecessor allocation does not identify the requested digest")
+			}
+		}
+		for _, item := range allocation {
+			if _, ok := known[item.VersionID]; !ok {
+				return errors.New("cloudflare: edge predecessor allocation references an unknown version")
+			}
+		}
+		if _, err := p.client.CreateWorkerDeployment(ctx, service, allocation); err != nil {
+			return err
+		}
+		observed, err := p.ObserveEdge(ctx, kind, service)
+		if err != nil || observed.Allocation != prior.Allocation || (prior.Digest != "" && observed.Digest != prior.Digest) {
+			return errors.New("cloudflare: edge predecessor allocation readback did not match")
+		}
+		return nil
+	case "package":
+		if prior.Digest == "" {
+			return errors.New("cloudflare: Snippet restoration requires a digest")
+		}
+		snippet, ok := p.snippets[service]
+		if !ok {
+			return fmt.Errorf("cloudflare: Snippet service %q is not mapped", service)
+		}
+		var expected map[string]string
+		if err := json.Unmarshal([]byte(prior.Allocation), &expected); err != nil || expected["snippet"] != snippet {
+			return errors.New("cloudflare: Snippet predecessor allocation is invalid")
+		}
+		body, err := p.artifact(ctx, service, prior.Digest)
+		if err != nil {
+			return err
+		}
+		if err := p.client.PutSnippetCode(ctx, snippet, prior.Digest, body); err != nil {
+			return err
+		}
+		observed, err := p.ObserveEdge(ctx, kind, service)
+		if err != nil || observed.Digest != prior.Digest || observed.Allocation != prior.Allocation {
+			return errors.New("cloudflare: Snippet predecessor readback did not match")
+		}
+		return nil
+	default:
+		return fmt.Errorf("cloudflare: edge restoration kind %q is unsupported", kind)
+	}
+}
+
+func encodeWorkerAllocation(versions []WorkerDeploymentVersion) (string, error) {
+	if !validWorkerAllocation(versions) {
+		return "", errors.New("cloudflare: Worker allocation is invalid")
+	}
+	raw, err := json.Marshal(versions)
+	return string(raw), err
+}
+
+func decodeWorkerAllocation(encoded string) ([]WorkerDeploymentVersion, error) {
+	var versions []WorkerDeploymentVersion
+	if err := json.Unmarshal([]byte(encoded), &versions); err != nil || !validWorkerAllocation(versions) {
+		return nil, errors.New("cloudflare: Worker predecessor allocation is invalid")
+	}
+	return versions, nil
+}
+
+func validWorkerAllocation(versions []WorkerDeploymentVersion) bool {
+	if len(versions) == 0 {
+		return false
+	}
+	total := 0
+	seen := make(map[string]struct{}, len(versions))
+	for _, version := range versions {
+		if version.VersionID == "" || version.Percentage <= 0 || version.Percentage > 100 {
+			return false
+		}
+		if _, ok := seen[version.VersionID]; ok {
+			return false
+		}
+		seen[version.VersionID] = struct{}{}
+		total += version.Percentage
+	}
+	return total == 100
+}
+
 func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service, digest string) error {
 	if p == nil || ctx == nil {
 		return errors.New("cloudflare: Worker promotion requires a promoter and context")
@@ -174,39 +325,29 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 	if err != nil {
 		return err
 	}
-	active, activeErr := p.client.workerPromotionBaseline(ctx, service, target.ID)
+	active, activeErr := p.client.workerPromotionBaseline(ctx, service)
 	if activeErr != nil && !errors.Is(activeErr, ErrNotFound) {
 		return activeErr
 	}
 	stages := p.stages
-	if activeErr != nil || workerAllocationHas(active.WorkerDeployment, target.ID) {
+	if activeErr != nil || active.ID == target.ID {
 		// A single 100% deployment creates the initial release and also clears
 		// any partial deployment left by an indeterminate prior attempt.
 		stages = []int{100}
 	}
 	for _, percentage := range stages {
 		versions := []WorkerDeploymentVersion{{VersionID: target.ID, Percentage: 100}}
-		if active.restore {
-			versions = append([]WorkerDeploymentVersion(nil), active.Versions...)
-		} else if percentage < 100 && activeErr == nil && !workerAllocationHas(active.WorkerDeployment, target.ID) {
-			versions = scaleWorkerAllocation(active.Versions, 100-percentage)
-			versions = append(versions, WorkerDeploymentVersion{VersionID: target.ID, Percentage: percentage})
+		if percentage < 100 && activeErr == nil && active.ID != target.ID {
+			versions = []WorkerDeploymentVersion{
+				{VersionID: active.ID, Percentage: 100 - percentage},
+				{VersionID: target.ID, Percentage: percentage},
+			}
 		}
 		_, deployErr := p.client.CreateWorkerDeployment(ctx, service, versions)
 		p.record(EdgePromotionEvent{Kind: "worker", Service: service, Digest: digest, Percentage: percentage, Err: deployErr != nil})
 		if deployErr != nil {
 			return deployErr
 		}
-	}
-	if active.restore {
-		deployments, err := p.client.ListWorkerDeployments(ctx, service)
-		if err != nil {
-			return err
-		}
-		if len(deployments) == 0 || !sameWorkerAllocation(deployments[0].Versions, active.Versions) {
-			return errors.New("cloudflare: Worker rollback allocation readback does not match the exact prior allocation")
-		}
-		return nil
 	}
 	observed, err := p.client.ActiveWorkerVersion(ctx, service)
 	if err != nil {
@@ -390,78 +531,30 @@ func (c *Client) ActiveWorkerVersion(ctx context.Context, script string) (Worker
 	return version, err
 }
 
-// A failed response can leave a partial deployment serving. Recover from the
-// exact provider-observed allocation; a historical allocation for the target
-// is preferred when the operation is a rollback.
-func (c *Client) workerPromotionBaseline(ctx context.Context, script, targetID string) (workerPromotionBaseline, error) {
+// A failed response can leave a partial deployment serving. The most recent
+// full deployment is the durable predecessor. An unknown
+// partial deployment fails closed until the durable rollout state identifies
+// the exact prior allocation.
+func (c *Client) workerPromotionBaseline(ctx context.Context, script string) (WorkerVersion, error) {
 	deployments, err := c.ListWorkerDeployments(ctx, script)
 	if err != nil {
-		return workerPromotionBaseline{}, err
+		return WorkerVersion{}, err
 	}
-	if len(deployments) == 0 {
-		return workerPromotionBaseline{}, ErrNotFound
-	}
-	baseline := deployments[0]
-	// A failed response may leave the candidate in a partial allocation. If
-	// the requested target is an older version, prefer its exact historical
-	// allocation when one exists; otherwise retain the exact observed
-	// allocation instead of inventing a predecessor that was never read back.
-	if targetID != "" && workerAllocationHas(baseline, targetID) && len(baseline.Versions) > 1 {
-		for _, deployment := range deployments[1:] {
-			if workerAllocationHas(deployment, targetID) && validWorkerAllocation(deployment.Versions) {
-				return workerPromotionBaseline{WorkerDeployment: deployment, restore: true}, nil
-			}
+	for _, deployment := range deployments {
+		if len(deployment.Versions) != 1 || deployment.Versions[0].Percentage != 100 {
+			continue
 		}
-	}
-	if !validWorkerAllocation(baseline.Versions) {
-		return workerPromotionBaseline{}, errors.New("cloudflare: Worker promotion baseline allocation is invalid")
-	}
-	return workerPromotionBaseline{WorkerDeployment: baseline}, nil
-}
-
-func workerAllocationHas(deployment WorkerDeployment, versionID string) bool {
-	for _, version := range deployment.Versions {
-		if version.VersionID == versionID {
-			return true
+		var version WorkerVersion
+		err := c.do(ctx, "read Worker promotion baseline", http.MethodGet, c.accountPath("/workers/scripts/"+url.PathEscape(script)+"/versions/"+url.PathEscape(deployment.Versions[0].VersionID)), nil, &version)
+		if err == nil && version.ID != deployment.Versions[0].VersionID {
+			return WorkerVersion{}, errors.New("cloudflare: Worker detail returned a different version")
 		}
+		return version, err
 	}
-	return false
-}
-
-func validWorkerAllocation(versions []WorkerDeploymentVersion) bool {
-	if len(versions) == 0 {
-		return false
+	if len(deployments) != 0 {
+		return WorkerVersion{}, errors.New("cloudflare: partial deployment has no full predecessor")
 	}
-	total := 0
-	seen := make(map[string]struct{}, len(versions))
-	for _, version := range versions {
-		if version.VersionID == "" || version.Percentage <= 0 || version.Percentage > 100 {
-			return false
-		}
-		if _, ok := seen[version.VersionID]; ok {
-			return false
-		}
-		seen[version.VersionID] = struct{}{}
-		total += version.Percentage
-	}
-	return total == 100
-}
-
-func scaleWorkerAllocation(versions []WorkerDeploymentVersion, total int) []WorkerDeploymentVersion {
-	if total <= 0 || total >= 100 || !validWorkerAllocation(versions) {
-		return nil
-	}
-	result := make([]WorkerDeploymentVersion, len(versions))
-	remaining := total
-	for index, version := range versions {
-		share := version.Percentage * total / 100
-		if index == len(versions)-1 {
-			share = remaining
-		}
-		result[index] = WorkerDeploymentVersion{VersionID: version.VersionID, Percentage: share}
-		remaining -= share
-	}
-	return result
+	return WorkerVersion{}, ErrNotFound
 }
 
 func (c *Client) CreateWorkerDeployment(ctx context.Context, script string, versions []WorkerDeploymentVersion) (WorkerDeployment, error) {

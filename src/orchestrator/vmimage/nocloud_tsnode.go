@@ -88,6 +88,14 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	script.WriteString("/usr/bin/install -o root -g root -m 0444 " + tsNodeBootstrapSigPath + " " + versionDirectory + "/ts-node.sig\n")
 	script.WriteString("/usr/bin/ln -sfnT " + versionDirectory + " /opt/terrascale/ts-node/current\n")
 	script.WriteString("/usr/bin/systemctl daemon-reload\n")
+	// systemd's path sandbox requires every writable exception to exist before
+	// the unit starts. Keep the root credential tree private for hostsecrets'
+	// strict directory admission, including nested destinations absent on a
+	// fresh image.
+	script.WriteString("/usr/bin/install -d -o root -g root -m 0700 /etc/terrascale\n")
+	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
+		script.WriteString("/usr/bin/install -d -o root -g root -m 0700 " + directory + "\n")
+	}
 	script.WriteString(chronyBootstrapScript())
 	script.WriteString(membershipOwnershipBootstrap())
 	script.WriteString(controllerOwnershipBootstrap(tsNode.commandTrustFiles))

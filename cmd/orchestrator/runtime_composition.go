@@ -134,6 +134,7 @@ type productionGlobalWorkerConfig struct {
 	// durable last-request activity; it is never inferred from admission.
 	LifecyclePolicy     *reaper.LifecyclePolicyClient
 	Restore             productionRestoreConfig
+	RestoreTelemetry    *productionRestoreTelemetry
 	Placement           productionPlacementConfig
 	PlacementTransition productionPlacementTransitionConfig
 	// KV is mandatory for GRU workers. Regional delivery may leave the rollout
@@ -337,6 +338,9 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, fmt.Errorf("runtime restore journal: %w", err)
 	}
 	config.Restore.Journal = journal
+	if config.RestoreTelemetry != nil {
+		config.Restore.Drill.Telemetry = config.RestoreTelemetry
+	}
 	restore, err := restoredrill.NewProductionComposition(config.Restore.resolve(mirror))
 	if err != nil {
 		return group, fmt.Errorf("runtime restore drill: %w", err)

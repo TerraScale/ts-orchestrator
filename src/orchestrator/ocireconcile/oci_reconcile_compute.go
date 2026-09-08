@@ -750,6 +750,14 @@ func renderTSNodeCloudInit(version, sha256Hex, artifactURL, signatureURL, public
 	for _, executable := range []string{"/usr/bin/install", "/usr/bin/curl", "/usr/bin/sha256sum", "/usr/bin/openssl", "/usr/bin/systemctl"} {
 		b.WriteString("  - [/usr/bin/test, -x, " + executable + "]\n")
 	}
+	// systemd's path sandbox requires every writable exception to exist before
+	// the unit starts. Keep the root credential tree private for hostsecrets'
+	// strict directory admission, including nested destinations absent on a
+	// fresh image.
+	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0700, /etc/terrascale]\n")
+	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
+		b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0700, " + directory + "]\n")
+	}
 	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0755, /opt/terrascale/ts-node/" + version + "]\n")
 	b.WriteString("  - [/usr/bin/install, -d, -o, root, -g, root, -m, 0700, " + tsNodeDataVolume + "]\n")
 	b.WriteString("  - [/usr/bin/test, -s, " + publicKeyPath + "]\n")

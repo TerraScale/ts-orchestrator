@@ -6,6 +6,7 @@ package tsnodebootstrap
 import (
 	"errors"
 	"path"
+	"slices"
 	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/systemdlimits"
 )
@@ -198,6 +199,13 @@ var productionCredentialDirectories = []string{
 	"/etc/terrascale/terrabase/transition",
 	"/etc/terrascale/ts-node-authority",
 	"/etc/terrascale/ts-node-bootstrap",
+}
+
+// ProductionCredentialDirectories returns the exact credential directory
+// closure that bootstrap must create before starting ts-node. The caller gets
+// an independent slice so the filesystem contract cannot be mutated.
+func ProductionCredentialDirectories() []string {
+	return slices.Clone(productionCredentialDirectories)
 }
 
 func safeSystemdPath(value string) bool {

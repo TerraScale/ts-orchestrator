@@ -1,13 +1,40 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/observability"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 )
+
+func newProductionRestoreTelemetryFromEnv(host, region string) (*productionRestoreTelemetry, error) {
+	config, err := observabilityConfigFromEnv(os.LookupEnv)
+	if err != nil {
+		return nil, errors.Join(errors.New("restore telemetry: production observability configuration is required"), err)
+	}
+	encode := func(batch observability.Batch) (observability.EncodedBatch, error) {
+		var body bytes.Buffer
+		for _, record := range batch.Records {
+			body.Write(record)
+			body.WriteByte('\n')
+		}
+		return observability.EncodedBatch{Body: body.Bytes(), ContentType: "application/x-ndjson"}, nil
+	}
+	exporter, err := observability.NewHTTPExporter(config, nil, encode, encode, nil)
+	if err != nil {
+		return nil, err
+	}
+	telemetry, err := newProductionRestoreTelemetry(exporter, host, region)
+	if err != nil {
+		_ = exporter.Close(context.Background())
+		return nil, err
+	}
+	return telemetry, nil
+}
 
 // productionRestoreTelemetry adapts aggregate restore outcomes to the
 // bounded observability exporter. It has no access to database identities,
@@ -60,6 +87,13 @@ func (t *productionRestoreTelemetry) Record(ctx context.Context, facts restoredr
 		}
 	}
 	return nil
+}
+
+func (t *productionRestoreTelemetry) Close(ctx context.Context) error {
+	if t == nil || t.exporter == nil {
+		return nil
+	}
+	return t.exporter.Close(ctx)
 }
 
 var _ restoredrill.TelemetryPort = (*productionRestoreTelemetry)(nil)
