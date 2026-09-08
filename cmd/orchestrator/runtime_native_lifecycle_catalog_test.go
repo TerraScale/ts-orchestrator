@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
+	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 )
 
@@ -21,6 +25,61 @@ func TestPolicyDatabaseActivitySourceConstructorBindsAcceptedPolicy(t *testing.T
 	}
 	if newPolicyDatabaseActivitySource(policy) == nil {
 		t.Fatal("policy activity source constructor returned nil for an accepted policy")
+	}
+}
+
+func TestProductionLifecycleCatalogPreservesPolicyAndBillingFields(t *testing.T) {
+	const organization = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	const project = "01ARZ3NDEKTSV4RRFFQ69G5FAB"
+	const database = "01ARZ3NDEKTSV4RRFFQ69G5FAC"
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	deadline := now.Add(-time.Hour)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			SchemaVersion int `json:"schemaVersion"`
+			reaper.LifecyclePolicyScope
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode policy scope: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(reaper.LifecyclePolicyFacts{
+			SchemaVersion: 1, OrganizationID: request.OrganizationID, ProjectID: request.ProjectID, DatabaseID: request.DatabaseID,
+			Revision: "policy-revision", Plan: "pro", OwnerEmails: []string{"owner@example.com"},
+			LastAuthorizedRequestAt: new(now.Add(-time.Hour)), DeletionEligible: true, DeletionReasons: []string{"card-loss"},
+			BillingGraceDeadline: &deadline, BillingDeletionEligible: true,
+			Coverage: reaper.LifecycleBillingCoverage{CardLoss: &reaper.LifecycleBillingGrace{StartedAt: deadline.Add(-31 * 24 * time.Hour), Deadline: deadline}},
+		})
+	}))
+	t.Cleanup(server.Close)
+	policy, err := reaper.NewLifecyclePolicyClient(reaper.LifecyclePolicyClientConfig{
+		Endpoint: server.URL + "/api/internal/lifecycle/evaluate", ServiceKey: strings.Repeat("k", 32), Transport: server.Client().Transport,
+		CheckEffectAuthority: func(context.Context) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := databaseadmission.NewMemoryJournal()
+	identity := databaselifecycle.Identity{Environment: "production", OrganizationID: organization, ProjectID: project, DatabaseID: database}
+	if err := journal.ApplyLifecycle(t.Context(), databaselifecycle.Event{OperationID: "create-database", Kind: "create", Identity: identity, At: now.Add(-2 * time.Hour), Regions: []string{"GRU"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.ApplyLifecycle(t.Context(), databaselifecycle.Event{
+		OperationID: "route-database", Kind: "streams", Identity: identity,
+		At: now.Add(-2 * time.Hour), Streams: []databaselifecycle.Stream{{Region: "GRU", Partition: "partition", Epoch: 1, StartedAt: now.Add(-2 * time.Hour)}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := newProductionLifecycleCatalog(journal, policy, "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := catalog.List(t.Context(), "", 10)
+	if err != nil || len(page.Databases) != 1 {
+		t.Fatalf("catalog page=%+v err=%v", page, err)
+	}
+	got := page.Databases[0]
+	if got.Plan != reaper.PlanPaid || got.OwnerEmail != "owner@example.com" || got.PolicyRevision != "policy-revision" || !got.BillingDeletionEligible || got.BillingGraceDeadline == nil || !got.BillingGraceDeadline.Equal(deadline) || got.SelectedGraceCondition != "card-loss" {
+		t.Fatalf("production catalog dropped policy/billing fields: %+v", got)
 	}
 }
 

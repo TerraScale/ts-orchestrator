@@ -128,6 +128,25 @@ func TestProductionReconcileRefusesMissingConfiguration(t *testing.T) {
 	}
 }
 
+func TestReconcileProductionRuntimeOptionsUseDeploymentIdentity(t *testing.T) {
+	lookup := func(name string) (string, bool) {
+		values := map[string]string{
+			"TS_ORCH_CELL":                    "gru",
+			"TS_ORCH_INSTANCE":                "gru-1",
+			"TS_ORCH_PRODUCTION_RUNTIME_FILE": "/etc/terrascale/runtime.json",
+		}
+		value, ok := values[name]
+		return value, ok
+	}
+	options, err := reconcileProductionRuntimeOptions(lookup)
+	if err != nil {
+		t.Fatalf("reconcile runtime options rejected configured deployment identity: %v", err)
+	}
+	if options == nil || options.Cell != "gru" || options.Instance != "gru-1" || options.ProductionRuntimeFile != "/etc/terrascale/runtime.json" {
+		t.Fatalf("reconcile runtime options = %+v", options)
+	}
+}
+
 func TestOCICompositionCoversAllDeclaredRegionsAndObservedState(t *testing.T) {
 	spec := estate.Default()
 	regions := make(map[string]*ociRegionController, len(spec.Regions))

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -237,12 +238,16 @@ var _ reaper.DatabaseAdapter = (*nativeLifecycleDatabase)(nil)
 // admittedNativeLifecycleDatabase resolves the durable database record and
 // current GRU placement head on every operation. The signed head envelope is
 // forwarded unchanged; no request epoch or mTLS identity is used as authority.
-func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *productionDatabase, transition *productionPlacementTransition, session globalWorkerSession) (*nativeLifecycleDatabase, error) {
+func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *productionDatabase, transition *productionPlacementTransition, session globalWorkerSession, policy *reaper.LifecyclePolicyClient) (*nativeLifecycleDatabase, error) {
 	if database == nil || database.lifecycleJournal == nil || transition == nil || transition.issuer == nil || len(config.Regions) == 0 || session.guard == nil || session.check == nil || len(transition.config.Issuer.ProofKey) != ed25519.PrivateKeySize {
 		return nil, errors.New("native lifecycle admission is incomplete")
 	}
+	catalog, err := newProductionLifecycleCatalog(database.lifecycleJournal, policy, database.environment)
+	if err != nil {
+		return nil, fmt.Errorf("native lifecycle catalog: %w", err)
+	}
 	return &nativeLifecycleDatabase{
-		catalog: databaseCatalog(database, config.Activity),
+		catalog: catalog,
 		refresh: session.guard.RefreshAuthority, check: session.CheckEffectAuthority, keyID: transition.config.Issuer.ProofKeyID, key: slices.Clone(transition.config.Issuer.ProofKey),
 		grantJournal: func(operation string) (*authorityjournal.Journal[lifecycleGrantRecord], error) {
 			h := sha256.Sum256([]byte(operation))
@@ -309,6 +314,10 @@ func admittedNativeLifecycleDatabase(config productionDatabaseConfig, database *
 			return out, nil
 		},
 	}, nil
+}
+
+func newProductionLifecycleCatalog(source databaseadmission.LifecycleJournal, policy *reaper.LifecyclePolicyClient, environment string) (reaper.Catalog, error) {
+	return reaper.NewLifecycleCatalog(source, policy, environment)
 }
 
 func headProofEpoch(s placementtransition.Signed) uint64 {

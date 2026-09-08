@@ -437,7 +437,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			config.ComputeRemovalOwner.Bind(owner)
 		}
 	}
-	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition, session)
+	nativeDatabase, err := admittedNativeLifecycleDatabase(config.Database, database, transition, session, config.LifecyclePolicy)
 	if err != nil {
 		return group, fmt.Errorf("runtime native lifecycle: %w", err)
 	}

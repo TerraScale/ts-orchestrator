@@ -336,6 +336,9 @@ func (l productionAdmissionDatabaseLister) ListDatabases(ctx context.Context) ([
 		if len(record.Request.Regions) == 0 {
 			return nil, errors.New("restore database inventory: admitted record has no placement Region")
 		}
+		if record.Request.ParentDatabaseID != "" {
+			continue
+		}
 		result = append(result, restoredrill.Database{ID: record.DatabaseID, Region: record.Request.Regions[0]})
 	}
 	return result, nil

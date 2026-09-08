@@ -17,6 +17,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscale"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 	"terrascale.tech/orchestrator/src/orchestrator/observability"
 	"terrascale.tech/orchestrator/src/orchestrator/ocireconcile"
@@ -72,6 +73,10 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
+	runtimeOptions, err := reconcileProductionRuntimeOptions(lookup)
+	if err != nil {
+		return err
+	}
 	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan, BindProjection: dependencies.OCI.bindComputeProjection, BindTargetProjection: dependencies.OCI.bindComputeTargetProjection})
 	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
@@ -83,7 +88,7 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	// composition is admitted before the first reconcile pass so a partially
 	// wired control plane cannot mutate providers while its publication,
 	// rotation, reaper, or restore obligations are absent.
-	production, err := startProductionRuntime(ctx, nil)
+	production, err := startProductionRuntime(ctx, runtimeOptions)
 	if err != nil {
 		return fmt.Errorf("reconcile: production runtime composition: %w", err)
 	}
@@ -93,6 +98,27 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	dependencies.OCI.onChange = production.NotifyChange
 	dependencies.Cloudflare.onChange = production.NotifyChange
 	return runSupervisedReconcile(ctx, loop.Run, production, dependencies.KVWriter)
+}
+
+// reconcileProductionRuntimeOptions supplies the identity required to admit
+// the production deployment file. Reconcile has no controller NATS options,
+// but it still uses the same runtime-file composition as the long-running run
+// role.
+func reconcileProductionRuntimeOptions(lookup envLookup) (*control.OrchestratorOptions, error) {
+	if lookup == nil {
+		return nil, errors.New("reconcile: environment lookup is nil")
+	}
+	cell, cellOK := lookup("TS_ORCH_CELL")
+	instance, instanceOK := lookup("TS_ORCH_INSTANCE")
+	runtimeFile, runtimeFileOK := lookup("TS_ORCH_PRODUCTION_RUNTIME_FILE")
+	if !cellOK || strings.TrimSpace(cell) == "" || !instanceOK || strings.TrimSpace(instance) == "" || !runtimeFileOK || strings.TrimSpace(runtimeFile) == "" {
+		return nil, errors.New("reconcile: cell, instance, and production runtime file are required")
+	}
+	return &control.OrchestratorOptions{
+		Cell:                  cell,
+		Instance:              instance,
+		ProductionRuntimeFile: runtimeFile,
+	}, nil
 }
 
 // productionReconcileDependencies is the composition root for D-67. The
