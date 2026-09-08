@@ -148,7 +148,7 @@ func TestDeclaredRendersTheCloudflareContract(t *testing.T) {
 	cache := findResource(t, declared, estate.ResourceRef{Kind: estate.ResourceCacheRule, Name: "reactive-immutable"})
 	want = []Attribute{
 		{Name: "cache.hostname", Value: "sync.api.terrascale.tech"},
-		{Name: "cache.path-prefix", Value: "/views/"},
+		{Name: "cache.path-prefix", Value: "/api/v1/reactive/views/"},
 		{Name: "cache.eligible", Value: "true"},
 		{Name: "cache.immutable", Value: "true"},
 		{Name: "cache.edge-ttl-seconds", Value: "86400"},
