@@ -41,6 +41,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if err := validateDeclarationInputs(config); err != nil {
 		return err
 	}
+	if (args[0] == "stack" || args[0] == "test") && config.TerraBaseDeclarationFile == "" {
+		return errors.New("vm-qualify: TerraBase declaration is required for stack and test readiness")
+	}
 	switch args[0] {
 	case "doctor":
 		report := vmqual.RunDoctor(ctx, config)

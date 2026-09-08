@@ -101,8 +101,45 @@ func loadProductionDeployment(options *control.OrchestratorOptions) (productionD
 		if err := config.validateGlobalRelationships(estate.Default()); err != nil {
 			return config, err
 		}
+		if err := validateProductionRosterFile(config.Delivery.MembershipFile, config.Global.ServiceIdentity.Members); err != nil {
+			return config, err
+		}
 	}
 	return config, nil
+}
+
+func validateProductionRosterFile(path string, authoritative []serviceidentityrotation.RemoteMemberEndpoint) error {
+	raw, err := bootstrapcredentials.ReadFile(path, true, 1<<20)
+	if err != nil {
+		return fmt.Errorf("production deployment roster cannot be read: %w", err)
+	}
+	var config healthObservationConfig
+	if err := json.Unmarshal(raw, &config, json.RejectUnknownMembers(true)); err != nil {
+		return errors.New("production deployment roster is malformed")
+	}
+	return validateProductionRoster(config, authoritative)
+}
+
+func validateProductionRoster(config healthObservationConfig, authoritative []serviceidentityrotation.RemoteMemberEndpoint) error {
+	observed := make(map[string]string)
+	for _, region := range config.Regions {
+		for _, member := range region.Members {
+			if member.ID == "" || observed[member.ID] != "" {
+				return errors.New("production deployment roster differs from admitted host roster")
+			}
+			observed[member.ID] = member.Address
+		}
+	}
+	if len(observed) != len(authoritative) {
+		return errors.New("production deployment roster differs from admitted host roster")
+	}
+	for _, endpoint := range authoritative {
+		u, err := url.Parse(endpoint.URL)
+		if err != nil || u.Hostname() == "" || !strings.EqualFold(observed[endpoint.NodeID], u.Hostname()) {
+			return errors.New("production deployment roster differs from admitted host roster")
+		}
+	}
+	return nil
 }
 
 func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) error {

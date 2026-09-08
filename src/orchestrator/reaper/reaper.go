@@ -492,9 +492,15 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		if !database.BillingDeletionEligible || now.Before(*database.BillingGraceDeadline) {
 			return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "billing-covered", "eligibility/"+database.ID+"/billing-covered", now, "")
 		}
-		if entry.Phase == PhaseActive {
+		// Persist the billing fence before entering deletion from either active or
+		// already-paused state. A failed terminal operation must resume through
+		// the billing path on the next scan instead of becoming an unfenced
+		// deleting entry that the ordinary idle path can never advance.
+		if !entry.BillingGrace {
 			entry.BillingGrace = true
 			state.Entries[database.ID] = entry
+		}
+		if entry.Phase == PhaseActive {
 			if err := r.pauseLocked(ctx, state, database, now); err != nil {
 				return "", err
 			}

@@ -8,6 +8,30 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
 )
 
+func TestValidateProductionRosterRequiresExactAdmittedHosts(t *testing.T) {
+	config := healthObservationConfig{Regions: []healthRegion{{Members: []healthMember{{ID: "gru-1", Address: "10.0.0.1"}, {ID: "gru-2", Address: "10.0.0.2"}}}}}
+	authoritative := []serviceidentityrotation.RemoteMemberEndpoint{{NodeID: "gru-1", URL: "https://10.0.0.1:9443"}, {NodeID: "gru-2", URL: "https://10.0.0.2:9443"}}
+	if err := validateProductionRoster(config, authoritative); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*healthObservationConfig){
+		"missing host":      func(c *healthObservationConfig) { c.Regions[0].Members = c.Regions[0].Members[:1] },
+		"foreign host":      func(c *healthObservationConfig) { c.Regions[0].Members[1].ID = "gru-3" },
+		"different address": func(c *healthObservationConfig) { c.Regions[0].Members[1].Address = "10.0.0.3" },
+		"duplicate host":    func(c *healthObservationConfig) { c.Regions[0].Members[1].ID = c.Regions[0].Members[0].ID },
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutated := config
+			mutated.Regions = append([]healthRegion(nil), config.Regions...)
+			mutated.Regions[0].Members = append([]healthMember(nil), config.Regions[0].Members...)
+			mutate(&mutated)
+			if err := validateProductionRoster(mutated, authoritative); err == nil {
+				t.Fatal("inconsistent roster accepted")
+			}
+		})
+	}
+}
+
 func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 	const cloudflareAccountID = "0123456789abcdef0123456789abcdef"
 

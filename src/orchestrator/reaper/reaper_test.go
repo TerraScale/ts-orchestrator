@@ -243,6 +243,33 @@ func TestDueBillingGraceDeletesPaidDatabaseDespiteIdleExemption(t *testing.T) {
 	}
 }
 
+func TestDueBillingGraceFromPausedStateResumesAfterDeletionFailure(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	database := Database{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanPaid, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}
+	executor, mailer, audit, store := &testExecutor{fail: map[string]int{"purge": 1}}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	if err := store.Save(t.Context(), State{Version: 1, Entries: map[string]Entry{
+		"billing-db": {
+			DatabaseID: "billing-db", Plan: PlanPaid, Phase: PhasePaused,
+			Operations: map[string]Operation{}, Audits: map[string]bool{},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	reaper := makeReaper(t, clock, &testCatalog{databases: []Database{database}}, executor, mailer, store, audit)
+	if _, err := reaper.Run(context.Background()); err == nil {
+		t.Fatal("expected deletion failure")
+	}
+	state := store.Snapshot().Entries["billing-db"]
+	if state.Phase != PhaseDeleting || !state.BillingGrace {
+		t.Fatalf("failed billing deletion lost fence: %+v", state)
+	}
+	if result, err := reaper.Run(context.Background()); err != nil || result.Deleted != 1 {
+		t.Fatalf("billing deletion retry: result=%+v err=%v", result, err)
+	}
+}
+
 func TestRestoredBillingCoverageReactivatesBeforeIdleReaper(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	deadline := base.Add(30 * 24 * time.Hour)
