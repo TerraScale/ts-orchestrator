@@ -94,6 +94,22 @@ func (services *qualificationRuntimeServices) SetQualificationControlRuntimeSour
 	return nil
 }
 
+// installQualificationControlSource connects the owner-admitted control
+// producer only after the corresponding production run admissions are known
+// to cover every initial controller. Guest readiness can then consume the
+// source without falling back to declaration-only or fixture state.
+func (services *qualificationRuntimeServices) installQualificationControlSource() {
+	if services == nil || services.controlAdmission == nil || services.controlAdmission.source == nil || len(services.controlSeeds) == 0 || len(services.runAdmissions) != len(services.controlSeeds) {
+		return
+	}
+	for host := range services.controlSeeds {
+		if _, admitted := services.runAdmissions[host]; !admitted {
+			return
+		}
+	}
+	services.controlSource = services.controlAdmission.source
+}
+
 func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, architecture vmimage.Architecture) (qualificationServices, error) {
 	if err := plan.Validate(); err != nil {
 		return nil, fmt.Errorf("vmqual: qualification service network plan: %w", err)
@@ -260,9 +276,6 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		natsAuthority: authority, stateRoot: config.StateRoot, bootstrapIssuer: bootstrapIssuer,
 	}
 	services.controlAdmission = controlAdmission
-	if controlAdmission != nil {
-		services.controlSource = controlAdmission.source
-	}
 	if config.QualificationRunDeclarationFile != "" {
 		declaration, loadErr := vmcontrolseed.LoadRunDeclaration(config.QualificationRunDeclarationFile)
 		if loadErr != nil {
@@ -288,6 +301,7 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			}
 		}
 	}
+	services.installQualificationControlSource()
 	services.backup, err = loadQualificationBackup(config.TerraBaseDeclarationFile)
 	if err != nil {
 		_ = services.Close(context.Background())
