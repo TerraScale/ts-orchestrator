@@ -23,6 +23,15 @@ func authorizationLeaseFixture(t *testing.T) (AuthorizationLeaseRequest, []byte,
 	return AuthorizationLeaseRequest{OperationID: "request-1", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Scope: `{"database_ids":["db-a","db-b"],"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAB"}`, CredentialGeneration: 7, PermissionSetGeneration: 11, Audience: "https://api.terrascale.tech", Region: "GRU", IssuedAt: now, ValidUntil: now.Add(30 * time.Second)}, key, key
 }
 
+func mustDecodeHex(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode hex: %v", err)
+	}
+	return decoded
+}
+
 func TestAuthorizationLeaseSignsExactScopeAndRejectsContractDrift(t *testing.T) {
 	request, public, private := authorizationLeaseFixture(t)
 	lease, err := SignAuthorizationLease(request, "auth-key-1", private)
@@ -85,10 +94,7 @@ func TestAuthorizationLeaseMatchesSharedContractVector(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatalf("decode shared lease fixture: %v", err)
 	}
-	keyBytes, err := hex.DecodeString(fixture.Key)
-	if err != nil {
-		t.Fatal(err)
-	}
+	keyBytes := mustDecodeHex(t, fixture.Key)
 	if got := string(authorizationLeasePayload(fixture.Lease)); got != fixture.Canonical {
 		t.Fatalf("canonical lease body = %q, want %q", got, fixture.Canonical)
 	}

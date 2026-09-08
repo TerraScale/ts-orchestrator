@@ -39,6 +39,15 @@ var artifactEnvironment = []string{
 	"TS_VM_TERRABASE", "TS_VM_TERRABASE_SIGNATURE", "TS_VM_TERRABASE_VERSION",
 }
 
+// declarationEnvironment is carried through to the child qualification
+// command. vm-artifacts owns the artifact variables, while vm-qualify owns
+// loading and validating these documented declaration inputs.
+var declarationEnvironment = []string{
+	"TS_VM_TERRABASE_DECLARATION_FILE",
+	"TS_VM_RUN_DECLARATION_FILE",
+	"TS_VM_CONTROL_DECLARATION_FILE",
+}
+
 type options struct {
 	root            string
 	repo            string
@@ -404,7 +413,23 @@ func bundleEnvironment(base []string, prepared bundle) []string {
 		values[artifact.environment+"_SIGNATURE"] = artifact.signaturePath
 		values[artifact.environment+"_VERSION"] = artifact.version
 	}
-	return replaceSelectedEnvironment(base, artifactEnvironment, values)
+	keys := append(append([]string(nil), artifactEnvironment...), declarationEnvironment...)
+	for _, key := range declarationEnvironment {
+		if value, ok := environmentValue(base, key); ok {
+			values[key] = value
+		}
+	}
+	return replaceSelectedEnvironment(base, keys, values)
+}
+
+func environmentValue(environment []string, name string) (string, bool) {
+	for _, item := range environment {
+		key, value, found := strings.Cut(item, "=")
+		if found && key == name {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func replaceEnvironment(base []string, replacements map[string]string) []string {

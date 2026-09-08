@@ -51,14 +51,27 @@ type Source struct {
 
 // Artifact is the exact trusted artifact identity of a delivery.
 type Artifact struct {
-	Name                    string `json:"name"`
-	ManifestName            string `json:"manifestName"`
-	Digest                  string `json:"digest"`
-	SignatureDigest         string `json:"signatureDigest"`
-	ManifestDigest          string `json:"manifestDigest"`
-	ManifestSignatureDigest string `json:"manifestSignatureDigest"`
-	Kind                    string `json:"kind"`
-	Architecture            string `json:"architecture"`
+	Name                    string           `json:"name"`
+	ManifestName            string           `json:"manifestName"`
+	Digest                  string           `json:"digest"`
+	SignatureDigest         string           `json:"signatureDigest"`
+	ManifestDigest          string           `json:"manifestDigest"`
+	ManifestSignatureDigest string           `json:"manifestSignatureDigest"`
+	Kind                    string           `json:"kind"`
+	Architecture            string           `json:"architecture"`
+	Snippet                 *SnippetArtifact `json:"snippet,omitempty"`
+}
+
+// SnippetArtifact identifies the separately signed Cloudflare Snippet source
+// bundled with an edge release.
+type SnippetArtifact struct {
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	SourcePath  string `json:"sourcePath"`
+	MainModule  string `json:"mainModule"`
+	ContentType string `json:"contentType"`
+	Digest      string `json:"digest"`
+	Bytes       int    `json:"bytes"`
 }
 
 // RollbackArtifact is the exact prior artifact a rollback returns to.
@@ -327,10 +340,10 @@ func checkJSONDepth(jsonText string, maxDepth int) error {
 }
 
 var (
-	sha256Pattern      = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
-	secretPattern      = regexp.MustCompile(`(?i)(bearer\s+|(?:token|password|secret|private[_ -]?key|authorization)\s*[:=])`)
-	commitPattern      = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
-	operationIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	deliverySHA256Pattern = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
+	secretPattern         = regexp.MustCompile(`(?i)(bearer\s+|(?:token|password|secret|private[_ -]?key|authorization)\s*[:=])`)
+	commitPattern         = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	operationIDPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
 
 // Serialize renders one contract document as indented camelCase JSON
@@ -618,6 +631,25 @@ func validateArtifact(artifact *Artifact) {
 	if artifact.Architecture != "linux/amd64" && artifact.Architecture != "linux/arm64" && artifact.Architecture != "multi" {
 		fail("artifact_architecture_invalid", "artifact.architecture is not supported.", "Use linux/amd64, linux/arm64, or multi.")
 	}
+	validateSnippetArtifact(artifact.Snippet)
+}
+
+func validateSnippetArtifact(snippet *SnippetArtifact) {
+	if snippet == nil {
+		return
+	}
+	if snippet.Kind != "cloudflare-snippet" || !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(snippet.Name) {
+		fail("snippet_invalid", "artifact.snippet does not identify a supported Snippet.", "Provide the signed cloudflare-snippet identity.")
+	}
+	if strings.TrimSpace(snippet.SourcePath) == "" || strings.HasPrefix(snippet.SourcePath, "/") || strings.Contains(snippet.SourcePath, "..") {
+		fail("snippet_invalid", "artifact.snippet.sourcePath must be repository-relative.", "Provide the exact Snippet source path.")
+	}
+	if strings.TrimSpace(snippet.MainModule) == "" || strings.ContainsAny(snippet.MainModule, `/\\`) {
+		fail("snippet_invalid", "artifact.snippet.mainModule must be a bare filename.", "Provide the exact Snippet module filename.")
+	}
+	if snippet.ContentType != "application/javascript" || !deliverySHA256Pattern.MatchString(snippet.Digest) || snippet.Bytes <= 0 || snippet.Bytes > 1<<20 {
+		fail("snippet_invalid", "artifact.snippet identity is invalid.", "Provide the exact bounded Snippet digest and byte count.")
+	}
 }
 
 func validateRollbackArtifact(rollback *RollbackArtifact, artifact *Artifact) {
@@ -683,7 +715,7 @@ func validateTarget(target *Target) {
 }
 
 func digestField(value, field string) {
-	if !sha256Pattern.MatchString(value) {
+	if !deliverySHA256Pattern.MatchString(value) {
 		fail("digest_invalid", field+" must be a sha256 digest.", "Provide sha256 followed by exactly 64 hexadecimal characters.")
 	}
 }

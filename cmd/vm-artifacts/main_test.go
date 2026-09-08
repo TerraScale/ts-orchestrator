@@ -86,7 +86,14 @@ func TestValidateAndSignExactStaticArtifacts(t *testing.T) {
 	}
 	assertMode(t, prepared.publicKey, 0o444)
 
-	environment := bundleEnvironment([]string{"PATH=/bin", "TS_VM_TS_NODE=untrusted", "TS_VM_TS_NODE_VERSION=old"}, prepared)
+	environment := bundleEnvironment([]string{
+		"PATH=/bin",
+		"TS_VM_TS_NODE=untrusted",
+		"TS_VM_TS_NODE_VERSION=old",
+		"TS_VM_TERRABASE_DECLARATION_FILE=/protected/member.json",
+		"TS_VM_RUN_DECLARATION_FILE=/protected/run.json",
+		"TS_VM_CONTROL_DECLARATION_FILE=/protected/control.json",
+	}, prepared)
 	for _, name := range artifactEnvironment {
 		count := 0
 		for _, value := range environment {
@@ -97,6 +104,23 @@ func TestValidateAndSignExactStaticArtifacts(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("%s occurs %d times in %#v", name, count, environment)
 		}
+	}
+	for _, want := range []string{
+		"TS_VM_TERRABASE_DECLARATION_FILE=/protected/member.json",
+		"TS_VM_RUN_DECLARATION_FILE=/protected/run.json",
+		"TS_VM_CONTROL_DECLARATION_FILE=/protected/control.json",
+	} {
+		if !containsEnvironment(environment, want) {
+			t.Fatalf("declaration input %q was not forwarded: %#v", want, environment)
+		}
+	}
+}
+
+func TestBundleEnvironmentPreservesMissingDeclarationInputs(t *testing.T) {
+	prepared := bundle{}
+	environment := bundleEnvironment([]string{"PATH=/bin", "TS_VM_RUN_DECLARATION_FILE=/missing/run.json"}, prepared)
+	if !containsEnvironment(environment, "TS_VM_RUN_DECLARATION_FILE=/missing/run.json") {
+		t.Fatalf("missing declaration path was not forwarded: %#v", environment)
 	}
 }
 
@@ -230,4 +254,13 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 	if info.Mode().Perm() != want {
 		t.Fatalf("%s mode = %04o, want %04o", path, info.Mode().Perm(), want)
 	}
+}
+
+func containsEnvironment(environment []string, want string) bool {
+	for _, item := range environment {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }

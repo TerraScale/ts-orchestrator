@@ -38,6 +38,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	config.JournalPath, _ = filepath.Abs(config.JournalPath)
 	config.ImageCacheRoot, _ = filepath.Abs(config.ImageCacheRoot)
 	config.ReadinessRoot, _ = filepath.Abs(config.ReadinessRoot)
+	if err := validateDeclarationInputs(config); err != nil {
+		return err
+	}
 	switch args[0] {
 	case "doctor":
 		report := vmqual.RunDoctor(ctx, config)
@@ -102,6 +105,33 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 	default:
 		return errors.New("unknown command")
 	}
+}
+
+// validateDeclarationInputs checks the command-owned input boundary before a
+// profile performs host work.  The declaration loaders retain responsibility
+// for parsing, ownership, and schema validation; this check only prevents a
+// selected path from silently becoming an absent input.
+func validateDeclarationInputs(config vmqual.Config) error {
+	for _, input := range []struct {
+		name string
+		path string
+	}{
+		{name: "TerraBase", path: config.TerraBaseDeclarationFile},
+		{name: "run", path: config.QualificationRunDeclarationFile},
+		{name: "control", path: config.QualificationControlDeclarationFile},
+	} {
+		if input.path == "" {
+			continue
+		}
+		info, err := os.Lstat(input.path)
+		if err != nil {
+			return fmt.Errorf("vm-qualify: %s declaration: %w", input.name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("vm-qualify: %s declaration must be a regular file", input.name)
+		}
+	}
+	return nil
 }
 
 func realComponents(ctx context.Context, config vmqual.Config, full, fourthRegion bool) (vmqual.VMFactory, vmqual.NetworkController, error) {

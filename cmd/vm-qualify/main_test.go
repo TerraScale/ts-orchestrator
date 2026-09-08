@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +17,35 @@ func TestRunRejectsUnknownCommandBeforeRuntimeIdentityResolution(t *testing.T) {
 	err := run(context.Background(), []string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || err.Error() != "unknown command" {
 		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestRunRejectsMissingDeclarationInput(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "run.json")
+	t.Setenv("TS_VM_RUN_DECLARATION_FILE", missing)
+	err := run(context.Background(), []string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "run declaration") {
+		t.Fatalf("run error = %v, want missing run declaration", err)
+	}
+}
+
+func TestRunAcceptsExistingDeclarationInputBeforeCommandDispatch(t *testing.T) {
+	declaration := filepath.Join(t.TempDir(), "run.json")
+	if err := os.WriteFile(declaration, []byte(`{"version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TS_VM_RUN_DECLARATION_FILE", declaration)
+	err := run(context.Background(), []string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || err.Error() != "unknown command" {
+		t.Fatalf("run error = %v, want dispatch after declaration path validation", err)
+	}
+}
+
+func TestValidateDeclarationInputsRejectsDirectories(t *testing.T) {
+	directory := t.TempDir()
+	err := validateDeclarationInputs(vmqual.Config{QualificationControlDeclarationFile: directory})
+	if err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("validation error = %v, want regular-file failure", err)
 	}
 }
 

@@ -247,7 +247,7 @@ func (m *ArtifactMirror) mirrorAll(ctx context.Context, artifact *ReleaseArtifac
 			Err:         errors.New("artifact service is not a safe object path component"),
 		}}}
 	}
-	if !sha256Pattern.MatchString(artifact.Digest) {
+	if !deliverySHA256Pattern.MatchString(artifact.Digest) {
 		return &MirrorBatchError{Failures: []*MirrorError{{
 			Kind: MirrorFailureMismatch, Retryable: false,
 			Remediation: "Submit the exact artifact sha256 digest.",

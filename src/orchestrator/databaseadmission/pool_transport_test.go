@@ -5,9 +5,10 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"encoding/json/v2"
+	"sync/atomic"
 	"testing"
 
+	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
@@ -16,11 +17,14 @@ func TestPollPoolDeliversPersistedLowercaseRegion(t *testing.T) {
 	connection := cluster.connect(t)
 	record := journalFixture(t)
 	target := record.Targets[0]
+	config := pipelineConfig(t, NewMemoryJournal())
 	subject, err := PoolSubject(target.ServerIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var attempts atomic.Int32
 	sub, err := connection.Subscribe(subject, func(message *nats.Msg) {
+		attempt := attempts.Add(1)
 		var work PoolWork
 		if err := json.Unmarshal(message.Data, &work, json.RejectUnknownMembers(true)); err != nil {
 			t.Errorf("decode pool work: %v", err)
@@ -29,7 +33,11 @@ func TestPollPoolDeliversPersistedLowercaseRegion(t *testing.T) {
 		if work.Request.Region != "gru" {
 			t.Errorf("persisted region = %q, want gru", work.Request.Region)
 		}
-		_ = message.Respond(mustJSON(PoolWorkReply{RefillOperationID: work.Request.RefillOperationID, State: "installed"}))
+		state := "unknown"
+		if attempt == 2 {
+			state = "installed"
+		}
+		_ = message.Respond(mustJSON(PoolWorkReply{RefillOperationID: work.Request.RefillOperationID, State: state}))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,12 +47,12 @@ func TestPollPoolDeliversPersistedLowercaseRegion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	socket := filepath.Join(t.TempDir(), "pool.sock")
+	socket := filepath.Join(filepath.Dir(config.CatalogPath), "pool.sock")
 	listener, err := listenPrivate(socket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var acked bool
+	var acked atomic.Bool
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -63,7 +71,7 @@ func TestPollPoolDeliversPersistedLowercaseRegion(t *testing.T) {
 				Operation string `json:"refill_operation_id"`
 			}
 			if json.Unmarshal(body, &ack, json.RejectUnknownMembers(true)) == nil && ack.Database == "db" && ack.Operation == "refill-1" {
-				acked = true
+				acked.Store(true)
 			}
 		default:
 			http.NotFound(w, r)
@@ -74,12 +82,17 @@ func TestPollPoolDeliversPersistedLowercaseRegion(t *testing.T) {
 	client := unixTestClient(socket)
 	defer client.CloseIdleConnections()
 
-	next, err := pollPool(t.Context(), HostConfig{Connection: connection, ServerIdentity: target.ServerIdentity, Region: "GRU", MemberID: target.MemberID}, client, "")
+	hostConfig := HostConfig{Connection: connection, ServerIdentity: target.ServerIdentity, Region: "GRU", MemberID: target.MemberID}
+	next, err := pollPool(t.Context(), hostConfig, client, "")
+	if err == nil || next != "" {
+		t.Fatalf("failed poll result next=%q err=%v", next, err)
+	}
+	next, err = pollPool(t.Context(), hostConfig, client, next)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next != "db-next" || !acked {
-		t.Fatalf("poll result next=%q acked=%v", next, acked)
+	if next != "db-next" || !acked.Load() || attempts.Load() != 2 {
+		t.Fatalf("poll result next=%q acked=%v attempts=%d", next, acked.Load(), attempts.Load())
 	}
 }
 

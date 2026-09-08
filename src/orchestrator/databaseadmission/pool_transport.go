@@ -64,30 +64,33 @@ func pollPool(ctx context.Context, c HostConfig, client *http.Client, after stri
 	}
 	request := page.Work.Request
 	if request.HolderID != c.MemberID || request.Region != strings.ToLower(c.Region) || len(page.Work.Consumptions) > 64 {
-		return page.Next, ErrInvalid
+		return after, ErrInvalid
 	}
 	subject, err := PoolSubject(c.ServerIdentity)
 	if err != nil {
-		return page.Next, err
+		return after, err
 	}
 	body, err = json.Marshal(page.Work)
 	if err != nil || len(body) > poolMessageLimit {
-		return page.Next, ErrInvalid
+		return after, ErrInvalid
 	}
 	reply, err := c.Connection.RequestWithContext(ctx, subject, body)
 	if err != nil {
-		return page.Next, err
+		return after, err
 	}
 	var ack PoolWorkReply
 	if len(reply.Data) > 1024 || json.Unmarshal(reply.Data, &ack, json.RejectUnknownMembers(true)) != nil || ack.RefillOperationID != request.RefillOperationID || (ack.State != "installed" && ack.State != "reported" && ack.State != "expired") {
-		return page.Next, errors.New("pool refill outcome unknown")
+		return after, errors.New("pool refill outcome unknown")
 	}
 	body, _ = json.Marshal(struct {
 		Database  string `json:"database_id"`
 		Operation string `json:"refill_operation_id"`
 	}{request.DatabaseID, request.RefillOperationID})
 	_, err = poolLocalRequest(ctx, client, "/ack", body)
-	return page.Next, err
+	if err != nil {
+		return after, err
+	}
+	return page.Next, nil
 }
 func poolLocalRequest(ctx context.Context, client *http.Client, path string, body []byte) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/internal/v1/databases/usage/pool"+path, bytes.NewReader(body))
@@ -112,14 +115,17 @@ func runPoolRefills(ctx context.Context, c HostConfig, client *http.Client, done
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		operation, cancel := context.WithTimeout(ctx, 20*time.Second)
-		next, _ := pollPool(operation, c, client, after)
-		cancel()
-		after = next
+		// Do not probe the engine as part of host startup. Apart from adding
+		// needless work, an immediate probe can race the first admission and
+		// make the pool endpoint compete with the request's engine route.
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+		operation, cancel := context.WithTimeout(ctx, 20*time.Second)
+		next, _ := pollPool(operation, c, client, after)
+		cancel()
+		after = next
 	}
 }

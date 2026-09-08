@@ -158,6 +158,41 @@ func TestValidateRequestRejectsWithTsDeployCodes(t *testing.T) {
 	}
 }
 
+func TestValidateRequestAcceptsAndBoundsSignedSnippetMetadata(t *testing.T) {
+	base, err := ParseRequest(golden(t, goldenRequestPath))
+	if err != nil {
+		t.Fatalf("parse golden request: %v", err)
+	}
+	base.Artifact.Snippet = &SnippetArtifact{
+		Kind: "cloudflare-snippet", Name: "ts-gate", SourcePath: "snippet/snippet.ts",
+		MainModule: "snippet.ts", ContentType: "application/javascript",
+		Digest: SHA256Digest([]byte("snippet")), Bytes: len("snippet"),
+	}
+	if err := ValidateRequest(base); err != nil {
+		t.Fatalf("valid Snippet metadata rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*SnippetArtifact){
+		"path traversal": func(value *SnippetArtifact) { value.SourcePath = "../snippet.ts" },
+		"wrong type":     func(value *SnippetArtifact) { value.ContentType = "text/plain" },
+		"wrong digest":   func(value *SnippetArtifact) { value.Digest = "sha256:bad" },
+		"zero bytes":     func(value *SnippetArtifact) { value.Bytes = 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := *base
+			artifact := *base.Artifact
+			snippet := *base.Artifact.Snippet
+			mutate(&snippet)
+			artifact.Snippet = &snippet
+			request.Artifact = &artifact
+			if err := ValidateRequest(&request); err == nil {
+				t.Fatal("invalid Snippet metadata was accepted")
+			} else if validation, ok := AsValidationError(err); !ok || validation.Code != "snippet_invalid" {
+				t.Fatalf("invalid Snippet metadata returned error %v, want snippet_invalid", err)
+			}
+		})
+	}
+}
+
 // TestValidateReceiptEnforcesTerminalContract locks the receipt rules the
 // orchestrator must satisfy for ts-deploy to accept its receipts.
 func TestValidateReceiptEnforcesTerminalContract(t *testing.T) {
