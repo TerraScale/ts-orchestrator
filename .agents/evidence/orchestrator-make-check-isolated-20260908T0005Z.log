@@ -1,0 +1,13 @@
+2026-09-07T23:33:38-03:00
+live_handle=2071551
+go version go1.27.0 linux/amd64
+GOROOT=/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64
+GOCACHE=/tmp/terrascale-orchestrator-check-20260908-cache-2070
+GOFLAGS=-p=2
+GOMAXPROCS=4
+source_head=fbdac659121edad6cdccaf53d68335c559b26deb
+tracked_diff_sha256=89ad76abe20e046b0ac2672b148d40f8ac10a15a5933249bd9fbf81395f42abf
+go_source_checkpoint_sha256=1f5ff5a4b13dd38137cfb87f167caf25a52ee8d48d465c28d968ed5d92701644
+artifact_sha256=75b31ac2fb89863ccac1c0718fb02738eebc2be5c4043230922971a4ea5b1ad1
+test -z "$(gofmt -l .)"
+go vet ./...
