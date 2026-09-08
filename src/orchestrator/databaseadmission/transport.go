@@ -429,6 +429,11 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		return conn, nil
 	}}
 	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// Keep catalog delivery and engine admission as one ordered host action.
+	// NATS may invoke callbacks concurrently; allowing a retry to overtake an
+	// in-flight delivery makes the engine observe admission before that
+	// delivery's durable catalog update has completed.
+	var installMu sync.Mutex
 	sub, err := c.Connection.Subscribe(subject, func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) > maxMessage {
 			return
@@ -450,12 +455,22 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		if handleHostUsage(opctx, c, client, message) {
 			return
 		}
+		installMu.Lock()
+		defer installMu.Unlock()
 		var request installRequest
 		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil || validateInstall(c, request) != nil {
 			_ = message.Respond([]byte("invalid"))
 			return
 		}
 		if keylease.MergeEntries(c.CatalogPath, request.Entries) != nil {
+			_ = message.Respond([]byte("unavailable"))
+			return
+		}
+		// MergeEntries fsyncs the catalog before returning. Read it back as the
+		// admission barrier so the engine cannot observe a delivery that has not
+		// become durable on this host.
+		catalog, err := keylease.ReadCatalog(c.CatalogPath)
+		if err != nil || !catalogContainsEntries(catalog, request.Entries) {
 			_ = message.Respond([]byte("unavailable"))
 			return
 		}
@@ -546,6 +561,23 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 	context.AfterFunc(ctx, func() { _ = service.Close() })
 	return service, nil
 }
+
+func catalogContainsEntries(catalog keylease.Catalog, entries []keylease.Entry) bool {
+	for _, entry := range entries {
+		found := false
+		for _, installed := range catalog.Entries {
+			if installed.Binding == entry.Binding && installed.CryptoEndpoint == entry.CryptoEndpoint && installed.KEKID == entry.KEKID && installed.KEKVersionID == entry.KEKVersionID && installed.Ciphertext == entry.Ciphertext && installed.LeaseSeconds == entry.LeaseSeconds && installed.Revoked == entry.Revoked && installed.NotAfter.Equal(entry.NotAfter) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 func validateInstall(c HostConfig, r installRequest) error {
 	a := r.Admission
 	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != len(databaseKeyPurposes) {

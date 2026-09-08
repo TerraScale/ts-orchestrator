@@ -140,6 +140,9 @@ func SignPoolRefill(signer *security.CommandSignatureSigner, grant PoolGrant) (S
 func (g PoolGrant) Revoked() bool { return g.ExpiresAt.IsZero() || g.ExpiresAt.Before(g.IssuedAt) }
 
 func validatePoolRequest(r PoolRefillRequest, p Policy, now time.Time) error {
+	if r.BranchID == "" {
+		r.BranchID = "main"
+	}
 	if r.RefillOperationID == "" || r.PoolID == "" || r.OrganizationID != p.OrganizationID || r.DatabaseID == "" || r.HolderID == "" || r.Region == "" || r.Placement == "" || r.Units <= 0 || r.MaxPoolUnits <= 0 || r.LowWaterUnits < 0 || r.LowWaterUnits >= r.MaxPoolUnits || r.PolicyEpoch != p.PolicyEpoch || r.ConsentEpoch != p.ConsentEpoch || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(now) || r.Units > r.MaxPoolUnits || r.MaxPoolUnits > 1024 || r.AvailableLocal < 0 || r.AvailableLocal > r.LowWaterUnits || r.Units > r.MaxPoolUnits-r.AvailableLocal {
 		return ErrInvalid
 	}
@@ -164,6 +167,9 @@ func (a *Authority) ReservePool(ctx context.Context, request PoolRefillRequest) 
 			return err
 		}
 		now := a.now().UTC()
+		if request.BranchID == "" {
+			request.BranchID = "main"
+		}
 		policy := state.ActivePolicy
 		if prior, ok := state.PoolRefills[request.RefillOperationID]; ok {
 			left, _ := json.Marshal(prior.Request)

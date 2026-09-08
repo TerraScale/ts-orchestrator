@@ -66,12 +66,22 @@ func (lease AuthorizationLease) MarshalJSON() ([]byte, error) {
 		Feature    string `json:"featureEpoch"`
 		Audience   string `json:"audience"`
 		Region     string `json:"region"`
-		Scope      string `json:"scope"`
 		IssuedAt   int64  `json:"issuedAt"`
 		ValidUntil int64  `json:"validUntil"`
 		KeyID      string `json:"keyId"`
 		Signature  string `json:"signature"`
-	}{lease.Version, lease.TenantID, strconv.FormatUint(lease.CredentialGeneration, 10), strconv.FormatUint(lease.PermissionSetGeneration, 10), lease.Audience, lease.Region, lease.Scope, lease.IssuedAt, lease.ValidUntil, lease.KeyID, lease.Signature})
+	}{
+		Version:    lease.Version,
+		TenantID:   lease.TenantID,
+		Epoch:      strconv.FormatUint(lease.CredentialGeneration, 10),
+		Feature:    strconv.FormatUint(lease.PermissionSetGeneration, 10),
+		Audience:   lease.Audience,
+		Region:     lease.Region,
+		IssuedAt:   lease.IssuedAt,
+		ValidUntil: lease.ValidUntil,
+		KeyID:      lease.KeyID,
+		Signature:  lease.Signature,
+	})
 }
 
 func (lease *AuthorizationLease) UnmarshalJSON(data []byte) error {
@@ -82,7 +92,6 @@ func (lease *AuthorizationLease) UnmarshalJSON(data []byte) error {
 		Feature    string `json:"featureEpoch"`
 		Audience   string `json:"audience"`
 		Region     string `json:"region"`
-		Scope      string `json:"scope"`
 		IssuedAt   int64  `json:"issuedAt"`
 		ValidUntil int64  `json:"validUntil"`
 		KeyID      string `json:"keyId"`
@@ -101,7 +110,7 @@ func (lease *AuthorizationLease) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	*lease = AuthorizationLease{Version: wire.Version, TenantID: wire.TenantID, Scope: wire.Scope, CredentialGeneration: credential, PermissionSetGeneration: permission, Audience: wire.Audience, Region: wire.Region, IssuedAt: wire.IssuedAt, ValidUntil: wire.ValidUntil, KeyID: wire.KeyID, Signature: wire.Signature}
+	*lease = AuthorizationLease{Version: wire.Version, TenantID: wire.TenantID, CredentialGeneration: credential, PermissionSetGeneration: permission, Audience: wire.Audience, Region: wire.Region, IssuedAt: wire.IssuedAt, ValidUntil: wire.ValidUntil, KeyID: wire.KeyID, Signature: wire.Signature}
 	return nil
 }
 
@@ -109,6 +118,62 @@ type authorizationLeaseState struct {
 	Leases          map[string]AuthorizationLease `json:"leases"`
 	CredentialFloor map[string]uint64             `json:"credentialFloor"`
 	PermissionFloor map[string]uint64             `json:"permissionFloor"`
+}
+
+// The public lease omits Scope because regional consumers derive it from the
+// tenant and generation fields. The authority still persists Scope privately
+// so an operation replay with changed admission scope is rejected.
+type authorizationLeaseRecord struct {
+	Version      int    `json:"version"`
+	TenantID     string `json:"tenantId"`
+	Scope        string `json:"scope"`
+	Epoch        string `json:"epoch"`
+	FeatureEpoch string `json:"featureEpoch"`
+	Audience     string `json:"audience"`
+	Region       string `json:"region"`
+	IssuedAt     int64  `json:"issuedAt"`
+	ValidUntil   int64  `json:"validUntil"`
+	KeyID        string `json:"keyId"`
+	Signature    string `json:"signature"`
+}
+
+func (state authorizationLeaseState) MarshalJSON() ([]byte, error) {
+	records := make(map[string]authorizationLeaseRecord, len(state.Leases))
+	for operation, lease := range state.Leases {
+		records[operation] = authorizationLeaseRecord{Version: lease.Version, TenantID: lease.TenantID, Scope: lease.Scope, Epoch: strconv.FormatUint(lease.CredentialGeneration, 10), FeatureEpoch: strconv.FormatUint(lease.PermissionSetGeneration, 10), Audience: lease.Audience, Region: lease.Region, IssuedAt: lease.IssuedAt, ValidUntil: lease.ValidUntil, KeyID: lease.KeyID, Signature: lease.Signature}
+	}
+	return json.Marshal(struct {
+		Leases          map[string]authorizationLeaseRecord `json:"leases"`
+		CredentialFloor map[string]uint64                   `json:"credentialFloor"`
+		PermissionFloor map[string]uint64                   `json:"permissionFloor"`
+	}{records, state.CredentialFloor, state.PermissionFloor})
+}
+
+func (state *authorizationLeaseState) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Leases          map[string]authorizationLeaseRecord `json:"leases"`
+		CredentialFloor map[string]uint64                   `json:"credentialFloor"`
+		PermissionFloor map[string]uint64                   `json:"permissionFloor"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	leases := make(map[string]AuthorizationLease, len(wire.Leases))
+	for operation, record := range wire.Leases {
+		credential, err := strconv.ParseUint(record.Epoch, 10, 64)
+		if err != nil {
+			return err
+		}
+		permission, err := strconv.ParseUint(record.FeatureEpoch, 10, 64)
+		if err != nil {
+			return err
+		}
+		leases[operation] = AuthorizationLease{Version: record.Version, TenantID: record.TenantID, Scope: record.Scope, CredentialGeneration: credential, PermissionSetGeneration: permission, Audience: record.Audience, Region: record.Region, IssuedAt: record.IssuedAt, ValidUntil: record.ValidUntil, KeyID: record.KeyID, Signature: record.Signature}
+	}
+	*state = authorizationLeaseState{Leases: leases, CredentialFloor: wire.CredentialFloor, PermissionFloor: wire.PermissionFloor}
+	return nil
 }
 
 func newAuthorizationLeaseState() authorizationLeaseState {
@@ -212,8 +277,8 @@ func (p *AuthorizationLeasePublisher) Reduce(ctx context.Context, tenantID strin
 }
 
 // SignAuthorizationLease produces the exact wire object consumed by regional
-// verifiers. Lifetime is bounded to thirty seconds and all scope fields are
-// included in the signed preimage.
+// verifiers. Lifetime is bounded to thirty seconds. Scope is internal
+// admission evidence and is excluded from the published lease contract.
 func SignAuthorizationLease(request AuthorizationLeaseRequest, keyID string, private []byte) (AuthorizationLease, error) {
 	scope := canonicalAuthorizationScope(request.Scope)
 	lease := AuthorizationLease{Version: 1, TenantID: request.TenantID, Scope: scope, CredentialGeneration: request.CredentialGeneration, PermissionSetGeneration: request.PermissionSetGeneration, Audience: request.Audience, Region: request.Region, IssuedAt: request.IssuedAt.Unix(), ValidUntil: request.ValidUntil.Unix(), KeyID: keyID}
@@ -250,7 +315,7 @@ func validateAuthorizationLease(lease AuthorizationLease, now time.Time) error {
 }
 
 func authorizationLeasePayload(lease AuthorizationLease) []byte {
-	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%d\n%d", authorizationLeaseDomain, lease.KeyID, lease.TenantID, lease.Scope, lease.CredentialGeneration, lease.PermissionSetGeneration, lease.Audience, lease.Region, lease.IssuedAt, lease.ValidUntil))
+	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%d\n%d", authorizationLeaseDomain, lease.KeyID, lease.TenantID, strconv.FormatUint(lease.CredentialGeneration, 10), strconv.FormatUint(lease.PermissionSetGeneration, 10), lease.Audience, lease.Region, lease.IssuedAt, lease.ValidUntil))
 }
 
 const maxSafeJSONInteger = uint64(9_007_199_254_740_991)
@@ -280,6 +345,10 @@ func canonicalAuthorizationScope(scope string) string {
 }
 
 func authorizationLeaseDigest(lease AuthorizationLease) string {
-	sum := sha256.Sum256(authorizationLeasePayload(lease))
+	// Scope is internal admission evidence and is deliberately excluded from
+	// the published HMAC contract, but it remains part of operation identity.
+	payload := append(append([]byte(nil), authorizationLeasePayload(lease)...), '\n')
+	payload = append(payload, lease.Scope...)
+	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }

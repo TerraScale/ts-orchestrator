@@ -101,6 +101,7 @@ func TestCiphertextHostDeliveryPrecedesDurableEngineAdmission(t *testing.T) {
 	if err := keylease.InitializeCatalog(config.CatalogPath); err != nil {
 		t.Fatal(err)
 	}
+	entries := journalWrapped(record)
 	socket := filepath.Join(filepath.Dir(config.CatalogPath), "engine.sock")
 	listener, err := listenPrivate(socket)
 	if err != nil {
@@ -110,7 +111,7 @@ func TestCiphertextHostDeliveryPrecedesDurableEngineAdmission(t *testing.T) {
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		catalog, err := keylease.ReadCatalog(config.CatalogPath)
-		if err != nil || len(catalog.Entries) != len(databaseKeyPurposes) {
+		if err != nil || !catalogContainsEntries(catalog, entries) {
 			t.Error("engine contacted before wrapped catalog durable", err)
 			http.Error(w, "unavailable", 503)
 			return
@@ -132,7 +133,6 @@ func TestCiphertextHostDeliveryPrecedesDurableEngineAdmission(t *testing.T) {
 	}
 	defer host.Close()
 	install := RemoteInstall(connection)
-	entries := journalWrapped(record)
 	for range 2 {
 		if err := install(t.Context(), record, target, entries); err != nil {
 			t.Fatal(err)

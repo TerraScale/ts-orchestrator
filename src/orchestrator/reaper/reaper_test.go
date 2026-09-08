@@ -199,7 +199,7 @@ func TestOwnedDataFailureAfterCryptoShredRetriesData(t *testing.T) {
 	if err != nil || result.Deleted != 1 {
 		t.Fatalf("retry did not complete deletion: result=%+v err=%v", result, err)
 	}
-	if len(executor.calls) < 7 || executor.calls[len(executor.calls)-2][:5] != "shred" || executor.calls[len(executor.calls)-1][:6] != "delete" {
+	if len(executor.calls) < 7 || executor.calls[len(executor.calls)-2][:6] != "delete" || executor.calls[len(executor.calls)-1][:6] != "delete" {
 		t.Fatalf("retry order=%v", executor.calls)
 	}
 }

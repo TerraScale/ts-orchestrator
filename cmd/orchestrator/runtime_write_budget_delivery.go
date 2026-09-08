@@ -14,7 +14,14 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
-const writeBudgetDeliveryLimit = 16 << 10
+const (
+	writeBudgetDeliveryLimit = 16 << 10
+	// Host budget handlers bound their engine request at 20 seconds. Keep the
+	// caller's NATS request alive slightly longer so that a slow but successful
+	// authenticated host route can return its acknowledgement instead of losing
+	// the reply at the same deadline.
+	writeBudgetDeliveryTimeout = 25 * time.Second
+)
 
 // writeBudgetTargetResolver reads the accepted lifecycle record and returns
 // the single current writer admitted for the grant holder. It is deliberately
@@ -83,7 +90,7 @@ func (d *runtimeWriteBudgetDelivery) SendAllocation(ctx context.Context, signed 
 	if err != nil {
 		return err
 	}
-	opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	opctx, cancel := context.WithTimeout(ctx, writeBudgetDeliveryTimeout)
 	defer cancel()
 	reply, err := d.connection.RequestWithContext(opctx, subject, payload)
 	if err != nil {
@@ -129,7 +136,7 @@ func (d *runtimeWriteBudgetDelivery) SendPoolRefill(ctx context.Context, signed 
 	if err != nil {
 		return err
 	}
-	opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	opctx, cancel := context.WithTimeout(ctx, writeBudgetDeliveryTimeout)
 	defer cancel()
 	reply, err := d.connection.RequestWithContext(opctx, subject, payload)
 	if err != nil {

@@ -101,6 +101,29 @@ func TestHandleHostUsageRejectsOversizeAndRedirectResponses(t *testing.T) {
 	}
 }
 
+func TestHandleHostUsageDoesNotFollowRedirectWithCallerDefaultClient(t *testing.T) {
+	registration := usageRegistrationFixture()
+	config := HostConfig{Environment: registration.Environment, Region: registration.Region, MemberID: registration.MemberID}
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		if request.URL.Host != "unix" {
+			t.Fatal("redirect target was contacted")
+		}
+		return &http.Response{
+			StatusCode: http.StatusTemporaryRedirect,
+			Header:     http.Header{"Location": []string{"http://redirected.invalid/internal/v1/databases/usage/admit"}},
+			Body:       io.NopCloser(strings.NewReader("redirect")),
+		}, nil
+	})}
+	if !handleHostUsage(context.Background(), config, client, &nats.Msg{Data: mustJSON(usageEnvelope{Registration: registration})}) {
+		t.Fatal("redirect response was not handled")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("redirect caused %d HTTP calls, want 1", got)
+	}
+}
+
 func TestRemoteUsageRegistrationThroughAuthenticatedHost(t *testing.T) {
 	cluster := newAdmissionJournalCluster(t)
 	connection := cluster.connect(t)
@@ -126,8 +149,13 @@ func TestRemoteUsageRegistrationThroughAuthenticatedHost(t *testing.T) {
 				t.Fatal(err)
 			}
 			var calls atomic.Int32
+			var redirectCalls atomic.Int32
 			server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls.Add(1)
+				if r.URL.Path == "/internal/v1/databases/usage/admit" {
+					calls.Add(1)
+				} else if r.URL.Path == "/" {
+					redirectCalls.Add(1)
+				}
 				if mode == "redirect" {
 					w.Header().Set("Location", "http://redirect.invalid")
 					w.WriteHeader(http.StatusTemporaryRedirect)
@@ -165,8 +193,8 @@ func TestRemoteUsageRegistrationThroughAuthenticatedHost(t *testing.T) {
 			} else if err == nil {
 				t.Fatal("accepted invalid usage receipt")
 			}
-			if mode == "redirect" && calls.Load() != 1 {
-				t.Fatalf("redirect handler called %d times", calls.Load())
+			if mode == "redirect" && (calls.Load() != 1 || redirectCalls.Load() != 0) {
+				t.Fatalf("usage admission requests = %d, redirect target requests = %d", calls.Load(), redirectCalls.Load())
 			}
 		})
 	}

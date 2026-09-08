@@ -111,7 +111,12 @@ func handleHostUsage(ctx context.Context, c HostConfig, client *http.Client, mes
 		return true
 	}
 	req.Header.Set("Content-Type", "application/json")
-	reply, err := client.Do(req)
+	// Usage admission is a single authenticated mutation. Keep this request
+	// from replaying the mutation when an engine emits a redirect, regardless
+	// of the caller's redirect policy.
+	requestClient := *client
+	requestClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	reply, err := requestClient.Do(req)
 	if err != nil {
 		_ = message.Respond([]byte("unavailable"))
 		return true
