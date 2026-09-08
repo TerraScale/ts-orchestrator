@@ -142,8 +142,8 @@ func reaperStateBytes(state *State) ([]byte, error) {
 				if entry.DeletedAt.IsZero() || entry.SecondNoticeAt.IsZero() {
 					return nil, ErrStateUnavailable
 				}
-				for _, name := range []string{"delete/cdn-purge", "delete/crypto-shred", "delete/data"} {
-					if !reaperDone(entry, name) {
+				for _, base := range []string{"delete/cdn-purge", "delete/crypto-shred", "delete/data"} {
+					if !reaperDone(entry, reaperCycleName(entry, base)) {
 						return nil, ErrStateUnavailable
 					}
 				}
@@ -288,10 +288,15 @@ func reaperNewOperations(old, entry Entry) bool {
 				return false
 			}
 		case "delete/cdn-purge", "delete/crypto-shred", "delete/data":
+			// Cycle-scoped deletion operation names are accepted alongside the
+			// legacy cycle-zero names.
+			if name != reaperCycleName(entry, "delete/cdn-purge") && name != reaperCycleName(entry, "delete/crypto-shred") && name != reaperCycleName(entry, "delete/data") {
+				return false
+			}
 			if phase != PhaseDeleting || old.SecondNoticeAt.IsZero() {
 				return false
 			}
-			if name == "delete/crypto-shred" && !reaperDone(old, "delete/cdn-purge") || name == "delete/data" && !reaperDone(old, "delete/crypto-shred") {
+			if name == reaperCycleName(entry, "delete/crypto-shred") && !reaperDone(old, reaperCycleName(old, "delete/cdn-purge")) || name == reaperCycleName(entry, "delete/data") && !reaperDone(old, reaperCycleName(old, "delete/crypto-shred")) {
 				return false
 			}
 		default:

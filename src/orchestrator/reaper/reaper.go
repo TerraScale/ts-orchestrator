@@ -704,7 +704,7 @@ func (r *Reconciler) deleteLocked(ctx context.Context, state *State, database Da
 		name string
 		run  func(context.Context, string) error
 	}{
-		{"delete/cdn-purge", func(ctx context.Context, key string) error { return r.executor.PurgeCDN(ctx, database.ID, key) }},
+		{r.operationName(entry, "delete/cdn-purge"), func(ctx context.Context, key string) error { return r.executor.PurgeCDN(ctx, database.ID, key) }},
 		{r.operationName(entry, "delete/crypto-shred"), func(ctx context.Context, key string) error { return r.executor.DestroyDEK(ctx, database.ID, key) }},
 		{r.operationName(entry, "delete/data"), func(ctx context.Context, key string) error { return r.executor.DeleteOwnedData(ctx, database.ID, key) }},
 	} {
@@ -754,10 +754,15 @@ func (r *Reconciler) operationLocked(ctx context.Context, state *State, database
 	entry = state.Entries[databaseID]
 	entry.Operations[name] = op
 	state.Entries[databaseID] = entry
-	if err := r.save(ctx, state); err != nil {
+	// The provider effect has succeeded at this point. Persist its completion
+	// even if the caller was canceled while the effect was in flight, otherwise
+	// a successful purge (or any other idempotent operation) is retried as if it
+	// had never completed.
+	completionContext := context.WithoutCancel(ctx)
+	if err := r.save(completionContext, state); err != nil {
 		return redactError(err)
 	}
-	return r.auditOnce(ctx, state, databaseID, name, "completed", name+"/completed/"+databaseID, now, "")
+	return r.auditOnce(completionContext, state, databaseID, name, "completed", name+"/completed/"+databaseID, now, "")
 }
 
 // operationName returns the durable name for a side effect in this lifecycle

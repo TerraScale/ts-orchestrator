@@ -29,10 +29,12 @@ func (c *testCatalog) List(ctx context.Context, cursor string, limit int) (Page,
 }
 
 type testExecutor struct {
-	mu       sync.Mutex
-	calls    []string
-	fail     map[string]int
-	observed bool
+	mu               sync.Mutex
+	calls            []string
+	purgeKeys        []string
+	fail             map[string]int
+	observed         bool
+	cancelAfterPurge context.CancelFunc
 }
 
 func (e *testExecutor) call(name, id string) error {
@@ -57,7 +59,17 @@ func (e *testExecutor) StopNativeBackup(_ context.Context, id, _ string) error {
 func (e *testExecutor) Reactivate(_ context.Context, id, _ string) error {
 	return e.call("reactivate", id)
 }
-func (e *testExecutor) PurgeCDN(_ context.Context, id, _ string) error   { return e.call("purge", id) }
+func (e *testExecutor) PurgeCDN(_ context.Context, id, key string) error {
+	e.mu.Lock()
+	e.purgeKeys = append(e.purgeKeys, key)
+	cancel := e.cancelAfterPurge
+	e.mu.Unlock()
+	err := e.call("purge", id)
+	if err == nil && cancel != nil {
+		cancel()
+	}
+	return err
+}
 func (e *testExecutor) DestroyDEK(_ context.Context, id, _ string) error { return e.call("shred", id) }
 func (e *testExecutor) ObserveDEKDestruction(_ context.Context, _, _ string) (bool, error) {
 	return e.observed, nil
@@ -449,6 +461,42 @@ func TestDoneCryptoShredRequiresObservationAcrossRestart(t *testing.T) {
 	}
 	if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleted {
 		t.Fatalf("observed completion did not finish deletion: %+v", state)
+	}
+}
+
+func TestDeletionPurgeUsesCycleKeyAndCommitsAfterCancellation(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := now
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	executor := &testExecutor{cancelAfterPurge: cancel}
+	store := &MemoryStore{}
+	if err := store.Save(t.Context(), State{Version: 1, Entries: map[string]Entry{
+		"db-1": {
+			DatabaseID: "db-1", Plan: PlanFree, Phase: PhaseDeleting, Cycle: 1,
+			PausedAt: now, FirstNoticeAt: now, SecondNoticeAt: now, BillingGrace: true,
+			Operations: map[string]Operation{
+				"pause/snapshot/cycle-1":      {Status: operationDone, Attempts: 1, StartedAt: now, CompletedAt: now},
+				"pause/close/cycle-1":         {Status: operationDone, Attempts: 1, StartedAt: now, CompletedAt: now},
+				"pause/native-backup/cycle-1": {Status: operationDone, Attempts: 1, StartedAt: now, CompletedAt: now},
+			},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	clock := &testClock{now: now}
+	catalog := &testCatalog{databases: []Database{{ID: "db-1", OwnerEmail: "owner@example.test", Plan: PlanFree, LastRequest: now, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}}}
+	reaper := makeReaper(t, clock, catalog, executor, &testMailer{}, store, &testAudit{})
+	if _, err := reaper.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled purge run error = %v, want context cancellation", err)
+	}
+	state := store.Snapshot().Entries["db-1"]
+	purge := state.Operations["delete/cdn-purge/cycle-1"]
+	if purge.Status != operationDone {
+		t.Fatalf("successful canceled purge status = %q, want done: %+v", purge.Status, state.Operations)
+	}
+	if len(executor.purgeKeys) != 1 || executor.purgeKeys[0] != "delete/cdn-purge/cycle-1/db-1" {
+		t.Fatalf("purge operation keys = %v, want cycle-scoped key", executor.purgeKeys)
 	}
 }
 

@@ -21,16 +21,16 @@ type configuredHostServices struct {
 	done      chan struct{}
 	cancel    context.CancelFunc
 	once      sync.Once
+	closeErr  error
 }
 
 func (h *configuredHostServices) Completion() <-chan struct{} { return h.done }
 func (h *configuredHostServices) Close() error {
-	var err error
 	h.once.Do(func() {
 		h.cancel()
-		err = errors.Join(h.rotation.Close(), h.database.Close(), h.placement.Close(), h.lease.Close())
+		h.closeErr = errors.Join(h.rotation.Close(), h.database.Close(), h.placement.Close(), h.lease.Close())
 	})
-	return err
+	return h.closeErr
 }
 func startConfiguredHostServices(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (hostServices, error) {
 	if options.Cell == "local" {

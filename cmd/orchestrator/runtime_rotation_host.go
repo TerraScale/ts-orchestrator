@@ -46,6 +46,7 @@ type productionRotationHost struct {
 	connection *nats.Conn
 	completion chan struct{}
 	once       sync.Once
+	closeErr   error
 }
 
 func (h *productionRotationHost) Completion() <-chan struct{} { return h.completion }
@@ -53,15 +54,14 @@ func (h *productionRotationHost) Close() error {
 	if h == nil {
 		return nil
 	}
-	var err error
 	h.once.Do(func() {
-		err = h.server.Close()
+		h.closeErr = h.server.Close()
 		if h.receiver != nil {
-			err = errors.Join(err, h.receiver.Close())
+			h.closeErr = errors.Join(h.closeErr, h.receiver.Close())
 		}
 		h.connection.Close()
 	})
-	return err
+	return h.closeErr
 }
 
 func startProductionRotationHost(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (*productionRotationHost, error) {
