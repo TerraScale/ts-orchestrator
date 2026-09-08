@@ -78,6 +78,13 @@ func request(t *testing.T, path string, b Binding) []byte {
 	return body
 }
 
+func successKey(body []byte) ([]byte, bool) {
+	if len(body) != 68 || body[0] != 'T' || body[1] != 'B' || body[2] != 'K' || body[3] != 'L' || body[4] != 1 || body[5] != 0 {
+		return nil, false
+	}
+	return body[36:], true
+}
+
 func writeCatalogWithRetry(ctx context.Context, path string, catalog Catalog) error {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -125,7 +132,8 @@ func TestLeaseRestartRotationAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	if body = request(t, config.SocketPath, catalog.Entries[0].Binding); body[5] != 0 {
+	body = request(t, config.SocketPath, catalog.Entries[0].Binding)
+	if _, ok := successKey(body); !ok {
 		t.Fatal("restart lost key")
 	}
 	rotated := catalog.Entries[0]
@@ -135,10 +143,14 @@ func TestLeaseRestartRotationAndRevocation(t *testing.T) {
 	if WriteCatalog(config.CatalogPath, catalog) != nil {
 		t.Fatal("rotation failed")
 	}
-	if body = request(t, config.SocketPath, rotated.Binding); !bytes.Equal(body[36:], bytes.Repeat([]byte{2}, 32)) {
+	rotatedBody := request(t, config.SocketPath, rotated.Binding)
+	rotatedKey, ok := successKey(rotatedBody)
+	if !ok || !bytes.Equal(rotatedKey, bytes.Repeat([]byte{2}, 32)) {
 		t.Fatal("new version not selected")
 	}
-	if body = request(t, config.SocketPath, catalog.Entries[0].Binding); !bytes.Equal(body[36:], bytes.Repeat([]byte{1}, 32)) {
+	body = request(t, config.SocketPath, catalog.Entries[0].Binding)
+	oldKey, ok := successKey(body)
+	if !ok || !bytes.Equal(oldKey, bytes.Repeat([]byte{1}, 32)) {
 		t.Fatal("old readable version substituted")
 	}
 	catalog.Entries[0].Revoked = true
