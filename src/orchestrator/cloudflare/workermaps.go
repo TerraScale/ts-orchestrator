@@ -286,8 +286,16 @@ func (d WorkerHealthDoc) normalized() (WorkerHealthDoc, error) {
 	if len(d.Regions) > maxWorkerHealthRegions {
 		return WorkerHealthDoc{}, fmt.Errorf("cloudflare: health document holds at most %d regions", maxWorkerHealthRegions)
 	}
+	catalog := d.Catalog
+	if catalog == nil {
+		catalog = publicRegionCatalog
+	}
+	normalizedCatalog, err := normalizeWorkerCatalog(catalog)
+	if err != nil {
+		return WorkerHealthDoc{}, err
+	}
 	out := WorkerHealthDoc{V: workerMapVersion, Updated: d.Updated,
-		Regions: make(map[string]WorkerRegionHealth, len(d.Regions)), Catalog: append([]WorkerRegionCatalog(nil), publicRegionCatalog...)}
+		Regions: make(map[string]WorkerRegionHealth, len(d.Regions)), Catalog: normalizedCatalog}
 	for region, entry := range d.Regions {
 		code, err := canonicalWorkerRegion(region)
 		if err != nil {
@@ -301,6 +309,36 @@ func (d WorkerHealthDoc) normalized() (WorkerHealthDoc, error) {
 		}
 		out.Regions[code] = entry
 	}
+	return out, nil
+}
+
+func normalizeWorkerCatalog(catalog []WorkerRegionCatalog) ([]WorkerRegionCatalog, error) {
+	if len(catalog) == 0 || len(catalog) > maxWorkerPlacementRegions {
+		return nil, fmt.Errorf("cloudflare: admitted catalog must contain 1..%d regions", maxWorkerPlacementRegions)
+	}
+	out := make([]WorkerRegionCatalog, 0, len(catalog))
+	seen := make(map[string]struct{}, len(catalog))
+	for _, entry := range catalog {
+		code := strings.ToUpper(strings.TrimSpace(entry.Code))
+		if len(code) != 3 || strings.Trim(code, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+			return nil, fmt.Errorf("cloudflare: admitted catalog region %q must be three uppercase letters", entry.Code)
+		}
+		if _, ok := seen[code]; ok {
+			return nil, fmt.Errorf("cloudflare: admitted catalog region %s is duplicated", code)
+		}
+		if strings.TrimSpace(entry.Name) != entry.Name || entry.Name == "" || len(entry.Name) > 128 {
+			return nil, fmt.Errorf("cloudflare: admitted catalog region %s has invalid name", code)
+		}
+		if len(entry.Country) != 2 || strings.ToUpper(entry.Country) != entry.Country {
+			return nil, fmt.Errorf("cloudflare: admitted catalog region %s has invalid country", code)
+		}
+		if !finite(entry.Lat) || entry.Lat < -90 || entry.Lat > 90 || !finite(entry.Lon) || entry.Lon < -180 || entry.Lon > 180 {
+			return nil, fmt.Errorf("cloudflare: admitted catalog region %s has invalid coordinates", code)
+		}
+		seen[code] = struct{}{}
+		out = append(out, WorkerRegionCatalog{Code: code, Name: entry.Name, Country: entry.Country, Lat: entry.Lat, Lon: entry.Lon})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out, nil
 }
 

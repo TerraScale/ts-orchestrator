@@ -23,6 +23,13 @@ type writeBudgetDelivery interface {
 	SendAllocation(context.Context, writebudget.SignedAllocation) error
 }
 
+// writeBudgetPoolDelivery installs schema-2 refill envelopes on the one
+// authenticated holder. It is separate from the retired operation-specific
+// allocation transport during the producer/consumer migration.
+type writeBudgetPoolDelivery interface {
+	SendPoolRefill(context.Context, writebudget.SignedPoolAllocation) error
+}
+
 type runtimeWriteBudgetConfig struct {
 	InitialPolicy    writebudget.PolicyEnvelope
 	ValidateRequest  func(context.Context, writebudget.Request) error
@@ -31,6 +38,7 @@ type runtimeWriteBudgetConfig struct {
 	Signer           *security.CommandSignatureSigner
 	Placement        string
 	Delivery         writeBudgetDelivery
+	PoolDelivery     writeBudgetPoolDelivery
 	PolicyListener   net.Listener
 	PolicyServiceKey string
 }
@@ -42,6 +50,7 @@ type runtimeWriteBudget struct {
 	signer          *security.CommandSignatureSigner
 	placement       string
 	delivery        writeBudgetDelivery
+	poolDelivery    writeBudgetPoolDelivery
 	policyServer    *http.Server
 }
 
@@ -181,7 +190,7 @@ func newRuntimeWriteBudget(session globalWorkerSession, config runtimeWriteBudge
 	if err != nil {
 		return nil, fmt.Errorf("runtime write budget authority: %w", err)
 	}
-	runtime := &runtimeWriteBudget{validateRequest: config.ValidateRequest, authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery}
+	runtime := &runtimeWriteBudget{validateRequest: config.ValidateRequest, authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery, poolDelivery: config.PoolDelivery}
 	if config.PolicyListener != nil {
 		if len(config.PolicyServiceKey) < 32 {
 			return nil, errors.New("runtime write budget: policy service key is required")
@@ -193,6 +202,28 @@ func newRuntimeWriteBudget(session globalWorkerSession, config runtimeWriteBudge
 		runtime.policyServer = &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, MaxHeaderBytes: 16 << 10}
 	}
 	return runtime, nil
+}
+
+// RefillPool reserves a bounded aggregate tranche in GRU, signs the exact
+// schema-2 pool document, and asynchronously installs it on the holder. A
+// delivery error is unknown: retrying the unchanged refill operation replays
+// the durable GRU reservation and never bills unused credits.
+func (r *runtimeWriteBudget) RefillPool(ctx context.Context, request writebudget.PoolRefillRequest) (writebudget.PoolGrant, error) {
+	if r == nil || r.authority == nil || r.signer == nil || r.poolDelivery == nil {
+		return writebudget.PoolGrant{}, errors.New("runtime write budget: pool refill unavailable")
+	}
+	grant, err := r.authority.ReservePool(ctx, request)
+	if err != nil {
+		return writebudget.PoolGrant{}, err
+	}
+	signed, err := writebudget.SignPoolRefill(r.signer, grant)
+	if err != nil {
+		return writebudget.PoolGrant{}, err
+	}
+	if err := r.poolDelivery.SendPoolRefill(ctx, signed); err != nil {
+		return grant, fmt.Errorf("runtime write budget pool delivery: %w", err)
+	}
+	return grant, nil
 }
 
 func (r *runtimeWriteBudget) Start(ctx context.Context, listener net.Listener) error {

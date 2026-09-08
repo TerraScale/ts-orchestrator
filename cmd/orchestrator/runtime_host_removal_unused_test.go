@@ -71,7 +71,7 @@ func TestUnusedRemovalDurableFenceSurvivesUnknownTermination(t *testing.T) {
 	store := openRotationTestLeaseStore(t, t.Context(), connection, true)
 	lease := rotationTestLease(1, "global-controller-gru-unused")
 	putRotationTestLease(t, t.Context(), store, lease)
-	config := authorityjournal.Config{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: 1, LeaseID: lease.LeaseId}
+	config := authorityjournal.Config{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: 1, LeaseID: lease.LeaseId, StateKey: "host-removal"}
 	admissionConfig := databaseadmission.NATSJournalConfig{Connection: connection, CandidateID: lease.CandidateId, AuthorityEpoch: 1, LeaseID: lease.LeaseId}
 	admission, err := databaseadmission.NewNATSJournal(admissionConfig)
 	if err != nil {

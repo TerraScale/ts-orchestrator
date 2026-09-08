@@ -40,7 +40,7 @@ func TestRestoreReceiptRequiresExactFinalInventoryAndSignedPredecessors(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	cut := CutReceipt{Version: 1, Phase: "source-store-copied", PlanSHA256: v.Digest(), NodeID: p.Source.NodeID, BootstrapGrantSHA256: p.Source.BootstrapGrantSHA256, StoreScopeSHA256: p.Source.StoreScopeSHA256, StoreSHA256: h, CopySHA256: h, SourceDevice: 1, SourceInode: 1, Files: 1, Bytes: 100, StoppedAt: now.Add(-3 * time.Second), CopiedAt: now.Add(-2 * time.Second)}
+	cut := CutReceipt{Version: 1, Phase: "source-store-copied", PlanSHA256: v.Digest(), NodeID: p.Source.NodeID, BootstrapGrantSHA256: p.Source.BootstrapGrantSHA256, StoreScopeSHA256: p.Source.StoreScopeSHA256, StoreSHA256: h, CopySHA256: h, SourceStateReceiptSHA256: Digest(stateRaw), RetirementSHA256: h, SourceDevice: 1, SourceInode: 1, Files: 1, Bytes: 100, StoppedAt: now.Add(-3 * time.Second), CopiedAt: now.Add(-2 * time.Second)}
 	cutRaw, err := SignCutReceipt(source, v, cut)
 	if err != nil {
 		t.Fatal(err)

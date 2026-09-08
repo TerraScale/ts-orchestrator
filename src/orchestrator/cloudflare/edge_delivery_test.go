@@ -20,6 +20,10 @@ import (
 
 type edgeArtifactMap map[string][]byte
 
+type edgeHealthProbe struct{}
+
+func (edgeHealthProbe) CheckEdge(context.Context, string, string, string) error { return nil }
+
 func (m edgeArtifactMap) EdgeArtifact(_ context.Context, service, digest string) ([]byte, error) {
 	body, ok := m[service+"\x00"+digest]
 	if !ok {
@@ -61,7 +65,7 @@ func TestEdgeReleasePromoterUsesProviderVersionsDeploymentsAndSnippetRules(t *te
 		artifacts[item.service+"\x00"+digest] = item.body
 	}
 	promoter, err := cf.NewEdgeReleasePromoter(cf.EdgeReleasePromoterConfig{
-		Client: client, Zone: zone, Artifacts: artifacts,
+		Client: client, Zone: zone, Artifacts: artifacts, Health: edgeHealthProbe{},
 		SnippetServices: map[string]string{"ts-proxy-snippet": cf.GateSnippetName},
 	})
 	if err != nil {
@@ -288,7 +292,7 @@ func TestWorkerRollbackRecoversCommittedPartialDeployment(t *testing.T) {
 	}
 	prior, candidate := []byte("prior module"), []byte("candidate module")
 	priorDigest, candidateDigest := testEdgeDigest(prior), testEdgeDigest(candidate)
-	promoter, err := cf.NewEdgeReleasePromoter(cf.EdgeReleasePromoterConfig{Client: client, Zone: zone, Artifacts: edgeArtifactMap{"ts-dashboard\x00" + priorDigest: prior, "ts-dashboard\x00" + candidateDigest: candidate}})
+	promoter, err := cf.NewEdgeReleasePromoter(cf.EdgeReleasePromoterConfig{Client: client, Zone: zone, Artifacts: edgeArtifactMap{"ts-dashboard\x00" + priorDigest: prior, "ts-dashboard\x00" + candidateDigest: candidate}, Health: edgeHealthProbe{}})
 	if err != nil {
 		t.Fatal(err)
 	}

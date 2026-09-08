@@ -145,6 +145,6 @@ func productionRelocationPlanner(
 			}
 			revisions[identity] = receipt.Revision
 		}
-		return placementrelocation.Build(placementrelocation.BuildInput{OperationID: request.OperationID + "/placement", RemovedIdentity: request.Member.Identity, Replacement: replacement, PriorProof: signed, PriorStage: priorStage, Records: records, Revisions: revisions})
+		return placementrelocation.Build(placementrelocation.BuildInput{OperationID: request.OperationID + "/placement", RemovedIdentity: request.Member.Identity, Replacement: replacement, PriorProof: signed, PriorStage: priorStage, Records: records, Revisions: revisions, AuthoritativeEmptyInventory: len(records) == 0})
 	}
 }

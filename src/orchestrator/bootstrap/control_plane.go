@@ -54,8 +54,8 @@ var (
 	ErrControlCustomersPresent     = errors.New("temporary R1 is only permitted before customers")
 	ErrControlJournalUnavailable   = errors.New("control bootstrap requires an authoritative durable journal")
 	// ErrControlMutationUnknown means the provider may have accepted an
-	// external mutation, but authority was lost before the effect was
-	// acknowledged locally. The durable action must remain pending until a
+	// external mutation, but the full action could not be verified locally.
+	// The durable action must remain pending until a
 	// successor observes the effect.
 	ErrControlMutationUnknown = errors.New("control mutation effect is unknown")
 )

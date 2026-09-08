@@ -96,7 +96,7 @@ func TestControlReplicaMutationRechecksLeaseBetweenActualUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updateControlReplicaStreams(ctx, traced, plan.ReplicaUpdates[0], pins); !errors.Is(err, ErrControlMutationUnknown) {
+	if err := updateControlReplicaStreams(ctx, traced, plan.ReplicaUpdates[0], pins, &controlMutationEffect{}); !errors.Is(err, ErrControlMutationUnknown) {
 		t.Fatalf("multi-update expiry: %v", err)
 	}
 	if !changed {
@@ -116,7 +116,7 @@ func TestControlReplicaMutationRechecksLeaseBetweenActualUpdates(t *testing.T) {
 		}
 	}
 	// The same declared retry cannot mutate SECOND under an expired lease.
-	if err := r.updateControlReplicas(ctx, plan.ReplicaUpdates[0], pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := r.updateControlReplicas(ctx, plan.ReplicaUpdates[0], pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("expired retry authorized: %v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestControlMirrorUsesFiniteSourceProfileAndRejectsUnboundedReplay(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.createMirror(ctx, mirror, pins); err != nil {
+	if err := r.createMirror(ctx, mirror, pins, &controlMutationEffect{}); err != nil {
 		t.Fatal(err)
 	}
 	stream, err := js.Stream(ctx, mirror.Name)
@@ -156,7 +156,7 @@ func TestControlMirrorUsesFiniteSourceProfileAndRejectsUnboundedReplay(t *testin
 	if info.Config.MaxBytes != 8192 || !matchesControlMirror(info.Config, mirror, profile.Config) {
 		t.Fatalf("mirror lost finite source bounds: %+v", info.Config)
 	}
-	if err := r.createMirror(ctx, mirror, pins); err != nil {
+	if err := r.createMirror(ctx, mirror, pins, &controlMutationEffect{}); err != nil {
 		t.Fatalf("same mirror retry: %v", err)
 	}
 	altered := info.Config
@@ -164,13 +164,13 @@ func TestControlMirrorUsesFiniteSourceProfileAndRejectsUnboundedReplay(t *testin
 	if _, err := js.UpdateStream(ctx, altered); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.createMirror(ctx, mirror, pins); err == nil {
+	if err := r.createMirror(ctx, mirror, pins, &controlMutationEffect{}); err == nil {
 		t.Fatal("unbounded existing mirror admitted")
 	}
 	lease.LeaseId = "replacement"
 	putControlMutationTestLease(t, ctx, kv, lease)
 	mirror.Name = "FENCED_MIRROR"
-	if err := r.createMirror(ctx, mirror, pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := r.createMirror(ctx, mirror, pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("fenced mirror create: %v", err)
 	}
 	if _, err := js.Stream(ctx, mirror.Name); !errors.Is(err, jetstream.ErrStreamNotFound) {
@@ -256,5 +256,94 @@ func TestControlGlobalMutationAndEvidenceRejectNonGRUApplicationAuthority(t *tes
 	// but neither declaration validation nor store evidence may confer GRU authority.
 	if _, _, _, err := r.checkStore(t.Context(), plan.Checks[0]); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("SFO global evidence: %v", err)
+	}
+}
+
+func TestControlReplicaMutationLaterPrecheckRemainsUnknown(t *testing.T) {
+	r, nc, kv, lease, plan := mutationTestRuntime(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range plan.ReplicaUpdates[0].Streams {
+		if _, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: name, Subjects: []string{name}, Storage: jetstream.FileStorage, Replicas: 1, MaxBytes: 4096}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pins, err := r.controlMutationPins(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstUpdated, laterPrecheck := false, false
+	traced, err := jetstream.New(nc, jetstream.WithClientTrace(&jetstream.ClientTrace{ResponseReceived: func(subject string, _ []byte, _ nats.Header) {
+		if subject == "$JS.API.STREAM.UPDATE.FIRST" {
+			firstUpdated = true
+		}
+		if subject == "$JS.API.STREAM.INFO.SECOND" && firstUpdated && !laterPrecheck {
+			laterPrecheck = true
+			lease.IssuedAt = time.Now().UTC().Add(-time.Second)
+			lease.DurationMilliseconds = 1
+			putControlMutationTestLease(t, ctx, kv, lease)
+		}
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = updateControlReplicaStreams(ctx, traced, plan.ReplicaUpdates[0], pins, &controlMutationEffect{})
+	if !firstUpdated || !laterPrecheck {
+		t.Fatal("fault did not reach the second stream precheck after the first update")
+	}
+	if !errors.Is(err, ErrControlMutationUnknown) || !errors.Is(err, ErrControlRuntimeUnavailable) {
+		t.Fatalf("lost authority after the first mutation must preserve unknown and cause: %v", err)
+	}
+	assertUnknownMutationKeepsJournalPending(t, err)
+	for name, replicas := range map[string]int{"FIRST": 3, "SECOND": 1} {
+		stream, err := js.Stream(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info, err := stream.Info(ctx); err != nil || info.Config.Replicas != replicas {
+			t.Fatalf("%s should have %d replicas: %+v, %v", name, replicas, info, err)
+		}
+	}
+}
+
+// Feed the actual NATS failure into the state-machine boundary: generic retry
+// policy must not replay an action whose earlier effects need reconciliation.
+type unknownMutationProvider struct {
+	controlMachineProvider
+	failure error
+}
+
+func (p *unknownMutationProvider) StartTemporaryR1(ctx context.Context, request ControlActionRequest) (ControlReceipt, error) {
+	_, err := p.record(ctx, request, ControlActionStartTemporaryR1)
+	if err != nil {
+		return ControlReceipt{}, err
+	}
+	return ControlReceipt{}, p.failure
+}
+
+func assertUnknownMutationKeepsJournalPending(t *testing.T, failure error) {
+	t.Helper()
+	provider := &unknownMutationProvider{failure: failure}
+	journal := &MemoryControlJournal{Durable: true}
+	machine := newControlMachineForTest(t, provider, journal, 3)
+	result, err := machine.Execute(t.Context(), ControlPlaneState{}, ControlTransitionRequest{
+		Operation: ControlOperationBootstrap, Region: "gru", MemberHosts: 2,
+	})
+	if !errors.Is(err, ErrControlMutationUnknown) || !errors.Is(err, failure) {
+		t.Fatalf("action error changed: %v", err)
+	}
+	if calls := provider.snapshotCalls(); len(calls) != 1 {
+		t.Fatalf("unknown action was retried: %d calls", len(calls))
+	}
+	record, err := journal.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.PlanFingerprint == "" || len(record.Completed) != 0 || len(result.Completed) != 0 || record.State.Epoch != 0 {
+		t.Fatalf("unknown action must leave the original durable intent pending: %+v", record)
 	}
 }

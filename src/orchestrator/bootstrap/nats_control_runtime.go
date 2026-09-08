@@ -521,7 +521,9 @@ func controlEvidenceDigest(value any) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionRequest) (ControlRuntimeEvidence, error) {
+func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionRequest) (_ ControlRuntimeEvidence, err error) {
+	effect := &controlMutationEffect{}
+	defer effect.classify(&err)
 	if r == nil || ctx == nil {
 		return ControlRuntimeEvidence{}, ErrControlRuntimeUnavailable
 	}
@@ -537,7 +539,7 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 			return ControlRuntimeEvidence{}, err
 		}
 	}
-	plan, err := r.resolveActionChecks(ctx, request, plan)
+	plan, err = r.resolveActionChecks(ctx, request, plan)
 	if err != nil {
 		return ControlRuntimeEvidence{}, err
 	}
@@ -546,12 +548,12 @@ func (r *NATSControlRuntime) Execute(ctx context.Context, request ControlActionR
 		return ControlRuntimeEvidence{}, err
 	}
 	for _, mirror := range plan.MirrorUpdates {
-		if err := r.createMirror(ctx, mirror, pins); err != nil {
+		if err := r.createMirror(ctx, mirror, pins, effect); err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
 	}
 	for _, update := range plan.ReplicaUpdates {
-		if err := r.updateControlReplicas(ctx, update, pins); err != nil {
+		if err := r.updateControlReplicas(ctx, update, pins, effect); err != nil {
 			return ControlRuntimeEvidence{}, err
 		}
 	}

@@ -62,6 +62,7 @@ type KVWriterConfig struct {
 	MaxWritesPerTick int
 	OnBudgetExceeded func(tickWrites int)
 	Now              func() time.Time
+	Catalog          []WorkerRegionCatalog
 }
 
 // KVWriter is the I-4 loop: Step performs one tick (observe, write health,
@@ -74,6 +75,7 @@ type KVWriter struct {
 	maxWritesPerTick int
 	onBudgetExceeded func(int)
 	now              func() time.Time
+	catalog          []WorkerRegionCatalog
 
 	stepMutex          sync.Mutex
 	mutex              sync.Mutex
@@ -124,6 +126,7 @@ func NewKVWriter(config KVWriterConfig) (*KVWriter, error) {
 		maxWritesPerTick:   config.MaxWritesPerTick,
 		onBudgetExceeded:   config.OnBudgetExceeded,
 		now:                now,
+		catalog:            append([]WorkerRegionCatalog(nil), config.Catalog...),
 		lastPlacement:      make(map[string]string),
 		lastPlacementState: make(map[string]DBPlacement),
 		completion:         make(chan struct{}),
@@ -210,7 +213,7 @@ func (w *KVWriter) writeBatch(ctx context.Context, health map[string]RegionHealt
 		return 0, errors.New("cloudflare: kv writer batch maps are required")
 	}
 	now := w.now().Unix()
-	doc := WorkerHealthDoc{Updated: now, Regions: make(map[string]WorkerRegionHealth, len(health))}
+	doc := WorkerHealthDoc{Updated: now, Regions: make(map[string]WorkerRegionHealth, len(health)), Catalog: append([]WorkerRegionCatalog(nil), w.catalog...)}
 	for region, entry := range health {
 		var lag *int
 		if entry.LagMeasured {

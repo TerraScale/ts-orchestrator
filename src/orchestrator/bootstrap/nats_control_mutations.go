@@ -97,7 +97,20 @@ func unknownControlMutation(effect string, err error) error {
 	return errors.Join(ErrControlMutationUnknown, fmt.Errorf("%s: %w", effect, err))
 }
 
-func (r *NATSControlRuntime) updateControlReplicas(ctx context.Context, update ControlReplicaPlan, pins []controlMutationPin) error {
+// One tracker spans the entire action, including later plans and readback.
+// Set it before provider invocation: a missing response cannot prove no effect.
+// Classify at return boundaries so new error exits cannot bypass uncertainty.
+type controlMutationEffect struct {
+	mayHaveMutated bool
+}
+
+func (effect *controlMutationEffect) classify(err *error) {
+	if *err != nil && effect.mayHaveMutated {
+		*err = unknownControlMutation("NATS control action may have mutated provider state", *err)
+	}
+}
+
+func (r *NATSControlRuntime) updateControlReplicas(ctx context.Context, update ControlReplicaPlan, pins []controlMutationPin, effect *controlMutationEffect) error {
 	connection, err := openControlNATS(ctx, r.config.Stores[update.Store])
 	if err != nil {
 		return err
@@ -107,35 +120,26 @@ func (r *NATSControlRuntime) updateControlReplicas(ctx context.Context, update C
 	if err != nil {
 		return err
 	}
-	return updateControlReplicaStreams(ctx, js, update, pins)
+	return updateControlReplicaStreams(ctx, js, update, pins, effect)
 }
-func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, pins []controlMutationPin) error {
+func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, pins []controlMutationPin, effect *controlMutationEffect) (err error) {
+	defer effect.classify(&err)
 	if err := validateControlConsumerReplicas(update); err != nil {
 		return err
 	}
 	if err := preflightControlConsumers(ctx, js, update, pins); err != nil {
 		return fmt.Errorf("control consumer preflight: %w", err)
 	}
-	mutationAccepted := false
 	for _, name := range update.Streams {
 		stream, err := js.Stream(ctx, name)
 		if err != nil {
-			if mutationAccepted {
-				return unknownControlMutation("stream readback after an earlier accepted mutation", err)
-			}
 			return err
 		}
 		info, err := stream.Info(ctx)
 		if err != nil {
-			if mutationAccepted {
-				return unknownControlMutation("stream info after an earlier accepted mutation", err)
-			}
 			return err
 		}
 		if info.Config.Storage != jetstream.FileStorage || info.Config.Mirror != nil || len(info.Config.Sources) != 0 || (info.Config.Replicas != 1 && info.Config.Replicas != update.Replicas) {
-			if mutationAccepted {
-				return unknownControlMutation("stream validation after an earlier accepted mutation", ErrControlRuntimeUnavailable)
-			}
 			return ErrControlRuntimeUnavailable
 		}
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
@@ -146,25 +150,18 @@ func updateControlReplicaStreams(ctx context.Context, js jetstream.JetStream, up
 		}
 		config := info.Config
 		config.Replicas = update.Replicas
+		effect.mayHaveMutated = true
 		if _, err := js.UpdateStream(ctx, config); err != nil {
-			return unknownControlMutation(fmt.Sprintf("stream %s request outcome is unknown", name), err)
+			return fmt.Errorf("update stream %s: %w", name, err)
 		}
-		mutationAccepted = true
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
-			return unknownControlMutation(fmt.Sprintf("stream %s was accepted before authority loss", name), err)
+			return err
 		}
 	}
 	for _, consumer := range update.Consumers {
-		if err := promoteControlConsumer(ctx, js, update, consumer, pins); err != nil {
-			if mutationAccepted {
-				return unknownControlMutation("consumer operation after an earlier accepted mutation", err)
-			}
+		if err := promoteControlConsumer(ctx, js, update, consumer, pins, effect); err != nil {
 			return fmt.Errorf("control consumer promotion %s/%s: %w", consumer.Stream, consumer.Config.Name, err)
 		}
-		// A successful promotion may have changed the consumer even when the
-		// predecessor was already at the requested replica count. Keep later
-		// failures conservative for this action.
-		mutationAccepted = true
 	}
 	return nil
 }
@@ -197,7 +194,8 @@ func matchesControlMirror(config jetstream.StreamConfig, plan ControlMirrorPlan,
 	}
 	return true
 }
-func (r *NATSControlRuntime) createMirror(ctx context.Context, plan ControlMirrorPlan, pins []controlMutationPin) error {
+func (r *NATSControlRuntime) createMirror(ctx context.Context, plan ControlMirrorPlan, pins []controlMutationPin, effect *controlMutationEffect) (err error) {
+	defer effect.classify(&err)
 	sourceConn, err := openControlNATS(ctx, r.config.Stores[plan.SourceStore])
 	if err != nil {
 		return err
@@ -245,19 +243,20 @@ func (r *NATSControlRuntime) createMirror(ctx context.Context, plan ControlMirro
 	if err := checkControlMutation(ctx, js, plan.Store, pins); err != nil {
 		return err
 	}
+	effect.mayHaveMutated = true
 	stream, err = js.CreateStream(ctx, wanted)
 	if err != nil {
-		return unknownControlMutation(fmt.Sprintf("mirror %s request outcome is unknown", plan.Name), err)
+		return fmt.Errorf("create mirror %s: %w", plan.Name, err)
 	}
 	if err := checkControlMutation(ctx, js, plan.Store, pins); err != nil {
-		return unknownControlMutation(fmt.Sprintf("mirror %s was accepted before authority loss", plan.Name), err)
+		return err
 	}
 	info, err := stream.Info(ctx)
 	if err != nil {
-		return unknownControlMutation("mirror info after an accepted creation", err)
+		return err
 	}
 	if !matchesControlMirror(info.Config, plan, profile.Config) {
-		return unknownControlMutation("mirror validation after an accepted creation", ErrControlRuntimeUnavailable)
+		return ErrControlRuntimeUnavailable
 	}
 	return nil
 }
@@ -315,8 +314,7 @@ func validateControlConsumerReplicas(update ControlReplicaPlan) error {
 	return nil
 }
 
-func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, plan ControlConsumerReplicaPlan, pins []controlMutationPin) error {
-	consumerMutationAccepted := false
+func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update ControlReplicaPlan, plan ControlConsumerReplicaPlan, pins []controlMutationPin, effect *controlMutationEffect) error {
 	// The stream update response can precede its R3 election and catch-up.
 	// Consumer assignment uses those peers, so require the complete admitted
 	// stream placement before any consumer update, including a resumed action.
@@ -345,6 +343,7 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 	if before.Config.Replicas != update.Replicas {
 		config := before.Config
 		config.Replicas = update.Replicas
+		effect.mayHaveMutated = true
 		consumer, err = js.UpdateConsumer(ctx, plan.Stream, config)
 		if err != nil {
 			return fmt.Errorf("update consumer replicas: %w", err)
@@ -352,14 +351,10 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
 			return err
 		}
-		consumerMutationAccepted = true
 	}
 	// Even an already-applied retry must prove the durable replica quorum.
 	for {
 		if err := checkControlMutation(ctx, js, update.Store, pins); err != nil {
-			if consumerMutationAccepted {
-				return unknownControlMutation("consumer authority check after an accepted mutation", err)
-			}
 			return err
 		}
 		// A request sent during the R1-to-R3 consumer election can receive no
@@ -372,9 +367,6 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 				continue // Recheck the live lease before another read.
 			}
-			if consumerMutationAccepted {
-				return unknownControlMutation("consumer readback after an accepted mutation", err)
-			}
 			return fmt.Errorf("read promoted consumer info: %w", err)
 		}
 		profileMatches := journal.NatsConsumerProfileMatches(info, plan.Config, plan.Stream)
@@ -382,16 +374,10 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 		checkpointPreserved := info.AckFloor.Consumer >= before.AckFloor.Consumer && info.AckFloor.Stream >= before.AckFloor.Stream && info.Delivered.Consumer >= before.Delivered.Consumer && info.Delivered.Stream >= before.Delivered.Stream
 		if !profileMatches || !createdMatches {
 			err := fmt.Errorf("%w: promoted consumer observation differs, profile=%t replicas=%d created=%t checkpoint=%t", ErrControlRuntimeUnavailable, profileMatches, info.Config.Replicas, createdMatches, checkpointPreserved)
-			if consumerMutationAccepted {
-				return unknownControlMutation("consumer validation after an accepted mutation", err)
-			}
 			return err
 		}
 		servers, err := controlConsumerTargetServers(update.Store, plan.Stream, pins)
 		if err != nil {
-			if consumerMutationAccepted {
-				return unknownControlMutation("consumer target readback after an accepted mutation", err)
-			}
 			return err
 		}
 		ready := controlConsumerReplicaAssignment(info.Cluster, servers)
@@ -400,7 +386,7 @@ func promoteControlConsumer(ctx context.Context, js jetstream.JetStream, update 
 			// Only the fully current admitted group can prove preserved state.
 			if !checkpointPreserved {
 				err := fmt.Errorf("%w: promoted consumer observation differs, profile=%t replicas=%d created=%t checkpoint=%t", ErrControlRuntimeUnavailable, profileMatches, info.Config.Replicas, createdMatches, checkpointPreserved)
-				return unknownControlMutation("consumer checkpoint validation after an accepted mutation", err)
+				return err
 			}
 			return checkControlMutation(ctx, js, update.Store, pins)
 		}

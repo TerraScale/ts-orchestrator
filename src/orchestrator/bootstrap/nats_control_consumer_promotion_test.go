@@ -72,7 +72,7 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 	if err := validateControlConsumerReplicas(update); err != nil {
 		t.Fatal(err)
 	}
-	if err := updateControlReplicaStreams(ctx, js, update, pins); err != nil {
+	if err := updateControlReplicaStreams(ctx, js, update, pins, &controlMutationEffect{}); err != nil {
 		diagnostic, stopDiagnostic := context.WithTimeout(t.Context(), 3*time.Second)
 		defer stopDiagnostic()
 		if info, readErr := stream.Info(diagnostic); readErr == nil {
@@ -89,7 +89,7 @@ func TestControlConsumerPromotionPreservesDurableCheckpointAfterSourceLoss(t *te
 		}
 		t.Fatal(err)
 	}
-	if err := updateControlReplicaStreams(ctx, js, update, pins); err != nil {
+	if err := updateControlReplicaStreams(ctx, js, update, pins, &controlMutationEffect{}); err != nil {
 		t.Fatalf("idempotent retry: %v", err)
 	}
 	after, err := consumer.Info(ctx)
@@ -218,7 +218,7 @@ func testControlConsumerStreamReadiness(t *testing.T, replaceLease, regressReady
 	done, finished := make(chan error, 1), make(chan struct{})
 	go func() {
 		defer close(finished)
-		done <- updateControlReplicaStreams(ctx, observed, update, pins)
+		done <- updateControlReplicaStreams(ctx, observed, update, pins, &controlMutationEffect{})
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -471,7 +471,7 @@ func TestControlConsumerPromotionFencesBetweenUpdatesAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updateControlReplicaStreams(ctx, traced, update, pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := updateControlReplicaStreams(ctx, traced, update, pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("replacement between consumers: %v", err)
 	}
 	if !changed {
@@ -485,7 +485,7 @@ func TestControlConsumerPromotionFencesBetweenUpdatesAndRetry(t *testing.T) {
 	if err != nil || info.Config.Replicas != 1 {
 		t.Fatalf("unadmitted second update: %v", err)
 	}
-	if err := updateControlReplicaStreams(ctx, js, update, pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := updateControlReplicaStreams(ctx, js, update, pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("replacement retry: %v", err)
 	}
 }
@@ -526,7 +526,7 @@ func TestControlConsumerInventoryMismatchRefusesBeforeStreamMutation(t *testing.
 		{{Stream: cfg.Name, Config: original}}, // Undeclared extra actual consumer must also refuse.
 	} {
 		update := ControlReplicaPlan{Store: "target", Streams: []string{cfg.Name}, Replicas: 3, Consumers: declared}
-		if err := updateControlReplicaStreams(ctx, js, update, pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+		if err := updateControlReplicaStreams(ctx, js, update, pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 			t.Fatalf("incomplete actual inventory: %v", err)
 		}
 		info, err := stream.Info(ctx)
@@ -538,7 +538,7 @@ func TestControlConsumerInventoryMismatchRefusesBeforeStreamMutation(t *testing.
 		t.Fatal(err)
 	}
 	update := ControlReplicaPlan{Store: "target", Streams: []string{cfg.Name}, Replicas: 3, Consumers: []ControlConsumerReplicaPlan{{Stream: cfg.Name, Config: original}, {Stream: cfg.Name, Config: other}}}
-	if err := updateControlReplicaStreams(ctx, js, update, pins); !errors.Is(err, ErrControlRuntimeUnavailable) {
+	if err := updateControlReplicaStreams(ctx, js, update, pins, &controlMutationEffect{}); !errors.Is(err, ErrControlRuntimeUnavailable) {
 		t.Fatalf("missing declared consumer: %v", err)
 	}
 	info, err := stream.Info(ctx)
@@ -560,5 +560,95 @@ func TestControlConsumerReplicaAssignmentRejectsForeignServer(t *testing.T) {
 	valid.Replicas[1].Name = "sfo"
 	if controlConsumerReplicaAssignment(valid, servers) {
 		t.Fatal("duplicate replica admitted")
+	}
+}
+
+// The real provider processes the update; the caller loses the response or its
+// authority before it can use that response. All other calls remain real NATS.
+type consumerResponseFault struct {
+	jetstream.JetStream
+	afterUpdate func()
+	responseErr error
+	calls       int
+}
+
+func (j *consumerResponseFault) UpdateConsumer(ctx context.Context, stream string, config jetstream.ConsumerConfig) (jetstream.Consumer, error) {
+	j.calls++
+	consumer, err := j.JetStream.UpdateConsumer(ctx, stream, config)
+	if err != nil {
+		return nil, err
+	}
+	if j.afterUpdate != nil {
+		j.afterUpdate()
+	}
+	if j.responseErr != nil {
+		return nil, j.responseErr
+	}
+	return consumer, nil
+}
+
+func TestControlFirstConsumerMutationFailureRemainsUnknown(t *testing.T) {
+	for _, mode := range []string{"response-lost", "authority-lost"} {
+		t.Run(mode, func(t *testing.T) {
+			r, nc, kv, lease, plan := mutationTestRuntime(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			js, err := jetstream.New(nc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			topology, err := messaging.NewGlobalNatsTopology(3)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The stream already has R3: the first possible effect is UpdateConsumer.
+			config := topology.Streams()[0]
+			stream, err := js.CreateStream(ctx, config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, err := topology.CellSpecConsumer("gru")
+			if err != nil {
+				t.Fatal(err)
+			}
+			predecessor := target
+			predecessor.Replicas = 1
+			if _, err := stream.CreateConsumer(ctx, predecessor); err != nil {
+				t.Fatal(err)
+			}
+			update := ControlReplicaPlan{Store: "target", Streams: []string{config.Name}, Replicas: 3, Consumers: []ControlConsumerReplicaPlan{{Stream: config.Name, Config: target}}}
+			plan.ReplicaUpdates = []ControlReplicaPlan{update}
+			plan.Checks[0].Streams = []ControlStreamAssignment{{Name: config.Name, Replicas: 3, Servers: []string{"controlMutation-0", "controlMutation-1", "controlMutation-2"}}}
+			pins, err := r.controlMutationPins(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fault := &consumerResponseFault{JetStream: js}
+			cause := error(nats.ErrTimeout)
+			if mode == "response-lost" {
+				fault.responseErr = cause
+			} else {
+				cause = ErrControlRuntimeUnavailable
+				fault.afterUpdate = func() {
+					lease.LeaseId = "replacement-after-first-consumer"
+					putControlMutationTestLease(t, ctx, kv, lease)
+				}
+			}
+			err = updateControlReplicaStreams(ctx, fault, update, pins, &controlMutationEffect{})
+			if fault.calls != 1 {
+				t.Fatalf("expected one real consumer mutation, got %d: %v", fault.calls, err)
+			}
+			if !errors.Is(err, ErrControlMutationUnknown) || !errors.Is(err, cause) {
+				t.Fatalf("first consumer effect must preserve unknown and cause: %v", err)
+			}
+			assertUnknownMutationKeepsJournalPending(t, err)
+			consumer, err := js.Consumer(ctx, config.Name, target.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info, err := consumer.Info(ctx); err != nil || info.Config.Replicas != 3 {
+				t.Fatalf("consumer mutation was not applied: %+v, %v", info, err)
+			}
+		})
 	}
 }

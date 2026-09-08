@@ -29,6 +29,13 @@ type EdgeArtifactSource interface {
 	EdgeArtifact(context.Context, string, string) ([]byte, error)
 }
 
+// EdgeHealthProbe is the authenticated application-level edge health check.
+// Provider allocation readback is identity evidence only and never satisfies
+// this contract.
+type EdgeHealthProbe interface {
+	CheckEdge(context.Context, string, string, string) error
+}
+
 // WorkerVersion is the provider identity of one uploaded Worker candidate.
 type WorkerVersion struct {
 	ID string `json:"id"`
@@ -92,6 +99,7 @@ type EdgeReleasePromoterConfig struct {
 	Client          *Client
 	Zone            *Zone
 	Artifacts       EdgeArtifactSource
+	Health          EdgeHealthProbe
 	SnippetServices map[string]string
 	WorkerStages    []int
 }
@@ -103,6 +111,7 @@ type EdgeReleasePromoter struct {
 	client    *Client
 	zone      *Zone
 	artifacts EdgeArtifactSource
+	health    EdgeHealthProbe
 	snippets  map[string]string
 	stages    []int
 
@@ -148,12 +157,19 @@ func NewEdgeReleasePromoter(config EdgeReleasePromoterConfig) (*EdgeReleasePromo
 	}
 	return &EdgeReleasePromoter{
 		client: config.Client, zone: config.Zone, artifacts: config.Artifacts,
-		snippets: snippets, stages: stages,
+		health: config.Health, snippets: snippets, stages: stages,
 	}, nil
 }
 
 func (p *EdgeReleasePromoter) PromoteWorker(ctx context.Context, service, digest string) error {
 	return p.PromoteWorkerGradual(ctx, service, digest)
+}
+
+func (p *EdgeReleasePromoter) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	if p == nil || ctx == nil || p.health == nil {
+		return errors.New("cloudflare: edge health requires an authenticated probe")
+	}
+	return p.health.CheckEdge(ctx, kind, service, digest)
 }
 
 // ObserveEdge provides delivery recovery with provider readback. A partial
@@ -314,6 +330,9 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 	if p == nil || ctx == nil {
 		return errors.New("cloudflare: Worker promotion requires a promoter and context")
 	}
+	if p.health == nil {
+		return errors.New("cloudflare: Worker promotion requires an authenticated edge health probe")
+	}
 	if !p.workerDeclared(service) {
 		return fmt.Errorf("cloudflare: Worker service %q has no declared route", service)
 	}
@@ -348,6 +367,9 @@ func (p *EdgeReleasePromoter) PromoteWorkerGradual(ctx context.Context, service,
 		if deployErr != nil {
 			return deployErr
 		}
+		if err := p.CheckEdge(ctx, "site", service, digest); err != nil {
+			return fmt.Errorf("cloudflare: Worker stage %d health check: %w", percentage, err)
+		}
 	}
 	observed, err := p.client.ActiveWorkerVersion(ctx, service)
 	if err != nil {
@@ -363,6 +385,9 @@ func (p *EdgeReleasePromoter) PromoteSnippet(ctx context.Context, service, diges
 	if p == nil || ctx == nil {
 		return errors.New("cloudflare: Snippet promotion requires a promoter and context")
 	}
+	if p.health == nil {
+		return errors.New("cloudflare: Snippet promotion requires an authenticated edge health probe")
+	}
 	snippet, ok := p.snippets[service]
 	if !ok {
 		return fmt.Errorf("cloudflare: Snippet service %q is not mapped", service)
@@ -375,6 +400,9 @@ func (p *EdgeReleasePromoter) PromoteSnippet(ctx context.Context, service, diges
 	p.record(EdgePromotionEvent{Kind: "snippet-code", Service: service, Digest: digest, Percentage: 100, Err: putErr != nil})
 	if putErr != nil {
 		return putErr
+	}
+	if err := p.CheckEdge(ctx, "package", service, digest); err != nil {
+		return fmt.Errorf("cloudflare: Snippet health check: %w", err)
 	}
 	observed, err := p.client.SnippetCode(ctx, snippet)
 	if err != nil {

@@ -511,8 +511,31 @@ func TestRolloutEdgePromotion(t *testing.T) {
 type fakeEdgePromoter struct {
 	worker     string
 	snippet    string
+	allocation map[string]string
 	failWorker bool
 }
+
+func (p *fakeEdgePromoter) ObserveEdge(_ context.Context, kind, service string) (EdgeReleaseState, error) {
+	if p.allocation == nil {
+		p.allocation = map[string]string{}
+	}
+	digest := p.worker
+	if kind == "package" {
+		digest = p.snippet
+	}
+	return EdgeReleaseState{Digest: digest, Allocation: p.allocation[service]}, nil
+}
+
+func (p *fakeEdgePromoter) RestoreEdge(_ context.Context, kind, service string, state EdgeReleaseState) error {
+	if kind == "package" {
+		p.snippet = state.Digest
+	} else {
+		p.worker = state.Digest
+	}
+	return nil
+}
+
+func (p *fakeEdgePromoter) CheckEdge(context.Context, string, string, string) error { return nil }
 
 func (p *fakeEdgePromoter) PromoteWorker(_ context.Context, service, digest string) error {
 	if p.failWorker {

@@ -58,6 +58,11 @@ type BuildInput struct {
 	// snapshot can establish that omitted scopes completed retirement.
 	Records   []databaseadmission.Record
 	Revisions map[string]uint64
+	// AuthoritativeEmptyInventory is set only after the production planner has
+	// recovered the exact acknowledged Stage for an empty active snapshot and
+	// bound it to the signed accepted head. An omitted record slice otherwise
+	// cannot distinguish an authoritative empty inventory from a missing read.
+	AuthoritativeEmptyInventory bool
 }
 
 func Digest(value any) (string, error) {
@@ -73,6 +78,9 @@ func BytesDigest(value []byte) string {
 }
 
 func Build(input BuildInput) (Plan, error) {
+	if len(input.Records) == 0 && !input.AuthoritativeEmptyInventory {
+		return Plan{}, ErrInvalid
+	}
 	var prior placementtransition.Proof
 	old := new(pb.PlacementStageRequest)
 	if input.OperationID == "" || json.Unmarshal(input.PriorProof.Payload, &prior, json.RejectUnknownMembers(true)) != nil || prior.Kind != "accepted_epoch" || proto.Unmarshal(input.PriorStage, old) != nil || old.Proposal == nil || old.Proposal.Epoch != prior.Request.Epoch || old.Proposal.Generation != prior.Request.Generation || old.Proposal.Epoch == ^uint64(0) || old.Proposal.Generation == ^uint64(0) {

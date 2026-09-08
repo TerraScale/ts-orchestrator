@@ -255,6 +255,10 @@ type EdgeReleaseRestorer interface {
 	RestoreEdge(context.Context, string, string, EdgeReleaseState) error
 }
 
+type EdgeHealthChecker interface {
+	CheckEdge(context.Context, string, string, string) error
+}
+
 // WorkerGradualPromoter is an optional stronger edge seam. Implementations
 // use Cloudflare gradual deployments (with their provider-side health
 // controls) and only return after the requested digest is serving. The basic
@@ -289,6 +293,17 @@ func NewRollout(config RolloutConfig) (*Rollout, error) {
 	}
 	if config.Hosts == nil {
 		return nil, errors.New("delivery: rollout requires a host inventory")
+	}
+	if config.Edge != nil {
+		if _, ok := config.Edge.(EdgeReleaseObserver); !ok {
+			return nil, errors.New("delivery: edge rollout requires a release observer")
+		}
+		if _, ok := config.Edge.(EdgeReleaseRestorer); !ok {
+			return nil, errors.New("delivery: edge rollout requires an exact release restorer")
+		}
+		if _, ok := config.Edge.(EdgeHealthChecker); !ok {
+			return nil, errors.New("delivery: edge rollout requires an independent health checker")
+		}
 	}
 	for _, gate := range config.Gates {
 		if gate == nil || strings.TrimSpace(gate.Name()) == "" {
@@ -842,6 +857,11 @@ func (r *Rollout) rollEdge(ctx context.Context, request *Request, artifact *Rele
 	}
 	if err := promote(ctx, artifact.Service, artifact.Digest); err != nil {
 		return r.rollbackEdge(ctx, request, append(checks, &HealthCheck{Name: name, Status: "failed"}), err, rollback)
+	}
+	if checker, ok := r.config.Edge.(EdgeHealthChecker); ok {
+		if err := checker.CheckEdge(ctx, kind, artifact.Service, artifact.Digest); err != nil {
+			return r.rollbackEdge(ctx, request, append(checks, &HealthCheck{Name: name + ":health", Status: "failed"}), err, rollback)
+		}
 	}
 	if r.config.EdgeProgress != nil {
 		if err := r.config.EdgeProgress(kind, artifact.Service, prior, priorState, artifact.Digest, 100, true, true); err != nil {

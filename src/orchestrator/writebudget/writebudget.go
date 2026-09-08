@@ -189,11 +189,21 @@ type State struct {
 	UsedNanoDollar          int64                 `json:"used_nano_dollar"`
 	UsedIncluded            int64                 `json:"used_included"`
 	UsedPaid                int64                 `json:"used_paid"`
-	DatabaseUnits           map[string]int64      `json:"database_units"`
-	DatabaseSpendNano       map[string]int64      `json:"database_spend_nano"`
-	Grants                  map[string]Grant      `json:"grants"`
-	PendingPolicy           bool                  `json:"pending_policy,omitzero"`
-	PendingGrants           map[string]time.Time  `json:"pending_grants,omitempty"`
+	// Pool reservations earmark capacity without billing unused credits. They
+	// are released only by durable consumption or an owner-signed drain/fence.
+	ReservedUnits            int64                    `json:"reserved_units"`
+	ReservedIncluded         int64                    `json:"reserved_included"`
+	ReservedPaidNano         int64                    `json:"reserved_paid_nano"`
+	DatabaseUnits            map[string]int64         `json:"database_units"`
+	DatabaseSpendNano        map[string]int64         `json:"database_spend_nano"`
+	DatabaseReservedUnits    map[string]int64         `json:"database_reserved_units"`
+	DatabaseReservedPaidNano map[string]int64         `json:"database_reserved_paid_nano"`
+	Grants                   map[string]Grant         `json:"grants"`
+	Pools                    map[string]PoolState     `json:"pools,omitempty"`
+	PoolRefills              map[string]PoolRefill    `json:"pool_refills,omitempty"`
+	PoolOperations           map[string]PoolOperation `json:"pool_operations,omitempty"`
+	PendingPolicy            bool                     `json:"pending_policy,omitzero"`
+	PendingGrants            map[string]time.Time     `json:"pending_grants,omitempty"`
 }
 
 // ApplyPolicy atomically installs a new billing policy. Existing reservations
@@ -491,6 +501,21 @@ func (a *Authority) validateState(state *State) error {
 	if state.DatabaseSpendNano == nil {
 		state.DatabaseSpendNano = map[string]int64{}
 	}
+	if state.DatabaseReservedUnits == nil {
+		state.DatabaseReservedUnits = map[string]int64{}
+	}
+	if state.DatabaseReservedPaidNano == nil {
+		state.DatabaseReservedPaidNano = map[string]int64{}
+	}
+	if state.Pools == nil {
+		state.Pools = map[string]PoolState{}
+	}
+	if state.PoolRefills == nil {
+		state.PoolRefills = map[string]PoolRefill{}
+	}
+	if state.PoolOperations == nil {
+		state.PoolOperations = map[string]PoolOperation{}
+	}
 	if state.CycleID == "" {
 		state.CycleID, state.PolicyEpoch, state.ConsentEpoch = a.policy.CycleID, a.policy.PolicyEpoch, a.policy.ConsentEpoch
 	}
@@ -504,7 +529,7 @@ func (a *Authority) validateState(state *State) error {
 	if err := validateCaps(policy); err != nil {
 		return err
 	}
-	if state.CycleID != policy.CycleID || state.PolicyEpoch != policy.PolicyEpoch || state.ConsentEpoch != policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedNanoDollar < 0 {
+	if state.CycleID != policy.CycleID || state.PolicyEpoch != policy.PolicyEpoch || state.ConsentEpoch != policy.ConsentEpoch || state.UsedUnits < 0 || state.UsedNanoDollar < 0 || state.ReservedUnits < 0 || state.ReservedIncluded < 0 || state.ReservedPaidNano < 0 {
 		return ErrInvalid
 	}
 	var units, nanoCost, includedUsed, paidUsed int64
@@ -547,6 +572,36 @@ func (a *Authority) validateState(state *State) error {
 			return ErrInvalid
 		}
 		databaseUnits[grant.DatabaseID], ok = add(databaseUnits[grant.DatabaseID], grant.Units)
+		if !ok {
+			return ErrInvalid
+		}
+	}
+	for operationID, operation := range state.PoolOperations {
+		var ok bool
+		if operationID == "" || operation.OperationID != operationID || operation.PoolID == "" || operation.DatabaseID == "" || operation.BodyDigest == "" || operation.LocalUnits <= 0 || operation.Aggregate <= 0 || operation.IncludedAggregate < 0 || operation.PaidAggregate < 0 || operation.CostNanoDollar < 0 || operation.IncludedAggregate+operation.PaidAggregate != operation.Aggregate {
+			return ErrInvalid
+		}
+		units, ok = add(units, operation.Aggregate)
+		if !ok {
+			return ErrInvalid
+		}
+		nanoCost, ok = add(nanoCost, operation.CostNanoDollar)
+		if !ok {
+			return ErrInvalid
+		}
+		includedUsed, ok = add(includedUsed, operation.IncludedAggregate)
+		if !ok {
+			return ErrInvalid
+		}
+		paidUsed, ok = add(paidUsed, operation.PaidAggregate)
+		if !ok {
+			return ErrInvalid
+		}
+		databaseUnits[operation.DatabaseID], ok = add(databaseUnits[operation.DatabaseID], operation.Aggregate)
+		if !ok {
+			return ErrInvalid
+		}
+		databaseSpend[operation.DatabaseID], ok = add(databaseSpend[operation.DatabaseID], operation.CostNanoDollar)
 		if !ok {
 			return ErrInvalid
 		}
