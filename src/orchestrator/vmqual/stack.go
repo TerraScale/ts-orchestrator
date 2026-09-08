@@ -229,6 +229,12 @@ func newStack(config StackConfig, cleanupProbe bool) (*Stack, error) {
 		}
 	}
 	runID := config.RunID
+	if owned, ok := config.VMFactory.(interface{ QualificationRunID() string }); ok && owned.QualificationRunID() != "" {
+		if runID != "" && runID != owned.QualificationRunID() {
+			return nil, errors.New("vmqual: stack run differs from durable factory admission")
+		}
+		runID = owned.QualificationRunID()
+	}
 	if runID == "" {
 		var err error
 		runID, err = NewRunID()
@@ -285,7 +291,7 @@ func (s *Stack) Start(ctx context.Context) error {
 	if err := s.startBootstrap(ctx); err != nil {
 		return err
 	}
-	return s.startRegions(ctx, vmnet.SFO, vmnet.FRA)
+	return s.startRegions(ctx, false, vmnet.SFO, vmnet.FRA)
 }
 
 // StartBootstrap initializes the owned host network and starts exactly the two
@@ -324,10 +330,21 @@ func (s *Stack) StartRegions(ctx context.Context, regions ...vmnet.RegionCode) e
 	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	return s.startRegions(ctx, regions...)
+	return s.startRegions(ctx, false, regions...)
 }
 
-func (s *Stack) startRegions(ctx context.Context, regions ...vmnet.RegionCode) error {
+// StartCandidates starts only the explicitly designated first control member
+// of each Region. Ordinary members are admitted later, after finite promotion.
+func (s *Stack) StartCandidates(ctx context.Context, regions ...vmnet.RegionCode) error {
+	if s == nil {
+		return errors.New("vmqual: nil stack")
+	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	return s.startRegions(ctx, true, regions...)
+}
+
+func (s *Stack) startRegions(ctx context.Context, candidateOnly bool, regions ...vmnet.RegionCode) error {
 	if ctx == nil {
 		return errors.New("vmqual: nil context")
 	}
@@ -358,7 +375,7 @@ func (s *Stack) startRegions(ctx context.Context, regions ...vmnet.RegionCode) e
 	if err := s.initializeRun(ctx); err != nil {
 		return err
 	}
-	if err := s.startSelectedGuests(ctx, selected); err != nil {
+	if err := s.startSelectedGuestSet(ctx, func(guest Guest) bool { return selected[guest.Region] && (!candidateOnly || guest.Control) }); err != nil {
 		return err
 	}
 	runCtx := context.WithValue(ctx, qualificationRunIDKey{}, s.runID)
@@ -416,10 +433,14 @@ func (s *Stack) initializeRun(ctx context.Context) error {
 }
 
 func (s *Stack) startSelectedGuests(ctx context.Context, selected map[vmnet.RegionCode]bool) error {
+	return s.startSelectedGuestSet(ctx, func(guest Guest) bool { return selected[guest.Region] })
+}
+
+func (s *Stack) startSelectedGuestSet(ctx context.Context, selected func(Guest) bool) error {
 	runCtx := context.WithValue(ctx, qualificationRunIDKey{}, s.runID)
 	cleanup := func() error { return s.cleanupAfterFailure() }
 	for _, guest := range s.guests {
-		if !selected[guest.Region] {
+		if !selected(guest) {
 			continue
 		}
 		s.mu.Lock()

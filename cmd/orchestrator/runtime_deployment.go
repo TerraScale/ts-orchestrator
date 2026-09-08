@@ -25,17 +25,17 @@ type productionDeploymentFile struct {
 }
 
 type productionGlobalFile struct {
-	Compute               productionGlobalComputeFile         `json:"compute"`
-	Estate                productionEstateFile                `json:"estate"`
-	HealthFile            string                              `json:"health_file"`
-	KV                    productionKVFile                    `json:"kv"`
-	Rotation              productionRotationFile              `json:"rotation"`
-	Recovery              productionRecoveryFile              `json:"recovery"`
-	Database              productionDatabaseFileConfig        `json:"database"`
-	WriteBudget           productionWriteBudgetFile           `json:"write_budget"`
-	AuthBootstrapFile     string                              `json:"auth_bootstrap_file"`
-	PlacementTransition   productionPlacementTransitionFile   `json:"placement_transition"`
-	ServiceIdentity       serviceidentityrotation.FileConfig  `json:"service_identity"`
+	Compute             productionGlobalComputeFile        `json:"compute"`
+	Estate              productionEstateFile               `json:"estate"`
+	HealthFile          string                             `json:"health_file"`
+	KV                  productionKVFile                   `json:"kv"`
+	Rotation            productionRotationFile             `json:"rotation"`
+	Recovery            productionRecoveryFile             `json:"recovery"`
+	Database            productionDatabaseFileConfig       `json:"database"`
+	WriteBudget         productionWriteBudgetFile          `json:"write_budget"`
+	AuthBootstrapFile   string                             `json:"auth_bootstrap_file"`
+	PlacementTransition productionPlacementTransitionFile  `json:"placement_transition"`
+	ServiceIdentity     serviceidentityrotation.FileConfig `json:"service_identity"`
 }
 
 // productionGlobalComputeFile declares the lease-owned OCI mutation inputs.

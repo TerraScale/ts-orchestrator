@@ -62,7 +62,23 @@ func (m *AuthorityMaterial) Validate() error {
 	if !roots.AppendCertsFromPEM(m.Files[reader.CAFile]) {
 		return bad
 	}
-	if _, err := tls.X509KeyPair(m.Files[reader.CertificateFile], m.Files[reader.KeyFile]); err != nil {
+	pairTLS, err := tls.X509KeyPair(m.Files[reader.CertificateFile], m.Files[reader.KeyFile])
+	if err != nil {
+		return bad
+	}
+	leaf, err := x509.ParseCertificate(pairTLS.Certificate[0])
+	if err != nil {
+		return bad
+	}
+	intermediate := x509.NewCertPool()
+	for _, raw := range pairTLS.Certificate[1:] {
+		certificate, err := x509.ParseCertificate(raw)
+		if err != nil {
+			return bad
+		}
+		intermediate.AddCert(certificate)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediate, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return bad
 	}
 	pair, err := nkeys.FromSeed(m.Files[reader.NKeySeedFile])

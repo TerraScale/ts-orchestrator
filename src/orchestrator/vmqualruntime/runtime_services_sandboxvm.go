@@ -409,9 +409,6 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	}
 	if string(guest.Region) != "GRU" {
 		if services.controlAdmission != nil {
-			if _, candidate := services.controlAdmission.candidates[guest.ID]; !candidate {
-				return services.bootstrapOrdinary(guest)
-			}
 			return services.bootstrapCandidate(guest)
 		}
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: non-GRU bootstrap requires admitted allocation and controller configuration")

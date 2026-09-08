@@ -64,6 +64,11 @@ func sameAdmissionIdentity(original, current Record) bool {
 	return err == nil && bytes.Equal(a, b)
 }
 func validateCurrentPlacements(s journalState) error {
+	for operation, removal := range s.UnusedHostRemovals {
+		if operation != removal.OperationID || validateUnusedHostRemoval(removal) != nil {
+			return ErrInvalid
+		}
+	}
 	if s.PlacementRelocationStarted && s.PlacementRelocation == "" {
 		return ErrInvalid
 	}
@@ -76,7 +81,10 @@ func validateCurrentPlacements(s journalState) error {
 	return nil
 }
 func beginPlacementRelocation(s *journalState, operation string, expected []Record) error {
-	if operation == "" || len(expected) == 0 {
+	if s.CanceledPlacementRelocations[operation] {
+		return ErrConflict
+	}
+	if operation == "" {
 		return ErrInvalid
 	}
 	if _, completed := s.CompletedRelocations[operation]; completed {
@@ -140,7 +148,7 @@ func commitPlacementRelocation(s *journalState, operation string, records []Reco
 		}
 		return ErrConflict
 	}
-	if operation == "" || s.PlacementRelocation != operation || !s.PlacementRelocationStarted || len(records) != len(relocationRecords(*s)) || len(proofKey) != ed25519.PublicKeySize {
+	if operation == "" || len(records) == 0 || s.PlacementRelocation != operation || !s.PlacementRelocationStarted || len(records) != len(relocationRecords(*s)) || len(proofKey) != ed25519.PublicKeySize {
 		return ErrConflict
 	}
 	prior := relocationRecords(*s)
@@ -370,4 +378,23 @@ func validateCurrentReadiness(original, current Record) error {
 		return ErrInvalid
 	}
 	return validateReadinessOperation(current, proof.Request.OperationID, current.ReadyEvidence, current.ReadinessNonce, nil, time.Time{})
+}
+
+// CancelUnstartedPlacementRelocation tombstones a never-frozen operation before
+// its pending host reservation is removed. Freeze-before-plan ordering makes
+// cancellation and initial capture mutually exclusive in this same CAS.
+func (j *NATSJournal) CancelUnstartedPlacementRelocation(ctx context.Context, operation string) error {
+	if j == nil || j.journal == nil {
+		return ErrJournalUnavailable
+	}
+	return j.journal.Transact(ctx, true, func(s *journalState) error {
+		if operation == "" || s.PlacementRelocation == operation || s.CompletedRelocations[operation] != "" {
+			return ErrConflict
+		}
+		if s.CanceledPlacementRelocations == nil {
+			s.CanceledPlacementRelocations = map[string]bool{}
+		}
+		s.CanceledPlacementRelocations[operation] = true
+		return nil
+	})
 }

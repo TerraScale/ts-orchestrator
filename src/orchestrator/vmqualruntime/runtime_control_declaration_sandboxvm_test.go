@@ -15,6 +15,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
@@ -23,7 +24,7 @@ func TestControlDeclarationStoreLoadsPinnedCredentialsAndRejectsReplacement(t *t
 	server, authority := startDeliveryTestNATS(t)
 	root := t.TempDir()
 	identity := authority.controller
-	files := map[string][]byte{"/etc/terrascale/reader.seed": identity.seed, "/etc/terrascale/reader.ca": authority.ca, "/etc/terrascale/reader.cert": identity.certificate, "/etc/terrascale/reader.key": identity.privateKey}
+	files := map[string][]byte{vmcontrolseed.AuthorityNKeyPath: identity.seed, vmcontrolseed.AuthorityCAPath: authority.ca, vmcontrolseed.AuthorityCertificatePath: identity.certificate, vmcontrolseed.AuthorityPrivateKeyPath: identity.privateKey}
 	refs := map[string]qualificationControlFile{}
 	digest := func(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 	for guest, raw := range files {
@@ -35,7 +36,7 @@ func TestControlDeclarationStoreLoadsPinnedCredentialsAndRejectsReplacement(t *t
 	}
 	endpoint, _ := url.Parse(server.ClientURL())
 	endpoint.Host = net.JoinHostPort(authority.serverName, endpoint.Port())
-	declaration := qualificationControlStoreDeclaration{Reader: nodeauthority.ReaderConfig{Endpoint: endpoint.String(), ServerName: server.Name(), Account: "qualification", NKeySeedFile: "/etc/terrascale/reader.seed", PublicNKey: identity.publicKey, CAFile: "/etc/terrascale/reader.ca", CASHA256: digest(authority.ca), CertificateFile: "/etc/terrascale/reader.cert", CertificateSHA256: digest(identity.certificate), KeyFile: "/etc/terrascale/reader.key"}, Files: refs}
+	declaration := qualificationControlStoreDeclaration{Reader: nodeauthority.ReaderConfig{Endpoint: endpoint.String(), ServerName: server.Name(), Account: "qualification", NKeySeedFile: vmcontrolseed.AuthorityNKeyPath, PublicNKey: identity.publicKey, CAFile: vmcontrolseed.AuthorityCAPath, CASHA256: digest(authority.ca), CertificateFile: vmcontrolseed.AuthorityCertificatePath, CertificateSHA256: digest(identity.certificate), KeyFile: vmcontrolseed.AuthorityPrivateKeyPath}, Files: refs}
 	store, release, err := loadQualificationControlStore(declaration)
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +47,15 @@ func TestControlDeclarationStoreLoadsPinnedCredentialsAndRejectsReplacement(t *t
 		t.Fatal(err)
 	}
 	connection.Close()
+	if err := os.Chmod(refs[declaration.Reader.CAFile].Source, 0644); err != nil {
+		t.Fatal(err)
+	}
+	services := &qualificationRuntimeServices{controlAdmission: &qualificationControlAdmission{authorityReaders: map[string]qualificationControlStoreDeclaration{"sfo-member-2": declaration}}}
+	reader, err := services.ordinaryAuthority("sfo-member-2")
+	if err != nil {
+		t.Fatalf("ordinary reader rejected protected public CA: %v", err)
+	}
+	defer reader.Clear()
 	if err := os.WriteFile(refs[declaration.Reader.NKeySeedFile].Source, authority.guests["gru-member-1"].seed, 0600); err != nil {
 		t.Fatal(err)
 	}

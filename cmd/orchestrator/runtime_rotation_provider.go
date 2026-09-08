@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorizationlease"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
@@ -17,16 +18,18 @@ import (
 )
 
 type productionRotationEdgeFile struct {
-	AccountID       string          `json:"account_id"`
-	ZoneID          string          `json:"zone_id"`
-	TokenFile       string          `json:"token_file"`
-	TemplateFile    string          `json:"template_file"`
-	TemplateService string          `json:"template_service"`
-	SnippetName     string          `json:"snippet_name"`
-	Zone            cloudflare.Zone `json:"zone"`
-	ProbeURLs       []string        `json:"probe_urls"`
-	JournalBucket   string          `json:"journal_bucket"`
-	JournalKey      string          `json:"journal_key"`
+	AuthorizationLeaseAudience string          `json:"authorization_lease_audience"`
+	AuthorizationLeaseKeysFile string          `json:"authorization_lease_keys_file"`
+	AccountID                  string          `json:"account_id"`
+	ZoneID                     string          `json:"zone_id"`
+	TokenFile                  string          `json:"token_file"`
+	TemplateFile               string          `json:"template_file"`
+	TemplateService            string          `json:"template_service"`
+	SnippetName                string          `json:"snippet_name"`
+	Zone                       cloudflare.Zone `json:"zone"`
+	ProbeURLs                  []string        `json:"probe_urls"`
+	JournalBucket              string          `json:"journal_bucket"`
+	JournalKey                 string          `json:"journal_key"`
 }
 
 type productionRotationFile struct {
@@ -121,6 +124,13 @@ func (f productionRotationEdgeFile) read() ([]byte, []byte, error) {
 }
 
 func (f productionRotationEdgeFile) admit() error {
+	if authorizationlease.ValidateAudience(f.AuthorizationLeaseAudience) != nil {
+		return authorizationlease.ErrInvalid
+	}
+	keys, err := authorizationlease.Read(f.AuthorizationLeaseKeysFile)
+	if err != nil || !keys.Active(time.Now().Unix()) {
+		return authorizationlease.ErrInvalid
+	}
 	if !rotationCloudflareID(f.AccountID) || !rotationCloudflareID(f.ZoneID) || f.TemplateService != "ts-proxy" || f.SnippetName != cloudflare.GateSnippetName || f.Zone.ZoneName != cloudflare.ZoneName || !rotationJournalName(f.JournalBucket, false) || !rotationJournalName(f.JournalKey, true) {
 		return errors.New("rotation edge requires exact provider, template and journal scope")
 	}
@@ -236,7 +246,11 @@ func (f productionRotationFile) Construct(ctx context.Context, session globalWor
 	guardedTransport := rotationAuthorityTransport{transport: transport, check: session.CheckEffectAuthority}
 	client.HTTP = guardedTransport
 	cleanup = append(cleanup, func() error { client.Token = ""; return nil })
-	store, err := cloudflare.NewSnippetCapabilityStore(cloudflare.SnippetCapabilityStoreConfig{Artifacts: artifacts, TemplateService: f.Edge.TemplateService, Zone: &f.Edge.Zone, Client: client, SnippetName: f.Edge.SnippetName, Source: source, Vault: vault, OriginVault: originVault, Journal: journal, Authorize: session.CheckEffectAuthority, ProbeURLs: f.Edge.ProbeURLs, HTTPClient: &http.Client{Transport: guardedTransport, Timeout: 20 * time.Second}, Now: time.Now})
+	leaseKeys, err := authorizationlease.Read(f.Edge.AuthorizationLeaseKeysFile)
+	if err != nil {
+		return fail(err)
+	}
+	store, err := cloudflare.NewSnippetCapabilityStore(cloudflare.SnippetCapabilityStoreConfig{AuthorizationLeaseAudience: f.Edge.AuthorizationLeaseAudience, AuthorizationLeaseKeys: leaseKeys, Artifacts: artifacts, TemplateService: f.Edge.TemplateService, Zone: &f.Edge.Zone, Client: client, SnippetName: f.Edge.SnippetName, Source: source, Vault: vault, OriginVault: originVault, Journal: journal, Authorize: session.CheckEffectAuthority, ProbeURLs: f.Edge.ProbeURLs, HTTPClient: &http.Client{Transport: guardedTransport, Timeout: 20 * time.Second}, Now: time.Now})
 	if err != nil {
 		return fail(err)
 	}

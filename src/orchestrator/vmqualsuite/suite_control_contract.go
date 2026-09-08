@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
+	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
 
 var (
@@ -34,6 +35,7 @@ type ControlContractCall struct {
 // ControlBootstrapProof describes the accepted empty-to-R1 transition. Host
 // health remains a VM/provider concern; this proof covers only control state.
 type ControlBootstrapProof struct {
+	Initial             *vmqual.InitialControlObservation
 	State               bootstrap.ControlPlaneState
 	AcceptedEpoch       uint64
 	MemberHosts         int

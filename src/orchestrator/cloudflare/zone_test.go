@@ -109,8 +109,8 @@ func TestProductionEncodesTheDecisions(t *testing.T) {
 	}
 	// D-55: the cache rule marks the reactive paths eligible, origin owns
 	// the TTL.
-	if len(z.CacheRules) != 4 {
-		t.Fatalf("want global plus three regional cache rules, got %d", len(z.CacheRules))
+	if len(z.CacheRules) != 7 {
+		t.Fatalf("want global plus three regional reactive and three lease cache rules, got %d", len(z.CacheRules))
 	}
 	if len(z.SnippetRules) != 1 || !reflect.DeepEqual(z.SnippetRules[0].Hostnames, []string{
 		"sync.api.terrascale.tech", "gru.sync.api.terrascale.tech", "sfo.sync.api.terrascale.tech", "fra.sync.api.terrascale.tech",

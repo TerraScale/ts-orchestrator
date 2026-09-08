@@ -41,7 +41,7 @@ func newDatabaseDeletionClaimClient(config databaseDeletionClaimConfig) (automat
 func databaseDeletionClaimHTTPClient(client *http.Client, endpoint, key string) automaticDeletionClaimClient {
 	return func(ctx context.Context, request automaticDeletionClaimRequest) (databaseadmission.DeletionClaimReceipt, error) {
 		var empty databaseadmission.DeletionClaimReceipt
-		if request.SchemaVersion != 1 || !claimToken(request.Environment) || !claimToken(request.TenantID) || !claimToken(request.ProjectID) || !claimToken(request.DatabaseID) || !claimToken(request.OperationID) || !claimToken(request.PolicyRevision) || !claimToken(request.GraceCondition) {
+		if request.SchemaVersion != 1 || !claimToken(request.Environment) || !claimToken(request.TenantID) || !claimToken(request.ProjectID) || !claimToken(request.DatabaseID) || !claimToken(request.OperationID) || !claimToken(request.PolicyRevision) || !automaticGraceCondition(request.GraceCondition) {
 			return empty, databaseadmission.ErrInvalid
 		}
 		body, err := json.Marshal(request)
@@ -70,11 +70,19 @@ func databaseDeletionClaimHTTPClient(client *http.Client, endpoint, key string) 
 			return empty, errors.New("database deletion claim: invalid response")
 		}
 		var receipt databaseadmission.DeletionClaimReceipt
-		if err := json.Unmarshal(data, &receipt, json.RejectUnknownMembers(true)); err != nil || receipt.SchemaVersion != 1 || receipt.Environment != request.Environment || receipt.TenantID != request.TenantID || receipt.ProjectID != request.ProjectID || receipt.DatabaseID != request.DatabaseID || receipt.OperationID != request.OperationID || !claimToken(receipt.PolicyRevision) || !claimToken(receipt.PolicyFingerprint) || receipt.GraceCondition != request.GraceCondition || receipt.Deadline.IsZero() || receipt.AcceptedAt.IsZero() || !claimToken(receipt.AuthorityEpoch) {
+		if err := json.Unmarshal(data, &receipt, json.RejectUnknownMembers(true)); err != nil || receipt.SchemaVersion != 1 || receipt.Environment != request.Environment || receipt.TenantID != request.TenantID || receipt.ProjectID != request.ProjectID || receipt.DatabaseID != request.DatabaseID || receipt.OperationID != request.OperationID || receipt.PolicyRevision != request.PolicyRevision || !claimToken(receipt.PolicyFingerprint) || receipt.GraceCondition != request.GraceCondition || receipt.Deadline.IsZero() || receipt.AcceptedAt.IsZero() || receipt.AcceptedAt.Before(receipt.Deadline) || !claimToken(receipt.AuthorityEpoch) {
 			return empty, errors.New("database deletion claim: invalid receipt")
 		}
 		return receipt, nil
 	}
+}
+
+func automaticGraceCondition(value string) bool {
+	if value == "card-loss" || value == "uncovered-storage" || value == "idle-free" {
+		return true
+	}
+	invoice, ok := strings.CutPrefix(value, "unpaid-storage:")
+	return ok && claimToken(invoice)
 }
 
 func claimToken(value string) bool {

@@ -15,10 +15,7 @@ func (factory *firecrackerFactory) prepareGuestAdmission(ctx context.Context, gu
 	if !ok || services == nil || guest.Region == "GRU" {
 		return nil
 	}
-	if err := services.prepareCandidate(ctx, guest); err != nil {
-		return err
-	}
-	return services.prepareOrdinary(ctx, guest)
+	return services.prepareCandidate(ctx, guest)
 }
 
 // guestReady is called only after the provider's real ready transition. The
@@ -88,6 +85,11 @@ func (factory *firecrackerFactory) activateGuest(ctx context.Context, host strin
 		return err
 	}
 	defer bootstrap.ControllerRun.Clear()
+	defer bootstrap.OrdinaryAuthority.Clear()
+	defer bootstrap.Engine.Clear()
+	if bootstrap.Candidate != nil {
+		defer bootstrap.Candidate.Clear()
+	}
 	if bootstrap.InitialGrant == nil {
 		return errors.New("vmqual: seeded initial grant is missing")
 	}

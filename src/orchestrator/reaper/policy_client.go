@@ -49,6 +49,7 @@ type LifecycleBillingGrace struct {
 type LifecycleBillingCoverage struct {
 	PaidThrough           *time.Time                       `json:"paidThrough"`
 	CardLoss              *LifecycleBillingGrace           `json:"cardLoss"`
+	UncoveredStorage      *LifecycleBillingGrace           `json:"uncoveredStorage"`
 	UnpaidStorageInvoices map[string]LifecycleBillingGrace `json:"unpaidStorageInvoices"`
 }
 
@@ -72,6 +73,7 @@ type LifecyclePolicyFacts struct {
 	RetainUntil             *time.Time               `json:"retainUntil"`
 	BillingGraceDeadline    *time.Time               `json:"billingGraceDeadline"`
 	BillingDeletionEligible bool                     `json:"billingDeletionEligible"`
+	IdleNoticeAccepted      bool                     `json:"idleNoticeAccepted"`
 }
 
 func NewLifecyclePolicyClient(c LifecyclePolicyClientConfig) (*LifecyclePolicyClient, error) {
@@ -155,12 +157,20 @@ func (c *LifecyclePolicyClient) Evaluate(ctx context.Context, scope LifecyclePol
 	if facts.Coverage.CardLoss != nil && !validGrace(*facts.Coverage.CardLoss) {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
+	if facts.Coverage.UncoveredStorage != nil && !validGrace(*facts.Coverage.UncoveredStorage) {
+		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+	}
 	if len(facts.Coverage.UnpaidStorageInvoices) > 1000 {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
 	for id, grace := range facts.Coverage.UnpaidStorageInvoices {
 		if !policyToken(id) || !validGrace(grace) {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
+		}
+	}
+	if facts.BillingDeletionEligible {
+		if _, err := selectedBillingGrace(facts, now); err != nil {
+			return LifecyclePolicyFacts{}, err
 		}
 	}
 	return facts, nil
@@ -173,7 +183,7 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 	}
 	// Every field is required; only the three explicitly nullable timestamps may
 	// be null. Missing booleans must not silently become permission-granting false.
-	for _, name := range []string{"coverage", "schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil", "billingGraceDeadline", "billingDeletionEligible"} {
+	for _, name := range []string{"coverage", "schemaVersion", "organizationId", "projectId", "databaseId", "revision", "observedAt", "plan", "lastAuthorizedRequestAt", "deletionProtection", "ownerEmails", "pauseEligible", "deletionEligible", "deletionReasons", "accessRevoked", "usageStoppedAt", "retainUntil", "billingGraceDeadline", "billingDeletionEligible", "idleNoticeAccepted"} {
 		value, ok := fields[name]
 		if !ok {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
@@ -183,10 +193,10 @@ func decodeLifecyclePolicy(raw []byte) (LifecyclePolicyFacts, error) {
 		}
 	}
 	var coverage map[string]jsontext.Value
-	if err := json.Unmarshal(fields["coverage"], &coverage); err != nil || len(coverage) != 3 {
+	if err := json.Unmarshal(fields["coverage"], &coverage); err != nil || len(coverage) != 4 {
 		return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 	}
-	for _, name := range []string{"paidThrough", "cardLoss", "unpaidStorageInvoices"} {
+	for _, name := range []string{"paidThrough", "cardLoss", "unpaidStorageInvoices", "uncoveredStorage"} {
 		if _, ok := coverage[name]; !ok {
 			return LifecyclePolicyFacts{}, ErrLifecyclePolicy
 		}

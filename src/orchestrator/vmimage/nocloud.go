@@ -78,7 +78,7 @@ func (file NoCloudRootFile) Validate() error {
 		}
 		return nil
 	}
-	engineOwner := (vmengineconfig.IsTLSPath(file.Path) || vmengineconfig.IsTransitionTrustPath(file.Path) || vmengineconfig.IsBackupPath(file.Path)) && file.Owner == vmengineconfig.ServiceUser
+	engineOwner := (vmengineconfig.IsTLSPath(file.Path) || vmengineconfig.IsTransitionTrustPath(file.Path) || vmengineconfig.IsBackupPath(file.Path) || vmengineconfig.IsIdentityPath(file.Path)) && file.Owner == vmengineconfig.ServiceUser
 	if file.Owner != "" && !engineOwner && ((file.Path != MembershipIdentityPath && !vmcontrolseed.IsFilePath(file.Path) && !vmcandidateseed.IsServiceFile(file.Path) && !vmengineconfig.IsControlPath(file.Path) && !vmengineconfig.IsDatabasePath(file.Path)) || file.Owner != membershipServiceUser) {
 		return errors.New("vmimage: unbound root file bootstrap owner")
 	}

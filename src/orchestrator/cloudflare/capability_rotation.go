@@ -34,7 +34,7 @@ const CapabilityDeploymentMarker = "/*__TERRASCALE_CAPABILITY_DEPLOYMENT__*/ nul
 // proves only the consumer reached by that request, never worldwide propagation.
 type SnippetCapabilityStoreConfig struct {
 	AuthorizationLeaseAudience string
-	AuthorizationLeaseKeys authorizationlease.Ring
+	AuthorizationLeaseKeys     authorizationlease.Ring
 	// Artifacts resolves verified release templates by their durable digest.
 	Artifacts       EdgeArtifactSource
 	TemplateService string
@@ -65,6 +65,9 @@ func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabili
 	}
 	c.AuthorizationLeaseKeys.Keys = slices.Clone(c.AuthorizationLeaseKeys.Keys)
 	if c.Client == nil || c.Client.HTTP == nil || c.SnippetName == "" || c.Vault == nil || c.Journal == nil || c.Authorize == nil || c.HTTPClient == nil || c.Now == nil || len(c.ProbeURLs) == 0 || bytes.Count(c.Source, []byte(CapabilityDeploymentMarker)) != 1 {
+		return nil, capabilityEffectError()
+	}
+	if !c.AuthorizationLeaseKeys.Active(c.Now().Unix()) {
 		return nil, capabilityEffectError()
 	}
 	if (c.Artifacts == nil) != (c.TemplateService == "") {
@@ -214,16 +217,16 @@ type capabilityWireKey struct {
 	NotAfter  int64  `json:"notAfter"`
 }
 type capabilityDeployment struct {
-	AuthorizationLeaseAudience string `json:"authorizationLeaseAudience"`
-	AuthorizationLeaseKeys []capabilityWireKey `json:"authorizationLeaseKeys"`
-	Revocations           capabilityRevocationWire      `json:"revocations"`
-	Generation            string                        `json:"generation"`
-	Phase                 string                        `json:"phase"`
-	ValidUntil            int64                         `json:"validUntil"`
-	Current               capabilityWireKey             `json:"current"`
-	Previous              *capabilityWireKey            `json:"previous,omitzero"`
-	OriginCurrent         capabilityWireKey             `json:"originCurrent"`
-	OriginPrevious        *capabilityWireKey            `json:"originPrevious,omitzero"`
+	AuthorizationLeaseAudience string                   `json:"authorizationLeaseAudience"`
+	AuthorizationLeaseKeys     []capabilityWireKey      `json:"authorizationLeaseKeys"`
+	Revocations                capabilityRevocationWire `json:"revocations"`
+	Generation                 string                   `json:"generation"`
+	Phase                      string                   `json:"phase"`
+	ValidUntil                 int64                    `json:"validUntil"`
+	Current                    capabilityWireKey        `json:"current"`
+	Previous                   *capabilityWireKey       `json:"previous,omitzero"`
+	OriginCurrent              capabilityWireKey        `json:"originCurrent"`
+	OriginPrevious             *capabilityWireKey       `json:"originPrevious,omitzero"`
 }
 
 func (s *SnippetCapabilityStore) fetch(ctx context.Context, state security.CapabilityKeyState) (security.CapabilityMaterial, error) {
@@ -241,6 +244,9 @@ func originWireKey(m security.OriginProofMaterial, state security.CapabilityKeyS
 	return capabilityWireKey{ID: m.ID, Key: hex.EncodeToString(m.Secret), NotBefore: state.NotBefore.Unix(), NotAfter: state.ExpiresAt.Unix()}
 }
 func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt) ([]byte, error) {
+	if !s.config.AuthorizationLeaseKeys.Active(s.config.Now().Unix()) {
+		return nil, capabilityEffectError()
+	}
 	template, err := s.template(ctx, r.TemplateDigest)
 	if err != nil {
 		return nil, err
@@ -386,14 +392,14 @@ func (s *SnippetCapabilityStore) probe(ctx context.Context, endpoint string, r C
 		return capabilityEffectError()
 	}
 	var proof struct {
-		Nonce                string `json:"nonce"`
-		Generation           string `json:"generation"`
-		Phase                string `json:"phase"`
-		ValidUntil           int64  `json:"validUntil"`
-		Proof                string `json:"proof"`
-		RevocationRevision   string `json:"revocationRevision"`
-		RevocationDigest     string `json:"revocationDigest"`
-		AuthorizationLeaseAudience string `json:"authorizationLeaseAudience"`
+		Nonce                        string `json:"nonce"`
+		Generation                   string `json:"generation"`
+		Phase                        string `json:"phase"`
+		ValidUntil                   int64  `json:"validUntil"`
+		Proof                        string `json:"proof"`
+		RevocationRevision           string `json:"revocationRevision"`
+		RevocationDigest             string `json:"revocationDigest"`
+		AuthorizationLeaseAudience   string `json:"authorizationLeaseAudience"`
 		AuthorizationLeaseKeysDigest string `json:"authorizationLeaseKeysDigest"`
 	}
 	if json.Unmarshal(raw, &proof) != nil || proof.Nonce != nonce || proof.Generation != strconv.FormatUint(r.Generation, 10) || proof.Phase != r.Phase || proof.ValidUntil != r.Current.ExpiresAt.Unix() || proof.RevocationRevision != strconv.FormatUint(r.RevocationRevision, 10) || proof.RevocationDigest != capabilityRevocationDigest(r.Revocations) {

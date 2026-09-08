@@ -332,7 +332,7 @@ func TestFullZoneReconcilePass(t *testing.T) {
 	}
 	wantCounts := map[string]map[Action]int{
 		"dns-record":   {Create: 13, Update: 1, Alert: 1}, // app drifts (update); legacy is unowned (alert); apex/api/docs/status + 3 sync + 3 region REST + 3 region sync creates
-		"cache-rule":   {Create: 4, Alert: 1},
+		"cache-rule":   {Create: 7, Alert: 1},
 		"tiered-cache": {Update: 1},
 		"snippet-rule": {Update: 1},
 		"worker-route": {Create: 1, Update: 1, Delete: 1},
@@ -345,8 +345,8 @@ func TestFullZoneReconcilePass(t *testing.T) {
 	if !reflect.DeepEqual(counts, wantCounts) {
 		t.Fatalf("plan counts = %v\nwant %v\nplan:\n%s", counts, wantCounts, plan)
 	}
-	if len(plan.Changes) != 34 {
-		t.Fatalf("want 34 changes, got %d:\n%s", len(plan.Changes), plan)
+	if len(plan.Changes) != 37 {
+		t.Fatalf("want 37 changes, got %d:\n%s", len(plan.Changes), plan)
 	}
 
 	if err := Apply(context.Background(), plan); err != nil {
@@ -418,7 +418,7 @@ func TestRunDryRunPrintsWithoutTouching(t *testing.T) {
 	if err := Run(context.Background(), c, z, true, &out); err != nil {
 		t.Fatalf("dry run failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "zone terrascale.tech: 34 change(s)") {
+	if !strings.Contains(out.String(), "zone terrascale.tech: 37 change(s)") {
 		t.Fatalf("dry-run output wrong:\n%s", out.String())
 	}
 	m.mu.Lock()
@@ -441,11 +441,11 @@ func TestRunAppliesUntilConverged(t *testing.T) {
 		t.Fatalf("run failed: %v", err)
 	}
 	// Fresh zone: 14 DNS creates (apex, api, app, docs, status, 3 sync,
-	// 3 region REST, 3 region sync), 4 cache rules, tiered cache, 2 routes, 2 KV namespaces,
+	// 3 region REST, 3 region sync), 7 cache rules, tiered cache, 2 routes, 2 KV namespaces,
 	// 1 WAF rule, 1 rate rule, 4 settings, total TLS, and one alert: the
 	// gate snippet is not deployed yet.
-	if !strings.Contains(out.String(), "zone terrascale.tech: 31 change(s)") {
-		t.Fatalf("fresh zone should need 31 changes:\n%s", out.String())
+	if !strings.Contains(out.String(), "zone terrascale.tech: 34 change(s)") {
+		t.Fatalf("fresh zone should need 34 changes:\n%s", out.String())
 	}
 	again, err := ReconcileZone(context.Background(), c, z)
 	if err != nil {

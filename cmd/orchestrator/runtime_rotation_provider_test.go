@@ -48,6 +48,10 @@ func TestProductionRotationEdgeAdmission(t *testing.T) {
 	dir := t.TempDir()
 	token := filepath.Join(dir, "token")
 	source := filepath.Join(dir, "snippet.js")
+	leaseKeys := filepath.Join(dir, "lease-keys.json")
+	if err := os.WriteFile(leaseKeys, []byte(`{"keys":[{"keyId":"lease","key":"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd","notBefore":1,"notAfter":4102444800}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -59,16 +63,18 @@ func TestProductionRotationEdgeAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := func() productionRotationEdgeFile {
-		return productionRotationEdgeFile{AccountID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ZoneID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", TokenFile: token, TemplateFile: source, TemplateService: "ts-proxy", SnippetName: cloudflare.GateSnippetName, Zone: *zone, ProbeURLs: []string{"https://sync.api.terrascale.tech/.well-known/terrascale-capability-generation"}, JournalBucket: "ROTATION_CAPABILITY", JournalKey: "active"}
+		return productionRotationEdgeFile{AuthorizationLeaseAudience: "https://api.terrascale.tech", AuthorizationLeaseKeysFile: leaseKeys, AccountID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ZoneID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", TokenFile: token, TemplateFile: source, TemplateService: "ts-proxy", SnippetName: cloudflare.GateSnippetName, Zone: *zone, ProbeURLs: []string{"https://sync.api.terrascale.tech/.well-known/terrascale-capability-generation"}, JournalBucket: "ROTATION_CAPABILITY", JournalKey: "active"}
 	}
 	if err := fixture().admit(); err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*productionRotationEdgeFile){
-		"wrong service":    func(f *productionRotationEdgeFile) { f.TemplateService = "ts-dashboard" },
-		"journal wildcard": func(f *productionRotationEdgeFile) { f.JournalKey = "active.>" },
-		"missing account":  func(f *productionRotationEdgeFile) { f.AccountID = "" },
-		"wrong probe":      func(f *productionRotationEdgeFile) { f.ProbeURLs = []string{"https://sync.api.terrascale.tech/health"} },
+		"missing lease key file": func(f *productionRotationEdgeFile) { f.AuthorizationLeaseKeysFile = "" },
+		"invalid lease audience": func(f *productionRotationEdgeFile) { f.AuthorizationLeaseAudience = "http://api.terrascale.tech" },
+		"wrong service":          func(f *productionRotationEdgeFile) { f.TemplateService = "ts-dashboard" },
+		"journal wildcard":       func(f *productionRotationEdgeFile) { f.JournalKey = "active.>" },
+		"missing account":        func(f *productionRotationEdgeFile) { f.AccountID = "" },
+		"wrong probe":            func(f *productionRotationEdgeFile) { f.ProbeURLs = []string{"https://sync.api.terrascale.tech/health"} },
 		"worker on reactive host": func(f *productionRotationEdgeFile) {
 			f.Zone.WorkerRoutes = append(f.Zone.WorkerRoutes, cloudflare.WorkerRoute{Pattern: "sync.api.terrascale.tech/*", Script: "bad"})
 		},

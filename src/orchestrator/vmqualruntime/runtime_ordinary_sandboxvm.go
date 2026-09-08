@@ -21,11 +21,13 @@ import (
 
 // Ordinary members start only after the promoted store is available. They do
 // not participate in the finite two-peer preparation or fabricate a GRU seed.
-func (services *qualificationRuntimeServices) prepareOrdinary(ctx context.Context, guest vmqual.Guest) error {
+func (services *qualificationRuntimeServices) prepareOrdinaryRun(ctx context.Context, guest vmqual.Guest) error {
 	bad := errors.New("vmqual: ordinary member requires admitted live R3 authority")
 	if ctx == nil {
 		return bad
 	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	services.mu.Lock()
 	defer services.mu.Unlock()
 	admission := services.controlAdmission
@@ -35,6 +37,7 @@ func (services *qualificationRuntimeServices) prepareOrdinary(ctx context.Contex
 	if _, candidate := admission.candidates[guest.ID]; candidate {
 		return nil
 	}
+	delete(services.ordinaryPrepared, guest.ID)
 	run, ok := services.runAdmissions[guest.ID]
 	reader, hasReader := admission.authorityReaders[guest.ID]
 	if !ok || !hasReader || run.Global != nil || run.Regional.Endpoint != reader.Reader.Endpoint || run.Regional.Account != reader.Reader.Account || run.Regional.ServerName != reader.Reader.ServerName || run.Regional.Connection.PublicNKey == reader.Reader.PublicNKey || run.Regional.Connection.TLS.CertificateSHA256 == reader.Reader.CertificateSHA256 || !admission.source.admissionLive() {
@@ -98,7 +101,7 @@ func ordinaryAuthorityR3(info *nats.StreamInfo) bool {
 
 // Called with services.mu held. The finite grant binds the complete production
 // manifest; production startup still verifies its real R3 runtime dependencies.
-func (services *qualificationRuntimeServices) bootstrapOrdinary(guest vmqual.Guest) (vmimage.TSNodeBootstrap, []vmimage.GuestArtifact, error) {
+func (services *qualificationRuntimeServices) bootstrapOrdinaryRun(guest vmqual.Guest) (vmimage.TSNodeBootstrap, []vmimage.GuestArtifact, error) {
 	bad := errors.New("vmqual: ordinary bootstrap lacks admitted production configuration")
 	admission := services.controlAdmission
 	if admission == nil || admission.source == nil || !admission.source.admissionLive() || !services.ordinaryPrepared[guest.ID] || services.bootstrapIssuer == nil || services.natsAuthority == nil {
@@ -113,20 +116,11 @@ func (services *qualificationRuntimeServices) bootstrapOrdinary(guest vmqual.Gue
 	if !ok || identity == nil || membership == nil || engine == nil || !natsOK || !artifactOK {
 		return vmimage.TSNodeBootstrap{}, nil, bad
 	}
-	files := map[string][]byte{}
-	defer func() {
-		for _, raw := range files {
-			clear(raw)
-		}
-	}()
-	for path, reference := range reader.Files {
-		raw, err := readQualificationControlFile(reference, path == reader.Reader.NKeySeedFile || path == reader.Reader.KeyFile, 64<<10)
-		if err != nil {
-			return vmimage.TSNodeBootstrap{}, nil, err
-		}
-		files[path] = raw
+	authority, err := services.ordinaryAuthority(guest.ID)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
 	}
-	run, err := services.prepareRemoteRun(guest, nil, files)
+	run, err := services.prepareRemoteRun(guest, nil, authority.Files)
 	if err != nil || run == nil {
 		return vmimage.TSNodeBootstrap{}, nil, errors.Join(bad, err)
 	}
@@ -160,16 +154,12 @@ func (services *qualificationRuntimeServices) bootstrapOrdinary(guest vmqual.Gue
 	if len(tsNode.binary) == 0 || len(tsNode.signature) != ed25519.SignatureSize {
 		return vmimage.TSNodeBootstrap{}, nil, bad
 	}
-	readerFiles := map[string][]byte{}
-	for path, raw := range files {
-		readerFiles[path] = bytes.Clone(raw)
-	}
 	return vmimage.TSNodeBootstrap{
-		Engine: engine.Clone(), ControllerRun: run.Clone(), AuthorityReaderFiles: readerFiles,
-		InitialGrant: &vmimage.TSNodeInitialGrant{PublicKeyPEM: grant.PublicKeyPEM, SignedGrant: grant.SignedGrant},
+		Engine: engine.Clone(), ControllerRun: run.Clone(), OrdinaryAuthority: authority.Clone(),
+		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: grant.PublicKeyPEM, SignedGrant: grant.SignedGrant},
 		MembershipIdentityPrivateKey: bytes.Clone(membership.PrivatePEM), MembershipPins: pins,
 		Version: tsNode.manifest.Version, Binary: bytes.Clone(tsNode.binary), SHA256: tsNode.manifest.SHA256, Signature: bytes.Clone(tsNode.signature), ReleasePublicKey: bytes.Clone(services.publicKey),
-		Config: vmimage.TSNodeConfig{AuthorityReader: reader.Reader, AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: trust, NodeID: guest.ID, NATSURL: "tls://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))), HeartbeatInterval: 10 * time.Second, ReconcileInterval: 30 * time.Second},
+		Config:              vmimage.TSNodeConfig{AuthorityReader: reader.Reader, AuthorityBucket: "ORCH_LEADERS", CommandTrustKeys: trust, NodeID: guest.ID, NATSURL: "tls://" + net.JoinHostPort(natsEndpoint.GuestAddress, strconv.Itoa(int(natsEndpoint.GuestPort))), HeartbeatInterval: 10 * time.Second, ReconcileInterval: 30 * time.Second},
 		DesiredHostManifest: manifest, ArtifactCACertificate: bytes.Clone(services.caCertificate), ArtifactHostAddress: artifactEndpoint.GuestAddress,
 		NATSIdentity: &vmimage.TSNodeNATSIdentity{NKeySeed: bytes.Clone(identity.seed), TLSCA: bytes.Clone(services.natsAuthority.ca), TLSCertificate: bytes.Clone(identity.certificate), TLSPrivateKey: bytes.Clone(identity.privateKey)},
 	}, artifacts, nil

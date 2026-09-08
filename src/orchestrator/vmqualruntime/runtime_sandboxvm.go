@@ -626,6 +626,7 @@ func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest vmqua
 		return "", err
 	}
 	defer tsNode.ControllerRun.Clear()
+	defer tsNode.OrdinaryAuthority.Clear()
 	smokeEndpoint, ok := factory.config.NetworkPlan.Endpoint(guest.Region, "smoke")
 	if !ok {
 		return "", errors.New("vmqual: guest smoke endpoint is absent from the network plan")

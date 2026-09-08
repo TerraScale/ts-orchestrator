@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorizationlease"
 	cf "terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	sandboxcf "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare"
@@ -136,21 +137,18 @@ func newRotationFixture(t *testing.T) *rotationFixture {
 		revocationHash := sha256.Sum256([]byte(revocationCanonical))
 		revocationDigest := hex.EncodeToString(revocationHash[:])
 		revocationRevision := fmt.Sprint(receipt.RevocationRevision)
-		membershipRevision, membershipValidUntil := "", int64(0)
-		if receipt.MembershipRevocations != nil {
-			membershipRevision, membershipValidUntil = receipt.MembershipRevocations.Revision, receipt.MembershipRevocations.ValidUntil
-		}
-		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v3\n%s\n%s\n%s\n%d\n%s\n%s\n%s\n%d", nonce, generation, receipt.Phase, expires, revocationRevision, revocationDigest, membershipRevision, membershipValidUntil))
+		leaseAudience, leaseDigest := f.config.AuthorizationLeaseAudience, f.config.AuthorizationLeaseKeys.Digest()
+		proof := rotationMAC(key, fmt.Sprintf("terrascale-capability-generation-response-v4\n%s\n%s\n%s\n%d\n%s\n%s\n%s\n%s", nonce, generation, receipt.Phase, expires, revocationRevision, revocationDigest, leaseAudience, leaseDigest))
 		if f.forged.Load() {
 			proof = rotationMAC([]byte("attacker"), nonce)
 		}
-		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof, "revocationRevision": revocationRevision, "revocationDigest": revocationDigest, "membershipRevision": membershipRevision, "membershipValidUntil": membershipValidUntil})
+		body, _ := json.Marshal(map[string]any{"nonce": nonce, "generation": generation, "phase": receipt.Phase, "validUntil": expires, "proof": proof, "revocationRevision": revocationRevision, "revocationDigest": revocationDigest, "authorizationLeaseAudience": leaseAudience, "authorizationLeaseKeysDigest": leaseDigest})
 		w.Write(body)
 	}))
 	t.Cleanup(probe.Close)
 	client := cf.NewClient("token", "zone", "account")
 	client.BaseURL = api.URL
-	f.config = cf.SnippetCapabilityStoreConfig{Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostnames: []string{"127.0.0.1"}, PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, OriginVault: f.originVault, Journal: f.journal, Authorize: func(context.Context) error {
+	f.config = cf.SnippetCapabilityStoreConfig{AuthorizationLeaseAudience: "https://api.terrascale.tech", AuthorizationLeaseKeys: authorizationlease.Ring{Keys: []authorizationlease.Key{{ID: "lease", Key: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd", NotBefore: 1, NotAfter: 4102444800}}}, Client: client, Zone: &cf.Zone{SnippetRules: []cf.SnippetRule{{SnippetName: "gate", Hostnames: []string{"127.0.0.1"}, PathPrefix: "/api/v1/reactive/", Enabled: true}}}, SnippetName: "gate", Source: []byte("const deployment = " + cf.CapabilityDeploymentMarker + ";"), Vault: f.vault, OriginVault: f.originVault, Journal: f.journal, Authorize: func(context.Context) error {
 		if f.deny.Load() {
 			return errors.New("authority lost")
 		}
@@ -434,5 +432,42 @@ func TestSnippetRevocationsPersistAcrossRotationAndRejectOverflow(t *testing.T) 
 	pruned, _, _ := f.journal.Load(t.Context())
 	if len(pruned.Revocations) != 0 {
 		t.Fatal("expired revocations were not pruned")
+	}
+}
+
+func TestCapabilityProbeBindsLeaseAudienceKeysAndExpiry(t *testing.T) {
+	for name, mutate := range map[string]func(*rotationFixture){
+		"audience": func(f *rotationFixture) { f.config.AuthorizationLeaseAudience = "https://other.example" },
+		"same ID different key": func(f *rotationFixture) {
+			f.config.AuthorizationLeaseKeys.Keys[0].Key = hex.EncodeToString(bytes.Repeat([]byte{42}, 32))
+		},
+		"extended window": func(f *rotationFixture) { f.config.AuthorizationLeaseKeys.Keys[0].NotAfter++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newRotationFixture(t)
+			if err := f.store.Distribute(t.Context(), security.CredentialSet{Capability: f.material(1), OriginProof: f.originMaterial(1)}, "stage"); err != nil {
+				t.Fatal(err)
+			}
+			mutate(f)
+			if _, err := f.store.Verify(t.Context(), 1); err == nil {
+				t.Fatal("stale lease verifier configuration accepted")
+			}
+		})
+	}
+}
+
+func TestCapabilityDeploymentRejectsSharedLeaseSigningMaterial(t *testing.T) {
+	f := newRotationFixture(t)
+	capability := f.material(1)
+	f.config.AuthorizationLeaseKeys.Keys[0].Key = hex.EncodeToString(capability.Key)
+	store, err := cf.NewSnippetCapabilityStore(f.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Distribute(t.Context(), security.CredentialSet{Capability: capability, OriginProof: f.originMaterial(1)}, "stage"); err == nil {
+		t.Fatal("lease key reused capability key")
+	}
+	if f.puts.Load() != 0 {
+		t.Fatal("shared key reached provider")
 	}
 }

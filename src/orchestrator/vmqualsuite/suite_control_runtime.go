@@ -28,6 +28,10 @@ type qualificationControlRuntimeBinding interface {
 	QualificationControlRuntime(context.Context) (bootstrap.ControlRuntime, []bootstrap.ControlRegionBinding, error)
 }
 
+type qualificationInitialControlBinding interface {
+	QualificationInitialControl(context.Context) (vmqual.InitialControlObservation, error)
+}
+
 type controlQuorumAvailability interface {
 	VerifyQuorumAvailability(context.Context, uint64) error
 }
@@ -42,6 +46,7 @@ type runtimeControlProof struct {
 	provider    *runtimeControlProvider
 	state       bootstrap.ControlPlaneState
 	r3Checked   bool
+	initial     *vmqual.InitialControlObservation
 }
 
 func (proof *runtimeControlProof) JournalRoot() string { return proof.journalRoot }
@@ -112,8 +117,19 @@ func (proof *runtimeControlProof) Bootstrap(ctx context.Context) (ControlBootstr
 	}
 	proof.mu.Lock()
 	defer proof.mu.Unlock()
-	if proof.state.Epoch != 0 {
+	if proof.state.Epoch != 0 || proof.initial != nil {
 		return ControlBootstrapProof{}, ErrControlContractOrder
+	}
+	if source, ok := proof.stack.Config().VMFactory.(qualificationInitialControlBinding); ok {
+		observed, err := source.QualificationInitialControl(ctx)
+		if err != nil {
+			return ControlBootstrapProof{}, err
+		}
+		if observed.SourceHost == "" || len(observed.GrantSHA256) != 2 || len(observed.ManifestSHA256) != 2 || observed.RegionalLease.Validate() != nil || observed.GlobalLease.Validate() != nil || observed.RegionalRevision == 0 || observed.GlobalRevision == 0 || observed.JournalPath == "" || observed.ObservedAt.IsZero() {
+			return ControlBootstrapProof{}, ErrControlContractInvalid
+		}
+		proof.initial = &observed
+		return ControlBootstrapProof{Initial: &observed, MemberHosts: len(observed.GrantSHA256), JournalPath: observed.JournalPath}, nil
 	}
 	result, err := proof.execute(ctx, bootstrap.ControlTransitionRequest{Operation: bootstrap.ControlOperationBootstrap, Region: "gru", MemberHosts: 2})
 	if err != nil {

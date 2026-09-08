@@ -21,6 +21,7 @@ var ErrConflict = errors.New("autoscale: target compare-and-swap conflict")
 type Observation struct {
 	MemberSlot         int
 	ProviderResourceID string
+ ProviderGeneration uint64
 	HostID             string
 	EngineID           string
 	Sequence           int64
@@ -38,10 +39,27 @@ type Observation struct {
 // ProofSnapshot carries only facts observed in the authenticated engine
 // report. Missing producers remain false; consumers must fail closed.
 type ProofSnapshot struct {
+ Removal *RemovalProof
+
 	HeadroomMeasured  bool
 	ResidencyVerified bool
 	QuorumVerified    bool
 	Databases         []DatabaseProof
+}
+
+// RemovalProof is supplied by the lease-owned placement/provider producer.
+// Empty telemetry alone never proves that a member has no assigned databases.
+type RemovalMember struct {
+ HostID, EngineID, ResourceID, Incarnation string
+ Generation uint64
+ Slot int
+}
+type RemovalProof struct {
+ ScopeID, HeadDigest, InventoryDigest, LeaseID string
+ AuthorityEpoch uint64
+ Member RemovalMember
+ Survivors []RemovalMember
+ NoAssignedData bool
 }
 
 type DatabaseProof struct {
@@ -457,7 +475,7 @@ func allLow(values []Observation, config Config) bool {
 
 func allRemovalProofs(values []Observation) bool {
 	for _, value := range values {
-		if !value.Proof.HeadroomMeasured || !value.Proof.ResidencyVerified || !value.Proof.QuorumVerified || len(value.Proof.Databases) == 0 {
+		if !value.Proof.HeadroomMeasured || !value.Proof.ResidencyVerified || !value.Proof.QuorumVerified || !validRemovalProof(value,values) {
 			return false
 		}
 		for _, database := range value.Proof.Databases {
@@ -468,6 +486,19 @@ func allRemovalProofs(values []Observation) bool {
 	}
 	return true
 }
+
+func validRemovalProof(value Observation, values []Observation) bool {
+ proof:=value.Proof.Removal
+ if proof==nil||proof.ScopeID==""||proof.LeaseID==""||proof.AuthorityEpoch==0||len(proof.HeadDigest)!=64||len(proof.InventoryDigest)!=64||proof.Member!=removalMember(value)||len(proof.Survivors)!=len(values)-1||len(proof.Survivors)<2 {return false}
+ if (len(value.Proof.Databases)==0)!=proof.NoAssignedData {return false}
+ seen:=map[string]bool{}
+ for _, survivor:=range proof.Survivors {
+ if survivor.HostID==value.HostID||seen[survivor.HostID]||!slices.ContainsFunc(values,func(observed Observation)bool{return removalMember(observed)==survivor}){return false}
+ seen[survivor.HostID]=true
+ }
+ return true
+}
+func removalMember(value Observation) RemovalMember {return RemovalMember{HostID:value.HostID,EngineID:value.EngineID,ResourceID:value.ProviderResourceID,Incarnation:value.Incarnation,Generation:value.ProviderGeneration,Slot:value.MemberSlot}}
 
 // The provider pool consists of contiguous stable slots. A removal may only
 // retire the highest slot from a complete, authoritatively bound member set.

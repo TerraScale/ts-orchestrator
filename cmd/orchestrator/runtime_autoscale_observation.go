@@ -16,6 +16,7 @@ import (
 // create an admitted identity or redirect a removal to a replacement instance.
 type productionAutoscaleObservationSource struct {
 	source               autoscale.ObservationSource
+ proof *productionAutoscaleRemovalProofProducer
 	enrollments          func(context.Context) (enrollment.State, error)
 	gateways             map[string]ocireconcile.ComputeGateway
 	ownership            provider.DurableOwnershipEvidence
@@ -76,7 +77,7 @@ func (s *productionAutoscaleObservationSource) Observe(ctx context.Context, regi
 			}
 			enrolled = candidate
 		}
-		if enrolled.NodeID == "" || enrolled.Environment != s.environment || enrolled.Cluster != s.cluster || enrolled.Region != region || enrolled.Slot < 1 || enrolled.Generation == 0 || enrolled.Public == nil || seenSlots[enrolled.Slot] {
+		if enrolled.NodeID == "" || enrolled.Environment != s.environment || enrolled.Cluster != s.cluster || enrolled.Region != region || enrolled.Slot < 1 || enrolled.Generation == 0 || enrolled.Public == nil || enrolled.Retirement != nil || seenSlots[enrolled.Slot] {
 			return nil, autoscale.ErrUnavailable
 		}
 		seenSlots[enrolled.Slot] = true
@@ -116,9 +117,13 @@ func (s *productionAutoscaleObservationSource) Observe(ctx context.Context, regi
 			return nil, autoscale.ErrUnavailable
 		}
 		observation.MemberSlot, observation.ProviderResourceID, observation.EngineID = enrolled.Slot, current.ID, identity
+ observation.ProviderGeneration=enrolled.Generation
+ observation.Proof.ResidencyVerified,observation.Proof.QuorumVerified=false,false
+ observation.Proof.Removal=nil
 	}
 	if err := s.check(ctx); err != nil {
 		return nil, err
 	}
-	return result, nil
+	if s.proof != nil {return s.proof.Produce(ctx,region,result)}
+ return result, nil
 }

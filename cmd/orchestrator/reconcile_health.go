@@ -47,10 +47,6 @@ type observedKVHealthSource struct {
 	pools  cloudflare.Members
 	path   string
 	sample func(context.Context, healthRegion) ([]hostagent.NodeStatusReport, error)
-	// proof is supplied by the lease-owned composition root. Host reports carry
-	// replica and backup receipts, but cannot assert placement residency or
-	// control quorum for themselves.
-	proof autoscaleProofProducer
 }
 
 func newObservedKVHealthSource(spec estate.Spec, pools cloudflare.Members, lookup envLookup) (*observedKVHealthSource, error) {

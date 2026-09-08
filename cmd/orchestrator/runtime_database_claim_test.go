@@ -21,7 +21,7 @@ func TestAutomaticDeletionClaimHTTPWire(t *testing.T) {
 		if err := json.Unmarshal(body, &got); err != nil || got != request {
 			t.Errorf("body=%s decoded=%+v err=%v", body, got, err)
 		}
-		_, _ = io.WriteString(w, `{"schemaVersion":1,"environment":"production","tenant_id":"tenant","project_id":"project","database_id":"database","operation_id":"operation","policy_revision":"revision","policy_fingerprint":"fingerprint","grace_condition":"card-loss","deadline":"2026-01-01T00:00:00Z","accepted_at":"2025-12-01T00:00:00Z","authority_epoch":"epoch"}`)
+		_, _ = io.WriteString(w, `{"schemaVersion":1,"environment":"production","tenant_id":"tenant","project_id":"project","database_id":"database","operation_id":"operation","policy_revision":"revision","policy_fingerprint":"fingerprint","grace_condition":"card-loss","deadline":"2026-01-01T00:00:00Z","accepted_at":"2026-01-01T00:00:00Z","authority_epoch":"epoch"}`)
 	}))
 	defer server.Close()
 	receipt, err := databaseDeletionClaimHTTPClient(server.Client(), server.URL+"/claim", key)(t.Context(), request)
@@ -34,7 +34,7 @@ func TestAutomaticDeletionClaimRejectsScopeAndUnknownReceipt(t *testing.T) {
 	request := automaticDeletionClaimRequest{SchemaVersion: 1, Environment: "production", TenantID: "tenant", ProjectID: "project", DatabaseID: "database", OperationID: "operation", PolicyRevision: "revision", GraceCondition: "card-loss"}
 	for _, response := range []string{
 		`{"schemaVersion":1,"environment":"other"}`,
-		`{"schemaVersion":1,"environment":"production","tenant_id":"tenant","project_id":"project","database_id":"database","operation_id":"operation","policy_revision":"revision","policy_fingerprint":"fingerprint","grace_condition":"card-loss","deadline":"2026-01-01T00:00:00Z","accepted_at":"2025-12-01T00:00:00Z","authority_epoch":"epoch","extra":true}`,
+		`{"schemaVersion":1,"environment":"production","tenant_id":"tenant","project_id":"project","database_id":"database","operation_id":"operation","policy_revision":"revision","policy_fingerprint":"fingerprint","grace_condition":"card-loss","deadline":"2026-01-01T00:00:00Z","accepted_at":"2026-01-01T00:00:00Z","authority_epoch":"epoch","extra":true}`,
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, response) }))
 		_, err := databaseDeletionClaimHTTPClient(server.Client(), server.URL, strings.Repeat("k", 32))(t.Context(), request)

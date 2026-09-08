@@ -51,16 +51,6 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 				Proof: engineProofWithMetrics(metrics, engine),
 			})
 		}
-		if s.proof != nil {
-			proof, err := s.proof.Produce(ctx, region, result)
-			if err != nil {
-				return nil, err
-			}
-			for index := range result {
-				result[index].Proof.ResidencyVerified = proof.ResidencyVerified
-				result[index].Proof.QuorumVerified = proof.QuorumVerified
-			}
-		}
 		if len(result) != len(entry.Members) {
 			return nil, autoscale.ErrUnavailable
 		}
@@ -69,56 +59,22 @@ func (s *observedKVHealthSource) Observe(ctx context.Context, region string) ([]
 	return nil, errors.New("autoscale: region is not admitted")
 }
 
-// autoscaleProofProducer adds the two region-wide facts that are outside a
-// host's authority. Implementations must read the accepted placement catalog
-// and live control-membership authority; nil callbacks fail closed.
-type autoscaleProofProducer interface {
-	Produce(context.Context, string, []autoscale.Observation) (autoscale.ProofSnapshot, error)
-}
-
-type productionAutoscaleProofProducer struct {
-	residency func(context.Context, string, []autoscale.Observation) (bool, error)
-	quorum    func(context.Context, string, []autoscale.Observation) (bool, error)
-}
-
-func (p productionAutoscaleProofProducer) Produce(ctx context.Context, region string, observations []autoscale.Observation) (autoscale.ProofSnapshot, error) {
-	if p.residency == nil || p.quorum == nil || len(observations) == 0 {
-		return autoscale.ProofSnapshot{}, autoscale.ErrUnavailable
-	}
-	for _, observation := range observations {
-		if !observation.Authenticated || len(observation.Proof.Databases) == 0 {
-			return autoscale.ProofSnapshot{}, autoscale.ErrUnavailable
-		}
-		for _, database := range observation.Proof.Databases {
-			if !database.RegionalCaughtUp || !database.CausalCaughtUp || !database.BackupCaughtUp || database.RegionalSequence < database.SourceSequence || database.BackupProtectedSequence < database.BackupSourceSequence {
-				return autoscale.ProofSnapshot{}, autoscale.ErrUnavailable
-			}
-		}
-	}
-	residency, err := p.residency(ctx, region, observations)
-	if err != nil {
-		return autoscale.ProofSnapshot{}, err
-	}
-	quorum, err := p.quorum(ctx, region, observations)
-	if err != nil {
-		return autoscale.ProofSnapshot{}, err
-	}
-	return autoscale.ProofSnapshot{ResidencyVerified: residency, QuorumVerified: quorum}, nil
-}
-
 // validAutoscaleEngineFacts admits only a complete, fresh engine observation
 // into the autoscale stream. The authenticated transport is the authority for
 // the report; these checks ensure a delayed or incomplete report cannot be
 // turned into a scale-down proof by the adapter.
 func validAutoscaleEngineFacts(engine hostagent.EngineFacts, now time.Time) bool {
-	if !engine.Measured || !engine.Serving || engine.Draining || engine.ObservedAtUnixMS <= 0 {
+	if !engine.Measured || engine.Draining || engine.ObservedAtUnixMS <= 0 {
 		return false
 	}
 	observed := time.UnixMilli(engine.ObservedAtUnixMS)
 	if observed.After(now.Add(time.Second)) || now.Sub(observed) > 30*time.Second {
 		return false
 	}
-	if !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
+	// An empty report grants no catch-up or removal authority. The production
+ // proof producer must independently prove the exact member has no assignments.
+ if len(engine.Databases)==0 {return true}
+ if !engine.Serving || !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
 		return false
 	}
 	catchUpObserved := time.UnixMilli(int64(engine.CatchUpObservedAtUnixMS))

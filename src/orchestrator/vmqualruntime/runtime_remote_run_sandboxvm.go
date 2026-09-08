@@ -89,10 +89,21 @@ func (services *qualificationRuntimeServices) prepareRemoteRun(guest vmqual.Gues
 			}
 		}
 	}
+	initialFiles = maps.Clone(initialFiles)
+	if initialFiles == nil {
+		initialFiles = map[string][]byte{}
+	}
+	if transport := services.natsAuthority.guests[guest.ID]; transport != nil {
+		initialFiles["/etc/terrascale/ts-node-nats/user.seed"] = transport.seed
+		initialFiles["/etc/terrascale/ts-node-nats/client.key"] = transport.privateKey
+	}
 	if len(predecessor) == 0 {
 		reader, err := services.ordinaryAuthority(guest.ID)
 		if err != nil {
 			return nil, err
+		}
+		for path, raw := range reader.Files {
+			initialFiles[path] = raw
 		}
 		if reader.Reader.PublicNKey == admission.Regional.Connection.PublicNKey {
 			return nil, errors.New("vmqual: ordinary reader reuses runtime authority")
@@ -146,7 +157,7 @@ func (services *qualificationRuntimeServices) ordinaryAuthority(host string) (*v
 	}
 	material := &vmcontrolseed.AuthorityMaterial{HostID: host, Reader: declaration.Reader, Files: map[string][]byte{}}
 	for path, ref := range declaration.Files {
-		raw, err := readQualificationControlFile(ref, true, 64<<10)
+		raw, err := readQualificationControlFile(ref, path == declaration.Reader.NKeySeedFile || path == declaration.Reader.KeyFile, 64<<10)
 		if err != nil {
 			material.Clear()
 			return nil, err

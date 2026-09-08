@@ -26,6 +26,10 @@ The payload supplies:
   positive `generation`, and a protected `membershipKey` reference. Membership
   private keys must derive the exact declared public pins. OCI member IDs,
   guest identities, store names and server identities are immutable inputs.
+  A fresh ordinary member also supplies `authorityReader`, with the same
+  `reader` and protected `files` vocabulary. Its independently scoped NKey must
+  differ from the controller credential. These four files use the canonical
+  `/etc/terrascale/ts-node-authority/` paths and remain root-owned.
 - `regions`, the three `bootstrap.ControlRegionBinding` records, each with two
   exact OCI members and its compartment and OCI Region.
 - `actions`, entries containing `plan` (`bootstrap.ControlRuntimeActionPlan`)
@@ -68,3 +72,10 @@ fails the attempt. Persisted candidate material and signed bundle remain exact
 on retry. The issuer registers the two original candidate grants for the
 existing finite bootstrap command verifier. Candidate activation therefore
 requires no invented regional election authority.
+
+Fresh ordinary members require actual promoted global R3 availability and a
+live signed regional controller before guest allocation. The reader configuration
+hash is bound through `TS_ORCH_NODE_AUTHORITY_READER_SHA256` in their finite signed
+run manifest. Its root-only private files travel through `OrdinaryAuthority`,
+outside the orchestrator's run inventory. Candidate preparation retains its
+original reader binding and carries a separate production run predecessor.

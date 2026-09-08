@@ -314,7 +314,8 @@ func (t *NatsTransport) requireStorageTransitionPreparation(ctx context.Context,
 
 // ResumeLocalStorageTransitionPlan verifies and acknowledges an existing plan
 // and publishes its retained receipt before NATS dialing and bootstrap's
-// retired-host return. It executes no broker storage effects, renews no lease,
+// retired-host return. An already retired source resumes its bounded working
+// copy; this never opens a broker or admits retirement. It renews no lease,
 // and never calls AdmitBootstrap. First delivery is pinned by
 // destination admission or the source's live ApplyManifest handler.
 func ResumeLocalStorageTransitionPlan(ctx context.Context, lifecycle *Lifecycle, node string, public, signed []byte) error {
@@ -349,5 +350,12 @@ func ResumeLocalStorageTransitionPlan(ctx context.Context, lifecycle *Lifecycle,
 	} else if err != nil {
 		return err
 	}
-	return acknowledgeStorageTransition(ctx, epochs, a, v)
+	if err := acknowledgeStorageTransition(ctx, epochs, a, v); err != nil {
+		return err
+	}
+	if err := epochs.Close(); err != nil {
+		return err
+	}
+	_, err = ResumeLocalStorageTransitionCut(ctx, lifecycle, node, public, signed)
+	return err
 }

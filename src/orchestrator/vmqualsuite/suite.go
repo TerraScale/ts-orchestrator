@@ -621,11 +621,6 @@ func RunSuite(c context.Context, s *vmqual.Stack, d ScenarioDriver) (r SuiteRepo
 		return r, e
 	}
 	for _, x := range RequiredScenarios {
-		if x == ScenarioAddRegion {
-			if e = s.StartRegions(c, vmnet.SFO, vmnet.FRA); e != nil {
-				return r, e
-			}
-		}
 		st := time.Now()
 		z := ScenarioResult{Scenario: x}
 		firstEvidence := len(evidenceDriver.Evidence())

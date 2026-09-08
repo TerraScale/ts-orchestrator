@@ -223,6 +223,9 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 		return nil, errors.New("runtime host removal: relocation providers incomplete")
 	}
 	ports.Relocation.Removal = journal
+	if ports.Relocation.Unused != nil {
+		ports.Relocation.Unused.Removal = journal
+	}
 	terminate := newProductionOCITerminator(ports.Gateways)
 	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Relocation.Capture, Replace: ports.Relocation.Replace, Revalidate: ports.Relocation.Revalidate, Fence: ports.Relocation.Fence, Terminate: terminate, ReconcileTermination: newProductionOCITerminationReconciler(ports.Gateways)}, journal)
 	if err != nil {

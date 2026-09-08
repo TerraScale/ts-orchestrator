@@ -46,6 +46,7 @@ func prepareEnrollmentBroker(ctx context.Context, baseline *server.Options, conf
 	frozen.BrokerIDs = slices.Clone(config.BrokerIDs)
 	frozen.Policy.Regions = maps.Clone(config.Policy.Regions)
 	frozen.Policy.ProtectedNKeys = slices.Clone(config.Policy.ProtectedNKeys)
+	frozen.Policy.ManagedBaselineNKeys = slices.Clone(config.Policy.ManagedBaselineNKeys)
 	var err error
 	baseline, err = brokeradmission.ApplyReaderGrants(baseline, frozen.ReaderGrants, frozen.BrokerIDs, frozen.Policy)
 	if err != nil {

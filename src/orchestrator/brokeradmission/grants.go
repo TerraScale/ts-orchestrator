@@ -49,6 +49,9 @@ type Desired struct {
 }
 type Accounts struct{ Global, Regional, Node string }
 type Policy struct {
+	// ManagedBaselineNKeys is independently owner-admitted initial member
+	// inventory. Signed desired state cannot designate baseline keys as managed.
+	ManagedBaselineNKeys []string `json:"-"`
 	// ProtectedNKeys belong to independently admitted broker readers and cannot
 	// be revoked or repurposed by the delegated enrollment signer.
 	ProtectedNKeys []string `json:"-"`
@@ -153,8 +156,30 @@ func ApplyOptions(baseline *server.Options, d Desired, p Policy) (*server.Option
 			managed[key] = true
 		}
 	}
+	allowedBaseline := map[string]bool{}
+	for _, key := range p.ManagedBaselineNKeys {
+		if !nkeys.IsValidPublicUserKey(key) || allowedBaseline[key] {
+			return nil, ErrInvalid
+		}
+		allowedBaseline[key] = true
+	}
+	seenBaseline := map[string]bool{}
+	for _, user := range baseline.Nkeys {
+		if user == nil {
+			continue
+		}
+		seenBaseline[user.Nkey] = true
+		if managed[user.Nkey] && !allowedBaseline[user.Nkey] {
+			return nil, ErrInvalid
+		}
+	}
+	for key := range allowedBaseline {
+		if !seenBaseline[key] {
+			return nil, ErrInvalid
+		}
+	}
 	for _, key := range p.ProtectedNKeys {
-		if !nkeys.IsValidPublicUserKey(key) || managed[key] {
+		if !nkeys.IsValidPublicUserKey(key) || managed[key] || allowedBaseline[key] {
 			return nil, ErrInvalid
 		}
 	}

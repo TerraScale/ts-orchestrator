@@ -78,6 +78,22 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 	readerPublic, _ := reader.PublicKey()
 	config.ReaderGrants = []brokeradmission.ReaderGrant{{BrokerID: "broker-gru", PublicNKey: readerPublic, Account: "$G"}}
 	config.BrokerIDs = []string{"broker-gru"}
+	monitor, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer monitor.Wipe()
+	monitorPublic, _ := monitor.PublicKey()
+	baseline.Nkeys = append(baseline.Nkeys, &server.NkeyUser{Nkey: monitorPublic, Permissions: &server.Permissions{Publish: &server.SubjectPermission{Allow: []string{"test.monitor"}}, Subscribe: &server.SubjectPermission{Allow: []string{"_INBOX.>"}}}})
+	// Seed the old member's real role grants into the independent initial
+	// baseline, then explicitly admit only those keys for enrollment renewal.
+	baseline, err = brokeradmission.ApplyOptions(baseline, desired, config.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range brokeradmission.Roles {
+		config.Policy.ManagedBaselineNKeys = append(config.Policy.ManagedBaselineNKeys, first.PublicKeys[role])
+	}
 	deniedBootstrap := *config
 	deniedBootstrap.AllowInitialBootstrap = false
 	if _, err := prepareEnrollmentBroker(t.Context(), baseline, &deniedBootstrap); err == nil {
@@ -181,6 +197,27 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 			}
 			if err := handle.ApplyEnrollmentGrants(t.Context(), hostileWire); !errors.Is(err, brokeradmission.ErrInvalid) {
 				t.Fatalf("delegated signer repurposed reader as %s (retired=%v): %v", role, retired, err)
+			}
+		}
+	}
+	for name, public := range map[string]string{"controller": controllerPublic, "monitor": monitorPublic} {
+		for _, retire := range []bool{false, true} {
+			badMember := first
+			badMember.PublicKeys = maps.Clone(first.PublicKeys)
+			badMember.PublicKeys["node"] = public
+			badDesired := desired
+			if retire {
+				badDesired.Members = nil
+				badDesired.Retired = []brokeradmission.Retired{{Member: badMember, RemovalOperationID: "remove-owner", ResourceID: "ocid1.instance.owner"}}
+			} else {
+				badDesired.Members = []brokeradmission.Member{badMember}
+			}
+			badWire, e := brokeradmission.Sign(badDesired, signer)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e := handle.ApplyEnrollmentGrants(t.Context(), badWire); e == nil {
+				t.Fatalf("delegated signer changed unmanaged %s baseline key (retire=%v)", name, retire)
 			}
 		}
 	}

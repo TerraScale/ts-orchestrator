@@ -3,6 +3,7 @@ package restoredrill
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/klauspost/compress/s2"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // SnapshotEnvelopeEvidence exposes only metadata from a fully verified v4
@@ -95,4 +97,22 @@ func InspectSnapshotEnvelope(raw []byte, stream string, maximum int64) (Snapshot
 		return SnapshotEnvelopeEvidence{}, ErrSnapshotVerification
 	}
 	return result, nil
+}
+
+// VerifySnapshotSource compares a still-quiescent source against an already
+// validated envelope without restoring or mutating its streams.
+func VerifySnapshotSource(ctx context.Context, nc *nats.Conn, stream string, raw []byte, maximum int64) (SnapshotRestoreEvidence, error) {
+	manifest, _, err := decodeJetStreamSnapshotEnvelope(raw, stream, maximum)
+	if err != nil {
+		return SnapshotRestoreEvidence{}, err
+	}
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return SnapshotRestoreEvidence{}, err
+	}
+	target, err := js.Stream(ctx, stream)
+	if err != nil {
+		return SnapshotRestoreEvidence{}, err
+	}
+	return observeRestoredSnapshot(ctx, nc, target, manifest, maximum)
 }

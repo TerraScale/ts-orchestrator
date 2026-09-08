@@ -69,6 +69,9 @@ func prepare(d Declaration, artifact, release string, bindings []Binding) (resul
 		if err = prepareTransitionTrust(m, d.TransitionTrust); err != nil {
 			return nil, err
 		}
+		if err = preparePublicIdentity(m, d.PublicAPI); err != nil {
+			return nil, err
+		}
 		if err = prepareControl(m, d, h, nodes[h.NodeID]); err != nil {
 			return nil, err
 		}

@@ -110,8 +110,8 @@ type productionGlobalWorkerPlan struct {
 	Construct   func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error)
 }
 type productionGlobalWorkerConfig struct {
-	BootstrapSigner       *security.CommandSignatureSigner
-	Ownership             *provider.DurableOwnershipJournal
+	BootstrapSigner *security.CommandSignatureSigner
+	Ownership       *provider.DurableOwnershipJournal
 	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI
 	// compute intents. ComputeApply is the admitted controller callback.
 	ComputeMutationJournalBucket string
@@ -179,29 +179,29 @@ type productionAutoscaleWiring struct {
 }
 
 type productionGlobalWorkers struct {
-	edge                  control.GlobalEdgeDelivery
-	check                 func(context.Context) error
-	release               func() error
-	closeOnce             sync.Once
-	closeError            error
-	finished              sync.Once
-	lifetime              context.Context
-	publisher             *estatepublisher.Publisher
-	rotation              *security.Coordinator
-	reaper                *reaper.Reconciler
-	restore               *restoredrill.ProductionComposition
-	placement             *productionPlacement
-	transition            *productionPlacementTransition
-	database              *productionDatabase
-	authBootstrap         *productionAuthBootstrap
-	kv                    *cloudflare.KVWriter
-	serviceIdentity       *serviceidentityrotation.Coordinator
-	autoscale             *productionAutoscale
-	writeBudget           *runtimeWriteBudget
-	compute               *productionComputeWorker
-	hostRemoval           ocireconcile.MemberRemovalOwner
-	workers               []*lifecycle.Service
-	completion            chan struct{}
+	edge            control.GlobalEdgeDelivery
+	check           func(context.Context) error
+	release         func() error
+	closeOnce       sync.Once
+	closeError      error
+	finished        sync.Once
+	lifetime        context.Context
+	publisher       *estatepublisher.Publisher
+	rotation        *security.Coordinator
+	reaper          *reaper.Reconciler
+	restore         *restoredrill.ProductionComposition
+	placement       *productionPlacement
+	transition      *productionPlacementTransition
+	database        *productionDatabase
+	authBootstrap   *productionAuthBootstrap
+	kv              *cloudflare.KVWriter
+	serviceIdentity *serviceidentityrotation.Coordinator
+	autoscale       *productionAutoscale
+	writeBudget     *runtimeWriteBudget
+	compute         *productionComputeWorker
+	hostRemoval     ocireconcile.MemberRemovalOwner
+	workers         []*lifecycle.Service
+	completion      chan struct{}
 }
 
 func newProductionRuntime(config productionRuntimeConfig) (*productionRuntime, error) {
@@ -400,6 +400,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		}
 		proofKey := config.PlacementTransition.Issuer.ProofKey.Public().(ed25519.PublicKey)
 		relocation := &productionHostRelocation{Journal: targets.plans, Admission: database.lifecycleJournal, Issuer: issuer, ProofKey: proofKey, Check: session.CheckEffectAuthority, Install: targets.Install, Stage: targets.Stage, Drain: targets.Drain, Deliver: targets.Deliver, Usage: targets.Usage, Ready: targets.Ready}
+		relocation.Unused = &productionUnusedHostRemoval{Scope: config.Database.Environment + "/" + config.Database.Cluster, Admission: database.lifecycleJournal, Head: issuer.Head, ProofKey: proofKey, Check: session.CheckEffectAuthority}
 		relocation.Plan = productionRelocationPlanner(issuer.Head, proofKey, targets.Pending, func(ctx context.Context, identity string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
 			target, err := targets.Resolve(ctx, identity)
 			if err != nil {

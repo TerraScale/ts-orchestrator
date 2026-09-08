@@ -265,21 +265,22 @@ func (v *sandboxVM) guestRequest(ctx context.Context, request vmguest.Request) (
 }
 
 type firecrackerFactory struct {
-	provider   *sandboxvm.Provider
-	image      vmqual.ImageResult
-	diskRoot   string
-	createMu   sync.Mutex
-	diskMu     sync.Mutex
-	disks      *vmdisk.Store
-	diskRunID  string
-	activeMu   sync.Mutex
-	active     map[string]*sandboxVM
-	closed     bool
-	services   qualificationServices
-	network    *networkController
-	config     vmqual.Config
-	mkfsPath   string
-	cgroupRoot string
+	provider           *sandboxvm.Provider
+	image              vmqual.ImageResult
+	diskRoot           string
+	createMu           sync.Mutex
+	diskMu             sync.Mutex
+	disks              *vmdisk.Store
+	diskRunID          string
+	qualificationRunID string
+	activeMu           sync.Mutex
+	active             map[string]*sandboxVM
+	closed             bool
+	services           qualificationServices
+	network            *networkController
+	config             vmqual.Config
+	mkfsPath           string
+	cgroupRoot         string
 }
 
 // NewFirecrackerFactory is the production command-side factory. The tagged
@@ -312,6 +313,11 @@ func NewProductionComponents(config vmqual.Config, image vmqual.ImageResult, net
 	if networkJournalPath == "" {
 		return nil, nil, errors.New("vmqual: production network requires a durable cleanup journal")
 	}
+	identity, err := retainQualificationRunIdentity(config.StateRoot, networkConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	networkConfig.RunID = identity.NetworkRunID
 	network, err := NewNetworkController(networkConfig, runner, networkJournalPath)
 	if err != nil {
 		return nil, nil, err
@@ -329,6 +335,7 @@ func NewProductionComponents(config vmqual.Config, image vmqual.ImageResult, net
 	}
 	controller.services = services
 	factory.(*firecrackerFactory).network = controller
+	factory.(*firecrackerFactory).qualificationRunID = identity.StackRunID
 	return factory, controller, nil
 }
 

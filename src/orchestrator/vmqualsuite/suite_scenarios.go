@@ -69,6 +69,9 @@ func (d *LocalScenarioDriver) scenarioBootstrap(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if initial := proof.Initial; initial != nil {
+		return d.prove(ScenarioBootstrap, "finite-gru-source-observed", proof.MemberHosts == 2 && initial.RegionalLease.AuthorityId == "gru-regional" && initial.GlobalLease.AuthorityId == "global" && initial.Membership.VerifySignedIdentity() && initial.RegionalRevision > 0 && initial.GlobalRevision > 0 && proof.JournalPath != "", fmt.Sprintf("source=%s regional-term=%d global-term=%d journaled=%t", initial.SourceHost, initial.RegionalLease.Epoch, initial.GlobalLease.Epoch, proof.JournalPath != ""))
+	}
 	return d.prove(ScenarioBootstrap, "empty-to-fenced-r1", proof.AcceptedEpoch == 1 && proof.MemberHosts == 2 && proof.Fenced && proof.BootstrapAuthorized && proof.JournalPath != "" && len(proof.Calls) != 0, fmt.Sprintf("epoch=%d members=%d journaled=%t", proof.AcceptedEpoch, proof.MemberHosts, proof.JournalPath != ""))
 }
 
@@ -77,11 +80,14 @@ func (d *LocalScenarioDriver) scenarioAddRegions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := stack.StartCandidates(ctx, vmnet.SFO, vmnet.FRA); err != nil {
+		return err
+	}
 	regions, err := observeLiveRegions(ctx, stack)
 	if err != nil {
 		return err
 	}
-	if err := d.prove(ScenarioAddRegion, "two-live-members-per-launch-region", regions[vmnet.GRU] == 2 && regions[vmnet.SFO] == 2 && regions[vmnet.FRA] == 2, fmt.Sprintf("gru=%d sfo=%d fra=%d", regions[vmnet.GRU], regions[vmnet.SFO], regions[vmnet.FRA])); err != nil {
+	if err := d.prove(ScenarioAddRegion, "first-candidates-live-before-promotion", regions[vmnet.GRU] == 2 && regions[vmnet.SFO] == 1 && regions[vmnet.FRA] == 1, fmt.Sprintf("gru=%d sfo=%d fra=%d", regions[vmnet.GRU], regions[vmnet.SFO], regions[vmnet.FRA])); err != nil {
 		return err
 	}
 	sfo, err := control.AddLaunchCandidate(ctx, "sfo")
@@ -95,7 +101,17 @@ func (d *LocalScenarioDriver) scenarioAddRegions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return d.prove(ScenarioAddRegion, "fra-synchronized-atomic-promotion", fra.SynchronizedBeforePromotion && fra.Promoted && fra.PromotionEpoch == 2 && len(fra.JournalPaths) == 1, fmt.Sprintf("synchronized=%t promoted=%t epoch=%d", fra.SynchronizedBeforePromotion, fra.Promoted, fra.PromotionEpoch))
+	if err := d.prove(ScenarioAddRegion, "fra-synchronized-atomic-promotion", fra.SynchronizedBeforePromotion && fra.Promoted && fra.PromotionEpoch == 2 && len(fra.JournalPaths) == 1, fmt.Sprintf("synchronized=%t promoted=%t epoch=%d", fra.SynchronizedBeforePromotion, fra.Promoted, fra.PromotionEpoch)); err != nil {
+		return err
+	}
+	if err := stack.StartRegions(ctx, vmnet.SFO, vmnet.FRA); err != nil {
+		return err
+	}
+	regions, err = observeLiveRegions(ctx, stack)
+	if err != nil {
+		return err
+	}
+	return d.prove(ScenarioAddRegion, "two-live-members-per-launch-region", regions[vmnet.GRU] == 2 && regions[vmnet.SFO] == 2 && regions[vmnet.FRA] == 2, fmt.Sprintf("gru=%d sfo=%d fra=%d", regions[vmnet.GRU], regions[vmnet.SFO], regions[vmnet.FRA]))
 }
 
 func (d *LocalScenarioDriver) scenarioR3(ctx context.Context) error {

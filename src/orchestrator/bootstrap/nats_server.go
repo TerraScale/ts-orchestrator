@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -86,7 +87,21 @@ func StartNatsServer(ctx context.Context, config NatsServerConfig) (*NatsServer,
 			return nil, err
 		}
 	}
-	enrollment, err := prepareEnrollmentBroker(ctx, options, config.Enrollment)
+	enrollmentConfig := config.Enrollment
+	if enrollmentConfig != nil {
+		frozen := *enrollmentConfig
+		frozen.Policy.ManagedBaselineNKeys = slices.Clone(frozen.Policy.ManagedBaselineNKeys)
+		for _, grant := range config.PlacementHosts {
+			frozen.Policy.ManagedBaselineNKeys = append(frozen.Policy.ManagedBaselineNKeys, grant.PublicNKey)
+		}
+		for _, grant := range config.DatabaseHosts {
+			frozen.Policy.ManagedBaselineNKeys = append(frozen.Policy.ManagedBaselineNKeys, grant.PublicNKey, grant.LifecyclePublicNKey)
+		}
+		slices.Sort(frozen.Policy.ManagedBaselineNKeys)
+		frozen.Policy.ManagedBaselineNKeys = slices.Compact(frozen.Policy.ManagedBaselineNKeys)
+		enrollmentConfig = &frozen
+	}
+	enrollment, err := prepareEnrollmentBroker(ctx, options, enrollmentConfig)
 	if err != nil {
 		return nil, err
 	}

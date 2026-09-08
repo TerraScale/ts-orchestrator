@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,7 +24,23 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	bindings := []vmengineconfig.Binding{{NodeID: spec.InstanceID, Region: "GRU", Address: spec.Address}, {NodeID: "gru-member-2", Region: "GRU", Address: "10.77.0.11"}}
-	_, path := testengineconfig.DatabaseDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
+	declaration, path := testengineconfig.DatabaseDeclaration(t, bindings, manifest.Components[1].Sha256, manifest.Components[1].Version)
+	secretDir := t.TempDir()
+	servicePath, leasePath := filepath.Join(secretDir, "identity.key"), filepath.Join(secretDir, "leases.json")
+	if err := os.WriteFile(servicePath, []byte(strings.Repeat("identity-service-", 3)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(leasePath, []byte(`{"keys":[{"keyId":"lease","key":"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd","notBefore":1,"notAfter":4102444800}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declaration.PublicAPI = &vmengineconfig.PublicAPI{Listen: "0.0.0.0:8080", DataRoot: "/var/lib/terrascale/terrabase", Identity: &vmengineconfig.PublicIdentity{Endpoint: "https://app.terrascale.tech/api/internal/identity/introspect", Issuer: "https://app.terrascale.tech", Audience: "https://api.terrascale.tech", ServiceKeyFile: servicePath, AuthorizationLeaseKeysFile: leasePath}}
+	encoded, err := json.Marshal(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
 	materials, err := vmengineconfig.Load(path, manifest.Components[1].Sha256, manifest.Components[1].Version, bindings)
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +87,27 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 	}
 	if config.EngineObservation == nil || *config.EngineObservation != spec.TSNode.Engine.Observation() {
 		t.Fatal("engine observation configuration missing or substituted")
+	}
+	identityCount := 0
+	for _, file := range seed.RootFiles {
+		if !vmengineconfig.IsIdentityPath(file.Path) {
+			continue
+		}
+		identityCount++
+		if file.Owner != vmengineconfig.ServiceUser || file.Mode != 0400 || file.Validate() != nil || !bytes.Equal(file.Content, spec.TSNode.Engine.IdentityFiles()[file.Path]) {
+			t.Fatal("native identity material owner, mode, or content changed")
+		}
+		if bytes.Contains(seed.UserData, file.Content) {
+			t.Fatal("identity secret leaked into user-data")
+		}
+		wrong := file
+		wrong.Owner = membershipServiceUser
+		if wrong.Validate() == nil {
+			t.Fatal("orchestrator ownership accepted for native identity material")
+		}
+	}
+	if identityCount != 2 {
+		t.Fatal("native identity material missing from real bootstrap")
 	}
 	observerCount := 0
 	for _, file := range seed.RootFiles {

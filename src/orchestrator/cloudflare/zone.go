@@ -131,6 +131,15 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 		})
 	}
 
+	// Public signed tenant leases are cacheable only on their signed Region's
+	// OCI ingress. Native errors use no-store; never override that verdict.
+	for _, region := range sortedRegions(members) {
+		z.CacheRules = append(z.CacheRules, CacheRule{
+			Ref: "authorization-leases-" + region, Hostname: region + ".sync.api." + ZoneName,
+			PathPrefix: "/api/v1/authorization/leases/", Eligible: true, EdgeTTLMode: "respect_origin",
+		})
+	}
+
 	// Snippet rules (D-55): the capability gate runs on the reactive paths.
 	// The snippet code is deployed with ts-proxy releases (X-2); only the
 	// rule is ours.

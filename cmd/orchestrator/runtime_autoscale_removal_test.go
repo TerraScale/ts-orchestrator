@@ -67,7 +67,7 @@ func TestAutoscaleRemovalCompletionUsesJournalAcrossUnknownAndTerminalRestart(t 
 	ownership := &runtimeRemovalOwnership{record: provider.ProviderOwnershipRecord{ResourceId: provider.ProviderResourceId{Value: member.ID}, CompartmentId: provider.ProviderCompartmentId{Value: member.CompartmentID}, CellId: provider.ProviderCellId{Value: "gru"}, Generation: provider.ProviderGeneration{Value: 7}, ServerIdentity: "spiffe://terrascale.tech/prod/member/original"}}
 	journal := &runtimeRemovalJournal{}
 	construct := func() *productionHostRemoval {
-		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: journal, Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
+		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), reconcileFn: newProductionOCITerminationReconciler(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: journal, Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
 			return 1, nil, nil
 		}, Replace: func(context.Context, hostremoval.Replacement) error { return nil }, Revalidate: func(context.Context, string, string, uint64) error { return nil }, Fence: func(context.Context, string, string, []hostremoval.Replacement) error { return nil }}}
 	}

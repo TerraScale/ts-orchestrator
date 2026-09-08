@@ -24,6 +24,8 @@ type writeBudgetDelivery interface {
 }
 
 type runtimeWriteBudgetConfig struct {
+	InitialPolicy    writebudget.PolicyEnvelope
+	ValidateRequest  func(context.Context, writebudget.Request) error
 	Policy           writebudget.Policy
 	StateKey         string
 	Signer           *security.CommandSignatureSigner
@@ -34,12 +36,13 @@ type runtimeWriteBudgetConfig struct {
 }
 
 type runtimeWriteBudget struct {
-	authority    *writebudget.Authority
-	policy       writebudget.Policy
-	signer       *security.CommandSignatureSigner
-	placement    string
-	delivery     writeBudgetDelivery
-	policyServer *http.Server
+	validateRequest func(context.Context, writebudget.Request) error
+	authority       *writebudget.Authority
+	policy          writebudget.Policy
+	signer          *security.CommandSignatureSigner
+	placement       string
+	delivery        writeBudgetDelivery
+	policyServer    *http.Server
 }
 
 // ApplyPolicy implements the billing bridge after the billing producer has
@@ -50,16 +53,37 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 	if r == nil || r.authority == nil || envelope.OrganizationID != r.policy.OrganizationID || envelope.CycleID == "" || envelope.AccountRevision == "" || envelope.Checksum == "" || envelope.Policy == nil {
 		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid billing policy")
 	}
-	raw, err := json.Marshal(envelope.Policy)
+	next, err := decodeWriteBudgetPolicy(r.policy, envelope)
 	if err != nil {
 		return writebudget.PolicyResult{}, err
+	}
+	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, envelope.PolicyGeneration, next); err != nil {
+		return writebudget.PolicyResult{}, err
+	}
+	pending, err := r.authority.PolicyPending(ctx)
+	if err != nil {
+		return writebudget.PolicyResult{}, err
+	}
+	status := "accepted"
+	if pending {
+		status = "pending"
+	}
+	return writebudget.PolicyResult{Status: status, AccountRevision: envelope.AccountRevision, PolicyGeneration: envelope.PolicyGeneration, CycleID: envelope.CycleID, Checksum: envelope.Checksum}, nil
+}
+
+// decodeWriteBudgetPolicy is shared by initial snapshot admission and the
+// authenticated billing update path so startup cannot drop accrued charges or
+// use a different allowance representation.
+func decodeWriteBudgetPolicy(base writebudget.Policy, envelope writebudget.PolicyEnvelope) (writebudget.Policy, error) {
+	raw, err := json.Marshal(envelope.Policy)
+	if err != nil {
+		return writebudget.Policy{}, err
 	}
 	var published struct {
 		OrganizationID              string            `json:"organizationId"`
 		CycleID                     string            `json:"cycleId"`
 		IncludedAllowanceEndsAt     *string           `json:"includedAllowanceEndsAt"`
 		IncludedWriteUnits          string            `json:"includedWriteUnits"`
-		IncludedAllowanceUnits      int64             `json:"includedAllowanceUnits"`
 		PaidExcessEnabled           bool              `json:"paidExcessEnabled"`
 		OrganizationSpendNano       *int64            `json:"organizationSpendNano"`
 		RateNanoDollar              int64             `json:"rateNanoDollar"`
@@ -68,11 +92,11 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		DatabaseAccruedNonWriteNano map[string]string `json:"databaseAccruedNonWriteNano"`
 	}
 	if err := json.Unmarshal(raw, &published); err != nil || published.OrganizationID != envelope.OrganizationID || published.CycleID != envelope.CycleID {
-		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid policy payload")
+		return writebudget.Policy{}, errors.New("runtime write budget: invalid policy payload")
 	}
 	included, err := strconv.ParseInt(published.IncludedWriteUnits, 10, 64)
-	if err != nil || included < 0 {
-		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance")
+	if err != nil || included < 0 || strconv.FormatInt(included, 10) != published.IncludedWriteUnits {
+		return writebudget.Policy{}, errors.New("runtime write budget: invalid allowance")
 	}
 	parseAccrued := func(value string) (int64, error) {
 		if value == "" {
@@ -84,30 +108,30 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		}
 		return parsed, nil
 	}
-	next := r.policy
+	next := base
 	next.IncludedAllowanceEndsAt = time.Time{}
 	if _, present := envelope.Policy["includedAllowanceEndsAt"]; present && published.IncludedAllowanceEndsAt == nil {
-		return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance deadline")
+		return writebudget.Policy{}, errors.New("runtime write budget: invalid allowance deadline")
 	}
 	if published.IncludedAllowanceEndsAt != nil {
 		cutoff, err := time.Parse(time.RFC3339Nano, *published.IncludedAllowanceEndsAt)
 		if err != nil || cutoff.IsZero() || !strings.HasSuffix(*published.IncludedAllowanceEndsAt, "Z") {
-			return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid allowance deadline")
+			return writebudget.Policy{}, errors.New("runtime write budget: invalid allowance deadline")
 		}
 		next.IncludedAllowanceEndsAt = cutoff.UTC()
 	}
 	next.AccruedNonWriteNano, err = parseAccrued(published.AccruedNonWriteNano)
 	if err != nil {
-		return writebudget.PolicyResult{}, err
+		return writebudget.Policy{}, err
 	}
 	next.DatabaseAccruedNonWriteNano = make(map[string]int64, len(published.DatabaseAccruedNonWriteNano))
 	for database, value := range published.DatabaseAccruedNonWriteNano {
 		if value == "" {
-			return writebudget.PolicyResult{}, errors.New("runtime write budget: missing database accrued spend")
+			return writebudget.Policy{}, errors.New("runtime write budget: missing database accrued spend")
 		}
 		accrued, err := parseAccrued(value)
 		if err != nil {
-			return writebudget.PolicyResult{}, err
+			return writebudget.Policy{}, err
 		}
 		next.DatabaseAccruedNonWriteNano[database] = accrued
 	}
@@ -124,41 +148,32 @@ func (r *runtimeWriteBudget) ApplyPolicy(ctx context.Context, envelope writebudg
 		next.DatabaseSpendCaps = make(map[string]*int64, len(published.DatabaseSpendCapsCents))
 		for database, cap := range published.DatabaseSpendCapsCents {
 			if cap < 0 {
-				return writebudget.PolicyResult{}, errors.New("runtime write budget: invalid database cap")
+				return writebudget.Policy{}, errors.New("runtime write budget: invalid database cap")
 			}
 			if cap > (1<<63-1)/10_000_000 {
-				return writebudget.PolicyResult{}, errors.New("runtime write budget: database cap overflow")
+				return writebudget.Policy{}, errors.New("runtime write budget: database cap overflow")
 			}
 			nano := cap * 10_000_000
 			next.DatabaseSpendCaps[database] = &nano
 		}
 	}
-	if err := r.authority.ApplyPolicy(ctx, envelope.AccountRevision, envelope.Checksum, envelope.PolicyGeneration, next); err != nil {
-		return writebudget.PolicyResult{}, err
-	}
-	pending, err := r.authority.PolicyPending(ctx)
-	if err != nil {
-		return writebudget.PolicyResult{}, err
-	}
-	status := "accepted"
-	if pending {
-		status = "pending"
-	}
-	return writebudget.PolicyResult{Status: status, AccountRevision: envelope.AccountRevision, PolicyGeneration: envelope.PolicyGeneration, CycleID: envelope.CycleID, Checksum: envelope.Checksum}, nil
+	return next, nil
 }
 
 // newRuntimeWriteBudget binds the authority to the exact live current GRU
 // lease. Callers invoke this only from the lease-owned global worker
 // constructor, after globalWorkerSession has validated the lease.
 func newRuntimeWriteBudget(session globalWorkerSession, config runtimeWriteBudgetConfig) (*runtimeWriteBudget, error) {
-	if session.Connection == nil || session.Lease.CandidateId == "" || session.Lease.Epoch <= 0 || session.Lease.LeaseId == "" || config.StateKey == "" || config.Signer == nil || config.Placement == "" || config.Delivery == nil {
+	if session.Connection == nil || session.Lease.CandidateId == "" || session.Lease.Epoch <= 0 || session.Lease.LeaseId == "" || config.StateKey == "" || config.Signer == nil || config.Placement == "" || config.Delivery == nil || config.ValidateRequest == nil || config.InitialPolicy.OrganizationID != config.Policy.OrganizationID || config.InitialPolicy.CycleID != config.Policy.CycleID || config.InitialPolicy.AccountRevision == "" || config.InitialPolicy.PolicyGeneration <= 0 || config.InitialPolicy.Checksum == "" {
 		return nil, errors.New("runtime write budget: incomplete live authority or delivery configuration")
 	}
 	journal, err := authorityjournal.New(authorityjournal.Config{
 		Connection: session.Connection, CandidateID: session.Lease.CandidateId,
 		AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId,
 		StateKey: config.StateKey,
-	}, func() writebudget.State { return writebudget.State{} }, func(writebudget.State) error { return nil })
+	}, func() writebudget.State {
+		return writebudget.State{ActivePolicy: config.Policy, AccountRevision: config.InitialPolicy.AccountRevision, PolicyChecksum: config.InitialPolicy.Checksum, PolicyGeneration: config.InitialPolicy.PolicyGeneration, CycleID: config.Policy.CycleID, PolicyEpoch: config.Policy.PolicyEpoch, ConsentEpoch: config.Policy.ConsentEpoch}
+	}, func(writebudget.State) error { return nil })
 	if err != nil {
 		return nil, fmt.Errorf("runtime write budget journal: %w", err)
 	}
@@ -166,7 +181,7 @@ func newRuntimeWriteBudget(session globalWorkerSession, config runtimeWriteBudge
 	if err != nil {
 		return nil, fmt.Errorf("runtime write budget authority: %w", err)
 	}
-	runtime := &runtimeWriteBudget{authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery}
+	runtime := &runtimeWriteBudget{validateRequest: config.ValidateRequest, authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery}
 	if config.PolicyListener != nil {
 		if len(config.PolicyServiceKey) < 32 {
 			return nil, errors.New("runtime write budget: policy service key is required")
@@ -199,8 +214,11 @@ func (r *runtimeWriteBudget) Close() error {
 // to the regional writer. A delivery failure leaves the operation discoverable
 // and safely retryable by its unchanged operation ID.
 func (r *runtimeWriteBudget) Allocate(ctx context.Context, request writebudget.Request) (writebudget.Grant, error) {
-	if r == nil || r.authority == nil || r.signer == nil || r.delivery == nil {
+	if r == nil || r.authority == nil || r.signer == nil || r.delivery == nil || r.validateRequest == nil {
 		return writebudget.Grant{}, errors.New("runtime write budget: unavailable")
+	}
+	if err := r.validateRequest(ctx, request); err != nil {
+		return writebudget.Grant{}, err
 	}
 	grant, err := r.authority.Allocate(ctx, request)
 	if err != nil {

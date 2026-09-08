@@ -55,6 +55,13 @@ the host identity, credential bindings, and the exact ts-node reader configurati
 These files remain root-owned mode `0400` and are excluded from the
 orchestrator inventory because only ts-node consumes them.
 
+Before allocating an ordinary member, the factory checks the actual admitted
+authority stream has file storage and three current replicas. It then reads the
+live regional lease using that member's independent authority reader. R1,
+unavailable replicas, foreign or expired authority, and unusable reader
+credentials refuse preparation. A failed retry clears the prior preparation;
+the finite grant itself remains bound to the same complete manifest.
+
 This declaration does not turn the initial R1 store into production R3. The
 production stage requires the admitted promoted R3 endpoints and broker
 configuration, scoped controller and journal permissions, and all ordinary

@@ -67,6 +67,11 @@ func (r Ring) Validate() error {
 	return nil
 }
 
+// Active reports whether the ring can verify a newly issued lease now.
+func (r Ring) Active(now int64) bool {
+	return slices.ContainsFunc(r.Keys, func(key Key) bool { return key.NotBefore <= now && now < key.NotAfter })
+}
+
 func (r Ring) Digest() string {
 	keys := slices.Clone(r.Keys)
 	slices.SortFunc(keys, func(a, b Key) int { return strings.Compare(a.ID, b.ID) })

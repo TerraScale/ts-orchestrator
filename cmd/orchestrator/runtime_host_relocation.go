@@ -20,6 +20,7 @@ import (
 // request. Admission remains frozen through authenticated RF2 readiness, the
 // current-placement overlay commit, and durable termination of the old host.
 type productionHostRelocation struct {
+	Unused    *productionUnusedHostRemoval
 	Removal   *hostremoval.Journal
 	Journal   *placementrelocation.Journal
 	Admission *databaseadmission.NATSJournal
@@ -47,6 +48,11 @@ func (w *productionHostRelocation) valid() bool {
 func (w *productionHostRelocation) Capture(ctx context.Context, request hostremoval.RemovalRequest, _ []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
 	if !w.valid() || w.Removal == nil {
 		return 0, nil, placementrelocation.ErrInvalid
+	}
+	if w.Unused != nil {
+		if revision, handled, err := w.Unused.capture(ctx, request); handled {
+			return revision, nil, err
+		}
 	}
 	id := request.OperationID + "/placement"
 	op, err := w.Journal.Load(ctx, id)
@@ -301,6 +307,9 @@ func (w *productionHostRelocation) verifyCommitted(ctx context.Context, op place
 	return nil
 }
 func (w *productionHostRelocation) Revalidate(ctx context.Context, operation, member string, revision uint64) error {
+	if handled, err := w.Unused.revalidate(ctx, operation, member, revision); handled || err != nil {
+		return err
+	}
 	op, err := w.Journal.Load(ctx, operation+"/placement")
 	if err != nil {
 		return err
@@ -315,6 +324,15 @@ func (w *productionHostRelocation) Revalidate(ctx context.Context, operation, me
 	return w.verifyCommitted(ctx, op)
 }
 func (w *productionHostRelocation) Fence(ctx context.Context, operation, member string, replacements []hostremoval.Replacement) error {
+	if w.Unused != nil && len(replacements) == 0 {
+		retained, err := w.Removal.Load(ctx, operation)
+		if err != nil {
+			return err
+		}
+		if handled, err := w.Unused.revalidate(ctx, operation, member, retained.InventoryRevision); handled || err != nil {
+			return err
+		}
+	}
 	op, err := w.Journal.Load(ctx, operation+"/placement")
 	if err != nil {
 		return err

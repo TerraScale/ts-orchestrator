@@ -19,7 +19,7 @@ const writeBudgetDeliveryLimit = 16 << 10
 // writeBudgetTargetResolver reads the accepted lifecycle record and returns
 // the single current writer admitted for the grant holder. It is deliberately
 // a resolver rather than a host list: Grant.Regions is a pricing set.
-type writeBudgetTargetResolver func(context.Context, string, string) (databaseadmission.Target, error)
+type writeBudgetTargetResolver func(context.Context, writebudget.AllocationEnvelope) (databaseadmission.Target, error)
 
 // runtimeWriteBudgetDelivery is the production allocation transport. The
 // signed allocation is marshalled once and sent unchanged to one host subject.
@@ -72,7 +72,7 @@ func (d *runtimeWriteBudgetDelivery) SendAllocation(ctx context.Context, signed 
 	if err != nil || len(payload) > writeBudgetDeliveryLimit {
 		return errors.New("write budget delivery: allocation exceeds transport limit")
 	}
-	target, err := d.resolve(ctx, grant.DatabaseID, grant.HolderID)
+	target, err := d.resolve(ctx, envelope)
 	if err != nil {
 		return err
 	}

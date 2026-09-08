@@ -171,13 +171,43 @@ func TestProductionCacheRuleMarksExactlySnapshotAndLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Production failed: %v", err)
 	}
-	if len(z.CacheRules) != 2 {
-		t.Fatalf("want global plus regional cache rules, got %d", len(z.CacheRules))
+	if len(z.CacheRules) != 3 {
+		t.Fatalf("want global/regional reactive rules plus regional authorization lease rule, got %d", len(z.CacheRules))
 	}
 	if got := z.CacheRules[0].rule().Expression; got != declaredCacheExpression {
 		t.Fatalf("declared expression:\n %s\nwant:\n %s", got, declaredCacheExpression)
 	}
 	if !z.SmartTieredCache {
 		t.Error("Smart Tiered Cache must be declared on (D-55: tiers bound origin fills)")
+	}
+}
+
+func TestProductionAuthorizationLeaseCachePreservesNativeExpiry(t *testing.T) {
+	z, err := Production(Members{"gru": {"198.51.100.10"}, "sfo": {"198.51.100.11"}, "fra": {"198.51.100.12"}}, testEgress())
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, rule := range z.CacheRules {
+		if rule.PathPrefix != "/api/v1/authorization/leases/" {
+			continue
+		}
+		count++
+		if !rule.Eligible || rule.EdgeTTLMode != "respect_origin" || rule.Hostname == "sync.api."+ZoneName {
+			t.Fatalf("unsafe lease cache rule: %+v", rule)
+		}
+		for _, snippet := range z.SnippetRules {
+			if strings.HasPrefix(rule.PathPrefix, snippet.PathPrefix) {
+				t.Fatal("lease fetch recursively enters authorization snippet")
+			}
+		}
+		for _, worker := range z.WorkerRoutes {
+			if strings.HasPrefix(worker.Pattern, rule.Hostname+"/") {
+				t.Fatal("lease fetch enters Worker")
+			}
+		}
+	}
+	if count != 3 {
+		t.Fatalf("regional lease cache coverage=%d", count)
 	}
 }

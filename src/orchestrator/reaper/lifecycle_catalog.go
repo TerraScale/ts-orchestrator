@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -89,6 +90,13 @@ func policyDatabase(facts LifecyclePolicyFacts, now time.Time) (Database, error)
 	if len(facts.DeletionReasons) > 0 {
 		database.SelectedGraceCondition = facts.DeletionReasons[0]
 	}
+	if facts.BillingDeletionEligible {
+		condition, err := selectedBillingGrace(facts, now)
+		if err != nil {
+			return Database{}, err
+		}
+		database.SelectedGraceCondition = condition
+	}
 	database.BillingGraceDeadline = facts.BillingGraceDeadline
 	database.BillingDeletionEligible = facts.BillingDeletionEligible
 	if facts.Plan == "free" {
@@ -117,3 +125,30 @@ func policyDatabase(facts LifecyclePolicyFacts, now time.Time) (Database, error)
 }
 
 var _ Catalog = (*LifecycleCatalog)(nil)
+
+// A billing observation selects a concrete due reason. Deletion admission still
+// requires the Dashboard claim transaction to refresh exact pooled storage and
+// revalidate the current policy; grace timestamps are not quantity evidence.
+func selectedBillingGrace(facts LifecyclePolicyFacts, now time.Time) (string, error) {
+	if facts.BillingGraceDeadline == nil || now.Before(*facts.BillingGraceDeadline) || len(facts.DeletionReasons) == 0 {
+		return "", ErrLifecyclePolicy
+	}
+	reason := facts.DeletionReasons[0]
+	var grace *LifecycleBillingGrace
+	switch reason {
+	case "card-loss":
+		grace = facts.Coverage.CardLoss
+	case "uncovered-storage":
+		grace = facts.Coverage.UncoveredStorage
+	default:
+		if invoice, ok := strings.CutPrefix(reason, "unpaid-storage:"); ok && policyToken(invoice) {
+			if value, exists := facts.Coverage.UnpaidStorageInvoices[invoice]; exists {
+				grace = &value
+			}
+		}
+	}
+	if grace == nil || !grace.Deadline.Equal(*facts.BillingGraceDeadline) || grace.StartedAt.IsZero() || grace.Deadline.Sub(grace.StartedAt) < 30*24*time.Hour {
+		return "", ErrLifecyclePolicy
+	}
+	return reason, nil
+}

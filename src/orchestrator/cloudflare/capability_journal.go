@@ -19,17 +19,17 @@ var ErrCapabilityJournalConflict = errors.New("cloudflare: capability journal re
 
 // CapabilityReceipt contains only provider identities and secret-free key metadata.
 type CapabilityReceipt struct {
-	Generation            uint64
-	Current               security.CapabilityKeyState
-	Previous              security.CapabilityKeyState
-	OriginCurrent         security.CapabilityKeyState
-	OriginPrevious        security.CapabilityKeyState
-	Phase                 string
-	Digest                string
-	TemplateDigest        string
-	OperationID           string
-	RevocationRevision    uint64
-	Revocations           []CapabilityRevocation
+	Generation         uint64
+	Current            security.CapabilityKeyState
+	Previous           security.CapabilityKeyState
+	OriginCurrent      security.CapabilityKeyState
+	OriginPrevious     security.CapabilityKeyState
+	Phase              string
+	Digest             string
+	TemplateDigest     string
+	OperationID        string
+	RevocationRevision uint64
+	Revocations        []CapabilityRevocation
 }
 
 // CapabilityJournal does not grant authority; callers fence their provider effects.

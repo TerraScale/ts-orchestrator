@@ -121,9 +121,10 @@ type Keys struct {
 const publicAPIBootstrapKeyPath = "/etc/terrascale/public-api/bootstrap.key"
 
 type PublicAPI struct {
-	Listen           string `json:"listen"`
-	DataRoot         string `json:"dataRoot"`
-	BootstrapKeyFile string `json:"bootstrapKeyFile,omitempty"`
+	Identity         *PublicIdentity `json:"identity,omitempty"`
+	Listen           string          `json:"listen"`
+	DataRoot         string          `json:"dataRoot"`
+	BootstrapKeyFile string          `json:"bootstrapKeyFile,omitempty"`
 }
 
 type Limits struct {
@@ -146,6 +147,7 @@ type Material struct {
 	observerCertificate, observerPrivateKey      []byte
 	observation                                  tbep.FileConfig
 	controlFiles                                 map[string][]byte
+	identityFiles                                map[string][]byte
 	databaseFiles                                map[string][]byte
 	backupFiles                                  map[string][]byte
 	databaseAuthorization                        databaseadmission.BrokerGrant
@@ -162,6 +164,9 @@ func IsTLSPath(path string) bool {
 func (m *Material) Clear() {
 	if m == nil {
 		return
+	}
+	for _, raw := range m.identityFiles {
+		clear(raw)
 	}
 	for _, raw := range m.backupFiles {
 		clear(raw)
@@ -184,6 +189,7 @@ func (m *Material) Clone() *Material {
 	}
 	copy := *m
 	copy.controlFiles = m.ControlFiles()
+	copy.identityFiles = m.IdentityFiles()
 	copy.databaseFiles = m.DatabaseFiles()
 	copy.backupFiles = m.BackupFiles()
 	copy.transitionFiles = m.TransitionFiles()
@@ -478,6 +484,11 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		fmt.Fprintf(&b, "\n[public_api]\nlisten = %q\ndata_root = %q\n", d.PublicAPI.Listen, d.PublicAPI.DataRoot)
 		if d.PublicAPI.BootstrapKeyFile != "" {
 			fmt.Fprintf(&b, "bootstrap_key_file = %q\n", publicAPIBootstrapKeyPath)
+		}
+	}
+	if d.PublicAPI != nil {
+		if err := renderPublicIdentity(&b, d.PublicAPI.Identity); err != nil {
+			return "", err
 		}
 	}
 	if b.Len() > hostmanifest.MaximumConfigurationBytes {

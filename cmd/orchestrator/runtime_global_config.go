@@ -21,6 +21,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/reaper"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
 // ErrProductionGlobalDependency identifies a provider which has not yet been
@@ -152,6 +153,21 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	// pipeline as ordinary databases; it never mints a local identity.
 	var databaseRef *productionDatabase
 	config.BranchDatabaseRef = &databaseRef
+	budgetTarget := productionBudgetTarget(&databaseRef)
+	budgetDelivery, err := newRuntimeWriteBudgetDelivery(session.Connection, budgetTarget, session.CheckEffectAuthority)
+	if err != nil {
+		return fail(fmt.Errorf("global write budget delivery: %w", err))
+	}
+	budgetConfig, closeBudget, err := constructProductionWriteBudgetConfig(input.Global.WriteBudget, signer, budgetDelivery)
+	if err != nil {
+		return fail(fmt.Errorf("global write budget configuration: %w", err))
+	}
+	cleanup = append(cleanup, closeBudget)
+	budgetConfig.ValidateRequest = func(ctx context.Context, request writebudget.Request) error {
+		_, err := budgetTarget(ctx, writebudget.AllocationEnvelope{Placement: budgetConfig.Placement, Grant: writebudget.Grant{OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, HolderID: request.HolderID, Regions: request.Regions, WriterEpoch: budgetConfig.Policy.WriterEpochs[request.HolderID]}})
+		return err
+	}
+	config.WriteBudget = &budgetConfig
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef
 	config.EstateSnapshot = deferredProductionEstateSnapshot(input.Spec, input.Global.HealthFile, &databaseRef)
