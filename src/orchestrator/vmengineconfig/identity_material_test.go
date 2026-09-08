@@ -73,6 +73,15 @@ func TestIdentityAuthorityProvisioningUsesNativeOwnedPrivateFiles(t *testing.T) 
 	if err := os.Chmod(ringPath, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(servicePath, []byte(strings.Repeat("A", 32)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ringPath, []byte(`{"keys":[{"keyId":"lease","key":"`+strings.Repeat("41", 32)+`","notBefore":1,"notAfter":4102444800}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vmengineconfig.Load(path, declaration.ArtifactSHA256, declaration.Release, bindings); err == nil {
+		t.Fatal("identity credential reuses decoded lease key bytes")
+	}
 	declaration.PublicAPI.Identity.AuthorizationLeaseKeysFile = ""
 	save()
 	if _, err := vmengineconfig.Load(path, declaration.ArtifactSHA256, declaration.Release, bindings); err == nil {

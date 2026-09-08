@@ -151,6 +151,7 @@ func TestPendingHostRequiresDatabaseAdmission(t *testing.T) {
 		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
 	}
 	d, path := testengineconfig.DatabaseDeclaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
+	d.Databases[0].SelectedRegions = []string{"GRU"}
 	for i := 2; i < len(d.Hosts); i++ {
 		d.Hosts[i].ObserverDatabase = ""
 		d.Hosts[i].DatabaseHost = nil
@@ -175,6 +176,7 @@ func TestPendingHostMayOmitObserverDatabase(t *testing.T) {
 		{NodeID: "sfo-member-2", Region: "SFO", Address: "10.77.1.11"},
 	}
 	d, path := testengineconfig.DatabaseDeclaration(t, mixedBindings, strings.Repeat("a", 64), "1.0.0")
+	d.Databases[0].SelectedRegions = []string{"GRU"}
 	for i := 2; i < len(d.Hosts); i++ {
 		d.Hosts[i].ObserverDatabase = ""
 	}

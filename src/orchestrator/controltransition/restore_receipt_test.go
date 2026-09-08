@@ -47,11 +47,11 @@ func TestRestoreReceiptRequiresExactFinalInventoryAndSignedPredecessors(t *testi
 	}
 	capture := CaptureReceipt{Version: 1, Phase: "final-capture", PlanSHA256: v.Digest(), CutReceiptSHA256: Digest(cutRaw), SourceStateReceiptSHA256: Digest(stateRaw), NodeID: p.Source.NodeID, StoreSHA256: h, CopySHA256: h, CapturedAt: now.Add(-time.Second), GlobalElectionFloor: state.GlobalElectionFloor, RegionalElectionFloor: state.RegionalElectionFloor, Streams: state.Streams, Objects: []CaptureObject{}}
 	for _, e := range state.Streams {
-		key, err := CaptureObjectKey(v, e.Role, e.Stream)
+		key, err := CaptureObjectKey(v, e.Role, e.Stream, uint64(state.GlobalElectionFloor))
 		if err != nil {
 			t.Fatal(err)
 		}
-		capture.Objects = append(capture.Objects, CaptureObject{Role: e.Role, Stream: e.Stream, Key: key, SHA256: h, Size: 1024})
+		capture.Objects = append(capture.Objects, CaptureObject{Role: e.Role, Stream: e.Stream, Key: key, SHA256: h, Size: 1024, ControlEpoch: uint64(state.GlobalElectionFloor)})
 	}
 	captureRaw, err := SignCaptureReceipt(source, v, cutRaw, stateRaw, capture)
 	if err != nil {

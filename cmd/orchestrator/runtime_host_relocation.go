@@ -49,14 +49,14 @@ func (w *productionHostRelocation) Capture(ctx context.Context, request hostremo
 	if !w.valid() || w.Removal == nil {
 		return 0, nil, placementrelocation.ErrInvalid
 	}
-	if w.Unused != nil {
-		if revision, handled, err := w.Unused.capture(ctx, request); handled {
-			return revision, nil, err
-		}
-	}
 	id := request.OperationID + "/placement"
 	op, err := w.Journal.Load(ctx, id)
 	if errors.Is(err, placementrelocation.ErrMissing) {
+		if w.Unused != nil {
+			if revision, handled, unusedErr := w.Unused.capture(ctx, request); handled {
+				return revision, nil, unusedErr
+			}
+		}
 		records, readErr := w.Admission.RelocationRecords(ctx)
 		if readErr != nil {
 			return 0, nil, readErr
@@ -81,7 +81,7 @@ func (w *productionHostRelocation) Capture(ctx context.Context, request hostremo
 		// Freeze the exact admission snapshot before retaining an immutable
 		// plan. A concurrent admission can reject this attempt without leaving
 		// a stale relocation operation that can never be retried.
-		if err = w.Admission.BeginPlacementRelocation(ctx, id, plan.Records); err != nil {
+		if err = w.beginPlan(ctx, request, plan); err != nil {
 			return 0, nil, err
 		}
 		op, err = w.Journal.Begin(ctx, plan)
@@ -144,6 +144,14 @@ func (w *productionHostRelocation) Replace(ctx context.Context, replacement host
 	if !found {
 		return placementrelocation.ErrConflict
 	}
+	return w.runOperation(ctx, op)
+}
+
+// runOperation advances one whole placement scope, including a genuinely empty
+// scope. Database installation, usage and RF2 evidence apply only to databases
+// present in the frozen inventory; empty scopes commit separate signed evidence.
+func (w *productionHostRelocation) runOperation(ctx context.Context, op placementrelocation.Operation) error {
+	var err error
 	if op.Ready {
 		return w.verifyCommitted(ctx, op)
 	}
@@ -173,8 +181,10 @@ func (w *productionHostRelocation) Replace(ctx context.Context, replacement host
 		}
 	}
 	if len(op.Accepted.Payload) == 0 {
-		if err = w.Install(ctx, op.Plan); err != nil {
-			return err
+		if len(op.Plan.Records) > 0 {
+			if err = w.Install(ctx, op.Plan); err != nil {
+				return err
+			}
 		}
 		for _, target := range op.Plan.Targets {
 			if err = w.Check(ctx); err != nil {
@@ -242,6 +252,22 @@ func (w *productionHostRelocation) Replace(ctx context.Context, replacement host
 			return err
 		}
 	}
+	if len(op.Plan.Records) == 0 {
+		targets, err := emptyRelocationTargets(op)
+		if err != nil {
+			return err
+		}
+		if err = w.Check(ctx); err != nil {
+			return err
+		}
+		if err = w.Admission.CommitEmptyPlacementRelocation(ctx, op.Plan.OperationID, op.Accepted, targets, w.ProofKey); err != nil {
+			return err
+		}
+		// This marks the signed empty-scope operation complete. No database
+		// readiness receipt is manufactured for the empty inventory.
+		_, err = w.Journal.MarkReady(ctx, op.Plan.OperationID)
+		return err
+	}
 	records, err := relocatedDatabaseRecords(op)
 	if err != nil {
 		return err
@@ -283,6 +309,10 @@ func (w *productionHostRelocation) verifyCommitted(ctx context.Context, op place
 	if err := w.verifyProof(op); err != nil {
 		return err
 	}
+	if len(op.Plan.Records) == 0 {
+		return w.verifyEmptyCommitted(ctx, op)
+	}
+
 	records, err := w.Admission.RelocationRecords(ctx)
 	if err != nil {
 		return err
@@ -318,7 +348,21 @@ func (w *productionHostRelocation) Revalidate(ctx context.Context, operation, me
 	if err != nil {
 		return err
 	}
-	if !op.Ready || op.Plan.RemovedIdentity != member || revision != expected {
+	if op.Plan.RemovedIdentity != member || revision != expected {
+		return placementrelocation.ErrConflict
+	}
+	// With no database replacement references, the owner's replacing stage
+	// reaches the same scope transition here before any fence or termination.
+	if len(op.Plan.Records) == 0 && !op.Ready {
+		if err = w.runOperation(ctx, op); err != nil {
+			return err
+		}
+		op, err = w.Journal.Load(ctx, op.Plan.OperationID)
+		if err != nil {
+			return err
+		}
+	}
+	if !op.Ready {
 		return placementrelocation.ErrConflict
 	}
 	return w.verifyCommitted(ctx, op)

@@ -87,6 +87,7 @@ type Peer struct {
 	MembershipPublicKey       string `json:"membershipPublicKey"`
 }
 type Config struct {
+	SourceQuiescence    *QuiescenceConfig           `json:"sourceQuiescence,omitempty"`
 	StorageTransition  controltransition.Delivery `json:"storageTransition,omitzero"`
 	PreliminaryCapture *PreliminaryCaptureConfig  `json:"preliminaryCapture,omitempty"`
 	AuthorityReader    nodeauthority.ReaderConfig `json:"authorityReader"`
@@ -144,6 +145,9 @@ func (c Connection) valid() bool {
 	return cleanPath(c.NKeySeedFile) && nkeys.IsValidPublicUserKey(c.PublicNKey) && c.TLS.valid() && c.NKeySeedFile != c.TLS.KeyFile
 }
 func (c Config) Validate() error {
+	if err := c.validateQuiescence(); err != nil {
+		return err
+	}
 	paths := []string{c.Broker.StoreDir}
 	if c.PreliminaryCapture != nil {
 		paths = append(paths, c.PreliminaryCapture.RequestFile, c.PreliminaryCapture.OutputDir)
@@ -248,6 +252,9 @@ func (c Config) Validate() error {
 	}
 	if c.Role == "seed" {
 		connections := []*Connection{c.Regional.Provisioner, c.Global.Provisioner}
+		if c.SourceQuiescence != nil {
+			connections = append(connections, &c.SourceQuiescence.Regional, &c.SourceQuiescence.Global)
+		}
 		if c.PreliminaryCapture != nil {
 			connections = append(connections, &c.PreliminaryCapture.Regional, &c.PreliminaryCapture.Global)
 			if c.PreliminaryCapture.Publication != nil {

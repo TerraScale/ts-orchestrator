@@ -71,14 +71,14 @@ func TestAutoscaleRemovalCompletionUsesJournalAcrossUnknownAndTerminalRestart(t 
 			return 1, nil, nil
 		}, Replace: func(context.Context, hostremoval.Replacement) error { return nil }, Revalidate: func(context.Context, string, string, uint64) error { return nil }, Fence: func(context.Context, string, string, []hostremoval.Replacement) error { return nil }}}
 	}
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err != nil || complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err != nil || complete != autoscale.RemovalPending {
 		t.Fatalf("missing journal completed: %v %v", complete, err)
 	}
 	if err := construct().RemoveMember(t.Context(), target.RemovalOperationID, member, nil); err == nil {
 		t.Fatal("lost acknowledgement hidden")
 	}
 	gateway.failure = errors.New("OCI inaccessible")
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err == nil || complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err == nil || complete != autoscale.RemovalPending {
 		t.Fatalf("unknown completed: %v %v", complete, err)
 	}
 	if journal.record.Stage != hostremoval.StageFenced {
@@ -87,7 +87,7 @@ func TestAutoscaleRemovalCompletionUsesJournalAcrossUnknownAndTerminalRestart(t 
 	gateway.failure = nil
 	// The gateway is terminal after its lost submission response. No ListMembers
 	// observation is needed to resume the exact retained journal operation.
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err != nil || !complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err != nil || complete != autoscale.RemovalCompleted {
 		t.Fatalf("terminal restart: %v %v", complete, err)
 	}
 	if journal.record.Stage != hostremoval.StageComplete || gateway.terminations != 1 {
@@ -95,11 +95,11 @@ func TestAutoscaleRemovalCompletionUsesJournalAcrossUnknownAndTerminalRestart(t 
 	}
 	wrong := target
 	wrong.RemovalResourceID = "oci-replacement"
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), wrong); !errors.Is(err, hostremoval.ErrConflict) || complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), wrong); !errors.Is(err, hostremoval.ErrConflict) || complete != autoscale.RemovalPending {
 		t.Fatalf("wrong incarnation completed: %v %v", complete, err)
 	}
 	gateway.failure = errors.New("provider unavailable after completion")
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err != nil || !complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err != nil || complete != autoscale.RemovalCompleted {
 		t.Fatalf("durable completion lost: %v %v", complete, err)
 	}
 }
@@ -133,11 +133,11 @@ func TestAutoscaleCompletedRemovalRetriesAdmissionFenceRelease(t *testing.T) {
 			return nil
 		}}
 	}
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err == nil || complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err == nil || complete != autoscale.RemovalPending {
 		t.Fatalf("release failure allowed autoscale completion: %v %v", complete, err)
 	}
 	failed = false
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); err != nil || !complete {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); err != nil || complete != autoscale.RemovalCompleted {
 		t.Fatalf("restart did not retry admission release: %v %v", complete, err)
 	}
 	if releases != 2 {

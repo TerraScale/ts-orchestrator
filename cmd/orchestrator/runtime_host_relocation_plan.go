@@ -22,16 +22,17 @@ import (
 // productionRelocationPlanner uses admitted identities and authoritative pending
 // journal receipts. Unknown remote outcomes never become revision zero.
 func productionRelocationPlanner(
+	configuredScope string,
 	head func(context.Context, string) (placementtransition.Signed, error),
 	proofKey ed25519.PublicKey,
 	pending placementpublisher.Journal,
 	resolve func(context.Context, string) (placementrelocation.Target, hostremoval.MemberObservation, error),
 ) func(context.Context, hostremoval.RemovalRequest, []databaseadmission.Record) (placementrelocation.Plan, error) {
 	return func(ctx context.Context, request hostremoval.RemovalRequest, records []databaseadmission.Record) (placementrelocation.Plan, error) {
-		if head == nil || pending == nil || resolve == nil || len(proofKey) != ed25519.PublicKeySize || len(records) == 0 {
+		if head == nil || pending == nil || resolve == nil || len(proofKey) != ed25519.PublicKeySize || configuredScope == "" {
 			return placementrelocation.Plan{}, placementrelocation.ErrInvalid
 		}
-		var scope string
+		scope := configuredScope
 		for _, record := range records {
 			for _, target := range record.PlacementTargets {
 				stage := newPlacementStageRequest(target.Proposal)
@@ -63,6 +64,27 @@ func productionRelocationPlanner(
 				if stage.Proposal.Epoch == proof.Request.Epoch && stage.Proposal.Generation == proof.Request.Generation {
 					priorStage = slices.Clone(target.Proposal)
 				}
+			}
+		}
+		if len(priorStage) == 0 && len(records) == 0 {
+			// Empty active inventory has no record carrying the last proposal.
+			// Recover exact acknowledged Stage bytes from the authoritative
+			// publisher journal and bind them to the signed accepted head.
+			for _, member := range proof.Request.Members {
+				retained, loadErr := pending.Load(ctx, member.Identity)
+				if loadErr != nil {
+					return placementrelocation.Plan{}, loadErr
+				}
+				stage := newPlacementStageRequest(retained.Request)
+				receipt := new(pb.PlacementProposalResponse)
+				if stage == nil || len(retained.Receipt) == 0 || proto.Unmarshal(retained.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil || stage.ExpectedRevision == ^uint64(0) || receipt.Revision != stage.ExpectedRevision+1 {
+					return placementrelocation.Plan{}, errors.New("runtime relocation: prior empty-scope Stage outcome unresolved")
+				}
+				if stage.Proposal.Environment+"/"+stage.Proposal.Cluster != scope || stage.Proposal.Epoch != proof.Request.Epoch || stage.Proposal.Generation != proof.Request.Generation {
+					return placementrelocation.Plan{}, placementrelocation.ErrConflict
+				}
+				priorStage = slices.Clone(retained.Request)
+				break
 			}
 		}
 		if len(priorStage) == 0 {

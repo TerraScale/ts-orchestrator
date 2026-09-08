@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"golang.org/x/sys/unix"
 	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -46,7 +49,7 @@ func inspectCutTree(ctx context.Context, root *os.Root, limits controltransition
 	result.Device, result.Inode = uint64(st.Dev), st.Ino
 	hash := sha256.New()
 	count := int64(0)
-	err = fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
+	err = walkCutTree(ctx, root, limits.MaxStoreFiles, func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -118,7 +121,7 @@ func inspectCutTree(ctx context.Context, root *os.Root, limits controltransition
 // name belongs to this plan's copy operation and is never authoritative. Each
 // file and directory is synced before the final independent whole-tree read.
 func copyCutTree(ctx context.Context, source, destination *os.Root, limits controltransition.Limits) error {
-	err := fs.WalkDir(source.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
+	err := walkCutTree(ctx, source, limits.MaxStoreFiles, func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -196,7 +199,7 @@ func copyCutTree(ctx context.Context, source, destination *os.Root, limits contr
 	if err != nil {
 		return err
 	}
-	return fs.WalkDir(destination.FS(), ".", func(name string, d fs.DirEntry, err error) error {
+	return walkCutTree(ctx, destination, limits.MaxStoreFiles, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -238,25 +241,139 @@ func compareCutFile(ctx context.Context, a, b *os.Root, name string, size int64)
 }
 
 func openCutRoot(directory string, private bool) (*os.Root, error) {
-	for p := directory; ; p = filepath.Dir(p) {
-		info, err := os.Lstat(p)
+	return openCutRootOwned(directory, private, "", 0)
+}
+
+// Only the exact signed source DataVolume may have its stopped service's
+// dedicated owner. Every ancestor is opened without following a symlink;
+// /proc/self/fd binds os.Root to that already checked descriptor, never a
+// second lookup through the original path.
+func openCutRootOwned(directory string, private bool, volume string, uid uint32) (*os.Root, error) {
+	bad := errors.New("hostagent: unsafe source copy ancestry")
+	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+		return nil, bad
+	}
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { unix.Close(fd) }()
+	current := "/"
+	check := func(final bool) error {
+		var st unix.Stat_t
+		if err := unix.Fstat(fd, &st); err != nil {
+			return err
+		}
+		permitted := st.Uid == 0 || uid != 0 && st.Uid == uid && volume != "" && (current == volume || strings.HasPrefix(current, volume+"/"))
+		if !permitted || st.Mode&0022 != 0 {
+			return bad
+		}
+		if final && private && (st.Uid != 0 || st.Mode&0777 != 0700) {
+			return bad
+		}
+		return nil
+	}
+	if err := check(directory == "/"); err != nil {
+		return nil, err
+	}
+	for component := range strings.SplitSeq(strings.TrimPrefix(directory, "/"), "/") {
+		if component == "" {
+			continue
+		}
+		next, err := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return nil, err
 		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0022 != 0 {
-			return nil, errors.New("hostagent: unsafe source copy ancestry")
-		}
-		if private && p == directory {
-			st, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || int(st.Uid) != os.Geteuid() || info.Mode().Perm() != 0700 {
-				return nil, errors.New("hostagent: copy directory is not private")
-			}
-		}
-		if p == filepath.Dir(p) {
-			break
+		unix.Close(fd)
+		fd = next
+		current = filepath.Join(current, component)
+		if err := check(current == directory); err != nil {
+			return nil, err
 		}
 	}
-	return os.OpenRoot(directory)
+	var before unix.Stat_t
+	if err := unix.Fstat(fd, &before); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot("/proc/self/fd/" + strconv.Itoa(fd))
+	if err != nil {
+		return nil, err
+	}
+	info, err := root.Stat(".")
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	after, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || uint64(after.Dev) != uint64(before.Dev) || after.Ino != before.Ino {
+		root.Close()
+		return nil, bad
+	}
+	return root, nil
+}
+
+// Read directory entries in bounded batches before sorting; fs.WalkDir would
+// allocate an unbounded single-directory listing before applying our limit.
+func walkCutTree(ctx context.Context, root *os.Root, limit int64, visit fs.WalkDirFunc) error {
+	if limit <= 0 {
+		return errors.New("hostagent: positive tree limit required")
+	}
+	total := int64(0)
+	var walk func(string, fs.DirEntry) error
+	walk = func(name string, entry fs.DirEntry) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		total++
+		if total > limit {
+			return errors.New("hostagent: source tree exceeds file bound")
+		}
+		if err := visit(name, entry, nil); err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		directory, err := root.Open(name)
+		if err != nil {
+			return err
+		}
+		var children []fs.DirEntry
+		for {
+			batch, readErr := directory.ReadDir(128)
+			children = append(children, batch...)
+			if int64(len(children)) > limit-total {
+				directory.Close()
+				return errors.New("hostagent: source directory exceeds file bound")
+			}
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			if readErr != nil {
+				directory.Close()
+				return readErr
+			}
+			if err := ctx.Err(); err != nil {
+				directory.Close()
+				return err
+			}
+		}
+		if err := directory.Close(); err != nil {
+			return err
+		}
+		slices.SortFunc(children, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+		for _, child := range children {
+			if err := walk(path.Join(name, child.Name()), child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	info, err := root.Lstat(".")
+	if err != nil {
+		return err
+	}
+	return walk(".", fs.FileInfoToDirEntry(info))
 }
 
 type cutContextReader struct {

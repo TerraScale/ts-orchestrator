@@ -60,12 +60,16 @@ func TestLifecyclePolicyBillingGraceFactsReachReaperDatabase(t *testing.T) {
 		OwnerEmails:             []string{"owner@example.com"},
 		BillingGraceDeadline:    &deadline,
 		BillingDeletionEligible: true,
+		DeletionReasons:         []string{"uncovered-storage"},
+		Coverage: LifecycleBillingCoverage{UncoveredStorage: &LifecycleBillingGrace{
+			StartedAt: deadline.Add(-30 * 24 * time.Hour), Deadline: deadline,
+		}},
 	}
 	database, err := policyDatabase(facts, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if database.BillingGraceDeadline == nil || !database.BillingGraceDeadline.Equal(deadline) || !database.BillingDeletionEligible {
+	if database.BillingGraceDeadline == nil || !database.BillingGraceDeadline.Equal(deadline) || !database.BillingDeletionEligible || database.SelectedGraceCondition != "uncovered-storage" {
 		t.Fatalf("billing grace facts were dropped: %+v", database)
 	}
 }

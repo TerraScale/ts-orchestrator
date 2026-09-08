@@ -47,3 +47,33 @@ func TestAutomaticDeletionClaimRejectsScopeAndUnknownReceipt(t *testing.T) {
 		t.Fatal("empty endpoint was accepted")
 	}
 }
+
+func TestAutomaticUncoveredStorageClaimRevalidationResponse(t *testing.T) {
+	request := automaticDeletionClaimRequest{SchemaVersion: 1, Environment: "production", TenantID: "tenant", ProjectID: "project", DatabaseID: "database", OperationID: "operation", PolicyRevision: "revision", GraceCondition: "uncovered-storage"}
+	const accepted = `{"schemaVersion":1,"environment":"production","tenant_id":"tenant","project_id":"project","database_id":"database","operation_id":"operation","policy_revision":"revision","policy_fingerprint":"measurement-and-policy-proof","grace_condition":"uncovered-storage","deadline":"2026-01-01T00:00:00Z","accepted_at":"2026-01-01T00:00:00Z","authority_epoch":"epoch"}`
+	for _, tc := range []struct {
+		name     string
+		status   int
+		response string
+		valid    bool
+	}{
+		{"fresh exact evidence accepted", http.StatusOK, accepted, true},
+		{"measurement restored allowance", http.StatusConflict, `{}`, false},
+		{"fresh quantity unavailable", http.StatusServiceUnavailable, `{}`, false},
+		{"policy changed", http.StatusOK, strings.Replace(accepted, `"policy_revision":"revision"`, `"policy_revision":"new-revision"`, 1), false},
+		{"grace still active", http.StatusOK, strings.Replace(accepted, `"accepted_at":"2026-01-01T00:00:00Z"`, `"accepted_at":"2025-12-31T00:00:00Z"`, 1), false},
+		{"unbound reason", http.StatusOK, strings.Replace(accepted, `"grace_condition":"uncovered-storage"`, `"grace_condition":"card-loss"`, 1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.response)
+			}))
+			defer server.Close()
+			receipt, err := databaseDeletionClaimHTTPClient(server.Client(), server.URL, strings.Repeat("k", 32))(t.Context(), request)
+			if (err == nil) != tc.valid {
+				t.Fatalf("receipt=%+v err=%v", receipt, err)
+			}
+		})
+	}
+}

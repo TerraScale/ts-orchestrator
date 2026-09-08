@@ -66,14 +66,14 @@ func TestRelocationPlannerUnknownStageCannotBecomeFreshRevision(t *testing.T) {
 	// Even a fully enrolled replacement is not fresh after an authorized Stage
 	// has an unknown response. Planning must preserve that uncertainty.
 	pending := relocationPlanPending{replacement.ServerIdentity: {ServerIdentity: replacement.ServerIdentity, OperationID: "earlier-stage", Request: removed.Proposal}}
-	planner := productionRelocationPlanner(func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, pending, resolve)
+	planner := productionRelocationPlanner(request.ScopeID, func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, pending, resolve)
 	if _, err := planner(t.Context(), removal, []databaseadmission.Record{record}); err == nil {
 		t.Fatal("unknown Stage response was treated as revision zero")
 	}
 	t.Run("provider replacement after observation", func(t *testing.T) {
 		changed := observation
 		changed.Generation++
-		planner := productionRelocationPlanner(func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, pending, func(context.Context, string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
+		planner := productionRelocationPlanner(request.ScopeID, func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, pending, func(context.Context, string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
 			return replacement, changed, nil
 		})
 		if _, err := planner(t.Context(), removal, []databaseadmission.Record{record}); !errors.Is(err, placementrelocation.ErrConflict) {
@@ -86,7 +86,7 @@ func TestRelocationPlannerUnknownStageCannotBecomeFreshRevision(t *testing.T) {
 		providerRemoval := removal
 		providerRemoval.Member.Region = providerObservation.Region
 		providerRemoval.Survivors = []hostremoval.MemberObservation{providerObservation}
-		planner := productionRelocationPlanner(func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, acknowledged, func(ctx context.Context, id string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
+		planner := productionRelocationPlanner(request.ScopeID, func(context.Context, string) (placementtransition.Signed, error) { return signed, nil }, public, acknowledged, func(ctx context.Context, id string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
 			if id == replacement.ServerIdentity {
 				return replacement, providerObservation, nil
 			}
@@ -103,7 +103,7 @@ func TestRelocationPlannerUnknownStageCannotBecomeFreshRevision(t *testing.T) {
 	t.Run("unsigned head", func(t *testing.T) {
 		unsigned := signed
 		unsigned.Signature = nil
-		planner := productionRelocationPlanner(func(context.Context, string) (placementtransition.Signed, error) { return unsigned, nil }, public, pending, resolve)
+		planner := productionRelocationPlanner(request.ScopeID, func(context.Context, string) (placementtransition.Signed, error) { return unsigned, nil }, public, pending, resolve)
 		if _, err := planner(t.Context(), removal, []databaseadmission.Record{record}); !errors.Is(err, placementrelocation.ErrInvalid) {
 			t.Fatalf("unsigned authority head: %v", err)
 		}

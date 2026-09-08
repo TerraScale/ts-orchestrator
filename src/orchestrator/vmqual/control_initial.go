@@ -10,6 +10,7 @@ import (
 // InitialControlObservation is finite GRU admission evidence. Lease terms are
 // election observations and never stand in for topology epochs or generations.
 type InitialControlObservation struct {
+	OwnerPublicKey   []byte                                   `json:"ownerPublicKey"`
 	SourceHost       string                                   `json:"sourceHost"`
 	GrantSHA256      map[string]string                        `json:"grantSha256"`
 	ManifestSHA256   map[string]string                        `json:"manifestSha256"`

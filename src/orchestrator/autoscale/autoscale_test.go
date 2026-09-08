@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,11 +55,24 @@ func lowObservationsWithProof(now time.Time, sequence int64) []Observation {
 		Tenant: "tenant", Project: "project", Database: "db", RegionalCaughtUp: true, BackupCaughtUp: true,
 		CausalCaughtUp: true, SourceSequence: 7, RegionalSequence: 7, BackupSourceSequence: 7, BackupProtectedSequence: 7,
 	}}}
-	return []Observation{
+	observations := []Observation{
 		{MemberSlot: 1, ProviderResourceID: "oci-a", HostID: "host-a", EngineID: "engine-a", Incarnation: "boot-a", Sequence: sequence, ObservedAt: now, CPUPercent: 10, MemoryPercent: 10, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
 		{MemberSlot: 2, ProviderResourceID: "oci-b", HostID: "host-b", EngineID: "engine-b", Incarnation: "boot-b", Sequence: sequence, ObservedAt: now, CPUPercent: 20, MemoryPercent: 20, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
 		{MemberSlot: 3, ProviderResourceID: "oci-c", HostID: "host-c", EngineID: "engine-c", Incarnation: "boot-c", Sequence: sequence, ObservedAt: now, CPUPercent: 30, MemoryPercent: 30, QueueCapacity: 20, Healthy: true, Authenticated: true, Proof: proof},
 	}
+	for i := range observations {
+		observations[i].ProviderGeneration = 1
+	}
+	for i := range observations {
+		proof := &RemovalProof{ScopeID: "production/cluster", HeadDigest: strings.Repeat("a", 64), InventoryDigest: strings.Repeat("b", 64), LeaseID: "lease", AuthorityEpoch: 1, Member: removalMember(observations[i])}
+		for j := range observations {
+			if i != j {
+				proof.Survivors = append(proof.Survivors, removalMember(observations[j]))
+			}
+		}
+		observations[i].Proof.Removal = proof
+	}
+	return observations
 }
 
 func TestEvaluateCreatesOneDurableScaleDownIntent(t *testing.T) {
@@ -394,11 +408,14 @@ func TestRemovalCompletionSurvivesRestartAndReleasesFreshPressure(t *testing.T) 
 	}
 	retained := targets.value
 	complete := false
-	config.RemovalComplete = func(_ context.Context, target Target) (bool, error) {
+	config.RemovalOutcome = func(_ context.Context, target Target) (RemovalOutcome, error) {
 		if target.RemovalOperationID != plan.OperationID || target.RemovalResourceID != "oci-c" || target.RemovalIncarnation != "boot-c" {
 			t.Fatalf("completion identity: %+v", target)
 		}
-		return complete, nil
+		if complete {
+			return RemovalCompleted, nil
+		}
+		return RemovalPending, nil
 	}
 	// A successor with high-pressure telemetry still retains an unknown removal.
 	c, err = New(config)
@@ -443,12 +460,12 @@ func TestRemovalCompletionRechecksAuthorityAndRetainsFailedRead(t *testing.T) {
 			targets := &testTargets{value: Target{Region: "gru", Members: 2, RemovalOperationID: "operation", RemovalHostID: "host-c", RemovalIncarnation: "boot-c", RemovalResourceID: "oci-c", RemovalSlot: 3}, found: true}
 			c := testController(t, &testSource{}, targets, now)
 			retained := targets.value
-			c.config.RemovalComplete = func(context.Context, Target) (bool, error) {
+			c.config.RemovalOutcome = func(context.Context, Target) (RemovalOutcome, error) {
 				if denied {
 					c.config.Authority = testAuthority{err: errors.New("lease lost")}
-					return true, nil
+					return RemovalCompleted, nil
 				}
-				return false, errors.New("journal unavailable")
+				return RemovalPending, errors.New("journal unavailable")
 			}
 			if _, _, err := c.Evaluate(t.Context(), "gru"); err == nil {
 				t.Fatal("failure hidden")

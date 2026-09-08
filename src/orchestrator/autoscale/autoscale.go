@@ -21,7 +21,7 @@ var ErrConflict = errors.New("autoscale: target compare-and-swap conflict")
 type Observation struct {
 	MemberSlot         int
 	ProviderResourceID string
- ProviderGeneration uint64
+	ProviderGeneration uint64
 	HostID             string
 	EngineID           string
 	Sequence           int64
@@ -39,7 +39,7 @@ type Observation struct {
 // ProofSnapshot carries only facts observed in the authenticated engine
 // report. Missing producers remain false; consumers must fail closed.
 type ProofSnapshot struct {
- Removal *RemovalProof
+	Removal *RemovalProof
 
 	HeadroomMeasured  bool
 	ResidencyVerified bool
@@ -50,16 +50,16 @@ type ProofSnapshot struct {
 // RemovalProof is supplied by the lease-owned placement/provider producer.
 // Empty telemetry alone never proves that a member has no assigned databases.
 type RemovalMember struct {
- HostID, EngineID, ResourceID, Incarnation string
- Generation uint64
- Slot int
+	HostID, EngineID, ResourceID, Incarnation string
+	Generation                                uint64
+	Slot                                      int
 }
 type RemovalProof struct {
- ScopeID, HeadDigest, InventoryDigest, LeaseID string
- AuthorityEpoch uint64
- Member RemovalMember
- Survivors []RemovalMember
- NoAssignedData bool
+	ScopeID, HeadDigest, InventoryDigest, LeaseID string
+	AuthorityEpoch                                uint64
+	Member                                        RemovalMember
+	Survivors                                     []RemovalMember
+	NoAssignedData                                bool
 }
 
 type DatabaseProof struct {
@@ -111,11 +111,19 @@ type Authority interface {
 	Check(context.Context) error
 }
 
+type RemovalOutcome string
+
+const (
+	RemovalPending   RemovalOutcome = "pending"
+	RemovalCompleted RemovalOutcome = "completed"
+	RemovalCancelled RemovalOutcome = "cancelled"
+)
+
 type Config struct {
 	Source ObservationSource
-	// RemovalComplete must verify the exact durable removal journal operation.
-	// Unknown provider outcomes must return false.
-	RemovalComplete   func(context.Context, Target) (bool, error)
+	// RemovalOutcome must verify the exact durable removal journal operation.
+	// Unknown provider outcomes must remain pending.
+	RemovalOutcome    func(context.Context, Target) (RemovalOutcome, error)
 	Targets           TargetStore
 	Authority         Authority
 	MinMembers        int
@@ -191,25 +199,38 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 		return Plan{}, false, err
 	}
 	if found && retained.Region == region && retained.RemovalOperationID != "" {
-		if c.config.RemovalComplete == nil {
+		if c.config.RemovalOutcome == nil {
 			return removalPlan(region, retained, retained.LastObservation), true, nil
 		}
-		complete, err := c.config.RemovalComplete(ctx, retained)
+		outcome, err := c.config.RemovalOutcome(ctx, retained)
 		if err != nil {
 			return Plan{}, false, err
 		}
-		if !complete {
+		if outcome == RemovalPending {
 			return removalPlan(region, retained, retained.LastObservation), true, nil
+		}
+		if outcome != RemovalCompleted && outcome != RemovalCancelled {
+			return Plan{}, false, errors.New("autoscale: invalid removal outcome")
+		}
+		if retained.RemovalSlot != retained.Members+1 {
+			return Plan{}, false, errors.New("autoscale: invalid retained removal capacity")
 		}
 		if err := c.config.Authority.Check(ctx); err != nil {
 			return Plan{}, false, err
 		}
 		next := retained
-		next.CompletedRemovals = maps.Clone(retained.CompletedRemovals)
-		if next.CompletedRemovals == nil {
-			next.CompletedRemovals = map[int]CompletedRemoval{}
+		if outcome == RemovalCancelled {
+			// Restore capacity in the same CAS that clears this exact intent.
+			// Cancellation never creates a receipt permitting slot reenrollment.
+			next.Members = retained.RemovalSlot
+			next.OperationID = ""
+		} else {
+			next.CompletedRemovals = maps.Clone(retained.CompletedRemovals)
+			if next.CompletedRemovals == nil {
+				next.CompletedRemovals = map[int]CompletedRemoval{}
+			}
+			next.CompletedRemovals[retained.RemovalSlot] = CompletedRemoval{OperationID: retained.RemovalOperationID, ResourceID: retained.RemovalResourceID}
 		}
-		next.CompletedRemovals[retained.RemovalSlot] = CompletedRemoval{OperationID: retained.RemovalOperationID, ResourceID: retained.RemovalResourceID}
 		next.RemovalOperationID, next.RemovalHostID, next.RemovalIncarnation, next.RemovalPhase = "", "", "", ""
 		next.RemovalSlot, next.RemovalResourceID = 0, ""
 		next.ConsecutiveHighSamples, next.ConsecutiveLowSamples = 0, 0
@@ -219,6 +240,9 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 				return Plan{}, false, nil
 			}
 			return Plan{}, false, err
+		}
+		if outcome == RemovalCancelled {
+			return Plan{Region: region, PreviousMembers: retained.Members, DesiredMembers: next.Members, ObservationSeq: next.LastObservation}, true, nil
 		}
 	}
 	observations, err := c.config.Source.Observe(ctx, region)
@@ -475,7 +499,7 @@ func allLow(values []Observation, config Config) bool {
 
 func allRemovalProofs(values []Observation) bool {
 	for _, value := range values {
-		if !value.Proof.HeadroomMeasured || !value.Proof.ResidencyVerified || !value.Proof.QuorumVerified || !validRemovalProof(value,values) {
+		if !value.Proof.HeadroomMeasured || !value.Proof.ResidencyVerified || !value.Proof.QuorumVerified || !validRemovalProof(value, values) {
 			return false
 		}
 		for _, database := range value.Proof.Databases {
@@ -488,17 +512,30 @@ func allRemovalProofs(values []Observation) bool {
 }
 
 func validRemovalProof(value Observation, values []Observation) bool {
- proof:=value.Proof.Removal
- if proof==nil||proof.ScopeID==""||proof.LeaseID==""||proof.AuthorityEpoch==0||len(proof.HeadDigest)!=64||len(proof.InventoryDigest)!=64||proof.Member!=removalMember(value)||len(proof.Survivors)!=len(values)-1||len(proof.Survivors)<2 {return false}
- if (len(value.Proof.Databases)==0)!=proof.NoAssignedData {return false}
- seen:=map[string]bool{}
- for _, survivor:=range proof.Survivors {
- if survivor.HostID==value.HostID||seen[survivor.HostID]||!slices.ContainsFunc(values,func(observed Observation)bool{return removalMember(observed)==survivor}){return false}
- seen[survivor.HostID]=true
- }
- return true
+	proof := value.Proof.Removal
+	if value.ProviderGeneration == 0 || proof == nil || proof.ScopeID == "" || proof.LeaseID == "" || proof.AuthorityEpoch == 0 || len(proof.HeadDigest) != 64 || len(proof.InventoryDigest) != 64 || proof.Member != removalMember(value) || len(proof.Survivors) != len(values)-1 || len(proof.Survivors) < 2 {
+		return false
+	}
+	for _, other := range values {
+		if other.Proof.Removal == nil || other.Proof.Removal.ScopeID != proof.ScopeID || other.Proof.Removal.HeadDigest != proof.HeadDigest || other.Proof.Removal.InventoryDigest != proof.InventoryDigest || other.Proof.Removal.AuthorityEpoch != proof.AuthorityEpoch || other.Proof.Removal.LeaseID != proof.LeaseID {
+			return false
+		}
+	}
+	if (len(value.Proof.Databases) == 0) != proof.NoAssignedData {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, survivor := range proof.Survivors {
+		if survivor.HostID == value.HostID || seen[survivor.HostID] || !slices.ContainsFunc(values, func(observed Observation) bool { return removalMember(observed) == survivor }) {
+			return false
+		}
+		seen[survivor.HostID] = true
+	}
+	return true
 }
-func removalMember(value Observation) RemovalMember {return RemovalMember{HostID:value.HostID,EngineID:value.EngineID,ResourceID:value.ProviderResourceID,Incarnation:value.Incarnation,Generation:value.ProviderGeneration,Slot:value.MemberSlot}}
+func removalMember(value Observation) RemovalMember {
+	return RemovalMember{HostID: value.HostID, EngineID: value.EngineID, ResourceID: value.ProviderResourceID, Incarnation: value.Incarnation, Generation: value.ProviderGeneration, Slot: value.MemberSlot}
+}
 
 // The provider pool consists of contiguous stable slots. A removal may only
 // retire the highest slot from a complete, authoritatively bound member set.

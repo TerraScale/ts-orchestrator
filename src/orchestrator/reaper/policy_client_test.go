@@ -230,3 +230,50 @@ func TestLifecyclePolicyClientPreservesBillingClocks(t *testing.T) {
 		t.Fatal("coverage invented deletion eligibility")
 	}
 }
+
+func TestLifecyclePolicyUncoveredStorageRequiresExactDueReason(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+		valid  bool
+	}{
+		{name: "due uncovered storage", valid: true},
+		{name: "missing measured condition", mutate: func(m map[string]any) { m["coverage"].(map[string]any)["uncoveredStorage"] = nil }},
+		{name: "missing contract field", mutate: func(m map[string]any) { delete(m["coverage"].(map[string]any), "uncoveredStorage") }},
+		{name: "missing notice field", mutate: func(m map[string]any) { delete(m, "idleNoticeAccepted") }},
+		{name: "unknown selected reason", mutate: func(m map[string]any) { m["deletionReasons"] = []string{"verified_notice_schedule_unavailable"} }},
+		{name: "other selected deadline", mutate: func(m map[string]any) { m["billingGraceDeadline"] = "2026-09-04T00:00:00Z" }},
+		{name: "not due", mutate: func(m map[string]any) { m["billingGraceDeadline"] = "2026-09-06T00:00:00Z" }},
+		{name: "stale authority observation", mutate: func(m map[string]any) { m["observedAt"] = "2026-09-05T11:58:59Z" }},
+		{name: "historical byte seconds are not exact coverage", mutate: func(m map[string]any) {
+			m["coverage"].(map[string]any)["uncoveredStorage"] = map[string]any{"startedAt": "2026-08-05T00:00:00Z", "deadline": "2026-09-05T00:00:00Z", "storageByteSeconds": "1000000000000"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := policyFixture()
+			payload["coverage"].(map[string]any)["uncoveredStorage"] = map[string]any{"startedAt": "2026-08-05T00:00:00Z", "deadline": "2026-09-05T00:00:00Z"}
+			payload["billingGraceDeadline"] = "2026-09-05T00:00:00Z"
+			payload["billingDeletionEligible"] = true
+			payload["deletionReasons"] = []string{"uncovered-storage"}
+			if tc.mutate != nil {
+				tc.mutate(payload)
+			}
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { raw, _ := json.Marshal(payload); _, _ = w.Write(raw) }))
+			defer server.Close()
+			facts, err := policyTestClient(t, server, func(context.Context) error { return nil }).Evaluate(t.Context(), policyTestScope())
+			if !tc.valid {
+				if !errors.Is(err, ErrLifecyclePolicy) {
+					t.Fatalf("invalid facts accepted: %+v %v", facts, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			database, err := policyDatabase(facts, policyTestNow())
+			if err != nil || database.SelectedGraceCondition != "uncovered-storage" || !database.BillingDeletionEligible {
+				t.Fatalf("uncovered reason lost: %+v %v", database, err)
+			}
+		})
+	}
+}

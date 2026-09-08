@@ -44,10 +44,10 @@ func TestBrokerEnrollmentPendingRevocationKeepsAutoscaleRemovalRetryable(t *test
 			return nil
 		}}
 	}
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); complete || err != nil {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); complete != autoscale.RemovalPending || err != nil {
 		t.Fatalf("pending revocation stopped autoscale or admitted completion: %v %v", complete, err)
 	}
-	if complete, err := construct().AutoscaleRemovalComplete(t.Context(), target); !complete || err != nil {
+	if complete, err := construct().AutoscaleRemovalOutcome(t.Context(), target); complete != autoscale.RemovalCompleted || err != nil {
 		t.Fatalf("restarted completion failed to retry broker revocation: %v %v", complete, err)
 	}
 	if attempts != 2 {

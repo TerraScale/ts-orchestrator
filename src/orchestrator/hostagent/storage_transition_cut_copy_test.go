@@ -104,3 +104,33 @@ func TestStoppedCopyRefusesUnsafeSourceAndBounds(t *testing.T) {
 		t.Fatalf("cancellation: %v", err)
 	}
 }
+
+func TestSourceCutFirstRecordPreservesAbsentLeaf(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "first-seal.json")
+	if _, err := readCutRecord(missing, 1024); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first immutable record cannot be created: %v", err)
+	}
+	if err := os.Symlink("/etc/passwd", missing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readCutRecord(missing, 1024); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unsafe record disguised as absent: %v", err)
+	}
+}
+
+func TestStoppedCopyBoundsWideDirectoryBeforeHashing(t *testing.T) {
+	directory := t.TempDir()
+	for _, name := range []string{"a", "b", "c"} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := inspectCutTree(t.Context(), root, controltransition.Limits{MaxStoreFiles: 3, MaxStoreBytes: 100}); err == nil {
+		t.Fatal("wide directory exceeded whole-tree bound")
+	}
+}

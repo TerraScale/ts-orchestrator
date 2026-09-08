@@ -63,8 +63,9 @@ func (factory *firecrackerFactory) guestReady(ctx context.Context, host string) 
 		}
 	}
 	source := services.controlSource
+	configured := services.controlRuntime != nil
 	services.mu.Unlock()
-	if !ready || source == nil {
+	if !ready || source == nil || configured {
 		return nil
 	}
 	services.controlConfigure.Do(func() {

@@ -147,7 +147,7 @@ func validateEmptySuccessor(binding UnusedHostRemoval, prior placementtransition
 		}
 		seen[target.ServerIdentity] = true
 		stage := new(pb.PlacementStageRequest)
-		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil || len(stage.Proposal.Assignments) != 0 || len(stage.Declarations) != 0 || target.ServerIdentity != "spiffe://terrascale.tech/"+stage.Proposal.Environment+"/terrabase-member/"+stage.Proposal.Cluster+"/"+target.MemberID {
+		if proto.Unmarshal(target.Proposal, stage) != nil || stage.Proposal == nil || len(stage.Proposal.Assignments) != 0 || len(stage.Declarations) != 0 || stage.ExpectedRevision == ^uint64(0) || target.AcceptedRevision != stage.ExpectedRevision+1 || target.ServerIdentity != "spiffe://terrascale.tech/"+stage.Proposal.Environment+"/terrabase-member/"+stage.Proposal.Cluster+"/"+target.MemberID {
 			return ErrInvalid
 		}
 	}

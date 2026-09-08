@@ -20,7 +20,7 @@ type autoscaleRemovalOwner struct {
 }
 
 type autoscaleRemovalProgress interface {
-	AutoscaleRemovalComplete(context.Context, autoscale.Target) (bool, error)
+	AutoscaleRemovalOutcome(context.Context, autoscale.Target) (autoscale.RemovalOutcome, error)
 }
 
 func (o *autoscaleRemovalOwner) RemoveMember(ctx context.Context, operation string, member ocireconcile.ObservedMember, survivors []ocireconcile.ObservedMember) error {
@@ -37,58 +37,71 @@ func (o *autoscaleRemovalOwner) RemoveMember(ctx context.Context, operation stri
 	return o.owner.RemoveMember(ctx, operation, member, survivors)
 }
 
-func (o *autoscaleRemovalOwner) AutoscaleRemovalComplete(ctx context.Context, target autoscale.Target) (bool, error) {
+func (o *autoscaleRemovalOwner) AutoscaleRemovalOutcome(ctx context.Context, target autoscale.Target) (autoscale.RemovalOutcome, error) {
 	progress, ok := o.owner.(autoscaleRemovalProgress)
 	if !ok {
-		return false, nil
+		return autoscale.RemovalPending, nil
 	}
-	return progress.AutoscaleRemovalComplete(ctx, target)
+	return progress.AutoscaleRemovalOutcome(ctx, target)
 }
 
 func validAutoscaleRemovalTarget(target autoscale.Target) bool {
 	return target.Region != "" && target.RemovalOperationID != "" && target.RemovalResourceID != "" && target.RemovalHostID != "" && target.RemovalIncarnation != "" && target.RemovalSlot == target.Members+1
 }
 
-// AutoscaleRemovalComplete resumes the exact journaled operation even if the
+// AutoscaleRemovalOutcome resumes the exact journaled operation even if the
 // member has disappeared from OCI list results. Only the removal owner's exact
 // terminal provider read can advance this durable journal to complete.
-func (r *productionHostRemoval) AutoscaleRemovalComplete(ctx context.Context, target autoscale.Target) (bool, error) {
+func (r *productionHostRemoval) AutoscaleRemovalOutcome(ctx context.Context, target autoscale.Target) (autoscale.RemovalOutcome, error) {
 	if r == nil || r.owner == nil || !validAutoscaleRemovalTarget(target) {
-		return false, errors.New("autoscale: removal completion binding is unavailable")
+		return autoscale.RemovalPending, errors.New("autoscale: removal completion binding is unavailable")
 	}
 	operation, err := r.owner.Journal.Load(ctx, target.RemovalOperationID)
 	if errors.Is(err, hostremoval.ErrMissing) {
-		return false, nil
+		return autoscale.RemovalPending, nil
 	}
 	if err != nil {
-		return false, err
+		return autoscale.RemovalPending, err
 	}
 	if operation.OperationID != target.RemovalOperationID || operation.ResourceID != target.RemovalResourceID {
-		return false, hostremoval.ErrConflict
+		return autoscale.RemovalPending, hostremoval.ErrConflict
+	}
+	if operation.Stage == hostremoval.StageCancelled {
+		return autoscale.RemovalCancelled, nil
 	}
 	if operation.Stage == hostremoval.StageComplete {
 		if r.completed != nil {
 			if err := r.completed(ctx, operation.OperationID); err != nil {
 				if errors.Is(err, errBrokerGrantsPending) {
-					return false, nil
+					return autoscale.RemovalPending, nil
 				}
-				return false, err
+				return autoscale.RemovalPending, err
 			}
 		}
-		return true, nil
+		return autoscale.RemovalCompleted, nil
 	}
 	member := ocireconcile.ObservedMember{ID: target.RemovalResourceID, Region: target.Region, Index: target.RemovalSlot}
-	if err := r.RemoveMember(ctx, target.RemovalOperationID, member, nil); err != nil {
+	if err := r.RemoveMember(ctx, target.RemovalOperationID, member, nil); err != nil && !errors.Is(err, hostremoval.ErrCancelled) {
 		if errors.Is(err, hostremoval.ErrPending) || errors.Is(err, provider.ErrComputeTerminationPending) || errors.Is(err, errBrokerGrantsPending) {
-			return false, nil
+			return autoscale.RemovalPending, nil
 		}
-		return false, err
+		return autoscale.RemovalPending, err
 	}
 	operation, err = r.owner.Journal.Load(ctx, target.RemovalOperationID)
 	if err != nil {
-		return false, err
+		return autoscale.RemovalPending, err
 	}
-	return operation.OperationID == target.RemovalOperationID && operation.ResourceID == target.RemovalResourceID && operation.Stage == hostremoval.StageComplete, nil
+	if operation.OperationID != target.RemovalOperationID || operation.ResourceID != target.RemovalResourceID {
+		return autoscale.RemovalPending, hostremoval.ErrConflict
+	}
+	switch operation.Stage {
+	case hostremoval.StageComplete:
+		return autoscale.RemovalCompleted, nil
+	case hostremoval.StageCancelled:
+		return autoscale.RemovalCancelled, nil
+	default:
+		return autoscale.RemovalPending, nil
+	}
 }
 
 // The factory's compute closure and the worker constructor receive copies of

@@ -40,6 +40,24 @@ checks. Actual provider adapters must check at every transport retry and mutatio
 boundary; journal fencing does not revoke an external request already admitted.
 The catalog, database, DEK, and mail production implementations remain required.
 
+The authenticated Dashboard lifecycle response includes required
+`coverage.uncoveredStorage` (`null` or `{startedAt, deadline}`), alongside card-loss
+and unpaid-invoice coverage, and an explicit `idleNoticeAccepted` boolean.
+An eligible billing observation must select a concrete due `deletionReasons[0]`
+whose coverage deadline equals `billingGraceDeadline`. The measured-storage reason
+is exactly `uncovered-storage`; missing conditions, mismatched deadlines, unknown
+fields and stale lifecycle observations fail closed.
+
+An observation does not authorize destruction. The automatic deletion claim calls
+the Dashboard authority again, which refreshes exact pooled storage through the
+request time and transactionally checks the current relevant billing policy,
+active grace and accepted notice. Historical byte-seconds cannot establish current
+coverage. The accepted claim fingerprints the measurement and policy evidence;
+its receipt must match the requested policy revision, scope and reason, with
+acceptance at or after the deadline. Missing fresh measurement or restored
+coverage refuses the claim. A previously accepted claim remains a durable
+operation-recovery receipt; replay does not invent a new acceptance timestamp.
+
 ## Capacity and retention limit
 
 The stream must have exactly 8 MiB capacity, file storage, three replicas, discard

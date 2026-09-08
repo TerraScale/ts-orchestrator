@@ -135,8 +135,10 @@ func RenderSystemdUnit(config Config) (string, error) {
 	unit.WriteString(systemdlimits.Core + "\n" + systemdlimits.MemoryLock("ts-node") + "\n")
 	unit.WriteString("UMask=0022\n")
 	unit.WriteString("NoNewPrivileges=yes\n")
-	unit.WriteString("CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER\n")
-	unit.WriteString("AmbientCapabilities=CAP_CHOWN CAP_FOWNER\n")
+	// The signed finite source-cut operation reads retired service storage and
+	// seals its original directory against later parent-directory renames.
+	unit.WriteString("CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE\n")
+	unit.WriteString("AmbientCapabilities=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE\n")
 	unit.WriteString("SecureBits=noroot-locked\n")
 	unit.WriteString("ProtectSystem=strict\n")
 	unit.WriteString("ProtectHome=yes\n")

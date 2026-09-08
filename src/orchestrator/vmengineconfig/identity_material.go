@@ -2,6 +2,7 @@ package vmengineconfig
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -85,7 +86,10 @@ func preparePublicIdentity(m *Material, api *PublicAPI) error {
 		return errors.New("vmengineconfig: invalid identity service credential")
 	}
 	for _, leaseKey := range ring.Keys {
-		if key == leaseKey.Key {
+		decoded, err := hex.DecodeString(leaseKey.Key)
+		reused := err != nil || key == leaseKey.Key || bytes.Equal([]byte(key), decoded)
+		clear(decoded)
+		if reused {
 			return errors.New("vmengineconfig: identity credential reuses lease verification key")
 		}
 	}

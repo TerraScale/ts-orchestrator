@@ -27,8 +27,8 @@ LimitCORE=0
 LimitMEMLOCK=16777216
 UMask=0022
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER
-AmbientCapabilities=CAP_CHOWN CAP_FOWNER
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE
+AmbientCapabilities=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE
 SecureBits=noroot-locked
 ProtectSystem=strict
 ProtectHome=yes
@@ -141,8 +141,8 @@ func TestPrivilegeExceptionsStayNarrowAndOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, exact := range []string{
-		"CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER\n",
-		"AmbientCapabilities=CAP_CHOWN CAP_FOWNER\n",
+		"CapabilityBoundingSet=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE\n",
+		"AmbientCapabilities=CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_LINUX_IMMUTABLE\n",
 		"SecureBits=noroot-locked\n",
 		"SystemCallFilter=@system-service\n",
 		"ProtectProc=invisible\n",

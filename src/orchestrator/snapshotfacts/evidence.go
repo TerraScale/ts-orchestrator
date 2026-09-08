@@ -1,6 +1,5 @@
-// Package finalcapture captures only a sealed source copy under a finite plan.
-// It composes no authority workers or customer runtime.
-package finalcapture
+// Package snapshotfacts validates control stream content without granting runtime authority.
+package snapshotfacts
 
 import (
 	"encoding/json/v2"

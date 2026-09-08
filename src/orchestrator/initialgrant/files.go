@@ -274,6 +274,13 @@ func verifyConnection(c Connection) error {
 	return nil
 }
 func verifyMaterial(c Config) error {
+	if c.SourceQuiescence != nil {
+		for _, conn := range []Connection{c.SourceQuiescence.Regional, c.SourceQuiescence.Global} {
+			if err := verifyConnection(conn); err != nil {
+				return err
+			}
+		}
+	}
 	if err := verifyConnection(c.Regional.Runtime); err != nil {
 		return err
 	}

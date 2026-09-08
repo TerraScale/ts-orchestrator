@@ -72,9 +72,11 @@ func validAutoscaleEngineFacts(engine hostagent.EngineFacts, now time.Time) bool
 		return false
 	}
 	// An empty report grants no catch-up or removal authority. The production
- // proof producer must independently prove the exact member has no assignments.
- if len(engine.Databases)==0 {return true}
- if !engine.Serving || !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
+	// proof producer must independently prove the exact member has no assignments.
+	if len(engine.Databases) == 0 {
+		return true
+	}
+	if !engine.Serving || !engine.CatchUpComplete || engine.AssignmentRevision == "" || engine.CatchUpObservedAtUnixMS == 0 || len(engine.Databases) == 0 || len(engine.Databases) > 4096 {
 		return false
 	}
 	catchUpObserved := time.UnixMilli(int64(engine.CatchUpObservedAtUnixMS))

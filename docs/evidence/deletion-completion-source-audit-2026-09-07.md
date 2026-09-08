@@ -61,3 +61,25 @@ Do not publish `effects_completed` from either condition.
    writes or storage lifetime and that partial cleanup never reports complete.
 
 This audit supplies no physical-deletion completion or launch evidence.
+
+## Retention producer trace
+
+The missing retention decision also affects owner-requested deletion:
+`cmd/orchestrator/runtime_database.go` constructs an empty
+`DeletionPolicyDecision` after the owner authorization succeeds.
+`runtime_database_delete.go` decodes authorization scope/freshness but has no
+retention field. For automatic deletion, `BeginAutomatic` explicitly passes an
+absent retention boundary, and the dashboard claim records an eligibility
+deadline, not a retention decision. The dashboard lifecycle service's
+`retainUntil` is an echo of observed native lifecycle state; feeding it back
+would not establish an independent retention policy.
+
+The producer repair therefore needs an approved, versioned retention decision
+from the deletion policy authority for both entrypoints. That decision must
+distinguish an explicit immediate cleanup disposition from an unknown boundary,
+bind the database/subtree and operation, survive replay in the durable claim and
+intent, and propagate unchanged through regional stop receipts to native
+cleanup. Native cleanup can then enforce that decision. Neither replacing null
+with the current clock nor reusing an elapsed billing/idle grace deadline
+establishes this authorization. No such retention policy was invented during
+this source repair.

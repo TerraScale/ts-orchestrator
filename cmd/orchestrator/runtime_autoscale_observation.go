@@ -16,7 +16,7 @@ import (
 // create an admitted identity or redirect a removal to a replacement instance.
 type productionAutoscaleObservationSource struct {
 	source               autoscale.ObservationSource
- proof *productionAutoscaleRemovalProofProducer
+	proof                *productionAutoscaleRemovalProofProducer
 	enrollments          func(context.Context) (enrollment.State, error)
 	gateways             map[string]ocireconcile.ComputeGateway
 	ownership            provider.DurableOwnershipEvidence
@@ -117,13 +117,24 @@ func (s *productionAutoscaleObservationSource) Observe(ctx context.Context, regi
 			return nil, autoscale.ErrUnavailable
 		}
 		observation.MemberSlot, observation.ProviderResourceID, observation.EngineID = enrolled.Slot, current.ID, identity
- observation.ProviderGeneration=enrolled.Generation
- observation.Proof.ResidencyVerified,observation.Proof.QuorumVerified=false,false
- observation.Proof.Removal=nil
+		observation.ProviderGeneration = enrolled.Generation
+		observation.Proof.ResidencyVerified, observation.Proof.QuorumVerified = false, false
+		observation.Proof.Removal = nil
+	}
+	admitted := 0
+	for _, record := range state.Records {
+		if record.Environment == s.environment && record.Cluster == s.cluster && record.Region == region && record.Retirement == nil {
+			admitted++
+		}
+	}
+	if admitted != len(result) {
+		return nil, autoscale.ErrUnavailable
 	}
 	if err := s.check(ctx); err != nil {
 		return nil, err
 	}
-	if s.proof != nil {return s.proof.Produce(ctx,region,result)}
- return result, nil
+	if s.proof != nil {
+		return s.proof.Produce(ctx, region, result)
+	}
+	return result, nil
 }

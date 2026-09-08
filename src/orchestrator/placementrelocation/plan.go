@@ -185,7 +185,7 @@ func Build(input BuildInput) (Plan, error) {
 }
 
 func ValidatePlan(plan Plan) error {
-	if plan.OperationID != plan.Request.OperationID || plan.RemovedIdentity == "" || plan.ReplacementIdentity == "" || plan.RemovedIdentity == plan.ReplacementIdentity || len(plan.Records) == 0 || len(plan.Targets) != len(plan.Request.Members) {
+	if plan.OperationID != plan.Request.OperationID || plan.RemovedIdentity == "" || plan.ReplacementIdentity == "" || plan.RemovedIdentity == plan.ReplacementIdentity || len(plan.Targets) != len(plan.Request.Members) {
 		return ErrInvalid
 	}
 	if _, err := placementtransition.RequestDigest(plan.Request); err != nil {

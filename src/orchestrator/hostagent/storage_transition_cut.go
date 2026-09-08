@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"golang.org/x/sys/unix"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
@@ -16,6 +20,9 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
+
+// Linux FS_IMMUTABLE_FL from linux/fs.h; retained across service restart.
+const sourceImmutableFlag = 0x00000010
 
 type cutSealRecord struct {
 	RetirementSHA256         string
@@ -104,6 +111,7 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 		return nil, errors.New("hostagent: complete service stop observation required")
 	}
 	unit := ""
+	sourceVolume, sourceUser := "", ""
 	for _, spec := range a.grant.Manifest.Components {
 		_, initial, err := initialgrant.ComponentConfig(spec)
 		if err != nil {
@@ -114,6 +122,7 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 				return nil, errors.New("hostagent: duplicate original service")
 			}
 			unit = UnitName(spec.Name)
+			sourceVolume, sourceUser = spec.DataVolume, spec.User
 		}
 	}
 	if unit == "" {
@@ -158,7 +167,15 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 	if !quiet {
 		return nil, errors.New("hostagent: original broker has surviving processes")
 	}
-	source, err := openCutRoot(p.Source.StoreDir, false)
+	account, err := user.Lookup(sourceUser)
+	if err != nil {
+		return nil, err
+	}
+	sourceUID, err := strconv.ParseUint(account.Uid, 10, 32)
+	if err != nil || sourceUID == 0 {
+		return nil, errors.New("hostagent: dedicated source service account required")
+	}
+	source, err := openCutRootOwned(p.Source.StoreDir, false, sourceVolume, uint32(sourceUID))
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +195,7 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 	}
 	// Root ownership and read-only modes seal bytes from the retired dedicated
 	// service account; the durable launch guard prevents managed reopening.
-	if err := sealCutTree(ctx, source); err != nil {
+	if err := sealCutTree(ctx, source, p.Limits); err != nil {
 		return nil, err
 	}
 	raw, err := json.Marshal(seal)
@@ -198,7 +215,12 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	if err := os.Mkdir(p.Source.CaptureDir, 0700); err != nil && !errors.Is(err, fs.ErrExist) {
+	copyParent, err := openCutRoot(filepath.Dir(p.Source.CaptureDir), false)
+	if err != nil {
+		return nil, err
+	}
+	defer copyParent.Close()
+	if err := copyParent.Mkdir(filepath.Base(p.Source.CaptureDir), 0700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
 	copyRoot, err := openCutRoot(p.Source.CaptureDir, true)
@@ -220,11 +242,7 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 	if after != observed || copied.SHA256 != observed.SHA256 || copied.Files != observed.Files || copied.Bytes != observed.Bytes {
 		return nil, errors.New("hostagent: source working copy differs")
 	}
-	parent, err := os.Open(filepath.Dir(p.Source.CaptureDir))
-	if err != nil {
-		return nil, err
-	}
-	if err := errors.Join(parent.Sync(), parent.Close()); err != nil {
+	if err := syncCutDirectory(copyParent, "."); err != nil {
 		return nil, err
 	}
 	if err := live(); err != nil {
@@ -259,8 +277,8 @@ func ResumeLocalStorageTransitionCut(ctx context.Context, l *Lifecycle, node str
 	return receipt, nil
 }
 
-func sealCutTree(ctx context.Context, root *os.Root) error {
-	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, err error) error {
+func sealCutTree(ctx context.Context, root *os.Root, limits controltransition.Limits) error {
+	err := walkCutTree(ctx, root, limits.MaxStoreFiles, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -274,15 +292,23 @@ func sealCutTree(ctx context.Context, root *os.Root) error {
 		if !info.IsDir() && !info.Mode().IsRegular() {
 			return errors.New("hostagent: unsafe seal entry")
 		}
-		if err := root.Chown(name, 0, 0); err != nil {
-			return err
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return errors.New("hostagent: seal ownership unavailable")
+		}
+		if stat.Uid != 0 || stat.Gid != 0 {
+			if err := root.Chown(name, 0, 0); err != nil {
+				return err
+			}
 		}
 		mode := os.FileMode(0400)
 		if d.IsDir() {
 			mode = 0500
 		}
-		if err := root.Chmod(name, mode); err != nil {
-			return err
+		if info.Mode().Perm() != mode {
+			if err := root.Chmod(name, mode); err != nil {
+				return err
+			}
 		}
 		f, err := root.Open(name)
 		if err != nil {
@@ -290,6 +316,28 @@ func sealCutTree(ctx context.Context, root *os.Root) error {
 		}
 		return errors.Join(f.Sync(), f.Close())
 	})
+	if err != nil {
+		return err
+	}
+	directory, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	flags, err := unix.IoctlGetInt(int(directory.Fd()), unix.FS_IOC_GETFLAGS)
+	if err != nil {
+		return errors.Join(errors.New("hostagent: immutable source sealing unavailable"), err)
+	}
+	if flags&sourceImmutableFlag == 0 {
+		if err := unix.IoctlSetPointerInt(int(directory.Fd()), unix.FS_IOC_SETFLAGS, flags|sourceImmutableFlag); err != nil {
+			return errors.Join(errors.New("hostagent: immutable source sealing refused"), err)
+		}
+	}
+	observed, err := unix.IoctlGetInt(int(directory.Fd()), unix.FS_IOC_GETFLAGS)
+	if err != nil || observed&sourceImmutableFlag == 0 {
+		return errors.New("hostagent: immutable source seal unconfirmed")
+	}
+	return directory.Sync()
 }
 
 // VerifyStorageTransitionCopy checks the unopened capture directory against

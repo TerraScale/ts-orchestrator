@@ -16,10 +16,11 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("host removal: invalid operation")
-	ErrConflict = errors.New("host removal: immutable operation conflict")
-	ErrMissing  = errors.New("host removal: operation missing")
-	ErrPending  = errors.New("host removal: provider termination pending")
+	ErrInvalid   = errors.New("host removal: invalid operation")
+	ErrConflict  = errors.New("host removal: immutable operation conflict")
+	ErrCancelled = errors.New("host removal: cancelled before effects")
+	ErrMissing   = errors.New("host removal: operation missing")
+	ErrPending   = errors.New("host removal: provider termination pending")
 )
 
 type Stage string
@@ -30,6 +31,7 @@ const (
 	StageReplacing         Stage = "replacing"
 	StageFenced            Stage = "fenced"
 	StageComplete          Stage = "complete"
+	StageCancelled         Stage = "cancelled"
 )
 
 // Replacement identifies one database in a durably retained successor intent.
@@ -125,6 +127,9 @@ func (o *Owner) RemoveMember(ctx context.Context, operationID string, member Mem
 	}
 	if current.ResourceID != member.ResourceID || current.MemberIdentity != member.Identity || current.Generation != generation || current.ProviderETag != member.ProviderETag {
 		return ErrConflict
+	}
+	if current.Stage == StageCancelled {
+		return ErrCancelled
 	}
 	if current.Stage == StageInventoryPending {
 		if current.PendingRequest == nil {
@@ -242,7 +247,7 @@ func (j *Journal) Reserve(ctx context.Context, operationID string, member Member
 			if !sameIdentity(old, want) {
 				return ErrConflict
 			}
-			if old.Stage == StageInventoryPending && !sameRequest(old.PendingRequest, &request) {
+			if (old.Stage == StageInventoryPending || old.Stage == StageCancelled) && !sameRequest(old.PendingRequest, &request) {
 				return ErrConflict
 			}
 			out = cloneOperation(old)
@@ -264,6 +269,42 @@ func (j *Journal) Reserve(ctx context.Context, operationID string, member Member
 		return nil
 	})
 	return out, err
+}
+
+// CancelPending releases exclusive inventory capacity only after the caller
+// verifies a permanent authoritative cancellation that prevents this operation
+// ever acquiring an admission freeze, plus absence of its placement plan. The
+// confirmation must be read-only and safe to retry after a journal CAS conflict.
+// A terminal tombstone preserves identity across unknown cancellation writes.
+func (j *Journal) CancelPending(ctx context.Context, request RemovalRequest, confirm func(context.Context, RemovalRequest) error) (Operation, error) {
+	if j == nil || j.journal == nil || ctx == nil || !token(request.OperationID) || confirm == nil {
+		return Operation{}, ErrInvalid
+	}
+	var result Operation
+	err := j.journal.Transact(ctx, true, func(s *state) error {
+		current, found := s.Operations[request.OperationID]
+		if !found {
+			return ErrMissing
+		}
+		if !sameRequest(current.PendingRequest, &request) {
+			return ErrConflict
+		}
+		if current.Stage == StageCancelled {
+			result = cloneOperation(current)
+			return nil
+		}
+		if current.Stage != StageInventoryPending {
+			return ErrConflict
+		}
+		if err := confirm(ctx, request); err != nil {
+			return err
+		}
+		current.Stage = StageCancelled
+		s.Operations[request.OperationID] = current
+		result = cloneOperation(current)
+		return nil
+	})
+	return result, err
 }
 
 // CheckFill validates exact facts against a durable reservation before Capture
@@ -394,7 +435,7 @@ func (j *Journal) Advance(ctx context.Context, operationID string, stage Stage) 
 		if !ok {
 			return ErrMissing
 		}
-		if current.Stage == StageInventoryPending || stage == StageInventoryPending {
+		if current.Stage == StageInventoryPending || stage == StageInventoryPending || current.Stage == StageCancelled || stage == StageCancelled {
 			return ErrConflict
 		}
 		if stageRank(stage) < stageRank(current.Stage) || stageRank(stage) > stageRank(current.Stage)+1 {
@@ -433,8 +474,10 @@ func validateMap(values map[string]Operation) error {
 		if key != operation.OperationID || !token(key) || !token(operation.MemberIdentity) || !token(operation.ResourceID) || !token(operation.ProviderETag) || operation.Generation == 0 || !validStage(operation.Stage) || validateReplacements(operation.Replacements) != nil || validSurvivors(operation.MemberIdentity, operation.Survivors) != nil {
 			return ErrInvalid
 		}
-		if operation.Stage == StageInventoryPending {
-			pending++
+		if operation.Stage == StageInventoryPending || operation.Stage == StageCancelled {
+			if operation.Stage == StageInventoryPending {
+				pending++
+			}
 			r := operation.PendingRequest
 			if operation.InventoryRevision != 0 || len(operation.Replacements) != 0 || r == nil || r.OperationID != key || r.Generation != operation.Generation || r.Member.Generation != operation.Generation || r.Member.Identity != operation.MemberIdentity || r.Member.ResourceID != operation.ResourceID || r.Member.ProviderETag != operation.ProviderETag || !jsonEqualMembers(r.Survivors, operation.Survivors) {
 				return ErrInvalid
@@ -487,7 +530,7 @@ func jsonEqualMembers(a, b []MemberObservation) bool {
 	return string(left) == string(right)
 }
 func validStage(value Stage) bool {
-	return value == StageInventoryPending || value == StageInventoryCaptured || value == StageReplacing || value == StageFenced || value == StageComplete
+	return value == StageInventoryPending || value == StageInventoryCaptured || value == StageReplacing || value == StageFenced || value == StageComplete || value == StageCancelled
 }
 func stageRank(value Stage) int {
 	switch value {

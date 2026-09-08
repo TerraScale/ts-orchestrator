@@ -19,6 +19,7 @@ import (
 const brokerAdmissionEnvironment = "TS_ORCH_BROKER_ADMISSION_FILE"
 
 type productionBrokerAdmissionFile struct {
+	ManagedBaselineNKeys  []string                            `json:"managed_baseline_nkeys"`
 	Version               int                                 `json:"version"`
 	BrokerID              string                              `json:"broker_id"`
 	BrokerIDs             []string                            `json:"broker_ids"`
@@ -91,7 +92,7 @@ func configureEnrollmentBroker(config *bootstrap.NatsServerConfig, lookup envLoo
 	if _, _, err := brokeradmission.ReaderPermissions(file.BrokerID); err != nil {
 		return err
 	}
-	policy := brokeradmission.Policy{Environment: file.Environment, Cluster: file.Cluster, Regions: file.Regions, RegionalPermissions: func(region, nodeID string) ([]string, []string, error) {
+	policy := brokeradmission.Policy{ManagedBaselineNKeys: file.ManagedBaselineNKeys, Environment: file.Environment, Cluster: file.Cluster, Regions: file.Regions, RegionalPermissions: func(region, nodeID string) ([]string, []string, error) {
 		return initialcontrol.Permissions(region, nodeID, false, false)
 	}}
 	if err := brokeradmission.ValidateReaderGrants(file.ReaderGrants, file.BrokerIDs, policy); err != nil {

@@ -295,11 +295,11 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		if err != nil {
 			return group, err
 		}
-		controller, err := autoscale.New(autoscale.Config{Source: config.AutoscaleSource, Targets: targets, RemovalComplete: func(ctx context.Context, target autoscale.Target) (bool, error) {
+		controller, err := autoscale.New(autoscale.Config{Source: config.AutoscaleSource, Targets: targets, RemovalOutcome: func(ctx context.Context, target autoscale.Target) (autoscale.RemovalOutcome, error) {
 			if progress, ok := group.hostRemoval.(autoscaleRemovalProgress); ok {
-				return progress.AutoscaleRemovalComplete(ctx, target)
+				return progress.AutoscaleRemovalOutcome(ctx, target)
 			}
-			return false, nil
+			return autoscale.RemovalPending, nil
 		}, Authority: sessionAuthority{check: session.CheckEffectAuthority}, MinMembers: 2, MaxMembers: 1024, CPUThreshold: 80, MemoryThreshold: 80, QueueThreshold: 8, HighSamples: 3, Cooldown: 10 * time.Minute, ObservationMaxAge: 30 * time.Second, Now: time.Now})
 		if err != nil {
 			return group, fmt.Errorf("runtime autoscale: %w", err)
@@ -373,6 +373,16 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 	}
 	group.database = database
 	placementJournal = database.lifecycleJournal
+	if source, ok := config.AutoscaleSource.(*productionAutoscaleObservationSource); ok {
+		head, ok := transition.issuer.(interface {
+			Head(context.Context, string) (placementtransition.Signed, error)
+		})
+		if !ok {
+			return group, errors.New("runtime autoscale: signed placement head unavailable")
+		}
+		source.proof = &productionAutoscaleRemovalProofProducer{scope: config.Database.Environment + "/" + config.Database.Cluster, epoch: uint64(session.Lease.Epoch), lease: session.Lease.LeaseId, key: config.PlacementTransition.Issuer.ProofKey.Public().(ed25519.PublicKey), head: head.Head, records: database.lifecycleJournal.RelocationRecords, check: session.CheckEffectAuthority}
+	}
+
 	if config.BranchDatabaseRef != nil {
 		*config.BranchDatabaseRef = database
 	}
@@ -401,7 +411,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		proofKey := config.PlacementTransition.Issuer.ProofKey.Public().(ed25519.PublicKey)
 		relocation := &productionHostRelocation{Journal: targets.plans, Admission: database.lifecycleJournal, Issuer: issuer, ProofKey: proofKey, Check: session.CheckEffectAuthority, Install: targets.Install, Stage: targets.Stage, Drain: targets.Drain, Deliver: targets.Deliver, Usage: targets.Usage, Ready: targets.Ready}
 		relocation.Unused = &productionUnusedHostRemoval{Scope: config.Database.Environment + "/" + config.Database.Cluster, Admission: database.lifecycleJournal, Head: issuer.Head, ProofKey: proofKey, Check: session.CheckEffectAuthority}
-		relocation.Plan = productionRelocationPlanner(issuer.Head, proofKey, targets.Pending, func(ctx context.Context, identity string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
+		relocation.Plan = productionRelocationPlanner(config.Database.Environment+"/"+config.Database.Cluster, issuer.Head, proofKey, targets.Pending, func(ctx context.Context, identity string) (placementrelocation.Target, hostremoval.MemberObservation, error) {
 			target, err := targets.Resolve(ctx, identity)
 			if err != nil {
 				return placementrelocation.Target{}, hostremoval.MemberObservation{}, err

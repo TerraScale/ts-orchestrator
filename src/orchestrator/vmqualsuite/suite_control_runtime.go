@@ -37,16 +37,17 @@ type controlQuorumAvailability interface {
 }
 
 type runtimeControlProof struct {
-	mu          sync.Mutex
-	stack       *vmqual.Stack
-	journalRoot string
-	journal     *bootstrap.FileControlJournal
-	runtime     bootstrap.ControlRuntime
-	bindings    map[string]bootstrap.ControlRegionBinding
-	provider    *runtimeControlProvider
-	state       bootstrap.ControlPlaneState
-	r3Checked   bool
-	initial     *vmqual.InitialControlObservation
+	mu           sync.Mutex
+	stack        *vmqual.Stack
+	journalRoot  string
+	journal      *bootstrap.FileControlJournal
+	runtime      bootstrap.ControlRuntime
+	bindings     map[string]bootstrap.ControlRegionBinding
+	provider     *runtimeControlProvider
+	state        bootstrap.ControlPlaneState
+	r3Checked    bool
+	initial      *vmqual.InitialControlObservation
+	finiteLaunch *vmqual.LaunchTransitionObservation
 }
 
 func (proof *runtimeControlProof) JournalRoot() string { return proof.journalRoot }
@@ -143,6 +144,9 @@ func (proof *runtimeControlProof) AddLaunchCandidate(ctx context.Context, region
 	}
 	proof.mu.Lock()
 	defer proof.mu.Unlock()
+	if proof.initial != nil {
+		return proof.addFiniteLaunchCandidate(ctx, region)
+	}
 	if proof.provider == nil || proof.state.Phase != bootstrap.ControlPhaseR1 || (region != "sfo" && region != "fra") {
 		return ControlCandidateProof{}, ErrControlContractOrder
 	}

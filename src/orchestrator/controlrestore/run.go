@@ -6,7 +6,6 @@ package controlrestore
 import (
 	"bytes"
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -15,9 +14,9 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/controltransition"
-	"terrascale.tech/orchestrator/src/orchestrator/finalcapture"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
+	"terrascale.tech/orchestrator/src/orchestrator/snapshotfacts"
 )
 
 type ObjectReader interface {
@@ -110,7 +109,7 @@ func Run(ctx context.Context, c Config) ([]byte, error) {
 			if int64(len(envelope)) != object.Size || controltransition.Digest(envelope) != object.SHA256 {
 				return nil, errors.New("controlrestore: final archive digest differs")
 			}
-			observed, err := finalcapture.EnvelopeEvidence(envelope, plan.Limits.MaxSnapshotBytes, source.Role, source.Account, source.Stream)
+			observed, err := snapshotfacts.EnvelopeEvidence(envelope, plan.Limits.MaxSnapshotBytes, source.Role, source.Account, source.Stream)
 			if err != nil {
 				return nil, err
 			}
@@ -182,7 +181,3 @@ func Run(ctx context.Context, c Config) ([]byte, error) {
 	}
 	return readback, nil
 }
-
-// CanonicalEvidence is useful to durably pin a readback without JSON map-order
-// ambiguity; the receipt still requires its verified predecessor and signature.
-func CanonicalEvidence(e controltransition.RestoreReceipt) ([]byte, error) { return json.Marshal(e) }

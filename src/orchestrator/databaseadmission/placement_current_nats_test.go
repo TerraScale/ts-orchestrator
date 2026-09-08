@@ -71,3 +71,45 @@ func TestNATSPlacementRelocationCompetesWithDeletion(t *testing.T) {
 		t.Fatalf("restart lost deletion fence: %v", err)
 	}
 }
+
+func TestNATSPlacementCancellationFencesEveryEmptyCapturePath(t *testing.T) {
+	cluster := newAdmissionJournalCluster(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	connection := cluster.connect(t)
+	store := openAdmissionLeaseStore(t, ctx, connection, true)
+	const candidate = "global-controller-gru-cancel"
+	putAdmissionLease(t, ctx, store, admissionLease(1, candidate))
+	journal := newAdmissionJournalClient(t, connection, 1, candidate)
+	state, _, _, key := emptySuccessorFixture(t)
+	operation := "empty-removal/placement"
+	binding := state.EmptyPlacementRelocations[operation].Binding
+	if err := journal.CancelUnstartedPlacementRelocation(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	if canceled, err := journal.PlacementRelocationCancelled(ctx, operation); err != nil || !canceled {
+		t.Fatal("missing tombstone", err)
+	}
+	if err := journal.CancelUnstartedPlacementRelocation(ctx, operation); err != nil {
+		t.Fatal("cancel retry", err)
+	}
+	if err := journal.BeginPlacementRelocation(ctx, operation, nil); !errors.Is(err, ErrConflict) {
+		t.Fatal("generic capture bypassed cancel", err)
+	}
+	if err := journal.BeginEmptyPlacementRelocation(ctx, binding, key); !errors.Is(err, ErrConflict) {
+		t.Fatal("empty capture bypassed cancel", err)
+	}
+	binding.MemberIdentity += "-unused"
+	if err := journal.BeginUnusedHostRemoval(ctx, binding, nil, key); !errors.Is(err, ErrConflict) {
+		t.Fatal("unused capture bypassed cancel", err)
+	}
+	if err := journal.MarkPlacementRelocationStarted(ctx, operation); !errors.Is(err, ErrConflict) {
+		t.Fatal("remote effects started after cancel", err)
+	}
+	if err := journal.BeginPlacementRelocation(ctx, "active", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.CancelUnstartedPlacementRelocation(ctx, "active"); !errors.Is(err, ErrConflict) {
+		t.Fatal("active capture canceled", err)
+	}
+}

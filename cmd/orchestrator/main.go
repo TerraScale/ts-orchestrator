@@ -26,6 +26,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/captureplan"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/controlcandidatecli"
+	"terrascale.tech/orchestrator/src/orchestrator/finalcapture"
 	"terrascale.tech/orchestrator/src/orchestrator/initialcontrolcli"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 	"terrascale.tech/orchestrator/src/orchestrator/storageplan"
@@ -139,6 +140,12 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 	}
 	if name == "initial-gru-r1" {
 		if err := initialcontrolcli.Run(ctx, args[2], output); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
+	if name == finalcapture.Mode {
+		if err := finalcapture.Command(ctx, args[1:], output, io.Discard); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil
@@ -315,6 +322,9 @@ func requestedCommand(args []string) (string, error) {
 		}
 		return "unsupported", errors.New("orchestrator: invalid initial configuration arguments")
 	}
+	if args[0] == finalcapture.Mode {
+		return finalcapture.Mode, nil
+	}
 	if args[0] == "observe-member" {
 		return "observe-member", nil
 	}
@@ -354,7 +364,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates", "plan-preliminary-capture", "plan-preliminary-transfer", "plan-storage-transition", "check-storage-plan-pins":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "reconcile", "bootstrap", "add-region", "observe-member", "initial-gru-r1", "prepare-control-candidate", "plan-control-candidates", "plan-preliminary-capture", "plan-preliminary-transfer", "plan-storage-transition", "check-storage-plan-pins", finalcapture.Mode:
 		return args[0]
 	default:
 		return "unsupported"

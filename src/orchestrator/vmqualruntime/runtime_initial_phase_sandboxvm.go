@@ -3,6 +3,7 @@
 package vmqualruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -58,6 +59,12 @@ func (factory *firecrackerFactory) QualificationInitialControl(ctx context.Conte
 		material, err := issuer.AdmittedGrant(host)
 		if err != nil {
 			return result, err
+		}
+		if result.OwnerPublicKey == nil {
+			result.OwnerPublicKey = bytes.Clone(material.PublicKeyPEM)
+		}
+		if !bytes.Equal(result.OwnerPublicKey, material.PublicKeyPEM) {
+			return result, bad
 		}
 		grant, err := hostagent.VerifyBootstrapGrant(host, material.PublicKeyPEM, material.SignedGrant)
 		if err != nil {
@@ -124,7 +131,7 @@ func (factory *firecrackerFactory) QualificationInitialControl(ctx context.Conte
 	defer store.Close()
 	_, err = store.LoadOrCreate("initial-observed.json", 64<<10, func() ([]byte, error) { return json.Marshal(result, json.Deterministic(true)) }, func(raw []byte) error {
 		var saved vmqual.InitialControlObservation
-		if json.Unmarshal(raw, &saved, json.RejectUnknownMembers(true)) != nil || saved.SourceHost != source || saved.JournalPath != result.JournalPath || len(saved.GrantSHA256) != 2 || len(saved.ManifestSHA256) != 2 {
+		if json.Unmarshal(raw, &saved, json.RejectUnknownMembers(true)) != nil || !bytes.Equal(saved.OwnerPublicKey, result.OwnerPublicKey) || saved.SourceHost != source || saved.JournalPath != result.JournalPath || len(saved.GrantSHA256) != 2 || len(saved.ManifestSHA256) != 2 || saved.RegionalLease.Validate() != nil || saved.GlobalLease.Validate() != nil || saved.RegionalRevision == 0 || saved.GlobalRevision == 0 || saved.ObservedAt.IsZero() || !saved.Membership.VerifySignedIdentity() || !saved.Membership.IsValidFor("gru", saved.ObservedAt) || saved.Membership.IdentityPublicKey != result.Membership.IdentityPublicKey {
 			return bad
 		}
 		for host, digest := range result.GrantSHA256 {

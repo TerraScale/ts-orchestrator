@@ -64,6 +64,22 @@ func sameAdmissionIdentity(original, current Record) bool {
 	return err == nil && bytes.Equal(a, b)
 }
 func validateCurrentPlacements(s journalState) error {
+	for operation, canceled := range s.CanceledPlacementRelocations {
+		if operation == "" || !canceled || s.PlacementRelocation == operation || s.CompletedRelocations[operation] != "" {
+			return ErrInvalid
+		}
+	}
+	for operation, empty := range s.EmptyPlacementRelocations {
+		if operation != empty.Binding.OperationID || empty.Binding.ScopeID == "" || empty.Binding.MemberIdentity == "" || empty.Binding.ResourceID == "" || empty.Binding.Generation == 0 || empty.Binding.InventoryDigest != placementRecordDigest(nil) {
+			return ErrInvalid
+		}
+		if len(empty.Accepted.Payload) > 0 {
+			sum := sha256.Sum256(empty.Accepted.Payload)
+			if s.CompletedRelocations[operation] != hex.EncodeToString(sum[:]) || len(empty.Targets) == 0 {
+				return ErrInvalid
+			}
+		}
+	}
 	for operation, removal := range s.UnusedHostRemovals {
 		if operation != removal.OperationID || validateUnusedHostRemoval(removal) != nil {
 			return ErrInvalid
@@ -388,7 +404,7 @@ func (j *NATSJournal) CancelUnstartedPlacementRelocation(ctx context.Context, op
 		return ErrJournalUnavailable
 	}
 	return j.journal.Transact(ctx, true, func(s *journalState) error {
-		if operation == "" || s.PlacementRelocation == operation || s.CompletedRelocations[operation] != "" {
+		if operation == "" || s.PlacementRelocation == operation || s.CompletedRelocations[operation] != "" || s.UnusedHostRemovals[operation].OperationID != "" || s.EmptyPlacementRelocations[operation].Binding.OperationID != "" {
 			return ErrConflict
 		}
 		if s.CanceledPlacementRelocations == nil {
@@ -397,4 +413,12 @@ func (j *NATSJournal) CancelUnstartedPlacementRelocation(ctx context.Context, op
 		s.CanceledPlacementRelocations[operation] = true
 		return nil
 	})
+}
+
+func (j *NATSJournal) PlacementRelocationCancelled(ctx context.Context, operation string) (canceled bool, err error) {
+	if j == nil || j.journal == nil {
+		return false, ErrJournalUnavailable
+	}
+	err = j.journal.Transact(ctx, false, func(s *journalState) error { canceled = s.CanceledPlacementRelocations[operation]; return nil })
+	return canceled, err
 }
