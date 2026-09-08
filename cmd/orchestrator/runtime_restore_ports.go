@@ -191,6 +191,12 @@ func (p productionDatabaseBranchPort) CreateScratch(ctx context.Context, request
 	if err != nil {
 		return restoredrill.ScratchBranch{}, err
 	}
+	// Restore drills always branch from a root database. Keeping this check at
+	// the caller protects the production path even if a stale admission record
+	// or an alternate provisioning implementation bypasses Pipeline validation.
+	if parent.Request.ParentDatabaseID != "" {
+		return restoredrill.ScratchBranch{}, errors.New("restore branch: source database is not a root database")
+	}
 	if err := database.check(ctx); err != nil {
 		return restoredrill.ScratchBranch{}, err
 	}

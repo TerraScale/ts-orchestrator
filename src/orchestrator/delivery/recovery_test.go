@@ -1,7 +1,9 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"sync"
 	"testing"

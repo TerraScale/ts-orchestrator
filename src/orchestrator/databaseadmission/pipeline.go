@@ -359,7 +359,10 @@ func (p *Pipeline) validateParent(ctx context.Context, request Request) error {
 		if source.Environment != request.Environment || source.TenantID != request.TenantID || source.ProjectID != request.ProjectID {
 			return ErrForbidden
 		}
-		if parent.State != "ready" || !slices.Equal(source.Regions, request.Regions) || source.Residency != request.Residency {
+		// Branch restore has a root database as its immutable source. A branch
+		// cannot become the parent of another branch: doing so would make the
+		// restore authority and deletion ancestry depend on a mutable child.
+		if source.ParentDatabaseID != "" || parent.State != "ready" || !slices.Equal(source.Regions, request.Regions) || source.Residency != request.Residency {
 			return ErrConflict
 		}
 		return nil

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
@@ -37,7 +38,8 @@ func handleHostBudgetPoolRefill(ctx context.Context, c HostConfig, client *http.
 	}
 	var envelope writebudget.AllocationEnvelopeV2
 	grant := &envelope.Grant
-	if delivery.Allocation.KeyID == "" || len(delivery.Allocation.Signature) == 0 || json.Unmarshal(delivery.Allocation.Payload, &envelope, json.RejectUnknownMembers(true)) != nil || envelope.SchemaVersion != 2 || grant.SchemaVersion != 2 || grant.Kind != "regional_write_pool_refill" || grant.HolderID != c.MemberID || grant.Region != c.Region || !slices.Contains(grant.Regions, c.Region) {
+	localRegion := strings.ToLower(c.Region)
+	if delivery.Allocation.KeyID == "" || len(delivery.Allocation.Signature) == 0 || json.Unmarshal(delivery.Allocation.Payload, &envelope, json.RejectUnknownMembers(true)) != nil || envelope.SchemaVersion != 2 || grant.SchemaVersion != 2 || grant.Kind != "regional_write_pool_refill" || grant.HolderID != c.MemberID || grant.Region != localRegion || !slices.Contains(grant.Regions, localRegion) {
 		_ = message.Respond([]byte("invalid"))
 		return true
 	}

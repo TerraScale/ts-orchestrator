@@ -224,6 +224,12 @@ func TestBranchParentScopeAndImmutablePlacement(t *testing.T) {
 	if err := pipeline.validateParent(t.Context(), request); err == nil {
 		t.Fatal("unready parent accepted")
 	}
+	parent.State = "ready"
+	parent.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+	pipeline.config.Journal = branchParentJournal{parent: parent}
+	if err := pipeline.validateParent(t.Context(), request); err == nil {
+		t.Fatal("branch parent accepted as a root source")
+	}
 }
 
 func TestBranchRestoreTransportBindsHostAndAuthorityOperation(t *testing.T) {
