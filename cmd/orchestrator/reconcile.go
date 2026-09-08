@@ -73,12 +73,15 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	if err != nil {
 		return err
 	}
+	// Own the dependency lifetime before validating the separate runtime
+	// admission options. Validation can fail after the dependency composition
+	// has started telemetry resources, so cleanup must cover that path too.
+	defer func() { result = errors.Join(result, dependencies.close()) }()
 	runtimeOptions, err := reconcileProductionRuntimeOptions(lookup)
 	if err != nil {
 		return err
 	}
 	ctx = withProductionAutoscaleWiring(ctx, productionAutoscaleWiring{Source: dependencies.AutoscaleSource, Regions: dependencies.AutoscaleRegions, Apply: dependencies.OCI.applyAutoscalePlan, BindProjection: dependencies.OCI.bindComputeProjection, BindTargetProjection: dependencies.OCI.bindComputeTargetProjection})
-	defer func() { result = errors.Join(result, dependencies.close()) }()
 	loop, err := newReconcileLoop(dependencies, output)
 	if err != nil {
 		return err
@@ -336,6 +339,12 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: observability transport is invalid: %w", err)
 	}
+	keepTelemetry := false
+	defer func() {
+		if !keepTelemetry {
+			_ = telemetrySink.Close()
+		}
+	}()
 	placementPath, present := lookup(reconcilePlacementFileEnvironment)
 	if !present || strings.TrimSpace(placementPath) == "" {
 		return nil, fmt.Errorf("reconcile: %s is required for durable placement state", reconcilePlacementFileEnvironment)
@@ -362,7 +371,7 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 	if err != nil {
 		return nil, fmt.Errorf("reconcile: KV writer configuration is invalid: %w", err)
 	}
-	return &productionReconcileDependencies{
+	dependencies := &productionReconcileDependencies{
 		Spec:             spec,
 		OCI:              ociController,
 		Cloudflare:       cloudflareController,
@@ -373,7 +382,9 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		Progress:         progress,
 		AutoscaleSource:  health,
 		AutoscaleRegions: append([]string(nil), registeredRegions...),
-	}, nil
+	}
+	keepTelemetry = true
+	return dependencies, nil
 }
 
 // fileKVPlacementSource is the repository-owned durable placement projection.
