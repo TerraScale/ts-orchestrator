@@ -109,7 +109,11 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, RestoreSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
+	pool, err := PoolSubject(identity)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{CreateSubject, RestoreSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, pool, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -487,7 +491,15 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		_ = sub.Unsubscribe()
 		return nil, err
 	}
-	service := &Service{done: make(chan struct{}), close: func() error { transport.CloseIdleConnections(); return sub.Unsubscribe() }}
+	poolContext, stopPool := context.WithCancel(ctx)
+	poolDone := make(chan struct{})
+	go runPoolRefills(poolContext, c, client, poolDone)
+	service := &Service{done: make(chan struct{}), close: func() error {
+		stopPool()
+		<-poolDone
+		transport.CloseIdleConnections()
+		return sub.Unsubscribe()
+	}}
 	context.AfterFunc(ctx, func() { _ = service.Close() })
 	return service, nil
 }

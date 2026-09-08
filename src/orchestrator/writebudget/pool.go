@@ -17,22 +17,23 @@ import (
 // the holder and placement fields are checked against that authenticated
 // identity before this request reaches ReservePool.
 type PoolRefillRequest struct {
-	RefillOperationID string
-	PoolID            string
-	OrganizationID    string
-	DatabaseID        string
-	BranchID          string
-	HolderID          string
-	Region            string
-	Regions           []string
-	Placement         string
-	Units             int64
-	MaxPoolUnits      int64
-	LowWaterUnits     int64
-	PolicyEpoch       uint64
-	ConsentEpoch      uint64
-	WriterEpoch       uint64
-	ExpiresAt         time.Time
+	RefillOperationID string    `json:"refill_operation_id"`
+	PoolID            string    `json:"pool_id"`
+	OrganizationID    string    `json:"organization_id"`
+	DatabaseID        string    `json:"database_id"`
+	BranchID          string    `json:"branch_id"`
+	HolderID          string    `json:"holder_id"`
+	Region            string    `json:"region"`
+	Regions           []string  `json:"selected_regions"`
+	Placement         string    `json:"placement"`
+	Units             int64     `json:"requested_local_units"`
+	AvailableLocal    int64     `json:"available_local_units"`
+	MaxPoolUnits      int64     `json:"pool_max_local_units"`
+	LowWaterUnits     int64     `json:"low_water_local_units"`
+	PolicyEpoch       uint64    `json:"policy_epoch"`
+	ConsentEpoch      uint64    `json:"consent_epoch"`
+	WriterEpoch       uint64    `json:"writer_epoch"`
+	ExpiresAt         time.Time `json:"expires_at"`
 }
 
 // PoolGrant is the schema-2 signed refill payload. Units are local credits;
@@ -68,16 +69,18 @@ type PoolGrant struct {
 // PoolRefill records a GRU reservation and its still-unconsumed local credits.
 // It is deliberately distinct from a customer operation grant.
 type PoolRefill struct {
-	Grant             PoolGrant `json:"grant"`
-	RemainingLocal    int64     `json:"remaining_local"`
-	RemainingIncluded int64     `json:"remaining_included"`
-	RemainingPaid     int64     `json:"remaining_paid"`
-	Reclaimed         bool      `json:"reclaimed,omitzero"`
+	Grant             PoolGrant         `json:"grant"`
+	Request           PoolRefillRequest `json:"request"`
+	RemainingLocal    int64             `json:"remaining_local"`
+	RemainingIncluded int64             `json:"remaining_included"`
+	RemainingPaid     int64             `json:"remaining_paid"`
+	Reclaimed         bool              `json:"reclaimed,omitzero"`
 }
 
 // PoolOperation is the durable idempotency record for one customer operation.
 type PoolOperation struct {
 	OperationID       string `json:"operation_id"`
+	RefillOperationID string `json:"refill_operation_id"`
 	PoolID            string `json:"pool_id"`
 	DatabaseID        string `json:"database_id"`
 	BodyDigest        string `json:"body_digest"`
@@ -137,14 +140,14 @@ func SignPoolRefill(signer *security.CommandSignatureSigner, grant PoolGrant) (S
 func (g PoolGrant) Revoked() bool { return g.ExpiresAt.IsZero() || g.ExpiresAt.Before(g.IssuedAt) }
 
 func validatePoolRequest(r PoolRefillRequest, p Policy, now time.Time) error {
-	if r.RefillOperationID == "" || r.PoolID == "" || r.OrganizationID != p.OrganizationID || r.DatabaseID == "" || r.HolderID == "" || r.Region == "" || r.Placement == "" || r.Units <= 0 || r.MaxPoolUnits <= 0 || r.LowWaterUnits < 0 || r.LowWaterUnits >= r.MaxPoolUnits || r.PolicyEpoch != p.PolicyEpoch || r.ConsentEpoch != p.ConsentEpoch || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(now) || r.Units > r.MaxPoolUnits {
+	if r.RefillOperationID == "" || r.PoolID == "" || r.OrganizationID != p.OrganizationID || r.DatabaseID == "" || r.HolderID == "" || r.Region == "" || r.Placement == "" || r.Units <= 0 || r.MaxPoolUnits <= 0 || r.LowWaterUnits < 0 || r.LowWaterUnits >= r.MaxPoolUnits || r.PolicyEpoch != p.PolicyEpoch || r.ConsentEpoch != p.ConsentEpoch || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(now) || r.Units > r.MaxPoolUnits || r.MaxPoolUnits > 1024 || r.AvailableLocal < 0 || r.AvailableLocal > r.LowWaterUnits || r.Units > r.MaxPoolUnits-r.AvailableLocal {
 		return ErrInvalid
 	}
 	if !slices.IsSorted(r.Regions) || len(r.Regions) == 0 || slices.Contains(r.Regions[1:], r.Regions[0]) || !slices.Contains(r.Regions, r.Region) {
 		return ErrInvalid
 	}
-	for _, region := range r.Regions {
-		if strings.TrimSpace(region) != region || region == "" {
+	for i, region := range r.Regions {
+		if strings.TrimSpace(region) != region || region == "" || (i > 0 && region == r.Regions[i-1]) {
 			return ErrInvalid
 		}
 	}
@@ -162,19 +165,22 @@ func (a *Authority) ReservePool(ctx context.Context, request PoolRefillRequest) 
 		}
 		now := a.now().UTC()
 		policy := state.ActivePolicy
+		if prior, ok := state.PoolRefills[request.RefillOperationID]; ok {
+			left, _ := json.Marshal(prior.Request)
+			right, _ := json.Marshal(request)
+			if string(left) != string(right) {
+				return ErrConflict
+			}
+			result = prior.Grant
+			return nil
+		}
 		if request.ExpiresAt.After(now.Add(poolReservationMaxLifetime)) {
 			return ErrInvalid
 		}
 		if err := validatePoolRequest(request, policy, now); err != nil {
 			return err
 		}
-		if prior, ok := state.PoolRefills[request.RefillOperationID]; ok {
-			if prior.Grant.PoolID == request.PoolID && prior.Grant.DatabaseID == request.DatabaseID && prior.Grant.LocalUnits == request.Units && prior.Grant.ExpiresAt.Equal(request.ExpiresAt) {
-				result = prior.Grant
-				return nil
-			}
-			return ErrConflict
-		}
+
 		pool := state.Pools[request.PoolID]
 		if pool.PoolID != "" && (pool.OrganizationID != request.OrganizationID || pool.DatabaseID != request.DatabaseID || pool.HolderID != request.HolderID || pool.Region != request.Region || pool.Placement != request.Placement || pool.WriterEpoch != request.WriterEpoch || !slices.Equal(pool.Regions, request.Regions)) {
 			return ErrConflict
@@ -182,6 +188,9 @@ func (a *Authority) ReservePool(ctx context.Context, request PoolRefillRequest) 
 		current := pool.AvailableLocal
 		if pool.PoolID == "" {
 			pool = PoolState{PoolID: request.PoolID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, HolderID: request.HolderID, Region: request.Region, Regions: slices.Clone(request.Regions), Placement: request.Placement, WriterEpoch: request.WriterEpoch, MaxLocal: request.MaxPoolUnits}
+		}
+		if pool.MaxLocal != request.MaxPoolUnits {
+			return ErrConflict
 		}
 		if current > pool.MaxLocal-request.Units {
 			return ErrExhausted
@@ -200,11 +209,23 @@ func (a *Authority) ReservePool(ctx context.Context, request PoolRefillRequest) 
 		if !ok || paidAggregate > 0 && !policy.PaidExcessEnabled {
 			return ErrExhausted
 		}
-		if paidAggregate > 0 && policy.OrganizationSpendCap != nil && !withinCap(*policy.OrganizationSpendCap, policy.AccruedNonWriteNano, state.UsedNanoDollar, state.ReservedPaidNano+paidAggregate*policy.RateNanoDollar) {
+		paidNano, ok := multiply(paidAggregate, policy.RateNanoDollar)
+		if !ok {
+			return ErrInvalid
+		}
+		reservedNano, ok := add(state.ReservedPaidNano, paidNano)
+		if !ok {
+			return ErrInvalid
+		}
+		databaseReservedNano, ok := add(state.DatabaseReservedPaidNano[request.DatabaseID], paidNano)
+		if !ok {
+			return ErrInvalid
+		}
+		if paidAggregate > 0 && policy.OrganizationSpendCap != nil && !withinCap(*policy.OrganizationSpendCap, policy.AccruedNonWriteNano, state.UsedNanoDollar, reservedNano) {
 			return ErrExhausted
 		}
 		if paidAggregate > 0 {
-			if cap, present := policy.DatabaseSpendCaps[request.DatabaseID]; present && cap != nil && !withinCap(*cap, policy.DatabaseAccruedNonWriteNano[request.DatabaseID], state.DatabaseSpendNano[request.DatabaseID], state.DatabaseReservedPaidNano[request.DatabaseID]+paidAggregate*policy.RateNanoDollar) {
+			if cap, present := policy.DatabaseSpendCaps[request.DatabaseID]; present && cap != nil && !withinCap(*cap, policy.DatabaseAccruedNonWriteNano[request.DatabaseID], state.DatabaseSpendNano[request.DatabaseID], databaseReservedNano) {
 				return ErrExhausted
 			}
 		}
@@ -215,15 +236,15 @@ func (a *Authority) ReservePool(ctx context.Context, request PoolRefillRequest) 
 		grant := PoolGrant{SchemaVersion: 2, Kind: "regional_write_pool_refill", RefillOperationID: request.RefillOperationID, PoolID: request.PoolID, CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Region: request.Region, Regions: slices.Clone(request.Regions), Placement: request.Placement, LocalUnits: request.Units, AggregateUnits: aggregate, IncludedLocal: includedLocal, PaidLocal: paidLocal, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: request.WriterEpoch, PoolSequence: pool.NextSequence, IssuedAt: now, ExpiresAt: request.ExpiresAt.UTC()}
 		grant.IncludedAggregate, _ = multiply(includedLocal, int64(len(request.Regions)))
 		grant.PaidAggregate = paidAggregate
-		state.PoolRefills[request.RefillOperationID] = PoolRefill{Grant: grant, RemainingLocal: request.Units, RemainingIncluded: includedLocal, RemainingPaid: paidLocal}
+		state.PoolRefills[request.RefillOperationID] = PoolRefill{Grant: grant, Request: request, RemainingLocal: request.Units, RemainingIncluded: includedLocal, RemainingPaid: paidLocal}
 		pool.AvailableLocal += request.Units
 		pool.MaxLocal = request.MaxPoolUnits
 		state.Pools[request.PoolID] = pool
 		state.ReservedUnits, _ = add(state.ReservedUnits, aggregate)
 		state.ReservedIncluded, _ = add(state.ReservedIncluded, grant.IncludedAggregate)
-		state.ReservedPaidNano, _ = add(state.ReservedPaidNano, paidAggregate*policy.RateNanoDollar)
+		state.ReservedPaidNano = reservedNano
 		state.DatabaseReservedUnits[request.DatabaseID], _ = add(state.DatabaseReservedUnits[request.DatabaseID], aggregate)
-		state.DatabaseReservedPaidNano[request.DatabaseID], _ = add(state.DatabaseReservedPaidNano[request.DatabaseID], paidAggregate*policy.RateNanoDollar)
+		state.DatabaseReservedPaidNano[request.DatabaseID] = databaseReservedNano
 		result = grant
 		return nil
 	})
@@ -234,11 +255,13 @@ var poolReservationMaxLifetime = 15 * time.Minute
 
 // PoolConsumption is submitted after a member's local durable origin commit.
 type PoolConsumption struct {
-	OperationID string
-	PoolID      string
-	DatabaseID  string
-	BodyDigest  string
-	LocalUnits  int64
+	Sequence          uint64 `json:"sequence"`
+	OperationID       string `json:"operation_id"`
+	PoolID            string `json:"pool_id"`
+	RefillOperationID string `json:"refill_operation_id"`
+	DatabaseID        string `json:"database_id"`
+	BodyDigest        string `json:"body_digest"`
+	LocalUnits        int64  `json:"local_units"`
 }
 
 func (a *Authority) RecordPoolConsumption(ctx context.Context, consumption PoolConsumption) (PoolOperation, error) {
@@ -248,7 +271,7 @@ func (a *Authority) RecordPoolConsumption(ctx context.Context, consumption PoolC
 			return ErrInvalid
 		}
 		if prior, ok := state.PoolOperations[consumption.OperationID]; ok {
-			if prior.PoolID == consumption.PoolID && prior.DatabaseID == consumption.DatabaseID && prior.BodyDigest == consumption.BodyDigest && prior.LocalUnits == consumption.LocalUnits {
+			if prior.RefillOperationID == consumption.RefillOperationID && prior.PoolID == consumption.PoolID && prior.DatabaseID == consumption.DatabaseID && prior.BodyDigest == consumption.BodyDigest && prior.LocalUnits == consumption.LocalUnits {
 				result = prior
 				return nil
 			}
@@ -258,28 +281,17 @@ func (a *Authority) RecordPoolConsumption(ctx context.Context, consumption PoolC
 		if pool.PoolID == "" || pool.DatabaseID != consumption.DatabaseID || pool.AvailableLocal < consumption.LocalUnits {
 			return ErrExhausted
 		}
-		remaining := consumption.LocalUnits
-		includedLocal, paidLocal := int64(0), int64(0)
-		for id, refill := range state.PoolRefills {
-			if remaining == 0 || refill.Grant.PoolID != consumption.PoolID || refill.Reclaimed {
-				continue
-			}
-			take := min(remaining, refill.RemainingLocal)
-			if take == 0 {
-				continue
-			}
-			included := min(take, refill.RemainingIncluded)
-			includedLocal += included
-			paidLocal += take - included
-			refill.RemainingIncluded -= included
-			refill.RemainingPaid -= take - included
-			refill.RemainingLocal -= take
-			state.PoolRefills[id] = refill
-			remaining -= take
-		}
-		if remaining != 0 {
+		refill, ok := state.PoolRefills[consumption.RefillOperationID]
+		if !ok || refill.Reclaimed || refill.Grant.PoolID != consumption.PoolID || refill.Grant.DatabaseID != consumption.DatabaseID || refill.RemainingLocal < consumption.LocalUnits {
 			return ErrExhausted
 		}
+		includedLocal := min(consumption.LocalUnits, refill.RemainingIncluded)
+		paidLocal := consumption.LocalUnits - includedLocal
+		refill.RemainingLocal -= consumption.LocalUnits
+		refill.RemainingIncluded -= includedLocal
+		refill.RemainingPaid -= paidLocal
+		state.PoolRefills[consumption.RefillOperationID] = refill
+
 		aggregate, ok := multiply(consumption.LocalUnits, int64(len(pool.Regions)))
 		if !ok {
 			return ErrInvalid
@@ -289,7 +301,7 @@ func (a *Authority) RecordPoolConsumption(ctx context.Context, consumption PoolC
 		state.ReservedUnits -= aggregate
 		includedAggregate, _ := multiply(includedLocal, int64(len(pool.Regions)))
 		paidAggregate, _ := multiply(paidLocal, int64(len(pool.Regions)))
-		cost, _ := multiply(paidAggregate, state.ActivePolicy.RateNanoDollar)
+		cost, _ := multiply(paidAggregate, refill.Grant.RateNanoDollar)
 		state.ReservedIncluded -= includedAggregate
 		state.ReservedPaidNano -= cost
 		state.DatabaseReservedUnits[consumption.DatabaseID] -= aggregate
@@ -300,7 +312,7 @@ func (a *Authority) RecordPoolConsumption(ctx context.Context, consumption PoolC
 		state.UsedNanoDollar, _ = add(state.UsedNanoDollar, cost)
 		state.DatabaseUnits[consumption.DatabaseID], _ = add(state.DatabaseUnits[consumption.DatabaseID], aggregate)
 		state.DatabaseSpendNano[consumption.DatabaseID], _ = add(state.DatabaseSpendNano[consumption.DatabaseID], cost)
-		state.PoolOperations[consumption.OperationID] = PoolOperation{OperationID: consumption.OperationID, PoolID: consumption.PoolID, DatabaseID: consumption.DatabaseID, BodyDigest: consumption.BodyDigest, LocalUnits: consumption.LocalUnits, Aggregate: aggregate, IncludedAggregate: includedAggregate, PaidAggregate: paidAggregate, CostNanoDollar: cost}
+		state.PoolOperations[consumption.OperationID] = PoolOperation{OperationID: consumption.OperationID, RefillOperationID: consumption.RefillOperationID, PoolID: consumption.PoolID, DatabaseID: consumption.DatabaseID, BodyDigest: consumption.BodyDigest, LocalUnits: consumption.LocalUnits, Aggregate: aggregate, IncludedAggregate: includedAggregate, PaidAggregate: paidAggregate, CostNanoDollar: cost}
 		result = state.PoolOperations[consumption.OperationID]
 		return nil
 	})

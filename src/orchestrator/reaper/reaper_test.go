@@ -319,6 +319,49 @@ func TestNoEffectObservationRetriesWhileBillingStillDue(t *testing.T) {
 	}
 }
 
+func TestDoneCryptoShredRequiresObservationAcrossRestart(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	deadline := base.Add(30 * 24 * time.Hour)
+	clock := &testClock{now: deadline}
+	catalog := &testCatalog{databases: []Database{{ID: "billing-db", OwnerEmail: "owner@example.test", Plan: PlanFree, BillingGraceDeadline: &deadline, BillingDeletionEligible: true}}}
+	executor := &testExecutor{}
+	store := &MemoryStore{}
+	now := deadline
+	if err := store.Save(context.Background(), State{Version: 1, Entries: map[string]Entry{
+		"billing-db": {
+			DatabaseID: "billing-db", Plan: PlanFree, Phase: PhaseDeleting, BillingGrace: true,
+			SecondNoticeAt: now, Operations: map[string]Operation{
+				"delete/cdn-purge":    {Status: operationDone, CompletedAt: now},
+				"delete/crypto-shred": {Status: operationDone, CompletedAt: now},
+			}, Audits: map[string]bool{},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	first := makeReaper(t, clock, catalog, executor, &testMailer{}, store, &testAudit{})
+	if _, err := first.Run(context.Background()); !errors.Is(err, ErrKeyDestructionUnconfirmed) {
+		t.Fatalf("unobserved completion error = %v", err)
+	}
+	if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleting {
+		t.Fatalf("unobserved completion changed phase: %+v", state)
+	}
+	for _, call := range executor.calls {
+		if call == "delete/billing-db" {
+			t.Fatalf("deleted data before DEK observation: %v", executor.calls)
+		}
+	}
+
+	executor.observed = true
+	second := makeReaper(t, clock, catalog, executor, &testMailer{}, store, &testAudit{})
+	result, err := second.Run(context.Background())
+	if err != nil || result.Deleted != 1 {
+		t.Fatalf("observed completion after restart: result=%+v err=%v", result, err)
+	}
+	if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleted {
+		t.Fatalf("observed completion did not finish deletion: %+v", state)
+	}
+}
+
 func TestPartialFailureRetriesSameOperationAndPauseEmail(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(30 * 24 * time.Hour)}

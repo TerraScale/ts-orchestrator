@@ -35,14 +35,15 @@ const (
 )
 
 var (
-	ErrPaidDatabase      = errors.New("reaper: paid database is not eligible")
-	ErrExemptDatabase    = errors.New("reaper: database is exempt")
-	ErrNotFound          = errors.New("reaper: database state not found")
-	ErrDeleted           = errors.New("reaper: database has been deleted")
-	ErrDeletionStarted   = errors.New("reaper: deletion has started")
-	ErrInvalidDatabase   = errors.New("reaper: invalid database")
-	ErrInvalidCursor     = errors.New("reaper: catalog cursor did not advance")
-	ErrMissingDependency = errors.New("reaper: required dependency is missing")
+	ErrPaidDatabase              = errors.New("reaper: paid database is not eligible")
+	ErrExemptDatabase            = errors.New("reaper: database is exempt")
+	ErrNotFound                  = errors.New("reaper: database state not found")
+	ErrDeleted                   = errors.New("reaper: database has been deleted")
+	ErrDeletionStarted           = errors.New("reaper: deletion has started")
+	ErrKeyDestructionUnconfirmed = errors.New("reaper: DEK destruction is not authoritatively confirmed")
+	ErrInvalidDatabase           = errors.New("reaper: invalid database")
+	ErrInvalidCursor             = errors.New("reaper: catalog cursor did not advance")
+	ErrMissingDependency         = errors.New("reaper: required dependency is missing")
 )
 
 // Plan is the billing plan observed from the control plane.
@@ -825,6 +826,17 @@ func (r *Reconciler) billingDestructionConfirmed(ctx context.Context, entry Entr
 	key := r.operationName(entry, "delete/crypto-shred")
 	status := entry.Operations[key].Status
 	if status == operationDone {
+		confirmed, err := r.executor.ObserveDEKDestruction(ctx, databaseID, key+"/"+databaseID)
+		if err != nil {
+			return false, err
+		}
+		if !confirmed {
+			// A durable provider completion is only an acknowledgement of the
+			// request. Keep the lifecycle in deleting until an authoritative
+			// observation proves the DEK is gone; retrying data deletion before
+			// that proof would claim physical completion unsafely.
+			return false, ErrKeyDestructionUnconfirmed
+		}
 		return true, nil
 	}
 	if status != "" {

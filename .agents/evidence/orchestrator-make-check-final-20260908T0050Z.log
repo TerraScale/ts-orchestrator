@@ -25,3 +25,135 @@ ok  	terrascale.tech/orchestrator/src/orchestrator/authbootstrap	8.561s
 ?   	terrascale.tech/orchestrator/src/orchestrator/authorityjournal	[no test files]
 ok  	terrascale.tech/orchestrator/src/orchestrator/authorizationlease	1.029s
 ok  	terrascale.tech/orchestrator/src/orchestrator/autoscale	1.031s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrap	57.739s
+ok  	terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials	1.097s
+ok  	terrascale.tech/orchestrator/src/orchestrator/brokeradmission	1.068s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidateplan	2.571s
+ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	23.368s
+ok  	terrascale.tech/orchestrator/src/orchestrator/captureplan	2.310s
+ok  	terrascale.tech/orchestrator/src/orchestrator/cloudflare	2.519s
+?   	terrascale.tech/orchestrator/src/orchestrator/contracts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control	11.254s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/authority	4.112s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/directory	1.114s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/engines	[no test files]
+?   	terrascale.tech/orchestrator/src/orchestrator/control/internal/shared	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/journal	1.038s
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/messaging	1.263s
+?   	terrascale.tech/orchestrator/src/orchestrator/control/monitoring	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/control/placement	1.026s
+?   	terrascale.tech/orchestrator/src/orchestrator/controlcandidate	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/controlcandidatecli	7.853s
+?   	terrascale.tech/orchestrator/src/orchestrator/controlrestore	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/controltransition	2.185s
+ok  	terrascale.tech/orchestrator/src/orchestrator/databaseadmission	42.882s
+?   	terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/databaselifecycle	1.036s
+ok  	terrascale.tech/orchestrator/src/orchestrator/delivery	9.864s
+ok  	terrascale.tech/orchestrator/src/orchestrator/enrollment	1.058s
+?   	terrascale.tech/orchestrator/src/orchestrator/errs	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/estate	1.373s
+ok  	terrascale.tech/orchestrator/src/orchestrator/estatepublisher	1.050s
+?   	terrascale.tech/orchestrator/src/orchestrator/finalcapture	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/globalclient	2.080s
+ok  	terrascale.tech/orchestrator/src/orchestrator/guestdiagnostic	4.036s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostagent	3.194s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostbootstrap	5.473s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostcontrol	2.352s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostmanifest	1.051s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostplatform	1.490s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostremoval	1.215s
+ok  	terrascale.tech/orchestrator/src/orchestrator/hostsecrets	3.538s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrol	20.120s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrolcli	1.058s
+ok  	terrascale.tech/orchestrator/src/orchestrator/initialgrant	1.686s
+?   	terrascale.tech/orchestrator/src/orchestrator/internal/ociworker	[no test files]
+--- FAIL: TestLeaseRestartRotationAndRevocation (0.02s)
+panic: runtime error: slice bounds out of range [36:6] [recovered, repanicked]
+
+goroutine 40 [running]:
+testing.tRunner.func1.2({0xf38d20, 0xc0002e6720})
+	/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/src/testing/testing.go:2123 +0x419
+testing.tRunner.func1()
+	/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/src/testing/testing.go:2126 +0x65f
+panic({0xf38d20?, 0xc0002e6720?})
+	/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/src/runtime/panic.go:859 +0x125
+terrascale.tech/orchestrator/src/orchestrator/keylease.TestLeaseRestartRotationAndRevocation(0xc0001c5b08)
+	/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/keylease/server_test.go:141 +0x18c8
+testing.tRunner(0xc0001c5b08, 0xf59a00)
+	/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/src/testing/testing.go:2193 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64/src/testing/testing.go:2258 +0xb13
+FAIL	terrascale.tech/orchestrator/src/orchestrator/keylease	0.180s
+ok  	terrascale.tech/orchestrator/src/orchestrator/keyrotation	39.923s
+ok  	terrascale.tech/orchestrator/src/orchestrator/lifecycle	1.029s
+ok  	terrascale.tech/orchestrator/src/orchestrator/lifecycleaggregate	1.024s
+ok  	terrascale.tech/orchestrator/src/orchestrator/memberobserve	1.071s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natsconnect	1.025s
+ok  	terrascale.tech/orchestrator/src/orchestrator/natspolicy	1.052s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodeauthority	9.660s
+ok  	terrascale.tech/orchestrator/src/orchestrator/nodebootstrap	1.098s
+ok  	terrascale.tech/orchestrator/src/orchestrator/observability	1.174s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ociinstance	10.740s
+ok  	terrascale.tech/orchestrator/src/orchestrator/ocireconcile	1.909s
+ok  	terrascale.tech/orchestrator/src/orchestrator/placementpublisher	8.113s
+?   	terrascale.tech/orchestrator/src/orchestrator/placementrelocation	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/placementtransition	3.683s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarycapture	2.498s
+ok  	terrascale.tech/orchestrator/src/orchestrator/preliminarytransfer	3.515s
+ok  	terrascale.tech/orchestrator/src/orchestrator/protocol	2.818s
+ok  	terrascale.tech/orchestrator/src/orchestrator/provider	4.423s
+ok  	terrascale.tech/orchestrator/src/orchestrator/qualificationstate	1.289s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reaper	65.247s
+ok  	terrascale.tech/orchestrator/src/orchestrator/reconcile	2.157s
+ok  	terrascale.tech/orchestrator/src/orchestrator/residency	1.026s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoredrill	29.230s
+ok  	terrascale.tech/orchestrator/src/orchestrator/restoresnapshot	1.110s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runmaterial	1.054s
+ok  	terrascale.tech/orchestrator/src/orchestrator/runtime	1.187s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare	1.113s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/edge	1.063s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/objectstore	1.060s
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/oci	1.083s
+?   	terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/ociinstance	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/sandboxvm	1.600s
+ok  	terrascale.tech/orchestrator/src/orchestrator/scheduling	7.316s
+ok  	terrascale.tech/orchestrator/src/orchestrator/security	1.184s
+ok  	terrascale.tech/orchestrator/src/orchestrator/serviceidentity	1.713s
+ok  	terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation	6.775s
+?   	terrascale.tech/orchestrator/src/orchestrator/snapshotfacts	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/sourcepublication	170.139s
+ok  	terrascale.tech/orchestrator/src/orchestrator/storageplan	2.264s
+?   	terrascale.tech/orchestrator/src/orchestrator/systemdlimits	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/tbep	1.448s
+?   	terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/transferplan	5.093s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitiongrant	1.098s
+ok  	terrascale.tech/orchestrator/src/orchestrator/transitionreceipts	4.151s
+ok  	terrascale.tech/orchestrator/src/orchestrator/tsnodebootstrap	1.026s
+?   	terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed	3.972s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmdisk	2.318s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	1.993s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmguest	13.568s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	5.331s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmnet	7.364s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqual	6.595s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualartifact	1.030s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap	21.963s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	8.586s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualsuite	64.238s
+2026/09/08 00:02:57 http: TLS handshake error from 127.0.0.1:33736: read tcp 127.0.0.1:35135->127.0.0.1:33736: use of closed network connection
+--- FAIL: TestReservePoolDoesNotBillUnusedCredits (0.00s)
+    pool_test.go:55: writebudget: allowance or cap exhausted
+--- FAIL: TestReservePoolReplayAndConflict (0.00s)
+    pool_test.go:92: writebudget: allowance or cap exhausted
+FAIL
+FAIL	terrascale.tech/orchestrator/src/orchestrator/writebudget	0.058s
+?   	terrascale.tech/orchestrator/tests/journalchild	[no test files]
+ok  	terrascale.tech/orchestrator/tools/orchestrator-tooling	2.385s
+FAIL
+make: *** [Makefile:46: check] Error 1
+9848
+75b31ac2fb89863ccac1c0718fb02738eebc2be5c4043230922971a4ea5b1ad1
+exit_code=2

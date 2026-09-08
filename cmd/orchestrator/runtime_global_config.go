@@ -173,6 +173,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		return err
 	}
 	budgetConfig.PoolDelivery = budgetDelivery
+	budgetConfig.PoolTarget = budgetTarget
 	config.WriteBudget = &budgetConfig
 	var backupDatabaseRef *productionDatabase
 	config.BackupDatabaseRef = &backupDatabaseRef

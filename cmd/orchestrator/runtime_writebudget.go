@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/nats-io/nats.go"
 	"net"
 	"net/http"
 	"strconv"
@@ -39,19 +40,22 @@ type runtimeWriteBudgetConfig struct {
 	Placement        string
 	Delivery         writeBudgetDelivery
 	PoolDelivery     writeBudgetPoolDelivery
+	PoolTarget       writeBudgetTargetResolver
 	PolicyListener   net.Listener
 	PolicyServiceKey string
 }
 
 type runtimeWriteBudget struct {
-	validateRequest func(context.Context, writebudget.Request) error
-	authority       *writebudget.Authority
-	policy          writebudget.Policy
-	signer          *security.CommandSignatureSigner
-	placement       string
-	delivery        writeBudgetDelivery
-	poolDelivery    writeBudgetPoolDelivery
-	policyServer    *http.Server
+	validateRequest  func(context.Context, writebudget.Request) error
+	authority        *writebudget.Authority
+	policy           writebudget.Policy
+	signer           *security.CommandSignatureSigner
+	placement        string
+	delivery         writeBudgetDelivery
+	poolDelivery     writeBudgetPoolDelivery
+	poolTarget       writeBudgetTargetResolver
+	poolSubscription *nats.Subscription
+	policyServer     *http.Server
 }
 
 // ApplyPolicy implements the billing bridge after the billing producer has
@@ -190,7 +194,7 @@ func newRuntimeWriteBudget(session globalWorkerSession, config runtimeWriteBudge
 	if err != nil {
 		return nil, fmt.Errorf("runtime write budget authority: %w", err)
 	}
-	runtime := &runtimeWriteBudget{validateRequest: config.ValidateRequest, authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery, poolDelivery: config.PoolDelivery}
+	runtime := &runtimeWriteBudget{validateRequest: config.ValidateRequest, authority: authority, policy: config.Policy, signer: config.Signer, placement: config.Placement, delivery: config.Delivery, poolDelivery: config.PoolDelivery, poolTarget: config.PoolTarget}
 	if config.PolicyListener != nil {
 		if len(config.PolicyServiceKey) < 32 {
 			return nil, errors.New("runtime write budget: policy service key is required")
@@ -235,6 +239,9 @@ func (r *runtimeWriteBudget) Start(ctx context.Context, listener net.Listener) e
 }
 
 func (r *runtimeWriteBudget) Close() error {
+	if r != nil && r.poolSubscription != nil {
+		_ = r.poolSubscription.Unsubscribe()
+	}
 	if r == nil || r.policyServer == nil {
 		return nil
 	}

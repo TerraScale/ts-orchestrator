@@ -749,6 +749,9 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 		return group, err
 	}
 	group.writeBudget = writeBudget
+	if err := writeBudget.startPoolRefills(ctx, session.Connection); err != nil {
+		return group, err
+	}
 	if config.WriteBudget.PolicyListener != nil {
 		if err := writeBudget.Start(ctx, config.WriteBudget.PolicyListener); err != nil {
 			return group, err

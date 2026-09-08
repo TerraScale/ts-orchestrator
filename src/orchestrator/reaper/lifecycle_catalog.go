@@ -3,12 +3,12 @@ package reaper
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
 )
 
@@ -16,26 +16,32 @@ import (
 // dashboard's current billing, protection, activity and owner observations.
 // It does not turn an observation into authorization for a later mutation.
 type LifecycleCatalog struct {
-	journal     *databaseadmission.NATSJournal
+	source      lifecycleResourceSource
 	policy      *LifecyclePolicyClient
 	environment string
 	clock       Clock
 }
 
-func NewLifecycleCatalog(journal *databaseadmission.NATSJournal, policy *LifecyclePolicyClient, environment string) (*LifecycleCatalog, error) {
-	if journal == nil || policy == nil || !destructionEnvironment.MatchString(environment) {
+type lifecycleResourceSource interface {
+	LifecycleResources(context.Context) (uint64, []databaselifecycle.Resource, error)
+}
+
+var ErrLifecycleInventoryUnavailable = errors.New("reaper: lifecycle inventory unavailable")
+
+func NewLifecycleCatalog(source lifecycleResourceSource, policy *LifecyclePolicyClient, environment string) (*LifecycleCatalog, error) {
+	if isNil(source) || policy == nil || !destructionEnvironment.MatchString(environment) {
 		return nil, ErrMissingDependency
 	}
-	return &LifecycleCatalog{journal: journal, policy: policy, environment: environment, clock: systemClock{}}, nil
+	return &LifecycleCatalog{source: source, policy: policy, environment: environment, clock: systemClock{}}, nil
 }
 
 func (c *LifecycleCatalog) List(ctx context.Context, cursor string, limit int) (Page, error) {
-	if c == nil || c.journal == nil || c.policy == nil || ctx == nil || limit < 1 || limit > 1000 || (cursor != "" && !destructionULID.MatchString(cursor)) {
+	if c == nil || isNil(c.source) || c.policy == nil || ctx == nil || limit < 1 || limit > 1000 || (cursor != "" && !destructionULID.MatchString(cursor)) {
 		return Page{}, ErrInvalidCursor
 	}
-	_, resources, err := c.journal.LifecycleResources(ctx)
+	_, resources, err := c.source.LifecycleResources(ctx)
 	if err != nil {
-		return Page{}, err
+		return Page{}, errors.Join(ErrLifecycleInventoryUnavailable, err)
 	}
 	return c.page(ctx, resources, cursor, limit)
 }
@@ -49,6 +55,12 @@ func (c *LifecycleCatalog) page(ctx context.Context, resources []databaselifecyc
 	seen := make(map[string]bool)
 	for _, resource := range resources {
 		if resource.Environment != c.environment {
+			continue
+		}
+		if !resource.DeletedAt.IsZero() {
+			continue
+		}
+		if !completeLifecycleResource(resource) {
 			continue
 		}
 		if !destructionULID.MatchString(resource.DatabaseID) || seen[resource.DatabaseID] {
@@ -73,6 +85,28 @@ func (c *LifecycleCatalog) page(ctx context.Context, resources []databaselifecyc
 		result.Databases = append(result.Databases, database)
 	}
 	return result, nil
+}
+
+func completeLifecycleResource(resource databaselifecycle.Resource) bool {
+	if resource.CreatedAt.IsZero() || !resource.RoutingComplete || resource.AccessRevoked || !resource.UsageStoppedAt.IsZero() || !resource.EffectsCompletedAt.IsZero() {
+		return false
+	}
+	if len(resource.Regions) == 0 || len(resource.Streams) != len(resource.Regions) {
+		return false
+	}
+	regions := make(map[string]bool, len(resource.Regions))
+	for _, region := range resource.Regions {
+		if regions[region] {
+			return false
+		}
+		regions[region] = true
+	}
+	for _, stream := range resource.Streams {
+		if !regions[stream.Region] || stream.Partition == "" || stream.Epoch == 0 || stream.StartedAt.IsZero() || stream.StartedAt.Before(resource.CreatedAt) || !stream.StoppedAt.IsZero() {
+			return false
+		}
+	}
+	return true
 }
 
 func policyDatabase(facts LifecyclePolicyFacts, now time.Time) (Database, error) {

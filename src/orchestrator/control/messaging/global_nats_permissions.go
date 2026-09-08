@@ -172,7 +172,7 @@ func globalNatsPermissionsAuthority(cell string) (*GlobalNatsPermissionPlan, err
 		GlobalNatsTopologyCellSpecStream, cellSpecConsumer.Name)...)
 
 	return NewGlobalNatsPermissionPlan(publish, []string{"_INBOX.>", natspolicy.NatsSubjectTaxonomy.GlobalDeliverySubject(), subjects.Create,
-		subjects.Restore, subjects.Status, subjects.OperationList, subjects.DeletionBegin, subjects.DeletionStatus, subjects.LifecycleEvent, subjects.InventoryFreeze, subjects.InventoryResources}), nil
+		subjects.Restore, subjects.Status, subjects.HostPoolRefillPattern, subjects.OperationList, subjects.DeletionBegin, subjects.DeletionStatus, subjects.LifecycleEvent, subjects.InventoryFreeze, subjects.InventoryResources}), nil
 }
 
 func globalNatsStreamReadPermissions(stream string) []string {

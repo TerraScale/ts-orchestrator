@@ -50,7 +50,7 @@ func TestReservePoolDoesNotBillUnusedCredits(t *testing.T) {
 		t.Fatalf("unused refill billed or reservation missing: %+v", state)
 	}
 
-	operation, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{OperationID: "write-1", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "digest", LocalUnits: 3})
+	operation, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{RefillOperationID: "refill-1", OperationID: "write-1", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "digest", LocalUnits: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,10 +88,10 @@ func TestReservePoolReplayAndConflict(t *testing.T) {
 	if _, err := authority.ReservePool(t.Context(), request); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed refill identity error=%v", err)
 	}
-	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{OperationID: "write", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "digest", LocalUnits: 1}); err != nil {
+	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{RefillOperationID: "same", OperationID: "write", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "digest", LocalUnits: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{OperationID: "write", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "different", LocalUnits: 1}); !errors.Is(err, ErrConflict) {
+	if _, err := authority.RecordPoolConsumption(t.Context(), PoolConsumption{RefillOperationID: "same", OperationID: "write", PoolID: "pool-db-holder", DatabaseID: "db", BodyDigest: "different", LocalUnits: 1}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed operation identity error=%v", err)
 	}
 }
