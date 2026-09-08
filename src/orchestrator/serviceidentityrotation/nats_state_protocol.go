@@ -131,6 +131,13 @@ func (s *NATSStateStore) snapshot(ctx context.Context) (rotationSnapshot, error)
 	if strictRotationJSON(stored.Data, &envelope) != nil || envelope.SchemaVersion != 1 || envelope.PriorState != nil && envelope.PriorRevision == 0 || envelope.Lease.Epoch > lease.Epoch || envelope.LeaseRevision == 0 || envelope.LeaseRevision >= stored.Sequence || envelope.PriorRevision >= stored.Sequence || envelope.Lease.Validate() != nil || envelope.Lease.AuthorityId != "global" {
 		return snapshot, ErrStateUnavailable
 	}
+	// A commit made under the current epoch must carry the exact lease
+	// identity observed from the authority stream. Epoch alone is not a
+	// sufficient binding: a replacement candidate can otherwise replay a
+	// same-term journal record.
+	if envelope.Lease.Epoch == lease.Epoch && (envelope.Lease.CandidateId != lease.CandidateId || envelope.Lease.LeaseId != lease.LeaseId) {
+		return snapshot, ErrStateUnavailable
+	}
 	if _, err := rotationStateBytes(envelope.State); err != nil {
 		return snapshot, err
 	}

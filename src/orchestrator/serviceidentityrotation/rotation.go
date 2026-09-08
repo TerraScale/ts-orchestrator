@@ -80,7 +80,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		return ErrRotation
 	}
 	j, err := c.config.Store.Load(ctx)
-	if err != nil {
+	if err != nil || !validJournal(j) {
 		return ErrRotation
 	}
 	if j.Active.SecretID == "" {
@@ -268,7 +268,7 @@ func (c *Coordinator) Enroll(ctx context.Context, member RemoteMemberEndpoint) e
 		return ErrRotation
 	}
 	j, err := c.config.Store.Load(ctx)
-	if err != nil || j.Phase != "" || j.Active.SecretID == "" || j.Generation >= 1<<63-1 {
+	if err != nil || !validJournal(j) || j.Phase != "" || j.Active.SecretID == "" || j.Generation >= 1<<63-1 {
 		return ErrRotation
 	}
 	found := false
@@ -306,7 +306,7 @@ func (c *Coordinator) Enroll(ctx context.Context, member RemoteMemberEndpoint) e
 	if c.config.Authority(ctx) != nil {
 		return ErrRotation
 	}
-	if c.config.Members.DeliverTo(ctx, []RemoteMemberEndpoint{member}, j.Active, 2*j.Generation+1, active.Bytes()) != nil {
+	if c.config.Members.DeliverTo(ctx, slices.Clone(j.Members), j.Active, 2*j.Generation+1, active.Bytes()) != nil {
 		return ErrRotation
 	}
 	if c.config.Authority(ctx) != nil {
@@ -324,7 +324,7 @@ func (c *Coordinator) RetireMember(ctx context.Context, member RemoteMemberEndpo
 		return ErrRotation
 	}
 	j, err := c.config.Store.Load(ctx)
-	if err != nil || j.Phase != "" || j.Active.SecretID == "" || len(j.Members) <= 1 || j.RosterRevision == ^uint64(0) {
+	if err != nil || !validJournal(j) || j.Phase != "" || j.Active.SecretID == "" || len(j.Members) <= 1 || j.RosterRevision == ^uint64(0) {
 		return ErrRotation
 	}
 	index := slices.Index(j.Members, member)

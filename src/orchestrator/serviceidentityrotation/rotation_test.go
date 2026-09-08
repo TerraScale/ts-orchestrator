@@ -15,6 +15,10 @@ func (s *memoryStore) Save(_ context.Context, j Journal) error { s.j = j; return
 
 type fakeIssuer struct{}
 
+func rotationTestReference(name string, generation uint64) hostsecrets.IdentitySecretReference {
+	return hostsecrets.IdentitySecretReference{SecretID: "ocid1.vaultsecret.oc1." + name, VersionNumber: 1, Generation: generation, OperationID: "rotation-" + name}
+}
+
 func (fakeIssuer) Generate(_ context.Context, r hostsecrets.IdentitySecretRequest) (hostsecrets.IdentitySecretReference, error) {
 	return hostsecrets.IdentitySecretReference{SecretID: "new", Generation: r.Generation, VersionNumber: 1, OperationID: r.OperationID}, nil
 }
@@ -61,7 +65,7 @@ func (e *effects) DeliverTo(_ context.Context, targets []RemoteMemberEndpoint, _
 	return nil
 }
 func TestAdoptionFailureRestoresDashboardBeforeMember(t *testing.T) {
-	s := &memoryStore{Journal{Generation: 1, Active: hostsecrets.IdentitySecretReference{SecretID: "old"}}}
+	s := &memoryStore{Journal{Generation: 1, RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Active: rotationTestReference("old", 1), NextRotation: time.Now().Add(time.Hour)}}
 	e := &effects{fail: true}
 	c, err := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
 	if err != nil {
@@ -84,7 +88,7 @@ func TestAdoptionFailureRestoresDashboardBeforeMember(t *testing.T) {
 	}
 }
 func TestExpiredRecoveryNeverRestagesPrevious(t *testing.T) {
-	s := &memoryStore{Journal{Generation: 2, Active: hostsecrets.IdentitySecretReference{SecretID: "old"}, Pending: hostsecrets.IdentitySecretReference{SecretID: "new"}, Phase: "stage", Deadline: time.Now().Add(-time.Second)}}
+	s := &memoryStore{Journal{Generation: 2, RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Active: rotationTestReference("old", 2), Pending: rotationTestReference("new", 2), Phase: "stage", Deadline: time.Now().Add(-time.Second)}}
 	e := &effects{}
 	c, _ := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
 	if c.Run(t.Context()) != nil {
@@ -107,7 +111,7 @@ func TestEmptyJournalBootstrapsIssuedReference(t *testing.T) {
 }
 
 func TestAdoptedRecoveryOnlyRemovesPrevious(t *testing.T) {
-	s := &memoryStore{Journal{Generation: 2, Active: hostsecrets.IdentitySecretReference{SecretID: "old"}, Pending: hostsecrets.IdentitySecretReference{SecretID: "new"}, Phase: "commit", Deadline: time.Now().Add(-time.Minute)}}
+	s := &memoryStore{Journal{Generation: 2, RosterRevision: 1, Members: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Active: rotationTestReference("old", 2), Pending: rotationTestReference("new", 2), Phase: "commit", Deadline: time.Now().Add(-time.Minute)}}
 	e := &effects{}
 	c, _ := New(Config{BootstrapMembers: []RemoteMemberEndpoint{{NodeID: "first", URL: "https://first.internal"}}, Issuer: fakeIssuer{}, Store: s, Dashboard: e, Members: e, Script: "dashboard", Period: time.Hour, Overlap: 300 * time.Second, Authority: func(context.Context) error { return nil }})
 	if c.Run(t.Context()) != nil {
@@ -137,8 +141,8 @@ func TestEnrolledMemberParticipatesInNextRotation(t *testing.T) {
 	if s.j.RosterRevision != 2 || len(s.j.Members) != 2 {
 		t.Fatal("roster was not persisted")
 	}
-	if last := e.targets[len(e.targets)-1]; len(last) != 1 || last[0] != second {
-		t.Fatal("enrollment did not prove new member", last)
+	if last := e.targets[len(e.targets)-1]; len(last) != 2 || last[0].NodeID != "first" || last[1] != second {
+		t.Fatal("enrollment did not prove complete roster", last)
 	}
 	s.j.NextRotation = time.Time{}
 	if c.Run(t.Context()) != nil {

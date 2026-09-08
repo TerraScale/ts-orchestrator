@@ -110,6 +110,9 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 	if g == nil {
 		return errors.New("global runtime deployment is missing")
 	}
+	if err := g.ServiceIdentity.Validate(); err != nil {
+		return fmt.Errorf("global service identity declaration is invalid: %w", err)
+	}
 	if len(g.Compute.EstateFiles) == 0 || g.Compute.KeyID == "" || g.Compute.PrivateKeyFile == "" || g.Compute.ImageID == "" || g.Compute.FallbackImageID == "" || g.Compute.MutationJournalKV == "" || g.Compute.ReleaseVersion == "" || g.Compute.ArtifactURL == "" || g.Compute.ArtifactSHA256 == "" || g.Compute.ReleasePublicKey == "" || len(g.Compute.HostFiles) == 0 || len(g.Compute.Artifacts) != 2 || g.Compute.Artifacts["arm64"].URL == "" || g.Compute.Artifacts["amd64"].URL == "" {
 		return errors.New("global compute declaration is incomplete")
 	}

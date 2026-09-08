@@ -5,6 +5,7 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/enrollment"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
+	"terrascale.tech/orchestrator/src/orchestrator/serviceidentityrotation"
 )
 
 func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
@@ -12,10 +13,11 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		return productionDeploymentFile{
 			Delivery: productionDeliveryFile{MembershipFile: "/etc/terrascale/hosts.json", Cloudflare: productionDeliveryCloudflareFile{AccountID: "account", ZoneID: "zone", SnippetServices: map[string]string{"ts-proxy": "gate"}}},
 			Global: &productionGlobalFile{
-				Database:    productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
-				WriteBudget: productionWriteBudgetFile{PolicyFile: "/etc/terrascale/billing/write-budget.json", StateKey: "billing-write-budget", Placement: "database-placement"},
+				ServiceIdentity: serviceidentityrotation.FileConfig{Region: "sa-saopaulo-1", CompartmentID: "ocid1.compartment.oc1..fixture", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.fixture", KeyID: "ocid1.key.oc1.sa-saopaulo-1.fixture", CloudflareAccountID: "0123456789abcdef0123456789abcdef", CloudflareTokenFile: "/etc/terrascale/cloudflare-token", DashboardScript: "dashboard", CertificateFile: "/etc/terrascale/identity-cert", PrivateKeyFile: "/etc/terrascale/identity-key", TrustBundleFile: "/etc/terrascale/identity-trust", Members: []serviceidentityrotation.RemoteMemberEndpoint{{NodeID: "node-gru-1", URL: "https://10.0.0.1:9443"}}, PeriodSeconds: 86400, OverlapSeconds: 300},
+				Database:        productionDatabaseFileConfig{DeletionClaim: databaseDeletionClaimConfig{Endpoint: "https://app.terrascale.tech/api/internal/lifecycle/claim-delete", ServiceKeyFile: "/etc/terrascale/secrets/lifecycle-service-key"}},
+				WriteBudget:     productionWriteBudgetFile{PolicyFile: "/etc/terrascale/billing/write-budget.json", StateKey: "billing-write-budget", Placement: "database-placement"},
 				Compute: productionGlobalComputeFile{
-					Enrollment: &productionEnrollmentFile{BrokerIDs: []string{"broker-gru", "broker-sfo", "broker-fra"}, SignerFile: "/etc/terrascale/enrollment.key", PublicKeyFile: "/etc/terrascale/enrollment.pub", Templates: map[string]enrollment.Template{"gru": enrollment.Template{}, "sfo": enrollment.Template{}, "fra": enrollment.Template{}},
+					Enrollment:        &productionEnrollmentFile{BrokerIDs: []string{"broker-gru", "broker-sfo", "broker-fra"}, SignerFile: "/etc/terrascale/enrollment.key", PublicKeyFile: "/etc/terrascale/enrollment.pub", Templates: map[string]enrollment.Template{"gru": enrollment.Template{}, "sfo": enrollment.Template{}, "fra": enrollment.Template{}}},
 					EstateFiles:       map[string]string{"gru": "/etc/terrascale/gru.estate", "sfo": "/etc/terrascale/sfo.estate", "fra": "/etc/terrascale/fra.estate"},
 					KeyID:             "oci-key",
 					PrivateKeyFile:    "/etc/terrascale/oci.key",
@@ -42,8 +44,10 @@ func TestProductionDeploymentBindsCloudflareAndEstate(t *testing.T) {
 		"missing region":                  func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "sfo"} },
 		"duplicate region":                func(f *productionDeploymentFile) { f.Global.Rotation.Regions = []string{"gru", "gru", "sfo"} },
 		"other membership":                func(f *productionDeploymentFile) { f.Global.HealthFile = "/etc/foreign.json" },
-		"missing enrollment":               func(f *productionDeploymentFile) { f.Global.Compute.Enrollment = nil },
-		"missing enrollment region":        func(f *productionDeploymentFile) { delete(f.Global.Compute.Enrollment.Templates, "fra") },
+		"missing service identity":        func(f *productionDeploymentFile) { f.Global.ServiceIdentity = serviceidentityrotation.FileConfig{} },
+		"invalid service identity":        func(f *productionDeploymentFile) { f.Global.ServiceIdentity.PeriodSeconds = 0 },
+		"missing enrollment":              func(f *productionDeploymentFile) { f.Global.Compute.Enrollment = nil },
+		"missing enrollment region":       func(f *productionDeploymentFile) { delete(f.Global.Compute.Enrollment.Templates, "fra") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			config := valid()

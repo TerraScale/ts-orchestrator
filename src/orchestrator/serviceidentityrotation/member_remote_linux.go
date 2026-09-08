@@ -60,8 +60,13 @@ func (m *RemoteMembers) DeliverTo(ctx context.Context, endpoints []RemoteMemberE
 	for _, endpoint := range trusted {
 		trustedEndpoints[endpointKey(endpoint)] = struct{}{}
 	}
-	// The coordinator's roster selects the recipients, but every recipient must
-	// still be present in the independently sourced trusted inventory.
+	// The coordinator's roster is the complete admitted host set. A subset is
+	// unsafe: it can make a rotation appear adopted while an admitted host still
+	// has the previous credential. Each endpoint is also checked against the
+	// independently sourced trusted inventory below.
+	if len(endpoints) != len(trustedEndpoints) {
+		return ErrRotation
+	}
 	for _, endpoint := range endpoints {
 		if _, ok := trustedEndpoints[endpointKey(endpoint)]; !ok {
 			return ErrRotation
