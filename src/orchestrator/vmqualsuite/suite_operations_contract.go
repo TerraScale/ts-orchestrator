@@ -179,6 +179,7 @@ func (c *LocalOperationsContract) QualifyKV(ctx context.Context) (KVOperationsRe
 		Store:            store,
 		Health:           source,
 		Placement:        source,
+		Catalog:          cf.PublicRegionCatalog(),
 		MaxWritesPerTick: 2,
 		OnBudgetExceeded: func(writes int) { budget = append(budget, writes) },
 		Now:              func() time.Time { return now },

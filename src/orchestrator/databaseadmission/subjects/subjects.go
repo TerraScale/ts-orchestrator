@@ -12,6 +12,7 @@ const (
 	LifecycleEvent           = "orch.database.lifecycle.event"
 	InventoryFreeze          = "orch.database.inventory.freeze"
 	InventoryResources       = "orch.database.inventory.resources"
+	PoolRefillAuthority      = "orch.database.budget_refill.authority"
 	HostPoolRefillPattern    = "orch.database.host.*.budget_refill"
 	HostInstallPattern       = "orch.database.host.*.install"
 	HostBranchRestorePattern = "orch.database.host.*.branch_restore"

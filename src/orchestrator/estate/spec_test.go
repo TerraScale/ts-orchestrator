@@ -93,7 +93,7 @@ func TestSpecRejectsUnsafeOrAmbiguousDeclarations(t *testing.T) {
 			path: "cloudflare.workerRoutes[0]",
 			edit: func(spec *Spec) {
 				spec.Cloudflare.WorkerRoutes[0].Hostname = "sync.api.terrascale.tech"
-				spec.Cloudflare.WorkerRoutes[0].PathPrefix = "/views/reader"
+				spec.Cloudflare.WorkerRoutes[0].PathPrefix = "/api/v1/reactive/views/reader"
 			},
 		},
 		{
@@ -145,11 +145,11 @@ func testSpec() Spec {
 				Name: "api.terrascale.tech", Type: "CNAME", Content: "proxy.workers.dev", Proxied: true, TTL: 1,
 			}},
 			CacheRules: []CacheRule{{
-				Name: "reactive-immutable", Hostname: "sync.api.terrascale.tech", PathPrefix: "/views/", Eligible: true,
+				Name: "reactive-immutable", Hostname: "sync.api.terrascale.tech", PathPrefix: "/api/v1/reactive/views/", Eligible: true,
 				Immutable: true, EdgeTTLSeconds: 86400, SmartTiered: true, CacheTagPattern: "database:{database}",
 			}},
 			SnippetRules: []SnippetRule{{
-				Name: "reactive-capability-gate", Hostname: "sync.api.terrascale.tech", PathPrefix: "/views/",
+				Name: "reactive-capability-gate", Hostname: "sync.api.terrascale.tech", PathPrefix: "/api/v1/reactive/views/",
 				SourceFile: "edge/snippet.js", SecretNames: []string{"capability-current", "capability-previous"},
 			}},
 			WorkerRoutes: []WorkerRoute{{

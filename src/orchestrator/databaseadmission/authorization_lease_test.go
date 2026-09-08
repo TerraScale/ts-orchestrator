@@ -2,6 +2,7 @@ package databaseadmission
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -42,6 +43,55 @@ func TestAuthorizationLeaseSignsExactScopeAndRejectsContractDrift(t *testing.T) 
 		if _, err := SignAuthorizationLease(bad, "auth-key-1", private); !errors.Is(err, ErrAuthorizationLeaseInvalid) {
 			t.Fatalf("%s accepted: %v", name, err)
 		}
+	}
+}
+
+func TestAuthorizationLeaseBindsCanonicalScope(t *testing.T) {
+	request, public, private := authorizationLeaseFixture(t)
+	lease, err := SignAuthorizationLease(request, "auth-key-1", private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lease.Scope != `{"database_ids":["db-a","db-b"],"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAB"}` {
+		t.Fatalf("scope = %q, want canonical scope", lease.Scope)
+	}
+	changed := lease
+	changed.Scope = `{"database_ids":["db-a","db-c"],"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAB"}`
+	if err := changed.Verify(public, request.IssuedAt.Add(time.Second)); err == nil {
+		t.Fatal("changed scope retained authorization")
+	}
+}
+
+func TestAuthorizationLeaseRejectsExpiredAndFutureRequests(t *testing.T) {
+	request, _, private := authorizationLeaseFixture(t)
+	request.IssuedAt = time.Now().UTC().Add(-31 * time.Second).Truncate(time.Second)
+	request.ValidUntil = request.IssuedAt.Add(30 * time.Second)
+	if _, err := SignAuthorizationLease(request, "auth-key-1", private); !errors.Is(err, ErrAuthorizationLeaseInvalid) {
+		t.Fatalf("expired request accepted: %v", err)
+	}
+	request.IssuedAt = time.Now().UTC().Add(10 * time.Second).Truncate(time.Second)
+	request.ValidUntil = request.IssuedAt.Add(30 * time.Second)
+	if _, err := SignAuthorizationLease(request, "auth-key-1", private); !errors.Is(err, ErrAuthorizationLeaseInvalid) {
+		t.Fatalf("future request accepted: %v", err)
+	}
+}
+
+func TestAuthorizationLeaseJSONRoundTripPreservesScope(t *testing.T) {
+	request, public, private := authorizationLeaseFixture(t)
+	lease, err := SignAuthorizationLease(request, "auth-key-1", private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded AuthorizationLease
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Scope != lease.Scope || decoded.Verify(public, request.IssuedAt.Add(time.Second)) != nil {
+		t.Fatalf("round trip changed lease scope or signature: %#v", decoded)
 	}
 }
 

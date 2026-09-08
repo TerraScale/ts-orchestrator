@@ -323,22 +323,62 @@ func headProofLease(s placementtransition.Signed) string {
 }
 
 type databaseCatalogAdapter struct {
-	database *productionDatabase
-	activity databaseActivitySource
+	database    *productionDatabase
+	activity    databaseActivitySource
+	environment string
 }
 
 func databaseCatalog(d *productionDatabase, activity databaseActivitySource) reaper.Catalog {
-	return databaseCatalogAdapter{database: d, activity: activity}
+	var environment string
+	if d != nil {
+		environment = d.environment
+	}
+	return databaseCatalogAdapter{database: d, activity: activity, environment: environment}
 }
 func (c databaseCatalogAdapter) List(ctx context.Context, cursor string, limit int) (reaper.Page, error) {
-	if c.database == nil || c.database.lifecycleJournal == nil || c.activity == nil || limit < 1 || limit > 1000 {
+	if c.database == nil || c.database.lifecycleJournal == nil || c.activity == nil || c.environment == "" || limit < 1 || limit > 1000 {
 		return reaper.Page{}, errors.New("native lifecycle catalog activity source is unavailable")
 	}
 	records, err := c.database.currentRecords(ctx)
 	if err != nil {
 		return reaper.Page{}, err
 	}
+	records, err = scopeCatalogRecords(records, c.environment)
+	if err != nil {
+		return reaper.Page{}, err
+	}
 	return pageDatabaseActivityRecords(ctx, records, cursor, limit, c.activity)
+}
+
+// scopeCatalogRecords is the reaper boundary for the journal's current
+// placement view. The journal can contain historical or foreign records while
+// a deployment is being reconciled; those records must never become deletion
+// candidates for this environment. Invalid records are ignored because their
+// lifecycle facts are incomplete, while duplicate admitted identities fail
+// closed instead of choosing one arbitrarily.
+func scopeCatalogRecords(records []databaseadmission.Record, environment string) ([]databaseadmission.Record, error) {
+	if environment == "" {
+		return nil, errors.New("native lifecycle catalog environment is unavailable")
+	}
+	out := make([]databaseadmission.Record, 0, len(records))
+	seen := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		if record.Request.Environment != environment {
+			continue
+		}
+		if record.DatabaseID == "" {
+			continue
+		}
+		if _, exists := seen[record.DatabaseID]; exists {
+			return nil, errors.New("native lifecycle catalog contains duplicate database identity")
+		}
+		seen[record.DatabaseID] = struct{}{}
+		if record.State != "accepted" && record.State != "ready" || databaseadmission.ValidateRecord(record) != nil {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out, nil
 }
 
 func pageDatabaseActivityRecords(ctx context.Context, records []databaseadmission.Record, cursor string, limit int, activity databaseActivitySource) (reaper.Page, error) {

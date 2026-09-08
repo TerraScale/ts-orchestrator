@@ -211,10 +211,10 @@ func (s *productionEstateSource) Snapshot(ctx context.Context) (estate.Snapshot,
 // The placement producer must atomically replace PlacementFile after accepting
 // a membership transition; pending admission records are never routed.
 type productionKVFile struct {
-	AccountID     string `json:"accountId"`
-	ZoneID        string `json:"zoneId"`
-	TokenFile     string `json:"tokenFile"`
-	PlacementFile string `json:"placementFile"`
+	AccountID     string                           `json:"accountId"`
+	ZoneID        string                           `json:"zoneId"`
+	TokenFile     string                           `json:"tokenFile"`
+	PlacementFile string                           `json:"placementFile"`
 	Catalog       []cloudflare.WorkerRegionCatalog `json:"catalog"`
 }
 
@@ -286,7 +286,11 @@ func constructProductionKVWriter(config productionKVFile, spec estate.Spec, heal
 	}
 	client := cloudflare.NewClient(token, config.ZoneID, config.AccountID)
 	client.HTTP = &productionKVTransport{transport: transport, session: session, tokenFile: config.TokenFile}
-	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{Store: client, Health: health, Placement: placement, Catalog: config.Catalog, HealthInterval: cloudflare.DefaultKVWriterHealthInterval})
+	catalog := config.Catalog
+	if catalog == nil {
+		catalog = cloudflare.PublicRegionCatalog()
+	}
+	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{Store: client, Health: health, Placement: placement, Catalog: catalog, HealthInterval: cloudflare.DefaultKVWriterHealthInterval})
 	if err != nil {
 		transport.CloseIdleConnections()
 		return nil, nil, err

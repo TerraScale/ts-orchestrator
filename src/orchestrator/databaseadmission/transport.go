@@ -114,7 +114,7 @@ func HostPermissions(identity string) (publish, subscribe []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []string{CreateSubject, RestoreSubject, StatusSubject, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, pool, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
+	return []string{CreateSubject, RestoreSubject, StatusSubject, subjects.PoolRefillAuthority, subjects.OperationList, DeletionBeginSubject, DeletionStatusSubject, pool, "_INBOX.>"}, []string{subject, branch, "_INBOX.>"}, nil
 }
 
 // Broker grants must bind these subjects to the admitted service NKeys. A
@@ -495,6 +495,24 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 	}
 	poolSub, err := c.Connection.Subscribe(poolSubject, func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) > maxMessage {
+			return
+		}
+		var work PoolWork
+		if json.Unmarshal(message.Data, &work, json.RejectUnknownMembers(true)) == nil && work.Request.RefillOperationID != "" {
+			request := PoolAuthorityRequest{ServerIdentity: c.ServerIdentity, MemberID: c.MemberID, Work: work}
+			data, err := json.Marshal(request)
+			if err != nil {
+				_ = message.Respond([]byte("unavailable"))
+				return
+			}
+			opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			forwarded, err := c.Connection.RequestWithContext(opctx, subjects.PoolRefillAuthority, data)
+			cancel()
+			if err != nil || len(forwarded.Data) > 1024 {
+				_ = message.Respond([]byte("unavailable"))
+				return
+			}
+			_ = message.Respond(forwarded.Data)
 			return
 		}
 		var envelope writebudget.AllocationEnvelopeV2

@@ -28,7 +28,7 @@ func TestKVWriterRejectsExplicitPlacementWidening(t *testing.T) {
 		"db-1": {Regions: []string{"gru"}, PlacementLock: "explicit", Generation: 1},
 	}}
 	w, err := NewKVWriter(KVWriterConfig{
-		Store: store, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement,
+		Store: store, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement, Catalog: PublicRegionCatalog(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestKVWriterAcceptedLockDoesNotAliasObservationBuffers(t *testing.T) {
 		"db-1": {Regions: regions, PlacementLock: "explicit", Generation: 1},
 	}}
 	w, err := NewKVWriter(KVWriterConfig{
-		Store: &kvWriterStoreFake{}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement,
+		Store: &kvWriterStoreFake{}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement, Catalog: PublicRegionCatalog(),
 	})
 	if err != nil {
 		t.Fatal(err)

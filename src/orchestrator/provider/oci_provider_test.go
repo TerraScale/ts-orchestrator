@@ -47,6 +47,23 @@ func TestOCIValidationRejectsLookalikeIdentities(t *testing.T) {
 	}
 }
 
+func TestOCIVaultManagementEndpointUsesOCIServiceRealm(t *testing.T) {
+	valid := "https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com"
+	if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", valid); err != nil {
+		t.Fatalf("authoritative Vault management endpoint rejected: %v", err)
+	}
+	for _, endpoint := range []string{
+		"https://vault-management.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://vault-management.kms.eu-frankfurt-1.oci.oraclecloud.com",
+		"https://vault_management.kms.sa-saopaulo-1.oci.oraclecloud.com",
+		"https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com.evil.example",
+	} {
+		if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", endpoint); err == nil {
+			t.Fatalf("accepted invalid Vault management endpoint %q", endpoint)
+		}
+	}
+}
+
 func TestDurableOwnershipJournalConcurrentRecordIsIdempotent(t *testing.T) {
 	store := newTestOwnershipCAS()
 	journal, err := NewDurableOwnershipJournal(store, 4)

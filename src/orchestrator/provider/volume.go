@@ -254,7 +254,10 @@ func validOCIServiceHost(service OCIService, region, host string) bool {
 	if service != OCIServiceVaultManagement {
 		return host == expected
 	}
-	suffix := "-management.kms." + region + ".oraclecloud.com"
+	// OCI Vault management endpoints use the regional OCI service realm:
+	// <vault>-management.kms.<region>.oci.oraclecloud.com. Keep the vault
+	// label constrained so observed provider data cannot redirect key calls.
+	suffix := "-management.kms." + region + ".oci.oraclecloud.com"
 	prefix := strings.TrimSuffix(host, suffix)
 	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
 		return false

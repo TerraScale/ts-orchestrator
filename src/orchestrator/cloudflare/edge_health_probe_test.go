@@ -50,7 +50,11 @@ func TestCanaryEdgeHealthProbeChecksCandidateAndPredecessor(t *testing.T) {
 		var body string
 		switch {
 		case strings.Contains(req.URL.Path, "/versions"):
-			body = `{"success":true,"result":{"items":[{"id":"` + candidate + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("a", 64) + `"}},{"id":"` + previous + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("b", 64) + `"}}]}}`
+			if strings.Contains(req.URL.Path, "terrascale-dashboard") {
+				body = `{"success":true,"result":{"items":[{"id":"dashboard-candidate","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("a", 64) + `"}},{"id":"dashboard-previous","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("b", 64) + `"}}]}}`
+			} else {
+				body = `{"success":true,"result":{"items":[{"id":"` + candidate + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("a", 64) + `"}},{"id":"` + previous + `","annotations":{"workers/message":"terrascale-artifact:sha256:` + strings.Repeat("b", 64) + `"}}]}}`
+			}
 		case strings.Contains(req.URL.Path, "/deployments"):
 			if strings.Contains(req.URL.Path, "terrascale-dashboard") {
 				body = `{"success":true,"result":{"deployments":[{"id":"dashboard-deployment","versions":[{"version_id":"dashboard-candidate","percentage":10},{"version_id":"dashboard-previous","percentage":90}]}]}}`
@@ -65,7 +69,7 @@ func TestCanaryEdgeHealthProbeChecksCandidateAndPredecessor(t *testing.T) {
 	probe := cf.CanaryEdgeHealthProbe{
 		Client: client, HTTPClient: server.Client(), RouteURL: server.URL + "/api/v1/projects/" + project + "/databases/" + database,
 		ProjectID: project, DatabaseID: database, CanaryToken: "canary", ForeignToken: "foreign", ExpectedMarker: marker, MinimumRevision: 7,
-		DownstreamService: "terrascale-dashboard", DownstreamCandidateID: "dashboard-candidate", DownstreamPreviousID: "dashboard-previous",
+		DownstreamService: "terrascale-dashboard",
 	}
 	if err := probe.CheckEdge(t.Context(), "site", "ts-proxy", "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)

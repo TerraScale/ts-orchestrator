@@ -293,7 +293,7 @@ func (c *ProviderOperationsContract) QualifyKV(ctx context.Context) (KVOperation
 	var budgetMu sync.Mutex
 	var budget []int
 	writer, err := cf.NewKVWriter(cf.KVWriterConfig{
-		Store: store, Health: source, Placement: source,
+		Store: store, Health: source, Placement: source, Catalog: cf.PublicRegionCatalog(),
 		MaxWritesPerTick: 2,
 		OnBudgetExceeded: func(writes int) {
 			budgetMu.Lock()

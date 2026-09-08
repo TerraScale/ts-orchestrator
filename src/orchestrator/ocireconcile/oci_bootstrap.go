@@ -581,7 +581,7 @@ func RunOCIBootstrapFromEnvironment(ctx context.Context, lookup func(string) (st
 	newTransport := func(service provider.OCIService) (*provider.OCIHTTPTransport, error) {
 		host, _ := provider.OCIServiceHost(service, credentials.Region)
 		if host == "" {
-			host = "bootstrap-management.kms." + credentials.Region + ".oraclecloud.com"
+			host = "bootstrap-management.kms." + credentials.Region + ".oci.oraclecloud.com"
 		}
 		config, err := provider.NewOCIServiceTransportConfig(service, credentials.Region, "https://"+host)
 		if err != nil {

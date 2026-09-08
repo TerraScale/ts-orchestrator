@@ -30,12 +30,10 @@ type CanaryEdgeHealthProbe struct {
 	ExpectedMarker  string
 	MinimumRevision int64
 	BodyLimit       int64
-	// DownstreamService and its role IDs are required for production routes
-	// that cross a service binding. IDs are never inferred from the primary
-	// Worker: Cloudflare version IDs are scoped to each Worker.
-	DownstreamService     string
-	DownstreamCandidateID string
-	DownstreamPreviousID  string
+	// DownstreamService is resolved from the provider deployment at every
+	// stage. IDs are never inferred from the primary Worker: Cloudflare version
+	// IDs are scoped to each Worker.
+	DownstreamService string
 }
 
 // EdgeHealthRouter keeps Worker application checks separate from the existing
@@ -130,22 +128,24 @@ func (p CanaryEdgeHealthProbe) CheckEdge(ctx context.Context, kind, service, dig
 	ids := []string{versionID}
 	downstream := map[string]string{}
 	if strings.TrimSpace(p.DownstreamService) != "" {
-		if p.DownstreamCandidateID == "" || !workerName(p.DownstreamService) {
+		if !workerName(p.DownstreamService) {
 			return errors.New("cloudflare: downstream Worker binding configuration is incomplete")
-		}
-		downstream[versionID] = p.DownstreamCandidateID
-		if previous != "" {
-			if p.DownstreamPreviousID == "" {
-				return errors.New("cloudflare: downstream predecessor version is missing")
-			}
-			downstream[previous] = p.DownstreamPreviousID
 		}
 		bound, err := p.Client.ListWorkerDeployments(ctx, p.DownstreamService)
 		if err != nil || len(bound) == 0 {
 			return errors.New("cloudflare: downstream Worker deployment is unavailable")
 		}
-		if !deploymentMatchesAllocation(bound[0], p.DownstreamCandidateID, candidatePercentage, p.DownstreamPreviousID, previous, previousPercentage) {
+		boundVersions, err := p.Client.ListWorkerVersions(ctx, p.DownstreamService)
+		if err != nil {
+			return errors.New("cloudflare: downstream Worker versions are unavailable")
+		}
+		downstreamCandidateID, downstreamPreviousID, ok := resolveDownstreamAllocation(bound[0], boundVersions, digest, candidatePercentage, previousPercentage)
+		if !ok {
 			return errors.New("cloudflare: downstream Worker allocation does not match the current edge stage")
+		}
+		downstream[versionID] = downstreamCandidateID
+		if previous != "" {
+			downstream[previous] = downstreamPreviousID
 		}
 	}
 	if previous != "" {
@@ -237,31 +237,40 @@ func deploymentContains(deployment WorkerDeployment, versionID string) bool {
 	return false
 }
 
-func deploymentMatchesAllocation(deployment WorkerDeployment, candidateID string, candidatePercentage int, previousID string, previousPercentage int) bool {
-	if candidateID == "" || previousID == candidateID {
-		return false
+func resolveDownstreamAllocation(deployment WorkerDeployment, versions []WorkerVersion, digest string, candidatePercentage, previousPercentage int) (string, string, bool) {
+	digests := make(map[string]string, len(versions))
+	for _, version := range versions {
+		digests[version.ID] = version.Digest
 	}
-	want := map[string]int{candidateID: candidatePercentage}
-	if previousID != "" {
-		want[previousID] = previousPercentage
-	}
-	if len(want) != 1 && len(want) != 2 {
-		return false
-	}
-	seen := make(map[string]bool, len(want))
+	var candidateID, previousID string
 	total := 0
 	for _, version := range deployment.Versions {
 		if version.Percentage <= 0 {
 			continue
 		}
-		percentage, ok := want[version.VersionID]
-		if !ok || seen[version.VersionID] || percentage != version.Percentage {
-			return false
-		}
-		seen[version.VersionID] = true
 		total += version.Percentage
+		if version.Percentage != candidatePercentage && version.Percentage != previousPercentage {
+			return "", "", false
+		}
+		if digests[version.VersionID] == digest {
+			if candidateID != "" || version.Percentage != candidatePercentage {
+				return "", "", false
+			}
+			candidateID = version.VersionID
+		} else {
+			if previousID != "" || version.Percentage != previousPercentage {
+				return "", "", false
+			}
+			previousID = version.VersionID
+		}
 	}
-	return total == 100 && len(seen) == len(want)
+	if total != 100 || candidateID == "" {
+		return "", "", false
+	}
+	if candidatePercentage == 100 {
+		return candidateID, "", previousID == ""
+	}
+	return candidateID, previousID, previousID != ""
 }
 
 func workerName(value string) bool {

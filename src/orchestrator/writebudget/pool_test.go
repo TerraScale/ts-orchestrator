@@ -2,6 +2,7 @@ package writebudget
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -128,5 +129,42 @@ func TestPoolRefillsConsumeOnlyTheirSignedTrancheAndExhaustBeforeMint(t *testing
 	large := poolRequest("too-large", 91)
 	if _, err := authority.ReservePool(t.Context(), large); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("pool exhaustion minted credits: %v", err)
+	}
+}
+
+func TestPoolRefillReplayAfterAuthorityReopenKeepsReservationIdentity(t *testing.T) {
+	persist := NewMemoryPersister()
+	policy := Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 2, ConsentEpoch: 2, WriterEpoch: 1, WriterEpochs: map[string]uint64{"holder": 3}, IncludedAllowanceUnits: 100, PaidExcessEnabled: true, RateNanoDollar: 1000}
+	firstAuthority, err := New(persist, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := poolRequest("restart-refill", 12)
+	first, err := firstAuthority.ReservePool(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(persist, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := restarted.ReservePool(t.Context(), request)
+	if err != nil || !reflect.DeepEqual(replayed, first) {
+		t.Fatalf("replayed grant=%+v err=%v", replayed, err)
+	}
+	debit := PoolConsumption{RefillOperationID: request.RefillOperationID, OperationID: "restart-write", PoolID: request.PoolID, DatabaseID: request.DatabaseID, BodyDigest: "body", LocalUnits: 4}
+	if _, err := restarted.RecordPoolConsumption(t.Context(), debit); err != nil {
+		t.Fatal(err)
+	}
+	restartedAgain, err := New(persist, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := restartedAgain.RecordPoolConsumption(t.Context(), debit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.LocalUnits != 4 || operation.RefillOperationID != request.RefillOperationID {
+		t.Fatalf("replayed debit=%+v", operation)
 	}
 }

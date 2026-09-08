@@ -28,12 +28,12 @@ func Default() Spec {
 				{Name: "fra.api.terrascale.tech", Type: "CNAME", Content: "ts-proxy.terrascale.workers.dev", Proxied: true, TTL: 1},
 			},
 			CacheRules: []CacheRule{{
-				Name: "reactive-immutable", Hostname: "sync.api.terrascale.tech", PathPrefix: "/views/",
+				Name: "reactive-immutable", Hostname: "sync.api.terrascale.tech", PathPrefix: "/api/v1/reactive/views/",
 				Eligible: true, Immutable: true, EdgeTTLSeconds: 86400, SmartTiered: true,
 				CacheTagPattern: "database:{database}",
 			}},
 			SnippetRules: []SnippetRule{{
-				Name: "reactive-capability-gate", Hostname: "sync.api.terrascale.tech", PathPrefix: "/views/",
+				Name: "reactive-capability-gate", Hostname: "sync.api.terrascale.tech", PathPrefix: "/api/v1/reactive/views/",
 				SourceFile: "edge/snippet.js", SecretNames: []string{"capability-current", "capability-previous"},
 			}},
 			WorkerRoutes: []WorkerRoute{{

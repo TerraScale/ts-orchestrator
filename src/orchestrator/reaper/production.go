@@ -19,7 +19,7 @@ import (
 // selected database's native backup stream; it must not stop shared engine
 // workers, supervise an external process, or delete the retained snapshot.
 // DeleteOwnedData must delete the selected member's retained native backup
-// points before deleting owned database files and returning success.
+// points and owned database files after the DEK destruction request succeeds.
 type DatabaseAdapter interface {
 	Catalog
 	EnsureSnapshot(ctx context.Context, databaseID, operationKey string) error

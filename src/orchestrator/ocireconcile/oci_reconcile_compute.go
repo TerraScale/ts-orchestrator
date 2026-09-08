@@ -129,6 +129,13 @@ type ComputeGateway interface {
 	TerminateMember(ctx context.Context, instanceID, ifMatch string) error
 }
 
+// MemberLaunchRecovery observes a previously submitted durable launch. It is
+// deliberately separate from ComputeGateway so non-durable test gateways
+// cannot claim restart recovery authority.
+type MemberLaunchRecovery interface {
+	ReconcileMemberLaunch(context.Context, MemberLaunchSpec) (ObservedMember, error)
+}
+
 // MemberRemovalOwner performs the durable removal choreography before OCI
 // termination. It owns the GRU intent CAS, TBEP drain/readiness receipts,
 // RF2/control quorum and retained-backup/headroom proofs. A compute gateway
@@ -503,6 +510,16 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 		switch a := action.(type) {
 		case LaunchMemberAction:
 			if err := r.launchWithFallback(ctx, a.Spec); err != nil {
+				var unknown *provider.ProviderOutcomeUnknownError
+				if errors.As(err, &unknown) {
+					if recovery, ok := r.Compute.(MemberLaunchRecovery); ok {
+						if _, recoveryErr := recovery.ReconcileMemberLaunch(ctx, a.Spec); recoveryErr == nil {
+							continue
+						} else {
+							err = recoveryErr
+						}
+					}
+				}
 				return err
 			}
 		case StartMemberAction:
@@ -1058,6 +1075,28 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 	}
 	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape,
 		LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
+}
+
+func (g *ociMemberGateway) ReconcileMemberLaunch(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error) {
+	if g == nil || g.Adapter == nil {
+		return ObservedMember{}, &provider.InvalidOperationError{Message: "member launch recovery requires the durable provider adapter"}
+	}
+	candidates := make([]provider.ComputeCapacityCandidate, 0, len(spec.Candidates))
+	for _, candidate := range spec.Candidates {
+		candidates = append(candidates, provider.ComputeCapacityCandidate{AvailabilityDomain: spec.AvailabilityDomain, SubnetID: spec.SubnetID, Shape: candidate.Shape, Architecture: candidate.Architecture, ImageID: candidate.ImageID, OCPUs: spec.OCPUs, MemoryGiB: spec.MemoryGiB})
+	}
+	incarnation := provider.ProviderMutationFingerprint(spec.ServerIdentity, spec.MemberID, strconv.FormatUint(spec.Generation, 10))
+	opID, err := provider.NewProviderOperationId("member-" + incarnation)
+	if err != nil {
+		return ObservedMember{}, err
+	}
+	request := provider.ComputeLaunchRequest{Mutation: provider.ProviderMutationIntent{OperationID: opID, Scope: provider.ProviderMutationScope("compute", g.CompartmentID, spec.DisplayName), Action: "compute.launch", Epoch: g.Epoch, IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName, incarnation)}}, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName, ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, CellID: spec.CellID, Generation: spec.Generation, NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates, Tags: map[string]string{}}
+	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)
+	instance, err := g.Adapter.ReconcileInstanceLaunch(ctx, request)
+	if err != nil {
+		return ObservedMember{}, err
+	}
+	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
 }
 
 func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) error {

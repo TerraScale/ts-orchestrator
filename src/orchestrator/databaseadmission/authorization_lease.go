@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +54,55 @@ type AuthorizationLeaseRequest struct {
 	Region                  string
 	IssuedAt                time.Time
 	ValidUntil              time.Time
+}
+
+// MarshalJSON keeps Go's numeric generation API while emitting the string
+// generations required by the Rust and TypeScript lease consumers.
+func (lease AuthorizationLease) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Version    int    `json:"version"`
+		TenantID   string `json:"tenantId"`
+		Epoch      string `json:"epoch"`
+		Feature    string `json:"featureEpoch"`
+		Audience   string `json:"audience"`
+		Region     string `json:"region"`
+		Scope      string `json:"scope"`
+		IssuedAt   int64  `json:"issuedAt"`
+		ValidUntil int64  `json:"validUntil"`
+		KeyID      string `json:"keyId"`
+		Signature  string `json:"signature"`
+	}{lease.Version, lease.TenantID, strconv.FormatUint(lease.CredentialGeneration, 10), strconv.FormatUint(lease.PermissionSetGeneration, 10), lease.Audience, lease.Region, lease.Scope, lease.IssuedAt, lease.ValidUntil, lease.KeyID, lease.Signature})
+}
+
+func (lease *AuthorizationLease) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Version    int    `json:"version"`
+		TenantID   string `json:"tenantId"`
+		Epoch      string `json:"epoch"`
+		Feature    string `json:"featureEpoch"`
+		Audience   string `json:"audience"`
+		Region     string `json:"region"`
+		Scope      string `json:"scope"`
+		IssuedAt   int64  `json:"issuedAt"`
+		ValidUntil int64  `json:"validUntil"`
+		KeyID      string `json:"keyId"`
+		Signature  string `json:"signature"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	credential, err := strconv.ParseUint(wire.Epoch, 10, 64)
+	if err != nil {
+		return err
+	}
+	permission, err := strconv.ParseUint(wire.Feature, 10, 64)
+	if err != nil {
+		return err
+	}
+	*lease = AuthorizationLease{Version: wire.Version, TenantID: wire.TenantID, Scope: wire.Scope, CredentialGeneration: credential, PermissionSetGeneration: permission, Audience: wire.Audience, Region: wire.Region, IssuedAt: wire.IssuedAt, ValidUntil: wire.ValidUntil, KeyID: wire.KeyID, Signature: wire.Signature}
+	return nil
 }
 
 type authorizationLeaseState struct {
@@ -140,7 +191,7 @@ func (p *AuthorizationLeasePublisher) Issue(ctx context.Context, request Authori
 // tenant at or below either floor fail on subsequent issue/replay after a
 // restart; concurrent reducers are serialized by the journal CAS.
 func (p *AuthorizationLeasePublisher) Revoke(ctx context.Context, tenantID string, credentialGeneration, permissionSetGeneration uint64) error {
-	if p == nil || p.journal == nil || tenantID == "" || credentialGeneration == 0 || permissionSetGeneration == 0 {
+	if p == nil || p.journal == nil || !tenantIDPattern.MatchString(tenantID) || credentialGeneration > maxSafeJSONInteger || permissionSetGeneration > maxSafeJSONInteger || (credentialGeneration == 0 && permissionSetGeneration == 0) {
 		return ErrAuthorizationLeaseInvalid
 	}
 	return p.journal.Transact(ctx, true, func(state *authorizationLeaseState) error {
@@ -154,16 +205,19 @@ func (p *AuthorizationLeasePublisher) Revoke(ctx context.Context, tenantID strin
 	})
 }
 
+// Reduce raises only the permission floor, preserving the credential
+// generation. It is the durable CAS path for an authorization reduction.
+func (p *AuthorizationLeasePublisher) Reduce(ctx context.Context, tenantID string, permissionSetGeneration uint64) error {
+	return p.Revoke(ctx, tenantID, 0, permissionSetGeneration)
+}
+
 // SignAuthorizationLease produces the exact wire object consumed by regional
 // verifiers. Lifetime is bounded to thirty seconds and all scope fields are
 // included in the signed preimage.
 func SignAuthorizationLease(request AuthorizationLeaseRequest, keyID string, private []byte) (AuthorizationLease, error) {
 	scope := canonicalAuthorizationScope(request.Scope)
-	if scope == "" {
-		return AuthorizationLease{}, ErrAuthorizationLeaseInvalid
-	}
 	lease := AuthorizationLease{Version: 1, TenantID: request.TenantID, Scope: scope, CredentialGeneration: request.CredentialGeneration, PermissionSetGeneration: request.PermissionSetGeneration, Audience: request.Audience, Region: request.Region, IssuedAt: request.IssuedAt.Unix(), ValidUntil: request.ValidUntil.Unix(), KeyID: keyID}
-	if validateAuthorizationLease(lease, request.IssuedAt) != nil || len(private) != 32 {
+	if scope == "" || validateAuthorizationLease(lease, time.Now()) != nil || len(private) != 32 {
 		return AuthorizationLease{}, ErrAuthorizationLeaseInvalid
 	}
 	mac := hmac.New(sha256.New, private)
@@ -189,7 +243,7 @@ func validateAuthorizationLease(lease AuthorizationLease, now time.Time) error {
 	audience, err := url.Parse(lease.Audience)
 	validAudience := err == nil && audience.Scheme == "https" && audience.Hostname() != "" && audience.User == nil && audience.RawQuery == "" && audience.Fragment == "" && audience.String() == lease.Audience
 	validRegion := lease.Region == "GRU" || lease.Region == "SFO" || lease.Region == "FRA"
-	if lease.Version != 1 || canonicalAuthorizationScope(lease.Scope) != lease.Scope || strings.TrimSpace(lease.TenantID) != lease.TenantID || lease.TenantID == "" || lease.CredentialGeneration == 0 || lease.PermissionSetGeneration == 0 || !validAudience || !validRegion || lease.KeyID == "" || lease.IssuedAt <= 0 || lease.ValidUntil <= lease.IssuedAt || lease.ValidUntil-lease.IssuedAt > 30 || now.Unix() < lease.IssuedAt || now.Unix() >= lease.ValidUntil {
+	if lease.Version != 1 || canonicalAuthorizationScope(lease.Scope) != lease.Scope || !tenantIDPattern.MatchString(lease.TenantID) || strings.TrimSpace(lease.TenantID) != lease.TenantID || lease.CredentialGeneration == 0 || lease.PermissionSetGeneration == 0 || lease.CredentialGeneration > maxSafeJSONInteger || lease.PermissionSetGeneration > maxSafeJSONInteger || !validAudience || !validRegion || !validKeyID(lease.KeyID) || lease.IssuedAt <= 0 || lease.ValidUntil <= lease.IssuedAt || lease.ValidUntil-lease.IssuedAt > 30 || now.Unix() < lease.IssuedAt || now.Unix() >= lease.ValidUntil {
 		return ErrAuthorizationLeaseInvalid
 	}
 	return nil
@@ -198,6 +252,17 @@ func validateAuthorizationLease(lease AuthorizationLease, now time.Time) error {
 func authorizationLeasePayload(lease AuthorizationLease) []byte {
 	return []byte(fmt.Sprintf("%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%d\n%d", authorizationLeaseDomain, lease.KeyID, lease.TenantID, lease.Scope, lease.CredentialGeneration, lease.PermissionSetGeneration, lease.Audience, lease.Region, lease.IssuedAt, lease.ValidUntil))
 }
+
+const maxSafeJSONInteger = uint64(9_007_199_254_740_991)
+
+var tenantIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
+var keyIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+
+func authorizationLeaseScope(tenant string, credential, permission uint64) string {
+	return "authz-" + tenant + "-" + strconv.FormatUint(credential, 10) + "-" + strconv.FormatUint(permission, 10)
+}
+
+func validKeyID(value string) bool { return keyIDPattern.MatchString(value) }
 
 func canonicalAuthorizationScope(scope string) string {
 	if strings.TrimSpace(scope) != scope || scope == "" || !json.Valid([]byte(scope)) || scope[0] != '{' {

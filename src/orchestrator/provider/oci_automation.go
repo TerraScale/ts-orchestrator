@@ -398,6 +398,46 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 	return ComputeInstance{}, &ProviderCapacityError{Attempts: len(request.Candidates)}
 }
 
+// ReconcileInstanceLaunch observes an already-submitted launch intent. It
+// never submits a replacement request; an exact tag match completes the
+// durable mutation and ownership record, while absence remains unknown.
+func (a *OCIComputeAdapter) ReconcileInstanceLaunch(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, error) {
+	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
+		return ComputeInstance{}, &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
+	}
+	if ctx == nil {
+		return ComputeInstance{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return ComputeInstance{}, err
+	}
+	if err := validateComputeLaunch(request); err != nil {
+		return ComputeInstance{}, err
+	}
+	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
+	if err != nil {
+		return ComputeInstance{}, err
+	}
+	if record.State != MutationSubmitted && record.State != MutationUnknown {
+		return ComputeInstance{}, &InvalidOperationError{Message: "OCI compute launch is not pending reconciliation"}
+	}
+	instance, found, err := a.findInstanceForIntent(ctx, request)
+	if err != nil {
+		return ComputeInstance{}, err
+	}
+	if !found {
+		return ComputeInstance{}, &ProviderOutcomeUnknownError{}
+	}
+	result := ProviderMutationResult{ResourceID: instance.ID, ETag: instance.ETag, WorkRequestID: instance.WorkRequestID}
+	if err := a.recordComputeOwnership(ctx, request, result.ResourceID); err != nil {
+		return ComputeInstance{}, err
+	}
+	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
+		return ComputeInstance{}, err
+	}
+	return instance, nil
+}
+
 func (a *OCIComputeAdapter) recordComputeOwnership(ctx context.Context, request ComputeLaunchRequest, resourceID string) error {
 	if a.Ownership == nil {
 		return nil

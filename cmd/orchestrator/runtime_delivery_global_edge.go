@@ -68,7 +68,7 @@ func (r *constructedProductionDelivery) GlobalEdge(mirror *delivery.ArtifactMirr
 }
 
 func productionCanaryProbe(config productionDeliveryCloudflareFile, client *cloudflare.Client) (cloudflare.CanaryEdgeHealthProbe, error) {
-	if client == nil || strings.TrimSpace(config.CanaryRouteURL) == "" || strings.TrimSpace(config.CanaryProjectID) == "" || strings.TrimSpace(config.CanaryDatabaseID) == "" || strings.TrimSpace(config.CanaryExpectedMarker) == "" || config.CanaryMinimumRevision <= 0 || strings.TrimSpace(config.CanaryDownstreamService) == "" || strings.TrimSpace(config.CanaryDownstreamCandidateID) == "" || strings.TrimSpace(config.CanaryDownstreamPreviousID) == "" {
+	if client == nil || strings.TrimSpace(config.CanaryRouteURL) == "" || strings.TrimSpace(config.CanaryProjectID) == "" || strings.TrimSpace(config.CanaryDatabaseID) == "" || strings.TrimSpace(config.CanaryExpectedMarker) == "" || config.CanaryMinimumRevision <= 0 || strings.TrimSpace(config.CanaryDownstreamService) == "" {
 		return cloudflare.CanaryEdgeHealthProbe{}, errors.New("delivery: authenticated Worker canary configuration is incomplete")
 	}
 	route, err := url.Parse(config.CanaryRouteURL)
@@ -84,7 +84,7 @@ func productionCanaryProbe(config productionDeliveryCloudflareFile, client *clou
 	if err != nil {
 		return cloudflare.CanaryEdgeHealthProbe{}, err
 	}
-	return cloudflare.CanaryEdgeHealthProbe{Client: client, HTTPClient: &http.Client{Timeout: 10 * time.Second}, RouteURL: config.CanaryRouteURL, ProjectID: config.CanaryProjectID, DatabaseID: config.CanaryDatabaseID, CanaryToken: canaryToken, ForeignToken: foreignToken, ExpectedMarker: config.CanaryExpectedMarker, MinimumRevision: config.CanaryMinimumRevision, DownstreamService: config.CanaryDownstreamService, DownstreamCandidateID: config.CanaryDownstreamCandidateID, DownstreamPreviousID: config.CanaryDownstreamPreviousID}, nil
+	return cloudflare.CanaryEdgeHealthProbe{Client: client, HTTPClient: &http.Client{Timeout: 10 * time.Second}, RouteURL: config.CanaryRouteURL, ProjectID: config.CanaryProjectID, DatabaseID: config.CanaryDatabaseID, CanaryToken: canaryToken, ForeignToken: foreignToken, ExpectedMarker: config.CanaryExpectedMarker, MinimumRevision: config.CanaryMinimumRevision, DownstreamService: config.CanaryDownstreamService}, nil
 }
 func (e *productionGlobalDeliveryEdge) check(ctx context.Context) error {
 	if err := delivery.CheckExecutionFence(ctx); err != nil {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
-	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
@@ -60,18 +59,28 @@ func (r *runtimeWriteBudget) startPoolRefills(ctx context.Context, connection *n
 	if !secureWriteBudgetConnection(connection) || r.poolTarget == nil || r.poolDelivery == nil {
 		return writebudget.ErrUnavailable
 	}
-	sub, err := connection.Subscribe(subjects.HostPoolRefillPattern, func(message *nats.Msg) {
+	sub, err := connection.Subscribe(databaseadmission.PoolRefillAuthoritySubject, func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) > 64<<10 {
 			return
 		}
-		var work databaseadmission.PoolWork
-		if json.Unmarshal(message.Data, &work, json.RejectUnknownMembers(true)) != nil {
+		var request databaseadmission.PoolAuthorityRequest
+		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil || request.Work.Request.RefillOperationID == "" {
 			_ = message.Respond([]byte("invalid"))
 			return
 		}
-		operation, cancel := context.WithTimeout(ctx, 20*time.Second)
+		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		reply, err := r.HandlePoolWork(operation, message.Subject, work)
+		target, err := r.poolTarget(opctx, writebudget.AllocationEnvelope{Placement: request.Work.Request.Placement, Grant: writebudget.Grant{OrganizationID: request.Work.Request.OrganizationID, DatabaseID: request.Work.Request.DatabaseID, HolderID: request.MemberID, Regions: request.Work.Request.Regions, WriterEpoch: request.Work.Request.WriterEpoch}})
+		if err != nil || target.ServerIdentity != request.ServerIdentity || target.MemberID != request.MemberID {
+			_ = message.Respond([]byte("unavailable"))
+			return
+		}
+		subject, err := databaseadmission.PoolSubject(target.ServerIdentity)
+		if err != nil {
+			_ = message.Respond([]byte("unavailable"))
+			return
+		}
+		reply, err := r.HandlePoolWork(opctx, subject, request.Work)
 		if err != nil {
 			_ = message.Respond([]byte("unavailable"))
 			return

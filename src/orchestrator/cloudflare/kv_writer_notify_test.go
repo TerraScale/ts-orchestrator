@@ -71,7 +71,7 @@ func TestKVWriterNotifyChangeRunsBeforePeriodicTick(t *testing.T) {
 	}}
 	store := &notifyingKVStore{changed: make(chan struct{}, 8)}
 	writer, err := NewKVWriter(KVWriterConfig{
-		Store: store, Health: source, Placement: source, HealthInterval: time.Hour,
+		Store: store, Health: source, Placement: source, Catalog: PublicRegionCatalog(), HealthInterval: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)

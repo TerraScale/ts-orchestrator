@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission/subjects"
 	"terrascale.tech/orchestrator/src/orchestrator/writebudget"
 )
 
@@ -19,6 +20,14 @@ const poolMessageLimit = 64 << 10
 type PoolWork struct {
 	Request      writebudget.PoolRefillRequest `json:"request"`
 	Consumptions []writebudget.PoolConsumption `json:"consumptions"`
+}
+
+const PoolRefillAuthoritySubject = subjects.PoolRefillAuthority
+
+type PoolAuthorityRequest struct {
+	ServerIdentity string   `json:"server_identity"`
+	MemberID       string   `json:"member_id"`
+	Work           PoolWork `json:"work"`
 }
 type PoolWorkReply struct {
 	RefillOperationID string `json:"refill_operation_id"`

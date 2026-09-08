@@ -77,3 +77,26 @@ func TestPageDatabaseActivityRecordsUsesBoundedKeysetCursor(t *testing.T) {
 		t.Fatalf("second page = %+v err=%v", second, err)
 	}
 }
+
+func TestScopeCatalogRecordsFiltersForeignAndIncompleteRecords(t *testing.T) {
+	records, err := scopeCatalogRecords([]databaseadmission.Record{
+		{DatabaseID: "foreign", Request: databaseadmission.Request{Environment: "sfo"}, State: "ready"},
+		{DatabaseID: "incomplete", Request: databaseadmission.Request{Environment: "gru", TenantID: "tenant", ProjectID: "project"}, State: "ready"},
+	}, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("scoped records = %+v, want no incomplete or foreign records", records)
+	}
+}
+
+func TestScopeCatalogRecordsRejectsDuplicateAdmittedIdentity(t *testing.T) {
+	_, err := scopeCatalogRecords([]databaseadmission.Record{
+		{DatabaseID: "db", Request: databaseadmission.Request{Environment: "gru"}, State: "accepted"},
+		{DatabaseID: "db", Request: databaseadmission.Request{Environment: "gru"}, State: "ready"},
+	}, "gru")
+	if err == nil || !strings.Contains(err.Error(), "duplicate database identity") {
+		t.Fatalf("duplicate identity error = %v", err)
+	}
+}

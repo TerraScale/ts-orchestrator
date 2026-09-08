@@ -133,7 +133,7 @@ func TestLifecyclePauseNoticesAndDelete(t *testing.T) {
 	if state.Phase != PhaseDeleted || len(mailer.emails) != 3 || mailer.emails[2].Template != "free-tier-final" {
 		t.Fatalf("state=%+v emails=%d", state, len(mailer.emails))
 	}
-	if got := executor.calls; len(got) != 6 || got[3][:5] != "purge" || got[4][:6] != "delete" || got[5][:5] != "shred" {
+	if got := executor.calls; len(got) != 6 || got[3][:5] != "purge" || got[4][:5] != "shred" || got[5][:6] != "delete" {
 		t.Fatalf("calls=%v", got)
 	}
 	if len(audit.events) < 6 {
@@ -141,7 +141,40 @@ func TestLifecyclePauseNoticesAndDelete(t *testing.T) {
 	}
 }
 
-func TestRetainedBackupPurgeFailurePreventsCryptoShred(t *testing.T) {
+func TestCryptoShredPrecedesOwnedDataDeletion(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: base.Add(DefaultPauseAfter)}
+	catalog := &testCatalog{databases: []Database{freeDatabase(base)}}
+	executor, mailer, audit, store := &testExecutor{}, &testMailer{}, &testAudit{}, &MemoryStore{}
+	reaper := makeReaper(t, clock, catalog, executor, mailer, store, audit)
+
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(base.Add(DefaultFirstReminder))
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(base.Add(DefaultDeleteAfter))
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var shredAt, deleteAt int
+	for index, call := range executor.calls {
+		switch call {
+		case "shred/db-1":
+			shredAt = index
+		case "delete/db-1":
+			deleteAt = index
+		}
+	}
+	if shredAt == 0 || deleteAt == 0 || shredAt >= deleteAt {
+		t.Fatalf("crypto-shred must precede owned data deletion: calls=%v", executor.calls)
+	}
+}
+
+func TestOwnedDataFailureAfterCryptoShredRetriesData(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clock := &testClock{now: base.Add(DefaultPauseAfter)}
 	catalog := &testCatalog{databases: []Database{freeDatabase(base)}}
@@ -151,20 +184,22 @@ func TestRetainedBackupPurgeFailurePreventsCryptoShred(t *testing.T) {
 	if _, err := reaper.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	clock.Set(base.Add(DefaultFirstReminder))
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	clock.Set(base.Add(DefaultDeleteAfter))
 	if _, err := reaper.Run(context.Background()); err == nil {
-		t.Fatal("expected retained backup/data purge failure")
+		t.Fatal("expected owned data deletion failure")
 	}
-	for _, call := range executor.calls {
-		if len(call) >= 5 && call[:5] == "shred" {
-			t.Fatalf("crypto-shred ran after retained purge failure: %v", executor.calls)
-		}
+	if len(executor.calls) < 5 || executor.calls[len(executor.calls)-2][:5] != "shred" || executor.calls[len(executor.calls)-1][:6] != "delete" {
+		t.Fatalf("crypto-shred did not precede owned data failure: %v", executor.calls)
 	}
 	result, err := reaper.Run(context.Background())
 	if err != nil || result.Deleted != 1 {
 		t.Fatalf("retry did not complete deletion: result=%+v err=%v", result, err)
 	}
-	if len(executor.calls) < 7 || executor.calls[len(executor.calls)-2][:6] != "delete" || executor.calls[len(executor.calls)-1][:5] != "shred" {
+	if len(executor.calls) < 7 || executor.calls[len(executor.calls)-2][:5] != "shred" || executor.calls[len(executor.calls)-1][:6] != "delete" {
 		t.Fatalf("retry order=%v", executor.calls)
 	}
 }

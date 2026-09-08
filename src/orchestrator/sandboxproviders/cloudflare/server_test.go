@@ -98,7 +98,7 @@ func TestEndpointRulesKVWorkersAndSecrets(t *testing.T) {
 	if err := c.CreateKVNamespace(t.Context(), "ts-db-placement"); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SetWorkerHealth(t.Context(), cf.WorkerHealthDoc{Updated: 1000, Regions: map[string]cf.WorkerRegionHealth{"GRU": {OK: true}}}); err != nil {
+	if err := c.SetWorkerHealth(t.Context(), cf.WorkerHealthDoc{Updated: 1000, Regions: map[string]cf.WorkerRegionHealth{"GRU": {OK: true}}, Catalog: cf.PublicRegionCatalog()}); err != nil {
 		t.Fatal(err)
 	}
 	h, err := c.WorkerHealth(t.Context())

@@ -83,6 +83,7 @@ func kvWriterTestConfig(store *kvWriterStoreFake, health map[string]RegionHealth
 		Store:     store,
 		Health:    &kvWriterHealthFake{health: health},
 		Placement: &kvWriterPlacementFake{placement: placement},
+		Catalog:   PublicRegionCatalog(),
 		Now:       func() time.Time { return time.Unix(1000, 0) },
 	}
 }
@@ -157,7 +158,7 @@ func TestKVWriterCurrentContractRefreshRemovalAndRetries(t *testing.T) {
 	store := &kvWriterStoreFake{}
 	health := &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {Healthy: true, Lat: -23, Lon: -46}, "sfo": {Healthy: true, Draining: true}}}
 	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{"app": {Regions: []string{"gru"}, PlacementLock: "explicit", Generation: 1}, "retired": {Regions: []string{"sfo"}}}}
-	w, err := NewKVWriter(KVWriterConfig{Store: store, Health: health, Placement: placement, Now: func() time.Time { return time.Unix(1000, 0) }})
+	w, err := NewKVWriter(KVWriterConfig{Store: store, Health: health, Placement: placement, Catalog: PublicRegionCatalog(), Now: func() time.Time { return time.Unix(1000, 0) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestKVWriterCurrentContractRefreshRemovalAndRetries(t *testing.T) {
 func TestKVWriterRejectsStalePlacementWithoutDeleteSupport(t *testing.T) {
 	delegate := &kvWriterStoreFake{}
 	placement := &kvWriterPlacementFake{placement: map[string]DBPlacement{"app": {Regions: []string{"gru"}}}}
-	w, err := NewKVWriter(KVWriterConfig{Store: &kvWriterSetOnlyFake{delegate}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement})
+	w, err := NewKVWriter(KVWriterConfig{Store: &kvWriterSetOnlyFake{delegate}, Health: &kvWriterHealthFake{health: map[string]RegionHealth{"gru": {}}}, Placement: placement, Catalog: PublicRegionCatalog()})
 	if err != nil {
 		t.Fatal(err)
 	}

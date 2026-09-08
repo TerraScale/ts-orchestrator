@@ -556,7 +556,7 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, kind, co
 		x.Values["timeExpiresAt"] = time.Now().UTC().AddDate(1, 0, 0).Format(time.RFC3339)
 	}
 	if kind == "vault" && s.managementEndpoint == "" {
-		x.Values["managementEndpoint"] = "https://sandbox-management.kms." + s.cfg.Region + ".oraclecloud.com"
+		x.Values["managementEndpoint"] = "https://sandbox-management.kms." + s.cfg.Region + ".oci.oraclecloud.com"
 	}
 	if s.resources[kind] == nil {
 		s.resources[kind] = map[string]*resource{}

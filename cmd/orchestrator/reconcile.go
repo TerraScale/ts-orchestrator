@@ -330,6 +330,7 @@ func newProductionReconcileDependencies(lookup envLookup) (*productionReconcileD
 		Store:          cloudflareController.Client,
 		Health:         health,
 		Placement:      placement,
+		Catalog:        cloudflare.PublicRegionCatalog(),
 		HealthInterval: cloudflare.DefaultKVWriterHealthInterval,
 	})
 	if err != nil {

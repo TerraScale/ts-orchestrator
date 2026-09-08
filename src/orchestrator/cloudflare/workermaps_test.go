@@ -136,6 +136,7 @@ func TestSetWorkerHealthWritesTheContractDocument(t *testing.T) {
 
 	doc := WorkerHealthDoc{
 		Updated: 1725300000,
+		Catalog: PublicRegionCatalog(),
 		Regions: map[string]WorkerRegionHealth{
 			"gru": {OK: true, LagMS: new(0), Lat: -23.43, Lon: -46.47},
 			"sfo": {OK: true, LagMS: new(40), Lat: 37.37, Lon: -121.92},
@@ -181,10 +182,10 @@ func TestSetWorkerHealthWritesTheContractDocument(t *testing.T) {
 }
 
 func TestSetWorkerHealthRejectsDroppedDocuments(t *testing.T) {
-	stamped := WorkerHealthDoc{Updated: 1725300000, Regions: map[string]WorkerRegionHealth{
+	stamped := WorkerHealthDoc{Updated: 1725300000, Catalog: PublicRegionCatalog(), Regions: map[string]WorkerRegionHealth{
 		"GRU": {OK: true, Lat: -23.43, Lon: -46.47},
 	}}
-	overfull := WorkerHealthDoc{Updated: 1, Regions: map[string]WorkerRegionHealth{}}
+	overfull := WorkerHealthDoc{Updated: 1, Catalog: PublicRegionCatalog(), Regions: map[string]WorkerRegionHealth{}}
 	for i := 0; i < maxWorkerHealthRegions+1; i++ {
 		overfull.Regions["R"+strconv.Itoa(i)] = WorkerRegionHealth{OK: true}
 	}
@@ -216,6 +217,7 @@ func TestSetWorkerHealthRejectsDroppedDocuments(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := newWorkerMapFake()
 			c, _ := testClient(fake.handle(t))
+			tc.doc.Catalog = PublicRegionCatalog()
 			err := c.SetWorkerHealth(context.Background(), tc.doc)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want it to mention %q", err, tc.want)

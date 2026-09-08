@@ -78,6 +78,13 @@ var publicRegionCatalog = []WorkerRegionCatalog{
 	{Code: "FRA", Name: "Frankfurt", Country: "DE", Lat: 50.03, Lon: 8.57},
 }
 
+// PublicRegionCatalog returns the approved launch-region catalog for edge
+// documents. Callers receive an independent slice so a writer cannot mutate
+// the shared source.
+func PublicRegionCatalog() []WorkerRegionCatalog {
+	return append([]WorkerRegionCatalog(nil), publicRegionCatalog...)
+}
+
 // WorkerRegionHealth is one region inside the health document. Coordinates
 // live here so adding a region (D-52) needs no Worker deploy; lag is
 // carried for a later policy, not used for routing at launch.

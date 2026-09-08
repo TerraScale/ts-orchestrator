@@ -42,7 +42,7 @@ func (f *fakeVaultGateway) CreateVault(ctx context.Context, name string) (Observ
 	if f.activate {
 		state = "ACTIVE"
 	}
-	created := ObservedVault{ID: "ocid1.vault.oc1.x", DisplayName: name, VaultType: vaultTypeDefault, LifecycleState: state, ManagementEndpoint: "https://abc123-management.kms.sa-saopaulo-1.oraclecloud.com"}
+	created := ObservedVault{ID: "ocid1.vault.oc1.x", DisplayName: name, VaultType: vaultTypeDefault, LifecycleState: state, ManagementEndpoint: "https://abc123-management.kms.sa-saopaulo-1.oci.oraclecloud.com"}
 	f.vault = &created
 	return created, nil
 }
@@ -243,7 +243,7 @@ func TestVaultForeignShapeKeyIsRefused(t *testing.T) {
 
 func vaultTestGateway(t *testing.T, roundTrip roundTripFunc) *OCIVaultGateway {
 	t.Helper()
-	management, err := provider.NewOCIServiceTransportConfig(provider.OCIServiceVaultManagement, "sa-saopaulo-1", "https://test-management.kms.sa-saopaulo-1.oraclecloud.com")
+	management, err := provider.NewOCIServiceTransportConfig(provider.OCIServiceVaultManagement, "sa-saopaulo-1", "https://test-management.kms.sa-saopaulo-1.oci.oraclecloud.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func vaultTestGateway(t *testing.T, roundTrip roundTripFunc) *OCIVaultGateway {
 func vaultTestVault() ObservedVault {
 	return ObservedVault{
 		ID: "ocid1.vault.oc1.x", DisplayName: "terrascale-gru-vault", VaultType: vaultTypeDefault, LifecycleState: "ACTIVE",
-		ManagementEndpoint: "https://test-management.kms.sa-saopaulo-1.oraclecloud.com",
+		ManagementEndpoint: "https://test-management.kms.sa-saopaulo-1.oci.oraclecloud.com",
 	}
 }
 

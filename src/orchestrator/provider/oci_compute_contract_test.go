@@ -289,12 +289,51 @@ func TestOCIComputeAdapterRecoveryRecordsOwnershipBeforeCompleting(t *testing.T)
 	if err != nil || instance.ID != "ocid1.instance.oc1.recovered" {
 		t.Fatalf("recovered instance = %+v, %v", instance, err)
 	}
-	if posts != 1 || reads != 2 {
-		t.Fatalf("recovery calls = posts %d reads %d; want one post and two observations", posts, reads)
+	if posts != 1 || reads != 1 {
+		t.Fatalf("recovery calls = posts %d reads %d; want one post and one observation", posts, reads)
 	}
 	record, found, err := ownership.Lookup(t.Context(), ProviderResourceId{Value: instance.ID})
 	if err != nil || !found || record.CompartmentId.Value != request.CompartmentID || record.Generation.Value != request.Generation {
 		t.Fatalf("recovered ownership = %+v found=%v err=%v", record, found, err)
+	}
+}
+
+func TestOCIComputeAdapterReconcileLaunchRejectsDuplicateIntent(t *testing.T) {
+	posts, reads := 0, 0
+	intent := ""
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		switch request.Method {
+		case http.MethodPost:
+			posts++
+			return nil, errors.New("replacement POST is forbidden")
+		case http.MethodGet:
+			reads++
+			body := `[{"id":"ocid1.instance.oc1.one","freeformTags":{"terrascale-operation":"op","terrascale-intent":"` + intent + `"}},{"id":"ocid1.instance.oc1.two","freeformTags":{"terrascale-operation":"op","terrascale-intent":"` + intent + `"}}]`
+			return testHTTPResponse(http.StatusOK, body, nil), nil
+		default:
+			return nil, errors.New("unexpected compute method")
+		}
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-duplicate", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", Architecture: "arm64", ImageID: "ocid1.image.oc1.x", OCPUs: 1, MemoryGiB: 6}}}
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
+	request.Mutation.OperationID.Value = "op"
+	intent = request.Mutation.Fingerprint
+	if _, err := journal.Prepare(t.Context(), request.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkSubmitted(t.Context(), request.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.ReconcileInstanceLaunch(t.Context(), request); err == nil || !strings.Contains(err.Error(), "duplicate intent") {
+		t.Fatalf("duplicate recovery error = %v", err)
+	}
+	if posts != 0 || reads != 1 {
+		t.Fatalf("duplicate recovery calls = posts %d reads %d", posts, reads)
 	}
 }
 

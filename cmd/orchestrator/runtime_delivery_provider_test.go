@@ -78,16 +78,14 @@ func TestProductionCanaryProbeRequiresPrivateFixtureReferences(t *testing.T) {
 		return path
 	}
 	config := productionDeliveryCloudflareFile{
-		CanaryRouteURL:              "https://api.terrascale.tech/api/v1/projects/p/databases/d",
-		CanaryProjectID:             "p",
-		CanaryDatabaseID:            "d",
-		CanaryTokenFile:             write("canary", "canary-token"),
-		CanaryForeignTokenFile:      write("foreign", "foreign-token"),
-		CanaryExpectedMarker:        "marker",
-		CanaryMinimumRevision:       1,
-		CanaryDownstreamService:     "terrascale-dashboard",
-		CanaryDownstreamCandidateID: "dashboard-candidate",
-		CanaryDownstreamPreviousID:  "dashboard-previous",
+		CanaryRouteURL:          "https://api.terrascale.tech/api/v1/projects/p/databases/d",
+		CanaryProjectID:         "p",
+		CanaryDatabaseID:        "d",
+		CanaryTokenFile:         write("canary", "canary-token"),
+		CanaryForeignTokenFile:  write("foreign", "foreign-token"),
+		CanaryExpectedMarker:    "marker",
+		CanaryMinimumRevision:   1,
+		CanaryDownstreamService: "terrascale-dashboard",
 	}
 	probe, err := productionCanaryProbe(config, client)
 	if err != nil || probe.RouteURL != config.CanaryRouteURL || probe.CanaryToken != "canary-token" || probe.ForeignToken != "foreign-token" {

@@ -206,7 +206,7 @@ func (s *reconcileKVStoreFake) DeleteWorkerPlacements(context.Context, []string)
 func TestProductionKVWriterStartsAndShutsDown(t *testing.T) {
 	store := &reconcileKVStoreFake{}
 	writer, err := cloudflare.NewKVWriter(cloudflare.KVWriterConfig{
-		Store: store, Health: testObservedHealth{}, Placement: declaredKVPlacementSource{}, HealthInterval: time.Hour,
+		Store: store, Health: testObservedHealth{}, Placement: declaredKVPlacementSource{}, Catalog: cloudflare.PublicRegionCatalog(), HealthInterval: time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("KV writer construction failed: %v", err)
