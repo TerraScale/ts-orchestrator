@@ -39,11 +39,6 @@ func TestAllocationGoldenVector(t *testing.T) {
 }
 
 func TestCanonicalAllocateAndSignVectors(t *testing.T) {
-	persist := NewMemoryPersister()
-	a, err := New(persist, Policy{OrganizationID: "org", CycleID: "cycle", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-1": 9, "writer-vector-2": 9}, IncludedAllowanceUnits: 2, PaidExcessEnabled: true, RateNanoDollar: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
 	key := &ecdsa.PrivateKey{PublicKey: ecdsa.PublicKey{Curve: elliptic.P256()}, D: new(big.Int).SetInt64(1)}
 	key.PublicKey.X, key.PublicKey.Y = key.Curve.ScalarBaseMult(key.D.Bytes())
 	signer, err := security.NewCommandSignatureSignerFromKey(key)
@@ -51,43 +46,18 @@ func TestCanonicalAllocateAndSignVectors(t *testing.T) {
 		t.Fatal(err)
 	}
 	var vectors []map[string]any
-	for _, units := range []int64{1, 2} {
-		r := request(fmt.Sprintf("vector-%d", units), "db", "main", units, time.Now().Add(time.Hour))
-		r.PolicyEpoch, r.ConsentEpoch = 1, 1
-		grant, err := a.Allocate(t.Context(), r)
+	grants := []PoolGrant{
+		{SchemaVersion: 2, Kind: "regional_write_pool_refill", RefillOperationID: "refill-vector-1", PoolID: "pool-vector-1", CycleID: "cycle", RateNanoDollar: 1000, OrganizationID: "org", DatabaseID: "db", BranchID: "main", HolderID: "writer-vector-1", Region: "gru", Regions: []string{"gru", "sfo"}, Placement: "db-placement", LocalUnits: 1, AggregateUnits: 2, IncludedLocal: 1, PaidLocal: 0, IncludedAggregate: 2, PaidAggregate: 0, PoolSequence: 1, PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 9, IssuedAt: time.Unix(1800000000, 0).UTC(), ExpiresAt: time.Unix(1800003600, 0).UTC()},
+		{SchemaVersion: 2, Kind: "regional_write_pool_refill", RefillOperationID: "refill-vector-2", PoolID: "pool-vector-2", CycleID: "cycle", RateNanoDollar: 1000, OrganizationID: "org", DatabaseID: "db", BranchID: "main", HolderID: "writer-vector-2", Region: "gru", Regions: []string{"gru", "sfo"}, Placement: "db-placement", LocalUnits: 2, AggregateUnits: 4, IncludedLocal: 2, PaidLocal: 0, IncludedAggregate: 4, PaidAggregate: 0, PoolSequence: 2, PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 9, IssuedAt: time.Unix(1800000000, 0).UTC(), ExpiresAt: time.Unix(1800003600, 0).UTC()},
+		{SchemaVersion: 2, Kind: "regional_write_pool_refill", RefillOperationID: "refill-vector-crossing", PoolID: "pool-vector-crossing", CycleID: "cycle-cross", RateNanoDollar: 1000, OrganizationID: "org", DatabaseID: "db", BranchID: "main", HolderID: "writer-vector-crossing", Region: "gru", Regions: []string{"gru", "sfo"}, Placement: "db-placement", LocalUnits: 2, AggregateUnits: 4, IncludedLocal: 1, PaidLocal: 1, IncludedAggregate: 2, PaidAggregate: 2, PoolSequence: 3, PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 9, IssuedAt: time.Unix(1800000000, 0).UTC(), ExpiresAt: time.Unix(1800003600, 0).UTC()},
+	}
+	for _, grant := range grants {
+		signed, err := SignPoolRefill(signer, grant)
 		if err != nil {
 			t.Fatal(err)
 		}
-		signed, err := SignAllocation(signer, grant, grant.CycleID, grant.RateNanoDollar, "db-placement")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CostNanoDollar != grant.PaidUnits*1000 {
-			t.Fatalf("grant=%+v", grant)
-		}
-		t.Logf("canonical units=%d payload=%s signature=%x", units, signed.Payload, signed.Signature)
-		vectors = append(vectors, map[string]any{"units": grant.Units, "includedUnits": grant.IncludedUnits, "paidUnits": grant.PaidUnits, "costNanoDollar": grant.CostNanoDollar, "payload": base64.StdEncoding.EncodeToString(signed.Payload), "signature": base64.StdEncoding.EncodeToString(signed.Signature)})
+		vectors = append(vectors, map[string]any{"localUnits": grant.LocalUnits, "aggregateUnits": grant.AggregateUnits, "includedLocalUnits": grant.IncludedLocal, "paidLocalUnits": grant.PaidLocal, "includedAggregateUnits": grant.IncludedAggregate, "paidAggregateUnits": grant.PaidAggregate, "payload": base64.StdEncoding.EncodeToString(signed.Payload), "signature": base64.StdEncoding.EncodeToString(signed.Signature)})
 	}
-	// Independent crossing-policy vector: four regional units consume three
-	// included units and one paid unit.
-	cross, err := New(NewMemoryPersister(), Policy{OrganizationID: "org", CycleID: "cycle-cross", PolicyEpoch: 1, ConsentEpoch: 1, WriterEpoch: 1, WriterEpochs: map[string]uint64{"writer-vector-crossing": 9}, IncludedAllowanceUnits: 3, PaidExcessEnabled: true, RateNanoDollar: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := request("vector-crossing", "db", "main", 2, time.Now().Add(time.Hour))
-	r.PolicyEpoch, r.ConsentEpoch = 1, 1
-	grant, err := cross.Allocate(t.Context(), r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signed, err := SignAllocation(signer, grant, grant.CycleID, grant.RateNanoDollar, "db-placement")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if grant.IncludedUnits != 3 || grant.PaidUnits != 1 || grant.CostNanoDollar != 1000 {
-		t.Fatalf("crossing grant=%+v", grant)
-	}
-	vectors = append(vectors, map[string]any{"units": grant.Units, "includedUnits": grant.IncludedUnits, "paidUnits": grant.PaidUnits, "costNanoDollar": grant.CostNanoDollar, "payload": base64.StdEncoding.EncodeToString(signed.Payload), "signature": base64.StdEncoding.EncodeToString(signed.Signature)})
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
 		spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
 		raw, _ := json.MarshalIndent(map[string]any{"keyID": signer.PublicKeyID(), "publicSPKI": base64.StdEncoding.EncodeToString(spki), "vectors": vectors}, "", "  ")
