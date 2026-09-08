@@ -193,6 +193,15 @@ func (compositionDeliveryPorts) PromoteWorker(context.Context, string, string) e
 func (compositionDeliveryPorts) PromoteSnippet(context.Context, string, string) error {
 	return errCompositionEffect
 }
+func (compositionDeliveryPorts) ObserveEdge(context.Context, string, string) (delivery.EdgeReleaseState, error) {
+	return delivery.EdgeReleaseState{}, errCompositionEffect
+}
+func (compositionDeliveryPorts) RestoreEdge(context.Context, string, string, delivery.EdgeReleaseState) error {
+	return errCompositionEffect
+}
+func (compositionDeliveryPorts) CheckEdge(context.Context, string, string, string) error {
+	return errCompositionEffect
+}
 func (compositionDeliveryPorts) PublishKV(context.Context, string, string) error {
 	return errCompositionEffect
 }

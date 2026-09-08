@@ -20,6 +20,15 @@ func (regionalDeliveryEdge) PromoteWorker(context.Context, string, string) error
 func (regionalDeliveryEdge) PromoteSnippet(context.Context, string, string) error {
 	return errors.New("delivery: edge release must execute under global master authority")
 }
+func (regionalDeliveryEdge) ObserveEdge(context.Context, string, string) (delivery.EdgeReleaseState, error) {
+	return delivery.EdgeReleaseState{}, errors.New("delivery: edge observation must execute under global master authority")
+}
+func (regionalDeliveryEdge) RestoreEdge(context.Context, string, string, delivery.EdgeReleaseState) error {
+	return errors.New("delivery: edge restoration must execute under global master authority")
+}
+func (regionalDeliveryEdge) CheckEdge(context.Context, string, string, string) error {
+	return errors.New("delivery: edge health must execute under global master authority")
+}
 
 type productionGlobalDeliveryEdge struct {
 	workers      *cloudflare.EdgeReleasePromoter
@@ -81,6 +90,49 @@ func (e *productionGlobalDeliveryEdge) CoordinateSnippetZoneRules(ctx context.Co
 		return err
 	}
 	if err := e.capabilities.CoordinateTemplateRules(ctx, service, digest); err != nil {
+		return err
+	}
+	return e.check(ctx)
+}
+
+func (e *productionGlobalDeliveryEdge) ObserveEdge(ctx context.Context, kind, service string) (delivery.EdgeReleaseState, error) {
+	if e == nil || e.workers == nil {
+		return delivery.EdgeReleaseState{}, errors.New("delivery: global edge observer is unavailable")
+	}
+	if err := e.check(ctx); err != nil {
+		return delivery.EdgeReleaseState{}, err
+	}
+	state, err := e.workers.ObserveEdge(ctx, kind, service)
+	if err != nil {
+		return delivery.EdgeReleaseState{}, err
+	}
+	if err := e.check(ctx); err != nil {
+		return delivery.EdgeReleaseState{}, err
+	}
+	return state, nil
+}
+
+func (e *productionGlobalDeliveryEdge) RestoreEdge(ctx context.Context, kind, service string, prior delivery.EdgeReleaseState) error {
+	if e == nil || e.workers == nil {
+		return errors.New("delivery: global edge restorer is unavailable")
+	}
+	if err := e.check(ctx); err != nil {
+		return err
+	}
+	if err := e.workers.RestoreEdge(ctx, kind, service, prior); err != nil {
+		return err
+	}
+	return e.check(ctx)
+}
+
+func (e *productionGlobalDeliveryEdge) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	if e == nil || e.workers == nil {
+		return errors.New("delivery: global edge health is unavailable")
+	}
+	if err := e.check(ctx); err != nil {
+		return err
+	}
+	if err := e.workers.CheckEdge(ctx, kind, service, digest); err != nil {
 		return err
 	}
 	return e.check(ctx)
