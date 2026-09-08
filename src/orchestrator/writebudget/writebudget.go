@@ -12,6 +12,7 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -228,7 +229,7 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 				}
 			}
 		}
-		if state.RevisionSequence == math.MaxUint64 {
+		if state.RevisionSequence == math.MaxUint64 || state.ActivePolicy.PolicyEpoch == math.MaxUint64 || state.ActivePolicy.ConsentEpoch == math.MaxUint64 {
 			return ErrConflict
 		}
 		if next.CycleID != state.ActivePolicy.CycleID {
@@ -258,7 +259,7 @@ func (a *Authority) ApplyPolicy(ctx context.Context, revision, checksum string, 
 		state.PendingGrants = make(map[string]time.Time)
 		now := a.now().UTC()
 		for id, grant := range state.Grants {
-			if grant.ExpiresAt.After(now) {
+			if !grant.Fenced && grant.ExpiresAt.After(now) {
 				grant.Revoked = true
 				state.Grants[id] = grant
 				state.PendingGrants[id] = grant.ExpiresAt
@@ -382,8 +383,16 @@ func (a *Authority) Allocate(ctx context.Context, request Request) (Grant, error
 		if !admitted || writerEpoch == 0 {
 			return ErrInvalid
 		}
+		// Check cumulative totals before inserting a grant. A valid individual
+		// reservation can still overflow an uncapped cycle's durable ledger.
+		if _, ok := add(state.UsedUnits, units); !ok {
+			return ErrInvalid
+		}
+		if _, ok := add(state.UsedNanoDollar, nanoCost); !ok {
+			return ErrInvalid
+		}
 		grant := Grant{CycleID: policy.CycleID, RateNanoDollar: policy.RateNanoDollar, OperationID: request.OperationID, OrganizationID: request.OrganizationID, DatabaseID: request.DatabaseID, BranchID: request.BranchID, HolderID: request.HolderID, Units: units, IncludedUnits: included, PaidUnits: paid, CostNanoDollar: nanoCost, PolicyEpoch: request.PolicyEpoch, ConsentEpoch: request.ConsentEpoch, WriterEpoch: writerEpoch, IssuedAt: now, ExpiresAt: request.ExpiresAt.UTC()}
-		grant.RequestedUnits, grant.Regions = request.Units, append([]string(nil), request.Regions...)
+		grant.RequestedUnits, grant.Regions = request.Units, slices.Clone(request.Regions)
 		state.Grants[grant.OperationID] = grant
 		state.UsedUnits += units
 		state.UsedNanoDollar += nanoCost
@@ -503,23 +512,15 @@ func (a *Authority) validateState(state *State) error {
 	databaseSpend := make(map[string]int64, len(state.DatabaseSpendNano))
 	for operationID, grant := range state.Grants {
 		expectedWriterEpoch, admitted := policy.WriterEpochs[grant.HolderID]
-		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(time.Now().UTC()) && (!admitted || expectedWriterEpoch == 0 || grant.WriterEpoch != expectedWriterEpoch) || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
+		if operationID == "" || grant.OperationID != operationID || grant.OrganizationID != policy.OrganizationID || grant.CycleID == "" || grant.RateNanoDollar < 0 || grant.DatabaseID == "" || grant.HolderID == "" || grant.RequestedUnits <= 0 || grant.Units <= 0 || grant.IncludedUnits < 0 || grant.PaidUnits < 0 || grant.IncludedUnits > math.MaxInt64-grant.PaidUnits || grant.IncludedUnits+grant.PaidUnits != grant.Units || grant.CycleID == policy.CycleID && !grant.Revoked && grant.ExpiresAt.After(a.now().UTC()) && (!admitted || expectedWriterEpoch == 0 || grant.WriterEpoch != expectedWriterEpoch) || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() || len(grant.Regions) == 0 {
 			return ErrInvalid
 		}
 		multiplied, ok := multiply(grant.RequestedUnits, int64(len(grant.Regions)))
 		if !ok || multiplied != grant.Units {
 			return ErrInvalid
 		}
-		includedTotal, totalOK := add(grant.IncludedUnits, grant.PaidUnits)
-		if grant.IncludedUnits < 0 || grant.PaidUnits < 0 || !totalOK || includedTotal != grant.Units {
-			return ErrInvalid
-		}
 		expectedPaid, ok := multiply(grant.PaidUnits, grant.RateNanoDollar)
 		if !ok || expectedPaid != grant.CostNanoDollar {
-			return ErrInvalid
-		}
-		expectedNano, ok := multiply(grant.PaidUnits, grant.RateNanoDollar)
-		if !ok || expectedNano != grant.CostNanoDollar {
 			return ErrInvalid
 		}
 		if grant.CycleID != policy.CycleID {

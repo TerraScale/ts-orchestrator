@@ -3,6 +3,7 @@ package autoscale
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -122,6 +123,82 @@ func TestEvaluateRequiresThreeSamplesAndCreatesOneNodePlan(t *testing.T) {
 	plan, created, err := c.Evaluate(context.Background(), "gru")
 	if err != nil || !created || plan.DesiredMembers != 3 || plan.PreviousMembers != 2 || targets.writes != 3 || plan.OperationID == "" {
 		t.Fatalf("scale-out plan = %+v created=%v err=%v writes=%d", plan, created, err, targets.writes)
+	}
+}
+
+func TestEvaluateScalesForOneHostResourceBottleneck(t *testing.T) {
+	for _, resource := range []string{"cpu", "memory", "queue"} {
+		t.Run(resource, func(t *testing.T) {
+			now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+			source := &testSource{}
+			targets := &testTargets{value: Target{Region: "gru", Members: 2}, found: true}
+			c := testController(t, source, targets, now)
+			for sequence := int64(1); sequence <= 5; sequence++ {
+				source.observations = lowObservationsWithProof(now, sequence)[:2]
+				if sequence != 2 {
+					switch resource {
+					case "cpu":
+						source.observations[0].CPUPercent = 80
+					case "memory":
+						source.observations[0].MemoryPercent = 80
+					case "queue":
+						source.observations[0].QueueDepth = 8
+					}
+				}
+				// Reconstructing the controller preserves the durable consecutive
+				// sample count; the intervening low sample must reset it.
+				c = testController(t, source, targets, now)
+				plan, created, err := c.Evaluate(t.Context(), "gru")
+				if err != nil || created != (sequence == 5) {
+					t.Fatalf("sample %d: plan=%+v created=%v err=%v", sequence, plan, created, err)
+				}
+				writes := targets.writes
+				if _, replayed, err := c.Evaluate(t.Context(), "gru"); err != nil || replayed || targets.writes != writes {
+					t.Fatalf("replayed sample changed target: created=%v err=%v", replayed, err)
+				}
+			}
+			if targets.value.Members != 3 || targets.value.OperationID == "" {
+				t.Fatalf("bottleneck did not create durable capacity: %+v", targets.value)
+			}
+			for sequence := int64(6); sequence <= 8; sequence++ {
+				for i := range source.observations {
+					source.observations[i].Sequence = sequence
+				}
+				if _, created, err := c.Evaluate(t.Context(), "gru"); err != nil || created {
+					t.Fatalf("cooldown admitted more capacity: %v %v", created, err)
+				}
+			}
+		})
+	}
+}
+
+func TestEvaluateZeroQueueThresholdDisablesQueueSignal(t *testing.T) {
+	now := time.Now().UTC()
+	source := &testSource{observations: lowObservationsWithProof(now, 1)}
+	targets := &testTargets{value: Target{Region: "gru", Members: 3}, found: true}
+	c := testController(t, source, targets, now)
+	c.config.QueueThreshold = 0
+	c.config.HighSamples, c.config.LowSamples = 1, 1
+	plan, created, err := c.Evaluate(t.Context(), "gru")
+	if err != nil || !created || plan.DesiredMembers != 2 || plan.RemovalHostID != "host-c" {
+		t.Fatalf("disabled queue prevented safe scale-down: %+v %v %v", plan, created, err)
+	}
+}
+
+func TestNewRejectsNonFiniteThresholds(t *testing.T) {
+	c := testController(t, &testSource{}, &testTargets{}, time.Now())
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		for _, resource := range []string{"cpu", "memory"} {
+			config := c.config
+			if resource == "cpu" {
+				config.CPUThreshold = value
+			} else {
+				config.MemoryThreshold = value
+			}
+			if _, err := New(config); err == nil {
+				t.Fatalf("accepted %s threshold %v", resource, value)
+			}
+		}
 	}
 }
 

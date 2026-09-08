@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -351,7 +352,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			// launching a second instance would violate the stable slot identity.
 			continue
 		}
-		if member.Shape != pool.PrimaryShape && member.Shape != pool.FallbackShape {
+		if !declared.acceptsMemberShape(index, member.Shape) {
 			if !memberOwnedInRegion(member, declared.Region.Code) || (computeScopeCompartment(r.Compute) != "" && member.CompartmentID != computeScopeCompartment(r.Compute)) {
 				continue
 			}
@@ -438,11 +439,27 @@ func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, er
 		if !exists || observedMemberState(member.LifecycleState) != memberStateActive {
 			return false, nil
 		}
-		if member.Shape != declared.Region.Members.PrimaryShape && member.Shape != declared.Region.Members.FallbackShape {
+		if !declared.acceptsMemberShape(index, member.Shape) {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+func (declared ComputeDeclared) memberCandidates(index int) []MemberLaunchCandidate {
+	if candidates, ok := declared.CandidatesByMember[index]; ok {
+		return candidates
+	}
+	return declared.Candidates
+}
+
+func (declared ComputeDeclared) acceptsMemberShape(index int, shape string) bool {
+	if candidates := declared.memberCandidates(index); len(candidates) > 0 {
+		return slices.ContainsFunc(candidates, func(candidate MemberLaunchCandidate) bool {
+			return candidate.Shape == shape
+		})
+	}
+	return shape == declared.Region.Members.PrimaryShape || shape == declared.Region.Members.FallbackShape
 }
 
 func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, subnetID string, nsgIDs []string, observed ComputeObserved) LaunchMemberAction {
@@ -452,11 +469,7 @@ func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, su
 		domain = observed.AvailabilityDomains[(index-1)%len(observed.AvailabilityDomains)]
 	}
 	cloudInit := declared.CloudInitByMember[index]
-	candidates := make([]MemberLaunchCandidate, len(declared.Candidates))
-	copy(candidates, declared.Candidates)
-	if enrolled, ok := declared.CandidatesByMember[index]; ok {
-		candidates = append([]MemberLaunchCandidate(nil), enrolled...)
-	}
+	candidates := slices.Clone(declared.memberCandidates(index))
 	binding := declared.MemberBindings[index]
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
 		DisplayName:    MemberDisplayName(declared.Region.Code, index),
@@ -1047,6 +1060,16 @@ func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) e
 }
 
 func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID, ifMatch string) error {
+	return g.terminateMember(ctx, instanceID, ifMatch, true)
+}
+
+// ReconcileMemberTermination closes the durable provider mutation without
+// issuing another termination request.
+func (g *ociMemberGateway) ReconcileMemberTermination(ctx context.Context, instanceID, ifMatch string) error {
+	return g.terminateMember(ctx, instanceID, ifMatch, false)
+}
+
+func (g *ociMemberGateway) terminateMember(ctx context.Context, instanceID, ifMatch string, submit bool) error {
 	if g == nil || g.Adapter == nil || g.Epoch.Value == 0 || !provider.IsOCID(instanceID, "instance") {
 		return &errs.Argument{Message: "member termination requires the durable provider adapter"}
 	}
@@ -1057,5 +1080,8 @@ func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID, ifMa
 	request := provider.ComputeTerminateRequest{InstanceID: instanceID, IfMatch: ifMatch}
 	request.Mutation = provider.ProviderMutationIntent{OperationID: operation, Scope: provider.ComputeTerminateMutationScope(request), Action: "compute.terminate", Epoch: g.Epoch, IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.terminate", instanceID)}}
 	request.Mutation.Fingerprint = provider.ComputeTerminateMutationFingerprint(request)
+	if !submit {
+		return g.Adapter.ReconcileInstanceTermination(ctx, request)
+	}
 	return g.Adapter.TerminateInstance(ctx, request)
 }

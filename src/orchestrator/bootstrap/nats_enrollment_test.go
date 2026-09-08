@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,6 +70,14 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 		}
 		return nil
 	}}
+	reader, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Wipe()
+	readerPublic, _ := reader.PublicKey()
+	config.ReaderGrants = []brokeradmission.ReaderGrant{{BrokerID: "broker-gru", PublicNKey: readerPublic, Account: "$G"}}
+	config.BrokerIDs = []string{"broker-gru"}
 	deniedBootstrap := *config
 	deniedBootstrap.AllowInitialBootstrap = false
 	if _, err := prepareEnrollmentBroker(t.Context(), baseline, &deniedBootstrap); err == nil {
@@ -155,6 +164,26 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 			}
 		})
 	}
+	for _, role := range brokeradmission.Roles {
+		for _, retired := range []bool{false, true} {
+			protected := first
+			protected.PublicKeys = maps.Clone(first.PublicKeys)
+			protected.PublicKeys[role] = readerPublic
+			hostile := desired
+			hostile.Members = []brokeradmission.Member{protected}
+			if retired {
+				hostile.Members = nil
+				hostile.Retired = []brokeradmission.Retired{{Member: protected, RemovalOperationID: "remove-reader", ResourceID: "ocid1.instance.reader"}}
+			}
+			hostileWire, err := brokeradmission.Sign(hostile, signer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := handle.ApplyEnrollmentGrants(t.Context(), hostileWire); !errors.Is(err, brokeradmission.ErrInvalid) {
+				t.Fatalf("delegated signer repurposed reader as %s (retired=%v): %v", role, retired, err)
+			}
+		}
+	}
 	if err := handle.ApplyEnrollmentGrants(t.Context(), firstWire); err != nil {
 		t.Fatal(err)
 	}
@@ -198,6 +227,32 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Force a real native reload rejection after the signed checkpoint write.
+	// Retry must retain the new revision and must not acknowledge old grants.
+	originalHost := state.baseline.Host
+	state.baseline.Host = "127.0.0.2"
+	if err := handle.ApplyEnrollmentGrants(t.Context(), wire); err == nil {
+		t.Fatal("unsupported native host reload succeeded")
+	}
+	state.baseline.Host = originalHost
+	if state.applied || state.desired.Revision != desired.Revision {
+		t.Fatal("failed reload lost pending desired state")
+	}
+	_, checkpoint, err := brokeradmission.ReadCheckpoint(config.CheckpointPath, verifier)
+	if err != nil || checkpoint.Revision != desired.Revision {
+		t.Fatalf("failed reload lost durable desired state: %v", err)
+	}
+	if err := handle.ApplyEnrollmentGrants(t.Context(), firstWire); !errors.Is(err, brokeradmission.ErrRollback) {
+		t.Fatalf("failed reload permitted rollback: %v", err)
+	}
+	// A crash at this point must reconstruct the pending grants from the
+	// signed checkpoint, even while live control authority is unavailable.
+	authorityLost = true
+	pendingRecovery, err := prepareEnrollmentBroker(t.Context(), baseline, config)
+	if err != nil || pendingRecovery.desired.Revision != desired.Revision {
+		t.Fatalf("pending reload recovery failed: %v", err)
+	}
+	authorityLost = false
 	if err := handle.ApplyEnrollmentGrants(t.Context(), wire); err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +288,21 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 	if err := handle.ApplyEnrollmentGrants(t.Context(), wire); err == nil {
 		t.Fatal("lost authority acknowledged")
 	}
+	unauthorized := desired
+	unauthorized.Revision++
+	unauthorized.AuthorityEpoch++
+	unauthorized.LeaseID = "unaccepted-lease"
+	unauthorizedWire, err := brokeradmission.Sign(unauthorized, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handle.ApplyEnrollmentGrants(t.Context(), unauthorizedWire); err == nil {
+		t.Fatal("signature invented live control authority")
+	}
+	_, retained, err := brokeradmission.ReadCheckpoint(config.CheckpointPath, verifier)
+	if err != nil || retained.Revision != desired.Revision {
+		t.Fatalf("unaccepted authority replaced durable grants: %v", err)
+	}
 	instance.Shutdown()
 	instance.WaitForShutdown()
 	recovered, err := prepareEnrollmentBroker(t.Context(), baseline, config)
@@ -254,7 +324,7 @@ func TestNativeBrokerEnrollmentRevokesConnectedKeysAndPersistsAcrossRestart(t *t
 			t.Fatalf("restart resurrected %s", role)
 		}
 	}
-	for _, key := range []nkeys.KeyPair{controller, newKeys["node"]} {
+	for _, key := range []nkeys.KeyPair{controller, reader, newKeys["node"]} {
 		c, err := connect(restarted, key)
 		if err != nil {
 			t.Fatalf("retained service unavailable: %v", err)

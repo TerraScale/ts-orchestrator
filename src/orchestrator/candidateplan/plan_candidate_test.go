@@ -84,7 +84,7 @@ func candidatePlanFixture(t *testing.T) (candidatePlanInput, string, []byte) {
 	}
 	input := candidatePlanInput{OwnerPrivateKeyFile: write("owner-secret.pem", private), PublicKeyFile: write("owner.pem", public), SourceNodeID: "gru-1", SourceBootstrapGrantFile: write("source.json", signed), TransitionID: "transition-1", TargetEpoch: 2, MinimumControlEpoch: 1, IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour), BootstrapExpiresAt: now.Add(10 * time.Minute)}
 	for _, region := range []string{"sfo", "fra"} {
-		input.Candidates = append(input.Candidates, candidatePlanEntry{Manifest: manifest, BootstrapGrantID: "bootstrap-" + region, Config: transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: input.TransitionID, NodeID: region + "-1", Region: region, ServerName: region + "-store", StoreDir: "/var/lib/terrascale/orchestrator/candidate", GrantFile: "/etc/terrascale/candidate/grant.json", GrantPublicKeyFile: "/etc/terrascale/candidate/owner.pem"}})
+		input.Candidates = append(input.Candidates, Entry{Manifest: manifest, BootstrapGrantID: "bootstrap-" + region, Config: transitiongrant.Config{Version: 1, Mode: transitiongrant.Mode, TransitionID: input.TransitionID, NodeID: region + "-1", Region: region, ServerName: region + "-store", StoreDir: "/var/lib/terrascale/orchestrator/candidate", GrantFile: "/etc/terrascale/candidate/grant.json", GrantPublicKeyFile: "/etc/terrascale/candidate/owner.pem"}})
 	}
 	raw, err = json.Marshal(input)
 	if err != nil {

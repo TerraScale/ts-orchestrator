@@ -1,11 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json/v2"
 	"errors"
+	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
+	"terrascale.tech/orchestrator/src/orchestrator/placementrelocation"
+	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
+	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 	"testing"
 
 	"github.com/nats-io/nkeys"
@@ -105,5 +112,99 @@ func TestRelocationHistoricalReceiptKeySurvivesProviderRemoval(t *testing.T) {
 	state.Records = map[string]enrollment.Record{"gru:3": record}
 	if _, err := factory.MemberKey(t.Context(), identity); err == nil {
 		t.Fatal("ambiguous enrollment key trusted")
+	}
+}
+
+type relocationJoinIssuer struct {
+	requests []placementtransition.JoinRequest
+}
+
+func (*relocationJoinIssuer) Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error) {
+	return placementtransition.Signed{}, errors.New("unexpected prepare")
+}
+func (i *relocationJoinIssuer) IssueJoinCheckpoint(_ context.Context, request placementtransition.JoinRequest) (placementtransition.Signed, error) {
+	i.requests = append(i.requests, request)
+	return placementtransition.Signed{KeyID: "authority", Payload: []byte("checkpoint"), Signature: make([]byte, 64)}, nil
+}
+
+type relocationJoinJournal struct{ record placementpublisher.Record }
+
+func (*relocationJoinJournal) Accept(context.Context, placementpublisher.Record) error {
+	return errors.New("unexpected accept")
+}
+func (j *relocationJoinJournal) Load(context.Context, string) (placementpublisher.Record, error) {
+	return j.record, nil
+}
+func (*relocationJoinJournal) Acknowledge(context.Context, placementpublisher.Record, *pb.PlacementProposalResponse) error {
+	return errors.New("unexpected acknowledge")
+}
+
+func TestRelocationJoinUsesExactPersistedStageChallenge(t *testing.T) {
+	for _, scenario := range []string{"replacement", "existing member", "existing revision", "wrong operation", "wrong identity", "wrong request", "missing receipt", "wrong receipt revision", "missing challenge", "malformed challenge"} {
+		t.Run(scenario, func(t *testing.T) {
+			record, _ := relocationEnrolledFixture(t)
+			identity := enrollment.Identity(record, "member")
+			stage := &pb.PlacementStageRequest{Proposal: &pb.PlacementProposal{Environment: record.Environment, Cluster: record.Cluster, Epoch: 2, Generation: 2, Regions: []*pb.PlacementRegionSeats{{Region: "GRU", Members: []string{"01ARZ3NDEKTSV4RRFFQ69G5FAA", record.MemberID}}}}}
+			if scenario == "existing revision" {
+				stage.ExpectedRevision = 4
+			}
+			request, err := (proto.MarshalOptions{Deterministic: true}).Marshal(stage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			challenge := placementtransition.Signed{KeyID: identity, Payload: []byte("signed-nonce"), Signature: make([]byte, 64)}
+			challengeBytes, err := json.Marshal(challenge)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt := &pb.PlacementProposalResponse{Revision: stage.ExpectedRevision + 1, Status: pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING, Proposal: stage.Proposal, JoinChallenge: challengeBytes}
+			plan := placementrelocation.Plan{OperationID: "relocate", ReplacementIdentity: identity, PriorProof: placementtransition.Signed{KeyID: "authority", Payload: []byte("prior")}}
+			journal := &relocationJoinJournal{record: placementpublisher.Record{OperationID: plan.OperationID, ServerIdentity: identity, Request: request}}
+			switch scenario {
+			case "existing member":
+				plan.ReplacementIdentity = "another-member"
+			case "wrong operation":
+				journal.record.OperationID = "different"
+			case "wrong identity":
+				journal.record.ServerIdentity = "different"
+			case "wrong request":
+				journal.record.Request = []byte("different")
+			case "wrong receipt revision":
+				receipt.Revision++
+			case "missing challenge":
+				receipt.JoinChallenge = nil
+			case "malformed challenge":
+				receipt.JoinChallenge = []byte("malformed")
+			}
+			journal.record.Receipt, err = proto.Marshal(receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "missing receipt" {
+				journal.record.Receipt = nil
+			}
+			issuer := &relocationJoinIssuer{}
+			factory := &productionRelocationTargets{Pending: journal, issuer: issuer}
+			proof := placementtransition.Signed{KeyID: "authority", Payload: []byte("accepted")}
+			envelope, err := factory.acceptanceEnvelope(t.Context(), plan, identity, stage.ExpectedRevision+1, stage, proof)
+			switch scenario {
+			case "replacement":
+				if err != nil || envelope.JoinCheckpoint == nil || len(issuer.requests) != 1 {
+					t.Fatalf("fresh join not issued: %+v %v", envelope, err)
+				}
+				actual := issuer.requests[0]
+				if actual.OperationID != plan.OperationID || actual.MemberIdentity != identity || !bytes.Equal(actual.Challenge.Payload, challenge.Payload) || !bytes.Equal(actual.Prior.Payload, plan.PriorProof.Payload) || !bytes.Equal(actual.Successor.Payload, proof.Payload) {
+					t.Fatalf("retained binding lost: %+v", actual)
+				}
+			case "existing member", "existing revision":
+				if err != nil || envelope.JoinCheckpoint != nil || len(issuer.requests) != 0 {
+					t.Fatalf("existing member received join: %+v %v", envelope, err)
+				}
+			default:
+				if err == nil || len(issuer.requests) != 0 {
+					t.Fatalf("invalid retained receipt signed: %v", err)
+				}
+			}
+		})
 	}
 }

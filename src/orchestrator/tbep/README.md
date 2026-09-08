@@ -23,20 +23,17 @@ handwritten wire subset.
 
 ## Contract provenance and generation
 
-`CONTRACT_VERSION` pins the published immutable TerraBase contract version
-`terrabase-v1`. That is the producer's `CONTRACT_VERSION ?= v1` (see the
-TerraBase `Makefile`) and `contracts/manifest.json` `contractVersion: "v1"`
-(`schemaVersion: 1`). The producer contract source is `../terrabase` at
-immutable commit `0fd27ca01685f60c46384f95e320beb9256d10aa`. The complete
-engine asset was copied from that producer commit; the generated
-`contracts/proto/terrabase/v1/` mirror is byte-identical to it. The complete
-family asset remains unchanged. The version, commit, and content digests below
-are the single provenance pin; newer producer commits are outside this
-contract.
+`CONTRACT_VERSION` identifies contract lineage `terrabase-v1`. The current
+private protobuf pin is a local producer source snapshot with the approved
+`PlacementProposalResponse.join_challenge` field. It is not evidence of an
+immutable published release. Canonical input is
+`terrabase/crates/terrabase-tbep/proto/terrabase/v1/`; the consumer copy and
+checked generated stubs preserve the full protocol rather than a subset.
+The complete input digests are recorded below.
 
 | Asset | SHA256 |
 | --- | --- |
-| `engine.proto` | `915b9dcb9df7251e69e526419f9a89a85b110e44436927c07c79e5d2af0fb34e` |
+| `engine.proto` | `d80aab09183ae1ad0b8919dbcbd5229e890173bf1cdfb92e27c349056be13dc2` |
 | `family.proto` | `cdae480893d6aa1ff8d88af5a352d8e9ab1f59a60fe13d93ca6da387a7a109ec` |
 
 Generation uses protoc 34.1, protoc-gen-go 1.36.12 and

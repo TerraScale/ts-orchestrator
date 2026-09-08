@@ -63,12 +63,12 @@ func (d *runtimeWriteBudgetDelivery) SendAllocation(ctx context.Context, signed 
 	if grant.OperationID == "" || grant.DatabaseID == "" || grant.HolderID == "" || envelope.CycleID == "" || envelope.Placement == "" || len(grant.Regions) == 0 || !slices.IsSorted(grant.Regions) || slices.Contains(grant.Regions[1:], grant.Regions[0]) {
 		return errors.New("write budget delivery: invalid allocation identity")
 	}
-	for _, region := range grant.Regions {
-		if region == "" || strings.TrimSpace(region) != region {
+	for i, region := range grant.Regions {
+		if region == "" || strings.TrimSpace(region) != region || (i > 0 && region == grant.Regions[i-1]) {
 			return errors.New("write budget delivery: invalid allocation region")
 		}
 	}
-	payload, err := json.Marshal(signed)
+	payload, err := json.Marshal(databaseadmission.BudgetAllocationDelivery{Allocation: signed})
 	if err != nil || len(payload) > writeBudgetDeliveryLimit {
 		return errors.New("write budget delivery: allocation exceeds transport limit")
 	}

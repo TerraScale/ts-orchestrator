@@ -486,6 +486,11 @@ func (d *Drill) SuccessHistory(ctx context.Context, at time.Time) (RestoreHistor
 		if !found || run.Status != RunSucceeded {
 			continue
 		}
+		// The completion label alone cannot prove the configured snapshot
+		// obligation. Apply the same evidence check used when resuming a run.
+		if !isNil(d.config.Snapshotter) && !snapshotComplete(run, d.config.SnapshotRegions) {
+			continue
+		}
 		// The ID is canonical, but also check the persisted date so a corrupt
 		// journal record cannot count for an unrelated day.
 		if !run.ScheduledAt.IsZero() && !sameUTCDate(run.ScheduledAt, day) {
@@ -527,7 +532,7 @@ func sameUTCDate(a, b time.Time) bool {
 }
 
 func snapshotComplete(run RunRecord, regions []string) bool {
-	if run.Snapshot.ID == "" || len(run.SnapshotRegions) != len(regions) {
+	if validateSnapshotIdentity(run.Snapshot) != nil || len(run.SnapshotRegions) != len(regions) {
 		return false
 	}
 	seen := make(map[string]struct{}, len(run.SnapshotRegions))

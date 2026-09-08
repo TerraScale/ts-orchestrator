@@ -851,6 +851,7 @@ service PlacementControlService {
 // Authenticated private lifecycle control. Every mutation is bound to the
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 service LifecycleControlService {
+  rpc ResolveRecoveryPoint(ResolveRecoveryPointRequest) returns (ResolveRecoveryPointResponse);
   rpc RestoreToTarget(RestoreToTargetRequest) returns (LifecycleControlResponse);
   rpc RestoreStats(RestoreStatsRequest) returns (RestoreStatsResponse);
   rpc EnsureSnapshot(LifecycleControlRequest) returns (LifecycleControlResponse);
@@ -859,6 +860,27 @@ service LifecycleControlService {
   rpc StopNativeBackup(LifecycleControlRequest) returns (LifecycleControlResponse);
   rpc Reactivate(LifecycleReactivateRequest) returns (LifecycleControlResponse);
   rpc DeleteOwnedData(LifecycleControlRequest) returns (LifecycleControlResponse);
+}
+
+// Read-only source resolution under its accepted placement and lifecycle grant.
+message ResolveRecoveryPointRequest {
+  LifecycleControlContext context = 1;
+  string operation_id = 2;
+  string selection_kind = 3; // latest or point_id; unsupported time selections refuse.
+  string point_id = 4;
+  uint64 unix_millis = 5;
+}
+message ResolveRecoveryPointResponse {
+  string operation_id = 1;
+  string source_database = 2;
+  string recovery_point_id = 3;
+  string recovery_point_digest = 4;
+  string journal_cut = 5;
+  RestoreProvider provider = 6;
+  uint64 captured_at_millis = 7;
+  string checksum = 8;
+  uint64 row_count = 9;
+  repeated string placement = 10;
 }
 
 message RestoreStatsRequest {
@@ -991,6 +1013,8 @@ message PlacementProposalResponse {
   uint64 revision = 1;
   PlacementProposal proposal = 2;
   PlacementProposalStatus status = 3;
+  // Member-signed fresh join challenge bound to the staged proposal.
+  bytes join_challenge = 4;
 }
 
 // Dedicated GRU-authorized auth consensus bootstrap control. No user data.

@@ -179,3 +179,72 @@ func TestRunManifestRefusesMissingAdmissionAndInitialCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestFreshRegionalRunRequiresOwnMembershipAndNoGlobalRole(t *testing.T) {
+	seed, base, admission, dependencies := runAdmissionFixture(t)
+	initial, err := initialgrant.ParseConfig([]byte(seed.Settings))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission.HostID = "sfo-member-2"
+	global := admission.Global.Connection
+	for _, path := range []string{global.NKeySeedFile, global.TLS.CAFile, global.TLS.CertificateFile, global.TLS.KeyFile} {
+		delete(admission.Files, path)
+	}
+	admission.Global = nil
+	pins, err := json.Marshal(map[string]string{admission.HostID: initial.Membership.PublicKey}, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies[MembershipPinsPath] = pins
+	membership := initial.Membership
+	membership.PinsSHA256 = digest(pins)
+	host := RunHost{HostID: admission.HostID, Cell: "sfo", Membership: membership, InitialFiles: seed.Files}
+	material, err := PrepareRunManifest(base, admission, dependencies, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer material.Clear()
+	if material.ExpectedManifestSHA != "" {
+		t.Fatal("fresh ordinary member fabricated a predecessor")
+	}
+	if err := material.ValidateManifest(host.HostID, material.Manifest); err != nil {
+		t.Fatal(err)
+	}
+	if material.ValidatePredecessor(host.HostID, material.Manifest) == nil {
+		t.Fatal("ordinary finite grant treated as staged CAS")
+	}
+	host.Membership.PublicKey = membershipPublic(t)
+	if _, err := PrepareRunManifest(base, admission, dependencies, host); err == nil {
+		t.Fatal("foreign membership admitted")
+	}
+}
+
+func TestRunDeclarationRefusesSharedProductionIdentities(t *testing.T) {
+	_, _, first, _ := runAdmissionFixture(t)
+	_, _, second, _ := runAdmissionFixture(t)
+	second.HostID, second.Global = "sfo-member-2", nil
+	for _, scenario := range []string{"distinct", "nkey", "certificate"} {
+		t.Run(scenario, func(t *testing.T) {
+			other := second
+			switch scenario {
+			case "nkey":
+				other.Regional.Connection.PublicNKey = first.Regional.Connection.PublicNKey
+			case "certificate":
+				other.Regional.Connection.TLS.CertificateSHA256 = first.Regional.Connection.TLS.CertificateSHA256
+			}
+			raw, err := json.Marshal(RunDeclaration{Version: 1, Hosts: []RunAdmission{first, other}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "run.json")
+			if err := os.WriteFile(path, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err = LoadRunDeclaration(path)
+			if (err == nil) != (scenario == "distinct") {
+				t.Fatalf("identity admission result: %v", err)
+			}
+		})
+	}
+}

@@ -24,24 +24,18 @@ import (
 )
 
 type candidatePlanInput struct {
-	PrivateMaterialDirectory string               `json:"privateMaterialDirectory,omitempty"`
-	OwnerPrivateKeyFile      string               `json:"ownerPrivateKeyFile"`
-	PublicKeyFile            string               `json:"publicKeyFile"`
-	SourceNodeID             string               `json:"sourceNodeId"`
-	SourceBootstrapGrantFile string               `json:"sourceBootstrapGrantFile"`
-	TargetEpoch              uint64               `json:"targetEpoch"`
-	MinimumControlEpoch      uint64               `json:"minimumControlEpoch"`
-	TransitionID             string               `json:"transitionId"`
-	IssuedAt                 time.Time            `json:"issuedAt"`
-	ExpiresAt                time.Time            `json:"expiresAt"`
-	BootstrapExpiresAt       time.Time            `json:"bootstrapExpiresAt"`
-	Candidates               []candidatePlanEntry `json:"candidates"`
-}
-type candidatePlanEntry struct {
-	SyncGeneration   *vmcandidateseed.Declaration `json:"syncGeneration,omitempty"`
-	Manifest         hostmanifest.HostManifest    `json:"manifest"`
-	Config           transitiongrant.Config       `json:"config"`
-	BootstrapGrantID string                       `json:"bootstrapGrantId"`
+	PrivateMaterialDirectory string    `json:"privateMaterialDirectory,omitempty"`
+	OwnerPrivateKeyFile      string    `json:"ownerPrivateKeyFile"`
+	PublicKeyFile            string    `json:"publicKeyFile"`
+	SourceNodeID             string    `json:"sourceNodeId"`
+	SourceBootstrapGrantFile string    `json:"sourceBootstrapGrantFile"`
+	TargetEpoch              uint64    `json:"targetEpoch"`
+	MinimumControlEpoch      uint64    `json:"minimumControlEpoch"`
+	TransitionID             string    `json:"transitionId"`
+	IssuedAt                 time.Time `json:"issuedAt"`
+	ExpiresAt                time.Time `json:"expiresAt"`
+	BootstrapExpiresAt       time.Time `json:"bootstrapExpiresAt"`
+	Candidates               []Entry   `json:"candidates"`
 }
 type candidatePlanBundle struct {
 	PublicKeyPEM     string                `json:"publicKeyPem"`
@@ -111,10 +105,7 @@ func Run(ctx context.Context, path string, output io.Writer) error {
 		return bad
 	}
 	defer signer.Close()
-	plan := Plan{PrivateMaterialDirectory: input.PrivateMaterialDirectory, SourceNodeID: input.SourceNodeID, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, BootstrapExpiresAt: input.BootstrapExpiresAt}
-	for _, entry := range input.Candidates {
-		plan.Candidates = append(plan.Candidates, Entry{SyncGeneration: entry.SyncGeneration, Manifest: entry.Manifest, Config: entry.Config, BootstrapGrantID: entry.BootstrapGrantID})
-	}
+	plan := Plan{PrivateMaterialDirectory: input.PrivateMaterialDirectory, SourceNodeID: input.SourceNodeID, TargetEpoch: input.TargetEpoch, MinimumControlEpoch: input.MinimumControlEpoch, TransitionID: input.TransitionID, IssuedAt: input.IssuedAt, ExpiresAt: input.ExpiresAt, BootstrapExpiresAt: input.BootstrapExpiresAt, Candidates: input.Candidates}
 	encoded, err := Prepare(ctx, plan, public, source, signer)
 	if err != nil {
 		return err

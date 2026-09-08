@@ -10,12 +10,15 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/vmqualbootstrap"
 )
 
-func (factory *firecrackerFactory) prepareGuest(ctx context.Context, guest vmqual.Guest) error {
+func (factory *firecrackerFactory) prepareGuestAdmission(ctx context.Context, guest vmqual.Guest) error {
 	services, ok := factory.services.(*qualificationRuntimeServices)
 	if !ok || services == nil || guest.Region == "GRU" {
 		return nil
 	}
-	return services.prepareCandidate(ctx, guest)
+	if err := services.prepareCandidate(ctx, guest); err != nil {
+		return err
+	}
+	return services.prepareOrdinary(ctx, guest)
 }
 
 // guestReady is called only after the provider's real ready transition. The

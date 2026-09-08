@@ -238,6 +238,25 @@ func TestHostRelocationUnknownStageRestartRequiresFinalProof(t *testing.T) {
 	if err := worker.Revalidate(t.Context(), "remove-stage", removed.ServerIdentity, revision); err == nil {
 		t.Fatal("uncommitted successor authorized host removal")
 	}
+	owner := &hostremoval.Owner{
+		Journal: worker.Removal, Inventory: worker.Capture, Replace: worker.Replace,
+		Revalidate: worker.Revalidate, Fence: worker.Fence,
+		Observe: func(context.Context, string) (bool, error) {
+			t.Fatal("removal owner reached provider effects without final proof")
+			return false, nil
+		},
+		Terminate: func(context.Context, string) error {
+			t.Fatal("removal owner terminated without final proof")
+			return nil
+		},
+		ReconcileTermination: func(context.Context, string) error {
+			t.Fatal("removal owner completed termination without final proof")
+			return nil
+		},
+	}
+	if err := owner.RemoveMember(t.Context(), "remove-stage", member, member.Generation); !errors.Is(err, noProof) {
+		t.Fatalf("owner did not preserve missing-proof failure: %v", err)
+	}
 	retained, err := worker.Journal.Load(t.Context(), plan.OperationID)
 	if err != nil || retained.Ready || len(retained.Accepted.Payload) > 0 || len(retained.Prepared.Payload) == 0 {
 		t.Fatalf("unexpected durable stage: %+v %v", retained, err)
@@ -251,7 +270,7 @@ func TestHostRelocationUnknownStageRestartRequiresFinalProof(t *testing.T) {
 	if before != after {
 		t.Fatal("incomplete successor changed admitted current placement")
 	}
-	if installs != 3 {
+	if installs != 4 {
 		t.Fatalf("expected idempotent install retry, got %d", installs)
 	}
 }

@@ -463,6 +463,17 @@ func ComputeTerminateMutationScope(request ComputeTerminateRequest) string {
 var ErrComputeTerminationPending = errors.New("OCI compute termination is pending")
 
 func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request ComputeTerminateRequest) error {
+	return a.terminateInstance(ctx, request, true)
+}
+
+// ReconcileInstanceTermination completes the retained mutation only after an
+// exact terminal provider read. It cannot submit a DELETE, even if a later
+// observation disagrees with the removal owner's earlier terminal observation.
+func (a *OCIComputeAdapter) ReconcileInstanceTermination(ctx context.Context, request ComputeTerminateRequest) error {
+	return a.terminateInstance(ctx, request, false)
+}
+
+func (a *OCIComputeAdapter) terminateInstance(ctx context.Context, request ComputeTerminateRequest, submit bool) error {
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
 	}
@@ -479,7 +490,7 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	if err != nil {
 		return err
 	}
-	if _, done, err := completedMutation(record); done {
+	if _, done, err := completedMutation(record); done && submit {
 		return err
 	}
 	current, found, err := a.GetInstance(ctx, request.InstanceID)
@@ -490,12 +501,18 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 		return ErrComputeTerminationPending
 	}
 	if current.LifecycleState == "TERMINATED" {
+		if _, done, err := completedMutation(record); done {
+			return err
+		}
 		if record.State == MutationPrepared {
 			if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 				return err
 			}
 		}
 		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
+	}
+	if !submit {
+		return ErrComputeTerminationPending
 	}
 	if record.State == MutationSubmitted || record.State == MutationUnknown {
 		return ErrComputeTerminationPending

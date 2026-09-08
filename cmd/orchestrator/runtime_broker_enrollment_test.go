@@ -56,6 +56,7 @@ func TestBrokerEnrollmentPendingRevocationKeepsAutoscaleRemovalRetryable(t *test
 }
 
 func TestBrokerEnrollmentPublisherAndScopedReaderUseRealR3(t *testing.T) {
+	const clusterID = "01ARZ3NDEKTSV4RRFFQ69G5FAK"
 	cluster := newRotationStateCluster(t)
 	root := cluster.connect(t)
 	store := openRotationTestLeaseStore(t, t.Context(), root, true)
@@ -83,11 +84,11 @@ func TestBrokerEnrollmentPublisherAndScopedReaderUseRealR3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := brokeradmission.NewPublisher(authorityjournal.Config{Connection: worker, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, signer, verifier, "production", "cluster")
+	publisher, err := brokeradmission.NewPublisher(authorityjournal.Config{Connection: worker, CandidateID: lease.CandidateId, AuthorityEpoch: uint64(lease.Epoch), LeaseID: lease.LeaseId}, signer, verifier, "production", clusterID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := enrollment.Record{Environment: "production", Cluster: "cluster", NodeID: "gru-3", MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAB", Region: "gru", Slot: 3, Generation: 7, OperationID: "enroll-three", IdentityReference: "ocivault:identity", Public: &enrollment.PublicBootstrap{Grant: []byte("published-bootstrap"), PublicKeys: map[string]string{}}}
+	record := enrollment.Record{Environment: "production", Cluster: clusterID, NodeID: "gru-3", MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAB", Region: "gru", Slot: 3, Generation: 7, OperationID: "enroll-three", IdentityReference: "ocivault:identity", Public: &enrollment.PublicBootstrap{Grant: []byte("published-bootstrap"), PublicKeys: map[string]string{}}}
 	for _, role := range brokeradmission.Roles {
 		pair, err := nkeys.CreateUser()
 		if err != nil {
@@ -158,7 +159,7 @@ func TestBrokerEnrollmentPublisherAndScopedReaderUseRealR3(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint := filepath.Join(cluster.root, "broker-checkpoint", "accepted.json")
-	file := productionBrokerAdmissionFile{Version: 1, BrokerID: "broker-one", Environment: "production", Cluster: "cluster", SignerPublicKeyFile: publicPath, SignerSHA256: signer.PublicKeyID(), CheckpointPath: checkpoint, MinimumRevision: desired.Revision, Regions: map[string]brokeradmission.Accounts{"gru": {Global: "CONTROL", Regional: "CONTROL", Node: "CONTROL"}}, Reader: bootstrapcredentials.Reference{URL: root.ConnectedUrl(), CAFile: cluster.authorityConfig.Tls.CaFile, CertificateFile: cluster.authorityConfig.Tls.CertificateFile, PrivateKeyFile: cluster.authorityConfig.Tls.KeyFile, NKeySeedFile: seedPath}}
+	file := productionBrokerAdmissionFile{Version: 1, BrokerID: "broker-one", Environment: "production", Cluster: clusterID, SignerPublicKeyFile: publicPath, SignerSHA256: signer.PublicKeyID(), CheckpointPath: checkpoint, MinimumRevision: desired.Revision, Regions: map[string]brokeradmission.Accounts{"gru": {Global: "CONTROL", Regional: "CONTROL", Node: "CONTROL"}}, Reader: bootstrapcredentials.Reference{URL: root.ConnectedUrl(), CAFile: cluster.authorityConfig.Tls.CaFile, CertificateFile: cluster.authorityConfig.Tls.CertificateFile, PrivateKeyFile: cluster.authorityConfig.Tls.KeyFile, NKeySeedFile: seedPath}}
 	file.BrokerIDs = []string{"broker-one"}
 	file.ReaderGrants = []brokeradmission.ReaderGrant{{BrokerID: "broker-one", PublicNKey: readerPublic, Account: "CONTROL"}}
 	encoded, err := json.Marshal(file)

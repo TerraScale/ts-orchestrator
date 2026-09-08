@@ -30,7 +30,10 @@ func (services *qualificationRuntimeServices) bootstrapCandidate(guest vmqual.Gu
 	}
 	material, ok := services.controlAdmission.candidates[guest.ID]
 	manifest := services.controlAdmission.candidateManifests[guest.ID]
-	if !ok || material.Config.Region != strings.ToLower(string(guest.Region)) || material.ValidateManifest(manifest) != nil {
+	if !ok {
+		return services.bootstrapOrdinaryRun(guest)
+	}
+	if material.Config.Region != strings.ToLower(string(guest.Region)) || material.ValidateManifest(manifest) != nil {
 		return vmimage.TSNodeBootstrap{}, nil, bad
 	}
 	preparation, err := transitiongrant.VerifyGrant(material.PublicKeyPEM, material.PreparationGrant)
@@ -57,13 +60,22 @@ func (services *qualificationRuntimeServices) bootstrapCandidate(guest vmqual.Gu
 	if identity == nil || membership == nil || !natsOK || !artifactOK {
 		return vmimage.TSNodeBootstrap{}, nil, bad
 	}
+	run, err := services.prepareRemoteRun(guest, manifest, material.Files)
+	if err != nil {
+		return vmimage.TSNodeBootstrap{}, nil, err
+	}
 	engine := services.engineSeeds[guest.ID]
 	if engine != nil {
 		desired, err := hostmanifest.ParseHostManifest(manifest)
 		if err != nil {
 			return vmimage.TSNodeBootstrap{}, nil, err
 		}
-		if err := engine.ValidateManifest(guest.ID, engine.Address(), desired); err != nil {
+		if run != nil {
+			err = engine.ValidateStagedManifest(guest.ID, engine.Address(), desired, run.Manifest)
+		} else {
+			err = engine.ValidateManifest(guest.ID, engine.Address(), desired)
+		}
+		if err != nil {
 			return vmimage.TSNodeBootstrap{}, nil, err
 		}
 	}
@@ -91,7 +103,7 @@ func (services *qualificationRuntimeServices) bootstrapCandidate(guest vmqual.Gu
 		return vmimage.TSNodeBootstrap{}, nil, err
 	}
 	return vmimage.TSNodeBootstrap{
-		Engine: engine.Clone(), Candidate: copied,
+		Engine: engine.Clone(), Candidate: copied, ControllerRun: run.Clone(),
 		InitialGrant:                 &vmimage.TSNodeInitialGrant{PublicKeyPEM: bytes.Clone(material.PublicKeyPEM), SignedGrant: bytes.Clone(material.BootstrapGrant)},
 		MembershipIdentityPrivateKey: bytes.Clone(membership.PrivatePEM), MembershipPins: pins,
 		Version: tsNode.manifest.Version, Binary: bytes.Clone(tsNode.binary), SHA256: tsNode.manifest.SHA256, Signature: bytes.Clone(tsNode.signature), ReleasePublicKey: bytes.Clone(services.publicKey),

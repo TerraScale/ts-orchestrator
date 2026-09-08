@@ -61,6 +61,9 @@ func validState(s state) error {
 		if !token(op) || !digest(e.RequestDigest) || json.Unmarshal(e.Proof.Payload, &p, json.RejectUnknownMembers(true)) != nil || p.Request.OperationID != op || p.RequestDigest != e.RequestDigest || p.SchemaVersion != 1 || p.Kind != "accepted_epoch" || p.AuthorityEpoch == 0 || p.JournalRevision == 0 {
 			return ErrInvalid
 		}
+		if p.MemberReceiptKeys != nil && !validMemberReceiptInventory(p) {
+			return ErrInvalid
+		}
 		d, err := RequestDigest(p.Request)
 		if err != nil || d != e.RequestDigest {
 			return ErrInvalid

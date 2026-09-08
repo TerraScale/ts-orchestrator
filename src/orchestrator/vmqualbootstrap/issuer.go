@@ -73,18 +73,23 @@ func (i *Issuer) Grant(host string, manifest hostmanifest.HostManifest) (Materia
 	if len(i.grants) >= 256 {
 		return Material{}, errors.New("vmqual: initial grant host bound exceeded")
 	}
-	hash := sha256.Sum256(append(append(append([]byte(nil), i.public...), []byte(host)...), canonical...))
-	grant := hostagent.BootstrapGrant{Version: 1, GrantID: "vmq-initial-" + hex.EncodeToString(hash[:16]), NodeID: host, Manifest: manifest, IssuedAt: i.issued, ExpiresAt: i.issued.Add(24 * time.Hour)}
-	signed, err := hostagent.SignBootstrapGrant(i.signer, grant)
-	if err != nil {
-		return Material{}, err
-	}
-	material := Material{PublicKeyPEM: append([]byte(nil), i.public...), SignedGrant: signed}
-	if i.persistent != nil {
-		material, err = i.persistent.saveGrant(host, manifest, material)
+	create := func() (Material, error) {
+		hash := sha256.Sum256(append(append(append([]byte(nil), i.public...), []byte(host)...), canonical...))
+		grant := hostagent.BootstrapGrant{Version: 1, GrantID: "vmq-initial-" + hex.EncodeToString(hash[:16]), NodeID: host, Manifest: manifest, IssuedAt: i.issued, ExpiresAt: i.issued.Add(24 * time.Hour)}
+		signed, err := hostagent.SignBootstrapGrant(i.signer, grant)
 		if err != nil {
 			return Material{}, err
 		}
+		return Material{PublicKeyPEM: append([]byte(nil), i.public...), SignedGrant: signed}, nil
+	}
+	var material Material
+	if i.persistent != nil {
+		material, err = i.persistent.loadGrant(host, manifest, i.public, create)
+	} else {
+		material, err = create()
+	}
+	if err != nil {
+		return Material{}, err
 	}
 	i.grants[host] = material
 	return cloneMaterial(material), nil

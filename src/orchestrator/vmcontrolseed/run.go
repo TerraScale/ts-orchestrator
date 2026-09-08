@@ -74,9 +74,21 @@ func LoadRunDeclaration(path string) (RunDeclaration, error) {
 	}
 	seen := map[string]bool{}
 	global := false
+	keys := map[string]bool{}
+	certificates := map[string]bool{}
 	for _, host := range declaration.Hosts {
 		if !identifierPattern.MatchString(host.HostID) || (!strings.HasPrefix(host.HostID, "gru-") && !strings.HasPrefix(host.HostID, "sfo-") && !strings.HasPrefix(host.HostID, "fra-")) || seen[host.HostID] || host.Generation == 0 || host.Generation > 1<<63-1 {
 			return RunDeclaration{}, errors.New("vmcontrolseed: invalid run host or desired generation")
+		}
+		for _, connection := range []*RunConnection{&host.Regional, host.Global} {
+			if connection == nil {
+				continue
+			}
+			key, cert := connection.Connection.PublicNKey, connection.Connection.TLS.CertificateSHA256
+			if keys[key] || certificates[cert] {
+				return RunDeclaration{}, errors.New("vmcontrolseed: run hosts must have distinct production identities")
+			}
+			keys[key], certificates[cert] = true, true
 		}
 		seen[host.HostID] = true
 		if host.Global != nil && !strings.HasPrefix(host.HostID, "gru-") {

@@ -292,11 +292,11 @@ func TestComputeApplyAdvancesThroughQualifiedCandidates(t *testing.T) {
 	}
 	gateway := &fakeComputeGateway{noCapacity: map[string]bool{"VM.Standard.A1.Flex": true, "VM.Standard.E5.Flex": true}}
 	reconciler := &ComputeReconciler{Compute: gateway, Network: &fakeNetworkGateway{}}
-	plan, err := reconciler.Reconcile(context.Background(), declared, testComputeObserved())
+	plan, err := reconciler.Reconcile(t.Context(), declared, testComputeObserved())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reconciler.Apply(context.Background(), declared, testComputeObserved(), plan); err != nil {
+	if err := reconciler.Apply(t.Context(), declared, testComputeObserved(), plan); err != nil {
 		t.Fatalf("Apply through qualified candidates failed: %v", err)
 	}
 	if len(gateway.launches) != 6 {
@@ -309,6 +309,52 @@ func TestComputeApplyAdvancesThroughQualifiedCandidates(t *testing.T) {
 		if launch.Shape == "VM.Standard.E5.Flex" && launch.CloudInitBase64 != "x86-bootstrap" {
 			t.Fatalf("x86 candidate cloud-init = %q, want architecture-matched bootstrap", launch.CloudInitBase64)
 		}
+	}
+	observed := testComputeObserved()
+	observed.Members = gateway.members
+	plan, err = reconciler.Reconcile(t.Context(), declared, observed)
+	if err != nil || !plan.Empty() {
+		t.Fatalf("third candidate reconcile = %v, %v; want empty plan", plan.Kinds(), err)
+	}
+	converged, err := reconciler.bootstrapConverged(observed, declared)
+	if err != nil || !converged {
+		t.Fatalf("third candidate convergence = %v, %v; want true", converged, err)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		shape     string
+		perMember bool
+		converged bool
+	}{
+		{name: "unlisted shape", shape: "VM.Standard.E6.Flex"},
+		{name: "member candidate", shape: "VM.Standard.E6.Flex", perMember: true, converged: true},
+		{name: "member excludes pool fallback", shape: "VM.Standard.E5.Flex", perMember: true},
+		{name: "member excludes global candidate", shape: "VM.Standard.E4.Flex", perMember: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memberDeclared := declared
+			if tc.perMember {
+				candidate := declared.Candidates[2]
+				candidate.Shape = "VM.Standard.E6.Flex"
+				candidate.QualificationRef = "qual-e6"
+				candidate.CostRef = "cost-e6"
+				memberDeclared.CandidatesByMember = map[int][]MemberLaunchCandidate{1: {declared.Candidates[0], candidate}}
+			}
+			memberObserved := testComputeObserved()
+			memberObserved.Members = []ObservedMember{
+				testOwnedMember("gru", 1, tc.shape, "RUNNING", "AD-1"),
+				testOwnedMember("gru", 2, declared.Candidates[2].Shape, "RUNNING", "AD-2"),
+			}
+			plan, err := reconciler.Reconcile(t.Context(), memberDeclared, memberObserved)
+			if err != nil || plan.Empty() != tc.converged {
+				t.Fatalf("reconcile = %v, %v; want empty=%v", plan.Kinds(), err, tc.converged)
+			}
+			converged, err := reconciler.bootstrapConverged(memberObserved, memberDeclared)
+			if err != nil || converged != tc.converged {
+				t.Fatalf("convergence = %v, %v; want %v", converged, err, tc.converged)
+			}
+		})
 	}
 }
 

@@ -25,7 +25,6 @@ type productionDeploymentFile struct {
 }
 
 type productionGlobalFile struct {
-	MembershipRevocations productionMembershipRevocationsFile `json:"membership_revocations"`
 	Compute               productionGlobalComputeFile         `json:"compute"`
 	Estate                productionEstateFile                `json:"estate"`
 	HealthFile            string                              `json:"health_file"`

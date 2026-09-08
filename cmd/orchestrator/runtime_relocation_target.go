@@ -42,6 +42,7 @@ type productionRelocationTargets struct {
 	admission  *databaseadmission.NATSJournal
 	issuer     interface {
 		Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
+		IssueJoinCheckpoint(context.Context, placementtransition.JoinRequest) (placementtransition.Signed, error)
 	}
 	check                func(context.Context) error
 	environment, cluster string
@@ -57,6 +58,7 @@ type productionRelocationTarget struct {
 
 func newProductionRelocationTargets(session globalWorkerSession, config productionDatabaseConfig, gateways map[string]ocireconcile.ComputeGateway, ownership provider.DurableOwnershipEvidence, pending placementpublisher.Journal, issuer interface {
 	Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
+	IssueJoinCheckpoint(context.Context, placementtransition.JoinRequest) (placementtransition.Signed, error)
 }, admission *databaseadmission.NATSJournal) (*productionRelocationTargets, error) {
 	if session.Connection == nil || config.Environment == "" || config.Cluster == "" || len(gateways) == 0 || ownership == nil || !ownership.AuthoritativeDurable() || pending == nil || issuer == nil || admission == nil {
 		return nil, placementrelocation.ErrInvalid
@@ -231,25 +233,71 @@ func (f *productionRelocationTargets) Deliver(ctx context.Context, identity, ope
 	if !bytes.Equal(retained.Accepted.Payload, proof.Payload) || !bytes.Equal(retained.Accepted.Signature, proof.Signature) || retained.Accepted.KeyID != proof.KeyID {
 		return nil, placementrelocation.ErrConflict
 	}
-	valid := false
+	var selected *pb.PlacementStageRequest
 	for _, planned := range retained.Plan.Targets {
 		if planned.ServerIdentity == identity {
 			stage := newPlacementStageRequest(planned.Proposal)
-			valid = stage != nil && revision == stage.ExpectedRevision+1
+			if stage != nil && revision == stage.ExpectedRevision+1 {
+				selected = stage
+			}
 		}
 	}
-	if !valid {
+	if selected == nil {
 		return nil, placementrelocation.ErrConflict
 	}
 	target, err := f.Resolve(ctx, identity)
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := json.Marshal(proof)
+	envelope, err := f.acceptanceEnvelope(ctx, retained.Plan, identity, revision, selected, proof)
 	if err != nil {
 		return nil, err
 	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.check(ctx); err != nil {
+		return nil, err
+	}
 	return target.Remote.Accept(ctx, operation, &pb.PlacementAcceptRequest{ProposalRevision: revision, Proof: encoded})
+}
+
+// Only the retained replacement's first local proposal may import a checkpoint.
+// The nonce must come from the durable authenticated Stage receipt, never from
+// a caller-provided challenge or a fresh transport response on retry.
+func (f *productionRelocationTargets) acceptanceEnvelope(ctx context.Context, plan placementrelocation.Plan, identity string, revision uint64, stage *pb.PlacementStageRequest, proof placementtransition.Signed) (placementtransition.AcceptanceProof, error) {
+	envelope := placementtransition.AcceptedEnvelope(proof, nil)
+	if identity != plan.ReplacementIdentity || stage.ExpectedRevision != 0 {
+		return envelope, nil
+	}
+	issuer, ok := f.issuer.(interface {
+		IssueJoinCheckpoint(context.Context, placementtransition.JoinRequest) (placementtransition.Signed, error)
+	})
+	if !ok || f.Pending == nil || revision != 1 {
+		return placementtransition.AcceptanceProof{}, placementrelocation.ErrInvalid
+	}
+	record, err := f.Pending.Load(ctx, identity)
+	if err != nil {
+		return placementtransition.AcceptanceProof{}, err
+	}
+	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(stage)
+	if err != nil || record.OperationID != plan.OperationID || record.ServerIdentity != identity || !bytes.Equal(record.Request, encoded) {
+		return placementtransition.AcceptanceProof{}, placementrelocation.ErrConflict
+	}
+	receipt := new(pb.PlacementProposalResponse)
+	if proto.Unmarshal(record.Receipt, receipt) != nil || tbep.ValidatePlacementReceipt(receipt, stage.Proposal) != nil || receipt.Revision != revision || len(receipt.JoinChallenge) == 0 {
+		return placementtransition.AcceptanceProof{}, placementrelocation.ErrConflict
+	}
+	var challenge placementtransition.Signed
+	if json.Unmarshal(receipt.JoinChallenge, &challenge, json.RejectUnknownMembers(true)) != nil {
+		return placementtransition.AcceptanceProof{}, placementrelocation.ErrInvalid
+	}
+	checkpoint, err := issuer.IssueJoinCheckpoint(ctx, placementtransition.JoinRequest{OperationID: plan.OperationID, MemberIdentity: identity, Successor: proof, Prior: plan.PriorProof, Challenge: challenge})
+	if err != nil {
+		return placementtransition.AcceptanceProof{}, err
+	}
+	return placementtransition.AcceptedEnvelope(proof, &checkpoint), nil
 }
 
 func (f *productionRelocationTargets) Drain(ctx context.Context, request placementtransition.Request, prior placementtransition.Proof) ([]placementtransition.Signed, error) {

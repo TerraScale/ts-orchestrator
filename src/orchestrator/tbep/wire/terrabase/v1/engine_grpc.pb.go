@@ -1655,6 +1655,7 @@ var PlacementControlService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	LifecycleControlService_ResolveRecoveryPoint_FullMethodName    = "/terrabase.v1.LifecycleControlService/ResolveRecoveryPoint"
 	LifecycleControlService_RestoreToTarget_FullMethodName         = "/terrabase.v1.LifecycleControlService/RestoreToTarget"
 	LifecycleControlService_RestoreStats_FullMethodName            = "/terrabase.v1.LifecycleControlService/RestoreStats"
 	LifecycleControlService_EnsureSnapshot_FullMethodName          = "/terrabase.v1.LifecycleControlService/EnsureSnapshot"
@@ -1672,6 +1673,7 @@ const (
 // Authenticated private lifecycle control. Every mutation is bound to the
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 type LifecycleControlServiceClient interface {
+	ResolveRecoveryPoint(ctx context.Context, in *ResolveRecoveryPointRequest, opts ...grpc.CallOption) (*ResolveRecoveryPointResponse, error)
 	RestoreToTarget(ctx context.Context, in *RestoreToTargetRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
 	RestoreStats(ctx context.Context, in *RestoreStatsRequest, opts ...grpc.CallOption) (*RestoreStatsResponse, error)
 	EnsureSnapshot(ctx context.Context, in *LifecycleControlRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error)
@@ -1688,6 +1690,16 @@ type lifecycleControlServiceClient struct {
 
 func NewLifecycleControlServiceClient(cc grpc.ClientConnInterface) LifecycleControlServiceClient {
 	return &lifecycleControlServiceClient{cc}
+}
+
+func (c *lifecycleControlServiceClient) ResolveRecoveryPoint(ctx context.Context, in *ResolveRecoveryPointRequest, opts ...grpc.CallOption) (*ResolveRecoveryPointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveRecoveryPointResponse)
+	err := c.cc.Invoke(ctx, LifecycleControlService_ResolveRecoveryPoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *lifecycleControlServiceClient) RestoreToTarget(ctx context.Context, in *RestoreToTargetRequest, opts ...grpc.CallOption) (*LifecycleControlResponse, error) {
@@ -1777,6 +1789,7 @@ func (c *lifecycleControlServiceClient) DeleteOwnedData(ctx context.Context, in 
 // Authenticated private lifecycle control. Every mutation is bound to the
 // accepted placement and authority proof; mTLS identity alone is insufficient.
 type LifecycleControlServiceServer interface {
+	ResolveRecoveryPoint(context.Context, *ResolveRecoveryPointRequest) (*ResolveRecoveryPointResponse, error)
 	RestoreToTarget(context.Context, *RestoreToTargetRequest) (*LifecycleControlResponse, error)
 	RestoreStats(context.Context, *RestoreStatsRequest) (*RestoreStatsResponse, error)
 	EnsureSnapshot(context.Context, *LifecycleControlRequest) (*LifecycleControlResponse, error)
@@ -1795,6 +1808,9 @@ type LifecycleControlServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedLifecycleControlServiceServer struct{}
 
+func (UnimplementedLifecycleControlServiceServer) ResolveRecoveryPoint(context.Context, *ResolveRecoveryPointRequest) (*ResolveRecoveryPointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveRecoveryPoint not implemented")
+}
 func (UnimplementedLifecycleControlServiceServer) RestoreToTarget(context.Context, *RestoreToTargetRequest) (*LifecycleControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RestoreToTarget not implemented")
 }
@@ -1839,6 +1855,24 @@ func RegisterLifecycleControlServiceServer(s grpc.ServiceRegistrar, srv Lifecycl
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&LifecycleControlService_ServiceDesc, srv)
+}
+
+func _LifecycleControlService_ResolveRecoveryPoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveRecoveryPointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LifecycleControlServiceServer).ResolveRecoveryPoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LifecycleControlService_ResolveRecoveryPoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LifecycleControlServiceServer).ResolveRecoveryPoint(ctx, req.(*ResolveRecoveryPointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _LifecycleControlService_RestoreToTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -1992,6 +2026,10 @@ var LifecycleControlService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "terrabase.v1.LifecycleControlService",
 	HandlerType: (*LifecycleControlServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ResolveRecoveryPoint",
+			Handler:    _LifecycleControlService_ResolveRecoveryPoint_Handler,
+		},
 		{
 			MethodName: "RestoreToTarget",
 			Handler:    _LifecycleControlService_RestoreToTarget_Handler,

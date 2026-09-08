@@ -30,7 +30,6 @@ type CapabilityReceipt struct {
 	OperationID           string
 	RevocationRevision    uint64
 	Revocations           []CapabilityRevocation
-	MembershipRevocations *MembershipRevocationSnapshot
 }
 
 // CapabilityJournal does not grant authority; callers fence their provider effects.
@@ -186,7 +185,7 @@ func decodeCapabilityReceipt(raw []byte) (CapabilityReceipt, error) {
 	if len(receipt.Previous.ID) > 1024 || len(receipt.Previous.Reference) > 1024 {
 		return CapabilityReceipt{}, ErrCapabilityJournalUnavailable
 	}
-	if !validCapabilityRevocations(receipt.Revocations) || (receipt.MembershipRevocations != nil && !receipt.MembershipRevocations.valid()) {
+	if !validCapabilityRevocations(receipt.Revocations) {
 		return CapabilityReceipt{}, ErrCapabilityJournalUnavailable
 	}
 	return receipt, nil

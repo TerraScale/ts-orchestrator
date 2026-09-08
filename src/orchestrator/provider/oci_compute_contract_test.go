@@ -322,14 +322,23 @@ func TestOCIComputeTerminationWaitsForTerminalAndNeverRepeatsSubmission(t *testi
 			}
 			request := ComputeTerminateRequest{InstanceID: "ocid1.instance.oc1.x", IfMatch: "etag-before"}
 			request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
+			if err := construct().ReconcileInstanceTermination(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) || deletes != 0 {
+				t.Fatalf("reconciliation submitted a live instance: deletes=%d error=%v", deletes, err)
+			}
 			if err := construct().TerminateInstance(t.Context(), request); err == nil {
 				t.Fatal("accepted or unknown result completed before terminal")
 			}
 			reads404 = true
+			if err := construct().ReconcileInstanceTermination(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
+				t.Fatalf("reconciliation interpreted 404 as terminal: %v", err)
+			}
 			if err := construct().TerminateInstance(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
 				t.Fatalf("404 interpreted as terminal: %v", err)
 			}
 			reads404 = false
+			if err := construct().ReconcileInstanceTermination(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
+				t.Fatalf("reconciliation completed terminating instance: %v", err)
+			}
 			if err := construct().TerminateInstance(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
 				t.Fatalf("terminating restart: %v", err)
 			}
@@ -337,12 +346,16 @@ func TestOCIComputeTerminationWaitsForTerminalAndNeverRepeatsSubmission(t *testi
 				t.Fatalf("duplicate destructive request: %d", deletes)
 			}
 			state = "TERMINATED"
-			if err := construct().TerminateInstance(t.Context(), request); err != nil {
+			if err := construct().ReconcileInstanceTermination(t.Context(), request); err != nil {
 				t.Fatal(err)
 			}
 			record, err := journal.Prepare(t.Context(), request.Mutation)
 			if err != nil || record.State != MutationSucceeded || deletes != 1 {
 				t.Fatalf("terminal record=%+v calls=%d err=%v", record, deletes, err)
+			}
+			reads404 = true
+			if err := construct().ReconcileInstanceTermination(t.Context(), request); !errors.Is(err, ErrComputeTerminationPending) {
+				t.Fatalf("completed reconciliation skipped authoritative terminal read: %v", err)
 			}
 		})
 	}

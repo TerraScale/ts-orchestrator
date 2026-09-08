@@ -150,7 +150,7 @@ func New(config Config) (*Controller, error) {
 	if config.LowSamples == 0 {
 		config.LowSamples = 3
 	}
-	if config.MinMembers < 2 || config.MaxMembers < config.MinMembers || config.CPUThreshold <= 0 || config.CPUThreshold > 100 || config.MemoryThreshold <= 0 || config.MemoryThreshold > 100 || config.QueueThreshold < 0 || config.HighSamples <= 0 || config.LowSamples <= 0 || config.Cooldown < 0 || config.ObservationMaxAge <= 0 {
+	if config.MinMembers < 2 || config.MaxMembers < config.MinMembers || !(config.CPUThreshold > 0 && config.CPUThreshold <= 100) || !(config.MemoryThreshold > 0 && config.MemoryThreshold <= 100) || config.QueueThreshold < 0 || config.HighSamples <= 0 || config.LowSamples <= 0 || config.Cooldown < 0 || config.ObservationMaxAge <= 0 {
 		return nil, errors.New("autoscale: invalid bounds")
 	}
 	return &Controller{config: config}, nil
@@ -280,7 +280,7 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	}
 	// A changed admitted set or boot establishes a baseline; pressure must
 	// then accumulate from fresh samples of that complete set and boot.
-	high := !membershipChanged && !bootChanged && allHigh(observations, c.config)
+	high := !membershipChanged && !bootChanged && anyHigh(observations, c.config)
 	low := !membershipChanged && !bootChanged && allLow(observations, c.config) && allRemovalProofs(observations)
 	if high {
 		state.ConsecutiveHighSamples++
@@ -442,22 +442,17 @@ func observationSequences(values []Observation) map[string]int64 {
 	return result
 }
 
-func allHigh(values []Observation, config Config) bool {
-	for _, value := range values {
-		if value.CPUPercent < config.CPUThreshold || value.MemoryPercent < config.MemoryThreshold || value.QueueCapacity > 0 && value.QueueDepth < config.QueueThreshold {
-			return false
-		}
-	}
-	return true
+// A single saturated resource or hot member can exhaust serving headroom.
+// Requiring simultaneous pressure across resources and hosts hides bottlenecks.
+// A zero queue threshold disables that optional signal.
+func anyHigh(values []Observation, config Config) bool {
+	return slices.ContainsFunc(values, func(value Observation) bool {
+		return value.CPUPercent >= config.CPUThreshold || value.MemoryPercent >= config.MemoryThreshold || config.QueueThreshold > 0 && value.QueueCapacity > 0 && value.QueueDepth >= config.QueueThreshold
+	})
 }
 
 func allLow(values []Observation, config Config) bool {
-	for _, value := range values {
-		if value.CPUPercent >= config.CPUThreshold || value.MemoryPercent >= config.MemoryThreshold || value.QueueCapacity > 0 && value.QueueDepth >= config.QueueThreshold {
-			return false
-		}
-	}
-	return true
+	return !anyHigh(values, config)
 }
 
 func allRemovalProofs(values []Observation) bool {

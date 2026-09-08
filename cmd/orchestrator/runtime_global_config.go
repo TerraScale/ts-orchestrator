@@ -134,10 +134,6 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	if err != nil {
 		return fail(fmt.Errorf("global edge provider: %w", err))
 	}
-	config.MembershipRevocations, err = input.Global.MembershipRevocations.Construct(capabilityStore, session.CheckEffectAuthority)
-	if err != nil {
-		return fail(fmt.Errorf("global membership revocations: %w", err))
-	}
 
 	kv, closeKV, err := constructProductionKVWriter(input.Global.KV, input.Spec, input.Global.HealthFile, session)
 	if err != nil {

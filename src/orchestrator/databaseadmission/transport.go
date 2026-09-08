@@ -436,6 +436,9 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		if handleHostDeletion(opctx, c, client, message) {
 			return
 		}
+		if handleHostBudgetAllocation(opctx, c, client, message) {
+			return
+		}
 		if handleHostUsage(opctx, c, client, message) {
 			return
 		}

@@ -382,7 +382,7 @@ func (f *firecrackerFactory) Create(ctx context.Context, guest vmqual.Guest) (vm
 	if guest.ID == "" || strings.ContainsAny(guest.ID, `/\\\x00`) || guest.Region == "" || guest.VCPU != 1 || guest.MemoryMiB < 256 || guest.MemoryMiB > vmqual.MaxGuestMemoryMiB {
 		return nil, fmt.Errorf("vmqual: invalid guest %q", guest.ID)
 	}
-	if err := f.prepareGuest(ctx, guest); err != nil {
+	if err := f.prepareGuestAdmission(ctx, guest); err != nil {
 		return nil, fmt.Errorf("vmqual: prepare admitted guest stage: %w", err)
 	}
 	resources, err := f.PlanResources(ctx, guest)

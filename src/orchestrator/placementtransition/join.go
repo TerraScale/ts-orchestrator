@@ -89,6 +89,9 @@ func (i *Issuer) IssueJoinCheckpoint(ctx context.Context, request JoinRequest) (
 	if verify(request.Successor, i.key.Public().(ed25519.PublicKey), &successor) != nil || verify(request.Prior, i.key.Public().(ed25519.PublicKey), &prior) != nil {
 		return Signed{}, ErrInvalid
 	}
+	if !validMemberReceiptInventory(successor) || !validMemberReceiptInventory(prior) {
+		return Signed{}, ErrInvalid
+	}
 	memberIndex := slices.IndexFunc(successor.Request.Members, func(member Member) bool { return member.Identity == request.MemberIdentity })
 	if memberIndex < 0 || successor.Kind != "accepted_epoch" || prior.Kind != "accepted_epoch" || successor.Request.OperationID != request.OperationID || successor.Request.ScopeID != prior.Request.ScopeID || successor.Request.PriorEpoch != prior.Request.Epoch || successor.PriorGeneration != prior.Request.Generation || successor.PreviousProofDigest != hash(request.Prior.Payload) || successor.AuthorityEpoch > i.epoch {
 		return Signed{}, ErrConflict
@@ -120,8 +123,10 @@ func (i *Issuer) IssueJoinCheckpoint(ctx context.Context, request JoinRequest) (
 			return ErrInvalid
 		}
 		now := time.Now().UTC()
-		checkpoint := JoinCheckpoint{SchemaVersion: 1, Kind: "placement_join", ScopeID: successor.Request.ScopeID, MemberIdentity: member.Identity, MemberRegion: member.Region, MemberGeneration: admitted.Generation, ProviderResourceID: admitted.ResourceID, BootstrapNonce: challenge.BootstrapNonce, PriorProof: request.Prior, PriorProofDigest: hash(request.Prior.Payload), AcceptedProofDigest: hash(request.Successor.Payload), SuccessorRequestDigest: successor.RequestDigest, StageProposalDigest: member.PlacementDigest, ProposalRevision: challenge.ProposalRevision, AuthorityEpoch: i.epoch, LeaseID: i.leaseID, CandidateID: i.candidateID, IssuedAtUnixMillis: now.UnixMilli(), ExpiresAtUnixMillis: now.Add(10 * time.Minute).UnixMilli()}
-		result, err = SignEvidence(i.keyID, i.key, checkpoint)
+		checkpoint := JoinCheckpoint{SchemaVersion: 1, Kind: "placement_join", ScopeID: successor.Request.ScopeID, MemberIdentity: member.Identity, MemberRegion: member.Region, MemberGeneration: admitted.Generation, ProviderResourceID: admitted.ResourceID, BootstrapNonce: challenge.BootstrapNonce, PriorProof: request.Prior, PriorProofDigest: hash(request.Prior.Payload), AcceptedProofDigest: hash(request.Successor.Payload), SuccessorRequestDigest: successor.RequestDigest, StageProposalDigest: member.PlacementDigest, ProposalRevision: challenge.ProposalRevision, AuthorityEpoch: i.epoch, LeaseID: i.leaseID, CandidateID: i.candidateID, IssuedAtUnixMillis: now.UnixMilli(), ExpiresAtUnixMillis: now.Add(5 * time.Minute).UnixMilli()}
+		// One bounded prior proof expands by base64 inside the checkpoint.
+		// Keep ordinary evidence at 64 KiB and the complete acceptance below 256 KiB.
+		result, err = signBoundedEvidence(i.keyID, i.key, checkpoint, 96<<10)
 		return err
 	})
 	if err != nil {

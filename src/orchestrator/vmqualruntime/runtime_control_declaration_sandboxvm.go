@@ -29,6 +29,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/nodeauthority"
 	runtimeplan "terrascale.tech/orchestrator/src/orchestrator/runtime"
 	"terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed"
+	"terrascale.tech/orchestrator/src/orchestrator/vmcontrolseed"
 	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 )
@@ -55,9 +56,10 @@ type qualificationControlStoreDeclaration struct {
 	Files  map[string]qualificationControlFile `json:"files"`
 }
 type qualificationControlMemberDeclaration struct {
-	Member        bootstrap.ControlRuntimeMember `json:"member"`
-	Generation    int64                          `json:"generation"`
-	MembershipKey qualificationControlFile       `json:"membershipKey"`
+	Member          bootstrap.ControlRuntimeMember        `json:"member"`
+	Generation      int64                                 `json:"generation"`
+	MembershipKey   qualificationControlFile              `json:"membershipKey"`
+	AuthorityReader *qualificationControlStoreDeclaration `json:"authorityReader,omitempty"`
 }
 type qualificationControlActionDeclaration struct {
 	Plan         bootstrap.ControlRuntimeActionPlan `json:"plan"`
@@ -83,20 +85,26 @@ type qualificationControlPayload struct {
 	CandidatePlan *candidateplan.Plan                             `json:"candidatePlan,omitempty"`
 }
 type qualificationControlAdmission struct {
-	prepareMu          sync.Mutex
-	candidatePlan      *candidateplan.Plan
-	ownerPublic        []byte
-	candidateBundle    []byte
-	source             *qualificationAdmittedControlSource
-	candidates         map[string]vmcandidateseed.Material
-	candidateManifests map[string][]byte
-	memberships        map[string]*qualificationMembershipIdentity
-	releases           []func()
+	prepareMu           sync.Mutex
+	candidatePlan       *candidateplan.Plan
+	ownerPublic         []byte
+	candidateBundle     []byte
+	authorityReaders    map[string]qualificationControlStoreDeclaration
+	ordinaryAuthorities map[string]*vmcontrolseed.AuthorityMaterial
+	ordinaryReady       map[string]bool
+	source              *qualificationAdmittedControlSource
+	candidates          map[string]vmcandidateseed.Material
+	candidateManifests  map[string][]byte
+	memberships         map[string]*qualificationMembershipIdentity
+	releases            []func()
 }
 
 func (a *qualificationControlAdmission) Clear() {
 	if a == nil {
 		return
+	}
+	for _, m := range a.ordinaryAuthorities {
+		m.Clear()
 	}
 	for _, m := range a.candidates {
 		m.Clear()
@@ -170,6 +178,9 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		seenArtifacts[artifact.Component] = true
 	}
 	result := &qualificationControlAdmission{source: &qualificationAdmittedControlSource{config: bootstrap.NATSControlRuntimeConfig{Stores: map[string]bootstrap.ControlNATSStore{}}, admissions: map[string]qualificationControlHostAdmission{}, expectedStoreServers: map[string]string{}, admittedIssuedAt: admitted.IssuedAt, admittedExpiresAt: admitted.ExpiresAt}, candidates: map[string]vmcandidateseed.Material{}, candidateManifests: map[string][]byte{}, memberships: map[string]*qualificationMembershipIdentity{}}
+	result.authorityReaders = map[string]qualificationControlStoreDeclaration{}
+	result.ordinaryAuthorities = map[string]*vmcontrolseed.AuthorityMaterial{}
+	result.ordinaryReady = map[string]bool{}
 	defer func() {
 		if err != nil {
 			result.Clear()
@@ -217,6 +228,20 @@ func loadQualificationControlDeclaration(path string, plan vmnet.NetworkPlan, ar
 		}
 		if _, ok := result.source.config.Stores[member.Store]; !ok {
 			return nil, errQualificationControlDeclaration
+		}
+		if entry.AuthorityReader != nil {
+			declared := *entry.AuthorityReader
+			reader := declared.Reader
+			store := admitted.Stores[member.Store].Reader
+			if reader.NKeySeedFile != vmcontrolseed.AuthorityNKeyPath || reader.CAFile != vmcontrolseed.AuthorityCAPath || reader.CertificateFile != vmcontrolseed.AuthorityCertificatePath || reader.KeyFile != vmcontrolseed.AuthorityPrivateKeyPath || reader.Endpoint != store.Endpoint || reader.ServerName != store.ServerName || reader.Account != store.Account || reader.PublicNKey == store.PublicNKey {
+				return nil, errQualificationControlDeclaration
+			}
+			_, release, err := loadQualificationControlStore(declared)
+			if err != nil {
+				return nil, err
+			}
+			release()
+			result.authorityReaders[member.HostID] = declared
 		}
 		private, loadErr := readQualificationControlFile(entry.MembershipKey, true, 64<<10)
 		if loadErr != nil {

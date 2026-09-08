@@ -114,6 +114,7 @@ type TSNodeBootstrap struct {
 	Engine                       *vmengineconfig.Material
 	Controller                   *vmcontrolseed.Material
 	ControllerRun                *vmcontrolseed.RunMaterial
+	OrdinaryAuthority            *vmcontrolseed.AuthorityMaterial
 	Candidate                    *vmcandidateseed.Material
 	InitialGrant                 *TSNodeInitialGrant
 	MembershipIdentityPrivateKey []byte
@@ -210,6 +211,11 @@ func canonicalTSNodeBootstrap(input TSNodeBootstrap, architecture Architecture) 
 		return tsNodeBootstrapMaterial{}, err
 	}
 	commandFiles = append(commandFiles, controllerFiles...)
+	authorityFiles, err := canonicalOrdinaryAuthorityBootstrap(input)
+	if err != nil {
+		return tsNodeBootstrapMaterial{}, err
+	}
+	commandFiles = append(commandFiles, authorityFiles...)
 	candidateFiles, err := canonicalCandidateBootstrap(input)
 	if err != nil {
 		return tsNodeBootstrapMaterial{}, err

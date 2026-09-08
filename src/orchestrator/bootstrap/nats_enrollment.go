@@ -4,13 +4,16 @@ import (
 	"context"
 	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"terrascale.tech/orchestrator/src/orchestrator/brokeradmission"
 )
 
 type EnrollmentBrokerConfig struct {
-	Source interface {
+	ReaderGrants []brokeradmission.ReaderGrant
+	BrokerIDs    []string
+	Source       interface {
 		Read(context.Context) ([]byte, error)
 		Ack(context.Context, []byte) error
 	}
@@ -38,6 +41,20 @@ func prepareEnrollmentBroker(ctx context.Context, baseline *server.Options, conf
 	if baseline == nil || config.Verifier == nil || config.CheckAuthority == nil || !filepath.IsAbs(config.CheckpointPath) || config.Policy.Environment == "" || config.Policy.Cluster == "" || len(config.Policy.Regions) == 0 || config.Policy.RegionalPermissions == nil {
 		return nil, brokeradmission.ErrInvalid
 	}
+	frozen := *config
+	frozen.ReaderGrants = slices.Clone(config.ReaderGrants)
+	frozen.BrokerIDs = slices.Clone(config.BrokerIDs)
+	frozen.Policy.Regions = maps.Clone(config.Policy.Regions)
+	frozen.Policy.ProtectedNKeys = slices.Clone(config.Policy.ProtectedNKeys)
+	var err error
+	baseline, err = brokeradmission.ApplyReaderGrants(baseline, frozen.ReaderGrants, frozen.BrokerIDs, frozen.Policy)
+	if err != nil {
+		return nil, err
+	}
+	for _, grant := range frozen.ReaderGrants {
+		frozen.Policy.ProtectedNKeys = append(frozen.Policy.ProtectedNKeys, grant.PublicNKey)
+	}
+	config = &frozen
 	_, desired, err := brokeradmission.ReadCheckpoint(config.CheckpointPath, config.Verifier)
 	if err != nil {
 		return nil, err
@@ -79,8 +96,6 @@ func prepareEnrollmentBroker(ctx context.Context, baseline *server.Options, conf
 		}
 		desired = fresh
 	}
-	frozen := *config
-	frozen.Policy.Regions = maps.Clone(config.Policy.Regions)
 	state := &enrollmentBrokerState{config: frozen, baseline: baseline.Clone(), options: baseline, desired: desired, applied: true}
 	if desired.Revision > 0 {
 		state.options, err = brokeradmission.ApplyOptions(state.baseline, desired, config.Policy)

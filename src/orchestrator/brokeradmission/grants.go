@@ -49,6 +49,9 @@ type Desired struct {
 }
 type Accounts struct{ Global, Regional, Node string }
 type Policy struct {
+	// ProtectedNKeys belong to independently admitted broker readers and cannot
+	// be revoked or repurposed by the delegated enrollment signer.
+	ProtectedNKeys []string `json:"-"`
 	// RegionalPermissions is the admitted regional runtime permission producer;
 	// callers bind its exact non-provisioner role, never desired JSON subjects.
 	RegionalPermissions  func(region, nodeID string) (publish, subscribe []string, err error) `json:"-"`
@@ -148,6 +151,11 @@ func ApplyOptions(baseline *server.Options, d Desired, p Policy) (*server.Option
 		}
 		for _, key := range r.Member.PublicKeys {
 			managed[key] = true
+		}
+	}
+	for _, key := range p.ProtectedNKeys {
+		if !nkeys.IsValidPublicUserKey(key) || managed[key] {
+			return nil, ErrInvalid
 		}
 	}
 	result := baseline.Clone()

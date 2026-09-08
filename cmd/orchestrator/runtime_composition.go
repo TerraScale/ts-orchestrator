@@ -111,7 +111,6 @@ type productionGlobalWorkerPlan struct {
 }
 type productionGlobalWorkerConfig struct {
 	BootstrapSigner       *security.CommandSignatureSigner
-	MembershipRevocations *cloudflare.MembershipRevocationPublisher
 	Ownership             *provider.DurableOwnershipJournal
 	// ComputeMutationJournalBucket names the lease-owned R3 KV used for OCI
 	// compute intents. ComputeApply is the admitted controller callback.
@@ -180,7 +179,6 @@ type productionAutoscaleWiring struct {
 }
 
 type productionGlobalWorkers struct {
-	membershipRevocations *cloudflare.MembershipRevocationPublisher
 	edge                  control.GlobalEdgeDelivery
 	check                 func(context.Context) error
 	release               func() error
@@ -386,6 +384,7 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 			Load(context.Context, string) (placementtransition.Signed, error)
 			Head(context.Context, string) (placementtransition.Signed, error)
 			Prepare(context.Context, placementtransition.Request) (placementtransition.Signed, error)
+			IssueJoinCheckpoint(context.Context, placementtransition.JoinRequest) (placementtransition.Signed, error)
 			Issue(context.Context, placementtransition.Request, *placementtransition.Signed, []placementtransition.Signed) (placementtransition.Signed, error)
 		})
 		if !issuerOK {
@@ -446,7 +445,6 @@ func newProductionGlobalWorkers(config productionGlobalWorkerConfig, session glo
 		return group, errors.New("runtime global KV publisher is required")
 	}
 	group.kv = config.KV
-	group.membershipRevocations = config.MembershipRevocations
 	if config.ServiceIdentity == nil {
 		return group, errors.New("runtime service identity rotation is required")
 	}
@@ -537,7 +535,7 @@ func (r *productionRuntime) BindGlobalDelivery(config *control.GlobalNatsRuntime
 }
 
 func (r *productionGlobalWorkers) Start(ctx context.Context) error {
-	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil || r.membershipRevocations == nil || r.serviceIdentity == nil {
+	if r == nil || r.publisher == nil || r.rotation == nil || r.reaper == nil || r.restore == nil || r.placement == nil || r.database == nil || r.authBootstrap == nil || r.kv == nil || r.serviceIdentity == nil {
 		return errors.New("orchestrator: production runtime is incomplete")
 	}
 	if ctx == nil {
@@ -581,7 +579,6 @@ func (r *productionGlobalWorkers) Start(ctx context.Context) error {
 		lifecycle.NewScheduledService("restore drill", 0, func(runCtx context.Context, _ time.Time) error {
 			return r.restore.Drill.Start(runCtx)
 		}),
-		lifecycle.NewScheduledService("membership revocations", 10*time.Second, func(runCtx context.Context, _ time.Time) error { return r.membershipRevocations.Tick(runCtx) }),
 		lifecycle.NewScheduledService("global edge maps", cloudflare.DefaultKVWriterHealthInterval, func(runCtx context.Context, _ time.Time) error {
 			_, err := r.kv.Step(runCtx)
 			return err

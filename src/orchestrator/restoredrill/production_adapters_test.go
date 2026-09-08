@@ -112,6 +112,61 @@ func TestProductionSnapshotMirrorVerifiesEveryRegion(t *testing.T) {
 	}
 }
 
+func TestProductionHistoryRequiresCompleteSnapshotEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*RunRecord)
+	}{
+		{"missing snapshot", func(r *RunRecord) { r.Snapshot = ControlStateSnapshot{} }},
+		{"partial Regions", func(r *RunRecord) { r.SnapshotRegions = []string{"gru", "sfo"} }},
+		{"invalid identity", func(r *RunRecord) { r.Snapshot.ObjectKey = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			drill, backup, branches, journal, pager := drillFixture()
+			verified := &verifiedSnapshotFixture{}
+			mirror, err := delivery.NewArtifactMirror(estate.Default(), &productionObjectStore{objects: map[string]delivery.ObjectIdentity{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := drill.config
+			config.AcceptedControlEpoch = 9
+			composed, err := NewProductionComposition(ProductionConfig{
+				Backup: backup, Branches: branches, Journal: journal, Scheduler: &fakeScheduler{}, Pager: pager,
+				Drill: config, Snapshotter: verified, SnapshotMirror: verified,
+				SnapshotRegions: []string{"gru", "sfo", "fra"}, ArtifactMirror: mirror,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := composed.Drill.Run(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.change(&run)
+			if err := journal.SaveRun(t.Context(), run); err != nil {
+				t.Fatal(err)
+			}
+			history, err := composed.Drill.History(t.Context(), run.ScheduledAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if history.SuccessfulDays != 0 || history.Ready {
+				t.Fatalf("incomplete snapshot counted: %+v", history)
+			}
+			if _, err := composed.Drill.RunAt(t.Context(), run.ScheduledAt); err != nil {
+				t.Fatal(err)
+			}
+			history, err = composed.Drill.History(t.Context(), run.ScheduledAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if history.SuccessfulDays != 1 {
+				t.Fatalf("repaired snapshot not counted: %+v", history)
+			}
+		})
+	}
+}
+
 func TestProductionCompositionCrashRetryKeepsDurableSelectionAndIdempotency(t *testing.T) {
 	drill, backup, branches, journal, pager := drillFixture()
 	// Restarting the composition with the same durable journal must resume the

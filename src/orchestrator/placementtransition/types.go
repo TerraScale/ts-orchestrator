@@ -116,11 +116,14 @@ func RequestDigest(r Request) (string, error) {
 // SignEvidence is shared by authorized genesis and member drain producers.
 // Callers must produce the actual durable fence/drain before signing a receipt.
 func SignEvidence(keyID string, key ed25519.PrivateKey, value any) (Signed, error) {
+	return signBoundedEvidence(keyID, key, value, 64<<10)
+}
+func signBoundedEvidence(keyID string, key ed25519.PrivateKey, value any, limit int) (Signed, error) {
 	if !token(keyID) || len(key) != ed25519.PrivateKeySize {
 		return Signed{}, ErrInvalid
 	}
 	b, e := json.Marshal(value)
-	if e != nil || len(b) > 64<<10 {
+	if e != nil || len(b) > limit {
 		return Signed{}, ErrInvalid
 	}
 	return Signed{keyID, b, ed25519.Sign(key, signatureInput(b))}, nil
@@ -138,4 +141,16 @@ func cloneSigned(s Signed) Signed {
 	s.Payload = slices.Clone(s.Payload)
 	s.Signature = slices.Clone(s.Signature)
 	return s
+}
+
+func validMemberReceiptInventory(proof Proof) bool {
+	if len(proof.MemberReceiptKeys) != len(proof.Request.Members) {
+		return false
+	}
+	for _, member := range proof.Request.Members {
+		if len(proof.MemberReceiptKeys[member.Identity]) != ed25519.PublicKeySize {
+			return false
+		}
+	}
+	return len(proof.Request.Members) >= 2
 }

@@ -49,12 +49,12 @@ func (services *qualificationRuntimeServices) prepareCandidate(ctx context.Conte
 		// Additional ordinary members require a separate explicit run admission;
 		// this planner cannot synthesize a third preparation peer.
 		if !found {
-			return nil
+			return services.prepareOrdinaryRun(ctx, guest)
 		}
 	} else {
 		material, ok := admission.candidates[guest.ID]
 		if !ok {
-			return nil
+			return services.prepareOrdinaryRun(ctx, guest)
 		}
 		grant, err := transitiongrant.VerifyGrant(material.PublicKeyPEM, material.PreparationGrant)
 		if err != nil {

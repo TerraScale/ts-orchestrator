@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/authorizationlease"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
@@ -32,6 +33,8 @@ const CapabilityDeploymentMarker = "/*__TERRASCALE_CAPABILITY_DEPLOYMENT__*/ nul
 // independently operated probe ingress required by deployment policy. A probe
 // proves only the consumer reached by that request, never worldwide propagation.
 type SnippetCapabilityStoreConfig struct {
+	AuthorizationLeaseAudience string
+	AuthorizationLeaseKeys authorizationlease.Ring
 	// Artifacts resolves verified release templates by their durable digest.
 	Artifacts       EdgeArtifactSource
 	TemplateService string
@@ -57,6 +60,10 @@ type SnippetCapabilityStore struct {
 var _ security.SecretsStore = (*SnippetCapabilityStore)(nil)
 
 func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabilityStore, error) {
+	if authorizationlease.ValidateAudience(c.AuthorizationLeaseAudience) != nil || c.AuthorizationLeaseKeys.Validate() != nil {
+		return nil, capabilityEffectError()
+	}
+	c.AuthorizationLeaseKeys.Keys = slices.Clone(c.AuthorizationLeaseKeys.Keys)
 	if c.Client == nil || c.Client.HTTP == nil || c.SnippetName == "" || c.Vault == nil || c.Journal == nil || c.Authorize == nil || c.HTTPClient == nil || c.Now == nil || len(c.ProbeURLs) == 0 || bytes.Count(c.Source, []byte(CapabilityDeploymentMarker)) != 1 {
 		return nil, capabilityEffectError()
 	}
@@ -118,7 +125,6 @@ func (s *SnippetCapabilityStore) Distribute(ctx context.Context, c security.Cred
 		receipt.TemplateDigest = old.TemplateDigest
 		receipt.RevocationRevision = old.RevocationRevision
 		receipt.Revocations = slices.Clone(old.Revocations)
-		receipt.MembershipRevocations = old.MembershipRevocations
 	}
 	if receipt.Previous.Reference != "" {
 		receipt.Previous.ExpiresAt = minTime(receipt.Previous.ExpiresAt, receipt.Current.NotBefore.Add(security.CapabilityOverlap))
@@ -208,7 +214,8 @@ type capabilityWireKey struct {
 	NotAfter  int64  `json:"notAfter"`
 }
 type capabilityDeployment struct {
-	MembershipRevocations *MembershipRevocationSnapshot `json:"membershipRevocations,omitzero"`
+	AuthorizationLeaseAudience string `json:"authorizationLeaseAudience"`
+	AuthorizationLeaseKeys []capabilityWireKey `json:"authorizationLeaseKeys"`
 	Revocations           capabilityRevocationWire      `json:"revocations"`
 	Generation            string                        `json:"generation"`
 	Phase                 string                        `json:"phase"`
@@ -251,7 +258,7 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 	if origin.ID != r.OriginCurrent.ID || origin.Reference != r.OriginCurrent.Reference || origin.Version != r.OriginCurrent.Version || origin.Bucket != r.OriginCurrent.Bucket || origin.ExpiresAt.Before(r.OriginCurrent.ExpiresAt) || len(origin.Secret) < 32 || origin.ID == current.ID || origin.Reference == current.Reference {
 		return nil, capabilityEffectError()
 	}
-	d := capabilityDeployment{MembershipRevocations: r.MembershipRevocations, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), OriginCurrent: originWireKey(origin, r.OriginCurrent), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
+	d := capabilityDeployment{AuthorizationLeaseAudience: s.config.AuthorizationLeaseAudience, Generation: strconv.FormatUint(r.Generation, 10), Phase: r.Phase, ValidUntil: r.Current.ExpiresAt.Unix(), Current: wireKey(current, r.Current), OriginCurrent: originWireKey(origin, r.OriginCurrent), Revocations: capabilityRevocationWire{Revision: strconv.FormatUint(r.RevocationRevision, 10), Entries: append([]CapabilityRevocation{}, r.Revocations...)}}
 	if r.Previous.Reference != "" && s.config.Now().Before(r.Previous.ExpiresAt) {
 		previous, e := s.fetch(ctx, r.Previous)
 		if e != nil {
@@ -270,6 +277,14 @@ func (s *SnippetCapabilityStore) source(ctx context.Context, r CapabilityReceipt
 			return nil, capabilityEffectError()
 		}
 		d.OriginPrevious = new(originWireKey(previous, r.OriginPrevious))
+	}
+	for _, leaseKey := range s.config.AuthorizationLeaseKeys.Keys {
+		for _, other := range []*capabilityWireKey{&d.Current, d.Previous, &d.OriginCurrent, d.OriginPrevious} {
+			if other != nil && (leaseKey.ID == other.ID || leaseKey.Key == other.Key) {
+				return nil, capabilityEffectError()
+			}
+		}
+		d.AuthorizationLeaseKeys = append(d.AuthorizationLeaseKeys, capabilityWireKey{ID: leaseKey.ID, Key: leaseKey.Key, NotBefore: leaseKey.NotBefore, NotAfter: leaseKey.NotAfter})
 	}
 	encoded, err := json.Marshal(d)
 	if err != nil {
@@ -378,20 +393,16 @@ func (s *SnippetCapabilityStore) probe(ctx context.Context, endpoint string, r C
 		Proof                string `json:"proof"`
 		RevocationRevision   string `json:"revocationRevision"`
 		RevocationDigest     string `json:"revocationDigest"`
-		MembershipRevision   string `json:"membershipRevision"`
-		MembershipValidUntil int64  `json:"membershipValidUntil"`
+		AuthorizationLeaseAudience string `json:"authorizationLeaseAudience"`
+		AuthorizationLeaseKeysDigest string `json:"authorizationLeaseKeysDigest"`
 	}
 	if json.Unmarshal(raw, &proof) != nil || proof.Nonce != nonce || proof.Generation != strconv.FormatUint(r.Generation, 10) || proof.Phase != r.Phase || proof.ValidUntil != r.Current.ExpiresAt.Unix() || proof.RevocationRevision != strconv.FormatUint(r.RevocationRevision, 10) || proof.RevocationDigest != capabilityRevocationDigest(r.Revocations) {
 		return capabilityEffectError()
 	}
-	membershipRevision, membershipValidUntil := "", int64(0)
-	if r.MembershipRevocations != nil {
-		membershipRevision, membershipValidUntil = r.MembershipRevocations.Revision, r.MembershipRevocations.ValidUntil
-	}
-	if proof.MembershipRevision != membershipRevision || proof.MembershipValidUntil != membershipValidUntil {
+	if proof.AuthorizationLeaseAudience != s.config.AuthorizationLeaseAudience || proof.AuthorizationLeaseKeysDigest != s.config.AuthorizationLeaseKeys.Digest() {
 		return capabilityEffectError()
 	}
-	expected := capabilityMAC(key, "terrascale-capability-generation-response-v3\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10)+"\n"+proof.RevocationRevision+"\n"+proof.RevocationDigest+"\n"+proof.MembershipRevision+"\n"+strconv.FormatInt(proof.MembershipValidUntil, 10))
+	expected := capabilityMAC(key, "terrascale-capability-generation-response-v4\n"+nonce+"\n"+proof.Generation+"\n"+proof.Phase+"\n"+strconv.FormatInt(proof.ValidUntil, 10)+"\n"+proof.RevocationRevision+"\n"+proof.RevocationDigest+"\n"+proof.AuthorizationLeaseAudience+"\n"+proof.AuthorizationLeaseKeysDigest)
 	if !hmac.Equal([]byte(expected), []byte(proof.Proof)) {
 		return capabilityEffectError()
 	}

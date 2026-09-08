@@ -43,6 +43,29 @@ func TestProductionRestoreStatsRequiresPinnedCompletedObservation(t *testing.T) 
 			t.Fatal("foreign or replayed observation accepted")
 		}
 	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*databaseadmission.Record, *restoredrill.JournalFacts)
+	}{
+		{"source", func(r *databaseadmission.Record, _ *restoredrill.JournalFacts) {
+			r.Request.ParentDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+		}},
+		{"target incarnation", func(r *databaseadmission.Record, _ *restoredrill.JournalFacts) {
+			r.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+		}},
+		{"capture timestamp", func(_ *databaseadmission.Record, f *restoredrill.JournalFacts) { f.CapturedAtMillis++ }},
+		{"manifest", func(_ *databaseadmission.Record, f *restoredrill.JournalFacts) {
+			f.ManifestDigest = strings.Repeat("c", 64)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			foreign, foreignFacts := record, facts
+			tc.mutate(&foreign, &foreignFacts)
+			if _, err := verifyProductionRestoreStats(keys, host, foreign, foreignFacts, response); err == nil {
+				t.Fatal("receipt accepted for different admitted source or target facts")
+			}
+		})
+	}
 	if _, err := verifyProductionRestoreStats(keys, productionDatabaseHost{ServerIdentity: "foreign-member"}, record, facts, response); err == nil {
 		t.Fatal("unadmitted signer accepted")
 	}

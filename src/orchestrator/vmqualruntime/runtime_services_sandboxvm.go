@@ -44,6 +44,7 @@ type qualificationRuntimeServices struct {
 	engineSeeds      map[string]*vmengineconfig.Material
 	runAdmissions    map[string]vmcontrolseed.RunAdmission
 	runMaterials     map[string]*vmcontrolseed.RunMaterial
+	ordinaryPrepared map[string]bool
 	controlAdmission *qualificationControlAdmission
 
 	plan           vmnet.NetworkPlan
@@ -222,15 +223,28 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 		}
 		defer publication.Clear()
 	}
+	var capture *vmcontrolseed.PreliminaryCaptureDeclaration
+	if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
+		capture = &vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes, Publication: publication}
+	}
 	controlSeeds, err := vmcontrolseed.LoadOrCreateGRU(admissionDirectory, plan.RunID, candidates, func() (map[string]vmcontrolseed.Material, error) {
-		if config.PreliminaryCaptureMaxSnapshotBytes != 0 || config.PreliminaryCaptureMaxTotalBytes != 0 {
-			return vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, vmcontrolseed.PreliminaryCaptureDeclaration{MaxSnapshotBytes: config.PreliminaryCaptureMaxSnapshotBytes, MaxTotalBytes: config.PreliminaryCaptureMaxTotalBytes, Publication: publication})
+		if capture != nil {
+			return vmcontrolseed.GenerateGRUWithPreliminaryCapture(plan.RunID, candidates, *capture)
 		}
 		return vmcontrolseed.GenerateGRU(plan.RunID, candidates)
 	})
 	if err != nil {
 		authority.close()
 		return nil, err
+	}
+	for _, seed := range controlSeeds {
+		if err := seed.ValidatePreliminaryCapture(capture); err != nil {
+			for _, material := range controlSeeds {
+				material.Clear()
+			}
+			authority.close()
+			return nil, err
+		}
 	}
 	bootstrapIssuer, err := vmqualbootstrap.NewPersistentIssuer(admissionDirectory, plan.RunID)
 	if err != nil {
@@ -256,16 +270,22 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 			return nil, loadErr
 		}
 		services.runAdmissions = make(map[string]vmcontrolseed.RunAdmission, len(declaration.Hosts))
+		ownedLaunchHosts := make(map[string]bool)
+		for _, binding := range launchEngineBindings(plan) {
+			ownedLaunchHosts[binding.NodeID] = true
+		}
 		for _, admission := range declaration.Hosts {
-			if _, owned := services.controlSeeds[admission.HostID]; !owned {
+			if !ownedLaunchHosts[admission.HostID] {
 				_ = services.Close(context.Background())
-				return nil, errors.New("vmqual: run declaration contains an unowned initial controller")
+				return nil, errors.New("vmqual: run declaration contains an unowned launch controller")
 			}
 			services.runAdmissions[admission.HostID] = admission
 		}
-		if len(services.runAdmissions) != len(services.controlSeeds) {
-			_ = services.Close(context.Background())
-			return nil, errors.New("vmqual: run declaration omits an initial controller")
+		for host := range services.controlSeeds {
+			if _, admitted := services.runAdmissions[host]; !admitted {
+				_ = services.Close(context.Background())
+				return nil, errors.New("vmqual: run declaration omits an initial controller")
+			}
 		}
 	}
 	services.backup, err = loadQualificationBackup(config.TerraBaseDeclarationFile)
@@ -389,6 +409,9 @@ func (services *qualificationRuntimeServices) Bootstrap(guest vmqual.Guest) (vmi
 	}
 	if string(guest.Region) != "GRU" {
 		if services.controlAdmission != nil {
+			if _, candidate := services.controlAdmission.candidates[guest.ID]; !candidate {
+				return services.bootstrapOrdinary(guest)
+			}
 			return services.bootstrapCandidate(guest)
 		}
 		return vmimage.TSNodeBootstrap{}, nil, errors.New("vmqual: non-GRU bootstrap requires admitted allocation and controller configuration")

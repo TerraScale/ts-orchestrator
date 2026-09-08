@@ -3,8 +3,11 @@ package tbep
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
+	"encoding/json/v2"
 	"errors"
 	"slices"
+	"terrascale.tech/orchestrator/src/orchestrator/placementtransition"
 
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
@@ -91,6 +94,9 @@ func ValidatePlacementReceipt(response *pb.PlacementProposalResponse, proposal *
 	if response == nil || response.Revision == 0 || response.Status != pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING {
 		return errors.New("TBEP placement returned invalid pending receipt")
 	}
+	if err := validatePlacementJoinChallenge(response.JoinChallenge); err != nil {
+		return err
+	}
 	actual, err := CanonicalPlacement(response.Proposal)
 	if err != nil {
 		return err
@@ -108,6 +114,9 @@ func ValidatePlacementReceipt(response *pb.PlacementProposalResponse, proposal *
 func ValidatePlacementGetResponse(response *pb.PlacementProposalResponse) error {
 	if response == nil || response.Revision == 0 || response.Status != pb.PlacementProposalStatus_PLACEMENT_PROPOSAL_STATUS_PENDING {
 		return errors.New("TBEP placement returned invalid pending response")
+	}
+	if err := validatePlacementJoinChallenge(response.JoinChallenge); err != nil {
+		return err
 	}
 	_, err := CanonicalPlacement(response.Proposal)
 	return err
@@ -129,4 +138,17 @@ func (c *PlacementClient) Get(ctx context.Context) (*pb.PlacementProposalRespons
 		return nil, err
 	}
 	return response, nil
+}
+
+// This validates only bounded wire shape. The checkpoint issuer verifies the
+// receipt-key signature and its exact live enrollment and proposal binding.
+func validatePlacementJoinChallenge(encoded []byte) error {
+	if len(encoded) == 0 {
+		return nil
+	}
+	var signed placementtransition.Signed
+	if len(encoded) > 16<<10 || json.Unmarshal(encoded, &signed, json.RejectUnknownMembers(true)) != nil || signed.KeyID == "" || len(signed.KeyID) > 512 || len(signed.Payload) == 0 || len(signed.Signature) != ed25519.SignatureSize {
+		return errors.New("TBEP placement returned malformed join challenge")
+	}
+	return nil
 }

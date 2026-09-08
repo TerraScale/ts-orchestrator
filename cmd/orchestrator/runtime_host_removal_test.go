@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -79,10 +80,11 @@ func (j *runtimeRemovalJournal) Advance(_ context.Context, _ string, stage hostr
 
 type runtimeRemovalGateway struct {
 	ocireconcile.ComputeGateway
-	current      ocireconcile.ObservedMember
-	terminal     bool
-	failure      error
-	terminations int
+	current          ocireconcile.ObservedMember
+	terminal         bool
+	failure          error
+	reconcileFailure error
+	terminations     int
 }
 
 func (g *runtimeRemovalGateway) ObserveMember(_ context.Context, id string) (ocireconcile.ObservedMember, error) {
@@ -98,6 +100,13 @@ func (g *runtimeRemovalGateway) ObserveMember(_ context.Context, id string) (oci
 	}
 	return g.current, nil
 }
+func (g *runtimeRemovalGateway) ReconcileMemberTermination(_ context.Context, id, etag string) error {
+	if id != g.current.ID || !g.terminal {
+		return errors.New("exact terminal resource unavailable")
+	}
+	return g.reconcileFailure
+}
+
 func (g *runtimeRemovalGateway) TerminateMember(_ context.Context, id, etag string) error {
 	if id != g.current.ID {
 		return errors.New("wrong resource")
@@ -129,7 +138,7 @@ func TestRemovalRuntimeRestartAfterLostTerminationResponse(t *testing.T) {
 	ownership := &runtimeRemovalOwnership{record: provider.ProviderOwnershipRecord{ResourceId: provider.ProviderResourceId{Value: member.ID}, CompartmentId: provider.ProviderCompartmentId{Value: member.CompartmentID}, CellId: provider.ProviderCellId{Value: "gru"}, Generation: provider.ProviderGeneration{Value: 7}, ServerIdentity: "spiffe://terrascale.tech/prod/member/original"}}
 	journal := &runtimeRemovalJournal{}
 	construct := func() *productionHostRemoval {
-		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: journal,
+		return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), reconcileFn: newProductionOCITerminationReconciler(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: journal,
 			Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
 				return 1, nil, nil
 			},
@@ -158,6 +167,14 @@ func TestRemovalRuntimeRestartAfterLostTerminationResponse(t *testing.T) {
 		t.Fatalf("rebound ownership accepted: %v", err)
 	}
 	ownership.record.Generation.Value--
+	gateway.reconcileFailure = errors.New("provider journal commit unavailable")
+	if err := construct().RemoveMember(t.Context(), "remove", member, nil); !errors.Is(err, gateway.reconcileFailure) {
+		t.Fatalf("provider journal failure accepted: %v", err)
+	}
+	if journal.record.Stage != hostremoval.StageFenced || gateway.terminations != 1 {
+		t.Fatal("provider journal failure released removal fence or repeated termination")
+	}
+	gateway.reconcileFailure = nil
 	if err := construct().RemoveMember(t.Context(), "remove", member, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +244,8 @@ func TestRemovalRuntimeUsesDurableConditionalProviderTermination(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			providerJournal, err := provider.NewCASProviderMutationJournal(&removalProviderCAS{values: map[string][]byte{}, revisions: map[string]uint64{}})
+			providerCAS := &removalProviderCAS{values: map[string][]byte{}, revisions: map[string]uint64{}}
+			providerJournal, err := provider.NewCASProviderMutationJournal(providerCAS)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,7 +257,7 @@ func TestRemovalRuntimeUsesDurableConditionalProviderTermination(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: removalJournal,
+				return &productionHostRemoval{observeFn: newProductionDurableMemberObserver(ownership, gateway), terminateFn: newProductionOCITerminator(map[string]ocireconcile.ComputeGateway{"gru": gateway}), reconcileFn: newProductionOCITerminationReconciler(map[string]ocireconcile.ComputeGateway{"gru": gateway}), owner: &hostremoval.Owner{Journal: removalJournal,
 					Inventory: func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error) {
 						return 1, nil, nil
 					}, Replace: func(context.Context, hostremoval.Replacement) error { return nil }, Revalidate: func(context.Context, string, string, uint64) error { return nil }, Fence: func(context.Context, string, string, []hostremoval.Replacement) error { return nil }}}
@@ -259,6 +277,22 @@ func TestRemovalRuntimeUsesDurableConditionalProviderTermination(t *testing.T) {
 			}
 			if deletes != 1 || removalJournal.record.Stage != hostremoval.StageComplete {
 				t.Fatalf("terminal calls=%d stage=%s", deletes, removalJournal.record.Stage)
+			}
+			completedMutations := 0
+			for _, encoded := range providerCAS.values {
+				var record provider.ProviderMutationRecord
+				if err := json.Unmarshal(encoded, &record); err != nil {
+					t.Fatal(err)
+				}
+				if record.Intent.Action == "compute.terminate" {
+					completedMutations++
+					if record.State != provider.MutationSucceeded {
+						t.Fatalf("host removal completed with provider mutation %s", record.State)
+					}
+				}
+			}
+			if completedMutations != 1 {
+				t.Fatalf("completed provider mutations=%d", completedMutations)
 			}
 		})
 	}

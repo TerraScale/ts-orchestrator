@@ -119,12 +119,15 @@ func NewPersistentIssuer(directory, runID string) (_ *Issuer, err error) {
 }
 
 func (p *persistentIssuer) saveGrant(host string, manifest hostmanifest.HostManifest, material Material) (Material, error) {
+	return p.loadGrant(host, manifest, material.PublicKeyPEM, func() (Material, error) { return material, nil })
+}
+func (p *persistentIssuer) loadGrant(host string, manifest hostmanifest.HostManifest, public []byte, create func() (Material, error)) (Material, error) {
 	if _, err := hostagent.NewNodeId(host); err != nil || strings.ContainsAny(host, "/\\") || host == "." || host == ".." {
 		return Material{}, errPersistentIssuer
 	}
 	var admitted Material
 	validate := func(raw []byte) error {
-		if json.Unmarshal(raw, &admitted, json.RejectUnknownMembers(true)) != nil || !bytes.Equal(admitted.PublicKeyPEM, material.PublicKeyPEM) {
+		if json.Unmarshal(raw, &admitted, json.RejectUnknownMembers(true)) != nil || !bytes.Equal(admitted.PublicKeyPEM, public) {
 			return errPersistentIssuer
 		}
 		verified, err := hostagent.VerifyBootstrapGrant(host, admitted.PublicKeyPEM, admitted.SignedGrant)
@@ -141,7 +144,13 @@ func (p *persistentIssuer) saveGrant(host string, manifest hostmanifest.HostMani
 		}
 		return nil
 	}
-	raw, err := p.store.LoadOrCreate("grant-"+host+".json", 2<<20, func() ([]byte, error) { return json.Marshal(material) }, validate)
+	raw, err := p.store.LoadOrCreate("grant-"+host+".json", 2<<20, func() ([]byte, error) {
+		material, err := create()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(material)
+	}, validate)
 	if err != nil {
 		return Material{}, err
 	}

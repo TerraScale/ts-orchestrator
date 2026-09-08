@@ -16,16 +16,39 @@ type productionHostRemovalConfig struct {
 	// Observe resolves authenticated provider identity metadata (revision/ETag,
 	// generation and evidence) for an exact OCI instance. User freeform tags
 	// are never accepted as proof.
-	Observe    func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
-	Inventory  func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
-	Replace    func(context.Context, hostremoval.Replacement) error
-	Revalidate func(context.Context, string, string, uint64) error
-	Fence      func(context.Context, string, string, []hostremoval.Replacement) error
-	Terminate  func(context.Context, string, string) error
+	Observe              func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
+	Inventory            func(context.Context, hostremoval.RemovalRequest, []hostremoval.Replacement) (uint64, []hostremoval.Replacement, error)
+	Replace              func(context.Context, hostremoval.Replacement) error
+	Revalidate           func(context.Context, string, string, uint64) error
+	Fence                func(context.Context, string, string, []hostremoval.Replacement) error
+	Terminate            func(context.Context, string, string) error
+	ReconcileTermination func(context.Context, string, string) error
 }
 
 type exactOCIMemberObserver interface {
 	ObserveMember(context.Context, string) (ocireconcile.ObservedMember, error)
+}
+
+type exactOCITerminationReconciler interface {
+	ReconcileMemberTermination(context.Context, string, string) error
+}
+
+func newProductionOCITerminationReconciler(gateways map[string]ocireconcile.ComputeGateway) func(context.Context, string, string) error {
+	return func(ctx context.Context, id, etag string) error {
+		for _, gateway := range gateways {
+			observer, observes := gateway.(exactOCIMemberObserver)
+			reconciler, reconciles := gateway.(exactOCITerminationReconciler)
+			if !observes || !reconciles {
+				continue
+			}
+			current, err := observer.ObserveMember(ctx, id)
+			if !errors.Is(err, ocireconcile.ErrMemberTerminated) || current.ID != id || current.LifecycleState != "TERMINATED" {
+				continue
+			}
+			return reconciler.ReconcileMemberTermination(ctx, id, etag)
+		}
+		return errors.New("runtime host removal: exact terminal OCI reconciliation is unavailable")
+	}
 }
 
 // newProductionOCITerminator binds termination to an exact provider reread.
@@ -57,6 +80,7 @@ func newProductionOCITerminator(gateways map[string]ocireconcile.ComputeGateway)
 type productionHostRemoval struct {
 	completed   func(context.Context, string) error
 	terminateFn func(context.Context, string, string) error
+	reconcileFn func(context.Context, string, string) error
 	owner       *hostremoval.Owner
 	observeFn   func(context.Context, ocireconcile.ObservedMember) (hostremoval.MemberObservation, error)
 }
@@ -64,10 +88,10 @@ type productionHostRemoval struct {
 var _ ocireconcile.MemberRemovalOwner = (*productionHostRemoval)(nil)
 
 func newProductionHostRemoval(config productionHostRemovalConfig, journal *hostremoval.Journal) (*productionHostRemoval, error) {
-	if journal == nil || config.Observe == nil || config.Inventory == nil || config.Replace == nil || config.Revalidate == nil || config.Fence == nil || config.Terminate == nil {
+	if journal == nil || config.Observe == nil || config.Inventory == nil || config.Replace == nil || config.Revalidate == nil || config.Fence == nil || config.Terminate == nil || config.ReconcileTermination == nil {
 		return nil, errors.New("runtime host removal: durable inventory, transition, fence and termination providers are required")
 	}
-	return &productionHostRemoval{observeFn: config.Observe, terminateFn: config.Terminate, owner: &hostremoval.Owner{
+	return &productionHostRemoval{observeFn: config.Observe, terminateFn: config.Terminate, reconcileFn: config.ReconcileTermination, owner: &hostremoval.Owner{
 		Journal: journal, Inventory: config.Inventory, Replace: config.Replace,
 		Revalidate: config.Revalidate, Fence: config.Fence,
 	}}, nil
@@ -160,10 +184,14 @@ func (r *productionHostRemoval) ownerFor(member ocireconcile.ObservedMember, obs
 		}
 		return r.terminateFn(ctx, member.ID, observedMember.ProviderETag)
 	}
-	// An exact terminal observation is already authoritative provider evidence.
-	// Reconciliation records that evidence in the removal journal; it must not
-	// submit a second termination mutation.
-	owner.ReconcileTermination = func(context.Context, string) error { return nil }
+	// Close the provider mutation journal before releasing the removal fence.
+	// This separate port cannot issue another DELETE after a lost response.
+	owner.ReconcileTermination = func(ctx context.Context, identity string) error {
+		if identity != observedMember.Identity || r.reconcileFn == nil {
+			return hostremoval.ErrConflict
+		}
+		return r.reconcileFn(ctx, member.ID, observedMember.ProviderETag)
+	}
 	return &owner
 }
 
@@ -196,7 +224,7 @@ func newProductionHostRemovalFromPorts(ports hostRemovalTransitionPorts, journal
 	}
 	ports.Relocation.Removal = journal
 	terminate := newProductionOCITerminator(ports.Gateways)
-	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Relocation.Capture, Replace: ports.Relocation.Replace, Revalidate: ports.Relocation.Revalidate, Fence: ports.Relocation.Fence, Terminate: terminate}, journal)
+	owner, err := newProductionHostRemoval(productionHostRemovalConfig{Observe: observe, Inventory: ports.Relocation.Capture, Replace: ports.Relocation.Replace, Revalidate: ports.Relocation.Revalidate, Fence: ports.Relocation.Fence, Terminate: terminate, ReconcileTermination: newProductionOCITerminationReconciler(ports.Gateways)}, journal)
 	if err != nil {
 		return nil, err
 	}
