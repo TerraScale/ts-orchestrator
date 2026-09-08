@@ -61,6 +61,26 @@ to that candidate's configured `sync.requestFile`. The owner public key is
 verification material only; it does not replace a host's pinned bootstrap or
 membership trust root.
 
+Start the already admitted processes with their normal component commands and
+keep their JSON output as evidence. On GRU, `initial-gru-r1 --config FILE`
+emits newline-delimited status objects for both `preliminaryCapture` and
+`preliminaryPublication`; wait for capture `state: "complete"` before
+delivering the transfer bundle. Publication progresses through `idle`,
+`publishing`, `failed`, and `complete`. A missing upload request is `idle`, and
+an authorization or provider failure is reported as the fixed public error
+`preliminary publication refused or incomplete`.
+
+On each candidate, `prepare-control-candidate --config FILE` first emits the
+admission receipt and then emits `preliminary-sync` status. A missing request
+is `idle`; a verified request is `syncing`, `complete`, or `failed`; a changed
+scope is `scope-conflict` and a request that no longer matches the pinned
+preparation is `request-refused`. The worker retries one request at most three
+times, with a short backoff, and never resets that budget merely because the
+request file is removed. Replace the request only with a newly signed
+authorization for the same scope (and retain the old output); the replacement
+starts a new bounded attempt. Preserve the complete NDJSON streams alongside
+the signed receipts.
+
 ## Publish the source objects
 
 The source publication worker is enabled only by the owner-signed
@@ -81,6 +101,12 @@ reused verbatim on retry. If a destination, object, ETag, authorization, or
 local artifact differs, the attempt fails closed and leaves existing evidence
 for inspection. A renewal may extend an upload window or advance its authority
 term, but it cannot change the immutable scope or previously published bytes.
+The source worker makes at most three publication attempts for one exact
+upload request in a runtime. Once that budget is exhausted, removing and
+reinstalling the same request does not retry it; issue a valid renewal with the
+same scope to start a new attempt budget. A request replacement is checked
+again immediately before provider effects, so replacing the ingress file while
+an attempt is running aborts that attempt.
 
 ## Download and verify at each candidate
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
 
@@ -50,7 +51,7 @@ func validIncarnation(value string) bool { return validID(value) }
 // CanonicalGrant validates the complete immutable assignment. Templates omit
 // only the revision and incarnation; persisted grants require both.
 func CanonicalGrant(input *pb.AuthGroupBootstrapGrant, template bool) (*pb.AuthGroupBootstrapGrant, error) {
-	if input == nil || proto.Size(input) > 16<<10 {
+	if input == nil || rejectUnknownFields(input) != nil || proto.Size(input) > 16<<10 {
 		return nil, ErrInvalid
 	}
 	if !validID(input.GroupId) || !validToken(input.Environment) || !validID(input.Cluster) || !validID(input.Tenant) || !validID(input.Project) || !validID(input.Database) || input.Generation != 1 || len(input.Regions) < 1 || len(input.Regions) > 3 || len(input.Voters) != 2*len(input.Regions) || input.GenesisNode == 0 || (!template && input.AuthorityRevision == 0) {
@@ -91,6 +92,40 @@ func CanonicalGrant(input *pb.AuthGroupBootstrapGrant, template bool) (*pb.AuthG
 		return nil, ErrInvalid
 	}
 	return grant, nil
+}
+
+func rejectUnknownFields(message proto.Message) error {
+	if message == nil {
+		return ErrInvalid
+	}
+	var walk func(protoreflect.Message) error
+	walk = func(current protoreflect.Message) error {
+		if !current.IsValid() || len(current.GetUnknown()) != 0 {
+			return ErrInvalid
+		}
+		var result error
+		current.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+			switch {
+			case field.IsList() && field.Kind() == protoreflect.MessageKind:
+				list := value.List()
+				for index := 0; index < list.Len(); index++ {
+					if result = walk(list.Get(index).Message()); result != nil {
+						return false
+					}
+				}
+			case field.IsMap() && field.MapValue().Kind() == protoreflect.MessageKind:
+				value.Map().Range(func(_ protoreflect.MapKey, nested protoreflect.Value) bool {
+					result = walk(nested.Message())
+					return result == nil
+				})
+			case field.Kind() == protoreflect.MessageKind:
+				result = walk(value.Message())
+			}
+			return result == nil
+		})
+		return result
+	}
+	return walk(message.ProtoReflect())
 }
 func sameTemplate(a, b *pb.AuthGroupBootstrapGrant) bool {
 	left := proto.Clone(a).(*pb.AuthGroupBootstrapGrant)

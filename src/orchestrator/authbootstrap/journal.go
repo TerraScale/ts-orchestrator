@@ -43,7 +43,7 @@ func decode(record Record) (*pb.AuthGroupBootstrapRequest, error) {
 		return nil, ErrInvalid
 	}
 	request := new(pb.AuthGroupBootstrapRequest)
-	if proto.Unmarshal(record.Request, request) != nil || !validID(request.OperationId) {
+	if proto.Unmarshal(record.Request, request) != nil || rejectUnknownFields(request) != nil || !validID(request.OperationId) {
 		return nil, ErrInvalid
 	}
 	grant, err := CanonicalGrant(request.Grant, false)
@@ -52,7 +52,7 @@ func decode(record Record) (*pb.AuthGroupBootstrapRequest, error) {
 	}
 	for target, data := range record.Receipts {
 		receipt := new(pb.AuthGroupBootstrapReceipt)
-		if proto.Unmarshal(data, receipt) != nil || ValidateReceipt(receipt, request, target) != nil {
+		if proto.Unmarshal(data, receipt) != nil || rejectUnknownFields(receipt) != nil || ValidateReceipt(receipt, request, target) != nil {
 			return nil, ErrInvalid
 		}
 	}

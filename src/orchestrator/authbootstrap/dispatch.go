@@ -100,7 +100,7 @@ func (target *RemoteTarget) call(ctx context.Context, subject string, request, r
 		}
 		return status.Error(codes.Code(response.Code), "host refused auth bootstrap control")
 	}
-	if proto.Unmarshal(response.Response, reply) != nil {
+	if proto.Unmarshal(response.Response, reply) != nil || rejectUnknownFields(reply) != nil {
 		return ErrInvalid
 	}
 	return nil
@@ -114,6 +114,9 @@ func (target *RemoteTarget) Identity(ctx context.Context) (*pb.AuthStorageIdenti
 func (target *RemoteTarget) Bootstrap(ctx context.Context, request *pb.AuthGroupBootstrapRequest) (*pb.AuthGroupBootstrapReceipt, error) {
 	if request == nil {
 		return nil, ErrInvalid
+	}
+	if err := rejectUnknownFields(request); err != nil {
+		return nil, err
 	}
 	if _, err := CanonicalGrant(request.Grant, false); err != nil {
 		return nil, err
@@ -193,11 +196,14 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 				var request dispatchRequest
 				if len(message.Data) <= maximumDispatchBytes && json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) == nil && request.ServerIdentity == target.ServerIdentity() && request.Principal == target.Principal() {
 					var response proto.Message
-					if index == 0 && len(request.Request) == 0 {
+						if index == 0 && len(request.Request) == 0 {
 						response, err = target.Identity(lifetime)
 					} else if index == 1 {
 						grant := new(pb.AuthGroupBootstrapRequest)
 						err = proto.Unmarshal(request.Request, grant)
+						if err == nil {
+							err = rejectUnknownFields(grant)
+						}
 						if err != nil {
 							err = ErrInvalid
 						}
