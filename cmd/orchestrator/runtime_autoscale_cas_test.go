@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -131,5 +130,3 @@ func TestProductionAutoscaleConcurrentControllersUseNATSTargetStoreCAS(t *testin
 		t.Fatalf("final controller target: found=%v target=%+v err=%v", found, final, err)
 	}
 }
-
-var _ context.Context
