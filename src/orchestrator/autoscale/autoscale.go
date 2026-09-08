@@ -189,6 +189,9 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	if c == nil || region == "" || region != strings.TrimSpace(region) {
 		return Plan{}, false, errors.New("autoscale: invalid region")
 	}
+	if err := ctx.Err(); err != nil {
+		return Plan{}, false, err
+	}
 	if err := c.config.Authority.Check(ctx); err != nil {
 		return Plan{}, false, err
 	}
@@ -216,6 +219,9 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 			return Plan{}, false, errors.New("autoscale: invalid retained removal capacity")
 		}
 		if err := c.config.Authority.Check(ctx); err != nil {
+			return Plan{}, false, err
+		}
+		if err := ctx.Err(); err != nil {
 			return Plan{}, false, err
 		}
 		next := retained

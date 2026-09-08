@@ -28,6 +28,8 @@ type networkController struct {
 	services    qualificationServices
 }
 
+const networkCleanupTimeout = 45 * time.Second
+
 // DynamicNetworkController is the live fault surface implemented by the real
 // qualification network. The base Stack interface remains lifecycle-only.
 type DynamicNetworkController interface {
@@ -88,7 +90,10 @@ func (n *networkController) Cleanup(ctx context.Context) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	cleanCtx := context.WithoutCancel(ctx)
+	// Cleanup must survive request cancellation, while still bounding service
+	// shutdown and all network mutations to one invocation-wide budget.
+	cleanCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), networkCleanupTimeout)
+	defer cancel()
 	var serviceErr error
 	if n.services != nil {
 		serviceErr = n.services.Close(cleanCtx)

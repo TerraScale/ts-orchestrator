@@ -33,6 +33,41 @@ type memoryObjects struct {
 	bucket  provider.OCIBucketObservation
 }
 
+type dropObjectReadCloser struct {
+	*bytes.Reader
+	dropped bool
+}
+
+func (r *dropObjectReadCloser) Read(p []byte) (int, error) {
+	if r.dropped {
+		return 0, io.ErrUnexpectedEOF
+	}
+	r.dropped = true
+	n, _ := r.Reader.Read(p)
+	return n, io.ErrUnexpectedEOF
+}
+
+func (r *dropObjectReadCloser) Close() error { return nil }
+
+type dropOnceObjects struct {
+	*memoryObjects
+	key     string
+	dropped bool
+}
+
+func (m *dropOnceObjects) GetObject(ctx context.Context, r provider.ObjectRef) (io.ReadCloser, provider.ObjectMetadata, error) {
+	meta, _, err := m.memoryObjects.HeadObject(ctx, r)
+	if err != nil {
+		return nil, meta, err
+	}
+	raw := m.objects[r.Name]
+	if r.Name == m.key && !m.dropped {
+		m.dropped = true
+		return &dropObjectReadCloser{Reader: bytes.NewReader(raw)}, meta, nil
+	}
+	return io.NopCloser(bytes.NewReader(raw)), meta, nil
+}
+
 func (m *memoryObjects) Put(_ context.Context, _, _, key string, raw []byte) error {
 	m.objects[key] = bytes.Clone(raw)
 	return nil
@@ -251,6 +286,48 @@ func TestCandidateRestoresAndReverifiesReceipt(t *testing.T) {
 	}
 	if _, e = run(ctx, f.config, f.verified, f.factory); e == nil {
 		t.Fatal("corrupt immutable staged object accepted")
+	}
+}
+
+func TestCandidateRetriesDroppedObjectResponseWithPinnedState(t *testing.T) {
+	f := newFixture(t)
+	var object preliminarytransfer.ObjectMapping
+	for _, candidateObject := range f.verified.Scope.Scope.Objects {
+		if candidateObject.Region == f.config.Region {
+			object = candidateObject
+			break
+		}
+	}
+	if object.ObjectKey == "" {
+		t.Fatal("fixture has no candidate object")
+	}
+	reader := &dropOnceObjects{memoryObjects: f.objects, key: object.ObjectKey}
+	factory := func(context.Context, transitiongrant.CandidateSyncConfig, preliminarytransfer.Destination, string) (objectReader, func(), error) {
+		return reader, func() {}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := run(ctx, f.config, f.verified, factory); err == nil {
+		t.Fatal("dropped object response was reported as success")
+	}
+	if _, err := os.Stat(filepath.Join(f.config.Sync.StagingDir, "target")); !os.IsNotExist(err) {
+		t.Fatalf("failed attempt promoted candidate: %v", err)
+	}
+	pin := mustScope(t, f.verified.Scope.Scope)
+	retained, err := os.ReadFile(filepath.Join(f.config.Sync.StagingDir, "scope.json"))
+	if err != nil || !bytes.Equal(retained, pin) {
+		t.Fatalf("failed attempt changed pinned scope: %v", err)
+	}
+	replay, err := run(ctx, f.config, f.verified, factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyReceipt([]byte(f.config.Sync.ReceiptPublicKeyPEM), replay); err != nil {
+		t.Fatalf("retry did not publish a valid receipt: %v", err)
+	}
+	retained, err = os.ReadFile(filepath.Join(f.config.Sync.StagingDir, "scope.json"))
+	if err != nil || !bytes.Equal(retained, pin) {
+		t.Fatalf("retry changed pinned scope: %v", err)
 	}
 }
 

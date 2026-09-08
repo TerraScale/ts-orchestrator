@@ -91,15 +91,18 @@ func (p *Pipeline) ListOperations(ctx context.Context, request OperationListRequ
 		return r.Environment != request.Environment || r.TenantID != request.TenantID || r.ProjectID != request.ProjectID || ScopeKey(r) <= after
 	})
 	slices.SortFunc(records, func(a, b Record) int { return cmp.Compare(ScopeKey(a.Request), ScopeKey(b.Request)) })
+	pageRecords := records
+	if len(pageRecords) > request.Limit {
+		pageRecords = pageRecords[:request.Limit]
+	}
+	// Authorize the complete matching snapshot before returning a page. This
+	// keeps a forbidden record from being hidden behind a continuation cursor.
 	for _, record := range records {
 		if err := p.config.Authorize(ctx, record.Request); err != nil {
 			return OperationPage{}, err
 		}
-		if len(page.Operations) == request.Limit {
-			last := records[len(page.Operations)-1]
-			page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(request.cursorScope() + ":" + ScopeKey(last.Request)))
-			break
-		}
+	}
+	for _, record := range pageRecords {
 		kind, state := "database_create", "running"
 		if record.Request.ParentDatabaseID != "" {
 			kind = "branch_create"
@@ -111,6 +114,10 @@ func (p *Pipeline) ListOperations(ctx context.Context, request OperationListRequ
 			state = "succeeded"
 		}
 		page.Operations = append(page.Operations, OperationSummary{OperationID: record.Request.OperationID, Kind: kind, DatabaseID: record.DatabaseID, Name: record.Request.Name, State: state, Stage: record.State, CreatedAt: record.CreatedAt, Revision: record.Revision, CancellationReason: "Provisioning has no safe cancellation action"})
+	}
+	if len(records) > len(pageRecords) {
+		last := pageRecords[len(pageRecords)-1]
+		page.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(request.cursorScope() + ":" + ScopeKey(last.Request)))
 	}
 	return page, nil
 }

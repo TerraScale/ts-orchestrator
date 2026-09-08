@@ -2,6 +2,7 @@ package autoscale
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -104,4 +105,38 @@ func TestCancelledRemovalAllowsFreshQualifiedReselection(t *testing.T) {
 		}
 	}
 	t.Fatal("cancelled intent blocked fresh qualified selection")
+}
+
+func TestCancelledContextPreservesRemovalIntent(t *testing.T) {
+	targets := &testTargets{value: cancelledTarget(), found: true}
+	c := testController(t, &testSource{}, targets, time.Now().UTC())
+	ctx, cancel := context.WithCancel(t.Context())
+	c.config.RemovalOutcome = func(context.Context, Target) (RemovalOutcome, error) {
+		cancel()
+		return RemovalCancelled, nil
+	}
+	retained := targets.value
+	if _, changed, err := c.Evaluate(ctx, "gru"); !errors.Is(err, context.Canceled) || changed {
+		t.Fatalf("canceled terminal outcome: changed=%v err=%v", changed, err)
+	}
+	if targets.writes != 0 || !reflect.DeepEqual(targets.value, retained) {
+		t.Fatalf("canceled evaluation mutated removal intent: writes=%d target=%+v", targets.writes, targets.value)
+	}
+}
+
+func TestCanceledContextDoesNotReplayPendingRemoval(t *testing.T) {
+	targets := &testTargets{value: cancelledTarget(), found: true}
+	c := testController(t, &testSource{}, targets, time.Now().UTC())
+	c.config.RemovalOutcome = func(context.Context, Target) (RemovalOutcome, error) {
+		t.Fatal("canceled evaluation invoked removal progress")
+		return RemovalPending, nil
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, changed, err := c.Evaluate(ctx, "gru"); !errors.Is(err, context.Canceled) || changed {
+		t.Fatalf("canceled pending outcome: changed=%v err=%v", changed, err)
+	}
+	if targets.writes != 0 {
+		t.Fatalf("canceled evaluation wrote target: %d", targets.writes)
+	}
 }

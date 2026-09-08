@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"terrascale.tech/orchestrator/src/orchestrator/vmimage"
 	"terrascale.tech/orchestrator/src/orchestrator/vmnet"
 	"terrascale.tech/orchestrator/src/orchestrator/vmqual"
 )
@@ -237,6 +238,47 @@ func TestNetworkControllerCleanupIgnoresCallerCancellationButBoundsCommands(t *t
 		if !call.HasDeadline || call.Deadline.Before(started) || call.Deadline.After(started.Add(11*time.Second)) {
 			t.Fatalf("cleanup command deadline = %v, started %v", call.Deadline, started)
 		}
+	}
+}
+
+type cleanupContextProbeServices struct {
+	closeContext context.Context
+	closeErr     error
+}
+
+func (s *cleanupContextProbeServices) Start(context.Context) error { return nil }
+func (s *cleanupContextProbeServices) Close(ctx context.Context) error {
+	s.closeContext = ctx
+	s.closeErr = ctx.Err()
+	return nil
+}
+func (s *cleanupContextProbeServices) VerifyStopped() error { return nil }
+func (s *cleanupContextProbeServices) Bootstrap(vmqual.Guest) (vmimage.TSNodeBootstrap, []vmimage.GuestArtifact, error) {
+	return vmimage.TSNodeBootstrap{}, nil, nil
+}
+
+func TestNetworkControllerCleanupBoundsServiceShutdownAfterCancellation(t *testing.T) {
+	controller, err := NewNetworkController(networkTestConfig(t), &vmnet.RecordingRunner{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	concrete := controller.(*networkController)
+	services := &cleanupContextProbeServices{}
+	concrete.services = services
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := controller.Cleanup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if services.closeContext == nil {
+		t.Fatal("service cleanup context was not provided")
+	}
+	deadline, ok := services.closeContext.Deadline()
+	if !ok || deadline.Before(time.Now()) || deadline.After(time.Now().Add(networkCleanupTimeout)) {
+		t.Fatalf("service cleanup deadline = %v, ok = %v", deadline, ok)
+	}
+	if services.closeErr != nil {
+		t.Fatalf("service cleanup inherited cancellation: %v", services.closeErr)
 	}
 }
 

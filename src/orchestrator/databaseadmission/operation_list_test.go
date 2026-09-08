@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -183,5 +184,40 @@ func TestOperationDiscoveryPaginationScopeAndCursor(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Fatal(seen)
+	}
+}
+
+func TestOperationDiscoveryCapsMaximumPageAndContinues(t *testing.T) {
+	records := make([]Record, 0, 51)
+	for i := range 51 {
+		record := journalFixture(t)
+		record.Request.Name = fmt.Sprintf("operation-%02d", i)
+		record.Request.OperationID = record.Request.Name
+		record.Revision = 1
+		records = append(records, record)
+	}
+	config := pipelineConfig(t, operationSnapshotJournal{records: records})
+	pipeline, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := OperationListRequest{Environment: records[0].Request.Environment, TenantID: records[0].Request.TenantID, ProjectID: records[0].Request.ProjectID, Limit: 50}
+	first, err := pipeline.ListOperations(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Operations) != 50 || first.NextCursor == "" {
+		t.Fatalf("first page = %d operations, cursor %q", len(first.Operations), first.NextCursor)
+	}
+	request.After = first.NextCursor
+	second, err := pipeline.ListOperations(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Operations) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %d operations, cursor %q", len(second.Operations), second.NextCursor)
+	}
+	if second.Operations[0].OperationID == first.Operations[len(first.Operations)-1].OperationID {
+		t.Fatal("continuation repeated the page boundary")
 	}
 }

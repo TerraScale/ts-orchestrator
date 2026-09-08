@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"sync"
 	"time"
 
@@ -61,6 +62,13 @@ type dispatchRequest struct {
 type dispatchReply struct {
 	Response []byte
 	Code     int32
+}
+
+func dispatchCode(err error) codes.Code {
+	if errors.Is(err, ErrInvalid) {
+		return codes.InvalidArgument
+	}
+	return status.Code(err)
 }
 
 func (target *RemoteTarget) call(ctx context.Context, subject string, request, reply proto.Message) error {
@@ -190,6 +198,9 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 					} else if index == 1 {
 						grant := new(pb.AuthGroupBootstrapRequest)
 						err = proto.Unmarshal(request.Request, grant)
+						if err != nil {
+							err = ErrInvalid
+						}
 						if err == nil {
 							_, err = CanonicalGrant(grant.Grant, false)
 						}
@@ -200,7 +211,7 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 						err = ErrInvalid
 					}
 					if err != nil {
-						reply.Code = int32(status.Code(err))
+						reply.Code = int32(dispatchCode(err))
 					} else if response != nil {
 						reply.Response, err = (proto.MarshalOptions{Deterministic: true}).Marshal(response)
 						if err == nil {
