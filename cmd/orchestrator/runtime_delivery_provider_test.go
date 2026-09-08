@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	"terrascale.tech/orchestrator/src/orchestrator/estate"
 )
@@ -58,5 +61,33 @@ func TestProductionDeliveryEdgeUsesRootMirrorAndChecksIdentity(t *testing.T) {
 func TestProductionDeliveryFileRejectsAbsentAdmission(t *testing.T) {
 	if _, err := (productionDeliveryFile{}).Admit(estate.Default(), "gru"); err == nil {
 		t.Fatal("missing admission accepted")
+	}
+}
+
+func TestProductionCanaryProbeRequiresPrivateFixtureReferences(t *testing.T) {
+	client := cloudflare.NewClient("token", "zone", "account")
+	if _, err := productionCanaryProbe(productionDeliveryCloudflareFile{}, client); err == nil {
+		t.Fatal("incomplete canary configuration accepted")
+	}
+	dir := t.TempDir()
+	write := func(name, value string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	config := productionDeliveryCloudflareFile{
+		CanaryRouteURL:         "https://api.terrascale.tech/api/v1/projects/p/databases/d",
+		CanaryProjectID:        "p",
+		CanaryDatabaseID:       "d",
+		CanaryTokenFile:        write("canary", "canary-token"),
+		CanaryForeignTokenFile: write("foreign", "foreign-token"),
+		CanaryExpectedMarker:   "marker",
+		CanaryMinimumRevision:  1,
+	}
+	probe, err := productionCanaryProbe(config, client)
+	if err != nil || probe.RouteURL != config.CanaryRouteURL || probe.CanaryToken != "canary-token" || probe.ForeignToken != "foreign-token" {
+		t.Fatalf("canary probe construction failed: err=%v", err)
 	}
 }

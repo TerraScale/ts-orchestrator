@@ -57,6 +57,19 @@ type SnippetCapabilityStore struct {
 	mu          sync.Mutex
 }
 
+// CheckEdge exposes the existing authenticated generation probe through the
+// delivery health contract. Package health never traverses the Worker route.
+func (s *SnippetCapabilityStore) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	if s == nil || kind != "package" {
+		return capabilityEffectError()
+	}
+	ok, err := s.ObserveTemplate(ctx, service, digest)
+	if err != nil || !ok {
+		return capabilityEffectError()
+	}
+	return nil
+}
+
 var _ security.SecretsStore = (*SnippetCapabilityStore)(nil)
 
 func NewSnippetCapabilityStore(c SnippetCapabilityStoreConfig) (*SnippetCapabilityStore, error) {

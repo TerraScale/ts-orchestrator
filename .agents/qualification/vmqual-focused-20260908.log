@@ -1,0 +1,3 @@
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	7.477s
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualsuite	22.435s
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify	0.032s

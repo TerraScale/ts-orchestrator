@@ -1,0 +1,27 @@
+2026-09-07T23:49:57-03:00
+live_handle=2131191
+go version go1.27.0 linux/amd64
+GOROOT=/home/mariogk/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64
+GOCACHE=/tmp/terrascale-orchestrator-check-20260908-final-cache
+GOFLAGS=-p=2
+GOMAXPROCS=4
+source_head=d5efa819a17669dc7ce6746737d6bb8d92ae9140
+tracked_diff_sha256=cf9a13c92f47ee2e5984e97c2bb2873d6f79464f10b76bb6887029a9de4c6f8a
+go_source_checkpoint_sha256=50db3a5fe8deef52d3d6c7a7a7849624fbbc91d797912a2195fd089b6c331d7b
+artifact_sha256=75b31ac2fb89863ccac1c0718fb02738eebc2be5c4043230922971a4ea5b1ad1
+test -z "$(gofmt -l .)"
+go vet ./...
+go build ./...
+go test -race -count=1 ./...
+ok  	terrascale.tech/orchestrator/cmd/orchestrator	75.294s
+ok  	terrascale.tech/orchestrator/cmd/ts-node	1.156s
+ok  	terrascale.tech/orchestrator/cmd/vm-artifacts	9.565s
+ok  	terrascale.tech/orchestrator/cmd/vm-guest-control	3.366s
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify	1.067s
+ok  	terrascale.tech/orchestrator/internal/testengineconfig	1.245s
+?   	terrascale.tech/orchestrator/internal/testnats	[no test files]
+?   	terrascale.tech/orchestrator/internal/testtls	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/authbootstrap	8.561s
+?   	terrascale.tech/orchestrator/src/orchestrator/authorityjournal	[no test files]
+ok  	terrascale.tech/orchestrator/src/orchestrator/authorizationlease	1.029s
+ok  	terrascale.tech/orchestrator/src/orchestrator/autoscale	1.031s

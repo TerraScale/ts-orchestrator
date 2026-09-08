@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	cf "terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
 	sandboxcf "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/cloudflare"
+	sandboxedge "terrascale.tech/orchestrator/src/orchestrator/sandboxproviders/edge"
 )
 
 type deliveryProviderArtifactSource struct {
@@ -64,11 +66,61 @@ func newDeliveryProviderEdge(ctx context.Context, endpoints *LocalProviderEndpoi
 	promoter, err := cf.NewEdgeReleasePromoter(cf.EdgeReleasePromoterConfig{
 		Client: providerClient, Zone: zone, Artifacts: artifacts,
 		SnippetServices: map[string]string{"ts-proxy-snippet": cf.GateSnippetName},
+		Health:          deliveryProviderEdgeHealth{url: endpoints.EdgeURL, key: endpoints.edgeKey, client: client},
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	return promoter, providerClient, nil
+}
+
+type deliveryProviderEdgeHealth struct {
+	url    string
+	key    []byte
+	client *http.Client
+}
+
+func (p deliveryProviderEdgeHealth) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	if (kind != "site" && kind != "package") || p.url == "" || len(p.key) == 0 || service == "" || digest == "" {
+		return errors.New("vmqual: authenticated edge health fixture is incomplete")
+	}
+	now := time.Now().UTC()
+	allowed, err := sandboxedge.MintCapability(p.key, "delivery-health", 1, "customer-1", 1, "GRU", now)
+	if err != nil {
+		return err
+	}
+	foreign, err := sandboxedge.MintCapability([]byte("foreign-edge-key"), "delivery-health", 1, "customer-1", 1, "GRU", now)
+	if err != nil {
+		return err
+	}
+	client := p.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	path := strings.TrimRight(p.url, "/") + "/api/v1/reactive/views/delivery-health/1/log?offset=0"
+	for _, check := range []struct {
+		token   string
+		allowed bool
+	}{{allowed, true}, {foreign, false}} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set(sandboxedge.CapabilityHeader, check.token)
+		response, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		_ = response.Body.Close()
+		if check.allowed && response.StatusCode != http.StatusOK {
+			return fmt.Errorf("vmqual: authenticated edge health returned %s", response.Status)
+		}
+		if !check.allowed && response.StatusCode != http.StatusUnauthorized {
+			return errors.New("vmqual: foreign edge credential was accepted")
+		}
+	}
+	return nil
 }
 
 func injectDeliveryWorkerFailure(endpoints *LocalProviderEndpoints, service string) {

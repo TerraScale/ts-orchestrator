@@ -32,6 +32,29 @@ type CanaryEdgeHealthProbe struct {
 	BodyLimit       int64
 }
 
+// EdgeHealthRouter keeps Worker application checks separate from the existing
+// Snippet capability-generation check used by package releases.
+type EdgeHealthRouter struct {
+	Site    EdgeHealthProbe
+	Package EdgeHealthProbe
+}
+
+func (r EdgeHealthRouter) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	var probe EdgeHealthProbe
+	switch kind {
+	case "site":
+		probe = r.Site
+	case "package":
+		probe = r.Package
+	default:
+		return errors.New("cloudflare: unsupported edge health kind")
+	}
+	if probe == nil {
+		return errors.New("cloudflare: edge health probe is not configured")
+	}
+	return probe.CheckEdge(ctx, kind, service, digest)
+}
+
 func (p CanaryEdgeHealthProbe) CheckEdge(ctx context.Context, kind, service, digest string) error {
 	if kind != "site" {
 		return errors.New("cloudflare: canary probe only supports site releases")

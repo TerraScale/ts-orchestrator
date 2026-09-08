@@ -42,12 +42,19 @@ type productionDeliveryFile struct {
 	Registry              productionDeliveryRegistryFile    `json:"registry"`
 }
 type productionDeliveryCloudflareFile struct {
-	AccountID            string            `json:"account_id"`
-	ZoneID               string            `json:"zone_id"`
-	TokenFile            string            `json:"token_file"`
-	TailscaleEgressCIDRs []string          `json:"tailscale_egress_cidrs"`
-	SnippetServices      map[string]string `json:"snippet_services"`
-	WorkerStages         []int             `json:"worker_stages"`
+	AccountID              string            `json:"account_id"`
+	ZoneID                 string            `json:"zone_id"`
+	TokenFile              string            `json:"token_file"`
+	CanaryRouteURL         string            `json:"canary_route_url"`
+	CanaryProjectID        string            `json:"canary_project_id"`
+	CanaryDatabaseID       string            `json:"canary_database_id"`
+	CanaryTokenFile        string            `json:"canary_token_file"`
+	CanaryForeignTokenFile string            `json:"canary_foreign_token_file"`
+	CanaryExpectedMarker   string            `json:"canary_expected_marker"`
+	CanaryMinimumRevision  int64             `json:"canary_minimum_revision"`
+	TailscaleEgressCIDRs   []string          `json:"tailscale_egress_cidrs"`
+	SnippetServices        map[string]string `json:"snippet_services"`
+	WorkerStages           []int             `json:"worker_stages"`
 }
 type productionDeliveryRegistryFile struct {
 	URL       string `json:"url"`
@@ -149,7 +156,12 @@ func (f productionDeliveryFile) Admit(spec estate.Spec, cell string) (*productio
 		return nil, err
 	}
 	// Constructor validation is local and does not invoke this artifact source.
-	if _, err = cloudflare.NewEdgeReleasePromoter(cloudflare.EdgeReleasePromoterConfig{Client: cloudflare.NewClient(admissionToken, f.Cloudflare.ZoneID, f.Cloudflare.AccountID), Zone: zone, Artifacts: productionDeliveryMirrorSource{}, SnippetServices: f.Cloudflare.SnippetServices, WorkerStages: f.Cloudflare.WorkerStages}); err != nil {
+	client := cloudflare.NewClient(admissionToken, f.Cloudflare.ZoneID, f.Cloudflare.AccountID)
+	canary, err := productionCanaryProbe(f.Cloudflare, client)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = cloudflare.NewEdgeReleasePromoter(cloudflare.EdgeReleasePromoterConfig{Client: client, Zone: zone, Artifacts: productionDeliveryMirrorSource{}, Health: canary, SnippetServices: f.Cloudflare.SnippetServices, WorkerStages: f.Cloudflare.WorkerStages}); err != nil {
 		return nil, err
 	}
 	if cell == "gru" {

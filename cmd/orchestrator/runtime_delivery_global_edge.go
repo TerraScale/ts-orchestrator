@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/cloudflare"
 	"terrascale.tech/orchestrator/src/orchestrator/delivery"
@@ -52,11 +55,36 @@ func (r *constructedProductionDelivery) GlobalEdge(mirror *delivery.ArtifactMirr
 	}
 	client := cloudflare.NewClient(token, f.ZoneID, f.AccountID)
 	client.HTTP = globalDeliveryTransport{inner: client.HTTP, authorize: authorize}
-	workers, err := cloudflare.NewEdgeReleasePromoter(cloudflare.EdgeReleasePromoterConfig{Client: client, Zone: zone, Artifacts: productionDeliveryMirrorSource{mirror: mirror, region: "gru"}, SnippetServices: f.SnippetServices, WorkerStages: f.WorkerStages})
+	canary, err := productionCanaryProbe(f, client)
+	if err != nil {
+		return nil, err
+	}
+	health := cloudflare.EdgeHealthRouter{Site: canary, Package: capabilities}
+	workers, err := cloudflare.NewEdgeReleasePromoter(cloudflare.EdgeReleasePromoterConfig{Client: client, Zone: zone, Artifacts: productionDeliveryMirrorSource{mirror: mirror, region: "gru"}, Health: health, SnippetServices: f.SnippetServices, WorkerStages: f.WorkerStages})
 	if err != nil {
 		return nil, err
 	}
 	return &productionGlobalDeliveryEdge{workers: workers, client: client, capabilities: capabilities, authorize: authorize}, nil
+}
+
+func productionCanaryProbe(config productionDeliveryCloudflareFile, client *cloudflare.Client) (cloudflare.CanaryEdgeHealthProbe, error) {
+	if client == nil || strings.TrimSpace(config.CanaryRouteURL) == "" || strings.TrimSpace(config.CanaryProjectID) == "" || strings.TrimSpace(config.CanaryDatabaseID) == "" || strings.TrimSpace(config.CanaryExpectedMarker) == "" || config.CanaryMinimumRevision <= 0 {
+		return cloudflare.CanaryEdgeHealthProbe{}, errors.New("delivery: authenticated Worker canary configuration is incomplete")
+	}
+	route, err := url.Parse(config.CanaryRouteURL)
+	expectedPath := "/api/v1/projects/" + url.PathEscape(config.CanaryProjectID) + "/databases/" + url.PathEscape(config.CanaryDatabaseID)
+	if err != nil || route.Scheme != "https" || route.Host == "" || route.User != nil || route.RawQuery != "" || route.Fragment != "" || route.EscapedPath() != expectedPath {
+		return cloudflare.CanaryEdgeHealthProbe{}, errors.New("delivery: authenticated Worker canary route must be an explicit HTTPS URL")
+	}
+	canaryToken, err := readProductionDeliveryToken(config.CanaryTokenFile)
+	if err != nil {
+		return cloudflare.CanaryEdgeHealthProbe{}, err
+	}
+	foreignToken, err := readProductionDeliveryToken(config.CanaryForeignTokenFile)
+	if err != nil {
+		return cloudflare.CanaryEdgeHealthProbe{}, err
+	}
+	return cloudflare.CanaryEdgeHealthProbe{Client: client, HTTPClient: &http.Client{Timeout: 10 * time.Second}, RouteURL: config.CanaryRouteURL, ProjectID: config.CanaryProjectID, DatabaseID: config.CanaryDatabaseID, CanaryToken: canaryToken, ForeignToken: foreignToken, ExpectedMarker: config.CanaryExpectedMarker, MinimumRevision: config.CanaryMinimumRevision}, nil
 }
 func (e *productionGlobalDeliveryEdge) check(ctx context.Context) error {
 	if err := delivery.CheckExecutionFence(ctx); err != nil {
