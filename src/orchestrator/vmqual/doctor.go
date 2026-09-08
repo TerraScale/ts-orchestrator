@@ -583,6 +583,14 @@ func cgroupV2Access() (bool, string) {
 	if _, err := os.Stat(filepath.Join(mount, "cgroup.controllers")); err != nil {
 		return false, "cgroup v2 is unavailable: " + err.Error()
 	}
+	for _, controller := range []string{"cpu", "memory", "pids", "cpuset"} {
+		if !cgroupFieldPresent(filepath.Join(mount, "cgroup.subtree_control"), controller) {
+			return false, fmt.Sprintf("cgroup v2 controller %q is not delegated at mount root", controller)
+		}
+	}
+	if err := syscall.Access(mount, 2); err != nil {
+		return false, fmt.Sprintf("cgroup v2 mount root %s is not writable: %v", mount, err)
+	}
 	for _, target := range []string{subtree, filepath.Join(subtree, "cgroup.procs"), filepath.Join(subtree, "cgroup.subtree_control")} {
 		if _, err := os.Stat(target); err != nil {
 			return false, fmt.Sprintf("required cgroup v2 path %s is unavailable: %v", target, err)
@@ -592,6 +600,19 @@ func cgroupV2Access() (bool, string) {
 		}
 	}
 	return true, fmt.Sprintf("cgroup v2 is writable and delegated at current subtree %s", cgroup)
+}
+
+func cgroupFieldPresent(path, field string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, value := range strings.Fields(string(data)) {
+		if value == field || value == "+"+field {
+			return true
+		}
+	}
+	return false
 }
 
 // unifiedCgroupPath extracts and validates the process path in the unified

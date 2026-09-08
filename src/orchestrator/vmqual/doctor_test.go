@@ -69,6 +69,24 @@ func TestCgroupSubtreeRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestCgroupFieldPresent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cgroup.subtree_control")
+	if err := os.WriteFile(path, []byte("+cpu +memory pids\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"cpu", "memory", "pids"} {
+		if !cgroupFieldPresent(path, field) {
+			t.Fatalf("cgroupFieldPresent(%q) = false", field)
+		}
+	}
+	if cgroupFieldPresent(path, "cpuset") {
+		t.Fatal("cgroupFieldPresent accepted an absent controller")
+	}
+	if cgroupFieldPresent(filepath.Join(filepath.Dir(path), "missing"), "cpu") {
+		t.Fatal("cgroupFieldPresent accepted a missing file")
+	}
+}
+
 func TestToolVersionAcceptsCanonicalFirecrackerAndJailerOutput(t *testing.T) {
 	for _, test := range []struct {
 		component string
