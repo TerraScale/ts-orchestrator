@@ -1,21 +1,20 @@
 package databaseadmission
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
 )
 
-func authorizationLeaseFixture(t *testing.T) (AuthorizationLeaseRequest, ed25519.PublicKey, ed25519.PrivateKey) {
+func authorizationLeaseFixture(t *testing.T) (AuthorizationLeaseRequest, []byte, []byte) {
 	t.Helper()
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	return AuthorizationLeaseRequest{OperationID: "request-1", TenantID: "tenant-1", Scope: "production/tenant-1/project-1/database-1", CredentialGeneration: 7, PermissionSetGeneration: 11, Audience: "https://api.terrascale.tech", Region: "GRU", IssuedAt: now, ValidUntil: now.Add(30 * time.Second)}, public, private
+	return AuthorizationLeaseRequest{OperationID: "request-1", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAA", Scope: "scope-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:authz-01ARZ3NDEKTSV4RRFFQ69G5FAA-7-11", CredentialGeneration: 7, PermissionSetGeneration: 11, Audience: "https://api.terrascale.tech", Region: "GRU", IssuedAt: now, ValidUntil: now.Add(30 * time.Second)}, key, key
 }
 
 func TestAuthorizationLeaseSignsExactScopeAndRejectsContractDrift(t *testing.T) {
@@ -28,9 +27,9 @@ func TestAuthorizationLeaseSignsExactScopeAndRejectsContractDrift(t *testing.T) 
 		t.Fatal(err)
 	}
 	changed := lease
-	changed.Scope = "production/tenant-1/project-2/database-1"
+	changed.CredentialGeneration++
 	if err := changed.Verify(public, request.IssuedAt.Add(time.Second)); err == nil {
-		t.Fatal("changed scope retained authorization")
+		t.Fatal("changed generation retained authorization")
 	}
 	for name, mutate := range map[string]func(*AuthorizationLeaseRequest){
 		"long lifetime":      func(r *AuthorizationLeaseRequest) { r.ValidUntil = r.IssuedAt.Add(31 * time.Second) },
@@ -71,15 +70,14 @@ func TestAuthorizationLeasePublicationReplaysAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The old operation is immutable; a changed generation cannot overwrite it.
-	if replay, err := second.Issue(ctx, request); err == nil || replay != issued {
-		t.Fatalf("changed authority replay diverged: %+v %v", replay, err)
+	// The old operation is immutable and replays the exact signed bytes.
+	if replay, err := second.Issue(ctx, request); err != nil || replay != issued {
+		t.Fatalf("authority replay diverged: %+v %v", replay, err)
 	}
 	changed := request
-	changed.OperationID = "request-2"
 	changed.PermissionSetGeneration++
-	if _, err := second.Issue(ctx, changed); err != nil {
-		t.Fatal(err)
+	if _, err := second.Issue(ctx, changed); !errors.Is(err, ErrAuthorizationLeaseConflict) {
+		t.Fatalf("changed generation replaced durable lease: %v", err)
 	}
 	cluster.servers[1].Shutdown()
 	cluster.servers[2].Shutdown()
