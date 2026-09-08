@@ -22,7 +22,7 @@ func (s *runtimeRetirementEnrollment) Retire(context.Context, string, int, hostr
 }
 
 func TestReenrollmentRequiresExactTerminalProviderAndCompleteRemoval(t *testing.T) {
-	for _, scenario := range []string{"terminal", "pending removal", "running", "not found", "wrong resource", "missing etag"} {
+	for _, scenario := range []string{"terminal", "pending removal", "running", "not found", "wrong resource", "wrong region", "wrong slot", "missing etag"} {
 		t.Run(scenario, func(t *testing.T) {
 			completed := autoscale.CompletedRemoval{OperationID: "remove", ResourceID: "ocid1.instance.original"}
 			journal := &runtimeRetirementEnrollment{}
@@ -37,6 +37,10 @@ func TestReenrollmentRequiresExactTerminalProviderAndCompleteRemoval(t *testing.
 				gateway.failure = errors.New("OCI 404: unauthorized or not found")
 			case "wrong resource":
 				gateway.current.ID = "ocid1.instance.foreign"
+			case "wrong region":
+				gateway.current.Region = "sfo"
+			case "wrong slot":
+				gateway.current.Index = 2
 			case "missing etag":
 				gateway.current.ETag = ""
 			}

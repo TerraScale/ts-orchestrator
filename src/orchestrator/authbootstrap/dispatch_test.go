@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/authorityjournal"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -73,6 +74,22 @@ func TestAuthenticatedHostDispatchBindsBothIdentities(t *testing.T) {
 	}
 	if target.effects != 1 {
 		t.Fatalf("malformed bootstrap changed effects: %d", target.effects)
+	}
+	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = append(encoded, 0xa0, 0x06, 0x01) // unknown field 100
+	unknown, _ := json.Marshal(dispatchRequest{ServerIdentity: target.ServerIdentity(), Principal: target.Principal(), Request: encoded})
+	response, err = connection.RequestWithContext(ctx, bootstrapSubject, unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(response.Data, &reply) != nil || reply.Code != int32(codes.InvalidArgument) {
+		t.Fatal("unknown protobuf field reached engine")
+	}
+	if target.effects != 1 {
+		t.Fatalf("unknown protobuf field changed effects: %d", target.effects)
 	}
 }
 

@@ -181,13 +181,15 @@ func TestR3GrantRestartUnknownOutcomeAndAuthorityConflict(t *testing.T) {
 }
 func TestGrantValidationRejectsUnsafeTopology(t *testing.T) {
 	for name, mutate := range map[string]func(*pb.AuthGroupBootstrapGrant){
-		"database identity": func(g *pb.AuthGroupBootstrapGrant) { g.Database = "other" },
-		"duplicate voter":   func(g *pb.AuthGroupBootstrapGrant) { g.Voters[1].NodeId = g.Voters[0].NodeId },
-		"foreign residency": func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].Region = "other" },
-		"uri query":         func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].SpiffeUri += "?x=y" },
-		"new generation":    func(g *pb.AuthGroupBootstrapGrant) { g.Generation = 2 },
-		"missing genesis":   func(g *pb.AuthGroupBootstrapGrant) { g.GenesisNode = 10 },
-		"incarnation":       func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].StorageIncarnation = strings.Repeat("x", 26) },
+		"database identity":   func(g *pb.AuthGroupBootstrapGrant) { g.Database = "other" },
+		"duplicate voter":     func(g *pb.AuthGroupBootstrapGrant) { g.Voters[1].NodeId = g.Voters[0].NodeId },
+		"foreign residency":   func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].Region = "other" },
+		"uri query":           func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].SpiffeUri += "?x=y" },
+		"new generation":      func(g *pb.AuthGroupBootstrapGrant) { g.Generation = 2 },
+		"missing genesis":     func(g *pb.AuthGroupBootstrapGrant) { g.GenesisNode = 10 },
+		"incarnation":         func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].StorageIncarnation = strings.Repeat("x", 26) },
+		"unknown grant field": func(g *pb.AuthGroupBootstrapGrant) { g.ProtoReflect().SetUnknown([]byte{0xa0, 0x06, 0x01}) },
+		"unknown voter field": func(g *pb.AuthGroupBootstrapGrant) { g.Voters[0].ProtoReflect().SetUnknown([]byte{0xa0, 0x06, 0x01}) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			g := testGrant()

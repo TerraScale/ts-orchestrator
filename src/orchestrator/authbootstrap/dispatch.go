@@ -196,7 +196,7 @@ func StartHostBridge(ctx context.Context, connection *nats.Conn, target Target) 
 				var request dispatchRequest
 				if len(message.Data) <= maximumDispatchBytes && json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) == nil && request.ServerIdentity == target.ServerIdentity() && request.Principal == target.Principal() {
 					var response proto.Message
-						if index == 0 && len(request.Request) == 0 {
+					if index == 0 && len(request.Request) == 0 {
 						response, err = target.Identity(lifetime)
 					} else if index == 1 {
 						grant := new(pb.AuthGroupBootstrapRequest)

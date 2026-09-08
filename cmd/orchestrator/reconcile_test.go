@@ -318,10 +318,19 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 			region.Members.Count = uint16(target.Members)
 		}
 		seeds := map[int]string{}
+		bindings := map[int]ocireconcile.MemberBinding{}
 		for slot := 1; slot <= int(region.Members.Count); slot++ {
 			seeds[slot] = seed
+			bindings[slot] = ocireconcile.MemberBinding{
+				ServerIdentity: fmt.Sprintf("spiffe://terrascale.tech/production/member/%s-%d", region.Code, slot),
+				Environment:    "production",
+				Cluster:        "cluster",
+				MemberID:       fmt.Sprintf("member-%d", slot),
+				CellID:         region.Code,
+				Generation:     7,
+			}
 		}
-		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds}, nil
+		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds, MemberBindings: bindings}, nil
 	}
 	regional.targetProjection = func(ctx context.Context, region estate.Region) (uint16, error) {
 		target, found, err := targets.Load(ctx, region.Code)
@@ -361,6 +370,10 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 	}
 	if plan.Empty() || len(gateway.launches) != 1 || gateway.launches[0].Index != 3 {
 		t.Fatalf("first pass plan=%+v launches=%+v", plan, gateway.launches)
+	}
+	launch := gateway.launches[0]
+	if launch.ServerIdentity == "" || launch.Environment != "production" || launch.Cluster != "cluster" || launch.MemberID != "member-3" || launch.CellID != "gru" || launch.Generation != 7 {
+		t.Fatalf("slot 3 launch lost durable enrollment binding: %+v", launch)
 	}
 	if regional.scaleOutTarget != 0 || controller.spec.Regions[0].Members.Count != 2 || spec.Regions[0].Members.Count != 2 {
 		t.Fatal("projection mutated static declaration or depended on autoscale tick")

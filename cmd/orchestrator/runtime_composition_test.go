@@ -92,6 +92,27 @@ func TestGlobalClientOwnershipSurvivesPartialConstruction(t *testing.T) {
 	}
 }
 
+func TestGlobalWorkerBudgetAdmissionRetainsCleanupOwner(t *testing.T) {
+	closed := 0
+	runtime := &productionRuntime{plan: &productionGlobalWorkerPlan{Construct: func(context.Context, globalWorkerSession) (productionGlobalWorkerConfig, error) {
+		return productionGlobalWorkerConfig{
+			Close:       func() error { closed++; return nil },
+			WriteBudget: &runtimeWriteBudgetConfig{},
+		}, nil
+	}}}
+	session := globalWorkerSession{check: func(context.Context) error { return nil }}
+	group, err := runtime.constructGlobalWorkers(context.Background(), session)
+	if err == nil || group == nil {
+		t.Fatalf("budget admission result = group %v, error %v; cleanup owner was lost", group, err)
+	}
+	if err := joinGlobalWorker(group); err != nil {
+		t.Fatalf("cleanup returned an unexpected error: %v", err)
+	}
+	if closed != 1 {
+		t.Fatalf("global config cleanup calls = %d, want 1", closed)
+	}
+}
+
 func TestGlobalWorkerCloseStopsWorkersBeforeDatabase(t *testing.T) {
 	order := make(chan string, 1)
 	workerStarted := make(chan struct{})

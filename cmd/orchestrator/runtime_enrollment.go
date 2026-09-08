@@ -302,7 +302,11 @@ func (p *productionEnrollmentProjection) prepareReenrollment(ctx context.Context
 		return enrollment.ErrInvalid
 	}
 	current, err := observer.ObserveMember(ctx, completed.ResourceID)
-	if !errors.Is(err, ocireconcile.ErrMemberTerminated) || current.ID != completed.ResourceID || current.LifecycleState != "TERMINATED" || current.ETag == "" {
+	// Reserve may create a new signed identity for this slot only after the
+	// exact retired resource has been reread as terminal.  A matching OCI ID
+	// alone is insufficient: a provider response from another slot/region
+	// would otherwise authorize replacing the wrong signed enrollment record.
+	if !errors.Is(err, ocireconcile.ErrMemberTerminated) || current.ID != completed.ResourceID || current.Region != region || current.Index != slot || current.LifecycleState != "TERMINATED" || current.ETag == "" {
 		if err != nil {
 			return err
 		}

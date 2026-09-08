@@ -743,7 +743,11 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 	if config.WriteBudget != nil {
 		writeBudget, err = newRuntimeWriteBudget(session, *config.WriteBudget)
 		if err != nil {
-			return nil, err
+			// The global config owns every provider opened before the worker
+			// graph is constructed. Preserve that owner on every failure path;
+			// returning nil here strands the lease-bound providers and skips
+			// reverse cleanup.
+			return ownedGlobalWorkers(config), err
 		}
 	}
 	group, err := newProductionGlobalWorkers(config, session, r.mirror)
