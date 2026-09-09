@@ -5,6 +5,7 @@ package keylease
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"os"
@@ -26,6 +27,7 @@ type Config struct {
 	AllowedUID  uint32
 	SocketGID   uint32
 	Customer    *CustomerConfig
+	WorkloadIdentity WorkloadIdentityIssuer
 }
 
 // CustomerAuthority unwraps ciphertext for an explicitly admitted customer
@@ -36,7 +38,31 @@ type CustomerAuthority interface {
 }
 
 type CustomerConfig struct {
-	Authority CustomerAuthority
+	Authority   CustomerAuthority
+	Provider    string
+	KeyID       string
+	KeyRegion   string
+	KeyEndpoint string
+}
+
+type WorkloadIdentityScope struct {
+	Role string `json:"role"`
+	ExternalID *string `json:"external_id,omitempty"`
+	Endpoint string `json:"endpoint"`
+	Bucket string `json:"bucket"`
+	Region string `json:"region"`
+	PlacementRevision string `json:"placement_revision"`
+}
+
+type WorkloadIdentityCredentials struct {
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+	SessionToken string `json:"session_token"`
+	ExpiresAtUnixSeconds uint64 `json:"expires_at_unix_seconds"`
+}
+
+type WorkloadIdentityIssuer interface {
+	Issue(context.Context, WorkloadIdentityScope) (WorkloadIdentityCredentials, error)
 }
 
 type Server struct {
@@ -138,7 +164,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	defer cancel()
 	stop := context.AfterFunc(local, func() { connection.Close() })
 	defer stop()
-	protocol, binding, err := readRequest(connection)
+	protocol, binding, customer, err := readRequest(connection)
 	if err != nil || binding.Environment != s.config.Environment || binding.Region != s.config.Region {
 		writeUnavailableProtocol(connection, protocol)
 		return
@@ -150,7 +176,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	}
 	unwrapKey := unwrap
 	if protocol == "TBCK" {
-		if s.config.Customer == nil {
+		if s.config.Customer == nil || customer.Provider != s.config.Customer.Provider || customer.KeyID != s.config.Customer.KeyID || customer.KeyRegion != s.config.Customer.KeyRegion || customer.KeyEndpoint != s.config.Customer.KeyEndpoint {
 			writeUnavailableProtocol(connection, protocol)
 			return
 		}
@@ -217,45 +243,54 @@ func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 	}
 	return Entry{}, ErrUnavailable
 }
-func readRequest(reader io.Reader) (string, Binding, error) {
+
+type customerRequest struct {
+	Provider, KeyID, KeyRegion, KeyEndpoint string
+}
+
+func readRequest(reader io.Reader) (string, Binding, customerRequest, error) {
 	var prefix [4]byte
 	if _, err := io.ReadFull(reader, prefix[:]); err != nil {
-		return "", Binding{}, ErrUnavailable
+		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	size := binary.BigEndian.Uint32(prefix[:])
 	if size < 5 || size > maximumFrame {
-		return "", Binding{}, ErrUnavailable
+		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	body := make([]byte, size)
 	if _, err := io.ReadFull(reader, body); err != nil {
-		return "", Binding{}, ErrUnavailable
+		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	protocol := string(body[:4])
 	if protocol != "TBKL" && protocol != "TBCK" || body[4] != 1 {
-		return "", Binding{}, ErrUnavailable
+		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
+	var customer customerRequest
 	var b Binding
 	fields := []*string{&b.Environment, &b.TenantID, &b.ProjectID, &b.DatabaseID, &b.KeyVersion, &b.Region, &b.Purpose}
+	if protocol == "TBCK" {
+		fields = append([]*string{&customer.Provider, &customer.KeyID, &customer.KeyRegion, &customer.KeyEndpoint}, fields...)
+	}
 	cursor := 5
 	for _, field := range fields {
 		if cursor+2 > len(body) {
-			return "", Binding{}, ErrUnavailable
+			return "", Binding{}, customerRequest{}, ErrUnavailable
 		}
 		n := int(binary.BigEndian.Uint16(body[cursor : cursor+2]))
 		cursor += 2
 		if n < 1 || n > 128 || cursor+n > len(body) || !utf8.Valid(body[cursor:cursor+n]) {
-			return "", Binding{}, ErrUnavailable
+			return "", Binding{}, customerRequest{}, ErrUnavailable
 		}
 		*field = string(body[cursor : cursor+n])
 		cursor += n
 	}
 	if cursor != len(body) || !b.valid() {
-		return "", Binding{}, ErrUnavailable
+		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
-	return protocol, b, nil
+	return protocol, b, customer, nil
 }
 func readBinding(reader io.Reader) (Binding, error) {
-	_, binding, err := readRequest(reader)
+	_, binding, _, err := readRequest(reader)
 	return binding, err
 }
 func writeUnavailable(writer io.Writer) { writeUnavailableProtocol(writer, "TBKL") }

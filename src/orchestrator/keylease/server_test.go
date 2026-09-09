@@ -217,7 +217,7 @@ func TestRejectsUnsafeFilesystemAndProtocol(t *testing.T) {
 func TestTBCKRequestUsesCustomerAuthority(t *testing.T) {
 	config, catalog := fixture(t)
 	called := false
-	config.Customer = &CustomerConfig{Authority: customerAuthorityFunc(func(_ context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
+	config.Customer = &CustomerConfig{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/id", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", Authority: customerAuthorityFunc(func(_ context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
 		called = true
 		if b != catalog.Entries[0].Binding || ciphertext != catalog.Entries[0].Ciphertext {
 			return nil, ErrUnavailable
@@ -253,7 +253,16 @@ func requestProtocol(t *testing.T, path string, b Binding, protocol string) []by
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(3 * time.Second))
 	body := bindingWire(b)
-	copy(body[4:], protocol)
+	if protocol == "TBCK" {
+		request := []byte{'T', 'B', 'C', 'K', 1}
+		for _, value := range []string{"aws-kms", "arn:aws:kms:sa-east-1:123456789012:key/id", "sa-east-1", "https://kms.example.test", b.Environment, b.TenantID, b.ProjectID, b.DatabaseID, b.KeyVersion, b.Region, b.Purpose} {
+			request = binary.BigEndian.AppendUint16(request, uint16(len(value)))
+			request = append(request, value...)
+		}
+		body = append(binary.BigEndian.AppendUint32(nil, uint32(len(request))), request...)
+	} else {
+		copy(body[4:], protocol)
+	}
 	if _, err = c.Write(body); err != nil {
 		t.Fatal(err)
 	}
