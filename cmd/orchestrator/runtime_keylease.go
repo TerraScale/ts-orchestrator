@@ -6,7 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"terrascale.tech/orchestrator/src/orchestrator/byokauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
@@ -16,7 +18,19 @@ const (
 	keyLeaseEnvironment        = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
 	keyLeaseUIDEnvironment     = "TS_ORCH_KEY_LEASE_PEER_UID"
 	keyLeaseGIDEnvironment     = "TS_ORCH_KEY_LEASE_SOCKET_GID"
+	byokRoleEnvironment        = "TS_ORCH_BYOK_ROLE_ARN"
+	byokTokenEnvironment       = "TS_ORCH_BYOK_OIDC_TOKEN_FILE"
+	byokKeyIDEnvironment       = "TS_ORCH_BYOK_KEY_ID"
+	byokKeyRegionEnvironment   = "TS_ORCH_BYOK_KEY_REGION"
+	byokKeyEndpointEnvironment = "TS_ORCH_BYOK_KEY_ENDPOINT"
+	byokProviderEnvironment    = "TS_ORCH_BYOK_PROVIDER"
 )
+
+type customerAuthorityAdapter struct{ authority *byokauthority.Authority }
+
+func (a customerAuthorityAdapter) Unwrap(ctx context.Context, binding keylease.Binding, ciphertext string) (*hostsecrets.DataKey, error) {
+	return a.authority.Unwrap(ctx, byokauthority.Binding{Environment: binding.Environment, TenantID: binding.TenantID, ProjectID: binding.ProjectID, DatabaseID: binding.DatabaseID, KeyVersion: binding.KeyVersion, Region: binding.Region, Purpose: binding.Purpose}, ciphertext)
+}
 
 func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (*keylease.Server, error) {
 	if options.Cell == "local" {
@@ -32,7 +46,24 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	if err != nil || strconv.FormatUint(uid, 10) != peer || gidErr != nil || strconv.FormatUint(gid, 10) != group || socket == "" || catalog == "" || environment == "" {
 		return nil, errors.New("orchestrator: local Vault key lease configuration unavailable")
 	}
-	service, err := keylease.Start(ctx, keylease.Config{SocketPath: socket, CatalogPath: catalog, Environment: environment, Region: strings.ToUpper(options.Cell), AllowedUID: uint32(uid), SocketGID: uint32(gid)})
+	keyConfig := keylease.Config{SocketPath: socket, CatalogPath: catalog, Environment: environment, Region: strings.ToUpper(options.Cell), AllowedUID: uint32(uid), SocketGID: uint32(gid)}
+	role, _ := lookup(byokRoleEnvironment)
+	if role != "" {
+		token, _ := lookup(byokTokenEnvironment)
+		keyID, _ := lookup(byokKeyIDEnvironment)
+		keyRegion, _ := lookup(byokKeyRegionEnvironment)
+		endpoint, _ := lookup(byokKeyEndpointEnvironment)
+		provider, _ := lookup(byokProviderEnvironment)
+		if provider != "aws-kms" || token == "" || keyID == "" || keyRegion == "" || endpoint == "" {
+			return nil, errors.New("orchestrator: customer BYOK requires explicit AWS configuration")
+		}
+		authority, authorityErr := byokauthority.New(ctx, byokauthority.Config{Region: keyRegion, RoleARN: role, OIDCTokenFile: token, KeyARN: keyID, SessionName: "terrascale-keylease"})
+		if authorityErr != nil {
+			return nil, errors.New("orchestrator: customer BYOK authority unavailable")
+		}
+		keyConfig.Customer = &keylease.CustomerConfig{Authority: customerAuthorityAdapter{authority: authority}, Provider: provider, KeyID: keyID, KeyRegion: keyRegion, KeyEndpoint: endpoint}
+	}
+	service, err := keylease.Start(ctx, keyConfig)
 	if err != nil {
 		return nil, errors.New("orchestrator: local Vault key lease service unavailable")
 	}

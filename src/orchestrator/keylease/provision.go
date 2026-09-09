@@ -15,6 +15,10 @@ import (
 // provisioned separately; selected regions receive the same database DEK.
 type ProvisionTarget struct {
 	Binding        Binding
+	Provider       string
+	KeyID          string
+	KeyRegion      string
+	KeyEndpoint    string
 	CryptoEndpoint string
 	KEKID          string
 	KEKVersionID   string
@@ -45,7 +49,7 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 		if binding != primary || !target.NotAfter.After(time.Now()) {
 			return ErrUnavailable
 		}
-		probe.Entries = append(probe.Entries, Entry{Binding: target.Binding, CryptoEndpoint: target.CryptoEndpoint, KEKID: target.KEKID, KEKVersionID: target.KEKVersionID, Ciphertext: "pending", LeaseSeconds: target.LeaseSeconds, NotAfter: target.NotAfter})
+		probe.Entries = append(probe.Entries, Entry{Binding: target.Binding, Provider: target.Provider, KeyID: target.KeyID, KeyRegion: target.KeyRegion, KeyEndpoint: target.KeyEndpoint, CryptoEndpoint: target.CryptoEndpoint, KEKID: target.KEKID, KEKVersionID: target.KEKVersionID, Ciphertext: "pending", LeaseSeconds: target.LeaseSeconds, NotAfter: target.NotAfter})
 	}
 	if probe.validate() != nil {
 		return ErrUnavailable
@@ -66,7 +70,7 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 	for _, target := range targets {
 		for _, entry := range catalog.Entries {
 			if entry.Binding == target.Binding {
-				if entry.Revoked || entry.KEKID != target.KEKID || entry.KEKVersionID != target.KEKVersionID || entry.CryptoEndpoint != target.CryptoEndpoint || entry.LeaseSeconds != target.LeaseSeconds || !entry.NotAfter.Equal(target.NotAfter) {
+				if entry.Revoked || entry.Provider != target.Provider || entry.KeyID != target.KeyID || entry.KeyRegion != target.KeyRegion || entry.KeyEndpoint != target.KeyEndpoint || entry.KEKID != target.KEKID || entry.KEKVersionID != target.KEKVersionID || entry.CryptoEndpoint != target.CryptoEndpoint || entry.LeaseSeconds != target.LeaseSeconds || !entry.NotAfter.Equal(target.NotAfter) {
 					return ErrUnavailable
 				}
 				existing++

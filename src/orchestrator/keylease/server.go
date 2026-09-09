@@ -183,7 +183,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	}
 	unwrapKey := unwrap
 	if protocol == "TBCK" {
-		if s.config.Customer == nil || customer.Provider != s.config.Customer.Provider || customer.KeyID != s.config.Customer.KeyID || customer.KeyRegion != s.config.Customer.KeyRegion || customer.KeyEndpoint != s.config.Customer.KeyEndpoint {
+		if s.config.Customer == nil || customer.Provider != s.config.Customer.Provider || customer.KeyID != s.config.Customer.KeyID || customer.KeyRegion != s.config.Customer.KeyRegion || customer.KeyEndpoint != s.config.Customer.KeyEndpoint || entry.Provider != customer.Provider || entry.KeyID != customer.KeyID || entry.KeyRegion != customer.KeyRegion || entry.KeyEndpoint != customer.KeyEndpoint {
 			writeUnavailableProtocol(connection, protocol)
 			return
 		}

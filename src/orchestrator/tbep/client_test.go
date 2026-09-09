@@ -182,6 +182,21 @@ func TestObserveMTLSScopeAndRawState(t *testing.T) {
 	}
 }
 
+func TestRestoreProviderValidationIncludesCustomerS3(t *testing.T) {
+	for _, provider := range []pb.RestoreProvider{
+		pb.RestoreProvider_RESTORE_PROVIDER_OCI,
+		pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS,
+		pb.RestoreProvider_RESTORE_PROVIDER_CUSTOMER_S3,
+	} {
+		if !validRestoreProvider(provider) {
+			t.Fatalf("provider %s rejected", provider)
+		}
+	}
+	if validRestoreProvider(pb.RestoreProvider_RESTORE_PROVIDER_UNSPECIFIED) || validRestoreProvider(pb.RestoreProvider(99)) {
+		t.Fatal("unapproved restore provider accepted")
+	}
+}
+
 func TestObserveRejectsUnauthenticatedHost(t *testing.T) {
 	for _, scenario := range []string{"other-host", "multiple-identities", "untrusted-ca", "expired", "client-only-usage", "tls12", "untrusted-client"} {
 		t.Run(scenario, func(t *testing.T) {

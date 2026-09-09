@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,10 @@ type Binding struct {
 
 type Entry struct {
 	Binding        Binding   `json:"binding"`
+	Provider       string    `json:"provider,omitempty"`
+	KeyID          string    `json:"key_id,omitempty"`
+	KeyRegion      string    `json:"key_region,omitempty"`
+	KeyEndpoint    string    `json:"key_endpoint,omitempty"`
 	CryptoEndpoint string    `json:"crypto_endpoint"`
 	KEKID          string    `json:"kek_id"`
 	KEKVersionID   string    `json:"kek_version_id"`
@@ -108,12 +113,23 @@ func (c Catalog) validate() error {
 	}
 	seen := map[Binding]bool{}
 	for _, e := range c.Entries {
-		if !e.Binding.valid() || seen[e.Binding] || destroyed[e.Binding.Scope()] || !hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) || !provider.IsOCID(e.KEKID, "key") || !provider.IsOCID(e.KEKVersionID, "keyversion") || len(e.Ciphertext) == 0 || len(e.Ciphertext) > 8192 || e.LeaseSeconds < 1 || e.LeaseSeconds > 1800 || e.NotAfter.IsZero() {
+		if !e.Binding.valid() || seen[e.Binding] || destroyed[e.Binding.Scope()] || !validEntryProvider(e) || len(e.Ciphertext) == 0 || len(e.Ciphertext) > 8192 || e.LeaseSeconds < 1 || e.LeaseSeconds > 1800 || e.NotAfter.IsZero() {
 			return ErrUnavailable
 		}
 		seen[e.Binding] = true
 	}
 	return nil
+}
+
+func validEntryProvider(e Entry) bool {
+	if e.Provider == "" {
+		return hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) && provider.IsOCID(e.KEKID, "key") && provider.IsOCID(e.KEKVersionID, "keyversion")
+	}
+	if e.Provider != "aws-kms" || !strings.HasPrefix(e.KeyID, "arn:aws:kms:") || !validEnvironment(e.KeyRegion) || e.KeyEndpoint == "" || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
+		return false
+	}
+	u, err := url.Parse(e.KeyEndpoint)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }
 
 // privateRoot refuses symlinked parent directories and requires owner-only

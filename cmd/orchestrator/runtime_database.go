@@ -409,6 +409,15 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
 			vault := region.Vault
 			vault.Binding = keylease.Binding{Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: region.Region, Purpose: "data"}
+			if r.BYOK != nil {
+				vault.CryptoEndpoint = ""
+				vault.KEKID = ""
+				vault.KEKVersionID = ""
+				vault.Provider = r.BYOK.KeyProvider
+				vault.KeyID = r.BYOK.KeyID
+				vault.KeyRegion = r.BYOK.KeyRegion
+				vault.KeyEndpoint = r.BYOK.KeyEndpoint
+			}
 			targets = append(targets, databaseadmission.Target{ServerIdentity: host.ServerIdentity, MemberID: host.MemberID, Region: region.Region, Provision: vault})
 		}
 	}
