@@ -64,6 +64,10 @@ type Authority struct {
 	keyARN string
 }
 
+type tokenFile string
+
+func (f tokenFile) GetIdentityToken() ([]byte, error) { return readToken(string(f)) }
+
 func New(ctx context.Context, config Config) (*Authority, error) {
 	if ctx == nil || !validConfig(config) {
 		return nil, ErrUnavailable
@@ -78,14 +82,12 @@ func New(ctx context.Context, config Config) (*Authority, error) {
 		return nil, ErrUnavailable
 	}
 	stsClient := sts.NewFromConfig(base)
-	provider := stscreds.NewWebIdentityRoleProvider(stsClient, config.RoleARN, func() ([]byte, error) {
-		return readToken(config.OIDCTokenFile)
-	}, func(options *stscreds.WebIdentityRoleOptions) {
+	provider := stscreds.NewWebIdentityRoleProvider(stsClient, config.RoleARN, tokenFile(config.OIDCTokenFile), func(options *stscreds.WebIdentityRoleOptions) {
 		if config.SessionName != "" {
 			options.RoleSessionName = config.SessionName
 		}
 		if config.Duration > 0 {
-			options.Duration = int32(config.Duration / time.Second)
+			options.Duration = config.Duration
 		}
 	})
 	base.Credentials = aws.NewCredentialsCache(provider)

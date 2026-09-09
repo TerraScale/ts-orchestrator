@@ -46,10 +46,13 @@ func TestAWSAuthorityBindsEncryptionContextAndReturnsCiphertext(t *testing.T) {
 }
 
 func TestAWSAuthorityRejectsAmbientOrInvalidConfiguration(t *testing.T) {
-	for _, config := range []Config{{Region: "sa-east-1", RoleARN: "arn:aws:iam::123456789012:role/customer", KeyARN: "arn:aws:kms:sa-east-1:123456789012:key/id", SessionName: "session"}, {Region: "sa-east-1", RoleARN: "arn:aws:iam::123456789012:role/customer", KeyARN: "arn:aws:kms:sa-east-1:123456789012:key/id", OIDCTokenFile: "/tmp/token", SessionName: "session"}} {
-		if validConfig(config) {
-			t.Fatalf("invalid explicit OIDC config accepted: %+v", config)
-		}
+	config := Config{Region: "sa-east-1", RoleARN: "arn:aws:iam::123456789012:role/customer", KeyARN: "arn:aws:kms:sa-east-1:123456789012:key/id", SessionName: "session"}
+	if validConfig(config) {
+		t.Fatal("missing explicit OIDC token file accepted")
+	}
+	config.OIDCTokenFile = "/tmp/token"
+	if _, err := New(t.Context(), config); err == nil {
+		t.Fatal("unreadable explicit OIDC token file accepted")
 	}
 	if _, err := newWithClient(nil, "arn:aws:kms:sa-east-1:123456789012:key/id"); err == nil {
 		t.Fatal("nil KMS client accepted")
