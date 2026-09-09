@@ -70,12 +70,12 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	}
 	keyConfig := keylease.Config{SocketPath: socket, CatalogPath: catalog, Environment: environment, Region: strings.ToUpper(options.Cell), AllowedUID: uint32(uid), SocketGID: uint32(gid)}
 	role, _ := lookup(byokRoleEnvironment)
-	if role != "" {
-		token, _ := lookup(byokTokenEnvironment)
-		keyID, _ := lookup(byokKeyIDEnvironment)
-		keyRegion, _ := lookup(byokKeyRegionEnvironment)
-		endpoint, _ := lookup(byokKeyEndpointEnvironment)
-		provider, _ := lookup(byokProviderEnvironment)
+	token, _ := lookup(byokTokenEnvironment)
+	keyID, _ := lookup(byokKeyIDEnvironment)
+	keyRegion, _ := lookup(byokKeyRegionEnvironment)
+	endpoint, _ := lookup(byokKeyEndpointEnvironment)
+	provider, _ := lookup(byokProviderEnvironment)
+	if role != "" || token != "" || keyID != "" || keyRegion != "" || endpoint != "" || provider != "" {
 		if provider != "aws-kms" || token == "" || keyID == "" || keyRegion == "" || endpoint == "" {
 			return nil, errors.New("orchestrator: customer BYOK requires explicit AWS configuration")
 		}
