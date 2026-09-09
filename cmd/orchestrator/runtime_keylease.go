@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,9 @@ func configuredKeyProvisioner(lookup envLookup) func(context.Context, string, []
 		if role == "" || token == "" || keyID == "" || keyRegion == "" || keyEndpoint == "" {
 			return keylease.ErrUnavailable
 		}
+		if !validKeyAuthorityEndpoint(keyEndpoint) {
+			return keylease.ErrUnavailable
+		}
 		for _, target := range targets {
 			if target.Provider != "aws-kms" || target.KeyID != keyID || target.KeyRegion != keyRegion || target.KeyEndpoint != keyEndpoint {
 				return keylease.ErrUnavailable
@@ -101,7 +105,7 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	endpoint, _ := lookup(byokKeyEndpointEnvironment)
 	provider, _ := lookup(byokProviderEnvironment)
 	if role != "" || token != "" || keyID != "" || keyRegion != "" || endpoint != "" || provider != "" {
-		if provider != "aws-kms" || token == "" || keyID == "" || keyRegion == "" || endpoint == "" {
+		if provider != "aws-kms" || role == "" || token == "" || keyID == "" || keyRegion == "" || endpoint == "" || !validKeyAuthorityEndpoint(endpoint) {
 			return nil, errors.New("orchestrator: customer BYOK requires explicit AWS configuration")
 		}
 		authority, authorityErr := byokauthority.New(ctx, byokauthority.Config{Region: keyRegion, RoleARN: role, OIDCTokenFile: token, KeyARN: keyID, SessionName: "terrascale-keylease"})
@@ -111,16 +115,16 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 		keyConfig.Customer = &keylease.CustomerConfig{Authority: customerAuthorityAdapter{authority: authority}, Provider: provider, KeyID: keyID, KeyRegion: keyRegion, KeyEndpoint: endpoint}
 	}
 	s3Role, _ := lookup(byokS3RoleEnvironment)
-	if s3Role != "" {
-		s3Token, _ := lookup(byokS3TokenEnvironment)
-		s3Endpoint, _ := lookup(byokS3EndpointEnvironment)
-		s3Bucket, _ := lookup(byokS3BucketEnvironment)
-		s3Region, _ := lookup(byokS3RegionEnvironment)
-		s3Revision, _ := lookup(byokS3RevisionEnvironment)
-		s3Tenant, _ := lookup(byokS3TenantEnvironment)
-		s3Project, _ := lookup(byokS3ProjectEnvironment)
-		s3Database, _ := lookup(byokS3DatabaseEnvironment)
-		if s3Token == "" || s3Endpoint == "" || s3Bucket == "" || s3Region == "" || s3Revision == "" || s3Tenant == "" || s3Project == "" || s3Database == "" {
+	s3Token, _ := lookup(byokS3TokenEnvironment)
+	s3Endpoint, _ := lookup(byokS3EndpointEnvironment)
+	s3Bucket, _ := lookup(byokS3BucketEnvironment)
+	s3Region, _ := lookup(byokS3RegionEnvironment)
+	s3Revision, _ := lookup(byokS3RevisionEnvironment)
+	s3Tenant, _ := lookup(byokS3TenantEnvironment)
+	s3Project, _ := lookup(byokS3ProjectEnvironment)
+	s3Database, _ := lookup(byokS3DatabaseEnvironment)
+	if s3Role != "" || s3Token != "" || s3Endpoint != "" || s3Bucket != "" || s3Region != "" || s3Revision != "" || s3Tenant != "" || s3Project != "" || s3Database != "" {
+		if s3Role == "" || s3Token == "" || s3Endpoint == "" || s3Bucket == "" || s3Region == "" || s3Revision == "" || s3Tenant == "" || s3Project == "" || s3Database == "" || !validKeyAuthorityEndpoint(s3Endpoint) {
 			return nil, errors.New("orchestrator: customer S3 workload identity requires explicit scope")
 		}
 		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
@@ -134,4 +138,9 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 		return nil, errors.New("orchestrator: local Vault key lease service unavailable")
 	}
 	return service, nil
+}
+
+func validKeyAuthorityEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }
