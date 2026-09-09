@@ -154,7 +154,8 @@ The planned admission architecture is asymmetric. SFO and FRA have no
 regional runtime lease at first boot; GRU runtime commands cannot authorize
 cross-Region manifest changes. Their broker-preparation component must be in
 each host's first owner-signed initial manifest. The existing local chain is
-`cmd/ts-node.activateTsNodeBeforeNATS` → `hostbootstrap.RunLocalBootstrap` →
+`cmd/ts-node/bootstrap_startup.go:activateTsNodeBeforeNATS` →
+`hostbootstrap.RunLocalBootstrap` →
 `hostagent.OpenLocalBootstrap`. It uses that host's existing journal and zero
 local epoch floor without connecting to NATS. GRU's capture replacement is
 instead admitted through its live GRU runtime-signed `ApplyManifest` command.

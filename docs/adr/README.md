@@ -11,5 +11,6 @@ constrain the current Go orchestrator and its native systemd runtime.
 | [0025: Rollback on customer gate failure](0025-rollback-on-customer-gate-failure.md) | Accepted |
 
 The delivery and qualification contracts are defined by workspace decisions
-D-67, D-68, and D-81. Retired deployment and workload records are not retained
-as documentation inputs.
+D-67, D-68, and D-81. Retired deployment and workload records are not current
+design inputs. Dated records remain available as historical evidence until
+their retention or deletion is explicitly decided.

@@ -23,5 +23,6 @@ systemd, and never carries customer data or serves the customer request path.
 | [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Bounded monitoring instruments and fail-closed observation |
 | [`runbooks/nats-monitoring.md`](runbooks/nats-monitoring.md) | NATS alert interpretation and remediation |
 
-Retired architecture and decision records are deleted; they are not current
-design inputs.
+Retired architecture and decision records are not current design inputs.
+Historical ADRs and dated evidence remain available until their retention or
+deletion is explicitly decided.

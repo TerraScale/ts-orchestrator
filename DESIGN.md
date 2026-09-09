@@ -8,10 +8,11 @@ describe code that exists today; they do not preserve a retired topology.
 ## Module
 
 - Module path: `terrascale.tech/orchestrator`, Go 1.27, single module.
-- Binary entry points: `cmd/orchestrator` (runtime), `cmd/ts-node` (host
-  agent), `tools/orchestrator-tooling` (repository validation), and
-  `tests/journalchild` (the fixture executable spawned by control journal
-  tests).
+- Binary entry points: `cmd/orchestrator` (runtime and control commands),
+  `cmd/ts-node` (host agent), `cmd/vm-artifacts`, `cmd/vm-guest-control`, and
+  `cmd/vm-qualify` (qualification tooling), plus `tools/orchestrator-tooling`
+  (repository validation) and `tests/journalchild` (the fixture executable
+  spawned by control journal tests).
 
 ## Package map
 
@@ -49,6 +50,16 @@ describe code that exists today; they do not preserve a retired topology.
 | Qualification grant issuer and activation | `src/orchestrator/vmqualbootstrap` | hostagent, security |
 | Guest controller configuration | `src/orchestrator/vmcontrolseed` | control, hostagent, security |
 | Qualification scenarios | `src/orchestrator/vmqualsuite` | vmqual, production controllers, sandboxproviders |
+
+The table above names the primary package boundaries. The repository also
+contains supporting packages such as `authbootstrap`, `brokeradmission`,
+`databaseadmission`, `databaselifecycle`, `enrollment`, `hostplatform`,
+`lifecycleaggregate`, `placementpublisher`, `placementrelocation`,
+`qualificationstate`, `runmaterial`, `sourcepublication`, `storageplan`,
+`systemdlimits`, `transferplan`, `transitiongrant`, `transitionreceipts`,
+`vmcandidateseed`, `vmqualartifact`, and `writebudget`. The authoritative
+package inventory is `go list ./...`; this document intentionally does not
+duplicate the full generated list.
 
 Within `src/orchestrator/control`, use concise snake_case filenames named for
 the Go responsibility (`authority_engine.go`, `journal_store.go`). Package
