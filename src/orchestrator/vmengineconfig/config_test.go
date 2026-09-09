@@ -225,6 +225,21 @@ func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 			t.Fatalf("missing BYOK field %s", required)
 		}
 	}
+	for _, required := range []string{
+		"provider = \"customer-s3\"",
+		"endpoint = \"https://s3.customer.example\"",
+		"signing_region = \"us-east-1\"",
+		"bucket = \"customer-backups\"",
+		"access_key_file = \"\"",
+		"secret_key_file = \"\"",
+	} {
+		if !strings.Contains(config, required) {
+			t.Fatalf("missing rendered customer backup field %s", required)
+		}
+	}
+	if strings.Contains(config, "/etc/terrascale/backup/") {
+		t.Fatal("BYOK backup destination leaked a credential path")
+	}
 }
 
 func TestPendingHostRequiresDatabaseAdmission(t *testing.T) {

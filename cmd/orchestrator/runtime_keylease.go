@@ -24,7 +24,26 @@ const (
 	byokKeyRegionEnvironment   = "TS_ORCH_BYOK_KEY_REGION"
 	byokKeyEndpointEnvironment = "TS_ORCH_BYOK_KEY_ENDPOINT"
 	byokProviderEnvironment    = "TS_ORCH_BYOK_PROVIDER"
+	byokS3RoleEnvironment      = "TS_ORCH_BYOK_S3_ROLE_ARN"
+	byokS3TokenEnvironment     = "TS_ORCH_BYOK_S3_OIDC_TOKEN_FILE"
+	byokS3EndpointEnvironment  = "TS_ORCH_BYOK_S3_ENDPOINT"
+	byokS3BucketEnvironment    = "TS_ORCH_BYOK_S3_BUCKET"
+	byokS3RegionEnvironment    = "TS_ORCH_BYOK_S3_REGION"
+	byokS3RevisionEnvironment  = "TS_ORCH_BYOK_S3_PLACEMENT_REVISION"
+	byokS3TenantEnvironment    = "TS_ORCH_BYOK_S3_TENANT_ID"
+	byokS3ProjectEnvironment   = "TS_ORCH_BYOK_S3_PROJECT_ID"
+	byokS3DatabaseEnvironment  = "TS_ORCH_BYOK_S3_DATABASE_ID"
 )
+
+type workloadIssuerAdapter struct{ issuer *byokauthority.WorkloadIssuer }
+
+func (a workloadIssuerAdapter) Issue(ctx context.Context, scope keylease.WorkloadIdentityScope) (keylease.WorkloadIdentityCredentials, error) {
+	value, err := a.issuer.Issue(ctx, byokauthority.WorkloadScope{Environment: scope.Environment, TenantID: scope.TenantID, ProjectID: scope.ProjectID, DatabaseID: scope.DatabaseID, Role: scope.Role, ExternalID: scope.ExternalID, Endpoint: scope.Endpoint, Bucket: scope.Bucket, Region: scope.Region, PlacementRevision: scope.PlacementRevision})
+	if err != nil {
+		return keylease.WorkloadIdentityCredentials{}, err
+	}
+	return keylease.WorkloadIdentityCredentials{AccessKey: value.AccessKey, SecretKey: value.SecretKey, SessionToken: value.SessionToken, ExpiresAtUnixSeconds: value.ExpiresAtUnixSeconds}, nil
+}
 
 func configuredKeyProvisioner(lookup envLookup) func(context.Context, string, []keylease.ProvisionTarget) error {
 	return func(ctx context.Context, path string, targets []keylease.ProvisionTarget) error {
@@ -35,8 +54,14 @@ func configuredKeyProvisioner(lookup envLookup) func(context.Context, string, []
 		token, _ := lookup(byokTokenEnvironment)
 		keyID, _ := lookup(byokKeyIDEnvironment)
 		keyRegion, _ := lookup(byokKeyRegionEnvironment)
-		if role == "" || token == "" || keyID == "" || keyRegion == "" {
+		keyEndpoint, _ := lookup(byokKeyEndpointEnvironment)
+		if role == "" || token == "" || keyID == "" || keyRegion == "" || keyEndpoint == "" {
 			return keylease.ErrUnavailable
+		}
+		for _, target := range targets {
+			if target.Provider != "aws-kms" || target.KeyID != keyID || target.KeyRegion != keyRegion || target.KeyEndpoint != keyEndpoint {
+				return keylease.ErrUnavailable
+			}
 		}
 		authority, err := byokauthority.New(ctx, byokauthority.Config{Region: keyRegion, RoleARN: role, OIDCTokenFile: token, KeyARN: keyID, SessionName: "terrascale-key-provision"})
 		if err != nil {
@@ -84,6 +109,25 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 			return nil, errors.New("orchestrator: customer BYOK authority unavailable")
 		}
 		keyConfig.Customer = &keylease.CustomerConfig{Authority: customerAuthorityAdapter{authority: authority}, Provider: provider, KeyID: keyID, KeyRegion: keyRegion, KeyEndpoint: endpoint}
+	}
+	s3Role, _ := lookup(byokS3RoleEnvironment)
+	if s3Role != "" {
+		s3Token, _ := lookup(byokS3TokenEnvironment)
+		s3Endpoint, _ := lookup(byokS3EndpointEnvironment)
+		s3Bucket, _ := lookup(byokS3BucketEnvironment)
+		s3Region, _ := lookup(byokS3RegionEnvironment)
+		s3Revision, _ := lookup(byokS3RevisionEnvironment)
+		s3Tenant, _ := lookup(byokS3TenantEnvironment)
+		s3Project, _ := lookup(byokS3ProjectEnvironment)
+		s3Database, _ := lookup(byokS3DatabaseEnvironment)
+		if s3Token == "" || s3Endpoint == "" || s3Bucket == "" || s3Region == "" || s3Revision == "" || s3Tenant == "" || s3Project == "" || s3Database == "" {
+			return nil, errors.New("orchestrator: customer S3 workload identity requires explicit scope")
+		}
+		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
+		if issuerErr != nil {
+			return nil, errors.New("orchestrator: customer S3 workload issuer unavailable")
+		}
+		keyConfig.WorkloadIdentity = workloadIssuerAdapter{issuer: issuer}
 	}
 	service, err := keylease.Start(ctx, keyConfig)
 	if err != nil {

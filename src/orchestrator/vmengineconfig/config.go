@@ -492,7 +492,19 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		if db.Backup != nil {
 			fmt.Fprintf(&b, "[databases.backup]\npolicy_revision = %q\nretention_days = %d\n", db.Backup.PolicyRevision, db.Backup.RetentionDays)
 			for i, d := range db.Backup.Destinations {
-				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.Provider, d.Endpoint, d.SigningRegion, d.Bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, backupPath(db.Database, i, "access"), backupPath(db.Database, i, "secret"), d.MaxArtifactBytes, d.MaxPointBytes)
+				provider, endpoint, signingRegion, bucket := d.Provider, d.Endpoint, d.SigningRegion, d.Bucket
+				accessKeyFile, secretKeyFile := backupPath(db.Database, i, "access"), backupPath(db.Database, i, "secret")
+				if db.BYOK != nil && i == 0 {
+					// Customer S3 credentials are delivered lazily through the
+					// workload identity adapter. Empty paths keep secret material
+					// out of the declaration and host seed.
+					provider = "customer-s3"
+					endpoint = db.BYOK.BackupEndpoint
+					signingRegion = db.BYOK.BackupRegion
+					bucket = db.BYOK.BackupBucket
+					accessKeyFile, secretKeyFile = "", ""
+				}
+				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", provider, endpoint, signingRegion, bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, accessKeyFile, secretKeyFile, d.MaxArtifactBytes, d.MaxPointBytes)
 			}
 		}
 	}

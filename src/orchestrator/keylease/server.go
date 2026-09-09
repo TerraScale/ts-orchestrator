@@ -46,6 +46,10 @@ type CustomerConfig struct {
 }
 
 type WorkloadIdentityScope struct {
+	Environment       string  `json:"environment"`
+	TenantID          string  `json:"tenant_id"`
+	ProjectID         string  `json:"project_id"`
+	DatabaseID        string  `json:"database_id"`
 	Role              string  `json:"role"`
 	ExternalID        *string `json:"external_id,omitempty"`
 	Endpoint          string  `json:"endpoint"`

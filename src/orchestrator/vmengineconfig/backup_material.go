@@ -28,6 +28,9 @@ func prepareBackup(m *Material, d Declaration) error {
 			continue
 		}
 		for i, dest := range db.Backup.Destinations {
+			if db.BYOK != nil && i == 0 {
+				continue
+			}
 			for kind, path := range map[string]string{"access": dest.AccessKeyFile, "secret": dest.SecretKeyFile} {
 				data, err := initialgrant.ReadMaterialFile(path, 16<<10, true)
 				if err != nil || len(bytes.TrimSpace(data)) == 0 {
