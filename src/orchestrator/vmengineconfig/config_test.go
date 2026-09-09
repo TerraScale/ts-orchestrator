@@ -96,6 +96,34 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 	}
 }
 
+func TestBYOKAdmissionAcceptsReferencesAndRejectsSecretLikeValues(t *testing.T) {
+	valid := &vmengineconfig.BYOKConfig{
+		BackupEndpoint: "https://objects.example.test/customer",
+		BackupBucket:   "customer-backups",
+		BackupRegion:   "us-east-1",
+		BackupRoleARN:  "arn:aws:iam::123456789012:role/terrascale-backup",
+		BackupExternalID: "tenant-01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		KeyProvider:    "aws-kms",
+		KeyID:         "arn:aws:kms:us-east-1:123456789012:key/abcd",
+		KeyRegion:     "us-east-1",
+		KeyEndpoint:   "https://kms.us-east-1.amazonaws.com",
+	}
+	if err := vmengineconfig.ValidateBYOKConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*vmengineconfig.BYOKConfig){
+		func(b *vmengineconfig.BYOKConfig) { b.BackupEndpoint = "https://objects.example.test\nAuthorization: Bearer secret" },
+		func(b *vmengineconfig.BYOKConfig) { b.BackupRoleARN = "arn:aws:iam::secret\n" },
+		func(b *vmengineconfig.BYOKConfig) { b.KeyEndpoint = "http://kms.example.test" },
+	} {
+		candidate := *valid
+		mutate(&candidate)
+		if err := vmengineconfig.ValidateBYOKConfig(&candidate); err == nil {
+			t.Fatal("secret-bearing or insecure BYOK reference accepted")
+		}
+	}
+}
+
 func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing.T) {
 	mixedBindings := []vmengineconfig.Binding{
 		{NodeID: "gru-member-1", Region: "GRU", Address: "10.77.0.10"},
@@ -139,6 +167,50 @@ func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing
 			if !strings.Contains(config, "region = \"GRU\"\nselected_regions = [\"GRU\"]") || !strings.Contains(config, "enabled = false") {
 				t.Fatal("SFO config omitted disabled GRU control declaration")
 			}
+		}
+	}
+}
+
+func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
+	d, path := testengineconfig.Declaration(t, bindings, strings.Repeat("a", 64), "1.0.0")
+	d.Databases[0].BYOK = &vmengineconfig.BYOKConfig{
+		BackupEndpoint:   "https://s3.customer.example",
+		BackupBucket:     "customer-backups",
+		BackupRegion:     "us-east-1",
+		BackupRoleARN:    "arn:aws:iam::123456789012:role/TerraScaleBackup",
+		BackupExternalID: "external-123",
+		KeyProvider:      "aws-kms",
+		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/abcd1234",
+		KeyRegion:        "us-east-1",
+		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	materials, err := vmengineconfig.Load(path, d.ArtifactSHA256, d.Release, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, material := range materials {
+			material.Clear()
+		}
+	}()
+	config := manifest(t, materials[bindings[0].NodeID]).Components[0].Configuration
+	for _, required := range []string{
+		"[databases.byok]",
+		"backup_endpoint = \"https://s3.customer.example\"",
+		"backup_role_arn = \"arn:aws:iam::123456789012:role/TerraScaleBackup\"",
+		"backup_external_id = \"external-123\"",
+		"key_provider = \"aws-kms\"",
+		"key_id = \"arn:aws:kms:us-east-1:123456789012:key/abcd1234\"",
+	} {
+		if !strings.Contains(config, required) {
+			t.Fatalf("missing BYOK field %s", required)
 		}
 	}
 }

@@ -368,8 +368,10 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 			return nil, bad
 		}
 		if db.BYOK != nil {
-			b := db.BYOK
-			if !strings.HasPrefix(b.BackupEndpoint, "https://") || len(b.BackupEndpoint) > 2048 || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || len(b.BackupRoleARN) > 512 || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || b.KeyID == "" || len(b.KeyID) > 512 || !environment.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && (!strings.HasPrefix(b.KeyEndpoint, "https://") || len(b.KeyEndpoint) > 2048) {
+			if err := ValidateBYOKConfig(db.BYOK); err != nil {
+				return nil, bad
+			}
+			if db.Backup == nil {
 				return nil, bad
 			}
 		}
@@ -427,6 +429,26 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		return nil, bad
 	}
 	return nodes, nil
+}
+
+// ValidateBYOKConfig admits only provider references. Secret material is
+// deliberately not part of BYOKConfig and therefore cannot be serialized into
+// a signed declaration or rendered engine configuration.
+func ValidateBYOKConfig(b *BYOKConfig) error {
+	if b == nil {
+		return errors.New("vmengineconfig: missing BYOK configuration")
+	}
+	validHTTPS := func(value string, limit int) bool {
+		u, err := url.Parse(value)
+		return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && len(value) <= limit && !strings.ContainsAny(value, "\r\n\x00")
+	}
+	validReference := func(value string, limit int) bool {
+		return value != "" && len(value) <= limit && !strings.ContainsAny(value, "\r\n\x00")
+	}
+	if !validHTTPS(b.BackupEndpoint, 2048) || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !validReference(b.KeyID, 512) || !environment.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
+		return errors.New("vmengineconfig: invalid BYOK provider reference")
+	}
+	return nil
 }
 
 func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
