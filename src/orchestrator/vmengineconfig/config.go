@@ -471,7 +471,13 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 			}
 			fmt.Fprintf(&b, "%q", region)
 		}
-		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
+		encryptionProvider := "oci-vault"
+		if db.BYOK != nil {
+			// TerraBase uses one provider-neutral customer lease adapter; the
+			// concrete cloud provider remains an admitted reference in BYOK.
+			encryptionProvider = "customer-kms"
+		}
+		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = %q\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, encryptionProvider, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
 		if db.BYOK != nil {
 			byok := db.BYOK
 			fmt.Fprintf(&b, "[databases.byok]\nbackup_endpoint = %q\nbackup_bucket = %q\nbackup_region = %q\nbackup_role_arn = %q\n", byok.BackupEndpoint, byok.BackupBucket, byok.BackupRegion, byok.BackupRoleARN)

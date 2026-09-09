@@ -56,4 +56,9 @@ func TestHostRequiresEveryPurpose(t *testing.T) {
 	if validateInstall(c, request) == nil {
 		t.Fatal("admitted missing backup and checkpoint keys")
 	}
+	request.Entries = journalWrapped(r)
+	c.Region = "SFO"
+	if validateInstall(c, request) == nil {
+		t.Fatal("admitted install for a different host region")
+	}
 }

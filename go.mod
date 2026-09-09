@@ -3,6 +3,11 @@ module terrascale.tech/orchestrator
 go 1.27
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.40.0
+	github.com/aws/aws-sdk-go-v2/config v1.31.0
+	github.com/aws/aws-sdk-go-v2/credentials v1.18.44
+	github.com/aws/aws-sdk-go-v2/service/kms v1.41.1
+	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19
 	github.com/containerd/fifo v1.0.0
 	github.com/firecracker-microvm/firecracker-go-sdk v1.0.0
 	github.com/klauspost/compress v1.19.2
