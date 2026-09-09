@@ -959,6 +959,7 @@ enum RestoreProvider {
   RESTORE_PROVIDER_UNSPECIFIED = 0;
   RESTORE_PROVIDER_OCI = 1;
   RESTORE_PROVIDER_TIGRIS = 2;
+  RESTORE_PROVIDER_CUSTOMER_S3 = 3;
 }
 
 message LifecycleControlContext {

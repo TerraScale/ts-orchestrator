@@ -81,7 +81,9 @@ func validBranchProvenance(r Request) bool {
 func branchProvenancePinned(r Request) bool {
 	return r.RecoveryPointID != "" || r.JournalCut != "" || r.RestoreEpoch != 0 || r.RestoreProvider != ""
 }
-func validRestoreProvider(provider string) bool { return provider == "oci" || provider == "tigris" }
+func validRestoreProvider(provider string) bool {
+	return provider == "oci" || provider == "tigris" || provider == "customer-s3"
+}
 func validJournalCut(cut string) bool {
 	if len(cut) == 0 || len(cut) > 255 {
 		return false

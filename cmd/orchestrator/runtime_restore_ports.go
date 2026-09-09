@@ -71,7 +71,7 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 		return err
 	}
 	defer client.Close()
-	provider := map[string]pb.RestoreProvider{"oci": pb.RestoreProvider_RESTORE_PROVIDER_OCI, "tigris": pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS}[target.Request.RestoreProvider]
+	provider := map[string]pb.RestoreProvider{"oci": pb.RestoreProvider_RESTORE_PROVIDER_OCI, "tigris": pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS, "customer-s3": pb.RestoreProvider_RESTORE_PROVIDER_CUSTOMER_S3}[target.Request.RestoreProvider]
 	if provider == pb.RestoreProvider_RESTORE_PROVIDER_UNSPECIFIED || target.Request.RestoreProvider != evidence.RestoreProvider {
 		return errors.New("restore backup: authenticated restore provider is unavailable")
 	}
