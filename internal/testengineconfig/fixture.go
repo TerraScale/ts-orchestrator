@@ -33,6 +33,13 @@ func DatabaseDeclaration(t testing.TB, bindings []vmengineconfig.Binding, artifa
 	t.Helper()
 	return declaration(t, bindings, artifact, release, true, true)
 }
+
+// DatabaseOnlyDeclaration prepares database material without control-plane
+// credentials, allowing renderer tests to inspect the data-plane manifest.
+func DatabaseOnlyDeclaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string) (vmengineconfig.Declaration, string) {
+	t.Helper()
+	return declaration(t, bindings, artifact, release, false, true)
+}
 func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, release string, control, database bool) (vmengineconfig.Declaration, string) {
 	t.Helper()
 	root := t.TempDir()

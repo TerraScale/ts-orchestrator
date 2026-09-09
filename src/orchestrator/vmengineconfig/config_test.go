@@ -98,21 +98,23 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 
 func TestBYOKAdmissionAcceptsReferencesAndRejectsSecretLikeValues(t *testing.T) {
 	valid := &vmengineconfig.BYOKConfig{
-		BackupEndpoint: "https://objects.example.test/customer",
-		BackupBucket:   "customer-backups",
-		BackupRegion:   "us-east-1",
-		BackupRoleARN:  "arn:aws:iam::123456789012:role/terrascale-backup",
+		BackupEndpoint:   "https://objects.example.test/customer",
+		BackupBucket:     "customer-backups",
+		BackupRegion:     "us-east-1",
+		BackupRoleARN:    "arn:aws:iam::123456789012:role/terrascale-backup",
 		BackupExternalID: "tenant-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		KeyProvider:    "aws-kms",
-		KeyID:         "arn:aws:kms:us-east-1:123456789012:key/abcd",
-		KeyRegion:     "us-east-1",
-		KeyEndpoint:   "https://kms.us-east-1.amazonaws.com",
+		KeyProvider:      "aws-kms",
+		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/abcd",
+		KeyRegion:        "us-east-1",
+		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
 	}
 	if err := vmengineconfig.ValidateBYOKConfig(valid); err != nil {
 		t.Fatal(err)
 	}
 	for _, mutate := range []func(*vmengineconfig.BYOKConfig){
-		func(b *vmengineconfig.BYOKConfig) { b.BackupEndpoint = "https://objects.example.test\nAuthorization: Bearer secret" },
+		func(b *vmengineconfig.BYOKConfig) {
+			b.BackupEndpoint = "https://objects.example.test\nAuthorization: Bearer secret"
+		},
 		func(b *vmengineconfig.BYOKConfig) { b.BackupRoleARN = "arn:aws:iam::secret\n" },
 		func(b *vmengineconfig.BYOKConfig) { b.KeyEndpoint = "http://kms.example.test" },
 	} {
@@ -172,7 +174,7 @@ func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing
 }
 
 func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
-	d, path := testengineconfig.Declaration(t, bindings, strings.Repeat("a", 64), "1.0.0")
+	d, path := testengineconfig.DatabaseOnlyDeclaration(t, bindings, strings.Repeat("a", 64), "1.0.0")
 	d.Databases[0].BYOK = &vmengineconfig.BYOKConfig{
 		BackupEndpoint:   "https://s3.customer.example",
 		BackupBucket:     "customer-backups",
@@ -200,7 +202,17 @@ func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 			material.Clear()
 		}
 	}()
-	config := manifest(t, materials[bindings[0].NodeID]).Components[0].Configuration
+	planned, err := materials[bindings[0].NodeID].Apply(hostmanifest.HostManifest{Components: []hostmanifest.ComponentSpec{{
+		Name: "terrabase", Version: "1.0.0", Sha256: strings.Repeat("a", 64),
+		ArtifactURL:  "https://releases.terrascale.tech:8443/releases/terrabase/1.0.0/terrabase",
+		SignatureURL: "https://releases.terrascale.tech:8443/releases/terrabase/1.0.0/terrabase.sig",
+		User:         vmengineconfig.ServiceUser, DataVolume: "/var/lib/terrascale/terrabase",
+		CPUWeight: 100, MemoryMaxBytes: 128 << 20, IOWeight: 100,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := planned.Components[0].Configuration
 	for _, required := range []string{
 		"[databases.byok]",
 		"backup_endpoint = \"https://s3.customer.example\"",
