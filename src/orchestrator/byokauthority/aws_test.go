@@ -1,6 +1,7 @@
 package byokauthority
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -9,13 +10,15 @@ import (
 )
 
 type fakeKMS struct {
-	context map[string]string
-	cipher  []byte
+	context   map[string]string
+	cipher    []byte
+	plaintext []byte
 }
 
-func (f *fakeKMS) GenerateDataKey(_ context.Context, in *kms.GenerateDataKeyInput, _ ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error) {
+func (f *fakeKMS) Encrypt(_ context.Context, in *kms.EncryptInput, _ ...func(*kms.Options)) (*kms.EncryptOutput, error) {
 	f.context = in.EncryptionContext
-	return &kms.GenerateDataKeyOutput{Plaintext: []byte("01234567890123456789012345678901"), CiphertextBlob: []byte("wrapped")}, nil
+	f.plaintext = append([]byte(nil), in.Plaintext...)
+	return &kms.EncryptOutput{CiphertextBlob: []byte("wrapped")}, nil
 }
 func (f *fakeKMS) Decrypt(_ context.Context, in *kms.DecryptInput, _ ...func(*kms.Options)) (*kms.DecryptOutput, error) {
 	if string(in.CiphertextBlob) != "wrapped" || in.EncryptionContext["terrascale.key_version"] != "version" {
@@ -37,6 +40,9 @@ func TestAWSAuthorityBindsEncryptionContextAndReturnsCiphertext(t *testing.T) {
 	}
 	if fake.context["terrascale.database_id"] != "database" || fake.context["terrascale.purpose"] != "data" {
 		t.Fatalf("encryption context lost scope: %#v", fake.context)
+	}
+	if !bytes.Equal(fake.plaintext, make([]byte, 32)) {
+		t.Fatalf("Wrap did not submit caller DEK: %q", fake.plaintext)
 	}
 	key, err := authority.Unwrap(t.Context(), binding, ciphertext)
 	if err != nil || key == nil || string(key.Bytes()) != "01234567890123456789012345678901" {

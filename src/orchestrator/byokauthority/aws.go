@@ -16,7 +16,6 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
@@ -55,7 +54,7 @@ type Config struct {
 }
 
 type kmsAPI interface {
-	GenerateDataKey(context.Context, *kms.GenerateDataKeyInput, ...func(*kms.Options)) (*kms.GenerateDataKeyOutput, error)
+	Encrypt(context.Context, *kms.EncryptInput, ...func(*kms.Options)) (*kms.EncryptOutput, error)
 	Decrypt(context.Context, *kms.DecryptInput, ...func(*kms.Options)) (*kms.DecryptOutput, error)
 }
 
@@ -105,11 +104,10 @@ func (a *Authority) Wrap(ctx context.Context, binding Binding, plaintext []byte)
 	if a == nil || ctx == nil || ctx.Err() != nil || !validBinding(binding) || len(plaintext) != 32 {
 		return "", ErrUnavailable
 	}
-	result, err := a.client.GenerateDataKey(ctx, &kms.GenerateDataKeyInput{KeyId: aws.String(a.keyARN), KeySpec: types.DataKeySpecAes256, EncryptionContext: binding.encryptionContext()})
-	if err != nil || result == nil || len(result.CiphertextBlob) == 0 || len(result.Plaintext) != 32 {
+	result, err := a.client.Encrypt(ctx, &kms.EncryptInput{KeyId: aws.String(a.keyARN), Plaintext: plaintext, EncryptionContext: binding.encryptionContext()})
+	if err != nil || result == nil || len(result.CiphertextBlob) == 0 {
 		return "", ErrUnavailable
 	}
-	clear(result.Plaintext)
 	return base64.RawStdEncoding.EncodeToString(result.CiphertextBlob), nil
 }
 

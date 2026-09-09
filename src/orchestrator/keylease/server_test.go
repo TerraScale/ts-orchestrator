@@ -214,6 +214,60 @@ func TestRejectsUnsafeFilesystemAndProtocol(t *testing.T) {
 	}
 }
 
+func TestTBCKRequestUsesCustomerAuthority(t *testing.T) {
+	config, catalog := fixture(t)
+	called := false
+	config.Customer = &CustomerConfig{Authority: customerAuthorityFunc(func(_ context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
+		called = true
+		if b != catalog.Entries[0].Binding || ciphertext != catalog.Entries[0].Ciphertext {
+			return nil, ErrUnavailable
+		}
+		return testDataKey(t, 9), nil
+	})}
+	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {
+		t.Fatal("TBCK request reached OCI authority")
+		return nil, ErrUnavailable
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	body := requestProtocol(t, config.SocketPath, catalog.Entries[0].Binding, "TBCK")
+	if len(body) != 68 || string(body[:4]) != "TBCK" || body[5] != 0 || !bytes.Equal(body[36:], bytes.Repeat([]byte{9}, 32)) || !called {
+		t.Fatalf("TBCK response/call invalid: %x called=%v", body, called)
+	}
+}
+
+type customerAuthorityFunc func(context.Context, Binding, string) (*hostsecrets.DataKey, error)
+
+func (f customerAuthorityFunc) Unwrap(ctx context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
+	return f(ctx, b, ciphertext)
+}
+
+func requestProtocol(t *testing.T, path string, b Binding, protocol string) []byte {
+	t.Helper()
+	c, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	body := bindingWire(b)
+	copy(body[4:], protocol)
+	if _, err = c.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	var prefix [4]byte
+	if _, err = io.ReadFull(c, prefix[:]); err != nil {
+		t.Fatal(err)
+	}
+	response := make([]byte, binary.BigEndian.Uint32(prefix[:]))
+	if _, err = io.ReadFull(c, response); err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
 func TestMalformedAndTruncatedRequestsReceiveRefusal(t *testing.T) {
 	config, _ := fixture(t)
 	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {

@@ -25,6 +25,18 @@ type Config struct {
 	Region      string
 	AllowedUID  uint32
 	SocketGID   uint32
+	Customer    *CustomerConfig
+}
+
+// CustomerAuthority unwraps ciphertext for an explicitly admitted customer
+// binding. Implementations must perform provider authentication and must not
+// use ambient credentials.
+type CustomerAuthority interface {
+	Unwrap(context.Context, Binding, string) (*hostsecrets.DataKey, error)
+}
+
+type CustomerConfig struct {
+	Authority CustomerAuthority
 }
 
 type Server struct {
@@ -42,7 +54,7 @@ type Server struct {
 // key is requested; startup does not fetch or persist any plaintext keys.
 func Start(ctx context.Context, config Config) (*Server, error) { return start(ctx, config, unwrapOCI) }
 func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, error) {
-	if ctx == nil || unwrap == nil || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) {
+	if ctx == nil || unwrap == nil || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) || config.Customer != nil && config.Customer.Authority == nil {
 		return nil, ErrUnavailable
 	}
 	_, err := ReadCatalog(config.CatalogPath)
@@ -126,27 +138,37 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	defer cancel()
 	stop := context.AfterFunc(local, func() { connection.Close() })
 	defer stop()
-	binding, err := readBinding(connection)
+	protocol, binding, err := readRequest(connection)
 	if err != nil || binding.Environment != s.config.Environment || binding.Region != s.config.Region {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
 	entry, err := s.lookup(binding, time.Now())
 	if err != nil {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
-	key, err := unwrap(local, entry)
+	unwrapKey := unwrap
+	if protocol == "TBCK" {
+		if s.config.Customer == nil {
+			writeUnavailableProtocol(connection, protocol)
+			return
+		}
+		unwrapKey = func(ctx context.Context, entry Entry) (*hostsecrets.DataKey, error) {
+			return s.config.Customer.Authority.Unwrap(ctx, binding, entry.Ciphertext)
+		}
+	}
+	key, err := unwrapKey(local, entry)
 	defer hostsecrets.ReleaseDataKey(key)
 	if err != nil || len(key.Bytes()) != 32 {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
 	// Re-check after remote latency: revocation or rotation must not race a
 	// pending Vault unwrap. Old versions remain usable only if explicitly kept.
 	unlock, err := catalogLock(s.config.CatalogPath)
 	if err != nil {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
 	defer func() {
@@ -156,12 +178,12 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	}()
 	current, err := s.lookup(binding, time.Now())
 	if err != nil || current != entry {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
 	seconds := min(entry.LeaseSeconds, uint32(max(0, time.Until(entry.NotAfter)/time.Second)))
 	if seconds == 0 {
-		writeUnavailable(connection)
+		writeUnavailableProtocol(connection, protocol)
 		return
 	}
 	// The catalog check is the linearization point for this lease. Release the
@@ -195,41 +217,53 @@ func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 	}
 	return Entry{}, ErrUnavailable
 }
-func readBinding(reader io.Reader) (Binding, error) {
+func readRequest(reader io.Reader) (string, Binding, error) {
 	var prefix [4]byte
 	if _, err := io.ReadFull(reader, prefix[:]); err != nil {
-		return Binding{}, ErrUnavailable
+		return "", Binding{}, ErrUnavailable
 	}
 	size := binary.BigEndian.Uint32(prefix[:])
 	if size < 5 || size > maximumFrame {
-		return Binding{}, ErrUnavailable
+		return "", Binding{}, ErrUnavailable
 	}
 	body := make([]byte, size)
-	if _, err := io.ReadFull(reader, body); err != nil || string(body[:4]) != "TBKL" || body[4] != 1 {
-		return Binding{}, ErrUnavailable
+	if _, err := io.ReadFull(reader, body); err != nil {
+		return "", Binding{}, ErrUnavailable
+	}
+	protocol := string(body[:4])
+	if protocol != "TBKL" && protocol != "TBCK" || body[4] != 1 {
+		return "", Binding{}, ErrUnavailable
 	}
 	var b Binding
 	fields := []*string{&b.Environment, &b.TenantID, &b.ProjectID, &b.DatabaseID, &b.KeyVersion, &b.Region, &b.Purpose}
 	cursor := 5
 	for _, field := range fields {
 		if cursor+2 > len(body) {
-			return Binding{}, ErrUnavailable
+			return "", Binding{}, ErrUnavailable
 		}
 		n := int(binary.BigEndian.Uint16(body[cursor : cursor+2]))
 		cursor += 2
 		if n < 1 || n > 128 || cursor+n > len(body) || !utf8.Valid(body[cursor:cursor+n]) {
-			return Binding{}, ErrUnavailable
+			return "", Binding{}, ErrUnavailable
 		}
 		*field = string(body[cursor : cursor+n])
 		cursor += n
 	}
 	if cursor != len(body) || !b.valid() {
-		return Binding{}, ErrUnavailable
+		return "", Binding{}, ErrUnavailable
 	}
-	return b, nil
+	return protocol, b, nil
 }
-func writeUnavailable(writer io.Writer) {
-	writeAll(writer, []byte{0, 0, 0, 6, 'T', 'B', 'K', 'L', 1, 1})
+func readBinding(reader io.Reader) (Binding, error) {
+	_, binding, err := readRequest(reader)
+	return binding, err
+}
+func writeUnavailable(writer io.Writer) { writeUnavailableProtocol(writer, "TBKL") }
+func writeUnavailableProtocol(writer io.Writer, protocol string) {
+	if protocol != "TBCK" {
+		protocol = "TBKL"
+	}
+	writeAll(writer, []byte{0, 0, 0, 6, protocol[0], protocol[1], protocol[2], protocol[3], 1, 1})
 }
 func writeAll(writer io.Writer, body []byte) {
 	for len(body) > 0 {
