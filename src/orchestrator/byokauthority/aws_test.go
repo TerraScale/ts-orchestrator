@@ -3,8 +3,12 @@ package byokauthority
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
@@ -78,5 +82,28 @@ func TestAWSAuthorityEndpointValidation(t *testing.T) {
 		if got := validKMSEndpoint(test.value); got != test.want {
 			t.Errorf("validKMSEndpoint(%q) = %t, want %t", test.value, got, test.want)
 		}
+	}
+}
+
+func TestKMSClientUsesConfiguredEndpoint(t *testing.T) {
+	var requestHost string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestHost = r.Host
+		http.Error(w, "test endpoint reached", http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+
+	base := awssdk.Config{
+		Region:      "sa-east-1",
+		HTTPClient:  server.Client(),
+		Credentials: credentials.NewStaticCredentialsProvider("access", "secret", ""),
+	}
+	client := newKMSClient(base, server.URL)
+	_, err := client.Encrypt(t.Context(), &kms.EncryptInput{KeyId: awssdk.String("key"), Plaintext: []byte("plaintext")})
+	if err == nil {
+		t.Fatal("Encrypt unexpectedly succeeded against test endpoint")
+	}
+	if requestHost != server.Listener.Addr().String() {
+		t.Fatalf("KMS request host = %q, want %q", requestHost, server.Listener.Addr().String())
 	}
 }

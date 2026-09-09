@@ -94,12 +94,16 @@ func New(ctx context.Context, config Config) (*Authority, error) {
 		}
 	})
 	base.Credentials = aws.NewCredentialsCache(provider)
-	client := kms.NewFromConfig(base, func(options *kms.Options) {
-		if config.Endpoint != "" {
-			options.BaseEndpoint = aws.String(config.Endpoint)
+	client := newKMSClient(base, config.Endpoint)
+	return &Authority{client: client, keyARN: config.KeyARN}, nil
+}
+
+func newKMSClient(base aws.Config, endpoint string) kmsAPI {
+	return kms.NewFromConfig(base, func(options *kms.Options) {
+		if endpoint != "" {
+			options.BaseEndpoint = aws.String(endpoint)
 		}
 	})
-	return &Authority{client: client, keyARN: config.KeyARN}, nil
 }
 
 func newWithClient(client kmsAPI, keyARN string) (*Authority, error) {

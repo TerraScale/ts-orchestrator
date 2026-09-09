@@ -218,10 +218,20 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
+		if err := p.config.Authorize(ctx, r.Request); err != nil {
+			return err
+		}
 		if err := p.restoreBranch(ctx, &r); err != nil {
 			return err
 		}
 		return p.activateAndObserve(ctx, r)
+	}
+	// Admission is live policy, not a one-time create receipt. Reconcile can
+	// run long after Accept and after a customer has revoked BYOK, so every
+	// effect retry must re-evaluate the immutable request before issuing or
+	// delivering any key material.
+	if err := p.config.Authorize(ctx, r.Request); err != nil {
+		return err
 	}
 	if err := p.provisionKeys(ctx, &r); err != nil {
 		return err
@@ -231,6 +241,9 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 			continue
 		}
 		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		if err := p.config.Authorize(ctx, r.Request); err != nil {
 			return err
 		}
 		entries := []keylease.Entry{}
@@ -261,6 +274,9 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 			continue
 		}
 		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		if err := p.config.Authorize(ctx, r.Request); err != nil {
 			return err
 		}
 		request := new(pb.PlacementStageRequest)
@@ -302,6 +318,9 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 }
 
 func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
+	if err := p.config.Authorize(ctx, r.Request); err != nil {
+		return err
+	}
 	if err := p.config.ActivatePlacement(ctx, r); err != nil {
 		return err
 	}
@@ -320,6 +339,9 @@ func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
 		}
 		r = current
 		if len(r.RestoreReceipt) == 0 {
+			if err := p.config.Authorize(ctx, r.Request); err != nil {
+				return err
+			}
 			receipt, err := p.config.Restore.Restore(ctx, r)
 			if err != nil {
 				return err
@@ -338,6 +360,9 @@ func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
 	// same scope under the now-authorized role, without inventing a writer grant.
 	for _, target := range r.Targets {
 		if err := p.config.CheckAuthority(ctx); err != nil {
+			return err
+		}
+		if err := p.config.Authorize(ctx, r.Request); err != nil {
 			return err
 		}
 		entries := []keylease.Entry{}
