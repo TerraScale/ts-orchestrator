@@ -166,6 +166,9 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	defer stop()
 	protocol, binding, customer, err := readRequest(connection)
 	if protocol == "S3" {
+		if customer.Workload == nil {
+			return
+		}
 		s.serveWorkloadIdentity(local, connection, customer.Workload)
 		return
 	}
