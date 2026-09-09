@@ -91,6 +91,22 @@ type Database struct {
 	MaxDocuments    uint64        `json:"maxDocuments"`
 	MaxInflight     uint64        `json:"maxInflight"`
 	Backup          *BackupConfig `json:"backup,omitempty"`
+	BYOK            *BYOKConfig   `json:"byok,omitempty"`
+}
+
+// BYOKConfig carries customer-owned provider references. It intentionally has
+// no credential fields; workload identity and key leases are delivered by the
+// orchestrator at runtime.
+type BYOKConfig struct {
+	BackupEndpoint   string `json:"backupEndpoint"`
+	BackupBucket     string `json:"backupBucket"`
+	BackupRegion     string `json:"backupRegion"`
+	BackupRoleARN    string `json:"backupRoleArn"`
+	BackupExternalID string `json:"backupExternalId,omitempty"`
+	KeyProvider      string `json:"keyProvider"`
+	KeyID            string `json:"keyId"`
+	KeyRegion        string `json:"keyRegion"`
+	KeyEndpoint      string `json:"keyEndpoint,omitempty"`
 }
 
 type BackupDestination struct {
@@ -351,6 +367,12 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 		if !ulid.MatchString(db.Tenant) || !ulid.MatchString(db.Project) || !ulid.MatchString(db.Database) || !ulid.MatchString(db.EncryptionKey) || databases[db.Database] || regions[db.Region] != 2 || projects[db.Project] != "" && projects[db.Project] != db.Tenant || db.MaxStorageBytes == 0 || db.MaxStorageBytes > activeBackupBytes-(2<<20) || db.MaxStorageBytes > 1<<50 || db.MaxDocuments == 0 || db.MaxDocuments > 1_000_000_000 || db.MaxInflight == 0 || db.MaxInflight > 1_000_000 {
 			return nil, bad
 		}
+		if db.BYOK != nil {
+			b := db.BYOK
+			if !strings.HasPrefix(b.BackupEndpoint, "https://") || len(b.BackupEndpoint) > 2048 || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || len(b.BackupRoleARN) > 512 || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || b.KeyID == "" || len(b.KeyID) > 512 || !environment.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && (!strings.HasPrefix(b.KeyEndpoint, "https://") || len(b.KeyEndpoint) > 2048) {
+				return nil, bad
+			}
+		}
 		if len(db.SelectedRegions) == 0 || len(db.SelectedRegions) > 3 {
 			return nil, bad
 		}
@@ -428,6 +450,17 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 			fmt.Fprintf(&b, "%q", region)
 		}
 		fmt.Fprintf(&b, "]\nlocation = %q\npolicy_journal = %q\nbackup_root = %q\nencryption_provider = \"oci-vault\"\nencryption_key = %q\nenabled = %t\n[databases.quotas]\nmax_storage_bytes = %d\nmax_documents = %d\nmax_inflight = %d\n", dataRoot+"/databases/"+db.Database, dataRoot+"/policies/"+db.Database, dataRoot+"/backups/"+db.Database, db.EncryptionKey, enabled, db.MaxStorageBytes, db.MaxDocuments, db.MaxInflight)
+		if db.BYOK != nil {
+			byok := db.BYOK
+			fmt.Fprintf(&b, "[databases.byok]\nbackup_endpoint = %q\nbackup_bucket = %q\nbackup_region = %q\nbackup_role_arn = %q\n", byok.BackupEndpoint, byok.BackupBucket, byok.BackupRegion, byok.BackupRoleARN)
+			if byok.BackupExternalID != "" {
+				fmt.Fprintf(&b, "backup_external_id = %q\n", byok.BackupExternalID)
+			}
+			fmt.Fprintf(&b, "key_provider = %q\nkey_id = %q\nkey_region = %q\n", byok.KeyProvider, byok.KeyID, byok.KeyRegion)
+			if byok.KeyEndpoint != "" {
+				fmt.Fprintf(&b, "key_endpoint = %q\n", byok.KeyEndpoint)
+			}
+		}
 		if db.Backup != nil {
 			fmt.Fprintf(&b, "[databases.backup]\npolicy_revision = %q\nretention_days = %d\n", db.Backup.PolicyRevision, db.Backup.RetentionDays)
 			for i, d := range db.Backup.Destinations {
