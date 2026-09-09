@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,8 +50,11 @@ type Config struct {
 	RoleARN       string
 	OIDCTokenFile string
 	KeyARN        string
-	SessionName   string
-	Duration      time.Duration
+	// Endpoint overrides the AWS KMS endpoint when set. It is part of the
+	// admitted authority identity and is never taken from ambient configuration.
+	Endpoint    string
+	SessionName string
+	Duration    time.Duration
 }
 
 type kmsAPI interface {
@@ -90,7 +94,12 @@ func New(ctx context.Context, config Config) (*Authority, error) {
 		}
 	})
 	base.Credentials = aws.NewCredentialsCache(provider)
-	return &Authority{client: kms.NewFromConfig(base), keyARN: config.KeyARN}, nil
+	client := kms.NewFromConfig(base, func(options *kms.Options) {
+		if config.Endpoint != "" {
+			options.BaseEndpoint = aws.String(config.Endpoint)
+		}
+	})
+	return &Authority{client: client, keyARN: config.KeyARN}, nil
 }
 
 func newWithClient(client kmsAPI, keyARN string) (*Authority, error) {
@@ -137,7 +146,12 @@ func (a *Authority) Unwrap(ctx context.Context, binding Binding, ciphertext stri
 }
 
 func validConfig(config Config) bool {
-	return validRegion(config.Region) && validARN(config.RoleARN) && validARN(config.KeyARN) && config.SessionName != "" && len(config.SessionName) <= 64 && config.Duration >= 0 && config.Duration <= 3600*time.Second && filepath.IsAbs(config.OIDCTokenFile) && filepath.Clean(config.OIDCTokenFile) == config.OIDCTokenFile
+	return validRegion(config.Region) && validARN(config.RoleARN) && validARN(config.KeyARN) && (config.Endpoint == "" || validKMSEndpoint(config.Endpoint)) && config.SessionName != "" && len(config.SessionName) <= 64 && config.Duration >= 0 && config.Duration <= 3600*time.Second && filepath.IsAbs(config.OIDCTokenFile) && filepath.Clean(config.OIDCTokenFile) == config.OIDCTokenFile
+}
+
+func validKMSEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }
 
 func validBinding(binding Binding) bool {

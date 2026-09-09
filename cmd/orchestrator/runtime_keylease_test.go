@@ -30,6 +30,20 @@ func TestConfiguredKeyProvisionerRejectsTargetTupleMismatch(t *testing.T) {
 	}
 }
 
+func TestConfiguredKeyProvisionerRejectsUnsupportedProvider(t *testing.T) {
+	provision := configuredKeyProvisioner(func(string) (string, bool) { return "", false })
+	if err := provision(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{{Provider: "azure-key-vault"}}); !errors.Is(err, keylease.ErrUnavailable) {
+		t.Fatalf("unsupported provider error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestConfiguredKeyProvisionerRejectsMixedOCIAndCustomerProviders(t *testing.T) {
+	provision := configuredKeyProvisioner(func(string) (string, bool) { return "", false })
+	if err := provision(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{{Provider: ""}, {Provider: "aws-kms"}}); !errors.Is(err, keylease.ErrUnavailable) {
+		t.Fatalf("mixed provider error = %v, want ErrUnavailable", err)
+	}
+}
+
 func TestStartConfiguredKeyLeaseRejectsPartialS3Configuration(t *testing.T) {
 	lookup := func(name string) (string, bool) {
 		values := map[string]string{

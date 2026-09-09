@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/byokstatus"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
@@ -52,8 +53,9 @@ type productionDatabaseConfig struct {
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
 	// Activity is the durable source of the last successful customer request.
 	// Admission timestamps are never valid activity facts.
-	Activity      databaseActivitySource
-	ProvisionKeys func(context.Context, string, []keylease.ProvisionTarget) error
+	Activity          databaseActivitySource
+	ProvisionKeys     func(context.Context, string, []keylease.ProvisionTarget) error
+	PublishBYOKStatus func(context.Context, byokstatus.Update) error
 }
 type productionDatabase struct {
 	inventoryConfig      databaseInventoryFileConfig
@@ -181,10 +183,22 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		return nil, err
 	}
 	currentJournal := &currentDatabaseJournal{NATSJournal: journal}
+	provisionKeys := config.ProvisionKeys
+	if provisionKeys == nil {
+		provisionKeys = keylease.Provision
+	}
+	publishOutcome := func(ctx context.Context, record databaseadmission.Record, status string) error {
+		return publishProductionBYOKStatus(ctx, record, status, config.PublishBYOKStatus)
+	}
 	pipeline, err := databaseadmission.New(databaseadmission.Config{
-		Readiness:     readiness,
-		ProvisionKeys: config.ProvisionKeys,
-		Journal:       journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
+		Readiness: readiness,
+		ProvisionKeys: func(ctx context.Context, path string, targets []keylease.ProvisionTarget) error {
+			if err := provisionKeys(ctx, path, targets); err != nil {
+				return err
+			}
+			return nil
+		},
+		Journal: journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
 		Authorize: func(ctx context.Context, r databaseadmission.Request) error {
 			if r.Environment != config.Environment {
 				return databaseadmission.ErrInvalid
@@ -203,8 +217,22 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		Plan: func(ctx context.Context, r databaseadmission.Record) (databaseadmission.Plan, error) {
 			return config.plan(ctx, r, currentJournal, placementJournal)
 		},
-		BranchRestore:     productionBranchRestore(config.BranchRestoreKeys, session.Connection),
-		Install:           databaseadmission.RemoteInstall(session.Connection),
+		BranchRestore: productionBranchRestore(config.BranchRestoreKeys, session.Connection),
+		Install: func(ctx context.Context, record databaseadmission.Record, target databaseadmission.Target, entries []keylease.Entry) error {
+			installErr := databaseadmission.RemoteInstall(session.Connection)(ctx, record, target, entries)
+			if installErr != nil {
+				if statusErr := publishOutcome(ctx, record, "error"); statusErr != nil {
+					return statusErr
+				}
+				return installErr
+			}
+			for _, candidate := range record.Targets {
+				if candidate.ServerIdentity != target.ServerIdentity && !candidate.Installed {
+					return nil
+				}
+			}
+			return publishOutcome(ctx, record, "verified")
+		},
 		ActivatePlacement: config.ActivatePlacement,
 		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
 			if err := validateDatabaseProposal(ctx, journal, host, operation, proposal); err != nil {
@@ -230,6 +258,16 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		return databaseadmission.DeletionPolicyDecision{}, nil
 	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, currentJournal), Edge: automaticDeletionEdge{}}
 	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, currentJournal: currentJournal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority, automaticClaim: config.AutomaticDeletionClaim, environment: config.Environment}, nil
+}
+
+func publishProductionBYOKStatus(ctx context.Context, record databaseadmission.Record, status string, publish func(context.Context, byokstatus.Update) error) error {
+	if record.BYOK == nil {
+		return nil
+	}
+	if publish == nil {
+		return databaseadmission.ErrForbidden
+	}
+	return publish(ctx, byokstatus.Update{ProjectID: record.Request.ProjectID, Status: status, ConfigurationUpdatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano)})
 }
 
 type automaticDeletionEdge struct{}

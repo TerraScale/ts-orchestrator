@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrapcredentials"
+	"terrascale.tech/orchestrator/src/orchestrator/byokstatus"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
@@ -37,9 +38,14 @@ type productionDatabaseFileConfig struct {
 	CatalogPath           string                                `json:"catalogPath"`
 	Authorization         databaseAuthorizationFile             `json:"authorization"`
 	BYOK                  byokPolicyFileConfig                  `json:"byok"`
+	BYOKStatus            byokStatusFileConfig                  `json:"byokStatus"`
 	DeletionAuthorization databaseAuthorizationFile             `json:"deletionAuthorization"`
 	DeletionClaim         databaseDeletionClaimConfig           `json:"deletionClaim"`
 	Regions               []databaseRegionFile                  `json:"regions"`
+}
+type byokStatusFileConfig struct {
+	Endpoint       string `json:"endpoint"`
+	ServiceKeyFile string `json:"serviceKeyFile"`
 }
 type databaseAuthorizationFile struct {
 	Endpoint       string `json:"endpoint"`
@@ -161,6 +167,23 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 		if err != nil {
 			return result, err
 		}
+	}
+	if config.BYOKStatus.Endpoint != "" || config.BYOKStatus.ServiceKeyFile != "" {
+		secret, readErr := bootstrapcredentials.ReadFile(config.BYOKStatus.ServiceKeyFile, true, 4096)
+		if readErr != nil {
+			return result, readErr
+		}
+		key := strings.TrimSpace(string(secret))
+		clear(secret)
+		if len(key) < 32 || len(key) > 2048 || strings.ContainsAny(key, "\r\n\t ") {
+			return result, errors.New("BYOK status requires a dedicated service key")
+		}
+		status, statusErr := byokstatus.New(byokstatus.Config{Endpoint: config.BYOKStatus.Endpoint, ServiceKey: key})
+		clear([]byte(key))
+		if statusErr != nil {
+			return result, statusErr
+		}
+		result.PublishBYOKStatus = status.Publish
 	}
 	result.AuthorizeDeletion, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
 	if err != nil {

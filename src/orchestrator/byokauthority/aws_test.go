@@ -64,3 +64,19 @@ func TestAWSAuthorityRejectsAmbientOrInvalidConfiguration(t *testing.T) {
 		t.Fatal("nil KMS client accepted")
 	}
 }
+
+func TestAWSAuthorityEndpointValidation(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "https://kms.example.test", want: true},
+		{value: "http://kms.example.test", want: false},
+		{value: "https://user:kms@example.test", want: false},
+		{value: "https://kms.example.test/?account=other", want: false},
+	} {
+		if got := validKMSEndpoint(test.value); got != test.want {
+			t.Errorf("validKMSEndpoint(%q) = %t, want %t", test.value, got, test.want)
+		}
+	}
+}

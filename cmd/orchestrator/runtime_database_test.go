@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"context"
 	"errors"
 	"slices"
 	"testing"
+	"time"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -13,6 +15,21 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
+
+func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *testing.T) {
+	created := time.Date(2026, 9, 9, 12, 0, 0, 123000000, time.UTC)
+	record := databaseadmission.Record{CreatedAt: created, Request: databaseadmission.Request{ProjectID: "project"}, BYOK: &databaseadmission.BYOKReference{}}
+	if err := publishProductionBYOKStatus(t.Context(), record, "verified", nil); !errors.Is(err, databaseadmission.ErrForbidden) {
+		t.Fatalf("missing status publisher error = %v", err)
+	}
+	var got byokstatus.Update
+	if err := publishProductionBYOKStatus(t.Context(), record, "verified", func(_ context.Context, update byokstatus.Update) error { got = update; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectID != "project" || got.Status != "verified" || got.ConfigurationUpdatedAt != created.Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected status update: %#v", got)
+	}
+}
 
 type databasePlanJournal struct {
 	records []databaseadmission.Record
