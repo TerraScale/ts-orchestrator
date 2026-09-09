@@ -20,13 +20,13 @@ import (
 const maximumFrame = 2048
 
 type Config struct {
-	SocketPath  string
-	CatalogPath string
-	Environment string
-	Region      string
-	AllowedUID  uint32
-	SocketGID   uint32
-	Customer    *CustomerConfig
+	SocketPath       string
+	CatalogPath      string
+	Environment      string
+	Region           string
+	AllowedUID       uint32
+	SocketGID        uint32
+	Customer         *CustomerConfig
 	WorkloadIdentity WorkloadIdentityIssuer
 }
 
@@ -46,18 +46,18 @@ type CustomerConfig struct {
 }
 
 type WorkloadIdentityScope struct {
-	Role string `json:"role"`
-	ExternalID *string `json:"external_id,omitempty"`
-	Endpoint string `json:"endpoint"`
-	Bucket string `json:"bucket"`
-	Region string `json:"region"`
-	PlacementRevision string `json:"placement_revision"`
+	Role              string  `json:"role"`
+	ExternalID        *string `json:"external_id,omitempty"`
+	Endpoint          string  `json:"endpoint"`
+	Bucket            string  `json:"bucket"`
+	Region            string  `json:"region"`
+	PlacementRevision string  `json:"placement_revision"`
 }
 
 type WorkloadIdentityCredentials struct {
-	AccessKey string `json:"access_key"`
-	SecretKey string `json:"secret_key"`
-	SessionToken string `json:"session_token"`
+	AccessKey            string `json:"access_key"`
+	SecretKey            string `json:"secret_key"`
+	SessionToken         string `json:"session_token"`
 	ExpiresAtUnixSeconds uint64 `json:"expires_at_unix_seconds"`
 }
 
@@ -165,6 +165,10 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	stop := context.AfterFunc(local, func() { connection.Close() })
 	defer stop()
 	protocol, binding, customer, err := readRequest(connection)
+	if protocol == "S3" {
+		s.serveWorkloadIdentity(local, connection, customer.Workload)
+		return
+	}
 	if err != nil || binding.Environment != s.config.Environment || binding.Region != s.config.Region {
 		writeUnavailableProtocol(connection, protocol)
 		return
@@ -228,6 +232,22 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	writeAll(connection, response[:])
 	writeAll(connection, key.Bytes())
 }
+
+func (s *Server) serveWorkloadIdentity(ctx context.Context, connection *net.UnixConn, scope *WorkloadIdentityScope) {
+	if s.config.WorkloadIdentity == nil || scope == nil {
+		return
+	}
+	credentials, err := s.config.WorkloadIdentity.Issue(ctx, *scope)
+	if err != nil || credentials.AccessKey == "" || credentials.SecretKey == "" || credentials.SessionToken == "" || credentials.ExpiresAtUnixSeconds == 0 {
+		return
+	}
+	body, err := json.Marshal(credentials)
+	if err != nil || len(body) > maximumFrame {
+		return
+	}
+	writeAll(connection, binary.BigEndian.AppendUint32(nil, uint32(len(body))))
+	writeAll(connection, body)
+}
 func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 	catalog, err := ReadCatalog(s.config.CatalogPath)
 	if err != nil {
@@ -246,6 +266,7 @@ func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 
 type customerRequest struct {
 	Provider, KeyID, KeyRegion, KeyEndpoint string
+	Workload                                *WorkloadIdentityScope
 }
 
 func readRequest(reader io.Reader) (string, Binding, customerRequest, error) {
@@ -254,11 +275,24 @@ func readRequest(reader io.Reader) (string, Binding, customerRequest, error) {
 		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	size := binary.BigEndian.Uint32(prefix[:])
-	if size < 5 || size > maximumFrame {
+	if size == 0 || size > maximumFrame {
 		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	body := make([]byte, size)
 	if _, err := io.ReadFull(reader, body); err != nil {
+		return "", Binding{}, customerRequest{}, ErrUnavailable
+	}
+	if body[0] == '{' {
+		var envelope struct {
+			Version uint8                 `json:"version"`
+			Scope   WorkloadIdentityScope `json:"scope"`
+		}
+		if json.Unmarshal(body, &envelope, json.RejectUnknownMembers(true)) != nil || envelope.Version != 1 {
+			return "", Binding{}, customerRequest{}, ErrUnavailable
+		}
+		return "S3", Binding{}, customerRequest{Workload: &envelope.Scope}, nil
+	}
+	if len(body) < 5 {
 		return "", Binding{}, customerRequest{}, ErrUnavailable
 	}
 	protocol := string(body[:4])
