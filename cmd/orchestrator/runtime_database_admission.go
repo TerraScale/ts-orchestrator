@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -94,6 +95,7 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	}
 	canonicalID := regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 	result := productionDatabaseConfig{Inventory: config.Inventory, Environment: config.Environment, Cluster: config.Cluster, CatalogPath: config.CatalogPath}
+	result.ProvisionKeys = configuredKeyProvisioner(os.LookupEnv)
 	if config.Environment == "" || !canonicalID.MatchString(config.Cluster) || !filepath.IsAbs(config.CatalogPath) || filepath.Clean(config.CatalogPath) != config.CatalogPath || len(config.Regions) < 1 || len(config.Regions) > 3 {
 		return result, databaseadmission.ErrInvalid
 	}

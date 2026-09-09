@@ -44,7 +44,7 @@ func (p *Pipeline) provisionKeys(ctx context.Context, r *Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
-		if err := keylease.Provision(ctx, p.config.CatalogPath, targets); err != nil {
+		if err := p.config.ProvisionKeys(ctx, p.config.CatalogPath, targets); err != nil {
 			return err
 		}
 		catalog, err := keylease.ReadCatalog(p.config.CatalogPath)

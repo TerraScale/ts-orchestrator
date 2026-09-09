@@ -32,6 +32,9 @@ type Config struct {
 	// proof. Success does not establish RF2 or caught-up serving readiness.
 	ActivatePlacement func(context.Context, Record) error
 	Readiness         *ReadinessConfig
+	// ProvisionKeys wraps freshly generated purpose keys with the admitted
+	// provider authority. When unset, the OCI Vault adapter is used.
+	ProvisionKeys func(context.Context, string, []keylease.ProvisionTarget) error
 }
 type Pipeline struct {
 	config Config
@@ -41,6 +44,9 @@ type Pipeline struct {
 func New(config Config) (*Pipeline, error) {
 	if config.Journal == nil || config.CatalogPath == "" || config.Authorize == nil || config.CheckAuthority == nil || config.Plan == nil || config.Install == nil || config.AcceptPlacement == nil || config.ActivatePlacement == nil {
 		return nil, ErrInvalid
+	}
+	if config.ProvisionKeys == nil {
+		config.ProvisionKeys = keylease.Provision
 	}
 	if config.Readiness != nil && (config.Readiness.Collect == nil || len(config.Readiness.Keys) == 0) {
 		return nil, ErrInvalid
