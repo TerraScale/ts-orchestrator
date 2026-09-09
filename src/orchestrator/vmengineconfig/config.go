@@ -445,6 +445,9 @@ func ValidateBYOKConfig(b *BYOKConfig) error {
 	validReference := func(value string, limit int) bool {
 		return value != "" && len(value) <= limit && !strings.ContainsAny(value, "\r\n\x00")
 	}
+	if b.KeyProvider != "aws-kms" {
+		return errors.New("vmengineconfig: unsupported BYOK provider")
+	}
 	if !validHTTPS(b.BackupEndpoint, 2048) || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !validReference(b.KeyID, 512) || !environment.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
 		return errors.New("vmengineconfig: invalid BYOK provider reference")
 	}

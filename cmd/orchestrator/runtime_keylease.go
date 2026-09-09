@@ -14,26 +14,26 @@ import (
 )
 
 const (
-	keyLeaseSocketEnvironment  = "TS_ORCH_KEY_LEASE_SOCKET_FILE"
-	keyLeaseCatalogEnvironment = "TS_ORCH_KEY_LEASE_CATALOG_FILE"
-	keyLeaseEnvironment        = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
-	keyLeaseUIDEnvironment     = "TS_ORCH_KEY_LEASE_PEER_UID"
-	keyLeaseGIDEnvironment     = "TS_ORCH_KEY_LEASE_SOCKET_GID"
-	byokRoleEnvironment        = "TS_ORCH_BYOK_ROLE_ARN"
-	byokTokenEnvironment       = "TS_ORCH_BYOK_OIDC_TOKEN_FILE"
-	byokKeyIDEnvironment       = "TS_ORCH_BYOK_KEY_ID"
-	byokKeyRegionEnvironment   = "TS_ORCH_BYOK_KEY_REGION"
-	byokKeyEndpointEnvironment = "TS_ORCH_BYOK_KEY_ENDPOINT"
-	byokProviderEnvironment    = "TS_ORCH_BYOK_PROVIDER"
-	byokS3RoleEnvironment      = "TS_ORCH_BYOK_S3_ROLE_ARN"
-	byokS3TokenEnvironment     = "TS_ORCH_BYOK_S3_OIDC_TOKEN_FILE"
-	byokS3EndpointEnvironment  = "TS_ORCH_BYOK_S3_ENDPOINT"
-	byokS3BucketEnvironment    = "TS_ORCH_BYOK_S3_BUCKET"
-	byokS3RegionEnvironment    = "TS_ORCH_BYOK_S3_REGION"
-	byokS3RevisionEnvironment  = "TS_ORCH_BYOK_S3_PLACEMENT_REVISION"
-	byokS3TenantEnvironment    = "TS_ORCH_BYOK_S3_TENANT_ID"
-	byokS3ProjectEnvironment   = "TS_ORCH_BYOK_S3_PROJECT_ID"
-	byokS3DatabaseEnvironment  = "TS_ORCH_BYOK_S3_DATABASE_ID"
+	keyLeaseSocketEnvironment   = "TS_ORCH_KEY_LEASE_SOCKET_FILE"
+	keyLeaseCatalogEnvironment  = "TS_ORCH_KEY_LEASE_CATALOG_FILE"
+	keyLeaseEnvironment         = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
+	keyLeaseUIDEnvironment      = "TS_ORCH_KEY_LEASE_PEER_UID"
+	keyLeaseGIDEnvironment      = "TS_ORCH_KEY_LEASE_SOCKET_GID"
+	byokRoleEnvironment         = "TS_ORCH_BYOK_ROLE_ARN"
+	byokTokenEnvironment        = "TS_ORCH_BYOK_OIDC_TOKEN_FILE"
+	byokKeyIDEnvironment        = "TS_ORCH_BYOK_KEY_ID"
+	byokKeyRegionEnvironment    = "TS_ORCH_BYOK_KEY_REGION"
+	byokKeyEndpointEnvironment  = "TS_ORCH_BYOK_KEY_ENDPOINT"
+	byokProviderEnvironment     = "TS_ORCH_BYOK_PROVIDER"
+	byokS3RoleEnvironment       = "TS_ORCH_BYOK_S3_ROLE_ARN"
+	byokS3TokenEnvironment      = "TS_ORCH_BYOK_S3_OIDC_TOKEN_FILE"
+	byokS3EndpointEnvironment   = "TS_ORCH_BYOK_S3_ENDPOINT"
+	byokS3BucketEnvironment     = "TS_ORCH_BYOK_S3_BUCKET"
+	byokS3RegionEnvironment     = "TS_ORCH_BYOK_S3_REGION"
+	byokS3RevisionEnvironment   = "TS_ORCH_BYOK_S3_PLACEMENT_REVISION"
+	byokS3TenantEnvironment     = "TS_ORCH_BYOK_S3_TENANT_ID"
+	byokS3ProjectEnvironment    = "TS_ORCH_BYOK_S3_PROJECT_ID"
+	byokS3DatabaseEnvironment   = "TS_ORCH_BYOK_S3_DATABASE_ID"
 	byokS3ExternalIDEnvironment = "TS_ORCH_BYOK_S3_EXTERNAL_ID"
 )
 
@@ -148,7 +148,7 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 		if s3ExternalID != "" {
 			externalID = &s3ExternalID
 		}
-		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
+		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, ExternalID: externalID, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
 		if issuerErr != nil {
 			return nil, errors.New("orchestrator: customer S3 workload issuer unavailable")
 		}

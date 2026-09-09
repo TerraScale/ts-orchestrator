@@ -267,7 +267,13 @@ func publishProductionBYOKStatus(ctx context.Context, record databaseadmission.R
 	if publish == nil {
 		return databaseadmission.ErrForbidden
 	}
-	return publish(ctx, byokstatus.Update{ProjectID: record.Request.ProjectID, Status: status, ConfigurationUpdatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano)})
+	if record.BYOK.ConfigurationUpdatedAt == "" {
+		return databaseadmission.ErrForbidden
+	}
+	if _, err := time.Parse(time.RFC3339Nano, record.BYOK.ConfigurationUpdatedAt); err != nil {
+		return databaseadmission.ErrForbidden
+	}
+	return publish(ctx, byokstatus.Update{ProjectID: record.Request.ProjectID, Status: status, ConfigurationUpdatedAt: record.BYOK.ConfigurationUpdatedAt})
 }
 
 type automaticDeletionEdge struct{}

@@ -1,15 +1,14 @@
 package main
 
 import (
-	"errors"
 	"context"
 	"errors"
 	"slices"
 	"testing"
 	"time"
-	"time"
 
 	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/byokstatus"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
@@ -18,7 +17,7 @@ import (
 
 func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *testing.T) {
 	created := time.Date(2026, 9, 9, 12, 0, 0, 123000000, time.UTC)
-	record := databaseadmission.Record{CreatedAt: created, Request: databaseadmission.Request{ProjectID: "project"}, BYOK: &databaseadmission.BYOKReference{}}
+	record := databaseadmission.Record{CreatedAt: created, Request: databaseadmission.Request{ProjectID: "project"}, BYOK: &databaseadmission.BYOKReference{ConfigurationUpdatedAt: created.Format(time.RFC3339Nano)}}
 	if err := publishProductionBYOKStatus(t.Context(), record, "verified", nil); !errors.Is(err, databaseadmission.ErrForbidden) {
 		t.Fatalf("missing status publisher error = %v", err)
 	}

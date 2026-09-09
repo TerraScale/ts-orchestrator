@@ -163,6 +163,9 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 	}
 	result.Authorize = authorize
 	if config.BYOK.Endpoint != "" || config.BYOK.ServiceKeyFile != "" {
+		if config.BYOKStatus.Endpoint == "" || config.BYOKStatus.ServiceKeyFile == "" {
+			return result, errors.New("BYOK status publisher configuration required")
+		}
 		result.AuthorizeBYOK, err = newBYOKPolicyAuthorizer(config.BYOK)
 		if err != nil {
 			return result, err

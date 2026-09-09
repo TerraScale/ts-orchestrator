@@ -46,15 +46,16 @@ type Request struct {
 // BYOKReference carries customer-owned provider references only. Credentials
 // and key material are deliberately outside the admission contract.
 type BYOKReference struct {
-	BackupEndpoint   string `json:"backup_endpoint"`
-	BackupBucket     string `json:"backup_bucket"`
-	BackupRegion     string `json:"backup_region"`
-	BackupRoleARN    string `json:"backup_role_arn"`
-	BackupExternalID string `json:"backup_external_id,omitempty"`
-	KeyProvider      string `json:"key_provider"`
-	KeyID            string `json:"key_id"`
-	KeyRegion        string `json:"key_region"`
-	KeyEndpoint      string `json:"key_endpoint,omitempty"`
+	BackupEndpoint         string `json:"backup_endpoint"`
+	BackupBucket           string `json:"backup_bucket"`
+	BackupRegion           string `json:"backup_region"`
+	BackupRoleARN          string `json:"backup_role_arn"`
+	BackupExternalID       string `json:"backup_external_id,omitempty"`
+	KeyProvider            string `json:"key_provider"`
+	KeyID                  string `json:"key_id"`
+	KeyRegion              string `json:"key_region"`
+	KeyEndpoint            string `json:"key_endpoint,omitempty"`
+	ConfigurationUpdatedAt string `json:"configuration_updated_at,omitempty"`
 }
 
 type BYOKConfig = BYOKReference
@@ -216,6 +217,9 @@ func ValidateBYOKReference(b *BYOKReference) error {
 	}
 	validReference := func(value string, limit int) bool {
 		return value != "" && len(value) <= limit && !strings.ContainsAny(value, "\r\n\x00")
+	}
+	if b.KeyProvider != "aws-kms" {
+		return ErrInvalid
 	}
 	if !validHTTPS(b.BackupEndpoint, 2048) || !environmentName.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environmentName.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !validReference(b.KeyID, 512) || !environmentName.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
 		return ErrInvalid

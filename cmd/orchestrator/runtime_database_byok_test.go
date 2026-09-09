@@ -17,7 +17,7 @@ func TestBYOKPolicyAuthorizerAcceptsExactVerifiedScope(t *testing.T) {
 			t.Fatalf("service key = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"customer-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test"}}`, time.Now().Add(30*time.Second).Unix())
+		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"configuration_updated_at":"2026-09-09T12:00:00Z","byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test"}}`, time.Now().Add(30*time.Second).Unix())
 	}))
 	defer server.Close()
 	if err := byokPolicyAuthorizer(server.Client(), server.URL, "service-key")(t.Context(), request); err != nil {
@@ -55,5 +55,5 @@ func TestBYOKPolicyAuthorizerRejectsUnconfiguredEndpoint(t *testing.T) {
 }
 
 func byokRequest() databaseadmission.Request {
-	return databaseadmission.Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Name: "orders", OperationID: "create-orders", Regions: []string{"GRU"}, Residency: "br-only", BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "customer-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}}
+	return databaseadmission.Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Name: "orders", OperationID: "create-orders", Regions: []string{"GRU"}, Residency: "br-only", BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}}
 }
