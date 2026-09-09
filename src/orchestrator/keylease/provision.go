@@ -33,9 +33,16 @@ type WrapFunc func(context.Context, ProvisionTarget, []byte) (string, error)
 // A caller must replicate this ciphertext catalog to admitted member hosts
 // before publishing placement; the lease socket never generates missing keys.
 func Provision(ctx context.Context, path string, targets []ProvisionTarget) error {
-	return provision(ctx, path, targets, func(ctx context.Context, target ProvisionTarget, key []byte) (string, error) {
+	return ProvisionWithWrap(ctx, path, targets, func(ctx context.Context, target ProvisionTarget, key []byte) (string, error) {
 		return hostsecrets.WrapDataKey(ctx, ociRegion(target.Binding.Region), target.CryptoEndpoint, target.KEKID, target.KEKVersionID, key, target.Binding.AssociatedData())
 	})
+}
+
+// ProvisionWithWrap admits a complete set of regional key copies using the
+// explicitly supplied provider authority. The authority is never persisted;
+// only its wrapped ciphertext is written to the catalog.
+func ProvisionWithWrap(ctx context.Context, path string, targets []ProvisionTarget, wrap WrapFunc) error {
+	return provision(ctx, path, targets, wrap)
 }
 func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap WrapFunc) error {
 	if ctx == nil || ctx.Err() != nil || len(targets) < 1 || len(targets) > 3 || wrap == nil {

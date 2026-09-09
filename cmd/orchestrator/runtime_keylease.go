@@ -26,6 +26,28 @@ const (
 	byokProviderEnvironment    = "TS_ORCH_BYOK_PROVIDER"
 )
 
+func configuredKeyProvisioner(lookup envLookup) func(context.Context, string, []keylease.ProvisionTarget) error {
+	return func(ctx context.Context, path string, targets []keylease.ProvisionTarget) error {
+		if len(targets) == 0 || targets[0].Provider != "aws-kms" {
+			return keylease.Provision(ctx, path, targets)
+		}
+		role, _ := lookup(byokRoleEnvironment)
+		token, _ := lookup(byokTokenEnvironment)
+		keyID, _ := lookup(byokKeyIDEnvironment)
+		keyRegion, _ := lookup(byokKeyRegionEnvironment)
+		if role == "" || token == "" || keyID == "" || keyRegion == "" {
+			return keylease.ErrUnavailable
+		}
+		authority, err := byokauthority.New(ctx, byokauthority.Config{Region: keyRegion, RoleARN: role, OIDCTokenFile: token, KeyARN: keyID, SessionName: "terrascale-key-provision"})
+		if err != nil {
+			return keylease.ErrUnavailable
+		}
+		return keylease.ProvisionWithWrap(ctx, path, targets, func(ctx context.Context, target keylease.ProvisionTarget, key []byte) (string, error) {
+			return authority.Wrap(ctx, byokauthority.Binding{Environment: target.Binding.Environment, TenantID: target.Binding.TenantID, ProjectID: target.Binding.ProjectID, DatabaseID: target.Binding.DatabaseID, KeyVersion: target.Binding.KeyVersion, Region: target.Binding.Region, Purpose: target.Binding.Purpose}, key)
+		})
+	}
+}
+
 type customerAuthorityAdapter struct{ authority *byokauthority.Authority }
 
 func (a customerAuthorityAdapter) Unwrap(ctx context.Context, binding keylease.Binding, ciphertext string) (*hostsecrets.DataKey, error) {

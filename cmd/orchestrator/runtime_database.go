@@ -53,6 +53,7 @@ type productionDatabaseConfig struct {
 	// Activity is the durable source of the last successful customer request.
 	// Admission timestamps are never valid activity facts.
 	Activity databaseActivitySource
+	ProvisionKeys func(context.Context, string, []keylease.ProvisionTarget) error
 }
 type productionDatabase struct {
 	inventoryConfig      databaseInventoryFileConfig
@@ -182,6 +183,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 	currentJournal := &currentDatabaseJournal{NATSJournal: journal}
 	pipeline, err := databaseadmission.New(databaseadmission.Config{
 		Readiness: readiness,
+		ProvisionKeys: config.ProvisionKeys,
 		Journal:   journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
 		Authorize: func(ctx context.Context, r databaseadmission.Request) error {
 			if r.Environment != config.Environment {
