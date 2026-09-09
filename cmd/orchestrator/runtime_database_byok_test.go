@@ -17,11 +17,31 @@ func TestBYOKPolicyAuthorizerAcceptsExactVerifiedScope(t *testing.T) {
 			t.Fatalf("service key = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"configuration_updated_at":"2026-09-09T12:00:00Z","byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test"}}`, time.Now().Add(30*time.Second).Unix())
+		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"configuration_updated_at":"2026-09-09T12:00:00.000Z","byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test"}}`, time.Now().Add(30*time.Second).Unix())
 	}))
 	defer server.Close()
 	if err := byokPolicyAuthorizer(server.Client(), server.URL, "service-key")(t.Context(), request); err != nil {
 		t.Fatalf("authorize BYOK: %v", err)
+	}
+}
+
+func TestValidConfigurationUpdatedAtRequiresCanonicalDashboardTimestamp(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		valid bool
+	}{
+		{value: "2026-09-09T12:00:00.000Z", valid: true},
+		{value: "2026-09-09T12:00:00Z"},
+		{value: "2026-09-09T12:00:00.000+00:00"},
+		{value: "2026-09-09T12:00:00.00Z"},
+		{value: "2026-09-09T12:00:00.0000Z"},
+		{value: "2026-02-30T12:00:00.000Z"},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			if got := validConfigurationUpdatedAt(test.value); got != test.valid {
+				t.Fatalf("validConfigurationUpdatedAt(%q) = %t, want %t", test.value, got, test.valid)
+			}
+		})
 	}
 }
 

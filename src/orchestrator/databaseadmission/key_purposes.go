@@ -44,6 +44,13 @@ func (p *Pipeline) provisionKeys(ctx context.Context, r *Record) error {
 		if err := p.config.CheckAuthority(ctx); err != nil {
 			return err
 		}
+		// A policy can be revoked while a previous purpose is being
+		// provisioned. Recheck the immutable request at each provider effect;
+		// one authorization at reconcile entry is not sufficient for retries or
+		// multi-purpose issuance.
+		if err := p.config.Authorize(ctx, r.Request); err != nil {
+			return err
+		}
 		if err := p.config.ProvisionKeys(ctx, p.config.CatalogPath, targets); err != nil {
 			return err
 		}

@@ -80,7 +80,7 @@ func byokPolicyAuthorizer(client *http.Client, endpoint, key string) func(contex
 		if err := json.Unmarshal(data, &decision, json.RejectUnknownMembers(true)); err != nil {
 			return errors.New("BYOK policy producer returned an invalid response")
 		}
-		if decision.Environment != request.Environment || decision.TenantID != request.TenantID || decision.ProjectID != request.ProjectID || decision.OperationID != request.OperationID || decision.ExpiresAt <= time.Now().Unix() || decision.ExpiresAt > time.Now().Add(time.Minute).Unix() || decision.Status != "verified" || !decision.Allowed || decision.BYOK == nil || decision.ConfigurationUpdatedAt == "" || !sameBYOK(decision.BYOK, request.BYOK) {
+		if decision.Environment != request.Environment || decision.TenantID != request.TenantID || decision.ProjectID != request.ProjectID || decision.OperationID != request.OperationID || decision.ExpiresAt <= time.Now().Unix() || decision.ExpiresAt > time.Now().Add(time.Minute).Unix() || decision.Status != "verified" || !decision.Allowed || decision.BYOK == nil || !validConfigurationUpdatedAt(decision.ConfigurationUpdatedAt) || !sameBYOK(decision.BYOK, request.BYOK) {
 			if decision.Status == "error" && decision.Environment == request.Environment && decision.TenantID == request.TenantID && decision.ProjectID == request.ProjectID && decision.OperationID == request.OperationID {
 				return databaseadmission.ErrForbidden
 			}
@@ -89,6 +89,15 @@ func byokPolicyAuthorizer(client *http.Client, endpoint, key string) func(contex
 		request.BYOK.ConfigurationUpdatedAt = decision.ConfigurationUpdatedAt
 		return nil
 	}
+}
+
+// validConfigurationUpdatedAt accepts the exact timestamp representation
+// emitted by the dashboard's Date.toISOString(). Keeping the representation
+// canonical makes the timestamp fence compare the persisted value byte-for-byte
+// across the dashboard, policy response, and admission record.
+func validConfigurationUpdatedAt(value string) bool {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil && parsed.UTC().Format("2006-01-02T15:04:05.000Z") == value
 }
 
 func sameBYOK(left, right *databaseadmission.BYOKReference) bool {

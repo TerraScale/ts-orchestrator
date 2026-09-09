@@ -17,7 +17,8 @@ import (
 
 func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *testing.T) {
 	created := time.Date(2026, 9, 9, 12, 0, 0, 123000000, time.UTC)
-	record := databaseadmission.Record{CreatedAt: created, Request: databaseadmission.Request{ProjectID: "project"}, BYOK: &databaseadmission.BYOKReference{ConfigurationUpdatedAt: created.Format(time.RFC3339Nano)}}
+	updatedAt := created.Format("2006-01-02T15:04:05.000Z")
+	record := databaseadmission.Record{CreatedAt: created, Request: databaseadmission.Request{ProjectID: "project"}, BYOK: &databaseadmission.BYOKReference{ConfigurationUpdatedAt: updatedAt}}
 	if err := publishProductionBYOKStatus(t.Context(), record, "verified", nil); !errors.Is(err, databaseadmission.ErrForbidden) {
 		t.Fatalf("missing status publisher error = %v", err)
 	}
@@ -25,7 +26,7 @@ func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *test
 	if err := publishProductionBYOKStatus(t.Context(), record, "verified", func(_ context.Context, update byokstatus.Update) error { got = update; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if got.ProjectID != "project" || got.Status != "verified" || got.ConfigurationUpdatedAt != created.Format(time.RFC3339Nano) {
+	if got.ProjectID != "project" || got.Status != "verified" || got.ConfigurationUpdatedAt != updatedAt {
 		t.Fatalf("unexpected status update: %#v", got)
 	}
 }

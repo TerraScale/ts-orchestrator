@@ -162,3 +162,73 @@ func TestAdmissionDeniedBeforeDurableIdentity(t *testing.T) {
 		t.Fatal("residency widened")
 	}
 }
+
+func TestReconcileRechecksLiveBYOKAuthorizationBeforeEffects(t *testing.T) {
+	t.Run("before provisioning", func(t *testing.T) {
+		journal := NewMemoryJournal()
+		config := pipelineConfig(t, journal)
+		request := journalFixture(t).Request
+		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/test", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}
+		calls, provisioned := 0, 0
+		config.Authorize = func(context.Context, Request) error {
+			calls++
+			if calls > 1 {
+				return ErrForbidden
+			}
+			return nil
+		}
+		config.ProvisionKeys = func(context.Context, string, []keylease.ProvisionTarget) error {
+			provisioned++
+			return nil
+		}
+		pipeline, err := New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pipeline.Accept(t.Context(), request); err != nil {
+			t.Fatal("accept", err)
+		}
+		if err := pipeline.Reconcile(t.Context()); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("reconcile error = %v, want live authorization denial", err)
+		}
+		if provisioned != 0 {
+			t.Fatalf("provisioned keys after revocation: %d", provisioned)
+		}
+	})
+
+	t.Run("before install retry", func(t *testing.T) {
+		journal := NewMemoryJournal()
+		config := pipelineConfig(t, journal)
+		request := journalFixture(t).Request
+		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/test", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}
+		calls, installs := 0, 0
+		config.Authorize = func(context.Context, Request) error {
+			calls++
+			if calls > 2 {
+				return ErrForbidden
+			}
+			return nil
+		}
+		config.Install = func(context.Context, Record, Target, []keylease.Entry) error {
+			installs++
+			return nil
+		}
+		pipeline, err := New(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := pipeline.Accept(t.Context(), request)
+		if err != nil {
+			t.Fatal("accept", err)
+		}
+		if err := keylease.WriteCatalog(config.CatalogPath, keylease.Catalog{Version: 1, Entries: journalWrapped(accepted)}); err != nil {
+			t.Fatal("catalog", err)
+		}
+		if err := pipeline.Reconcile(t.Context()); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("reconcile error = %v, want live authorization denial", err)
+		}
+		if installs != 0 {
+			t.Fatalf("installed keys after revocation: %d", installs)
+		}
+	})
+}
