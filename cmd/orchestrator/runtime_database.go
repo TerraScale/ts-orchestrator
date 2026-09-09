@@ -46,6 +46,7 @@ type productionDatabaseConfig struct {
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
+	AuthorizeBYOK                     func(context.Context, databaseadmission.Request) error
 	AuthorizeDeletion                 func(context.Context, databaseadmission.DeleteRequest) error
 	AutomaticDeletionClaim            automaticDeletionClaimClient
 	ActivatePlacement                 func(context.Context, databaseadmission.Record) error
@@ -186,7 +187,16 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 			if r.Environment != config.Environment {
 				return databaseadmission.ErrInvalid
 			}
-			return config.Authorize(ctx, r)
+			if err := config.Authorize(ctx, r); err != nil {
+				return err
+			}
+			if r.BYOK == nil {
+				return nil
+			}
+			if config.AuthorizeBYOK == nil {
+				return databaseadmission.ErrForbidden
+			}
+			return config.AuthorizeBYOK(ctx, r)
 		},
 		Plan: func(ctx context.Context, r databaseadmission.Record) (databaseadmission.Plan, error) {
 			return config.plan(ctx, r, currentJournal, placementJournal)

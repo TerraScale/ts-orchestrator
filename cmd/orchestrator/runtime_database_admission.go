@@ -35,6 +35,7 @@ type productionDatabaseFileConfig struct {
 	Cluster               string                                `json:"cluster"`
 	CatalogPath           string                                `json:"catalogPath"`
 	Authorization         databaseAuthorizationFile             `json:"authorization"`
+	BYOK                  byokPolicyFileConfig                  `json:"byok"`
 	DeletionAuthorization databaseAuthorizationFile             `json:"deletionAuthorization"`
 	DeletionClaim         databaseDeletionClaimConfig           `json:"deletionClaim"`
 	Regions               []databaseRegionFile                  `json:"regions"`
@@ -153,6 +154,12 @@ func resolveProductionDatabase(config productionDatabaseFileConfig, placement pr
 		return result, err
 	}
 	result.Authorize = authorize
+	if config.BYOK.Endpoint != "" || config.BYOK.ServiceKeyFile != "" {
+		result.AuthorizeBYOK, err = newBYOKPolicyAuthorizer(config.BYOK)
+		if err != nil {
+			return result, err
+		}
+	}
 	result.AuthorizeDeletion, err = newDatabaseDeletionAuthorizer(config.DeletionAuthorization)
 	if err != nil {
 		return result, err
