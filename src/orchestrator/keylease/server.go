@@ -194,7 +194,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 	var response [40]byte
 	defer clear(response[:])
 	binary.BigEndian.PutUint32(response[:4], 68)
-	copy(response[4:8], "TBKL")
+	copy(response[4:8], protocol)
 	response[8] = 1
 	response[9] = 0
 	binary.BigEndian.PutUint32(response[10:14], seconds)
