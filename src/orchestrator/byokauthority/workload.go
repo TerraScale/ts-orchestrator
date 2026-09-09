@@ -2,6 +2,7 @@ package byokauthority
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -83,5 +84,10 @@ func validWorkloadConfig(config WorkloadConfig) bool {
 }
 
 func validWorkloadScope(scope WorkloadScope) bool {
-	return scope.Environment != "" && scope.TenantID != "" && scope.ProjectID != "" && scope.DatabaseID != "" && scope.Role != "" && scope.Endpoint != "" && scope.Bucket != "" && scope.Region != "" && scope.PlacementRevision != ""
+	return scope.Environment != "" && scope.TenantID != "" && scope.ProjectID != "" && scope.DatabaseID != "" && scope.Role != "" && validEndpoint(scope.Endpoint) && scope.Bucket != "" && scope.Region != "" && scope.PlacementRevision != ""
+}
+
+func validEndpoint(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }

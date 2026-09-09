@@ -1,0 +1,66 @@
+package main
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/keylease"
+)
+
+func TestConfiguredKeyProvisionerRejectsTargetTupleMismatch(t *testing.T) {
+	lookup := func(name string) (string, bool) {
+		values := map[string]string{
+			byokRoleEnvironment:        "arn:aws:iam::123456789012:role/keylease",
+			byokTokenEnvironment:       "/var/lib/terrascale/oidc.token",
+			byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/id",
+			byokKeyRegionEnvironment:   "sa-east-1",
+			byokKeyEndpointEnvironment: "https://kms.example.test",
+		}
+		value, ok := values[name]
+		return value, ok
+	}
+	provision := configuredKeyProvisioner(lookup)
+	base := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/id", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", NotAfter: time.Now().Add(time.Hour)}
+	changed := base
+	changed.KeyEndpoint = "https://attacker.example"
+	if err := provision(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{base, changed}); !errors.Is(err, keylease.ErrUnavailable) {
+		t.Fatalf("tuple mismatch error = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestStartConfiguredKeyLeaseRejectsPartialS3Configuration(t *testing.T) {
+	lookup := func(name string) (string, bool) {
+		values := map[string]string{
+			keyLeaseSocketEnvironment:  "/run/terrascale/keylease.sock",
+			keyLeaseCatalogEnvironment: "/var/lib/terrascale/catalog.json",
+			keyLeaseEnvironment:        "production",
+			keyLeaseUIDEnvironment:     "1001",
+			keyLeaseGIDEnvironment:     "1001",
+			byokS3TokenEnvironment:     "/var/lib/terrascale/s3.token",
+		}
+		value, ok := values[name]
+		return value, ok
+	}
+	_, err := startConfiguredKeyLease(t.Context(), &control.OrchestratorOptions{Cell: "gru"}, lookup)
+	if err == nil {
+		t.Fatal("partial S3 workload identity configuration accepted")
+	}
+}
+
+func TestValidKeyAuthorityEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "https://kms.example.test", want: true},
+		{value: "http://kms.example.test", want: false},
+		{value: "https://user:kms@example.test", want: false},
+		{value: "https://kms.example.test/?tenant=other", want: false},
+	} {
+		if got := validKeyAuthorityEndpoint(test.value); got != test.want {
+			t.Errorf("validKeyAuthorityEndpoint(%q) = %t, want %t", test.value, got, test.want)
+		}
+	}
+}
