@@ -29,17 +29,17 @@ type Request struct {
 	// These fields are authenticated restore provenance. They are required for
 	// branch admissions and are persisted with the immutable request so a retry
 	// cannot select a newer source point.
-	RecoveryPointID string   `json:"recovery_point_id,omitempty"`
-	JournalCut      string   `json:"journal_cut,omitempty"`
-	RestoreEpoch    uint64   `json:"restore_epoch,omitempty"`
-	RestoreProvider string   `json:"restore_provider,omitempty"`
-	Environment     string   `json:"environment"`
-	TenantID        string   `json:"tenant_id"`
-	ProjectID       string   `json:"project_id"`
-	Name            string   `json:"name"`
-	OperationID     string   `json:"operation_id"`
-	Regions         []string `json:"regions"`
-	Residency       string   `json:"residency"`
+	RecoveryPointID string         `json:"recovery_point_id,omitempty"`
+	JournalCut      string         `json:"journal_cut,omitempty"`
+	RestoreEpoch    uint64         `json:"restore_epoch,omitempty"`
+	RestoreProvider string         `json:"restore_provider,omitempty"`
+	Environment     string         `json:"environment"`
+	TenantID        string         `json:"tenant_id"`
+	ProjectID       string         `json:"project_id"`
+	Name            string         `json:"name"`
+	OperationID     string         `json:"operation_id"`
+	Regions         []string       `json:"regions"`
+	Residency       string         `json:"residency"`
 	BYOK            *BYOKReference `json:"byok,omitempty"`
 }
 
@@ -89,7 +89,7 @@ type Target struct {
 	Provision      keylease.ProvisionTarget
 	Proposal       []byte
 	Installed      bool
-	BYOK           *BYOKReference
+	BYOK           *BYOKReference `json:"byok,omitempty"`
 }
 type PlacementTarget struct {
 	ServerIdentity, MemberID, Region string
@@ -111,6 +111,7 @@ type Plan struct {
 	Placements []PlacementTarget
 }
 type Record struct {
+	BYOK             *BYOKReference         `json:"byok,omitempty"`
 	RestoreReceipt   []byte                 `json:"restore_receipt,omitempty"`
 	RestoreFacts     *RestoreAdmissionFacts `json:"restore_facts,omitempty"`
 	Restore          *RestoreRequest        `json:"restore,omitempty"`
@@ -254,7 +255,7 @@ func ValidateRecord(r Record) error {
 	if r.Request.ParentDatabaseID == r.DatabaseID {
 		return ErrInvalid
 	}
-	if ValidateRequest(r.Request) != nil || !canonicalID.MatchString(r.DatabaseID) || !canonicalID.MatchString(r.KeyVersion) || !slices.Contains([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, r.State) || len(r.Targets) != len(r.Request.Regions)*2 {
+	if ValidateRequest(r.Request) != nil || !reflect.DeepEqual(r.BYOK, r.Request.BYOK) || !canonicalID.MatchString(r.DatabaseID) || !canonicalID.MatchString(r.KeyVersion) || !slices.Contains([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, r.State) || len(r.Targets) != len(r.Request.Regions)*2 {
 		return ErrInvalid
 	}
 	hosts := map[string]bool{}
@@ -263,6 +264,9 @@ func ValidateRecord(r Record) error {
 	provisions := map[string]keylease.ProvisionTarget{}
 	for _, t := range r.Targets {
 		if t.ServerIdentity == "" || hosts[t.ServerIdentity] || !canonicalID.MatchString(t.MemberID) || members[t.MemberID] || !slices.Contains(r.Request.Regions, t.Region) || len(t.Proposal) == 0 {
+			return ErrInvalid
+		}
+		if !reflect.DeepEqual(t.BYOK, r.BYOK) {
 			return ErrInvalid
 		}
 		b := t.Provision.Binding

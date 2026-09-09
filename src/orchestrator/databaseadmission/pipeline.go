@@ -105,6 +105,12 @@ func (p *Pipeline) acceptRecord(ctx context.Context, record Record) (Record, err
 	if err != nil {
 		return Record{}, err
 	}
+	record.BYOK = record.Request.BYOK
+	for i := range record.Targets {
+		if record.Targets[i].BYOK == nil {
+			record.Targets[i].BYOK = record.BYOK
+		}
+	}
 	if ValidateRecord(record) != nil {
 		return Record{}, ErrInvalid
 	}

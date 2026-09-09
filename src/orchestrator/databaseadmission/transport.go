@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -355,11 +356,12 @@ func listenPrivate(path string) (net.Listener, error) {
 
 type Admission struct {
 	Request
-	CreatedAt  int64  `json:"created_at"`
-	DatabaseID string `json:"database_id"`
-	KeyVersion string `json:"key_version"`
-	Region     string `json:"region"`
-	MemberID   string `json:"member_id"`
+	CreatedAt  int64          `json:"created_at"`
+	DatabaseID string         `json:"database_id"`
+	KeyVersion string         `json:"key_version"`
+	Region     string         `json:"region"`
+	MemberID   string         `json:"member_id"`
+	BYOK       *BYOKReference `json:"byok,omitempty"`
 }
 type installRequest struct {
 	Admission Admission        `json:"admission"`
@@ -385,7 +387,7 @@ func RemoteInstall(nc *nats.Conn) func(context.Context, Record, Target, []keylea
 		if err != nil {
 			return err
 		}
-		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID}, entries})
+		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID, BYOK: t.BYOK}, entries})
 		if err != nil || len(data) > maxMessage {
 			return ErrInvalid
 		}
@@ -580,7 +582,7 @@ func catalogContainsEntries(catalog keylease.Catalog, entries []keylease.Entry) 
 
 func validateInstall(c HostConfig, r installRequest) error {
 	a := r.Admission
-	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || len(r.Entries) != len(databaseKeyPurposes) {
+	if a.CreatedAt <= 0 || ValidateRequest(a.Request) != nil || a.Environment != c.Environment || a.Region != c.Region || a.MemberID != c.MemberID || !canonicalID.MatchString(a.DatabaseID) || !canonicalID.MatchString(a.KeyVersion) || !reflect.DeepEqual(a.BYOK, a.Request.BYOK) || len(r.Entries) != len(databaseKeyPurposes) {
 		return ErrInvalid
 	}
 	seen := map[string]bool{}
