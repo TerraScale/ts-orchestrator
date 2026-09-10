@@ -1,0 +1,24 @@
+ M cmd/orchestrator/runtime_database.go
+ M cmd/orchestrator/runtime_database_byok.go
+ M cmd/orchestrator/runtime_database_byok_test.go
+ M cmd/orchestrator/runtime_database_test.go
+ M cmd/orchestrator/runtime_keylease.go
+ M cmd/vm-qualify/main.go
+ M src/orchestrator/databaseadmission/pipeline.go
+ M src/orchestrator/databaseadmission/pipeline_test.go
+ M src/orchestrator/keylease/catalog.go
+ M src/orchestrator/keylease/provision.go
+ M src/orchestrator/keylease/server.go
+ M src/orchestrator/vmqualruntime/runtime_run_identity.go
+?? .agents/qualification/current-20260909/
+?? .agents/qualification/current-20260910/
+?? cmd/orchestrator/runtime_keylease_renewal.go
+?? cmd/orchestrator/runtime_keylease_renewal_test.go
+?? cmd/orchestrator/testdata/producer-pending.json
+?? cmd/vm-qualify-material/
+?? src/orchestrator/keylease/renewal_server_test.go
+?? src/orchestrator/vmqualruntime/local_control_intent_sandboxvm.go
+?? src/orchestrator/vmqualruntime/local_material_command_sandboxvm_test.go
+?? src/orchestrator/vmqualruntime/local_material_sandboxvm.go
+?? src/orchestrator/vmqualruntime/local_material_sandboxvm_test.go
+?? src/orchestrator/vmqualruntime/qualification_network.go

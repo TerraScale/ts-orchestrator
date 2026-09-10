@@ -1,0 +1,14 @@
+start_utc=2026-09-10T19:44:42Z
+command=GOMAXPROCS=2 go test -p 1 -tags sandboxvm ./src/orchestrator/vmqualruntime ./cmd/vm-qualify-material -run focused
+repo_head=edf7ea858fd9436b8eb6981b3e17440ddb3a4b74
+worktree_diff_sha256=da316de917ebef3a33d182268e2f2031f30f2b61b06a5ef2f57a2fa427c273ab  -
+80b9a9f01529d2a46a731c2c9f5e584dcc074c52c054412250479872491be53f  cmd/vm-qualify-material/main.go
+482429d51e5419dcc58fdcd37162db73d715bdf2d59cd18d9b9818d63e7ae2f0  src/orchestrator/vmqualruntime/local_material_sandboxvm.go
+82bc34bbe46bd943956a9f651aaaba93463b0698a7dde5ae59b4710bd15de016  src/orchestrator/vmqualruntime/local_material_sandboxvm_test.go
+ad7ca87479e9ee3c1ddf09ab85a6b00e250ce5add73a0ef3b1d8c66e4148836c  src/orchestrator/vmqualruntime/runtime_run_identity.go
+521c17ed7db8da7559fbe9ae3ec64c68fef3e3b3f477ba7638667bb4d715f3a7  src/orchestrator/vmqualruntime/runtime_run_identity_test.go
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	(cached)
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify-material	(cached) [no tests to run]
+test_exit=0
+end_utc=2026-09-10T19:44:43Z
+]0;

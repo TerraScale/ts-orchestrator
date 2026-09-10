@@ -219,19 +219,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		},
 		BranchRestore: productionBranchRestore(config.BranchRestoreKeys, session.Connection),
 		Install: func(ctx context.Context, record databaseadmission.Record, target databaseadmission.Target, entries []keylease.Entry) error {
-			installErr := databaseadmission.RemoteInstall(session.Connection)(ctx, record, target, entries)
-			if installErr != nil {
-				if statusErr := publishOutcome(ctx, record, "error"); statusErr != nil {
-					return statusErr
-				}
-				return installErr
-			}
-			for _, candidate := range record.Targets {
-				if candidate.ServerIdentity != target.ServerIdentity && !candidate.Installed {
-					return nil
-				}
-			}
-			return publishOutcome(ctx, record, "verified")
+			return installProductionBYOK(ctx, record, target, entries, databaseadmission.RemoteInstall(session.Connection), publishOutcome)
 		},
 		ActivatePlacement: config.ActivatePlacement,
 		AcceptPlacement: func(ctx context.Context, host, operation string, proposal *pb.PlacementStageRequest) (*pb.PlacementProposalResponse, error) {
@@ -258,6 +246,18 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		return databaseadmission.DeletionPolicyDecision{}, nil
 	}), Stopper: databaseadmission.RemoteDeletionStopper(session.Connection, currentJournal), Edge: automaticDeletionEdge{}}
 	return &productionDatabase{inventoryConfig: config.Inventory, inventoryEnvironment: config.Environment, lifecycleJournal: journal, currentJournal: currentJournal, pipeline: pipeline, deletion: deletion, check: session.CheckEffectAuthority, automaticClaim: config.AutomaticDeletionClaim, environment: config.Environment}, nil
+}
+
+func installProductionBYOK(ctx context.Context, record databaseadmission.Record, target databaseadmission.Target, entries []keylease.Entry, install func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error, publish func(context.Context, databaseadmission.Record, string) error) error {
+	if err := install(ctx, record, target, entries); err != nil {
+		return err
+	}
+	for _, candidate := range record.Targets {
+		if candidate.ServerIdentity != target.ServerIdentity && !candidate.Installed {
+			return nil
+		}
+	}
+	return publish(ctx, record, "verified")
 }
 
 func publishProductionBYOKStatus(ctx context.Context, record databaseadmission.Record, status string, publish func(context.Context, byokstatus.Update) error) error {
@@ -452,7 +452,9 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		for _, host := range []productionDatabaseHost{region.Writer, region.Follower} {
 			vault := region.Vault
 			vault.Binding = keylease.Binding{Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: region.Region, Purpose: "data"}
+			vault.AdmissionOperationID = r.Request.OperationID
 			if r.BYOK != nil {
+				vault.BYOK = &keylease.BYOKMetadata{BackupEndpoint: r.BYOK.BackupEndpoint, BackupBucket: r.BYOK.BackupBucket, BackupRegion: r.BYOK.BackupRegion, BackupRoleARN: r.BYOK.BackupRoleARN, BackupExternalID: r.BYOK.BackupExternalID, KeyProvider: r.BYOK.KeyProvider, KeyID: r.BYOK.KeyID, KeyRegion: r.BYOK.KeyRegion, KeyEndpoint: r.BYOK.KeyEndpoint, ConfigurationUpdatedAt: r.BYOK.ConfigurationUpdatedAt}
 				vault.CryptoEndpoint = ""
 				vault.KEKID = ""
 				vault.KEKVersionID = ""

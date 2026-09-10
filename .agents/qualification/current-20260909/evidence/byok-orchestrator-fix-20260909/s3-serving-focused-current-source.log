@@ -1,0 +1,9 @@
+start_utc=2026-09-10T02:29:45Z
+command=go test ./src/orchestrator/keylease -run s3-serving
+repo_head=edf7ea858fd9436b8eb6981b3e17440ddb3a4b74
+worktree_diff_sha256=bdf8446cfe0c33d27f9d616c70a228529514edcc09db98d095224e3a401037ac  -
+fde6160e56140083f67f29a4cc36cd86589a7a2ab67daecfedb9a1ccac76197d  src/orchestrator/keylease/renewal_server_test.go
+ok  	terrascale.tech/orchestrator/src/orchestrator/keylease	0.020s
+test_exit=0
+end_utc=2026-09-10T02:29:46Z
+]0;

@@ -23,16 +23,15 @@ type byokPolicyFileConfig struct {
 }
 
 type byokPolicyDecision struct {
-	Allowed                bool                             `json:"allowed"`
-	Status                 string                           `json:"status"`
-	Environment            string                           `json:"environment"`
-	TenantID               string                           `json:"tenant_id"`
-	ProjectID              string                           `json:"project_id"`
-	OperationID            string                           `json:"operation_id"`
-	BYOK                   *databaseadmission.BYOKReference `json:"byok,omitempty"`
-	ConfigurationUpdatedAt string                           `json:"configuration_updated_at,omitempty"`
-	ExpiresAt              int64                            `json:"expires_at"`
-	ErrorCode              string                           `json:"error_code,omitempty"`
+	Allowed     bool                             `json:"allowed"`
+	Status      string                           `json:"status"`
+	Environment string                           `json:"environment"`
+	TenantID    string                           `json:"tenant_id"`
+	ProjectID   string                           `json:"project_id"`
+	OperationID string                           `json:"operation_id"`
+	BYOK        *databaseadmission.BYOKReference `json:"byok,omitempty"`
+	ExpiresAt   int64                            `json:"expires_at"`
+	ErrorCode   string                           `json:"error_code,omitempty"`
 }
 
 func newBYOKPolicyAuthorizer(config byokPolicyFileConfig) (func(context.Context, databaseadmission.Request) error, error) {
@@ -80,13 +79,12 @@ func byokPolicyAuthorizer(client *http.Client, endpoint, key string) func(contex
 		if err := json.Unmarshal(data, &decision, json.RejectUnknownMembers(true)); err != nil {
 			return errors.New("BYOK policy producer returned an invalid response")
 		}
-		if decision.Environment != request.Environment || decision.TenantID != request.TenantID || decision.ProjectID != request.ProjectID || decision.OperationID != request.OperationID || decision.ExpiresAt <= time.Now().Unix() || decision.ExpiresAt > time.Now().Add(time.Minute).Unix() || decision.Status != "verified" || !decision.Allowed || decision.BYOK == nil || !validConfigurationUpdatedAt(decision.ConfigurationUpdatedAt) || !sameBYOK(decision.BYOK, request.BYOK) {
+		if decision.Environment != request.Environment || decision.TenantID != request.TenantID || decision.ProjectID != request.ProjectID || decision.OperationID != request.OperationID || decision.ExpiresAt <= time.Now().Unix() || decision.ExpiresAt > time.Now().Add(time.Minute).Unix() || (decision.Status != "pending" && decision.Status != "verified") || !decision.Allowed || decision.BYOK == nil || !validConfigurationUpdatedAt(decision.BYOK.ConfigurationUpdatedAt) || decision.BYOK.ConfigurationUpdatedAt != request.BYOK.ConfigurationUpdatedAt || !sameBYOK(decision.BYOK, request.BYOK) {
 			if decision.Status == "error" && decision.Environment == request.Environment && decision.TenantID == request.TenantID && decision.ProjectID == request.ProjectID && decision.OperationID == request.OperationID {
 				return databaseadmission.ErrForbidden
 			}
 			return errors.New("BYOK policy producer returned a scope or freshness mismatch")
 		}
-		request.BYOK.ConfigurationUpdatedAt = decision.ConfigurationUpdatedAt
 		return nil
 	}
 }

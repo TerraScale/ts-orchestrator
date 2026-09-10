@@ -168,12 +168,5 @@ func realComponents(ctx context.Context, config vmqual.Config, full, fourthRegio
 }
 
 func qualificationNetworkConfig(full, fourthRegion bool) vmnet.Config {
-	networkConfig := vmnet.Config{Prefix: "ts", Regions: []vmnet.RegionSpec{{Code: vmnet.GRU, Guests: []vmnet.GuestSpec{{ID: "gru-member-1"}}}}}
-	if full {
-		networkConfig = vmnet.DefaultConfig()
-	}
-	if fourthRegion {
-		networkConfig.Regions = append(networkConfig.Regions, vmnet.RegionSpec{Code: vmqual.FourthRegion, Guests: []vmnet.GuestSpec{{ID: "iad-member-1"}, {ID: "iad-member-2"}}})
-	}
-	return networkConfig
+	return vmqualruntime.QualificationNetworkConfig(full, fourthRegion, 0, 0)
 }

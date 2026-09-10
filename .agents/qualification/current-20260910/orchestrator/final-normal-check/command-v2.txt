@@ -1,0 +1,1 @@
+env -u GOROOT PATH=/home/mariogk/.local/share/mise/shims:/run/current-system/sw/bin:/usr/bin:/bin GOTOOLCHAIN=local GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 make check

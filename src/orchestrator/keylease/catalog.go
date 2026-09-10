@@ -35,18 +35,33 @@ type Binding struct {
 }
 
 type Entry struct {
-	Binding        Binding   `json:"binding"`
-	Provider       string    `json:"provider,omitempty"`
-	KeyID          string    `json:"key_id,omitempty"`
-	KeyRegion      string    `json:"key_region,omitempty"`
-	KeyEndpoint    string    `json:"key_endpoint,omitempty"`
-	CryptoEndpoint string    `json:"crypto_endpoint"`
-	KEKID          string    `json:"kek_id"`
-	KEKVersionID   string    `json:"kek_version_id"`
-	Ciphertext     string    `json:"ciphertext"`
-	LeaseSeconds   uint32    `json:"lease_seconds"`
-	Revoked        bool      `json:"revoked"`
-	NotAfter       time.Time `json:"not_after"`
+	Binding              Binding       `json:"binding"`
+	Provider             string        `json:"provider,omitempty"`
+	KeyID                string        `json:"key_id,omitempty"`
+	KeyRegion            string        `json:"key_region,omitempty"`
+	KeyEndpoint          string        `json:"key_endpoint,omitempty"`
+	CryptoEndpoint       string        `json:"crypto_endpoint"`
+	KEKID                string        `json:"kek_id"`
+	KEKVersionID         string        `json:"kek_version_id"`
+	Ciphertext           string        `json:"ciphertext"`
+	LeaseSeconds         uint32        `json:"lease_seconds"`
+	Revoked              bool          `json:"revoked"`
+	NotAfter             time.Time     `json:"not_after"`
+	AdmissionOperationID string        `json:"admission_operation_id,omitempty"`
+	BYOK                 *BYOKMetadata `json:"byok,omitempty"`
+}
+
+type BYOKMetadata struct {
+	BackupEndpoint         string `json:"backup_endpoint"`
+	BackupBucket           string `json:"backup_bucket"`
+	BackupRegion           string `json:"backup_region"`
+	BackupRoleARN          string `json:"backup_role_arn"`
+	BackupExternalID       string `json:"backup_external_id,omitempty"`
+	KeyProvider            string `json:"key_provider"`
+	KeyID                  string `json:"key_id"`
+	KeyRegion              string `json:"key_region"`
+	KeyEndpoint            string `json:"key_endpoint"`
+	ConfigurationUpdatedAt string `json:"configuration_updated_at"`
 }
 
 type Catalog struct {

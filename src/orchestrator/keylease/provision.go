@@ -14,16 +14,18 @@ import (
 // version allocated by the durable database-create operation. Purposes are
 // provisioned separately; selected regions receive the same database DEK.
 type ProvisionTarget struct {
-	Binding        Binding
-	Provider       string
-	KeyID          string
-	KeyRegion      string
-	KeyEndpoint    string
-	CryptoEndpoint string
-	KEKID          string
-	KEKVersionID   string
-	LeaseSeconds   uint32
-	NotAfter       time.Time
+	Binding              Binding
+	Provider             string
+	KeyID                string
+	KeyRegion            string
+	KeyEndpoint          string
+	CryptoEndpoint       string
+	KEKID                string
+	KEKVersionID         string
+	LeaseSeconds         uint32
+	NotAfter             time.Time
+	AdmissionOperationID string
+	BYOK                 *BYOKMetadata
 }
 
 type WrapFunc func(context.Context, ProvisionTarget, []byte) (string, error)
@@ -56,7 +58,7 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 		if binding != primary || !target.NotAfter.After(time.Now()) {
 			return ErrUnavailable
 		}
-		probe.Entries = append(probe.Entries, Entry{Binding: target.Binding, Provider: target.Provider, KeyID: target.KeyID, KeyRegion: target.KeyRegion, KeyEndpoint: target.KeyEndpoint, CryptoEndpoint: target.CryptoEndpoint, KEKID: target.KEKID, KEKVersionID: target.KEKVersionID, Ciphertext: "pending", LeaseSeconds: target.LeaseSeconds, NotAfter: target.NotAfter})
+		probe.Entries = append(probe.Entries, Entry{Binding: target.Binding, Provider: target.Provider, KeyID: target.KeyID, KeyRegion: target.KeyRegion, KeyEndpoint: target.KeyEndpoint, CryptoEndpoint: target.CryptoEndpoint, KEKID: target.KEKID, KEKVersionID: target.KEKVersionID, Ciphertext: "pending", LeaseSeconds: target.LeaseSeconds, NotAfter: target.NotAfter, AdmissionOperationID: target.AdmissionOperationID, BYOK: target.BYOK})
 	}
 	if probe.validate() != nil {
 		return ErrUnavailable

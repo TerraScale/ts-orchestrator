@@ -28,6 +28,23 @@ type Config struct {
 	SocketGID        uint32
 	Customer         *CustomerConfig
 	WorkloadIdentity WorkloadIdentityIssuer
+	RenewalPolicy    RenewalPolicyChecker
+}
+
+// RenewalRequest identifies the exact admitted customer binding being renewed.
+// A checker must consult the live Dashboard policy and return its decision expiry.
+type RenewalRequest struct {
+	Binding              Binding
+	AdmissionOperationID string
+	BYOK                 *BYOKMetadata
+	Provider             string
+	KeyID                string
+	KeyRegion            string
+	KeyEndpoint          string
+	Workload             *WorkloadIdentityScope
+}
+type RenewalPolicyChecker interface {
+	Check(context.Context, RenewalRequest) (time.Time, error)
 }
 
 // CustomerAuthority unwraps ciphertext for an explicitly admitted customer
@@ -195,11 +212,29 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 			return s.config.Customer.Authority.Unwrap(ctx, binding, entry.Ciphertext)
 		}
 	}
+	var policyExpiry time.Time
+	if s.config.RenewalPolicy != nil {
+		policyExpiry, err = s.config.RenewalPolicy.Check(local, RenewalRequest{Binding: binding, AdmissionOperationID: entry.AdmissionOperationID, BYOK: entry.BYOK, Provider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, KeyEndpoint: entry.KeyEndpoint})
+		if err != nil {
+			writeUnavailableProtocol(connection, protocol)
+			return
+		}
+	}
 	key, err := unwrapKey(local, entry)
 	defer hostsecrets.ReleaseDataKey(key)
 	if err != nil || len(key.Bytes()) != 32 {
 		writeUnavailableProtocol(connection, protocol)
 		return
+	}
+	if s.config.RenewalPolicy != nil {
+		latestExpiry, policyErr := s.config.RenewalPolicy.Check(local, RenewalRequest{Binding: binding, AdmissionOperationID: entry.AdmissionOperationID, BYOK: entry.BYOK, Provider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, KeyEndpoint: entry.KeyEndpoint})
+		if policyErr != nil {
+			writeUnavailableProtocol(connection, protocol)
+			return
+		}
+		if policyExpiry.IsZero() || latestExpiry.Before(policyExpiry) {
+			policyExpiry = latestExpiry
+		}
 	}
 	// Re-check after remote latency: revocation or rotation must not race a
 	// pending Vault unwrap. Old versions remain usable only if explicitly kept.
@@ -219,6 +254,9 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		return
 	}
 	seconds := min(entry.LeaseSeconds, uint32(max(0, time.Until(entry.NotAfter)/time.Second)))
+	if !policyExpiry.IsZero() {
+		seconds = min(seconds, uint32(max(0, time.Until(policyExpiry)/time.Second)))
+	}
 	if seconds == 0 {
 		writeUnavailableProtocol(connection, protocol)
 		return
@@ -244,9 +282,44 @@ func (s *Server) serveWorkloadIdentity(ctx context.Context, connection *net.Unix
 	if s.config.WorkloadIdentity == nil || scope == nil {
 		return
 	}
+	var policyExpiry time.Time
+	var matched *Entry
+	if s.config.RenewalPolicy != nil {
+		var err error
+		catalog, readErr := ReadCatalog(s.config.CatalogPath)
+		if readErr != nil {
+			return
+		}
+		for i := range catalog.Entries {
+			entry := &catalog.Entries[i]
+			if entry.BYOK == nil || entry.Revoked || entry.Binding.Environment != scope.Environment || entry.Binding.TenantID != scope.TenantID || entry.Binding.ProjectID != scope.ProjectID || entry.Binding.DatabaseID != scope.DatabaseID || entry.BYOK.BackupEndpoint != scope.Endpoint || entry.BYOK.BackupBucket != scope.Bucket || entry.BYOK.BackupRegion != scope.Region || entry.BYOK.BackupRoleARN != scope.Role || entry.BYOK.BackupExternalID != valueOrEmpty(scope.ExternalID) {
+				continue
+			}
+			if matched != nil {
+				return
+			}
+			matched = entry
+		}
+		if matched == nil {
+			return
+		}
+		policyExpiry, err = s.config.RenewalPolicy.Check(ctx, RenewalRequest{AdmissionOperationID: matched.AdmissionOperationID, BYOK: matched.BYOK, Workload: scope})
+		if err != nil {
+			return
+		}
+	}
 	credentials, err := s.config.WorkloadIdentity.Issue(ctx, *scope)
 	if err != nil || credentials.AccessKey == "" || credentials.SecretKey == "" || credentials.SessionToken == "" || credentials.ExpiresAtUnixSeconds == 0 {
 		return
+	}
+	if !policyExpiry.IsZero() && credentials.ExpiresAtUnixSeconds > uint64(policyExpiry.Unix()) {
+		credentials.ExpiresAtUnixSeconds = uint64(policyExpiry.Unix())
+	}
+	if s.config.RenewalPolicy != nil {
+		if _, err := s.config.RenewalPolicy.Check(ctx, RenewalRequest{AdmissionOperationID: matched.AdmissionOperationID, BYOK: matched.BYOK, Workload: scope}); err != nil {
+			clearCredentials(&credentials)
+			return
+		}
 	}
 	body, err := json.Marshal(credentials)
 	if err != nil || len(body) > maximumFrame {
@@ -254,6 +327,18 @@ func (s *Server) serveWorkloadIdentity(ctx context.Context, connection *net.Unix
 	}
 	writeAll(connection, binary.BigEndian.AppendUint32(nil, uint32(len(body))))
 	writeAll(connection, body)
+}
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+func clearCredentials(credentials *WorkloadIdentityCredentials) {
+	credentials.AccessKey = ""
+	credentials.SecretKey = ""
+	credentials.SessionToken = ""
+	credentials.ExpiresAtUnixSeconds = 0
 }
 func (s *Server) lookup(binding Binding, now time.Time) (Entry, error) {
 	catalog, err := ReadCatalog(s.config.CatalogPath)

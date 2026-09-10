@@ -59,6 +59,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	journal := NewMemoryJournal()
 	config := pipelineConfig(t, journal)
 	request := journalFixture(t).Request
+	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
 	pipeline, err := New(config)
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +139,9 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	if result(final).State != "pending" {
 		t.Fatal("pending membership advertised ready")
 	}
+	if final.BYOK == nil || final.BYOK.ConfigurationUpdatedAt != request.BYOK.ConfigurationUpdatedAt || final.Request.OperationID != request.OperationID {
+		t.Fatal("lost install retry changed immutable BYOK operation state")
+	}
 	if err = pipeline.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -145,6 +149,34 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 		t.Fatal("pending operation did not recheck activated host publication")
 	}
 }
+
+func TestAcceptCanonicalizesBYOKBeforePlanning(t *testing.T) {
+	journal := NewMemoryJournal()
+	config := pipelineConfig(t, journal)
+	basePlan := config.Plan
+	request := journalFixture(t).Request
+	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
+	var planned *BYOKReference
+	config.Plan = func(ctx context.Context, record Record) (Plan, error) {
+		planned = record.BYOK
+		return basePlan(ctx, record)
+	}
+	pipeline, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := pipeline.Accept(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned == nil || planned.ConfigurationUpdatedAt != request.BYOK.ConfigurationUpdatedAt {
+		t.Fatal("planner did not receive canonical BYOK")
+	}
+	if planned == request.BYOK || accepted.BYOK == request.BYOK || accepted.BYOK != planned {
+		t.Fatal("canonical BYOK pointer was not isolated before planning")
+	}
+}
+
 func TestAdmissionDeniedBeforeDurableIdentity(t *testing.T) {
 	journal := NewMemoryJournal()
 	config := pipelineConfig(t, journal)
@@ -204,7 +236,7 @@ func TestReconcileRechecksLiveBYOKAuthorizationBeforeEffects(t *testing.T) {
 		calls, installs := 0, 0
 		config.Authorize = func(context.Context, Request) error {
 			calls++
-			if calls > 2 {
+			if calls > 6 {
 				return ErrForbidden
 			}
 			return nil
@@ -227,8 +259,8 @@ func TestReconcileRechecksLiveBYOKAuthorizationBeforeEffects(t *testing.T) {
 		if err := pipeline.Reconcile(t.Context()); !errors.Is(err, ErrForbidden) {
 			t.Fatalf("reconcile error = %v, want live authorization denial", err)
 		}
-		if installs != 0 {
-			t.Fatalf("installed keys after revocation: %d", installs)
+		if installs != 1 {
+			t.Fatalf("allowed control did not reach install exactly once: %d", installs)
 		}
 	})
 }

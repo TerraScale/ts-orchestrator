@@ -75,3 +75,13 @@ func retainQualificationRunIdentity(stateRoot string, config vmnet.Config) (qual
 }
 
 func (factory *firecrackerFactory) QualificationRunID() string { return factory.qualificationRunID }
+
+// RetainQualificationRunIdentity exposes the production identity fence to
+// material preparation; both processes must use the same pre-planning config.
+func RetainQualificationRunIdentity(stateRoot string, config vmnet.Config) (string, error) {
+	identity, err := retainQualificationRunIdentity(stateRoot, config)
+	if err != nil {
+		return "", err
+	}
+	return identity.NetworkRunID, nil
+}

@@ -1,0 +1,61 @@
+start_utc=2026-09-10T23:22:41Z
+edf7ea858fd9436b8eb6981b3e17440ddb3a4b74
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase"  -- go run -tags sandboxvm ./cmd/vm-qualify smoke
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling find-msvc-tools v0.1.11
+   Compiling shlex v2.0.1
+   Compiling cfg-if v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling serde_core v1.0.229
+   Compiling bytes v1.12.1
+   Compiling pkg-config v0.3.34
+   Compiling memchr v2.8.3
+   Compiling futures-core v0.3.34
+   Compiling once_cell v1.21.4
+   Compiling thiserror v2.0.20
+   Compiling itoa v1.0.18
+   Compiling slab v0.4.12
+   Compiling futures-sink v0.3.34
+   Compiling autocfg v1.5.1
+   Compiling smallvec v1.15.2
+   Compiling foldhash v0.2.0
+   Compiling futures-task v0.3.34
+   Compiling fs_extra v1.3.0
+   Compiling zerocopy v0.8.56
+   Compiling futures-io v0.3.34
+   Compiling dunce v1.0.5
+   Compiling log v0.4.34
+error[E0463]: can't find crate for `core`
+  |
+  = note: the `x86_64-unknown-linux-musl` target may not be installed
+  = help: consider downloading the target with `rustup target add x86_64-unknown-linux-musl`
+
+For more information about this error, try `rustc --explain E0463`.
+error: could not compile `pin-project-lite` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error[E0463]: can't find crate for `std`
+  |
+  = note: the `x86_64-unknown-linux-musl` target may not be installed
+  = help: consider downloading the target with `rustup target add x86_64-unknown-linux-musl`
+
+error: could not compile `cfg-if` (lib) due to 1 previous error
+error: could not compile `futures-core` (lib) due to 1 previous error
+error: could not compile `bytes` (lib) due to 1 previous error
+error: could not compile `slab` (lib) due to 1 previous error
+error: could not compile `futures-sink` (lib) due to 1 previous error
+error: could not compile `once_cell` (lib) due to 1 previous error
+error: could not compile `futures-io` (lib) due to 1 previous error
+error: could not compile `itoa` (lib) due to 1 previous error
+error: could not compile `foldhash` (lib) due to 1 previous error
+error: could not compile `memchr` (lib) due to 1 previous error
+error: could not compile `smallvec` (lib) due to 1 previous error
+error: could not compile `futures-task` (lib) due to 1 previous error
+error: could not compile `log` (lib) due to 1 previous error
+vm-artifacts: build TerraBase for x86_64-unknown-linux-musl: exit status 101 (install the pinned Rust musl target or set VM_TERRABASE_BINARY to an exact static native terrabase-server)
+exit status 1
+make: *** [Makefile:30: vm-smoke] Error 1
+exit=2
+end_utc=2026-09-10T23:22:53Z

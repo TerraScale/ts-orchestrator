@@ -1,0 +1,23 @@
+start_utc=2026-09-10T19:58:24Z
+command=GOMAXPROCS=2 go test -p 1 -tags sandboxvm ./src/orchestrator/vmqualruntime -run 'TestLocalQualificationMaterialLoaderAndDurableOwner|TestLocalQualificationMaterialRejectsNetworkConfigMismatch|TestQualificationRunIdentitySurvivesReconstructionAndRejectsForeignIntent' -count=1 -v
+repo_head=edf7ea858fd9436b8eb6981b3e17440ddb3a4b74
+before_worktree_diff_sha256=29a986c20d64a850ca8e42673e9030a1640eef9a1b2c23e58ec2c4de23af7134  -
+4c5a152f0dd24a788a0470d9a098c469f3cda5eead15297d499c87e404c49831  cmd/vm-qualify/main.go
+80b9a9f01529d2a46a731c2c9f5e584dcc074c52c054412250479872491be53f  cmd/vm-qualify-material/main.go
+7a74719d8d13798ba7bb5495c4185dcb29c58fb1277da6c780399833d08a4984  src/orchestrator/vmqualruntime/qualification_network_sandboxvm.go
+482429d51e5419dcc58fdcd37162db73d715bdf2d59cd18d9b9818d63e7ae2f0  src/orchestrator/vmqualruntime/local_material_sandboxvm.go
+723eae326535fb9cb68127a563099ec7b0393825c5732d2c1737a68dea7888c9  src/orchestrator/vmqualruntime/local_material_sandboxvm_test.go
+ad7ca87479e9ee3c1ddf09ab85a6b00e250ce5add73a0ef3b1d8c66e4148836c  src/orchestrator/vmqualruntime/runtime_run_identity.go
+521c17ed7db8da7559fbe9ae3ec64c68fef3e3b3f477ba7638667bb4d715f3a7  src/orchestrator/vmqualruntime/runtime_run_identity_test.go
+=== RUN   TestLocalQualificationMaterialLoaderAndDurableOwner
+--- PASS: TestLocalQualificationMaterialLoaderAndDurableOwner (0.11s)
+=== RUN   TestLocalQualificationMaterialRejectsNetworkConfigMismatch
+--- PASS: TestLocalQualificationMaterialRejectsNetworkConfigMismatch (0.01s)
+=== RUN   TestQualificationRunIdentitySurvivesReconstructionAndRejectsForeignIntent
+--- PASS: TestQualificationRunIdentitySurvivesReconstructionAndRejectsForeignIntent (0.01s)
+PASS
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	0.176s
+test_exit=0
+after_worktree_diff_sha256=29a986c20d64a850ca8e42673e9030a1640eef9a1b2c23e58ec2c4de23af7134  -
+end_utc=2026-09-10T19:58:27Z
+]0;

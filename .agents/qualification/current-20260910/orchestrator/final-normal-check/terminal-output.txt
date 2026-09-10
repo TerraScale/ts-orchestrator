@@ -1,0 +1,6 @@
+test -z "$(gofmt -l .)"
+go vet ./...
+# terrascale.tech/orchestrator/cmd/vm-qualify
+# [terrascale.tech/orchestrator/cmd/vm-qualify]
+vet: cmd/vm-qualify/main.go:171:23: undefined: vmqualruntime.QualificationNetworkConfig
+make: *** [Makefile:44: check] Error 1

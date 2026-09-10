@@ -1,0 +1,17 @@
+start_utc=2026-09-10T19:47:57Z
+command=GOMAXPROCS=2 go test -p 1 -tags sandboxvm ./src/orchestrator/vmqualruntime ./cmd/vm-qualify ./cmd/vm-qualify-material -run exact
+repo_head=edf7ea858fd9436b8eb6981b3e17440ddb3a4b74
+worktree_diff_sha256=0d39517f174a640d21edb7fc958e95d72ce0710f30f16fec0e016f95c522fe6c  -
+4c5a152f0dd24a788a0470d9a098c469f3cda5eead15297d499c87e404c49831  cmd/vm-qualify/main.go
+80b9a9f01529d2a46a731c2c9f5e584dcc074c52c054412250479872491be53f  cmd/vm-qualify-material/main.go
+7a74719d8d13798ba7bb5495c4185dcb29c58fb1277da6c780399833d08a4984  src/orchestrator/vmqualruntime/qualification_network_sandboxvm.go
+482429d51e5419dcc58fdcd37162db73d715bdf2d59cd18d9b9818d63e7ae2f0  src/orchestrator/vmqualruntime/local_material_sandboxvm.go
+723eae326535fb9cb68127a563099ec7b0393825c5732d2c1737a68dea7888c9  src/orchestrator/vmqualruntime/local_material_sandboxvm_test.go
+ad7ca87479e9ee3c1ddf09ab85a6b00e250ce5add73a0ef3b1d8c66e4148836c  src/orchestrator/vmqualruntime/runtime_run_identity.go
+521c17ed7db8da7559fbe9ae3ec64c68fef3e3b3f477ba7638667bb4d715f3a7  src/orchestrator/vmqualruntime/runtime_run_identity_test.go
+ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	0.145s
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify	0.047s [no tests to run]
+ok  	terrascale.tech/orchestrator/cmd/vm-qualify-material	0.028s [no tests to run]
+test_exit=0
+end_utc=2026-09-10T19:48:03Z
+]0;

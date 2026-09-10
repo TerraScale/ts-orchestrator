@@ -14,27 +14,29 @@ import (
 )
 
 const (
-	keyLeaseSocketEnvironment   = "TS_ORCH_KEY_LEASE_SOCKET_FILE"
-	keyLeaseCatalogEnvironment  = "TS_ORCH_KEY_LEASE_CATALOG_FILE"
-	keyLeaseEnvironment         = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
-	keyLeaseUIDEnvironment      = "TS_ORCH_KEY_LEASE_PEER_UID"
-	keyLeaseGIDEnvironment      = "TS_ORCH_KEY_LEASE_SOCKET_GID"
-	byokRoleEnvironment         = "TS_ORCH_BYOK_ROLE_ARN"
-	byokTokenEnvironment        = "TS_ORCH_BYOK_OIDC_TOKEN_FILE"
-	byokKeyIDEnvironment        = "TS_ORCH_BYOK_KEY_ID"
-	byokKeyRegionEnvironment    = "TS_ORCH_BYOK_KEY_REGION"
-	byokKeyEndpointEnvironment  = "TS_ORCH_BYOK_KEY_ENDPOINT"
-	byokProviderEnvironment     = "TS_ORCH_BYOK_PROVIDER"
-	byokS3RoleEnvironment       = "TS_ORCH_BYOK_S3_ROLE_ARN"
-	byokS3TokenEnvironment      = "TS_ORCH_BYOK_S3_OIDC_TOKEN_FILE"
-	byokS3EndpointEnvironment   = "TS_ORCH_BYOK_S3_ENDPOINT"
-	byokS3BucketEnvironment     = "TS_ORCH_BYOK_S3_BUCKET"
-	byokS3RegionEnvironment     = "TS_ORCH_BYOK_S3_REGION"
-	byokS3RevisionEnvironment   = "TS_ORCH_BYOK_S3_PLACEMENT_REVISION"
-	byokS3TenantEnvironment     = "TS_ORCH_BYOK_S3_TENANT_ID"
-	byokS3ProjectEnvironment    = "TS_ORCH_BYOK_S3_PROJECT_ID"
-	byokS3DatabaseEnvironment   = "TS_ORCH_BYOK_S3_DATABASE_ID"
-	byokS3ExternalIDEnvironment = "TS_ORCH_BYOK_S3_EXTERNAL_ID"
+	keyLeaseSocketEnvironment      = "TS_ORCH_KEY_LEASE_SOCKET_FILE"
+	keyLeaseCatalogEnvironment     = "TS_ORCH_KEY_LEASE_CATALOG_FILE"
+	keyLeaseEnvironment            = "TS_ORCH_KEY_LEASE_ENVIRONMENT"
+	keyLeaseUIDEnvironment         = "TS_ORCH_KEY_LEASE_PEER_UID"
+	keyLeaseGIDEnvironment         = "TS_ORCH_KEY_LEASE_SOCKET_GID"
+	byokRoleEnvironment            = "TS_ORCH_BYOK_ROLE_ARN"
+	byokTokenEnvironment           = "TS_ORCH_BYOK_OIDC_TOKEN_FILE"
+	byokKeyIDEnvironment           = "TS_ORCH_BYOK_KEY_ID"
+	byokKeyRegionEnvironment       = "TS_ORCH_BYOK_KEY_REGION"
+	byokKeyEndpointEnvironment     = "TS_ORCH_BYOK_KEY_ENDPOINT"
+	byokProviderEnvironment        = "TS_ORCH_BYOK_PROVIDER"
+	byokS3RoleEnvironment          = "TS_ORCH_BYOK_S3_ROLE_ARN"
+	byokS3TokenEnvironment         = "TS_ORCH_BYOK_S3_OIDC_TOKEN_FILE"
+	byokS3EndpointEnvironment      = "TS_ORCH_BYOK_S3_ENDPOINT"
+	byokS3BucketEnvironment        = "TS_ORCH_BYOK_S3_BUCKET"
+	byokS3RegionEnvironment        = "TS_ORCH_BYOK_S3_REGION"
+	byokS3RevisionEnvironment      = "TS_ORCH_BYOK_S3_PLACEMENT_REVISION"
+	byokS3TenantEnvironment        = "TS_ORCH_BYOK_S3_TENANT_ID"
+	byokS3ProjectEnvironment       = "TS_ORCH_BYOK_S3_PROJECT_ID"
+	byokS3DatabaseEnvironment      = "TS_ORCH_BYOK_S3_DATABASE_ID"
+	byokS3ExternalIDEnvironment    = "TS_ORCH_BYOK_S3_EXTERNAL_ID"
+	byokRenewalEndpointEnvironment = "TS_ORCH_BYOK_RENEWAL_POLICY_URL"
+	byokRenewalKeyEnvironment      = "TS_ORCH_BYOK_RENEWAL_POLICY_KEY"
 )
 
 type workloadIssuerAdapter struct{ issuer *byokauthority.WorkloadIssuer }
@@ -123,6 +125,13 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 			return nil, errors.New("orchestrator: customer BYOK authority unavailable")
 		}
 		keyConfig.Customer = &keylease.CustomerConfig{Authority: customerAuthorityAdapter{authority: authority}, Provider: provider, KeyID: keyID, KeyRegion: keyRegion, KeyEndpoint: endpoint}
+		renewalEndpoint, _ := lookup(byokRenewalEndpointEnvironment)
+		renewalKey, _ := lookup(byokRenewalKeyEnvironment)
+		checker, checkerErr := newRenewalPolicyChecker(renewalEndpoint, renewalKey)
+		if checkerErr != nil {
+			return nil, errors.New("orchestrator: customer BYOK renewal policy unavailable")
+		}
+		keyConfig.RenewalPolicy = checker
 	}
 	s3Role, _ := lookup(byokS3RoleEnvironment)
 	s3Token, _ := lookup(byokS3TokenEnvironment)
@@ -153,6 +162,15 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 			return nil, errors.New("orchestrator: customer S3 workload issuer unavailable")
 		}
 		keyConfig.WorkloadIdentity = workloadIssuerAdapter{issuer: issuer}
+		if keyConfig.RenewalPolicy == nil {
+			renewalEndpoint, _ := lookup(byokRenewalEndpointEnvironment)
+			renewalKey, _ := lookup(byokRenewalKeyEnvironment)
+			checker, checkerErr := newRenewalPolicyChecker(renewalEndpoint, renewalKey)
+			if checkerErr != nil {
+				return nil, errors.New("orchestrator: customer S3 renewal policy unavailable")
+			}
+			keyConfig.RenewalPolicy = checker
+		}
 	}
 	service, err := keylease.Start(ctx, keyConfig)
 	if err != nil {

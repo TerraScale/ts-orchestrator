@@ -106,16 +106,17 @@ func (p *Pipeline) acceptRecord(ctx context.Context, record Record) (Record, err
 		return Record{}, err
 	}
 	record.DatabaseID, record.KeyVersion, record.State, record.CreatedAt = id.String(), version.String(), "accepted", time.Now().UTC().Truncate(time.Millisecond)
+	if record.Request.BYOK != nil {
+		canonical := *record.Request.BYOK
+		record.BYOK = &canonical
+	}
 	plan, err := p.config.Plan(ctx, record)
-	record.Targets, record.PlacementTargets = plan.Members, plan.Placements
 	if err != nil {
 		return Record{}, err
 	}
-	record.BYOK = record.Request.BYOK
+	record.Targets, record.PlacementTargets = plan.Members, plan.Placements
 	for i := range record.Targets {
-		if record.Targets[i].BYOK == nil {
-			record.Targets[i].BYOK = record.BYOK
-		}
+		record.Targets[i].BYOK = record.BYOK
 	}
 	if ValidateRecord(record) != nil {
 		return Record{}, ErrInvalid

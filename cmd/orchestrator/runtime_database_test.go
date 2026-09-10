@@ -31,6 +31,45 @@ func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *test
 	}
 }
 
+func TestInstallProductionBYOKDoesNotPoisonProjectOnLostResponse(t *testing.T) {
+	byok := &databaseadmission.BYOKReference{ConfigurationUpdatedAt: "2026-09-09T00:00:00.000Z"}
+	record := databaseadmission.Record{Request: databaseadmission.Request{ProjectID: "project", OperationID: "create-one"}, BYOK: byok, Targets: []databaseadmission.Target{{ServerIdentity: "member-one"}}}
+	target := record.Targets[0]
+	transient := errors.New("lost host response")
+	installs := 0
+	statuses := []string{}
+	install := func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
+		installs++
+		if installs == 1 {
+			return transient
+		}
+		return nil
+	}
+	publish := func(_ context.Context, r databaseadmission.Record, status string) error {
+		statuses = append(statuses, r.Request.OperationID+":"+status+":"+r.BYOK.ConfigurationUpdatedAt)
+		return nil
+	}
+	if err := installProductionBYOK(t.Context(), record, target, nil, install, publish); !errors.Is(err, transient) {
+		t.Fatalf("lost install error = %v", err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("transient install published project status: %v", statuses)
+	}
+	if err := installProductionBYOK(t.Context(), record, target, nil, install, publish); err != nil {
+		t.Fatal(err)
+	}
+	other := record
+	other.Request.OperationID = "create-two"
+	if err := installProductionBYOK(t.Context(), other, target, nil, func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
+		return nil
+	}, publish); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := statuses, []string{"create-one:verified:2026-09-09T00:00:00.000Z", "create-two:verified:2026-09-09T00:00:00.000Z"}; !slices.Equal(got, want) {
+		t.Fatalf("status publications = %v, want %v", got, want)
+	}
+}
+
 type databasePlanJournal struct {
 	records []databaseadmission.Record
 	failure error
@@ -100,6 +139,21 @@ func TestDatabasePlanRetainsExplicitRolesAndImmutableScope(t *testing.T) {
 	stage.Proposal.Assignments[0].Project = "01ARZ3NDEKTSV4RRFFQ69G5FAH"
 	if err := validateDatabaseProposal(t.Context(), journal, targets[0].ServerIdentity, databaseadmission.PlacementOperationID(record.Request), stage); err == nil {
 		t.Fatal("modified project accepted")
+	}
+}
+
+func TestDatabasePlanUsesCustomerProviderForAllPurposeKeys(t *testing.T) {
+	config, record := databasePlanFixture()
+	record.BYOK = &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
+	record.Request.BYOK = record.BYOK
+	plan, err := config.plan(t.Context(), record, &databasePlanJournal{}, databasePlacementJournal{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range plan.Members {
+		if target.Provision.Provider != "aws-kms" || target.Provision.KeyID != record.BYOK.KeyID || target.Provision.CryptoEndpoint != "" || target.Provision.KEKID != "" || target.Provision.KEKVersionID != "" {
+			t.Fatalf("customer provider tuple not selected: %+v", target.Provision)
+		}
 	}
 }
 func TestDatabasePlanWaitsForReceiptAndPreservesAssignments(t *testing.T) {
