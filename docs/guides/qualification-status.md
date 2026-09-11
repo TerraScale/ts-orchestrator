@@ -307,6 +307,45 @@ rules. The [final controller record](../evidence/vm-test-cleanup-final-2026-09-0
 and [machine report](../evidence/vm-test-cleanup-final-2026-09-04.json) preserve
 all guest binary digests and the failed qualification result.
 
+## First complete vm-smoke pass (2026-09-11)
+
+`make vm-smoke` passed both profiles end to end on the root-owned
+qualification root `/var/lib/terrascale-qualification/ts-orchestrator-smoke31`
+with the locally built static TerraBase binary
+(`13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1`):
+`smoke boot=3m30s ready=4m43s cleanup=25s`. Both the control-only (512 MiB)
+and service (2048 MiB) guests completed initial boot, signed installation,
+NATS activation, the guest runtime proof, the network exchange, the
+stop/start persistence proof, the host-disk observation, and verified
+cleanup. Evidence:
+`.agents/qualification/current-20260910/evidence/firecracker-chain/16-vm-smoke-green.log`.
+
+Three defects blocked that pass and are fixed with regression tests:
+
+- **vmdisk read-path ownership versus the jailer hard link.** The Firecracker
+  jailer hard-links a drive artifact into its VMM jail, so any store read
+  while the guest runs observed `nlink=2` and failed the single-link check
+  with `vmdisk: artifact is not owned by this run` — every marker, run ID,
+  and uid/gid matched and only nlink differed
+  (`13-vm-smoke-forensics2.log`). Reads now accept the link on the artifact;
+  secure removal still refuses to wipe an aliased artifact.
+- **Readiness demanded the engine active before its configuration exists.**
+  The engine's launch configuration is control-plane delivered after initial
+  admission; the readiness probe now requires the terrabase unit only once
+  its staged configuration exists (admitted `test -s` on the pinned config
+  path), tolerates the `degraded` overall state the pending engine produces,
+  and reads `is-system-running`/`test` exit codes as observations instead of
+  errors.
+- **The smoke budget could not hold two profiles.** One profile measures
+  ~4 minutes (boot ~90 s, activation ~180 s, restart and proofs ~60 s); the
+  command's five-minute total budget now covers both profiles' lifecycles.
+
+The vm-smoke command now requires a TerraBase declaration, matching vm-stack
+and vm-test; the single-guest smoke topology cannot produce a valid engine
+declaration (declarations bind exactly two members per Region), so the
+smoke/stack/test readiness chain continues through that declaration and
+material lane.
+
 ## Remaining production work
 
 Production startup still has an unconditional missing-composition error.
