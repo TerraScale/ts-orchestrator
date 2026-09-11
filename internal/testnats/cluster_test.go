@@ -74,7 +74,10 @@ func TestPermissionedRolesEnforcePublishSubscribeAndKVBoundaries(t *testing.T) {
 
 func TestPermissionedAccountsKeepJetStreamAcrossRestart(t *testing.T) {
 	cluster := NewPermissioned(t, RoleConfig{Name: "owner", Account: "APP", Publish: []string{">"}, Subscribe: []string{">"}})
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	// Creating a replicated JetStream bucket immediately after a three-node
+	// restart requires route convergence. Allow that local integration setup
+	// to finish on loaded qualification hosts while retaining a finite bound.
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	OpenLeaseStore(t, ctx, cluster.Connect(t), true)

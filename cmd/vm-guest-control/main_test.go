@@ -296,6 +296,10 @@ func blockingFDCommand(t *testing.T, original string) (*exec.Cmd, string, *bufio
 
 func waitForBlockingFDReady(t *testing.T, command *exec.Cmd, ready *bufio.Reader) {
 	t.Helper()
+	// Starting a second copy of the test binary can exceed two seconds on a
+	// loaded qualification host. The helper has its own cancellation and exit
+	// bounds below; readiness only needs to allow process startup to complete.
+	const readinessTimeout = 10 * time.Second
 	result := make(chan error, 1)
 	go func() {
 		line, err := ready.ReadString('\n')
@@ -311,7 +315,7 @@ func waitForBlockingFDReady(t *testing.T, command *exec.Cmd, ready *bufio.Reader
 			_ = command.Wait()
 			t.Fatal(err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(readinessTimeout):
 		_ = command.Process.Kill()
 		_ = command.Wait()
 		t.Fatal("blocking-FD helper did not become ready")
