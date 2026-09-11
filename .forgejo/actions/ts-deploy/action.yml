@@ -87,13 +87,17 @@ runs:
           export VM_TERRABASE_REPO
         fi
         # The release lane mutates this repository (releases, assets), which the
-        # read token cannot do. Re-authenticate fj with the job token, which is
-        # scoped to this repository with contents:write, and leave the read
-        # token in FORGEJO_TOKEN so workspace clones can still read sibling
-        # private repositories over git http.
+        # read token cannot do. Prefer the job token, which the workflow scopes
+        # to this repository with contents:write, and keep it in
+        # FORGEJO_TOKEN so the release lane forwards it to the Forgejo API. The
+        # job token can also read the private delivery repository, so no
+        # separate read credential is needed here. A repository that supplies
+        # only the read token keeps working as before.
         job_token="${FORGEJO_TOKEN:-${GITHUB_TOKEN:-}}"
         if [ -n "${job_token}" ]; then
           printf '%s\n' "${job_token}" | fj auth add-token --host git.terrascale.tech >/dev/null
+        else
+          printf '%s\n' "${TS_DEPLOY_READ_TOKEN}" | fj auth add-token --host git.terrascale.tech >/dev/null
           export FORGEJO_TOKEN="${TS_DEPLOY_READ_TOKEN}"
         fi
         exec "${TS_DEPLOY_CLI}" ci --repo "${TS_DEPLOY_REPO}"
