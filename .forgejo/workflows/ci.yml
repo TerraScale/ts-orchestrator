@@ -41,26 +41,7 @@ jobs:
           test "$(git -C terrabase rev-parse HEAD)" = "$TS_TERRABASE_REV"
           test -f terrabase/Cargo.toml
           test -f terrabase/rust-toolchain.toml
-      - run: |
-          set -eu
-          case "$(uname -m)" in
-            aarch64|arm64) asset=ts-deploy-linux-arm64 ;;
-            x86_64|amd64) asset=ts-deploy-linux-amd64 ;;
-            *) echo "unsupported runner architecture" >&2; exit 1 ;;
-          esac
-          release="${TS_DEPLOY_VERSION:?TS_DEPLOY_VERSION is required}"
-          case "${release}" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "invalid ts-deploy release" >&2; exit 1 ;;
-          esac
-          test "${#TS_DEPLOY_SHA256}" -eq 64
-          case "${TS_DEPLOY_SHA256}" in *[!0-9a-fA-F]*) echo "invalid ts-deploy artifact checksum" >&2; exit 1 ;; esac
-          test "${#TS_DEPLOY_SIGNATURE_SHA256}" -eq 64
-          case "${TS_DEPLOY_SIGNATURE_SHA256}" in *[!0-9a-fA-F]*) echo "invalid ts-deploy signature checksum" >&2; exit 1 ;; esac
-          fj release view "${release}" --repo TerraScale/ts-deploy >/dev/null
-          fj release asset download "${release}" "${asset}" --repo TerraScale/ts-deploy --output ts-deploy
-          fj release asset download "${release}" "${asset}.sig" --repo TerraScale/ts-deploy --output ts-deploy.sig
-          printf '%s  %s\n' "${TS_DEPLOY_SHA256}" ts-deploy | sha256sum --check --strict -
-          printf '%s  %s\n' "${TS_DEPLOY_SIGNATURE_SHA256}" ts-deploy.sig | sha256sum --check --strict -
-          chmod +x ts-deploy
-      - run: VM_TERRABASE_REPO="$PWD/terrabase" ./ts-deploy ci --repo ts-orchestrator
+      - uses: https://git.terrascale.tech/TerraScale/ts-deploy@d07297de294b229fb4692b28849a2d0097df65de
+        with:
+          repo: ts-orchestrator
+          terrabase_path: terrabase
