@@ -53,7 +53,7 @@ func TestBeginProjectDeletionCapacityFailureIsAtomic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		probe.ProjectDeletions[projectDeletionKey(r)] = ProjectDeletion{Request: r, State: "accepted", Revision: 1, RequestedAt: now, Targets: []ProjectDeletionTarget{}}
+		probe.ProjectDeletions[projectDeletionKey(r)] = ProjectDeletion{Request: r, State: "accepted", Revision: 1, FenceRevision: 1, RequestedAt: now, Targets: []ProjectDeletionTarget{}}
 		probe.ProjectFences[projectScopeKey(r)] = r.OperationID
 		if errors.Is(validateReservedCapacity(probe), ErrJournalUnavailable) {
 			break

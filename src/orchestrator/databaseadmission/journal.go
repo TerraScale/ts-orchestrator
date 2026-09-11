@@ -31,12 +31,13 @@ type journalState struct {
 	Deletions                    map[string]Deletion
 	ProjectDeletions             map[string]ProjectDeletion
 	ProjectFences                map[string]string
+	ProjectFenceReceipts         map[string]HostFenceReceipt
 	Records                      map[string]Record
 	Lifecycle                    databaselifecycle.State
 }
 
 func newJournalState() journalState {
-	return journalState{Deletions: map[string]Deletion{}, ProjectDeletions: map[string]ProjectDeletion{}, ProjectFences: map[string]string{}, Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
+	return journalState{Deletions: map[string]Deletion{}, ProjectDeletions: map[string]ProjectDeletion{}, ProjectFences: map[string]string{}, ProjectFenceReceipts: map[string]HostFenceReceipt{}, Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
 }
 
 func validateJournalState(state journalState) error {
@@ -48,6 +49,24 @@ func validateJournalState(state journalState) error {
 	}
 	if err := validateProjectDeletions(state); err != nil {
 		return err
+	}
+	for key, receipt := range state.ProjectFenceReceipts {
+		if receipt.ProjectFenceRevision == 0 || (receipt.Outcome != "no_install" && receipt.Outcome != "stop_required") {
+			return ErrInvalid
+		}
+		found := false
+		for _, project := range state.ProjectDeletions {
+			for _, target := range project.Targets {
+				for _, planned := range target.PlannedHosts {
+					if projectFenceReceiptKey(project, planned) == key && sameNativeRecord(planned.Record, receipt.Record) && receipt.DeletionOperationID == project.Request.OperationID && receipt.ProjectFenceRevision == project.FenceRevision {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			return ErrInvalid
+		}
 	}
 	if err := validateCurrentPlacements(state); err != nil {
 		return err

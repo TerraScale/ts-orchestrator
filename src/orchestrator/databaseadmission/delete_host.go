@@ -86,6 +86,12 @@ func handleHostDeletion(ctx context.Context, c HostConfig, client *http.Client, 
 		_ = message.Respond([]byte("invalid"))
 		return true
 	}
+	unlock, err := hostFenceLock(c.CatalogPath)
+	if err != nil {
+		_ = message.Respond([]byte("unavailable"))
+		return true
+	}
+	defer unlock()
 	body, _ := json.Marshal(struct {
 		DeletionStop
 		MemberID string `json:"member_id"`
@@ -182,6 +188,12 @@ func handleHostPreparation(ctx context.Context, c HostConfig, client *http.Clien
 		_ = message.Respond([]byte("invalid"))
 		return true
 	}
+	unlock, err := hostFenceLock(c.CatalogPath)
+	if err != nil {
+		_ = message.Respond([]byte("unavailable"))
+		return true
+	}
+	defer unlock()
 	body, _ := json.Marshal(struct {
 		databaselifecycle.Identity
 		OperationID string `json:"operation_id"`

@@ -22,15 +22,17 @@ type ProjectDeletionRequest struct {
 }
 
 type ProjectDeletionTarget struct {
-	Identity databaselifecycle.Identity `json:"identity"`
+	Identity     databaselifecycle.Identity `json:"identity"`
+	PlannedHosts []ProjectAdmissionTarget   `json:"planned_hosts,omitempty"`
 }
 
 type ProjectDeletion struct {
-	Request     ProjectDeletionRequest  `json:"request"`
-	State       string                  `json:"state"`
-	Revision    uint64                  `json:"revision"`
-	RequestedAt time.Time               `json:"requested_at"`
-	Targets     []ProjectDeletionTarget `json:"targets"`
+	Request       ProjectDeletionRequest  `json:"request"`
+	State         string                  `json:"state"`
+	Revision      uint64                  `json:"revision"`
+	FenceRevision uint64                  `json:"fence_revision"`
+	RequestedAt   time.Time               `json:"requested_at"`
+	Targets       []ProjectDeletionTarget `json:"targets"`
 }
 
 func projectDeletionKey(r ProjectDeletionRequest) string {
@@ -40,6 +42,11 @@ func projectDeletionKey(r ProjectDeletionRequest) string {
 
 func projectScopeKey(r ProjectDeletionRequest) string {
 	b, _ := json.Marshal([]string{r.Environment, r.TenantID, r.ProjectID})
+	return string(b)
+}
+
+func projectFenceReceiptKey(project ProjectDeletion, target ProjectAdmissionTarget) string {
+	b, _ := json.Marshal([]string{project.Request.Environment, project.Request.TenantID, project.Request.ProjectID, project.Request.OperationID, target.Record.DatabaseID, target.ServerIdentity})
 	return string(b)
 }
 
@@ -63,7 +70,7 @@ func projectFence(state *journalState, r Request) string {
 
 func validateProjectDeletions(state journalState) error {
 	for key, deletion := range state.ProjectDeletions {
-		if key != projectDeletionKey(deletion.Request) || !validProjectDeletionRequest(deletion.Request) || deletion.Revision == 0 || deletion.RequestedAt.IsZero() || deletion.State != "accepted" {
+		if key != projectDeletionKey(deletion.Request) || !validProjectDeletionRequest(deletion.Request) || deletion.Revision == 0 || deletion.FenceRevision == 0 || deletion.RequestedAt.IsZero() || deletion.State != "accepted" {
 			return ErrInvalid
 		}
 		seen := map[string]bool{}
@@ -72,6 +79,19 @@ func validateProjectDeletions(state journalState) error {
 				return ErrInvalid
 			}
 			seen[target.Identity.DatabaseID] = true
+			seenHosts := map[string]bool{}
+			for _, host := range target.PlannedHosts {
+				if host.ServerIdentity == "" || seenHosts[host.ServerIdentity] || host.Record.DatabaseID != target.Identity.DatabaseID {
+					return ErrInvalid
+				}
+				seenHosts[host.ServerIdentity] = true
+			}
+			for i := 1; i < len(target.PlannedHosts); i++ {
+				previous, current := target.PlannedHosts[i-1], target.PlannedHosts[i]
+				if cmp.Compare(previous.ServerIdentity, current.ServerIdentity) > 0 || (previous.ServerIdentity == current.ServerIdentity && cmp.Compare(previous.Record.MemberID, current.Record.MemberID) > 0) {
+					return ErrInvalid
+				}
+			}
 		}
 		if state.ProjectFences[projectScopeKey(deletion.Request)] != deletion.Request.OperationID {
 			return ErrInvalid
@@ -136,12 +156,23 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 	// records in the same CAS so a pending row cannot be omitted by enumeration.
 	for _, record := range state.Records {
 		if record.Request.Environment == request.Environment && record.Request.TenantID == request.TenantID && record.Request.ProjectID == request.ProjectID && !seen[record.DatabaseID] {
-			targets = append(targets, ProjectDeletionTarget{Identity: admissionLifecycleEvent(record).Identity})
+			planned := make([]ProjectAdmissionTarget, 0, len(record.Targets))
+			for _, target := range record.Targets {
+				admission := Admission{Request: record.Request, CreatedAt: record.CreatedAt.UnixMilli(), DatabaseID: record.DatabaseID, KeyVersion: record.KeyVersion, Region: target.Region, MemberID: target.MemberID}
+				planned = append(planned, ProjectAdmissionTarget{ServerIdentity: target.ServerIdentity, Record: nativeRecord(admission)})
+			}
+			slices.SortFunc(planned, func(a, b ProjectAdmissionTarget) int {
+				if order := cmp.Compare(a.ServerIdentity, b.ServerIdentity); order != 0 {
+					return order
+				}
+				return cmp.Compare(a.Record.MemberID, b.Record.MemberID)
+			})
+			targets = append(targets, ProjectDeletionTarget{Identity: admissionLifecycleEvent(record).Identity, PlannedHosts: planned})
 			seen[record.DatabaseID] = true
 		}
 	}
 	slices.SortFunc(targets, func(a, b ProjectDeletionTarget) int { return cmp.Compare(a.Identity.DatabaseID, b.Identity.DatabaseID) })
-	deletion := ProjectDeletion{Request: request, State: "accepted", Revision: 1, RequestedAt: now.UTC(), Targets: targets}
+	deletion := ProjectDeletion{Request: request, State: "accepted", Revision: 1, FenceRevision: 1, RequestedAt: now.UTC(), Targets: targets}
 	state.ProjectDeletions[key] = deletion
 	state.ProjectFences[scope] = request.OperationID
 	if err := validateReservedCapacity(*state); err != nil {
@@ -173,6 +204,80 @@ func (j *NATSJournal) BeginProjectDeletion(ctx context.Context, request ProjectD
 		return err
 	})
 	return out, err
+}
+
+func (j *MemoryJournal) LoadProjectDeletion(ctx context.Context, key string) (ProjectDeletion, bool, error) {
+	state, err := j.snapshot(ctx)
+	if err != nil {
+		return ProjectDeletion{}, false, err
+	}
+	deletion, found := state.ProjectDeletions[key]
+	return deletion, found, nil
+}
+
+func (j *NATSJournal) LoadProjectDeletion(ctx context.Context, key string) (ProjectDeletion, bool, error) {
+	if j == nil || j.journal == nil {
+		return ProjectDeletion{}, false, ErrJournalUnavailable
+	}
+	var deletion ProjectDeletion
+	var found bool
+	err := j.journal.Transact(ctx, false, func(state *journalState) error { deletion, found = state.ProjectDeletions[key]; return nil })
+	return deletion, found, err
+}
+
+func persistProjectFenceReceipt(state *journalState, project ProjectDeletion, target ProjectAdmissionTarget, receipt HostFenceReceipt) error {
+	if state.ProjectFenceReceipts == nil {
+		state.ProjectFenceReceipts = map[string]HostFenceReceipt{}
+	}
+	if project.FenceRevision == 0 || receipt.ProjectFenceRevision != project.FenceRevision || receipt.DeletionOperationID != project.Request.OperationID || !sameNativeRecord(receipt.Record, target.Record) || (receipt.Outcome != "no_install" && receipt.Outcome != "stop_required") {
+		return ErrInvalid
+	}
+	key := projectFenceReceiptKey(project, target)
+	if old, found := state.ProjectFenceReceipts[key]; found {
+		if !sameHostFenceReceipt(old, receipt) {
+			return ErrConflict
+		}
+		return nil
+	}
+	state.ProjectFenceReceipts[key] = receipt
+	return nil
+}
+
+func sameHostFenceReceipt(a, b HostFenceReceipt) bool {
+	return sameNativeRecord(a.Record, b.Record) && a.DeletionOperationID == b.DeletionOperationID && a.ProjectFenceRevision == b.ProjectFenceRevision && a.Outcome == b.Outcome
+}
+
+func (j *MemoryJournal) RecordProjectFenceReceipt(ctx context.Context, project ProjectDeletion, target ProjectAdmissionTarget, receipt HostFenceReceipt) error {
+	return j.lifecycleTransact(ctx, func(state *journalState) error { return persistProjectFenceReceipt(state, project, target, receipt) })
+}
+
+func (j *MemoryJournal) LoadProjectFenceReceipt(ctx context.Context, project ProjectDeletion, target ProjectAdmissionTarget) (HostFenceReceipt, bool, error) {
+	state, err := j.snapshot(ctx)
+	if err != nil {
+		return HostFenceReceipt{}, false, err
+	}
+	receipt, found := state.ProjectFenceReceipts[projectFenceReceiptKey(project, target)]
+	return receipt, found, nil
+}
+
+func (j *NATSJournal) RecordProjectFenceReceipt(ctx context.Context, project ProjectDeletion, target ProjectAdmissionTarget, receipt HostFenceReceipt) error {
+	if j == nil || j.journal == nil {
+		return ErrJournalUnavailable
+	}
+	return j.journal.Transact(ctx, true, func(state *journalState) error { return persistProjectFenceReceipt(state, project, target, receipt) })
+}
+
+func (j *NATSJournal) LoadProjectFenceReceipt(ctx context.Context, project ProjectDeletion, target ProjectAdmissionTarget) (HostFenceReceipt, bool, error) {
+	if j == nil || j.journal == nil {
+		return HostFenceReceipt{}, false, ErrJournalUnavailable
+	}
+	var receipt HostFenceReceipt
+	var found bool
+	err := j.journal.Transact(ctx, false, func(state *journalState) error {
+		receipt, found = state.ProjectFenceReceipts[projectFenceReceiptKey(project, target)]
+		return nil
+	})
+	return receipt, found, err
 }
 
 var _ interface {

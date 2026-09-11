@@ -363,26 +363,36 @@ type Admission struct {
 	MemberID   string         `json:"member_id"`
 	BYOK       *BYOKReference `json:"byok,omitempty"`
 }
+
 // nativeAdmissionRecord exactly matches terrabase AdmissionRecord. BYOK is
 // deliberately excluded; provider metadata remains in the wrapped catalog.
-type nativeAdmissionRecord struct {
-	CreatedAt int64 `json:"created_at"`
-	Environment string `json:"environment"`
-	TenantID string `json:"tenant_id"`
-	ProjectID string `json:"project_id"`
-	DatabaseID string `json:"database_id"`
-	ParentDatabaseID string `json:"parent_database_id,omitempty"`
-	KeyVersion string `json:"key_version"`
-	Name string `json:"name"`
-	Regions []string `json:"regions"`
-	Residency string `json:"residency"`
-	OperationID string `json:"operation_id"`
-	Region string `json:"region"`
-	MemberID string `json:"member_id"`
+type NativeAdmissionRecord struct {
+	CreatedAt        int64    `json:"created_at"`
+	Environment      string   `json:"environment"`
+	TenantID         string   `json:"tenant_id"`
+	ProjectID        string   `json:"project_id"`
+	DatabaseID       string   `json:"database_id"`
+	ParentDatabaseID string   `json:"parent_database_id,omitempty"`
+	KeyVersion       string   `json:"key_version"`
+	Name             string   `json:"name"`
+	Regions          []string `json:"regions"`
+	Residency        string   `json:"residency"`
+	OperationID      string   `json:"operation_id"`
+	Region           string   `json:"region"`
+	MemberID         string   `json:"member_id"`
 }
-func nativeRecord(a Admission) nativeAdmissionRecord {
-	return nativeAdmissionRecord{CreatedAt:a.CreatedAt, Environment:a.Environment, TenantID:a.TenantID, ProjectID:a.ProjectID, DatabaseID:a.DatabaseID, ParentDatabaseID:a.ParentDatabaseID, KeyVersion:a.KeyVersion, Name:a.Name, Regions:a.Regions, Residency:a.Residency, OperationID:a.OperationID, Region:a.Region, MemberID:a.MemberID}
+type ProjectAdmissionTarget struct {
+	ServerIdentity string
+	Record         NativeAdmissionRecord
 }
+
+func nativeRecord(a Admission) NativeAdmissionRecord {
+	return NativeAdmissionRecord{CreatedAt: a.CreatedAt, Environment: a.Environment, TenantID: a.TenantID, ProjectID: a.ProjectID, DatabaseID: a.DatabaseID, ParentDatabaseID: a.ParentDatabaseID, KeyVersion: a.KeyVersion, Name: a.Name, Regions: a.Regions, Residency: a.Residency, OperationID: a.OperationID, Region: a.Region, MemberID: a.MemberID}
+}
+func sameNativeRecord(a, b NativeAdmissionRecord) bool {
+	return a.CreatedAt == b.CreatedAt && a.Environment == b.Environment && a.TenantID == b.TenantID && a.ProjectID == b.ProjectID && a.DatabaseID == b.DatabaseID && a.ParentDatabaseID == b.ParentDatabaseID && a.KeyVersion == b.KeyVersion && a.Name == b.Name && slices.Equal(a.Regions, b.Regions) && a.Residency == b.Residency && a.OperationID == b.OperationID && a.Region == b.Region && a.MemberID == b.MemberID
+}
+
 type installRequest struct {
 	Admission Admission        `json:"admission"`
 	Entries   []keylease.Entry `json:"entries"`
@@ -465,6 +475,9 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		}
 		opctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
+		if handleHostFence(opctx, c, client, message) {
+			return
+		}
 		if handleHostPreparation(opctx, c, client, message) {
 			return
 		}
@@ -482,6 +495,12 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 		}
 		installMu.Lock()
 		defer installMu.Unlock()
+		fenceUnlock, lockErr := hostFenceLock(c.CatalogPath)
+		if lockErr != nil {
+			_ = message.Respond([]byte("unavailable"))
+			return
+		}
+		defer fenceUnlock()
 		var request installRequest
 		if json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)) != nil || validateInstall(c, request) != nil {
 			_ = message.Respond([]byte("invalid"))
