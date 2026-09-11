@@ -49,11 +49,16 @@ func TestBeginProjectDeletionCapacityFailureIsAtomic(t *testing.T) {
 	// through the production transaction and reservation calculation.
 	for i := range 1000 {
 		r := ProjectDeletionRequest{Environment: record.Request.Environment, TenantID: record.Request.TenantID, ProjectID: fmt.Sprintf("%026d", i), OperationID: "pressure-operation", PolicyFingerprint: strings.Repeat("x", 512)}
-		_, err := j.BeginProjectDeletion(t.Context(), r, now)
-		if errors.Is(err, ErrJournalUnavailable) {
+		probe, err := j.snapshot(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		probe.ProjectDeletions[projectDeletionKey(r)] = ProjectDeletion{Request: r, State: "accepted", Revision: 1, RequestedAt: now, Targets: []ProjectDeletionTarget{}}
+		probe.ProjectFences[projectScopeKey(r)] = r.OperationID
+		if errors.Is(validateReservedCapacity(probe), ErrJournalUnavailable) {
 			break
 		}
-		if err != nil {
+		if _, err := j.BeginProjectDeletion(t.Context(), r, now); err != nil {
 			t.Fatal(err)
 		}
 		if i == 999 {
