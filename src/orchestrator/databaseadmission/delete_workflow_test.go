@@ -234,12 +234,15 @@ func TestCancelAutomaticDeletionRetractsPreEdgeAndAllowsRestart(t *testing.T) {
 	}
 
 	// Past the edge fence cancellation must refuse: the data is already gone.
+	current := restarted
 	for _, target := range restarted.Targets {
-		if _, err := recordDeletionPreparation(&s, r, DeletionPreparation{Identity: target.Stop.Identity, OperationID: r.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: at.Add(5 * time.Minute)}, at.Add(5*time.Minute)); err != nil {
+		var err error
+		current, err = recordDeletionPreparation(&s, r, DeletionPreparation{Identity: target.Stop.Identity, OperationID: r.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: at.Add(5 * time.Minute)}, at.Add(5*time.Minute))
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, target := range restarted.Targets {
+	for _, target := range current.Targets {
 		if _, err := recordDeletionStop(&s, r, DeletionReceipt{DeletionStop: target.Stop, AccessRevoked: true, UsageStopped: true}); err != nil {
 			t.Fatal(err)
 		}

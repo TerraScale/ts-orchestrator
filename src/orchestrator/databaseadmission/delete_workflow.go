@@ -185,6 +185,7 @@ func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDelete
 	}
 	return w.advance(ctx, d)
 }
+
 // CancelAutomatic retracts every automatic deletion of one database whose
 // billing grace was lifted before the irreversible edge. The reaper calls
 // this when a customer pays during the grace window; without it, Resume
