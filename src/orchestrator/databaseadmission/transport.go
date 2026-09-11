@@ -363,6 +363,26 @@ type Admission struct {
 	MemberID   string         `json:"member_id"`
 	BYOK       *BYOKReference `json:"byok,omitempty"`
 }
+// nativeAdmissionRecord exactly matches terrabase AdmissionRecord. BYOK is
+// deliberately excluded; provider metadata remains in the wrapped catalog.
+type nativeAdmissionRecord struct {
+	CreatedAt int64 `json:"created_at"`
+	Environment string `json:"environment"`
+	TenantID string `json:"tenant_id"`
+	ProjectID string `json:"project_id"`
+	DatabaseID string `json:"database_id"`
+	ParentDatabaseID string `json:"parent_database_id,omitempty"`
+	KeyVersion string `json:"key_version"`
+	Name string `json:"name"`
+	Regions []string `json:"regions"`
+	Residency string `json:"residency"`
+	OperationID string `json:"operation_id"`
+	Region string `json:"region"`
+	MemberID string `json:"member_id"`
+}
+func nativeRecord(a Admission) nativeAdmissionRecord {
+	return nativeAdmissionRecord{CreatedAt:a.CreatedAt, Environment:a.Environment, TenantID:a.TenantID, ProjectID:a.ProjectID, DatabaseID:a.DatabaseID, ParentDatabaseID:a.ParentDatabaseID, KeyVersion:a.KeyVersion, Name:a.Name, Regions:a.Regions, Residency:a.Residency, OperationID:a.OperationID, Region:a.Region, MemberID:a.MemberID}
+}
 type installRequest struct {
 	Admission Admission        `json:"admission"`
 	Entries   []keylease.Entry `json:"entries"`
@@ -467,6 +487,10 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 			_ = message.Respond([]byte("invalid"))
 			return
 		}
+		if hasLocalFence(c.CatalogPath, nativeRecord(request.Admission)) {
+			_ = message.Respond([]byte("unavailable"))
+			return
+		}
 		if keylease.MergeEntries(c.CatalogPath, request.Entries) != nil {
 			_ = message.Respond([]byte("unavailable"))
 			return
@@ -479,7 +503,7 @@ func StartHost(ctx context.Context, c HostConfig) (*Service, error) {
 			_ = message.Respond([]byte("unavailable"))
 			return
 		}
-		data, _ := json.Marshal(request.Admission)
+		data, _ := json.Marshal(nativeRecord(request.Admission))
 		req, err := http.NewRequestWithContext(opctx, http.MethodPost, "http://unix/internal/v1/databases/admit", bytes.NewReader(data))
 		if err != nil {
 			_ = message.Respond([]byte("unavailable"))
