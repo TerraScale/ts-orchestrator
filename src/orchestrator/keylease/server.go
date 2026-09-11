@@ -101,7 +101,7 @@ type Server struct {
 // key is requested; startup does not fetch or persist any plaintext keys.
 func Start(ctx context.Context, config Config) (*Server, error) { return start(ctx, config, unwrapOCI) }
 func start(ctx context.Context, config Config, unwrap UnwrapFunc) (*Server, error) {
-	if ctx == nil || unwrap == nil || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) || config.Customer != nil && config.Customer.Authority == nil {
+	if ctx == nil || unwrap == nil || ociRegion(config.Region) == "" || !validEnvironment(config.Environment) || config.Customer != nil && config.Customer.Authority == nil || config.WorkloadIdentity != nil && config.RenewalPolicy == nil {
 		return nil, ErrUnavailable
 	}
 	_, err := ReadCatalog(config.CatalogPath)

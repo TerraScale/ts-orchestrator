@@ -59,6 +59,17 @@ func workloadScopeFor(entry Entry, byok *BYOKMetadata) WorkloadIdentityScope {
 	return WorkloadIdentityScope{Environment: entry.Binding.Environment, TenantID: entry.Binding.TenantID, ProjectID: entry.Binding.ProjectID, DatabaseID: entry.Binding.DatabaseID, Role: byok.BackupRoleARN, Endpoint: byok.BackupEndpoint, Bucket: byok.BackupBucket, Region: byok.BackupRegion}
 }
 
+func TestStartRejectsWorkloadIdentityWithoutRenewalPolicy(t *testing.T) {
+	config, _ := fixture(t)
+	config.WorkloadIdentity = &countingIssuer{}
+	_, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {
+		return testDataKey(t, 1), nil
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("expected workload identity without renewal policy to be rejected, got %v", err)
+	}
+}
+
 // A fully provisioned database carries three purpose entries with identical
 // BYOK metadata; the workload grant is one logical grant, not an ambiguity.
 func TestWorkloadIdentityThreePurposeCatalogIssuesCredentials(t *testing.T) {
