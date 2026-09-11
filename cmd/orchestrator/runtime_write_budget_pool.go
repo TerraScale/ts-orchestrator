@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -24,7 +25,10 @@ func (r *runtimeWriteBudget) HandlePoolWork(ctx context.Context, subject string,
 		return reply, err
 	}
 	expected, err := databaseadmission.PoolSubject(target.ServerIdentity)
-	if err != nil || expected != subject || target.MemberID != q.HolderID || target.Region != q.Region || q.OrganizationID != r.policy.OrganizationID || q.Units < 0 || q.Units > 1024 || q.MaxPoolUnits > 1024 {
+	// Members persist and send the lowercase region form; the admitted target
+	// carries the uppercase form. Compare case-insensitively so pool work is
+	// judged on identity, not on which side of the transport minted it.
+	if err != nil || expected != subject || target.MemberID != q.HolderID || !strings.EqualFold(target.Region, q.Region) || q.OrganizationID != r.policy.OrganizationID || q.Units < 0 || q.Units > 1024 || q.MaxPoolUnits > 1024 {
 		return reply, writebudget.ErrInvalid
 	}
 	for _, fact := range work.Consumptions {

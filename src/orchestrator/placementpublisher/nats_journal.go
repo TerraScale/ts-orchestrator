@@ -99,7 +99,11 @@ func (journal *NATSJournal) Accept(ctx context.Context, record Record) error {
 		reserved := placementJournalState{Hosts: make(map[string]Record, len(state.Hosts))}
 		for host, item := range state.Hosts {
 			if len(item.Receipt) == 0 {
-				item.Receipt = make([]byte, len(item.Request)+64)
+				// The engine-supplied join challenge is bounded at 16 KiB on
+				// its own, independent of the request size; the reservation
+				// must cover that ceiling or a receipt can exceed the state
+				// cap and become permanently unacknowledgeable.
+				item.Receipt = make([]byte, len(item.Request)+16<<10+64)
 			}
 			reserved.Hosts[host] = item
 		}

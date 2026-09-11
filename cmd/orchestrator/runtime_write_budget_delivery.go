@@ -129,7 +129,7 @@ func (d *runtimeWriteBudgetDelivery) SendPoolRefill(ctx context.Context, signed 
 	if err != nil {
 		return err
 	}
-	if target.ServerIdentity == "" || target.MemberID != grant.HolderID || target.Region != grant.Region {
+	if target.ServerIdentity == "" || target.MemberID != grant.HolderID || !strings.EqualFold(target.Region, grant.Region) {
 		return errors.New("write budget pool delivery: holder is not the admitted writer")
 	}
 	subject, err := databaseadmission.HostSubject(target.ServerIdentity)

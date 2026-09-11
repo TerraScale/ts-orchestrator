@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"terrascale.tech/orchestrator/src/orchestrator/databaseadmission"
@@ -32,7 +33,11 @@ func productionBudgetTarget(database **productionDatabase) writeBudgetTargetReso
 
 func acceptedBudgetTarget(record databaseadmission.Record, resources []databaselifecycle.Resource, envelope writebudget.AllocationEnvelope) (databaseadmission.Target, error) {
 	grant := envelope.Grant
-	if databaseadmission.ValidateRecord(record) != nil || record.State != "ready" || record.DatabaseID != grant.DatabaseID || record.Request.TenantID != grant.OrganizationID || !slices.Equal(record.Request.Regions, grant.Regions) || grant.WriterEpoch == 0 || envelope.Placement == "" {
+	// Pool work arrives in the members' lowercase region form while the
+	// admitted record carries uppercase regions; the binding judges identity,
+	// not which transport side minted the casing.
+	regionsMatch := len(record.Request.Regions) == len(grant.Regions) && slices.EqualFunc(record.Request.Regions, grant.Regions, strings.EqualFold)
+	if databaseadmission.ValidateRecord(record) != nil || record.State != "ready" || record.DatabaseID != grant.DatabaseID || record.Request.TenantID != grant.OrganizationID || !regionsMatch || grant.WriterEpoch == 0 || envelope.Placement == "" {
 		return databaseadmission.Target{}, writebudget.ErrInvalid
 	}
 	var active *databaselifecycle.Resource

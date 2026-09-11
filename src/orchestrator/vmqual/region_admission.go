@@ -107,6 +107,14 @@ func (s *Stack) AdmitRegion(ctx context.Context, guests []Guest) error {
 		claim := filepath.Join(s.config.StateRoot, ".vmqual-runs", s.runID+".claims", guest.ID+".json")
 		planned = append(planned, journalVMFromResources(s.runID, guest, claim, resources))
 	}
+	// Every journaled obligation must have its claim on disk before the
+	// journal references it, or crash replay cannot validate the ownership
+	// graph and the whole run becomes uncleanable.
+	for _, resource := range planned {
+		if err := ensureExclusiveJSON(resource.ClaimPath, claimForResource(resource, s.journalCreatedAt())); err != nil {
+			return fmt.Errorf("vmqual: persist region admission claim: %w", err)
+		}
+	}
 	if err := s.updateJournal(func(j *Journal) error {
 		if len(j.VMs) != 6 {
 			return errors.New("vmqual: region admission journal already contains non-baseline resources")

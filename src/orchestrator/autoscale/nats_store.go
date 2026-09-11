@@ -29,6 +29,12 @@ func (s *NATSTargetStore) Load(ctx context.Context, region string) (Target, bool
 		result, found = (*state)[region]
 		return nil
 	})
+	// Read-only transactions still publish a barrier against the shared
+	// stream, so a concurrent writer's CAS can surface here as a conflict;
+	// callers must treat it as retryable exactly like the CAS path does.
+	if errors.Is(err, authorityjournal.ErrConflict) {
+		return Target{}, false, ErrConflict
+	}
 	return result, found, err
 }
 
