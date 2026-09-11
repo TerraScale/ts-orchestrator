@@ -1,6 +1,7 @@
 package databaseadmission
 
 import (
+	"encoding/base64"
 	"errors"
 	"sync"
 	"testing"
@@ -35,11 +36,27 @@ func journalWrapped(r Record) []keylease.Entry {
 	var entries []keylease.Entry
 	for _, purpose := range databaseKeyPurposes {
 		for _, p := range purposeTargets(r, purpose) {
-			entries = append(entries, keylease.Entry{Binding: p.Binding, Provider: p.Provider, KeyID: p.KeyID, KeyRegion: p.KeyRegion, KeyEndpoint: p.KeyEndpoint, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter, AdmissionOperationID: p.AdmissionOperationID, BYOK: p.BYOK})
+			ciphertext := "wrapped-" + purpose
+			if p.Provider == "aws-kms" {
+				ciphertext = base64.RawStdEncoding.EncodeToString([]byte(ciphertext))
+			}
+			entries = append(entries, keylease.Entry{Binding: p.Binding, Provider: p.Provider, KeyID: p.KeyID, KeyRegion: p.KeyRegion, KeyEndpoint: p.KeyEndpoint, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: ciphertext, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter, AdmissionOperationID: p.AdmissionOperationID, BYOK: p.BYOK})
 		}
 	}
 	return entries
 }
+
+func TestAWSWrappedCiphertextRejectsPlaintext(t *testing.T) {
+	entry := keylease.Entry{Provider: "aws-kms", Ciphertext: "customer-secret"}
+	if validWrappedCiphertext(entry) {
+		t.Fatal("plaintext AWS ciphertext accepted")
+	}
+	entry.Ciphertext = base64.RawStdEncoding.EncodeToString([]byte("wrapped"))
+	if !validWrappedCiphertext(entry) {
+		t.Fatal("valid AWS ciphertext rejected")
+	}
+}
+
 func TestJournalAtomicNameAndOperationOwnership(t *testing.T) {
 	journal := NewMemoryJournal()
 	record := journalFixture(t)

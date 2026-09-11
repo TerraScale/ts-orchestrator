@@ -1,6 +1,7 @@
 package databaseadmission
 
 import (
+	"encoding/base64"
 	"encoding/json/v2"
 	"math"
 	"reflect"
@@ -81,7 +82,7 @@ func validateProgress(record Record) error {
 	}
 	regions := map[string]bool{}
 	for _, entry := range record.Wrapped {
-		if regions[entry.Binding.Region+"/"+entry.Binding.Purpose] || len(entry.Ciphertext) == 0 || len(entry.Ciphertext) > 8192 || entry.Revoked {
+		if regions[entry.Binding.Region+"/"+entry.Binding.Purpose] || len(entry.Ciphertext) == 0 || len(entry.Ciphertext) > 8192 || entry.Revoked || !validWrappedCiphertext(entry) {
 			return ErrInvalid
 		}
 		regions[entry.Binding.Region+"/"+entry.Binding.Purpose] = true
@@ -149,6 +150,18 @@ func validateProgress(record Record) error {
 		}
 	}
 	return nil
+}
+
+// AWS KMS returns ciphertext blobs as strict base64. Enforce that wire shape
+// at the journal boundary so arbitrary plaintext cannot be persisted as a
+// customer-provider wrapped key. OCI Vault ciphertext remains provider-owned
+// and is validated by its adapter on use.
+func validWrappedCiphertext(entry keylease.Entry) bool {
+	if entry.Provider != "aws-kms" {
+		return true
+	}
+	blob, err := base64.RawStdEncoding.Strict().DecodeString(entry.Ciphertext)
+	return err == nil && len(blob) > 0 && len(blob) <= 8192
 }
 func stateRank(state string) int {
 	return slices.Index([]string{"accepted", "keys_provisioned", "members_admitted", "placement_pending", "ready"}, state)
