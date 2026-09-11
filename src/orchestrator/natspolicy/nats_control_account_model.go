@@ -240,12 +240,15 @@ func (natsControlAccountModel) CompletenessViolations() []string {
 						"The infrastructure account kind '"+kindName+"' grants '"+template+
 							"' outside the platform-reserved surface.")
 				}
-			} else if isPlatformPattern(materialized) {
+			} else if isPlatformPattern(materialized) && !isEphemeralReplyPattern(materialized) {
 				violations = append(violations,
 					"The account kind '"+kindName+"' grants the non-closed permission '"+template+"'.")
-			} else if ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(materialized); !ok || err != NatsSubjectPermissionErrorNone {
-				violations = append(violations,
-					"The account kind '"+kindName+"' grants the non-closed permission '"+template+"'.")
+			} else if !isEphemeralReplyPattern(materialized) {
+				ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(materialized)
+				if !ok || err != NatsSubjectPermissionErrorNone {
+					violations = append(violations,
+						"The account kind '"+kindName+"' grants the non-closed permission '"+template+"'.")
+				}
 			}
 
 			if grants.RegionScoped && !carriesRegion && carriesAgentHash {
@@ -368,4 +371,12 @@ func accountKindName(kind NatsControlAccountKind) string {
 func isPlatformPattern(pattern string) bool {
 	firstToken := strings.Split(pattern, ".")[0]
 	return isPlatformReservedRoot(firstToken)
+}
+
+// isEphemeralReplyPattern is the only platform-reserved subject a regional
+// journal writer needs: NATS request/reply responses use generated inboxes.
+// It carries no durable control data and cannot be used to subscribe to a
+// caller's requests.
+func isEphemeralReplyPattern(pattern string) bool {
+	return pattern == "_INBOX.>"
 }

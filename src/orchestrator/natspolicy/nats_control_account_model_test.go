@@ -99,6 +99,9 @@ func TestEveryStandingGrantIsAClosedPermissionOfItsOwnSurface(t *testing.T) {
 	for _, scope := range allTestScopes(t) {
 		patterns := append(append([]string{}, scope.Publish...), scope.Subscribe...)
 		for _, pattern := range patterns {
+			if pattern == "_INBOX.>" {
+				continue
+			}
 			if scope.Kind == NatsControlAccountKindInfrastructureAdministration {
 				if !strings.HasPrefix(pattern, "$") {
 					t.Fatalf("the infrastructure kind only ever touches platform-reserved surface: %q", pattern)
@@ -259,6 +262,23 @@ func TestHostAgentScopesUseTheFixedAgentHashNeverTheRawIdentity(t *testing.T) {
 
 	if !slices.Contains(controller.Subscribe, "ts.orch.v1.gru.agent."+token+".observation.>") {
 		t.Fatalf("controller subscribe grants = %v", controller.Subscribe)
+	}
+}
+
+func TestJournalWriterScopeIsRegionPinnedAndOnlyConsumesPrivateRPCs(t *testing.T) {
+	writer := mustScope(t, NatsControlAccountKindJournalWriter, "gru", "")
+	if !slices.Equal(writer.Publish, []string{"_INBOX.>"}) {
+		t.Fatalf("journal writer publish grants = %v", writer.Publish)
+	}
+	wanted := []string{
+		"ts.orch.v1.gru.command.journal.>",
+		"ts.orch.v1.gru.command.runtime-lifecycle.>",
+	}
+	if !slices.Equal(writer.Subscribe, wanted) {
+		t.Fatalf("journal writer subscribe grants = %v, want %v", writer.Subscribe, wanted)
+	}
+	if _, err := NatsControlAccountScopeCreate(NatsControlAccountKindJournalWriter, "sfo", "host/gru/agent-07"); err == nil {
+		t.Fatal("journal writer accepted an agent identity it cannot pin")
 	}
 }
 

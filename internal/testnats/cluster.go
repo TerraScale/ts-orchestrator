@@ -103,14 +103,6 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 		c.Roles[role.Name] = RoleIdentity{Key: roleKey, Public: rolePublic, Account: role.Account}
 		users = append(users, &natsserver.NkeyUser{Nkey: rolePublic, Account: account, Permissions: &natsserver.Permissions{Publish: &natsserver.SubjectPermission{Allow: role.Publish}, Subscribe: &natsserver.SubjectPermission{Allow: role.Subscribe}}})
 	}
-	for accountName, account := range accounts {
-		if accountName == "$SYS" {
-			continue
-		}
-		if err := account.EnableJetStream(nil, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
 	accountList := make([]*natsserver.Account, 0, len(accounts))
 	for _, account := range accounts {
 		accountList = append(accountList, account)
@@ -128,18 +120,7 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 		if !s.ReadyForConnections(5 * time.Second) {
 			t.Fatal("NATS start failed")
 		}
-		for accountName := range accounts {
-			if accountName == "$SYS" {
-				continue
-			}
-			account, err := s.LookupAccount(accountName)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := account.EnableJetStream(nil, nil); err != nil {
-				t.Fatal(err)
-			}
-		}
+		enableJetStreamAccounts(t, s, accountList)
 		o.Port = s.Addr().(*net.TCPAddr).Port
 		o.Cluster.Port = s.ClusterAddr().Port
 		if route == nil {
@@ -194,7 +175,24 @@ func (c *Cluster) Restart(t *testing.T) {
 		if !s.ReadyForConnections(5 * time.Second) {
 			t.Fatal("NATS restart failed")
 		}
+		enableJetStreamAccounts(t, s, o.Accounts)
 		c.Servers = append(c.Servers, s)
+	}
+}
+
+func enableJetStreamAccounts(t *testing.T, s *natsserver.Server, accounts []*natsserver.Account) {
+	t.Helper()
+	for _, configured := range accounts {
+		if configured.Name == "$SYS" {
+			continue
+		}
+		account, err := s.LookupAccount(configured.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := account.EnableJetStream(nil, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 func (c *Cluster) StopNodes(indices ...int) {

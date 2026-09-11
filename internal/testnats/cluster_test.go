@@ -72,6 +72,19 @@ func TestPermissionedRolesEnforcePublishSubscribeAndKVBoundaries(t *testing.T) {
 	assertPermissionViolation(t, denied)
 }
 
+func TestPermissionedAccountsKeepJetStreamAcrossRestart(t *testing.T) {
+	cluster := NewPermissioned(t, RoleConfig{Name: "owner", Account: "APP", Publish: []string{">"}, Subscribe: []string{">"}})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	OpenLeaseStore(t, ctx, cluster.Connect(t), true)
+	OpenLeaseStore(t, ctx, cluster.ConnectRole(t, "owner"), true)
+	cluster.Restart(t)
+
+	OpenLeaseStore(t, ctx, cluster.Connect(t), false)
+	OpenLeaseStore(t, ctx, cluster.ConnectRole(t, "owner"), false)
+}
+
 func assertPermissionViolation(t *testing.T, denied <-chan error) {
 	t.Helper()
 	select {
