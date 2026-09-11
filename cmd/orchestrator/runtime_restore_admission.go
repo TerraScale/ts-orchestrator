@@ -23,26 +23,23 @@ import (
 // points only; an envelope must be qualified as a complete composition before
 // it can enter the immutable admission journal.
 func productionRestoreAdmission(config productionDatabaseConfig, session globalWorkerSession, keyID string, key ed25519.PrivateKey, grants func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error), backup productionDatabaseBackupPort) *databaseadmission.RestoreConfig {
-	return &databaseadmission.RestoreConfig{Resolve: func(ctx context.Context, source databaseadmission.Record, selection databaseadmission.RestoreSelection) (databaseadmission.RestoreAdmissionFacts, error) {
-		if selection.Kind != "latest" && selection.Kind != "point_id" || selection.UnixMillis != 0 {
-			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: unsupported selection")
-		}
+	resolve := func(ctx context.Context, source databaseadmission.Record, selection databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error) {
 		assignment, host, err := (productionDatabaseBackupPort{config: config}).targetAssignment(source)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		client, err := newProductionTBEPClient(host, source)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		defer client.Close()
 		operation := restoreResolutionOperation(source, selection)
 		lease, err := session.guard.RefreshAuthority(ctx)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		if grants == nil || len(key) != ed25519.PrivateKeySize {
-			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: lifecycle grant authority unavailable")
+			return nil, errors.New("restore resolution: lifecycle grant authority unavailable")
 		}
 		now := time.UnixMilli(time.Now().UTC().UnixMilli())
 		leaseExpiry := lease.IssuedAt.Add(time.Duration(lease.DurationMilliseconds) * time.Millisecond)
@@ -58,16 +55,16 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 			IssuedAtUnixMillis: now.UnixMilli(), ExpiresAtUnixMillis: expires.UnixMilli(), AcceptedRestoreRequestDigest: "",
 		}, now, leaseExpiry, time.Second)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		assignment.AuthorityEpoch, assignment.AuthorityLease = uint64(lease.Epoch), lease.LeaseId
 		assignment.OperationGrant, err = json.Marshal(grant)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		journal, err := grants(operation)
 		if err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		if err := journal.Transact(ctx, true, func(r *lifecycleGrantRecord) error {
 			if r.Operation != "" && r.Operation != operation {
@@ -76,10 +73,29 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 			*r = lifecycleGrantRecord{Scope: assignment.Tenant + ":" + assignment.Project + ":" + assignment.Database, Action: "resolve_recovery_point", Operation: operation, Grant: assignment.OperationGrant}
 			return nil
 		}); err != nil {
-			return databaseadmission.RestoreAdmissionFacts{}, err
+			return nil, err
 		}
 		pointID := selection.PointID
-		response, err := client.ResolveRecoveryPoint(ctx, assignment, operation, selection.Kind, pointID, 0)
+		return client.ResolveRecoveryPoint(ctx, assignment, operation, selection.Kind, pointID, 0)
+	}
+	dispatch := func(ctx context.Context, target databaseadmission.Record, completed func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error {
+		port := backup
+		port.restoreCompleted = completed
+		request := restoredrill.RestoreRequest{SourceDatabaseID: target.Request.ParentDatabaseID, BranchID: target.DatabaseID, RecoveryPointID: target.RestoreFacts.PointID, ManifestDigest: target.RestoreFacts.RecoveryPointDigest, JournalCut: target.RestoreFacts.JournalCut, RestoreEpoch: target.RestoreFacts.Epoch, IdempotencyKey: target.Request.OperationID, RestoreProvider: target.RestoreFacts.Provider}
+		return port.Restore(ctx, request)
+	}
+	return newRestoreAdmission(config, resolve, dispatch)
+}
+
+// newRestoreAdmission binds authenticated native responses to the immutable admission.
+// The production wrapper supplies grant-backed TBEP resolution and restore dispatch.
+func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.Context, databaseadmission.Record, databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error), dispatch func(context.Context, databaseadmission.Record, func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error) *databaseadmission.RestoreConfig {
+	return &databaseadmission.RestoreConfig{Resolve: func(ctx context.Context, source databaseadmission.Record, selection databaseadmission.RestoreSelection) (databaseadmission.RestoreAdmissionFacts, error) {
+		if selection.Kind != "latest" && selection.Kind != "point_id" || selection.UnixMillis != 0 {
+			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: unsupported selection")
+		}
+		pointID := selection.PointID
+		response, err := resolve(ctx, source, selection)
 		if err != nil {
 			return databaseadmission.RestoreAdmissionFacts{}, err
 		}
@@ -102,8 +118,7 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 			return nil, errors.New("restore admission: resolved facts unavailable")
 		}
 		var acknowledgement []byte
-		port := backup
-		port.restoreCompleted = func(record databaseadmission.Record, response *pb.LifecycleControlResponse) error {
+		completed := func(record databaseadmission.Record, response *pb.LifecycleControlResponse) error {
 			if response == nil || len(response.GetSignedCompletedReceipt()) == 0 {
 				return errors.New("restore admission: native completed receipt unavailable")
 			}
@@ -112,7 +127,7 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 			if err != nil {
 				return errors.New("restore admission: invalid journal cut")
 			}
-			_, host, err := port.targetAssignment(record)
+			_, host, err := (productionDatabaseBackupPort{config: config}).targetAssignment(record)
 			if err != nil {
 				return err
 			}
@@ -138,8 +153,7 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 			acknowledgement, err = json.Marshal(value)
 			return err
 		}
-		request := restoredrill.RestoreRequest{SourceDatabaseID: target.Request.ParentDatabaseID, BranchID: target.DatabaseID, RecoveryPointID: target.RestoreFacts.PointID, ManifestDigest: target.RestoreFacts.RecoveryPointDigest, JournalCut: target.RestoreFacts.JournalCut, RestoreEpoch: target.RestoreFacts.Epoch, IdempotencyKey: target.Request.OperationID, RestoreProvider: target.RestoreFacts.Provider}
-		if err := port.Restore(ctx, request); err != nil {
+		if err := dispatch(ctx, target, completed); err != nil {
 			return nil, err
 		}
 		return acknowledgement, nil

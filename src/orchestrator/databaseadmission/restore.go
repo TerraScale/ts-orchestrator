@@ -135,6 +135,9 @@ func validateRestoreRecord(r Record) error {
 	if len(r.RestoreReceipt) > 32<<10 {
 		return ErrInvalid
 	}
+	if len(r.RestoreReceipt) > 0 && validateRestoreAcknowledgement(r, r.RestoreReceipt) != nil {
+		return ErrInvalid
+	}
 	request, facts := r.Restore, r.RestoreFacts
 	if ValidateRestoreRequest(*request) != nil || facts == nil || !validDigest(facts.PointID) || !validDigest(facts.SourceDigest) || !validDigest(facts.RecoveryPointDigest) || !validDigest(facts.Checksum) || facts.CapturedAtMillis == 0 || facts.Epoch == 0 || !validJournalCut(facts.JournalCut) || !validRestoreProvider(facts.Provider) {
 		return ErrInvalid
