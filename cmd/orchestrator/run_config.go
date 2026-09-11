@@ -33,6 +33,7 @@ var runConfigurationKeys = map[string]bool{
 	databaseHostFileEnvironment:                true,
 	keyLeaseSocketEnvironment:                  true, keyLeaseCatalogEnvironment: true, keyLeaseEnvironment: true, keyLeaseUIDEnvironment: true, keyLeaseGIDEnvironment: true,
 	"TS_ORCH_CELL": true, "TS_ORCH_INSTANCE": true, "TS_ORCH_NATS_URL": true, "TS_ORCH_REPLICAS": true,
+	grafanaMetricsEnvironment: true, grafanaLogsEnvironment: true, grafanaUsernameEnvironment: true, grafanaAPIKeyEnvironment: true,
 	"TS_ORCH_NATS_NKEY_FILE": true, "TS_ORCH_NATS_TLS_CA_FILE": true, "TS_ORCH_NATS_TLS_CERT_FILE": true, "TS_ORCH_NATS_TLS_KEY_FILE": true,
 	"TS_ORCH_GLOBAL_NATS_URL": true, "TS_ORCH_GLOBAL_NATS_NKEY_FILE": true, "TS_ORCH_GLOBAL_NATS_CREDENTIALS_FILE": true,
 	"TS_ORCH_GLOBAL_NATS_TLS_CA_FILE": true, "TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE": true, "TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE": true,
