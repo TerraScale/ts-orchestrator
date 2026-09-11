@@ -52,3 +52,10 @@ func TestBYOKWireRejectsCredentialFields(t *testing.T) {
 		})
 	}
 }
+
+func TestBYOKWireRejectsRetiredExternalID(t *testing.T) {
+	var request Request
+	if err := json.Unmarshal([]byte(`{"byok":{"backup_external_id":"external-id"}}`), &request, json.RejectUnknownMembers(true)); err == nil {
+		t.Fatal("retired external ID accepted on admission wire")
+	}
+}

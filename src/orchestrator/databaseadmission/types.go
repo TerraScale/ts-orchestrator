@@ -55,7 +55,6 @@ type BYOKReference struct {
 	BackupBucket           string `json:"backup_bucket"`
 	BackupRegion           string `json:"backup_region"`
 	BackupRoleARN          string `json:"backup_role_arn"`
-	BackupExternalID       string `json:"backup_external_id,omitempty"`
 	KeyProvider            string `json:"key_provider"`
 	KeyID                  string `json:"key_id"`
 	KeyRegion              string `json:"key_region"`
@@ -79,14 +78,15 @@ type RestoreRequest struct {
 	OperationID      string           `json:"operation_id"`
 }
 type RestoreAdmissionFacts struct {
-	SourceDigest     string `json:"source_digest"`
-	CapturedAtMillis uint64 `json:"captured_at_millis"`
-	Checksum         string `json:"checksum"`
-	RowCount         uint64 `json:"row_count"`
-	PointID          string `json:"point_id"`
-	Provider         string `json:"provider"`
-	JournalCut       string `json:"journal_cut"`
-	Epoch            uint64 `json:"epoch"`
+	SourceDigest        string `json:"source_digest"`
+	CapturedAtMillis    uint64 `json:"captured_at_millis"`
+	Checksum            string `json:"checksum"`
+	RecoveryPointDigest string `json:"recovery_point_digest"`
+	RowCount            uint64 `json:"row_count"`
+	PointID             string `json:"point_id"`
+	Provider            string `json:"provider"`
+	JournalCut          string `json:"journal_cut"`
+	Epoch               uint64 `json:"epoch"`
 }
 
 // RestoreAcknowledgement is the native restore authority's durable proof. It
@@ -235,7 +235,7 @@ func ValidateBYOKReference(b *BYOKReference) error {
 	if b.KeyProvider != "aws-kms" {
 		return ErrInvalid
 	}
-	if !validHTTPS(b.BackupEndpoint, 2048) || !environmentName.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environmentName.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !byokauthority.ValidKMSKeyARN(b.KeyID, b.KeyRegion) || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
+	if !validHTTPS(b.BackupEndpoint, 2048) || !environmentName.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environmentName.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !byokauthority.ValidKMSKeyARN(b.KeyID, b.KeyRegion) || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
 		return ErrInvalid
 	}
 	return nil
@@ -255,10 +255,6 @@ func ValidateRestoreRequest(r RestoreRequest) error {
 		}
 	} else if r.Selection.Kind == "point_id" {
 		if !validDigest(r.Selection.PointID) || r.Selection.UnixMillis != 0 {
-			return ErrInvalid
-		}
-	} else if r.Selection.Kind == "unix_millis" {
-		if r.Selection.UnixMillis < 0 || r.Selection.PointID != "" {
 			return ErrInvalid
 		}
 	} else {

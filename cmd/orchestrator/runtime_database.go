@@ -44,6 +44,7 @@ type productionDatabaseConfig struct {
 	ReadinessKeys                     map[string]databaseadmission.ReadinessKey
 	Inventory                         databaseInventoryFileConfig
 	BranchRestoreKeys                 map[string]databaseadmission.ReadinessKey
+	Restore                           *databaseadmission.RestoreConfig
 	Environment, Cluster, CatalogPath string
 	Regions                           []productionDatabaseRegion
 	Authorize                         func(context.Context, databaseadmission.Request) error
@@ -202,6 +203,7 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 			return nil
 		},
 		Journal: journal, CatalogPath: config.CatalogPath, CheckAuthority: session.CheckEffectAuthority,
+		Restore: config.Restore,
 		Authorize: func(ctx context.Context, r databaseadmission.Request) error {
 			if r.Environment != config.Environment {
 				return databaseadmission.ErrInvalid
@@ -457,7 +459,7 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 			vault.Binding = keylease.Binding{Environment: r.Request.Environment, TenantID: r.Request.TenantID, ProjectID: r.Request.ProjectID, DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: region.Region, Purpose: "data"}
 			vault.AdmissionOperationID = r.Request.OperationID
 			if r.BYOK != nil {
-				vault.BYOK = &keylease.BYOKMetadata{BackupEndpoint: r.BYOK.BackupEndpoint, BackupBucket: r.BYOK.BackupBucket, BackupRegion: r.BYOK.BackupRegion, BackupRoleARN: r.BYOK.BackupRoleARN, BackupExternalID: r.BYOK.BackupExternalID, KeyProvider: r.BYOK.KeyProvider, KeyID: r.BYOK.KeyID, KeyRegion: r.BYOK.KeyRegion, KeyEndpoint: r.BYOK.KeyEndpoint, ConfigurationUpdatedAt: r.BYOK.ConfigurationUpdatedAt}
+				vault.BYOK = &keylease.BYOKMetadata{BackupEndpoint: r.BYOK.BackupEndpoint, BackupBucket: r.BYOK.BackupBucket, BackupRegion: r.BYOK.BackupRegion, BackupRoleARN: r.BYOK.BackupRoleARN, KeyProvider: r.BYOK.KeyProvider, KeyID: r.BYOK.KeyID, KeyRegion: r.BYOK.KeyRegion, KeyEndpoint: r.BYOK.KeyEndpoint, ConfigurationUpdatedAt: r.BYOK.ConfigurationUpdatedAt}
 				vault.CryptoEndpoint = ""
 				vault.KEKID = ""
 				vault.KEKVersionID = ""

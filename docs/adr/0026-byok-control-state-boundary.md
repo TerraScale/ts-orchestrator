@@ -10,11 +10,16 @@ authority: ../../../GOAL.md
 The authenticated NATS admission journal is the durable restart and recovery
 record for customer-managed encryption, but it is not a secret store. It may
 contain only the validated provider reference (provider, canonical key ARN,
-matching region, optional HTTPS endpoint, and configuration revision) and the
+matching region, optional HTTPS key endpoint, backup endpoint/bucket/region,
+workload role, and configuration revision) and the
 wrapped database-DEK ciphertext bound to that admission. Provider credentials,
 workload tokens, imported or plaintext keys, unwrapped DEKs, and customer data
 must never be serialized into NATS subjects, JetStream KV, snapshots, or
 operator-visible logs.
+
+AWS web identity uses the workload token's subject, not an external ID.
+External IDs are rejected in admission and renewal requests, durable catalogs,
+and host configuration; no retired-field compatibility path is retained.
 
 NATS consumers must validate the complete provider tuple and admission
 operation before accepting a wrapped entry. A restart reconstructs a provider

@@ -140,7 +140,7 @@ func TestRenewalPolicyCheckerRejectsChangedScopeExpiryAndMalformedResponses(t *t
 	}
 }
 
-func TestRenewalPolicyCheckerS3OmitsEmptyExternalID(t *testing.T) {
+func TestRenewalPolicyCheckerS3HasNoExternalID(t *testing.T) {
 	request := renewalTestRequest()
 	request.Workload = &keylease.WorkloadIdentityScope{Environment: request.Binding.Environment, TenantID: request.Binding.TenantID, ProjectID: request.Binding.ProjectID, DatabaseID: request.Binding.DatabaseID, Role: "arn:aws:iam::123456789012:role/backup", Endpoint: "https://s3.example.test", Bucket: "backups", Region: "gru", PlacementRevision: "placement-1"}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +150,7 @@ func TestRenewalPolicyCheckerS3OmitsEmptyExternalID(t *testing.T) {
 		}
 		scope := body["s3"].(map[string]any)
 		if _, present := scope["external_id"]; present {
-			t.Fatal("empty external_id was emitted")
+			t.Fatal("retired external_id was emitted")
 		}
 		_, _ = io.WriteString(w, renewalReply(request, request.Binding.TenantID, request.Binding.ProjectID, request.Binding.DatabaseID, request.AdmissionOperationID, 20))
 	}))

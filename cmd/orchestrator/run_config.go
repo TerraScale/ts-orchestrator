@@ -47,7 +47,7 @@ var runConfigurationKeys = map[string]bool{
 	byokS3RoleEnvironment: true, byokS3TokenEnvironment: true, byokS3EndpointEnvironment: true,
 	byokS3BucketEnvironment: true, byokS3RegionEnvironment: true, byokS3RevisionEnvironment: true,
 	byokS3TenantEnvironment: true, byokS3ProjectEnvironment: true, byokS3DatabaseEnvironment: true,
-	byokS3ExternalIDEnvironment: true, byokRenewalEndpointEnvironment: true, byokRenewalKeyEnvironment: true,
+	byokRenewalEndpointEnvironment: true, byokRenewalKeyEnvironment: true,
 	natsServerConfigEnvironment: true, natsServerReadinessEnvironment: true,
 	providerEnvironment: true, ociEstateFileEnvironment: true, ociKeyIDEnvironment: true, ociPrivateKeyFileEnvironment: true,
 }

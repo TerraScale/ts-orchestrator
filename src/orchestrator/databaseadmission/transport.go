@@ -619,5 +619,5 @@ func sameBYOKReference(reference *BYOKReference, metadata *keylease.BYOKMetadata
 	if reference == nil || metadata == nil {
 		return reference == nil && metadata == nil
 	}
-	return reference.BackupEndpoint == metadata.BackupEndpoint && reference.BackupBucket == metadata.BackupBucket && reference.BackupRegion == metadata.BackupRegion && reference.BackupRoleARN == metadata.BackupRoleARN && reference.BackupExternalID == metadata.BackupExternalID && reference.KeyProvider == metadata.KeyProvider && reference.KeyID == metadata.KeyID && reference.KeyRegion == metadata.KeyRegion && reference.KeyEndpoint == metadata.KeyEndpoint && reference.ConfigurationUpdatedAt == metadata.ConfigurationUpdatedAt
+	return reference.BackupEndpoint == metadata.BackupEndpoint && reference.BackupBucket == metadata.BackupBucket && reference.BackupRegion == metadata.BackupRegion && reference.BackupRoleARN == metadata.BackupRoleARN && reference.KeyProvider == metadata.KeyProvider && reference.KeyID == metadata.KeyID && reference.KeyRegion == metadata.KeyRegion && reference.KeyEndpoint == metadata.KeyEndpoint && reference.ConfigurationUpdatedAt == metadata.ConfigurationUpdatedAt
 }

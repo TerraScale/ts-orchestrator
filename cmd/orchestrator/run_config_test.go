@@ -97,7 +97,6 @@ func TestRunConfigurationAcceptsBYOKRenewalReferences(t *testing.T) {
 		byokS3TenantEnvironment:        "tenant-1",
 		byokS3ProjectEnvironment:       "project-1",
 		byokS3DatabaseEnvironment:      "database-1",
-		byokS3ExternalIDEnvironment:    "external-1",
 		byokRenewalEndpointEnvironment: "https://dashboard.example.test/internal/byok/renewal-policy",
 		byokRenewalKeyEnvironment:      "renewal-service-key",
 	} {

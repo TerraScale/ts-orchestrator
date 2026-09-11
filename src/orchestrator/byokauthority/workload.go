@@ -17,7 +17,6 @@ type WorkloadScope struct {
 	ProjectID         string
 	DatabaseID        string
 	Role              string
-	ExternalID        *string
 	Endpoint          string
 	Bucket            string
 	Region            string
@@ -45,7 +44,7 @@ type WorkloadIssuer struct {
 }
 
 func NewWorkloadIssuer(ctx context.Context, config WorkloadConfig) (*WorkloadIssuer, error) {
-	if ctx == nil || !validWorkloadConfig(config) || config.Allowed.ExternalID != nil {
+	if ctx == nil || !validWorkloadConfig(config) {
 		return nil, ErrUnavailable
 	}
 	if _, err := readToken(config.OIDCTokenFile); err != nil {
@@ -69,14 +68,10 @@ func NewWorkloadIssuer(ctx context.Context, config WorkloadConfig) (*WorkloadIss
 }
 
 func (i *WorkloadIssuer) Issue(ctx context.Context, scope WorkloadScope) (WorkloadCredentials, error) {
-	if i == nil || ctx == nil || ctx.Err() != nil || !sameWorkloadScope(i.config.Allowed, scope) || i.issue == nil {
+	if i == nil || ctx == nil || ctx.Err() != nil || i.config.Allowed != scope || i.issue == nil {
 		return WorkloadCredentials{}, ErrUnavailable
 	}
 	return i.issue(ctx)
-}
-
-func sameWorkloadScope(a, b WorkloadScope) bool {
-	return a == b || a.Environment == b.Environment && a.TenantID == b.TenantID && a.ProjectID == b.ProjectID && a.DatabaseID == b.DatabaseID && a.Role == b.Role && a.Endpoint == b.Endpoint && a.Bucket == b.Bucket && a.Region == b.Region && a.PlacementRevision == b.PlacementRevision && (a.ExternalID == nil && b.ExternalID == nil || a.ExternalID != nil && b.ExternalID != nil && *a.ExternalID == *b.ExternalID)
 }
 
 func validWorkloadConfig(config WorkloadConfig) bool {

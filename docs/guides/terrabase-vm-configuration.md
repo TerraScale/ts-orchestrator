@@ -8,10 +8,13 @@ The GRU bootstrap path installs that configuration through the ordinary signed
 host manifest and ts-node. It does not admit engine membership or mark the
 guest ready.
 
-The declaration is optional while the integration is being built. Omitting it
-retains the known missing-configuration failure; the runner supplies no default
-database, key, placement, or development-mode configuration. A selected but
-invalid declaration fails service construction before guest creation.
+The declaration is required by the `smoke`, `stack`, and `test` qualification
+profiles. Omitting it is rejected during command preflight, before host
+resources are allocated. The `doctor`, `image`, and `clean` commands do not
+start guests and do not require this declaration. The runner supplies no
+default database, key, placement, or development-mode configuration. A
+selected but invalid declaration fails service construction before guest
+creation.
 
 ## Input contract
 

@@ -49,9 +49,6 @@ func (c renewalPolicyChecker) Check(ctx context.Context, request keylease.Renewa
 	}{environment, tenant, project, database, request.AdmissionOperationID, purpose, b, request.Binding.Purpose, request.Binding.Region, request.Binding.KeyVersion, nil}
 	if request.Workload != nil {
 		body.S3 = map[string]any{"endpoint": request.Workload.Endpoint, "bucket": request.Workload.Bucket, "region": request.Workload.Region, "role": request.Workload.Role, "placement_revision": request.Workload.PlacementRevision}
-		if request.Workload.ExternalID != nil && *request.Workload.ExternalID != "" {
-			body.S3.(map[string]any)["external_id"] = *request.Workload.ExternalID
-		}
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

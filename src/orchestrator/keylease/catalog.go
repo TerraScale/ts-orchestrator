@@ -58,7 +58,6 @@ type BYOKMetadata struct {
 	BackupBucket           string `json:"backup_bucket"`
 	BackupRegion           string `json:"backup_region"`
 	BackupRoleARN          string `json:"backup_role_arn"`
-	BackupExternalID       string `json:"backup_external_id,omitempty"`
 	KeyProvider            string `json:"key_provider"`
 	KeyID                  string `json:"key_id"`
 	KeyRegion              string `json:"key_region"`

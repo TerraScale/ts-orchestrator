@@ -199,6 +199,30 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 	return response, nil
 }
 
+// ResolveRecoveryPoint authenticates a scalar recovery point under the
+// admitted source placement. Envelope responses are returned to the caller so
+// the admission layer can fail closed until envelope composition is supported.
+func (c *Client) ResolveRecoveryPoint(ctx context.Context, a LifecycleAssignment, operation string, selectionKind, pointID string, unixMillis uint64) (*pb.ResolveRecoveryPointResponse, error) {
+	if !validMetadata(selectionKind, 32) || (selectionKind != "latest" && selectionKind != "point_id") || (selectionKind == "latest" && pointID != "") || (selectionKind == "point_id" && !validMetadata(pointID, 255)) || unixMillis != 0 {
+		return nil, errors.New("TBEP recovery point resolution request is incomplete")
+	}
+	r, err := c.lifecycleRequest(a, operation)
+	if err != nil {
+		return nil, err
+	}
+	request := &pb.ResolveRecoveryPointRequest{Context: r.Context, OperationId: operation, SelectionKind: selectionKind, PointId: pointID}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	response, err := c.lifecycle.ResolveRecoveryPoint(metadata.NewOutgoingContext(ctx, c.scope), request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.GetOperationId() != operation {
+		return nil, fmt.Errorf("TBEP recovery point resolution %q was not applied", operation)
+	}
+	return response, nil
+}
+
 func validRestoreProvider(provider pb.RestoreProvider) bool {
 	return provider == pb.RestoreProvider_RESTORE_PROVIDER_OCI || provider == pb.RestoreProvider_RESTORE_PROVIDER_TIGRIS || provider == pb.RestoreProvider_RESTORE_PROVIDER_CUSTOMER_S3
 }

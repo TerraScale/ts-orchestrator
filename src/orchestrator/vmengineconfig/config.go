@@ -99,15 +99,14 @@ type Database struct {
 // no credential fields; workload identity and key leases are delivered by the
 // orchestrator at runtime.
 type BYOKConfig struct {
-	BackupEndpoint   string `json:"backupEndpoint"`
-	BackupBucket     string `json:"backupBucket"`
-	BackupRegion     string `json:"backupRegion"`
-	BackupRoleARN    string `json:"backupRoleArn"`
-	BackupExternalID string `json:"backupExternalId,omitempty"`
-	KeyProvider      string `json:"keyProvider"`
-	KeyID            string `json:"keyId"`
-	KeyRegion        string `json:"keyRegion"`
-	KeyEndpoint      string `json:"keyEndpoint,omitempty"`
+	BackupEndpoint string `json:"backupEndpoint"`
+	BackupBucket   string `json:"backupBucket"`
+	BackupRegion   string `json:"backupRegion"`
+	BackupRoleARN  string `json:"backupRoleArn"`
+	KeyProvider    string `json:"keyProvider"`
+	KeyID          string `json:"keyId"`
+	KeyRegion      string `json:"keyRegion"`
+	KeyEndpoint    string `json:"keyEndpoint,omitempty"`
 }
 
 type BackupDestination struct {
@@ -453,7 +452,7 @@ func ValidateBYOKConfig(b *BYOKConfig) error {
 	if b.KeyProvider != "aws-kms" {
 		return errors.New("vmengineconfig: unsupported BYOK provider")
 	}
-	if !validHTTPS(b.BackupEndpoint, 2048) || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !byokauthority.ValidKMSKeyARN(b.KeyID, b.KeyRegion) || !environment.MatchString(b.KeyRegion) || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
+	if !validHTTPS(b.BackupEndpoint, 2048) || !environment.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environment.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !byokauthority.ValidKMSKeyARN(b.KeyID, b.KeyRegion) || !environment.MatchString(b.KeyRegion) || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
 		return errors.New("vmengineconfig: invalid BYOK provider reference")
 	}
 	return nil
@@ -489,9 +488,6 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		if db.BYOK != nil {
 			byok := db.BYOK
 			fmt.Fprintf(&b, "[databases.byok]\nbackup_endpoint = %q\nbackup_bucket = %q\nbackup_region = %q\nbackup_role_arn = %q\n", byok.BackupEndpoint, byok.BackupBucket, byok.BackupRegion, byok.BackupRoleARN)
-			if byok.BackupExternalID != "" {
-				fmt.Fprintf(&b, "backup_external_id = %q\n", byok.BackupExternalID)
-			}
 			fmt.Fprintf(&b, "key_provider = %q\nkey_id = %q\nkey_region = %q\n", byok.KeyProvider, byok.KeyID, byok.KeyRegion)
 			if byok.KeyEndpoint != "" {
 				fmt.Fprintf(&b, "key_endpoint = %q\n", byok.KeyEndpoint)

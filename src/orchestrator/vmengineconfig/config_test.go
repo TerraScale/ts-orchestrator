@@ -98,15 +98,14 @@ func TestDeclaredProductionConfigBindsIdentityArtifactAndTLS(t *testing.T) {
 
 func TestBYOKAdmissionAcceptsReferencesAndRejectsSecretLikeValues(t *testing.T) {
 	valid := &vmengineconfig.BYOKConfig{
-		BackupEndpoint:   "https://objects.example.test/customer",
-		BackupBucket:     "customer-backups",
-		BackupRegion:     "us-east-1",
-		BackupRoleARN:    "arn:aws:iam::123456789012:role/terrascale-backup",
-		BackupExternalID: "tenant-01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		KeyProvider:      "aws-kms",
-		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-		KeyRegion:        "us-east-1",
-		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
+		BackupEndpoint: "https://objects.example.test/customer",
+		BackupBucket:   "customer-backups",
+		BackupRegion:   "us-east-1",
+		BackupRoleARN:  "arn:aws:iam::123456789012:role/terrascale-backup",
+		KeyProvider:    "aws-kms",
+		KeyID:          "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+		KeyRegion:      "us-east-1",
+		KeyEndpoint:    "https://kms.us-east-1.amazonaws.com",
 	}
 	if err := vmengineconfig.ValidateBYOKConfig(valid); err != nil {
 		t.Fatal(err)
@@ -177,15 +176,14 @@ func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing
 func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 	d, path := testengineconfig.DatabaseOnlyDeclaration(t, bindings, strings.Repeat("a", 64), "1.0.0")
 	d.Databases[0].BYOK = &vmengineconfig.BYOKConfig{
-		BackupEndpoint:   "https://s3.customer.example",
-		BackupBucket:     "customer-backups",
-		BackupRegion:     "us-east-1",
-		BackupRoleARN:    "arn:aws:iam::123456789012:role/TerraScaleBackup",
-		BackupExternalID: "external-123",
-		KeyProvider:      "aws-kms",
-		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
-		KeyRegion:        "us-east-1",
-		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
+		BackupEndpoint: "https://s3.customer.example",
+		BackupBucket:   "customer-backups",
+		BackupRegion:   "us-east-1",
+		BackupRoleARN:  "arn:aws:iam::123456789012:role/TerraScaleBackup",
+		KeyProvider:    "aws-kms",
+		KeyID:          "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+		KeyRegion:      "us-east-1",
+		KeyEndpoint:    "https://kms.us-east-1.amazonaws.com",
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {
@@ -218,7 +216,6 @@ func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 		"[databases.byok]",
 		"backup_endpoint = \"https://s3.customer.example\"",
 		"backup_role_arn = \"arn:aws:iam::123456789012:role/TerraScaleBackup\"",
-		"backup_external_id = \"external-123\"",
 		"key_provider = \"aws-kms\"",
 		"key_id = \"arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012\"",
 	} {

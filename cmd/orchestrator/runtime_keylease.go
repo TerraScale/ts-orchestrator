@@ -34,7 +34,6 @@ const (
 	byokS3TenantEnvironment        = "TS_ORCH_BYOK_S3_TENANT_ID"
 	byokS3ProjectEnvironment       = "TS_ORCH_BYOK_S3_PROJECT_ID"
 	byokS3DatabaseEnvironment      = "TS_ORCH_BYOK_S3_DATABASE_ID"
-	byokS3ExternalIDEnvironment    = "TS_ORCH_BYOK_S3_EXTERNAL_ID"
 	byokRenewalEndpointEnvironment = "TS_ORCH_BYOK_RENEWAL_POLICY_URL"
 	byokRenewalKeyEnvironment      = "TS_ORCH_BYOK_RENEWAL_POLICY_KEY"
 )
@@ -42,7 +41,7 @@ const (
 type workloadIssuerAdapter struct{ issuer *byokauthority.WorkloadIssuer }
 
 func (a workloadIssuerAdapter) Issue(ctx context.Context, scope keylease.WorkloadIdentityScope) (keylease.WorkloadIdentityCredentials, error) {
-	value, err := a.issuer.Issue(ctx, byokauthority.WorkloadScope{Environment: scope.Environment, TenantID: scope.TenantID, ProjectID: scope.ProjectID, DatabaseID: scope.DatabaseID, Role: scope.Role, ExternalID: scope.ExternalID, Endpoint: scope.Endpoint, Bucket: scope.Bucket, Region: scope.Region, PlacementRevision: scope.PlacementRevision})
+	value, err := a.issuer.Issue(ctx, byokauthority.WorkloadScope{Environment: scope.Environment, TenantID: scope.TenantID, ProjectID: scope.ProjectID, DatabaseID: scope.DatabaseID, Role: scope.Role, Endpoint: scope.Endpoint, Bucket: scope.Bucket, Region: scope.Region, PlacementRevision: scope.PlacementRevision})
 	if err != nil {
 		return keylease.WorkloadIdentityCredentials{}, err
 	}
@@ -142,8 +141,7 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	s3Tenant, _ := lookup(byokS3TenantEnvironment)
 	s3Project, _ := lookup(byokS3ProjectEnvironment)
 	s3Database, _ := lookup(byokS3DatabaseEnvironment)
-	s3ExternalID, _ := lookup(byokS3ExternalIDEnvironment)
-	s3Configured := s3Role != "" || s3Token != "" || s3Endpoint != "" || s3Bucket != "" || s3Region != "" || s3Revision != "" || s3Tenant != "" || s3Project != "" || s3Database != "" || s3ExternalID != ""
+	s3Configured := s3Role != "" || s3Token != "" || s3Endpoint != "" || s3Bucket != "" || s3Region != "" || s3Revision != "" || s3Tenant != "" || s3Project != "" || s3Database != ""
 	if role != "" || token != "" || keyID != "" || keyRegion != "" || endpoint != "" || provider != "" {
 		if !s3Configured {
 			return nil, errors.New("orchestrator: customer BYOK requires explicit S3 workload identity configuration")
@@ -153,11 +151,7 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 		if s3Role == "" || s3Token == "" || s3Endpoint == "" || s3Bucket == "" || s3Region == "" || s3Revision == "" || s3Tenant == "" || s3Project == "" || s3Database == "" || !validKeyAuthorityEndpoint(s3Endpoint) {
 			return nil, errors.New("orchestrator: customer S3 workload identity requires explicit scope")
 		}
-		var externalID *string
-		if s3ExternalID != "" {
-			externalID = &s3ExternalID
-		}
-		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, ExternalID: externalID, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
+		issuer, issuerErr := byokauthority.NewWorkloadIssuer(ctx, byokauthority.WorkloadConfig{Region: s3Region, RoleARN: s3Role, OIDCTokenFile: s3Token, SessionName: "terrascale-s3-workload", Allowed: byokauthority.WorkloadScope{Environment: environment, TenantID: s3Tenant, ProjectID: s3Project, DatabaseID: s3Database, Role: s3Role, Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, PlacementRevision: s3Revision}})
 		if issuerErr != nil {
 			return nil, errors.New("orchestrator: customer S3 workload issuer unavailable")
 		}

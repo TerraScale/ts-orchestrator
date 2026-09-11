@@ -19,14 +19,6 @@ func TestWorkloadIssuerBindsCompleteScope(t *testing.T) {
 	}
 }
 
-func TestWorkloadIssuerRejectsExternalID(t *testing.T) {
-	external := "external"
-	scope := WorkloadScope{Environment: "production", TenantID: "tenant", ProjectID: "project", DatabaseID: "database", Role: "arn:aws:iam::123456789012:role/customer", Endpoint: "https://s3.example.test", Bucket: "backups", Region: "us-east-1", PlacementRevision: "revision", ExternalID: &external}
-	if _, err := NewWorkloadIssuer(t.Context(), WorkloadConfig{Region: scope.Region, RoleARN: scope.Role, OIDCTokenFile: "/tmp/missing", SessionName: "session", Allowed: scope}); err == nil {
-		t.Fatal("external ID configuration accepted")
-	}
-}
-
 func TestWorkloadIssuerRejectsNonHTTPSAuthorityEndpoint(t *testing.T) {
 	scope := WorkloadScope{Environment: "production", TenantID: "tenant", ProjectID: "project", DatabaseID: "database", Role: "arn:aws:iam::123456789012:role/customer", Endpoint: "http://s3.example.test", Bucket: "backups", Region: "us-east-1", PlacementRevision: "revision"}
 	if _, err := NewWorkloadIssuer(t.Context(), WorkloadConfig{Region: scope.Region, RoleARN: scope.Role, OIDCTokenFile: "/tmp/missing", SessionName: "session", Allowed: scope}); err == nil {

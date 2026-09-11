@@ -42,7 +42,7 @@ func TestRunAcceptsExistingDeclarationInputBeforeCommandDispatch(t *testing.T) {
 }
 
 func TestRunRequiresTerraBaseDeclarationForReadinessProfiles(t *testing.T) {
-	for _, command := range []string{"stack", "test"} {
+	for _, command := range []string{"smoke", "stack", "test"} {
 		t.Run(command, func(t *testing.T) {
 			unsetTestEnvironment(t, "TS_VM_TERRABASE_DECLARATION_FILE", "TS_VM_JAILER_UID", "TS_VM_JAILER_GID", "SUDO_UID", "SUDO_GID")
 			err := run(context.Background(), []string{command}, &bytes.Buffer{}, &bytes.Buffer{})

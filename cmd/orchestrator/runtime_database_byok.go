@@ -99,7 +99,7 @@ func validConfigurationUpdatedAt(value string) bool {
 }
 
 func sameBYOK(left, right *databaseadmission.BYOKReference) bool {
-	return left != nil && right != nil && left.BackupEndpoint == right.BackupEndpoint && left.BackupBucket == right.BackupBucket && left.BackupRegion == right.BackupRegion && left.BackupRoleARN == right.BackupRoleARN && left.BackupExternalID == right.BackupExternalID && left.KeyProvider == right.KeyProvider && left.KeyID == right.KeyID && left.KeyRegion == right.KeyRegion && left.KeyEndpoint == right.KeyEndpoint
+	return left != nil && right != nil && left.BackupEndpoint == right.BackupEndpoint && left.BackupBucket == right.BackupBucket && left.BackupRegion == right.BackupRegion && left.BackupRoleARN == right.BackupRoleARN && left.KeyProvider == right.KeyProvider && left.KeyID == right.KeyID && left.KeyRegion == right.KeyRegion && left.KeyEndpoint == right.KeyEndpoint
 }
 
 // validateBYOKPolicyEndpoint is kept separate for tests and to make the

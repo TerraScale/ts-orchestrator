@@ -63,16 +63,15 @@ type CustomerConfig struct {
 }
 
 type WorkloadIdentityScope struct {
-	Environment       string  `json:"environment"`
-	TenantID          string  `json:"tenant_id"`
-	ProjectID         string  `json:"project_id"`
-	DatabaseID        string  `json:"database_id"`
-	Role              string  `json:"role"`
-	ExternalID        *string `json:"external_id,omitempty"`
-	Endpoint          string  `json:"endpoint"`
-	Bucket            string  `json:"bucket"`
-	Region            string  `json:"region"`
-	PlacementRevision string  `json:"placement_revision"`
+	Environment       string `json:"environment"`
+	TenantID          string `json:"tenant_id"`
+	ProjectID         string `json:"project_id"`
+	DatabaseID        string `json:"database_id"`
+	Role              string `json:"role"`
+	Endpoint          string `json:"endpoint"`
+	Bucket            string `json:"bucket"`
+	Region            string `json:"region"`
+	PlacementRevision string `json:"placement_revision"`
 }
 
 type WorkloadIdentityCredentials struct {
@@ -351,7 +350,7 @@ func matchWorkloadEntry(catalog Catalog, scope *WorkloadIdentityScope) *Entry {
 	var matched *Entry
 	for i := range catalog.Entries {
 		entry := &catalog.Entries[i]
-		if entry.BYOK == nil || entry.Binding.Environment != scope.Environment || entry.Binding.TenantID != scope.TenantID || entry.Binding.ProjectID != scope.ProjectID || entry.Binding.DatabaseID != scope.DatabaseID || entry.BYOK.BackupEndpoint != scope.Endpoint || entry.BYOK.BackupBucket != scope.Bucket || entry.BYOK.BackupRegion != scope.Region || entry.BYOK.BackupRoleARN != scope.Role || entry.BYOK.BackupExternalID != valueOrEmpty(scope.ExternalID) {
+		if entry.BYOK == nil || entry.Binding.Environment != scope.Environment || entry.Binding.TenantID != scope.TenantID || entry.Binding.ProjectID != scope.ProjectID || entry.Binding.DatabaseID != scope.DatabaseID || entry.BYOK.BackupEndpoint != scope.Endpoint || entry.BYOK.BackupBucket != scope.Bucket || entry.BYOK.BackupRegion != scope.Region || entry.BYOK.BackupRoleARN != scope.Role {
 			continue
 		}
 		if entry.Revoked {
@@ -369,12 +368,6 @@ func matchWorkloadEntry(catalog Catalog, scope *WorkloadIdentityScope) *Entry {
 
 func sameBYOKMetadata(a, b *BYOKMetadata) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
-}
-func valueOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 func clearCredentials(credentials *WorkloadIdentityCredentials) {
 	credentials.AccessKey = ""

@@ -1,7 +1,9 @@
 package keylease
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -9,6 +11,22 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 )
+
+func TestWorkloadWireRejectsRetiredExternalID(t *testing.T) {
+	for _, scope := range []string{`{"role":"customer"}`, `{"role":"customer","external_id":"external-id"}`} {
+		body := []byte(`{"version":1,"scope":` + scope + `}`)
+		frame := binary.BigEndian.AppendUint32(nil, uint32(len(body)))
+		frame = append(frame, body...)
+		_, _, _, err := readRequest(bytes.NewReader(frame))
+		if bytes.Contains(body, []byte("external_id")) {
+			if err == nil {
+				t.Fatal("retired external ID accepted on workload wire")
+			}
+		} else if err != nil {
+			t.Fatalf("current workload wire rejected: %v", err)
+		}
+	}
+}
 
 type allowGate struct{ calls atomic.Int32 }
 

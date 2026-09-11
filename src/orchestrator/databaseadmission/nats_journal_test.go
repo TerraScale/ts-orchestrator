@@ -191,7 +191,6 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 		BackupBucket:           "customer-backups",
 		BackupRegion:           "us-east-1",
 		BackupRoleARN:          "arn:aws:iam::123456789012:role/TerraScaleBackup",
-		BackupExternalID:       "external-123",
 		KeyProvider:            "aws-kms",
 		KeyID:                  "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		KeyRegion:              "us-east-1",
@@ -209,7 +208,7 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 		record.Targets[i].Provision.KEKID = ""
 		record.Targets[i].Provision.KEKVersionID = ""
 		record.Targets[i].Provision.AdmissionOperationID = record.Request.OperationID
-		record.Targets[i].Provision.BYOK = &keylease.BYOKMetadata{BackupEndpoint: byok.BackupEndpoint, BackupBucket: byok.BackupBucket, BackupRegion: byok.BackupRegion, BackupRoleARN: byok.BackupRoleARN, BackupExternalID: byok.BackupExternalID, KeyProvider: byok.KeyProvider, KeyID: byok.KeyID, KeyRegion: byok.KeyRegion, KeyEndpoint: byok.KeyEndpoint, ConfigurationUpdatedAt: byok.ConfigurationUpdatedAt}
+		record.Targets[i].Provision.BYOK = &keylease.BYOKMetadata{BackupEndpoint: byok.BackupEndpoint, BackupBucket: byok.BackupBucket, BackupRegion: byok.BackupRegion, BackupRoleARN: byok.BackupRoleARN, KeyProvider: byok.KeyProvider, KeyID: byok.KeyID, KeyRegion: byok.KeyRegion, KeyEndpoint: byok.KeyEndpoint, ConfigurationUpdatedAt: byok.ConfigurationUpdatedAt}
 	}
 	for i := range record.Targets {
 		record.Targets[i].BYOK = byok
@@ -233,7 +232,7 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	if err != nil || response == nil || json.Unmarshal(response.Data, &stored) != nil || len(stored.Message.Data) == 0 {
 		t.Fatalf("read stored admission wire shape: %v", err)
 	}
-	for _, forbidden := range []string{"access_key", "accessKey", "secret_key", "secretKey", "session_token", "sessionToken", "workload_token", "workloadToken", "plaintext_key", "plaintextKey", "unwrapped_dek", "unwrappedDek"} {
+	for _, forbidden := range []string{"access_key", "accessKey", "secret_key", "secretKey", "session_token", "sessionToken", "workload_token", "workloadToken", "plaintext_key", "plaintextKey", "unwrapped_dek", "unwrappedDek", "backup_external_id"} {
 		if bytes.Contains(stored.Message.Data, []byte(forbidden)) {
 			t.Fatalf("NATS admission contains forbidden secret field %q", forbidden)
 		}

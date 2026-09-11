@@ -66,6 +66,7 @@ var lifecycleActions = map[string]struct{}{
 	"reactivate":                {},
 	"delete_owned_data":         {},
 	"restore_to_target":         {},
+	"resolve_recovery_point":    {},
 }
 
 // issueLifecycleOperationGrant runs the fresh authority check before signing

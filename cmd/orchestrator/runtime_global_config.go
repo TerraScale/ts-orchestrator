@@ -183,7 +183,9 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 		h := sha256.Sum256([]byte(op))
 		return authorityjournal.New(authorityjournal.Config{Connection: session.Connection, CandidateID: session.Lease.CandidateId, AuthorityEpoch: uint64(session.Lease.Epoch), LeaseID: session.Lease.LeaseId, StateKey: "restore-grant-" + hex.EncodeToString(h[:])}, func() lifecycleGrantRecord { return lifecycleGrantRecord{} }, func(lifecycleGrantRecord) error { return nil })
 	}}
-	config.Restore.Branches = newProductionDatabaseBranchPort(&databaseRef, config.Database, config.Restore.Backup.(productionDatabaseBackupPort))
+	backupPort := config.Restore.Backup.(productionDatabaseBackupPort)
+	config.Database.Restore = productionRestoreAdmission(config.Database, session, input.Transition.Issuer.ProofKeyID, slices.Clone(input.Transition.Issuer.ProofKey), backupPort.grantJournal)
+	config.Restore.Branches = newProductionDatabaseBranchPort(&databaseRef, config.Database, backupPort)
 	config.AuthBootstrap = input.Auth
 	config.PlacementTransition = input.Transition
 	config.EstateClient = estateClient

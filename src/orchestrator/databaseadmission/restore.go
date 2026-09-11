@@ -136,13 +136,13 @@ func validateRestoreRecord(r Record) error {
 		return ErrInvalid
 	}
 	request, facts := r.Restore, r.RestoreFacts
-	if ValidateRestoreRequest(*request) != nil || facts == nil || !validDigest(facts.PointID) || !validDigest(facts.SourceDigest) || !validDigest(facts.Checksum) || facts.CapturedAtMillis == 0 || facts.Epoch == 0 || !validJournalCut(facts.JournalCut) || !validRestoreProvider(facts.Provider) {
+	if ValidateRestoreRequest(*request) != nil || facts == nil || !validDigest(facts.PointID) || !validDigest(facts.SourceDigest) || !validDigest(facts.RecoveryPointDigest) || !validDigest(facts.Checksum) || facts.CapturedAtMillis == 0 || facts.Epoch == 0 || !validJournalCut(facts.JournalCut) || !validRestoreProvider(facts.Provider) {
 		return ErrInvalid
 	}
 	if request.Environment != r.Request.Environment || request.TenantID != r.Request.TenantID || request.ProjectID != r.Request.ProjectID || request.Name != r.Request.Name || request.OperationID != r.Request.OperationID || request.SourceDatabaseID != r.Request.ParentDatabaseID || facts.PointID != r.Request.RecoveryPointID || facts.JournalCut != r.Request.JournalCut || facts.Provider != r.Request.RestoreProvider || facts.Epoch != r.Request.RestoreEpoch {
 		return ErrInvalid
 	}
-	if request.Selection.Kind == "point_id" && request.Selection.PointID != facts.PointID || request.Selection.Kind == "unix_millis" && facts.CapturedAtMillis > uint64(request.Selection.UnixMillis) {
+	if request.Selection.Kind == "point_id" && request.Selection.PointID != facts.PointID {
 		return ErrInvalid
 	}
 	return nil
