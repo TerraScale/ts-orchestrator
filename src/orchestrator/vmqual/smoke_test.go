@@ -115,6 +115,14 @@ type smokeCommandCall struct {
 	args []string
 }
 
+type smokeGuestCommandError struct{ status int }
+
+func (err *smokeGuestCommandError) Error() string {
+	return fmt.Sprintf("guest command exited %d", err.status)
+}
+
+func (err *smokeGuestCommandError) ExitStatus() int { return err.status }
+
 type smokeFakeVM struct {
 	mu sync.Mutex
 
@@ -128,31 +136,32 @@ type smokeFakeVM struct {
 	commands   []smokeCommandCall
 	persistent []byte
 
-	startErr       error
-	stopErr        error
-	stopErrAt      int
-	deleteErr      error
-	inspectErr     error
-	executeErr     error
-	writeErr       error
-	readErr        error
-	diskErr        error
-	verifyErr      error
-	wrongPID1      bool
-	wrongState     bool
-	wrongCgroup    bool
-	wrongMount     bool
-	wrongNetwork   bool
-	unroutable     bool
-	noIPv4         bool
-	corruptRead    bool
-	oversizeOutput bool
-	splitOversize  bool
-	rssBytes       uint64
-	idleCPU        float64
-	diskBytes      uint64
-	cleanupDelay   time.Duration
-	cleanupCtxErr  error
+	startErr            error
+	stopErr             error
+	stopErrAt           int
+	deleteErr           error
+	inspectErr          error
+	executeErr          error
+	writeErr            error
+	readErr             error
+	diskErr             error
+	verifyErr           error
+	wrongPID1           bool
+	wrongState          bool
+	systemStateExitCode int
+	wrongCgroup         bool
+	wrongMount          bool
+	wrongNetwork        bool
+	unroutable          bool
+	noIPv4              bool
+	corruptRead         bool
+	oversizeOutput      bool
+	splitOversize       bool
+	rssBytes            uint64
+	idleCPU             float64
+	diskBytes           uint64
+	cleanupDelay        time.Duration
+	cleanupCtxErr       error
 }
 
 func (vm *smokeFakeVM) StartReady(ctx context.Context) error {
@@ -227,6 +236,9 @@ func (vm *smokeFakeVM) Execute(_ context.Context, command sandboxvm.Command) err
 		if vm.wrongState {
 			output = "stopping\n"
 		}
+		if vm.systemStateExitCode == 1 {
+			output = "degraded\n"
+		}
 	case "/usr/bin/stat":
 		output = "cgroup2fs\n"
 		if vm.wrongCgroup {
@@ -262,6 +274,9 @@ func (vm *smokeFakeVM) Execute(_ context.Context, command sandboxvm.Command) err
 	}
 	if command.Stdout != nil {
 		_, _ = io.WriteString(command.Stdout, output)
+	}
+	if command.Path == "/usr/bin/systemctl" && vm.systemStateExitCode != 0 {
+		return &smokeGuestCommandError{status: vm.systemStateExitCode}
 	}
 	return nil
 }
@@ -408,6 +423,14 @@ func TestRunSmokeRejectsFalseGuestEvidenceAndStillCleans(t *testing.T) {
 				t.Fatalf("resources remain after failed assertion: %v", cleanupErr)
 			}
 		})
+	}
+}
+
+func TestProveGuestRuntimeAcceptsDegradedSystemdExitStatus(t *testing.T) {
+	vm := &smokeFakeVM{systemStateExitCode: 1}
+	// A degraded systemd state is reported on stdout by systemctl and exits 1.
+	if err := proveGuestRuntime(context.Background(), vm); err != nil {
+		t.Fatalf("proveGuestRuntime() error = %v", err)
 	}
 }
 

@@ -332,7 +332,7 @@ func proveGuestRuntime(ctx context.Context, executor guestExecutor) error {
 	if !filepath.IsAbs(pid1Path) || filepath.Base(pid1Path) != "systemd" {
 		return fmt.Errorf("PID 1 is %q, not systemd", pid1Path)
 	}
-	state, _, err := executeGuest(ctx, executor, "/usr/bin/systemctl", "is-system-running", "--wait")
+	state, _, exitCode, err := executeGuestWithExitStatus(ctx, executor, true, "/usr/bin/systemctl", "is-system-running", "--wait")
 	if err != nil {
 		return fmt.Errorf("systemd is not running: %w", err)
 	}
@@ -341,8 +341,12 @@ func proveGuestRuntime(ctx context.Context, executor guestExecutor) error {
 	// activation, and its auto-restart cycle marks the overall state
 	// degraded while systemd itself is fully running. Unit-level health is
 	// proven separately by the activation gates and startup diagnostics.
-	if systemState := strings.TrimSpace(string(state)); systemState != "running" && systemState != "degraded" {
+	systemState := strings.TrimSpace(string(state))
+	if systemState != "running" && systemState != "degraded" {
 		return fmt.Errorf("systemd is not running: state is %q", systemState)
+	}
+	if (exitCode == 0 && systemState != "running") || (exitCode == 1 && systemState != "degraded") {
+		return fmt.Errorf("systemd state %q does not match exit code %d", systemState, exitCode)
 	}
 	cgroup, _, err := executeGuest(ctx, executor, "/usr/bin/stat", "-fc", "%T", "/sys/fs/cgroup")
 	if err != nil {
@@ -449,21 +453,41 @@ func VerifyGuestCleanup(ctx context.Context, vm VM) error {
 }
 
 func executeGuest(ctx context.Context, executor guestExecutor, path string, args ...string) ([]byte, []byte, error) {
+	stdout, stderr, _, err := executeGuestWithExitStatus(ctx, executor, false, path, args...)
+	return stdout, stderr, err
+}
+
+// guestExitStatus is implemented by guest command errors that preserve the
+// command's exit status across the transport boundary. It is deliberately
+// private: only the systemd state probe is permitted to treat a non-zero
+// status as an observation rather than a failed command.
+type guestExitStatus interface {
+	ExitStatus() int
+}
+
+func executeGuestWithExitStatus(ctx context.Context, executor guestExecutor, preserveExitStatus bool, path string, args ...string) ([]byte, []byte, int, error) {
 	budget := &smokeOutputBudget{}
 	stdout := smokeOutput{budget: budget}
 	stderr := smokeOutput{budget: budget}
 	err := executor.Execute(ctx, sandboxvm.Command{Path: path, Args: append([]string(nil), args...), Stdout: &stdout, Stderr: &stderr})
 	if stdout.exceeded() || stderr.exceeded() {
-		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("guest command %s exceeded the %d-byte output limit", path, smokeOutputLimit)
+		return stdout.Bytes(), stderr.Bytes(), -1, fmt.Errorf("guest command %s exceeded the %d-byte output limit", path, smokeOutputLimit)
 	}
 	if err != nil {
+		var statusErr guestExitStatus
+		if preserveExitStatus && errors.As(err, &statusErr) {
+			status := statusErr.ExitStatus()
+			if status == 0 || status == 1 {
+				return stdout.Bytes(), stderr.Bytes(), status, nil
+			}
+		}
 		detail := strings.TrimSpace(string(stderr.Bytes()))
 		if detail == "" {
-			return stdout.Bytes(), stderr.Bytes(), err
+			return stdout.Bytes(), stderr.Bytes(), -1, err
 		}
-		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("%w: %s", err, detail)
+		return stdout.Bytes(), stderr.Bytes(), -1, fmt.Errorf("%w: %s", err, detail)
 	}
-	return stdout.Bytes(), stderr.Bytes(), nil
+	return stdout.Bytes(), stderr.Bytes(), 0, nil
 }
 
 type smokeOutput struct {

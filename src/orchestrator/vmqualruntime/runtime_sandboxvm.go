@@ -534,6 +534,15 @@ type GuestCommandError struct {
 	StderrTruncated bool
 }
 
+// ExitStatus preserves the remote command status for the one qualification
+// probe whose non-zero status is meaningful (systemd's degraded state).
+func (err *GuestCommandError) ExitStatus() int {
+	if err == nil {
+		return -1
+	}
+	return err.ExitCode
+}
+
 func (err *GuestCommandError) Error() string {
 	if err == nil {
 		return ""
