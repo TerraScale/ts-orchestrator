@@ -425,10 +425,18 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Rea
 		return sandboxvm.Readiness{}, errors.New("vmqual: guest readiness facts are missing")
 	}
 	readiness := sandboxvm.Readiness{
-		Systemd:         exactCommandOutput(facts.Systemd, "running"),
 		DataDiskMounted: validDataMount(facts.DataMount),
 		Network:         validNetworkFact(facts.Network, config.GuestAddress),
 	}
+	// "degraded" is the expected overall state while the engine unit awaits
+	// its control-plane delivered configuration: its auto-restart cycle marks
+	// systemd degraded even though systemd itself is fully running, the same
+	// tolerance proveGuestRuntime applies. Unit-level health stays proven by
+	// the explicit unit gates below, so a genuinely failed service still
+	// fails readiness through its own gate.
+	systemdState := strings.TrimSpace(string(facts.Systemd.Stdout))
+	systemdClean := len(facts.Systemd.Stderr) == 0 && !facts.Systemd.StdoutTruncated && !facts.Systemd.StderrTruncated && facts.Systemd.Error == ""
+	readiness.Systemd = systemdClean && (systemdState == "running" || systemdState == "degraded")
 	readiness.Systemd = readiness.Systemd && validSystemdExecutable(facts.PID1) && exactCommandOutput(facts.CgroupV2, "cgroup2fs") && exactCommandOutput(facts.Time, "yes") && validSeedDigest(facts.SeedDigest, seedDigest)
 	readiness.TSNodeHealthy, err = probe.unitActive(ctx, id, config.GuestAddress, "terrascale-ts-node.service")
 	if err != nil {

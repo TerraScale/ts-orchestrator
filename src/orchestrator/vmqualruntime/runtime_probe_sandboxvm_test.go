@@ -16,6 +16,7 @@ type localProcessProbeTransport struct {
 	orchestratorActive  bool
 	terrabaseActive     bool
 	terrabaseConfigured bool
+	systemdDegraded     bool
 }
 
 func (t *localProcessProbeTransport) credential(id string) (*guestCredential, error) {
@@ -27,8 +28,12 @@ func (t *localProcessProbeTransport) request(_ context.Context, _, address strin
 	response := vmguest.Response{SchemaVersion: vmguest.SchemaVersion}
 	switch request.Operation {
 	case vmguest.OperationProbe:
+		state := "running"
+		if t.systemdDegraded {
+			state = "degraded"
+		}
 		response.Probe = &vmguest.ProbeResult{
-			Systemd: good("running"), PID1: good("/usr/lib/systemd/systemd"), CgroupV2: good("cgroup2fs"),
+			Systemd: good(state), PID1: good("/usr/lib/systemd/systemd"), CgroupV2: good("cgroup2fs"),
 			Time: good("yes"), SeedDigest: good("seed-digest " + vmguest.DefaultSeedPath),
 			DataMount: good("/dev/vdb ext4 /var/lib/terrascale"), Network: good(address + " routable"),
 		}
@@ -84,15 +89,15 @@ func TestReadinessRequiresLocalOrchestratorOnEveryMember(t *testing.T) {
 // been staged yet cannot have the terrabase unit active; readiness must only
 // require it once the staged configuration exists.
 func TestReadinessToleratesUnconfiguredEngineUntilConfigurationIsStaged(t *testing.T) {
-	transport := &localProcessProbeTransport{orchestratorActive: true, terrabaseConfigured: false, terrabaseActive: false}
+	transport := &localProcessProbeTransport{orchestratorActive: true, terrabaseConfigured: false, terrabaseActive: false, systemdDegraded: true}
 	probe := &sshGuestProbe{transport: transport, configs: make(map[string]sandboxvm.Config), seedDigests: make(map[string]string)}
 	probe.Register(sandboxvm.Config{ID: "gru-member-1", GuestAddress: "198.18.0.10"}, "seed-digest")
 	pending, err := probe.Probe(context.Background(), "gru-member-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pending.ServiceHealthy {
-		t.Fatal("unconfigured engine was required active before control-plane delivery")
+	if !pending.ServiceHealthy || !pending.Systemd {
+		t.Fatalf("unconfigured engine was required active before control-plane delivery: %+v", pending)
 	}
 	transport.terrabaseConfigured = true
 	staged, err := probe.Probe(context.Background(), "gru-member-1")
