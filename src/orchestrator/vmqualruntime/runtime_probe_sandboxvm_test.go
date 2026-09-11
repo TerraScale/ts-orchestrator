@@ -13,7 +13,9 @@ import (
 )
 
 type localProcessProbeTransport struct {
-	orchestratorActive bool
+	orchestratorActive  bool
+	terrabaseActive     bool
+	terrabaseConfigured bool
 }
 
 func (t *localProcessProbeTransport) credential(id string) (*guestCredential, error) {
@@ -31,6 +33,14 @@ func (t *localProcessProbeTransport) request(_ context.Context, _, address strin
 			DataMount: good("/dev/vdb ext4 /var/lib/terrascale"), Network: good(address + " routable"),
 		}
 	case vmguest.OperationExecute:
+		if request.Path == "/usr/bin/test" && len(request.Args) == 2 && request.Args[0] == "-s" {
+			result := good("")
+			if !t.terrabaseConfigured {
+				result.ExitCode = 1
+			}
+			response.Command = &result
+			return response, nil
+		}
 		if request.Path != "/usr/bin/systemctl" || len(request.Args) != 2 || request.Args[0] != "is-active" {
 			return response, fmt.Errorf("unexpected readiness command")
 		}
@@ -38,6 +48,10 @@ func (t *localProcessProbeTransport) request(_ context.Context, _, address strin
 		if request.Args[1] == "terrascale-orchestrator.service" && !t.orchestratorActive {
 			result.ExitCode = 3
 			result.Stdout = []byte("inactive")
+		}
+		if request.Args[1] == "terrascale-terrabase.service" && !t.terrabaseActive {
+			result.ExitCode = 3
+			result.Stdout = []byte("activating")
 		}
 		response.Command = &result
 	default:
@@ -49,7 +63,7 @@ func (t *localProcessProbeTransport) request(_ context.Context, _, address strin
 func TestReadinessRequiresLocalOrchestratorOnEveryMember(t *testing.T) {
 	for _, guest := range vmqual.LaunchGuests(vmqual.DefaultMemoryMiB) {
 		t.Run(guest.ID, func(t *testing.T) {
-			transport := &localProcessProbeTransport{}
+			transport := &localProcessProbeTransport{terrabaseConfigured: true, terrabaseActive: true}
 			probe := &sshGuestProbe{transport: transport, configs: make(map[string]sandboxvm.Config), seedDigests: make(map[string]string)}
 			probe.Register(sandboxvm.Config{ID: guest.ID, GuestAddress: "198.18.0.10"}, "seed-digest")
 			missing, err := probe.Probe(context.Background(), guest.ID)
@@ -62,5 +76,38 @@ func TestReadinessRequiresLocalOrchestratorOnEveryMember(t *testing.T) {
 				t.Fatalf("repaired local orchestrator was not admitted: %+v, %v", repaired, err)
 			}
 		})
+	}
+}
+
+// The engine's launch configuration arrives from the control plane after
+// initial admission, so a service guest whose engine configuration has not
+// been staged yet cannot have the terrabase unit active; readiness must only
+// require it once the staged configuration exists.
+func TestReadinessToleratesUnconfiguredEngineUntilConfigurationIsStaged(t *testing.T) {
+	transport := &localProcessProbeTransport{orchestratorActive: true, terrabaseConfigured: false, terrabaseActive: false}
+	probe := &sshGuestProbe{transport: transport, configs: make(map[string]sandboxvm.Config), seedDigests: make(map[string]string)}
+	probe.Register(sandboxvm.Config{ID: "gru-member-1", GuestAddress: "198.18.0.10"}, "seed-digest")
+	pending, err := probe.Probe(context.Background(), "gru-member-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending.ServiceHealthy {
+		t.Fatal("unconfigured engine was required active before control-plane delivery")
+	}
+	transport.terrabaseConfigured = true
+	staged, err := probe.Probe(context.Background(), "gru-member-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staged.ServiceHealthy {
+		t.Fatal("staged engine configuration did not require the terrabase unit active")
+	}
+	transport.terrabaseActive = true
+	running, err := probe.Probe(context.Background(), "gru-member-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !running.ServiceHealthy {
+		t.Fatal("configured and running engine was not admitted")
 	}
 }

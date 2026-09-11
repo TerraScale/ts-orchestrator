@@ -439,13 +439,34 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Rea
 		return sandboxvm.Readiness{}, err
 	}
 	if service {
-		active, unitErr := probe.unitActive(ctx, id, config.GuestAddress, "terrascale-terrabase.service")
-		if unitErr != nil {
-			return sandboxvm.Readiness{}, unitErr
+		// The engine's launch configuration is control-plane delivered after
+		// initial admission. Until the staged file exists and is non-empty the
+		// terrabase unit cannot start, so readiness may only require it once
+		// its configuration has actually been staged in the guest.
+		configured, configErr := probe.guestExitZero(ctx, id, config.GuestAddress, "/usr/bin/test", "-s", "/opt/terrascale/terrabase/current/terrabase.config")
+		if configErr != nil {
+			return sandboxvm.Readiness{}, configErr
 		}
-		readiness.ServiceHealthy = readiness.ServiceHealthy && active
+		if configured {
+			active, unitErr := probe.unitActive(ctx, id, config.GuestAddress, "terrascale-terrabase.service")
+			if unitErr != nil {
+				return sandboxvm.Readiness{}, unitErr
+			}
+			readiness.ServiceHealthy = readiness.ServiceHealthy && active
+		}
 	}
 	return readiness, nil
+}
+
+func (probe *sshGuestProbe) guestExitZero(ctx context.Context, id, address, path string, args ...string) (bool, error) {
+	response, err := probe.transport.request(ctx, id, address, vmguest.Request{SchemaVersion: vmguest.SchemaVersion, Operation: vmguest.OperationExecute, Path: path, Args: args})
+	if err != nil {
+		return false, err
+	}
+	if response.Command == nil {
+		return false, errors.New("vmqual: guest command observation is missing")
+	}
+	return response.Command.ExitCode == 0, nil
 }
 
 func (probe *sshGuestProbe) unitActive(ctx context.Context, id, address, unit string) (bool, error) {
