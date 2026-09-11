@@ -76,6 +76,48 @@ func TestRunConfigurationStrictParsing(t *testing.T) {
 	}
 }
 
+func TestRunConfigurationAcceptsBYOKRenewalReferences(t *testing.T) {
+	var settings map[string]string
+	if err := json.Unmarshal([]byte(validRunConfig), &settings); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		byokRoleEnvironment:            "arn:aws:iam::123456789012:role/key",
+		byokTokenEnvironment:           "/etc/terrascale/byok.token",
+		byokKeyIDEnvironment:           "arn:aws:kms:sa-east-1:123456789012:key/id",
+		byokKeyRegionEnvironment:       "sa-east-1",
+		byokKeyEndpointEnvironment:     "https://kms.example.test",
+		byokProviderEnvironment:        "aws-kms",
+		byokS3RoleEnvironment:          "arn:aws:iam::123456789012:role/backup",
+		byokS3TokenEnvironment:         "/etc/terrascale/s3.token",
+		byokS3EndpointEnvironment:      "https://s3.example.test",
+		byokS3BucketEnvironment:        "backups",
+		byokS3RegionEnvironment:        "sa-east-1",
+		byokS3RevisionEnvironment:      "placement-1",
+		byokS3TenantEnvironment:        "tenant-1",
+		byokS3ProjectEnvironment:       "project-1",
+		byokS3DatabaseEnvironment:      "database-1",
+		byokS3ExternalIDEnvironment:    "external-1",
+		byokRenewalEndpointEnvironment: "https://dashboard.example.test/internal/byok/renewal-policy",
+		byokRenewalKeyEnvironment:      "renewal-service-key",
+	} {
+		settings[key] = value
+	}
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup, err := parseRunConfiguration(encoded)
+	if err != nil {
+		t.Fatalf("BYOK renewal configuration rejected: %v", err)
+	}
+	for key := range settings {
+		if _, ok := lookup(key); !ok {
+			t.Fatalf("accepted setting %q was not retained", key)
+		}
+	}
+}
+
 func TestRunConfigurationFileAdmission(t *testing.T) {
 	for _, mode := range []os.FileMode{0444, 0600, 0644} {
 		t.Run(mode.String(), func(t *testing.T) {

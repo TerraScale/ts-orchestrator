@@ -42,6 +42,12 @@ var runConfigurationKeys = map[string]bool{
 	"TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE": true, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE": true,
 	"TS_ORCH_MEMBERSHIP_SIGNING_KEY_FILE": true, "TS_ORCH_MEMBERSHIP_PINS_FILE": true,
 	"TS_ORCH_COMMAND_SIGNING_KEY_FILE": true, "TS_ORCH_COMMAND_TRUST_KEY_FILES": true, "TS_ORCH_COMMAND_AGGREGATE_ID": true,
+	byokRoleEnvironment: true, byokTokenEnvironment: true, byokKeyIDEnvironment: true,
+	byokKeyRegionEnvironment: true, byokKeyEndpointEnvironment: true, byokProviderEnvironment: true,
+	byokS3RoleEnvironment: true, byokS3TokenEnvironment: true, byokS3EndpointEnvironment: true,
+	byokS3BucketEnvironment: true, byokS3RegionEnvironment: true, byokS3RevisionEnvironment: true,
+	byokS3TenantEnvironment: true, byokS3ProjectEnvironment: true, byokS3DatabaseEnvironment: true,
+	byokS3ExternalIDEnvironment: true, byokRenewalEndpointEnvironment: true, byokRenewalKeyEnvironment: true,
 	natsServerConfigEnvironment: true, natsServerReadinessEnvironment: true,
 	providerEnvironment: true, ociEstateFileEnvironment: true, ociKeyIDEnvironment: true, ociPrivateKeyFileEnvironment: true,
 }
@@ -138,6 +144,10 @@ func parseRunConfiguration(data []byte) (envLookup, error) {
 // Credentials live in separately provisioned files, never in this immutable
 // configuration. Existing resolvers still validate and load those files.
 func validRunConfigurationReference(key, value string) bool {
+	if key == byokRenewalEndpointEnvironment {
+		parsed, err := url.Parse(value)
+		return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && !parsed.ForceQuery && parsed.Fragment == "" && parsed.Opaque == ""
+	}
 	if strings.HasSuffix(key, "_URL") {
 		parsed, err := url.Parse(value)
 		return err == nil && parsed.Scheme != "" && parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && !parsed.ForceQuery && parsed.Fragment == "" && parsed.Path == "" && parsed.Opaque == ""

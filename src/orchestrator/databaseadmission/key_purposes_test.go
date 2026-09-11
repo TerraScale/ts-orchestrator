@@ -62,3 +62,23 @@ func TestHostRequiresEveryPurpose(t *testing.T) {
 		t.Fatal("admitted install for a different host region")
 	}
 }
+
+func TestHostRedeliveryRequiresMatchingBYOKMetadata(t *testing.T) {
+	byok := &keylease.BYOKMetadata{
+		BackupEndpoint: "https://s3.example.test",
+		BackupBucket:   "backups",
+		BackupRegion:   "gru",
+		BackupRoleARN:  "arn:aws:iam::123456789012:role/backup",
+		KeyProvider:    "aws-kms",
+		KeyID:          "key-12345678",
+		KeyRegion:      "gru",
+	}
+	entry := keylease.Entry{BYOK: byok}
+	catalog := keylease.Catalog{Version: 1, Entries: []keylease.Entry{entry}}
+	if !catalogContainsEntries(catalog, []keylease.Entry{{BYOK: &keylease.BYOKMetadata{BackupEndpoint: byok.BackupEndpoint, BackupBucket: byok.BackupBucket, BackupRegion: byok.BackupRegion, BackupRoleARN: byok.BackupRoleARN, KeyProvider: byok.KeyProvider, KeyID: byok.KeyID, KeyRegion: byok.KeyRegion}}}) {
+		t.Fatal("equal BYOK metadata was not accepted on redelivery")
+	}
+	if catalogContainsEntries(catalog, []keylease.Entry{{BYOK: &keylease.BYOKMetadata{BackupEndpoint: "https://other.example.test"}}}) {
+		t.Fatal("changed BYOK metadata was accepted on redelivery")
+	}
+}

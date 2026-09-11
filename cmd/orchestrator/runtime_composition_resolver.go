@@ -15,6 +15,38 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/globalclient"
 )
 
+// admittedProductionAutoscaleWiring builds the default GRU observation seam
+// from the same authenticated roster used by the production estate and KV
+// publishers. The reconcile command may supply a richer wiring through the
+// context; the normal run command must nevertheless be complete on its own.
+// Autoscale decisions are durable in the lease-owned NATS target journal, so
+// this callback validates the target handoff while the next compute reconcile
+// consumes that journal-backed target.
+func admittedProductionAutoscaleWiring(spec estate.Spec, healthFile string) (productionAutoscaleWiring, error) {
+	health, err := newObservedKVHealthSource(spec, nil, func(key string) (string, bool) {
+		return healthFile, key == reconcileHealthConfigEnvironment && healthFile != ""
+	})
+	if err != nil {
+		return productionAutoscaleWiring{}, err
+	}
+	regions := make([]string, 0, len(spec.Regions))
+	known := make(map[string]struct{}, len(spec.Regions))
+	for _, region := range spec.Regions {
+		regions = append(regions, region.Code)
+		known[region.Code] = struct{}{}
+	}
+	return productionAutoscaleWiring{
+		Source:  health,
+		Regions: regions,
+		Apply: func(region string, desired int) error {
+			if _, ok := known[region]; !ok || desired < 2 || desired > 1024 {
+				return errors.New("reconcile: autoscale target is outside the admitted estate")
+			}
+			return nil
+		},
+	}, nil
+}
+
 // resolveProductionRuntime performs the file-only half of composition. Live
 // NATS and provider clients are opened by the returned constructor, after the
 // selected broker is ready. The regional connection used to read the leaders
@@ -36,6 +68,7 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 	var workerPlan *globalclient.Plan
 	var auth productionAuthBootstrapConfig
 	var transition productionPlacementTransitionConfig
+	var autoscaleWiring productionAutoscaleWiring
 	if g != nil {
 		if err := g.Estate.validate(); err != nil {
 			return nil, err
@@ -59,6 +92,10 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		}
 		if _, err := resolveProductionDatabase(g.Database, productionPlacementConfig{Targets: auth.Targets}, auth); err != nil {
 			return nil, fmt.Errorf("production database admission: %w", err)
+		}
+		autoscaleWiring, err = admittedProductionAutoscaleWiring(spec, g.HealthFile)
+		if err != nil {
+			return nil, fmt.Errorf("production autoscale admission: %w", err)
 		}
 		_ = transition
 	}
@@ -127,9 +164,12 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		var globalPlan *productionGlobalWorkerPlan
 		var runtime *productionRuntime
 		if g != nil {
+			wiring := autoscaleWiring
+			if contextWiring, ok := productionAutoscaleFromContext(constructCtx); ok {
+				wiring = contextWiring
+			}
 			globalPlan = &productionGlobalWorkerPlan{CandidateID: "global-controller-" + strings.ToLower(options.Cell) + "-" + options.Instance}
 			globalPlan.Construct = func(workerCtx context.Context, session globalWorkerSession) (productionGlobalWorkerConfig, error) {
-				wiring, _ := productionAutoscaleFromContext(constructCtx)
 				return buildProductionGlobalConfig(workerCtx, session, productionGlobalBuildInput{
 					BindProjection: wiring.BindProjection, BindTargetProjection: wiring.BindTargetProjection,
 					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
@@ -148,6 +188,8 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		}
 		if wiring, ok := productionAutoscaleFromContext(constructCtx); ok {
 			runtime.autoscale = &wiring
+		} else if g != nil {
+			runtime.autoscale = &autoscaleWiring
 		}
 		runtime.autoscaleRequired = true
 		return runtime, nil

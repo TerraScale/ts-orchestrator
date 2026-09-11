@@ -571,7 +571,7 @@ func catalogContainsEntries(catalog keylease.Catalog, entries []keylease.Entry) 
 	for _, entry := range entries {
 		found := false
 		for _, installed := range catalog.Entries {
-			if installed.Binding == entry.Binding && installed.CryptoEndpoint == entry.CryptoEndpoint && installed.KEKID == entry.KEKID && installed.KEKVersionID == entry.KEKVersionID && installed.Ciphertext == entry.Ciphertext && installed.LeaseSeconds == entry.LeaseSeconds && installed.Revoked == entry.Revoked && installed.NotAfter.Equal(entry.NotAfter) {
+			if installed.Binding == entry.Binding && installed.CryptoEndpoint == entry.CryptoEndpoint && installed.KEKID == entry.KEKID && installed.KEKVersionID == entry.KEKVersionID && installed.Ciphertext == entry.Ciphertext && installed.LeaseSeconds == entry.LeaseSeconds && installed.Revoked == entry.Revoked && installed.NotAfter.Equal(entry.NotAfter) && reflect.DeepEqual(installed.BYOK, entry.BYOK) {
 				found = true
 				break
 			}
@@ -591,7 +591,7 @@ func validateInstall(c HostConfig, r installRequest) error {
 	seen := map[string]bool{}
 	for _, entry := range r.Entries {
 		b := entry.Binding
-		if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || !slices.Contains(databaseKeyPurposes[:], b.Purpose) || seen[b.Purpose] || entry.Revoked {
+		if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || !slices.Contains(databaseKeyPurposes[:], b.Purpose) || seen[b.Purpose] || entry.Revoked || !sameBYOKReference(a.BYOK, entry.BYOK) {
 			return ErrInvalid
 		}
 		seen[b.Purpose] = true
@@ -606,4 +606,11 @@ func validateInstall(c HostConfig, r installRequest) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func sameBYOKReference(reference *BYOKReference, metadata *keylease.BYOKMetadata) bool {
+	if reference == nil || metadata == nil {
+		return reference == nil && metadata == nil
+	}
+	return reference.BackupEndpoint == metadata.BackupEndpoint && reference.BackupBucket == metadata.BackupBucket && reference.BackupRegion == metadata.BackupRegion && reference.BackupRoleARN == metadata.BackupRoleARN && reference.BackupExternalID == metadata.BackupExternalID && reference.KeyProvider == metadata.KeyProvider && reference.KeyID == metadata.KeyID && reference.KeyRegion == metadata.KeyRegion && reference.KeyEndpoint == metadata.KeyEndpoint && reference.ConfigurationUpdatedAt == metadata.ConfigurationUpdatedAt
 }
