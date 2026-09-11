@@ -398,12 +398,7 @@ func (probe *sshGuestProbe) Register(config sandboxvm.Config, seedDigest string)
 	probe.mu.Unlock()
 }
 
-func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (probeReadiness sandboxvm.Readiness, resultErr error) {
-	defer func() {
-		if resultErr != nil {
-			fmt.Fprintf(os.Stderr, "PROBEERR %s: %v\n", id, resultErr)
-		}
-	}()
+func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Readiness, error) {
 	if probe == nil || probe.transport == nil || ctx == nil {
 		return sandboxvm.Readiness{}, errors.New("vmqual: guest readiness probe is not configured")
 	}
@@ -457,12 +452,13 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (probeReadines
 	if service {
 		// The engine's launch configuration is control-plane delivered after
 		// initial admission. Until the staged file exists and is non-empty the
-		// terrabase unit cannot start, so readiness may only require it once
-		// its configuration has actually been staged in the guest.
+		// terrabase unit cannot be ready, so service readiness requires both the
+		// staged configuration and its active unit.
 		configured, configErr := probe.guestExitZero(ctx, id, config.GuestAddress, "/usr/bin/test", "-s", "/opt/terrascale/terrabase/current/terrabase.config")
 		if configErr != nil {
 			return sandboxvm.Readiness{}, configErr
 		}
+		readiness.ServiceHealthy = readiness.ServiceHealthy && configured
 		if configured {
 			active, unitErr := probe.unitActive(ctx, id, config.GuestAddress, "terrascale-terrabase.service")
 			if unitErr != nil {
@@ -471,7 +467,6 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (probeReadines
 			readiness.ServiceHealthy = readiness.ServiceHealthy && active
 		}
 	}
-	fmt.Fprintf(os.Stderr, "PROBEFACT %s systemd=%v(state=%q) data=%v net=%v tsnode=%v service=%v\n", id, readiness.Systemd, systemdState, readiness.DataDiskMounted, readiness.Network, readiness.TSNodeHealthy, readiness.ServiceHealthy)
 	return readiness, nil
 }
 

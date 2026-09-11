@@ -86,9 +86,9 @@ func TestReadinessRequiresLocalOrchestratorOnEveryMember(t *testing.T) {
 
 // The engine's launch configuration arrives from the control plane after
 // initial admission, so a service guest whose engine configuration has not
-// been staged yet cannot have the terrabase unit active; readiness must only
-// require it once the staged configuration exists.
-func TestReadinessToleratesUnconfiguredEngineUntilConfigurationIsStaged(t *testing.T) {
+// been staged yet cannot be ready; readiness requires the staged file and the
+// active terrabase unit.
+func TestReadinessRequiresStagedEngineConfigurationAndActiveUnit(t *testing.T) {
 	transport := &localProcessProbeTransport{orchestratorActive: true, terrabaseConfigured: false, terrabaseActive: false, systemdDegraded: true}
 	probe := &sshGuestProbe{transport: transport, configs: make(map[string]sandboxvm.Config), seedDigests: make(map[string]string)}
 	probe.Register(sandboxvm.Config{ID: "gru-member-1", GuestAddress: "198.18.0.10"}, "seed-digest")
@@ -96,8 +96,8 @@ func TestReadinessToleratesUnconfiguredEngineUntilConfigurationIsStaged(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pending.ServiceHealthy || !pending.Systemd {
-		t.Fatalf("unconfigured engine was required active before control-plane delivery: %+v", pending)
+	if pending.ServiceHealthy || !pending.Systemd {
+		t.Fatalf("unconfigured engine was admitted before control-plane delivery: %+v", pending)
 	}
 	transport.terrabaseConfigured = true
 	staged, err := probe.Probe(context.Background(), "gru-member-1")
