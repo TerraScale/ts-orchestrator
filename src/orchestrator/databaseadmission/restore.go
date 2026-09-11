@@ -76,6 +76,13 @@ func (p *Pipeline) AcceptRestore(ctx context.Context, request RestoreRequest) (R
 		return Record{}, err
 	}
 	scope.ParentDatabaseID, scope.Regions, scope.Residency = parent.DatabaseID, slices.Clone(source.Regions), source.Residency
+	// The restore target is the same customer data: it must stay encrypted
+	// under the parent's customer-owned provider references instead of
+	// silently falling back to orchestrator-wrapped keys.
+	if source.BYOK != nil {
+		inherited := *source.BYOK
+		scope.BYOK = &inherited
+	}
 	if err := p.config.Authorize(ctx, scope); err != nil {
 		return Record{}, err
 	}
