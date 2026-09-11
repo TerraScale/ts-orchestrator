@@ -15,6 +15,33 @@ func TestProductionRuntimeRequiresOwnershipReread(t *testing.T) {
 	}
 }
 
+func TestRegionalProductionRuntimeProvidesSupervisedStandbyLifetime(t *testing.T) {
+	runtime := &productionRuntime{}
+	ctx, cancel := context.WithCancel(t.Context())
+	if err := runtime.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Completion() == nil {
+		t.Fatal("regional-only runtime has no completion channel")
+	}
+	cancel()
+	select {
+	case <-runtime.Completion():
+	case <-time.After(time.Second):
+		t.Fatal("regional-only runtime did not stop with its context")
+	}
+	if err := runtime.Start(ctx); err == nil {
+		t.Fatal("runtime accepted a second start")
+	}
+}
+
+func TestGlobalProductionRuntimeStillRequiresElection(t *testing.T) {
+	runtime := &productionRuntime{plan: &productionGlobalWorkerPlan{CandidateID: "global-controller-gru-instance"}}
+	if err := runtime.Start(context.Background()); err == nil {
+		t.Fatal("global runtime entered standby without a GRU election")
+	}
+}
+
 func TestScheduledServiceFailureSurvivesShutdown(t *testing.T) {
 	failure := errors.New("durable journal unavailable")
 	for _, interval := range []time.Duration{0, time.Millisecond} {

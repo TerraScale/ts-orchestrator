@@ -1,0 +1,36 @@
+start_utc=2026-09-11T01:10:30Z
+phase=exercise typescript
+node:internal/errors:986
+  const err = new Error(message);
+              ^
+
+Error: Command failed: npx tsc --target ES2023 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --outDir out /tmp/terrascale-sdk-consumer-DqQX3y/consumer/journey.ts
+
+    at genericNodeError (node:internal/errors:986:15)
+    at wrappedFn (node:internal/errors:540:14)
+    at ChildProcess.exithandler (node:child_process:417:12)
+    at ChildProcess.emit (node:events:514:28)
+    at maybeClose (node:internal/child_process:1141:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:306:5) {
+  code: 2,
+  killed: false,
+  signal: null,
+  cmd: 'npx tsc --target ES2023 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --outDir out /tmp/terrascale-sdk-consumer-DqQX3y/consumer/journey.ts',
+  stdout: "journey.ts(26,9): error TS2551: Property 'TERRASCALE_DENY_API_KEY' does not exist on type '{ TERRASCALE_API_URL: string; TERRASCALE_AUTH_URL: string; TERRASCALE_PROJECT_ID: string; TERRASCALE_DATABASE_ID: string; TERRASCALE_API_KEY: string; TERRASCALE_JOURNEY_RUN_ID: string; TERRASCALE_SDK_TARBALL: string; TERRASCALE_SDK_TARBALL_SHA256: string; }'. Did you mean 'TERRASCALE_API_KEY'?\n" +
+    "journey.ts(26,161): error TS2551: Property 'TERRASCALE_DENY_API_KEY' does not exist on type '{ TERRASCALE_API_URL: string; TERRASCALE_AUTH_URL: string; TERRASCALE_PROJECT_ID: string; TERRASCALE_DATABASE_ID: string; TERRASCALE_API_KEY: string; TERRASCALE_JOURNEY_RUN_ID: string; TERRASCALE_SDK_TARBALL: string; TERRASCALE_SDK_TARBALL_SHA256: string; }'. Did you mean 'TERRASCALE_API_KEY'?\n",
+  stderr: ''
+}
+
+Node.js v24.21.0
+exit=1
+note: rerun with TERRASCALE_DENY_API_KEY set to an unissued credential because the parallel stream's uncommitted edit to packaged-consumer.ts emits a JSON literal that drops the optional key (JSON.stringify omits undefined), failing strict tsc at generated journey.ts:26/99 when unset
+file:///home/mariogk/Projects/TerraScale/ts-typescript/scripts/qualification/packaged-consumer.ts:37
+    throw new Error(`packaged consumer failed: ${safeError(error, config.TERRASCALE_API_KEY, process.env.TERRASCALE_DENY_API_KEY)}`);
+          ^
+
+Error: packaged consumer failed: {"message":"Command failed: /home/mariogk/.local/share/mise/installs/node/24.21.0/bin/node /tmp/terrascale-sdk-consumer-rkvGnZ/consumer/out/journey.js\nfile:///tmp/terrascale-sdk-consumer-rkvGnZ/consumer/node_modules/@terrascale/sdk/dist/sync/v1/client.js:721\n            throw new TerraScaleSyncV1ClientError(\"transport\", `${operation} failed`, { cause: error });\n                  ^\n\nTerraScaleSyncV1ClientError: terrascale.sync.v1 client: transport: reactive snapshot/log failed\n    at #request (file:///tmp/terrascale-sdk-consumer-rkvGnZ/consumer/node_modules/@terrascale/sdk/dist/sync/v1/client.js:721:19)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async #getBytes (file:///tmp/terrascale-sdk-consumer-rkvGnZ/consumer/node_modules/@terrascale/sdk/dist/sync/v1/client.js:369:30)\n    at async TerraScaleSyncV1Client.subscribe (file:///tmp/terrascale-sdk-consumer-rkvGnZ/consumer/node_modules/@terrascale/sdk/dist/sync/v1/client.js:173:35)\n    at async file:///tmp/terrascale-sdk-consumer-rkvGnZ/consumer/out/journey.js:43:18 {\n  code: 'transport',\n  reset: undefined,\n  [cause]: [TypeError: fetch failed] {\n    [cause]: Error: getaddrinfo ENOTFOUND sync.api.terrascale.tech\n        at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:123:26) {\n      errno: -3008,\n      code: 'ENOTFOUND',\n      syscall: 'getaddrinfo',\n      hostname: 'sync.api.terrascale.tech'\n    }\n  }\n}\n\nNode.js v24.21.0\n","stdout":"{\"label\":\"idempotency-replay\",\"ok\":true,\"status\":200}\n{\"label\":\"stale-if-match\",\"ok\":false,\"status\":412,\"code\":\"precondition_failed\"}\n{\"label\":\"parameterized-sql\",\"ok\":true,\"status\":200}\n"}
+    at file:///home/mariogk/Projects/TerraScale/ts-typescript/scripts/qualification/packaged-consumer.ts:37:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v24.21.0
+exit=1

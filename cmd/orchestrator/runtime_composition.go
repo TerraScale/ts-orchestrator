@@ -164,6 +164,8 @@ type productionRuntime struct {
 	release           func() error
 	closeOnce         sync.Once
 	closeError        error
+	standbyCancel     context.CancelFunc
+	standbyCompletion chan struct{}
 	autoscale         *productionAutoscaleWiring
 	autoscaleRequired bool
 }
@@ -687,11 +689,31 @@ func (r *productionGlobalWorkers) Close() error {
 	return r.closeError
 }
 
-// Start attaches only the operational workers to the GRU election. Regional
-// runtimes have no global plan and continue independently on followers.
-// Standalone reconcile cannot assume global authority from process admission.
-func (r *productionRuntime) Start(context.Context) error {
-	return errors.New("production global workers require the live GRU election")
+// Start attaches operational workers to the GRU election. A regional-only
+// runtime is also used by the reconcile command: it has no global plan, but it
+// still needs a cancellable component lifetime so provider reconciliation can
+// be supervised with the same shutdown contract.
+func (r *productionRuntime) Start(ctx context.Context) error {
+	if r == nil {
+		return errors.New("production runtime is missing")
+	}
+	if ctx == nil {
+		return errors.New("production runtime context is required")
+	}
+	if r.plan != nil {
+		return errors.New("production global workers require the live GRU election")
+	}
+	if r.standbyCompletion != nil {
+		return errors.New("production runtime is already started")
+	}
+	standby, cancel := context.WithCancel(ctx)
+	r.standbyCancel = cancel
+	r.standbyCompletion = make(chan struct{})
+	go func() {
+		<-standby.Done()
+		close(r.standbyCompletion)
+	}()
+	return nil
 }
 func (r *productionRuntime) StartGlobal(ctx context.Context, global component) error {
 	if r == nil {
@@ -783,7 +805,10 @@ func (r *productionRuntime) constructGlobalWorkers(ctx context.Context, session 
 }
 func (r *productionRuntime) Completion() <-chan struct{} {
 	if r == nil || r.supervisor == nil {
-		return nil
+		if r == nil {
+			return nil
+		}
+		return r.standbyCompletion
 	}
 	return r.supervisor.Completion()
 }
@@ -803,6 +828,9 @@ func (r *productionRuntime) Close() error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
+		if r.standbyCancel != nil {
+			r.standbyCancel()
+		}
 		if r.supervisor != nil {
 			r.closeError = r.supervisor.Close()
 		} else if r.active != nil {

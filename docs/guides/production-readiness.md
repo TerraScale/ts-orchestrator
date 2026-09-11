@@ -67,11 +67,12 @@ Canonical component, launch and manifest validation now lives in
 control handoff and VM preparation consume that package directly. The strict
 ApplyManifest parser also lives there so retirement can bind the same verified
 command bytes as host execution. The signed initial-R1 composition is described
-below; ordinary production composition remains incomplete.
+below; ordinary production composition is assembled from the same strict
+deployment declaration and lease-bound provider constructors.
 
 | Area | Entry points inspected | Finding and next proof |
 | --- | --- | --- |
-| Runtime composition | `cmd/orchestrator/main.go`, `runtime_composition.go` | Production startup calls `admitProductionRuntime`. Its default returns `ErrProductionCompositionMissing`, and the search found no other assignment. Wire the concrete dependencies and prove startup through the real executable. |
+| Runtime composition | `cmd/orchestrator/main.go`, `runtime_composition.go`, `runtime_composition_resolver.go` | Production startup admits the strict deployment declaration before opening NATS, then constructs the shared delivery mirror. GRU workers bind estate publication, rotation, reaping, restore, placement, database, identity, KV, and compute adapters only after a fresh lease proof. Regional-only reconcile retains a supervised standby lifetime and cannot assume global authority. |
 | Bootstrap and control transition | `src/orchestrator/bootstrap/greenfield.go`, `control_plane.go`, `provider_control_plane.go` | Durable bootstrap and R1/R3 transition contracts exist. Prove the CLI, provider effects, host admission, synchronization, and credential retirement together under interruption. |
 | Region topology | `src/orchestrator/bootstrap/control_plane.go`, `cmd/orchestrator/add_region.go` | The implementation contains `remote-managed` topology. Audit whether each path actually installs and admits a regional process. Replace remote-only behavior with the newly required per-Region orchestrator while preserving storage placement. |
 | Authority | `src/orchestrator/control/authority/authority_engine.go` | Lease, epoch, replay, and fencing decisions exist. Trace their enforcement to every provider, host, and TBEP mutation; a decision engine alone does not establish single-master safety. |
@@ -94,9 +95,12 @@ lease loss cancels and joins the old group before a replacement starts.
 Client factories transfer explicit cleanup ownership, including partial or
 late construction results. Cleanup failures prevent a successor from starting.
 The [session contract](../contracts/global-worker-sessions.md) records these
-boundaries. The default `admitProductionRuntime` still fails with
-`ErrProductionCompositionMissing`; concrete external adapter resolution is
-unfinished.
+boundaries. The default `admitProductionRuntime` resolves the deployment file
+and binds concrete external adapters through the existing provider
+constructors. A regional-only reconcile process deliberately has no global
+plan; it remains a supervised standby while its OCI/Cloudflare reconcile loop
+runs. GRU-only workers remain fail-closed until the live election supplies a
+matching lease.
 
 The root now derives the [worker connection](../contracts/global-worker-connection.md)
 from admitted GRU endpoint and credential references. Each attempt captures
@@ -377,23 +381,22 @@ skips the initial seed so later rotated credentials are not replaced or
 rejected against initial digests. This ordering has focused race coverage;
 it has not passed real-host credential rotation qualification.
 
-The production composition root still always returns
-`ErrProductionCompositionMissing`. This is unfinished implementation, not a
-missing-credential or VM-environment gate. `control.OrchestratorOptions`
-currently resolves NATS and signed-command identities; it does not resolve the
-provider, TerraBase, catalog, notification, or durable operational-service
-dependencies required by `productionRuntimeConfig`.
+The production composition root resolves the provider, TerraBase, catalog,
+notification, and durable operational-service dependencies from the strict
+deployment declaration. `control.OrchestratorOptions` carries the role and
+deployment identity; live clients remain lease-bound and are opened only after
+the broker and global authority checks.
 
 | Runtime input | Existing implementation and exact missing connection |
 | --- | --- |
 | Signed command dispatch | The master now journals original signed requests, mirrors verified artifacts, and sends signed per-Region commands through runtime-owned global NATS ingress. Regional receivers require both delegated global authority and a live regional lease. Recovery tests cover registry outage, partial mirrors, lost replies, and master takeover. The executable still needs complete root configuration and rollout dependencies; infrastructure must provision the new `GLOBAL_DELIVERIES` R3 bucket. Real-guest delivery qualification remains open. |
-| Estate publication | `estate.ControlPlaneClient` implements public document writes. The root now supplies generation and admission checks from its fixed global session. It still needs the configured endpoint and credential, a coherent `estatepublisher.SnapshotSource`, and effective fencing at the external mutation boundary. An empty snapshot cannot establish readiness. |
+| Estate publication | `estate.ControlPlaneClient` implements public document writes. The root constructs it from the admitted endpoint/token file and binds a coherent health/database snapshot source. Generation and mutation fencing are supplied by the fixed global session; an empty snapshot cannot establish readiness. |
 | Identity and capability rotation | `security.IdentityIssuer` requires `Issue`, `Fetch`, and `Retire`; `CapabilityVault` requires `Generate`, `Fetch`, and `Retire`. Their concrete production implementations are absent. `MemberGateway` still needs member enumeration, distribution, generation verification, activation, retirement, rollback, and fencing; `Reloader` needs reload, verification, rollback, and fencing. These require authenticated host/member transports and durable operation receipts. |
 | Cloudflare rotation | The former `CloudflareSecretsStore` adapter used unsupported version/activation endpoints and has been removed. Real CRUD operations use secret IDs and do not provide atomic current/previous activation. Production rotation still needs durable provider-ID receipts, supported consumer bindings and rollout, propagation verification, overlap/retirement proof, and rollback/fencing behavior. The [contract audit](../contracts/cloudflare-rotation-effects.md) records the API sources and remaining requirements. |
 | Rotation state | Production key rotation requires `keyrotation.NATSStateStoreConfig` and a separate state session for each coordinator. The root binds the actual candidate, epoch and lease ID after election and owns the connection lifetime. State and quorum read barriers share the global R3 lease stream. Loaded-revision CAS rejects stale writers; late commits retain prior state for recovery. Three-server tests cover restart, minority loss, takeover, lost replies and conflicting sessions. Issued references and publication receipts cannot change within a rotation. The CLI resolver, audit sink and fenced provider adapters remain unfinished. |
 | Free database lifecycle | Production construction requires concrete globally fenced NATS state and effect admission checks. Real R3 tests cover restart, stale writers, minority loss, lost replies, lease replacement and late commits, plus day 30/60/90 and reactivation. File persistence is removed; memory state exists only in domain tests. Database, key and mail adapters still need actual production implementations and transport-boundary authority checks. The bounded checkpoint needs [sharding and retention work](../contracts/reaper-state-authority.md) before launch-scale use. |
 | Daily restore | Production wrappers validate `BackupPort` and `BranchPort`; they do not implement database enumeration, restore, scratch creation, restored checksum/row-count observation, or owned scratch deletion. The root also needs `JournalPort` facts and fenced run/item persistence and an acknowledged `PagerPort`. `restoredrill.NATSJournal` now persists runs, items, source facts, and restore epochs in the global authority stream. Stream-wide CAS barriers protect successful reads and mutations. Three-node file-backed JetStream tests cover restart, stale writers, minority outage, and late-commit recovery with history 1. Its authoritative facts producer and command wiring remain unfinished. `TickerScheduler` and the versioned single-stream `NATSJetStreamSnapshotter` exist, with verified full-body readback and empty/purged-stream restore coverage described above. `restoresnapshot` now implements signed OCI snapshot writes, full-content verified reads, and per-Region mirrors with durable ownership checks and immutable object keys; its HTTP contract tests pass under race detection. These adapters still need production composition with the authoritative stream and exact regional scopes. VM-local restore adapters are qualification fixtures. |
-| Release mirrors | `provider.DeliveryRegionStore` is concrete. The root must bind each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and a live `OwnershipCheck`. The delivery and restore paths must share those same scopes and journal. |
+| Release mirrors | `provider.DeliveryRegionStore` is concrete. The root binds each admitted Region's OCI `ObjectStorageProvider`, namespace, compartment and bucket to an authoritative `ProviderMutationJournal` and live `OwnershipCheck`; delivery and restore consume those same scopes and journal. |
 
 OCI resource list adapters now consume canonical array responses and bounded
 `opc-next-page` pagination. Network, volume, attachment, Vault, bucket,

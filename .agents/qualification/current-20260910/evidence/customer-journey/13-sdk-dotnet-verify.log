@@ -1,0 +1,10 @@
+start_utc=2026-09-11T01:09:57Z
+phase=verify dotnet
+exit=0
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 996 ms).
+{"operation":"verify","id":"qual20260910-typescript","status":"ok"}
+{"operation":"verify","id":"qual20260910-go","status":"ok"}
+{"operation":"verify","id":"qual20260910-rust","status":"ok"}
+{"operation":"verify","id":"qual20260910-dotnet","status":"ok"}
+exit=0

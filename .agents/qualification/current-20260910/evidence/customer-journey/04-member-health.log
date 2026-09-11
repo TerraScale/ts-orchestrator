@@ -1,0 +1,5 @@
+start_utc=2026-09-11T01:01:52Z
+cmd: curl -H "Authorization: Bearer $STACK_BOOTSTRAP_KEY" http://127.0.0.1:71XX/api/v1/health
+== GRU/SFO/FRA 7101: {"region":"GRU","healthy":true,"version":"terrabase-0.1.0"}
+== GRU/SFO/FRA 7102: {"region":"SFO","healthy":true,"version":"terrabase-0.1.0"}
+== GRU/SFO/FRA 7103: {"region":"FRA","healthy":true,"version":"terrabase-0.1.0"}

@@ -1,0 +1,5 @@
+start_utc=2026-09-11T01:05:42Z
+cmd: (cd ts-go/scripts/qualification/gojourney && GOPROXY=file://.../file-proxy GOSUMDB=off go run . --phase seed)
+module: terrascale.tech/sdk v0.0.0-20260910000829-658d897f69a5 (zip sha 59637ff8...)
+{"phase":"seed","action":"put-own-document","ok":true}
+exit=0
