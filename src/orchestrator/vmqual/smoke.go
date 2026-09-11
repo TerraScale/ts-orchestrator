@@ -336,7 +336,12 @@ func proveGuestRuntime(ctx context.Context, executor guestExecutor) error {
 	if err != nil {
 		return fmt.Errorf("systemd is not running: %w", err)
 	}
-	if systemState := strings.TrimSpace(string(state)); systemState != "running" {
+	// "degraded" is expected during initial qualification: the engine unit
+	// cannot start until the control plane delivers its configuration after
+	// activation, and its auto-restart cycle marks the overall state
+	// degraded while systemd itself is fully running. Unit-level health is
+	// proven separately by the activation gates and startup diagnostics.
+	if systemState := strings.TrimSpace(string(state)); systemState != "running" && systemState != "degraded" {
 		return fmt.Errorf("systemd is not running: state is %q", systemState)
 	}
 	cgroup, _, err := executeGuest(ctx, executor, "/usr/bin/stat", "-fc", "%T", "/sys/fs/cgroup")

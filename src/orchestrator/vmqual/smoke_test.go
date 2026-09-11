@@ -225,7 +225,7 @@ func (vm *smokeFakeVM) Execute(_ context.Context, command sandboxvm.Command) err
 	case "/usr/bin/systemctl":
 		output = "running\n"
 		if vm.wrongState {
-			output = "degraded\n"
+			output = "stopping\n"
 		}
 	case "/usr/bin/stat":
 		output = "cgroup2fs\n"
