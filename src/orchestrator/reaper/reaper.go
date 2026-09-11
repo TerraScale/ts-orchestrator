@@ -831,7 +831,10 @@ func (r *Reconciler) reactivateLocked(ctx context.Context, state *State, databas
 	if entry.Phase == PhaseActive {
 		return nil
 	}
-	key := fmt.Sprintf("reactivate/%s/%d", databaseID, requestAt.UnixNano())
+	// Cycle-scope the reactivation like every other operation: a stale done
+	// key from an earlier billing episode must not skip the executor call of
+	// a later reactivation with the same frozen LastRequest.
+	key := r.operationName(entry, fmt.Sprintf("reactivate/%s/%d", databaseID, requestAt.UnixNano()))
 	if err := r.operationLocked(ctx, state, databaseID, key, func(ctx context.Context, opKey string) error { return r.executor.Reactivate(ctx, databaseID, opKey) }, requestAt.UTC()); err != nil {
 		return err
 	}
