@@ -53,6 +53,7 @@ type options struct {
 	repo            string
 	terraBaseRepo   string
 	terraBaseBinary string
+	materialInput   string
 	command         []string
 }
 
@@ -107,6 +108,13 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) (result erro
 		}
 	}
 	environment := bundleEnvironment(os.Environ(), prepared)
+	if config.materialInput != "" {
+		materialRoot := filepath.Join(prepared.directory, "material")
+		if err := generateMaterial(ctx, config, prepared, materialRoot, errOut); err != nil {
+			return err
+		}
+		environment = materialEnvironment(environment, materialRoot)
+	}
 	return runChild(ctx, config.command, environment, out, errOut)
 }
 
@@ -118,6 +126,7 @@ func parseOptions(args []string) (options, error) {
 	set.StringVar(&config.repo, "repo", "", "absolute orchestrator repository root")
 	set.StringVar(&config.terraBaseRepo, "terrabase-repo", "", "absolute TerraBase repository root")
 	set.StringVar(&config.terraBaseBinary, "terrabase-binary", "", "optional prebuilt static TerraBase server")
+	set.StringVar(&config.materialInput, "material-input", "", "protected local qualification material intent JSON")
 	if err := set.Parse(args); err != nil {
 		return options{}, fmt.Errorf("usage: vm-artifacts --root ABS --repo ABS --terrabase-repo ABS [--terrabase-binary ABS] -- command [args...]: %w", err)
 	}
@@ -135,7 +144,42 @@ func parseOptions(args []string) (options, error) {
 	if config.terraBaseBinary != "" && !cleanAbsolute(config.terraBaseBinary) {
 		return options{}, errors.New("--terrabase-binary must be a clean absolute path")
 	}
+	if config.materialInput != "" && !cleanAbsolute(config.materialInput) {
+		return options{}, errors.New("--material-input must be a clean absolute path")
+	}
 	return config, nil
+}
+
+// generateMaterial runs the build-tagged material producer against the exact
+// files just prepared. Keeping its output below the owned bundle makes both
+// phases share the same lifecycle and prevents stale declarations from being
+// accidentally reused.
+func generateMaterial(ctx context.Context, config options, prepared bundle, root string, errOut io.Writer) error {
+	arguments := []string{
+		"run", "-tags", "sandboxvm", "./cmd/vm-qualify-material",
+		"-out", root, "-input", config.materialInput,
+	}
+	for _, item := range prepared.artifacts {
+		arguments = append(arguments, "-"+item.component, item.path)
+	}
+	command := exec.CommandContext(ctx, "go", arguments...)
+	command.Dir = config.repo
+	command.Env = os.Environ()
+	command.Stdout, command.Stderr = io.Discard, errOut
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("generate qualification material: %w", err)
+	}
+	return nil
+}
+
+func materialEnvironment(environment []string, root string) []string {
+	return replaceSelectedEnvironment(environment,
+		[]string{"TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"},
+		map[string]string{
+			"TS_VM_RUN_DECLARATION_FILE":     filepath.Join(root, "run-declaration.json"),
+			"TS_VM_CONTROL_DECLARATION_FILE": filepath.Join(root, "control-declaration.json"),
+			"TS_VM_STATE_ROOT":               filepath.Join(root, "state"),
+		})
 }
 
 func prepare(ctx context.Context, config options, errOut io.Writer) (bundle, error) {

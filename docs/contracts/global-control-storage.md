@@ -6,6 +6,9 @@ Its global NATS runtime opens only the control records needed for those duties.
 BYOK admission records may include validated provider references and wrapped
 database-key ciphertext so a restarted authority can rebuild provider access;
 credentials and plaintext key material remain outside NATS.
+The running process currently has one AWS KMS workload-identity authority
+tuple; recovered references that do not match it are rejected. Persisting a
+reference does not provide credentials or enable cross-customer authority.
 
 | Resource | Purpose | Limit per replica |
 | --- | --- | ---: |

@@ -51,6 +51,10 @@ NATS contains orchestrator control state only, including validated BYOK
 provider references and wrapped database-key ciphertext. Customer documents,
 WAL, replication frames, reactive frames, query results, usage truth, provider
 credentials, and plaintext key material never enter it.
+The deployed runtime currently serves one AWS KMS authority tuple per process;
+NATS-recovered references are checked against that tuple and mismatches fail
+closed. Multi-authority hosting requires a new, qualified credential-source
+mapping.
 
 ## Estate and providers
 

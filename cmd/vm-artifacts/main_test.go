@@ -124,6 +124,35 @@ func TestBundleEnvironmentPreservesMissingDeclarationInputs(t *testing.T) {
 	}
 }
 
+func TestMaterialEnvironmentBindsGeneratedDeclarationsAndState(t *testing.T) {
+	environment := materialEnvironment([]string{
+		"PATH=/bin",
+		"TS_VM_RUN_DECLARATION_FILE=/stale/run.json",
+		"TS_VM_CONTROL_DECLARATION_FILE=/stale/control.json",
+		"TS_VM_STATE_ROOT=/stale/state",
+	}, "/private/material")
+	for _, want := range []string{
+		"TS_VM_RUN_DECLARATION_FILE=/private/material/run-declaration.json",
+		"TS_VM_CONTROL_DECLARATION_FILE=/private/material/control-declaration.json",
+		"TS_VM_STATE_ROOT=/private/material/state",
+	} {
+		if !containsEnvironment(environment, want) {
+			t.Fatalf("generated input %q was not bound: %#v", want, environment)
+		}
+	}
+	for _, name := range []string{"TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"} {
+		count := 0
+		for _, value := range environment {
+			if strings.HasPrefix(value, name+"=") {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("%s occurs %d times", name, count)
+		}
+	}
+}
+
 func TestValidateArtifactsRejectsAliasesAndDuplicateBytes(t *testing.T) {
 	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
 		t.Skip("qualification ELF validation is native Linux only")

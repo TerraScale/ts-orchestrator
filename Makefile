@@ -15,9 +15,10 @@ VM_ENV = TS_VM_ROOT="$(abspath $(VM_ROOT))" TS_VM_PINS="$(abspath $(VM_PINS))" T
 # trust root, passes the complete signed triplets to vm-qualify, and removes
 # only its private per-invocation directory after vm-qualify has stopped.
 VM_ARTIFACTS ?= go run ./cmd/vm-artifacts
+VM_MATERIAL_INPUT ?=
 VM_TERRABASE_REPO ?= $(CURDIR)/../terrabase
 VM_TERRABASE_BINARY ?=
-VM_ARTIFACT_ARGS = --root "$(abspath $(VM_ROOT))" --repo "$(abspath $(CURDIR))" --terrabase-repo "$(abspath $(VM_TERRABASE_REPO))" $(if $(strip $(VM_TERRABASE_BINARY)),--terrabase-binary "$(abspath $(VM_TERRABASE_BINARY))")
+VM_ARTIFACT_ARGS = --root "$(abspath $(VM_ROOT))" --repo "$(abspath $(CURDIR))" --terrabase-repo "$(abspath $(VM_TERRABASE_REPO))" $(if $(strip $(VM_TERRABASE_BINARY)),--terrabase-binary "$(abspath $(VM_TERRABASE_BINARY))") $(if $(strip $(VM_MATERIAL_INPUT)),--material-input "$(abspath $(VM_MATERIAL_INPUT))")
 VM_WITH_ARTIFACTS = $(VM_ARTIFACTS) $(VM_ARTIFACT_ARGS) -- $(VM_QUALIFY)
 
 vm-doctor:
