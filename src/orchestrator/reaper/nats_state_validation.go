@@ -134,7 +134,10 @@ func reaperStateBytes(state *State) ([]byte, error) {
 				return nil, ErrStateUnavailable
 			}
 			if entry.Phase == PhaseDeleting || entry.Phase == PhaseDeleted {
-				if entry.FirstNoticeAt.IsZero() {
+				// Billing-grace deletion enters deleting directly from the
+				// pause state under its own admission journal; the idle
+				// notice ladder applies only to the free-tier idle path.
+				if entry.FirstNoticeAt.IsZero() && !entry.BillingGrace {
 					return nil, ErrStateUnavailable
 				}
 			}
@@ -195,9 +198,19 @@ func reaperIntentTransition(before, after *State) error {
 			return ErrStateConflict
 		}
 		reactivate := old.Phase == PhasePaused && entry.Phase == PhaseActive
-		if reactivate {
+		// A pre-edge billing cancellation reactivates without a fresh
+		// customer request: coverage restoration, not activity, ends the
+		// billing deletion. From deleting, the durably acknowledged admission
+		// retraction is its proof and no irreversible shred or data operation
+		// may exist; from paused nothing was ever admitted.
+		billingCancel := entry.Phase == PhaseActive && old.BillingGrace && (old.Phase == PhasePaused ||
+			old.Phase == PhaseDeleting && !billingIrreversibleFence(old) && reaperDone(old, reaperCycleName(old, "billing-deletion/cancelled")))
+		if reactivate || billingCancel {
 			key := fmt.Sprintf("reactivate/%s/%d", id, entry.LastRequest.UnixNano())
-			if old.Cycle == ^uint64(0) || entry.Cycle != old.Cycle+1 || !reaperDone(old, key) || !entry.LastRequest.After(old.PausedAt) {
+			if old.Cycle == ^uint64(0) || entry.Cycle != old.Cycle+1 || !reaperDone(old, key) {
+				return ErrStateConflict
+			}
+			if reactivate && !old.BillingGrace && !entry.LastRequest.After(old.PausedAt) {
 				return ErrStateConflict
 			}
 		} else {
@@ -284,7 +297,7 @@ func reaperNewOperations(old, entry Entry) bool {
 				return false
 			}
 		case reaperCycleName(entry, "notice/final/"+entry.DatabaseID):
-			if old.FirstNoticeAt.IsZero() || phase != PhasePaused && phase != PhaseDeleting {
+			if !old.BillingGrace && old.FirstNoticeAt.IsZero() || phase != PhasePaused && phase != PhaseDeleting {
 				return false
 			}
 		case "delete/cdn-purge", "delete/crypto-shred", "delete/data":
@@ -299,9 +312,22 @@ func reaperNewOperations(old, entry Entry) bool {
 			if name == reaperCycleName(entry, "delete/crypto-shred") && !reaperDone(old, reaperCycleName(old, "delete/cdn-purge")) || name == reaperCycleName(entry, "delete/data") && !reaperDone(old, reaperCycleName(old, "delete/crypto-shred")) {
 				return false
 			}
-		default:
-			if !strings.HasPrefix(name, "reactivate/"+entry.DatabaseID+"/") || phase != PhasePaused {
+		case reaperCycleName(entry, "billing-deletion/cancelled"):
+			// The durable admission retraction is valid only from a billing
+			// deleting entry before the irreversible edge.
+			if !old.BillingGrace || phase != PhaseDeleting || billingIrreversibleFence(old) {
 				return false
+			}
+		default:
+			if !strings.HasPrefix(name, "reactivate/"+entry.DatabaseID+"/") {
+				return false
+			}
+			if phase != PhasePaused {
+				// The billing-cancel reactivation records its operation from
+				// the deleting state, after the admission retraction is done.
+				if phase != PhaseDeleting || !old.BillingGrace || !reaperDone(old, reaperCycleName(old, "billing-deletion/cancelled")) {
+					return false
+				}
 			}
 		}
 	}

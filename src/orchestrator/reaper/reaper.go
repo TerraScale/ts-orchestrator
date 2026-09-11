@@ -465,10 +465,15 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 				}
 				return "deleted", nil
 			}
-			if err := r.cancelBillingDeletionLocked(ctx, state, database, now); err != nil {
-				return "", err
+			// Past the irreversible edge (a shred or data deletion operation
+			// exists for this cycle) the admission cannot be retracted, and
+			// reactivation would race the in-flight DEK destruction. Hold the
+			// entry in deleting for operator intervention; the scan continues.
+			key := "delete/billing-irreversible-hold/" + database.ID
+			if auditErr := r.auditOnce(context.WithoutCancel(ctx), state, database.ID, "delete", "blocked-cancel", key, now, "destruction in flight; billing deletion cannot be cancelled"); auditErr != nil {
+				return "", auditErr
 			}
-			return "reactivated", nil
+			return "skipped", nil
 		}
 		if err := r.deleteLocked(ctx, state, database, now); err != nil {
 			return "", err
@@ -817,7 +822,10 @@ func (r *Reconciler) reactivateLocked(ctx context.Context, state *State, databas
 	if entry.Phase == PhaseDeleted {
 		return ErrDeleted
 	}
-	if entry.Phase == PhaseDeleting {
+	// Only the pre-edge billing cancellation reactivates out of deleting,
+	// after its admission retraction is durably acknowledged. Every other
+	// deleting entry is irreversible.
+	if entry.Phase == PhaseDeleting && !entry.BillingGrace {
 		return ErrDeletionStarted
 	}
 	if entry.Phase == PhaseActive {
@@ -875,15 +883,22 @@ func (r *Reconciler) billingDestructionConfirmed(ctx context.Context, entry Entr
 
 func (r *Reconciler) cancelBillingDeletionLocked(ctx context.Context, state *State, database Database, now time.Time) error {
 	entry := state.Entries[database.ID]
-	entry.Phase = PhasePaused
-	state.Entries[database.ID] = entry
-	// Retract the orchestrator-side automatic deletion before reactivating:
-	// if the durable retraction cannot be persisted, the database must not be
-	// reported as kept while the deletion workflow keeps advancing it.
-	if r.admission != nil {
-		if err := r.admission.CancelDeletion(ctx, database); err != nil {
+	if r.admission == nil {
+		return ErrMissingDependency
+	}
+	// A deleting entry has an admitted automatic deletion: retract it as a
+	// durable operation whose acknowledgement is the reactivation's proof.
+	// A billing pause was never admitted to delete, so CancelDeletion is the
+	// documented idempotent no-op there.
+	if entry.Phase == PhaseDeleting {
+		if err := r.operationLocked(ctx, state, database.ID, r.operationName(entry, "billing-deletion/cancelled"), func(ctx context.Context, key string) error {
+			return r.admission.CancelDeletion(ctx, database)
+		}, now); err != nil {
 			return err
 		}
+		entry = state.Entries[database.ID]
+	} else if err := r.admission.CancelDeletion(ctx, database); err != nil {
+		return err
 	}
 	if err := r.reactivateLocked(ctx, state, database.ID, entry.LastRequest); err != nil {
 		return err
