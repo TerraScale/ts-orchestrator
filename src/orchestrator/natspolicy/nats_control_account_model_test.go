@@ -27,6 +27,7 @@ func TestTheClosedAccountKindsAreExactlyTheGoalKindsInBothDirections(t *testing.
 		NatsControlAccountKindGlobalDirectoryReadService,
 		NatsControlAccountKindRegionalController,
 		NatsControlAccountKindHostAgent,
+		NatsControlAccountKindJournalWriter,
 		NatsControlAccountKindReadOnlyMonitoring,
 		NatsControlAccountKindBreakGlassRecovery,
 	}
@@ -53,6 +54,7 @@ func TestTheClosedAccountKindsAreExactlyTheGoalKindsInBothDirections(t *testing.
 		"global-directory-read-service",
 		"regional-controller",
 		"host-agent",
+		"journal-writer",
 		"read-only-monitoring",
 		"break-glass-recovery",
 	}

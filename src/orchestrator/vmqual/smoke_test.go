@@ -321,7 +321,7 @@ func TestRunSmokeProvesBothProfilesAndPersistentData(t *testing.T) {
 	if len(report.Profiles) != 2 || !report.Profiles[0].Supported || !report.Profiles[1].Supported {
 		t.Fatalf("profiles = %+v", report.Profiles)
 	}
-	if report.Profiles[0].Name != "control-only" || report.Profiles[0].MemoryMiB != 256 || report.Profiles[1].Name != "service" || report.Profiles[1].MemoryMiB != 512 {
+	if report.Profiles[0].Name != "control-only" || report.Profiles[0].MemoryMiB != 512 || report.Profiles[1].Name != "service" || report.Profiles[1].MemoryMiB != 512 {
 		t.Fatalf("profile limits = %+v", report.Profiles)
 	}
 	if report.Boot <= 0 || report.Ready <= 0 || report.Cleanup <= 0 || report.PeakRSSBytes == 0 || report.PeakIdleCPU <= 0 || report.HostDiskBytes == 0 {

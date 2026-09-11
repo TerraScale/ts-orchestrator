@@ -23,6 +23,7 @@ const (
 	NatsControlAccountKindGlobalDirectoryReadService   NatsControlAccountKind = 3
 	NatsControlAccountKindRegionalController           NatsControlAccountKind = 4
 	NatsControlAccountKindHostAgent                    NatsControlAccountKind = 5
+	NatsControlAccountKindJournalWriter                NatsControlAccountKind = 6
 	NatsControlAccountKindReadOnlyMonitoring           NatsControlAccountKind = 8
 	NatsControlAccountKindBreakGlassRecovery           NatsControlAccountKind = 9
 )
@@ -39,6 +40,8 @@ func (k NatsControlAccountKind) String() string {
 		return "RegionalController"
 	case NatsControlAccountKindHostAgent:
 		return "HostAgent"
+	case NatsControlAccountKindJournalWriter:
+		return "JournalWriter"
 	case NatsControlAccountKindReadOnlyMonitoring:
 		return "ReadOnlyMonitoring"
 	case NatsControlAccountKindBreakGlassRecovery:
@@ -328,6 +331,8 @@ func tryMapAccountKindName(kindName string) (NatsControlAccountKind, bool) {
 		return NatsControlAccountKindRegionalController, true
 	case "host-agent":
 		return NatsControlAccountKindHostAgent, true
+	case "journal-writer":
+		return NatsControlAccountKindJournalWriter, true
 	case "read-only-monitoring":
 		return NatsControlAccountKindReadOnlyMonitoring, true
 	case "break-glass-recovery":
@@ -349,6 +354,8 @@ func accountKindName(kind NatsControlAccountKind) string {
 		return "regional-controller"
 	case NatsControlAccountKindHostAgent:
 		return "host-agent"
+	case NatsControlAccountKindJournalWriter:
+		return "journal-writer"
 	case NatsControlAccountKindReadOnlyMonitoring:
 		return "read-only-monitoring"
 	case NatsControlAccountKindBreakGlassRecovery:

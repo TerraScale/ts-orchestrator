@@ -115,8 +115,8 @@
         "ts.orch.v1.<region>.agent.<agent-hash>.ack.>"
       ]
     },
-    {
-      "kind": "host-agent",
+  {
+    "kind": "host-agent",
       "regionScoped": true,
       "agentHashScoped": true,
       "publish": [
@@ -124,10 +124,21 @@
         "ts.orch.v1.<region>.agent.<agent-hash>.ack.>"
       ],
       "subscribe": [
-        "ts.orch.v1.<region>.agent.<agent-hash>.command.>"
-      ]
-    },
-    {
+      "ts.orch.v1.<region>.agent.<agent-hash>.command.>"
+    ]
+  },
+  {
+    "kind": "journal-writer",
+    "regionScoped": true,
+    "publish": [
+      "_INBOX.>"
+    ],
+    "subscribe": [
+      "ts.orch.v1.<region>.command.journal.>",
+      "ts.orch.v1.<region>.command.runtime-lifecycle.>"
+    ]
+  },
+  {
       "kind": "read-only-monitoring",
       "regionScoped": true,
       "readOnly": true,

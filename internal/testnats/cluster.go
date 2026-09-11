@@ -77,8 +77,8 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 	port := l.Addr().(*net.TCPAddr).Port
 	l.Close()
 	route, _ := url.Parse(fmt.Sprintf("nats-route://127.0.0.1:%d", port))
-	accounts := map[string]*natsserver.Account{"$SYS": natsserver.NewAccount("$SYS")}
-	users := []*natsserver.NkeyUser{{Nkey: pub, Account: accounts["$SYS"]}}
+	accounts := map[string]*natsserver.Account{"$SYS": natsserver.NewAccount("$SYS"), "ORCH": natsserver.NewAccount("ORCH")}
+	users := []*natsserver.NkeyUser{{Nkey: pub, Account: accounts["ORCH"]}}
 	for _, role := range roles {
 		if role.Name == "" || role.Account == "" {
 			t.Fatal("permissioned NATS role requires name and account")
@@ -102,6 +102,14 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 		}
 		c.Roles[role.Name] = RoleIdentity{Key: roleKey, Public: rolePublic, Account: role.Account}
 		users = append(users, &natsserver.NkeyUser{Nkey: rolePublic, Account: account, Permissions: &natsserver.Permissions{Publish: &natsserver.SubjectPermission{Allow: role.Publish}, Subscribe: &natsserver.SubjectPermission{Allow: role.Subscribe}}})
+	}
+	for accountName, account := range accounts {
+		if accountName == "$SYS" {
+			continue
+		}
+		if err := account.EnableJetStream(nil, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	accountList := make([]*natsserver.Account, 0, len(accounts))
 	for _, account := range accounts {

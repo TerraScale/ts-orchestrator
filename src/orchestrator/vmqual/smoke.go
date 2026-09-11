@@ -18,7 +18,12 @@ import (
 )
 
 const (
-	SmokeControlMemoryMiB = int64(256)
+	// The control-only guest runs ts-node plus the orchestrator's embedded
+	// seed broker. Measured global OOM at 256 MiB (ts-node peaked at 153 MiB
+	// while the broker reached steady state) killed ts-node at exactly the
+	// moment initial admission completed. 512 MiB stays inside the declared
+	// 256–512 MiB envelope and the four-guest smoke aggregate budget.
+	SmokeControlMemoryMiB = int64(512)
 	smokeOutputLimit      = 64 << 10
 	smokeUsagePoll        = 25 * time.Millisecond
 	maxSmokeUsageWait     = 2 * time.Second

@@ -61,8 +61,6 @@ type natsRuntimeState struct {
 	leaders       jetstream.KeyValue
 	runtime       jetstream.KeyValue
 	delivery      jetstream.KeyValue
-	operations    jetstream.KeyValue
-	proofs        jetstream.KeyValue
 	bundles       jetstream.ObjectStore
 	protocol      jetstream.ObjectStore
 	startup       jetstream.Consumer
@@ -343,6 +341,21 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 		}
 		return store, nil
 	}
+	// The controller checks the private journal's immutable topology but never
+	// opens its KV handle. Mutations are mediated by the isolated journal-writer
+	// runtime, so this validation requires only stream-info permission.
+	validatePrivateJournal := func(configuration jetstream.KeyValueConfig) error {
+		stream, err := js.Stream(ctx, "KV_"+configuration.Bucket)
+		if err != nil {
+			return err
+		}
+		info, err := stream.Info(ctx)
+		if err != nil {
+			return err
+		}
+		return NatsOperationJournalStore.ValidateExactStreamConfiguration(
+			info.Config, NatsOperationJournalStore.CanonicalKeyValueStream(configuration))
+	}
 	leaders, err := openPlain(topology.Leaders())
 	if err != nil {
 		return nil, err
@@ -359,12 +372,10 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 	if err != nil {
 		return nil, err
 	}
-	operations, err := NatsOperationJournalStore.OpenAsync(ctx, js, topology.Operations(), client)
-	if err != nil {
+	if err := validatePrivateJournal(topology.Operations()); err != nil {
 		return nil, err
 	}
-	proofs, err := NatsOperationJournalStore.OpenAsync(ctx, js, topology.OperationProofConsumptions(), client)
-	if err != nil {
+	if err := validatePrivateJournal(topology.OperationProofConsumptions()); err != nil {
 		return nil, err
 	}
 	openObject := func(configuration jetstream.ObjectStoreConfig) (jetstream.ObjectStore, error) {
@@ -428,7 +439,7 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 		return nil, err
 	}
 	return &natsRuntimeState{leaders: leaders, runtime: runtimeStore, delivery: delivery,
-		operations: operations, proofs: proofs, bundles: bundles, protocol: protocolStore,
+		bundles: bundles, protocol: protocolStore,
 		startup: startup, cellSpec: cellSpec, commandReplay: commandReplay}, nil
 }
 
