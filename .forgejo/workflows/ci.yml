@@ -41,7 +41,7 @@ jobs:
           test "$(git -C terrabase rev-parse HEAD)" = "$TS_TERRABASE_REV"
           test -f terrabase/Cargo.toml
           test -f terrabase/rust-toolchain.toml
-      - uses: https://git.terrascale.tech/TerraScale/ts-deploy@d07297de294b229fb4692b28849a2d0097df65de
+      - uses: ./.forgejo/actions/ts-deploy
         with:
           repo: ts-orchestrator
           terrabase_path: terrabase

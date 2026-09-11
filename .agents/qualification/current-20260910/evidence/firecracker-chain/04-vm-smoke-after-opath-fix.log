@@ -1,0 +1,7 @@
+start_utc=2026-09-11T01:38:08Z
+f9772823fc4d131610b5de350d5b388bffa54723
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator-smoke8" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator-smoke8" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server" -- go run -tags sandboxvm ./cmd/vm-qualify smoke
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.096d071db4a4de72 sha256=096d071db4a4de72d54c3ada71053e1edab327b29c9b8b46c43ecd75d4b12061 bytes=17539232
+vm-artifacts: component=orchestrator version=vmqual.3804d25ce0c116eb sha256=3804d25ce0c116ebd8117733827764e2a909b96b48e18f474f1e6285850d4c5c bytes=41545888
+vm-artifacts: component=terrabase version=vmqual.13003e8e8408af4c sha256=13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1 bytes=39966352
