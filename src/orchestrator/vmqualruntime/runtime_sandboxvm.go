@@ -463,6 +463,7 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Rea
 			readiness.ServiceHealthy = readiness.ServiceHealthy && active
 		}
 	}
+	fmt.Fprintf(os.Stderr, "PROBEFACT %s systemd=%v(state=%q) data=%v net=%v tsnode=%v service=%v\n", id, readiness.Systemd, systemdState, readiness.DataDiskMounted, readiness.Network, readiness.TSNodeHealthy, readiness.ServiceHealthy)
 	return readiness, nil
 }
 
