@@ -308,7 +308,11 @@ func validate(d Declaration, artifact, release string, bindings []Binding) (map[
 	}
 	for _, db := range d.Databases {
 		if db.Backup == nil {
-			continue
+			// TerraBase's production parser refuses an enabled database without
+			// this policy. Reject it at the declaration boundary so a Firecracker
+			// guest can never be launched with a configuration that will fail
+			// during daemon startup.
+			return nil, bad
 		}
 		if db.Backup.PolicyRevision == "" || db.Backup.RetentionDays == 0 || len(db.Backup.Destinations) == 0 {
 			return nil, bad

@@ -190,7 +190,11 @@ func readMaterial(path string, maximum int64, private bool) ([]byte, error) {
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for _, part := range parts[:len(parts)-1] {
-		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		// O_PATH needs only traversal (+x) on each ancestor, matching the
+		// published 0711 root-owned credential directories: opening a
+		// directory O_RDONLY would require directory read permission and
+		// deny the capability-less service user its own credentials.
+		next, e := unix.Openat(fd, part, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		unix.Close(fd)
 		if e != nil {
 			return nil, e

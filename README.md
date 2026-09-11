@@ -26,6 +26,11 @@ The orchestrator owns:
 - embedded NATS JetStream control state; and
 - infrastructure telemetry and `estate.*` publication for the admin console.
 
+For customer-managed encryption (BYOK), NATS persists only validated provider
+references and wrapped database-DEK ciphertext needed for restart and recovery.
+Provider credentials, imported/raw keys, unwrapped DEKs, and customer data stay
+in workload-identity or secret-provider boundaries and never enter NATS.
+
 It does not own database mutations, SQLite or CRDT behavior, replication
 correctness, reactive delivery, usage truth, billing, authentication, SDK
 behavior, arbitrary customer workloads, or a public query proxy.

@@ -67,17 +67,18 @@ func declaration(t testing.TB, bindings []vmengineconfig.Binding, artifact, rele
 		Databases: []vmengineconfig.Database{{Tenant: fmt.Sprintf("%026d", 200), Project: fmt.Sprintf("%026d", 201), Database: fmt.Sprintf("%026d", 202), Region: bindings[0].Region, EncryptionKey: fmt.Sprintf("%026d", 203), MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8}},
 		Limits:    vmengineconfig.Limits{MaxMessageBytes: 1 << 20, MaxInflight: 32, RequestTimeoutMillis: 5000, TLSHandshakeTimeoutMillis: 5000, ShutdownGraceMillis: 5000},
 	}
-	if database {
-		access, err := randomSecret()
-		if err != nil {
-			t.Fatal(err)
-		}
-		secret, err := randomSecret()
-		if err != nil {
-			t.Fatal(err)
-		}
-		d.Databases[0].Backup = &vmengineconfig.BackupConfig{PolicyRevision: "qualification-backup-policy-1", RetentionDays: 7, Destinations: []vmengineconfig.BackupDestination{{Provider: "tigris", Endpoint: "https://fly.storage.tigris.dev", SigningRegion: "auto", Bucket: "terrascale-qualification-backups", VerifiedGeography: "BR", PermittedGeographies: []string{"BR"}, PlacementRevision: "qualification-backup-placement-1", AccessKeyFile: write("backup-access", []byte(access)), SecretKeyFile: write("backup-secret", []byte(secret)), MaxArtifactBytes: 16 << 20, MaxPointBytes: 16 << 20}}}
+	// Production TerraBase rejects every enabled database without an explicit
+	// backup policy. Keep the fixture's database catalog production-valid even
+	// for control-only tests; the database flag controls host credentials below.
+	access, err := randomSecret()
+	if err != nil {
+		t.Fatal(err)
 	}
+	secret, err := randomSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Databases[0].Backup = &vmengineconfig.BackupConfig{PolicyRevision: "qualification-backup-policy-1", RetentionDays: 7, Destinations: []vmengineconfig.BackupDestination{{Provider: "tigris", Endpoint: "https://fly.storage.tigris.dev", SigningRegion: "auto", Bucket: "terrascale-qualification-backups", VerifiedGeography: "BR", PermittedGeographies: []string{"BR"}, PlacementRevision: "qualification-backup-placement-1", AccessKeyFile: write("backup-access", []byte(access)), SecretKeyFile: write("backup-secret", []byte(secret)), MaxArtifactBytes: 16 << 20, MaxPointBytes: 16 << 20}}}
 	seen := map[string]bool{}
 	for _, binding := range bindings {
 		if !seen[binding.Region] {

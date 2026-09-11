@@ -140,6 +140,7 @@ func TestRenderedDatabaseResidencyIncludesDisabledControlDeclarations(t *testing
 		Tenant: d.Databases[0].Tenant, Project: d.Databases[0].Project, Database: "000000000000000000000000CB",
 		Region: "GRU", SelectedRegions: []string{"GRU"}, AllowedRegions: []string{"GRU"},
 		EncryptionKey: "000000000000000000000000CC", MaxStorageBytes: 1 << 20, MaxDocuments: 100, MaxInflight: 8,
+		Backup: d.Databases[0].Backup,
 	})
 	raw, err := json.Marshal(d)
 	if err != nil {
@@ -340,6 +341,7 @@ func TestDeclarationRejectsUnprovenInputs(t *testing.T) {
 		{"duplicate-selected-region", func(d *vmengineconfig.Declaration) { d.Databases[0].SelectedRegions = []string{"GRU", "GRU"} }},
 		{"selected-region-outside-lock", func(d *vmengineconfig.Declaration) { d.Databases[0].SelectedRegions = []string{"FRA"} }},
 		{"quota", func(d *vmengineconfig.Declaration) { d.Databases[0].MaxStorageBytes = 0 }},
+		{"missing-backup-policy", func(d *vmengineconfig.Declaration) { d.Databases[0].Backup = nil }},
 		{"key-version", func(d *vmengineconfig.Declaration) { d.Databases[0].EncryptionKey = "ocid1.key.wrong-kind" }},
 		{"timeout", func(d *vmengineconfig.Declaration) { d.Limits.RequestTimeoutMillis = 0 }},
 		{"output-bound", func(d *vmengineconfig.Declaration) {

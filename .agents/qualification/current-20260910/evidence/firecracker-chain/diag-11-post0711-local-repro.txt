@@ -1,0 +1,39 @@
+# diag: post-0711 investigation (smoke4-7 runs + full local reproduction)
+
+## 1. smoke3 'deploy never happened' was a diagnostic-timing artifact
+Units appear ~90s after ts-node start (local bootstrap deploy); the host Activate()
+2-min deadline expires about then and the startup diagnostic fires mid-deploy.
+smoke4/5/6/7 (same tree, proper fresh roots) all deploy: units exist, orchestrator crash-loops
+with the IDENTICAL pre-fix signature (exit-code 1, 4 err entries, no category).
+
+## 2. Live guest state during smoke7 (debugfs, /tmp harvest)
+/etc/terrascale 0711 root:root; /etc/terrascale/orchestrator{,/regional,/global} 0711 root:root
+credential files 0400 uid62010; membership-pins.json 0444 root
+/var/lib/terrascale (data drive): host-admission/initial-gru-r1 0755 root; proof.json/initial-r1.json 0644 root
+
+## 3. Full local reproduction (exact guest material from smoke7 state root,
+     exact guest layout, uid 2311 = service user, private mount+net ns)
+
+$ run initial-gru-r1 driver (raw error):
+RAW ERROR: permission denied
+
+$ syscall-level walk replication as uid 2311:
+openat dir  etc            -> OK
+openat dir  terrascale     -> permission denied (errno 13)   <-- dir is 0711 root:root
+
+$ raw DAC check as uid 2311:
+head -c 16 .../regional/ca.pem -> 16 bytes OK   (path walk-through works: +x is enough)
+ls .../regional/ -> Permission denied            (dir listing needs +r)
+
+$ after chmod 0755 on the credential dirs (all else unchanged):
+- every initialgrant.ReadMaterialFile probe: OK
+- full initial-gru-r1 runtime STARTS: admission verified, broker bound,
+  JetStream provisioned, status line:
+  {"preliminaryCapture":{"state":"disabled"},"preliminaryPublication":{"state":"disabled"}}
+
+## 4. Root cause of the unchanged crash
+initialgrant readMaterial (src/orchestrator/initialgrant/files.go:187-209) opens EVERY
+ancestor directory with O_RDONLY|O_DIRECTORY. open() on a directory needs READ
+permission on that directory (not just +x traversal). 0711 gives others only --x,
+so the capability-less orchestrator still gets EACCES at openat(/etc, "terrascale") —
+same failure point and same redacted journal text as with the original 0700.
