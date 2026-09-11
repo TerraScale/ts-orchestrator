@@ -747,3 +747,17 @@ func TestExactMemberTerminalObservationRequiresProviderResourceAndETag(t *testin
 		})
 	}
 }
+
+func TestMemberLaunchRequiresEveryDeclaredSecurityGroup(t *testing.T) {
+	declared := testComputeRegion()
+	subnet := ObservedSubnet{ID: "ocid1.subnet.oc1.x", DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "subnet")}
+	nsg := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.x", DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}
+	reconciler := &ComputeReconciler{}
+	if _, nsgIDs, err := reconciler.memberSubnetAndNSGs(declared, ComputeObserved{Subnets: []ObservedSubnet{subnet}}); err == nil {
+		t.Fatalf("launch proceeded without the declared security group: %v", nsgIDs)
+	}
+	subnetID, nsgIDs, err := reconciler.memberSubnetAndNSGs(declared, ComputeObserved{Subnets: []ObservedSubnet{subnet}, NSGs: []ObservedNSG{nsg}})
+	if err != nil || subnetID != subnet.ID || len(nsgIDs) != 1 || nsgIDs[0] != nsg.ID {
+		t.Fatalf("complete networking must launch: %v %v %v", subnetID, nsgIDs, err)
+	}
+}

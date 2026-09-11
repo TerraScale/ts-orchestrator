@@ -918,6 +918,14 @@ func admittedDiagnostic(path string, args []string) bool {
 		// configuration; readiness distinguishes an engine that awaits
 		// control-plane delivery from one that fails to start.
 		return key == "-s\x00/opt/terrascale/terrabase/current/terrabase.config"
+	case "/usr/bin/uname":
+		// Fixed-form architecture probe for the delivery lane's native
+		// release selection.
+		return key == "-m"
+	case "/usr/bin/cat":
+		// Fixed-form unit read: the delivery lane proves the activated
+		// systemd unit text equals the qualified release's unit.
+		return key == "/etc/systemd/system/terrascale-terrabase.service"
 	case "/usr/bin/sha256sum":
 		return len(args) == 1 && admittedDigestPath(args[0])
 	default:

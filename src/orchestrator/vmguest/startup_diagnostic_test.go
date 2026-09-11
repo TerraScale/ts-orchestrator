@@ -7,6 +7,8 @@ func TestStartupDiagnosticsAdmitOnlyFixedReadOnlyCommands(t *testing.T) {
 		for _, request := range []Request{
 			{SchemaVersion: SchemaVersion, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"show", unit, "--property=MainPID,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus"}},
 			{SchemaVersion: SchemaVersion, Operation: OperationExecute, Path: "/usr/bin/journalctl", Args: []string{"--unit", unit, "--lines=20", "--no-pager", "--output=json", "--output-fields=MESSAGE,PRIORITY", "--boot"}},
+			{SchemaVersion: SchemaVersion, Operation: OperationExecute, Path: "/usr/bin/uname", Args: []string{"-m"}},
+			{SchemaVersion: SchemaVersion, Operation: OperationExecute, Path: "/usr/bin/cat", Args: []string{"/etc/systemd/system/terrascale-terrabase.service"}},
 		} {
 			if err := request.Validate(); err != nil {
 				t.Fatal(err)
