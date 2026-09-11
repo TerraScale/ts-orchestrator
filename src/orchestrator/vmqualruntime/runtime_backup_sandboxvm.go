@@ -43,21 +43,12 @@ type qualificationBackupFixture struct {
 }
 
 func loadQualificationBackup(path string) (*qualificationBackupFixture, error) {
-	if path == "" {
-		return nil, nil
-	}
-	data, err := initialgrant.ReadMaterialFile(path, 1<<20, false)
+	declaration, err := loadQualificationBackupDeclaration(path)
 	if err != nil {
 		return nil, err
 	}
-	var declaration vmengineconfig.Declaration
-	if err := json.Unmarshal(data, &declaration); err != nil {
-		return nil, err
-	}
-	for _, db := range declaration.Databases {
-		if db.Backup == nil {
-			return nil, errors.New("vmqual: local backup fixture requires backup policy for every declared database")
-		}
+	if path == "" {
+		return nil, nil
 	}
 	fixture := &qualificationBackupFixture{}
 	success := false
@@ -85,6 +76,26 @@ func loadQualificationBackup(path string) (*qualificationBackupFixture, error) {
 	}
 	success = true
 	return fixture, nil
+}
+
+func loadQualificationBackupDeclaration(path string) (vmengineconfig.Declaration, error) {
+	if path == "" {
+		return vmengineconfig.Declaration{}, nil
+	}
+	data, err := initialgrant.ReadMaterialFile(path, 1<<20, false)
+	if err != nil {
+		return vmengineconfig.Declaration{}, err
+	}
+	var declaration vmengineconfig.Declaration
+	if err := json.Unmarshal(data, &declaration); err != nil {
+		return vmengineconfig.Declaration{}, err
+	}
+	for _, db := range declaration.Databases {
+		if db.Backup == nil {
+			return vmengineconfig.Declaration{}, errors.New("vmqual: local backup fixture requires backup policy for every declared database")
+		}
+	}
+	return declaration, nil
 }
 
 func (services *qualificationRuntimeServices) startBackup(ctx context.Context) error {

@@ -123,3 +123,21 @@ func TestQualificationBackupLoaderAcceptsDeclaredBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestQualificationBackupLoaderRejectsMissingBackupAfterValidDatabase(t *testing.T) {
+	temp := t.TempDir()
+	declarationPath := filepath.Join(temp, "declaration.json")
+	declaration := []byte(`{"databases":[{"backup":{"destinations":[{"provider":"tigris","endpoint":"https://fly.storage.tigris.dev","signingRegion":"auto","bucket":"fixture","accessKeyFile":"/does-not-exist/access","secretKeyFile":"/does-not-exist/secret"}]}}, {"backup":null}]}`)
+	if err := os.WriteFile(declarationPath, declaration, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture, err := loadQualificationBackup(declarationPath)
+	if fixture != nil {
+		fixture.close(t.Context())
+		t.Fatal("mixed declaration created a fixture")
+	}
+	if err == nil || !strings.Contains(err.Error(), "requires backup policy") {
+		t.Fatalf("mixed declaration error = %v", err)
+	}
+}

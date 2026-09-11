@@ -120,6 +120,9 @@ func newQualificationServices(config vmqual.Config, plan vmnet.NetworkPlan, arch
 	if !filepath.IsAbs(config.StateRoot) || filepath.Clean(config.StateRoot) != config.StateRoot {
 		return nil, errors.New("vmqual: durable qualification admission requires an absolute owned state root")
 	}
+	if _, err := loadQualificationBackupDeclaration(config.TerraBaseDeclarationFile); err != nil {
+		return nil, err
+	}
 	admissionDirectory := filepath.Join(config.StateRoot, "qualification-admission-"+plan.RunID)
 	artifacts, publicKey, err := loadProductionArtifacts(config, architecture)
 	if err != nil {
