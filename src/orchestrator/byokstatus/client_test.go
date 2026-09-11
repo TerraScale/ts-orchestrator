@@ -1,6 +1,7 @@
 package byokstatus
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -27,5 +28,25 @@ func TestPublishBindsStatusRequest(t *testing.T) {
 func TestRejectsInsecureEndpoint(t *testing.T) {
 	if _, err := New(Config{Endpoint: "http://dashboard.example/status", ServiceKey: "secret"}); err == nil {
 		t.Fatal("insecure endpoint accepted")
+	}
+}
+
+func TestPublishRejectsNonDurableFailureStatus(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client, err := New(Config{Endpoint: "https://dashboard.example/status", ServiceKey: "secret", HTTP: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.endpoint = server.URL
+	if err := client.Publish(t.Context(), Update{ProjectID: "project", Status: "error", ConfigurationUpdatedAt: "2026-09-09T00:00:00Z"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("error status = %v, want %v", err, ErrUnavailable)
+	}
+	if called {
+		t.Fatal("non-durable failure status sent to dashboard")
 	}
 }

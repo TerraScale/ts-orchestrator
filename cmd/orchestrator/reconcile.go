@@ -91,7 +91,7 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	// composition is admitted before the first reconcile pass so a partially
 	// wired control plane cannot mutate providers while its publication,
 	// rotation, reaper, or restore obligations are absent.
-	production, err := startProductionRuntime(ctx, runtimeOptions)
+	production, err := startProductionRuntime(ctx, runtimeOptions, lookup)
 	if err != nil {
 		return fmt.Errorf("reconcile: production runtime composition: %w", err)
 	}

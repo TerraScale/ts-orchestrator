@@ -33,6 +33,20 @@ type PrivateFixture struct {
 	DeclarationPath string
 	Declaration     vmengineconfig.Declaration
 	Bindings        []vmengineconfig.Binding
+	Peers           []Peer
+}
+
+// Peer is the non-secret transport composition expected by TerraBase
+// admission. It is derived from the same declaration bindings and is exposed
+// so fixture tests can prove that no peer or workload identity is implicit.
+type Peer struct {
+	NodeID           string
+	Member           string
+	Region           string
+	Endpoint         string
+	WorkloadIdentity string
+	Generation       uint64
+	Epoch            uint64
 }
 
 // Prepare creates the six guest declaration required by the production
@@ -189,6 +203,7 @@ func prepareAt(parent, artifact, release string) (PrivateFixture, error) {
 		natsURL := "tls://" + gateway + ":4222"
 		h := vmengineconfig.Host{NodeID: b.NodeID, Member: member, ObserverIdentity: observerID, ObserverDatabase: d.Databases[0].Database, ObserverCertificateFile: observerCert, ObserverPrivateKeyFile: observerKey, CertificateFile: memberCert, PrivateKeyFile: memberKey, CAFile: caFile, OrchestratorPrincipals: []string{controlID}, EngineControl: &vmengineconfig.EngineControlCredentials{Identity: controlID, CertificateFile: controlCert, PrivateKeyFile: controlKey, NATSURL: natsURL, NATSAccount: "$G", NKeyFile: hostNKey, NATSCertificateFile: natsCert, NATSPrivateKeyFile: natsKey, NATSCAFile: caFile}, DatabaseHost: &vmengineconfig.DatabaseHostCredentials{DataRoot: "/var/lib/terrascale/terrabase/member", NATSURL: natsURL, NATSAccount: "$G", NKeyFile: dbNKey, LifecycleNKeyFile: lifecycleNKey, CertificateFile: dbCert, PrivateKeyFile: dbKey, CAFile: caFile, CatalogPath: "/var/lib/terrascale/orchestrator/keys/catalog.json", EngineSocket: "/run/terrascale-database/engine.sock", IngressSocket: "/var/lib/terrascale/orchestrator/database/ingress.sock", IngressUID: 62013}}
 		d.Hosts = append(d.Hosts, h)
+		f.Peers = append(f.Peers, Peer{NodeID: b.NodeID, Member: member, Region: b.Region, Endpoint: b.Address + ":8422", WorkloadIdentity: memberID, Generation: d.Generation, Epoch: d.Epoch})
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {

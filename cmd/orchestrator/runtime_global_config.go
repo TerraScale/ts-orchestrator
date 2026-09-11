@@ -35,6 +35,7 @@ type productionGlobalBuildInput struct {
 	BindTargetProjection func(computeTargetProjection)
 	Global               *productionGlobalFile
 	Auth                 productionAuthBootstrapConfig
+	Lookup               envLookup
 	Spec                 estate.Spec
 	Mirror               *delivery.ArtifactMirror
 	Shared               provider.DeliveryRegionStoreConfig
@@ -148,7 +149,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	cleanup = append(cleanup, closeKV)
 	config.KV = kv
 
-	database, err := resolveProductionDatabase(input.Global.Database, productionPlacementConfig{Targets: input.Auth.Targets}, input.Auth)
+	database, err := resolveProductionDatabase(input.Global.Database, productionPlacementConfig{Targets: input.Auth.Targets}, input.Auth, input.Lookup)
 	if err != nil {
 		return fail(fmt.Errorf("global database configuration: %w", err))
 	}

@@ -91,8 +91,8 @@ var (
 	renderCatalog          = writeCatalog
 	verifyEstate           = verifyConfiguredOCIEstate
 	startKeyLease          = startConfiguredKeyLease
-	startProductionRuntime = func(ctx context.Context, options *control.OrchestratorOptions) (*productionRuntime, error) {
-		admission, err := admitProductionRuntime(ctx, options)
+	startProductionRuntime = func(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (*productionRuntime, error) {
+		admission, err := admitProductionRuntime(ctx, options, lookup)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +248,7 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		var serverConfig *bootstrap.NatsServerConfig
 		serverConfig, err = selectedNatsConfiguration(lookup)
 		if err == nil {
-			err = runCommand(ctx, options, serverConfig, func(hostCtx context.Context) (hostServices, error) {
+			err = runCommandWithLookup(ctx, options, serverConfig, lookup, func(hostCtx context.Context) (hostServices, error) {
 				return startConfiguredHostServices(hostCtx, options, lookup)
 			})
 		}
@@ -416,6 +416,10 @@ func exitCode(err error) int {
 }
 
 func runCommand(ctx context.Context, options *control.OrchestratorOptions, serverConfig *bootstrap.NatsServerConfig, startHosts func(context.Context) (hostServices, error)) (result error) {
+	return runCommandWithLookup(ctx, options, serverConfig, os.LookupEnv, startHosts)
+}
+
+func runCommandWithLookup(ctx context.Context, options *control.OrchestratorOptions, serverConfig *bootstrap.NatsServerConfig, lookup envLookup, startHosts func(context.Context) (hostServices, error)) (result error) {
 	if ctx == nil || options == nil {
 		return errors.New("run requires context and options")
 	}
@@ -441,7 +445,7 @@ func runCommand(ctx context.Context, options *control.OrchestratorOptions, serve
 	var admission *admittedProductionRuntime
 	var workerConnection *globalclient.Plan
 	if options.Cell != "local" {
-		admission, err = admitProductionRuntime(ctx, options)
+		admission, err = admitProductionRuntime(ctx, options, lookup)
 		if err != nil {
 			return fmt.Errorf("production runtime admission: %w", err)
 		}

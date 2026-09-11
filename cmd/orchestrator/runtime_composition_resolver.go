@@ -51,8 +51,8 @@ func admittedProductionAutoscaleWiring(spec estate.Spec, healthFile string) (pro
 // NATS and provider clients are opened by the returned constructor, after the
 // selected broker is ready. The regional connection used to read the leaders
 // bucket is a delivery transport; it does not authorize global effects.
-func resolveProductionRuntime(ctx context.Context, options *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
-	if ctx == nil || options == nil {
+func resolveProductionRuntime(ctx context.Context, options *control.OrchestratorOptions, lookup envLookup) (*admittedProductionRuntime, error) {
+	if ctx == nil || options == nil || lookup == nil {
 		return nil, errors.New("production runtime admission requires context and options")
 	}
 	deployment, err := loadProductionDeployment(options)
@@ -90,7 +90,7 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 		if err != nil {
 			return nil, err
 		}
-		if _, err := resolveProductionDatabase(g.Database, productionPlacementConfig{Targets: auth.Targets}, auth); err != nil {
+		if _, err := resolveProductionDatabase(g.Database, productionPlacementConfig{Targets: auth.Targets}, auth, lookup); err != nil {
 			return nil, fmt.Errorf("production database admission: %w", err)
 		}
 		autoscaleWiring, err = admittedProductionAutoscaleWiring(spec, g.HealthFile)
@@ -172,7 +172,7 @@ func resolveProductionRuntime(ctx context.Context, options *control.Orchestrator
 			globalPlan.Construct = func(workerCtx context.Context, session globalWorkerSession) (productionGlobalWorkerConfig, error) {
 				return buildProductionGlobalConfig(workerCtx, session, productionGlobalBuildInput{
 					BindProjection: wiring.BindProjection, BindTargetProjection: wiring.BindTargetProjection,
-					Global: g, Auth: auth, Spec: spec, Mirror: runtime.mirror,
+					Global: g, Auth: auth, Lookup: lookup, Spec: spec, Mirror: runtime.mirror,
 					Shared: constructed.Store, Ownership: constructed.Ownership, Transition: transition,
 					GlobalEdge: constructed.GlobalEdge,
 				})

@@ -188,7 +188,10 @@ func newProductionDatabase(config productionDatabaseConfig, session globalWorker
 		provisionKeys = keylease.Provision
 	}
 	publishOutcome := func(ctx context.Context, record databaseadmission.Record, status string) error {
-		return publishProductionBYOKStatus(ctx, record, status, config.PublishBYOKStatus)
+		if status != string(byokstatus.StatusVerified) {
+			return databaseadmission.ErrForbidden
+		}
+		return publishProductionBYOKStatus(ctx, record, byokstatus.StatusVerified, config.PublishBYOKStatus)
 	}
 	pipeline, err := databaseadmission.New(databaseadmission.Config{
 		Readiness: readiness,
@@ -260,7 +263,7 @@ func installProductionBYOK(ctx context.Context, record databaseadmission.Record,
 	return publish(ctx, record, "verified")
 }
 
-func publishProductionBYOKStatus(ctx context.Context, record databaseadmission.Record, status string, publish func(context.Context, byokstatus.Update) error) error {
+func publishProductionBYOKStatus(ctx context.Context, record databaseadmission.Record, status byokstatus.Status, publish func(context.Context, byokstatus.Update) error) error {
 	if record.BYOK == nil {
 		return nil
 	}

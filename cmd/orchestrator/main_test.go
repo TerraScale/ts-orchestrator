@@ -576,8 +576,8 @@ func TestAdmittedProductionClosesOnTransportStartupFailure(t *testing.T) {
 
 // A test admission plan keeps construction delayed until run has started its
 // explicitly selected broker, matching the real root resolver's contract.
-func testProductionAdmission(construct func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error)) func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
-	return func(_ context.Context, options *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+func testProductionAdmission(construct func(context.Context, *control.OrchestratorOptions) (*productionRuntime, error)) func(context.Context, *control.OrchestratorOptions, envLookup) (*admittedProductionRuntime, error) {
+	return func(_ context.Context, options *control.OrchestratorOptions, _ envLookup) (*admittedProductionRuntime, error) {
 		return &admittedProductionRuntime{construct: func(ctx context.Context) (*productionRuntime, error) { return construct(ctx, options) }}, nil
 	}
 }
@@ -607,7 +607,7 @@ func TestMissingCompositionDiagnosticExcludesWrappedDetails(t *testing.T) {
 
 func TestOperationalJWTModeRejectedBeforeListeners(t *testing.T) {
 	restoreHostSeams(t)
-	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions, envLookup) (*admittedProductionRuntime, error) {
 		return &admittedProductionRuntime{construct: func(context.Context) (*productionRuntime, error) {
 			t.Fatal("live production construction preceded connection admission")
 			return nil, nil

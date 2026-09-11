@@ -20,9 +20,16 @@ type Config struct {
 	HTTP       *http.Client
 }
 
+// Status is the durable outcome that the dashboard accepts from the
+// orchestrator. Provider-install failures remain pending and are retried; they
+// are not project-wide durable states.
+type Status string
+
+const StatusVerified Status = "verified"
+
 type Update struct {
 	ProjectID              string `json:"projectId"`
-	Status                 string `json:"status"`
+	Status                 Status `json:"status"`
 	ConfigurationUpdatedAt string `json:"configurationUpdatedAt"`
 }
 
@@ -48,7 +55,7 @@ func New(config Config) (*Client, error) {
 }
 
 func (c *Client) Publish(ctx context.Context, update Update) error {
-	if c == nil || ctx == nil || ctx.Err() != nil || update.ProjectID == "" || (update.Status != "verified" && update.Status != "error") || update.ConfigurationUpdatedAt == "" {
+	if c == nil || ctx == nil || ctx.Err() != nil || update.ProjectID == "" || update.Status != StatusVerified || update.ConfigurationUpdatedAt == "" {
 		return ErrUnavailable
 	}
 	body, err := json.Marshal(update)

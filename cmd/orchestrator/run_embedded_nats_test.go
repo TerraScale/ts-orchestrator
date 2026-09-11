@@ -60,7 +60,7 @@ func TestRunEmbeddedNatsRequiresExplicitSelection(t *testing.T) {
 func TestProductionAdmissionFailureStartsNoEmbeddedListener(t *testing.T) {
 	restoreHostSeams(t)
 	rejected := errors.New("production configuration missing")
-	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions, envLookup) (*admittedProductionRuntime, error) {
 		return nil, rejected
 	}
 	startEmbeddedNatsRuntime = func(context.Context, bootstrap.NatsServerConfig) (embeddedNatsRuntime, error) {
@@ -82,7 +82,7 @@ func TestEmbeddedNatsPrecedesRegionalAndClosesAfterClients(t *testing.T) {
 	restoreHostSeams(t)
 	var order []string
 	worker := lifecycle.NewScheduledService("cleanup probe", 0, func(context.Context, time.Time) error { return nil })
-	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions, envLookup) (*admittedProductionRuntime, error) {
 		order = append(order, "admit")
 		return &admittedProductionRuntime{construct: func(context.Context) (*productionRuntime, error) {
 			order = append(order, "compose")
@@ -163,7 +163,7 @@ func TestProductionConstructionFailureClosesStartedBrokerWithoutSubscriptions(t 
 	failed := errors.New("durable production store unavailable")
 	broker := &fakeEmbeddedNats{done: make(chan struct{}), ready: true}
 	admitted := false
-	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions) (*admittedProductionRuntime, error) {
+	admitProductionRuntime = func(context.Context, *control.OrchestratorOptions, envLookup) (*admittedProductionRuntime, error) {
 		admitted = true
 		return &admittedProductionRuntime{construct: func(context.Context) (*productionRuntime, error) {
 			if !broker.ready {

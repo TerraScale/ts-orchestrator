@@ -47,7 +47,11 @@ runs:
         test "${#TS_DEPLOY_SIGNATURE_SHA256}" -eq 64
         case "${TS_DEPLOY_SIGNATURE_SHA256}" in *[!0-9a-fA-F]*) echo "ts-deploy: invalid ts-deploy signature checksum" >&2; exit 1 ;; esac
         test -n "${TS_DEPLOY_READ_TOKEN:-}" || { echo "ts-deploy: TS_DEPLOY_READ_TOKEN is required" >&2; exit 1; }
-        fj auth add-token "${TS_DEPLOY_READ_TOKEN}" --host git.terrascale.tech >/dev/null
+        fj_config_dir="${RUNNER_TEMP:-/tmp}/ts-deploy-fj-auth-$$"
+        (umask 077 && mkdir -p -- "${fj_config_dir}")
+        trap 'rm -rf -- "${fj_config_dir}"' EXIT
+        export XDG_CONFIG_HOME="${fj_config_dir}"
+        printf '%s\n' "${TS_DEPLOY_READ_TOKEN}" | fj auth add-token --host git.terrascale.tech >/dev/null
         directory="${RUNNER_TEMP:-/tmp}/ts-deploy-${release}"
         rm -rf -- "${directory}"
         mkdir -p -- "${directory}"
