@@ -466,6 +466,11 @@ func (probe *sshGuestProbe) guestExitZero(ctx context.Context, id, address, path
 	if response.Command == nil {
 		return false, errors.New("vmqual: guest command observation is missing")
 	}
+	// A command that could not run is an observation failure, not evidence
+	// about the configuration: fail the probe instead of relaxing readiness.
+	if response.Command.Error != "" {
+		return false, fmt.Errorf("vmqual: guest command failed: %s", response.Command.Error)
+	}
 	return response.Command.ExitCode == 0, nil
 }
 

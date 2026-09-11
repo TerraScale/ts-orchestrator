@@ -913,6 +913,11 @@ func admittedDiagnostic(path string, args []string) bool {
 		return key == "status\x00eth0\x00--no-pager"
 	case "/usr/bin/timedatectl":
 		return key == "show\x00--property=NTPSynchronized\x00--value"
+	case "/usr/bin/test":
+		// Read-only existence probe for the engine's staged launch
+		// configuration; readiness distinguishes an engine that awaits
+		// control-plane delivery from one that fails to start.
+		return key == "-s\x00/opt/terrascale/terrabase/current/terrabase.config"
 	case "/usr/bin/sha256sum":
 		return len(args) == 1 && admittedDigestPath(args[0])
 	default:

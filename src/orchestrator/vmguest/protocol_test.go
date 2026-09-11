@@ -365,6 +365,7 @@ func TestDiagnosticAdmissionHasNoMutationCommands(t *testing.T) {
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"is-active", "terrascale-ts-node.service"}},
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"show", "terrascale-terrabase.service", "--property=MainPID,ActiveState,SubState"}},
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/sha256sum", Args: []string{"/opt/terrascale/terrabase/v1/terrabase"}},
+		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/test", Args: []string{"-s", "/opt/terrascale/terrabase/current/terrabase.config"}},
 	}
 	for _, request := range accepted {
 		if err := request.Validate(); err != nil {
@@ -377,6 +378,9 @@ func TestDiagnosticAdmissionHasNoMutationCommands(t *testing.T) {
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"is-active", "ts-node.service"}},
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/systemctl", Args: []string{"is-active", "ssh.service"}},
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/sha256sum", Args: []string{"/etc/shadow"}},
+		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/test", Args: []string{"-s", "/etc/shadow"}},
+		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/test", Args: []string{"-s", "/opt/terrascale/terrabase/current/../../etc/shadow"}},
+		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/test", Args: []string{"-e", "/opt/terrascale/terrabase/current/terrabase.config"}},
 		{SchemaVersion: 1, Operation: OperationExecute, Path: "/usr/bin/sha256sum", Args: []string{"/opt/terrascale/../etc/shadow"}},
 	}
 	for _, request := range rejected {
