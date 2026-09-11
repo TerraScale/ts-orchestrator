@@ -190,9 +190,12 @@ func TestActivationAuthenticatesFiniteGrantAndResumesActualVersions(t *testing.T
 			if err := Activate(context.Background(), host, material, status, send); err != nil || attempts != completedAttempts {
 				t.Fatal("completed activation issued more bootstrap mutations")
 			}
-			report.Facts.Components[0].UnitActive = false
-			if err := Activate(context.Background(), host, material, status, send); err == nil {
-				t.Fatal("inactive process qualified as serving")
+			for index, fact := range report.Facts.Components {
+				report.Facts.Components[index].UnitActive = false
+				if err := Activate(context.Background(), host, material, status, send); err == nil {
+					t.Fatalf("inactive %s process qualified as serving", fact.Name)
+				}
+				report.Facts.Components[index].UnitActive = true
 			}
 		})
 	}
