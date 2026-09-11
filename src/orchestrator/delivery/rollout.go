@@ -27,6 +27,11 @@ func (r *Rollout) RecoverFenced(ctx context.Context, request *Request, artifact 
 	}
 	copy := *r
 	copy.config.Control = &fencedHostControl{inner: r.config.Control, fence: fence, check: check}
+	// Edge recovery mutations ride the same durable fence as RollFenced's:
+	// the promoter's restore calls must be fenced at the mutation boundary.
+	if r.config.Edge != nil {
+		copy.config.Edge = &fencedEdgePromoter{inner: r.config.Edge, fence: fence, check: check}
+	}
 	return copy.Recover(ctx, request, artifact, progress)
 }
 

@@ -401,38 +401,44 @@ func (j *Journal) Renew(operationID, requestDigest string, lease OperationLease,
 		return err
 	}
 	key := operationKey(operationID)
-	entry, err := j.store.Get(key)
-	if err != nil {
-		return fmt.Errorf("delivery: operation renewal read failed: %w", err)
-	}
-	operation, err := decodeOperation(entry, operationID)
-	if err != nil {
-		return err
-	}
-	if operation.RequestDigest != requestDigest {
-		return ErrOperationConflict
-	}
-	if operation.State != OperationRunning || operation.OwnerID != lease.OwnerID || operation.Generation != generation {
-		return ErrOperationLeaseActive
-	}
-	now := j.now()
-	if !operation.LeaseUntil.IsZero() && !now.Before(operation.LeaseUntil) {
-		return ErrOperationLeaseActive
-	}
-	next := cloneOperation(operation)
-	next.LeaseUntil = now.Add(leaseTTL(lease.TTL))
-	next.UpdatedAt = now
-	value, err := encodeOperation(next)
-	if err != nil {
-		return err
-	}
-	if _, err := j.store.Update(key, entry.Revision, value); err != nil {
-		if errors.Is(err, ErrStoreConflict) {
+	// The same owner concurrently bumps the revision with rollout progress
+	// writes, so a lost compare-and-set is a routine race, not lease loss:
+	// re-read and re-check ownership instead of cancelling a healthy rollout.
+	for attempt := 0; attempt < 3; attempt++ {
+		entry, err := j.store.Get(key)
+		if err != nil {
+			return fmt.Errorf("delivery: operation renewal read failed: %w", err)
+		}
+		operation, err := decodeOperation(entry, operationID)
+		if err != nil {
+			return err
+		}
+		if operation.RequestDigest != requestDigest {
+			return ErrOperationConflict
+		}
+		if operation.State != OperationRunning || operation.OwnerID != lease.OwnerID || operation.Generation != generation {
 			return ErrOperationLeaseActive
 		}
-		return fmt.Errorf("delivery: operation renewal persistence failed: %w", err)
+		now := j.now()
+		if !operation.LeaseUntil.IsZero() && !now.Before(operation.LeaseUntil) {
+			return ErrOperationLeaseActive
+		}
+		next := cloneOperation(operation)
+		next.LeaseUntil = now.Add(leaseTTL(lease.TTL))
+		next.UpdatedAt = now
+		value, err := encodeOperation(next)
+		if err != nil {
+			return err
+		}
+		if _, err := j.store.Update(key, entry.Revision, value); err != nil {
+			if !errors.Is(err, ErrStoreConflict) {
+				return fmt.Errorf("delivery: operation renewal persistence failed: %w", err)
+			}
+			continue
+		}
+		return nil
 	}
-	return nil
+	return ErrOperationLeaseActive
 }
 
 // RecordRollout persists progress while the owner lease is held. It is

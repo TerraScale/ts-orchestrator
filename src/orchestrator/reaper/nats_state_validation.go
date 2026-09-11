@@ -194,7 +194,16 @@ func reaperIntentTransition(before, after *State) error {
 	}
 	for id, old := range before.Entries {
 		entry, exists := after.Entries[id]
-		if !exists || entry.LastRequest.Before(old.LastRequest) {
+		if !exists {
+			// A terminal entry compacts away once its deletion evidence is
+			// durable: the entry ceiling bounds one state snapshot, not the
+			// lifetime database count.
+			if old.Phase != PhaseDeleted {
+				return ErrStateConflict
+			}
+			continue
+		}
+		if entry.LastRequest.Before(old.LastRequest) {
 			return ErrStateConflict
 		}
 		reactivate := old.Phase == PhasePaused && entry.Phase == PhaseActive

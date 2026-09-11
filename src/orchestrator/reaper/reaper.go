@@ -534,7 +534,14 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 		return "skipped", r.auditOnce(ctx, state, database.ID, "eligibility", "unknown-last-request", "eligibility/"+database.ID+"/unknown-request", now, "")
 	}
 	if entry.Phase == PhaseDeleted {
-		return "skipped", r.auditOnce(ctx, state, database.ID, "delete", "completed", "delete/complete/"+database.ID, now, "")
+		if err := r.auditOnce(ctx, state, database.ID, "delete", "completed", "delete/complete/"+database.ID, now, ""); err != nil {
+			return "", err
+		}
+		// Terminal entries compact away after their completion audit is
+		// durable: the store's entry ceiling bounds one snapshot, not the
+		// lifetime database count, and a full map wedges the scan at the cap.
+		delete(state.Entries, database.ID)
+		return "skipped", r.save(ctx, state)
 	}
 	if entry.Phase == PhaseDeleting && database.LastRequest.After(entry.PausedAt) {
 		// A request racing with destructive work must fail closed. The data

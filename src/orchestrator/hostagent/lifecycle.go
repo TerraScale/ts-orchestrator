@@ -653,7 +653,9 @@ func (l *Lifecycle) specLocked(component string) (hostmanifest.ComponentSpec, bo
 	return hostmanifest.ComponentSpec{}, false
 }
 
-// quiescedLocked is Quiesced without relocking.
+// quiescedLocked is Quiesced without relocking. A retired-but-unretired
+// stale component is still draining, exactly as the drain-status observation
+// reports it; the deploy gate must enforce the same predicate.
 func (l *Lifecycle) quiescedLocked(ctx context.Context) bool {
 	if l.state != NodeStateDraining {
 		return false
@@ -663,6 +665,21 @@ func (l *Lifecycle) quiescedLocked(ctx context.Context) bool {
 			continue
 		}
 		if active, err := l.systemd.UnitActive(ctx, UnitName(spec.Name)); err != nil || active {
+			return false
+		}
+	}
+	for _, component := range l.stale {
+		if component == hostmanifest.TsNodeComponentName {
+			continue
+		}
+		retired, err := l.retirementRecorded(component)
+		if err != nil {
+			return false
+		}
+		if retired {
+			continue
+		}
+		if active, err := l.systemd.UnitActive(ctx, UnitName(component)); err != nil || active {
 			return false
 		}
 	}

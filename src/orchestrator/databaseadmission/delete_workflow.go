@@ -161,7 +161,10 @@ func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDelete
 	found := false
 	for _, existing := range records {
 		if existing.Request == r.DeleteRequest {
-			if existing.AutomaticPolicyRevision != r.PolicyRevision || existing.AutomaticGraceCondition != r.GraceCondition || !existing.AutomaticDeadline.Equal(r.Deadline) {
+			// A cancelled automatic deletion is inert forever; a later
+			// eligible cycle must claim a fresh operation identity instead of
+			// re-arming the cancelled record.
+			if existing.State == "cancelled" || existing.AutomaticPolicyRevision != r.PolicyRevision || existing.AutomaticGraceCondition != r.GraceCondition || !existing.AutomaticDeadline.Equal(r.Deadline) {
 				return Deletion{}, ErrConflict
 			}
 			found = true
@@ -436,7 +439,9 @@ func beginDeletion(s *journalState, r DeleteRequest, at time.Time, retainUntil t
 func recordDeletionStop(s *journalState, r DeleteRequest, receipt DeletionReceipt) (Deletion, error) {
 	key := deletionKey(r)
 	d, ok := s.Deletions[key]
-	if !ok || d.Request != r || d.State == "preparing" {
+	if !ok || d.Request != r || d.State != "stopping" && d.State != "edge_pending" && d.State != "cleanup_pending" {
+		// A cancelled deletion is inert forever: a stop receipt cannot
+		// resurrect it past the irreversible edge.
 		return Deletion{}, ErrConflict
 	}
 	if d.State == "cleanup_pending" {

@@ -188,7 +188,7 @@ func (d *Drill) runAt(ctx context.Context, scheduledAt time.Time) (RunRecord, er
 		}
 	}
 
-	if runErr == nil && ctx.Err() != nil {
+	if runErr == nil && ctx.Err() != nil && !runPending {
 		run.Status = RunCanceled
 		run.Error = ctx.Err().Error()
 		runErr = ctx.Err()

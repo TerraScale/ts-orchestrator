@@ -126,6 +126,11 @@ func beginPlacementRelocation(s *journalState, operation string, expected []Reco
 	// A deletion captures regional preparation and stop effects. Its current
 	// member targets must remain fixed until its retained cleanup is complete.
 	for _, deletion := range s.Deletions {
+		// A cancelled deletion has no pending stop or cleanup effects and
+		// must not fence estate-wide placement work forever.
+		if deletion.State == "cancelled" {
+			continue
+		}
 		if len(deletion.Targets) == 0 {
 			return ErrConflict
 		}

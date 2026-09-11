@@ -62,6 +62,18 @@ func TestBillingDeletionSatisfiesDurableProtocol(t *testing.T) {
 	if state := store.Snapshot().Entries["billing-db"]; state.Phase != PhaseDeleted {
 		t.Fatalf("billing deletion did not complete: %+v", state)
 	}
+	// The next scan compacts the terminal entry after its audit is durable:
+	// the store's entry ceiling must not wedge the reaper at the cap.
+	covered := billingDatabase(due)
+	covered.BillingGraceDeadline = nil
+	catalog.databases = []Database{covered}
+	reaper = makeReaper(t, &testClock{now: due.Add(time.Hour)}, catalog, &testExecutor{observed: true}, &testMailer{}, store, &testAudit{})
+	if _, err := reaper.Run(context.Background()); err != nil {
+		t.Fatalf("terminal compaction: %v", err)
+	}
+	if _, present := store.Snapshot().Entries["billing-db"]; present {
+		t.Fatal("terminal entry was not compacted after its completion audit")
+	}
 }
 
 // Cancelling a billing deletion — before any irreversible work, both from the
