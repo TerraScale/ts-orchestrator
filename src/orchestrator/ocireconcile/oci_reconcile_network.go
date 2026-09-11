@@ -862,6 +862,13 @@ func (r *NetworkReconciler) removeOwnedNSGRules(ctx context.Context, declared es
 	if err != nil {
 		return err
 	}
+	// The parent NSG was just re-verified as positively owned: rules listed
+	// inside it inherit its ownership, the same derivation Observe applies,
+	// so the raw gateway listing (which carries no ownership evidence of its
+	// own) can be compared against the annotated observation.
+	for index := range current {
+		current[index].Managed = true
+	}
 	byID := make(map[string]ObservedSecurityRule, len(current))
 	for _, rule := range current {
 		byID[rule.ID] = rule
