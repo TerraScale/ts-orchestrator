@@ -118,7 +118,7 @@ func TestRunConfigurationAcceptsBYOKRenewalReferences(t *testing.T) {
 }
 
 func TestRunConfigurationFileAdmission(t *testing.T) {
-	for _, mode := range []os.FileMode{0444, 0600, 0644} {
+	for _, mode := range []os.FileMode{0400, 0600} {
 		t.Run(mode.String(), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "run.json")
 			if err := os.WriteFile(path, []byte(validRunConfig), mode); err != nil {
@@ -129,7 +129,7 @@ func TestRunConfigurationFileAdmission(t *testing.T) {
 			}
 		})
 	}
-	for _, kind := range []string{"symlink", "fifo", "writable", "hardlink", "empty", "directory", "relative"} {
+	for _, kind := range []string{"symlink", "fifo", "writable", "group-readable", "hardlink", "empty", "directory", "relative"} {
 		t.Run(kind, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "run.json")
@@ -147,6 +147,8 @@ func TestRunConfigurationFileAdmission(t *testing.T) {
 				err = syscall.Mkfifo(path, 0600)
 			case "writable":
 				err = os.Chmod(path, 0666)
+			case "group-readable":
+				err = os.Chmod(path, 0640)
 			case "hardlink":
 				err = os.Link(path, filepath.Join(dir, "other"))
 			case "empty":
@@ -169,7 +171,7 @@ func TestRunConfigurationFileAdmission(t *testing.T) {
 func TestRunConfigurationReplacesEnvironmentForOptionsAndEstate(t *testing.T) {
 	restoreHostSeams(t)
 	path := filepath.Join(t.TempDir(), "run.json")
-	if err := os.WriteFile(path, []byte(validRunConfig), 0444); err != nil {
+	if err := os.WriteFile(path, []byte(validRunConfig), 0600); err != nil {
 		t.Fatal(err)
 	}
 	assertSource := func(lookup control.EnvironmentLookup) {
