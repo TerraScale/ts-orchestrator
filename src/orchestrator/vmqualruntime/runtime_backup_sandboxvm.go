@@ -54,6 +54,11 @@ func loadQualificationBackup(path string) (*qualificationBackupFixture, error) {
 	if err := json.Unmarshal(data, &declaration); err != nil {
 		return nil, err
 	}
+	for _, db := range declaration.Databases {
+		if db.Backup == nil {
+			return nil, errors.New("vmqual: local backup fixture requires backup policy for every declared database")
+		}
+	}
 	fixture := &qualificationBackupFixture{}
 	success := false
 	defer func() {
@@ -62,9 +67,6 @@ func loadQualificationBackup(path string) (*qualificationBackupFixture, error) {
 		}
 	}()
 	for _, db := range declaration.Databases {
-		if db.Backup == nil {
-			continue
-		}
 		for _, destination := range db.Backup.Destinations {
 			if destination.Provider != "tigris" || destination.Endpoint != "https://"+backupFixtureHostname || destination.SigningRegion != "auto" {
 				return nil, errors.New("vmqual: local backup fixture requires its isolated declared Tigris endpoint")

@@ -78,3 +78,48 @@ func TestBackupFixtureTLSAndSignedObjectRoundtrip(t *testing.T) {
 		t.Fatal("fixture store survived cleanup")
 	}
 }
+
+func TestQualificationBackupLoaderRejectsMissingBackupBeforeMaterialEffects(t *testing.T) {
+	declarationPath := filepath.Join(t.TempDir(), "declaration.json")
+	declaration := []byte(`{"databases":[{"backup":null}]}`)
+	if err := os.WriteFile(declarationPath, declaration, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture, err := loadQualificationBackup(declarationPath)
+	if fixture != nil {
+		fixture.close(t.Context())
+		t.Fatal("missing backup policy created a fixture")
+	}
+	if err == nil || !strings.Contains(err.Error(), "requires backup policy") {
+		t.Fatalf("missing backup policy error = %v", err)
+	}
+}
+
+func TestQualificationBackupLoaderAcceptsDeclaredBackup(t *testing.T) {
+	temp := t.TempDir()
+	accessPath := filepath.Join(temp, "access")
+	secretPath := filepath.Join(temp, "secret")
+	if err := os.WriteFile(accessPath, []byte("access"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secretPath, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declarationPath := filepath.Join(temp, "declaration.json")
+	declaration := []byte(`{"databases":[{"backup":{"destinations":[{"provider":"tigris","endpoint":"https://fly.storage.tigris.dev","signingRegion":"auto","bucket":"fixture","accessKeyFile":"` + accessPath + `","secretKeyFile":"` + secretPath + `"}]}}]}`)
+	if err := os.WriteFile(declarationPath, declaration, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture, err := loadQualificationBackup(declarationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture == nil || len(fixture.credentials) != 1 {
+		t.Fatalf("declared backup fixture = %#v", fixture)
+	}
+	if err := fixture.close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
