@@ -151,3 +151,17 @@ func TestProductionRestoreAdmissionCompletedReceipt(t *testing.T) {
 		})
 	}
 }
+
+func TestProductionRestoreAdmissionWiresCallbacks(t *testing.T) {
+	adapter := productionRestoreAdmission(productionDatabaseConfig{}, globalWorkerSession{}, "", nil, nil, productionDatabaseBackupPort{})
+	if adapter.Resolve == nil || adapter.Restore == nil {
+		t.Fatal("production callbacks missing")
+	}
+	// These denials must precede concrete authority, transport, and mutation effects.
+	if _, err := adapter.Resolve(t.Context(), databaseadmission.Record{}, databaseadmission.RestoreSelection{Kind: "timestamp", UnixMillis: 1}); err == nil {
+		t.Fatal("unsupported selection accepted")
+	}
+	if ack, err := adapter.Restore(t.Context(), databaseadmission.Record{}); err == nil || len(ack) != 0 {
+		t.Fatal("unresolved restore acknowledged")
+	}
+}
