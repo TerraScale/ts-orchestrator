@@ -146,14 +146,9 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 	}
 	targets := make([]ProjectDeletionTarget, 0)
 	seen := map[string]bool{}
-	for _, resource := range state.Lifecycle.Resources {
-		if databaselifecycleIdentityInScope(resource.Identity, request) && !seen[resource.DatabaseID] {
-			targets = append(targets, ProjectDeletionTarget{Identity: resource.Identity})
-			seen[resource.DatabaseID] = true
-		}
-	}
-	// Lifecycle rows are normally paired with records, but include admitted
-	// records in the same CAS so a pending row cannot be omitted by enumeration.
+	// Records and lifecycle rows are validated bijective, so plan the fence
+	// hosts from the record side first: every target must carry its
+	// PlannedHosts or the host admission fence is a silent no-op.
 	for _, record := range state.Records {
 		if record.Request.Environment == request.Environment && record.Request.TenantID == request.TenantID && record.Request.ProjectID == request.ProjectID && !seen[record.DatabaseID] {
 			planned := make([]ProjectAdmissionTarget, 0, len(record.Targets))
@@ -169,6 +164,14 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 			})
 			targets = append(targets, ProjectDeletionTarget{Identity: admissionLifecycleEvent(record).Identity, PlannedHosts: planned})
 			seen[record.DatabaseID] = true
+		}
+	}
+	// Defense in depth: a lifecycle row that no record covers still fences
+	// its identity, even though the validated journal keeps them paired.
+	for _, resource := range state.Lifecycle.Resources {
+		if databaselifecycleIdentityInScope(resource.Identity, request) && !seen[resource.DatabaseID] {
+			targets = append(targets, ProjectDeletionTarget{Identity: resource.Identity})
+			seen[resource.DatabaseID] = true
 		}
 	}
 	slices.SortFunc(targets, func(a, b ProjectDeletionTarget) int { return cmp.Compare(a.Identity.DatabaseID, b.Identity.DatabaseID) })

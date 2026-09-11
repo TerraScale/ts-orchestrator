@@ -297,7 +297,19 @@ func PlanControlTransition(state ControlPlaneState, request ControlTransitionReq
 			if request.EligibleHosts < 3 {
 				return ControlPlan{}, ErrControlRegionalMembersFloor
 			}
+			// Regional control is the deliberate terminus of a
+			// bootstrap-authorized temporary estate or the growth path of an
+			// estate already regional. A promoted global estate must never be
+			// rewritten to regional control, and an empty estate must
+			// bootstrap first; settling the topology is otherwise
+			// irreversible and would permanently block promotion and
+			// bootstrap revocation.
+			regional := state.Topology == ControlTopologyRegionalR3 && state.Phase == ControlPhaseRegionalR3
+			if state.Topology == ControlTopologyEmpty || state.Topology == ControlTopologyGlobalR3 || !regional && (state.Phase != ControlPhaseR1 || !state.BootstrapAuthorized) {
+				return ControlPlan{}, ErrControlInvalid
+			}
 			to.Topology, to.Phase = ControlTopologyRegionalR3, ControlPhaseRegionalR3
+			to.BootstrapAuthorized = false
 			to.Epoch = maxUint64(state.Epoch, state.Epoch+1)
 			add(ControlActionStartRegionalR3, request.Region, to.Epoch)
 			break

@@ -923,7 +923,7 @@ func validateDiskMetadataValue(metadata diskMetadata, path string, owner Ownersh
 	if err := validateDiskMetadataStructure(metadata); err != nil {
 		return err
 	}
-	file, err := openOwnedRegular(path, os.O_RDONLY, owner, 0o600)
+	file, err := openOwnedArtifact(path, os.O_RDONLY, owner)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrCorruptState
@@ -1289,7 +1289,10 @@ func (s *Store) commitArtifactState(ctx context.Context, current diskMetadata, o
 }
 
 func copyOwnedPrefix(ctx context.Context, source string, sourceMode os.FileMode, destination string, destinationMode os.FileMode, size int64, owner Ownership) error {
-	in, err := openOwnedRegular(source, os.O_RDONLY, owner, sourceMode)
+	// The clone source may be an attached drive artifact carrying the
+	// jailer's hard link; the freshly allocated destination stays
+	// single-link.
+	in, err := openOwnedArtifact(source, os.O_RDONLY, owner)
 	if err != nil {
 		return err
 	}
@@ -1365,7 +1368,7 @@ func checksumExact(ctx context.Context, path string, size int64, owner Ownership
 		return "", err
 	}
 	defer parent.file.Close()
-	file, _, err := openOwnedRegularAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode)
+	file, _, err := openOwnedRegularFileAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode, true)
 	if err != nil {
 		return "", err
 	}

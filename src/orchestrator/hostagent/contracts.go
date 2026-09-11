@@ -31,6 +31,8 @@ package hostagent
 
 import (
 	"strings"
+	"unicode/utf8"
+
 	"terrascale.tech/orchestrator/src/orchestrator/hostmanifest"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
@@ -78,10 +80,13 @@ func boundedReceiptDetail(detail string) string {
 		if isControlRune(symbol) {
 			continue
 		}
-		builder.WriteRune(symbol)
-		if builder.Len() >= hostAgentMaximumDetailLength {
+		// Check the byte cap before writing: a multi-byte rune written at
+		// the boundary would exceed the cap that requireHostAgentDetail
+		// enforces, failing the receipt constructor after its effect ran.
+		if builder.Len()+utf8.RuneLen(symbol) > hostAgentMaximumDetailLength {
 			break
 		}
+		builder.WriteRune(symbol)
 	}
 	return builder.String()
 }

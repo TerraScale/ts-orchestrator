@@ -184,6 +184,10 @@ func (m *Material) Clear() {
 	for _, raw := range m.identityFiles {
 		clear(raw)
 	}
+	for _, raw := range m.transitionFiles {
+		clear(raw)
+	}
+	m.transitionFiles = nil
 	for _, raw := range m.backupFiles {
 		clear(raw)
 	}
