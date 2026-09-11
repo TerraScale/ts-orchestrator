@@ -3,3 +3,4 @@ context: dashboard on 7100 was down (killed by earlier e2e teardown); parallel e
 action: relaunch per terrabase/scripts/stack.sh start_dashboard (lines 641-686) with exact env
 dashboard_pid=1697675
 end_utc=2026-09-11T00:34:06Z
+relaunch-2 pid=1759390

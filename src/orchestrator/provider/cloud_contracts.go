@@ -398,6 +398,7 @@ func completedMutation(record ProviderMutationRecord) (ProviderMutationResult, b
 type ComputeProvider interface {
 	LaunchInstance(context.Context, ComputeLaunchRequest) (ComputeInstance, error)
 	GetInstance(context.Context, string) (ComputeInstance, bool, error)
+	StartInstance(context.Context, ComputeStartRequest) error
 	TerminateInstance(context.Context, ComputeTerminateRequest) error
 }
 
@@ -432,6 +433,16 @@ type ComputeTerminateRequest struct {
 	Mutation   ProviderMutationIntent
 	InstanceID string
 	IfMatch    string
+}
+
+// ComputeStartRequest binds a start to the exact provider incarnation observed
+// by the planner. IfMatch and Generation prevent a stale plan from starting a
+// replacement instance that reused the same logical member slot.
+type ComputeStartRequest struct {
+	Mutation   ProviderMutationIntent
+	InstanceID string
+	IfMatch    string
+	Generation uint64
 }
 
 type ComputeInstance struct {

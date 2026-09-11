@@ -215,6 +215,72 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 	}
 }
 
+func TestOCIComputeAdapterStartIsJournaledAndReplayed(t *testing.T) {
+	const instanceID = "ocid1.instance.oc1.start"
+	ownership := testOwnership(t, instanceID)
+	starts, reads := 0, 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodGet {
+			reads++
+			state := "STOPPED"
+			if reads > 1 {
+				state = "RUNNING"
+			}
+			headers := make(http.Header)
+			headers.Set("ETag", "etag-1")
+			return testHTTPResponse(http.StatusOK, `{"id":"`+instanceID+`","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"`+state+`","shape":"VM.Standard.A1.Flex"}`, headers), nil
+		}
+		if request.Method == http.MethodPost {
+			starts++
+			if request.Header.Get("If-Match") != "etag-1" || request.Header.Get("Opc-Retry-Token") == "" {
+				t.Fatalf("start fence headers = %v", request.Header)
+			}
+			return testHTTPResponse(http.StatusAccepted, "", nil), nil
+		}
+		t.Fatalf("unexpected request %s %s", request.Method, request.URL)
+		return nil, nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = ownership
+	request := ComputeStartRequest{InstanceID: instanceID, IfMatch: "etag-1", Generation: 1}
+	request.Mutation = ProviderMutationIntent{OperationID: ProviderOperationId{Value: "start-op"}, Scope: ComputeStartMutationScope(request), Action: "compute.start", Epoch: ProviderEpoch{Value: 1}, IdempotencyKey: ProviderIdempotencyKey{Value: "start-key"}}
+	request.Mutation.Fingerprint = ComputeStartMutationFingerprint(request)
+	if err := adapter.StartInstance(context.Background(), request); err != nil {
+		t.Fatalf("initial start: %v", err)
+	}
+	if err := adapter.StartInstance(context.Background(), request); err != nil {
+		t.Fatalf("replayed start: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("start requests = %d, want one durable submission", starts)
+	}
+}
+
+func TestOCIComputeAdapterStartRejectsStaleGeneration(t *testing.T) {
+	const instanceID = "ocid1.instance.oc1.stale"
+	ownership := testOwnership(t, instanceID)
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		t.Fatalf("stale generation reached OCI: %s %s", request.Method, request.URL)
+		return nil, nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = ownership
+	request := ComputeStartRequest{InstanceID: instanceID, IfMatch: "etag-1", Generation: 2}
+	request.Mutation = ProviderMutationIntent{OperationID: ProviderOperationId{Value: "stale-start"}, Scope: ComputeStartMutationScope(request), Action: "compute.start", Epoch: ProviderEpoch{Value: 1}, IdempotencyKey: ProviderIdempotencyKey{Value: "stale-key"}}
+	request.Mutation.Fingerprint = ComputeStartMutationFingerprint(request)
+	if err := adapter.StartInstance(context.Background(), request); err == nil {
+		t.Fatal("stale generation was accepted")
+	}
+}
+
 func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	posts, gets := 0, 0
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {

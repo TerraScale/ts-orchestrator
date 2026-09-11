@@ -504,6 +504,99 @@ func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (Compute
 	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: resp.Header.Get("ETag"), CompartmentID: item.CompartmentID, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
 }
 
+func computeStartBinding(request ComputeStartRequest) any {
+	return struct {
+		InstanceID string
+		IfMatch    string
+		Generation uint64
+	}{request.InstanceID, request.IfMatch, request.Generation}
+}
+
+func ComputeStartMutationFingerprint(request ComputeStartRequest) string {
+	return fingerprintJSON("compute.start", computeStartBinding(request))
+}
+
+func ComputeStartMutationScope(request ComputeStartRequest) string {
+	return ProviderMutationScope("compute", request.InstanceID)
+}
+
+// StartInstance submits an idempotent, ownership-fenced start. A submitted
+// start remains in the journal until a later exact read observes RUNNING;
+// retries therefore never issue a second start request.
+func (a *OCIComputeAdapter) StartInstance(ctx context.Context, request ComputeStartRequest) error {
+	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
+		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
+	}
+	if ctx == nil {
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if !IsOCID(request.InstanceID, "instance") || !isSafeETag(request.IfMatch) || request.Generation == 0 {
+		return &errs.Argument{Message: "compute start fence is invalid"}
+	}
+	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, ""); err != nil {
+		return err
+	}
+	owned, _, err := a.Ownership.Lookup(ctx, ProviderResourceId{Value: request.InstanceID})
+	if err != nil {
+		return err
+	}
+	if owned.Generation.Value != request.Generation {
+		return &InvalidOperationError{Message: "compute start generation is stale"}
+	}
+	if err := expectJSONMutation(request.Mutation, "compute.start", ComputeStartMutationScope(request), computeStartBinding(request)); err != nil {
+		return err
+	}
+	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
+	if err != nil {
+		return err
+	}
+	if _, done, err := completedMutation(record); done {
+		return err
+	} else if err != nil {
+		return err
+	} else if record.State == MutationSubmitted || record.State == MutationUnknown {
+		current, found, readErr := a.GetInstance(ctx, request.InstanceID)
+		if readErr != nil {
+			return readErr
+		}
+		if found && current.LifecycleState == "RUNNING" {
+			return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: current.ID, ETag: current.ETag})
+		}
+		return &ProviderOutcomeUnknownError{Message: "compute start remains unresolved"}
+	}
+	current, found, err := a.GetInstance(ctx, request.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return &ProviderOutcomeUnknownError{Message: "compute start target is no longer visible"}
+	}
+	if current.LifecycleState == "RUNNING" {
+		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: current.ID, ETag: current.ETag})
+	}
+	if current.LifecycleState != "STOPPED" {
+		return &ProviderOutcomeUnknownError{Message: "compute start target is not stopped"}
+	}
+	if current.ETag != request.IfMatch {
+		return &InvalidOperationError{Message: "OCI start ETag changed before submission"}
+	}
+	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
+		return err
+	}
+	resp, err := a.Core.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances/"+url.PathEscape(request.InstanceID)+"/actions/start", nil, map[string]string{"If-Match": request.IfMatch, "opc-retry-token": derivedRetryToken(request.Mutation, "start")})
+	if err != nil {
+		if IsOutcomeIndeterminate(err) {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		return err
+	}
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return nil
+	}
+	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
+}
+
 func computeTerminateBinding(request ComputeTerminateRequest) any {
 	return struct{ InstanceID, IfMatch string }{request.InstanceID, request.IfMatch}
 }

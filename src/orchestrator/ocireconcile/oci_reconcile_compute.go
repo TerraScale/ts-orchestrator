@@ -154,7 +154,26 @@ func (a LaunchMemberAction) Summary() string {
 	return "launch member " + a.Spec.DisplayName + " on " + a.Spec.Shape + " (fallback " + a.Spec.FallbackShape + ")"
 }
 
-type StartMemberAction struct{ InstanceID string }
+type StartMemberAction struct {
+	InstanceID string
+	ETag       string
+	Generation uint64
+	Epoch      uint64
+}
+
+// DurableMemberStarter receives the complete observed incarnation fence for a
+// start. ComputeGateway remains the compatibility seam for non-durable test
+// gateways; production OCI adapters implement this interface.
+type DurableMemberStarter interface {
+	StartInstance(context.Context, provider.ComputeStartRequest) error
+}
+
+func computeProviderEpoch(gateway ComputeGateway) uint64 {
+	if concrete, ok := gateway.(*ociMemberGateway); ok && concrete != nil {
+		return concrete.Epoch.Value
+	}
+	return 1
+}
 
 func (a StartMemberAction) Kind() OCIActionKind { return OCIActionStartMember }
 func (a StartMemberAction) Summary() string     { return "start member " + a.InstanceID }
@@ -369,7 +388,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 		}
 		if member.LifecycleState == "STOPPED" {
 			if memberOwnedInRegion(member, declared.Region.Code) && (computeScopeCompartment(r.Compute) == "" || member.CompartmentID == computeScopeCompartment(r.Compute)) {
-				plan.Actions = append(plan.Actions, StartMemberAction{InstanceID: member.ID})
+				plan.Actions = append(plan.Actions, StartMemberAction{InstanceID: member.ID, ETag: member.ETag, Generation: declared.MemberBindings[member.Index].Generation, Epoch: computeProviderEpoch(r.Compute)})
 			}
 		}
 	}
@@ -523,6 +542,19 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 				return err
 			}
 		case StartMemberAction:
+			if durable, ok := r.Compute.(DurableMemberStarter); ok {
+				operation, err := provider.NewProviderOperationId("member-start-" + provider.ProviderMutationFingerprint(a.InstanceID, strconv.FormatUint(a.Generation, 10)))
+				if err != nil {
+					return err
+				}
+				request := provider.ComputeStartRequest{InstanceID: a.InstanceID, IfMatch: a.ETag, Generation: a.Generation}
+				request.Mutation = provider.ProviderMutationIntent{OperationID: operation, Scope: provider.ComputeStartMutationScope(request), Action: "compute.start", Epoch: provider.ProviderEpoch{Value: a.Epoch}, IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.start", a.InstanceID, strconv.FormatUint(a.Generation, 10))}}
+				request.Mutation.Fingerprint = provider.ComputeStartMutationFingerprint(request)
+				if err := durable.StartInstance(ctx, request); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := r.Compute.StartMember(ctx, a.InstanceID); err != nil {
 				return err
 			}
