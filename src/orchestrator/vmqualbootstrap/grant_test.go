@@ -105,6 +105,16 @@ func TestActivationAuthenticatesFiniteGrantAndResumesActualVersions(t *testing.T
 		t.Run(map[bool]string{false: "fresh", true: "partial"}[partial], func(t *testing.T) {
 			issuer := testIssuer(t)
 			manifest := grantManifest(t)
+			// The real initial manifest stages the control component's
+			// configuration; the engine's configuration arrives from the
+			// control plane only after initial activation.
+			for index, spec := range manifest.Components {
+				if spec.Name == "orchestrator" {
+					spec.Configuration = "control component configuration"
+					spec.Arguments = "run --config @config"
+					manifest.Components[index] = spec
+				}
+			}
 			host := "gru-1"
 			material, err := issuer.Grant(host, manifest)
 			if err != nil {
@@ -192,8 +202,13 @@ func TestActivationAuthenticatesFiniteGrantAndResumesActualVersions(t *testing.T
 			}
 			for index, fact := range report.Facts.Components {
 				report.Facts.Components[index].UnitActive = false
-				if err := Activate(context.Background(), host, material, status, send); err == nil {
+				staged := manifest.Components[index].Configuration != ""
+				err := Activate(context.Background(), host, material, status, send)
+				if staged && err == nil {
 					t.Fatalf("inactive %s process qualified as serving", fact.Name)
+				}
+				if !staged && err != nil {
+					t.Fatalf("unconfigured %s process required before control-plane delivery: %v", fact.Name, err)
 				}
 				report.Facts.Components[index].UnitActive = true
 			}

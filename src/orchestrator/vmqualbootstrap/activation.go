@@ -143,11 +143,27 @@ func activatedStatus(report hostagent.NodeStatusReport, manifest hostmanifest.Ho
 		return errors.New("vmqual: initial activation did not reach serving host state with a healthy measured clock")
 	}
 	for _, fact := range report.Facts.Components {
-		if fact.Version != fact.Desired || !fact.UnitActive {
+		if fact.Version != fact.Desired {
+			return fmt.Errorf("vmqual: activated %s process is not installed at its desired release", fact.Name)
+		}
+		// Components without staged configuration (the engine) cannot be
+		// running yet: their configuration is delivered by the control plane
+		// only after this initial activation. Requiring them active here
+		// deadlocks every first boot.
+		if spec, ok := manifestComponent(manifest, fact.Name); ok && spec.Configuration != "" && !fact.UnitActive {
 			return fmt.Errorf("vmqual: activated %s process is not running", fact.Name)
 		}
 	}
 	return nil
+}
+
+func manifestComponent(manifest hostmanifest.HostManifest, name string) (hostmanifest.ComponentSpec, bool) {
+	for _, spec := range manifest.Components {
+		if spec.Name == name {
+			return spec, true
+		}
+	}
+	return hostmanifest.ComponentSpec{}, false
 }
 
 func initialActivationStatus(report hostagent.NodeStatusReport, manifest hostmanifest.HostManifest, digest string) (bool, error) {
