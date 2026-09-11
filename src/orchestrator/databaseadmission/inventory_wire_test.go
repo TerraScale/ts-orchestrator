@@ -41,6 +41,16 @@ func TestInventoryWireFixture(t *testing.T) {
 	if err := databaselifecycle.Apply(&journal.state.Lifecycle, admissionLifecycleEvent(retired)); err != nil {
 		t.Fatal(err)
 	}
+	retired.State = "ready"
+	retired.Wrapped = journalWrapped(retired)
+	for i := range retired.Targets {
+		retired.Targets[i].Installed = true
+	}
+	for i := range retired.PlacementTargets {
+		retired.PlacementTargets[i].Proposed = true
+	}
+	retired.ReadinessNonce = strings.Repeat("a", 64)
+	retired.ReadyEvidence, _, _ = readinessFixture(t, retired, retired.ReadinessNonce)
 	journal.state.Records[retiredKey] = retired
 	deletionRequest := DeleteRequest{Environment: "production", TenantID: tenant, ProjectID: project, DatabaseID: deletedDatabase, OperationID: "01ARZ3NDEKTSV4RRFFQ69G5FC2"}
 	when := parseInventoryTime(t, deletedAt)
@@ -78,6 +88,12 @@ func TestInventoryWireFixture(t *testing.T) {
 	expected, err := os.ReadFile(fixturePath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv("UPDATE_INVENTORY_WIRE_FIXTURE") == "1" {
+		if err := os.WriteFile(fixturePath, response.Body.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		expected = response.Body.Bytes()
 	}
 	if !bytes.Equal(response.Body.Bytes(), expected) {
 		t.Fatalf("captured handler body differs from producer fixture %s", fixturePath)
