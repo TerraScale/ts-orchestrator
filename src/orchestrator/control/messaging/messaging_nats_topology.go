@@ -219,17 +219,21 @@ func (t *NatsTopology) ProtocolPackage() jetstream.ObjectStoreConfig {
 	}
 }
 
-// StartupConsumer returns the runtime startup consumer configuration.
+// StartupConsumer returns the runtime startup consumer configuration. The
+// durable proof consumer is per-instance, mirroring CellSpecConsumer: a
+// cell-wide cursor lets one replica's proof fetch consume and acknowledge
+// another replica's proof from the shared deliver position, failing both.
 func (t *NatsTopology) StartupConsumer() (jetstream.ConsumerConfig, error) {
-	filter, err := natspolicy.NatsSubjectTaxonomy.RuntimeStartupPattern(t.Cell)
+	filter, err := natspolicy.NatsSubjectTaxonomy.RuntimeStartupSubject(t.Cell, t.Instance)
 	if err != nil {
 		return jetstream.ConsumerConfig{}, err
 	}
 
+	name := "runtime_startup_" + t.Instance
 	return jetstream.ConsumerConfig{
-		Name:          "runtime_startup",
-		Durable:       "runtime_startup",
-		Description:   "Acknowledged runtime startup events for " + t.Cell,
+		Name:          name,
+		Durable:       name,
+		Description:   "Acknowledged runtime startup events for " + t.Cell + "/" + t.Instance,
 		FilterSubject: filter,
 		// JetStream derives the effective acknowledgement wait from the first
 		// backoff interval, so declare the value it will return on readback.

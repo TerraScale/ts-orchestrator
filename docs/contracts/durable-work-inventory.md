@@ -72,7 +72,7 @@ and promotion must never permit a subsequent downgrade.
 
 | Consumer | Stream | Filter subject | Ownership | Ack | Max deliver | Backoff | Max pending | Batch / expires / waiting |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runtime_startup` | `CELL_EVENTS` | `ts.orch.v1.{cell}.observation.runtime.started.>` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
+| `runtime_startup_{instance}` | `CELL_EVENTS` | `ts.orch.v1.{cell}.observation.runtime.started.{instance}` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
 | `gitops_cell_spec_{instance}` | `CELL_SPEC` | `ts.orch.v1.{cell}.desired.gitops` | RegionalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
 | `global_cell_spec_{cell}` | `GLOBAL_SPEC` | `ts.orch.v1.global.desired.gitops.{cell}` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
 

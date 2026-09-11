@@ -514,6 +514,24 @@ func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent Co
 	}
 
 	if err != nil {
+		// A timeout or transport failure may have committed the write (lost
+		// ack), so the outcome is uncertain, never a clean failure. Resolve
+		// the pending set through the engine — an uncertain acquisition
+		// returns to ReadOnlyHeld for the next tick, an uncertain renewal
+		// fences this candidate — instead of leaving the journal wedged in a
+		// pending status no command accepts.
+		uncertainHealth := regionalAuthorityHealth(time.Now().UTC(), time.Duration(0))
+		result, decideErr := AuthorityEngine.DecideFromState(c.currentState(), NewObserveAuthorityCas(
+			c.authorityId,
+			c.candidateId,
+			intent.RequestId,
+			AuthorityCasOutcomeUncertain,
+			nil,
+			&uncertainHealth))
+		if decideErr != nil {
+			return errors.Join(err, decideErr)
+		}
+		c.apply(result)
 		return err
 	}
 

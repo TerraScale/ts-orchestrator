@@ -447,9 +447,14 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-// HeartbeatOnce samples the facts source and publishes one heartbeat.
+// HeartbeatOnce samples the facts source and publishes one heartbeat. The
+// sample is bounded like statusResponse: a component install holding the
+// install flock must report Installed=false, not silence the heartbeat for
+// the whole download while the control plane acts on silence.
 func (t *NatsTransport) HeartbeatOnce(ctx context.Context) error {
-	facts, err := t.facts.Sample(ctx, t.lifecycle.State(), t.lifecycle.Desired())
+	sampleCtx, cancel := context.WithTimeout(ctx, hostAgentStatusTimeout)
+	defer cancel()
+	facts, err := t.facts.Sample(sampleCtx, t.lifecycle.State(), t.lifecycle.Desired())
 	if err != nil {
 		return err
 	}

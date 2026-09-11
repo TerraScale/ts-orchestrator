@@ -130,7 +130,7 @@ func TestEveryDurableConsumerSatisfiesTheBoundedRedeliveryContract(t *testing.T)
 		t.Fatal("global desired consumer ownership mismatch")
 	}
 
-	startup := findInventoryConsumer(t, "runtime_startup")
+	startup := findInventoryConsumer(t, "runtime_startup_{instance}")
 	if startup.Ownership != DurableWorkOwnershipRegionalEquivalentWorkers || startup.MaximumAckPending != 32 {
 		t.Fatal("startup consumer profile mismatch")
 	}

@@ -121,7 +121,9 @@ func deliveryStoreError(err error) error {
 	switch {
 	case errors.Is(err, jetstream.ErrKeyNotFound), errors.Is(err, jetstream.ErrKeyDeleted):
 		return delivery.ErrStoreNotFound
-	case errors.Is(err, jetstream.ErrKeyExists):
+	case errors.Is(err, jetstream.ErrKeyExists), errors.Is(err, jetstream.ErrKeyRevisionMismatch):
+		// A lost compare-and-set is a conflict exactly like a lost
+		// create: the journal's CAS retry and lease loops branch on it.
 		return delivery.ErrStoreConflict
 	default:
 		return err

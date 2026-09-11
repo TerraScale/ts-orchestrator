@@ -504,7 +504,9 @@ func (f *firecrackerFactory) diskStore(ctx context.Context) (*vmdisk.Store, erro
 		}
 		return f.disks, nil
 	}
-	store, err := vmdisk.New(vmdisk.Config{Root: f.diskRoot, RunID: runID, Ownership: &vmdisk.Ownership{UID: f.config.JailerUID, GID: f.config.JailerGID}, MaxBytes: f.config.MaxDiskBytes, MaxDrives: 6})
+	// One data drive per guest: three regions x two guests, plus the
+	// fourth-region admission's two IAD guests the stack must still allocate.
+	store, err := vmdisk.New(vmdisk.Config{Root: f.diskRoot, RunID: runID, Ownership: &vmdisk.Ownership{UID: f.config.JailerUID, GID: f.config.JailerGID}, MaxBytes: f.config.MaxDiskBytes, MaxDrives: 8})
 	if err != nil {
 		return nil, err
 	}

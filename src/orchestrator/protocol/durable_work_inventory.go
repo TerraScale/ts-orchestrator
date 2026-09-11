@@ -437,7 +437,7 @@ func createDurableConsumers() []DurableConsumerPlan {
 	return []DurableConsumerPlan{
 		{
 			Stream:                   "CELL_EVENTS",
-			Consumer:                 "runtime_startup",
+			Consumer:                 "runtime_startup_{instance}",
 			FilterSubject:            natspolicy.NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
 			Domain:                   DurableWorkDomainRegionalCell,
 			Ownership:                DurableWorkOwnershipRegionalEquivalentWorkers,

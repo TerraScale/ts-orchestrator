@@ -283,6 +283,11 @@ func (r *ComputeReconciler) memberSubnetAndNSGs(declared estate.Region, observed
 			}
 		}
 	}
+	if len(nsgIDs) != len(declared.Network.SecurityGroups) {
+		// Launching with a partial (or empty) NSG set would expose the member;
+		// replan after the network reconciler restores the missing groups.
+		return "", nil, &provider.InvalidDataError{Message: "member launch requires every declared security group to be live"}
+	}
 	sort.Strings(nsgIDs)
 	return subnetID, nsgIDs, nil
 }
