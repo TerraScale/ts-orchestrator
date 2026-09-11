@@ -410,6 +410,11 @@ func (s *Stack) initializeRun(ctx context.Context) error {
 		if err := s.updateJournal(func(journal *Journal) error {
 			journal.Phase = journalPhaseActive
 			journal.NetworkPhase = networkPhaseApplying
+			// A resumed completed journal still records its previous
+			// NetworkCleaned result; leaving it set while applying produces a
+			// combination validateJournal rejects, poisoning every later
+			// journal write and replay.
+			journal.NetworkCleaned = false
 			return nil
 		}); err != nil {
 			return fmt.Errorf("vmqual: journal network apply: %w", err)
@@ -1066,10 +1071,13 @@ func (s *Stack) completeJournal() error {
 	}
 	s.journalMu.Lock()
 	defer s.journalMu.Unlock()
-	if err := removeJournalFile(s.config.JournalPath, s.runID); err != nil {
-		return err
-	}
+	// The journal file is the replay entry point: remove the run marker and
+	// claims first so an interruption cannot orphan owned state no replay
+	// would clean.
 	markerErr := removeRunMarker(s.config.StateRoot, s.runID, s.config.JournalPath)
+	if markerErr == nil {
+		markerErr = removeJournalFile(s.config.JournalPath, s.runID)
+	}
 	s.journal = nil
 	s.releaseJournalLock()
 	return markerErr

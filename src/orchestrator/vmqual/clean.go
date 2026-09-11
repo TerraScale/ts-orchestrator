@@ -107,10 +107,13 @@ func CleanJournal(ctx context.Context, path string, runner vmnet.Runner) error {
 	if err := persistJournalUpdate(path, &journal); err != nil {
 		return err
 	}
-	if err := removeJournalFile(path, journal.RunID); err != nil {
+	// The journal file is the replay entry point: remove the run marker and
+	// claims first so an interruption cannot leave owned state that no later
+	// replay is willing to clean.
+	if err := removeRunMarker(journal.StateRoot, journal.RunID, path); err != nil {
 		return err
 	}
-	return removeRunMarker(journal.StateRoot, journal.RunID, path)
+	return removeJournalFile(path, journal.RunID)
 }
 
 func (s *Stack) cleanupJournalVM(ctx context.Context, id string) error {
@@ -990,6 +993,12 @@ func replaceJournal(path string, journal Journal) error {
 	if current.RunID != journal.RunID {
 		return errors.New("vmqual: refusing to replace another run's cleanup journal")
 	}
+	// Validate the next copy before it reaches disk: writing an invalid
+	// journal permanently poisons crash recovery, because every later read
+	// and replay validates the on-disk state.
+	if err := validateJournal(journal); err != nil {
+		return fmt.Errorf("vmqual: refusing invalid journal update: %w", err)
+	}
 	return writeAtomicJSON(path, journal)
 }
 
@@ -1149,6 +1158,17 @@ func removeRunMarker(stateRoot, runID, journalPath string) error {
 			return err
 		}
 		for _, entry := range entries {
+			// writeExclusiveJSON creates its ".vmqual-new-*.tmp" staging file
+			// directly in this directory; a crash mid-write can leave one
+			// behind. Tolerate and remove that bounded interrupted-write
+			// artifact the same way the fixture store does, instead of
+			// orphaning the whole claims directory behind it.
+			if !entry.IsDir() && strings.HasPrefix(entry.Name(), ".vmqual-new-") && strings.HasSuffix(entry.Name(), ".tmp") {
+				if err := RemoveFileAndSync(filepath.Join(claims, entry.Name())); err != nil {
+					return err
+				}
+				continue
+			}
 			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 				return errors.New("vmqual: refusing unexpected run claim entry")
 			}

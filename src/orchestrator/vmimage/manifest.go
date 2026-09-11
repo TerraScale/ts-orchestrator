@@ -271,6 +271,12 @@ func (artifact ArtifactManifest) validate(kind string, arch Architecture, versio
 	if artifact.Version != version {
 		return fmt.Errorf("vmimage: %s version does not match image", kind)
 	}
+	// The version is interpolated verbatim into cloud-init YAML comment
+	// lines and install paths; anything outside this token shape could
+	// inject structure.
+	if !versionPattern.MatchString(artifact.Version) {
+		return fmt.Errorf("vmimage: %s version is not a safe release token", kind)
+	}
 	if err := validateSource(artifact.Source); err != nil {
 		return fmt.Errorf("vmimage: %s source: %w", kind, err)
 	}
