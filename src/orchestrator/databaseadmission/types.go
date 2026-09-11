@@ -257,6 +257,10 @@ func ValidateRestoreRequest(r RestoreRequest) error {
 		if !validDigest(r.Selection.PointID) || r.Selection.UnixMillis != 0 {
 			return ErrInvalid
 		}
+	} else if r.Selection.Kind == "unix_millis" {
+		if r.Selection.UnixMillis < 0 || r.Selection.PointID != "" {
+			return ErrInvalid
+		}
 	} else {
 		return ErrInvalid
 	}

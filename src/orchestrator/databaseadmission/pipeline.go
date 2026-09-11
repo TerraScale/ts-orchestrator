@@ -222,8 +222,13 @@ func (p *Pipeline) reconcile(ctx context.Context, r Record) error {
 		if err := p.config.Authorize(ctx, r.Request); err != nil {
 			return err
 		}
-		if err := p.restoreBranch(ctx, &r); err != nil {
-			return err
+		// Public restore admissions are resolved and installed by the native
+		// authority below; legacy branch evidence would install a second source
+		// and can never prove the admitted scalar point.
+		if r.Restore == nil {
+			if err := p.restoreBranch(ctx, &r); err != nil {
+				return err
+			}
 		}
 		return p.activateAndObserve(ctx, r)
 	}

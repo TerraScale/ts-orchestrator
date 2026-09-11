@@ -22,13 +22,14 @@ import (
 )
 
 type productionDatabaseBackupPort struct {
-	database     **productionDatabase
-	config       productionDatabaseConfig
-	refresh      func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
-	check        func(context.Context) error
-	keyID        string
-	key          ed25519.PrivateKey
-	grantJournal func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+	database         **productionDatabase
+	config           productionDatabaseConfig
+	refresh          func(context.Context) (authority.RegionalAuthorityLeaseDocument, error)
+	check            func(context.Context) error
+	keyID            string
+	key              ed25519.PrivateKey
+	grantJournal     func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error)
+	restoreCompleted func(databaseadmission.Record, *pb.LifecycleControlResponse) error
 }
 
 func (p productionDatabaseBackupPort) ListDatabases(ctx context.Context) ([]restoredrill.Database, error) {
@@ -51,7 +52,7 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	if err != nil {
 		return err
 	}
-	if len(source.Targets) == 0 || target.Request.ParentDatabaseID != source.DatabaseID || target.Request.TenantID != source.Request.TenantID || target.Request.ProjectID != source.Request.ProjectID || target.Request.OperationID != request.IdempotencyKey || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.BranchSource == nil {
+	if len(source.Targets) == 0 || target.Request.ParentDatabaseID != source.DatabaseID || target.Request.TenantID != source.Request.TenantID || target.Request.ProjectID != source.Request.ProjectID || target.Request.OperationID != request.IdempotencyKey || target.Request.RecoveryPointID != request.RecoveryPointID || target.Request.JournalCut != request.JournalCut || target.Request.RestoreEpoch != request.RestoreEpoch || target.RestoreFacts == nil && target.BranchSource == nil {
 		return errors.New("restore backup: source and target provenance differs")
 	}
 	// TBEP owner is the stable tenant/project scope. Host identities belong in
@@ -59,7 +60,15 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	sourceOwner := strings.Join([]string{source.Request.TenantID, source.Request.ProjectID}, "/")
 	targetOwner := strings.Join([]string{target.Request.TenantID, target.Request.ProjectID}, "/")
 	var evidence databaseadmission.BranchSourceEvidence
-	if json.Unmarshal(target.BranchSource.Evidence.Payload, &evidence) != nil || evidence.SourceSnapshotDigest == "" || evidence.SourceSnapshotDigest != request.ManifestDigest || evidence.RecoveryPointID != request.RecoveryPointID || evidence.JournalCut != request.JournalCut || evidence.RestoreEpoch != request.RestoreEpoch {
+	if target.BranchSource != nil {
+		if json.Unmarshal(target.BranchSource.Evidence.Payload, &evidence) != nil {
+			return errors.New("restore backup: authenticated source point is unavailable")
+		}
+	} else {
+		evidence.SourceSnapshotDigest = target.RestoreFacts.RecoveryPointDigest
+		evidence.RecoveryPointID, evidence.JournalCut, evidence.RestoreEpoch, evidence.RestoreProvider = target.RestoreFacts.PointID, target.RestoreFacts.JournalCut, target.RestoreFacts.Epoch, target.RestoreFacts.Provider
+	}
+	if evidence.SourceSnapshotDigest == "" || evidence.SourceSnapshotDigest != request.ManifestDigest || evidence.RecoveryPointID != request.RecoveryPointID || evidence.JournalCut != request.JournalCut || evidence.RestoreEpoch != request.RestoreEpoch {
 		return errors.New("restore backup: authenticated source point is unavailable")
 	}
 	placement, host, err := (productionDatabaseBackupPort{database: p.database, config: p.config}).targetAssignment(target)
@@ -115,12 +124,17 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	}); err != nil {
 		return err
 	}
-	_, err = client.RestoreToTarget(ctx, placement, request.IdempotencyKey, sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions, provider)
+	response, err := client.RestoreToTarget(ctx, placement, request.IdempotencyKey, sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions, provider)
 	if err != nil {
 		if errors.Is(err, tbep.ErrRestorePending) || errors.Is(err, context.DeadlineExceeded) {
 			return restoredrill.ErrPending
 		}
 		return err
+	}
+	if p.restoreCompleted != nil {
+		if err := p.restoreCompleted(target, response); err != nil {
+			return err
+		}
 	}
 	return j.Transact(ctx, true, func(r *lifecycleGrantRecord) error { r.Completed = true; return nil })
 }

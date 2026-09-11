@@ -41,7 +41,7 @@ func restoreRequestFixture(source Record) RestoreRequest {
 	return RestoreRequest{Environment: source.Request.Environment, TenantID: source.Request.TenantID, ProjectID: source.Request.ProjectID, SourceDatabaseID: source.DatabaseID, Name: "recovered", OperationID: "public-restore-1", Selection: RestoreSelection{Kind: "latest"}}
 }
 func restoreFactsFixture() RestoreAdmissionFacts {
-	return RestoreAdmissionFacts{PointID: strings.Repeat("b", 64), Provider: "oci", JournalCut: "42", SourceDigest: strings.Repeat("b", 64), CapturedAtMillis: 1000, Checksum: strings.Repeat("c", 64), RowCount: 7}
+	return RestoreAdmissionFacts{PointID: strings.Repeat("b", 64), RecoveryPointDigest: strings.Repeat("d", 64), Provider: "oci", JournalCut: "42", SourceDigest: strings.Repeat("b", 64), CapturedAtMillis: 1000, Checksum: strings.Repeat("c", 64), RowCount: 7}
 }
 func TestUnixRestoreAdmissionAndExactRetryOverAuthenticatedNATS(t *testing.T) {
 	cluster := newAdmissionJournalCluster(t)
