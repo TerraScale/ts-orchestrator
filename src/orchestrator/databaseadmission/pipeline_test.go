@@ -31,6 +31,17 @@ func pipelineConfig(t *testing.T, journal Journal) Config {
 			target.Provision.Binding.KeyVersion = r.KeyVersion
 			target.Provision.Binding.TenantID = r.Request.TenantID
 			target.Provision.Binding.ProjectID = r.Request.ProjectID
+			if r.BYOK != nil {
+				target.Provision.Provider = r.BYOK.KeyProvider
+				target.Provision.KeyID = r.BYOK.KeyID
+				target.Provision.KeyRegion = r.BYOK.KeyRegion
+				target.Provision.KeyEndpoint = r.BYOK.KeyEndpoint
+				target.Provision.CryptoEndpoint = ""
+				target.Provision.KEKID = ""
+				target.Provision.KEKVersionID = ""
+				target.Provision.AdmissionOperationID = r.Request.OperationID
+				target.Provision.BYOK = &keylease.BYOKMetadata{BackupEndpoint: r.BYOK.BackupEndpoint, BackupBucket: r.BYOK.BackupBucket, BackupRegion: r.BYOK.BackupRegion, BackupRoleARN: r.BYOK.BackupRoleARN, BackupExternalID: r.BYOK.BackupExternalID, KeyProvider: r.BYOK.KeyProvider, KeyID: r.BYOK.KeyID, KeyRegion: r.BYOK.KeyRegion, KeyEndpoint: r.BYOK.KeyEndpoint, ConfigurationUpdatedAt: r.BYOK.ConfigurationUpdatedAt}
+			}
 			stage := new(pb.PlacementStageRequest)
 			if err := proto.Unmarshal(target.Proposal, stage); err != nil {
 				return Plan{}, err

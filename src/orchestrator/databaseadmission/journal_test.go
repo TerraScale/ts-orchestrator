@@ -35,7 +35,7 @@ func journalWrapped(r Record) []keylease.Entry {
 	var entries []keylease.Entry
 	for _, purpose := range databaseKeyPurposes {
 		for _, p := range purposeTargets(r, purpose) {
-			entries = append(entries, keylease.Entry{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter})
+			entries = append(entries, keylease.Entry{Binding: p.Binding, Provider: p.Provider, KeyID: p.KeyID, KeyRegion: p.KeyRegion, KeyEndpoint: p.KeyEndpoint, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter, AdmissionOperationID: p.AdmissionOperationID, BYOK: p.BYOK})
 		}
 	}
 	return entries

@@ -66,7 +66,12 @@ func TestWorkloadIdentityPostcheckBlocksCredentialsAfterPolicyRevocation(t *test
 	config, catalog := fixture(t)
 	entry := catalog.Entries[0]
 	entry.AdmissionOperationID = "01J00000000000000000000003"
-	entry.BYOK = &BYOKMetadata{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup"}
+	entry.Provider = "aws-kms"
+	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+	entry.KeyRegion = "sa-east-1"
+	entry.KeyEndpoint = "https://kms.example.test"
+	entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""
+	entry.BYOK = &BYOKMetadata{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, KeyEndpoint: entry.KeyEndpoint}
 	catalog.Entries[0] = entry
 	if err := WriteCatalog(config.CatalogPath, catalog); err != nil {
 		t.Fatal(err)

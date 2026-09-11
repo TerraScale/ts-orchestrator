@@ -30,6 +30,12 @@ type ProvisionTarget struct {
 
 type WrapFunc func(context.Context, ProvisionTarget, []byte) (string, error)
 
+// MatchesTarget checks the complete immutable wrapping authority, not just the
+// database binding. Recovery must never substitute another provider or grant.
+func (e Entry) MatchesTarget(target ProvisionTarget) bool {
+	return !e.Revoked && e.Binding == target.Binding && e.Provider == target.Provider && e.KeyID == target.KeyID && e.KeyRegion == target.KeyRegion && e.KeyEndpoint == target.KeyEndpoint && e.CryptoEndpoint == target.CryptoEndpoint && e.KEKID == target.KEKID && e.KEKVersionID == target.KEKVersionID && e.LeaseSeconds == target.LeaseSeconds && e.NotAfter.Equal(target.NotAfter) && e.AdmissionOperationID == target.AdmissionOperationID && sameBYOKMetadata(e.BYOK, target.BYOK)
+}
+
 // Provision is idempotent for the complete set of scope/version/region bindings.
 // It acknowledges only after every selected Region's wrapped copy is fsynced.
 // A caller must replicate this ciphertext catalog to admitted member hosts
@@ -79,7 +85,7 @@ func provision(ctx context.Context, path string, targets []ProvisionTarget, wrap
 	for _, target := range targets {
 		for _, entry := range catalog.Entries {
 			if entry.Binding == target.Binding {
-				if entry.Revoked || entry.Provider != target.Provider || entry.KeyID != target.KeyID || entry.KeyRegion != target.KeyRegion || entry.KeyEndpoint != target.KeyEndpoint || entry.KEKID != target.KEKID || entry.KEKVersionID != target.KEKVersionID || entry.CryptoEndpoint != target.CryptoEndpoint || entry.LeaseSeconds != target.LeaseSeconds || !entry.NotAfter.Equal(target.NotAfter) {
+				if !entry.MatchesTarget(target) {
 					return ErrUnavailable
 				}
 				existing++

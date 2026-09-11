@@ -571,7 +571,7 @@ func catalogContainsEntries(catalog keylease.Catalog, entries []keylease.Entry) 
 	for _, entry := range entries {
 		found := false
 		for _, installed := range catalog.Entries {
-			if installed.Binding == entry.Binding && installed.CryptoEndpoint == entry.CryptoEndpoint && installed.KEKID == entry.KEKID && installed.KEKVersionID == entry.KEKVersionID && installed.Ciphertext == entry.Ciphertext && installed.LeaseSeconds == entry.LeaseSeconds && installed.Revoked == entry.Revoked && installed.NotAfter.Equal(entry.NotAfter) && reflect.DeepEqual(installed.BYOK, entry.BYOK) {
+			if installed.Binding == entry.Binding && installed.Provider == entry.Provider && installed.KeyID == entry.KeyID && installed.KeyRegion == entry.KeyRegion && installed.KeyEndpoint == entry.KeyEndpoint && installed.AdmissionOperationID == entry.AdmissionOperationID && installed.CryptoEndpoint == entry.CryptoEndpoint && installed.KEKID == entry.KEKID && installed.KEKVersionID == entry.KEKVersionID && installed.Ciphertext == entry.Ciphertext && installed.LeaseSeconds == entry.LeaseSeconds && installed.Revoked == entry.Revoked && installed.NotAfter.Equal(entry.NotAfter) && reflect.DeepEqual(installed.BYOK, entry.BYOK) {
 				found = true
 				break
 			}
@@ -591,7 +591,7 @@ func validateInstall(c HostConfig, r installRequest) error {
 	seen := map[string]bool{}
 	for _, entry := range r.Entries {
 		b := entry.Binding
-		if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || !slices.Contains(databaseKeyPurposes[:], b.Purpose) || seen[b.Purpose] || entry.Revoked || !sameBYOKReference(a.BYOK, entry.BYOK) {
+		if b.Environment != a.Environment || b.TenantID != a.TenantID || b.ProjectID != a.ProjectID || b.DatabaseID != a.DatabaseID || b.KeyVersion != a.KeyVersion || b.Region != a.Region || !slices.Contains(databaseKeyPurposes[:], b.Purpose) || seen[b.Purpose] || entry.Revoked || !sameBYOKReference(a.BYOK, entry.BYOK) || !matchesAdmittedProvider(a.BYOK, a.OperationID, entry.Provider, entry.KeyID, entry.KeyRegion, entry.KeyEndpoint, entry.AdmissionOperationID) {
 			return ErrInvalid
 		}
 		seen[b.Purpose] = true
@@ -606,6 +606,13 @@ func validateInstall(c HostConfig, r installRequest) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func matchesAdmittedProvider(reference *BYOKReference, operation, provider, keyID, region, endpoint, admissionOperation string) bool {
+	if reference == nil {
+		return provider == "" && keyID == "" && region == "" && endpoint == ""
+	}
+	return provider == reference.KeyProvider && keyID == reference.KeyID && region == reference.KeyRegion && endpoint == reference.KeyEndpoint && admissionOperation == operation
 }
 
 func sameBYOKReference(reference *BYOKReference, metadata *keylease.BYOKMetadata) bool {

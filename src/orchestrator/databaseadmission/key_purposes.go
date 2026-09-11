@@ -62,6 +62,9 @@ func (p *Pipeline) provisionKeys(ctx context.Context, r *Record) error {
 			found := false
 			for _, entry := range catalog.Entries {
 				if entry.Binding == target.Binding {
+					if !entry.MatchesTarget(target) {
+						return ErrInvalid
+					}
 					r.Wrapped = append(r.Wrapped, entry)
 					found = true
 					break

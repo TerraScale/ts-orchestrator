@@ -24,6 +24,7 @@ import (
 	"github.com/nats-io/nkeys"
 	"terrascale.tech/orchestrator/src/orchestrator/control/authority"
 	"terrascale.tech/orchestrator/src/orchestrator/databaselifecycle"
+	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 )
 
 type admissionJournalCluster struct {
@@ -198,6 +199,17 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	}
 	record.Request.BYOK = byok
 	record.BYOK = byok
+	for i := range record.Targets {
+		record.Targets[i].Provision.Provider = byok.KeyProvider
+		record.Targets[i].Provision.KeyID = byok.KeyID
+		record.Targets[i].Provision.KeyRegion = byok.KeyRegion
+		record.Targets[i].Provision.KeyEndpoint = byok.KeyEndpoint
+		record.Targets[i].Provision.CryptoEndpoint = ""
+		record.Targets[i].Provision.KEKID = ""
+		record.Targets[i].Provision.KEKVersionID = ""
+		record.Targets[i].Provision.AdmissionOperationID = record.Request.OperationID
+		record.Targets[i].Provision.BYOK = &keylease.BYOKMetadata{BackupEndpoint: byok.BackupEndpoint, BackupBucket: byok.BackupBucket, BackupRegion: byok.BackupRegion, BackupRoleARN: byok.BackupRoleARN, BackupExternalID: byok.BackupExternalID, KeyProvider: byok.KeyProvider, KeyID: byok.KeyID, KeyRegion: byok.KeyRegion, KeyEndpoint: byok.KeyEndpoint, ConfigurationUpdatedAt: byok.ConfigurationUpdatedAt}
+	}
 	for i := range record.Targets {
 		record.Targets[i].BYOK = byok
 	}

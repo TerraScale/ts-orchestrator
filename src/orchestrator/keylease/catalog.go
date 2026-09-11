@@ -140,13 +140,19 @@ func (c Catalog) validate() error {
 
 func validEntryProvider(e Entry) bool {
 	if e.Provider == "" {
-		return hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) && provider.IsOCID(e.KEKID, "key") && provider.IsOCID(e.KEKVersionID, "keyversion")
+		return e.BYOK == nil && e.KeyID == "" && e.KeyRegion == "" && e.KeyEndpoint == "" && hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) && provider.IsOCID(e.KEKID, "key") && provider.IsOCID(e.KEKVersionID, "keyversion")
 	}
-	if e.Provider != "aws-kms" || !byokauthority.ValidKMSKeyARN(e.KeyID, e.KeyRegion) || !validEnvironment(e.KeyRegion) || e.KeyEndpoint == "" || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
+	if e.Provider != "aws-kms" || !byokauthority.ValidKMSKeyARN(e.KeyID, e.KeyRegion) || !validEnvironment(e.KeyRegion) || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
 		return false
 	}
+	if b := e.BYOK; b != nil && (e.AdmissionOperationID == "" || b.KeyProvider != e.Provider || b.KeyID != e.KeyID || b.KeyRegion != e.KeyRegion || b.KeyEndpoint != e.KeyEndpoint) {
+		return false
+	}
+	if e.KeyEndpoint == "" {
+		return true // The AWS SDK resolves the admitted regional endpoint.
+	}
 	u, err := url.Parse(e.KeyEndpoint)
-	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && len(e.KeyEndpoint) <= 2048 && !strings.ContainsAny(e.KeyEndpoint, "\r\n\x00")
 }
 
 // privateRoot refuses symlinked parent directories and requires owner-only

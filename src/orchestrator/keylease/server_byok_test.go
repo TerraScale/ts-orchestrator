@@ -45,6 +45,9 @@ func purposeCatalog(t *testing.T, config Config, catalog Catalog, admission stri
 		entry := fixtureEntry()
 		entry.CryptoEndpoint = "https://" + entry.CryptoEndpoint
 		entry.Binding.Purpose = purpose
+		entry.Provider = byok.KeyProvider
+		entry.KeyID, entry.KeyRegion, entry.KeyEndpoint = byok.KeyID, byok.KeyRegion, byok.KeyEndpoint
+		entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""
 		entry.AdmissionOperationID = admission
 		entry.BYOK = byok
 		catalog.Entries = append(catalog.Entries, entry)

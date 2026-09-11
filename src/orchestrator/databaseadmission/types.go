@@ -284,7 +284,7 @@ func ValidateRecord(r Record) error {
 		if t.ServerIdentity == "" || hosts[t.ServerIdentity] || !canonicalID.MatchString(t.MemberID) || members[t.MemberID] || !slices.Contains(r.Request.Regions, t.Region) || len(t.Proposal) == 0 {
 			return ErrInvalid
 		}
-		if !reflect.DeepEqual(t.BYOK, r.BYOK) {
+		if !reflect.DeepEqual(t.BYOK, r.BYOK) || !sameBYOKReference(r.BYOK, t.Provision.BYOK) || !matchesAdmittedProvider(r.BYOK, r.Request.OperationID, t.Provision.Provider, t.Provision.KeyID, t.Provision.KeyRegion, t.Provision.KeyEndpoint, t.Provision.AdmissionOperationID) {
 			return ErrInvalid
 		}
 		b := t.Provision.Binding

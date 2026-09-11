@@ -92,7 +92,7 @@ func validateProgress(record Record) error {
 			if !slices.Contains(databaseKeyPurposes[:], entry.Binding.Purpose) {
 				return ErrInvalid
 			}
-			if entry.Binding == p.Binding && entry.CryptoEndpoint == p.CryptoEndpoint && entry.KEKID == p.KEKID && entry.KEKVersionID == p.KEKVersionID && entry.LeaseSeconds == p.LeaseSeconds && entry.NotAfter.Equal(p.NotAfter) {
+			if entry.MatchesTarget(p) {
 				match = true
 				break
 			}
