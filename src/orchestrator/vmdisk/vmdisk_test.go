@@ -236,15 +236,24 @@ func TestAttachedArtifactToleratesJailerHardLinkAndRemovalRefusesAliases(t *test
 	if _, err := store.ReadAt(ctx, "member-a", make([]byte, 1), 0); err != nil {
 		t.Fatalf("io with jailer link failed: %v", err)
 	}
-	// A linked artifact cannot be wiped securely, so removal must refuse
-	// until the jail (and its alias) is gone.
+	// A linked current artifact cannot be wiped securely, so removal must
+	// refuse until the jail (and its alias) is gone.
 	if err := store.Remove(ctx, "member-a"); !errors.Is(err, ErrOwnership) {
 		t.Fatalf("removal of aliased artifact = %v, want ErrOwnership", err)
 	}
-	if err := os.Remove(jailLink); err != nil {
-		t.Fatal(err)
+	// Transitions proceed while attached: the write supersedes the
+	// jail-linked generation, and only the jail's own link keeps that
+	// superseded inode alive until the guest stops.
+	if _, err := store.WriteAt(ctx, "member-a", []byte("x"), 0); err != nil {
+		t.Fatalf("write transition with jailer link failed: %v", err)
+	}
+	if _, err := store.Checksum(ctx, "member-a"); err != nil {
+		t.Fatalf("checksum with jailer link failed: %v", err)
 	}
 	if err := store.Remove(ctx, "member-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(jailLink); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Get(ctx, "member-a"); !errors.Is(err, ErrNotFound) {

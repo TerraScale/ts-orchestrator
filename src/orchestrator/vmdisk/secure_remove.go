@@ -412,6 +412,32 @@ func unlinkOwnedRegularPath(path string, owner Ownership, mode os.FileMode) erro
 	return unlinkOwnedRegularAt(parent, filepath.Base(path), owner, mode)
 }
 
+// unlinkOwnedArtifactPath unlinks one store-owned name of a drive artifact
+// that may carry the VMM jailer's hard link. Dropping the store's link of a
+// superseded generation is a transition, not a wipe: the jail keeps its own
+// link to the inode it booted with until the guest stops, and secure removal
+// still refuses to delete an aliased drive directory.
+func unlinkOwnedArtifactPath(path string, owner Ownership) error {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
+	if err != nil {
+		return err
+	}
+	defer parent.file.Close()
+	name := filepath.Base(path)
+	file, opened, err := openOwnedArtifactAt(parent, name, unix.O_RDONLY, owner)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	current, err := statxAt(int(parent.file.Fd()), name)
+	if err != nil || !sameStatxIdentity(opened, current) {
+		return ErrOwnership
+	}
+	return unix.Unlinkat(int(parent.file.Fd()), name, 0)
+}
+
 func containsName(names []string, want string) bool {
 	for _, name := range names {
 		if name == want {

@@ -594,6 +594,20 @@ func openOwnedArtifact(path string, flags int, owner Ownership) (*os.File, error
 	return file, err
 }
 
+// openOwnedArtifactMode reads a store artifact that may carry the VMM
+// jailer's hard link while its guest runs, honoring the artifact's own mode:
+// 0600 drive artifacts tolerate the link, 0400 snapshot images stay
+// single-link because they are never attached.
+func openOwnedArtifactMode(path string, flags int, owner Ownership, mode os.FileMode) (*os.File, error) {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.file.Close()
+	file, _, err := openOwnedRegularFileAt(parent, filepath.Base(path), flags, owner, mode, mode != 0o600)
+	return file, err
+}
+
 func syncDirectory(path string) error {
 	dir, err := openDirectoryPath(path)
 	if err != nil {
@@ -1278,7 +1292,7 @@ func (s *Store) commitArtifactState(ctx context.Context, current diskMetadata, o
 	}
 	committed = true
 	if oldPath != newPath {
-		if err := unlinkOwnedRegularPath(oldPath, s.owner, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := unlinkOwnedArtifactPath(oldPath, s.owner); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		if err := syncDirectory(filepath.Dir(oldPath)); err != nil {
@@ -1289,10 +1303,7 @@ func (s *Store) commitArtifactState(ctx context.Context, current diskMetadata, o
 }
 
 func copyOwnedPrefix(ctx context.Context, source string, sourceMode os.FileMode, destination string, destinationMode os.FileMode, size int64, owner Ownership) error {
-	// The clone source may be an attached drive artifact carrying the
-	// jailer's hard link; the freshly allocated destination stays
-	// single-link.
-	in, err := openOwnedArtifact(source, os.O_RDONLY, owner)
+	in, err := openOwnedArtifactMode(source, os.O_RDONLY, owner, sourceMode)
 	if err != nil {
 		return err
 	}
@@ -1368,7 +1379,9 @@ func checksumExact(ctx context.Context, path string, size int64, owner Ownership
 		return "", err
 	}
 	defer parent.file.Close()
-	file, _, err := openOwnedRegularFileAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode, true)
+	// Drive artifacts (0600) may carry the jailer link while attached;
+	// snapshot images (0400) are never attached and stay single-link.
+	file, _, err := openOwnedRegularFileAt(parent, filepath.Base(path), unix.O_RDONLY, owner, mode, mode != 0o600)
 	if err != nil {
 		return "", err
 	}
