@@ -184,6 +184,23 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	putAdmissionLease(t, ctx, store, admissionLease(1, candidate))
 	journal := newAdmissionJournalClient(t, connection, 1, candidate)
 	record := journalFixture(t)
+	byok := &BYOKReference{
+		BackupEndpoint:         "https://s3.customer.example",
+		BackupBucket:           "customer-backups",
+		BackupRegion:           "us-east-1",
+		BackupRoleARN:          "arn:aws:iam::123456789012:role/TerraScaleBackup",
+		BackupExternalID:       "external-123",
+		KeyProvider:            "aws-kms",
+		KeyID:                  "arn:aws:kms:us-east-1:123456789012:key/customer",
+		KeyRegion:              "us-east-1",
+		KeyEndpoint:            "https://kms.us-east-1.amazonaws.com",
+		ConfigurationUpdatedAt: "2026-09-10T00:00:00Z",
+	}
+	record.Request.BYOK = byok
+	record.BYOK = byok
+	for i := range record.Targets {
+		record.Targets[i].BYOK = byok
+	}
 	record.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
 	key := ScopeKey(record.Request)
 	revision, err := journal.Save(ctx, key, 0, record)
@@ -215,6 +232,9 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	recovered, found, err := successor.Load(ctx, key)
 	if err != nil || !found || recovered.DatabaseID != record.DatabaseID || recovered.Revision != 1 || !ImmutableEqual(recovered, record) {
 		t.Fatalf("recovery found=%v err=%v record=%+v", found, err, recovered)
+	}
+	if recovered.BYOK == nil || recovered.BYOK.KeyID != byok.KeyID || recovered.BYOK.BackupRoleARN != byok.BackupRoleARN {
+		t.Fatalf("BYOK references were not recovered from NATS: %+v", recovered.BYOK)
 	}
 	replayed, err := successor.FreezeInventory(ctx, record.Request.TenantID, closed.Start, closed.End)
 	if err != nil || replayed.Digest != closed.Digest || replayed.Revision != closed.Revision {

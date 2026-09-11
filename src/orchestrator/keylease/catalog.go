@@ -1,5 +1,6 @@
-// Package keylease serves short-lived, database-scoped OCI Vault data keys to
-// the local TerraBase process. Durable state contains wrapped ciphertext only.
+// Package keylease serves short-lived, database-scoped provider data keys to
+// the local TerraBase process. Durable state contains provider references and
+// wrapped ciphertext only; credentials and plaintext keys never enter it.
 package keylease
 
 import (
@@ -346,9 +347,15 @@ func MergeEntries(path string, entries []Entry) error {
 }
 func sameEntry(a, b Entry) bool {
 	at, bt := a.NotAfter, b.NotAfter
+	ab, bb := a.BYOK, b.BYOK
 	a.NotAfter = time.Time{}
 	b.NotAfter = time.Time{}
-	return a == b && at.Equal(bt)
+	a.BYOK = nil
+	b.BYOK = nil
+	// BYOK metadata is compared by value: entries are JSON-decoded
+	// independently from the catalog file and from NATS deliveries, so the
+	// pointer identity of the metadata would defeat idempotent retries.
+	return a == b && at.Equal(bt) && sameBYOKMetadata(ab, bb)
 }
 
 // InitializeCatalog creates an empty durable catalog only when none exists.

@@ -57,10 +57,11 @@ buffer, and exact grants for `orch.database.create`, `orch.database.status`,
 and `orch.database.host.<SHA256-of-engine-SPIFFE>.install`. Only GRU authority may
 publish host installation. Member identities may request admission/status and
 subscribe to their own installation subject, replying on request inboxes.
-NATS carries bounded control metadata and wrapped ciphertext only. Wrapped
-ciphertext remains recoverable from durable control history while its regional
-KEK exists; host lease tombstones alone do not prove cryptographic erasure of
-historical journal or backup copies.
+NATS carries bounded control metadata, validated BYOK provider references, and
+wrapped ciphertext. It never carries provider credentials or unwrapped key
+material. Wrapped ciphertext remains recoverable from durable control history
+while its regional KEK exists; host lease tombstones alone do not prove
+cryptographic erasure of historical journal or backup copies.
 
 Tests exercise real authenticated NATS transport, R3 restart and quorum loss,
 lease replacement, immutable concurrent name ownership, lost effect responses,

@@ -79,8 +79,12 @@ func TestRenewalPolicyCheckerUsesConcreteTLSWireTuple(t *testing.T) {
 	}))
 	defer server.Close()
 	checker := renewalPolicyChecker{endpoint: server.URL, serviceKey: "secret", client: server.Client()}
-	if expiry, err := checker.Check(t.Context(), request); err != nil || expiry.Before(time.Now()) {
+	expiry, err := checker.Check(t.Context(), request)
+	if err != nil {
 		t.Fatalf("TLS policy check = %v, %v", expiry, err)
+	}
+	if want := time.Now().Add(20 * time.Second).Truncate(time.Second); expiry.Unix() < want.Unix()-1 || expiry.Unix() > want.Unix()+1 {
+		t.Fatalf("policy expiry = %v, want the producer's expires_at near %v", expiry, want)
 	}
 }
 
@@ -114,6 +118,12 @@ func TestRenewalPolicyCheckerRejectsChangedScopeExpiryAndMalformedResponses(t *t
 		}},
 		{name: "changed revision", body: func() string {
 			return strings.Replace(renewalReply(request, request.Binding.TenantID, request.Binding.ProjectID, request.Binding.DatabaseID, request.AdmissionOperationID, 20), "2026-09-09T00:00:00.000Z", "2026-09-09T00:00:01.000Z", 1)
+		}},
+		{name: "producer denial", body: func() string {
+			return strings.Replace(renewalReply(request, request.Binding.TenantID, request.Binding.ProjectID, request.Binding.DatabaseID, request.AdmissionOperationID, 20), `"allowed":true`, `"allowed":false`, 1)
+		}},
+		{name: "wrong environment", body: func() string {
+			return strings.Replace(renewalReply(request, request.Binding.TenantID, request.Binding.ProjectID, request.Binding.DatabaseID, request.AdmissionOperationID, 20), `"environment":"production"`, `"environment":"staging"`, 1)
 		}},
 		{name: "oversized response", body: func() string {
 			return renewalReply(request, request.Binding.TenantID, request.Binding.ProjectID, request.Binding.DatabaseID, request.AdmissionOperationID, 20) + strings.Repeat(" ", 8192)
@@ -174,7 +184,7 @@ func TestRenewalPolicyCheckerResponseByteBoundary(t *testing.T) {
 
 func TestRenewalPolicyCheckerConsumesDashboardGeneratedWorkloadFixture(t *testing.T) {
 	_, source, _, _ := runtime.Caller(0)
-	fixtureDir := filepath.Join(filepath.Dir(source), "../../../.agents/qualification/current-20260910/byok-wire-contract/dashboard-generated")
+	fixtureDir := filepath.Join(filepath.Dir(source), "testdata", "byok-wire-contract")
 	requestBytes, err := os.ReadFile(filepath.Join(fixtureDir, "request-workload.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -196,13 +206,18 @@ func TestRenewalPolicyCheckerConsumesDashboardGeneratedWorkloadFixture(t *testin
 	if err := json.Unmarshal(requestBytes, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	responseBytes = bytes.Replace(responseBytes, []byte("1789068287"), []byte(fmt.Sprint(time.Now().Add(20*time.Second).Unix())), 1)
+	fixtureExpiry := time.Now().Add(20 * time.Second).Unix()
+	responseBytes = bytes.Replace(responseBytes, []byte("1789068287"), []byte(fmt.Sprint(fixtureExpiry)), 1)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(responseBytes) }))
 	defer server.Close()
 	request := keylease.RenewalRequest{Binding: keylease.Binding{Environment: fixture.Environment, TenantID: fixture.TenantID, ProjectID: fixture.ProjectID, DatabaseID: fixture.DatabaseID}, AdmissionOperationID: fixture.AdmissionOperationID, BYOK: &fixture.BYOK, Workload: &keylease.WorkloadIdentityScope{Environment: fixture.Environment, TenantID: fixture.TenantID, ProjectID: fixture.ProjectID, DatabaseID: fixture.DatabaseID, Role: fixture.S3.Role, Endpoint: fixture.S3.Endpoint, Bucket: fixture.S3.Bucket, Region: fixture.S3.Region, PlacementRevision: fixture.S3.PlacementRevision}}
 	checker := renewalPolicyChecker{endpoint: server.URL, serviceKey: "secret", client: server.Client()}
-	if _, err := checker.Check(t.Context(), request); err != nil {
+	expiry, err := checker.Check(t.Context(), request)
+	if err != nil {
 		t.Fatalf("dashboard-generated workload fixture rejected: %v", err)
+	}
+	if got := expiry.Unix(); got < fixtureExpiry-1 || got > fixtureExpiry+1 {
+		t.Fatalf("fixture policy expiry = %d, want the producer's expires_at near %d", got, fixtureExpiry)
 	}
 }
 

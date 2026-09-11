@@ -1155,3 +1155,8 @@ warning: field `retention` is never read
 182 |     retention: Arc<ReplicationRetentionFrontier>,
     |     ^^^^^^^^^
 
+warning: `terrabase-server` (lib) generated 18 warnings (run `cargo fix --lib -p terrabase-server` to apply 6 suggestions)
+    Finished `release` profile [optimized] target(s) in 8m 48s
+13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1  target/x86_64-unknown-linux-musl/release/terrabase-server
+exit=0
+end_utc=2026-09-10T23:38:30Z

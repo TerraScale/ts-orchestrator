@@ -43,8 +43,11 @@ type Request struct {
 	BYOK            *BYOKReference `json:"byok,omitempty"`
 }
 
-// BYOKReference carries customer-owned provider references only. Credentials
-// and key material are deliberately outside the admission contract.
+// BYOKReference carries customer-owned provider references only. These
+// references are safe to persist in the authenticated NATS admission journal
+// so a restarted orchestrator can reconstruct provider clients. Credentials,
+// wrapped DEKs, and plaintext key material use their dedicated boundaries and
+// are deliberately outside this contract.
 type BYOKReference struct {
 	BackupEndpoint         string `json:"backup_endpoint"`
 	BackupBucket           string `json:"backup_bucket"`

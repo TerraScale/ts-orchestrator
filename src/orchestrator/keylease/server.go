@@ -213,7 +213,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		}
 	}
 	var policyExpiry time.Time
-	if s.config.RenewalPolicy != nil {
+	if s.config.RenewalPolicy != nil && entry.BYOK != nil {
 		policyExpiry, err = s.config.RenewalPolicy.Check(local, RenewalRequest{Binding: binding, AdmissionOperationID: entry.AdmissionOperationID, BYOK: entry.BYOK, Provider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, KeyEndpoint: entry.KeyEndpoint})
 		if err != nil {
 			writeUnavailableProtocol(connection, protocol)
@@ -226,7 +226,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		writeUnavailableProtocol(connection, protocol)
 		return
 	}
-	if s.config.RenewalPolicy != nil {
+	if s.config.RenewalPolicy != nil && entry.BYOK != nil {
 		latestExpiry, policyErr := s.config.RenewalPolicy.Check(local, RenewalRequest{Binding: binding, AdmissionOperationID: entry.AdmissionOperationID, BYOK: entry.BYOK, Provider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, KeyEndpoint: entry.KeyEndpoint})
 		if policyErr != nil {
 			writeUnavailableProtocol(connection, protocol)
@@ -249,7 +249,7 @@ func (s *Server) handle(ctx context.Context, connection *net.UnixConn, unwrap Un
 		}
 	}()
 	current, err := s.lookup(binding, time.Now())
-	if err != nil || current != entry {
+	if err != nil || !sameEntry(current, entry) {
 		writeUnavailableProtocol(connection, protocol)
 		return
 	}
@@ -283,43 +283,56 @@ func (s *Server) serveWorkloadIdentity(ctx context.Context, connection *net.Unix
 		return
 	}
 	var policyExpiry time.Time
-	var matched *Entry
+	var admission string
+	var metadata *BYOKMetadata
 	if s.config.RenewalPolicy != nil {
-		var err error
 		catalog, readErr := ReadCatalog(s.config.CatalogPath)
 		if readErr != nil {
 			return
 		}
-		for i := range catalog.Entries {
-			entry := &catalog.Entries[i]
-			if entry.BYOK == nil || entry.Revoked || entry.Binding.Environment != scope.Environment || entry.Binding.TenantID != scope.TenantID || entry.Binding.ProjectID != scope.ProjectID || entry.Binding.DatabaseID != scope.DatabaseID || entry.BYOK.BackupEndpoint != scope.Endpoint || entry.BYOK.BackupBucket != scope.Bucket || entry.BYOK.BackupRegion != scope.Region || entry.BYOK.BackupRoleARN != scope.Role || entry.BYOK.BackupExternalID != valueOrEmpty(scope.ExternalID) {
-				continue
-			}
-			if matched != nil {
-				return
-			}
-			matched = entry
-		}
+		matched := matchWorkloadEntry(catalog, scope)
 		if matched == nil {
 			return
 		}
+		var err error
 		policyExpiry, err = s.config.RenewalPolicy.Check(ctx, RenewalRequest{AdmissionOperationID: matched.AdmissionOperationID, BYOK: matched.BYOK, Workload: scope})
 		if err != nil {
 			return
 		}
+		admission = matched.AdmissionOperationID
+		metadata = matched.BYOK
 	}
 	credentials, err := s.config.WorkloadIdentity.Issue(ctx, *scope)
 	if err != nil || credentials.AccessKey == "" || credentials.SecretKey == "" || credentials.SessionToken == "" || credentials.ExpiresAtUnixSeconds == 0 {
 		return
 	}
-	if !policyExpiry.IsZero() && credentials.ExpiresAtUnixSeconds > uint64(policyExpiry.Unix()) {
-		credentials.ExpiresAtUnixSeconds = uint64(policyExpiry.Unix())
-	}
+	defer clearCredentials(&credentials)
 	if s.config.RenewalPolicy != nil {
-		if _, err := s.config.RenewalPolicy.Check(ctx, RenewalRequest{AdmissionOperationID: matched.AdmissionOperationID, BYOK: matched.BYOK, Workload: scope}); err != nil {
-			clearCredentials(&credentials)
+		// Re-check after the STS round-trip: revocation, rotation, or a
+		// tightened policy decision must not race credential issuance. The
+		// locked catalog read is the linearization point for this grant.
+		unlock, lockErr := catalogLock(s.config.CatalogPath)
+		if lockErr != nil {
 			return
 		}
+		current, readErr := ReadCatalog(s.config.CatalogPath)
+		unlock()
+		if readErr != nil {
+			return
+		}
+		if matched := matchWorkloadEntry(current, scope); matched == nil || matched.AdmissionOperationID != admission || !sameBYOKMetadata(matched.BYOK, metadata) {
+			return
+		}
+		latestExpiry, policyErr := s.config.RenewalPolicy.Check(ctx, RenewalRequest{AdmissionOperationID: admission, BYOK: metadata, Workload: scope})
+		if policyErr != nil {
+			return
+		}
+		if policyExpiry.IsZero() || latestExpiry.Before(policyExpiry) {
+			policyExpiry = latestExpiry
+		}
+	}
+	if !policyExpiry.IsZero() && credentials.ExpiresAtUnixSeconds > uint64(policyExpiry.Unix()) {
+		credentials.ExpiresAtUnixSeconds = uint64(policyExpiry.Unix())
 	}
 	body, err := json.Marshal(credentials)
 	if err != nil || len(body) > maximumFrame {
@@ -327,6 +340,35 @@ func (s *Server) serveWorkloadIdentity(ctx context.Context, connection *net.Unix
 	}
 	writeAll(connection, binary.BigEndian.AppendUint32(nil, uint32(len(body))))
 	writeAll(connection, body)
+}
+
+// matchWorkloadEntry returns the policy-relevant workload binding for the
+// scope. A fully provisioned database carries data, backup, and checkpoint
+// purpose entries sharing one admission operation and BYOK metadata; those
+// are one logical grant. Purpose entries that disagree on the admission
+// operation or metadata, or any revoked match, deny issuance.
+func matchWorkloadEntry(catalog Catalog, scope *WorkloadIdentityScope) *Entry {
+	var matched *Entry
+	for i := range catalog.Entries {
+		entry := &catalog.Entries[i]
+		if entry.BYOK == nil || entry.Binding.Environment != scope.Environment || entry.Binding.TenantID != scope.TenantID || entry.Binding.ProjectID != scope.ProjectID || entry.Binding.DatabaseID != scope.DatabaseID || entry.BYOK.BackupEndpoint != scope.Endpoint || entry.BYOK.BackupBucket != scope.Bucket || entry.BYOK.BackupRegion != scope.Region || entry.BYOK.BackupRoleARN != scope.Role || entry.BYOK.BackupExternalID != valueOrEmpty(scope.ExternalID) {
+			continue
+		}
+		if entry.Revoked {
+			return nil
+		}
+		if matched != nil && (matched.AdmissionOperationID != entry.AdmissionOperationID || !sameBYOKMetadata(matched.BYOK, entry.BYOK)) {
+			return nil
+		}
+		if matched == nil {
+			matched = entry
+		}
+	}
+	return matched
+}
+
+func sameBYOKMetadata(a, b *BYOKMetadata) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 func valueOrEmpty(value *string) string {
 	if value == nil {

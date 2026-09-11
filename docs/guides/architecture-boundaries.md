@@ -47,9 +47,10 @@ durably journaled. Loss of GRU or NATS can freeze new global mutations but
 cannot stop reads, eligible writes, replication, or reconnect recovery in an
 already admitted Region.
 
-NATS contains orchestrator control state only. Customer documents, WAL,
-replication frames, reactive frames, query results, and usage truth never enter
-it.
+NATS contains orchestrator control state only, including validated BYOK
+provider references and wrapped database-key ciphertext. Customer documents,
+WAL, replication frames, reactive frames, query results, usage truth, provider
+credentials, and plaintext key material never enter it.
 
 ## Estate and providers
 

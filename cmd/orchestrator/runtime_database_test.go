@@ -31,6 +31,37 @@ func TestPublishProductionBYOKStatusUsesAdmissionTimestampAndFailsClosed(t *test
 	}
 }
 
+func TestInstallProductionBYOKWithholdsVerifiedUntilEveryTargetInstalled(t *testing.T) {
+	byok := &databaseadmission.BYOKReference{ConfigurationUpdatedAt: "2026-09-09T00:00:00.000Z"}
+	record := databaseadmission.Record{Request: databaseadmission.Request{ProjectID: "project", OperationID: "create-one"}, BYOK: byok, Targets: []databaseadmission.Target{{ServerIdentity: "member-a"}, {ServerIdentity: "member-b"}}}
+	var statuses []string
+	publish := func(_ context.Context, r databaseadmission.Record, status string) error {
+		statuses = append(statuses, r.Request.OperationID+":"+status)
+		return nil
+	}
+	install := func(context.Context, databaseadmission.Record, databaseadmission.Target, []keylease.Entry) error {
+		return nil
+	}
+	// The first member's durable install must withhold the project-level
+	// verified publication while the second member is still pending.
+	if err := installProductionBYOK(t.Context(), record, record.Targets[0], nil, install, publish); err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("verified published before every target installed: %v", statuses)
+	}
+	// The caller journals the first member's install receipt before the
+	// second member installs; the last durable install publishes once.
+	durablyInstalled := record
+	durablyInstalled.Targets[0].Installed = true
+	if err := installProductionBYOK(t.Context(), durablyInstalled, durablyInstalled.Targets[1], nil, install, publish); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(statuses, []string{"create-one:verified"}) {
+		t.Fatalf("final install publications = %v", statuses)
+	}
+}
+
 func TestInstallProductionBYOKDoesNotPoisonProjectOnLostResponse(t *testing.T) {
 	byok := &databaseadmission.BYOKReference{ConfigurationUpdatedAt: "2026-09-09T00:00:00.000Z"}
 	record := databaseadmission.Record{Request: databaseadmission.Request{ProjectID: "project", OperationID: "create-one"}, BYOK: byok, Targets: []databaseadmission.Target{{ServerIdentity: "member-one"}}}
@@ -153,6 +184,15 @@ func TestDatabasePlanUsesCustomerProviderForAllPurposeKeys(t *testing.T) {
 	for _, target := range plan.Members {
 		if target.Provision.Provider != "aws-kms" || target.Provision.KeyID != record.BYOK.KeyID || target.Provision.CryptoEndpoint != "" || target.Provision.KEKID != "" || target.Provision.KEKVersionID != "" {
 			t.Fatalf("customer provider tuple not selected: %+v", target.Provision)
+		}
+		// The admission operation and the complete BYOK metadata copy are
+		// the renewal-fence inputs; dropping any field silently unfences
+		// the lease path.
+		if target.Provision.AdmissionOperationID != record.Request.OperationID {
+			t.Fatalf("admission operation not stamped: %+v", target.Provision)
+		}
+		if target.Provision.BYOK == nil || *target.Provision.BYOK != (keylease.BYOKMetadata{BackupEndpoint: record.BYOK.BackupEndpoint, BackupBucket: record.BYOK.BackupBucket, BackupRegion: record.BYOK.BackupRegion, BackupRoleARN: record.BYOK.BackupRoleARN, KeyProvider: record.BYOK.KeyProvider, KeyID: record.BYOK.KeyID, KeyRegion: record.BYOK.KeyRegion, KeyEndpoint: record.BYOK.KeyEndpoint, ConfigurationUpdatedAt: record.BYOK.ConfigurationUpdatedAt}) {
+			t.Fatalf("BYOK metadata not copied verbatim: %+v", target.Provision.BYOK)
 		}
 	}
 }

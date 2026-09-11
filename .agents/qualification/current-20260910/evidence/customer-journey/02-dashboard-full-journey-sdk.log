@@ -1,0 +1,71 @@
+start_utc=2026-09-10T23:47:34Z
+
+Running 1 test using 1 worker
+
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✘  1 [chromium] › e2e/full-journey-sdk.e2e.ts:14:1 › walks one ordered customer journey through the TypeScript SDK against the live stack (18.1s)
+Error: The Dashboard server emitted fatal or uncaught output:
+Server shutdown failed: The Playwright server did not seal its final log within 12000ms.
+
+   at global-teardown.ts:35
+
+  33 |     }
+  34 |     if (fatalEntries.size > 0) {
+> 35 |       throw new Error(
+     |             ^
+  36 |         `The Dashboard server emitted fatal or uncaught output:\n${[...fatalEntries].join("\n")}`,
+  37 |       );
+  38 |     }
+    at globalTeardown (/home/mariogk/Projects/TerraScale/ts-dashboard/e2e/global-teardown.ts:35:13)
+
+
+  1) [chromium] › e2e/full-journey-sdk.e2e.ts:14:1 › walks one ordered customer journey through the TypeScript SDK against the live stack › registers a fresh customer and lands in onboarding 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Create your first organization', { exact: true })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('Create your first organization', { exact: true })
+
+
+       at support/onboarding.ts:33
+
+      31 |   await page.locator("form button[type='submit']").click();
+      32 |   await expect(page).toHaveURL(new URL("/onboarding", runtime.dashboardBaseUrl).toString());
+    > 33 |   await expect(page.getByText("Create your first organization", { exact: true })).toBeVisible();
+         |                                                                                   ^
+      34 | }
+      35 |
+      36 | export async function signInDashboardUser(
+        at registerDashboardUser (/home/mariogk/Projects/TerraScale/ts-dashboard/e2e/support/onboarding.ts:33:83)
+        at /home/mariogk/Projects/TerraScale/ts-dashboard/e2e/full-journey-sdk.e2e.ts:40:5
+        at /home/mariogk/Projects/TerraScale/ts-dashboard/e2e/full-journey-sdk.e2e.ts:39:3
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/full-journey-sdk.e2e.ts-wa-86928--SDK-against-the-live-stack-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/full-journey-sdk.e2e.ts-wa-86928--SDK-against-the-live-stack-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/full-journey-sdk.e2e.ts-wa-86928--SDK-against-the-live-stack-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/full-journey-sdk.e2e.ts-wa-86928--SDK-against-the-live-stack-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/full-journey-sdk.e2e.ts-wa-86928--SDK-against-the-live-stack-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › e2e/full-journey-sdk.e2e.ts:14:1 › walks one ordered customer journey through the TypeScript SDK against the live stack 
+  1 error was not a part of any test, see above for details
+exit=1
+end_utc=2026-09-10T23:48:08Z

@@ -3,6 +3,9 @@
 `ts-deploy` owns CI execution and candidate publication. The orchestrator owns
 signed candidate admission, per-Region OCI artifact mirrors, rollout and recovery.
 Its global NATS runtime opens only the control records needed for those duties.
+BYOK admission records may include validated provider references and wrapped
+database-key ciphertext so a restarted authority can rebuild provider access;
+credentials and plaintext key material remain outside NATS.
 
 | Resource | Purpose | Limit per replica |
 | --- | --- | ---: |

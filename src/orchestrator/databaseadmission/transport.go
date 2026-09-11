@@ -387,6 +387,9 @@ func RemoteInstall(nc *nats.Conn) func(context.Context, Record, Target, []keylea
 		if err != nil {
 			return err
 		}
+		// The NATS install envelope carries the validated BYOK reference and
+		// wrapped entries needed by the host after restart. Credentials and
+		// unwrapped key material are never part of this wire type.
 		data, err := json.Marshal(installRequest{Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: t.Region, MemberID: t.MemberID, BYOK: t.BYOK}, entries})
 		if err != nil || len(data) > maxMessage {
 			return ErrInvalid
