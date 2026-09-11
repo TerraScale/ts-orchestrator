@@ -77,7 +77,10 @@ func (c *PlacementClient) Stage(ctx context.Context, operationID string, request
 	scope := c.transport.scope.Copy()
 	scope.Set("x-tb-idempotency-key", operationID)
 	ctx = metadata.NewOutgoingContext(ctx, scope)
-	response, err := c.rpc.Stage(ctx, &pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal})
+	// Declarations are the committed provisioning scope of the same CAS:
+	// dropping them here would let the engine commit a proposal whose durable
+	// residency intent never reached it.
+	response, err := c.rpc.Stage(ctx, &pb.PlacementStageRequest{ExpectedRevision: request.ExpectedRevision, Proposal: proposal, Declarations: request.Declarations})
 	if err != nil {
 		return nil, err
 	}

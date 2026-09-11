@@ -432,9 +432,20 @@ func (config productionDatabaseConfig) plan(ctx context.Context, r databaseadmis
 		return databaseadmission.Plan{}, err
 	}
 	// A successor proposal must not overtake an unresolved operation on a host.
+	// placement_pending only means every stage was receipted: the activation
+	// (deliver, acceptance, streams) may still be outstanding, and the shared
+	// per-host placement journal holds exactly one latest intent, so staging a
+	// successor now would wedge the predecessor's immutable proposals forever.
 	for _, prior := range records {
 		if prior.State != "placement_pending" && prior.State != "ready" {
 			return databaseadmission.Plan{}, errors.New("runtime database: previous database admission is unresolved")
+		}
+		if prior.State == "placement_pending" {
+			for _, target := range prior.PlacementTargets {
+				if target.AcceptedRevision == 0 || target.AcceptedEpoch == 0 || target.AcceptedGeneration == 0 || len(target.AcceptedProof) == 0 {
+					return databaseadmission.Plan{}, errors.New("runtime database: previous database activation is unresolved")
+				}
+			}
 		}
 	}
 	proposal := &pb.PlacementProposal{Environment: config.Environment, Cluster: config.Cluster, Generation: 1, Epoch: 1}
