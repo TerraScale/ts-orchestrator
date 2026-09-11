@@ -346,9 +346,39 @@ declaration (declarations bind exactly two members per Region), so the
 smoke/stack/test readiness chain continues through that declaration and
 material lane.
 
-## Remaining production work
+## vm-stack attempt and remaining blockers (2026-09-11)
 
-Production startup still has an unconditional missing-composition error.
+`make check` passes fully (100 packages, race enabled). The six-guest
+multi-Region stack was attempted through both admission paths and is blocked
+at specific, evidenced fences in the in-flight declaration/material lane
+(`vm-stack-5` through `vm-stack-8` logs in the same evidence directory):
+
+1. The material intent is validated against the exact binaries
+   `vm-artifacts` rebuilds each run, so the intent producer must build with
+   the same `CGO_ENABLED=0 -trimpath -ldflags=-s -w` flags as
+   `vm-artifacts` and race any concurrent source change; builds are
+   deterministic for identical source.
+2. The control-declaration payload must pin the plan-local artifact source
+   URLs (`https://releases.terrascale.tech:8443/releases/...`), not the
+   public release URLs.
+3. With `--material-input`, the journal resource root is derived from the
+   overridden state root while the disk store stays under `TS_VM_ROOT`, so
+   journal containment fails ("disk store is outside the cleanup resource
+   root"); the material environment needs to place the disk store under the
+   same root.
+4. Without material (self-generated authority plus a six-member engine
+   declaration), the staged engine configuration makes ts-node's pre-NATS
+   bootstrap wait for a running terrabase, and the real engine fails at
+   startup with `ProductionStartup(ControlApi ... placement proposal journal
+   cannot be opened or validated)` — the engine needs runtime state that the
+   control-plane delivery chain has not yet provisioned at that point. The
+   engine declarations themselves validate (`vmengineconfig.Load` with
+   two-per-Region bindings).
+
+The production startup composition error previously recorded here has been
+resolved by the runtime composition work.
+
+## Remaining production work
 The concrete missing adapters and absent TerraBase lifecycle RPCs are listed
 in [production readiness](production-readiness.md). OCI tags and instance
 lifecycle alone do not prove NATS synchronization, quorum, bootstrap handoff,
