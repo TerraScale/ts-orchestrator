@@ -173,6 +173,20 @@ func TestCustomerLeaseSucceedsWithBYOKAcrossCatalogDecodes(t *testing.T) {
 	}
 }
 
+func TestCatalogAcceptsAWSRegionalDefaultEndpoint(t *testing.T) {
+	config, catalog := fixture(t)
+	entry := catalog.Entries[0]
+	entry.Provider = "aws-kms"
+	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+	entry.KeyRegion = "sa-east-1"
+	entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""
+	entry.AdmissionOperationID = "01J00000000000000000000003"
+	entry.BYOK = &BYOKMetadata{KeyProvider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion}
+	if err := WriteCatalog(config.CatalogPath, Catalog{Version: 1, Entries: []Entry{entry}}); err != nil {
+		t.Fatalf("regional AWS endpoint default rejected: %v", err)
+	}
+}
+
 // Platform (service-managed) entries carry no BYOK metadata and no dashboard
 // admission; the renewal policy gate applies only to customer BYOK entries.
 // A policy configured for S3 workload identity must not deny platform keys.
