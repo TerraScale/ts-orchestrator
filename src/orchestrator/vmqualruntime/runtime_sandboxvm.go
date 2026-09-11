@@ -483,12 +483,18 @@ func (probe *sshGuestProbe) guestExitZero(ctx context.Context, id, address, path
 	if response.Command == nil {
 		return false, errors.New("vmqual: guest command observation is missing")
 	}
-	// A command that could not run is an observation failure, not evidence
-	// about the configuration: fail the probe instead of relaxing readiness.
-	if response.Command.Error != "" {
-		return false, fmt.Errorf("vmqual: guest command failed: %s", response.Command.Error)
+	// test(1) communicates its single observation through the exit code: 0 is
+	// "condition holds", 1 is "condition does not hold", and anything else
+	// (spawn failure, timeout) means the guest could not be observed — fail
+	// the probe instead of guessing in that case.
+	switch response.Command.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("vmqual: guest command could not be observed: exit %d: %s", response.Command.ExitCode, response.Command.Error)
 	}
-	return response.Command.ExitCode == 0, nil
 }
 
 func (probe *sshGuestProbe) unitActive(ctx context.Context, id, address, unit string) (bool, error) {
