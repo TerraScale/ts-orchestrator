@@ -121,7 +121,7 @@ func buildProductionGlobalConfig(ctx context.Context, session globalWorkerSessio
 	config.Restore.SnapshotRegions = recovery.SnapshotRegions
 	config.Restore.Backup = input.RestoreBackup
 	config.Restore.Branches = input.RestoreBranches
-	config.RestoreTelemetry, err = newProductionRestoreTelemetryFromEnv(session.Lease.CandidateId, "gru")
+	config.RestoreTelemetry, err = newProductionRestoreTelemetryFromEnv(input.Lookup, session.Lease.CandidateId, "gru")
 	if err != nil {
 		return fail(fmt.Errorf("global recovery telemetry: %w", err))
 	}

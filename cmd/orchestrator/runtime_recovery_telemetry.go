@@ -4,15 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/observability"
 	"terrascale.tech/orchestrator/src/orchestrator/restoredrill"
 )
 
-func newProductionRestoreTelemetryFromEnv(host, region string) (*productionRestoreTelemetry, error) {
-	config, err := observabilityConfigFromEnv(os.LookupEnv)
+func newProductionRestoreTelemetryFromEnv(lookup envLookup, host, region string) (*productionRestoreTelemetry, error) {
+	config, err := observabilityConfigFromEnv(lookup)
 	if err != nil {
 		return nil, errors.Join(errors.New("restore telemetry: production observability configuration is required"), err)
 	}

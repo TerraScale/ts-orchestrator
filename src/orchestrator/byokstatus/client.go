@@ -4,12 +4,14 @@ package byokstatus
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 var ErrUnavailable = errors.New("byokstatus: dashboard unavailable")
@@ -49,7 +51,13 @@ func New(config Config) (*Client, error) {
 	}
 	httpClient := config.HTTP
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		// Same boundary as the sibling outbound clients: no ambient proxy, a
+		// TLS floor, a hard timeout, and redirects surfaced as responses so
+		// the service key is never re-sent to a redirect target.
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+		httpClient = &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	return &Client{endpoint: strings.TrimRight(u.String(), "/"), key: config.ServiceKey, http: httpClient}, nil
 }

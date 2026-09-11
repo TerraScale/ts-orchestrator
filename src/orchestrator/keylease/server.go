@@ -356,6 +356,13 @@ func matchWorkloadEntry(catalog Catalog, scope *WorkloadIdentityScope) *Entry {
 		if entry.Revoked {
 			return nil
 		}
+		// An expired lease entry no longer authorizes workload
+		// credentials: the admitted key-lease window gates data-plane
+		// access, so matching only on the binding would issue S3
+		// credentials past that window.
+		if !entry.NotAfter.IsZero() && !time.Now().UTC().Before(entry.NotAfter) {
+			return nil
+		}
 		if matched != nil && (matched.AdmissionOperationID != entry.AdmissionOperationID || !sameBYOKMetadata(matched.BYOK, entry.BYOK)) {
 			return nil
 		}

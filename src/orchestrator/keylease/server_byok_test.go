@@ -250,3 +250,28 @@ func TestMergeEntriesIdempotentBYOKRedelivery(t *testing.T) {
 		t.Fatalf("idempotent redelivery duplicated entries: %d != %d", len(final.Entries), len(catalog.Entries))
 	}
 }
+
+// An entry whose admitted lease window has elapsed no longer authorizes
+// workload credentials, even though its binding still matches the scope.
+func TestWorkloadIdentityExpiredEntryDeniesCredentials(t *testing.T) {
+	config, catalog := fixture(t)
+	byok := byokFixtureMetadata()
+	catalog = purposeCatalog(t, config, catalog, "01J00000000000000000000003", byok)
+	for i := range catalog.Entries {
+		catalog.Entries[i].NotAfter = time.Now().UTC().Add(-time.Minute)
+	}
+	if err := WriteCatalog(config.CatalogPath, catalog); err != nil {
+		t.Fatal(err)
+	}
+	issuer := &countingIssuer{}
+	config.RenewalPolicy, config.WorkloadIdentity = &allowGate{}, issuer
+	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) { return testDataKey(t, 1), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	body := workloadRequest(t, config.SocketPath, workloadScopeFor(catalog.Entries[0], byok))
+	if len(body) != 0 || issuer.calls.Load() != 0 {
+		t.Fatalf("expired entry issued workload credentials: bodyLen=%d issuer=%d", len(body), issuer.calls.Load())
+	}
+}

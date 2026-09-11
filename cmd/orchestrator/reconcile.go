@@ -933,10 +933,21 @@ func ociKnownLiveLifecycle(state string) bool {
 }
 
 func observedDataVolumeSize(region estate.Region, observed ocireconcile.BlockStorageObserved) string {
+	// Report the smallest live volume: the pool only matches the declared
+	// size when every member's volume does, so sampling one volume (whose
+	// order the provider chooses) would hide per-member drift.
+	sampled := true
+	var minimum uint64
 	for _, volume := range observed.Volumes {
-		if volume.LifecycleState != "TERMINATED" && volume.LifecycleState != "TERMINATING" {
-			return fmt.Sprint(volume.SizeGiB)
+		if volume.LifecycleState == "TERMINATED" || volume.LifecycleState == "TERMINATING" {
+			continue
 		}
+		if sampled || volume.SizeGiB < minimum {
+			minimum, sampled = volume.SizeGiB, false
+		}
+	}
+	if !sampled {
+		return fmt.Sprint(minimum)
 	}
 	// A live member with no observed volume is an actionable gap. Returning
 	// zero makes the generic compute resource carry that drift so the block
@@ -1004,9 +1015,14 @@ func (c *cloudflareReconcileController) Observe(ctx context.Context) (reconcile.
 	}
 	changed := make(map[estate.ResourceKind]bool)
 	for _, change := range plan.Changes {
-		if kind, ok := cloudflareResourceKind(change.Resource); ok {
-			changed[kind] = true
+		kind, ok := cloudflareResourceKind(change.Resource)
+		if !ok {
+			// Drift on a resource the generic plan cannot represent must
+			// surface as an error, never as convergence: skipping it would
+			// report Converged while the zone stays unrepaired.
+			return reconcile.State{}, fmt.Errorf("reconcile: unmapped Cloudflare drift on %s (%s)", change.Resource, change.Ref)
 		}
+		changed[kind] = true
 	}
 	var observed reconcile.State
 	for _, resource := range c.Declared.Resources {
