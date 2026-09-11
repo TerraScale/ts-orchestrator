@@ -72,3 +72,26 @@ func writeNatsAuthenticationTestSeed(t *testing.T, path string) string {
 	}
 	return path
 }
+
+func TestNatsAuthenticationFilesFromNKeyFileEnforcesCredentialFileChecks(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	seed := writeNatsAuthenticationTestSeed(t, filepath.Join(directory, "member.seed"))
+	if err := os.Chmod(seed, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NatsAuthenticationFilesFromNKeyFile(seed); err == nil {
+		t.Fatal("a group-readable NKey seed file was accepted")
+	}
+	if err := os.Chmod(seed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlink := filepath.Join(directory, "link.seed")
+	if err := os.Symlink(seed, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NatsAuthenticationFilesFromNKeyFile(symlink); err == nil {
+		t.Fatal("a symlinked NKey seed file was accepted")
+	}
+}

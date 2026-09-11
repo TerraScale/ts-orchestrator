@@ -102,12 +102,19 @@ func NatsAuthenticationFilesFromNKeyFile(nkeyFile string) (*NatsAuthenticationFi
 		return nil, errors.New("The NKey file path is required.")
 	}
 
-	publicKey, err := NatsCredentialFile.PublicKey(nkeyFile)
+	// The same credential class enforces owner-private, symlink-free,
+	// bounded seed files for every other resolution path.
+	resolved, err := NatsCredentialFile.Resolve(nkeyFile, "The NKey file")
+	if err != nil {
+		return nil, err
+	}
+
+	publicKey, err := NatsCredentialFile.PublicKey(resolved)
 	if err != nil {
 		return nil, errors.New("The NKey file does not contain a valid NKey seed.")
 	}
 
-	return &NatsAuthenticationFiles{NKeyFile: &nkeyFile, PublicKey: publicKey}, nil
+	return &NatsAuthenticationFiles{NKeyFile: &resolved, PublicKey: publicKey}, nil
 }
 
 // Options returns the nats.go connection options the resolved identity

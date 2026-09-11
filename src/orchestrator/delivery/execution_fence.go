@@ -62,6 +62,12 @@ func (s *Executor) checkAuthority(ctx context.Context, request *Request) error {
 }
 
 func (s *Executor) checker(ctx context.Context, request *Request) FenceChecker {
+	// The fence check must survive the operation context's cancellation:
+	// rollback and recovery run detached, and their compensating writes still
+	// re-validate authority live on every call. WithoutCancel keeps the
+	// admission binding (a context value) while each authority read derives
+	// its own bounded timeout.
+	ctx = context.WithoutCancel(ctx)
 	return func(fence OperationFence) error {
 		if err := s.checkAuthority(ctx, request); err != nil {
 			return err

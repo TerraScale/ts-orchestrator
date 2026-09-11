@@ -299,8 +299,9 @@ func TestRolloutFencedKVPublishChecksFence(t *testing.T) {
 	}, func(OperationFence) error {
 		calls++
 		// Call 1 is RollFenced's own admission check, call 2 fences the
-		// Worker promotion, and call 3 must fence the KV publish.
-		if calls >= 3 {
+		// prior-state observation, call 3 the Worker promotion, call 4 the
+		// health check, and call 5 must fence the KV publish.
+		if calls >= 5 {
 			return fenceLost
 		}
 		return nil
@@ -308,10 +309,11 @@ func TestRolloutFencedKVPublishChecksFence(t *testing.T) {
 	if rollErr != nil {
 		t.Fatalf("roll: %v", rollErr)
 	}
-	// The first two fence checks admitted the Worker promotion; the third
-	// gates the KV publish, so the promotion stands but no KV write happens.
-	if calls != 3 || promoter.worker != artifact.Digest {
-		t.Fatalf("fence calls = %d, worker = %q", calls, promoter.worker)
+	// The first four fence checks admitted the observation, the Worker
+	// promotion, and the health check; the fifth gates the KV publish, so
+	// the promotion stands but no KV write happens.
+	if calls != 5 || promoter.worker != artifact.Digest {
+		t.Fatalf("fence calls = %d, worker = %q (want 5 with promotion admitted)", calls, promoter.worker)
 	}
 	if kv.callCount() != 0 {
 		t.Fatalf("kv calls = %v, want none after the fence was lost", kv.calls)

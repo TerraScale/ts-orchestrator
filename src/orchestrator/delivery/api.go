@@ -338,9 +338,34 @@ func (s *Executor) recoverUnknown(ctx context.Context, operationID string) (*Rec
 	if err != nil {
 		return nil, err
 	}
-	rollback, err := recovery.RecoverFenced(fenced, claimed.Request, artifact, claimed.Rollout, fenceFor(claimed), check)
-	if err != nil {
-		return nil, err
+	// Recovery can run longer than one lease TTL (gate polls are bounded by
+	// GateTimeout per gate per host), so renew the takeover lease for as
+	// long as the recovery makes progress — the same heartbeat Submit runs.
+	// Without it every fence check fails at TTL and the terminal receipt is
+	// unreachable for real host recoveries.
+	recoveryCtx, stopRenewal := context.WithCancel(recoveryContext)
+	renewalDone := make(chan struct{})
+	go func() {
+		defer close(renewalDone)
+		ticker := time.NewTicker(operationLeaseRenewInterval(lease.TTL))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-recoveryCtx.Done():
+				return
+			case <-ticker.C:
+				if err := s.config.Journal.Renew(operationID, claimed.RequestDigest, lease, claimed.Generation); err != nil {
+					stopRenewal()
+					return
+				}
+			}
+		}
+	}()
+	rollback, recoverErr := recovery.RecoverFenced(fenced, claimed.Request, artifact, claimed.Rollout, fenceFor(claimed), check)
+	stopRenewal()
+	<-renewalDone
+	if recoverErr != nil {
+		return nil, recoverErr
 	}
 	code := "rollout_recovered"
 	message := "The interrupted rollout was recovered and the prior release was restored."

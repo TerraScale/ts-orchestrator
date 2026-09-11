@@ -499,6 +499,42 @@ func (p *fencedEdgePromoter) CoordinateSnippetZoneRules(ctx context.Context, ser
 	return nil
 }
 
+// The optional edge interfaces must be forwarded through the fence wrapper:
+// NewRollout refuses configuration without them, so dropping them on the
+// authoritative path would break site deliveries and skip the health gate.
+func (p *fencedEdgePromoter) ObserveEdge(ctx context.Context, kind, service string) (EdgeReleaseState, error) {
+	if err := p.before(); err != nil {
+		return EdgeReleaseState{}, err
+	}
+	observer, ok := p.inner.(EdgeReleaseObserver)
+	if !ok {
+		return EdgeReleaseState{}, errors.New("delivery: edge release observation is unavailable")
+	}
+	return observer.ObserveEdge(ctx, kind, service)
+}
+
+func (p *fencedEdgePromoter) RestoreEdge(ctx context.Context, kind, service string, prior EdgeReleaseState) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	restorer, ok := p.inner.(EdgeReleaseRestorer)
+	if !ok {
+		return errors.New("delivery: edge release restoration is unavailable")
+	}
+	return restorer.RestoreEdge(ctx, kind, service, prior)
+}
+
+func (p *fencedEdgePromoter) CheckEdge(ctx context.Context, kind, service, digest string) error {
+	if err := p.before(); err != nil {
+		return err
+	}
+	checker, ok := p.inner.(EdgeHealthChecker)
+	if !ok {
+		return errors.New("delivery: edge health verification is unavailable")
+	}
+	return checker.CheckEdge(ctx, kind, service, digest)
+}
+
 type fencedKVPublisher struct {
 	inner KVPublisher
 	fence OperationFence
