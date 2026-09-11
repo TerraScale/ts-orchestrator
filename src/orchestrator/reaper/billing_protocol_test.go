@@ -107,3 +107,49 @@ func TestBillingCancellationSatisfiesDurableProtocol(t *testing.T) {
 		})
 	}
 }
+
+// Two billing episodes with no customer request in between freeze LastRequest:
+// the second reactivation must still run the executor call instead of
+// skipping on the stale done key of the first episode.
+func TestRepeatedBillingEpisodesReactivateTheProviderEveryTime(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	withDeadline := billingDatabase(base)
+	covered := withDeadline
+	covered.BillingGraceDeadline = nil
+	executor := &testExecutor{observed: true}
+	catalog := &testCatalog{databases: []Database{withDeadline}}
+	store := &validatingReaperStore{MemoryStore: &MemoryStore{}}
+	run := func(now time.Time) Result {
+		t.Helper()
+		reaper := makeReaper(t, &testClock{now: now}, catalog, executor, &testMailer{}, store, &testAudit{})
+		result, err := reaper.Run(context.Background())
+		if err != nil {
+			t.Fatalf("run at %s: %v", now, err)
+		}
+		return result
+	}
+	if result := run(base); result.Paused != 1 {
+		t.Fatalf("episode one pause: %+v", result)
+	}
+	catalog.databases = []Database{covered}
+	if result := run(base.Add(time.Hour)); result.Reactivated != 1 {
+		t.Fatalf("episode one reactivation: %+v", result)
+	}
+	catalog.databases = []Database{withDeadline}
+	if result := run(base.Add(2 * time.Hour)); result.Paused != 1 {
+		t.Fatalf("episode two pause: %+v", result)
+	}
+	catalog.databases = []Database{covered}
+	if result := run(base.Add(3 * time.Hour)); result.Reactivated != 1 {
+		t.Fatalf("second episode reactivation: %+v", result)
+	}
+	reactivates := 0
+	for _, call := range executor.calls {
+		if call == "reactivate/billing-db" {
+			reactivates++
+		}
+	}
+	if reactivates != 2 {
+		t.Fatalf("executor reactivations = %d, want one per episode", reactivates)
+	}
+}

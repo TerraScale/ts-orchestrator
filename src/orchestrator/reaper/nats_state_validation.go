@@ -52,12 +52,12 @@ func reaperOperationName(entry Entry, name string) bool {
 		return true
 	}
 	prefix := "reactivate/" + entry.DatabaseID + "/"
-	if !strings.HasPrefix(name, prefix) {
+	if !strings.HasPrefix(base, prefix) {
 		return false
 	}
-	value := strings.TrimPrefix(name, prefix)
+	value := strings.TrimPrefix(base, prefix)
 	_, err := strconv.ParseInt(value, 10, 64)
-	return err == nil && base == name
+	return err == nil
 }
 func reaperAuditName(entry Entry, name string) bool {
 	if !reaperBoundedText(name, 620) {
@@ -206,7 +206,7 @@ func reaperIntentTransition(before, after *State) error {
 		billingCancel := entry.Phase == PhaseActive && old.BillingGrace && (old.Phase == PhasePaused ||
 			old.Phase == PhaseDeleting && !billingIrreversibleFence(old) && reaperDone(old, reaperCycleName(old, "billing-deletion/cancelled")))
 		if reactivate || billingCancel {
-			key := fmt.Sprintf("reactivate/%s/%d", id, entry.LastRequest.UnixNano())
+			key := reaperCycleName(old, fmt.Sprintf("reactivate/%s/%d", id, entry.LastRequest.UnixNano()))
 			if old.Cycle == ^uint64(0) || entry.Cycle != old.Cycle+1 || !reaperDone(old, key) {
 				return ErrStateConflict
 			}
