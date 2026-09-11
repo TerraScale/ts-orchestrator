@@ -302,3 +302,34 @@ func TestNewLifecycleRejectsUnsafeConfiguredSystemctl(t *testing.T) {
 		t.Fatal("unsafe configured systemctl path was accepted")
 	}
 }
+
+func TestDrainNeverStopsTheAgentsOwnUnitEvenWhenRetired(t *testing.T) {
+	harness := newTestHarness(t)
+	ctx := context.Background()
+	tsNode := harness.publish(t, hostmanifest.TsNodeComponentName, "1.0.0")
+	terrabase := harness.publish(t, "terrabase", "1.0.0")
+	// A foreign manifest once ran ts-node; startup hydration of a desired
+	// set that omits it classifies the agent's own unit as stale.
+	harness.applyDesired(t, tsNode, terrabase)
+	if err := harness.lifecycle.HydrateDesired([]hostmanifest.ComponentSpec{terrabase}); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.BeginDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if harness.systemd.isActive(UnitName(hostmanifest.TsNodeComponentName)) {
+		t.Fatal("precondition: the agent's own unit was active before drain")
+	}
+	if err := harness.systemd.StartUnit(ctx, UnitName(hostmanifest.TsNodeComponentName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := harness.lifecycle.BeginDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !harness.systemd.isActive(UnitName(hostmanifest.TsNodeComponentName)) {
+		t.Fatal("drain stopped the agent's own unit: the node is bricked")
+	}
+	if !harness.lifecycle.Quiesced(ctx) {
+		t.Fatal("a running reserved unit must not block quiesce")
+	}
+}

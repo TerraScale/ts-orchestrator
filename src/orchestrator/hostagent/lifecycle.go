@@ -144,6 +144,11 @@ func (l *Lifecycle) BeginDrain(ctx context.Context) error {
 		}
 	}
 	for _, component := range l.stale {
+		if component == hostmanifest.TsNodeComponentName {
+			// The agent's own unit must keep answering the drain-status
+			// polls even when a foreign manifest retired it.
+			continue
+		}
 		retired, err := l.retirementRecorded(component)
 		if err != nil {
 			l.state = NodeStateDraining
@@ -217,6 +222,9 @@ func (l *Lifecycle) quiescedObservationLocked(ctx context.Context) bool {
 		}
 	}
 	for _, component := range l.stale {
+		if component == hostmanifest.TsNodeComponentName {
+			continue
+		}
 		retired, err := l.retirementRecorded(component)
 		if err != nil {
 			return false

@@ -809,7 +809,16 @@ func (c *Coordinator) retirementFailure(ctx context.Context, state PersistedStat
 	if isCancellation(ctx) {
 		return c.recoverCancellation(ctx, state)
 	}
-	return c.failClosed(ctx, state, code)
+	// Retirement runs after the new generation is active: a transient
+	// provider failure is retirement debt, not a fail-closed event. Keep the
+	// durable phase so the next reconcile retries the same idempotency keys.
+	// Fencing here would take every region offline while the rotation is
+	// already serving the new key.
+	state.FailureCode = code
+	if err := c.save(context.WithoutCancel(ctx), state); err != nil {
+		return c.failClosed(ctx, state, "state_save_failed")
+	}
+	return &RotationError{Code: code}
 }
 
 // recoverCancellation keeps the journal at its current phase after a

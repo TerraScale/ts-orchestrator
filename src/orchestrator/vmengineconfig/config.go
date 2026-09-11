@@ -512,7 +512,14 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 					bucket = db.BYOK.BackupBucket
 					accessKeyFile, secretKeyFile = "", ""
 				}
-				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = %q\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", provider, endpoint, signingRegion, bucket, d.VerifiedGeography, d.PermittedGeographies, d.PlacementRevision, accessKeyFile, secretKeyFile, d.MaxArtifactBytes, d.MaxPointBytes)
+				fmt.Fprintf(&b, "[[databases.backup.destinations]]\nprovider = %q\nendpoint = %q\nsigning_region = %q\nbucket = %q\nverified_geography = %q\npermitted_geographies = [", provider, endpoint, signingRegion, bucket, d.VerifiedGeography)
+				for i, geography := range d.PermittedGeographies {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					fmt.Fprintf(&b, "%q", geography)
+				}
+				fmt.Fprintf(&b, "]\nplacement_revision = %q\naccess_key_file = %q\nsecret_key_file = %q\nmax_artifact_bytes = %d\nmax_point_bytes = %d\n", d.PlacementRevision, accessKeyFile, secretKeyFile, d.MaxArtifactBytes, d.MaxPointBytes)
 			}
 		}
 	}

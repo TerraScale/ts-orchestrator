@@ -1145,7 +1145,10 @@ func (natsMonitoringParsers) JetStreamDetail(source string) *NatsMonitoringJetSt
 		}
 
 		streamClass := NatsMonitoringClassifier.ClassifyStream(*name)
-		streamStates[streamClass] = natsMonitoringReadStreamState(stream, streamClass)
+		if observed, ok := natsMonitoringReadStreamState(stream, streamClass); ok {
+			existing, hasExisting := streamStates[streamClass]
+			streamStates[streamClass] = natsMonitoringMergeStreamState(existing, observed, hasExisting)
+		}
 		consumers, hasConsumers := stream["consumer_detail"].([]interface{})
 		if !hasConsumers {
 			continue
@@ -1164,9 +1167,10 @@ func (natsMonitoringParsers) JetStreamDetail(source string) *NatsMonitoringJetSt
 			}
 
 			key := [2]int{int(streamClass), int(consumerClass)}
-			existing, hasExisting := consumerStates[key]
-			observed := natsMonitoringReadConsumerState(consumer, streamClass, consumerClass)
-			consumerStates[key] = natsMonitoringMergeConsumerState(existing, observed, hasExisting)
+			if observed, ok := natsMonitoringReadConsumerState(consumer, streamClass, consumerClass); ok {
+				existing, hasExisting := consumerStates[key]
+				consumerStates[key] = natsMonitoringMergeConsumerState(existing, observed, hasExisting)
+			}
 		}
 	}
 
@@ -1205,7 +1209,7 @@ func (natsMonitoringParsers) JetStreamDetail(source string) *NatsMonitoringJetSt
 	return &NatsMonitoringJetStreamDetail{Streams: orderedStreams, Consumers: orderedConsumers}
 }
 
-func natsMonitoringReadStreamState(stream map[string]interface{}, streamClass NatsStreamClass) NatsStreamClassState {
+func natsMonitoringReadStreamState(stream map[string]interface{}, streamClass NatsStreamClass) (NatsStreamClassState, bool) {
 	messages := int64(0)
 	bytes := int64(0)
 	// JetStream detail carries no duplicate-detection counter: the duplicate
@@ -1229,17 +1233,18 @@ func natsMonitoringReadStreamState(stream map[string]interface{}, streamClass Na
 		Duplicates:  duplicates,
 	}
 	if err := result.Validate(); err != nil {
-		panic(err)
+		// A hostile $SYS counter value drops the entry, never the process.
+		return NatsStreamClassState{}, false
 	}
 
-	return result
+	return result, true
 }
 
 func natsMonitoringReadConsumerState(
 	consumer map[string]interface{},
 	streamClass NatsStreamClass,
 	consumerClass NatsConsumerClass,
-) NatsConsumerClassState {
+) (NatsConsumerClassState, bool) {
 	delivered := int64(0)
 	redelivered := int64(0)
 	ackPending := int64(0)
@@ -1284,10 +1289,29 @@ func natsMonitoringReadConsumerState(
 		Waiting:       waiting,
 	}
 	if err := result.Validate(); err != nil {
-		panic(err)
+		// A hostile $SYS counter value drops the entry, never the process.
+		return NatsConsumerClassState{}, false
 	}
 
-	return result
+	return result, true
+}
+
+func natsMonitoringMergeStreamState(
+	existing NatsStreamClassState,
+	observed NatsStreamClassState,
+	hasExisting bool,
+) NatsStreamClassState {
+	if !hasExisting {
+		return observed
+	}
+
+	return NatsStreamClassState{
+		StreamClass: existing.StreamClass,
+		Streams:     existing.Streams + observed.Streams,
+		Messages:    existing.Messages + observed.Messages,
+		Bytes:       existing.Bytes + observed.Bytes,
+		Duplicates:  existing.Duplicates + observed.Duplicates,
+	}
 }
 
 func natsMonitoringMergeConsumerState(

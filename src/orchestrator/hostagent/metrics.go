@@ -87,7 +87,12 @@ func (s *OSHostMetrics) Sample(ctx context.Context) (HostMetrics, error) {
 	if previous.total == 0 || total <= previous.total || idle < previous.idle {
 		return HostMetrics{}, nil
 	}
+	// The sequence update is a read-modify-write of a shared file through a
+	// fixed temp path: serialize it with the sampler mutex so concurrent
+	// samples cannot interleave or duplicate sequence numbers.
+	s.mu.Lock()
 	sequence, err := s.nextSequence(strings.TrimSpace(string(boot)))
+	s.mu.Unlock()
 	if err != nil {
 		return HostMetrics{}, err
 	}
