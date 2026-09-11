@@ -1,0 +1,10 @@
+start_utc=2026-09-11T01:20:02Z
+fresh single-journey run id qual20260911b (previous failures traced to idempotency-key/view-id reuse across repeated runs with the same run id — the member's idempotent replay correctly returned the first invocation's receipt while the live document had been deleted and recreated between runs)
+== phase seed
+{"label":"seed","ok":true,"status":200}
+ts exit=0
+{"phase":"seed","action":"put-own-document","ok":true}
+go exit=0
+package=terrascale-0.1.0 sha256=2e67800e68a6bbebda150597ab0db499afab2e9163934ef45e4930545ea17209 derive=terrascale-derive-0.1.0 derive_sha256=bb655143e8e6efed8c80aee7738cc0c754a3db38e1298ecbdaa019f220f4c31f
+{"detail":"put sdk_journey/<run>-rust","outcome":"passed","phase":"seed"}
+rust exit=0

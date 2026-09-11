@@ -1,0 +1,42 @@
+start_utc=2026-09-11T01:14:10Z
+phase=exercise dotnet
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 3.3 sec).
+{"operation":"missing_document","status":"ok"}
+{"operation":"stale_etag_denial","status":"ok"}
+{"status":"error","error":"The reactive snapshot belongs to another subscription."}
+exit=1
+note: rerun after first failure (reactive snapshot belongs to another subscription)
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 2.41 sec).
+{"status":"error","error":"the write\u0027s precondition failed (If-None-Match: * needs the document to be absent)"}
+exit=1
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.05 sec).
+{"operation":"cleanup","id":"qual20260910-dotnet","status":"ok"}
+{"operation":"cleanup","id":"qual20260910-dotnet-exercise","status":"ok"}
+{"operation":"cleanup","id":"qual20260910-dotnet-reactive","status":"absent"}
+cleanup exit=0
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.87 sec).
+{"operation":"seed","status":"ok"}
+seed exit=0
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.54 sec).
+{"operation":"missing_document","status":"ok"}
+{"operation":"stale_etag_denial","status":"ok"}
+{"status":"error","error":"authoritative receipt/revision changed"}
+exercise exit=1
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.04 sec).
+{"operation":"cleanup","id":"qual20260910-dotnet","status":"ok"}
+{"operation":"cleanup","id":"qual20260910-dotnet-exercise","status":"ok"}
+{"operation":"cleanup","id":"qual20260910-dotnet-reactive","status":"absent"}
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.11 sec).
+{"operation":"seed","status":"ok"}
+  Determining projects to restore...
+  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 954 ms).
+{"operation":"missing_document","status":"ok"}
+{"operation":"stale_etag_denial","status":"ok"}
+{"status":"error","error":"authoritative receipt/revision changed"}

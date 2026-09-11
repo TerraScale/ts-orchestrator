@@ -34,3 +34,13 @@ Error: packaged consumer failed: {"message":"Command failed: /home/mariogk/.loca
 
 Node.js v24.21.0
 exit=1
+note2: rerun with TERRASCALE_SYNC_URL=http://127.0.0.1:7101 (SDK sync default is https://sync.api.terrascale.tech; member serves /api/v1/reactive/views/*)
+{"label":"idempotency-replay","ok":true,"status":200}
+{"label":"stale-if-match","ok":false,"status":412,"code":"precondition_failed"}
+{"label":"parameterized-sql","ok":true,"status":200}
+{"label":"reactive-attach","ok":true,"status":200}
+{"label":"reactive-write","ok":true,"status":200}
+{"label":"cancellation","ok":false,"code":"request_cancelled"}
+{"label":"missing-document","ok":false,"status":404,"code":"document_not_found"}
+{"label":"denied-scope","ok":false,"status":401,"code":"unauthorized"}
+exit=0

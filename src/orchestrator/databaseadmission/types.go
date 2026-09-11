@@ -45,9 +45,10 @@ type Request struct {
 
 // BYOKReference carries customer-owned provider references only. These
 // references are safe to persist in the authenticated NATS admission journal
-// so a restarted orchestrator can reconstruct provider clients. Credentials,
-// wrapped DEKs, and plaintext key material use their dedicated boundaries and
-// are deliberately outside this contract.
+// so a restarted orchestrator can reconstruct provider clients. Provider
+// credentials and plaintext key material are deliberately outside this
+// contract. Wrapped DEKs are persisted separately on keylease.Entry, where
+// their database binding and ciphertext-only invariant are enforced.
 type BYOKReference struct {
 	BackupEndpoint         string `json:"backup_endpoint"`
 	BackupBucket           string `json:"backup_bucket"`

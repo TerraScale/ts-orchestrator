@@ -1,0 +1,11 @@
+start_utc=2026-09-11T01:12:17Z
+phase=exercise go
+{"phase":"exercise","action":"missing-document-rejected","ok":true,"detail":"status=404"}
+{"phase":"exercise","action":"put","ok":true}
+{"phase":"exercise","action":"idempotency-replay","ok":true}
+{"phase":"exercise","action":"stale-if-match-rejected","ok":true,"detail":"status=412"}
+{"phase":"exercise","action":"patch-current-etag","ok":true}
+{"phase":"exercise","action":"parameterized-sql","ok":true}
+{"phase":"exercise","action":"reactive-update","ok":true}
+{"phase":"exercise","action":"denied-key-rejected","ok":true,"detail":"status=401"}
+exit=0
