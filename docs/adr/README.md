@@ -9,6 +9,7 @@ constrain the current Go orchestrator and its native systemd runtime.
 | [0020: Provider mutation fencing](0020-provider-actuator-threat-model.md) | Accepted safety boundary; provider qualification remains a gate |
 | [0024: Greenfield bring-up](0024-greenfield-bringup.md) | Accepted boundary; production qualification remains a gate |
 | [0025: Rollback on customer gate failure](0025-rollback-on-customer-gate-failure.md) | Accepted |
+| [0026: BYOK control-state boundary](0026-byok-control-state-boundary.md) | Accepted; credentials and plaintext keys stay outside NATS |
 
 The delivery and qualification contracts are defined by workspace decisions
 D-67, D-68, and D-81. Retired deployment and workload records are not current
