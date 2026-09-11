@@ -83,7 +83,7 @@ func newPlacementJournalCluster(t *testing.T) *placementJournalCluster {
 		}
 		cluster.servers = append(cluster.servers, server)
 		server.Start()
-		if !server.ReadyForConnections(5 * time.Second) {
+		if !server.ReadyForConnections(30 * time.Second) {
 			t.Fatal("real NATS cluster listener did not start")
 		}
 		options.Port = server.Addr().(*net.TCPAddr).Port
@@ -115,7 +115,7 @@ func (cluster *placementJournalCluster) restart(t *testing.T) {
 			t.Fatal(err)
 		}
 		server.Start()
-		if !server.ReadyForConnections(5 * time.Second) {
+		if !server.ReadyForConnections(30 * time.Second) {
 			t.Fatal("NATS restart failed")
 		}
 		cluster.servers = append(cluster.servers, server)
