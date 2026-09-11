@@ -155,6 +155,14 @@ func NewEdgeReleasePromoter(config EdgeReleasePromoterConfig) (*EdgeReleasePromo
 	if prior != 100 {
 		return nil, errors.New("cloudflare: Worker stages must end at 100")
 	}
+	// The canary health gate can only judge the allocations it knows; any
+	// other stage would pass this constructor, shift real traffic, and then
+	// wedge the rollout when the gate rejects the intermediate allocation.
+	for _, stage := range stages {
+		if stage != 10 && stage != 50 && stage != 100 {
+			return nil, errors.New("cloudflare: Worker stages must be 10, 50, and 100 percentages")
+		}
+	}
 	return &EdgeReleasePromoter{
 		client: config.Client, zone: config.Zone, artifacts: config.Artifacts,
 		health: config.Health, snippets: snippets, stages: stages,

@@ -215,6 +215,24 @@ func Apply(state *State, e Event) error {
 		}
 		for _, next := range e.Streams {
 			prior := slices.IndexFunc(r.Streams, func(v Stream) bool { return sameStream(next, v) })
+			if prior < 0 {
+				// A new epoch of a partition fences out its predecessor: it
+				// must be strictly greater than every recorded epoch of that
+				// partition, and the predecessor's open stream must be
+				// stopped by this same event. Accepting anything else records
+				// concurrent or regressed epochs of one partition, a topology
+				// that cannot exist and can never be repaired after close.
+				for _, existing := range r.Streams {
+					if existing.Region != next.Region || existing.Partition != next.Partition {
+						continue
+					}
+					if next.Epoch <= existing.Epoch || existing.StoppedAt.IsZero() && !slices.ContainsFunc(e.Streams, func(v Stream) bool {
+						return v.Region == existing.Region && v.Partition == existing.Partition && v.Epoch == existing.Epoch && !v.StoppedAt.IsZero()
+					}) {
+						return ErrConflict
+					}
+				}
+			}
 			var changedAt time.Time
 			if prior < 0 {
 				changedAt = next.StartedAt
