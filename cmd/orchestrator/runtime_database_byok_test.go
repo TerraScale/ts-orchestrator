@@ -23,7 +23,7 @@ func TestBYOKPolicyAuthorizerAcceptsExactVerifiedScope(t *testing.T) {
 			t.Fatalf("service key = %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test","configuration_updated_at":"2026-09-09T12:00:00.000Z"}}`, time.Now().Add(30*time.Second).Unix())
+		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"verified","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012","key_region":"sa-east-1","key_endpoint":"https://kms.example.test","configuration_updated_at":"2026-09-09T12:00:00.000Z"}}`, time.Now().Add(30*time.Second).Unix())
 	}))
 	defer server.Close()
 	if err := byokPolicyAuthorizer(server.Client(), server.URL, "service-key")(t.Context(), request); err != nil {
@@ -85,7 +85,7 @@ func TestBYOKPolicyAuthorizerRejectsUnconfiguredEndpoint(t *testing.T) {
 func TestBYOKPolicyAuthorizerAcceptsPendingSavedReference(t *testing.T) {
 	request := byokRequest()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"pending","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"key-12345678","key_region":"gru","key_endpoint":"https://kms.example.test","configuration_updated_at":"2026-09-09T12:00:00.000Z"}}`, time.Now().Add(30*time.Second).Unix())
+		_, _ = fmt.Fprintf(w, `{"allowed":true,"status":"pending","environment":"production","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAD","project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAE","operation_id":"create-orders","expires_at":%d,"byok":{"backup_endpoint":"https://s3.example.test","backup_bucket":"backups","backup_region":"gru","backup_role_arn":"arn:aws:iam::123456789012:role/backup","key_provider":"aws-kms","key_id":"arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012","key_region":"sa-east-1","key_endpoint":"https://kms.example.test","configuration_updated_at":"2026-09-09T12:00:00.000Z"}}`, time.Now().Add(30*time.Second).Unix())
 	}))
 	defer server.Close()
 	if err := byokPolicyAuthorizer(server.Client(), server.URL, "service-key")(t.Context(), request); err != nil {
@@ -101,10 +101,10 @@ func TestBYOKPolicyAuthorizerConsumesDashboardPendingFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(body)
-	if got := hex.EncodeToString(digest[:]); got != "1c3038963d0bb3e8b20be1e72da9612629d6ac8a465c8c4488c403c556379216" {
+	if got := hex.EncodeToString(digest[:]); got != "9d684b3feebd058f1b5768baa4d2bf8893f40c906d03752d58e08547b190a711" {
 		t.Fatalf("dashboard fixture changed: sha256=%s", got)
 	}
-	request := databaseadmission.Request{Environment: "production", TenantID: "01J00000000000000000000001", ProjectID: "01J00000000000000000000002", Name: "orders", OperationID: "01J00000000000000000000003", Regions: []string{"GRU"}, BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T00:00:00.000Z"}}
+	request := databaseadmission.Request{Environment: "production", TenantID: "01J00000000000000000000001", ProjectID: "01J00000000000000000000002", Name: "orders", OperationID: "01J00000000000000000000003", Regions: []string{"GRU"}, BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T00:00:00.000Z"}}
 	wire := bytes.Replace(body, []byte("1799270430"), []byte(fmt.Sprintf("%d", time.Now().Add(30*time.Second).Unix())), 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(wire) }))
 	defer server.Close()
@@ -119,5 +119,5 @@ func TestBYOKPolicyAuthorizerConsumesDashboardPendingFixture(t *testing.T) {
 }
 
 func byokRequest() databaseadmission.Request {
-	return databaseadmission.Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Name: "orders", OperationID: "create-orders", Regions: []string{"GRU"}, Residency: "br-only", BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}}
+	return databaseadmission.Request{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAD", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAE", Name: "orders", OperationID: "create-orders", Regions: []string{"GRU"}, Residency: "br-only", BYOK: &databaseadmission.BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}}
 }

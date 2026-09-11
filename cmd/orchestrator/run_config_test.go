@@ -84,7 +84,7 @@ func TestRunConfigurationAcceptsBYOKRenewalReferences(t *testing.T) {
 	for key, value := range map[string]string{
 		byokRoleEnvironment:            "arn:aws:iam::123456789012:role/key",
 		byokTokenEnvironment:           "/etc/terrascale/byok.token",
-		byokKeyIDEnvironment:           "arn:aws:kms:sa-east-1:123456789012:key/id",
+		byokKeyIDEnvironment:           "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		byokKeyRegionEnvironment:       "sa-east-1",
 		byokKeyEndpointEnvironment:     "https://kms.example.test",
 		byokProviderEnvironment:        "aws-kms",

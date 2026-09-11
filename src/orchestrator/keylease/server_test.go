@@ -268,7 +268,7 @@ func requestProtocol(t *testing.T, path string, b Binding, protocol string) []by
 	body := bindingWire(b)
 	if protocol == "TBCK" {
 		request := []byte{'T', 'B', 'C', 'K', 1}
-		for _, value := range []string{"aws-kms", "arn:aws:kms:sa-east-1:123456789012:key/id", "sa-east-1", "https://kms.example.test", b.Environment, b.TenantID, b.ProjectID, b.DatabaseID, b.KeyVersion, b.Region, b.Purpose} {
+		for _, value := range []string{"aws-kms", "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", "sa-east-1", "https://kms.example.test", b.Environment, b.TenantID, b.ProjectID, b.DatabaseID, b.KeyVersion, b.Region, b.Purpose} {
 			request = binary.BigEndian.AppendUint16(request, uint16(len(value)))
 			request = append(request, value...)
 		}

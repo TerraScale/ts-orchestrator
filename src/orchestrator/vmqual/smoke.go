@@ -289,6 +289,9 @@ func proveSmokeProfile(ctx context.Context, vm VM, network NetworkController, pr
 	if err := persistent.DataWrite(ctx, persistencePath, payload); err != nil {
 		return report, fmt.Errorf("write persistent data: %w", err)
 	}
+	if _, err := diskObserver.HostDiskUsageBytes(ctx); err != nil {
+		return report, fmt.Errorf("PRE-RESTART host disk usage check: %w", err)
+	}
 	if err := vm.Stop(ctx); err != nil {
 		return report, fmt.Errorf("stop for persistence proof: %w", err)
 	}

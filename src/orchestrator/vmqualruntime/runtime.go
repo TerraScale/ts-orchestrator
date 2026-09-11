@@ -194,7 +194,7 @@ func (v *sandboxVM) HostDiskUsageBytes(ctx context.Context) (uint64, error) {
 	}
 	drive, err := v.disks.Get(ctx, v.id)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w\nFORENSICS storeRunID=%q root=%q\n%s", err, v.disks.RunID(), v.disks.Root(), vmdiskFailureForensics(v.disks.Root(), v.id))
 	}
 	paths := []string{v.rootDrive, drive.Path}
 	return allocatedPathBytes(paths...)
@@ -1157,4 +1157,42 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// vmdiskFailureForensics is a temporary diagnostic helper for the smoke
+// ownership investigation; it is not part of the qualification contract.
+func vmdiskFailureForensics(root, id string) string {
+	var out strings.Builder
+	for _, p := range []string{filepath.Dir(root), root, filepath.Join(root, "drives"), filepath.Join(root, "drives", id)} {
+		info, err := os.Lstat(p)
+		if err != nil {
+			fmt.Fprintf(&out, "LSTAT %s: %v\n", p, err)
+			continue
+		}
+		sys, _ := info.Sys().(*unix.Stat_t)
+		fmt.Fprintf(&out, "LSTAT %s: mode=%o uid=%d gid=%d nlink=%d\n", p, info.Mode().Perm(), sys.Uid, sys.Gid, sys.Nlink)
+		if info.IsDir() {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				fmt.Fprintf(&out, "  READDIR: %v\n", err)
+				continue
+			}
+			for _, e := range entries {
+				ei, err := e.Info()
+				if err != nil {
+					fmt.Fprintf(&out, "  ENTRY %s: %v\n", e.Name(), err)
+					continue
+				}
+				esys, _ := ei.Sys().(*unix.Stat_t)
+				fmt.Fprintf(&out, "  ENTRY %s: mode=%o uid=%d gid=%d size=%d\n", e.Name(), ei.Mode().Perm(), esys.Uid, esys.Gid, ei.Size())
+			}
+		}
+	}
+	marker, err := os.ReadFile(filepath.Join(root, ".vmdisk-owner.json"))
+	fmt.Fprintf(&out, "STORE-MARKER: %s err=%v\n", string(marker), err)
+	owner, err := os.ReadFile(filepath.Join(root, "drives", id, ".owner.json"))
+	fmt.Fprintf(&out, "DRIVE-MARKER: %s err=%v\n", string(owner), err)
+	meta, err := os.ReadFile(filepath.Join(root, "drives", id, "metadata.json"))
+	fmt.Fprintf(&out, "DRIVE-METADATA: %s err=%v\n", string(meta), err)
+	return out.String()
 }
