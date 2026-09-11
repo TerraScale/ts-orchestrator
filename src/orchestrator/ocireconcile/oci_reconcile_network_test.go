@@ -869,3 +869,29 @@ func TestRouteRuleWireRejectsInvalidSpecs(t *testing.T) {
 		t.Fatal("non-route-table identity accepted")
 	}
 }
+
+func TestObserveDerivesRuleOwnershipFromTheParentNSG(t *testing.T) {
+	vcn := ObservedVCN{ID: "ocid1.vcn.oc1.x", DisplayName: VCNName("gru"), CIDR: "10.0.0.0/16", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "vcn")}
+	owned := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.x", VCNID: vcn.ID, DisplayName: "gru-members", LifecycleState: "AVAILABLE", FreeformTags: networkOwnershipTags("gru", "networksecuritygroup")}
+	foreign := ObservedNSG{ID: "ocid1.networksecuritygroup.oc1.foreign", VCNID: vcn.ID, DisplayName: "foreign", LifecycleState: "AVAILABLE"}
+	gateway := &fakeNetworkGateway{
+		vcns: []ObservedVCN{vcn},
+		nsgs: []ObservedNSG{owned, foreign},
+		rules: map[string][]ObservedSecurityRule{
+			// The production gateway reports rules without any ownership
+			// evidence of their own.
+			owned.ID:   {{ID: "ocid1.securityrule.oc1.x.1", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 22, PortMax: 22}},
+			foreign.ID: {{ID: "ocid1.securityrule.oc1.x.2", Direction: "INGRESS", Protocol: "6", Peer: "0.0.0.0/0", PortMin: 23, PortMax: 23}},
+		},
+	}
+	observed, err := (&NetworkReconciler{Gateway: gateway}).Observe(context.Background(), testNetworkRegion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rule := observed.Rules["gru-members"][0]; !rule.Managed {
+		t.Fatal("a rule observed inside an owned NSG is unmanaged: declared tightening can never remove it")
+	}
+	if rule := observed.Rules["foreign"][0]; rule.Managed {
+		t.Fatal("a rule observed inside a foreign NSG was claimed as managed")
+	}
+}

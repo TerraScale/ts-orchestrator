@@ -278,6 +278,16 @@ func (r *NetworkReconciler) Observe(ctx context.Context, declared estate.Region)
 		if err != nil {
 			return NetworkObserved{}, err
 		}
+		// OCI security rules carry no ownership tags of their own: rules
+		// observed inside a positively owned NSG inherit its ownership, the
+		// same parent derivation volume attachments use. Without it, declared
+		// rule tightening never removes the stale rule while convergence is
+		// falsely reported.
+		if networkNSGOwned(group, declared.Code) {
+			for index := range rules {
+				rules[index].Managed = true
+			}
+		}
 		observed.Rules[group.DisplayName] = rules
 	}
 	return observed, nil

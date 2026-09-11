@@ -199,6 +199,11 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	// restart even when telemetry is temporarily unavailable.
 	retained, found, err := c.config.Targets.Load(ctx, region)
 	if err != nil {
+		// A shared-stream load conflict is retryable contention, exactly
+		// like the compare-and-swap conflicts below: hold state this round.
+		if errors.Is(err, ErrConflict) {
+			return Plan{}, false, nil
+		}
 		return Plan{}, false, err
 	}
 	if found && retained.Region == region && retained.RemovalOperationID != "" {
@@ -267,6 +272,9 @@ func (c *Controller) Evaluate(ctx context.Context, region string) (Plan, bool, e
 	}
 	state, found, err := c.config.Targets.Load(ctx, region)
 	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			return Plan{}, false, nil
+		}
 		return Plan{}, false, err
 	}
 	if !found {

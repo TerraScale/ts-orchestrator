@@ -203,7 +203,10 @@ func (d *signedDeliveryDispatcher) admit(ctx context.Context, value deliveryAdmi
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, jetstream.ErrKeyExists) {
+		// A lost head CAS is contention whether the store reports it as a
+		// lost create (ErrKeyExists) or a lost revision race on a replicated
+		// stream (ErrKeyRevisionMismatch): re-read and re-check generation.
+		if !errors.Is(err, jetstream.ErrKeyExists) && !errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 			return err
 		}
 	}

@@ -584,3 +584,34 @@ func TestReactivationStartsFreshPauseOperationCycle(t *testing.T) {
 		t.Fatalf("expected two complete pause cycles and one reactivation, calls=%v", executor.calls)
 	}
 }
+
+func TestRequestAfterDeletionFenceSkipsEntryWithoutWedgingTheScan(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := &testClock{now: base}
+	fenced := Database{ID: "a-fenced", OwnerEmail: "owner@example.test", Plan: PlanFree, LastRequest: base}
+	active := freeDatabase(base.Add(-100 * 24 * time.Hour))
+	active.ID = "b-active"
+	catalog := &testCatalog{databases: []Database{fenced, active}}
+	store := &MemoryStore{}
+	if err := store.Save(context.Background(), State{Version: 1, Entries: map[string]Entry{
+		"a-fenced": {
+			DatabaseID: "a-fenced", Plan: PlanFree, Phase: PhaseDeleting,
+			LastRequest: base.Add(-24 * time.Hour), PausedAt: base.Add(-48 * time.Hour),
+			Operations: map[string]Operation{}, Audits: map[string]bool{},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	reaper := makeReaper(t, clock, catalog, &testExecutor{}, &testMailer{}, store, &testAudit{})
+	result, err := reaper.Run(context.Background())
+	if err != nil {
+		t.Fatalf("a fenced database must not abort the scan: %v", err)
+	}
+	if result.Processed != 2 || result.Paused != 1 {
+		t.Fatalf("the scan must advance past the fenced entry: %+v", result)
+	}
+	state := store.Snapshot().Entries["a-fenced"]
+	if state.Phase != PhaseDeleting {
+		t.Fatalf("the fenced entry must stay contained in deleting: %+v", state)
+	}
+}

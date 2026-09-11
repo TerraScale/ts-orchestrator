@@ -534,12 +534,16 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, state *State, database
 	if entry.Phase == PhaseDeleting && database.LastRequest.After(entry.PausedAt) {
 		// A request racing with destructive work must fail closed. The data
 		// plane should reject such a request once deletion is fenced; retaining
-		// this guard protects us if an observation arrives out of order.
+		// this guard protects us if an observation arrives out of order. The
+		// containment is per-database: a scan-fatal error here would wedge the
+		// whole reaper at this entry forever (the condition is stable across
+		// ticks), starving every later database, so the guard skips the entry
+		// for operator intervention instead of aborting the Run.
 		key := "delete/request-after-fence/" + database.ID
 		if auditErr := r.auditOnce(context.WithoutCancel(ctx), state, database.ID, "delete", "blocked-request", key, now, "request observed after deletion fence"); auditErr != nil {
-			return "", errors.Join(ErrDeletionStarted, auditErr)
+			return "", auditErr
 		}
-		return "", ErrDeletionStarted
+		return "skipped", nil
 	}
 	if entry.Phase == PhasePaused && database.LastRequest.After(entry.PausedAt) {
 		if err := r.reactivateLocked(ctx, state, database.ID, database.LastRequest); err != nil {
