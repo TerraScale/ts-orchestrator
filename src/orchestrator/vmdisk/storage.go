@@ -582,6 +582,18 @@ func openOwnedRegular(path string, flags int, owner Ownership, mode os.FileMode)
 	return file, err
 }
 
+// openOwnedArtifact reads a drive artifact that may carry the VMM jailer's
+// hard link while its guest runs; see openOwnedArtifactAt.
+func openOwnedArtifact(path string, flags int, owner Ownership) (*os.File, error) {
+	parent, err := openOwnedDirectoryPath(filepath.Dir(path), owner, 0o700)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.file.Close()
+	file, _, err := openOwnedArtifactAt(parent, filepath.Base(path), flags, owner)
+	return file, err
+}
+
 func syncDirectory(path string) error {
 	dir, err := openDirectoryPath(path)
 	if err != nil {
@@ -878,7 +890,7 @@ func (s *Store) loadDriveDirectoryAt(directory *trustedDirectory, dir, id string
 			ownerFileName:     0o600,
 			metadataName:      0o600,
 			metadata.Artifact: 0o600,
-		}, s.owner); err != nil {
+		}, s.owner, metadata.Artifact); err != nil {
 			return diskMetadata{}, "", err
 		}
 	}
@@ -889,7 +901,7 @@ func validateDiskMetadataValueAt(metadata diskMetadata, directory *trustedDirect
 	if err := validateDiskMetadataStructure(metadata); err != nil {
 		return err
 	}
-	file, _, err := openOwnedRegularAt(directory, metadata.Artifact, unix.O_RDONLY, owner, 0o600)
+	file, _, err := openOwnedArtifactAt(directory, metadata.Artifact, unix.O_RDONLY, owner)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrCorruptState
@@ -1116,7 +1128,7 @@ func VerifyDriveOwned(identity StoreIdentity, id string) (Paths, error) {
 	return paths, nil
 }
 
-func validateExactEntriesAt(directory *trustedDirectory, expected map[string]os.FileMode, owner Ownership) error {
+func validateExactEntriesAt(directory *trustedDirectory, expected map[string]os.FileMode, owner Ownership, linkedArtifact string) error {
 	entries, err := readDirectoryEntries(directory)
 	if err != nil {
 		return err
@@ -1129,7 +1141,12 @@ func validateExactEntriesAt(directory *trustedDirectory, expected map[string]os.
 		if !ok {
 			return ErrCorruptState
 		}
-		file, _, err := openOwnedRegularAt(directory, entry.Name(), unix.O_RDONLY, owner, mode)
+		var file *os.File
+		if entry.Name() == linkedArtifact {
+			file, _, err = openOwnedArtifactAt(directory, entry.Name(), unix.O_RDONLY, owner)
+		} else {
+			file, _, err = openOwnedRegularAt(directory, entry.Name(), unix.O_RDONLY, owner, mode)
+		}
 		if err != nil {
 			return err
 		}
@@ -1738,7 +1755,7 @@ func (s *Store) loadSnapshotDirectoryAt(directory *trustedDirectory, dir string)
 		ownerFileName: 0o600,
 		metadataName:  0o600,
 		snapshotImage: 0o400,
-	}, s.owner); err != nil {
+	}, s.owner, ""); err != nil {
 		return Snapshot{}, fmt.Errorf("%w: entries: %v", ErrCorruptSnapshot, err)
 	}
 	checksum, err := checksumReaderAt(context.Background(), imageFile, metadata.Size)

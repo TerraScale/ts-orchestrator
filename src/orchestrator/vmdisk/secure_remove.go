@@ -167,6 +167,18 @@ func openOwnedDirectoryAt(parent *trustedDirectory, name string, owner Ownership
 }
 
 func openOwnedRegularAt(parent *trustedDirectory, name string, flags int, owner Ownership, mode os.FileMode) (*os.File, unix.Statx_t, error) {
+	return openOwnedRegularFileAt(parent, name, flags, owner, mode, true)
+}
+
+// openOwnedArtifactAt reads a drive artifact while its guest may be running:
+// the VMM jailer hard-links the artifact into its jail, so the store must
+// accept nlink > 1 here. Secure removal re-checks the single-link invariant
+// before wiping, so an aliased artifact still cannot be deleted silently.
+func openOwnedArtifactAt(parent *trustedDirectory, name string, flags int, owner Ownership) (*os.File, unix.Statx_t, error) {
+	return openOwnedRegularFileAt(parent, name, flags, owner, 0o600, false)
+}
+
+func openOwnedRegularFileAt(parent *trustedDirectory, name string, flags int, owner Ownership, mode os.FileMode, singleLink bool) (*os.File, unix.Statx_t, error) {
 	if !validPathComponent(name) {
 		return nil, unix.Statx_t{}, ErrOutsideRoot
 	}
@@ -186,7 +198,7 @@ func openOwnedRegularAt(parent *trustedDirectory, name string, flags int, owner 
 		_ = file.Close()
 		return nil, unix.Statx_t{}, err
 	}
-	if err := validateStatxOwnerMode(stat, owner, mode, unix.S_IFREG, true); err != nil {
+	if err := validateStatxOwnerMode(stat, owner, mode, unix.S_IFREG, singleLink); err != nil {
 		_ = file.Close()
 		return nil, unix.Statx_t{}, err
 	}

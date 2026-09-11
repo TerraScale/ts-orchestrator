@@ -104,7 +104,7 @@ func TestBYOKAdmissionAcceptsReferencesAndRejectsSecretLikeValues(t *testing.T) 
 		BackupRoleARN:    "arn:aws:iam::123456789012:role/terrascale-backup",
 		BackupExternalID: "tenant-01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		KeyProvider:      "aws-kms",
-		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/abcd",
+		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		KeyRegion:        "us-east-1",
 		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
 	}
@@ -183,7 +183,7 @@ func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 		BackupRoleARN:    "arn:aws:iam::123456789012:role/TerraScaleBackup",
 		BackupExternalID: "external-123",
 		KeyProvider:      "aws-kms",
-		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/abcd1234",
+		KeyID:            "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		KeyRegion:        "us-east-1",
 		KeyEndpoint:      "https://kms.us-east-1.amazonaws.com",
 	}
@@ -220,7 +220,7 @@ func TestRenderedDatabaseCarriesBYOKReferences(t *testing.T) {
 		"backup_role_arn = \"arn:aws:iam::123456789012:role/TerraScaleBackup\"",
 		"backup_external_id = \"external-123\"",
 		"key_provider = \"aws-kms\"",
-		"key_id = \"arn:aws:kms:us-east-1:123456789012:key/abcd1234\"",
+		"key_id = \"arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012\"",
 	} {
 		if !strings.Contains(config, required) {
 			t.Fatalf("missing BYOK field %s", required)

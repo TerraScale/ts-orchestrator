@@ -18,6 +18,29 @@ func TestValidateBYOKReferenceRejectsUnimplementedProviders(t *testing.T) {
 	}
 }
 
+func TestValidateBYOKReferenceRequiresCanonicalKMSKeyARNAndMatchingRegion(t *testing.T) {
+	base := BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
+	if err := ValidateBYOKReference(&base); err != nil {
+		t.Fatalf("canonical KMS key ARN rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name, keyID, region string
+	}{
+		{name: "bare key id", keyID: "12345678-1234-1234-1234-123456789012", region: "sa-east-1"},
+		{name: "alias ARN", keyID: "arn:aws:kms:sa-east-1:123456789012:alias/customer", region: "sa-east-1"},
+		{name: "wrong ARN region", keyID: "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", region: "sa-east-1"},
+		{name: "wrong configured region", keyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", region: "us-east-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			candidate.KeyID, candidate.KeyRegion = test.keyID, test.region
+			if err := ValidateBYOKReference(&candidate); err == nil {
+				t.Fatal("non-canonical or mismatched KMS key reference accepted")
+			}
+		})
+	}
+}
+
 func TestBYOKWireRejectsCredentialFields(t *testing.T) {
 	for _, field := range []string{"access_key", "secret_key", "session_token", "plaintext"} {
 		t.Run(field, func(t *testing.T) {

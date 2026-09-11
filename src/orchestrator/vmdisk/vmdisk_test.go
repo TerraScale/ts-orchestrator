@@ -210,3 +210,44 @@ func TestRootContainmentAndCancellationRecovery(t *testing.T) {
 		t.Fatalf("cleanup state = %v", err)
 	}
 }
+
+func TestAttachedArtifactToleratesJailerHardLinkAndRemovalRefusesAliases(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	drive, err := store.Preallocate(ctx, "member-a", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The VMM jailer hard-links a drive artifact into its jail while the
+	// guest runs; reads must keep working through that alias.
+	jailLink := filepath.Join(t.TempDir(), "jail", "drive.blk")
+	if err := os.MkdirAll(filepath.Dir(jailLink), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(drive.Path, jailLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, "member-a"); err != nil {
+		t.Fatalf("read with jailer link failed: %v", err)
+	}
+	if _, err := store.ReadAt(ctx, "member-a", make([]byte, 1), 0); err != nil {
+		t.Fatalf("io with jailer link failed: %v", err)
+	}
+	// A linked artifact cannot be wiped securely, so removal must refuse
+	// until the jail (and its alias) is gone.
+	if err := store.Remove(ctx, "member-a"); !errors.Is(err, ErrOwnership) {
+		t.Fatalf("removal of aliased artifact = %v, want ErrOwnership", err)
+	}
+	if err := os.Remove(jailLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove(ctx, "member-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, "member-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("removed drive state = %v, want ErrNotFound", err)
+	}
+}

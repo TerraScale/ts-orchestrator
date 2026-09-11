@@ -1,0 +1,105 @@
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator-smoke19" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator-smoke19" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server"  -- go run -tags sandboxvm ./cmd/vm-qualify smoke
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.a83dc7c484c6a763 sha256=a83dc7c484c6a7630decc9995899494463fcd3873bcea20acf466b70c67eec98 bytes=17723552
+vm-artifacts: component=orchestrator version=vmqual.b6d6dbef86c837df sha256=b6d6dbef86c837df3550c0985cd53a224b163f8cfc9366ab761dd7886835a38a bytes=41545888
+vm-artifacts: component=terrabase version=vmqual.13003e8e8408af4c sha256=13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1 bytes=39966352
+time="2026-09-11T01:05:51-03:00" level=info msg="Called startVMM(), setting up a VMM on /var/lib/terrascale-qualification/ts-orchestrator-smoke19/state/firecracker/gru-member-1/root/api.sock"
+time="2026-09-11T01:05:51-03:00" level=info msg="refreshMachineConfiguration: [GET /machine-config][200] getMachineConfigurationOK  &{CPUTemplate: MemSizeMib:0x1080e281cdf0 Smt:0x1080e281cdf8 TrackDirtyPages:false VcpuCount:0x1080e281cde8}"
+time="2026-09-11T01:05:51-03:00" level=info msg="PutGuestBootSource: [PUT /boot-source][204] putGuestBootSourceNoContent "
+time="2026-09-11T01:05:51-03:00" level=info msg="Attaching drive rootfs.ext4, slot rootfs, root true."
+time="2026-09-11T01:05:51-03:00" level=info msg="Attached drive rootfs.ext4: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-11T01:05:51-03:00" level=info msg="Attaching drive artifact-00000000000000000001.img, slot data, root false."
+time="2026-09-11T01:05:51-03:00" level=info msg="Attached drive artifact-00000000000000000001.img: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-11T01:05:51-03:00" level=info msg="Attaching NIC tst3650gru01 (hwaddr 02:fc:77:01:01:01) at index 1"
+time="2026-09-11T01:05:51-03:00" level=info msg="No interfaces are allowed to access MMDS, skipping MMDS config"
+time="2026-09-11T01:05:51-03:00" level=info msg="startInstance successful: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-11T01:05:51-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:34-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:35-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:36-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:37-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:38-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:38-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:39-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:39-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:40-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:41-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:42-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:43-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:43-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:44-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:44-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:45-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:46-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:46-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:47-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:48-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:48-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:49-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:50-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:50-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:51-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:52-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:53-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:53-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:54-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:54-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:55-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:56-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:56-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:57-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:58-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:58-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:07:59-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:00-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:00-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:01-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:02-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:03-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:03-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:04-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:05-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:06-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:06-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:06-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T01:08:07-03:00" level=info msg="Sent instance shutdown request: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-11T01:08:09-03:00" level=info msg="firecracker exited: status=0"
+{"failureDiagnostics":[{"vmId":"gru-member-1","region":"GRU","capturedAt":"2026-09-11T04:08:07.991658448Z","console":{"path":"/var/lib/terrascale-qualification/ts-orchestrator-smoke19/state/firecracker/gru-member-1/firecracker.log","present":true,"sourceBytes":50558,"capturedBytes":4096,"truncated":true,"sha256":"93a9d5182f31f0f1941155879c254318f49ab6e842cb0d3dda3b2e5c9674efea","tail":"7:16Z System clock was stepped by 1.002203 seconds\r\n[   85.311476] cloud-init[1017]: 506 Cannot talk to daemon\r\n[   85.322599] cloud-init[1017]: try: 2, refid: 00000000, correction: 0.000000000, skew: 0.000\r\n[   85.336766] cloud-init[1017]: try: 3, refid: 00000000, correction: 0.000000000, skew: 0.000\r\n[   85.345847] cloud-init[1017]: try: 4, refid: 0A4D0001, correction: 0.000000000, skew: 1000000.000\r\n[   85.411541] cloud-init[1017]: useradd warning: terrascale-orchestrator's uid 62010 outside of the UID_MIN 1000 and UID_MAX 60000 range.\r\n[   85.584256] cloud-init[1017]: Created symlink /etc/systemd/system/multi-user.target.wants/terrascale-ts-node.service → /etc/systemd/system/terrascale-ts-node.service.\r\n         Starting \u001b[0;1;39mterrascale-ts-node.service\u001b[0m - TerraScale ts-node host agent...\r\r\n[\u001b[0;32m  OK  \u001b[0m] Started \u001b[0;1;39mterrascale-ts-node.service\u001b[0m - TerraScale ts-node host agent.\r\r\nci-info: ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++Authorized keys from /root/.ssh/authorized_keys for user root++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\r\nci-info: +-------------+-------------------------------------------------------------------------------------------------+-----------------------------------------------------------------+---------+\r\nci-info: |   Keytype   |                                       Fingerprint (sha256)                                      |                             Options                             | Comment |\r\nci-info: +-------------+-------------------------------------------------------------------------------------------------+-----------------------------------------------------------------+---------+\r\nci-info: | ssh-ed25519 | 1a:e0:3a:08:24:48:9a:62:50:fe:f5:e3:16:cc:e7:49:38:0c:cb:49:a9:4a:a9:54:3b:70:5e:77:3d:c3:7e:fc | restrict,command=\"/usr/local/libexec/terrascale-vmqual-control\" |    -    |\r\nci-info: +-------------+-------------------------------------------------------------------------------------------------+-----------------------------------------------------------------+---------+\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: #############################################################\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: -----BEGIN SSH HOST KEY FINGERPRINTS-----\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: 256 SHA256:dEw/lMEKSLNb1XBo4IGbox9Ej3lRLd3AKj/2QQovOo0 root@gru-member-1 (ECDSA)\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: 256 SHA256:A/1rj1xTsXg1xHV3AzJpKB9mMzLmDpWHmd9pwMZuchM root@gru-member-1 (ED25519)\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: 3072 SHA256:P0NJE7ySc6nFPYI9ombP/wSocQmMpBXZ+0QGSolAx8Q root@gru-member-1 (RSA)\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: -----END SSH HOST KEY FINGERPRINTS-----\r\n\u003c14\u003eSep 11 04:07:18 cloud-init: #############################################################\r\n-----BEGIN SSH HOST KEY KEYS-----\r\necdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBMvMqfndlpY0I04NF3S+nIJHELjP4WZXdMFJP/B4CY5oTXQ15EQFW8jMsw9gshPscB+VVjIx5b3pUe7ZtLOzrSM= root@gru-member-1\r\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILdDMoqfNePa8w5jHR64pfISdL0fp8vrahnbZG+45+Py root@gru-member-1\r\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC2fLxcdR2Kjda7m7ky3wwRgnJurN50VYTB+D4ZqbPEunMZ0HBk0rzgly3zApguDbqv4xboPplX4jPIS87XCfUEXIwqXKhRFQwObdqs0A8q9PjVlx81yos98O30Y92onh36tzHSCsz8d6AVrMIkkVRYq2JSSuoYZkYgj4kBznVMyvUIzdSOpVvpm+F4iaAjGFfHWxZkL/TpbomJpcnsI/NEdNbAZzYePBjUW3ZmxpLCkWx+CAVQ+fj/w5eHpkcusSUE3cwtD3FyQhOza/kW4Cd/iufwbo9l2ACtbHOMictiu6CbhwatkoOcGNMxbsAZ9TFDof9LS4VTh5ylrg+6Zous9Cn+vNa0fciDQ4G3KFJBRuSQcHFGR4xbDKlzHhPYZT/5STy8stXQrEW5aIgsxEM0hGTJzRUM4WF/Zlj+4eqbzHmnOrHeRcdoh4y2qKbNRfBtGVV9zPIJ8puEjP3EngYKOLwJ6QDoemlftUIv2DUjqz5ABUoYnXgF0DJXhfmAkWc= root@gru-member-1\r\n-----END SSH HOST KEY KEYS-----\r\n[   86.457178] cloud-init[1017]: Cloud-init v. 25.2-0ubuntu1~24.04.1 finished at Fri, 11 Sep 2026 04:07:19 +0000. Datasource DataSourceNoCloud [seed=/var/lib/cloud/seed/nocloud].  Up 86.44 seconds\r\n[\u001b[0;32m  OK  \u001b[0m] Finished \u001b[0;1;39mcloud-final.service\u001b[0m - Cloud-init: Final Stage.\r\r\n[\u001b[0;32m  OK  \u001b[0m] Reached target \u001b[0;1;39mcloud-init.target\u001b[0m - Cloud-init target.\r\r\n"},"metrics":{"path":"/var/lib/terrascale-qualification/ts-orchestrator-smoke19/state/firecracker/gru-member-1/firecracker.metrics","present":true,"sourceBytes":19608,"capturedBytes":4096,"truncated":true,"sha256":"8ee6552c237bd7761524d11f42bfb2c713a69fc266e1a2e263fc7928650817ce","tail":"\":0,\"vmm_pause_vm\":0,\"vmm_resume_vm\":0},\"logger\":{\"missed_metrics_count\":0,\"metrics_fails\":0,\"missed_log_count\":0},\"mmds\":{\"rx_accepted\":0,\"rx_accepted_err\":0,\"rx_accepted_unusual\":0,\"rx_bad_eth\":0,\"rx_invalid_token\":0,\"rx_no_token\":0,\"rx_count\":0,\"tx_bytes\":0,\"tx_count\":0,\"tx_errors\":0,\"tx_frames\":0,\"connections_created\":0,\"connections_destroyed\":0},\"net_1\":{\"activate_fails\":0,\"cfg_fails\":0,\"mac_address_updates\":0,\"no_rx_avail_buffer\":3,\"no_tx_avail_buffer\":0,\"event_fails\":0,\"rx_queue_event_count\":350,\"rx_event_rate_limiter_count\":0,\"rx_rate_limiter_throttled\":0,\"rx_tap_event_count\":1940,\"rx_bytes_count\":82016377,\"rx_packets_count\":3047,\"rx_fails\":0,\"rx_count\":3047,\"tap_read_fails\":0,\"tap_write_fails\":0,\"tap_write_agg\":{\"min_us\":4,\"max_us\":4572,\"sum_us\":112709},\"tx_bytes_count\":472489,\"tx_malformed_frames\":0,\"tx_fails\":0,\"tx_count\":2137,\"tx_packets_count\":2137,\"tx_queue_event_count\":2095,\"tx_rate_limiter_event_count\":0,\"tx_rate_limiter_throttled\":0,\"tx_spoofed_mac_count\":0,\"tx_remaining_reqs_count\":48},\"net\":{\"activate_fails\":0,\"cfg_fails\":0,\"mac_address_updates\":0,\"no_rx_avail_buffer\":3,\"no_tx_avail_buffer\":0,\"event_fails\":0,\"rx_queue_event_count\":350,\"rx_event_rate_limiter_count\":0,\"rx_rate_limiter_throttled\":0,\"rx_tap_event_count\":1940,\"rx_bytes_count\":82016377,\"rx_packets_count\":3047,\"rx_fails\":0,\"rx_count\":3047,\"tap_read_fails\":0,\"tap_write_fails\":0,\"tap_write_agg\":{\"min_us\":0,\"max_us\":0,\"sum_us\":112709},\"tx_bytes_count\":472489,\"tx_malformed_frames\":0,\"tx_fails\":0,\"tx_count\":2137,\"tx_packets_count\":2137,\"tx_queue_event_count\":2095,\"tx_rate_limiter_event_count\":0,\"tx_rate_limiter_throttled\":0,\"tx_spoofed_mac_count\":0,\"tx_remaining_reqs_count\":48},\"patch_api_requests\":{\"drive_count\":0,\"drive_fails\":0,\"network_count\":0,\"network_fails\":0,\"machine_cfg_count\":0,\"machine_cfg_fails\":0,\"mmds_count\":0,\"mmds_fails\":0,\"hotplug_memory_count\":0,\"hotplug_memory_fails\":0},\"put_api_requests\":{\"actions_count\":0,\"actions_fails\":0,\"boot_source_count\":0,\"boot_source_fails\":0,\"drive_count\":0,\"drive_fails\":0,\"logger_count\":0,\"logger_fails\":0,\"machine_cfg_count\":0,\"machine_cfg_fails\":0,\"cpu_cfg_count\":0,\"cpu_cfg_fails\":0,\"metrics_count\":0,\"metrics_fails\":0,\"network_count\":0,\"network_fails\":0,\"mmds_count\":0,\"mmds_fails\":0,\"vsock_count\":0,\"vsock_fails\":0,\"pmem_count\":0,\"pmem_fails\":0,\"serial_count\":0,\"serial_fails\":0,\"hotplug_memory_count\":0,\"hotplug_memory_fails\":0},\"seccomp\":{\"num_faults\":0},\"vcpu\":{\"exit_io_in\":1477,\"exit_io_out\":5902,\"exit_mmio_read\":4112,\"exit_mmio_write\":4112,\"failures\":0,\"kvmclock_ctrl_fails\":0,\"exit_io_in_agg\":{\"min_us\":0,\"max_us\":237,\"sum_us\":591},\"exit_io_out_agg\":{\"min_us\":0,\"max_us\":6991,\"sum_us\":45612},\"exit_mmio_read_agg\":{\"min_us\":1,\"max_us\":269,\"sum_us\":3994},\"exit_mmio_write_agg\":{\"min_us\":1,\"max_us\":97,\"sum_us\":2605}},\"vmm\":{\"panic_count\":0},\"signals\":{\"sigbus\":0,\"sigsegv\":0,\"sigxfsz\":0,\"sigxcpu\":0,\"sigpipe\":0,\"sighup\":0,\"sigill\":0},\"vsock\":{\"activate_fails\":0,\"cfg_fails\":0,\"rx_queue_event_fails\":0,\"tx_queue_event_fails\":0,\"ev_queue_event_fails\":0,\"muxer_event_fails\":0,\"conn_event_fails\":0,\"rx_queue_event_count\":0,\"tx_queue_event_count\":0,\"rx_bytes_count\":0,\"tx_bytes_count\":0,\"rx_packets_count\":0,\"tx_packets_count\":0,\"conns_added\":0,\"conns_killed\":0,\"conns_removed\":0,\"killq_resync\":0,\"tx_flush_fails\":0,\"tx_write_fails\":0,\"rx_read_fails\":0},\"entropy\":{\"activate_fails\":0,\"entropy_event_fails\":0,\"entropy_event_count\":0,\"entropy_bytes\":0,\"host_rng_fails\":0,\"entropy_rate_limiter_throttled\":0,\"rate_limiter_event_count\":0},\"pmem\":{\"activate_fails\":0,\"cfg_fails\":0,\"event_fails\":0,\"queue_event_count\":0},\"interrupts\":{\"triggers\":4378,\"config_updates\":0},\"memory_hotplug\":{\"activate_fails\":0,\"queue_event_fails\":0,\"queue_event_count\":0,\"plug_agg\":{\"min_us\":0,\"max_us\":0,\"sum_us\":0},\"plug_count\":0,\"plug_bytes\":0,\"plug_fails\":0,\"unplug_agg\":{\"min_us\":0,\"max_us\":0,\"sum_us\":0},\"unplug_count\":0,\"unplug_bytes\":0,\"unplug_fails\":0,\"unplug_discard_fails\":0,\"unplug_all_agg\":{\"min_us\":0,\"max_us\":0,\"sum_us\":0},\"unplug_all_count\":0,\"unplug_all_fails\":0,\"state_agg\":{\"min_us\":0,\"max_us\":0,\"sum_us\":0},\"state_count\":0,\"state_fails\":0}}\n"}}]}
+vm-qualify: vm-smoke: control-only profile: PRE-RESTART host disk usage check: vmdisk: artifact is not owned by this run
+FORENSICS storeRunID="c32e91555c2204bc3cd232a485bdcacb" root="/var/lib/terrascale-qualification/ts-orchestrator-smoke19/drives"
+LSTAT /var/lib/terrascale-qualification/ts-orchestrator-smoke19: mode=755 uid=0 gid=0 nlink=8
+  ENTRY .qualification-artifacts-453903236: mode=700 uid=0 gid=0 size=171 nlink=2
+  ENTRY bin: mode=700 uid=0 gid=0 size=30 nlink=2
+  ENTRY drives: mode=700 uid=1000 gid=1000 size=83 nlink=4
+  ENTRY images: mode=700 uid=0 gid=0 size=46 nlink=3
+  ENTRY network-cleanup-journal.json: mode=600 uid=0 gid=0 size=5005 nlink=1
+  ENTRY state: mode=700 uid=0 gid=0 size=191 nlink=7
+  ENTRY toolchain: mode=700 uid=0 gid=0 size=19 nlink=3
+LSTAT /var/lib/terrascale-qualification/ts-orchestrator-smoke19/drives: mode=700 uid=1000 gid=1000 nlink=4
+  ENTRY .vmdisk-owner.json: mode=600 uid=1000 gid=1000 size=241 nlink=1
+  ENTRY .vmdisk.lock: mode=600 uid=1000 gid=1000 size=0 nlink=1
+  ENTRY drives: mode=700 uid=1000 gid=1000 size=26 nlink=3
+  ENTRY snapshots: mode=700 uid=1000 gid=1000 size=6 nlink=2
+LSTAT /var/lib/terrascale-qualification/ts-orchestrator-smoke19/drives/drives: mode=700 uid=1000 gid=1000 nlink=3
+  ENTRY gru-member-1: mode=700 uid=1000 gid=1000 size=87 nlink=2
+LSTAT /var/lib/terrascale-qualification/ts-orchestrator-smoke19/drives/drives/gru-member-1: mode=700 uid=1000 gid=1000 nlink=2
+  ENTRY .owner.json: mode=600 uid=1000 gid=1000 size=266 nlink=1
+  ENTRY artifact-00000000000000000001.img: mode=600 uid=1000 gid=1000 size=4412669952 nlink=2
+  ENTRY metadata.json: mode=600 uid=1000 gid=1000 size=486 nlink=1
+STORE-MARKER: {"version":1,"marker":"terrascale-vmdisk-run-v1","run_id":"c32e91555c2204bc3cd232a485bdcacb","uid":1000,"gid":1000,"created_at":"2026-09-11T04:04:42.967894182Z","integrity":"1186aaed6fa9150b95a332714e00739f6bf57a56c5eaad4933b47ddd031168ea"}
+ err=<nil>
+DRIVE-MARKER: {"version":1,"marker":"terrascale-vmdisk-artifact-v1","run_id":"c32e91555c2204bc3cd232a485bdcacb","id":"gru-member-1","uid":1000,"gid":1000,"created_at":"2026-09-11T04:04:42.973813279Z","integrity":"532149a80adde15352f01db4035e21a108afa617fe77c92c7d5cfe70092c0e43"}
+ err=<nil>
+DRIVE-METADATA: {"version":2,"run_id":"c32e91555c2204bc3cd232a485bdcacb","id":"gru-member-1","artifact":"artifact-00000000000000000001.img","size":4412669952,"attached":true,"read_only":false,"io_failure":false,"filled_bytes":0,"fill_to_enospc":false,"grow_filesystem":false,"filesystem":{"type":"ext4","label":"terrascale-data"},"transition":{"kind":"create"},"generation":1,"updated_at":"2026-09-11T04:04:42.975791021Z","integrity":"ad73b640ca3e9c66a61b18ff6e11299860babe38342aac2221dba9c1b574f871"}
+ err=<nil>
+
+exit status 1
+vm-artifacts: exit status 1
+exit status 1
+make: *** [Makefile:31: vm-smoke] Error 1

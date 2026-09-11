@@ -795,7 +795,7 @@ func (s *Store) ioAt(ctx context.Context, id string, p []byte, offset int64, wri
 		return 0, io.ErrShortBuffer
 	}
 	if !write {
-		file, err := openOwnedRegular(path, os.O_RDONLY, s.owner, 0o600)
+		file, err := openOwnedArtifact(path, os.O_RDONLY, s.owner)
 		if err != nil {
 			return 0, err
 		}
