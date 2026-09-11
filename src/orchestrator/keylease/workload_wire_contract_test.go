@@ -51,11 +51,12 @@ func TestRustWorkloadIdentityFrameMatchesProductionCatalog(t *testing.T) {
 
 	for _, name := range []string{"missing tenant identity", "mismatched database identity"} {
 		candidate := bytes.Clone(frame)
-		if name[0] == 'm' && name[8] == 't' {
+		if name == "missing tenant identity" {
 			candidate = bytes.Replace(candidate, []byte(`"tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV",`), nil, 1)
 		} else {
 			candidate = bytes.Replace(candidate, []byte(`01ARZ3NDEKTSV4RRFFQ69G5FAX`), []byte(`01ARZ3NDEKTSV4RRFFQ69G5FAY`), 1)
 		}
+		binary.BigEndian.PutUint32(candidate[:4], uint32(len(candidate)-4))
 		if response := sendWorkloadFrame(t, config.SocketPath, candidate); len(response) != 0 {
 			t.Errorf("%s unexpectedly received credentials: %x", name, response)
 		}
@@ -86,20 +87,48 @@ func TestTBCKAllowsOmittedAWSKMSOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	request := []byte{'T', 'B', 'C', 'K', 1}
-	for _, value := range []string{entry.Provider, entry.KeyID, entry.KeyRegion, "", entry.Binding.Environment, entry.Binding.TenantID, entry.Binding.ProjectID, entry.Binding.DatabaseID, entry.Binding.KeyVersion, entry.Binding.Region, entry.Binding.Purpose} {
-		request = binary.BigEndian.AppendUint16(request, uint16(len(value)))
-		request = append(request, value...)
-	}
-	response := sendWorkloadFrame(t, config.SocketPath, append(binary.BigEndian.AppendUint32(nil, uint32(len(request))), request...))
+	frame := rustFrame(t, "rust_customer_key_frame.hex")
+	response := sendWorkloadFrame(t, config.SocketPath, frame)
 	if len(response) != 68 || response[5] != 0 {
 		t.Fatalf("omitted endpoint TBCK request rejected: %x", response)
+	}
+	for _, identity := range []string{entry.Binding.TenantID, entry.Binding.DatabaseID} {
+		candidate := bytes.Replace(frame, []byte(identity), []byte("01ARZ3NDEKTSV4RRFFQ69G5FAZ"), 1)
+		if denied := sendWorkloadFrame(t, config.SocketPath, candidate); len(denied) == 68 && denied[5] == 0 {
+			t.Fatalf("mismatched identity received key: %s", identity)
+		}
 	}
 }
 
 func rustWorkloadFrame(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "rust_workload_identity_frame.hex"))
+	return rustFrame(t, "rust_workload_identity_frame.hex")
+}
+
+func TestRustTBCKGoldenOnlyEndpointMayBeEmpty(t *testing.T) {
+	frame := rustFrame(t, "rust_customer_key_frame.hex")
+	if _, _, _, err := readRequest(bytes.NewReader(frame)); err != nil {
+		t.Fatal(err)
+	}
+	for slot, offset := 0, 9; slot < 11; slot++ {
+		length := int(binary.BigEndian.Uint16(frame[offset:]))
+		if slot != 3 {
+			candidate := append(bytes.Clone(frame[:offset]), 0, 0)
+			candidate = append(candidate, frame[offset+2+length:]...)
+			binary.BigEndian.PutUint32(candidate[:4], uint32(len(candidate)-4))
+			if _, _, _, err := readRequest(bytes.NewReader(candidate)); err == nil {
+				t.Errorf("empty required slot %d accepted", slot)
+			}
+		}
+		offset += 2 + length
+	}
+}
+
+// Both goldens are asserted against captured production adapter writes in
+// terrabase's workload_identity_delivery and customer_key_delivery tests.
+func rustFrame(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
