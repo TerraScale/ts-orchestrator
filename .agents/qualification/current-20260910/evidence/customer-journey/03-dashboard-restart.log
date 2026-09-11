@@ -2,3 +2,4 @@ start_utc=2026-09-11T00:28:34Z
 context: dashboard on 7100 was down (killed by earlier e2e teardown); parallel e2e run 97c75acad2aa37566e8fc6db2d7cbb1a held .dev.vars overlay until it finished and restored stack values (TERRASCALE_API_BASE_URL=http://127.0.0.1:7000, NODE_ENV=production).
 action: relaunch per terrabase/scripts/stack.sh start_dashboard (lines 641-686) with exact env
 dashboard_pid=1697675
+end_utc=2026-09-11T00:34:06Z

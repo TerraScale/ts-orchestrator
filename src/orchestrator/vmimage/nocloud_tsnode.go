@@ -89,12 +89,15 @@ func buildTSNodeBootstrapScript(tsNode tsNodeBootstrapMaterial) string {
 	script.WriteString("/usr/bin/ln -sfnT " + versionDirectory + " /opt/terrascale/ts-node/current\n")
 	script.WriteString("/usr/bin/systemctl daemon-reload\n")
 	// systemd's path sandbox requires every writable exception to exist before
-	// the unit starts. Keep the root credential tree private for hostsecrets'
-	// strict directory admission, including nested destinations absent on a
-	// fresh image.
-	script.WriteString("/usr/bin/install -d -o root -g root -m 0700 /etc/terrascale\n")
+	// the unit starts. Publish the credential tree traversal-only (0711,
+	// root-owned), matching hostsecrets' production end-state: the service
+	// user can reach its 0400 credential files but never list or write the
+	// directories. A 0700 root tree would deny the capability-less
+	// orchestrator every credential read, including nested destinations
+	// absent on a fresh image.
+	script.WriteString("/usr/bin/install -d -o root -g root -m 0711 /etc/terrascale\n")
 	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
-		script.WriteString("/usr/bin/install -d -o root -g root -m 0700 " + directory + "\n")
+		script.WriteString("/usr/bin/install -d -o root -g root -m 0711 " + directory + "\n")
 	}
 	script.WriteString(chronyBootstrapScript())
 	script.WriteString(membershipOwnershipBootstrap())

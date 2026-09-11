@@ -488,7 +488,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			NatsDataClassCoordinationRecord,
 			NatsDurabilityClassReplicatedDurableFile,
 			NatsOrderingClassPerAggregateEpoch,
-			"KV provides leases, epochs, and small coordination records only; the operation stream stays the durable explanation/history; journal KV stores are denied to controllers.",
+			"KV provides leases, epochs, validated BYOK provider references, wrapped database-DEK ciphertext, and other small coordination records only; credentials, plaintext key material, and customer data never enter NATS; the operation stream stays the durable explanation/history; journal KV stores are denied to controllers.",
 			"CAS conflict is a normal outcome: the loser re-observes and retries; ambiguity holds instead of creating a competing writer.",
 			"CAS conflict rate, lease age, watch lag, and journal-store denial attempts.",
 			"RegionalAuthorityCoordinator CAS leases/epochs; GlobalCellDirectoryRuntime watches cell.>; GlobalNatsPermissions grants inbox-delivered ephemeral watch consumers only."),

@@ -1,0 +1,18 @@
+# diag: guest orchestrator journal extract (from live rootfs, debugfs dump of system.journal)
+# captured during diag-05 vm-smoke run (fresh TS_VM_ROOT=ts-orchestrator-diag3)
+
+## orchestrator unit stderr (the ONLY process error text; cause redacted by commandError):
+MESSAGE=orchestrator initial-gru-r1 failed
+_CMDLINE=/opt/terrascale/orchestrator/current/orchestrator initial-gru-r1 --config /opt/terrascale/orchestrator/ctl-fc4311bdb0691c553549f1c082088ea20601ea7720f8f16a0d424c4b/orchestrator.config
+
+## guest filesystem facts (debugfs, live):
+  /etc/terrascale                      0700 root:root         (bootstrap.sh: install -d -m 0700)
+  /etc/terrascale/orchestrator         0700 root:root
+  /etc/terrascale/orchestrator/regional 0700 root:root
+  /etc/terrascale/orchestrator/global  0700 root:root
+  /etc/terrascale/orchestrator/provisioner 0755 root:root     (not in ProductionCredentialDirectories; left by debugfs mkdir)
+  /etc/terrascale/orchestrator/* files 0400 uid=62010(terrascale-orchestrator)  (chowned by controllerOwnershipBootstrap)
+  /etc/terrascale/orchestrator/membership-pins.json 0444 root:root
+  data drive /: 0755 root:root; /host-admission 0755 root; /host-admission/initial-gru-r1 0755 root
+  data drive /orchestrator 0750 terrascale-orchestrator
+  unit: User=terrascale-orchestrator Group=terrascale-orchestrator, CapabilityBoundingSet= (empty), ProtectSystem=strict

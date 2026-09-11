@@ -22,7 +22,10 @@ Disk loss requires recovery; neither a missing file nor a placement PENDING
 receipt authorizes another genesis.
 
 Delivery uses dedicated exact-host NATS subjects and host NKeys, followed by
-loopback TBEP with pinned mTLS identities. Only control metadata enters NATS.
+loopback TBEP with pinned mTLS identities. This auth-bootstrap path carries
+only its control metadata in NATS; the database-admission journal may also
+carry validated BYOK references and wrapped ciphertext, but never provider
+credentials, plaintext keys, or customer data.
 Receipt validation requires the complete grant echo, operation identity, and
 local storage incarnation. PERSISTED is not quorum, catch-up, or API readiness;
 the engine's admitted auth Raft runtime owns those decisions.

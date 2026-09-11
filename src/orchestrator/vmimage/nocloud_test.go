@@ -66,7 +66,7 @@ func TestNoCloudSeedIsDeterministicAndComplete(t *testing.T) {
 		}
 	}
 	for _, directory := range tsnodebootstrap.ProductionCredentialDirectories() {
-		if !strings.Contains(string(first.UserData), "/usr/bin/install -d -o root -g root -m 0700 "+directory) {
+		if !strings.Contains(string(first.UserData), "/usr/bin/install -d -o root -g root -m 0711 "+directory) {
 			t.Fatalf("NoCloud bootstrap does not provision credential directory %q", directory)
 		}
 	}

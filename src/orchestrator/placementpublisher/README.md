@@ -33,9 +33,12 @@ Each host has a dedicated NKey with the exact `HostPermissions` allowlist and
 replies only on request inboxes. Only global authority may publish stage
 requests. The host bridge pins its engine endpoint and principal from local
 configuration, rejects foreign identities and database metadata, and calls
-TBEP with TLS 1.3 and the exact admitted server SPIFFE URI. NATS carries only
-bounded placement proposals and receipts, never customer documents or data
-replication traffic. The bridge is sequential with bounded pending messages.
+TBEP with TLS 1.3 and the exact admitted server SPIFFE URI. For this placement
+path, NATS carries only bounded placement proposals and receipts; the separate
+database-admission path carries validated BYOK references and wrapped
+ciphertext, never provider credentials, plaintext keys, customer documents,
+or data replication traffic. The bridge is sequential with bounded pending
+messages.
 
 The journal retains at most 128 host records and 480 KiB of aggregate encoded
 state. Acceptance reserves space for each pending receipt before committing;
