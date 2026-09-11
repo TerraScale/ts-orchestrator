@@ -5,7 +5,7 @@ on:
     branches: [develop]
 
 permissions:
-  contents: read
+  contents: write
 
 # vm-test builds the TerraBase artifact from this exact source revision. Keep
 # this pin in the consuming workflow so a clean checkout has the sibling
@@ -22,6 +22,7 @@ jobs:
       TS_DEPLOY_SHA256: ${{ vars.TS_DEPLOY_SHA256 }}
       TS_DEPLOY_SIGNATURE_SHA256: ${{ vars.TS_DEPLOY_SIGNATURE_SHA256 }}
       TS_DEPLOY_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+      FORGEJO_TOKEN: ${{ forgejo.token }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
