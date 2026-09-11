@@ -55,7 +55,9 @@ func TestUnixRestoreAdmissionAndExactRetryOverAuthenticatedNATS(t *testing.T) {
 		if r.DatabaseID != source.DatabaseID || selection.Kind != "latest" {
 			t.Fatal("resolution escaped original source")
 		}
-		return restoreFactsFixture(), nil
+		facts := restoreFactsFixture()
+		facts.SourceDigest = RestoreSourceDigest(source)
+		return facts, nil
 	}, Restore: func(context.Context, Record) ([]byte, error) {
 		t.Fatal("admission dispatched restore")
 		return nil, nil
@@ -154,6 +156,7 @@ func TestRestorePreAdmissionDenialLeavesNoTarget(t *testing.T) {
 						return RestoreAdmissionFacts{}, errors.New("point unavailable")
 					}
 					facts := restoreFactsFixture()
+					facts.SourceDigest = RestoreSourceDigest(source)
 					if mode == "epoch" {
 						facts.Epoch = 99
 					}
@@ -197,5 +200,37 @@ func TestValidateRequestRejectsIncompleteRestoreProvenance(t *testing.T) {
 				t.Fatalf("ValidateRequest = %v, want ErrInvalid", err)
 			}
 		})
+	}
+}
+
+func TestRestoreAcknowledgementIsBoundToRecord(t *testing.T) {
+	facts := restoreFactsFixture()
+	record := Record{
+		DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+		Request:    Request{ParentDatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAY"},
+		Restore:    &RestoreRequest{}, RestoreFacts: &facts,
+	}
+	acknowledgement := RestoreAcknowledgement{Version: 1, TargetDatabaseID: record.DatabaseID, SourceDatabaseID: record.Request.ParentDatabaseID, Facts: facts}
+	raw, err := json.Marshal(acknowledgement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRestoreAcknowledgement(record, raw); err != nil {
+		t.Fatalf("valid acknowledgement rejected: %v", err)
+	}
+	for name, mutate := range []func(*RestoreAcknowledgement){
+		func(a *RestoreAcknowledgement) { a.TargetDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ" },
+		func(a *RestoreAcknowledgement) { a.SourceDatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ" },
+		func(a *RestoreAcknowledgement) { a.Facts.Checksum = strings.Repeat("d", 64) },
+	} {
+		changed := acknowledgement
+		mutate(&changed)
+		changedRaw, err := json.Marshal(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateRestoreAcknowledgement(record, changedRaw); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("mutation %d accepted: %v", name, err)
+		}
 	}
 }

@@ -60,7 +60,11 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		report, err := vmqual.RunSmoke(ctx, factory, network, 5*time.Minute)
+		// The budget covers both profiles' full lifecycles. One profile
+		// measures ~4 minutes end to end (boot ~90 s, activation ~180 s,
+		// restart and proofs ~60 s); five minutes could not hold a second
+		// profile even on a quiet host.
+		report, err := vmqual.RunSmoke(ctx, factory, network, 12*time.Minute)
 		if err != nil {
 			return errors.Join(err, vmqual.WriteSmokeFailureDiagnostics(out, report))
 		}

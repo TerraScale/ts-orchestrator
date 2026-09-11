@@ -347,7 +347,7 @@ func (p *Pipeline) activateAndObserve(ctx context.Context, r Record) error {
 			if err != nil {
 				return err
 			}
-			if len(receipt) == 0 || len(receipt) > 32<<10 {
+			if len(receipt) == 0 || len(receipt) > 32<<10 || validateRestoreAcknowledgement(r, receipt) != nil {
 				return ErrInvalid
 			}
 			r.RestoreReceipt = receipt

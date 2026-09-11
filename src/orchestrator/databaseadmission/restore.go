@@ -2,6 +2,9 @@ package databaseadmission
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"reflect"
@@ -81,6 +84,9 @@ func (p *Pipeline) AcceptRestore(ctx context.Context, request RestoreRequest) (R
 	if facts.Epoch != 0 || epoch == math.MaxUint64 {
 		return Record{}, ErrInvalid
 	}
+	if facts.SourceDigest != RestoreSourceDigest(*parent) {
+		return Record{}, ErrInvalid
+	}
 	facts.Epoch = epoch + 1
 	scope.RecoveryPointID, scope.JournalCut, scope.RestoreProvider, scope.RestoreEpoch = facts.PointID, facts.JournalCut, facts.Provider, facts.Epoch
 	record := Record{Request: scope, Restore: new(request), RestoreFacts: new(facts)}
@@ -91,6 +97,32 @@ func (p *Pipeline) AcceptRestore(ctx context.Context, request RestoreRequest) (R
 		return Record{}, err
 	}
 	return p.acceptRecord(ctx, record)
+}
+
+// RestoreSourceDigest identifies immutable source identity. Mutable progress
+// and readiness evidence are excluded so the value remains stable on replay.
+func RestoreSourceDigest(source Record) string {
+	value, _ := json.Marshal(struct {
+		Environment string   `json:"environment"`
+		TenantID    string   `json:"tenant_id"`
+		ProjectID   string   `json:"project_id"`
+		Name        string   `json:"name"`
+		OperationID string   `json:"operation_id"`
+		DatabaseID  string   `json:"database_id"`
+		KeyVersion  string   `json:"key_version"`
+		Regions     []string `json:"regions"`
+		Residency   string   `json:"residency"`
+	}{source.Request.Environment, source.Request.TenantID, source.Request.ProjectID, source.Request.Name, source.Request.OperationID, source.DatabaseID, source.KeyVersion, source.Request.Regions, source.Request.Residency})
+	sum := sha256.Sum256(value)
+	return hex.EncodeToString(sum[:])
+}
+
+func validateRestoreAcknowledgement(record Record, raw []byte) error {
+	var acknowledgement RestoreAcknowledgement
+	if json.Unmarshal(raw, &acknowledgement, json.RejectUnknownMembers(true)) != nil || acknowledgement.Version != 1 || record.Restore == nil || record.RestoreFacts == nil || acknowledgement.TargetDatabaseID != record.DatabaseID || acknowledgement.SourceDatabaseID != record.Request.ParentDatabaseID || !reflect.DeepEqual(acknowledgement.Facts, *record.RestoreFacts) {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func validateRestoreRecord(r Record) error {

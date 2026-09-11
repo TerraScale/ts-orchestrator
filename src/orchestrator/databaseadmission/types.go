@@ -88,6 +88,15 @@ type RestoreAdmissionFacts struct {
 	JournalCut       string `json:"journal_cut"`
 	Epoch            uint64 `json:"epoch"`
 }
+
+// RestoreAcknowledgement is the native restore authority's durable proof. It
+// is bound to the admitted target, source, and exact resolved facts.
+type RestoreAcknowledgement struct {
+	Version          uint32                `json:"version"`
+	TargetDatabaseID string                `json:"target_database_id"`
+	SourceDatabaseID string                `json:"source_database_id"`
+	Facts            RestoreAdmissionFacts `json:"facts"`
+}
 type Target struct {
 	ServerIdentity string
 	MemberID       string
