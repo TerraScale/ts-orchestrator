@@ -82,3 +82,18 @@ func TestHostRedeliveryRequiresMatchingBYOKMetadata(t *testing.T) {
 		t.Fatal("changed BYOK metadata was accepted on redelivery")
 	}
 }
+
+func TestHostRejectsProviderTupleMismatch(t *testing.T) {
+	r := journalFixture(t)
+	target := r.Targets[0]
+	c := HostConfig{Environment: r.Request.Environment, Region: target.Region, MemberID: target.MemberID}
+	entries := journalWrapped(r)
+	entries[0].Provider = "aws-kms"
+	entries[0].KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+	entries[0].KeyRegion = "sa-east-1"
+	entries[0].AdmissionOperationID = r.Request.OperationID
+	request := installRequest{Admission: Admission{Request: r.Request, CreatedAt: r.CreatedAt.UnixMilli(), DatabaseID: r.DatabaseID, KeyVersion: r.KeyVersion, Region: target.Region, MemberID: target.MemberID}, Entries: entries}
+	if validateInstall(c, request) == nil {
+		t.Fatal("provider tuple mismatch was accepted")
+	}
+}
