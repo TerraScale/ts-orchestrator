@@ -145,7 +145,8 @@ func validEntryProvider(e Entry) bool {
 	if e.Provider != "aws-kms" || !byokauthority.ValidKMSKeyARN(e.KeyID, e.KeyRegion) || !validEnvironment(e.KeyRegion) || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
 		return false
 	}
-	if b := e.BYOK; b != nil && (e.AdmissionOperationID == "" || b.KeyProvider != e.Provider || b.KeyID != e.KeyID || b.KeyRegion != e.KeyRegion || b.KeyEndpoint != e.KeyEndpoint) {
+	b := e.BYOK
+	if b == nil || e.AdmissionOperationID == "" || b.KeyProvider != e.Provider || b.KeyID != e.KeyID || b.KeyRegion != e.KeyRegion || b.KeyEndpoint != e.KeyEndpoint {
 		return false
 	}
 	if e.KeyEndpoint == "" {

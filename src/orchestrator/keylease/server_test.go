@@ -223,6 +223,8 @@ func TestTBCKRequestUsesCustomerAuthority(t *testing.T) {
 	catalog.Entries[0].CryptoEndpoint = ""
 	catalog.Entries[0].KEKID = ""
 	catalog.Entries[0].KEKVersionID = ""
+	catalog.Entries[0].AdmissionOperationID = "01J00000000000000000000003"
+	catalog.Entries[0].BYOK = &BYOKMetadata{KeyProvider: catalog.Entries[0].Provider, KeyID: catalog.Entries[0].KeyID, KeyRegion: catalog.Entries[0].KeyRegion, KeyEndpoint: catalog.Entries[0].KeyEndpoint}
 	catalog.Entries[0].CryptoEndpoint = ""
 	catalog.Entries[0].KEKID = ""
 	catalog.Entries[0].KEKVersionID = ""

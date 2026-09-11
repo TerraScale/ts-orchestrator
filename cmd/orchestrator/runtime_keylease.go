@@ -68,10 +68,10 @@ func configuredKeyProvisioner(lookup envLookup) func(context.Context, string, []
 		keyID, _ := lookup(byokKeyIDEnvironment)
 		keyRegion, _ := lookup(byokKeyRegionEnvironment)
 		keyEndpoint, _ := lookup(byokKeyEndpointEnvironment)
-		if role == "" || token == "" || keyID == "" || keyRegion == "" || keyEndpoint == "" {
+		if role == "" || token == "" || keyID == "" || keyRegion == "" {
 			return keylease.ErrUnavailable
 		}
-		if !validKeyAuthorityEndpoint(keyEndpoint) {
+		if keyEndpoint != "" && !validKeyAuthorityEndpoint(keyEndpoint) {
 			return keylease.ErrUnavailable
 		}
 		for _, target := range targets {
@@ -117,7 +117,7 @@ func startConfiguredKeyLease(ctx context.Context, options *control.OrchestratorO
 	endpoint, _ := lookup(byokKeyEndpointEnvironment)
 	provider, _ := lookup(byokProviderEnvironment)
 	if role != "" || token != "" || keyID != "" || keyRegion != "" || endpoint != "" || provider != "" {
-		if provider != "aws-kms" || role == "" || token == "" || keyID == "" || keyRegion == "" || endpoint == "" || !validKeyAuthorityEndpoint(endpoint) {
+		if provider != "aws-kms" || role == "" || token == "" || keyID == "" || keyRegion == "" || (endpoint != "" && !validKeyAuthorityEndpoint(endpoint)) {
 			return nil, errors.New("orchestrator: customer BYOK requires explicit AWS configuration")
 		}
 		authority, authorityErr := byokauthority.New(ctx, byokauthority.Config{Region: keyRegion, RoleARN: role, OIDCTokenFile: token, KeyARN: keyID, Endpoint: endpoint, SessionName: "terrascale-keylease"})
