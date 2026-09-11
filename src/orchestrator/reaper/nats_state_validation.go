@@ -48,7 +48,7 @@ func reaperOperationName(entry Entry, name string) bool {
 	switch base {
 	case "pause/snapshot", "pause/close", "pause/native-backup", "notice/pause/" + entry.DatabaseID, "notice/second/" + entry.DatabaseID, "notice/final/" + entry.DatabaseID:
 		return true
-	case "delete/cdn-purge", "delete/crypto-shred", "delete/data":
+	case "delete/cdn-purge", "delete/crypto-shred", "delete/data", "billing-deletion/cancelled":
 		return true
 	}
 	prefix := "reactivate/" + entry.DatabaseID + "/"
@@ -64,7 +64,7 @@ func reaperAuditName(entry Entry, name string) bool {
 		return false
 	}
 	switch name {
-	case "eligibility/" + entry.DatabaseID + "/paid", "eligibility/" + entry.DatabaseID + "/exempt", "eligibility/" + entry.DatabaseID + "/unknown-request", "eligibility/" + entry.DatabaseID + "/active", "delete/complete/" + entry.DatabaseID, "delete/request-after-fence/" + entry.DatabaseID:
+	case "eligibility/" + entry.DatabaseID + "/paid", "eligibility/" + entry.DatabaseID + "/exempt", "eligibility/" + entry.DatabaseID + "/unknown-request", "eligibility/" + entry.DatabaseID + "/active", "eligibility/" + entry.DatabaseID + "/billing-covered", "delete/complete/" + entry.DatabaseID, "delete/request-after-fence/" + entry.DatabaseID, "billing-deletion/cancelled/" + entry.DatabaseID, "delete/billing-irreversible-hold/" + entry.DatabaseID:
 		return true
 	}
 	if _, ok := entry.Operations[name]; ok {

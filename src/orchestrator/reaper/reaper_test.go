@@ -113,7 +113,7 @@ func (a *testAudit) Record(_ context.Context, event AuditEvent) error {
 	return nil
 }
 
-func makeReaper(t *testing.T, clock *testClock, catalog *testCatalog, executor *testExecutor, mailer *testMailer, store *MemoryStore, audit *testAudit) *Reconciler {
+func makeReaper(t *testing.T, clock *testClock, catalog *testCatalog, executor *testExecutor, mailer *testMailer, store StateStore, audit *testAudit) *Reconciler {
 	t.Helper()
 	reaper, err := NewReconciler(Config{Catalog: catalog, Executor: executor, Admission: testAdmission{}, Mailer: mailer, Audit: audit, Store: store, Clock: clock, PageSize: 10})
 	if err != nil {

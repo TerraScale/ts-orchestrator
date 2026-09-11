@@ -11,7 +11,7 @@ import (
 // billing lifecycle under the real transition rules instead of the
 // permissive in-memory store.
 type validatingReaperStore struct {
-	MemoryStore
+	*MemoryStore
 	before *State
 }
 
@@ -45,7 +45,7 @@ func TestBillingDeletionSatisfiesDurableProtocol(t *testing.T) {
 	due := base.Add(30 * 24 * time.Hour)
 	deadline := due.Add(-24 * time.Hour)
 	catalog := &testCatalog{databases: []Database{billingDatabase(deadline)}}
-	store := &validatingReaperStore{}
+	store := &validatingReaperStore{MemoryStore: &MemoryStore{}}
 	reaper := makeReaper(t, &testClock{now: deadline}, catalog, &testExecutor{observed: true}, &testMailer{}, store, &testAudit{})
 	if result, err := reaper.Run(context.Background()); err != nil || result.Paused != 1 {
 		t.Fatalf("billing pause: result=%+v err=%v", result, err)
@@ -69,25 +69,27 @@ func TestBillingDeletionSatisfiesDurableProtocol(t *testing.T) {
 // protocol and return the database to active.
 func TestBillingCancellationSatisfiesDurableProtocol(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	pausedAt := base.Add(24 * time.Hour)
 	restored := base.Add(48 * time.Hour)
 	for _, stage := range []string{"paused", "deleting"} {
 		t.Run(stage, func(t *testing.T) {
 			deadline := base // grace covered again before it comes due
 			catalog := &testCatalog{databases: []Database{billingDatabase(deadline)}}
-			store := &validatingReaperStore{}
+			memory := &MemoryStore{}
+			store := &validatingReaperStore{MemoryStore: memory}
 			reaper := makeReaper(t, &testClock{now: base}, catalog, &testExecutor{}, &testMailer{}, store, &testAudit{})
 			if _, err := reaper.Run(context.Background()); err != nil {
 				t.Fatalf("billing pause: %v", err)
 			}
 			if stage == "deleting" {
-				// Enter deletion once under a due deadline, with the shred
-				// failing before any irreversible operation is recorded.
-				executor := &testExecutor{fail: map[string]int{"shred": 1}}
+				// Enter deletion once under a due deadline, failing at the
+				// edge purge: no shred or data operation may exist, so the
+				// cancellation stays valid. (A failed shred request would
+				// already be past the irreversible edge and must hold.)
+				executor := &testExecutor{fail: map[string]int{"purge": 1}}
 				reaper = makeReaper(t, &testClock{now: base.Add(2 * time.Hour)}, catalog, executor, &testMailer{}, store, &testAudit{})
-				if _, err := reaper.Run(context.Background()); err != nil {
-					t.Fatalf("billing deletion entry: %v", err)
-				}
+				// The failing shred surfaces as an error; the durable entry
+				// must still have landed in deleting.
+				_, _ = reaper.Run(context.Background())
 				if entry := store.Snapshot().Entries["billing-db"]; entry.Phase != PhaseDeleting {
 					t.Fatalf("deleting stage fixture: %+v", entry)
 				}
