@@ -502,3 +502,23 @@ func TestRemovalRequiresCompleteAuthoritativeSlotBindings(t *testing.T) {
 		})
 	}
 }
+
+type conflictingTargets struct{ testTargets }
+
+func (s *conflictingTargets) Load(context.Context, string) (Target, bool, error) {
+	return Target{}, false, ErrConflict
+}
+
+// A shared-stream load conflict is retryable contention: the round must hold
+// state instead of aborting the multi-region reconcile.
+func TestEvaluateHoldsStateOnLoadConflict(t *testing.T) {
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	source := &testSource{observations: highObservations(now, 1)}
+	targets := &conflictingTargets{testTargets{value: Target{Region: "gru", Members: 2}, found: true}}
+	c := testController(t, source, &targets.testTargets, now)
+	c.config.Targets = targets
+	plan, created, err := c.Evaluate(t.Context(), "gru")
+	if err != nil || created || plan.DesiredMembers != 0 {
+		t.Fatalf("load conflict escalated: plan=%+v created=%v err=%v", plan, created, err)
+	}
+}

@@ -567,7 +567,7 @@ func TestNetworkApplyDriftRepair(t *testing.T) {
 	}
 }
 
-func TestNetworkApplyPreservesUnownedDriftRule(t *testing.T) {
+func TestNetworkApplyRemovesDriftRuleInsideOwnedNSG(t *testing.T) {
 	declared := testNetworkRegion()
 	gateway := &fakeNetworkGateway{rules: map[string][]ObservedSecurityRule{}}
 	reconciler := &NetworkReconciler{Gateway: gateway}
@@ -598,19 +598,23 @@ func TestNetworkApplyPreservesUnownedDriftRule(t *testing.T) {
 			replacement, found = candidate, true
 		}
 	}
-	if !found || len(replacement.RemoveIDs) != 0 {
-		t.Fatalf("unowned rule repair = %+v, want no removals", replacement)
+	if !found || len(replacement.RemoveIDs) != 1 || replacement.RemoveIDs[0] != "ocid1.securityrule.oc1.sa-saopaulo-1.foreign" {
+		t.Fatalf("drift rule repair = %+v, want the stale rule removed", replacement)
 	}
 	if err := reconciler.Apply(ctx, declared, observed, plan); err != nil {
 		t.Fatal(err)
 	}
+	removed := false
 	for _, call := range gateway.createCalls {
 		if len(call) >= len("rules-remove:") && call[:len("rules-remove:")] == "rules-remove:" {
-			t.Fatalf("unowned rule was removed: calls = %v", gateway.createCalls)
+			removed = true
 		}
 	}
-	if got := len(gateway.rules[group.ID]); got != 4 {
-		t.Fatalf("rules after preserving foreign rule = %d, want 4", got)
+	if !removed {
+		t.Fatalf("drift rule inside an owned NSG survived: calls = %v", gateway.createCalls)
+	}
+	if got := len(gateway.rules[group.ID]); got != 3 {
+		t.Fatalf("rules after converging the owned NSG = %d, want the 3 declared", got)
 	}
 }
 
