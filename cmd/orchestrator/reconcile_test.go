@@ -471,3 +471,17 @@ type autoscaleLoopBlock struct {
 	ocireconcile.BlockStorageGateway
 }
 type autoscaleLoopCertificates struct{ ocireconcile.CertGateway }
+
+func TestTargetProjectionsBoundRequiresEveryRegion(t *testing.T) {
+	c := &ociReconcileController{regions: map[string]*ociRegionController{"gru": {}, "sfo": {}}}
+	if c.targetProjectionsBound() {
+		t.Fatal("unbound projections accepted")
+	}
+	c.bindComputeTargetProjection(func(context.Context, estate.Region) (uint16, error) { return 2, nil })
+	if !c.targetProjectionsBound() {
+		t.Fatal("bound projection rejected")
+	}
+	if (&ociReconcileController{}).targetProjectionsBound() {
+		t.Fatal("empty controller reported bound")
+	}
+}

@@ -100,6 +100,13 @@ func runReconcileWithLookup(ctx context.Context, args []string, lookup envLookup
 	}
 	dependencies.OCI.onChange = production.NotifyChange
 	dependencies.Cloudflare.onChange = production.NotifyChange
+	// The durable target projections are bound only by the global worker
+	// composition; without them every pass holds at the durable-target read
+	// before any provider plan. Fail at startup instead of running a loop
+	// that can never complete a pass.
+	if !dependencies.OCI.targetProjectionsBound() {
+		return errors.New("reconcile: the production runtime did not bind the durable autoscale target projections; reconcile requires the global worker composition")
+	}
 	return runSupervisedReconcile(ctx, loop.Run, production, dependencies.KVWriter)
 }
 
@@ -1318,6 +1325,24 @@ func (c *ociReconcileController) bindComputeTargetProjection(project computeTarg
 		region.targetProjection = project
 		region.mu.Unlock()
 	}
+}
+
+// targetProjectionsBound reports whether every region received the durable
+// autoscale target projection. Reconcile cannot derive any provider plan
+// without it: every pass holds at the durable-target read.
+func (c *ociReconcileController) targetProjectionsBound() bool {
+	if c == nil || len(c.regions) == 0 {
+		return false
+	}
+	for _, region := range c.regions {
+		region.mu.Lock()
+		bound := region.targetProjection != nil
+		region.mu.Unlock()
+		if !bound {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *ociRegionController) targetMemberCount(ctx context.Context) (uint16, error) {
