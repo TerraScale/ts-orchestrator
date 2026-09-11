@@ -191,7 +191,7 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 		BackupRoleARN:          "arn:aws:iam::123456789012:role/TerraScaleBackup",
 		BackupExternalID:       "external-123",
 		KeyProvider:            "aws-kms",
-		KeyID:                  "arn:aws:kms:us-east-1:123456789012:key/customer",
+		KeyID:                  "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		KeyRegion:              "us-east-1",
 		KeyEndpoint:            "https://kms.us-east-1.amazonaws.com",
 		ConfigurationUpdatedAt: "2026-09-10T00:00:00Z",

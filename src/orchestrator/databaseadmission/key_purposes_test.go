@@ -70,8 +70,8 @@ func TestHostRedeliveryRequiresMatchingBYOKMetadata(t *testing.T) {
 		BackupRegion:   "gru",
 		BackupRoleARN:  "arn:aws:iam::123456789012:role/backup",
 		KeyProvider:    "aws-kms",
-		KeyID:          "key-12345678",
-		KeyRegion:      "gru",
+		KeyID:          "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+		KeyRegion:      "sa-east-1",
 	}
 	entry := keylease.Entry{BYOK: byok}
 	catalog := keylease.Catalog{Version: 1, Entries: []keylease.Entry{entry}}

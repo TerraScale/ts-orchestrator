@@ -32,7 +32,7 @@ func (i *countingIssuer) Issue(context.Context, WorkloadIdentityScope) (Workload
 }
 
 func byokFixtureMetadata() *BYOKMetadata {
-	return &BYOKMetadata{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/id", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
+	return &BYOKMetadata{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
 }
 
 // purposeCatalog writes the production shape for one provisioned BYOK
@@ -133,7 +133,7 @@ func TestCustomerLeaseSucceedsWithBYOKAcrossCatalogDecodes(t *testing.T) {
 	entry := fixtureEntry()
 	entry.CryptoEndpoint = "https://" + entry.CryptoEndpoint
 	entry.Provider = "aws-kms"
-	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/id"
+	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
 	entry.KeyRegion = "sa-east-1"
 	entry.KeyEndpoint = "https://kms.example.test"
 	entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""

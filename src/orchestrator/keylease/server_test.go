@@ -217,7 +217,7 @@ func TestRejectsUnsafeFilesystemAndProtocol(t *testing.T) {
 func TestTBCKRequestUsesCustomerAuthority(t *testing.T) {
 	config, catalog := fixture(t)
 	catalog.Entries[0].Provider = "aws-kms"
-	catalog.Entries[0].KeyID = "arn:aws:kms:sa-east-1:123456789012:key/id"
+	catalog.Entries[0].KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
 	catalog.Entries[0].KeyRegion = "sa-east-1"
 	catalog.Entries[0].KeyEndpoint = "https://kms.example.test"
 	catalog.Entries[0].CryptoEndpoint = ""
@@ -230,7 +230,7 @@ func TestTBCKRequestUsesCustomerAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	config.Customer = &CustomerConfig{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/id", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", Authority: customerAuthorityFunc(func(_ context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
+	config.Customer = &CustomerConfig{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", Authority: customerAuthorityFunc(func(_ context.Context, b Binding, ciphertext string) (*hostsecrets.DataKey, error) {
 		called = true
 		if b != catalog.Entries[0].Binding || ciphertext != catalog.Entries[0].Ciphertext {
 			return nil, ErrUnavailable

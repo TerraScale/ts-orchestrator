@@ -29,7 +29,7 @@ func TestCustomerLeasePostcheckBlocksKeyAfterPolicyRevocation(t *testing.T) {
 	config, catalog := fixture(t)
 	entry := catalog.Entries[0]
 	entry.Provider = "aws-kms"
-	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/id"
+	entry.KeyID = "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
 	entry.KeyRegion = "sa-east-1"
 	entry.KeyEndpoint = "https://kms.example.test"
 	entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""

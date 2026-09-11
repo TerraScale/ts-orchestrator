@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+	"terrascale.tech/orchestrator/src/orchestrator/byokauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/hostsecrets"
 	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
@@ -141,7 +142,7 @@ func validEntryProvider(e Entry) bool {
 	if e.Provider == "" {
 		return hostsecrets.ValidVaultCryptoEndpoint(ociRegion(e.Binding.Region), e.CryptoEndpoint) && provider.IsOCID(e.KEKID, "key") && provider.IsOCID(e.KEKVersionID, "keyversion")
 	}
-	if e.Provider != "aws-kms" || !strings.HasPrefix(e.KeyID, "arn:aws:kms:") || !validEnvironment(e.KeyRegion) || e.KeyEndpoint == "" || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
+	if e.Provider != "aws-kms" || !byokauthority.ValidKMSKeyARN(e.KeyID, e.KeyRegion) || !validEnvironment(e.KeyRegion) || e.KeyEndpoint == "" || e.CryptoEndpoint != "" || e.KEKID != "" || e.KEKVersionID != "" {
 		return false
 	}
 	u, err := url.Parse(e.KeyEndpoint)

@@ -15,18 +15,18 @@ func TestConfiguredKeyProvisionerUsesAdmittedRunFileLookup(t *testing.T) {
 	// source.
 	t.Setenv(byokRoleEnvironment, "arn:aws:iam::123456789012:role/ambient")
 	t.Setenv(byokTokenEnvironment, "/var/lib/terrascale/ambient.token")
-	t.Setenv(byokKeyIDEnvironment, "arn:aws:kms:sa-east-1:123456789012:key/ambient")
+	t.Setenv(byokKeyIDEnvironment, "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012")
 	t.Setenv(byokKeyRegionEnvironment, "sa-east-1")
 	t.Setenv(byokKeyEndpointEnvironment, "https://kms.ambient.example")
 	values := map[string]string{
 		byokRoleEnvironment:        "arn:aws:iam::123456789012:role/run-file",
 		byokTokenEnvironment:       "/var/lib/terrascale/run-file.token",
-		byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/run-file",
+		byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 		byokKeyRegionEnvironment:   "sa-east-1",
 		byokKeyEndpointEnvironment: "https://kms.run-file.example",
 	}
 	lookup := func(name string) (string, bool) { value, ok := values[name]; return value, ok }
-	target := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/ambient", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.ambient.example", NotAfter: time.Now().Add(time.Hour)}
+	target := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.ambient.example", NotAfter: time.Now().Add(time.Hour)}
 	err := configuredKeyProvisioner(lookup)(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{target})
 	if errors.Is(err, keylease.ErrUnavailable) {
 		// The run-file key tuple differs from the target. Ambient values must not
@@ -41,7 +41,7 @@ func TestConfiguredKeyProvisionerRejectsTargetTupleMismatch(t *testing.T) {
 		values := map[string]string{
 			byokRoleEnvironment:        "arn:aws:iam::123456789012:role/keylease",
 			byokTokenEnvironment:       "/var/lib/terrascale/oidc.token",
-			byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/id",
+			byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 			byokKeyRegionEnvironment:   "sa-east-1",
 			byokKeyEndpointEnvironment: "https://kms.example.test",
 		}
@@ -49,7 +49,7 @@ func TestConfiguredKeyProvisionerRejectsTargetTupleMismatch(t *testing.T) {
 		return value, ok
 	}
 	provision := configuredKeyProvisioner(lookup)
-	base := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/id", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", NotAfter: time.Now().Add(time.Hour)}
+	base := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", NotAfter: time.Now().Add(time.Hour)}
 	changed := base
 	changed.KeyEndpoint = "https://attacker.example"
 	if err := provision(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{base, changed}); !errors.Is(err, keylease.ErrUnavailable) {
@@ -101,7 +101,7 @@ func TestStartConfiguredKeyLeaseRejectsKMSWithoutS3WorkloadTuple(t *testing.T) {
 			byokProviderEnvironment:    "aws-kms",
 			byokRoleEnvironment:        "arn:aws:iam::123456789012:role/keylease",
 			byokTokenEnvironment:       "/var/lib/terrascale/oidc.token",
-			byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/id",
+			byokKeyIDEnvironment:       "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 			byokKeyRegionEnvironment:   "sa-east-1",
 			byokKeyEndpointEnvironment: "https://kms.example.test",
 		}

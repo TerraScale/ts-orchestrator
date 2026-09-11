@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -65,6 +66,16 @@ type kmsAPI interface {
 type Authority struct {
 	client kmsAPI
 	keyARN string
+}
+
+var kmsKeyARN = regexp.MustCompile(`^arn:aws:kms:([a-z0-9][a-z0-9-]{0,31}):[0-9]{12}:key/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// ValidKMSKeyARN accepts only the canonical AWS KMS key ARN form and, when
+// region is supplied, requires the ARN's region to match it. KMS aliases and
+// bare key IDs are intentionally outside the admitted authority contract.
+func ValidKMSKeyARN(value, region string) bool {
+	matches := kmsKeyARN.FindStringSubmatch(value)
+	return len(matches) == 2 && (region == "" || matches[1] == region)
 }
 
 type tokenFile string
@@ -150,7 +161,7 @@ func (a *Authority) Unwrap(ctx context.Context, binding Binding, ciphertext stri
 }
 
 func validConfig(config Config) bool {
-	return validRegion(config.Region) && validARN(config.RoleARN) && validARN(config.KeyARN) && (config.Endpoint == "" || validKMSEndpoint(config.Endpoint)) && config.SessionName != "" && len(config.SessionName) <= 64 && config.Duration >= 0 && config.Duration <= 3600*time.Second && filepath.IsAbs(config.OIDCTokenFile) && filepath.Clean(config.OIDCTokenFile) == config.OIDCTokenFile
+	return validRegion(config.Region) && validARN(config.RoleARN) && ValidKMSKeyARN(config.KeyARN, config.Region) && (config.Endpoint == "" || validKMSEndpoint(config.Endpoint)) && config.SessionName != "" && len(config.SessionName) <= 64 && config.Duration >= 0 && config.Duration <= 3600*time.Second && filepath.IsAbs(config.OIDCTokenFile) && filepath.Clean(config.OIDCTokenFile) == config.OIDCTokenFile
 }
 
 func validKMSEndpoint(value string) bool {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestValidateBYOKReferenceRejectsUnimplementedProviders(t *testing.T) {
-	base := BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}
+	base := BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
 	for _, provider := range []string{"oci-vault", "azure-key-vault", "customer-kms"} {
 		t.Run(provider, func(t *testing.T) {
 			candidate := base

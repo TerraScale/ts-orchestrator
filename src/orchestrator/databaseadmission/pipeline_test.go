@@ -59,7 +59,7 @@ func TestCreateAdmissionPreservesIdentityAndResumesUnknownEffects(t *testing.T) 
 	journal := NewMemoryJournal()
 	config := pipelineConfig(t, journal)
 	request := journalFixture(t).Request
-	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
+	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
 	pipeline, err := New(config)
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestAcceptCanonicalizesBYOKBeforePlanning(t *testing.T) {
 	config := pipelineConfig(t, journal)
 	basePlan := config.Plan
 	request := journalFixture(t).Request
-	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "key-12345678", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
+	request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test", ConfigurationUpdatedAt: "2026-09-09T12:00:00.000Z"}
 	var planned *BYOKReference
 	config.Plan = func(ctx context.Context, record Record) (Plan, error) {
 		planned = record.BYOK
@@ -200,7 +200,7 @@ func TestReconcileRechecksLiveBYOKAuthorizationBeforeEffects(t *testing.T) {
 		journal := NewMemoryJournal()
 		config := pipelineConfig(t, journal)
 		request := journalFixture(t).Request
-		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/test", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}
+		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
 		calls, provisioned := 0, 0
 		config.Authorize = func(context.Context, Request) error {
 			calls++
@@ -232,7 +232,7 @@ func TestReconcileRechecksLiveBYOKAuthorizationBeforeEffects(t *testing.T) {
 		journal := NewMemoryJournal()
 		config := pipelineConfig(t, journal)
 		request := journalFixture(t).Request
-		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/test", KeyRegion: "gru", KeyEndpoint: "https://kms.example.test"}
+		request.BYOK = &BYOKReference{BackupEndpoint: "https://s3.example.test", BackupBucket: "backups", BackupRegion: "gru", BackupRoleARN: "arn:aws:iam::123456789012:role/backup", KeyProvider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.example.test"}
 		calls, installs := 0, 0
 		config.Authorize = func(context.Context, Request) error {
 			calls++

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"terrascale.tech/orchestrator/src/orchestrator/byokauthority"
 	"terrascale.tech/orchestrator/src/orchestrator/keylease"
 	pb "terrascale.tech/orchestrator/src/orchestrator/tbep/wire/terrabase/v1"
 )
@@ -225,7 +226,7 @@ func ValidateBYOKReference(b *BYOKReference) error {
 	if b.KeyProvider != "aws-kms" {
 		return ErrInvalid
 	}
-	if !validHTTPS(b.BackupEndpoint, 2048) || !environmentName.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environmentName.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !validReference(b.KeyID, 512) || !environmentName.MatchString(b.KeyRegion) || len(b.KeyRegion) > 64 || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
+	if !validHTTPS(b.BackupEndpoint, 2048) || !environmentName.MatchString(b.BackupBucket) || len(b.BackupBucket) > 63 || !environmentName.MatchString(b.BackupRegion) || len(b.BackupRegion) > 64 || !strings.HasPrefix(b.BackupRoleARN, "arn:") || !validReference(b.BackupRoleARN, 512) || b.BackupExternalID != "" && !validReference(b.BackupExternalID, 256) || !slices.Contains([]string{"oci-vault", "aws-kms", "azure-key-vault", "customer-kms"}, b.KeyProvider) || !byokauthority.ValidKMSKeyARN(b.KeyID, b.KeyRegion) || b.KeyEndpoint != "" && !validHTTPS(b.KeyEndpoint, 2048) {
 		return ErrInvalid
 	}
 	return nil
