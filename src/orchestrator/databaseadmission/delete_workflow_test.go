@@ -196,3 +196,58 @@ func TestAutomaticClaimPolicyMismatchFailsBeforeEffects(t *testing.T) {
 		t.Fatalf("mismatched policy caused effects: prepare=%d stop=%d", stopper.prepare, stopper.stop)
 	}
 }
+
+// A billing-grace cancellation must retract an automatic deletion before the
+// irreversible edge: the record goes inert for Resume, stops fencing lifecycle
+// events, and a later eligible cycle can admit a fresh deletion.
+func TestCancelAutomaticDeletionRetractsPreEdgeAndAllowsRestart(t *testing.T) {
+	s, r, at := deletionFixture(t)
+	automatic := AutomaticDeleteRequest{DeleteRequest: r, PolicyRevision: "policy-1", GraceCondition: "billing-grace", Deadline: at.Add(time.Hour)}
+	d, err := beginAutomaticIntent(&s, automatic, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != "preparing" {
+		t.Fatal("fixture not preparing", d.State)
+	}
+	cancelled, err := cancelAutomaticDeletion(&s, r, at.Add(2*time.Minute))
+	if err != nil || len(cancelled) != 1 || cancelled[0].State != "cancelled" {
+		t.Fatalf("cancellation failed: %v %+v", err, cancelled)
+	}
+	if err := validateDeletions(s); err != nil {
+		t.Fatal("cancelled record invalid", err)
+	}
+	if deletionBlocksEvent(&s, databaselifecycle.Event{Identity: databaselifecycle.Identity{Environment: r.Environment, OrganizationID: r.TenantID, ParentDatabaseID: r.DatabaseID}}) {
+		t.Fatal("cancelled deletion still fences lifecycle events")
+	}
+	if deletionBlocksFreeze(&s, r.TenantID, at.Add(3*time.Minute)) {
+		t.Fatal("cancelled deletion still fences inventory")
+	}
+	again, err := cancelAutomaticDeletion(&s, r, at.Add(3*time.Minute))
+	if err != nil || len(again) != 0 {
+		t.Fatal("cancellation not idempotent", err, again)
+	}
+	// A later eligible cycle restarts under the same operation identity.
+	restarted, err := beginAutomaticIntent(&s, automatic, at.Add(4*time.Minute))
+	if err != nil || restarted.State != "preparing" {
+		t.Fatal("cancelled record blocked a fresh admission", err, restarted.State)
+	}
+
+	// Past the edge fence cancellation must refuse: the data is already gone.
+	for _, target := range restarted.Targets {
+		if _, err := recordDeletionPreparation(&s, r, DeletionPreparation{Identity: target.Stop.Identity, OperationID: r.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: at.Add(5 * time.Minute)}, at.Add(5*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range restarted.Targets {
+		if _, err := recordDeletionStop(&s, r, DeletionReceipt{DeletionStop: target.Stop, AccessRevoked: true, UsageStopped: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := cancelAutomaticDeletion(&s, r, at.Add(6*time.Minute)); !errors.Is(err, ErrConflict) {
+		t.Fatal("cancellation crossed the irreversible edge", err)
+	}
+	if err := validateDeletions(s); err != nil {
+		t.Fatal(err)
+	}
+}

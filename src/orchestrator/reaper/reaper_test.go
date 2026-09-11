@@ -104,6 +104,8 @@ type testAdmission struct{}
 
 func (testAdmission) AdmitDeletion(context.Context, Database, string) error { return nil }
 
+func (testAdmission) CancelDeletion(context.Context, Database) error { return nil }
+
 func (a *testAudit) Record(_ context.Context, event AuditEvent) error {
 	a.mu.Lock()
 	a.events = append(a.events, event)

@@ -129,6 +129,11 @@ type Executor interface {
 // persists the native admission journal before destructive effects begin.
 type DeletionAdmission interface {
 	AdmitDeletion(context.Context, Database, string) error
+	// CancelDeletion retracts every previously admitted automatic deletion
+	// when the billing grace is lifted (the customer paid) before the
+	// irreversible edge. It must be idempotent and must succeed when no
+	// deletion was ever admitted for that database.
+	CancelDeletion(context.Context, Database) error
 }
 
 // Email is intentionally plain metadata; no database data is included.
@@ -868,6 +873,14 @@ func (r *Reconciler) cancelBillingDeletionLocked(ctx context.Context, state *Sta
 	entry := state.Entries[database.ID]
 	entry.Phase = PhasePaused
 	state.Entries[database.ID] = entry
+	// Retract the orchestrator-side automatic deletion before reactivating:
+	// if the durable retraction cannot be persisted, the database must not be
+	// reported as kept while the deletion workflow keeps advancing it.
+	if r.admission != nil {
+		if err := r.admission.CancelDeletion(ctx, database); err != nil {
+			return err
+		}
+	}
 	if err := r.reactivateLocked(ctx, state, database.ID, entry.LastRequest); err != nil {
 		return err
 	}

@@ -111,6 +111,17 @@ func (a automaticDeletionAdmission) AdmitDeletion(ctx context.Context, database 
 	return err
 }
 
+func (a automaticDeletionAdmission) CancelDeletion(ctx context.Context, database reaper.Database) error {
+	if a.workflow == nil || database.OrganizationID == "" || database.ProjectID == "" || database.ID == "" {
+		return databaseadmission.ErrInvalid
+	}
+	request := databaseadmission.DeleteRequest{Environment: a.environment, TenantID: database.OrganizationID, ProjectID: database.ProjectID, DatabaseID: database.ID, OperationID: "automatic-delete"}
+	if err := a.workflow.CancelAutomatic(ctx, request); err != nil && !errors.Is(err, databaseadmission.ErrNotFound) {
+		return err
+	}
+	return nil
+}
+
 func (a automaticDeletionAdmission) Resume(ctx context.Context) error {
 	if a.workflow == nil {
 		return databaseadmission.ErrInvalid
@@ -286,6 +297,10 @@ func (automaticDeletionEdge) RevokeDeletion(_ context.Context, d databaseadmissi
 
 func (d *productionDatabase) AdmitDeletion(ctx context.Context, database reaper.Database, operation string) error {
 	return automaticDeletionAdmission{workflow: d.deletion, claim: d.automaticClaim, environment: d.environment}.AdmitDeletion(ctx, database, operation)
+}
+
+func (d *productionDatabase) CancelDeletion(ctx context.Context, database reaper.Database) error {
+	return automaticDeletionAdmission{workflow: d.deletion, claim: d.automaticClaim, environment: d.environment}.CancelDeletion(ctx, database)
 }
 func (d *productionDatabase) Start(ctx context.Context, session globalWorkerSession) error {
 	inventory, err := startProductionDatabaseInventory(ctx, d.inventoryConfig, d.inventoryEnvironment, d.lifecycleJournal)

@@ -83,12 +83,14 @@ type Deletion struct {
 	AutomaticPolicyRevision string                `json:"automatic_policy_revision,omitempty"`
 	AutomaticGraceCondition string                `json:"automatic_grace_condition,omitempty"`
 	AutomaticDeadline       time.Time             `json:"automatic_deadline,omitzero"`
+	CancelledAt             time.Time             `json:"cancelled_at,omitzero"`
 }
 type DeletionJournal interface {
 	BeginDeletion(context.Context, DeleteRequest, time.Time, time.Time) (Deletion, error)
 	RecordDeletionPreparation(context.Context, DeleteRequest, DeletionPreparation, time.Time) (Deletion, error)
 	RecordDeletionEdge(context.Context, DeleteRequest, DeletionEdgeReceipt) (Deletion, error)
 	RecordDeletionStop(context.Context, DeleteRequest, DeletionReceipt) (Deletion, error)
+	CancelAutomaticDeletion(context.Context, DeleteRequest, time.Time) ([]Deletion, error)
 	ListDeletions(context.Context) ([]Deletion, error)
 }
 
@@ -183,6 +185,19 @@ func (w *DeletionWorkflow) BeginAutomatic(ctx context.Context, r AutomaticDelete
 	}
 	return w.advance(ctx, d)
 }
+// CancelAutomatic retracts every automatic deletion of one database whose
+// billing grace was lifted before the irreversible edge. The reaper calls
+// this when a customer pays during the grace window; without it, Resume
+// would finish deleting a database the customer paid to keep. Deletions past
+// the irreversible edge are left untouched and reported.
+func (w *DeletionWorkflow) CancelAutomatic(ctx context.Context, r DeleteRequest) error {
+	if w == nil || w.Journal == nil || !validDeleteRequest(r) {
+		return ErrInvalid
+	}
+	_, err := w.Journal.CancelAutomaticDeletion(ctx, r, time.Now().UTC().Truncate(time.Millisecond))
+	return err
+}
+
 func (w *DeletionWorkflow) Resume(ctx context.Context) error {
 	if w == nil || w.Journal == nil || w.Stopper == nil {
 		return ErrInvalid
@@ -192,6 +207,11 @@ func (w *DeletionWorkflow) Resume(ctx context.Context) error {
 		return err
 	}
 	for _, d := range records {
+		// A cancelled automatic deletion is inert forever; a later eligible
+		// cycle admits a fresh record under its own operation identity.
+		if d.State == "cancelled" {
+			continue
+		}
 		// Automatic intents are durable before the external claim is accepted.
 		// They must remain inert until that exact claim is persisted.
 		if d.AutomaticPolicyRevision != "" && d.Claim == nil {
@@ -276,8 +296,16 @@ func validStopReceipt(s DeletionStop, r DeletionReceipt) bool {
 }
 func validateDeletions(s journalState) error {
 	for key, d := range s.Deletions {
-		if key != deletionKey(d.Request) || !validDeleteRequest(d.Request) || d.RequestedAt.IsZero() || (d.Cutoff.IsZero() != (d.State == "preparing")) || len(d.Targets) == 0 || !slices.Contains([]string{"preparing", "stopping", "edge_pending", "cleanup_pending"}, d.State) {
+		if key != deletionKey(d.Request) || !validDeleteRequest(d.Request) || d.RequestedAt.IsZero() || (d.Cutoff.IsZero() != (d.State == "preparing") && d.State != "cancelled") || len(d.Targets) == 0 || !slices.Contains([]string{"preparing", "stopping", "edge_pending", "cleanup_pending", "cancelled"}, d.State) {
 			return ErrInvalid
+		}
+		if d.State == "cancelled" {
+			// Cancellation only happens before the irreversible edge, so a
+			// cancelled record never carries an edge receipt.
+			if d.EdgeReceipt != nil {
+				return ErrInvalid
+			}
+			continue
 		}
 		all := true
 		allPrepared := true
@@ -318,7 +346,11 @@ func beginDeletion(s *journalState, r DeleteRequest, at time.Time, retainUntil t
 		if old.Request != r {
 			return Deletion{}, ErrConflict
 		}
-		return old, nil
+		// A cancelled automatic deletion does not block a later eligible
+		// cycle under the same operation identity.
+		if old.State != "cancelled" {
+			return old, nil
+		}
 	}
 	for _, closed := range s.Lifecycle.Closed {
 		if closed.OrganizationID == r.TenantID && at.Before(closed.End) {
@@ -326,6 +358,9 @@ func beginDeletion(s *journalState, r DeleteRequest, at time.Time, retainUntil t
 		}
 	}
 	for _, old := range s.Deletions {
+		if old.State == "cancelled" {
+			continue
+		}
 		if old.Request.Environment == r.Environment && old.Request.TenantID == r.TenantID {
 			for _, t := range old.Targets {
 				if t.Stop.DatabaseID == r.DatabaseID {
@@ -351,6 +386,9 @@ func beginDeletion(s *journalState, r DeleteRequest, at time.Time, retainUntil t
 		}
 	}
 	for _, old := range s.Deletions {
+		if old.State == "cancelled" {
+			continue
+		}
 		if old.Request.Environment == r.Environment && old.Request.TenantID == r.TenantID {
 			for _, target := range old.Targets {
 				if ids[target.Stop.DatabaseID] {
@@ -483,6 +521,16 @@ func (j *NATSJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v
 	err = j.journal.Transact(ctx, true, func(s *journalState) error { var e error; d, e = recordDeletionStop(s, r, v); return e })
 	return
 }
+func (j *NATSJournal) CancelAutomaticDeletion(ctx context.Context, r DeleteRequest, at time.Time) (cancelled []Deletion, err error) {
+	if j == nil || j.journal == nil {
+		return nil, ErrJournalUnavailable
+	}
+	err = j.journal.Transact(ctx, true, func(s *journalState) error {
+		cancelled, err = cancelAutomaticDeletion(s, r, at)
+		return err
+	})
+	return
+}
 func (j *NATSJournal) ListDeletions(ctx context.Context) (out []Deletion, err error) {
 	if j == nil || j.journal == nil {
 		return nil, ErrJournalUnavailable
@@ -521,6 +569,13 @@ func (j *MemoryJournal) BeginAutomaticIntent(ctx context.Context, r AutomaticDel
 }
 func (j *MemoryJournal) RecordDeletionStop(ctx context.Context, r DeleteRequest, v DeletionReceipt) (d Deletion, err error) {
 	err = j.lifecycleTransact(ctx, func(s *journalState) error { var e error; d, e = recordDeletionStop(s, r, v); return e })
+	return
+}
+func (j *MemoryJournal) CancelAutomaticDeletion(ctx context.Context, r DeleteRequest, at time.Time) (cancelled []Deletion, err error) {
+	err = j.lifecycleTransact(ctx, func(s *journalState) error {
+		cancelled, err = cancelAutomaticDeletion(s, r, at)
+		return err
+	})
 	return
 }
 func (j *MemoryJournal) ListDeletions(ctx context.Context) (out []Deletion, err error) {
@@ -564,8 +619,45 @@ func finalizeDeletion(s *journalState, d Deletion) error {
 	}
 	return nil
 }
+func cancelAutomaticDeletion(s *journalState, r DeleteRequest, now time.Time) ([]Deletion, error) {
+	if !validDeleteRequest(r) || now.IsZero() {
+		return nil, ErrInvalid
+	}
+	// Retract every automatic deletion of this database that has not crossed
+	// the irreversible edge, under any operation identity: the billing grace
+	// was lifted, so none of them may advance. A record past "stopping" has
+	// engaged the edge fence and is reported instead of touched.
+	var cancelled, irreversible []Deletion
+	for key, d := range s.Deletions {
+		if d.Request.Environment != r.Environment || d.Request.TenantID != r.TenantID || d.Request.ProjectID != r.ProjectID || d.Request.DatabaseID != r.DatabaseID {
+			continue
+		}
+		if d.AutomaticPolicyRevision == "" {
+			continue
+		}
+		if d.State == "cancelled" {
+			continue
+		}
+		if d.State != "preparing" && d.State != "stopping" {
+			irreversible = append(irreversible, d)
+			continue
+		}
+		d.State = "cancelled"
+		d.CancelledAt = now.UTC()
+		s.Deletions[key] = d
+		cancelled = append(cancelled, d)
+	}
+	if len(irreversible) != 0 {
+		return cancelled, ErrConflict
+	}
+	return cancelled, nil
+}
+
 func deletionBlocksEvent(s *journalState, e databaselifecycle.Event) bool {
 	for _, d := range s.Deletions {
+		if d.State == "cancelled" {
+			continue
+		}
 		for _, t := range d.Targets {
 			if t.Stop.Environment == e.Environment && t.Stop.OrganizationID == e.OrganizationID && (t.Stop.DatabaseID == e.DatabaseID || t.Stop.DatabaseID == e.ParentDatabaseID) {
 				return true

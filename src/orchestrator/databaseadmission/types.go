@@ -24,6 +24,7 @@ import (
 var ErrInvalid = errors.New("database admission: invalid request or plan")
 var ErrConflict = errors.New("database admission: immutable create conflict")
 var ErrForbidden = errors.New("database admission: organization admission denied")
+var ErrNotFound = errors.New("database admission: record not found")
 
 type Request struct {
 	ParentDatabaseID string `json:"parent_database_id,omitempty"`
