@@ -1,6 +1,7 @@
 package databaseadmission
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -218,6 +219,24 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	revision, err := journal.Save(ctx, key, 0, record)
 	if err != nil || revision != 1 {
 		t.Fatalf("accept revision=%d err=%v", revision, err)
+	}
+	// The NATS journal is a durable control-state boundary, not a secret
+	// store. Inspect the actual JetStream message so future wire-type changes
+	// cannot persist provider credentials, tokens, or plaintext key material.
+	var stored struct {
+		Message struct {
+			Data []byte `json:"data"`
+		} `json:"message"`
+	}
+	payload := []byte(`{"last_by_subj":"$KV.ORCH_LEADERS.database.admission.state"}`)
+	response, err := connection.RequestWithContext(ctx, "$JS.API.STREAM.MSG.GET.KV_ORCH_LEADERS", payload)
+	if err != nil || response == nil || json.Unmarshal(response.Data, &stored) != nil || len(stored.Message.Data) == 0 {
+		t.Fatalf("read stored admission wire shape: %v", err)
+	}
+	for _, forbidden := range []string{"access_key", "accessKey", "secret_key", "secretKey", "session_token", "sessionToken", "workload_token", "workloadToken", "plaintext_key", "plaintextKey", "unwrapped_dek", "unwrappedDek"} {
+		if bytes.Contains(stored.Message.Data, []byte(forbidden)) {
+			t.Fatalf("NATS admission contains forbidden secret field %q", forbidden)
+		}
 	}
 	lifecycleRevision, resources, err := journal.LifecycleResources(ctx)
 	if err != nil || lifecycleRevision != 1 || len(resources) != 1 || resources[0].DatabaseID != record.DatabaseID {
