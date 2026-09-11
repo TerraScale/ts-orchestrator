@@ -79,7 +79,7 @@ func relocationWorkflowAdmission(t *testing.T, journal *databaseadmission.NATSJo
 	for _, purpose := range []string{"data", "backup", "checkpoint"} {
 		p := record.Targets[0].Provision
 		p.Binding.Purpose = purpose
-		record.Wrapped = append(record.Wrapped, keylease.Entry{Binding: p.Binding, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter})
+		record.Wrapped = append(record.Wrapped, keylease.Entry{Binding: p.Binding, Provider: p.Provider, KeyID: p.KeyID, KeyRegion: p.KeyRegion, KeyEndpoint: p.KeyEndpoint, CryptoEndpoint: p.CryptoEndpoint, KEKID: p.KEKID, KEKVersionID: p.KEKVersionID, Ciphertext: "wrapped-" + purpose, LeaseSeconds: p.LeaseSeconds, NotAfter: p.NotAfter, AdmissionOperationID: p.AdmissionOperationID, BYOK: p.BYOK})
 	}
 	record.ReadinessNonce = strings.Repeat("e", 64)
 	for _, target := range record.Targets {
