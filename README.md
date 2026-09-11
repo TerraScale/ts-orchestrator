@@ -28,8 +28,8 @@ The orchestrator owns:
 
 For customer-managed encryption (BYOK), NATS persists only validated provider
 references and wrapped database-DEK ciphertext needed for restart and recovery.
-Provider credentials, imported/raw keys, unwrapped DEKs, and customer data stay
-in workload-identity or secret-provider boundaries and never enter NATS.
+Provider credentials remain in workload-identity or secret-provider boundaries.
+Credentials, imported/raw keys, unwrapped DEKs, and customer data never enter NATS.
 The current runtime binds one AWS KMS workload-identity tuple per process and
 fails closed when an admitted reference differs. A multi-authority process
 requires a separately qualified credential-source mapping; NATS persistence

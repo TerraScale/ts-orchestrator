@@ -33,7 +33,12 @@ func Activate(ctx context.Context, host string, material Material, status Status
 	if err != nil {
 		return err
 	}
-	activation, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	// Measured quiet-host floor from instance start to a serving seed broker
+	// is ~180 s (boot ~90 s, artifact downloads ~45 s, initial admission
+	// ~45 s), and this clock starts as soon as the guest control channel
+	// answers during early boot. The window must cover that chain with load
+	// headroom.
+	activation, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	var report hostagent.NodeStatusReport
 	var lastStatusError error

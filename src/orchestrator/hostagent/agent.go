@@ -181,7 +181,11 @@ func (a *HostAgent) Start(ctx context.Context) error {
 			nats.Timeout(a.connectTimeout),
 			nats.MaxReconnects(hostAgentMaxReconnects),
 			nats.ReconnectWait(hostAgentReconnectWait),
-			nats.RetryOnFailedConnect(false),
+			// The seed broker binds shortly after the orchestrator's initial
+			// admission completes; ts-node starts before that moment on a
+			// first boot, so the first connect attempt must wait for it
+			// instead of failing the host agent.
+			nats.RetryOnFailedConnect(true),
 			nats.ClosedHandler(func(*nats.Conn) {
 				select {
 				case connectionClosed <- struct{}{}:

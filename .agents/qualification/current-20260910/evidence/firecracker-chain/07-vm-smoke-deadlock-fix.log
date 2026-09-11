@@ -1,0 +1,18 @@
+start_utc=2026-09-11T02:36:37Z
+6eec1b13db6487315448f2bee26319e9e5abfce4
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator-smoke12" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator-smoke12" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server"  -- go run -tags sandboxvm ./cmd/vm-qualify smoke
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.81a79046c3ece583 sha256=81a79046c3ece583d4c0cea954318539569a22767e257865a7e2ff22143e3fa6 bytes=17539232
+vm-artifacts: component=orchestrator version=vmqual.c3fc5b48c928ff5c sha256=c3fc5b48c928ff5c7b7677aa4014d5f2b5e145816f209ccd38f7f0db5050aa00 bytes=41545888
+vm-artifacts: component=terrabase version=vmqual.13003e8e8408af4c sha256=13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1 bytes=39966352
+time="2026-09-10T23:38:53-03:00" level=info msg="Called startVMM(), setting up a VMM on /var/lib/terrascale-qualification/ts-orchestrator-smoke12/state/firecracker/gru-member-1/root/api.sock"
+time="2026-09-10T23:38:53-03:00" level=info msg="refreshMachineConfiguration: [GET /machine-config][200] getMachineConfigurationOK  &{CPUTemplate: MemSizeMib:0x20cf0cb88680 Smt:0x20cf0cb88688 TrackDirtyPages:false VcpuCount:0x20cf0cb88678}"
+time="2026-09-10T23:38:53-03:00" level=info msg="PutGuestBootSource: [PUT /boot-source][204] putGuestBootSourceNoContent "
+time="2026-09-10T23:38:53-03:00" level=info msg="Attaching drive rootfs.ext4, slot rootfs, root true."
+time="2026-09-10T23:38:53-03:00" level=info msg="Attached drive rootfs.ext4: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-10T23:38:53-03:00" level=info msg="Attaching drive artifact-00000000000000000001.img, slot data, root false."
+time="2026-09-10T23:38:53-03:00" level=info msg="Attached drive artifact-00000000000000000001.img: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-10T23:38:53-03:00" level=info msg="Attaching NIC tstec93gru01 (hwaddr 02:fc:77:01:01:01) at index 1"
+time="2026-09-10T23:38:53-03:00" level=info msg="No interfaces are allowed to access MMDS, skipping MMDS config"
+time="2026-09-10T23:38:53-03:00" level=info msg="startInstance successful: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-10T23:38:53-03:00" level=info msg="GetInstanceInfo successful"

@@ -106,8 +106,20 @@ func OpenLocalBootstrap(ctx context.Context, lifecycle *Lifecycle, node string, 
 		ready := lifecycle.State() == NodeStateServing
 		for _, spec := range manifest.Components {
 			current, currentErr := CurrentVersion(lifecycle.installRoot, spec.Name)
+			if currentErr != nil || current != spec.Version {
+				ready = false
+				continue
+			}
+			// Components without staged configuration (the engine) cannot
+			// become active until the control plane delivers their
+			// configuration; pre-NATS readiness requires them installed.
+			// Requiring them active here deadlocks the first boot before
+			// ts-node ever connects to the seed broker.
+			if spec.Configuration == "" {
+				continue
+			}
 			active, activeErr := lifecycle.systemd.UnitActive(ctx, UnitName(spec.Name))
-			ready = ready && currentErr == nil && current == spec.Version && activeErr == nil && active
+			ready = ready && activeErr == nil && active
 			if ready {
 				ready = lifecycle.installer.withVerifiedCurrentTransition(ctx, spec, func(ctx context.Context, _ string) error { return nil }) == nil
 			}

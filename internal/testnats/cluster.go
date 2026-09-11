@@ -104,7 +104,9 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 		users = append(users, &natsserver.NkeyUser{Nkey: rolePublic, Account: account, Permissions: &natsserver.Permissions{Publish: &natsserver.SubjectPermission{Allow: role.Publish}, Subscribe: &natsserver.SubjectPermission{Allow: role.Subscribe}}})
 	}
 	accountList := make([]*natsserver.Account, 0, len(accounts))
-	for _, account := range accounts { accountList = append(accountList, account) }
+	for _, account := range accounts {
+		accountList = append(accountList, account)
+	}
 	for i := 0; i < 3; i++ {
 		o := &natsserver.Options{ServerName: fmt.Sprintf("testnats-%d", i), Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: filepath.Join(c.Root, fmt.Sprint(i)), NoLog: true, NoSigs: true, SystemAccount: "$SYS", Accounts: accountList, Nkeys: users, TLSConfig: &tls.Config{ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}, MinVersion: tls.VersionTLS13}, Cluster: natsserver.ClusterOpts{Name: "testnats", Host: "127.0.0.1", Port: -1}}
 		if i == 0 {
@@ -117,6 +119,18 @@ func newCluster(t *testing.T, roles []RoleConfig) *Cluster {
 		s.Start()
 		if !s.ReadyForConnections(5 * time.Second) {
 			t.Fatal("NATS start failed")
+		}
+		for accountName := range accounts {
+			if accountName == "$SYS" {
+				continue
+			}
+			account, err := s.LookupAccount(accountName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := account.EnableJetStream(nil, nil); err != nil {
+				t.Fatal(err)
+			}
 		}
 		o.Port = s.Addr().(*net.TCPAddr).Port
 		o.Cluster.Port = s.ClusterAddr().Port

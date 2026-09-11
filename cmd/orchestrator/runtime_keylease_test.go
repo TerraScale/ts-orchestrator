@@ -10,11 +10,14 @@ import (
 )
 
 func TestConfiguredKeyProvisionerUsesAdmittedRunFileLookup(t *testing.T) {
-	t.Setenv(byokRoleEnvironment, "ambient-invalid-role")
-	t.Setenv(byokTokenEnvironment, "")
-	t.Setenv(byokKeyIDEnvironment, "ambient-invalid-key")
-	t.Setenv(byokKeyRegionEnvironment, "")
-	t.Setenv(byokKeyEndpointEnvironment, "https://ambient-invalid.example")
+	// Ambient values intentionally describe the target and would pass if the
+	// provisioner consulted os.LookupEnv instead of the admitted run-file
+	// source.
+	t.Setenv(byokRoleEnvironment, "arn:aws:iam::123456789012:role/ambient")
+	t.Setenv(byokTokenEnvironment, "/var/lib/terrascale/ambient.token")
+	t.Setenv(byokKeyIDEnvironment, "arn:aws:kms:sa-east-1:123456789012:key/ambient")
+	t.Setenv(byokKeyRegionEnvironment, "sa-east-1")
+	t.Setenv(byokKeyEndpointEnvironment, "https://kms.ambient.example")
 	values := map[string]string{
 		byokRoleEnvironment:        "arn:aws:iam::123456789012:role/run-file",
 		byokTokenEnvironment:       "/var/lib/terrascale/run-file.token",
@@ -23,11 +26,14 @@ func TestConfiguredKeyProvisionerUsesAdmittedRunFileLookup(t *testing.T) {
 		byokKeyEndpointEnvironment: "https://kms.run-file.example",
 	}
 	lookup := func(name string) (string, bool) { value, ok := values[name]; return value, ok }
-	target := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: values[byokKeyIDEnvironment], KeyRegion: values[byokKeyRegionEnvironment], KeyEndpoint: values[byokKeyEndpointEnvironment], NotAfter: time.Now().Add(time.Hour)}
+	target := keylease.ProvisionTarget{Provider: "aws-kms", KeyID: "arn:aws:kms:sa-east-1:123456789012:key/ambient", KeyRegion: "sa-east-1", KeyEndpoint: "https://kms.ambient.example", NotAfter: time.Now().Add(time.Hour)}
 	err := configuredKeyProvisioner(lookup)(t.Context(), "/unused/catalog", []keylease.ProvisionTarget{target})
 	if errors.Is(err, keylease.ErrUnavailable) {
-		t.Fatalf("run-file BYOK tuple was not admitted (ambient environment may have been used): %v", err)
+		// The run-file key tuple differs from the target. Ambient values must not
+		// make this admission pass.
+		return
 	}
+	t.Fatalf("ambient BYOK tuple was used instead of run-file values: %v", err)
 }
 
 func TestConfiguredKeyProvisionerRejectsTargetTupleMismatch(t *testing.T) {
