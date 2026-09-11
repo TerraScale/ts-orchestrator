@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -439,6 +440,16 @@ func validateOwnershipGraph(journal Journal, journalPath string) error {
 	for _, resource := range journal.VMs {
 		claim, err := readResourceClaim(resource.ClaimPath)
 		if err != nil {
+			// Completion removes the claims directory before the journal
+			// file; a crash in that window must not wedge recovery on a
+			// journal whose claims are already gone. The run marker is
+			// tolerated absent for the same reason.
+			if journal.Phase == journalPhaseComplete && errors.Is(err, fs.ErrNotExist) {
+				if err := validateExistingResource(journal, resource); err != nil {
+					return err
+				}
+				continue
+			}
 			return fmt.Errorf("vmqual: read resource claim %s: %w", resource.ID, err)
 		}
 		if !reflect.DeepEqual(claim, claimForResource(resource, journal.CreatedAt)) {
