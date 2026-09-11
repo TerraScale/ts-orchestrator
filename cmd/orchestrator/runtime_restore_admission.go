@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,7 +77,7 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 		pointID := selection.PointID
 		return client.ResolveRecoveryPoint(ctx, assignment, operation, selection.Kind, pointID, 0)
 	}
-	dispatch := func(ctx context.Context, target databaseadmission.Record, completed func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error {
+	dispatch := func(ctx context.Context, target databaseadmission.Record, completed func(databaseadmission.Record, *pb.RestoreStatsResponse) error) error {
 		port := backup
 		port.restoreCompleted = completed
 		request := restoredrill.RestoreRequest{SourceDatabaseID: target.Request.ParentDatabaseID, BranchID: target.DatabaseID, RecoveryPointID: target.RestoreFacts.PointID, ManifestDigest: target.RestoreFacts.RecoveryPointDigest, JournalCut: target.RestoreFacts.JournalCut, RestoreEpoch: target.RestoreFacts.Epoch, IdempotencyKey: target.Request.OperationID, RestoreProvider: target.RestoreFacts.Provider}
@@ -121,7 +122,7 @@ func restoreEnvelopeWire(facts *databaseadmission.RestoreEnvelopeFacts) *pb.Reco
 
 // newRestoreAdmission binds authenticated native responses to the immutable admission.
 // The production wrapper supplies grant-backed TBEP resolution and restore dispatch.
-func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.Context, databaseadmission.Record, databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error), dispatch func(context.Context, databaseadmission.Record, func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error) *databaseadmission.RestoreConfig {
+func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.Context, databaseadmission.Record, databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error), dispatch func(context.Context, databaseadmission.Record, func(databaseadmission.Record, *pb.RestoreStatsResponse) error) error) *databaseadmission.RestoreConfig {
 	return &databaseadmission.RestoreConfig{Resolve: func(ctx context.Context, source databaseadmission.Record, selection databaseadmission.RestoreSelection) (databaseadmission.RestoreAdmissionFacts, error) {
 		if selection.Kind != "latest" && selection.Kind != "point_id" || selection.UnixMillis != 0 {
 			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: unsupported selection")
@@ -154,11 +155,17 @@ func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.C
 			return nil, errors.New("restore admission: resolved facts unavailable")
 		}
 		var acknowledgement []byte
-		completed := func(record databaseadmission.Record, response *pb.LifecycleControlResponse) error {
+		completed := func(record databaseadmission.Record, response *pb.RestoreStatsResponse) error {
 			if response == nil || len(response.GetSignedCompletedReceipt()) == 0 {
 				return errors.New("restore admission: native completed receipt unavailable")
 			}
 			facts := record.RestoreFacts
+			// Stats is the completed observation. Require the same optional
+			// envelope and ordered vector retained at admission, including
+			// non-max cuts that the signed scalar summary cannot distinguish.
+			if facts == nil || !reflect.DeepEqual(restoreEnvelopeFacts(response.GetEnvelope()), facts.Envelope) {
+				return errors.New("restore admission: completed native envelope differs from admitted facts")
+			}
 			cut, err := strconv.ParseUint(facts.JournalCut, 10, 64)
 			if err != nil {
 				return errors.New("restore admission: invalid journal cut")
@@ -175,14 +182,14 @@ func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.C
 			if err != nil {
 				return err
 			}
-			_, err = verifier.Verify(response.GetSignedCompletedReceipt(), restoredrill.NativeReceiptBinding{
+			verified, err := verifier.Verify(response.GetSignedCompletedReceipt(), restoredrill.NativeReceiptBinding{
 				TenantID: record.Request.TenantID, ProjectID: record.Request.ProjectID, SourceDatabaseID: record.Request.ParentDatabaseID,
 				TargetDatabaseID: record.DatabaseID, TargetIncarnation: record.DatabaseID, SourceJournalCut: cut,
 				CapturedAtMillis: facts.CapturedAtMillis, SourceChecksum: facts.Checksum, SourceRowCount: facts.RowCount,
 				RestoreEpoch: facts.Epoch, IdempotencyKey: record.Request.OperationID, OperationID: record.Request.OperationID,
 				RecoveryPointID: facts.PointID, RecoveryPointDigest: facts.RecoveryPointDigest, Placement: record.Request.Regions,
 			})
-			if err != nil {
+			if err != nil || verified.TargetChecksum != response.GetChecksum() || verified.TargetRowCount != uint64(response.GetRowCount()) {
 				return errors.New("restore admission: native receipt does not match admitted facts")
 			}
 			value := databaseadmission.RestoreAcknowledgement{Version: 1, TargetDatabaseID: record.DatabaseID, SourceDatabaseID: record.Request.ParentDatabaseID, Facts: *record.RestoreFacts}
