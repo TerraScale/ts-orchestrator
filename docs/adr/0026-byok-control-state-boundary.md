@@ -22,7 +22,9 @@ External IDs are rejected in admission and renewal requests, durable catalogs,
 and host configuration; no retired-field compatibility path is retained.
 
 NATS consumers must validate the complete provider tuple and admission
-operation before accepting a wrapped entry. A restart reconstructs a provider
+operation before accepting a wrapped entry. Current snapshots and prior-state
+recovery after lease expiry use the same strict decoder: unknown or retired
+fields fail closed instead of being silently dropped. A restart reconstructs a provider
 client from the reference and the process-local workload-identity boundary;
 it never recovers credentials from NATS. AWS KMS uses the regional SDK default
 when the endpoint is omitted.

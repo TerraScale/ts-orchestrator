@@ -195,7 +195,7 @@ func (journal *Journal[S]) snapshot(ctx context.Context) (snapshot[S], error) {
 		// Preserve the plain prior state in every transition, not recursively
 		// nested envelopes, so even history=1 cannot erase valid intent history.
 		var prior S
-		if len(envelope.PriorState) == 0 || json.Unmarshal(envelope.PriorState, &prior) != nil || journal.validate(prior) != nil {
+		if len(envelope.PriorState) == 0 || json.Unmarshal(envelope.PriorState, &prior, json.RejectUnknownMembers(true)) != nil || journal.validate(prior) != nil {
 			return snapshot, ErrUnavailable
 		}
 		envelope.State = prior

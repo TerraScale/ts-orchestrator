@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -290,6 +291,52 @@ func TestNATSAdmissionJournalRestartAndAuthorityFencing(t *testing.T) {
 	}
 	live, err := NewNATSJournal(NATSJournalConfig{Connection: connection, CandidateID: replacement.CandidateId, AuthorityEpoch: uint64(replacement.Epoch), LeaseID: replacement.LeaseId})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := live.List(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Late commits recover their prior state under the same strict schema as
+	// current state. Otherwise retired or secret-bearing fields could bypass
+	// admission validation during lease-expiry recovery.
+	latest, err := store.Get(ctx, "database.admission.state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var late map[string]jsontext.Value
+	if err := json.Unmarshal(latest.Value(), &late); err != nil {
+		t.Fatal(err)
+	}
+	expired := replacement
+	expired.IssuedAt = time.Now().Add(-time.Minute)
+	expired.DurationMilliseconds = 1
+	late["Lease"], _ = json.Marshal(expired)
+	late["PriorState"] = late["State"]
+	late["State"], _ = json.Marshal(newJournalState())
+	publishLate := func() {
+		t.Helper()
+		data, marshalErr := json.Marshal(late)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if _, putErr := store.Put(ctx, "database.admission.state", data); putErr != nil {
+			t.Fatal(putErr)
+		}
+	}
+	publishLate()
+	if records, err := live.List(ctx); err != nil || len(records) != 1 {
+		t.Fatalf("valid prior state failed recovery: count=%d err=%v", len(records), err)
+	}
+	prior := late["PriorState"]
+	late["PriorState"] = bytes.ReplaceAll(prior, []byte(`"backup_bucket":`), []byte(`"backup_external_id":"retired","backup_bucket":`))
+	if bytes.Equal(prior, late["PriorState"]) {
+		t.Fatal("BYOK prior-state fixture was not modified")
+	}
+	publishLate()
+	if _, err := live.List(ctx); err == nil {
+		t.Fatal("retired BYOK field accepted during prior-state recovery")
+	}
+	if _, err := store.Put(ctx, "database.admission.state", latest.Value()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := live.List(ctx); err != nil {
