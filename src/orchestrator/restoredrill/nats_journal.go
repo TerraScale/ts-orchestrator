@@ -112,14 +112,33 @@ func (journal *NATSJournal) request(ctx context.Context, subject string, payload
 	if journal == nil || journal.connection == nil || !journal.connection.IsConnected() {
 		return ErrRestoreJournalUnavailable
 	}
-	response, err := journal.connection.RequestWithContext(ctx, subject, payload)
-	if err != nil || response == nil || len(response.Data) > maximumRestoreJournalBytes*4/3+8192 {
-		return ErrRestoreJournalUnavailable
+	// A restarted JetStream cluster can briefly have no elected stream leader.
+	// RequestWithContext reports that convergence window as a timeout/no-responder
+	// error. Retry those transport failures while the caller's context remains
+	// valid; an actual outage still returns unavailable when its context expires.
+	for attempt := 0; ; attempt++ {
+		requestCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		response, err := journal.connection.RequestWithContext(requestCtx, subject, payload)
+		cancel()
+		if err == nil && response != nil && len(response.Data) <= maximumRestoreJournalBytes*4/3+8192 {
+			if json.Unmarshal(response.Data, target) == nil {
+				return nil
+			}
+			return ErrRestoreJournalUnavailable
+		}
+		if ctx.Err() != nil || attempt >= 3 {
+			return ErrRestoreJournalUnavailable
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ErrRestoreJournalUnavailable
+		case <-timer.C:
+		}
 	}
-	if json.Unmarshal(response.Data, target) != nil {
-		return ErrRestoreJournalUnavailable
-	}
-	return nil
 }
 func (journal *NATSJournal) rawGet(ctx context.Context, subject string, sequence uint64) (restoreRawMessage, bool, error) {
 	request := struct {

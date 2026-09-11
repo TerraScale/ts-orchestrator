@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,6 +174,39 @@ func newRestoreJournalClient(t *testing.T, connection *nats.Conn, epoch uint64, 
 		t.Fatal(err)
 	}
 	return journal
+}
+
+func TestNATSJournalRequestRetriesConvergenceTimeout(t *testing.T) {
+	cluster := newRestoreJournalCluster(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	connection := cluster.connect(t)
+	openRestoreLeaseStore(t, ctx, connection, true)
+	journal := newRestoreJournalClient(t, connection, 1, "global-controller-gru-retry")
+	var attempts atomic.Int32
+	subscription, err := connection.Subscribe("restore.journal.retry", func(message *nats.Msg) {
+		if attempts.Add(1) == 3 {
+			if err := connection.Publish(message.Reply, []byte(`{"ready":true}`)); err != nil {
+				t.Errorf("publish retry response: %v", err)
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Unsubscribe()
+	if err := connection.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Ready bool `json:"ready"`
+	}
+	if err := journal.request(ctx, "restore.journal.retry", []byte(`{}`), &response); err != nil {
+		t.Fatalf("request did not survive convergence timeout: %v", err)
+	}
+	if !response.Ready || attempts.Load() != 3 {
+		t.Fatalf("response=%+v attempts=%d", response, attempts.Load())
+	}
 }
 
 func TestNATSRestoreJournalRestartEpochCASAndMinorityOutage(t *testing.T) {
