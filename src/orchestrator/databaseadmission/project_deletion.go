@@ -3,8 +3,6 @@ package databaseadmission
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"slices"
 	"time"
@@ -24,10 +22,7 @@ type ProjectDeletionRequest struct {
 }
 
 type ProjectDeletionTarget struct {
-	Identity                  databaselifecycle.Identity `json:"identity"`
-	RootDatabaseID            string                     `json:"root_database_id"`
-	DeleteOperationID         string                     `json:"delete_operation_id"`
-	ExistingDeleteOperationID string                     `json:"existing_delete_operation_id,omitempty"`
+	Identity databaselifecycle.Identity `json:"identity"`
 }
 
 type ProjectDeletion struct {
@@ -66,11 +61,6 @@ func projectFence(state *journalState, r Request) string {
 	return state.ProjectFences[projectScopeKey(ProjectDeletionRequest{Environment: r.Environment, TenantID: r.TenantID, ProjectID: r.ProjectID})]
 }
 
-func projectTargetOperationID(projectOperationID, databaseID string) string {
-	sum := sha256.Sum256([]byte(projectOperationID + "\x00" + databaseID))
-	return "project-" + hex.EncodeToString(sum[:])
-}
-
 func validateProjectDeletions(state journalState) error {
 	for key, deletion := range state.ProjectDeletions {
 		if key != projectDeletionKey(deletion.Request) || !validProjectDeletionRequest(deletion.Request) || deletion.Revision == 0 || deletion.RequestedAt.IsZero() || deletion.State != "accepted" {
@@ -78,7 +68,7 @@ func validateProjectDeletions(state journalState) error {
 		}
 		seen := map[string]bool{}
 		for i, target := range deletion.Targets {
-			if !databaselifecycleIdentityInScope(target.Identity, deletion.Request) || target.RootDatabaseID == "" || target.DeleteOperationID != projectTargetOperationID(deletion.Request.OperationID, target.Identity.DatabaseID) || seen[target.Identity.DatabaseID] || (i > 0 && target.Identity.DatabaseID < deletion.Targets[i-1].Identity.DatabaseID) {
+			if !validProjectTargetIdentity(target.Identity, deletion.Request) || seen[target.Identity.DatabaseID] || (i > 0 && target.Identity.DatabaseID < deletion.Targets[i-1].Identity.DatabaseID) {
 				return ErrInvalid
 			}
 			seen[target.Identity.DatabaseID] = true
@@ -106,7 +96,11 @@ func validateProjectDeletions(state journalState) error {
 }
 
 func databaselifecycleIdentityInScope(identity databaselifecycle.Identity, request ProjectDeletionRequest) bool {
-	return identity.Environment == request.Environment && identity.OrganizationID == request.TenantID && identity.ProjectID == request.ProjectID && identity.DatabaseID != ""
+	return identity.Environment == request.Environment && identity.OrganizationID == request.TenantID && identity.ProjectID == request.ProjectID
+}
+
+func validProjectTargetIdentity(identity databaselifecycle.Identity, request ProjectDeletionRequest) bool {
+	return databaselifecycleIdentityInScope(identity, request) && environmentName.MatchString(identity.Environment) && canonicalID.MatchString(identity.OrganizationID) && canonicalID.MatchString(identity.ProjectID) && canonicalID.MatchString(identity.DatabaseID) && (identity.ParentDatabaseID == "" || canonicalID.MatchString(identity.ParentDatabaseID) && identity.ParentDatabaseID != identity.DatabaseID)
 }
 
 func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, now time.Time) (ProjectDeletion, error) {
@@ -134,11 +128,7 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 	seen := map[string]bool{}
 	for _, resource := range state.Lifecycle.Resources {
 		if databaselifecycleIdentityInScope(resource.Identity, request) && !seen[resource.DatabaseID] {
-			root := resource.ParentDatabaseID
-			if root == "" {
-				root = resource.DatabaseID
-			}
-			targets = append(targets, ProjectDeletionTarget{Identity: resource.Identity, RootDatabaseID: root, DeleteOperationID: projectTargetOperationID(request.OperationID, resource.DatabaseID)})
+			targets = append(targets, ProjectDeletionTarget{Identity: resource.Identity})
 			seen[resource.DatabaseID] = true
 		}
 	}
@@ -146,23 +136,11 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 	// records in the same CAS so a pending row cannot be omitted by enumeration.
 	for _, record := range state.Records {
 		if record.Request.Environment == request.Environment && record.Request.TenantID == request.TenantID && record.Request.ProjectID == request.ProjectID && !seen[record.DatabaseID] {
-			root := record.Request.ParentDatabaseID
-			if root == "" {
-				root = record.DatabaseID
-			}
-			targets = append(targets, ProjectDeletionTarget{Identity: admissionLifecycleEvent(record).Identity, RootDatabaseID: root, DeleteOperationID: projectTargetOperationID(request.OperationID, record.DatabaseID)})
+			targets = append(targets, ProjectDeletionTarget{Identity: admissionLifecycleEvent(record).Identity})
 			seen[record.DatabaseID] = true
 		}
 	}
 	slices.SortFunc(targets, func(a, b ProjectDeletionTarget) int { return cmp.Compare(a.Identity.DatabaseID, b.Identity.DatabaseID) })
-	for i := range targets {
-		parent := targets[i].Identity.ParentDatabaseID
-		if parent == "" || !seen[parent] {
-			targets[i].RootDatabaseID = targets[i].Identity.DatabaseID
-		} else {
-			targets[i].RootDatabaseID = parent
-		}
-	}
 	deletion := ProjectDeletion{Request: request, State: "accepted", Revision: 1, RequestedAt: now.UTC(), Targets: targets}
 	state.ProjectDeletions[key] = deletion
 	state.ProjectFences[scope] = request.OperationID

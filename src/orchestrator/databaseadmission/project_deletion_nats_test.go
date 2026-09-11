@@ -147,6 +147,38 @@ func TestNATSProjectDeletionFenceWinsBeforeRestoreFinalSave(t *testing.T) {
 	}
 }
 
+func TestNATSProjectDeletionFenceReplayAndStaleReaderAfterRestart(t *testing.T) {
+	cluster := newAdmissionJournalCluster(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	connection := cluster.connect(t)
+	store := openAdmissionLeaseStore(t, ctx, connection, true)
+	candidate := "global-controller-gru-project-restart"
+	putAdmissionLease(t, ctx, store, admissionLease(1, candidate))
+	firstJournal := newAdmissionJournalClient(t, connection, 1, candidate)
+	request := ProjectDeletionRequest{Environment: "production", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", ProjectID: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", OperationID: "01ARZ3NDEKTSV4RRFFQ69G5FC5", PolicyFingerprint: "policy-v1"}
+	first, err := firstJournal.BeginProjectDeletion(ctx, request, time.Unix(1_700_000_020, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster.restart(t)
+	connection = cluster.connect(t)
+	store = openAdmissionLeaseStore(t, ctx, connection, false)
+	putAdmissionLease(t, ctx, store, admissionLease(2, "global-controller-gru-project-restart-2"))
+	stale := newAdmissionJournalClient(t, connection, 1, candidate)
+	if _, _, err := stale.Load(ctx, projectDeletionKey(request)); !errors.Is(err, ErrEpochFenced) {
+		t.Fatalf("stale project-deletion read error=%v, want ErrEpochFenced", err)
+	}
+	if _, err := stale.BeginProjectDeletion(ctx, request, time.Unix(1_700_000_021, 0).UTC()); !errors.Is(err, ErrEpochFenced) {
+		t.Fatalf("stale project-deletion write error=%v, want ErrEpochFenced", err)
+	}
+	live := newAdmissionJournalClient(t, connection, 2, "global-controller-gru-project-restart-2")
+	replay, err := live.BeginProjectDeletion(ctx, request, time.Unix(1_700_000_022, 0).UTC())
+	if err != nil || replay.RequestedAt != first.RequestedAt || replay.Revision != first.Revision {
+		t.Fatalf("restart replay changed durable fence: first=%+v replay=%+v err=%v", first, replay, err)
+	}
+}
+
 func beginProjectFence(t *testing.T, journal *NATSJournal, request Request, operation string) {
 	t.Helper()
 	if _, err := journal.BeginProjectDeletion(t.Context(), ProjectDeletionRequest{Environment: request.Environment, TenantID: request.TenantID, ProjectID: request.ProjectID, OperationID: operation, PolicyFingerprint: "policy-v1"}, time.Unix(1_700_000_010, 0).UTC()); err != nil {
