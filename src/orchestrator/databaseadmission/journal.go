@@ -29,12 +29,14 @@ type journalState struct {
 	CurrentPlacements            map[string]Record
 	CompletedRelocations         map[string]string
 	Deletions                    map[string]Deletion
+	ProjectDeletions             map[string]ProjectDeletion
+	ProjectFences                map[string]string
 	Records                      map[string]Record
 	Lifecycle                    databaselifecycle.State
 }
 
 func newJournalState() journalState {
-	return journalState{Deletions: map[string]Deletion{}, Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
+	return journalState{Deletions: map[string]Deletion{}, ProjectDeletions: map[string]ProjectDeletion{}, ProjectFences: map[string]string{}, Records: map[string]Record{}, Lifecycle: databaselifecycle.NewState()}
 }
 
 func validateJournalState(state journalState) error {
@@ -42,6 +44,9 @@ func validateJournalState(state journalState) error {
 		return ErrInvalid
 	}
 	if err := validateDeletions(state); err != nil {
+		return err
+	}
+	if err := validateProjectDeletions(state); err != nil {
 		return err
 	}
 	if err := validateCurrentPlacements(state); err != nil {
@@ -227,6 +232,9 @@ func saveRecord(state *journalState, key string, expected uint64, record Record)
 			if operationKey(other.Request) == operationKey(record.Request) || other.DatabaseID == record.DatabaseID {
 				return 0, ErrConflict
 			}
+		}
+		if projectFence(state, record.Request) != "" {
+			return 0, ErrConflict
 		}
 	}
 	if !found {
