@@ -47,10 +47,14 @@ runs:
         test "${#TS_DEPLOY_SIGNATURE_SHA256}" -eq 64
         case "${TS_DEPLOY_SIGNATURE_SHA256}" in *[!0-9a-fA-F]*) echo "ts-deploy: invalid ts-deploy signature checksum" >&2; exit 1 ;; esac
         test -n "${TS_DEPLOY_READ_TOKEN:-}" || { echo "ts-deploy: TS_DEPLOY_READ_TOKEN is required" >&2; exit 1; }
-        fj_config_dir="${RUNNER_TEMP:-/tmp}/ts-deploy-fj-auth-$$"
-        (umask 077 && mkdir -p -- "${fj_config_dir}")
-        trap 'rm -rf -- "${fj_config_dir}"' EXIT
-        export XDG_CONFIG_HOME="${fj_config_dir}"
+        # fj stores application tokens in $XDG_DATA_HOME/forgejo-cli/keys.json
+        # (default ~/.local/share/forgejo-cli/keys.json), not under
+        # XDG_CONFIG_HOME. The ts-deploy invocation is a later step, so the
+        # credential has to outlive this step: write it to that store, never to
+        # a per-step temporary directory.
+        fj_data_dir="${HOME}/.local/share"
+        (umask 077 && mkdir -p -- "${fj_data_dir}")
+        export XDG_DATA_HOME="${fj_data_dir}"
         printf '%s\n' "${TS_DEPLOY_READ_TOKEN}" | fj auth add-token --host git.terrascale.tech >/dev/null
         directory="${RUNNER_TEMP:-/tmp}/ts-deploy-${release}"
         rm -rf -- "${directory}"
