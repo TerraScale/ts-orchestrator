@@ -62,7 +62,6 @@ type BYOKReference struct {
 	ConfigurationUpdatedAt string `json:"configuration_updated_at,omitempty"`
 }
 
-type BYOKConfig = BYOKReference
 type RestoreSelection struct {
 	Kind       string `json:"kind"`
 	PointID    string `json:"point_id,omitempty"`

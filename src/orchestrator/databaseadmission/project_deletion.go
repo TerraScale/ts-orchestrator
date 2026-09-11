@@ -144,6 +144,11 @@ func beginProjectDeletion(state *journalState, request ProjectDeletionRequest, n
 	deletion := ProjectDeletion{Request: request, State: "accepted", Revision: 1, RequestedAt: now.UTC(), Targets: targets}
 	state.ProjectDeletions[key] = deletion
 	state.ProjectFences[scope] = request.OperationID
+	if err := validateReservedCapacity(*state); err != nil {
+		delete(state.ProjectDeletions, key)
+		delete(state.ProjectFences, scope)
+		return ProjectDeletion{}, err
+	}
 	return deletion, nil
 }
 

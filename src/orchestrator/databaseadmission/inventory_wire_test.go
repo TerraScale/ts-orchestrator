@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json/v2"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -36,23 +34,32 @@ func TestInventoryWireFixture(t *testing.T) {
 	if _, err := journal.Save(t.Context(), ScopeKey(active.Request), 0, active); err != nil {
 		t.Fatal(err)
 	}
-	// The journal's bounded admission reservation makes two full pending
-	// records exceed its test envelope. Seed the second immutable record and
-	// its lifecycle resource directly after the real Save path; deletion still
-	// runs through the production journal workflow below.
+	// Seed the second immutable record and lifecycle resource after the real
+	// Save path; the deletion transition below still uses production workflow.
 	retired := inventoryFixtureRecord(t, tenant, project, deletedDatabase, "01ARZ3NDEKTSV4RRFFQ69G5FC1", createdAt)
 	retiredKey := ScopeKey(retired.Request)
 	if err := databaselifecycle.Apply(&journal.state.Lifecycle, admissionLifecycleEvent(retired)); err != nil {
 		t.Fatal(err)
 	}
 	journal.state.Records[retiredKey] = retired
-	retiredResource := journal.state.Lifecycle.Resources[databaselifecycle.Key(admissionLifecycleEvent(retired).Identity)]
-	retiredResource.DeletedAt = parseInventoryTime(t, deletedAt)
-	retiredResource.UsageStoppedAt = retiredResource.DeletedAt
-	retiredResource.EffectsCompletedAt = retiredResource.DeletedAt
-	retiredResource.RetainUntil = retiredResource.DeletedAt.Add(24 * time.Hour)
-	retiredResource.AccessRevoked = true
-	journal.state.Lifecycle.Resources[databaselifecycle.Key(retiredResource.Identity)] = retiredResource
+	deletionRequest := DeleteRequest{Environment: "production", TenantID: tenant, ProjectID: project, DatabaseID: deletedDatabase, OperationID: "01ARZ3NDEKTSV4RRFFQ69G5FC2"}
+	when := parseInventoryTime(t, deletedAt)
+	deletion, err := journal.BeginDeletion(t.Context(), deletionRequest, when, when.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range deletion.Targets {
+		preparedAt := when
+		deletion, err = journal.RecordDeletionPreparation(t.Context(), deletionRequest, DeletionPreparation{Identity: target.Stop.Identity, OperationID: target.Stop.OperationID, Region: target.Stop.Region, Prepared: true, LastAccountedAt: preparedAt}, preparedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range deletion.Targets {
+		if _, err := journal.RecordDeletionStop(t.Context(), deletionRequest, DeletionReceipt{DeletionStop: target.Stop, AccessRevoked: true, UsageStopped: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	handler, err := NewInventoryHandler(journal, "production", key)
 	if err != nil {
@@ -67,22 +74,13 @@ func TestInventoryWireFixture(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("inventory status=%d body=%s", response.Code, response.Body.String())
 	}
-	fixturePath := dashboardFixturePath(t)
-	expected, readErr := os.ReadFile(fixturePath)
-	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		t.Fatal(readErr)
-	}
-	if os.Getenv("UPDATE_INVENTORY_WIRE_FIXTURE") == "1" {
-		if err := os.MkdirAll(filepath.Dir(fixturePath), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fixturePath, response.Body.Bytes(), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		expected = response.Body.Bytes()
+	fixturePath := filepath.Join("testdata", "database-admission-inventory-wire.json")
+	expected, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if !bytes.Equal(response.Body.Bytes(), expected) {
-		t.Fatalf("captured handler body differs from Dashboard fixture %s", fixturePath)
+		t.Fatalf("captured handler body differs from producer fixture %s", fixturePath)
 	}
 
 	var inventory AdmissionInventory
@@ -140,13 +138,4 @@ func parseInventoryTime(t *testing.T, value string) time.Time {
 		t.Fatal(err)
 	}
 	return parsed
-}
-
-func dashboardFixturePath(t *testing.T) string {
-	t.Helper()
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller unavailable")
-	}
-	return filepath.Join(filepath.Dir(source), "..", "..", "..", "..", "ts-dashboard", "tests", "testdata", "database-admission-inventory-wire.json")
 }
