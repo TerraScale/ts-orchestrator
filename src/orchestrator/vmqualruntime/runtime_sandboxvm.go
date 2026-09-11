@@ -398,7 +398,12 @@ func (probe *sshGuestProbe) Register(config sandboxvm.Config, seedDigest string)
 	probe.mu.Unlock()
 }
 
-func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Readiness, error) {
+func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (probeReadiness sandboxvm.Readiness, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			fmt.Fprintf(os.Stderr, "PROBEERR %s: %v\n", id, resultErr)
+		}
+	}()
 	if probe == nil || probe.transport == nil || ctx == nil {
 		return sandboxvm.Readiness{}, errors.New("vmqual: guest readiness probe is not configured")
 	}
