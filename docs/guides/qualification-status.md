@@ -393,3 +393,31 @@ Real OCI/Cloudflare checks, security gates, a seven-day soak on release
 digests, per-Region rollback rehearsals, and fourteen consecutive daily
 restore drills remain unverified. None of the local results closes those
 gates or establishes arm64 qualification.
+
+## Post-audit Firecracker re-validation attempt (2026-09-12)
+
+After the ten-round adversarial audit (61 fixes landing in vmqual,
+vmqualruntime, vmdisk, vmguest, hostagent, delivery, reaper, autoscale,
+ocireconcile, and the control plane), the Firecracker chain was re-launched
+to re-validate the guest lane against the fixed tree
+(`vm-smoke32.log` in the evidence directory):
+
+- `vm-artifacts` rebuilt and re-signed all three components
+  deterministically (ts-node, orchestrator from the post-audit tree, and
+  the pinned static terrabase binary), confirming the deterministic-build
+  chain still holds after the audit.
+- The terrabase checkout is mid-refactor in the engine stream (musl build
+  fails at source level); the documented `VM_TERRABASE_BINARY` escape
+  hatch with the pinned static `engine-builds` binary works.
+- The run stops at the deliberate declaration gate: `vm-smoke` now requires
+  a TerraBase engine declaration, and the single-guest smoke topology
+  cannot produce one (declarations bind exactly two members per Region).
+  This is the same evidenced fence recorded above — the readiness chain
+  now runs through the six-member declaration/material lane, which remains
+  blocked at the four documented fences.
+
+The orchestrator-side multi-Region behaviors the audit touched are covered
+by the discriminating test suites added in rounds 1-10 (autoscale
+scale-up/scale-down intents and contention holds: 20 tests; key lease
+issuance/renewal/identity: 27 tests; full `make check` 101 packages green
+at the audit's final commit).
