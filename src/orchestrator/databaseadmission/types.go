@@ -78,15 +78,38 @@ type RestoreRequest struct {
 	OperationID      string           `json:"operation_id"`
 }
 type RestoreAdmissionFacts struct {
-	SourceDigest        string `json:"source_digest"`
-	CapturedAtMillis    uint64 `json:"captured_at_millis"`
+	SourceDigest        string                `json:"source_digest"`
+	CapturedAtMillis    uint64                `json:"captured_at_millis"`
+	Checksum            string                `json:"checksum"`
+	RecoveryPointDigest string                `json:"recovery_point_digest"`
+	RowCount            uint64                `json:"row_count"`
+	PointID             string                `json:"point_id"`
+	Provider            string                `json:"provider"`
+	JournalCut          string                `json:"journal_cut"`
+	Epoch               uint64                `json:"epoch"`
+	Envelope            *RestoreEnvelopeFacts `json:"envelope,omitempty"`
+}
+
+// RestoreEnvelopeFacts retains the complete authenticated logical recovery
+// point. Scalar fields on RestoreAdmissionFacts remain compatibility summaries;
+// participant facts are the authority for routed restores.
+type RestoreEnvelopeFacts struct {
+	EnvelopeDigest      string                    `json:"envelope_digest"`
+	DatabaseID          string                    `json:"database_id"`
+	DatabaseIncarnation string                    `json:"database_incarnation"`
+	RouteGeneration     uint64                    `json:"route_generation"`
+	Participants        []RestoreParticipantFacts `json:"participants"`
+}
+
+type RestoreParticipantFacts struct {
+	ParticipantID       string `json:"participant_id"`
+	DatabaseID          string `json:"database_id"`
+	JournalCut          uint64 `json:"journal_cut"`
+	ManifestDigest      string `json:"manifest_digest"`
 	Checksum            string `json:"checksum"`
-	RecoveryPointDigest string `json:"recovery_point_digest"`
 	RowCount            uint64 `json:"row_count"`
-	PointID             string `json:"point_id"`
-	Provider            string `json:"provider"`
-	JournalCut          string `json:"journal_cut"`
-	Epoch               uint64 `json:"epoch"`
+	CapturedAtMillis    uint64 `json:"captured_at_millis"`
+	RetainedUntilMillis uint64 `json:"retained_until_millis"`
 }
 
 // RestoreAcknowledgement is the native restore authority's durable proof. It

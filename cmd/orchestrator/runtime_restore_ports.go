@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -124,11 +125,27 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 	}); err != nil {
 		return err
 	}
-	response, err := client.RestoreToTarget(ctx, placement, request.IdempotencyKey, sourceOwner, source.DatabaseID, request.RecoveryPointID, evidence.SourceSnapshotDigest, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions, provider)
+	var envelope *pb.RecoveryEnvelopeFacts
+	if target.RestoreFacts != nil {
+		envelope = restoreEnvelopeWire(target.RestoreFacts.Envelope)
+	}
+	response, err := client.RestoreToTarget(ctx, placement, request.IdempotencyKey, tbep.RestoreRequest{
+		SourceOwner: sourceOwner, SourceDatabase: source.DatabaseID, RecoveryPointID: request.RecoveryPointID,
+		RecoveryPointDigest: evidence.SourceSnapshotDigest, TargetOwner: targetOwner, TargetDatabase: target.DatabaseID,
+		JournalCut: request.JournalCut, RestoreEpoch: request.RestoreEpoch, ExpectedPlacement: target.Request.Regions,
+		Provider: provider, Envelope: envelope,
+	})
 	if err != nil {
 		if errors.Is(err, tbep.ErrRestorePending) || errors.Is(err, context.DeadlineExceeded) {
 			return restoredrill.ErrPending
 		}
+		return err
+	}
+	stats, err := client.RestoreStats(ctx, placement, request.IdempotencyKey, targetOwner, target.DatabaseID, request.JournalCut, request.RestoreEpoch, target.Request.Regions)
+	if err != nil {
+		return err
+	}
+	if err := validateRestoreStatsEnvelope(target, stats); err != nil {
 		return err
 	}
 	if p.restoreCompleted != nil {
@@ -137,6 +154,16 @@ func (p productionDatabaseBackupPort) Restore(ctx context.Context, request resto
 		}
 	}
 	return j.Transact(ctx, true, func(r *lifecycleGrantRecord) error { r.Completed = true; return nil })
+}
+
+func validateRestoreStatsEnvelope(record databaseadmission.Record, response *pb.RestoreStatsResponse) error {
+	if record.RestoreFacts == nil || record.RestoreFacts.Envelope == nil {
+		return nil
+	}
+	if response == nil || !reflect.DeepEqual(restoreEnvelopeFacts(response.GetEnvelope()), record.RestoreFacts.Envelope) {
+		return errors.New("restore backup: completed native envelope differs from admitted facts")
+	}
+	return nil
 }
 
 func (p productionDatabaseBackupPort) targetAssignment(record databaseadmission.Record) (tbep.LifecycleAssignment, productionDatabaseHost, error) {

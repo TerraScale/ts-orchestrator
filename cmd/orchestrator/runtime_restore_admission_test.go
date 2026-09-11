@@ -50,7 +50,7 @@ func TestProductionRestoreAdmissionResolve(t *testing.T) {
 					return response, nil
 				}, nil)
 				got, err := adapter.Resolve(t.Context(), source, selection)
-				valid := mutation == "valid" || mutation == "selection" && kind == "latest"
+				valid := mutation == "valid" || mutation == "selection" && kind == "latest" || mutation == "envelope"
 				if calls != 1 {
 					t.Fatal("resolver not called")
 				}
@@ -64,7 +64,10 @@ func TestProductionRestoreAdmissionResolve(t *testing.T) {
 					t.Fatal(err)
 				}
 				want := databaseadmission.RestoreAdmissionFacts{SourceDigest: databaseadmission.RestoreSourceDigest(source), RecoveryPointDigest: strings.Repeat("d", 64), PointID: response.RecoveryPointId, Provider: "oci", JournalCut: "42", CapturedAtMillis: 1000, Checksum: strings.Repeat("c", 64), RowCount: 7}
-				if got != want {
+				if mutation == "envelope" {
+					want.Envelope = restoreEnvelopeFacts(response.Envelope)
+				}
+				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("facts = %+v, want %+v", got, want)
 				}
 			})
@@ -163,5 +166,46 @@ func TestProductionRestoreAdmissionWiresCallbacks(t *testing.T) {
 	}
 	if ack, err := adapter.Restore(t.Context(), databaseadmission.Record{}); err == nil || len(ack) != 0 {
 		t.Fatal("unresolved restore acknowledged")
+	}
+}
+
+func TestValidateRestoreStatsEnvelopeRequiresExactPersistedVector(t *testing.T) {
+	facts := &databaseadmission.RestoreAdmissionFacts{Envelope: &databaseadmission.RestoreEnvelopeFacts{
+		EnvelopeDigest: strings.Repeat("a", 64), DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", DatabaseIncarnation: strings.Repeat("b", 32), RouteGeneration: 3,
+		Participants: []databaseadmission.RestoreParticipantFacts{{ParticipantID: "p1", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", JournalCut: 7, ManifestDigest: strings.Repeat("c", 64), Checksum: strings.Repeat("d", 64), RowCount: 2, CapturedAtMillis: 10, RetainedUntilMillis: 20}},
+	}}
+	record := databaseadmission.Record{RestoreFacts: facts}
+	response := &pb.RestoreStatsResponse{Envelope: restoreEnvelopeWire(facts.Envelope)}
+	if err := validateRestoreStatsEnvelope(record, response); err != nil {
+		t.Fatalf("matching vector rejected: %v", err)
+	}
+	response.Envelope.Participants[0].JournalCut++
+	if err := validateRestoreStatsEnvelope(record, response); err == nil {
+		t.Fatal("altered participant vector accepted")
+	}
+	response.Envelope = nil
+	if err := validateRestoreStatsEnvelope(record, response); err == nil {
+		t.Fatal("missing participant vector accepted")
+	}
+}
+
+func TestProductionRestoreAdmissionDispatchesResolvedEnvelopeBeforeAcknowledgement(t *testing.T) {
+	source := databaseadmission.Record{DatabaseID: "source", Request: databaseadmission.Request{Regions: []string{"GRU"}}}
+	envelope := &pb.RecoveryEnvelopeFacts{EnvelopeDigest: strings.Repeat("a", 64), DatabaseId: source.DatabaseID, DatabaseIncarnation: strings.Repeat("b", 32), RouteGeneration: 3, Participants: []*pb.RecoveryParticipant{{ParticipantId: "p1", DatabaseId: "member-1", JournalCut: 7, ManifestDigest: strings.Repeat("c", 64), Checksum: strings.Repeat("d", 64), RowCount: 2, CapturedAtMillis: 10, RetainedUntilMillis: 20}}}
+	adapter := newRestoreAdmission(productionDatabaseConfig{}, func(context.Context, databaseadmission.Record, databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error) {
+		return &pb.ResolveRecoveryPointResponse{SourceDatabase: source.DatabaseID, RecoveryPointId: envelope.EnvelopeDigest, RecoveryPointDigest: envelope.EnvelopeDigest, JournalCut: "7", CapturedAtMillis: 10, Checksum: strings.Repeat("d", 64), RowCount: 2, Placement: []string{"GRU"}, Provider: pb.RestoreProvider_RESTORE_PROVIDER_OCI, Envelope: envelope}, nil
+	}, func(_ context.Context, target databaseadmission.Record, complete func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error {
+		if target.RestoreFacts == nil || !reflect.DeepEqual(target.RestoreFacts.Envelope, restoreEnvelopeFacts(envelope)) {
+			t.Fatal("dispatch did not receive the persisted envelope")
+		}
+		return complete(target, nil)
+	})
+	facts, err := adapter.Resolve(t.Context(), source, databaseadmission.RestoreSelection{Kind: "latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := databaseadmission.Record{DatabaseID: "target", Request: databaseadmission.Request{ParentDatabaseID: source.DatabaseID, OperationID: "restore-1"}, RestoreFacts: &facts, Restore: &databaseadmission.RestoreRequest{}}
+	if ack, err := adapter.Restore(t.Context(), target); err == nil || ack != nil {
+		t.Fatalf("malformed completion acknowledged: %q, %v", ack, err)
 	}
 }

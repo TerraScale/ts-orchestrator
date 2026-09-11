@@ -162,19 +162,33 @@ func (c *Client) lifecycleCall(ctx context.Context, request *pb.LifecycleControl
 	return nil
 }
 
+// RestoreRequest contains the immutable source, target, and recovery facts
+// sent to the native restore authority. Envelope is forwarded unchanged so
+// participant cuts cannot be reduced to a scalar maximum.
+type RestoreRequest struct {
+	SourceOwner, SourceDatabase          string
+	RecoveryPointID, RecoveryPointDigest string
+	TargetOwner, TargetDatabase          string
+	JournalCut                           string
+	RestoreEpoch                         uint64
+	ExpectedPlacement                    []string
+	Provider                             pb.RestoreProvider
+	Envelope                             *pb.RecoveryEnvelopeFacts
+}
+
 // RestoreToTarget invokes the authenticated native restore operation. The
 // target assignment is carried in the accepted placement context; source and
 // recovery facts are explicit so a caller cannot silently restore a different
 // point or owner.
-func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation, sourceOwner, sourceDatabase, recoveryPointID, recoveryPointDigest, targetOwner, targetDatabase, journalCut string, restoreEpoch uint64, expectedPlacement []string, provider pb.RestoreProvider) (*pb.LifecycleControlResponse, error) {
-	if !validOwner(sourceOwner) || !validMetadata(sourceDatabase, 255) || !validMetadata(recoveryPointID, 255) || len(recoveryPointDigest) != 64 || !validOwner(targetOwner) || !validMetadata(targetDatabase, 255) || !validMetadata(journalCut, 255) || restoreEpoch == 0 || len(expectedPlacement) == 0 || !validRestoreProvider(provider) {
+func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, operation string, restore RestoreRequest) (*pb.LifecycleControlResponse, error) {
+	if !validOwner(restore.SourceOwner) || !validMetadata(restore.SourceDatabase, 255) || !validMetadata(restore.RecoveryPointID, 255) || len(restore.RecoveryPointDigest) != 64 || !validOwner(restore.TargetOwner) || !validMetadata(restore.TargetDatabase, 255) || !validMetadata(restore.JournalCut, 255) || restore.RestoreEpoch == 0 || len(restore.ExpectedPlacement) == 0 || !validRestoreProvider(restore.Provider) {
 		return nil, errors.New("TBEP restore request is incomplete")
 	}
 	r, err := c.lifecycleRequest(a, operation)
 	if err != nil {
 		return nil, err
 	}
-	request := &pb.RestoreToTargetRequest{Context: r.Context, OperationId: r.OperationId, SourceOwner: sourceOwner, SourceDatabase: sourceDatabase, RecoveryPointId: recoveryPointID, RecoveryPointDigest: recoveryPointDigest, TargetOwner: targetOwner, TargetDatabase: targetDatabase, JournalCut: journalCut, RestoreEpoch: restoreEpoch, Provider: provider}
+	request := &pb.RestoreToTargetRequest{Context: r.Context, OperationId: r.OperationId, SourceOwner: restore.SourceOwner, SourceDatabase: restore.SourceDatabase, RecoveryPointId: restore.RecoveryPointID, RecoveryPointDigest: restore.RecoveryPointDigest, TargetOwner: restore.TargetOwner, TargetDatabase: restore.TargetDatabase, JournalCut: restore.JournalCut, RestoreEpoch: restore.RestoreEpoch, Provider: restore.Provider, Envelope: restore.Envelope}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	ctx = metadata.NewOutgoingContext(ctx, c.scope)
@@ -190,10 +204,10 @@ func (c *Client) RestoreToTarget(ctx context.Context, a LifecycleAssignment, ope
 		// leaves proof fields empty until the same operation reaches applied.
 		return response, ErrRestorePending
 	}
-	want, got := slices.Clone(expectedPlacement), slices.Clone(response.GetPlacement())
+	want, got := slices.Clone(restore.ExpectedPlacement), slices.Clone(response.GetPlacement())
 	slices.Sort(want)
 	slices.Sort(got)
-	if response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED || len(response.GetSignedCompletedReceipt()) == 0 || response.GetRecoveryPointId() != recoveryPointID || response.GetRecoveryPointDigest() != recoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
+	if response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED && response.GetStatus() != pb.LifecycleStatus_LIFECYCLE_STATUS_ALREADY_APPLIED || len(response.GetSignedCompletedReceipt()) == 0 || response.GetRecoveryPointId() != restore.RecoveryPointID || response.GetRecoveryPointDigest() != restore.RecoveryPointDigest || !slices.Equal(want, got) || !slices.Contains(got, a.Region) {
 		return nil, fmt.Errorf("TBEP restore operation %q was not applied: %s", operation, response.GetDetail())
 	}
 	return response, nil

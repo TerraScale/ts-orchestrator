@@ -19,9 +19,7 @@ import (
 )
 
 // productionRestoreAdmission connects public restore admission to the source
-// member's authenticated native resolver. It deliberately handles scalar
-// points only; an envelope must be qualified as a complete composition before
-// it can enter the immutable admission journal.
+// member's authenticated native resolver.
 func productionRestoreAdmission(config productionDatabaseConfig, session globalWorkerSession, keyID string, key ed25519.PrivateKey, grants func(string) (*authorityjournal.Journal[lifecycleGrantRecord], error), backup productionDatabaseBackupPort) *databaseadmission.RestoreConfig {
 	resolve := func(ctx context.Context, source databaseadmission.Record, selection databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error) {
 		assignment, host, err := (productionDatabaseBackupPort{config: config}).targetAssignment(source)
@@ -87,6 +85,40 @@ func productionRestoreAdmission(config productionDatabaseConfig, session globalW
 	return newRestoreAdmission(config, resolve, dispatch)
 }
 
+func restoreEnvelopeFacts(envelope *pb.RecoveryEnvelopeFacts) *databaseadmission.RestoreEnvelopeFacts {
+	if envelope == nil {
+		return nil
+	}
+	facts := &databaseadmission.RestoreEnvelopeFacts{
+		EnvelopeDigest: envelope.GetEnvelopeDigest(), DatabaseID: envelope.GetDatabaseId(),
+		DatabaseIncarnation: envelope.GetDatabaseIncarnation(), RouteGeneration: envelope.GetRouteGeneration(),
+		Participants: make([]databaseadmission.RestoreParticipantFacts, 0, len(envelope.GetParticipants())),
+	}
+	for _, participant := range envelope.GetParticipants() {
+		if participant == nil {
+			facts.Participants = append(facts.Participants, databaseadmission.RestoreParticipantFacts{})
+			continue
+		}
+		facts.Participants = append(facts.Participants, databaseadmission.RestoreParticipantFacts{
+			ParticipantID: participant.GetParticipantId(), DatabaseID: participant.GetDatabaseId(), JournalCut: participant.GetJournalCut(),
+			ManifestDigest: participant.GetManifestDigest(), Checksum: participant.GetChecksum(), RowCount: participant.GetRowCount(),
+			CapturedAtMillis: participant.GetCapturedAtMillis(), RetainedUntilMillis: participant.GetRetainedUntilMillis(),
+		})
+	}
+	return facts
+}
+
+func restoreEnvelopeWire(facts *databaseadmission.RestoreEnvelopeFacts) *pb.RecoveryEnvelopeFacts {
+	if facts == nil {
+		return nil
+	}
+	envelope := &pb.RecoveryEnvelopeFacts{EnvelopeDigest: facts.EnvelopeDigest, DatabaseId: facts.DatabaseID, DatabaseIncarnation: facts.DatabaseIncarnation, RouteGeneration: facts.RouteGeneration, Participants: make([]*pb.RecoveryParticipant, 0, len(facts.Participants))}
+	for _, participant := range facts.Participants {
+		envelope.Participants = append(envelope.Participants, &pb.RecoveryParticipant{ParticipantId: participant.ParticipantID, DatabaseId: participant.DatabaseID, JournalCut: participant.JournalCut, ManifestDigest: participant.ManifestDigest, Checksum: participant.Checksum, RowCount: participant.RowCount, CapturedAtMillis: participant.CapturedAtMillis, RetainedUntilMillis: participant.RetainedUntilMillis})
+	}
+	return envelope
+}
+
 // newRestoreAdmission binds authenticated native responses to the immutable admission.
 // The production wrapper supplies grant-backed TBEP resolution and restore dispatch.
 func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.Context, databaseadmission.Record, databaseadmission.RestoreSelection) (*pb.ResolveRecoveryPointResponse, error), dispatch func(context.Context, databaseadmission.Record, func(databaseadmission.Record, *pb.LifecycleControlResponse) error) error) *databaseadmission.RestoreConfig {
@@ -99,7 +131,7 @@ func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.C
 		if err != nil {
 			return databaseadmission.RestoreAdmissionFacts{}, err
 		}
-		if response.GetEnvelope() != nil || response.GetSourceDatabase() != source.DatabaseID || response.GetRecoveryPointId() == "" || response.GetRecoveryPointDigest() == "" || response.GetJournalCut() == "" || response.GetCapturedAtMillis() == 0 || response.GetChecksum() == "" || len(response.GetPlacement()) == 0 {
+		if response.GetSourceDatabase() != source.DatabaseID || response.GetRecoveryPointId() == "" || response.GetRecoveryPointDigest() == "" || response.GetJournalCut() == "" || response.GetCapturedAtMillis() == 0 || response.GetChecksum() == "" || len(response.GetPlacement()) == 0 {
 			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: incomplete scalar response")
 		}
 		wantPlacement, gotPlacement := slices.Clone(source.Request.Regions), slices.Clone(response.GetPlacement())
@@ -112,7 +144,11 @@ func newRestoreAdmission(config productionDatabaseConfig, resolve func(context.C
 		if provider == "" || !restoreDigest(response.GetRecoveryPointDigest()) || !restoreDigest(response.GetChecksum()) {
 			return databaseadmission.RestoreAdmissionFacts{}, errors.New("restore resolution: invalid provider or digest")
 		}
-		return databaseadmission.RestoreAdmissionFacts{SourceDigest: databaseadmission.RestoreSourceDigest(source), RecoveryPointDigest: response.GetRecoveryPointDigest(), CapturedAtMillis: response.GetCapturedAtMillis(), Checksum: response.GetChecksum(), RowCount: response.GetRowCount(), PointID: response.GetRecoveryPointId(), Provider: provider, JournalCut: response.GetJournalCut()}, nil
+		facts := databaseadmission.RestoreAdmissionFacts{SourceDigest: databaseadmission.RestoreSourceDigest(source), RecoveryPointDigest: response.GetRecoveryPointDigest(), CapturedAtMillis: response.GetCapturedAtMillis(), Checksum: response.GetChecksum(), RowCount: response.GetRowCount(), PointID: response.GetRecoveryPointId(), Provider: provider, JournalCut: response.GetJournalCut()}
+		if response.GetEnvelope() != nil {
+			facts.Envelope = restoreEnvelopeFacts(response.GetEnvelope())
+		}
+		return facts, nil
 	}, Restore: func(ctx context.Context, target databaseadmission.Record) ([]byte, error) {
 		if target.RestoreFacts == nil {
 			return nil, errors.New("restore admission: resolved facts unavailable")

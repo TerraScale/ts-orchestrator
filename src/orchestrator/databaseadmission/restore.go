@@ -3,12 +3,18 @@ package databaseadmission
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"math"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/oklog/ulid"
+	"github.com/zeebo/blake3"
 )
 
 // RestoreConfig is supplied by the native recovery authority. Resolve must
@@ -87,6 +93,7 @@ func (p *Pipeline) AcceptRestore(ctx context.Context, request RestoreRequest) (R
 	if facts.SourceDigest != RestoreSourceDigest(*parent) {
 		return Record{}, ErrInvalid
 	}
+	facts = cloneRestoreAdmissionFacts(facts)
 	facts.Epoch = epoch + 1
 	scope.RecoveryPointID, scope.JournalCut, scope.RestoreProvider, scope.RestoreEpoch = facts.PointID, facts.JournalCut, facts.Provider, facts.Epoch
 	record := Record{Request: scope, Restore: new(request), RestoreFacts: new(facts)}
@@ -139,7 +146,7 @@ func validateRestoreRecord(r Record) error {
 		return ErrInvalid
 	}
 	request, facts := r.Restore, r.RestoreFacts
-	if ValidateRestoreRequest(*request) != nil || facts == nil || !validDigest(facts.PointID) || !validDigest(facts.SourceDigest) || !validDigest(facts.RecoveryPointDigest) || !validDigest(facts.Checksum) || facts.CapturedAtMillis == 0 || facts.Epoch == 0 || !validJournalCut(facts.JournalCut) || !validRestoreProvider(facts.Provider) {
+	if ValidateRestoreRequest(*request) != nil || facts == nil || !validDigest(facts.PointID) || !validDigest(facts.SourceDigest) || !validDigest(facts.RecoveryPointDigest) || !validDigest(facts.Checksum) || facts.CapturedAtMillis == 0 || facts.CapturedAtMillis > math.MaxInt64 || facts.RowCount > math.MaxInt64 || facts.Epoch == 0 || !validJournalCut(facts.JournalCut) || !validRestoreProvider(facts.Provider) || validateRestoreEnvelope(facts, request.SourceDatabaseID) != nil {
 		return ErrInvalid
 	}
 	if request.Environment != r.Request.Environment || request.TenantID != r.Request.TenantID || request.ProjectID != r.Request.ProjectID || request.Name != r.Request.Name || request.OperationID != r.Request.OperationID || request.SourceDatabaseID != r.Request.ParentDatabaseID || facts.PointID != r.Request.RecoveryPointID || facts.JournalCut != r.Request.JournalCut || facts.Provider != r.Request.RestoreProvider || facts.Epoch != r.Request.RestoreEpoch {
@@ -150,3 +157,75 @@ func validateRestoreRecord(r Record) error {
 	}
 	return nil
 }
+
+func cloneRestoreAdmissionFacts(facts RestoreAdmissionFacts) RestoreAdmissionFacts {
+	clone := facts
+	if facts.Envelope != nil {
+		envelope := *facts.Envelope
+		envelope.Participants = slices.Clone(facts.Envelope.Participants)
+		clone.Envelope = &envelope
+	}
+	return clone
+}
+
+func validateRestoreEnvelope(facts *RestoreAdmissionFacts, sourceDatabaseID string) error {
+	if facts.Envelope == nil {
+		return nil
+	}
+	envelope := facts.Envelope
+	if !validDigest(envelope.EnvelopeDigest) || envelope.DatabaseID != sourceDatabaseID || !canonicalID.MatchString(envelope.DatabaseID) || len(envelope.DatabaseIncarnation) != 32 || strings.ToLower(envelope.DatabaseIncarnation) != envelope.DatabaseIncarnation || envelope.RouteGeneration == math.MaxUint64 || len(envelope.Participants) == 0 || len(envelope.Participants) > 64 {
+		return ErrInvalid
+	}
+	incarnation, err := strconv.ParseUint(envelope.DatabaseIncarnation[:16], 16, 64)
+	if err != nil {
+		return ErrInvalid
+	}
+	if _, err := strconv.ParseUint(envelope.DatabaseIncarnation[16:], 16, 64); err != nil || envelope.DatabaseIncarnation == strings.Repeat("0", 32) {
+		return ErrInvalid
+	}
+	var wire [16]byte
+	for i := range 8 {
+		wire[i] = byte(incarnation >> (56 - 8*i))
+	}
+	low, _ := strconv.ParseUint(envelope.DatabaseIncarnation[16:], 16, 64)
+	for i := range 8 {
+		wire[8+i] = byte(low >> (56 - 8*i))
+	}
+	if ulid.ULID(wire).String() != envelope.DatabaseID {
+		return ErrInvalid
+	}
+	maxCut, maxCapture, totalRows := uint64(0), uint64(0), uint64(0)
+	logical := make([]byte, 0, len(envelope.Participants)*80)
+	previous := ""
+	for _, participant := range envelope.Participants {
+		if participant.DatabaseID != envelope.DatabaseID || participant.ParticipantID == previous || participant.ParticipantID < previous || len(participant.ParticipantID) != len("shard-")+16 || !strings.HasPrefix(participant.ParticipantID, "shard-") || strings.ToLower(participant.ParticipantID) != participant.ParticipantID {
+			return ErrInvalid
+		}
+		shard, err := strconv.ParseUint(participant.ParticipantID[len("shard-"):], 16, 64)
+		if err != nil || shard == 0 || !validDigest(participant.ManifestDigest) || !validDigest(participant.Checksum) || participant.JournalCut == 0 || participant.JournalCut > math.MaxInt64 || participant.CapturedAtMillis == 0 || participant.CapturedAtMillis > math.MaxInt64 || participant.RetainedUntilMillis < participant.CapturedAtMillis || participant.RowCount > math.MaxInt64 {
+			return ErrInvalid
+		}
+		previous = participant.ParticipantID
+		maxCut = max(maxCut, participant.JournalCut)
+		maxCapture = max(maxCapture, participant.CapturedAtMillis)
+		if totalRows > math.MaxInt64-participant.RowCount {
+			return ErrInvalid
+		}
+		totalRows += participant.RowCount
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(participant.ParticipantID)))
+		logical = append(logical, length[:]...)
+		logical = append(logical, participant.ParticipantID...)
+		binary.BigEndian.PutUint64(length[:], uint64(len(participant.Checksum)))
+		logical = append(logical, length[:]...)
+		logical = append(logical, participant.Checksum...)
+	}
+	prefix := []byte("terrabase-backup-envelope-logical-v1\x00")
+	hash := blake3.Sum256(append(prefix, logical...))
+	if facts.PointID != envelope.EnvelopeDigest || facts.RecoveryPointDigest != envelope.EnvelopeDigest || facts.Checksum != hexDigest(hash[:]) || facts.RowCount != totalRows || facts.CapturedAtMillis != maxCapture || facts.JournalCut != strconv.FormatUint(maxCut, 10) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func hexDigest(value []byte) string { return hex.EncodeToString(value) }

@@ -15,8 +15,15 @@ import (
 
 type recoveryPointServer struct {
 	pb.UnimplementedLifecycleControlServiceServer
-	response *pb.ResolveRecoveryPointResponse
-	request  *pb.ResolveRecoveryPointRequest
+	response        *pb.ResolveRecoveryPointResponse
+	request         *pb.ResolveRecoveryPointRequest
+	restore         *pb.RestoreToTargetRequest
+	restoreResponse *pb.LifecycleControlResponse
+}
+
+func (s *recoveryPointServer) RestoreToTarget(_ context.Context, request *pb.RestoreToTargetRequest) (*pb.LifecycleControlResponse, error) {
+	s.restore = request
+	return s.restoreResponse, nil
 }
 
 func (s *recoveryPointServer) ResolveRecoveryPoint(_ context.Context, request *pb.ResolveRecoveryPointRequest) (*pb.ResolveRecoveryPointResponse, error) {
@@ -88,4 +95,24 @@ func TestResolveRecoveryPointRejectsInvalidSelectionAndRebinding(t *testing.T) {
 		t.Fatal("response for another operation accepted")
 	}
 	_ = server
+}
+
+func TestRestoreToTargetForwardsCompleteEnvelope(t *testing.T) {
+	ca := newTestCA(t)
+	server, config := startRecoveryPointServer(t, ca, nil)
+	server.restoreResponse = &pb.LifecycleControlResponse{OperationId: "restore-1", Status: pb.LifecycleStatus_LIFECYCLE_STATUS_APPLIED, RecoveryPointId: "point", RecoveryPointDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Placement: []string{"GRU"}, SignedCompletedReceipt: []byte("receipt")}
+	client, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	envelope := &pb.RecoveryEnvelopeFacts{EnvelopeDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", DatabaseId: "source", DatabaseIncarnation: "0123456789abcdef0123456789abcdef", RouteGeneration: 9, Participants: []*pb.RecoveryParticipant{{ParticipantId: "p1", DatabaseId: "source-1", JournalCut: 7, ManifestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Checksum: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", RowCount: 3, CapturedAtMillis: 10}, {ParticipantId: "p2", DatabaseId: "source-2", JournalCut: 11, ManifestDigest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", Checksum: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", RowCount: 4, CapturedAtMillis: 12}}}
+	assignment := LifecycleAssignment{Region: "GRU", AuthoritySignature: []byte("proof"), OperationGrant: []byte("grant")}
+	got, err := client.RestoreToTarget(t.Context(), assignment, "restore-1", RestoreRequest{SourceOwner: "tenant/source", SourceDatabase: "source", RecoveryPointID: "point", RecoveryPointDigest: envelope.EnvelopeDigest, TargetOwner: "tenant/target", TargetDatabase: "target", JournalCut: "11", RestoreEpoch: 2, ExpectedPlacement: []string{"GRU"}, Provider: pb.RestoreProvider_RESTORE_PROVIDER_OCI, Envelope: envelope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetOperationId() != "restore-1" || server.restore == nil || server.restore.GetEnvelope().GetRouteGeneration() != 9 || server.restore.GetEnvelope().GetParticipants()[0].GetJournalCut() != 7 || server.restore.GetEnvelope().GetParticipants()[1].GetJournalCut() != 11 {
+		t.Fatalf("restore envelope was not forwarded unchanged: request=%+v response=%+v", server.restore, got)
+	}
 }
