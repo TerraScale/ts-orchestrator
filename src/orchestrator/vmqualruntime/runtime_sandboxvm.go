@@ -431,12 +431,15 @@ func (probe *sshGuestProbe) Probe(ctx context.Context, id string) (sandboxvm.Rea
 	// "degraded" is the expected overall state while the engine unit awaits
 	// its control-plane delivered configuration: its auto-restart cycle marks
 	// systemd degraded even though systemd itself is fully running, the same
-	// tolerance proveGuestRuntime applies. Unit-level health stays proven by
-	// the explicit unit gates below, so a genuinely failed service still
-	// fails readiness through its own gate.
+	// tolerance proveGuestRuntime applies. is-system-running exits 1 for
+	// degraded, so the guest channel reports that exit as an error string;
+	// only that exact exit is accepted alongside the state word. Unit-level
+	// health stays proven by the explicit unit gates below, so a genuinely
+	// failed service still fails readiness through its own gate.
 	systemdState := strings.TrimSpace(string(facts.Systemd.Stdout))
-	systemdClean := len(facts.Systemd.Stderr) == 0 && !facts.Systemd.StdoutTruncated && !facts.Systemd.StderrTruncated && facts.Systemd.Error == ""
-	readiness.Systemd = systemdClean && (systemdState == "running" || systemdState == "degraded")
+	systemdClean := len(facts.Systemd.Stderr) == 0 && !facts.Systemd.StdoutTruncated && !facts.Systemd.StderrTruncated
+	systemdExit := facts.Systemd.Error == "" && facts.Systemd.ExitCode == 0 || facts.Systemd.ExitCode == 1
+	readiness.Systemd = systemdClean && systemdExit && (systemdState == "running" || systemdState == "degraded")
 	readiness.Systemd = readiness.Systemd && validSystemdExecutable(facts.PID1) && exactCommandOutput(facts.CgroupV2, "cgroup2fs") && exactCommandOutput(facts.Time, "yes") && validSeedDigest(facts.SeedDigest, seedDigest)
 	readiness.TSNodeHealthy, err = probe.unitActive(ctx, id, config.GuestAddress, "terrascale-ts-node.service")
 	if err != nil {
