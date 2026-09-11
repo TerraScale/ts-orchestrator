@@ -1,0 +1,10 @@
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator-stack2" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator-stack2" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server" --material-input "/var/lib/terrascale-qualification/stack-intent.json" -- go run -tags sandboxvm ./cmd/vm-qualify stack
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.a19421ec544f26b2 sha256=a19421ec544f26b2b87e04aac8383afb760df47a521f6a287d7c8e1d4ec883d7 bytes=17731744
+vm-artifacts: component=orchestrator version=vmqual.44efd0aab9e591f2 sha256=44efd0aab9e591f297cf7238314d1e93fdb4a660e1f6e90014c434c6c8253ace bytes=41578656
+vm-artifacts: component=terrabase version=vmqual.13003e8e8408af4c sha256=13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1 bytes=39966352
+vm-qualify: qualificationstate: protected immutable admission unavailable
+exit status 1
+vm-artifacts: exit status 1
+exit status 1
+make: *** [Makefile:34: vm-stack] Error 1

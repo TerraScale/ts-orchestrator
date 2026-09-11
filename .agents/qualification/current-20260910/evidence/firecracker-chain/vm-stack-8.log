@@ -1,0 +1,34 @@
+TS_VM_ROOT="/var/lib/terrascale-qualification/ts-orchestrator-stack3" TS_VM_PINS="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/pins-amd64.json" TS_VM_IMAGE_MANIFEST="/home/mariogk/Projects/TerraScale/ts-orchestrator/src/orchestrator/vmimage/ubuntu-24.04.3-amd64.json" go run ./cmd/vm-artifacts --root "/var/lib/terrascale-qualification/ts-orchestrator-stack3" --repo "/home/mariogk/Projects/TerraScale/ts-orchestrator" --terrabase-repo "/home/mariogk/Projects/TerraScale/terrabase" --terrabase-binary "/home/mariogk/Projects/TerraScale/terrabase/target/x86_64-unknown-linux-musl/release/terrabase-server"  -- go run -tags sandboxvm ./cmd/vm-qualify stack
+vm-artifacts: using an ephemeral qualification-only Ed25519 release key (private key retained in memory only)
+vm-artifacts: component=ts-node version=vmqual.212ea59990e441fb sha256=212ea59990e441fb0dd618f5c4ac57ef461f70a6e06883e26328eee3d07a7bee bytes=17731744
+vm-artifacts: component=orchestrator version=vmqual.a65c2eccce4ded9f sha256=a65c2eccce4ded9fec7967e1f9670415922de5cd3d5cfa6d5a94718a3ea09f6c bytes=41578656
+vm-artifacts: component=terrabase version=vmqual.13003e8e8408af4c sha256=13003e8e8408af4c27759fd549df5b8f15cf3a57b656c1c88c1900ba58896ab1 bytes=39966352
+time="2026-09-11T04:52:25-03:00" level=info msg="Called startVMM(), setting up a VMM on /var/lib/terrascale-qualification/ts-orchestrator-stack3/state/firecracker/gru-member-1/root/api.sock"
+time="2026-09-11T04:52:25-03:00" level=info msg="refreshMachineConfiguration: [GET /machine-config][200] getMachineConfigurationOK  &{CPUTemplate: MemSizeMib:0x98cea614e80 Smt:0x98cea614e88 TrackDirtyPages:false VcpuCount:0x98cea614e68}"
+time="2026-09-11T04:52:25-03:00" level=info msg="PutGuestBootSource: [PUT /boot-source][204] putGuestBootSourceNoContent "
+time="2026-09-11T04:52:25-03:00" level=info msg="Attaching drive rootfs.ext4, slot rootfs, root true."
+time="2026-09-11T04:52:25-03:00" level=info msg="Attached drive rootfs.ext4: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-11T04:52:25-03:00" level=info msg="Attaching drive artifact-00000000000000000001.img, slot data, root false."
+time="2026-09-11T04:52:25-03:00" level=info msg="Attached drive artifact-00000000000000000001.img: [PUT /drives/{drive_id}][204] putGuestDriveByIdNoContent "
+time="2026-09-11T04:52:25-03:00" level=info msg="Attaching NIC tstddedgru01 (hwaddr 02:fc:77:01:01:01) at index 1"
+time="2026-09-11T04:52:25-03:00" level=info msg="No interfaces are allowed to access MMDS, skipping MMDS config"
+time="2026-09-11T04:52:25-03:00" level=info msg="startInstance successful: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-11T04:52:25-03:00" level=info msg="GetInstanceInfo successful"
+time="2026-09-11T04:57:52-03:00" level=info msg="Sent instance shutdown request: [PUT /actions][204] createSyncActionNoContent "
+time="2026-09-11T04:57:54-03:00" level=info msg="firecracker exited: status=0"
+vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: initial signed host installation unavailable (status failures: no-responders=1200 authentication=0 timeout=0 other=0): context deadline exceeded
+vmqual: request ts-node command for gru-member-1: nats: no responders available for request; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":3325,"activeState":"active","subState":"running","result":"success","journalEntries":10,"severityCounts":[0,0,0,0,1,1,8,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","mainPid":2738,"activeState":"active","subState":"running","result":"success","journalEntries":8,"severityCounts":[0,0,0,0,0,0,8,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":20,"severityCounts":[0,0,0,0,4,4,12,0]}]
+vmqual: observe fra-member-1 console: file was not created
+vmqual: observe fra-member-1 metrics: file was not created
+vmqual: observe fra-member-2 console: file was not created
+vmqual: observe fra-member-2 metrics: file was not created
+vmqual: observe gru-member-2 console: file was not created
+vmqual: observe gru-member-2 metrics: file was not created
+vmqual: observe sfo-member-1 console: file was not created
+vmqual: observe sfo-member-1 metrics: file was not created
+vmqual: observe sfo-member-2 console: file was not created
+vmqual: observe sfo-member-2 metrics: file was not created
+exit status 1
+vm-artifacts: exit status 1
+exit status 1
+make: *** [Makefile:34: vm-stack] Error 1
