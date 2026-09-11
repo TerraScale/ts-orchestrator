@@ -433,13 +433,14 @@ func readRequest(reader io.Reader) (string, Binding, customerRequest, error) {
 		fields = append([]*string{&customer.Provider, &customer.KeyID, &customer.KeyRegion, &customer.KeyEndpoint}, fields...)
 	}
 	cursor := 5
-	for _, field := range fields {
+	for index, field := range fields {
 		if cursor+2 > len(body) {
 			return "", Binding{}, customerRequest{}, ErrUnavailable
 		}
 		n := int(binary.BigEndian.Uint16(body[cursor : cursor+2]))
 		cursor += 2
-		if n < 1 || n > 128 || cursor+n > len(body) || !utf8.Valid(body[cursor:cursor+n]) {
+		optionalEndpoint := protocol == "TBCK" && index == 3
+		if (n < 1 && !optionalEndpoint) || n > 128 || cursor+n > len(body) || !utf8.Valid(body[cursor:cursor+n]) {
 			return "", Binding{}, customerRequest{}, ErrUnavailable
 		}
 		*field = string(body[cursor : cursor+n])

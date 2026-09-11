@@ -65,6 +65,38 @@ func TestRustWorkloadIdentityFrameMatchesProductionCatalog(t *testing.T) {
 	}
 }
 
+func TestTBCKAllowsOmittedAWSKMSOverride(t *testing.T) {
+	config, catalog := fixture(t)
+	entry := catalog.Entries[0]
+	entry.Provider, entry.KeyID, entry.KeyRegion = "aws-kms", "arn:aws:kms:sa-east-1:123456789012:key/12345678-1234-1234-1234-123456789012", "sa-east-1"
+	entry.CryptoEndpoint, entry.KEKID, entry.KEKVersionID = "", "", ""
+	entry.AdmissionOperationID = "01J00000000000000000000003"
+	entry.BYOK = byokFixtureMetadata()
+	entry.BYOK.KeyProvider, entry.BYOK.KeyID, entry.BYOK.KeyRegion, entry.BYOK.KeyEndpoint = entry.Provider, entry.KeyID, entry.KeyRegion, ""
+	catalog.Entries[0] = entry
+	if err := WriteCatalog(config.CatalogPath, catalog); err != nil {
+		t.Fatal(err)
+	}
+	config.Customer = &CustomerConfig{Provider: entry.Provider, KeyID: entry.KeyID, KeyRegion: entry.KeyRegion, Authority: customerAuthorityFunc(func(context.Context, Binding, string) (*hostsecrets.DataKey, error) { return testDataKey(t, 9), nil })}
+	server, err := start(t.Context(), config, func(context.Context, Entry) (*hostsecrets.DataKey, error) {
+		t.Fatal("unexpected unwrap")
+		return nil, ErrUnavailable
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	request := []byte{'T', 'B', 'C', 'K', 1}
+	for _, value := range []string{entry.Provider, entry.KeyID, entry.KeyRegion, "", entry.Binding.Environment, entry.Binding.TenantID, entry.Binding.ProjectID, entry.Binding.DatabaseID, entry.Binding.KeyVersion, entry.Binding.Region, entry.Binding.Purpose} {
+		request = binary.BigEndian.AppendUint16(request, uint16(len(value)))
+		request = append(request, value...)
+	}
+	response := sendWorkloadFrame(t, config.SocketPath, append(binary.BigEndian.AppendUint32(nil, uint32(len(request))), request...))
+	if len(response) != 68 || response[5] != 0 {
+		t.Fatalf("omitted endpoint TBCK request rejected: %x", response)
+	}
+}
+
 func rustWorkloadFrame(t *testing.T) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "rust_workload_identity_frame.hex"))

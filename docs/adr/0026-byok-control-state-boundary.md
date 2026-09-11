@@ -27,7 +27,11 @@ recovery after lease expiry use the same strict decoder: unknown or retired
 fields fail closed instead of being silently dropped. A restart reconstructs a provider
 client from the reference and the process-local workload-identity boundary;
 it never recovers credentials from NATS. AWS KMS uses the regional SDK default
-when the endpoint is omitted.
+when the endpoint is omitted. The omitted endpoint remains an empty reference
+through the host key-lease protocol so it matches the admitted catalog entry;
+it is not rewritten into an explicit URL. Customer-S3 credential requests bind
+the environment, tenant, project, database, and placement revision as well as
+the provider tuple before the broker may issue credentials.
 
 This decision complements TerraBase ADR 0049. Any new provider or credential
 source requires an independently reviewed wire contract and qualification
