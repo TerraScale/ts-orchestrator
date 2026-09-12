@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: write
-  issues: write
-
 jobs:
   ci:
     uses: TerraScale/ts-deploy/.forgejo/workflows/deploy.yml@main
