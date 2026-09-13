@@ -10,6 +10,7 @@ AI IS NOT ALLOWED TO EDIT THIS FILE ONLY HUMANS CAN!
 - This needs to be deployed as a single binary to be easy to deployed and updated
 - Commit and push often after every major change automatically
 - When the human asks for a commit, commit and push exactly as asked — do not run tests, checks, or builds first
+- The project must follow a feature sliced design so it is well organized and similar or dependant files and services are kept together
 
 # Libraries
 - We should use nats for ts-orchestrator <-> ts-orchestrator comunnication
