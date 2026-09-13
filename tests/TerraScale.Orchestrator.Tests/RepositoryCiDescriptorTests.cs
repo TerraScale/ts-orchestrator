@@ -8,7 +8,10 @@ public sealed class RepositoryCiDescriptorTests
     [Test]
     public async Task CheckedInPolicyHasOneClosedPinnedRecipeTargetPerNode()
     {
-        var root = FindPolicyFixtureRoot();
+        var repositoryRoot = FindRepositoryRoot();
+        var root = HasCheckedInPolicy(repositoryRoot)
+            ? repositoryRoot
+            : FindPolicyFixtureRoot();
         var descriptor = RepositoryCiDescriptor.Parse(
             await File.ReadAllBytesAsync(Path.Combine(root, RepositoryCiImpactPlanner.DescriptorPath)));
         var recipe = await File.ReadAllTextAsync(Path.Combine(root, CiRunnerExecutionPlanner.RecipePath));
@@ -236,6 +239,10 @@ public sealed class RepositoryCiDescriptorTests
             "TerraScale.Orchestrator.Tests",
             "fixtures",
             "repository-ci");
+
+    private static bool HasCheckedInPolicy(string root) =>
+        File.Exists(Path.Combine(root, RepositoryCiImpactPlanner.DescriptorPath)) &&
+        File.Exists(Path.Combine(root, CiRunnerExecutionPlanner.RecipePath));
 
     private static string ValidDescriptor() => """
         {
