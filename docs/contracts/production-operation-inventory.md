@@ -1,4 +1,10 @@
-# Production operation and dependency inventory
+# Production operation and dependency inventory (historical)
+
+> **Historical design record.** This inventory retains pre-C# package paths,
+> command names, and qualification gaps. It is not a current operator runbook
+> or source map. Use [DESIGN.md](../../DESIGN.md) and the repository
+> [README](../../README.md) for the active C# implementation and verification
+> commands.
 
 This is the PR-01 implementation inventory required by [GOAL.md](../../../GOAL.md#ts-orchestrator).
 It records entry points and the proof each operation still needs. A package,
