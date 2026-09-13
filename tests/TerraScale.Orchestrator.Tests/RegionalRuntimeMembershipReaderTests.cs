@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -30,6 +32,24 @@ public sealed class RegionalRuntimeMembershipReaderTests
             .IsFalse();
         await Assert.That((member with { Cell = "sfo" }).VerifySignedIdentity()).IsFalse();
         await Assert.That((member with { Build = "other-build" }).VerifySignedIdentity()).IsFalse();
+
+        // Membership identity is deliberately restricted to P-256. A valid
+        // signature under another curve must not become a trusted member.
+        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        var p384PublicKey = p384.ExportSubjectPublicKeyInfo();
+        var p384Member = member with
+        {
+            IdentityKeyId = Convert.ToHexStringLower(SHA256.HashData(p384PublicKey))[..32],
+            IdentityPublicKey = Convert.ToBase64String(p384PublicKey),
+            IdentitySignature = ""
+        };
+        p384Member = p384Member with
+        {
+            IdentitySignature = Convert.ToBase64String(p384.SignData(
+                Encoding.UTF8.GetBytes(p384Member.CanonicalMaterial()),
+                HashAlgorithmName.SHA256))
+        };
+        await Assert.That(p384Member.VerifySignedIdentity()).IsFalse();
     }
 
     [Test]
@@ -93,6 +113,11 @@ public sealed class RegionalRuntimeMembershipReaderTests
             "gru", "controller-1", ThreeControllers, previous: null,
             record: healthy with { Capabilities = ["service-discovery", "authority"] }, now))
             .IsEqualTo(RegionalRuntimeMembershipRecordClass.Malformed);
+
+        await Assert.That(RegionalRuntimeMembershipReader.Classify(
+            "gru", "controller-1", ThreeControllers, previous: null,
+            record: p384Member, now))
+            .IsEqualTo(RegionalRuntimeMembershipRecordClass.InvalidSignature);
     }
 
     [Test]
@@ -263,4 +288,3 @@ public sealed class RegionalRuntimeMembershipReaderTests
         return member with { IdentitySignature = identity.Sign(member) };
     }
 }
-

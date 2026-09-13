@@ -208,7 +208,8 @@ internal sealed record RegionalRuntimeMembershipSnapshot(
             Health.ObservedAt != ObservedAt || Health.ActiveControllers != Members.Count ||
             Members.Count == 0 ||
             Members.Any(member => !member.IsValidFor(expectedCell, ObservedAt) ||
-                                  member.LeaseExpiresAt <= ObservedAt) ||
+                                  member.LeaseExpiresAt <= ObservedAt ||
+                                  !member.VerifySignedIdentity()) ||
             Members.Select(static member => member.Instance).Distinct(StringComparer.Ordinal).Count() != Members.Count ||
             !Members.SequenceEqual(Members.OrderBy(static member => member.Instance, StringComparer.Ordinal)))
         {
@@ -421,7 +422,9 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             current.EnsureSuccess();
             var existing = Deserialize(current.Value);
             var now = DateTimeOffset.UtcNow;
-            if (!existing.IsValidFor(topology.Cell, now) || existing.Instance != topology.Instance)
+            if (!existing.IsValidFor(topology.Cell, now) ||
+                !existing.VerifySignedIdentity() ||
+                existing.Instance != topology.Instance)
                 throw new InvalidOperationException(
                     $"The regional runtime membership key '{key}' contains a record that is invalid or bound to " +
                     "another instance. The record's own lease is the first recovery path; if the key stays wedged " +
@@ -591,4 +594,3 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
 [JsonSerializable(typeof(RegionalRuntimeMember))]
 [JsonSerializable(typeof(RegionalRuntimeMembershipSnapshot))]
 internal sealed partial class RegionalRuntimeMembershipJsonContext : JsonSerializerContext;
-

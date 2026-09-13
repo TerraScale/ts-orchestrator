@@ -522,9 +522,10 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
     {
         var key = Key(RequiredTarget(request), region);
         var existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false);
-        var current = existing is null ? null : Read(existing.Value).ArtifactDigest;
+        var currentState = existing is null ? null : Read(existing.Value);
+        var current = currentState?.ArtifactDigest;
         var requested = RequiredDigest(artifact);
-        if (StringComparer.OrdinalIgnoreCase.Equals(current, requested))
+        if (currentState is not null && SameArtifactIdentity(currentState, artifact))
             // The region already runs the requested digest: nothing mutated, so there is no
             // rollback target — reporting the requested digest as "previous" would let a later
             // rollback "restore" an artifact this delivery never replaced. This also makes a
@@ -548,7 +549,7 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
             else
                 await ledger.UpdateAsync(key, state, existing.Revision, cancellationToken).ConfigureAwait(false);
             return new(true, true, previous,
-                PreviousManifestDigest: existing is null ? null : Read(existing.Value).ManifestDigest);
+                PreviousManifestDigest: currentState?.ManifestDigest);
         }
         catch (ForgejoDeliveryLedgerConflictException)
         {
@@ -566,9 +567,7 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
         CancellationToken cancellationToken)
     {
         var entry = await ledger.GetAsync(Key(RequiredTarget(request), region), cancellationToken).ConfigureAwait(false);
-        var passed = entry is not null && StringComparer.OrdinalIgnoreCase.Equals(
-            Read(entry.Value).ArtifactDigest,
-            RequiredDigest(artifact));
+        var passed = entry is not null && SameArtifactIdentity(Read(entry.Value), artifact);
         return new(passed, [new($"{region}-delivery", passed ? DeliveryHealthStatus.Passed : DeliveryHealthStatus.Failed)]);
     }
 
@@ -581,8 +580,7 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
         foreach (var region in orderedRegions)
         {
             var entry = await ledger.GetAsync(Key(RequiredTarget(request), region), cancellationToken).ConfigureAwait(false);
-            if (entry is null || !StringComparer.OrdinalIgnoreCase.Equals(
-                    Read(entry.Value).ArtifactDigest, RequiredDigest(artifact)))
+            if (entry is null || !SameArtifactIdentity(Read(entry.Value), artifact))
                 return new(false);
         }
         return new(true);
@@ -643,6 +641,10 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
             ? manifest
             : throw new InvalidDataException("A direct delivery mutation has no manifest digest.");
 
+    private static bool SameArtifactIdentity(DirectDeliveryState current, DeliveryArtifact requested) =>
+        StringComparer.OrdinalIgnoreCase.Equals(current.ArtifactDigest, RequiredDigest(requested)) &&
+        StringComparer.OrdinalIgnoreCase.Equals(current.ManifestDigest, RequiredManifestDigest(requested));
+
     private static string RequiredKind(DeliveryArtifact artifact) =>
         artifact.Kind is { } kind
             ? kind
@@ -667,4 +669,3 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
 
     private sealed record DirectDeliveryState(string ArtifactDigest, string ManifestDigest, string Kind);
 }
-

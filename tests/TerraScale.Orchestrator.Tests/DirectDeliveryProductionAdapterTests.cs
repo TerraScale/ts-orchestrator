@@ -306,6 +306,38 @@ public sealed class DirectDeliveryProductionAdapterTests
     }
 
     [Test]
+    public async Task Artifact_identity_requires_matching_digest_and_manifest_for_mutation_health_and_convergence()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var target = new NatsDirectDeliveryTarget(new LedgerAdapter(ledger));
+        var request = Request(CommitA);
+
+        var seeded = await target.ApplyAsync(
+            request, Artifact(ArtifactDigest, OtherManifestDigest), "gru", default);
+        await Assert.That(seeded.Succeeded).IsTrue();
+        await Assert.That(seeded.Mutated).IsTrue();
+
+        var mismatchedHealth = await target.CheckHealthAsync(request, Artifact(), "gru", default);
+        var mismatchedConvergence = await target.CheckConvergenceAsync(
+            request, Artifact(), ["gru"], default);
+
+        await Assert.That(mismatchedHealth.Passed).IsFalse();
+        await Assert.That(mismatchedConvergence.Converged).IsFalse();
+
+        var corrected = await target.ApplyFencedAsync(
+            request, Artifact(), "gru", ArtifactDigest, default);
+        await Assert.That(corrected.Succeeded).IsTrue();
+        await Assert.That(corrected.Mutated).IsTrue();
+        await Assert.That(corrected.PreviousArtifactDigest).IsEqualTo(ArtifactDigest);
+        await Assert.That(corrected.PreviousManifestDigest).IsEqualTo(OtherManifestDigest);
+
+        await Assert.That((await target.CheckHealthAsync(request, Artifact(), "gru", default)).Passed)
+            .IsTrue();
+        await Assert.That((await target.CheckConvergenceAsync(request, Artifact(), ["gru"], default)).Converged)
+            .IsTrue();
+    }
+
+    [Test]
     public async Task A_receipt_less_failure_with_forward_debt_resumes_rollback_through_the_durable_journal()
     {
         // B1 characterization against the REAL journal: the coordinator persisted Failed with
@@ -1251,4 +1283,3 @@ public sealed class DirectDeliveryProductionAdapterTests
             throw new IOException("the evidence ledger is unreachable");
     }
 }
-

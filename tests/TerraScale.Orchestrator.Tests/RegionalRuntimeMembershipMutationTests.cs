@@ -76,6 +76,14 @@ public sealed class RegionalRuntimeMembershipMutationTests
                 Cell, Instance, own with { Cell = "sfo", Cluster = "orchestrator-control-sfo" }, existing: null, now))
             .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectWrongBinding);
 
+        // An otherwise validly signed proposal for another control cluster may
+        // never create this cell's deterministic slot.
+        var wrongCluster = own with { Cluster = "orchestrator-control-sfo", IdentitySignature = "" };
+        wrongCluster = wrongCluster with { IdentitySignature = identity.Sign(wrongCluster) };
+        await Assert.That(RegionalRuntimeMembershipMutation.Decide(
+                Cell, Instance, wrongCluster, existing: null, now))
+            .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectWrongBinding);
+
         // A record that already exists under the deterministic key but binds a
         // different instance is a wrong binding, not a takeover candidate.
         await Assert.That(RegionalRuntimeMembershipMutation.Decide(
@@ -102,6 +110,14 @@ public sealed class RegionalRuntimeMembershipMutationTests
 
         // Unsigned proposals are refused outright.
         await Assert.That(Decide(own with { IdentitySignature = "" }, existing: null, now))
+            .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectWrongBinding);
+
+        // A well-shaped but forged signature is refused before the CAS policy
+        // can classify it as a create or takeover.
+        await Assert.That(Decide(
+                own with { IdentitySignature = Convert.ToBase64String(new byte[64]) },
+                existing: null,
+                now))
             .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectWrongBinding);
     }
 
@@ -156,4 +172,3 @@ public sealed class RegionalRuntimeMembershipMutationTests
         return member with { IdentitySignature = identity.Sign(member) };
     }
 }
-

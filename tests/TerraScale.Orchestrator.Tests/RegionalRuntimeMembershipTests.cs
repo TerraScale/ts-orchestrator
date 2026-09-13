@@ -52,6 +52,13 @@ public sealed class RegionalRuntimeMembershipTests
             .Throws<InvalidOperationException>();
         await Assert.That(() => (valid with { Members = [] }).Validate("gru"))
             .Throws<InvalidOperationException>();
+
+        // Shape-valid identity material is still rejected when its signature
+        // does not authenticate the member fields.
+        await Assert.That(() => (valid with
+        {
+            Members = [first with { IdentitySignature = new string('A', 96) }, second]
+        }).Validate("gru")).Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -162,4 +169,3 @@ public sealed class RegionalRuntimeMembershipTests
         return member with { IdentitySignature = identity.Sign(member) };
     }
 }
-

@@ -55,6 +55,12 @@ internal sealed class RegionalRuntimeMembershipIdentity : IDisposable
                 return false;
             using var key = ECDsa.Create();
             key.ImportSubjectPublicKeyInfo(publicKey, out _);
+            var curve = key.ExportParameters(includePrivateParameters: false).Curve;
+            if (!string.Equals(
+                    curve.Oid.Value,
+                    ECCurve.NamedCurves.nistP256.Oid.Value,
+                    StringComparison.Ordinal))
+                return false;
             return key.VerifyData(
                 Encoding.UTF8.GetBytes(member.CanonicalMaterial()),
                 Convert.FromBase64String(member.IdentitySignature),
@@ -208,9 +214,12 @@ internal static class RegionalRuntimeMembershipMutation
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(proposed);
-        if (!proposed.HasWellFormedIdentityMaterial())
+        if (!proposed.IsValidFor(boundCell, now) || !proposed.VerifySignedIdentity())
             return RegionalRuntimeMembershipMutationClass.RejectWrongBinding;
         if (proposed.Cell != boundCell || proposed.Instance != boundInstance)
+            return RegionalRuntimeMembershipMutationClass.RejectWrongBinding;
+
+        if (proposed.Cluster != $"orchestrator-control-{boundCell}")
             return RegionalRuntimeMembershipMutationClass.RejectWrongBinding;
 
         if (existing is null)
@@ -261,4 +270,3 @@ internal static class RegionalRuntimeMembershipMutation
         current.SessionId == boundSessionId &&
         heldRevision != 0;
 }
-
