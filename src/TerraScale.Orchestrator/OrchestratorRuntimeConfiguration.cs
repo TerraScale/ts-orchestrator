@@ -9,6 +9,10 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string NatsUrl,
     int Replicas,
     string Instance,
+    string? NatsNKeyFile = null,
+    string? NatsTlsCaFile = null,
+    string? NatsTlsCertificateFile = null,
+    string? NatsTlsKeyFile = null,
     string? GlobalNatsUrl = null,
     string? GlobalNatsNKeyFile = null,
     string? GlobalNatsCredentialsFile = null,
@@ -28,6 +32,17 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? GlobalDirectoryServiceNatsTlsCertificateFile = null,
     string? GlobalDirectoryServiceNatsTlsKeyFile = null,
     string? GlobalDirectoryEndpoints = null,
+    string? InfrastructureNatsNKeyFile = null,
+    string? InfrastructureNatsTlsCaFile = null,
+    string? InfrastructureNatsTlsCertificateFile = null,
+    string? InfrastructureNatsTlsKeyFile = null,
+    string? JournalNatsNKeyFile = null,
+    string? JournalNatsTlsCaFile = null,
+    string? JournalNatsTlsCertificateFile = null,
+    string? JournalNatsTlsKeyFile = null,
+    string? JournalAuthorityPublicKeyFile = null,
+    string? JournalReplySigningKeyFile = null,
+    string? JournalControllerNKeys = null,
     string? CommandSigningKeyFile = null,
     string[]? CommandTrustKeyFiles = null,
     string? CiRunnerNatsAccountSigningKeyFile = null,
@@ -57,6 +72,11 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? CiRunnerNatsTlsCertificateFile = null,
     string? CiRunnerNatsTlsKeyFile = null,
     string? OciCiRunnerPoolConfigurationFile = null,
+    string? ForgejoListenPrefix = null,
+    string? ForgejoRepository = null,
+    string? ForgejoSecretFile = null,
+    string? ForgejoApiUrl = null,
+    string? ForgejoApiTokenFile = null,
     string? ForgejoCiSourceGraphFile = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
@@ -88,6 +108,10 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_NATS_URL" => NatsUrl,
         "TS_ORCH_REPLICAS" => Replicas.ToString(System.Globalization.CultureInfo.InvariantCulture),
         "TS_ORCH_INSTANCE" => Instance,
+        "TS_ORCH_NATS_NKEY_FILE" => NatsNKeyFile,
+        "TS_ORCH_NATS_TLS_CA_FILE" => NatsTlsCaFile,
+        "TS_ORCH_NATS_TLS_CERT_FILE" => NatsTlsCertificateFile,
+        "TS_ORCH_NATS_TLS_KEY_FILE" => NatsTlsKeyFile,
         "TS_ORCH_GLOBAL_NATS_URL" => GlobalNatsUrl,
         "TS_ORCH_GLOBAL_NATS_NKEY_FILE" => GlobalNatsNKeyFile,
         "TS_ORCH_GLOBAL_NATS_CREDENTIALS_FILE" => GlobalNatsCredentialsFile,
@@ -107,6 +131,17 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE" => GlobalDirectoryServiceNatsTlsCertificateFile,
         "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE" => GlobalDirectoryServiceNatsTlsKeyFile,
         "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS" => GlobalDirectoryEndpoints,
+        "TS_ORCH_INFRA_NATS_NKEY_FILE" => InfrastructureNatsNKeyFile,
+        "TS_ORCH_INFRA_NATS_TLS_CA_FILE" => InfrastructureNatsTlsCaFile,
+        "TS_ORCH_INFRA_NATS_TLS_CERT_FILE" => InfrastructureNatsTlsCertificateFile,
+        "TS_ORCH_INFRA_NATS_TLS_KEY_FILE" => InfrastructureNatsTlsKeyFile,
+        "TS_ORCH_JOURNAL_NATS_NKEY_FILE" => JournalNatsNKeyFile,
+        "TS_ORCH_JOURNAL_NATS_TLS_CA_FILE" => JournalNatsTlsCaFile,
+        "TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE" => JournalNatsTlsCertificateFile,
+        "TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE" => JournalNatsTlsKeyFile,
+        "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE" => JournalAuthorityPublicKeyFile,
+        "TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE" => JournalReplySigningKeyFile,
+        "TS_ORCH_JOURNAL_CONTROLLER_NKEYS" => JournalControllerNKeys,
         "TS_ORCH_COMMAND_SIGNING_KEY_FILE" => CommandSigningKeyFile,
         "TS_ORCH_COMMAND_TRUST_KEY_FILES" => CommandTrustKeyFiles is { Length: > 0 }
             ? string.Join(Path.PathSeparator, CommandTrustKeyFiles)
@@ -138,6 +173,11 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_CI_RUNNER_NATS_TLS_CERT_FILE" => CiRunnerNatsTlsCertificateFile,
         "TS_ORCH_CI_RUNNER_NATS_TLS_KEY_FILE" => CiRunnerNatsTlsKeyFile,
         "TS_ORCH_CI_OCI_CONFIG" => OciCiRunnerPoolConfigurationFile,
+        "TS_ORCH_FORGEJO_LISTEN_PREFIX" => ForgejoListenPrefix,
+        "TS_ORCH_FORGEJO_REPOSITORY" => ForgejoRepository,
+        "TS_ORCH_FORGEJO_SECRET_FILE" => ForgejoSecretFile,
+        "TS_ORCH_FORGEJO_API_URL" => ForgejoApiUrl,
+        "TS_ORCH_FORGEJO_API_TOKEN_FILE" => ForgejoApiTokenFile,
         "TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE" => ForgejoCiSourceGraphFile,
         _ => null
     };
@@ -145,4 +185,3 @@ internal sealed record OrchestratorRuntimeConfiguration(
     private static string? Invariant(long? value) => value?.ToString(
         System.Globalization.CultureInfo.InvariantCulture);
 }
-
