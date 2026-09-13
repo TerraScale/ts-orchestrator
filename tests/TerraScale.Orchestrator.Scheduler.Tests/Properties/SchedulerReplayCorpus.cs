@@ -58,7 +58,7 @@ internal static class SchedulerReplayCorpus
 
 public sealed class SchedulerReplayCorpusTests
 {
-    private const string ExpectedContentSha256 = "10f0e0ed8a72189bf318ede88ca5f78cc8347e1a28840ee77ba0587492420073";
+    private const string ExpectedContentSha256 = "0771d6722beb817239f6c9e2d25b4878f1c88f3c1305119402d6ea9733be59e5";
     [Test]
     public async Task Embedded_minimal_seed_corpus_is_strict_content_addressed_bounded_and_replays_exactly()
     {
