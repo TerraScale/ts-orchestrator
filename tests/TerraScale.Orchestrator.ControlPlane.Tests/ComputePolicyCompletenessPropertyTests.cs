@@ -262,40 +262,40 @@ public sealed class ComputePolicyCompletenessPropertyTests
         if (decision.Errors.Count != 0) return false;
         return request.State switch
         {
-        ScaleOutState.DemandObserved => ExactTrace(decision, ComputeTraceCode.PlanRequired, ComputeAction.PersistPlan) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is PersistScalePlanIntent value &&
-            value.Action == ComputeAction.PersistPlan &&
-            value.Binding == request.Binding && value.Resources == request.Plan.Resources &&
-            value.DesiredNodes == request.Plan.DesiredNodes && value.PlanIdentity == request.Plan.PlanIdentity,
-        ScaleOutState.PlanPersisted => ExactTrace(decision, ComputeTraceCode.AuthorizationReady, ComputeAction.Authorize) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is AuthorizeCapacityIntent value &&
-            value.Action == ComputeAction.Authorize &&
-            value.Binding == request.Binding && value.PersistedPlan == request.PersistedPlan,
-        ScaleOutState.Authorized => ExactTrace(decision, ComputeTraceCode.CreateReady, ComputeAction.RequestCreate) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is RequestCreateIntent value &&
-            value.Action == ComputeAction.RequestCreate &&
-            value.Binding == request.Binding && value.CreateKey == request.CreateEvidence!.CreateKey &&
-            value.PersistedPlan == request.PersistedPlan && value.Authorization == request.Authorization &&
-            value.CreateEvidence == request.CreateEvidence && value.CreateKey == value.CreateEvidence.CreateKey,
-        ScaleOutState.RequestRecorded when request.CreateEvidence!.Status == ProviderCreateStatus.OutcomeUnknown =>
-            ExactTrace(decision, ComputeTraceCode.ObservationRequired, ComputeAction.Observe) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is ObserveCreateIntent value &&
-            value.Action == ComputeAction.Observe && value.Binding == request.Binding &&
-            value.CreateKey == request.CreateEvidence.CreateKey,
-        ScaleOutState.RequestRecorded or ScaleOutState.InstanceCreated =>
-            ExactTrace(decision, ComputeTraceCode.EnrollmentReady, ComputeAction.Enroll) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is EnrollNodeIntent value &&
-            value.Action == ComputeAction.Enroll && value.Binding == request.Binding &&
-            value.Resource == request.CreateEvidence!.Resource && value.Node == request.Progress!.Node &&
-            value.IdentityProof == request.Progress.IdentityProof,
-        ScaleOutState.Enrolled => ExactTrace(decision, ComputeTraceCode.ReadinessReady, ComputeAction.Ready) &&
-            decision.Intents.Count == 1 && decision.Intents[0] is ReadyNodeIntent value && value.Action == ComputeAction.Ready &&
-            value.Binding == request.Binding && value.Resource == request.Progress!.Resource &&
-            value.Node == request.Progress.Node && value.BootstrapProof == request.Progress.BootstrapProof &&
-            value.DiskProof == request.Progress.DiskProof && value.PlacementProof == request.Authorization!.PlacementProof,
-        ScaleOutState.Ready or ScaleOutState.Completed => decision.Intents.Count == 0 && decision.Errors.Count == 0 &&
-            ExactTrace(decision, ComputeTraceCode.Completed, ComputeAction.Ready),
-        _ => false,
+            ScaleOutState.DemandObserved => ExactTrace(decision, ComputeTraceCode.PlanRequired, ComputeAction.PersistPlan) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is PersistScalePlanIntent value &&
+                value.Action == ComputeAction.PersistPlan &&
+                value.Binding == request.Binding && value.Resources == request.Plan.Resources &&
+                value.DesiredNodes == request.Plan.DesiredNodes && value.PlanIdentity == request.Plan.PlanIdentity,
+            ScaleOutState.PlanPersisted => ExactTrace(decision, ComputeTraceCode.AuthorizationReady, ComputeAction.Authorize) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is AuthorizeCapacityIntent value &&
+                value.Action == ComputeAction.Authorize &&
+                value.Binding == request.Binding && value.PersistedPlan == request.PersistedPlan,
+            ScaleOutState.Authorized => ExactTrace(decision, ComputeTraceCode.CreateReady, ComputeAction.RequestCreate) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is RequestCreateIntent value &&
+                value.Action == ComputeAction.RequestCreate &&
+                value.Binding == request.Binding && value.CreateKey == request.CreateEvidence!.CreateKey &&
+                value.PersistedPlan == request.PersistedPlan && value.Authorization == request.Authorization &&
+                value.CreateEvidence == request.CreateEvidence && value.CreateKey == value.CreateEvidence.CreateKey,
+            ScaleOutState.RequestRecorded when request.CreateEvidence!.Status == ProviderCreateStatus.OutcomeUnknown =>
+                ExactTrace(decision, ComputeTraceCode.ObservationRequired, ComputeAction.Observe) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is ObserveCreateIntent value &&
+                value.Action == ComputeAction.Observe && value.Binding == request.Binding &&
+                value.CreateKey == request.CreateEvidence.CreateKey,
+            ScaleOutState.RequestRecorded or ScaleOutState.InstanceCreated =>
+                ExactTrace(decision, ComputeTraceCode.EnrollmentReady, ComputeAction.Enroll) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is EnrollNodeIntent value &&
+                value.Action == ComputeAction.Enroll && value.Binding == request.Binding &&
+                value.Resource == request.CreateEvidence!.Resource && value.Node == request.Progress!.Node &&
+                value.IdentityProof == request.Progress.IdentityProof,
+            ScaleOutState.Enrolled => ExactTrace(decision, ComputeTraceCode.ReadinessReady, ComputeAction.Ready) &&
+                decision.Intents.Count == 1 && decision.Intents[0] is ReadyNodeIntent value && value.Action == ComputeAction.Ready &&
+                value.Binding == request.Binding && value.Resource == request.Progress!.Resource &&
+                value.Node == request.Progress.Node && value.BootstrapProof == request.Progress.BootstrapProof &&
+                value.DiskProof == request.Progress.DiskProof && value.PlacementProof == request.Authorization!.PlacementProof,
+            ScaleOutState.Ready or ScaleOutState.Completed => decision.Intents.Count == 0 && decision.Errors.Count == 0 &&
+                ExactTrace(decision, ComputeTraceCode.Completed, ComputeAction.Ready),
+            _ => false,
         };
     }
 
@@ -415,10 +415,14 @@ public sealed class ComputePolicyCompletenessPropertyTests
         ComputeNodeRole.ControlNats or ComputeNodeRole.ProductNats or ComputeNodeRole.TerraBase;
     private static ScaleInBinding IntentBinding(ComputeIntent intent) => intent switch
     {
-        CordonNodeIntent value => value.Binding, DrainNodeIntent value => value.Binding,
-        DeregisterNodeIntent value => value.Binding, DetachVolumeIntent value => value.Binding,
-        RevokeNodeIntent value => value.Binding, TerminateNodeIntent value => value.Binding,
-        AuditOrphansIntent value => value.Binding, _ => throw new InvalidOperationException(),
+        CordonNodeIntent value => value.Binding,
+        DrainNodeIntent value => value.Binding,
+        DeregisterNodeIntent value => value.Binding,
+        DetachVolumeIntent value => value.Binding,
+        RevokeNodeIntent value => value.Binding,
+        TerminateNodeIntent value => value.Binding,
+        AuditOrphansIntent value => value.Binding,
+        _ => throw new InvalidOperationException(),
     };
 
     private static RegionalSurvivalBundle Bundle(int seed) => new(new($"bundle-{seed}"), new($"cell-{seed}"), seed + 1,

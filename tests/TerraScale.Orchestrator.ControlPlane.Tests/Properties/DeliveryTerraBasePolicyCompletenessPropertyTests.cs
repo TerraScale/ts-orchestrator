@@ -44,11 +44,19 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
 
         var scope = Scope(2_000, 9);
         await Assert.That(TerraBaseTopologyPlanner.PlanAdd(scope,
-            Topology(scope) with { TopologyApplied = TerraBaseProof.Unknown, Replication = TerraBaseReplication.Unknown,
-                PostChangeReplication = TerraBaseProof.Unknown }).Action).IsEqualTo(TerraBaseAction.Add);
+            Topology(scope) with
+            {
+                TopologyApplied = TerraBaseProof.Unknown,
+                Replication = TerraBaseReplication.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown
+            }).Action).IsEqualTo(TerraBaseAction.Add);
         await Assert.That(TerraBaseTopologyPlanner.PlanAdd(scope,
-            Topology(scope) with { TopologyApplied = TerraBaseProof.Contradicted, Replication = TerraBaseReplication.Unknown,
-                PostChangeReplication = TerraBaseProof.Unknown }).Action).IsEqualTo(TerraBaseAction.Add);
+            Topology(scope) with
+            {
+                TopologyApplied = TerraBaseProof.Contradicted,
+                Replication = TerraBaseReplication.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown
+            }).Action).IsEqualTo(TerraBaseAction.Add);
         await Assert.That(Upgrade(scope, upgradeApplied: TerraBaseProof.Unknown).Action).IsEqualTo(TerraBaseAction.Upgrade);
         await Assert.That(Upgrade(scope, upgradeApplied: TerraBaseProof.Contradicted).Action).IsEqualTo(TerraBaseAction.Upgrade);
     }
@@ -95,8 +103,11 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
             else if (mode == 60)
             {
                 decision = TerraBaseTopologyPlanner.PlanAdd(scope, Topology(scope) with
-                    { TopologyApplied = TerraBaseProof.Unknown, Replication = TerraBaseReplication.Unknown,
-                        PostChangeReplication = TerraBaseProof.Unknown });
+                {
+                    TopologyApplied = TerraBaseProof.Unknown,
+                    Replication = TerraBaseReplication.Unknown,
+                    PostChangeReplication = TerraBaseProof.Unknown
+                });
                 expected = $"Add|Topology|NextStep|{Trace(scope, O(100), scope.TopologyGeneration)}|topology:{ScopeText(scope)}:Elastic:100";
             }
             else if (mode == 61)
@@ -141,22 +152,22 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
 
     private static TerraBaseDecision WrongScopeDecision(TerraBaseEvidenceScope expected,
         TerraBaseEvidenceScope actual, int planner) => planner switch
-    {
-        0 => TerraBaseTopologyPlanner.PlanAdd(expected, Topology(actual)),
-        1 => TerraBaseRetainedVolumePlanner.Plan(expected, new(actual, [], TerraBaseProof.Proven,
-            TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven,
-            O(expected.AuthorityEpoch.Value + 1), 8)),
-        2 => TerraBaseUpgradePlanner.Plan(expected, Release("current"), Release("target"),
-            UpgradeEvidence(actual, Release("current"), Release("target"))),
-        3 => TerraBaseBackupPlanner.Authorize(expected, new(actual, BackupId("backup"), O(1), null, null,
-            null, true, Object("destination"), Key("key"), TerraBaseProof.Proven, TerraBaseProof.Proven)),
-        4 => TerraBaseBackupPlanner.Accept(expected, Chain(actual)),
-        _ => TerraBaseRestorePlanner.Plan(expected, RestoreId("restore"), BackupId("b-2"),
-            O(expected.DatabaseGeneration.Value + 1), new(actual, RestoreId("restore"),
-                expected.DatabaseGeneration, O(expected.DatabaseGeneration.Value + 1), Chain(expected),
-                TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven,
-                TerraBaseProof.Proven)),
-    };
+        {
+            0 => TerraBaseTopologyPlanner.PlanAdd(expected, Topology(actual)),
+            1 => TerraBaseRetainedVolumePlanner.Plan(expected, new(actual, [], TerraBaseProof.Proven,
+                TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven,
+                O(expected.AuthorityEpoch.Value + 1), 8)),
+            2 => TerraBaseUpgradePlanner.Plan(expected, Release("current"), Release("target"),
+                UpgradeEvidence(actual, Release("current"), Release("target"))),
+            3 => TerraBaseBackupPlanner.Authorize(expected, new(actual, BackupId("backup"), O(1), null, null,
+                null, true, Object("destination"), Key("key"), TerraBaseProof.Proven, TerraBaseProof.Proven)),
+            4 => TerraBaseBackupPlanner.Accept(expected, Chain(actual)),
+            _ => TerraBaseRestorePlanner.Plan(expected, RestoreId("restore"), BackupId("b-2"),
+                O(expected.DatabaseGeneration.Value + 1), new(actual, RestoreId("restore"),
+                    expected.DatabaseGeneration, O(expected.DatabaseGeneration.Value + 1), Chain(expected),
+                    TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven,
+                    TerraBaseProof.Proven)),
+        };
 
     private static string UndefinedDecisionText(TerraBaseEvidenceScope scope, int mode) =>
         $"Hold|None|InvalidInput|{Trace(scope, mode < 19 ? O(100) : default, scope.TopologyGeneration)}|none";
@@ -245,9 +256,14 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
         current ??= Release("current"); target ??= Release("target");
         var evidence = UpgradeEvidence(scope, current, target) with { UpgradeApplied = upgradeApplied };
         if (upgradeApplied != TerraBaseProof.Proven)
-            evidence = evidence with { ProcessHealthy = TerraBaseProof.Unknown, Ready = TerraBaseProof.Unknown,
-                CaughtUp = TerraBaseProof.Unknown, RollbackApplied = TerraBaseProof.Unknown,
-                PostRollbackHealthy = TerraBaseProof.Unknown };
+            evidence = evidence with
+            {
+                ProcessHealthy = TerraBaseProof.Unknown,
+                Ready = TerraBaseProof.Unknown,
+                CaughtUp = TerraBaseProof.Unknown,
+                RollbackApplied = TerraBaseProof.Unknown,
+                PostRollbackHealthy = TerraBaseProof.Unknown
+            };
         return TerraBaseUpgradePlanner.Plan(scope, current, target, evidence);
     }
 

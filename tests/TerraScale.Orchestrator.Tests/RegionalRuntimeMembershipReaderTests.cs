@@ -74,7 +74,7 @@ public sealed class RegionalRuntimeMembershipReaderTests
 
         // Conflicting session: a new session, correctly signed, under a still-live lease.
         var previousLive = healthy;
-        var conflicting = Member(identity, now, sessionId: Guid.NewGuid().ToString("N"));        await Assert.That(RegionalRuntimeMembershipReader.Classify(
+        var conflicting = Member(identity, now, sessionId: Guid.NewGuid().ToString("N")); await Assert.That(RegionalRuntimeMembershipReader.Classify(
             "gru", "controller-1", ThreeControllers, previous: previousLive, record: conflicting, now))
             .IsEqualTo(RegionalRuntimeMembershipRecordClass.ConflictingSession);
 

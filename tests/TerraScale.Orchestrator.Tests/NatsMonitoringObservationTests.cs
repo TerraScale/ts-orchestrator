@@ -117,14 +117,26 @@ public sealed class NatsMonitoringObservationTests
     {
         var oversized = new byte[NatsMonitoringParsers.MaximumReplyBytes + 1];
         var oversizedSequence = new System.Buffers.ReadOnlySequence<byte>(oversized);
-        await Assert.That(NatsMonitoringPayload.Deserializer.Deserialize(in oversizedSequence).Length).IsEqualTo(0);
+        await Assert.That(NatsMonitoringPayload.Deserializer.Deserialize(in oversizedSequence)!.Length).IsEqualTo(0);
+        await Assert.That(NatsMonitoringPayload.DiscardDeserializer.Deserialize(in oversizedSequence)!.Length).IsEqualTo(0);
 
         var valid = """{"total":1}"""u8.ToArray();
         var validSequence = new System.Buffers.ReadOnlySequence<byte>(valid);
-        var decoded = NatsMonitoringPayload.Deserializer.Deserialize(in validSequence);
+        var decoded = NatsMonitoringPayload.Deserializer.Deserialize(in validSequence)!;
         await Assert.That(decoded).IsEquivalentTo(valid);
-        await Assert.That(NatsMonitoringPayload.MaximumChannelCapacity).IsLessThanOrEqualTo(8);
-        await Assert.That(NatsMonitoringPayload.MaximumAdvisoryChannelCapacity).IsLessThanOrEqualTo(64);
+
+        var advisoryOptions = NatsMonitoringRuntime.AdvisorySubscriptionOptions();
+        await Assert.That(advisoryOptions.ChannelOpts!.Capacity)
+            .IsEqualTo(64);
+        await Assert.That(advisoryOptions.ChannelOpts.FullMode)
+            .IsEqualTo(System.Threading.Channels.BoundedChannelFullMode.DropOldest);
+
+        var replyOptions = NatsMonitoringRuntime.ReplySubscriptionOptions(3);
+        await Assert.That(replyOptions.MaxMsgs).IsEqualTo(3);
+        await Assert.That(replyOptions.ChannelOpts!.Capacity)
+            .IsEqualTo(8);
+        await Assert.That(replyOptions.ChannelOpts.FullMode)
+            .IsEqualTo(System.Threading.Channels.BoundedChannelFullMode.DropOldest);
     }
 
     [Test]

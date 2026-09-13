@@ -27,36 +27,36 @@ internal static class InfisicalCli
                     Console.WriteLine($"{secret.Path}\t{secret.Name}\tversion {secret.Version}");
                 break;
             case { Action: InfisicalCliAction.Get, Name: { } name, File: { } file }:
-            {
-                var secret = await store.GetAsync(name, cancellationToken);
-                WriteSecret(file, secret.Value);
-                Console.WriteLine($"wrote {secret.Path}:{secret.Name}@{secret.Version} to {Path.GetFullPath(file)}");
-                break;
-            }
+                {
+                    var secret = await store.GetAsync(name, cancellationToken);
+                    WriteSecret(file, secret.Value);
+                    Console.WriteLine($"wrote {secret.Path}:{secret.Name}@{secret.Version} to {Path.GetFullPath(file)}");
+                    break;
+                }
             case { Action: InfisicalCliAction.Create, Name: { } name, File: { } file }:
-            {
-                var secret = await store.CreateAsync(
-                    name,
-                    ReadSecret(file),
-                    cancellationToken);
-                Console.WriteLine($"created {secret.Path}:{secret.Name}@{secret.Version}");
-                break;
-            }
+                {
+                    var secret = await store.CreateAsync(
+                        name,
+                        ReadSecret(file),
+                        cancellationToken);
+                    Console.WriteLine($"created {secret.Path}:{secret.Name}@{secret.Version}");
+                    break;
+                }
             case { Action: InfisicalCliAction.Update, Name: { } name, File: { } file }:
-            {
-                var secret = await store.UpdateAsync(
-                    name,
-                    ReadSecret(file),
-                    cancellationToken);
-                Console.WriteLine($"updated {secret.Path}:{secret.Name}@{secret.Version}");
-                break;
-            }
+                {
+                    var secret = await store.UpdateAsync(
+                        name,
+                        ReadSecret(file),
+                        cancellationToken);
+                    Console.WriteLine($"updated {secret.Path}:{secret.Name}@{secret.Version}");
+                    break;
+                }
             case { Action: InfisicalCliAction.Delete, Name: { } name, File: null }:
-            {
-                var secret = await store.DeleteAsync(name, cancellationToken);
-                Console.WriteLine($"deleted {secret.Path}:{secret.Name}@{secret.Version}");
-                break;
-            }
+                {
+                    var secret = await store.DeleteAsync(name, cancellationToken);
+                    Console.WriteLine($"deleted {secret.Path}:{secret.Name}@{secret.Version}");
+                    break;
+                }
             default:
                 throw new ArgumentOutOfRangeException();
         }

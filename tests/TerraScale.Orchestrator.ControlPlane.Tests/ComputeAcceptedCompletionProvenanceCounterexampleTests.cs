@@ -90,21 +90,21 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
         var request = Request(ScaleOutState.Completed, "stable", 7);
         string? baseline = null;
         foreach (var cultureName in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var reverseDiscovery in new[] { false, true })
-        {
-            var previous = CultureInfo.CurrentCulture;
-            try
+            foreach (var reverseDiscovery in new[] { false, true })
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
-                var accepted = ComputeEngine.DecideScaleOut(request).AcceptedScaleOutRequest!;
-                var actual = Canonical(accepted, reverseDiscovery);
-                baseline ??= actual;
-                await Assert.That(actual).IsEqualTo(baseline);
-                await Assert.That(Canonical(ComputeEngine.DecideScaleOut(request).AcceptedScaleOutRequest!, reverseDiscovery))
-                    .IsEqualTo(actual);
+                var previous = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                    var accepted = ComputeEngine.DecideScaleOut(request).AcceptedScaleOutRequest!;
+                    var actual = Canonical(accepted, reverseDiscovery);
+                    baseline ??= actual;
+                    await Assert.That(actual).IsEqualTo(baseline);
+                    await Assert.That(Canonical(ComputeEngine.DecideScaleOut(request).AcceptedScaleOutRequest!, reverseDiscovery))
+                        .IsEqualTo(actual);
+                }
+                finally { CultureInfo.CurrentCulture = previous; }
             }
-            finally { CultureInfo.CurrentCulture = previous; }
-        }
 
         await Assert.That(StorageComputeReplayCorpus.Load().Count).IsEqualTo(8);
         await Assert.That(StorageComputeReplayCorpus.ContentSha256)
@@ -171,10 +171,13 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
         yield return ("demand-freshness", request with { Demand = request.Demand with { FreshThroughSequence = 61 } });
         yield return ("demand-safety", request with { Demand = request.Demand with { SafetyBounded = true } });
         yield return ("demand-count", WithCount(request, 2));
-        yield return ("plan-identity", request with { Plan = request.Plan with { PlanIdentity = new("other-plan") },
-            PersistedPlan = request.PersistedPlan! with { Plan = request.Plan with { PlanIdentity = new("other-plan") } } });
+        yield return ("plan-identity", request with
+        {
+            Plan = request.Plan with { PlanIdentity = new("other-plan") },
+            PersistedPlan = request.PersistedPlan! with { Plan = request.Plan with { PlanIdentity = new("other-plan") } }
+        });
         yield return ("persisted-proof", request with
-            { PersistedPlan = request.PersistedPlan! with { PersistenceProof = new("other-persistence") } });
+        { PersistedPlan = request.PersistedPlan! with { PersistenceProof = new("other-persistence") } });
         yield return ("resources-ocpu", WithResources(request, request.Plan.Resources with { Ocpus = 5 }));
         yield return ("resources-memory", WithResources(request, request.Plan.Resources with { MemoryMib = 25_000 }));
         yield return ("resources-storage", WithResources(request, request.Plan.Resources with { StorageGib = 101 }));
@@ -186,8 +189,11 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
         yield return ("authorization-placement", request with { Authorization = request.Authorization! with { PlacementProof = new("other-placement") } });
         yield return ("create-key", request with { CreateEvidence = request.CreateEvidence! with { CreateKey = new("other-key") } });
         var otherResource = new ProviderResourceId("other-resource");
-        yield return ("create-resource", request with { CreateEvidence = request.CreateEvidence! with { Resource = otherResource },
-            Progress = request.Progress! with { Resource = otherResource } });
+        yield return ("create-resource", request with
+        {
+            CreateEvidence = request.CreateEvidence! with { Resource = otherResource },
+            Progress = request.Progress! with { Resource = otherResource }
+        });
         yield return ("create-work-request", request with { CreateEvidence = request.CreateEvidence! with { WorkRequest = new("other-work") } });
         yield return ("create-observation", request with { CreateEvidence = request.CreateEvidence! with { ObservationProof = new("other-observation") } });
         yield return ("progress-node", request with { Progress = request.Progress! with { Node = new("other-node") } });
@@ -217,16 +223,24 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
     private static ScaleOutRequest WithResources(ScaleOutRequest request, ResourceEnvelope resources)
     {
         var plan = request.Plan with { Resources = resources };
-        return request with { Plan = plan, PersistedPlan = request.PersistedPlan! with { Plan = plan },
-            Authorization = request.Authorization! with { Resources = resources } };
+        return request with
+        {
+            Plan = plan,
+            PersistedPlan = request.PersistedPlan! with { Plan = plan },
+            Authorization = request.Authorization! with { Resources = resources }
+        };
     }
 
     private static ScaleOutRequest WithCount(ScaleOutRequest request, int count)
     {
         var plan = request.Plan with { DesiredNodes = count };
-        return request with { Demand = request.Demand with { RequiredNodes = count }, Plan = plan,
+        return request with
+        {
+            Demand = request.Demand with { RequiredNodes = count },
+            Plan = plan,
             PersistedPlan = request.PersistedPlan! with { Plan = plan },
-            Authorization = request.Authorization! with { AuthorizedNodes = count } };
+            Authorization = request.Authorization! with { AuthorizedNodes = count }
+        };
     }
 
     private static ScaleOutRequest Request(ScaleOutState state, string suffix, long generation)

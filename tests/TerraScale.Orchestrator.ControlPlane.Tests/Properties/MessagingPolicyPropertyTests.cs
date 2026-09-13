@@ -317,18 +317,42 @@ public sealed class MessagingPolicyPropertyTests
             7 => request with { CallerAuthorizesLocalOperation = false },
             8 => request,
             9 => request with { Scope = AuthorityScope.Global, Connectivity = ConnectivityState.Connected, HoldsCurrentGlobalAuthority = true },
-            10 => request with { CommandRegionalEpoch = request.CurrentRegionalEpoch - 1, Connectivity = ConnectivityState.RegionalQuorumLost,
-                CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1 },
-            11 => request with { Connectivity = ConnectivityState.RegionalQuorumLost,
-                CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1 },
-            12 => request with { Scope = AuthorityScope.Global, Connectivity = ConnectivityState.GlobalDisconnected,
-                HoldsCurrentGlobalAuthority = false, CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1 },
-            13 => request with { Scope = AuthorityScope.Global, Connectivity = ConnectivityState.GlobalDisconnected,
-                HoldsCurrentGlobalAuthority = false, CommandGlobalEpoch = request.CurrentGlobalEpoch - 1 },
+            10 => request with
+            {
+                CommandRegionalEpoch = request.CurrentRegionalEpoch - 1,
+                Connectivity = ConnectivityState.RegionalQuorumLost,
+                CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1
+            },
+            11 => request with
+            {
+                Connectivity = ConnectivityState.RegionalQuorumLost,
+                CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1
+            },
+            12 => request with
+            {
+                Scope = AuthorityScope.Global,
+                Connectivity = ConnectivityState.GlobalDisconnected,
+                HoldsCurrentGlobalAuthority = false,
+                CommandGlobalGeneration = request.AcceptedGlobalGeneration + 1
+            },
+            13 => request with
+            {
+                Scope = AuthorityScope.Global,
+                Connectivity = ConnectivityState.GlobalDisconnected,
+                HoldsCurrentGlobalAuthority = false,
+                CommandGlobalEpoch = request.CurrentGlobalEpoch - 1
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
         };
-        var expected = mode switch { 0 or 6 or 10 => "StaleAuthority", 1 or 4 or 5 or 7 or 11 or 13 => "PartitionDenied",
-            2 => "StaleEvidence", 3 or 12 => "FutureEvidence", 8 => "ContinueRegional", _ => "ContinueGlobal" };
+        var expected = mode switch
+        {
+            0 or 6 or 10 => "StaleAuthority",
+            1 or 4 or 5 or 7 or 11 or 13 => "PartitionDenied",
+            2 => "StaleEvidence",
+            3 or 12 => "FutureEvidence",
+            8 => "ContinueRegional",
+            _ => "ContinueGlobal"
+        };
         return (request, expected);
     }
 
@@ -399,16 +423,16 @@ public sealed class MessagingPolicyPropertyTests
             case 3 or 4: { var x = (WaitCatchupIntent)decision.Intents.Single(); Require(x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.Peer == operation.ReplacementPeer && x.RequiredSequence == request.Observation!.MembershipSequence, "wait-subject", index); break; }
             case 5: { var x = (RemovePeerIntent)decision.Intents.Single(); Require(x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.FailedServer == operation.FailedServer && x.FailedPeer == operation.FailedPeer && x.ReplacementPeer == operation.ReplacementPeer && x.VerifiedMembershipSequence == request.Observation!.MembershipSequence && x.AuthorityEpoch == operation.AuthorityEpoch, "remove-subject", index); break; }
             case 7:
-            {
-                var x = (ReattachSurvivingStoreIntent)decision.Intents.Single();
-                var proof = request.Observation!.Peers.Single(peer => peer.Server == operation.FailedServer && peer.Peer == operation.FailedPeer).SurvivingStoreProof!;
-                Require(x.Operation == operation.OperationId && x.Plane == operation.Plane && x.Cell == operation.Cell &&
-                    x.Cluster == operation.Cluster && x.RecordedServer == operation.FailedServer && x.RecordedPeer == operation.FailedPeer &&
-                    x.ReplacementPlacement == operation.ReplacementPlacement && x.Store == proof.Store &&
-                    x.StoreGeneration == proof.StoreGeneration && x.ObservedMembershipSequence == proof.ObservedMembershipSequence &&
-                    x.OwnershipEpoch == proof.OwnershipEpoch, "reattach-subject", index);
-                break;
-            }
+                {
+                    var x = (ReattachSurvivingStoreIntent)decision.Intents.Single();
+                    var proof = request.Observation!.Peers.Single(peer => peer.Server == operation.FailedServer && peer.Peer == operation.FailedPeer).SurvivingStoreProof!;
+                    Require(x.Operation == operation.OperationId && x.Plane == operation.Plane && x.Cell == operation.Cell &&
+                        x.Cluster == operation.Cluster && x.RecordedServer == operation.FailedServer && x.RecordedPeer == operation.FailedPeer &&
+                        x.ReplacementPlacement == operation.ReplacementPlacement && x.Store == proof.Store &&
+                        x.StoreGeneration == proof.StoreGeneration && x.ObservedMembershipSequence == proof.ObservedMembershipSequence &&
+                        x.OwnershipEpoch == proof.OwnershipEpoch, "reattach-subject", index);
+                    break;
+                }
         }
     }
 
@@ -505,24 +529,40 @@ public sealed class MessagingPolicyPropertyTests
         public IEnumerator<T> GetEnumerator() => phase == IteratorPhase.GetEnumerator ? throw failure : new Iterator(values, phase, failure);
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         private sealed class Iterator(T[] values, IteratorPhase phase, Exception failure) : IEnumerator<T>
-        { private int _index = -1; public T Current => phase == IteratorPhase.Current ? throw failure : values[_index]; object? IEnumerator.Current => Current;
-          public bool MoveNext() { if (phase == IteratorPhase.MoveNext) throw failure; return ++_index < values.Length; }
-          public void Reset() => throw new NotSupportedException(); public void Dispose() { if (phase == IteratorPhase.Dispose) throw failure; } }
+        {
+            private int _index = -1; public T Current => phase == IteratorPhase.Current ? throw failure : values[_index]; object? IEnumerator.Current => Current;
+            public bool MoveNext() { if (phase == IteratorPhase.MoveNext) throw failure; return ++_index < values.Length; }
+            public void Reset() => throw new NotSupportedException(); public void Dispose() { if (phase == IteratorPhase.Dispose) throw failure; }
+        }
     }
     private sealed class ExtraCurrentEnumerable<T>(T value, int maximum) : IEnumerable<T>
-    { public bool ExtraCurrentRead { get; private set; } public IEnumerator<T> GetEnumerator() => new Iterator(this, value, maximum); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-      private sealed class Iterator(ExtraCurrentEnumerable<T> owner, T value, int maximum) : IEnumerator<T>
-      { private int _index = -1; public T Current { get { if (_index == maximum) owner.ExtraCurrentRead = true; return value; } } object? IEnumerator.Current => Current;
-        public bool MoveNext() => ++_index <= maximum; public void Reset() => throw new NotSupportedException(); public void Dispose() { } } }
+    {
+        public bool ExtraCurrentRead { get; private set; }
+        public IEnumerator<T> GetEnumerator() => new Iterator(this, value, maximum); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        private sealed class Iterator(ExtraCurrentEnumerable<T> owner, T value, int maximum) : IEnumerator<T>
+        {
+            private int _index = -1; public T Current { get { if (_index == maximum) owner.ExtraCurrentRead = true; return value; } }
+            object? IEnumerator.Current => Current;
+            public bool MoveNext() => ++_index <= maximum; public void Reset() => throw new NotSupportedException(); public void Dispose() { }
+        }
+    }
     private sealed class EndlessEnumerable<T>(T value) : IEnumerable<T>
-    { public IEnumerator<T> GetEnumerator() => new Iterator(value); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-      private sealed class Iterator(T value) : IEnumerator<T> { public T Current => value; object? IEnumerator.Current => Current; public bool MoveNext() => true; public void Reset() { } public void Dispose() { } } }
+    {
+        public IEnumerator<T> GetEnumerator() => new Iterator(value); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        private sealed class Iterator(T value) : IEnumerator<T> { public T Current => value; object? IEnumerator.Current => Current; public bool MoveNext() => true; public void Reset() { } public void Dispose() { } }
+    }
     private sealed class DisposeMutatingEnumerable<T>(List<T> source) : IEnumerable<T>
-    { public IEnumerator<T> GetEnumerator() => new Iterator(source); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-      private sealed class Iterator(List<T> source) : IEnumerator<T> { private int _index = -1; public T Current => source[_index]; object? IEnumerator.Current => Current; public bool MoveNext() => ++_index < source.Count; public void Reset() { } public void Dispose() => source.Clear(); } }
+    {
+        public IEnumerator<T> GetEnumerator() => new Iterator(source); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        private sealed class Iterator(List<T> source) : IEnumerator<T> { private int _index = -1; public T Current => source[_index]; object? IEnumerator.Current => Current; public bool MoveNext() => ++_index < source.Count; public void Reset() { } public void Dispose() => source.Clear(); }
+    }
     private sealed class HostileReadOnlyList<T>(int count) : IReadOnlyList<T>
-    { public bool EnumeratorRequested { get; private set; } public int Count => count; public T this[int index] => throw new NotSupportedException();
-      public IEnumerator<T> GetEnumerator() { EnumeratorRequested = true; throw new InvalidOperationException(); } IEnumerator IEnumerable.GetEnumerator() => GetEnumerator(); }
+    {
+        public bool EnumeratorRequested { get; private set; }
+        public int Count => count; public T this[int index] => throw new NotSupportedException();
+        public IEnumerator<T> GetEnumerator() { EnumeratorRequested = true; throw new InvalidOperationException(); }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
     private sealed class EnumerableReadOnlyList<T>(int count, IEnumerable<T> source) : IReadOnlyList<T>
     { public int Count => count; public T this[int index] => throw new NotSupportedException(); public IEnumerator<T> GetEnumerator() => source.GetEnumerator(); IEnumerator IEnumerable.GetEnumerator() => GetEnumerator(); }
     private sealed class CountThrowingReadOnlyList<T>(Exception failure) : IReadOnlyList<T>

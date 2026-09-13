@@ -63,15 +63,15 @@ public sealed class ProtocolInputSafetyTests
     public async Task AcceptedVersionCapturePropagatesFatalFailuresFromEveryIteratorPhase()
     {
         foreach (var phase in Enum.GetValues<IteratorPhase>())
-        foreach (var factory in FatalFactories())
-        {
-            var source = new PhaseFaultEnumerable<ProtocolRevision>([ProtocolTestData.Protocol(1)], phase, factory);
-            var expected = factory().GetType();
-            var failure = Capture(() => ProtocolTestData.ValidContext(acceptedProtocols: source));
+            foreach (var factory in FatalFactories())
+            {
+                var source = new PhaseFaultEnumerable<ProtocolRevision>([ProtocolTestData.Protocol(1)], phase, factory);
+                var expected = factory().GetType();
+                var failure = Capture(() => ProtocolTestData.ValidContext(acceptedProtocols: source));
 
-            await Assert.That(failure).IsNotNull();
-            await Assert.That(failure!.GetType()).IsEqualTo(expected);
-        }
+                await Assert.That(failure).IsNotNull();
+                await Assert.That(failure!.GetType()).IsEqualTo(expected);
+            }
     }
 
     [Test]
@@ -117,21 +117,21 @@ public sealed class ProtocolInputSafetyTests
         SubjectGrammarLimits.TryCreate(64, 8, 16, 3, out var limits);
         SubjectPermissionPattern.TryParse("a.*", limits, out var pattern, out _);
         foreach (var phase in Enum.GetValues<IteratorPhase>())
-        foreach (var factory in FatalFactories())
-        {
-            var expected = factory().GetType();
-            var allowFailure = Capture(() => SubjectPermissionPolicy.TryCreate(
-                new PhaseFaultEnumerable<SubjectPermissionPattern?>([pattern], phase, factory), [], limits,
-                out _, out _));
-            var denyFailure = Capture(() => SubjectPermissionPolicy.TryCreate(
-                [], new PhaseFaultEnumerable<SubjectPermissionPattern?>([pattern], phase, factory), limits,
-                out _, out _));
+            foreach (var factory in FatalFactories())
+            {
+                var expected = factory().GetType();
+                var allowFailure = Capture(() => SubjectPermissionPolicy.TryCreate(
+                    new PhaseFaultEnumerable<SubjectPermissionPattern?>([pattern], phase, factory), [], limits,
+                    out _, out _));
+                var denyFailure = Capture(() => SubjectPermissionPolicy.TryCreate(
+                    [], new PhaseFaultEnumerable<SubjectPermissionPattern?>([pattern], phase, factory), limits,
+                    out _, out _));
 
-            await Assert.That(allowFailure).IsNotNull();
-            await Assert.That(denyFailure).IsNotNull();
-            await Assert.That(allowFailure!.GetType()).IsEqualTo(expected);
-            await Assert.That(denyFailure!.GetType()).IsEqualTo(expected);
-        }
+                await Assert.That(allowFailure).IsNotNull();
+                await Assert.That(denyFailure).IsNotNull();
+                await Assert.That(allowFailure!.GetType()).IsEqualTo(expected);
+                await Assert.That(denyFailure!.GetType()).IsEqualTo(expected);
+            }
     }
 
     private static IEnumerable<ProtocolRevision> Endless(ProtocolRevision value)

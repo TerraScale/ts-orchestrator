@@ -157,15 +157,15 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             RequireNonPass(decision, AuthorizationNonPass[variant], seed, "authorization complete trace");
             if (variant == 0)
             {
-                Require(decision.Authorized && decision.Intent is AuthorizeCapabilityIntent,seed,"authorization intent");
-                var intent=(AuthorizeCapabilityIntent)decision.Intent;
+                Require(decision.Authorized && decision.Intent is AuthorizeCapabilityIntent, seed, "authorization intent");
+                var intent = (AuthorizeCapabilityIntent)decision.Intent;
                 Require(intent.PrincipalId == request.PrincipalId && intent.Capability == request.Capability &&
                     intent.ResourceScope == request.ResourceScope, seed, "authorization subject");
                 Require(intent.Evidence == request.PrincipalEvidence[0] && intent.Grant == request.Grants[0] &&
                     intent.ExpectedPrincipalGeneration == request.ExpectedPrincipalGeneration &&
                     intent.CurrentPrincipalGeneration == request.CurrentPrincipalGeneration &&
                     intent.PolicyGeneration == request.PolicyGeneration && intent.CurrentPolicyGeneration == request.CurrentPolicyGeneration &&
-                    intent.CurrentRevocationGeneration == request.CurrentRevocationGeneration,seed,"authorization provenance");
+                    intent.CurrentRevocationGeneration == request.CurrentRevocationGeneration, seed, "authorization provenance");
                 Require(decision.Trace.All(x => x.Outcome == SecurityDecisionOutcome.Passed), seed, "authorization accepted trace");
             }
             else
@@ -330,14 +330,18 @@ public sealed class SecurityPolicyCompletenessPropertyTests
         value.CurrentIssuerGeneration, value.CurrentRevocationGeneration, evidence, value.Attestations);
     private static CertificateLifecycleRequest CertificateRequest(SecurityIntent intent) => intent switch
     {
-        IssueCertificateIntent value => value.Request, RenewCertificateIntent value => value.Request,
-        RotateCertificateIntent value => value.Request, RevokeCertificateIntent value => value.Request,
+        IssueCertificateIntent value => value.Request,
+        RenewCertificateIntent value => value.Request,
+        RotateCertificateIntent value => value.Request,
+        RevokeCertificateIntent value => value.Request,
         _ => throw new InvalidOperationException("Certificate intent expected."),
     };
     private static SecretLeaseRequest LeaseRequest(SecurityIntent intent) => intent switch
     {
-        GrantSecretLeaseIntent value => value.Request, RenewSecretLeaseIntent value => value.Request,
-        RevokeSecretLeaseIntent value => value.Request, _ => throw new InvalidOperationException("Lease intent expected."),
+        GrantSecretLeaseIntent value => value.Request,
+        RenewSecretLeaseIntent value => value.Request,
+        RevokeSecretLeaseIntent value => value.Request,
+        _ => throw new InvalidOperationException("Lease intent expected."),
     };
     private static SecurityDecisionOutcome Outcome(SecurityDecision decision, SecurityDecisionCode code) => decision.Trace.Single(x => x.Code == code).Outcome;
     private static (SecurityDecisionCode, SecurityDecisionOutcome)[] Reject(SecurityDecisionCode code) => [(code, SecurityDecisionOutcome.Rejected)];

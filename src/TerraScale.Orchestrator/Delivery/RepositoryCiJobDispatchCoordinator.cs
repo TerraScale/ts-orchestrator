@@ -203,22 +203,22 @@ internal sealed class RepositoryCiJobDispatchCoordinator(
 
     private static RepositoryCiJobDispatchCoordinationDisposition Map(
         RepositoryCiJobJournalDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobJournalDisposition.StaleAuthority =>
-            RepositoryCiJobDispatchCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
-            RepositoryCiJobDispatchCoordinationDisposition.LeaseHeld,
-        RepositoryCiJobJournalDisposition.NotReady or RepositoryCiJobJournalDisposition.PipelineFailed or
-        RepositoryCiJobJournalDisposition.PhaseConflict =>
-            RepositoryCiJobDispatchCoordinationDisposition.NotReady,
-        RepositoryCiJobJournalDisposition.RunnerDenied =>
-            RepositoryCiJobDispatchCoordinationDisposition.IsolationDenied,
-        RepositoryCiJobJournalDisposition.IdentityConflict =>
-            RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobJournalDisposition.Contention =>
-            RepositoryCiJobDispatchCoordinationDisposition.Contention,
-        _ => RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict,
-    };
+        {
+            RepositoryCiJobJournalDisposition.StaleAuthority =>
+                RepositoryCiJobDispatchCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
+                RepositoryCiJobDispatchCoordinationDisposition.LeaseHeld,
+            RepositoryCiJobJournalDisposition.NotReady or RepositoryCiJobJournalDisposition.PipelineFailed or
+            RepositoryCiJobJournalDisposition.PhaseConflict =>
+                RepositoryCiJobDispatchCoordinationDisposition.NotReady,
+            RepositoryCiJobJournalDisposition.RunnerDenied =>
+                RepositoryCiJobDispatchCoordinationDisposition.IsolationDenied,
+            RepositoryCiJobJournalDisposition.IdentityConflict =>
+                RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobJournalDisposition.Contention =>
+                RepositoryCiJobDispatchCoordinationDisposition.Contention,
+            _ => RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict,
+        };
 
     private static bool SameRevision(ForgejoResolvedRevision expected, ForgejoResolvedRevision actual) =>
         expected.Repository == actual.Repository && expected.Commit == actual.Commit &&

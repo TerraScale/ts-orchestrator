@@ -138,7 +138,8 @@ public sealed class DeployHandoffContractDriftTests
         await Assert.That(table.GetProperty("manifestSchemaVersions").GetProperty("maximum").GetInt32())
             .IsEqualTo(DeployHandoffManifestSchema.CurrentVersion);
         await Assert.That(table.GetProperty("directDeliveryContract").GetProperty("schemaVersion").GetInt32())
-            .IsEqualTo(DeliveryRequest.CurrentSchemaVersion);    }
+            .IsEqualTo(DeliveryRequest.CurrentSchemaVersion);
+    }
 
     private static JsonElement MappingTable()
     {

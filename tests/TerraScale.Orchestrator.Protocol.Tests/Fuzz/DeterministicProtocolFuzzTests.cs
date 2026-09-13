@@ -230,8 +230,14 @@ public sealed class DeterministicProtocolFuzzTests
         var values = new HashSet<long>();
         for (var index = 0; index < CasesPerFamily; index++)
         {
-            var value = index % 7 switch { 0 => 0, 1 => -1, 2 => long.MinValue, 3 => long.MaxValue,
-                _ => (long)(generator.Next() & long.MaxValue) + 1 };
+            var value = index % 7 switch
+            {
+                0 => 0,
+                1 => -1,
+                2 => long.MinValue,
+                3 => long.MaxValue,
+                _ => (long)(generator.Next() & long.MaxValue) + 1
+            };
             var expected = value > 0;
             var results = new[] { ProtocolRevision.TryCreate(value, out var protocol),
                 DesiredGeneration.TryCreate(value, out var generation), WriterEpoch.TryCreate(value, out var epoch),
@@ -285,15 +291,28 @@ public sealed class DeterministicProtocolFuzzTests
         for (var index = 0; index < CasesPerFamily; index++)
         {
             var token = $"a{generator.NextInt(1_000)}";
-            var subjectText = (index % 8) switch { 0 => $"{token}.b", 1 => $"{token}.*", 2 => "a..b",
-                3 => new string('x', 65), 4 => "a. b", 5 => "a.\ud800", 6 => "alpha.🚀",
-                _ => $"{new string('x', 16)}.z" };
+            var subjectText = (index % 8) switch
+            {
+                0 => $"{token}.b",
+                1 => $"{token}.*",
+                2 => "a..b",
+                3 => new string('x', 65),
+                4 => "a. b",
+                5 => "a.\ud800",
+                6 => "alpha.🚀",
+                _ => $"{new string('x', 16)}.z"
+            };
             var subjectOk = ConcreteSubject.TryParse(subjectText, limits, out var subject, out var subjectError);
             var subjectReplay = ConcreteSubject.TryParse(subjectText, limits, out var replaySubject, out var replayError);
-            var expectedSubjectError = (index % 8) switch { 0 or 6 or 7 => SubjectGrammarError.None,
-                1 => SubjectGrammarError.WildcardNotAllowed, 2 => SubjectGrammarError.EmptyToken,
-                3 => SubjectGrammarError.SubjectTooLong, 4 => SubjectGrammarError.WhitespaceNotAllowed,
-                _ => SubjectGrammarError.InvalidUnicodeScalarSequence };
+            var expectedSubjectError = (index % 8) switch
+            {
+                0 or 6 or 7 => SubjectGrammarError.None,
+                1 => SubjectGrammarError.WildcardNotAllowed,
+                2 => SubjectGrammarError.EmptyToken,
+                3 => SubjectGrammarError.SubjectTooLong,
+                4 => SubjectGrammarError.WhitespaceNotAllowed,
+                _ => SubjectGrammarError.InvalidUnicodeScalarSequence
+            };
             Require(subjectOk == subjectReplay && subjectError == replayError &&
                 (subjectOk ? subject!.Equals(replaySubject) && subjectError == SubjectGrammarError.None :
                     subject is null && replaySubject is null && subjectError != SubjectGrammarError.None) &&
@@ -301,13 +320,27 @@ public sealed class DeterministicProtocolFuzzTests
             if (subjectOk) subjectAccepted++; else subjectRejected++;
             subjectErrors.Add(subjectError);
 
-            var patternText = (index % 8) switch { 0 => $"{token}.*", 1 => $"{token}.>", 2 => "a.>.b",
-                3 => "a.**", 4 => "a..b", 5 => new string('x', 65), 6 => "alpha.🚀", _ => ">" };
+            var patternText = (index % 8) switch
+            {
+                0 => $"{token}.*",
+                1 => $"{token}.>",
+                2 => "a.>.b",
+                3 => "a.**",
+                4 => "a..b",
+                5 => new string('x', 65),
+                6 => "alpha.🚀",
+                _ => ">"
+            };
             var patternOk = SubjectPermissionPattern.TryParse(patternText, limits, out var pattern, out var patternError);
             var patternReplay = SubjectPermissionPattern.TryParse(patternText, limits, out var replayPattern, out var patternReplayError);
-            var expectedPatternError = (index % 8) switch { 0 or 1 or 6 or 7 => SubjectGrammarError.None,
-                2 => SubjectGrammarError.TerminalWildcardMustBeFinal, 3 => SubjectGrammarError.InvalidWildcard,
-                4 => SubjectGrammarError.EmptyToken, _ => SubjectGrammarError.SubjectTooLong };
+            var expectedPatternError = (index % 8) switch
+            {
+                0 or 1 or 6 or 7 => SubjectGrammarError.None,
+                2 => SubjectGrammarError.TerminalWildcardMustBeFinal,
+                3 => SubjectGrammarError.InvalidWildcard,
+                4 => SubjectGrammarError.EmptyToken,
+                _ => SubjectGrammarError.SubjectTooLong
+            };
             Require(patternOk == patternReplay && patternError == patternReplayError &&
                 (patternOk ? pattern!.Equals(replayPattern) && patternError == SubjectGrammarError.None :
                     pattern is null && replayPattern is null && patternError != SubjectGrammarError.None) &&
@@ -350,9 +383,14 @@ public sealed class DeterministicProtocolFuzzTests
             var ok = SubjectPermissionPolicy.TryCreate(allow, deny, limits, out var policy, out var error);
             var replayOk = SubjectPermissionPolicy.TryCreate(allow.Reverse(), deny.Reverse(), limits,
                 out var replay, out var replayError);
-            var expectedError = (index % 5) switch { 0 => SubjectPermissionPolicyError.None,
-                1 => SubjectPermissionPolicyError.DuplicatePattern, 2 => SubjectPermissionPolicyError.PatternInAllowAndDeny,
-                3 => SubjectPermissionPolicyError.TooManyPatterns, _ => SubjectPermissionPolicyError.NullPattern };
+            var expectedError = (index % 5) switch
+            {
+                0 => SubjectPermissionPolicyError.None,
+                1 => SubjectPermissionPolicyError.DuplicatePattern,
+                2 => SubjectPermissionPolicyError.PatternInAllowAndDeny,
+                3 => SubjectPermissionPolicyError.TooManyPatterns,
+                _ => SubjectPermissionPolicyError.NullPattern
+            };
             Require(ok == replayOk && error == replayError && error == expectedError &&
                 ok == (expectedError == SubjectPermissionPolicyError.None), "policy-replay", index);
             reasons.Add(error);
@@ -386,9 +424,11 @@ public sealed class DeterministicProtocolFuzzTests
                 case 1: envelope = null; expected = CommandValidationError.MalformedEnvelope; break;
                 case 2: envelope = ProtocolTestData.ValidEnvelope(protocol: ProtocolTestData.Protocol(2)); expected = CommandValidationError.UnsupportedProtocolVersion; break;
                 case 3: envelope = ProtocolTestData.ValidEnvelope(issuedAt: ProtocolTestData.Now.AddMinutes(1), expiresAt: ProtocolTestData.Now.AddMinutes(-1)); expected = CommandValidationError.InvalidValidityWindow; break;
-                case 4: envelope = ProtocolTestData.ValidEnvelope(issuedAt: ProtocolTestData.Now.AddMinutes(3),
+                case 4:
+                    envelope = ProtocolTestData.ValidEnvelope(issuedAt: ProtocolTestData.Now.AddMinutes(3),
                     expiresAt: ProtocolTestData.Now.AddMinutes(4)); expected = CommandValidationError.NotYetValid; break;
-                case 5: envelope = ProtocolTestData.ValidEnvelope(issuedAt: ProtocolTestData.Now.AddMinutes(-4),
+                case 5:
+                    envelope = ProtocolTestData.ValidEnvelope(issuedAt: ProtocolTestData.Now.AddMinutes(-4),
                     expiresAt: ProtocolTestData.Now.AddMinutes(-3)); expected = CommandValidationError.Expired; break;
                 case 6: envelope = ProtocolTestData.ValidEnvelope(cell: ProtocolTestData.Cell("sfo")); expected = CommandValidationError.WrongCell; break;
                 case 7: envelope = ProtocolTestData.ValidEnvelope(aggregate: ProtocolTestData.Aggregate("allocation/other")); expected = CommandValidationError.WrongAggregateIdentity; break;
@@ -440,10 +480,19 @@ public sealed class DeterministicProtocolFuzzTests
         {
             var suffix = generator.NextInt(1_000).ToString(CultureInfo.InvariantCulture);
             var category = index % 7;
-            var pattern = category switch { 0 => Pattern($"alpha{suffix}.value"), 1 => Pattern($"alpha{suffix}.*"),
-                2 => Pattern($"alpha{suffix}.>"), _ => Pattern($"other{suffix}.*") };
-            var subject = Subject(category switch { 0 or 1 => $"alpha{suffix}.value", 2 => $"alpha{suffix}.one.two",
-                _ => $"alpha{suffix}.value" });
+            var pattern = category switch
+            {
+                0 => Pattern($"alpha{suffix}.value"),
+                1 => Pattern($"alpha{suffix}.*"),
+                2 => Pattern($"alpha{suffix}.>"),
+                _ => Pattern($"other{suffix}.*")
+            };
+            var subject = Subject(category switch
+            {
+                0 or 1 => $"alpha{suffix}.value",
+                2 => $"alpha{suffix}.one.two",
+                _ => $"alpha{suffix}.value"
+            });
             var expectedMatch = category is 0 or 1 or 2;
             Require(pattern.Matches(subject) == expectedMatch && pattern.Matches(subject) == expectedMatch,
                 "pattern-match", index);
@@ -452,9 +501,14 @@ public sealed class DeterministicProtocolFuzzTests
             var deny = category == 3 ? new SubjectPermissionPattern?[] { Pattern($"alpha{suffix}.>") } : [];
             Require(SubjectPermissionPolicy.TryCreate(allow, deny, Limits(), out var policy, out _), "decision-policy", index);
             var decision = policy!.Authorize(category == 6 ? null : subject);
-            var expectedReason = category switch { 0 or 1 or 2 => SubjectPermissionReason.AllowedByPattern,
-                3 => SubjectPermissionReason.DeniedByPattern, 4 => SubjectPermissionReason.DeniedEmptyAllowSet,
-                5 => SubjectPermissionReason.DeniedNoAllowMatch, _ => SubjectPermissionReason.DeniedInvalidSubject };
+            var expectedReason = category switch
+            {
+                0 or 1 or 2 => SubjectPermissionReason.AllowedByPattern,
+                3 => SubjectPermissionReason.DeniedByPattern,
+                4 => SubjectPermissionReason.DeniedEmptyAllowSet,
+                5 => SubjectPermissionReason.DeniedNoAllowMatch,
+                _ => SubjectPermissionReason.DeniedInvalidSubject
+            };
             Require(decision.Reason == expectedReason && decision.IsAllowed ==
                 (expectedReason == SubjectPermissionReason.AllowedByPattern), "policy-decision", index);
             reasons.Add(decision.Reason); if (decision.IsAllowed) allowed++; else denied++;
@@ -467,25 +521,25 @@ public sealed class DeterministicProtocolFuzzTests
     {
         var repetitions = checked((int)(entry.Seed % 7) + 2);
         for (var replay = 0; replay < repetitions; replay++) switch (entry.Family)
-        {
-            case "concrete-subject":
-                Require(!ConcreteSubject.TryParse(entry.Input, Limits(), out _, out var subjectError) &&
-                    subjectError.ToString() == entry.Expected, "corpus-subject", entry.Seed); break;
-            case "permission-pattern":
-                Require(!SubjectPermissionPattern.TryParse(entry.Input, Limits(), out _, out var patternError) &&
-                    patternError.ToString() == entry.Expected, "corpus-pattern", entry.Seed); break;
-            case "command-envelope":
-                var revision = 0L;
-                var parsed = entry.Input.StartsWith("protocol:", StringComparison.Ordinal) &&
-                    long.TryParse(entry.Input.AsSpan("protocol:".Length), NumberStyles.None,
-                        CultureInfo.InvariantCulture, out revision) && revision > 0;
-                Require(parsed,
-                    "corpus-envelope-mutation", entry.Seed);
-                var result = CommandEnvelopeValidator.Validate(ProtocolTestData.ValidEnvelope(
-                    protocol: ProtocolTestData.Protocol(revision)), ProtocolTestData.ValidContext(), ProtocolTestData.Now);
-                Require(result.Error.ToString() == entry.Expected, "corpus-envelope", entry.Seed); break;
-            default: throw new InvalidOperationException("Unknown bounded corpus family.");
-        }
+            {
+                case "concrete-subject":
+                    Require(!ConcreteSubject.TryParse(entry.Input, Limits(), out _, out var subjectError) &&
+                        subjectError.ToString() == entry.Expected, "corpus-subject", entry.Seed); break;
+                case "permission-pattern":
+                    Require(!SubjectPermissionPattern.TryParse(entry.Input, Limits(), out _, out var patternError) &&
+                        patternError.ToString() == entry.Expected, "corpus-pattern", entry.Seed); break;
+                case "command-envelope":
+                    var revision = 0L;
+                    var parsed = entry.Input.StartsWith("protocol:", StringComparison.Ordinal) &&
+                        long.TryParse(entry.Input.AsSpan("protocol:".Length), NumberStyles.None,
+                            CultureInfo.InvariantCulture, out revision) && revision > 0;
+                    Require(parsed,
+                        "corpus-envelope-mutation", entry.Seed);
+                    var result = CommandEnvelopeValidator.Validate(ProtocolTestData.ValidEnvelope(
+                        protocol: ProtocolTestData.Protocol(revision)), ProtocolTestData.ValidContext(), ProtocolTestData.Now);
+                    Require(result.Error.ToString() == entry.Expected, "corpus-envelope", entry.Seed); break;
+                default: throw new InvalidOperationException("Unknown bounded corpus family.");
+            }
     }
 
     private static SubjectGrammarLimits Limits() { SubjectGrammarLimits.TryCreate(64, 8, 16, 16, out var value); return value!; }

@@ -31,9 +31,9 @@ internal static class CiRunnerBuildKitDaemonInvocationCompiler
             runtime.DockerConfigDirectory,
         };
         for (var left = 0; left < roots.Length; left++)
-        for (var right = left + 1; right < roots.Length; right++)
-            if (Within(roots[left], roots[right]) || Within(roots[right], roots[left]))
-                throw new InvalidDataException("The CI BuildKit daemon paths overlap an unsafe runtime path.");
+            for (var right = left + 1; right < roots.Length; right++)
+                if (Within(roots[left], roots[right]) || Within(roots[right], roots[left]))
+                    throw new InvalidDataException("The CI BuildKit daemon paths overlap an unsafe runtime path.");
         var socket = Path.Combine(runtime.RuntimeDirectory, "buildkit", "buildkitd.sock");
         var state = Path.Combine(runtime.HomeDirectory, "rootlesskit-state");
         var root = Path.Combine(runtime.HomeDirectory, "buildkit-state");

@@ -339,13 +339,13 @@ internal sealed class InfisicalSecretStore : IAsyncDisposable
             values.TryAdd(valid.SecretKey, valid);
         }
         foreach (var import in response.Imports ?? [])
-        foreach (var document in import.Secrets ?? [])
-        {
-            var valid = RequireDocument(document);
-            values.TryAdd(valid.SecretKey, string.IsNullOrWhiteSpace(valid.SecretPath)
-                ? valid with { SecretPath = import.SecretPath }
-                : valid);
-        }
+            foreach (var document in import.Secrets ?? [])
+            {
+                var valid = RequireDocument(document);
+                values.TryAdd(valid.SecretKey, string.IsNullOrWhiteSpace(valid.SecretPath)
+                    ? valid with { SecretPath = import.SecretPath }
+                    : valid);
+            }
         return values.Values.ToArray();
     }
 

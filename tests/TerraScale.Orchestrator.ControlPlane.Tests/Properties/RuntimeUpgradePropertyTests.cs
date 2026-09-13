@@ -184,10 +184,22 @@ internal static class RuntimeUpgradeData
         if (seed is 0 or > MaximumReplaySeed) throw new ArgumentOutOfRangeException(nameof(seed));
         var operation = new RuntimeOperationId($"operation-{seed}"); var node = new RuntimeNodeId($"node-{seed}"); var allocation = new RuntimeAllocationId($"allocation-{seed}");
         var current = new RuntimeGeneration(1000 + seed); var target = new RuntimeGeneration(1001 + seed);
-        var phase = variant switch { 0 => UpdatePhase.UpgradePlanned, 1 => UpdatePhase.ArtifactVerified, 2 => UpdatePhase.InactiveSlotStaged,
-            3 or 16 => UpdatePhase.RollbackTimerArmed, 4 => UpdatePhase.ProcessRestarted, 5 or 17 => UpdatePhase.LocalHealthVerified,
-            6 => UpdatePhase.RegionalCompatibilityVerified, 7 => UpdatePhase.SlotCommitted, 8 => UpdatePhase.OldSlotRetainedUntilSoak,
-            9 => UpdatePhase.RollingBack, 10 => UpdatePhase.RolledBack, 18 => UpdatePhase.RollbackFailed, _ => UpdatePhase.UpgradePlanned };
+        var phase = variant switch
+        {
+            0 => UpdatePhase.UpgradePlanned,
+            1 => UpdatePhase.ArtifactVerified,
+            2 => UpdatePhase.InactiveSlotStaged,
+            3 or 16 => UpdatePhase.RollbackTimerArmed,
+            4 => UpdatePhase.ProcessRestarted,
+            5 or 17 => UpdatePhase.LocalHealthVerified,
+            6 => UpdatePhase.RegionalCompatibilityVerified,
+            7 => UpdatePhase.SlotCommitted,
+            8 => UpdatePhase.OldSlotRetainedUntilSoak,
+            9 => UpdatePhase.RollingBack,
+            10 => UpdatePhase.RolledBack,
+            18 => UpdatePhase.RollbackFailed,
+            _ => UpdatePhase.UpgradePlanned
+        };
         var active = phase is UpdatePhase.UpgradePlanned or UpdatePhase.ArtifactVerified or UpdatePhase.InactiveSlotStaged or UpdatePhase.RollbackTimerArmed or UpdatePhase.RolledBack ? UpdateSlot.A : UpdateSlot.B;
         var inactive = active == UpdateSlot.A ? UpdateSlot.B : UpdateSlot.A;
         var forward = Artifact(seed, target, 'a', variant == 11 ? ArtifactVerificationStatus.Failed : ArtifactVerificationStatus.Verified);

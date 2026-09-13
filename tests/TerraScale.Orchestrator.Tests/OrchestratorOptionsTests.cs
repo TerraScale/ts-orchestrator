@@ -38,6 +38,46 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task NatsUrlRejectsUserInformationWithoutEchoingTheSecret()
+    {
+        var exception = await Assert.That(() => OrchestratorOptions.Parse(
+                ["check"],
+                name => name == "TS_ORCH_NATS_URL"
+                    ? "tls://control-user:control-secret@example:4222"
+                    : null))
+            .Throws<ArgumentException>();
+
+        await Assert.That(exception!.Message).Contains("must not include user information");
+        await Assert.That(exception.Message).DoesNotContain("control-secret");
+    }
+
+    [Test]
+    public async Task GlobalNatsUrlsRejectUserInformationBeforeCredentialResolution()
+    {
+        var exception = await Assert.That(() => OrchestratorOptions.Parse(
+                ["check"],
+                name => name == "TS_ORCH_GLOBAL_NATS_URL"
+                    ? "tls://global-user:global-secret@example:4222"
+                    : null))
+            .Throws<ArgumentException>();
+
+        await Assert.That(exception!.Message).Contains("must not include user information");
+        await Assert.That(exception.Message).DoesNotContain("global-secret");
+    }
+
+    [Test]
+    public async Task NatsUrlSanitizationRemovesUserInformationFromDiagnostics()
+    {
+        var sanitized = OrchestratorOptions.SanitizeNatsUrl(
+            "tls://diagnostic-user:diagnostic-secret@example:4222/path?query=value#fragment");
+
+        await Assert.That(sanitized).DoesNotContain("diagnostic-user");
+        await Assert.That(sanitized).DoesNotContain("diagnostic-secret");
+        await Assert.That(sanitized).DoesNotContain("query=value");
+        await Assert.That(sanitized).Contains("example:4222");
+    }
+
+    [Test]
     public async Task RunRequiresAuthenticatedTlsRegionalControlNats()
     {
         await Assert.That(() => OrchestratorOptions.Parse(["run"], _ => null))
@@ -370,4 +410,3 @@ public sealed class OrchestratorOptionsTests
         await Assert.That(exception!.Message).Contains(family == "global-controller" ? "controller" : family);
     }
 }
-

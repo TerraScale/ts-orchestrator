@@ -35,9 +35,9 @@ public sealed class GlobalCellDirectoryTests
         await Assert.That(directory.Apply(advertisement))
             .IsEqualTo(GlobalCellAdvertisementDisposition.Accepted);
         await Assert.That(directory.Apply(advertisement with
-            {
-                Capabilities = advertisement.Capabilities.ToArray()
-            }))
+        {
+            Capabilities = advertisement.Capabilities.ToArray()
+        }))
             .IsEqualTo(GlobalCellAdvertisementDisposition.Duplicate);
 
         await Assert.That(directory.Snapshot().Cells.Count).IsEqualTo(1);
@@ -60,9 +60,9 @@ public sealed class GlobalCellDirectoryTests
         var directory = new GlobalCellDirectory();
 
         await Assert.That(directory.Apply(Advertisement("gru", DateTimeOffset.UtcNow) with
-            {
-                Membership = null!
-            })).IsEqualTo(GlobalCellAdvertisementDisposition.Rejected);
+        {
+            Membership = null!
+        })).IsEqualTo(GlobalCellAdvertisementDisposition.Rejected);
         await Assert.That(directory.Snapshot().RejectedAdvertisements).IsEqualTo(1);
     }
 
@@ -136,18 +136,18 @@ public sealed class GlobalCellDirectoryTests
         await Assert.That((valid with { Endpoints = ["tls://b.internal:4222", "tls://a.internal:4222"] }).IsValid(observedAt)).IsFalse();
         await Assert.That((valid with { Endpoints = ["tls://a.internal:4222", "tls://a.internal:4222"] }).IsValid(observedAt)).IsFalse();
         await Assert.That((valid with
-            {
-                Endpoints = Enumerable.Range(0, 9).Select(index => $"tls://c{index}.internal:4222").ToArray()
-            }).IsValid(observedAt)).IsFalse();
+        {
+            Endpoints = Enumerable.Range(0, 9).Select(index => $"tls://c{index}.internal:4222").ToArray()
+        }).IsValid(observedAt)).IsFalse();
 
         // An endpoint change is content, not a duplicate: the same ordering key with
         // different endpoints is rejected as conflicting rather than ignored.
         var directory = new GlobalCellDirectory();
         await Assert.That(directory.Apply(valid, observedAt)).IsEqualTo(GlobalCellAdvertisementDisposition.Accepted);
         await Assert.That(directory.Apply(valid with
-            {
-                Endpoints = ["tls://control-gru-alt.internal:4222"]
-            }, observedAt)).IsEqualTo(GlobalCellAdvertisementDisposition.Rejected);
+        {
+            Endpoints = ["tls://control-gru-alt.internal:4222"]
+        }, observedAt)).IsEqualTo(GlobalCellAdvertisementDisposition.Rejected);
     }
 
     [Test]

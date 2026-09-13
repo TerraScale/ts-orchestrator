@@ -27,8 +27,14 @@ public sealed class ObservabilityPropertyTests
                     subject.ServiceId == request.Spec.ServiceId && subject.SignalId == request.Spec.SignalId && subject.MetricId == request.Spec.MetricId &&
                     subject.SchemaGeneration == request.Spec.SchemaGeneration && subject.SchemaDigest == request.Spec.SchemaDigest && subject.Labels.SequenceEqual(request.Spec.Labels), seed, "admission subject");
             }
-            var code = variant switch { 1 => ObservabilityDecisionCode.CardinalityWithinBudget, 2 or 3 => ObservabilityDecisionCode.GenerationCurrent,
-                4 => ObservabilityDecisionCode.SecretFree, 5 => ObservabilityDecisionCode.ScopeExact, _ => ObservabilityDecisionCode.LabelsBounded };
+            var code = variant switch
+            {
+                1 => ObservabilityDecisionCode.CardinalityWithinBudget,
+                2 or 3 => ObservabilityDecisionCode.GenerationCurrent,
+                4 => ObservabilityDecisionCode.SecretFree,
+                5 => ObservabilityDecisionCode.ScopeExact,
+                _ => ObservabilityDecisionCode.LabelsBounded
+            };
             Require(decision.Trace.Single(r => r.Code == code).Outcome == (variant == 3 ? ObservabilityDecisionOutcome.Held : variant == 0 ? ObservabilityDecisionOutcome.Passed : ObservabilityDecisionOutcome.Rejected), seed, "admission code"); executed++;
         }
         await Assert.That(executed).IsEqualTo(1000); await Assert.That(identities.Count).IsEqualTo(1000);
@@ -186,11 +192,14 @@ public sealed class ObservabilityPropertyTests
         for (var seed = 1UL; seed <= Cases; seed++)
         {
             var previous = CultureInfo.CurrentCulture;
-            try { CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultures[seed % 4]);
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultures[seed % 4]);
                 var a = ObservabilityDecisionEngine.EvaluateTelemetryAdmission(ObservabilityData.Admission(seed, 0, false));
                 var b = ObservabilityDecisionEngine.EvaluateTelemetryAdmission(ObservabilityData.Admission(seed, 0, true));
                 Require(Serialize(a) == Serialize(b), seed, "permutation");
-                Require(a.Intent.GetType() == typeof(AdmitTelemetryIntent), seed, "telemetry authority separation"); executed++; }
+                Require(a.Intent.GetType() == typeof(AdmitTelemetryIntent), seed, "telemetry authority separation"); executed++;
+            }
             finally { CultureInfo.CurrentCulture = previous; }
         }
         await Assert.That(executed).IsEqualTo(1000);
@@ -384,7 +393,11 @@ internal static class ObservabilityCorpus
     internal static IReadOnlyList<ObservabilityEntry> Load() { using var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(Resource) ?? throw new InvalidDataException(); return Parse(ReadBounded(s), true); }
     internal static byte[] ReadBounded(Stream s) { using var m = new MemoryStream(); var b = new byte[1024]; var total = 0; while (true) { var n = s.Read(b); if (n == 0) break; total += n; if (total > 8192) throw new InvalidDataException(); m.Write(b, 0, n); } return m.ToArray(); }
     internal static IReadOnlyList<ObservabilityEntry> Parse(byte[] bytes, bool enforceDigest) { if (bytes.Length > 8192 || enforceDigest && Convert.ToHexStringLower(SHA256.HashData(bytes)) != Digest) throw new InvalidDataException(); using var d = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 4, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow }); var root = d.RootElement; Exact(root, "schema", "entries"); if (root.GetProperty("schema").GetString() != "terrascale.observability-replay.v1") throw new InvalidDataException(); var result = new List<ObservabilityEntry>(); foreach (var x in root.GetProperty("entries").EnumerateArray()) { if (result.Count == 64) throw new InvalidDataException(); Exact(x, "id", "seed", "kind", "variant", "expected"); result.Add(new(x.GetProperty("id").GetString()!, x.GetProperty("seed").GetUInt64(), x.GetProperty("kind").GetString()!, x.GetProperty("variant").GetInt32(), x.GetProperty("expected").GetString()!)); } if (result.Count == 0 || result.Select(x => x.Id).Distinct().Count() != result.Count || result.Select(x => x.Seed).Distinct().Count() != result.Count || result.Any(x => x.Seed is 0 or > 1_000_000 || !ValidId(x.Id) || !Vocabulary(x))) throw new InvalidDataException(); return result; }
-    private static bool Vocabulary(ObservabilityEntry x) => (x.Kind, x.Variant, x.Expected) switch { ("admission", 0, "AdmitTelemetryIntent") or ("admission", 1 or 2 or 4 or 5, "DropTelemetryIntent") or ("admission", 3, "HoldObservabilityIntent") => true, ("projection", 0, "CreateGrafanaResource") or ("projection", 1, "UpdateGrafanaResource") or ("projection", 2, "DeleteGrafanaResource") or ("projection", 3, "ReportGrafanaDrift") or ("projection", 4, "HoldObservabilityIntent") => true, ("alert", 0, "RouteAlertIntent") or ("alert", 1 or 2 or 3 or 4 or 5, "HoldObservabilityIntent") => true,
+    private static bool Vocabulary(ObservabilityEntry x) => (x.Kind, x.Variant, x.Expected) switch
+    {
+        ("admission", 0, "AdmitTelemetryIntent") or ("admission", 1 or 2 or 4 or 5, "DropTelemetryIntent") or ("admission", 3, "HoldObservabilityIntent") => true,
+        ("projection", 0, "CreateGrafanaResource") or ("projection", 1, "UpdateGrafanaResource") or ("projection", 2, "DeleteGrafanaResource") or ("projection", 3, "ReportGrafanaDrift") or ("projection", 4, "HoldObservabilityIntent") => true,
+        ("alert", 0, "RouteAlertIntent") or ("alert", 1 or 2 or 3 or 4 or 5, "HoldObservabilityIntent") => true,
         ("regional", 0, "AggregateRegionalTelemetryIntent|True|ScopeExact:Passed") or
         ("regional", 1 or 2 or 3, "AggregateRegionalTelemetryIntent|False|ScopeExact:Rejected") or
         ("regional", 4, "AggregateRegionalTelemetryIntent|False|PersistenceExact:Rejected") or
@@ -393,7 +406,9 @@ internal static class ObservabilityCorpus
         ("regional", 7, "AggregateRegionalTelemetryIntent|False|QueryHaSatisfied:Held") or
         ("regional", 8, "AggregateRegionalTelemetryIntent|False|SpoolWithinPolicy:Held") or
         ("regional", 9 or 10, "AggregateRegionalTelemetryIntent|False|EvidenceComplete:Held") or
-        ("regional", 11 or 12, "AggregateRegionalTelemetryIntent|False|ScopeExact:Held") => true, _ => false };
+        ("regional", 11 or 12, "AggregateRegionalTelemetryIntent|False|ScopeExact:Held") => true,
+        _ => false
+    };
     private static bool ValidId(string? x) { if (x is null || x.Length is < 1 or > 64 || x[0] == '-' || x[^1] == '-') return false; var h = false; foreach (var c in x) { var n = c == '-'; if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9') && !n || n && h) return false; h = n; } return true; }
     private static void Exact(JsonElement e, params string[] names) { if (!e.EnumerateObject().Select(p => p.Name).Order().SequenceEqual(names.Order())) throw new InvalidDataException(); }
 }

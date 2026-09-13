@@ -83,10 +83,18 @@ public sealed class TerraBaseSecondAuditPropertyTests
             var scope = Scope(index); var mode = index % 20;
             kinds.Add(mode);
             var completed = TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Topology(scope: scope);
-            var addPending = completed with { TopologyApplied = TerraBaseProof.Unknown,
-                Replication = TerraBaseReplication.Unknown, PostChangeReplication = TerraBaseProof.Unknown };
-            var removePending = completed with { TopologyApplied = TerraBaseProof.Unknown,
-                NoDatabaseReference = TerraBaseProof.Unknown, PostChangeReplication = TerraBaseProof.Unknown };
+            var addPending = completed with
+            {
+                TopologyApplied = TerraBaseProof.Unknown,
+                Replication = TerraBaseReplication.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown
+            };
+            var removePending = completed with
+            {
+                TopologyApplied = TerraBaseProof.Unknown,
+                NoDatabaseReference = TerraBaseProof.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown
+            };
             TerraBaseDecision decision;
             TerraBaseAction action; TerraBaseTarget target; TerraBaseCode code;
             switch (mode)
@@ -261,18 +269,18 @@ public sealed class TerraBaseSecondAuditPropertyTests
 
     private static TerraBaseEvidenceScope Changed(TerraBaseEvidenceScope value, int dimension,
         bool malformed, int index) => dimension switch
-    {
-        0 => value with { Region = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Region("SFO") },
-        1 => value with { Database = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Db($"other-db-{index}") },
-        2 => value with { Member = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Member($"other-member-{index}") },
-        3 => value with { Node = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Node($"other-node-{index}") },
-        4 => value with { RetainedVolume = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Volume($"other-volume-{index}") },
-        5 => value with { Fence = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Fence($"other-fence-{index}") },
-        6 => value with { Operation = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Op($"other-operation-{index}") },
-        7 => value with { DatabaseGeneration = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(40) },
-        8 => value with { TopologyGeneration = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(80) },
-        _ => value with { AuthorityEpoch = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(30) },
-    };
+        {
+            0 => value with { Region = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Region("SFO") },
+            1 => value with { Database = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Db($"other-db-{index}") },
+            2 => value with { Member = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Member($"other-member-{index}") },
+            3 => value with { Node = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Node($"other-node-{index}") },
+            4 => value with { RetainedVolume = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Volume($"other-volume-{index}") },
+            5 => value with { Fence = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Fence($"other-fence-{index}") },
+            6 => value with { Operation = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Op($"other-operation-{index}") },
+            7 => value with { DatabaseGeneration = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(40) },
+            8 => value with { TopologyGeneration = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(80) },
+            _ => value with { AuthorityEpoch = malformed ? default : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(30) },
+        };
 
     private static void Exact(TerraBaseDecision decision, TerraBaseEvidenceScope scope,
         TerraBaseAction action, TerraBaseTarget target, TerraBaseCode code, int index)
@@ -321,19 +329,19 @@ public sealed class TerraBaseSecondAuditPropertyTests
 
     private static ulong Mix(ulong value, TerraBaseDecision decision)
     {
-        value=unchecked((value ^ (uint)decision.Action ^ ((ulong)(uint)decision.Target << 8) ^ ((ulong)(uint)decision.Code << 16))
+        value = unchecked((value ^ (uint)decision.Action ^ ((ulong)(uint)decision.Target << 8) ^ ((ulong)(uint)decision.Code << 16))
             * 1099511628211UL);
-        if(decision.Subject is TerraBaseUpgradeIntentSubject upgrade)
+        if (decision.Subject is TerraBaseUpgradeIntentSubject upgrade)
         {
-            value=MixText(value,upgrade.Current.Value);
-            value=MixText(value,upgrade.Target.Value);
+            value = MixText(value, upgrade.Current.Value);
+            value = MixText(value, upgrade.Target.Value);
         }
         return value;
     }
-    private static ulong MixText(ulong value,string text)
+    private static ulong MixText(ulong value, string text)
     {
-        foreach(var character in text)value=unchecked((value^character)*1099511628211UL);
-        return unchecked((value^0xffUL)*1099511628211UL);
+        foreach (var character in text) value = unchecked((value ^ character) * 1099511628211UL);
+        return unchecked((value ^ 0xffUL) * 1099511628211UL);
     }
     private static void Require(bool condition, string family, int index)
     { if (!condition) throw new InvalidOperationException($"{family} property failed at {index}."); }

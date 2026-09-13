@@ -253,7 +253,7 @@ public sealed class ProtocolContractCompletenessPropertyTests
             switch (category)
             {
                 case 1: envelope = Fixture(index, protocol: Protocol(2)).Envelope; expected = CommandValidationError.UnsupportedProtocolVersion; break;
-                case 2: envelope = Fixture(index, cell: Cell($"wrong{index}" )).Envelope; expected = CommandValidationError.WrongCell; break;
+                case 2: envelope = Fixture(index, cell: Cell($"wrong{index}")).Envelope; expected = CommandValidationError.WrongCell; break;
                 case 3: envelope = Fixture(index, aggregate: Aggregate($"wrong/{index}")).Envelope; expected = CommandValidationError.WrongAggregateIdentity; break;
                 case 4: envelope = Fixture(index, generation: Generation(10_000 + index - 1)).Envelope; expected = CommandValidationError.StaleGeneration; break;
                 case 5: envelope = Fixture(index, epoch: Epoch(20_000 + index - 1)).Envelope; expected = CommandValidationError.StaleWriterEpoch; break;

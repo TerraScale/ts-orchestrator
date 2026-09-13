@@ -149,6 +149,16 @@ internal static class NatsGatewayPeerIdentityRules
         if (!identity.StartsWith("spiffe://", StringComparison.Ordinal))
             return NatsGatewayEndpoint.IsValidHost(identity);
 
+        var pathStart = identity.IndexOf('/', "spiffe://".Length);
+        if (pathStart < 0)
+            return false;
+        var rawPathSegments = identity[(pathStart + 1)..].Split('/');
+        if (rawPathSegments[^1].Length == 0)
+            rawPathSegments = rawPathSegments[..^1];
+        if (rawPathSegments.Length == 0 ||
+            rawPathSegments.Any(static segment => segment.Length == 0 || segment is "." or ".."))
+            return false;
+
         if (!Uri.TryCreate(identity, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Scheme, "spiffe", StringComparison.Ordinal) ||
             string.IsNullOrEmpty(uri.Host) ||
@@ -315,7 +325,7 @@ internal sealed record NatsGatewayProcessIdentity
             unitName.Any(static character =>
                 character is not (>= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '@' or '%' or '.' or ':')))
             throw new ArgumentException("The NATS process unit must be a bounded systemd unit name.", nameof(unitName));
-        if (!NatsGatewayPathRules.IsSafeAbsolutePath(cgroup))
+        if (cgroup.Length > 256 || !NatsGatewayPathRules.IsSafeAbsolutePath(cgroup))
             throw new ArgumentException("The NATS cgroup must be a bounded absolute cgroup path.", nameof(cgroup));
         UnitName = unitName;
         Cgroup = cgroup;
@@ -502,7 +512,7 @@ internal sealed record NatsGatewayCluster
             throw new ArgumentException("The cluster must declare a non-empty set of valid account names.", nameof(accounts));
         if (jetStreamAssets.Any(static asset => string.IsNullOrWhiteSpace(asset) || asset.Length > 256))
             throw new ArgumentException("The JetStream asset names must be bounded.", nameof(jetStreamAssets));
-        if (!NatsGatewayPathRules.IsSafeAbsolutePath(cgroupSlice))
+        if (cgroupSlice.Length > 256 || !NatsGatewayPathRules.IsSafeAbsolutePath(cgroupSlice))
             throw new ArgumentException("The cgroup slice must be a bounded absolute cgroup path.", nameof(cgroupSlice));
         if (trustGeneration < 1 || configurationGeneration < 1)
             throw new ArgumentException("The trust and configuration generations must be positive.", nameof(trustGeneration));

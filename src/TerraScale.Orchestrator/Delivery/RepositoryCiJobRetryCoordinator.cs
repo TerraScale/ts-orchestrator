@@ -140,15 +140,15 @@ internal sealed class RepositoryCiJobRetryCoordinator(
 
     private static RepositoryCiJobRetryCoordinationDisposition Map(
         RepositoryCiJobJournalDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobJournalDisposition.StaleAuthority =>
-            RepositoryCiJobRetryCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
-            RepositoryCiJobRetryCoordinationDisposition.LeaseHeld,
-        RepositoryCiJobJournalDisposition.Contention =>
-            RepositoryCiJobRetryCoordinationDisposition.Contention,
-        _ => RepositoryCiJobRetryCoordinationDisposition.IdentityConflict,
-    };
+        {
+            RepositoryCiJobJournalDisposition.StaleAuthority =>
+                RepositoryCiJobRetryCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
+                RepositoryCiJobRetryCoordinationDisposition.LeaseHeld,
+            RepositoryCiJobJournalDisposition.Contention =>
+                RepositoryCiJobRetryCoordinationDisposition.Contention,
+            _ => RepositoryCiJobRetryCoordinationDisposition.IdentityConflict,
+        };
 
     private static bool Identity(string value) => value is { Length: >= 1 and <= 512 } &&
         !value.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character));

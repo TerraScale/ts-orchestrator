@@ -11,7 +11,8 @@ namespace TerraScale.Orchestrator.Delivery;
 internal sealed class DirectDeliveryJournalConflictException : Exception
 {
     public DirectDeliveryJournalConflictException() : base(
-        "The direct delivery operation was admitted concurrently with a different request.") { }
+        "The direct delivery operation was admitted concurrently with a different request.")
+    { }
 }
 
 /// <summary>

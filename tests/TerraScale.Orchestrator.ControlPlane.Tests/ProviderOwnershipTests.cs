@@ -235,18 +235,18 @@ public sealed class ProviderOwnershipTests
         var ownership = new[] { Ownership(), new ProviderOwnershipRecord(new("other-resource"), Cell, Compartment, Generation) };
         string? baseline = null;
         foreach (var items in new[] { ownership, ownership.Reverse().ToArray() })
-        foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-        {
-            var original = CultureInfo.CurrentCulture;
-            try
+            foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-                var serialized = Serialize(ProviderOwnershipEngine.Authorize(Request(ownership: items)));
-                baseline ??= serialized;
-                await Assert.That(serialized).IsEqualTo(baseline);
+                var original = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                    var serialized = Serialize(ProviderOwnershipEngine.Authorize(Request(ownership: items)));
+                    baseline ??= serialized;
+                    await Assert.That(serialized).IsEqualTo(baseline);
+                }
+                finally { CultureInfo.CurrentCulture = original; }
             }
-            finally { CultureInfo.CurrentCulture = original; }
-        }
     }
 
     [Test]

@@ -15,17 +15,17 @@ public sealed class CompletionGapAudit2CounterexampleTests
         var cases = 0;
 
         foreach (var expected in permutations)
-        foreach (var pulumi in permutations)
-        foreach (var regional in permutations)
-        {
-            var culture = (cases % 3) switch { 0 => "tr-TR", 1 => "ar-SA", _ => "ja-JP" };
-            var decision = UnderCulture(culture, () => Decide(expected, pulumi, regional));
-            await Assert.That(decision.Ready).IsTrue();
-            await Assert.That(Project(decision.Intent!.Inventory.Expected)).IsEqualTo(canonical);
-            await Assert.That(Project(decision.Intent.Inventory.Pulumi)).IsEqualTo(canonical);
-            await Assert.That(Project(decision.Intent.Inventory.Regional)).IsEqualTo(canonical);
-            cases++;
-        }
+            foreach (var pulumi in permutations)
+                foreach (var regional in permutations)
+                {
+                    var culture = (cases % 3) switch { 0 => "tr-TR", 1 => "ar-SA", _ => "ja-JP" };
+                    var decision = UnderCulture(culture, () => Decide(expected, pulumi, regional));
+                    await Assert.That(decision.Ready).IsTrue();
+                    await Assert.That(Project(decision.Intent!.Inventory.Expected)).IsEqualTo(canonical);
+                    await Assert.That(Project(decision.Intent.Inventory.Pulumi)).IsEqualTo(canonical);
+                    await Assert.That(Project(decision.Intent.Inventory.Regional)).IsEqualTo(canonical);
+                    cases++;
+                }
 
         await Assert.That(cases).IsEqualTo(216);
     }
@@ -41,8 +41,8 @@ public sealed class CompletionGapAudit2CounterexampleTests
         var inventory = decision.Intent!.Inventory;
 
         foreach (var retained in new[] { inventory.Expected, inventory.Pulumi, inventory.Regional })
-        foreach (var item in retained)
-            await Assert.That(ReferenceEquals(item, items.Single(candidate => candidate.ResourceId == item.ResourceId))).IsTrue();
+            foreach (var item in retained)
+                await Assert.That(ReferenceEquals(item, items.Single(candidate => candidate.ResourceId == item.ResourceId))).IsTrue();
 
         expected[0] = Replacement("mutated-expected");
         pulumi[0] = Replacement("mutated-pulumi");
@@ -186,10 +186,10 @@ public sealed class CompletionGapAudit2CounterexampleTests
     private static IEnumerable<HandoffInventoryItem[]> Permutations(IReadOnlyList<HandoffInventoryItem> values)
     {
         for (var first = 0; first < values.Count; first++)
-        for (var second = 0; second < values.Count; second++)
-        for (var third = 0; third < values.Count; third++)
-            if (first != second && first != third && second != third)
-                yield return [values[first], values[second], values[third]];
+            for (var second = 0; second < values.Count; second++)
+                for (var third = 0; third < values.Count; third++)
+                    if (first != second && first != third && second != third)
+                        yield return [values[first], values[second], values[third]];
     }
 
     private static T UnderCulture<T>(string cultureName, Func<T> action)

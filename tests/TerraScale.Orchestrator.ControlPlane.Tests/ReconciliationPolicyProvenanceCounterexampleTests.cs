@@ -121,19 +121,19 @@ public sealed class ReconciliationPolicyProvenanceCounterexampleTests
         string? baseline = null;
 
         foreach (var cultureName in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var request in new[] { firstRequest, secondRequest })
-        {
-            var previous = CultureInfo.CurrentCulture;
-            try
+            foreach (var request in new[] { firstRequest, secondRequest })
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
-                var actual = PublicFingerprint(ReconciliationEngine.Plan(request));
-                baseline ??= actual;
-                await Assert.That(actual).IsEqualTo(baseline);
-                await Assert.That(PublicFingerprint(ReconciliationEngine.Plan(request))).IsEqualTo(actual);
+                var previous = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultureName);
+                    var actual = PublicFingerprint(ReconciliationEngine.Plan(request));
+                    baseline ??= actual;
+                    await Assert.That(actual).IsEqualTo(baseline);
+                    await Assert.That(PublicFingerprint(ReconciliationEngine.Plan(request))).IsEqualTo(actual);
+                }
+                finally { CultureInfo.CurrentCulture = previous; }
             }
-            finally { CultureInfo.CurrentCulture = previous; }
-        }
 
         await Assert.That(ReconciliationCorpus.Load().Count).IsEqualTo(12);
     }
@@ -264,7 +264,7 @@ public sealed class ReconciliationPolicyProvenanceCounterexampleTests
     private static ObservedResourceState Exact(DesiredResource resource) => new(resource.Identity, resource.Kind,
         resource.Generation, resource.Digest, $"observation-{resource.Identity.Value}", 10, ObservedCondition.Ready);
     private static ObservedResourceState Drift(DesiredResource resource) => Exact(resource) with
-        { Generation = 1, Digest = $"old-{resource.Identity.Value}" };
+    { Generation = 1, Digest = $"old-{resource.Identity.Value}" };
 
     private static string PublicFingerprint(ReconciliationPlan plan) => string.Join('|', plan.Steps.Select(step =>
     {

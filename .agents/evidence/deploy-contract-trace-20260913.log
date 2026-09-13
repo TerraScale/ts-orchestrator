@@ -1,0 +1,128 @@
+ts-orchestrator source state
+87f129fee59947a0069f9c0dc02bbb27c96af703
+## main...origin/main
+ M src/TerraScale.Orchestrator/Messaging/NatsFileResolver.cs
+ M src/TerraScale.Orchestrator/Messaging/NatsGatewayTopology.cs
+ M src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs
+ M src/TerraScale.Orchestrator/OrchestratorOptions.cs
+ M tests/TerraScale.Orchestrator.Tests/NatsGatewayTopologyTests.cs
+?? .agents/evidence/deploy-contract-trace-20260913.log
+?? .tmp-nats-inspect/
+ts-deploy source state
+8960068e1b5ae6d2e4afac088cfd00ed61701dc8
+## main...origin/main
+ M src/TerraScale.Deploy/Forgejo/Forgejo.cs
+ M tests/TerraScale.Deploy.Tests/Forgejo/ForgejoProviderTests.cs
+producer submit path
+212:            Console.Write(DeliveryContracts.Serialize(request));
+241:            string json = DeliveryContracts.Serialize(request);
+445:        using StringContent content = new(DeliveryContracts.Serialize(request), Encoding.UTF8, "application/json");
+446:        using HttpResponseMessage response = await client.PostAsync(uri, content, cancellationToken).ConfigureAwait(false);
+orchestrator live ingress
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:11:internal enum DirectDeliveryCommandPayloadKind
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:27:internal sealed record DirectDeliveryCommandAdmission(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:28:    DirectDeliveryCommandPayloadKind Kind,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:31:    DirectDeliveryCommandWireError Error,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:37:        Kind == DirectDeliveryCommandPayloadKind.DeliveryRequest && Request is not null ||
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:38:        Kind == DirectDeliveryCommandPayloadKind.DeployHandoffManifest &&
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:42:        Kind == DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 &&
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:43:        CandidateEvidence is not null && Error == DirectDeliveryCommandWireError.None;
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:52:internal static class DirectDeliveryCommandIngress
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:61:    internal static DirectDeliveryCommandAdmission Decode(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:73:        var request = DirectDeliveryCommandWire.TryCanonicalizeDeliveryRequest(payload);
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:76:            var envelope = DirectDeliveryCommandWire.ValidateSignedEnvelope(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:79:            if (envelope.Error != DirectDeliveryCommandWireError.None)
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:85:                    DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:86:            return new(DirectDeliveryCommandPayloadKind.DeliveryRequest, request, null,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:87:                DirectDeliveryCommandWireError.None, CommandValidationError.None, envelope.Attempt);
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:90:        if (TryCanonicalizeHandoffManifest(payload) is { } manifest)
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:96:            var envelope = DirectDeliveryCommandWire.ValidateSignedEnvelope(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:99:            if (envelope.Error != DirectDeliveryCommandWireError.None)
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:103:                DirectDeliveryCommandPayloadKind.DeployHandoffManifest,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:106:                DirectDeliveryCommandWireError.None,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:113:            var envelope = DirectDeliveryCommandWire.ValidateSignedEnvelope(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:116:            if (envelope.Error != DirectDeliveryCommandWireError.None)
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:118:                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:126:                DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:129:                DirectDeliveryCommandWireError.None,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:136:            DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:144:    internal static DeliveryReceipt RefusalReceipt(DirectDeliveryCommandAdmission admission)
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:147:        if (admission.Kind == DirectDeliveryCommandPayloadKind.DeployHandoffManifest &&
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:161:                    DirectDeliveryErrorCode.InvalidInput,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:176:                admission.Error == DirectDeliveryCommandWireError.MalformedEnvelope
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:177:                    ? DirectDeliveryErrorCode.InvalidInput
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:178:                    : DirectDeliveryErrorCode.UnauthorizedActor,
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:183:    private static DirectDeliveryCommandAdmission Refused(
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:184:        DirectDeliveryCommandWireError error, CommandValidationError validation) =>
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:185:        new(DirectDeliveryCommandPayloadKind.None, null, null, error, validation);
+src/TerraScale.Orchestrator/Delivery/DirectDeliveryCommandIngress.cs:191:    private static DeployHandoffManifest? TryCanonicalizeHandoffManifest(ReadOnlyMemory<byte> payload)
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:28:    private readonly DirectDeliveryService? directDelivery;
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:41:        DirectDeliveryService? directDelivery,
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:63:    internal DirectDeliveryService? DirectDelivery => directDelivery;
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:139:        bool registersDirectDeliveryEndpoint = true,
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:140:        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:238:            DirectDeliveryService? directDelivery = null;
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:248:                var adapters = DirectDeliveryRuntimeAdapterSet.Create(
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:260:                directDelivery = new DirectDeliveryService(
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:323:                if (registersDirectDeliveryEndpoint && commandSignatureVerifier is null)
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:326:                if (registersDirectDeliveryEndpoint && commandSignatureVerifier is not null)
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:331:                            NatsServiceEndpointName.DirectDelivery,
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:340:                                var admission = DirectDeliveryCommandIngress.Decode(
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:351:                                    DirectDeliveryCommandPayloadKind.DeliveryRequest when admission.Request is { } request =>
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:355:                                    DirectDeliveryCommandPayloadKind.DeployHandoffManifest when admission.Handoff is
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:361:                                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 when
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:363:                                        admission.Error != DirectDeliveryCommandWireError.None =>
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:371:                                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 when
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:379:                                        DirectDeliveryCommandIngress.RefusalReceipt(admission)),
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:385:                        name: "direct_delivery",
+src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs:386:                        subject: topology.DirectDeliverySubject,
+orchestrator HTTP surface search
+src/TerraScale.Orchestrator/Security/InfisicalSecretStore.cs:360:        using var request = new HttpRequestMessage(method, new Uri(configuration.Server, relativeUri));
+src/TerraScale.Orchestrator/Security/InfisicalSecretStore.cs:376:            using var request = new HttpRequestMessage(
+src/TerraScale.Orchestrator/Security/InfisicalSecretStore.cs:398:        HttpRequestMessage request,
+src/TerraScale.Orchestrator/Security/InfisicalSecretStore.cs:415:        catch (Exception exception) when (exception is JsonException or HttpRequestException)
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadManifest.cs:18:    int HttpListenerPort,
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadManifest.cs:59:    [property: JsonPropertyName("httpListenerPort")] int? HttpListenerPort,
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadManifest.cs:158:        if (parsed.HttpListenerPort is not int port)
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadManifest.cs:229:        if (manifest.HttpListenerPort != McpWorkloadPorts.HttpListenerPort)
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadManifest.cs:231:                $"The MCP workload listens on exactly port {McpWorkloadPorts.HttpListenerPort}; no other port is admitted.");
+src/TerraScale.Orchestrator/Runtime/Mcp/McpWorkloadContract.cs:112:    public const int HttpListenerPort = 18675;
+src/TerraScale.Orchestrator/Delivery/ForgejoSourcePoller.cs:161:                exception is HttpRequestException or IOException or TimeoutException or OperationCanceledException)
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:392:        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(configuration.Server, path));
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:402:            throw new HttpRequestException("Forgejo source archive retrieval failed.", null, response.StatusCode);
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:454:        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(configuration.Server, path));
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:467:            throw new HttpRequestException("Forgejo commit-status publication failed.", null, response.StatusCode);
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:505:        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(configuration.Server, path));
+src/TerraScale.Orchestrator/Delivery/ForgejoSourceClient.cs:515:            throw new HttpRequestException("Forgejo source resolution failed.", null, response.StatusCode);
+src/TerraScale.Orchestrator/Delivery/ForgejoGenericPackagePublisher.cs:122:                throw new HttpRequestException("Forgejo package publication failed.", null, response.StatusCode);
+src/TerraScale.Orchestrator/Delivery/ForgejoGenericPackagePublisher.cs:147:            throw new HttpRequestException("Forgejo package readback failed.", null, response.StatusCode);
+src/TerraScale.Orchestrator/Delivery/ForgejoGenericPackagePublisher.cs:162:    private HttpRequestMessage Request(HttpMethod method, Uri uri)
+src/TerraScale.Orchestrator/Delivery/ForgejoGenericPackagePublisher.cs:164:        var request = new HttpRequestMessage(method, uri);
+src/TerraScale.Orchestrator/Delivery/ForgejoWebhookServer.cs:88:    private readonly HttpListener listener = new();
+src/TerraScale.Orchestrator/Delivery/ForgejoWebhookServer.cs:165:        catch (HttpListenerException) when (cancellationToken.IsCancellationRequested)
+src/TerraScale.Orchestrator/Delivery/ForgejoWebhookServer.cs:177:    private async Task HandleAsync(HttpListenerContext context, CancellationToken stoppingToken)
+src/TerraScale.Orchestrator/Delivery/ForgejoWebhookServer.cs:202:            catch (Exception exception) when (exception is HttpListenerException or InvalidOperationException or ObjectDisposedException)
+src/TerraScale.Orchestrator/Delivery/ForgejoWebhookServer.cs:209:        HttpListenerRequest request,
+src/TerraScale.Orchestrator/ControlPlane/Providers/OciBlockVolumeExpansionTransport.cs:165:        catch (HttpRequestException)
+src/TerraScale.Orchestrator/ControlPlane/Providers/OciBlockVolumeExpansionTransport.cs:237:        exception is OperationCanceledException or TimeoutException or HttpRequestException or SocketException or IOException;
+HTTP surface rg exit: 0
+deploy build
+  TerraScale.Deploy -> /home/mariogk/Projects/TerraScale/ts-deploy/src/TerraScale.Deploy/bin/Debug/net10.0/linux-x64/ts-deploy.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.22
+deploy build exit: 0
+orchestrator build
+/home/mariogk/Projects/TerraScale/ts-orchestrator/src/TerraScale.Orchestrator/Messaging/NatsFileResolver.cs(31,65): error CS9135: A constant value of type 'long' is expected [/home/mariogk/Projects/TerraScale/ts-orchestrator/src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj]
+
+Build FAILED.
+
+/home/mariogk/Projects/TerraScale/ts-orchestrator/src/TerraScale.Orchestrator/Messaging/NatsFileResolver.cs(31,65): error CS9135: A constant value of type 'long' is expected [/home/mariogk/Projects/TerraScale/ts-orchestrator/src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:17.86
+orchestrator build exit: 1

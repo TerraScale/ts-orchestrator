@@ -48,6 +48,9 @@ public sealed record OrchestratorOptions(
         var url = environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222";
         var replicasText = environment("TS_ORCH_REPLICAS") ?? "1";
         var instance = environment("TS_ORCH_INSTANCE") ?? "local";
+        var globalUrl = environment("TS_ORCH_GLOBAL_NATS_URL");
+        var globalDirectoryUrl = environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL");
+        var globalDirectoryServiceUrl = environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL");
         var controllerNkey = environment("TS_ORCH_NATS_NKEY_FILE");
         var controllerTlsValues = new[]
         {
@@ -98,9 +101,9 @@ public sealed record OrchestratorOptions(
         };
         RejectUnownedCredentials(
             command, controllerNkey, controllerTlsValues,
-            environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey, globalCredentials, globalTlsValues,
-            environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryCredentials, globalDirectoryTlsValues,
-            environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey, globalDirectoryServiceCredentials, globalDirectoryServiceTlsValues,
+            globalUrl, globalNkey, globalCredentials, globalTlsValues,
+            globalDirectoryUrl, globalDirectoryNkey, globalDirectoryCredentials, globalDirectoryTlsValues,
+            globalDirectoryServiceUrl, globalDirectoryServiceNkey, globalDirectoryServiceCredentials, globalDirectoryServiceTlsValues,
             infrastructureNkey, infrastructureTlsValues, journalValues);
         var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check;
         var natsNKeyFile = controllerCredentialsRequired
@@ -115,10 +118,10 @@ public sealed record OrchestratorOptions(
             throw new ArgumentException("TS_ORCH_CELL must contain only lowercase letters, digits, or hyphens.");
         }
 
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not "nats" and not "tls")
-        {
-            throw new ArgumentException("TS_ORCH_NATS_URL must be an absolute nats:// or tls:// URL.");
-        }
+        var uri = ParseRegionalNatsUrl(url, "TS_ORCH_NATS_URL");
+        RejectNatsUrlUserInfo(globalUrl, "TS_ORCH_GLOBAL_NATS_URL");
+        RejectNatsUrlUserInfo(globalDirectoryUrl, "TS_ORCH_GLOBAL_DIRECTORY_NATS_URL");
+        RejectNatsUrlUserInfo(globalDirectoryServiceUrl, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL");
 
         if (!int.TryParse(replicasText, out var replicas) || replicas is < 1 or > 5 || replicas % 2 == 0)
         {
@@ -165,14 +168,14 @@ public sealed record OrchestratorOptions(
         }
         var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey, globalCredentials,
+                globalUrl, globalNkey, globalCredentials,
                 globalTlsValues[0], globalTlsValues[1], globalTlsValues[2],
                 replicas,
                 cell)
             : null;
         var globalDirectoryNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalDirectoryNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryCredentials,
+                globalDirectoryUrl, globalDirectoryNkey, globalDirectoryCredentials,
                 globalDirectoryTlsValues[0], globalDirectoryTlsValues[1], globalDirectoryTlsValues[2],
                 replicas,
                 cell,
@@ -180,7 +183,7 @@ public sealed record OrchestratorOptions(
             : null;
         var globalDirectoryServiceNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalDirectoryServiceNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey, globalDirectoryServiceCredentials,
+                globalDirectoryServiceUrl, globalDirectoryServiceNkey, globalDirectoryServiceCredentials,
                 globalDirectoryServiceTlsValues[0], globalDirectoryServiceTlsValues[1], globalDirectoryServiceTlsValues[2],
                 replicas,
                 cell)
@@ -334,6 +337,54 @@ public sealed record OrchestratorOptions(
         _ => command.ToString().ToLowerInvariant()
     };
 
+    internal static Uri ParseRegionalNatsUrl(string url, string optionName)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        ArgumentNullException.ThrowIfNull(optionName);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not "nats" and not "tls" ||
+            string.IsNullOrEmpty(uri.Host))
+        {
+            throw new ArgumentException(
+                $"{optionName} must be an absolute nats:// or tls:// URL.",
+                optionName);
+        }
+        RejectNatsUrlUserInfo(uri, optionName);
+        return uri;
+    }
+
+    internal static string SanitizeNatsUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return "[invalid NATS URL]";
+
+        var builder = new UriBuilder(uri)
+        {
+            UserName = string.Empty,
+            Password = string.Empty,
+            Path = string.Empty,
+            Query = string.Empty,
+            Fragment = string.Empty
+        };
+        return builder.Uri.GetLeftPart(UriPartial.Authority);
+    }
+
+    private static void RejectNatsUrlUserInfo(string? url, string optionName)
+    {
+        if (url is not null && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            RejectNatsUrlUserInfo(uri, optionName);
+    }
+
+    private static void RejectNatsUrlUserInfo(Uri uri, string optionName)
+    {
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+        {
+            throw new ArgumentException(
+                $"{optionName} must not include user information; provide NATS authentication through credential files.",
+                optionName);
+        }
+    }
+
     private static void ValidateDistinctNatsIdentities(
         string? regionalNkey,
         Messaging.NatsTlsFiles? regionalTls,
@@ -352,15 +403,15 @@ public sealed record OrchestratorOptions(
             identities.Add(("global directory service", service.Authentication.PublicKey, service.Tls));
 
         for (var first = 0; first < identities.Count; first++)
-        for (var second = first + 1; second < identities.Count; second++)
-        {
-            var left = identities[first];
-            var right = identities[second];
-            if (left.PublicKey == right.PublicKey ||
-                left.Tls.SameIdentity(right.Tls))
-                throw new ArgumentException(
-                    $"{left.Name} and {right.Name} NATS identities must be distinct.");
-        }
+            for (var second = first + 1; second < identities.Count; second++)
+            {
+                var left = identities[first];
+                var right = identities[second];
+                if (left.PublicKey == right.PublicKey ||
+                    left.Tls.SameIdentity(right.Tls))
+                    throw new ArgumentException(
+                        $"{left.Name} and {right.Name} NATS identities must be distinct.");
+            }
     }
 
     private static bool IsSubjectToken(string value) =>
@@ -368,4 +419,3 @@ public sealed record OrchestratorOptions(
         value.All(static character =>
             character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
 }
-

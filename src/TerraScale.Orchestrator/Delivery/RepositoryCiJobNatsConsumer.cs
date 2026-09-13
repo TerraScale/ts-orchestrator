@@ -250,7 +250,7 @@ internal sealed class RepositoryCiJobNatsConsumer
         ArgumentNullException.ThrowIfNull(wait);
         if (maximumWaits < 0) throw new ArgumentOutOfRangeException(nameof(maximumWaits));
 
-        for (var waits = 0;; waits++)
+        for (var waits = 0; ; waits++)
         {
             var receipt = await execute(cancellationToken);
             if (!ShouldRetry(receipt) || waits == maximumWaits) return receipt;

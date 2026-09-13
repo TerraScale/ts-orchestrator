@@ -231,9 +231,11 @@ public static class DeterministicSimulator
                 if (node is not null && existing >= 0 && Exact(operations[existing], item) && operations[existing].Authorized &&
                     node.Id == state.Leader && node.AcceptedWriterEpoch == state.CurrentEpoch && item.Epoch == state.CurrentEpoch &&
                     !node.Crashed && !node.Partitioned && !completedOperations.Contains(item.Operation, StringComparer.Ordinal))
-                { accepted++; completedOperations.Add(item.Operation);
+                {
+                    accepted++; completedOperations.Add(item.Operation);
                     acceptedActions.Add(Evidence(item, state,
-                        operations[existing].Authorized, node.Role, 1)); }
+                        operations[existing].Authorized, node.Role, 1));
+                }
                 else rejected++;
                 break;
             case ModelEventKind.RequestTermination:
@@ -318,9 +320,12 @@ public static class DeterministicSimulator
     {
         var index = Array.FindIndex(nodes, node => node.Id == id);
         if (index < 0) return false;
-        nodes[index] = nodes[index] with { Crashed = crashed ?? nodes[index].Crashed,
+        nodes[index] = nodes[index] with
+        {
+            Crashed = crashed ?? nodes[index].Crashed,
             Partitioned = partitioned ?? nodes[index].Partitioned,
-            AcceptedWriterEpoch = acceptedEpoch ?? nodes[index].AcceptedWriterEpoch };
+            AcceptedWriterEpoch = acceptedEpoch ?? nodes[index].AcceptedWriterEpoch
+        };
         return true;
     }
     private static IEnumerable<FailureDirective?> Branches(ModelState state)

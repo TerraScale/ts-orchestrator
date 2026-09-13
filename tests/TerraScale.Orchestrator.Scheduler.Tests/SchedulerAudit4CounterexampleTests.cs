@@ -109,14 +109,14 @@ public sealed class SchedulerAudit4CounterexampleTests
         try
         {
             foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-            foreach (var permutation in new[] { observations, observations.Reverse().ToArray(), [observations[1], observations[2], observations[0]] })
-            {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-                var decision = Evaluate(Request(observations: permutation));
-                var fingerprint = AvailabilityAcceptedRequestFingerprint.Create(decision);
-                expected ??= fingerprint;
-                await Assert.That(fingerprint).IsEqualTo(expected);
-            }
+                foreach (var permutation in new[] { observations, observations.Reverse().ToArray(), [observations[1], observations[2], observations[0]] })
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                    var decision = Evaluate(Request(observations: permutation));
+                    var fingerprint = AvailabilityAcceptedRequestFingerprint.Create(decision);
+                    expected ??= fingerprint;
+                    await Assert.That(fingerprint).IsEqualTo(expected);
+                }
         }
         finally
         {

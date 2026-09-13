@@ -184,17 +184,17 @@ internal sealed class RepositoryCiJobResultReconciler(
 
     private static RepositoryCiJobResultReconcileDisposition Map(
         RepositoryCiJobJournalDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobJournalDisposition.StaleAuthority =>
-            RepositoryCiJobResultReconcileDisposition.AuthorityLost,
-        RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
-            RepositoryCiJobResultReconcileDisposition.LeaseHeld,
-        RepositoryCiJobJournalDisposition.Contention =>
-            RepositoryCiJobResultReconcileDisposition.Contention,
-        RepositoryCiJobJournalDisposition.PhaseConflict =>
-            RepositoryCiJobResultReconcileDisposition.NotDispatchable,
-        _ => RepositoryCiJobResultReconcileDisposition.IdentityConflict,
-    };
+        {
+            RepositoryCiJobJournalDisposition.StaleAuthority =>
+                RepositoryCiJobResultReconcileDisposition.AuthorityLost,
+            RepositoryCiJobJournalDisposition.LeaseHeld or RepositoryCiJobJournalDisposition.StaleLease =>
+                RepositoryCiJobResultReconcileDisposition.LeaseHeld,
+            RepositoryCiJobJournalDisposition.Contention =>
+                RepositoryCiJobResultReconcileDisposition.Contention,
+            RepositoryCiJobJournalDisposition.PhaseConflict =>
+                RepositoryCiJobResultReconcileDisposition.NotDispatchable,
+            _ => RepositoryCiJobResultReconcileDisposition.IdentityConflict,
+        };
 
     private static RepositoryCiJobResultReconcileReceipt Result(
         RepositoryCiJobResultReconcileDisposition disposition,

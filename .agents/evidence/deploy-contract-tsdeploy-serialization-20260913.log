@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "operationId": "operation-1",
+  "source": {
+    "repository": "owner/repository",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "treeDigest": "git:0123456789abcdef0123456789abcdef01234567"
+  },
+  "artifact": {
+    "name": "service.tar",
+    "manifestName": "service.manifest.json",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "signatureDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "manifestDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "manifestSignatureDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "kind": "service",
+    "architecture": "linux/amd64",
+    "snippet": null
+  },
+  "target": {
+    "service": "api",
+    "environment": "production",
+    "regions": [
+      "gru"
+    ]
+  },
+  "configurationRevision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "migrationRevision": null,
+  "requestedBy": "release-bot",
+  "reason": "deploy",
+  "rollback": null,
+  "informational": null
+}

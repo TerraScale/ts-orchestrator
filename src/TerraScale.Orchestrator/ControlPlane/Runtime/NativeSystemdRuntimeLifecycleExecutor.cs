@@ -154,13 +154,13 @@ public sealed class NativeSystemdRuntimeLifecycleExecutor : IRuntimeLifecycleHos
     private static RuntimeLifecycleObservationStatus MapObservation(
         LifecycleAction action,
         SystemdAllocationState state) => action switch
-    {
-        LifecycleAction.Converge when state == SystemdAllocationState.Running => RuntimeLifecycleObservationStatus.Converged,
-        LifecycleAction.Drain or LifecycleAction.Stop when state is SystemdAllocationState.Absent or SystemdAllocationState.Stopped => RuntimeLifecycleObservationStatus.Stopped,
-        LifecycleAction.Converge or LifecycleAction.Drain or LifecycleAction.Stop
-            when state is SystemdAllocationState.Starting or SystemdAllocationState.Stopping => RuntimeLifecycleObservationStatus.NotObserved,
-        _ => RuntimeLifecycleObservationStatus.Unknown
-    };
+        {
+            LifecycleAction.Converge when state == SystemdAllocationState.Running => RuntimeLifecycleObservationStatus.Converged,
+            LifecycleAction.Drain or LifecycleAction.Stop when state is SystemdAllocationState.Absent or SystemdAllocationState.Stopped => RuntimeLifecycleObservationStatus.Stopped,
+            LifecycleAction.Converge or LifecycleAction.Drain or LifecycleAction.Stop
+                when state is SystemdAllocationState.Starting or SystemdAllocationState.Stopping => RuntimeLifecycleObservationStatus.NotObserved,
+            _ => RuntimeLifecycleObservationStatus.Unknown
+        };
 
     private static string ObservationFingerprint(
         RuntimeLifecycleObservationRequest request,

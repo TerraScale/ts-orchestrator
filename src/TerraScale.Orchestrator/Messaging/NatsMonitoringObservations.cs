@@ -888,6 +888,7 @@ internal static class NatsMonitoringPayload
     internal const int MaximumAdvisoryChannelCapacity = 64;
 
     internal static readonly INatsDeserialize<byte[]> Deserializer = new BoundedDeserializer();
+    internal static readonly INatsDeserialize<byte[]> DiscardDeserializer = new DiscardingDeserializer();
 
     internal static byte[] Deserialize(ReadOnlySequence<byte> payload) =>
         payload.Length is 0 or > NatsMonitoringParsers.MaximumReplyBytes
@@ -898,5 +899,10 @@ internal static class NatsMonitoringPayload
     {
         public byte[] Deserialize(in ReadOnlySequence<byte> payload) =>
             NatsMonitoringPayload.Deserialize(payload);
+    }
+
+    private sealed class DiscardingDeserializer : INatsDeserialize<byte[]>
+    {
+        public byte[] Deserialize(in ReadOnlySequence<byte> payload) => [];
     }
 }

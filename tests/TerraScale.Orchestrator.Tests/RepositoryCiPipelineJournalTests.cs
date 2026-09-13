@@ -159,7 +159,8 @@ public sealed class RepositoryCiPipelineJournalTests
             7,
             10,
             100,
-            plan) with { SchemaVersion = 2 };
+            plan) with
+        { SchemaVersion = 2 };
         var content = JsonSerializer.SerializeToUtf8Bytes(
             document,
             RepositoryCiPipelineJournalJsonContext.Default.RepositoryCiPipelineObjectDocument);

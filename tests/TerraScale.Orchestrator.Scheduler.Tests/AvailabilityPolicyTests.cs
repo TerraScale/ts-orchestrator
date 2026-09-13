@@ -178,7 +178,7 @@ public sealed class AvailabilityPolicyTests
             new MaintainReplicaChange(new("replica-a")), missingIdentity);
         var incomplete = new AvailabilityEvaluationRequest(
             Policy(3, 2, 2, 1, domains: 2), new MaintainReplicaChange(new("replica-a")),
-            ObservationCompleteness.Incomplete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), HealthyThree());
+            ObservationCompleteness.Incomplete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), HealthyThree());
         var wrongService = new[]
         {
             new ReplicaObservation(new("replica-a"), new("other-service"), new("node-a"), new("fd-a"), ReplicaAvailabilityState.Available),
@@ -260,7 +260,7 @@ public sealed class AvailabilityPolicyTests
         var observations = HealthyThree().ToList();
         var request = new AvailabilityEvaluationRequest(
             Policy(3, 2, 2, 1, domains: 2), new MaintainReplicaChange(new("replica-a")),
-            ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations);
+            ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), observations);
         observations.Clear();
 
         await Assert.That(request.Observations.Count).IsEqualTo(3);
@@ -303,7 +303,7 @@ public sealed class AvailabilityPolicyTests
         ServiceAvailabilityPolicy policy,
         AvailabilityChange change,
         IEnumerable<ReplicaObservation> observations) => evaluator.Evaluate(new(
-            policy, change, ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations));
+            policy, change, ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), observations));
 
     private static ServiceAvailabilityPolicy Policy(
         ulong desired,

@@ -368,8 +368,7 @@ public sealed class AdversarialSimulationTests
             .IsEqualTo(CorpusLoadCode.InvalidSchedule);
         await Assert.That(RegressionCorpusLoader.Load(new string('x', 65_537)).Code).IsEqualTo(CorpusLoadCode.InvalidJson);
         var scheduleItem = "{\"kind\":\"Loss\",\"node\":\"n1\",\"delay\":0}";
-        var oversizedSchedule = source.Replace(source[source.IndexOf("\"schedule\":[", StringComparison.Ordinal)..
-            source.IndexOf("]", source.IndexOf("\"schedule\":[", StringComparison.Ordinal), StringComparison.Ordinal)],
+        var oversizedSchedule = source.Replace(source[source.IndexOf("\"schedule\":[", StringComparison.Ordinal)..source.IndexOf("]", source.IndexOf("\"schedule\":[", StringComparison.Ordinal), StringComparison.Ordinal)],
             $"\"schedule\":[{string.Join(',', Enumerable.Repeat(scheduleItem, 129))}", StringComparison.Ordinal);
         await Assert.That(RegressionCorpusLoader.Load(oversizedSchedule).Code).IsEqualTo(CorpusLoadCode.InvalidSchedule);
         await Assert.That(RegressionCorpusLoader.Load("{").Code).IsEqualTo(CorpusLoadCode.InvalidJson);
@@ -430,13 +429,13 @@ public sealed class AdversarialSimulationTests
         long authorityEpoch = 1, bool authorized = true, ModelNodeRole role = ModelNodeRole.Critical, int ordinal = 1,
         int criticalNodesAfter = 3) =>
         new(Event(1, kind switch
-            {
-                AcceptedActionKind.Authorization => ModelEventKind.AuthorizeOperation,
-                AcceptedActionKind.Create => ModelEventKind.RequestCreate,
-                AcceptedActionKind.Mutation => ModelEventKind.MutationSucceeded,
-                AcceptedActionKind.Termination => ModelEventKind.RequestTermination,
-                _ => ModelEventKind.Delivery,
-            }, epoch: eventEpoch), authorityEpoch,
+        {
+            AcceptedActionKind.Authorization => ModelEventKind.AuthorizeOperation,
+            AcceptedActionKind.Create => ModelEventKind.RequestCreate,
+            AcceptedActionKind.Mutation => ModelEventKind.MutationSucceeded,
+            AcceptedActionKind.Termination => ModelEventKind.RequestTermination,
+            _ => ModelEventKind.Delivery,
+        }, epoch: eventEpoch), authorityEpoch,
             "n1", authorityEpoch, false, false, authorized, role, ordinal, criticalNodesAfter);
     private static IEnumerable<ModelEvent> ThrowingEvents()
     {

@@ -215,7 +215,7 @@ public sealed class SnapshotEvidencePropertyTests
 
         foreach (var fatal in new Exception[] { new OutOfMemoryException("fatal"), new StackOverflowException("fatal"), new AccessViolationException("fatal") })
         {
-            await Assert.That(Capture(() => EvidenceTestData.Gate(context: EvidenceTestData.Context(verifier: new ThrowingEvidenceVerifier(fatal))) )!.GetType()).IsEqualTo(fatal.GetType());
+            await Assert.That(Capture(() => EvidenceTestData.Gate(context: EvidenceTestData.Context(verifier: new ThrowingEvidenceVerifier(fatal))))!.GetType()).IsEqualTo(fatal.GetType());
             await Assert.That(Capture(() => SignedSnapshotValidator.Validate(SnapshotTestData.Snapshot(), SnapshotTestData.Context(compatibility: new ThrowingSchemaCompatibility(fatal))))!.GetType()).IsEqualTo(fatal.GetType());
             await Assert.That(Capture(() => SignedSnapshotValidator.Validate(SnapshotTestData.Snapshot(), SnapshotTestData.Context(signatureVerifier: new ThrowingSnapshotVerifier(fatal))))!.GetType()).IsEqualTo(fatal.GetType());
         }

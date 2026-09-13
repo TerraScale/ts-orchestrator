@@ -40,65 +40,65 @@ public sealed class RuntimeLifecycleCoordinator(
             switch (checkpoint.Phase)
             {
                 case RuntimeLifecyclePhase.Proposed:
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
-                    if (gate != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, gate);
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Authorized, RuntimeLifecycleCallStatus.NotCalled, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    if (advanced.Error != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
-                    continue;
-                }
-                case RuntimeLifecyclePhase.Authorized:
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
-                    if (gate != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, gate);
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.DispatchPersisted, RuntimeLifecycleCallStatus.DispatchPersisted, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    if (advanced.Error != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
-                    continue;
-                }
-                case RuntimeLifecyclePhase.DispatchPersisted:
-                {
-                    // This state may be a crash boundary. A cancellation before an actual call is still unsafe to retry.
-                    if (cancellationToken.IsCancellationRequested)
-                        return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.CancelledAfterDispatch).ConfigureAwait(false);
-                    var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
-                    if (gate != RuntimeLifecycleErrorCode.None)
-                        return await MarkUncertainAsync(checkpoint, gate).ConfigureAwait(false);
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.InFlight, RuntimeLifecycleCallStatus.InFlight, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    if (advanced.Error != RuntimeLifecycleErrorCode.None || advanced.Checkpoint is null)
                     {
-                        var error = advanced.Error == RuntimeLifecycleErrorCode.None
-                            ? RuntimeLifecycleErrorCode.InvalidCheckpoint
-                            : advanced.Error;
-                        return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, error);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
+                        if (gate != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, gate);
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Authorized, RuntimeLifecycleCallStatus.NotCalled, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        if (advanced.Error != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
+                        continue;
                     }
-                    return await CallOnceAndRequireObservationAsync(request, advanced.Checkpoint, cancellationToken).ConfigureAwait(false);
-                }
+                case RuntimeLifecyclePhase.Authorized:
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
+                        if (gate != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, gate);
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.DispatchPersisted, RuntimeLifecycleCallStatus.DispatchPersisted, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        if (advanced.Error != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
+                        continue;
+                    }
+                case RuntimeLifecyclePhase.DispatchPersisted:
+                    {
+                        // This state may be a crash boundary. A cancellation before an actual call is still unsafe to retry.
+                        if (cancellationToken.IsCancellationRequested)
+                            return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.CancelledAfterDispatch).ConfigureAwait(false);
+                        var gate = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
+                        if (gate != RuntimeLifecycleErrorCode.None)
+                            return await MarkUncertainAsync(checkpoint, gate).ConfigureAwait(false);
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.InFlight, RuntimeLifecycleCallStatus.InFlight, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        if (advanced.Error != RuntimeLifecycleErrorCode.None || advanced.Checkpoint is null)
+                        {
+                            var error = advanced.Error == RuntimeLifecycleErrorCode.None
+                                ? RuntimeLifecycleErrorCode.InvalidCheckpoint
+                                : advanced.Error;
+                            return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, error);
+                        }
+                        return await CallOnceAndRequireObservationAsync(request, advanced.Checkpoint, cancellationToken).ConfigureAwait(false);
+                    }
                 case RuntimeLifecyclePhase.InFlight:
                 case RuntimeLifecyclePhase.Uncertain:
                     return await RecoverByObservationAsync(request, checkpoint, cancellationToken).ConfigureAwait(false);
                 case RuntimeLifecyclePhase.ObservedConverged:
-                {
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, RuntimeLifecycleCallStatus.Observed, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Converged, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Converged, RuntimeLifecycleErrorCode.None) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
-                }
+                    {
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, RuntimeLifecycleCallStatus.Observed, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Converged, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Converged, RuntimeLifecycleErrorCode.None) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
+                    }
                 case RuntimeLifecyclePhase.ObservedStopped:
-                {
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, RuntimeLifecycleCallStatus.Observed, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Stopped, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Stopped, RuntimeLifecycleErrorCode.None) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
-                }
+                    {
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, RuntimeLifecycleCallStatus.Observed, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Stopped, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Stopped, RuntimeLifecycleErrorCode.None) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
+                    }
                 case RuntimeLifecyclePhase.Failed:
-                {
-                    var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, checkpoint.CallStatus, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Failed, checkpoint.ErrorCode, cancellationToken).ConfigureAwait(false);
-                    if (advanced.Retry) continue;
-                    return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Failed, checkpoint.ErrorCode) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
-                }
+                    {
+                        var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.Terminal, checkpoint.CallStatus, checkpoint.LastObservationFingerprint, checkpoint.LastObservationWatermark, RuntimeLifecycleTerminalStatus.Failed, checkpoint.ErrorCode, cancellationToken).ConfigureAwait(false);
+                        if (advanced.Retry) continue;
+                        return advanced.Error == RuntimeLifecycleErrorCode.None ? Result(advanced.Checkpoint, RuntimeLifecycleTerminalStatus.Failed, checkpoint.ErrorCode) : Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, advanced.Error);
+                    }
                 default:
                     return Result(checkpoint, RuntimeLifecycleTerminalStatus.Failed, RuntimeLifecycleErrorCode.InvalidCheckpoint);
             }

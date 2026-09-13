@@ -59,6 +59,26 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
     /// </summary>
     private static readonly TimeSpan ReplyWindow = TimeSpan.FromMilliseconds(750);
 
+    internal static NatsSubOpts AdvisorySubscriptionOptions() => new()
+    {
+        ChannelOpts = new NatsSubChannelOpts
+        {
+            Capacity = NatsMonitoringPayload.MaximumAdvisoryChannelCapacity,
+            FullMode = BoundedChannelFullMode.DropOldest
+        }
+    };
+
+    internal static NatsSubOpts ReplySubscriptionOptions(int expectedCells) => new()
+    {
+        MaxMsgs = Math.Clamp(expectedCells, 1, NatsMonitoringPayload.MaximumChannelCapacity),
+        Timeout = ReplyWindow,
+        ChannelOpts = new NatsSubChannelOpts
+        {
+            Capacity = NatsMonitoringPayload.MaximumChannelCapacity,
+            FullMode = BoundedChannelFullMode.DropOldest
+        }
+    };
+
     private readonly NatsMonitoringRuntimeOptions options;
     private readonly OrchestratorTelemetry? telemetry;
     private readonly Func<GlobalCellDirectorySnapshot>? directory;
@@ -218,15 +238,8 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
     {
         await foreach (var message in client.SubscribeAsync<byte[]>(
                            subject,
-                           serializer: NatsMonitoringPayload.Deserializer,
-                           opts: new NatsSubOpts
-                           {
-                               ChannelOpts = new NatsSubChannelOpts
-                               {
-                                   Capacity = NatsMonitoringPayload.MaximumAdvisoryChannelCapacity,
-                                   FullMode = BoundedChannelFullMode.DropOldest
-                               }
-                           },
+                           serializer: NatsMonitoringPayload.DiscardDeserializer,
+                           opts: AdvisorySubscriptionOptions(),
                            cancellationToken: cancellationToken))
         {
             // Advisory payloads can carry account or identity context; only the
@@ -339,19 +352,10 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
                                subject,
                                subject == NatsMonitoringSubjects.JetStream ? """{"streams":true,"consumers":true}""" : string.Empty,
                                replySerializer: NatsMonitoringPayload.Deserializer,
-                               replyOpts: new NatsSubOpts
-                               {
-                                   MaxMsgs = Math.Min(options.ExpectedCells.Count, NatsMonitoringPayload.MaximumChannelCapacity),
-                                   Timeout = ReplyWindow,
-                                   ChannelOpts = new NatsSubChannelOpts
-                                   {
-                                       Capacity = NatsMonitoringPayload.MaximumChannelCapacity,
-                                       FullMode = BoundedChannelFullMode.DropOldest
-                                   }
-                               },
+                               replyOpts: ReplySubscriptionOptions(options.ExpectedCells.Count),
                                cancellationToken: cancellationToken))
             {
-                if (reply.Data is not { Length: > 0 }) continue;
+                if (reply.Data is not { Length: > 0 and <= NatsMonitoringParsers.MaximumReplyBytes }) continue;
                 var payload = Encoding.UTF8.GetString(reply.Data);
                 switch (subject)
                 {

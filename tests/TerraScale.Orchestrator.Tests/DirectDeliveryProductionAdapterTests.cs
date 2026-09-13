@@ -204,7 +204,8 @@ public sealed class DirectDeliveryProductionAdapterTests
                 new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired),
                 "audit-legacy",
                 new DeliveryErrorInfo(null, null, null),
-                ManifestDigest) with { ArtifactManifestDigest = null },
+                ManifestDigest) with
+            { ArtifactManifestDigest = null },
             ArtifactDigest), DeliveryWireCodec.JsonOptions);
         var preCodec = canonical.Replace(",\"artifactManifestDigest\":null}", "}", StringComparison.Ordinal);
         await Assert.That(preCodec).IsNotEqualTo(canonical);

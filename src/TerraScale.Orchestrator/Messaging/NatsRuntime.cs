@@ -143,10 +143,11 @@ public sealed class NatsRuntime : IAsyncDisposable
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
+        var natsUrl = OrchestratorOptions.ParseRegionalNatsUrl(options.NatsUrl, "TS_ORCH_NATS_URL");
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var clientOptions = new NatsOpts
         {
-            Url = options.NatsUrl,
+            Url = natsUrl.ToString(),
             RetryOnInitialConnect = true,
             RequestTimeout = TimeSpan.FromSeconds(15)
         };
@@ -181,7 +182,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             await client.ConnectAsync();
             if (options.NatsNKeyFile is not null || options.NatsTls is not null)
             {
-                await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
+                await VerifyAnonymousDeniedAsync(natsUrl.ToString(), options.NatsTls, cancellationToken);
             }
             var nativeGitOpsEnabled = NativeGitOpsRuntime.IsEnabled(
                 options.GlobalNats is not null &&
@@ -547,9 +548,10 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsTlsFiles? tls,
         CancellationToken cancellationToken)
     {
+        var natsUrl = OrchestratorOptions.ParseRegionalNatsUrl(url, "NATS URL");
         var options = new NatsOpts
         {
-            Url = url,
+            Url = natsUrl.ToString(),
             RetryOnInitialConnect = false,
             ConnectTimeout = TimeSpan.FromSeconds(3),
             RequestTimeout = TimeSpan.FromSeconds(3)
@@ -568,15 +570,38 @@ public sealed class NatsRuntime : IAsyncDisposable
         await using var anonymous = new NatsClient(options);
         try
         {
-            await anonymous.ConnectAsync();
+            await anonymous.ConnectAsync().AsTask().WaitAsync(cancellationToken);
         }
-        catch (NatsException)
+        catch (NatsServerException exception) when (exception.IsAuthError)
         {
             return;
+        }
+        catch (Exception exception) when (IsAnonymousAuthenticationDenied(exception))
+        {
+            return;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"Anonymous NATS authentication probe failed for {OrchestratorOptions.SanitizeNatsUrl(url)} " +
+                $"({exception.GetType().Name}).",
+                exception);
         }
         throw new InvalidOperationException(
             "Control NATS accepted an anonymous client while NKey authentication was required.");
     }
+
+    private static bool IsAnonymousAuthenticationDenied(Exception exception) =>
+        exception switch
+        {
+            NatsServerException { IsAuthError: true } => true,
+            { InnerException: { } inner } => IsAnonymousAuthenticationDenied(inner),
+            _ => false
+        };
 
     private static async Task VerifyServiceAsync(
         NatsClient client,
@@ -877,4 +902,3 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsObjStore ProtocolPackage);
 
 }
-

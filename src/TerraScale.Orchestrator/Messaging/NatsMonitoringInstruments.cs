@@ -694,9 +694,9 @@ internal sealed record NatsMonitoringSnapshot(
                 .Distinct().Count() != Entries.Count)
             throw new InvalidOperationException("The NATS monitoring snapshot is invalid.");
         foreach (var entry in Entries)
-        foreach (var label in entry.Labels)
-            if (label.Value.Length > NatsMonitoringSnapshotEntry.MaximumLabelValueLength)
-                throw new InvalidOperationException("The NATS monitoring snapshot contains an unbounded label value.");
+            foreach (var label in entry.Labels)
+                if (label.Value.Length > NatsMonitoringSnapshotEntry.MaximumLabelValueLength)
+                    throw new InvalidOperationException("The NATS monitoring snapshot contains an unbounded label value.");
     }
 
     /// <summary>

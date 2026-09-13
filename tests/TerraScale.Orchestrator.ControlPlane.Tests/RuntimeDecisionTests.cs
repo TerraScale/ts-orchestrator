@@ -508,18 +508,18 @@ public sealed class RuntimeDecisionTests
         await Assert.That(request.Health.Count).IsEqualTo(3);
         string? baseline = null;
         foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var health in new[] { Health(), Health().Reverse().ToArray() })
-        {
-            var original = CultureInfo.CurrentCulture;
-            try
+            foreach (var health in new[] { Health(), Health().Reverse().ToArray() })
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-                var value = Serialize(RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(phase: LifecyclePhase.Started, health: health)));
-                baseline ??= value;
-                await Assert.That(value).IsEqualTo(baseline);
+                var original = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                    var value = Serialize(RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(phase: LifecyclePhase.Started, health: health)));
+                    baseline ??= value;
+                    await Assert.That(value).IsEqualTo(baseline);
+                }
+                finally { CultureInfo.CurrentCulture = original; }
             }
-            finally { CultureInfo.CurrentCulture = original; }
-        }
     }
 
     [Test]

@@ -117,7 +117,8 @@ internal sealed class BoundaryEnumerable<T> : IEnumerable<T>
     private readonly int _count; private readonly Func<int, T> _factory; private readonly IteratorFailurePhase _phase;
     private readonly Exception? _failure; private readonly Action? _onDispose;
     internal BoundaryEnumerable(int count, Func<int, T> factory, IteratorFailurePhase phase = IteratorFailurePhase.None,
-        Exception? failure = null, Action? onDispose = null) { _count = count; _factory = factory; _phase = phase; _failure = failure; _onDispose = onDispose; }
+        Exception? failure = null, Action? onDispose = null)
+    { _count = count; _factory = factory; _phase = phase; _failure = failure; _onDispose = onDispose; }
     internal bool ExtraCurrentRead { get; private set; }
     public IEnumerator<T> GetEnumerator()
     {

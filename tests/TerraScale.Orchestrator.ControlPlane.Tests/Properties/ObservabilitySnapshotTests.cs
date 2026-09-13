@@ -46,7 +46,9 @@ public sealed class ObservabilitySnapshotTests
     {
         private readonly int _count; private readonly Func<T> _factory; private readonly int _extra; private readonly Phase _failure; private readonly Func<Exception>? _fatal;
         public Hostile(int count, Func<T> factory, int extra = -1, Phase failure = Phase.None, Func<Exception>? fatal = null) { _count = count; _factory = factory; _extra = extra; _failure = failure; _fatal = fatal; }
-        public int CurrentCalls { get; private set; } public IEnumerator<T> GetEnumerator() { if (_failure == Phase.GetEnumerator) Throw(); return new It(this); } IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        public int CurrentCalls { get; private set; }
+        public IEnumerator<T> GetEnumerator() { if (_failure == Phase.GetEnumerator) Throw(); return new It(this); }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         private void Throw() { if (_fatal is not null) throw _fatal(); throw new InvalidOperationException("sentinel-secret"); }
         private sealed class It(Hostile<T> o) : IEnumerator<T> { private int i = -1; public T Current { get { o.CurrentCalls++; if (o._failure == Phase.Current || i == o._extra) o.Throw(); return o._factory(); } } object? IEnumerator.Current => Current; public bool MoveNext() { if (o._failure == Phase.MoveNext) o.Throw(); return ++i < o._count; } public void Reset() => throw new NotSupportedException(); public void Dispose() { if (o._failure == Phase.Dispose) o.Throw(); } }
     }

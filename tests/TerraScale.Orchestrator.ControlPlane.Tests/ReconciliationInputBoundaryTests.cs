@@ -73,12 +73,12 @@ public sealed class ReconciliationInputBoundaryTests
     public async Task Fatal_iterator_failures_propagate_in_every_phase()
     {
         foreach (var phase in Enum.GetValues<ThrowPhase>())
-        foreach (var fatal in new Exception[] { new OutOfMemoryException(), new StackOverflowException(), new AccessViolationException() })
-        {
-            var failure = Capture(() => new DesiredResource(Id("root"), "kind", 1, "digest",
-                new ThrowingEnumerable<ResourceIdentity>([Id("dependency")], phase, fatal)));
-            await Assert.That(failure!.GetType()).IsEqualTo(fatal.GetType());
-        }
+            foreach (var fatal in new Exception[] { new OutOfMemoryException(), new StackOverflowException(), new AccessViolationException() })
+            {
+                var failure = Capture(() => new DesiredResource(Id("root"), "kind", 1, "digest",
+                    new ThrowingEnumerable<ResourceIdentity>([Id("dependency")], phase, fatal)));
+                await Assert.That(failure!.GetType()).IsEqualTo(fatal.GetType());
+            }
     }
 
     [Test]

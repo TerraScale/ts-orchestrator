@@ -273,14 +273,14 @@ internal sealed record NativeGitOpsGlobalHandoffPublishDocument(
 
     internal NativeGitOpsGlobalHandoffPublishDocument Add(
         NativeGitOpsGlobalCellPublishReceipt publication) => this with
-    {
-        Cells = Array.AsReadOnly(Cells.Append(new(
+        {
+            Cells = Array.AsReadOnly(Cells.Append(new(
                 publication.Cell,
                 publication.WireSha256,
                 publication.StreamSequence))
             .OrderBy(static cell => cell.Cell, StringComparer.Ordinal)
             .ToArray()),
-    };
+        };
 
     internal NativeGitOpsGlobalHandoffPublishSnapshot Snapshot(ulong revision) => new(
         Repository,

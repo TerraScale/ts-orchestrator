@@ -108,9 +108,9 @@ internal sealed record CiRunnerProcessConfiguration(
             runtime.DockerConfigDirectory,
         };
         for (var left = 0; left < roots.Length; left++)
-        for (var right = left + 1; right < roots.Length; right++)
-            if (Within(roots[left], roots[right]) || Within(roots[right], roots[left]))
-                throw new ArgumentException("CI runner runtime roots must be disjoint.");
+            for (var right = left + 1; right < roots.Length; right++)
+                if (Within(roots[left], roots[right]) || Within(roots[right], roots[left]))
+                    throw new ArgumentException("CI runner runtime roots must be disjoint.");
 
         return new(
             runner,

@@ -46,11 +46,11 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
             var observation = Observation();
             var request = (seed % 5) switch
             {
-                0 => new AvailabilityEvaluationRequest(Policy(ReserveDisposition.Preserve), Place(Resources(1), Resources(1)), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), []),
-                1 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
-                2 => new AvailabilityEvaluationRequest(MutationPolicy(), new DrainNodeChange(observation.NodeId!), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
-                3 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Incomplete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
-                _ => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(new("replica-missing")), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
+                0 => new AvailabilityEvaluationRequest(Policy(ReserveDisposition.Preserve), Place(Resources(1), Resources(1)), ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), []),
+                1 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), [observation]),
+                2 => new AvailabilityEvaluationRequest(MutationPolicy(), new DrainNodeChange(observation.NodeId!), ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), [observation]),
+                3 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Incomplete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), [observation]),
+                _ => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(new("replica-missing")), ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), [observation]),
             };
 
             var decision = evaluator.Evaluate(request);
@@ -101,7 +101,7 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
         ServiceAvailabilityPolicy policy,
         AvailabilityChange change,
         IEnumerable<ReplicaObservation> observations) =>
-        evaluator.Evaluate(new(policy, change, ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations));
+        evaluator.Evaluate(new(policy, change, ObservationCompleteness.Complete, new AvailabilityGeneration(1), new AvailabilityGeneration(1), observations));
 
     private static ServiceAvailabilityPolicy Policy(ReserveDisposition disposition) => new(
         Service,

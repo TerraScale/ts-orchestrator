@@ -291,22 +291,22 @@ public sealed class ObservabilityDecisionTests
 
         string? baseline = null;
         foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var desired in new[]
-        {
+            foreach (var desired in new[]
+            {
             new[] { Desired("a", DashboardCatalogEntry.FleetOverview), Desired("b", DashboardCatalogEntry.CellHealth) },
             new[] { Desired("b", DashboardCatalogEntry.CellHealth), Desired("a", DashboardCatalogEntry.FleetOverview) },
         })
-        {
-            var original = CultureInfo.CurrentCulture;
-            try
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-                var serialized = Serialize(ObservabilityDecisionEngine.EvaluateGrafanaProjection(Projection(desired, [])));
-                baseline ??= serialized;
-                await Assert.That(serialized).IsEqualTo(baseline);
+                var original = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                    var serialized = Serialize(ObservabilityDecisionEngine.EvaluateGrafanaProjection(Projection(desired, [])));
+                    baseline ??= serialized;
+                    await Assert.That(serialized).IsEqualTo(baseline);
+                }
+                finally { CultureInfo.CurrentCulture = original; }
             }
-            finally { CultureInfo.CurrentCulture = original; }
-        }
     }
 
     [Test]

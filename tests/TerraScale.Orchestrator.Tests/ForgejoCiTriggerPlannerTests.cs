@@ -139,39 +139,39 @@ public sealed class ForgejoCiTriggerPlannerTests
             "review_requested", "review_request_removed",
         };
         foreach (var action in actions)
-        foreach (var sourceRef in new[] { "feature", "develop" })
-        foreach (var targetRef in new[] { "develop", "main", "other" })
-        foreach (var sourceRepository in new[] { Repository, "contributor/TerraScale.Orchestrator" })
-        {
-            var plan = ForgejoCiTriggerPlanner.Plan(PullRequest(
-                sourceRef,
-                targetRef,
-                sourceRepository,
-                action));
-            var triggers = action is "opened" or "reopened" or "synchronized";
-            var expected = !triggers
-                ? ForgejoCiTriggerDisposition.Ignored
-                : targetRef == "develop"
-                    ? ForgejoCiTriggerDisposition.Dispatch
-                    : targetRef == "main" && sourceRef == "develop" && sourceRepository == Repository
-                        ? ForgejoCiTriggerDisposition.Dispatch
-                        : targetRef == "main"
-                            ? ForgejoCiTriggerDisposition.Held
-                            : ForgejoCiTriggerDisposition.Ignored;
-            await Assert.That(plan.Disposition).IsEqualTo(expected);
-            AssertClosedAuthority(plan);
-        }
+            foreach (var sourceRef in new[] { "feature", "develop" })
+                foreach (var targetRef in new[] { "develop", "main", "other" })
+                    foreach (var sourceRepository in new[] { Repository, "contributor/TerraScale.Orchestrator" })
+                    {
+                        var plan = ForgejoCiTriggerPlanner.Plan(PullRequest(
+                            sourceRef,
+                            targetRef,
+                            sourceRepository,
+                            action));
+                        var triggers = action is "opened" or "reopened" or "synchronized";
+                        var expected = !triggers
+                            ? ForgejoCiTriggerDisposition.Ignored
+                            : targetRef == "develop"
+                                ? ForgejoCiTriggerDisposition.Dispatch
+                                : targetRef == "main" && sourceRef == "develop" && sourceRepository == Repository
+                                    ? ForgejoCiTriggerDisposition.Dispatch
+                                    : targetRef == "main"
+                                        ? ForgejoCiTriggerDisposition.Held
+                                        : ForgejoCiTriggerDisposition.Ignored;
+                        await Assert.That(plan.Disposition).IsEqualTo(expected);
+                        AssertClosedAuthority(plan);
+                    }
 
         foreach (var reference in new[] { "refs/heads/develop", "refs/heads/main", "refs/heads/feature", "refs/tags/v1" })
-        foreach (var deleted in new[] { false, true })
-        {
-            var plan = ForgejoCiTriggerPlanner.Plan(Push(
-                reference,
-                deleted ? new string('0', 40) : Commit));
-            AssertClosedAuthority(plan);
-            if (deleted && reference is "refs/heads/develop" or "refs/heads/main")
-                await Assert.That(plan.Disposition).IsEqualTo(ForgejoCiTriggerDisposition.Held);
-        }
+            foreach (var deleted in new[] { false, true })
+            {
+                var plan = ForgejoCiTriggerPlanner.Plan(Push(
+                    reference,
+                    deleted ? new string('0', 40) : Commit));
+                AssertClosedAuthority(plan);
+                if (deleted && reference is "refs/heads/develop" or "refs/heads/main")
+                    await Assert.That(plan.Disposition).IsEqualTo(ForgejoCiTriggerDisposition.Held);
+            }
     }
 
     private static void AssertClosedAuthority(ForgejoCiTriggerPlan plan)

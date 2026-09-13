@@ -153,60 +153,60 @@ public sealed class ReconciliationPropertyTests
             switch (variant)
             {
                 case 0:
-                {
-                    var parent = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-missing");
-                    var child = ReconciliationData.Resource($"{prefix}-b", parent.Identity.Value);
-                    plan = ReconciliationData.Plan([child, parent], [ReconciliationData.Exact(child), ReconciliationData.Exact(parent)]);
-                    Require(plan.Errors.Single().Code == ReconciliationErrorCode.MissingDependency, seed, "missing error");
-                    Require(ReconciliationData.Hold(plan, parent).RootResource.Value == $"{prefix}-missing", seed, "missing root");
-                    var propagated = ReconciliationData.Hold(plan, child);
-                    Require(propagated.Reason == ReconciliationReasonCode.MissingDependency &&
-                        propagated.RootResource.Value == $"{prefix}-missing" &&
-                        plan.Steps.Single(step => step.Desired.Identity == child.Identity).Trace.Single().RelatedResource == parent.Identity,
-                        seed, "missing propagation");
-                    break;
-                }
+                    {
+                        var parent = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-missing");
+                        var child = ReconciliationData.Resource($"{prefix}-b", parent.Identity.Value);
+                        plan = ReconciliationData.Plan([child, parent], [ReconciliationData.Exact(child), ReconciliationData.Exact(parent)]);
+                        Require(plan.Errors.Single().Code == ReconciliationErrorCode.MissingDependency, seed, "missing error");
+                        Require(ReconciliationData.Hold(plan, parent).RootResource.Value == $"{prefix}-missing", seed, "missing root");
+                        var propagated = ReconciliationData.Hold(plan, child);
+                        Require(propagated.Reason == ReconciliationReasonCode.MissingDependency &&
+                            propagated.RootResource.Value == $"{prefix}-missing" &&
+                            plan.Steps.Single(step => step.Desired.Identity == child.Identity).Trace.Single().RelatedResource == parent.Identity,
+                            seed, "missing propagation");
+                        break;
+                    }
                 case 1:
-                {
-                    var a = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-b");
-                    var b = ReconciliationData.Resource($"{prefix}-b", a.Identity.Value);
-                    plan = ReconciliationData.Plan([b, a], [ReconciliationData.Exact(b), ReconciliationData.Exact(a)]);
-                    Require(plan.Errors.Count == 2 && plan.Errors.All(error => error.Code == ReconciliationErrorCode.DependencyCycle), seed, "cycle errors");
-                    foreach (var step in plan.Steps)
-                        Require(step.Output is HoldResource hold && hold.Reason == ReconciliationReasonCode.CyclicDependency &&
-                            hold.RootResource == step.Desired.Identity && step.Trace.Single().RelatedResource == step.Desired.Identity,
-                            seed, "cycle holds");
-                    break;
-                }
+                    {
+                        var a = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-b");
+                        var b = ReconciliationData.Resource($"{prefix}-b", a.Identity.Value);
+                        plan = ReconciliationData.Plan([b, a], [ReconciliationData.Exact(b), ReconciliationData.Exact(a)]);
+                        Require(plan.Errors.Count == 2 && plan.Errors.All(error => error.Code == ReconciliationErrorCode.DependencyCycle), seed, "cycle errors");
+                        foreach (var step in plan.Steps)
+                            Require(step.Output is HoldResource hold && hold.Reason == ReconciliationReasonCode.CyclicDependency &&
+                                hold.RootResource == step.Desired.Identity && step.Trace.Single().RelatedResource == step.Desired.Identity,
+                                seed, "cycle holds");
+                        break;
+                    }
                 case 2:
-                {
-                    var root = ReconciliationData.Resource($"{prefix}-a");
-                    var child = ReconciliationData.Resource($"{prefix}-b", root.Identity.Value);
-                    var observations = new[] { ReconciliationData.Exact(root) with { Generation = root.Generation - 1, Digest = $"old-{seed}" }, ReconciliationData.Exact(child) };
-                    plan = ReconciliationData.Plan([child, root], observations);
-                    Require(plan.Steps.Single(step => step.Desired.Identity == root.Identity).Output is ReconcileResourceIntent, seed, "root drift");
-                    var hold = ReconciliationData.Hold(plan, child);
-                    Require(hold.Reason == ReconciliationReasonCode.DependencyNotConverged && hold.RootResource == root.Identity &&
-                        plan.Steps.Single(step => step.Desired.Identity == child.Identity).Trace.Single().RelatedResource == root.Identity,
-                        seed, "drift dependency hold");
-                    break;
-                }
+                    {
+                        var root = ReconciliationData.Resource($"{prefix}-a");
+                        var child = ReconciliationData.Resource($"{prefix}-b", root.Identity.Value);
+                        var observations = new[] { ReconciliationData.Exact(root) with { Generation = root.Generation - 1, Digest = $"old-{seed}" }, ReconciliationData.Exact(child) };
+                        plan = ReconciliationData.Plan([child, root], observations);
+                        Require(plan.Steps.Single(step => step.Desired.Identity == root.Identity).Output is ReconcileResourceIntent, seed, "root drift");
+                        var hold = ReconciliationData.Hold(plan, child);
+                        Require(hold.Reason == ReconciliationReasonCode.DependencyNotConverged && hold.RootResource == root.Identity &&
+                            plan.Steps.Single(step => step.Desired.Identity == child.Identity).Trace.Single().RelatedResource == root.Identity,
+                            seed, "drift dependency hold");
+                        break;
+                    }
                 case 3:
-                {
-                    var resource = ReconciliationData.Resource($"{prefix}-a");
-                    plan = ReconciliationData.Plan([resource, resource], []);
-                    Require(plan.Steps.Count == 0 && plan.Trace.Count == 0 &&
-                        plan.Errors.Single().Code == ReconciliationErrorCode.DuplicateResource, seed, "duplicate resource fatal");
-                    break;
-                }
+                    {
+                        var resource = ReconciliationData.Resource($"{prefix}-a");
+                        plan = ReconciliationData.Plan([resource, resource], []);
+                        Require(plan.Steps.Count == 0 && plan.Trace.Count == 0 &&
+                            plan.Errors.Single().Code == ReconciliationErrorCode.DuplicateResource, seed, "duplicate resource fatal");
+                        break;
+                    }
                 default:
-                {
-                    var resource = ReconciliationData.Resource($"{prefix}-a"); var observation = ReconciliationData.Exact(resource);
-                    plan = ReconciliationData.Plan([resource], [observation, observation]);
-                    Require(plan.Steps.Count == 0 && plan.Trace.Count == 0 &&
-                        plan.Errors.Single().Code == ReconciliationErrorCode.DuplicateObservation, seed, "duplicate observation fatal");
-                    break;
-                }
+                    {
+                        var resource = ReconciliationData.Resource($"{prefix}-a"); var observation = ReconciliationData.Exact(resource);
+                        plan = ReconciliationData.Plan([resource], [observation, observation]);
+                        Require(plan.Steps.Count == 0 && plan.Trace.Count == 0 &&
+                            plan.Errors.Single().Code == ReconciliationErrorCode.DuplicateObservation, seed, "duplicate observation fatal");
+                        break;
+                    }
             }
             Require(plan.Steps.All(step => step.Output is not ObserveResourceIntent and not ReconcileResourceIntent) || variant == 2,
                 seed, "mutation exclusion");
@@ -573,7 +573,7 @@ internal static class ReconciliationCorpus
         if (bytes.Length > 8192 || enforceDigest && Convert.ToHexStringLower(SHA256.HashData(bytes)) != Digest)
             throw new InvalidDataException();
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions
-            { MaxDepth = 4, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
+        { MaxDepth = 4, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
         var root = document.RootElement; Exact(root, "schema", "entries");
         if (root.GetProperty("schema").ValueKind != JsonValueKind.String ||
             root.GetProperty("schema").GetString() != "terrascale.reconciliation-replay.v1" ||

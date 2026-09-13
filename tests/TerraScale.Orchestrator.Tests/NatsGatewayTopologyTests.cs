@@ -177,6 +177,94 @@ public sealed class NatsGatewayTopologyTests
     }
 
     [Test]
+    public async Task AdmissionRequiresExactTransportPeerIdentitySets()
+    {
+        var plan = NatsGatewayPlaneTopology.CreateControlSupercluster();
+        var cluster = plan.Cluster("gru")!;
+        var server = cluster.Server("gru-control-nats-1");
+        var route = server.Profile(NatsGatewayTransport.Route);
+        var routeWithRemotePeer = new NatsGatewayCertificateProfile(
+            route.Transport,
+            route.CertificateFile,
+            route.KeyFile,
+            route.CaFile,
+            [
+                .. route.ExpectedPeerIdentities,
+                NatsGatewayPlaneTopology.ControlServerSpiffeId("fra-control-nats-1"),
+            ]);
+        var drifted = Rebuild(
+            plan,
+            clusters:
+            [
+                .. plan.Clusters.Select(current => current.Cell == "gru"
+                    ? Rebuild(current, servers:
+                    [
+                        Rebuild(server, profiles:
+                        [
+                            .. server.CertificateProfiles.Where(profile =>
+                                profile.Transport != NatsGatewayTransport.Route),
+                            routeWithRemotePeer,
+                        ]),
+                    ])
+                    : current),
+            ]);
+
+        var errors = string.Join("; ", NatsGatewayPlanValidation.Validate(drifted));
+        await Assert.That(errors).Contains("route certificate profile");
+        await Assert.That(errors).Contains("must expect exactly");
+        await Assert.That(() => NatsGatewayPlanValidation.EnsureValid(drifted))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task TopologyRejectsPathAndIdentityInjectionAtTypedBoundaries()
+    {
+        string[] expected = [NatsGatewayPlaneTopology.ControlServerSpiffeId("gru-control-nats-2")];
+        foreach (var path in new[]
+                 {
+                     "/etc/terrascale/pki/nats/control/cert.pem\" # injected",
+                     "/etc/terrascale/pki/nats/control/../cert.pem",
+                     "/etc/terrascale/pki/nats/control/cert.pem\nnext",
+                 })
+        {
+            await Assert.That(() => new NatsGatewayCertificateProfile(
+                    NatsGatewayTransport.Route,
+                    path,
+                    "/etc/terrascale/pki/nats/control/key.pem",
+                    "/etc/terrascale/pki/nats/control/ca.pem",
+                    expected))
+                .Throws<ArgumentException>();
+        }
+
+        foreach (var identity in new[]
+                 {
+                     "spiffe://terrascale.tech/control/nats/server/../other",
+                     "spiffe://terrascale.tech/control/nats/server/peer\"",
+                     "spiffe://terrascale.tech/control/nats/server/peer\nnext",
+                 })
+        {
+            await Assert.That(() => new NatsGatewayCertificateProfile(
+                    NatsGatewayTransport.Route,
+                    "/etc/terrascale/pki/nats/control/cert.pem",
+                    "/etc/terrascale/pki/nats/control/key.pem",
+                    "/etc/terrascale/pki/nats/control/ca.pem",
+                    [identity]))
+                .Throws<ArgumentException>();
+        }
+
+        var plan = NatsGatewayPlaneTopology.CreateControlSupercluster();
+        var server = plan.Cluster("gru")!.Server("gru-control-nats-1");
+        await Assert.That(() => Rebuild(
+                server,
+                storeDirectory: "/var/lib/terrascale/nats/control/gru/../other"))
+            .Throws<ArgumentException>();
+        await Assert.That(() => new NatsGatewayProcessIdentity(
+                "terrascale-control-nats@gru-1\n.service",
+                "/terrascale.slice/terrascale-nats-control.slice"))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task RegionalJetStreamDomainsKeepGlobalAssetsOnOneRegion()
     {
         var plan = NatsGatewayPlaneTopology.CreateControlSupercluster();
@@ -896,7 +984,8 @@ public sealed class NatsGatewayTopologyTests
             .IsTrue();
         await Assert.That(product.Clusters.SelectMany(static cluster => cluster.Servers)
                 .All(static server => server.CertificateProfiles.Count == 2))
-            .IsTrue();    }
+            .IsTrue();
+    }
 
     private static IReadOnlyList<string> ExpectedRegionalAssets(string cell)
     {
@@ -975,4 +1064,3 @@ public sealed class NatsGatewayTopologyTests
         exports ?? plan.Exports,
         imports ?? plan.Imports);
 }
-

@@ -25,9 +25,10 @@ internal static class NatsFileResolver
         var path = Path.GetFullPath(value);
         var file = new FileInfo(path);
         if (!file.Exists || file.LinkTarget is not null ||
+            file.Attributes.HasFlag(FileAttributes.ReparsePoint) ||
             file.Attributes.HasFlag(FileAttributes.Directory) ||
             file.Attributes.HasFlag(FileAttributes.Device) ||
-            HasSymlinkAncestor(file) || file.Length is < 1 or > maximumLength)
+            HasSymlinkAncestor(file) || file.Length < 1 || file.Length > maximumLength)
         {
             throw new ArgumentException(
                 $"{optionName} must identify a bounded existing regular file without symlink traversal.");

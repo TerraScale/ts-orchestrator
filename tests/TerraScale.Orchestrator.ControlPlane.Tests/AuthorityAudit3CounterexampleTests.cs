@@ -67,8 +67,12 @@ public sealed class AuthorityAudit3CounterexampleTests
             new AuthorityLease("candidate-a", "lease-a", Start, TimeSpan.FromMinutes(10)));
         var state = AuthorityState.Empty with
         {
-            AuthorityId = "regional-authority", CandidateId = "candidate-a", Status = AuthorityStatus.Leader,
-            HighestEpoch = 6, HighestKvRevision = 11, Confirmed = observation,
+            AuthorityId = "regional-authority",
+            CandidateId = "candidate-a",
+            Status = AuthorityStatus.Leader,
+            HighestEpoch = 6,
+            HighestKvRevision = 11,
+            Confirmed = observation,
         };
         var request = Read("candidate-a", "read");
         var baseline = CreateIntent(request, state, AuthorityStatus.Leader);

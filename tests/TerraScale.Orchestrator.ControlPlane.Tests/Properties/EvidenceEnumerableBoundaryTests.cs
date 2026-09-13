@@ -77,7 +77,8 @@ internal sealed class EvidenceBoundaryEnumerable<T> : IEnumerable<T>
     private readonly int _count; private readonly Func<int, T> _factory; private readonly EvidenceIteratorPhase _phase;
     private readonly Exception? _failure; private readonly Action? _onDispose;
     internal EvidenceBoundaryEnumerable(int count, Func<int, T> factory, EvidenceIteratorPhase phase = EvidenceIteratorPhase.None,
-        Exception? failure = null, Action? onDispose = null) { _count = count; _factory = factory; _phase = phase; _failure = failure; _onDispose = onDispose; }
+        Exception? failure = null, Action? onDispose = null)
+    { _count = count; _factory = factory; _phase = phase; _failure = failure; _onDispose = onDispose; }
     internal bool ExtraCurrentRead { get; private set; }
     public IEnumerator<T> GetEnumerator()
     {

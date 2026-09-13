@@ -513,13 +513,13 @@ internal sealed record RepositoryCiJobExecutionDocument(
         int requiredTestSkips,
         RepositoryCiJobFailureKind failureKind,
         DateTimeOffset now) => this with
-    {
-        Phase = succeeded ? RepositoryCiJobExecutionPhase.Succeeded : RepositoryCiJobExecutionPhase.Failed,
-        CompletedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(),
-        EvidenceDigest = evidenceDigest,
-        RequiredTestSkips = requiredTestSkips,
-        FailureKind = failureKind,
-    };
+        {
+            Phase = succeeded ? RepositoryCiJobExecutionPhase.Succeeded : RepositoryCiJobExecutionPhase.Failed,
+            CompletedAtUnixMilliseconds = now.ToUnixTimeMilliseconds(),
+            EvidenceDigest = evidenceDigest,
+            RequiredTestSkips = requiredTestSkips,
+            FailureKind = failureKind,
+        };
 
     internal bool SameAcceptance(RepositoryCiJobExecutionDocument other) =>
         Runner == other.Runner && PipelineDigest == other.PipelineDigest && Job == other.Job &&

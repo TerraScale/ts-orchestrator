@@ -268,10 +268,14 @@ public sealed class DeliveryTerraBasePropertyTests
             var segments = new[] { Segment(scope, 1, true), Segment(scope, 2, false, 1) }; TerraBaseDecision decision; string expected;
             if (mode < 6)
             {
-                IEnumerable<TerraBaseBackupSegment?> input = mode switch { 1 => segments.Reverse(),
+                IEnumerable<TerraBaseBackupSegment?> input = mode switch
+                {
+                    1 => segments.Reverse(),
                     2 => [segments[0], segments[1] with { ParentSequence = TerraBaseTestData.O(9) }],
                     3 => [segments[0], segments[1] with { Backup = segments[0].Backup }],
-                    4 => [segments[0] with { Digest = TerraBaseTestData.Digest($"changed-{index}") }, segments[1]], _ => segments };
+                    4 => [segments[0] with { Digest = TerraBaseTestData.Digest($"changed-{index}") }, segments[1]],
+                    _ => segments
+                };
                 var evidence = new TerraBaseBackupEvidence(scope, input, mode == 5 ? TerraBaseProof.Unknown : TerraBaseProof.Proven,
                     TerraBaseProof.Proven, TerraBaseProof.Proven, 8);
                 decision = TerraBaseBackupPlanner.Accept(scope, evidence);
@@ -358,7 +362,8 @@ public sealed class DeliveryTerraBasePropertyTests
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         private sealed class Enumerator(ExtraCurrentEnumerable<T> owner, T value, int maximum) : IEnumerator<T>
         {
-            private int _index = -1; public T Current { get { if (_index == maximum) owner.ExtraCurrentRead = true; return value; } } object? IEnumerator.Current => Current;
+            private int _index = -1; public T Current { get { if (_index == maximum) owner.ExtraCurrentRead = true; return value; } }
+            object? IEnumerator.Current => Current;
             public bool MoveNext() => ++_index <= maximum; public void Reset() => throw new NotSupportedException(); public void Dispose() { }
         }
     }
@@ -376,8 +381,10 @@ public sealed class DeliveryTerraBasePropertyTests
     }
     private sealed class OversizedReadOnlyList<T>(int count) : IReadOnlyList<T>
     {
-        public bool EnumeratorRequested { get; private set; } public int Count => count; public T this[int index] => throw new InvalidOperationException();
-        public IEnumerator<T> GetEnumerator() { EnumeratorRequested = true; throw new InvalidOperationException(); } IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        public bool EnumeratorRequested { get; private set; }
+        public int Count => count; public T this[int index] => throw new InvalidOperationException();
+        public IEnumerator<T> GetEnumerator() { EnumeratorRequested = true; throw new InvalidOperationException(); }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
     private sealed class EnumerableReadOnlyList<T>(int count, IEnumerable<T> source) : IReadOnlyList<T>
     {

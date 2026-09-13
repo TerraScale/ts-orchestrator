@@ -33,8 +33,11 @@ public sealed class ProtocolNegotiationAuditRegressionTests
 
             Require(decision.Errors.Count == 0, index, "accepted errors");
             Require(decision.Intents.Count == 0, index, "accepted intents");
-            Require(decision.Trace is [{ Sequence: 1, Code: MessagingTraceCode.CompatibilityAccepted,
-                Action: MessagingAction.Configure }], index, "accepted trace");
+            Require(decision.Trace is [
+                {
+                    Sequence: 1, Code: MessagingTraceCode.CompatibilityAccepted,
+                    Action: MessagingAction.Configure
+                }], index, "accepted trace");
             var receipt = decision.Compatibility;
             Require(receipt is not null, index, "missing receipt");
             Require(receipt!.CurrentVersion == current && receipt.PreviousVersion == previous,
@@ -74,13 +77,16 @@ public sealed class ProtocolNegotiationAuditRegressionTests
                 case 2: policy = new(-1, 1, outcomes); expected = MessagingErrorCode.InvalidCatalog; break;
                 case 3: policy = new(2, 0, outcomes); expected = MessagingErrorCode.InvalidCatalog; break;
                 case 4: policy = new(3, 1, outcomes); expected = MessagingErrorCode.InvalidCatalog; break;
-                case 5: policy = new(2, 1, outcomes.Select((outcome, item) => item == 0
+                case 5:
+                    policy = new(2, 1, outcomes.Select((outcome, item) => item == 0
                     ? outcome with { Feature = (CompatibilityFeature)(1_000 + index) } : outcome)); expected = MessagingErrorCode.InvalidCatalog; break;
-                case 6: policy = new(2, 1, outcomes.Select((outcome, item) => item == 0
+                case 6:
+                    policy = new(2, 1, outcomes.Select((outcome, item) => item == 0
                     ? outcome with { Pair = (CompatibilityPair)(1_000 + index) } : outcome)); expected = MessagingErrorCode.InvalidCatalog; break;
                 case 7: policy = new(2, 1, outcomes.Skip(1)); expected = MessagingErrorCode.IncompleteObservation; break;
                 case 8: policy = new(2, 1, outcomes.Append(outcomes[0])); expected = MessagingErrorCode.DuplicateEvidence; break;
-                case 9: policy = new(2, 1, outcomes.Select((outcome, item) => item == index % outcomes.Length
+                case 9:
+                    policy = new(2, 1, outcomes.Select((outcome, item) => item == index % outcomes.Length
                     ? outcome with { Available = false } : outcome)); expected = MessagingErrorCode.CompatibilityUnavailable; break;
                 case 10: features = Features().Skip(1).ToArray(); policy = new(2, 1, outcomes); expected = MessagingErrorCode.InvalidCatalog; break;
                 case 11: features = [.. Features(), CompatibilityFeature.Commands]; policy = new(2, 1, outcomes); expected = MessagingErrorCode.InvalidCatalog; break;

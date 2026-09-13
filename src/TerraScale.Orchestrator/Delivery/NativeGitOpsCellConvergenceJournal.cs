@@ -177,7 +177,7 @@ internal sealed class NativeGitOpsCellConvergenceJournal(IForgejoDeliveryLedger 
             if (accepted.GlobalPlanDigest != current.GlobalPlanDigest ||
                 accepted.HandoffDigest != current.HandoffDigest ||
                 accepted.PayloadSha256 != current.PayloadSha256)
-                    return NativeGitOpsCellConvergenceJournalDisposition.GenerationConflict;
+                return NativeGitOpsCellConvergenceJournalDisposition.GenerationConflict;
             if (accepted.WriterEpoch == current.WriterEpoch)
                 return accepted.StreamSequence != current.AcceptanceStreamSequence ||
                     accepted.SignatureSha256 != current.AcceptanceSignatureSha256 ||

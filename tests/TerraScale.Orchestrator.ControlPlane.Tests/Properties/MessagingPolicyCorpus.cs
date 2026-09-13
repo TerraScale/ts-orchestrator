@@ -74,8 +74,12 @@ internal static class MessagingPolicyCorpus
         catch (InvalidOperationException) { return Result(MessagingCorpusCode.InvalidJson, []); }
     }
 
-    internal static string Json(MessagingCorpusEntry entry) => JsonSerializer.Serialize(new { version = 1, entries = new[]
-        { new { id = entry.Id, seed = entry.Seed, family = entry.Family, mode = entry.Mode, expected = entry.Expected } } });
+    internal static string Json(MessagingCorpusEntry entry) => JsonSerializer.Serialize(new
+    {
+        version = 1,
+        entries = new[]
+        { new { id = entry.Id, seed = entry.Seed, family = entry.Family, mode = entry.Mode, expected = entry.Expected } }
+    });
 
     private static bool Exact(JsonElement element, HashSet<string> fields)
     {

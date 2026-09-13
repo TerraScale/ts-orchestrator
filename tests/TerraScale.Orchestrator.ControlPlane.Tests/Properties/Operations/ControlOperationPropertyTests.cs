@@ -178,8 +178,11 @@ public sealed class ControlOperationPropertyTests
                 fenced.Errors.Single().Code == AuthorityErrorCode.EpochMismatch, "authority-single-writer", index);
             codes.Add(fenced.Errors.Single().Code);
 
-            var overflowBaseline = baseline with { Epoch = index % 2 == 0 ? long.MaxValue : epoch,
-                KvRevision = index % 2 == 0 ? revision : long.MaxValue };
+            var overflowBaseline = baseline with
+            {
+                Epoch = index % 2 == 0 ? long.MaxValue : epoch,
+                KvRevision = index % 2 == 0 ? revision : long.MaxValue
+            };
             var overflow = AuthorityEngine.Decide([], new AcquireAuthority("regional-authority", candidate,
                 $"overflow-{index}", $"overflow-lease-{index}", overflowBaseline, health, TimeSpan.FromMinutes(5)));
             Require(overflow.MutationPermit is null && overflow.Intents.Count == 0 &&
@@ -309,7 +312,8 @@ public sealed class ControlOperationPropertyTests
             switch (mode)
             {
                 case 0: plan = Plan(desired, observed); Require(plan.Steps.All(static step => step.Output is ConvergedResource), "reconcile-exact", index); reasons.Add("exact"); break;
-                case 1: observed[1] = Exact(a) with { Generation = 1, Digest = "old" }; plan = Plan(desired, observed);
+                case 1:
+                    observed[1] = Exact(a) with { Generation = 1, Digest = "old" }; plan = Plan(desired, observed);
                     Require(plan.Steps.Single(step => step.Desired.Identity == a.Identity).Output is ReconcileResourceIntent &&
                         plan.Steps.Where(step => step.Desired.Identity != a.Identity).All(static step => step.Output is HoldResource), "reconcile-drift", index); reasons.Add("drift"); break;
                 case 2: plan = Plan(desired, observed.Where(value => value.Identity != a.Identity)); Require(plan.Steps.Single(step => step.Desired.Identity == a.Identity).Output is ObserveResourceIntent, "reconcile-missing", index); reasons.Add("missing"); break;
@@ -446,8 +450,11 @@ public sealed class ControlOperationPropertyTests
                 case ("reconciliation", "future-observation"):
                     var desired = new DesiredResource(new($"resource-{entry.Seed}"), "service", entry.Seed,
                         $"digest-{entry.Seed}", []);
-                    var future = Exact(desired) with { Generation = desired.Generation + entry.Delta,
-                        Digest = "future" };
+                    var future = Exact(desired) with
+                    {
+                        Generation = desired.Generation + entry.Delta,
+                        Digest = "future"
+                    };
                     var plan = Plan([desired], [future]);
                     observed = ((HoldResource)plan.Steps.Single().Output).Reason.ToString();
                     Require(observed == entry.Expected, "corpus-reconciliation", entry.Seed);
@@ -527,9 +534,12 @@ public sealed class ControlOperationPropertyTests
     private sealed record CrossSummary(int Cases, int Dispatches, int UniqueOperations, ulong Digest);
     private sealed class Generator(ulong state)
     {
-        public ulong Next() { state += 0x9E3779B97F4A7C15UL; var value = state;
+        public ulong Next()
+        {
+            state += 0x9E3779B97F4A7C15UL; var value = state;
             value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL; return value ^ (value >> 31); }
+            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL; return value ^ (value >> 31);
+        }
         public int NextInt(int maximum) => (int)(Next() % (uint)maximum);
     }
 }

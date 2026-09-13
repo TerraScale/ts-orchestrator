@@ -72,9 +72,9 @@ public sealed class GlobalNatsRuntimeSplitTests
             .Where(static method => method.Name == "StartAsync");
 
         foreach (var method in authorityStartMethods)
-        foreach (var parameter in method.GetParameters())
-            await Assert.That(parameter.ParameterType)
-                .IsNotEqualTo(typeof(GlobalDirectoryNatsConfiguration));
+            foreach (var parameter in method.GetParameters())
+                await Assert.That(parameter.ParameterType)
+                    .IsNotEqualTo(typeof(GlobalDirectoryNatsConfiguration));
     }
 
     [Test]

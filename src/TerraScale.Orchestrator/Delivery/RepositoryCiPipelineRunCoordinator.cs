@@ -224,69 +224,69 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
 
     private static RepositoryCiPipelineRunCoordinationDisposition? Terminal(
         RepositoryCiJobResultReconcileDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobResultReconcileDisposition.AuthorityLost =>
-            RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobResultReconcileDisposition.LeaseHeld =>
-            RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
-        RepositoryCiJobResultReconcileDisposition.IdentityConflict =>
-            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobResultReconcileDisposition.EvidenceConflict =>
-            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobResultReconcileDisposition.Contention =>
-            RepositoryCiPipelineRunCoordinationDisposition.Contention,
-        _ => null,
-    };
+        {
+            RepositoryCiJobResultReconcileDisposition.AuthorityLost =>
+                RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobResultReconcileDisposition.LeaseHeld =>
+                RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
+            RepositoryCiJobResultReconcileDisposition.IdentityConflict =>
+                RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobResultReconcileDisposition.EvidenceConflict =>
+                RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobResultReconcileDisposition.Contention =>
+                RepositoryCiPipelineRunCoordinationDisposition.Contention,
+            _ => null,
+        };
 
     private static RepositoryCiPipelineRunCoordinationDisposition? Terminal(
         RepositoryCiJobDispatchCoordinationDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobDispatchCoordinationDisposition.AuthorityLost =>
-            RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobDispatchCoordinationDisposition.LeaseHeld =>
-            RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
-        RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict =>
-            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobDispatchCoordinationDisposition.Expired =>
-            RepositoryCiPipelineRunCoordinationDisposition.Expired,
-        RepositoryCiJobDispatchCoordinationDisposition.Contention =>
-            RepositoryCiPipelineRunCoordinationDisposition.Contention,
-        _ => null,
-    };
+        {
+            RepositoryCiJobDispatchCoordinationDisposition.AuthorityLost =>
+                RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobDispatchCoordinationDisposition.LeaseHeld =>
+                RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
+            RepositoryCiJobDispatchCoordinationDisposition.IdentityConflict =>
+                RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobDispatchCoordinationDisposition.Expired =>
+                RepositoryCiPipelineRunCoordinationDisposition.Expired,
+            RepositoryCiJobDispatchCoordinationDisposition.Contention =>
+                RepositoryCiPipelineRunCoordinationDisposition.Contention,
+            _ => null,
+        };
 
     private static RepositoryCiPipelineRunCoordinationDisposition? Terminal(
         RepositoryCiJobRetryCoordinationDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobRetryCoordinationDisposition.AuthorityLost =>
-            RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobRetryCoordinationDisposition.LeaseHeld =>
-            RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
-        RepositoryCiJobRetryCoordinationDisposition.IdentityConflict =>
-            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobRetryCoordinationDisposition.Contention =>
-            RepositoryCiPipelineRunCoordinationDisposition.Contention,
-        _ => null,
-    };
+        {
+            RepositoryCiJobRetryCoordinationDisposition.AuthorityLost =>
+                RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobRetryCoordinationDisposition.LeaseHeld =>
+                RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
+            RepositoryCiJobRetryCoordinationDisposition.IdentityConflict =>
+                RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobRetryCoordinationDisposition.Contention =>
+                RepositoryCiPipelineRunCoordinationDisposition.Contention,
+            _ => null,
+        };
 
     private static RepositoryCiPipelineRunCoordinationDisposition Map(
         RepositoryCiJobJournalDisposition disposition) => disposition switch
-    {
-        RepositoryCiJobJournalDisposition.StaleAuthority =>
-            RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
-        RepositoryCiJobJournalDisposition.IdentityConflict =>
-            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-        RepositoryCiJobJournalDisposition.Contention =>
-            RepositoryCiPipelineRunCoordinationDisposition.Contention,
-        _ => RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
-    };
+        {
+            RepositoryCiJobJournalDisposition.StaleAuthority =>
+                RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
+            RepositoryCiJobJournalDisposition.IdentityConflict =>
+                RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+            RepositoryCiJobJournalDisposition.Contention =>
+                RepositoryCiPipelineRunCoordinationDisposition.Contention,
+            _ => RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+        };
 
     private static RepositoryCiPipelineRunCoordinationDisposition State(
         RepositoryCiPipelineRunState state) => state switch
-    {
-        RepositoryCiPipelineRunState.Succeeded => RepositoryCiPipelineRunCoordinationDisposition.Succeeded,
-        RepositoryCiPipelineRunState.Failed => RepositoryCiPipelineRunCoordinationDisposition.Failed,
-        _ => RepositoryCiPipelineRunCoordinationDisposition.Waiting,
-    };
+        {
+            RepositoryCiPipelineRunState.Succeeded => RepositoryCiPipelineRunCoordinationDisposition.Succeeded,
+            RepositoryCiPipelineRunState.Failed => RepositoryCiPipelineRunCoordinationDisposition.Failed,
+            _ => RepositoryCiPipelineRunCoordinationDisposition.Waiting,
+        };
 
     private static RepositoryCiPipelineRunCoordinationReceipt Receipt(
         RepositoryCiPipelineRunCoordinationDisposition disposition,

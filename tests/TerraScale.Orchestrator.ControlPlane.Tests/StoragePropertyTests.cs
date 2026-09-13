@@ -119,8 +119,8 @@ public sealed class StoragePropertyTests
     [Test]
     public async Task Storage_action_numeric_contract_is_exact_and_append_only()
     {
-        var actions=Enum.GetValues<StorageAction>();
-        var expected=new[]
+        var actions = Enum.GetValues<StorageAction>();
+        var expected = new[]
         {
             StorageAction.Uninitialized,StorageAction.Observe,StorageAction.Create,StorageAction.Attach,
             StorageAction.Classify,StorageAction.Format,StorageAction.Mount,StorageAction.Rescan,
@@ -128,7 +128,7 @@ public sealed class StoragePropertyTests
             StorageAction.Delete,StorageAction.Hold,
         };
         await Assert.That(actions.Length).IsEqualTo(14);
-        for(var index=0;index<expected.Length;index++)
+        for (var index = 0; index < expected.Length; index++)
         {
             await Assert.That(actions[index]).IsEqualTo(expected[index]);
             await Assert.That((int)actions[index]).IsEqualTo(index);

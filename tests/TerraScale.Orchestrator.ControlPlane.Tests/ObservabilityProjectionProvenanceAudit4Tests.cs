@@ -119,27 +119,27 @@ public sealed class ObservabilityProjectionProvenanceAudit4Tests
 
         string? expected = null;
         foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var reverse in new[] { false, true })
-        {
-            var previous = CultureInfo.CurrentCulture;
-            try
+            foreach (var reverse in new[] { false, true })
             {
-                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
-                var a = Desired("a", new DashboardSelection(DashboardCatalogEntry.FleetOverview));
-                var b = Desired("b", new FolderSelection(FolderCatalogEntry.GlobalOperations));
-                DesiredGrafanaResource[] desired = [a, b];
-                ObservedGrafanaResource[] observed = [Observed(a, a.ReleaseId, a.Selection), Observed(b, b.ReleaseId, b.Selection)];
-                if (reverse) { Array.Reverse(desired); Array.Reverse(observed); }
-                var request = Request(desired, observed);
-                var first = ObservabilityDecisionEngine.EvaluateGrafanaProjection(request);
-                var replay = ObservabilityDecisionEngine.EvaluateGrafanaProjection(request);
-                var actual = ProjectionFingerprint((ProjectGrafanaIntent)first.Intent);
-                expected ??= actual;
-                await Assert.That(actual).IsEqualTo(expected);
-                await Assert.That(ProjectionFingerprint((ProjectGrafanaIntent)replay.Intent)).IsEqualTo(actual);
+                var previous = CultureInfo.CurrentCulture;
+                try
+                {
+                    CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+                    var a = Desired("a", new DashboardSelection(DashboardCatalogEntry.FleetOverview));
+                    var b = Desired("b", new FolderSelection(FolderCatalogEntry.GlobalOperations));
+                    DesiredGrafanaResource[] desired = [a, b];
+                    ObservedGrafanaResource[] observed = [Observed(a, a.ReleaseId, a.Selection), Observed(b, b.ReleaseId, b.Selection)];
+                    if (reverse) { Array.Reverse(desired); Array.Reverse(observed); }
+                    var request = Request(desired, observed);
+                    var first = ObservabilityDecisionEngine.EvaluateGrafanaProjection(request);
+                    var replay = ObservabilityDecisionEngine.EvaluateGrafanaProjection(request);
+                    var actual = ProjectionFingerprint((ProjectGrafanaIntent)first.Intent);
+                    expected ??= actual;
+                    await Assert.That(actual).IsEqualTo(expected);
+                    await Assert.That(ProjectionFingerprint((ProjectGrafanaIntent)replay.Intent)).IsEqualTo(actual);
+                }
+                finally { CultureInfo.CurrentCulture = previous; }
             }
-            finally { CultureInfo.CurrentCulture = previous; }
-        }
     }
 
     [Test]

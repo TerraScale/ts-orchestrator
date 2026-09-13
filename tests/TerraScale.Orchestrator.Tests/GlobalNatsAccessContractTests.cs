@@ -127,8 +127,8 @@ public sealed class GlobalNatsAccessContractTests
         };
 
         foreach (var subject in subjects)
-        foreach (var fragment in forbiddenFragments)
-            await Assert.That(subject).DoesNotContain(fragment);
+            foreach (var fragment in forbiddenFragments)
+                await Assert.That(subject).DoesNotContain(fragment);
     }
 
     [Test]

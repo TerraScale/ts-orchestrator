@@ -347,8 +347,8 @@ public sealed class NetworkingFourthAuditCounterexampleTests
             "NetworkRouteIntentSubject.<Clone>$", "NetworkRouteIntentSubject.get_Evidence",
             "NetworkRouteIntentSubject.get_Scope", "NetworkRoutePlanner.Plan", "NetworkRouteScope.<Clone>$",
         });
-        await Assert.That(typeof(NetworkDecision).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
-        await Assert.That(typeof(NetworkDecision).GetProperties(BindingFlags.Public|BindingFlags.Instance)
+        await Assert.That(typeof(NetworkDecision).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
+        await Assert.That(typeof(NetworkDecision).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Any(static property => property.SetMethod?.IsPublic == true)).IsFalse();
         var empty = default(NetworkDecision);
         await Assert.That(empty.Action).IsEqualTo(NetworkAction.Uninitialized);
@@ -371,33 +371,33 @@ public sealed class NetworkingFourthAuditCounterexampleTests
         foreach (var value in new NetworkIntentSubject[] { route, endpoint })
         {
             var type = value.GetType();
-            await Assert.That(type.GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
-            await Assert.That(type.GetProperties(BindingFlags.Public|BindingFlags.Instance)
+            await Assert.That(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
+            await Assert.That(type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Any(static property => property.SetMethod?.IsPublic == true)).IsFalse();
-            await Assert.That(type.GetMethods(BindingFlags.Public|BindingFlags.Instance)
+            await Assert.That(type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
                 .Any(static method => method.Name == "Deconstruct")).IsFalse();
-            var cloneMethod = type.GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly)
+            var cloneMethod = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Single(static method => method.Name == "<Clone>$");
             var clone = (NetworkIntentSubject)cloneMethod.Invoke(value, null)!;
             await Assert.That(clone).IsEqualTo(value);
             await Assert.That(ReferenceEquals(clone, value)).IsFalse();
         }
         var routeClone = (NetworkRouteIntentSubject)typeof(NetworkRouteIntentSubject)
-            .GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Single(static method => method.Name == "<Clone>$").Invoke(route, null)!;
         await Assert.That(ReferenceEquals(routeClone.Scope, routeScope)).IsTrue();
         await Assert.That(ReferenceEquals(routeClone.Evidence, routeEvidence)).IsTrue();
         var endpointClone = (NetworkEndpointIntentSubject)typeof(NetworkEndpointIntentSubject)
-            .GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.DeclaredOnly)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Single(static method => method.Name == "<Clone>$").Invoke(endpoint, null)!;
         await Assert.That(ReferenceEquals(endpointClone.Scope, endpointScope)).IsTrue();
         await Assert.That(ReferenceEquals(endpointClone.Evidence, endpointEvidence)).IsTrue();
-        await Assert.That(typeof(NetworkNumericTrace).GetConstructors(BindingFlags.Public|BindingFlags.Instance).Length).IsEqualTo(1);
+        await Assert.That(typeof(NetworkNumericTrace).GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length).IsEqualTo(1);
     }
 
     private static async Task AssertEndpointBranches(NetworkEndpointScope scope,
-        IReadOnlyList<NetworkEndpointEvidence> evidence,NetworkEndpointPlanKind planKind,
-        Func<NetworkEndpointScope,NetworkEndpointEvidence,NetworkDecision> planner)
+        IReadOnlyList<NetworkEndpointEvidence> evidence, NetworkEndpointPlanKind planKind,
+        Func<NetworkEndpointScope, NetworkEndpointEvidence, NetworkDecision> planner)
     {
         foreach (var item in evidence)
         {
@@ -409,36 +409,36 @@ public sealed class NetworkingFourthAuditCounterexampleTests
         }
     }
 
-    private static async Task AssertLegacyRouteProjection(NetworkRouteIntentSubject subject,NetworkRouteScope scope)
+    private static async Task AssertLegacyRouteProjection(NetworkRouteIntentSubject subject, NetworkRouteScope scope)
     {
-        await Assert.That(subject.Cell).IsEqualTo(scope.Cell);await Assert.That(subject.PeerCell).IsEqualTo(scope.PeerCell);
-        await Assert.That(subject.Network).IsEqualTo(scope.Network);await Assert.That(subject.Subnet).IsEqualTo(scope.Subnet);
-        await Assert.That(subject.Route).IsEqualTo(scope.Route);await Assert.That(subject.Peer).IsEqualTo(scope.Peer);
-        await Assert.That(subject.Tunnel).IsEqualTo(scope.Tunnel);await Assert.That(subject.TrustPlane).IsEqualTo(scope.TrustPlane);
-        await Assert.That(subject.RouteKind).IsEqualTo(scope.RouteKind);await Assert.That(subject.Destination).IsEqualTo(scope.Destination);
-        await Assert.That(subject.Generation).IsEqualTo(scope.Generation);await Assert.That(subject.Epoch).IsEqualTo(scope.Epoch);
+        await Assert.That(subject.Cell).IsEqualTo(scope.Cell); await Assert.That(subject.PeerCell).IsEqualTo(scope.PeerCell);
+        await Assert.That(subject.Network).IsEqualTo(scope.Network); await Assert.That(subject.Subnet).IsEqualTo(scope.Subnet);
+        await Assert.That(subject.Route).IsEqualTo(scope.Route); await Assert.That(subject.Peer).IsEqualTo(scope.Peer);
+        await Assert.That(subject.Tunnel).IsEqualTo(scope.Tunnel); await Assert.That(subject.TrustPlane).IsEqualTo(scope.TrustPlane);
+        await Assert.That(subject.RouteKind).IsEqualTo(scope.RouteKind); await Assert.That(subject.Destination).IsEqualTo(scope.Destination);
+        await Assert.That(subject.Generation).IsEqualTo(scope.Generation); await Assert.That(subject.Epoch).IsEqualTo(scope.Epoch);
         await Assert.That(subject.Operation).IsEqualTo(scope.Operation);
     }
 
-    private static async Task AssertLegacyEndpointProjection(NetworkEndpointIntentSubject subject,NetworkEndpointScope scope)
+    private static async Task AssertLegacyEndpointProjection(NetworkEndpointIntentSubject subject, NetworkEndpointScope scope)
     {
-        await Assert.That(subject.Cell).IsEqualTo(scope.Cell);await Assert.That(subject.Workload).IsEqualTo(scope.Workload);
-        await Assert.That(subject.Service).IsEqualTo(scope.Service);await Assert.That(subject.Endpoint).IsEqualTo(scope.Endpoint);
-        await Assert.That(subject.Node).IsEqualTo(scope.Node);await Assert.That(subject.LoadBalancer).IsEqualTo(scope.LoadBalancer);
-        await Assert.That(subject.Backend).IsEqualTo(scope.Backend);await Assert.That(subject.Dns).IsEqualTo(scope.Dns);
-        await Assert.That(subject.Certificate).IsEqualTo(scope.Certificate);await Assert.That(subject.ServiceKind).IsEqualTo(scope.ServiceKind);
-        await Assert.That(subject.Exposure).IsEqualTo(scope.Exposure);await Assert.That(subject.Protocol).IsEqualTo(scope.Protocol);
-        await Assert.That(subject.Port).IsEqualTo(scope.Port);await Assert.That(subject.ServiceGeneration).IsEqualTo(scope.ServiceGeneration);
-        await Assert.That(subject.Epoch).IsEqualTo(scope.Epoch);await Assert.That(subject.Operation).IsEqualTo(scope.Operation);
+        await Assert.That(subject.Cell).IsEqualTo(scope.Cell); await Assert.That(subject.Workload).IsEqualTo(scope.Workload);
+        await Assert.That(subject.Service).IsEqualTo(scope.Service); await Assert.That(subject.Endpoint).IsEqualTo(scope.Endpoint);
+        await Assert.That(subject.Node).IsEqualTo(scope.Node); await Assert.That(subject.LoadBalancer).IsEqualTo(scope.LoadBalancer);
+        await Assert.That(subject.Backend).IsEqualTo(scope.Backend); await Assert.That(subject.Dns).IsEqualTo(scope.Dns);
+        await Assert.That(subject.Certificate).IsEqualTo(scope.Certificate); await Assert.That(subject.ServiceKind).IsEqualTo(scope.ServiceKind);
+        await Assert.That(subject.Exposure).IsEqualTo(scope.Exposure); await Assert.That(subject.Protocol).IsEqualTo(scope.Protocol);
+        await Assert.That(subject.Port).IsEqualTo(scope.Port); await Assert.That(subject.ServiceGeneration).IsEqualTo(scope.ServiceGeneration);
+        await Assert.That(subject.Epoch).IsEqualTo(scope.Epoch); await Assert.That(subject.Operation).IsEqualTo(scope.Operation);
     }
 
-    private static NetworkRouteEvidence RichEvidence(NetworkRouteScope scope,IEnumerable<NetworkRouteObservation?> routes,
-        IEnumerable<NetworkPrefix?> prefixes,IEnumerable<NetworkCellId?> cells,IEnumerable<NetworkPeerLink?> links,
-        NetworkTopologyShape shape=NetworkTopologyShape.HubAndSpoke,NetworkProof noMutation=NetworkProof.Proven,
-        NetworkProof local=NetworkProof.Proven,NetworkProof configured=NetworkProof.Proven,NetworkProof traffic=NetworkProof.Proven,
-        NetworkProof healthy=NetworkProof.Proven,NetworkProof routeConfigured=NetworkProof.Proven,bool partitioned=false)=>
-        new(scope,routes,prefixes,cells,links,shape,noMutation,local,configured,traffic,healthy,routeConfigured,
-            partitioned,64,64,64,32);
+    private static NetworkRouteEvidence RichEvidence(NetworkRouteScope scope, IEnumerable<NetworkRouteObservation?> routes,
+        IEnumerable<NetworkPrefix?> prefixes, IEnumerable<NetworkCellId?> cells, IEnumerable<NetworkPeerLink?> links,
+        NetworkTopologyShape shape = NetworkTopologyShape.HubAndSpoke, NetworkProof noMutation = NetworkProof.Proven,
+        NetworkProof local = NetworkProof.Proven, NetworkProof configured = NetworkProof.Proven, NetworkProof traffic = NetworkProof.Proven,
+        NetworkProof healthy = NetworkProof.Proven, NetworkProof routeConfigured = NetworkProof.Proven, bool partitioned = false) =>
+        new(scope, routes, prefixes, cells, links, shape, noMutation, local, configured, traffic, healthy, routeConfigured,
+            partitioned, 64, 64, 64, 32);
 
     private static async Task AssertHeld(NetworkDecision decision)
     {
@@ -467,22 +467,22 @@ public sealed class NetworkingFourthAuditCounterexampleTests
         var values = new string[1_000];
         for (var index = 0; index < values.Length; index++)
         {
-            var scope = NetworkingTestData.EndpointScope(generation: NetworkingTestData.O((ulong)index+1)) with
+            var scope = NetworkingTestData.EndpointScope(generation: NetworkingTestData.O((ulong)index + 1)) with
             { Operation = NetworkingTestData.Op($"operation-{index}") };
-            var evidence = NetworkingTestData.EndpointEvidence(scope,registered:NetworkProof.Unknown,
-                promoted:index%2==0?NetworkProof.Unknown:NetworkProof.Proven);
-            var subject = (NetworkEndpointIntentSubject)NetworkEndpointPlanner.PlanRegister(scope,evidence).Subject!;
-            values[index] = string.Join('|',subject.PlanKind,subject.Operation.Value,subject.ServiceGeneration.Value,
-                subject.Evidence.BackendRegistered,subject.Evidence.BackendPromoted);
+            var evidence = NetworkingTestData.EndpointEvidence(scope, registered: NetworkProof.Unknown,
+                promoted: index % 2 == 0 ? NetworkProof.Unknown : NetworkProof.Proven);
+            var subject = (NetworkEndpointIntentSubject)NetworkEndpointPlanner.PlanRegister(scope, evidence).Subject!;
+            values[index] = string.Join('|', subject.PlanKind, subject.Operation.Value, subject.ServiceGeneration.Value,
+                subject.Evidence.BackendRegistered, subject.Evidence.BackendPromoted);
         }
         return values;
     }
 
-    private static T UnderCulture<T>(string name,Func<T> action)
+    private static T UnderCulture<T>(string name, Func<T> action)
     {
-        var previous=CultureInfo.CurrentCulture;var previousUi=CultureInfo.CurrentUICulture;
-        try{CultureInfo.CurrentCulture=CultureInfo.GetCultureInfo(name);CultureInfo.CurrentUICulture=CultureInfo.GetCultureInfo(name);return action();}
-        finally{CultureInfo.CurrentCulture=previous;CultureInfo.CurrentUICulture=previousUi;}
+        var previous = CultureInfo.CurrentCulture; var previousUi = CultureInfo.CurrentUICulture;
+        try { CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(name); CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(name); return action(); }
+        finally { CultureInfo.CurrentCulture = previous; CultureInfo.CurrentUICulture = previousUi; }
     }
 }
 

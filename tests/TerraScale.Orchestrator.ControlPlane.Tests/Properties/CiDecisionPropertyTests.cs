@@ -252,7 +252,7 @@ public sealed class CiDecisionPropertyTests
     private static string Fingerprint(DispatchJobIntent intent)
         => CiDispatchFingerprint.Create(intent);
     private static string EntryJson(CiCorpusEntry entry) => JsonSerializer.Serialize(new
-        { id = entry.Id, seed = entry.Seed, scenario = entry.Scenario, expected = entry.Expected });
+    { id = entry.Id, seed = entry.Seed, scenario = entry.Scenario, expected = entry.Expected });
 
     private static (TrustZone Zone, RunnerCapability[] Capabilities) Allowed(JobKind kind) => kind switch
     {
@@ -311,8 +311,12 @@ internal static class CiDecisionCorpus
         if (string.IsNullOrEmpty(source) || Encoding.UTF8.GetByteCount(source) > MaximumBytes) return new(CiCorpusCode.TooLarge, []);
         try
         {
-            using var document = JsonDocument.Parse(source, new() { MaxDepth = 6, AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow });
+            using var document = JsonDocument.Parse(source, new()
+            {
+                MaxDepth = 6,
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !Exact(root, RootFields) ||
                 !root.GetProperty("version").TryGetInt32(out var version) || version != 1) return new(CiCorpusCode.InvalidSchema, []);
@@ -341,8 +345,12 @@ internal static class CiDecisionCorpus
         catch (JsonException) { return new(CiCorpusCode.InvalidJson, []); }
         catch (InvalidOperationException) { return new(CiCorpusCode.InvalidJson, []); }
     }
-    internal static string Json(CiCorpusEntry entry) => JsonSerializer.Serialize(new { version = 1, entries = new[]
-        { new { id = entry.Id, seed = entry.Seed, scenario = entry.Scenario, expected = entry.Expected } } });
+    internal static string Json(CiCorpusEntry entry) => JsonSerializer.Serialize(new
+    {
+        version = 1,
+        entries = new[]
+        { new { id = entry.Id, seed = entry.Seed, scenario = entry.Scenario, expected = entry.Expected } }
+    });
     private static bool Token(string? value, int maximum)
     {
         if (value is not { Length: > 0 } || value.Length > maximum || value[0] == '-' || value[^1] == '-') return false;

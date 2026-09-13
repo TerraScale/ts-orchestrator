@@ -82,9 +82,11 @@ public sealed class RuntimeSnapshotPropertyTests
     private sealed class EndlessEnumerable<T>(Func<T> factory) : IEnumerable<T>, IEnumerator<T>
     {
         public int CurrentCalls { get; private set; }
-        public T Current { get { CurrentCalls++; return factory(); } } object? IEnumerator.Current => Current;
+        public T Current { get { CurrentCalls++; return factory(); } }
+        object? IEnumerator.Current => Current;
         public IEnumerator<T> GetEnumerator() => this; IEnumerator IEnumerable.GetEnumerator() => this;
-        public bool MoveNext() => true; public void Reset() { } public void Dispose() { }
+        public bool MoveNext() => true; public void Reset() { }
+        public void Dispose() { }
     }
 }
 

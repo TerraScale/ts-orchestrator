@@ -82,9 +82,9 @@ internal sealed class NatsNativeGitOpsGlobalHandoffTransport(NatsClient client)
             },
             headers: headers,
             cancellationToken: cancellationToken);
-            // A duplicate message id is the converged receipt of the identical message,
-            // never an error: the id is derived from the exact content being stored.
-            _ = acknowledgement.EnsureStored();
+        // A duplicate message id is the converged receipt of the identical message,
+        // never an error: the id is derived from the exact content being stored.
+        _ = acknowledgement.EnsureStored();
         return new(
             acknowledgement.Stream ?? string.Empty,
             acknowledgement.Seq,

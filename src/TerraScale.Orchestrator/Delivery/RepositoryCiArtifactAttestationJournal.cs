@@ -427,8 +427,11 @@ internal sealed record RepositoryCiArtifactProofDocument(
 
     internal void Validate()
     {
-        if (SchemaVersion != 1 || Subject is null || Signature is not { Length: > 0 and <=
-                RepositoryCiArtifactAttestation.MaximumSignatureBytes } ||
+        if (SchemaVersion != 1 || Subject is null || Signature is not
+            {
+                Length: > 0 and <=
+                RepositoryCiArtifactAttestation.MaximumSignatureBytes
+            } ||
             Kind == RepositoryCiArtifactProofKind.ArtifactSignature &&
                 (!RepositoryCiArtifactAttestation.StructurallyValid(Artifact()) ||
                     ObservedRuntimeDigest.Length != 0) ||

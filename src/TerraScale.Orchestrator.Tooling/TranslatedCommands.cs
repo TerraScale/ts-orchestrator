@@ -718,29 +718,50 @@ internal static class DecisionReadinessValidator
         .ToFrozenSet(StringComparer.Ordinal);
     private static readonly FrozenDictionary<int, (int[] Adrs, string[] Gates)> QuestionMappings = new Dictionary<int, (int[], string[])>
     {
-        [1] = ([1, 2], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]), [2] = ([1, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
-        [3] = ([12, 21], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), [4] = ([6, 10], ["contract-freeze", "phase-0-exit", "L0", "L1R", "L3S", "L4"]),
-        [5] = ([9, 10], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]), [6] = ([16, 19], ["contract-freeze", "phase-0-exit", "L0", "L4", "L5"]),
-        [7] = ([14], ["contract-freeze", "phase-0-exit", "L0", "L3S"]), [8] = ([2, 8], ["contract-freeze", "phase-0-exit", "L0C", "L3S", "L4", "L5"]),
-        [9] = ([17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]), [10] = ([10], ["contract-freeze", "phase-0-exit", "L0", "L3S"])
+        [1] = ([1, 2], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]),
+        [2] = ([1, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
+        [3] = ([12, 21], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
+        [4] = ([6, 10], ["contract-freeze", "phase-0-exit", "L0", "L1R", "L3S", "L4"]),
+        [5] = ([9, 10], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
+        [6] = ([16, 19], ["contract-freeze", "phase-0-exit", "L0", "L4", "L5"]),
+        [7] = ([14], ["contract-freeze", "phase-0-exit", "L0", "L3S"]),
+        [8] = ([2, 8], ["contract-freeze", "phase-0-exit", "L0C", "L3S", "L4", "L5"]),
+        [9] = ([17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]),
+        [10] = ([10], ["contract-freeze", "phase-0-exit", "L0", "L3S"])
     }.ToFrozenDictionary();
     private static readonly FrozenDictionary<string, (string Validation, int[] Adrs, string[] Gates)> InputMappings = new Dictionary<string, (string, int[], string[])>(StringComparer.Ordinal)
     {
-        ["team-size"] = ("{\"type\":\"integer\",\"minimum\":1}", [19], ["phase-0-planning"]), ["first-production-date"] = ("{\"type\":\"string\",\"pattern\":\"^(\\\\d{4}-\\\\d{2}-\\\\d{2}|\\\\d{4}-Q[1-4])$\"}", [19], ["phase-0-planning"]),
+        ["team-size"] = ("{\"type\":\"integer\",\"minimum\":1}", [19], ["phase-0-planning"]),
+        ["first-production-date"] = ("{\"type\":\"string\",\"pattern\":\"^(\\\\d{4}-\\\\d{2}-\\\\d{2}|\\\\d{4}-Q[1-4])$\"}", [19], ["phase-0-planning"]),
         ["maximum-three-region-pre-user-cost"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0}", [5, 8, 19, 24], ["contract-freeze", "phase-0-exit", "L5"]),
-        ["storage-minimum-iops-per-member"] = ("{\"type\":\"integer\",\"minimum\":1}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-minimum-throughput-per-member"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
-        ["storage-p95-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-p99-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
-        ["storage-p95-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-p99-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
-        ["regional-rpo"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4", "L5"]), ["regional-rto"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
-        ["security-credential-revocation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), ["security-workload-certificate-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
-        ["security-certificate-renewal-lead"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), ["security-break-glass-session-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]),
-        ["security-critical-remediation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit"]), ["memory-orchestrator-rss-per-host"] = ("{\"type\":\"integer\",\"minimum\":1}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4"]),
-        ["density-compact-post-failure-utilization-ceiling"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0,\"maximum\":100}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]), ["audit-hot-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L0C", "L3S"]),
-        ["audit-immutable-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]), ["maximum-regional-survival-window"] = ("{\"type\":\"integer\",\"minimum\":1}", [11, 12, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"])
+        ["storage-minimum-iops-per-member"] = ("{\"type\":\"integer\",\"minimum\":1}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-minimum-throughput-per-member"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p95-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p99-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p95-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p99-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["regional-rpo"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4", "L5"]),
+        ["regional-rto"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
+        ["security-credential-revocation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
+        ["security-workload-certificate-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
+        ["security-certificate-renewal-lead"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
+        ["security-break-glass-session-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]),
+        ["security-critical-remediation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit"]),
+        ["memory-orchestrator-rss-per-host"] = ("{\"type\":\"integer\",\"minimum\":1}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4"]),
+        ["density-compact-post-failure-utilization-ceiling"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0,\"maximum\":100}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]),
+        ["audit-hot-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L0C", "L3S"]),
+        ["audit-immutable-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]),
+        ["maximum-regional-survival-window"] = ("{\"type\":\"integer\",\"minimum\":1}", [11, 12, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"])
     }.ToFrozenDictionary(StringComparer.Ordinal);
     private static readonly FrozenDictionary<string, (int[] Adrs, string[] Gates)> LaterSelectionMappings = new Dictionary<string, (int[], string[])>(StringComparer.Ordinal)
     {
-        ["artifact-and-evidence-signing"] = ([14, 23], ["phase-0-exit", "L0"]), ["dns-implementation"] = ([15], ["phase-0-exit", "L3S", "L4"]), ["vpn-implementation"] = ([16], ["phase-0-exit", "L3S", "L4"]), ["operator-identity-provider"] = ([17], ["phase-0-exit", "L3S", "L5"]), ["regional-artifact-mirror"] = ([21], ["phase-0-exit", "L3S", "L4"]), ["arm64-host-image"] = ([22], ["phase-0-exit", "L1R", "L4"]), ["nats-n-minus-one-policy"] = ([22], ["phase-0-exit", "L0C", "L3S"])
+        ["artifact-and-evidence-signing"] = ([14, 23], ["phase-0-exit", "L0"]),
+        ["dns-implementation"] = ([15], ["phase-0-exit", "L3S", "L4"]),
+        ["vpn-implementation"] = ([16], ["phase-0-exit", "L3S", "L4"]),
+        ["operator-identity-provider"] = ([17], ["phase-0-exit", "L3S", "L5"]),
+        ["regional-artifact-mirror"] = ([21], ["phase-0-exit", "L3S", "L4"]),
+        ["arm64-host-image"] = ([22], ["phase-0-exit", "L1R", "L4"]),
+        ["nats-n-minus-one-policy"] = ([22], ["phase-0-exit", "L0C", "L3S"])
     }.ToFrozenDictionary(StringComparer.Ordinal);
     private const string InvariantGapId = "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT";
     private const string InvariantGapStatus = "open-independent-review-required";

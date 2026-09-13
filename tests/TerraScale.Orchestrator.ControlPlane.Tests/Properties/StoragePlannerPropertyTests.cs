@@ -176,7 +176,7 @@ public sealed class StoragePlannerPropertyTests
                 performance: Performance(requested), forecast: requested + 7);
             var context = variant == 9 ? StorageTestData.Context(generation: StorageTestData.Generation(99)) : StorageTestData.Context();
             var scope = variant == 8
-                ? volume.EvidenceScope with { Operation=StorageTestData.Operation($"other-{seed}") }
+                ? volume.EvidenceScope with { Operation = StorageTestData.Operation($"other-{seed}") }
                 : volume.EvidenceScope;
             var evidence = StorageTestData.Deletion(
                 leadership: variant == 1 ? StorageProof.Unknown : StorageProof.Proven,
@@ -238,7 +238,7 @@ public sealed class StoragePlannerPropertyTests
             };
             var volume = StorageTestData.Volume(requested: requested, performance: Performance(requested), forecast: requested + 7);
             var scope = dimension == 8
-                ? volume.EvidenceScope with { Operation=StorageTestData.Operation($"op-{seed}") }
+                ? volume.EvidenceScope with { Operation = StorageTestData.Operation($"op-{seed}") }
                 : volume.EvidenceScope;
             StorageDecision decision = (seed % 5) switch
             {

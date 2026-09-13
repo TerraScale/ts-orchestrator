@@ -560,34 +560,34 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         switch (action)
         {
             case LaunchOciCiRunnerAction launch:
-            {
-                var response = await client.LaunchInstance(
-                    OciCiRunnerRequestCompiler.Launch(launch),
-                    null,
-                    cancellationToken,
-                    HttpCompletionOption.ResponseHeadersRead);
-                var instance = response.Instance ??
-                    throw new InvalidDataException("OCI returned no launched CI runner instance.");
-                _ = new ProviderResourceId(instance.Id);
-                return new(
-                    instance.Id,
-                    response.Etag ?? string.Empty,
-                    response.OpcRequestId ?? string.Empty,
-                    response.OpcWorkRequestId ?? string.Empty);
-            }
+                {
+                    var response = await client.LaunchInstance(
+                        OciCiRunnerRequestCompiler.Launch(launch),
+                        null,
+                        cancellationToken,
+                        HttpCompletionOption.ResponseHeadersRead);
+                    var instance = response.Instance ??
+                        throw new InvalidDataException("OCI returned no launched CI runner instance.");
+                    _ = new ProviderResourceId(instance.Id);
+                    return new(
+                        instance.Id,
+                        response.Etag ?? string.Empty,
+                        response.OpcRequestId ?? string.Empty,
+                        response.OpcWorkRequestId ?? string.Empty);
+                }
             case TerminateOciCiRunnerAction terminate:
-            {
-                var response = await client.TerminateInstance(
-                    OciCiRunnerRequestCompiler.Terminate(terminate),
-                    null,
-                    cancellationToken,
-                    HttpCompletionOption.ResponseHeadersRead);
-                return new(
-                    terminate.InstanceId,
-                    terminate.ETag,
-                    response.OpcRequestId ?? string.Empty,
-                    response.OpcWorkRequestId ?? string.Empty);
-            }
+                {
+                    var response = await client.TerminateInstance(
+                        OciCiRunnerRequestCompiler.Terminate(terminate),
+                        null,
+                        cancellationToken,
+                        HttpCompletionOption.ResponseHeadersRead);
+                    return new(
+                        terminate.InstanceId,
+                        terminate.ETag,
+                        response.OpcRequestId ?? string.Empty,
+                        response.OpcWorkRequestId ?? string.Empty);
+                }
             default:
                 throw new ArgumentOutOfRangeException(nameof(action));
         }
