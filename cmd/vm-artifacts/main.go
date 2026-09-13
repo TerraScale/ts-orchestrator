@@ -174,8 +174,9 @@ func generateMaterial(ctx context.Context, config options, prepared bundle, root
 
 func materialEnvironment(environment []string, root string) []string {
 	return replaceSelectedEnvironment(environment,
-		[]string{"TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"},
+		[]string{"TS_VM_ROOT", "TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"},
 		map[string]string{
+			"TS_VM_ROOT":                     root,
 			"TS_VM_RUN_DECLARATION_FILE":     filepath.Join(root, "run-declaration.json"),
 			"TS_VM_CONTROL_DECLARATION_FILE": filepath.Join(root, "control-declaration.json"),
 			"TS_VM_STATE_ROOT":               filepath.Join(root, "state"),

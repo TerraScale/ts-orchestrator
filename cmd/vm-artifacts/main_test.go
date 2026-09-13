@@ -132,6 +132,7 @@ func TestMaterialEnvironmentBindsGeneratedDeclarationsAndState(t *testing.T) {
 		"TS_VM_STATE_ROOT=/stale/state",
 	}, "/private/material")
 	for _, want := range []string{
+		"TS_VM_ROOT=/private/material",
 		"TS_VM_RUN_DECLARATION_FILE=/private/material/run-declaration.json",
 		"TS_VM_CONTROL_DECLARATION_FILE=/private/material/control-declaration.json",
 		"TS_VM_STATE_ROOT=/private/material/state",
@@ -140,7 +141,7 @@ func TestMaterialEnvironmentBindsGeneratedDeclarationsAndState(t *testing.T) {
 			t.Fatalf("generated input %q was not bound: %#v", want, environment)
 		}
 	}
-	for _, name := range []string{"TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"} {
+	for _, name := range []string{"TS_VM_ROOT", "TS_VM_RUN_DECLARATION_FILE", "TS_VM_CONTROL_DECLARATION_FILE", "TS_VM_STATE_ROOT"} {
 		count := 0
 		for _, value := range environment {
 			if strings.HasPrefix(value, name+"=") {

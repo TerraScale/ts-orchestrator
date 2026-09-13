@@ -876,7 +876,8 @@ func loadProductionArtifacts(config vmqual.Config, architecture vmimage.Architec
 			zeroBytes(publicKey)
 			return nil, nil, fmt.Errorf("vmqual: %s detached Ed25519 signature is invalid", component.component)
 		}
-		artifact := vmimage.GuestArtifact{Component: component.component, Architecture: architecture, Version: version, Source: path, SHA256: digest, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
+		source := "https://releases.terrascale.tech:8443/releases/" + component.component + "/" + version + "/" + component.component
+		artifact := vmimage.GuestArtifact{Component: component.component, Architecture: architecture, Version: version, Source: source, SHA256: digest, Size: info.Size(), Mode: uint32(info.Mode().Perm())}
 		artifacts, infos = append(artifacts, guestArtifactInput{manifest: artifact, signature: signature, binary: data}), append(infos, info)
 	}
 	return artifacts, publicKey, nil
