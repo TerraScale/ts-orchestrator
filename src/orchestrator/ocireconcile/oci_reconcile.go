@@ -35,6 +35,7 @@ const (
 	OCIActionAttachSubnetRoute   OCIActionKind = "attach-subnet-route-table"
 	OCIActionLaunchMember        OCIActionKind = "launch-member"
 	OCIActionStartMember         OCIActionKind = "start-member"
+	OCIActionResizeMember        OCIActionKind = "resize-member"
 	OCIActionTerminateMember     OCIActionKind = "terminate-member"
 	OCIActionCreateVolume        OCIActionKind = "create-volume"
 	OCIActionExpandVolume        OCIActionKind = "expand-volume"

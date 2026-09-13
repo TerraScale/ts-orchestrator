@@ -210,6 +210,7 @@ type bootstrapRunbook struct {
 	EstateVersion uint32                    `json:"estateVersion"`
 	Stages        []string                  `json:"stages"`
 	Members       bootstrapRunbookMembers   `json:"members"`
+	Workers       bootstrapRunbookWorkers   `json:"workers"`
 	CloudInit     bootstrapRunbookCloudInit `json:"cloudInit"`
 	Control       bootstrapRunbookControl   `json:"control"`
 	Inputs        []string                  `json:"inputs"`
@@ -228,14 +229,26 @@ type bootstrapRunbookMembers struct {
 	AvailabilityDomains []string `json:"availabilityDomains"`
 }
 
+type bootstrapRunbookWorkers struct {
+	Count               uint16   `json:"count"`
+	PrimaryShape        string   `json:"primaryShape"`
+	FallbackShape       string   `json:"fallbackShape"`
+	OCPUs               float64  `json:"ocpus"`
+	MemoryGiB           float64  `json:"memoryGiB"`
+	DataVolumeGiB       uint64   `json:"dataVolumeGiB"`
+	Hosts               []string `json:"hosts"`
+	AvailabilityDomains []string `json:"availabilityDomains"`
+}
+
 // bootstrapRunbookCloudInit states the D-67 host contract: cloud-init
 // installs only ts-node, verification is digest plus signature, and every
 // later artifact — the orchestrator and TerraBase included — is fetched by
 // ts-node after handoff, never by cloud-init.
 type bootstrapRunbookCloudInit struct {
-	Installs            string   `json:"installs"`
-	Verification        string   `json:"verification"`
-	FetchesAfterHandoff []string `json:"fetchesAfterHandoff"`
+	Installs                  string   `json:"installs"`
+	Verification              string   `json:"verification"`
+	FetchesAfterHandoff       []string `json:"fetchesAfterHandoff"`
+	WorkerFetchesAfterHandoff []string `json:"workerFetchesAfterHandoff"`
 }
 
 type bootstrapRunbookControl struct {
@@ -290,13 +303,17 @@ func buildBootstrapRunbook(config bootstrap.BootstrapConfig, region estate.Regio
 	if err != nil {
 		return bootstrapRunbook{}, err
 	}
-	var hosts []string
+	var hosts, workers []string
 	for _, step := range plan.Steps {
 		if step.Kind == bootstrap.ResourceHost {
-			hosts = append(hosts, step.Name)
+			if strings.HasPrefix(step.Name, region.Code+"-worker-") {
+				workers = append(workers, step.Name)
+			} else {
+				hosts = append(hosts, step.Name)
+			}
 		}
 	}
-	if len(hosts) != bootstrap.BootstrapHostCount {
+	if len(hosts) != bootstrap.BootstrapHostCount || len(workers) != bootstrap.BootstrapWorkerHostCount {
 		return bootstrapRunbook{}, errors.New("bootstrap: plan does not create the first two GRU hosts")
 	}
 	fenced := false
@@ -323,10 +340,18 @@ func buildBootstrapRunbook(config bootstrap.BootstrapConfig, region estate.Regio
 			Hosts:               hosts,
 			AvailabilityDomains: append([]string(nil), config.AvailabilityDomains...),
 		},
+		Workers: bootstrapRunbookWorkers{
+			Count:        bootstrap.BootstrapWorkerHostCount,
+			PrimaryShape: config.PrimaryShape, FallbackShape: config.FallbackShape,
+			OCPUs: config.WorkerOCPUs, MemoryGiB: config.WorkerMemoryGiB,
+			DataVolumeGiB: config.WorkerDataVolumeGiB, Hosts: workers,
+			AvailabilityDomains: append([]string(nil), config.AvailabilityDomains...),
+		},
 		CloudInit: bootstrapRunbookCloudInit{
-			Installs:            "ts-node",
-			Verification:        "sha256+ed25519",
-			FetchesAfterHandoff: []string{"orchestrator", "terrabase"},
+			Installs:                  "ts-node",
+			Verification:              "sha256+ed25519",
+			FetchesAfterHandoff:       []string{"orchestrator", "terrabase"},
+			WorkerFetchesAfterHandoff: []string{"orchestrator"},
 		},
 		Control: bootstrapRunbookControl{
 			Mode:               string(controlPlan.To.Topology),

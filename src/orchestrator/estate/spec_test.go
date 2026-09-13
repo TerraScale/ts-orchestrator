@@ -64,6 +64,11 @@ func TestSpecRejectsUnsafeOrAmbiguousDeclarations(t *testing.T) {
 			edit: func(spec *Spec) { spec.Regions[0].Members.Count = 1 },
 		},
 		{
+			name: "single worker region",
+			path: "regions[0].workers.count",
+			edit: func(spec *Spec) { spec.Regions[0].Workers.Count = 1 },
+		},
+		{
 			name: "public member subnet",
 			path: "regions[0].network.subnets[0].public",
 			edit: func(spec *Spec) { spec.Regions[0].Network.Subnets[0].Public = true },
@@ -178,6 +183,10 @@ func testRegion(code, ociName, cidr string) Region {
 		Members: MemberPool{
 			Count: 2, PrimaryShape: "VM.Standard.A1.Flex", FallbackShape: "VM.Standard.E5.Flex",
 			OCPUs: 2, MemoryGiB: 12, BootVolumeGiB: 50, DataVolumeGiB: 200, ControlReplicas: 1,
+		},
+		Workers: WorkerPool{
+			Count: 2, PrimaryShape: "VM.Standard.A1.Flex", FallbackShape: "VM.Standard.E5.Flex",
+			OCPUs: 1, MemoryGiB: 1, BootVolumeGiB: 25,
 		},
 		Network: Network{
 			CIDR:    cidr,

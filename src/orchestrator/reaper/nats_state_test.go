@@ -54,7 +54,7 @@ func TestNATSReaperRefusesLegacyBackupJournalWithoutOverwriting(t *testing.T) {
 		t.Fatal("legacy evidence changed", err)
 	}
 	// Relabeling a legacy operation inside a current envelope is also refused.
-	for _, name := range []string{"pause/litestream", "pause/litestream/cycle-1"} {
+	for _, name := range []string{"pause/legacy", "pause/legacy/cycle-1"} {
 		legacy := reaperTestState()
 		entry := legacy.Entries["db-1"]
 		entry.Cycle = 1

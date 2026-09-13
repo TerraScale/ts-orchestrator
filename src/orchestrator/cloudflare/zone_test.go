@@ -18,8 +18,8 @@ func testEgress() []string {
 	return []string{"100.64.0.0/10", "192.0.2.99/32"}
 }
 
-// TestDeclaredZoneMatchesD24 pins the declared DNS set to the zone apex
-// plus GOAL D-24's hostnames exactly: no more, no fewer.
+// TestDeclaredZoneMatchesD24 pins the declared DNS set to GOAL D-24's
+// hostnames exactly: no more, no fewer.
 func TestDeclaredZoneMatchesD24(t *testing.T) {
 	z, err := Production(testMembers(), testEgress())
 	if err != nil {
@@ -35,11 +35,7 @@ func TestDeclaredZoneMatchesD24(t *testing.T) {
 			t.Errorf("%s: every TerraScale record is proxied", rec.Name)
 		}
 	}
-	if counts[ZoneName] != 1 {
-		t.Errorf("the apex is one placeholder record, never member addresses: got %d", counts[ZoneName])
-	}
 	want := []string{
-		ZoneName,
 		"api.terrascale.tech",
 		"sync.api.terrascale.tech",
 		"gru.sync.api.terrascale.tech",

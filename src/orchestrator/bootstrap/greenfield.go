@@ -36,6 +36,10 @@ const (
 	BootstrapOCPUs               = 2
 	BootstrapMemoryGiB           = 12
 	BootstrapDataVolumeGiB       = 200
+	BootstrapWorkerHostCount     = 2
+	BootstrapWorkerOCPUs         = 1
+	BootstrapWorkerMemoryGiB     = 1
+	BootstrapWorkerDataVolumeGiB = 25
 	BootstrapDefaultCIDR         = "10.10.0.0/16"
 	BootstrapDefaultSubnetCIDR   = "10.10.0.0/16"
 	BootstrapDefaultNSG          = "terrascale-gru-members"
@@ -80,6 +84,10 @@ type BootstrapConfig struct {
 	OCPUs               float64
 	MemoryGiB           float64
 	DataVolumeGiB       uint64
+	WorkerHostCount     uint16
+	WorkerOCPUs         float64
+	WorkerMemoryGiB     float64
+	WorkerDataVolumeGiB uint64
 	CloudInit           CloudInitConfig
 	Edge                *EdgeBootstrapSpec
 }
@@ -100,6 +108,8 @@ func DefaultBootstrapConfig() BootstrapConfig {
 		},
 		PrimaryShape: BootstrapPrimaryShape, FallbackShape: BootstrapFallbackShape,
 		OCPUs: BootstrapOCPUs, MemoryGiB: BootstrapMemoryGiB, DataVolumeGiB: BootstrapDataVolumeGiB,
+		WorkerHostCount: BootstrapWorkerHostCount, WorkerOCPUs: BootstrapWorkerOCPUs,
+		WorkerMemoryGiB: BootstrapWorkerMemoryGiB, WorkerDataVolumeGiB: BootstrapWorkerDataVolumeGiB,
 	}
 }
 
@@ -168,7 +178,7 @@ func (c BootstrapConfig) Validate() error {
 	if len(c.Buckets) == 0 || len(c.Buckets) > 16 || len(c.AvailabilityDomains) == 0 || len(c.AvailabilityDomains) > 16 {
 		return ErrInvalidBootstrap
 	}
-	if c.PrimaryShape != BootstrapPrimaryShape || c.FallbackShape != BootstrapFallbackShape || c.OCPUs <= 0 || c.MemoryGiB <= 0 || c.DataVolumeGiB == 0 {
+	if c.PrimaryShape != BootstrapPrimaryShape || c.FallbackShape != BootstrapFallbackShape || c.OCPUs <= 0 || c.MemoryGiB <= 0 || c.DataVolumeGiB == 0 || c.WorkerHostCount < 2 || c.WorkerOCPUs <= 0 || c.WorkerMemoryGiB <= 0 || c.WorkerDataVolumeGiB == 0 {
 		return ErrInvalidBootstrap
 	}
 	seen := map[string]bool{}
@@ -322,6 +332,7 @@ type NetworkRule struct {
 }
 type HostSpec struct {
 	Name            string           `json:"name"`
+	Role            string           `json:"role"`
 	PlacementLock   string           `json:"placementLock"`
 	Candidates      []ShapeCandidate `json:"candidates"`
 	ImageID         string           `json:"imageId"`
@@ -410,9 +421,13 @@ func PlanBootstrap(c BootstrapConfig) (Plan, error) {
 	// this planning model free of a second renderer prevents stale bootstrap
 	// instructions from reaching OCI.
 	steps = append(steps,
-		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
-		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
+		Step{ID: "host-1", Kind: ResourceHost, Name: "gru-member-1", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-1", Role: "terrabase-member", PlacementLock: "GRU/member/1", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
+		Step{ID: "host-2", Kind: ResourceHost, Name: "gru-member-2", DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: "gru-member-2", Role: "terrabase-member", PlacementLock: "GRU/member/2", Candidates: hostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.DataVolumeGiB}},
 	)
+	for i := 1; i <= int(c.WorkerHostCount); i++ {
+		name := fmt.Sprintf("gru-worker-%d", i)
+		steps = append(steps, Step{ID: fmt.Sprintf("worker-%d", i), Kind: ResourceHost, Name: name, DependsOn: []string{"vcn", "nsg", "vault"}, Compartment: c.CompartmentName, VCN: c.VCNName, Host: &HostSpec{Name: name, Role: "orchestrator-worker", PlacementLock: fmt.Sprintf("GRU/worker/%d", i), Candidates: workerHostCandidates(c), ImageID: c.ImageID, FallbackImageID: c.FallbackImageID, SubnetCIDR: c.SubnetCIDR, NSGName: c.NSGName, DataVolumeGiB: c.WorkerDataVolumeGiB}})
+	}
 	if c.Edge != nil {
 		edge := *c.Edge
 		steps = append(steps, Step{ID: "cloudflare", Kind: ResourceEdge, Name: edge.Zone, DependsOn: []string{"host-1", "host-2"}, Edge: &edge})
@@ -447,9 +462,15 @@ func RenderDryRun(c BootstrapConfig) ([]byte, error) {
 func BootstrapPlan(c BootstrapConfig) (Plan, error) { return PlanBootstrap(c) }
 
 func hostCandidates(c BootstrapConfig) []ShapeCandidate {
+	return hostCandidatesWithResources(c, c.OCPUs, c.MemoryGiB)
+}
+func workerHostCandidates(c BootstrapConfig) []ShapeCandidate {
+	return hostCandidatesWithResources(c, c.WorkerOCPUs, c.WorkerMemoryGiB)
+}
+func hostCandidatesWithResources(c BootstrapConfig, ocpus, memoryGiB float64) []ShapeCandidate {
 	out := make([]ShapeCandidate, 0, len(c.AvailabilityDomains)*2)
 	for _, ad := range c.AvailabilityDomains {
-		out = append(out, ShapeCandidate{AvailabilityDomain: ad, Shape: c.PrimaryShape, Architecture: "arm64", ImageID: c.ImageID, OCPUs: c.OCPUs, MemoryGiB: c.MemoryGiB}, ShapeCandidate{AvailabilityDomain: ad, Shape: c.FallbackShape, Architecture: "amd64", ImageID: c.FallbackImageID, OCPUs: c.OCPUs, MemoryGiB: c.MemoryGiB})
+		out = append(out, ShapeCandidate{AvailabilityDomain: ad, Shape: c.PrimaryShape, Architecture: "arm64", ImageID: c.ImageID, OCPUs: ocpus, MemoryGiB: memoryGiB}, ShapeCandidate{AvailabilityDomain: ad, Shape: c.FallbackShape, Architecture: "amd64", ImageID: c.FallbackImageID, OCPUs: ocpus, MemoryGiB: memoryGiB})
 	}
 	return out
 }

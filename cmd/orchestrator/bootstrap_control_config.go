@@ -86,6 +86,8 @@ type loadedBootstrapControl struct {
 	actions          []bootstrap.ControlRuntimeActionPlan
 	activations      map[string]loadedControlActivation
 	seeds            map[string]map[int]string
+	workerCounts     map[string]int
+	workerSeeds      map[string]map[int]string
 }
 
 func loadBootstrapControl(lookup envLookup) (result loadedBootstrapControl, resultErr error) {
@@ -131,6 +133,10 @@ func loadBootstrapControl(lookup envLookup) (result loadedBootstrapControl, resu
 	estateSpec, err := loadReconcileEstate(lookup)
 	if err != nil {
 		return result, err
+	}
+	result.workerCounts = make(map[string]int, len(estateSpec.Regions))
+	for _, entry := range estateSpec.Regions {
+		result.workerCounts[entry.Code] = int(entry.Workers.Count)
 	}
 	regions := map[string]bootstrapControlRegion{}
 	for _, region := range config.Regions {

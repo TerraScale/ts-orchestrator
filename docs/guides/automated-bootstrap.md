@@ -37,17 +37,25 @@ reconciles until it has:
    authority;
 2. created GRU networking, routing, NSGs, Vault software keys, Object Storage
    buckets, versioning, and lifecycle policy;
-3. created two member hosts in separate failure domains, using Ampere A1 and
-   automatically selecting E5 amd64 when A1 capacity is unavailable;
-4. installed only `ts-node` through cloud-init;
-5. admitted host identities and let `ts-node` fetch, verify, and run the signed
-   orchestrator and TerraBase artifacts together on each member machine;
-6. started the first GRU master and regional orchestrator with temporary
+3. created two TerraBase member hosts in separate failure domains, using
+   Ampere A1 and automatically selecting E5 amd64 when A1 capacity is
+   unavailable;
+4. declared two dedicated 1 OCPU/1 GiB orchestrator worker hosts per Region;
+5. installed only `ts-node` through cloud-init;
+6. admitted host identities and let `ts-node` fetch, verify, and run the signed
+   orchestrator and TerraBase artifacts on member machines, with the
+   orchestrator worker artifact reserved for the dedicated worker hosts;
+7. started the first GRU master and regional orchestrator with temporary
    pre-customer R1 storage on the selected GRU member;
-7. converged certificates, Cloudflare DNS and routes, KV, telemetry, and
+8. converged certificates, Cloudflare DNS and routes, KV, telemetry, and
    external probes; and
-8. handed mutation authority to the running control plane and removed the
+9. handed mutation authority to the running control plane and removed the
    bootstrap API key from runtime state.
+
+The durable autoscale target currently changes TerraBase member capacity only.
+Dedicated orchestrator workers remain at the declared two-host regional floor;
+worker scale-out or scale-in is held until it has its own target and safe
+termination proof.
 
 Every mutation uses persisted intent, provider idempotency, re-observation,
 and ownership fencing. An uncertain destructive operation is never repeated

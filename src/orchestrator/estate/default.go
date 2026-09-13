@@ -78,6 +78,10 @@ func defaultRegion(code, ociName, cidr string) Region {
 			DataVolumeGiB:   200,
 			ControlReplicas: 1,
 		},
+		Workers: WorkerPool{
+			Count: 2, PrimaryShape: "VM.Standard.A1.Flex", FallbackShape: "VM.Standard.E5.Flex",
+			OCPUs: 1, MemoryGiB: 1, BootVolumeGiB: 25,
+		},
 		Network: Network{
 			CIDR:    cidr,
 			Subnets: []Subnet{{Name: "members", CIDR: cidr, RegionCode: code}},

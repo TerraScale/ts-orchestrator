@@ -76,6 +76,7 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 	}
 	release = hex.EncodeToString(public)
 	loaded.seeds = map[string]map[int]string{}
+	loaded.workerSeeds = map[string]map[int]string{}
 	seen := map[string]bool{}
 	receiptHosts := map[string]string{}
 	for _, seed := range loaded.declaration.Seeds {
@@ -270,6 +271,22 @@ func prepareBootstrapControlSeeds(lookup envLookup, loaded *loadedBootstrapContr
 		if len(loaded.seeds[region.Code]) != region.MemberCount {
 			return errors.New("control: every OCI member slot requires an admitted seed")
 		}
+		workerCount := loaded.workerCounts[region.Code]
+		if workerCount == 0 {
+			continue
+		}
+		memberSeed := loaded.seeds[region.Code][1]
+		if memberSeed == "" {
+			return errors.New("control: worker seeds require the first admitted member seed")
+		}
+		// Keep worker admission separate from member slots. The role-specific
+		// worker manifest is selected by enrollment before a worker launch;
+		// this signed ts-node envelope provides the initial control handoff.
+		workerSeeds := make(map[int]string, workerCount)
+		for slot := 1; slot <= workerCount; slot++ {
+			workerSeeds[slot] = memberSeed
+		}
+		loaded.workerSeeds[region.Code] = workerSeeds
 	}
 	return nil
 }

@@ -399,6 +399,7 @@ type ComputeProvider interface {
 	LaunchInstance(context.Context, ComputeLaunchRequest) (ComputeInstance, error)
 	GetInstance(context.Context, string) (ComputeInstance, bool, error)
 	StartInstance(context.Context, ComputeStartRequest) error
+	ResizeInstance(context.Context, ComputeResizeRequest) error
 	TerminateInstance(context.Context, ComputeTerminateRequest) error
 }
 
@@ -445,6 +446,18 @@ type ComputeStartRequest struct {
 	Generation uint64
 }
 
+// ComputeResizeRequest binds a vertical resize to the exact provider
+// incarnation observed by the planner. The mutation journal keeps an
+// accepted resize replayable without submitting a second update.
+type ComputeResizeRequest struct {
+	Mutation   ProviderMutationIntent
+	InstanceID string
+	IfMatch    string
+	Generation uint64
+	OCPUs      float64
+	MemoryGiB  float64
+}
+
 type ComputeInstance struct {
 	CompartmentID      string
 	ID                 string
@@ -453,6 +466,8 @@ type ComputeInstance struct {
 	WorkRequestID      string
 	AvailabilityDomain string
 	Shape              string
+	OCPUs              float64
+	MemoryGiB          float64
 }
 
 type BlockVolumeProvider interface {

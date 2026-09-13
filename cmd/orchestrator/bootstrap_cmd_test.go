@@ -94,7 +94,7 @@ func TestBootstrapDryRunPrintsTheRunbook(t *testing.T) {
 	}
 	if kinds[bootstrap.ResourceCompartment] != 1 || kinds[bootstrap.ResourceVCN] != 1 ||
 		kinds[bootstrap.ResourceNSG] != 1 || kinds[bootstrap.ResourceVault] != 1 ||
-		kinds[bootstrap.ResourceBucket] != 2 || hosts != 2 {
+		kinds[bootstrap.ResourceBucket] != 2 || hosts != 4 {
 		t.Fatalf("plan kinds = %#v", kinds)
 	}
 	if book.ControlPlan.Operation != bootstrap.ControlOperationBootstrap ||

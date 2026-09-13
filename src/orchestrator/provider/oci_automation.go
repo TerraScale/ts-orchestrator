@@ -244,13 +244,17 @@ func computeShapeArchitecture(shape string) string {
 }
 
 type ociAutomatedInstance struct {
-	CompartmentID      string            `json:"compartmentId"`
-	ID                 string            `json:"id"`
-	LifecycleState     string            `json:"lifecycleState"`
-	ETag               string            `json:"etag"`
-	AvailabilityDomain string            `json:"availabilityDomain"`
-	Shape              string            `json:"shape"`
-	FreeformTags       map[string]string `json:"freeformTags"`
+	CompartmentID      string `json:"compartmentId"`
+	ID                 string `json:"id"`
+	LifecycleState     string `json:"lifecycleState"`
+	ETag               string `json:"etag"`
+	AvailabilityDomain string `json:"availabilityDomain"`
+	Shape              string `json:"shape"`
+	ShapeConfig        struct {
+		OCPUs       float64 `json:"ocpus"`
+		MemoryInGBs float64 `json:"memoryInGBs"`
+	} `json:"shapeConfig"`
+	FreeformTags map[string]string `json:"freeformTags"`
 }
 
 func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, error) {
@@ -501,7 +505,7 @@ func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (Compute
 	if json.Unmarshal(body, &item) != nil || item.ID != id {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI compute response is invalid"}
 	}
-	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: resp.Header.Get("ETag"), CompartmentID: item.CompartmentID, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
+	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: resp.Header.Get("ETag"), CompartmentID: item.CompartmentID, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape, OCPUs: item.ShapeConfig.OCPUs, MemoryGiB: item.ShapeConfig.MemoryInGBs}, true, nil
 }
 
 func computeStartBinding(request ComputeStartRequest) any {
@@ -591,6 +595,102 @@ func (a *OCIComputeAdapter) StartInstance(ctx context.Context, request ComputeSt
 		return err
 	}
 	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		return nil
+	}
+	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
+}
+
+func computeResizeBinding(request ComputeResizeRequest) any {
+	return struct {
+		InstanceID string
+		IfMatch    string
+		Generation uint64
+		OCPUs      float64
+		MemoryGiB  float64
+	}{request.InstanceID, request.IfMatch, request.Generation, request.OCPUs, request.MemoryGiB}
+}
+
+func ComputeResizeMutationFingerprint(request ComputeResizeRequest) string {
+	return fingerprintJSON("compute.resize", computeResizeBinding(request))
+}
+
+func ComputeResizeMutationScope(request ComputeResizeRequest) string {
+	return ProviderMutationScope("compute", request.InstanceID)
+}
+
+// ResizeInstance submits an ownership-fenced OCI flexible-shape update. An
+// accepted update remains submitted until a later exact GET observes the
+// requested shape configuration; retries therefore never issue a second
+// resize while the provider outcome is unresolved.
+func (a *OCIComputeAdapter) ResizeInstance(ctx context.Context, request ComputeResizeRequest) error {
+	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
+		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
+	}
+	if ctx == nil {
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if !IsOCID(request.InstanceID, "instance") || !isSafeETag(request.IfMatch) || request.Generation == 0 ||
+		math.IsNaN(request.OCPUs) || math.IsInf(request.OCPUs, 0) || request.OCPUs <= 0 || request.OCPUs > 192 ||
+		math.IsNaN(request.MemoryGiB) || math.IsInf(request.MemoryGiB, 0) || request.MemoryGiB <= 0 || request.MemoryGiB > 2048 {
+		return &errs.Argument{Message: "compute resize request is invalid"}
+	}
+	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, ""); err != nil {
+		return err
+	}
+	owned, _, err := a.Ownership.Lookup(ctx, ProviderResourceId{Value: request.InstanceID})
+	if err != nil {
+		return err
+	}
+	if owned.Generation.Value != request.Generation {
+		return &InvalidOperationError{Message: "compute resize generation is stale"}
+	}
+	if err := expectJSONMutation(request.Mutation, "compute.resize", ComputeResizeMutationScope(request), computeResizeBinding(request)); err != nil {
+		return err
+	}
+	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
+	if err != nil {
+		return err
+	}
+	current, found, err := a.GetInstance(ctx, request.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return &ProviderOutcomeUnknownError{Message: "compute resize target is no longer visible"}
+	}
+	if current.OCPUs == request.OCPUs && current.MemoryGiB == request.MemoryGiB {
+		if _, done, err := completedMutation(record); done {
+			return err
+		}
+		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: current.ID, ETag: current.ETag})
+	}
+	if record.State == MutationSubmitted || record.State == MutationUnknown {
+		return &ProviderOutcomeUnknownError{Message: "compute resize remains unresolved"}
+	}
+	if current.ETag != request.IfMatch {
+		return &InvalidOperationError{Message: "OCI resize ETag changed before submission"}
+	}
+	payload := struct {
+		ShapeConfig struct {
+			OCPUs       float64 `json:"ocpus"`
+			MemoryInGBs float64 `json:"memoryInGBs"`
+		} `json:"shapeConfig"`
+	}{ShapeConfig: struct {
+		OCPUs       float64 `json:"ocpus"`
+		MemoryInGBs float64 `json:"memoryInGBs"`
+	}{request.OCPUs, request.MemoryGiB}}
+	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
+		return err
+	}
+	resp, err := a.Core.DoWithHeaders(ctx, http.MethodPut, "/20160918/instances/"+url.PathEscape(request.InstanceID), bytes.NewReader(mustJSON(payload)), map[string]string{"If-Match": request.IfMatch, "opc-retry-token": derivedRetryToken(request.Mutation, "resize")})
+	if err != nil {
+		if IsOutcomeIndeterminate(err) {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		return err
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return nil
 	}

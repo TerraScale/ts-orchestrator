@@ -49,6 +49,7 @@ type Region struct {
 	Code         string
 	OCIName      string
 	Members      MemberPool
+	Workers      WorkerPool
 	Network      Network
 	Buckets      []Bucket
 	VaultKeys    []VaultKey
@@ -77,6 +78,18 @@ type MemberPool struct {
 	DataVolumeGiB   uint32
 	ControlReplicas uint16
 	Candidates      []MemberShapeCandidate
+}
+
+// WorkerPool declares the dedicated ts-orchestrator worker hosts. Workers
+// never co-host TerraBase members: keeping this pool explicit lets capacity
+// autoscaling grow the control workers independently from the database hosts.
+type WorkerPool struct {
+	Count         uint16
+	PrimaryShape  string
+	FallbackShape string
+	OCPUs         uint16
+	MemoryGiB     uint16
+	BootVolumeGiB uint16
 }
 
 type Network struct {
@@ -380,6 +393,15 @@ func validateRegionResources(path string, region Region) error {
 	if region.Members.ControlReplicas > region.Members.Count {
 		return invalid(path+".members.controlReplicas", "cannot exceed the member count")
 	}
+	if region.Workers.Count < 2 {
+		return invalid(path+".workers.count", "must keep at least two dedicated workers")
+	}
+	if !validShape(region.Workers.PrimaryShape) || !validShape(region.Workers.FallbackShape) || region.Workers.PrimaryShape == region.Workers.FallbackShape {
+		return invalid(path+".workers", "must declare distinct primary and fallback OCI shapes")
+	}
+	if region.Workers.OCPUs == 0 || region.Workers.MemoryGiB == 0 || region.Workers.BootVolumeGiB == 0 {
+		return invalid(path+".workers", "must declare non-zero worker resources")
+	}
 	networkPrefix, err := netip.ParsePrefix(region.Network.CIDR)
 	if err != nil {
 		return invalid(path+".network.cidr", "must be a valid CIDR prefix")
@@ -658,6 +680,7 @@ func (s Spec) ResourceRefs() ([]ResourceRef, error) {
 	for _, region := range s.Regions {
 		refs = append(refs,
 			ResourceRef{Kind: ResourceCompute, Region: region.Code, Name: "members"},
+			ResourceRef{Kind: ResourceCompute, Region: region.Code, Name: "workers"},
 			ResourceRef{Kind: ResourceNetwork, Region: region.Code, Name: "vcn"},
 		)
 		for _, subnet := range region.Network.Subnets {

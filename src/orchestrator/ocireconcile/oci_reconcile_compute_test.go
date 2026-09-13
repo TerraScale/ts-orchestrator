@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -104,6 +105,38 @@ func (f *fakeComputeGateway) addMember(id string, index int, shape, state string
 
 func testMemberOwnershipTags(region string) map[string]string {
 	return map[string]string{provider.OCIManagedTag: ManagedMemberTagValue, provider.OCIScopeTag: region}
+}
+
+type testResizeAuthorizer struct{}
+
+func (testResizeAuthorizer) AuthorizeMemberResize(context.Context, ObservedMember, float64, float64) error {
+	return nil
+}
+
+func TestComputeReconcilePlansVerticalResizeOnlyWithProofOwner(t *testing.T) {
+	declared := testComputeDeclared(t)
+	observed := testComputeObserved()
+	observed.Members = []ObservedMember{
+		testOwnedMember("gru", 1, "VM.Standard.A1.Flex", "RUNNING", "AD-1"),
+		testOwnedMember("gru", 2, "VM.Standard.A1.Flex", "RUNNING", "AD-2"),
+	}
+	observed.Members[0].ETag = "etag-1"
+	observed.Members[0].OCPUs, observed.Members[0].MemoryGiB = 1, 6
+	observed.Members[1].OCPUs, observed.Members[1].MemoryGiB = 2, 12
+	withoutOwner, err := (&ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}).Reconcile(context.Background(), declared, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(withoutOwner.Kinds(), OCIActionResizeMember) {
+		t.Fatal("resize planned without an explicit drain/readiness proof owner")
+	}
+	withOwner, err := (&ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}, ResizeAuthorizer: testResizeAuthorizer{}}).Reconcile(context.Background(), declared, observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(withOwner.Kinds(), OCIActionResizeMember) {
+		t.Fatalf("resize action kinds = %v", withOwner.Kinds())
+	}
 }
 
 func testOwnedMember(region string, index int, shape, state, availabilityDomain string) ObservedMember {
@@ -535,6 +568,32 @@ func TestComputePendingFailedAndDuplicateMembers(t *testing.T) {
 	duplicate.Members = append(duplicate.Members, duplicate.Members[1])
 	if _, err := reconciler.Reconcile(context.Background(), declared, duplicate); err == nil {
 		t.Fatal("duplicate member slot accepted")
+	}
+}
+
+func TestComputeBootstrapConvergenceRequiresDedicatedWorkers(t *testing.T) {
+	declared := testComputeDeclared(t)
+	declared.Region.Workers = estate.WorkerPool{Count: 2, PrimaryShape: "VM.Standard.A1.Flex", FallbackShape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 1, BootVolumeGiB: 25}
+	declared.CloudInitByWorker = map[int]string{1: declared.CloudInitByMember[1], 2: declared.CloudInitByMember[1]}
+	reconciler := &ComputeReconciler{Compute: &fakeComputeGateway{}, Network: &fakeNetworkGateway{}}
+	observed := testComputeObserved()
+	observed.Members = []ObservedMember{
+		testOwnedMember("gru", 1, declared.Region.Members.PrimaryShape, "RUNNING", "AD-1"),
+		testOwnedMember("gru", 2, declared.Region.Members.PrimaryShape, "RUNNING", "AD-2"),
+	}
+	converged, err := reconciler.bootstrapConverged(observed, declared)
+	if err != nil || converged {
+		t.Fatalf("convergence without workers = %v, %v; want false", converged, err)
+	}
+	for index := 1; index <= 2; index++ {
+		observed.Workers = append(observed.Workers, ObservedMember{
+			ID: "ocid1.instance.oc1.x.worker" + strconv.Itoa(index), DisplayName: WorkerDisplayName("gru", index), Index: index,
+			Shape: declared.Region.Workers.PrimaryShape, LifecycleState: "RUNNING", FreeformTags: map[string]string{provider.OCIManagedTag: ManagedWorkerTagValue, provider.OCIScopeTag: "gru"},
+		})
+	}
+	converged, err = reconciler.bootstrapConverged(observed, declared)
+	if err != nil || !converged {
+		t.Fatalf("convergence with workers = %v, %v; want true", converged, err)
 	}
 }
 

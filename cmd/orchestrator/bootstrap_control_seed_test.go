@@ -204,7 +204,7 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 			})
 		}
 	})
-	loaded := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "gru", OCIRegion: "sa-saopaulo-1", MemberCount: 1, CommandCandidateID: "gru-controller-gru-1"}}, Members: []bootstrapControlMember{{HostID: "gru-1", Region: "gru", Index: 1}}, Seeds: []bootstrapControlHostSeed{hostSeed}, Activations: []bootstrapControlActivation{{HostID: "gru-1", OwnerPublicKeyFile: publicPath}}}, activations: map[string]loadedControlActivation{"gru-1": activation}, signers: map[string]*security.CommandSignatureSigner{"gru": runtimeSigner}}
+	loaded := loadedBootstrapControl{declaration: bootstrapControlConfig{Generation: 1, Regions: []bootstrapControlRegion{{Code: "gru", OCIRegion: "sa-saopaulo-1", MemberCount: 1, CommandCandidateID: "gru-controller-gru-1"}}, Members: []bootstrapControlMember{{HostID: "gru-1", Region: "gru", Index: 1}}, Seeds: []bootstrapControlHostSeed{hostSeed}, Activations: []bootstrapControlActivation{{HostID: "gru-1", OwnerPublicKeyFile: publicPath}}}, activations: map[string]loadedControlActivation{"gru-1": activation}, signers: map[string]*security.CommandSignatureSigner{"gru": runtimeSigner}, workerCounts: map[string]int{"gru": 2}}
 	lookup := func(key string) (string, bool) {
 		values := map[string]string{ocireconcile.TSNodeVersionEnvironment: "1.2.3", ocireconcile.TSNodeSHA256Environment: strings.Repeat("ab", 32), ocireconcile.TSNodeURLEnvironment: "https://releases.terrascale.tech/ts-node", bootstrapReleaseKeyEnvironment: hex.EncodeToString(bytes.Repeat([]byte{1}, 32))}
 		value, ok := values[key]
@@ -212,6 +212,9 @@ func TestBootstrapControlSeedCarriesOnlyPublicVaultReferences(t *testing.T) {
 	}
 	if err := prepareBootstrapControlSeeds(lookup, &loaded); err != nil {
 		t.Fatal(err)
+	}
+	if len(loaded.workerSeeds["gru"]) != 2 || loaded.workerSeeds["gru"][1] != loaded.seeds["gru"][1] || loaded.workerSeeds["gru"][2] != loaded.seeds["gru"][1] {
+		t.Fatalf("worker seed map = %#v, want two dedicated worker slots", loaded.workerSeeds["gru"])
 	}
 	raw, err := base64.StdEncoding.DecodeString(loaded.seeds["gru"][1])
 	if err != nil {

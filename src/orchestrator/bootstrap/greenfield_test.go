@@ -30,13 +30,16 @@ func TestPlanBootstrapIsDeterministicAndSafe(t *testing.T) {
 	if a.Fingerprint != b.Fingerprint || a.Validate() != nil {
 		t.Fatalf("plans are not stable: %q %q", a.Fingerprint, b.Fingerprint)
 	}
-	if len(a.Steps) != 8 {
-		t.Fatalf("steps = %d, want compartment, network, vault, buckets, and two hosts", len(a.Steps))
+	if len(a.Steps) != 10 {
+		t.Fatalf("steps = %d, want compartment, network, vault, buckets, two members, and two workers", len(a.Steps))
 	}
 	for _, step := range a.Steps {
 		if step.Kind == ResourceHost {
 			if len(step.Host.Candidates) != 2 || step.Host.Candidates[0].Shape != BootstrapPrimaryShape || step.Host.Candidates[1].Shape != BootstrapFallbackShape {
 				t.Fatalf("host candidates = %#v", step.Host.Candidates)
+			}
+			if strings.HasPrefix(step.Name, "gru-worker-") && (step.Host.Candidates[0].OCPUs != BootstrapWorkerOCPUs || step.Host.Candidates[0].MemoryGiB != BootstrapWorkerMemoryGiB) {
+				t.Fatalf("worker resources = %#v", step.Host.Candidates[0])
 			}
 			if step.Host.CloudInit != "" {
 				t.Fatal("retired greenfield renderer populated host cloud-init")
@@ -160,14 +163,14 @@ func TestExecutorResumesIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Completed) != 8 || p.calls != 8 {
+	if len(first.Completed) != 10 || p.calls != 10 {
 		t.Fatalf("first run completed=%d calls=%d", len(first.Completed), p.calls)
 	}
 	second, err := e.Execute(context.Background(), plan, testConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.Skipped) != 8 || p.calls != 8 {
+	if len(second.Skipped) != 10 || p.calls != 10 {
 		t.Fatalf("second run skipped=%d calls=%d", len(second.Skipped), p.calls)
 	}
 }

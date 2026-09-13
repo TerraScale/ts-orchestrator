@@ -1,4 +1,7 @@
-.PHONY: check vm-doctor vm-image vm-smoke vm-stack vm-test vm-clean
+.PHONY: check dashboard vm-doctor vm-image vm-smoke vm-stack vm-test vm-clean
+
+dashboard:
+	go run ./cmd/orchestrator-dashboard
 
 # I-12 is intentionally an explicit build-tagged command. The tag binds the
 # coordinator to the official Firecracker Go SDK; no normal production build

@@ -71,8 +71,8 @@ control plane. `add-region <code>` creates and qualifies a complete Region.
 
 ## Hosts and delivery
 
-Production hosts are Ubuntu LTS minimal with no container runtime, production
-OCI image, or registry. They run `ts-node`, TerraBase, a local `ts-orchestrator`, and the Grafana
+Production hosts are Ubuntu LTS minimal. They run `ts-node`, TerraBase,
+a local `ts-orchestrator`, and the Grafana
 agent. Global control-store replicas run only on selected member hosts. `ts-node` installs versioned static
 binaries under `/opt/terrascale`, verifies ed25519 signatures and SHA-256
 digests, writes hardened systemd units, coordinates drain, atomically activates

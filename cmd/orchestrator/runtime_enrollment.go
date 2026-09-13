@@ -21,10 +21,11 @@ import (
 )
 
 type productionEnrollmentFile struct {
-	BrokerIDs     []string                       `json:"broker_ids"`
-	SignerFile    string                         `json:"signer_file"`
-	PublicKeyFile string                         `json:"public_key_file"`
-	Templates     map[string]enrollment.Template `json:"templates"`
+	BrokerIDs       []string                       `json:"broker_ids"`
+	SignerFile      string                         `json:"signer_file"`
+	PublicKeyFile   string                         `json:"public_key_file"`
+	Templates       map[string]enrollment.Template `json:"templates"`
+	WorkerTemplates map[string]enrollment.Template `json:"worker_templates"`
 }
 type computeProjection func(context.Context, estate.Region) (ocireconcile.ComputeDeclared, error)
 type computeTargetProjection func(context.Context, estate.Region) (uint16, error)
@@ -41,6 +42,7 @@ type productionEnrollmentProjection struct {
 	mu                   sync.Mutex
 	producer             *enrollment.Producer
 	templates            map[string]enrollment.Template
+	workerTemplates      map[string]enrollment.Template
 	compute              productionGlobalComputeFile
 	environment, cluster string
 	generation           uint64
@@ -130,7 +132,17 @@ func newProductionEnrollmentProjection(ctx context.Context, session globalWorker
 		template.Files = files
 		templates[region] = template
 	}
-	projection := &productionEnrollmentProjection{journal: journal, removals: removals, producer: producer, templates: templates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}
+	workerTemplates := map[string]enrollment.Template{}
+	for region, template := range config.WorkerTemplates {
+		files := map[string]string{}
+		for path, content := range template.Files {
+			files[path] = content
+		}
+		files["/etc/terrascale/ts-node-bootstrap/owner.pub"] = string(public)
+		template.Files = files
+		workerTemplates[region] = template
+	}
+	projection := &productionEnrollmentProjection{journal: journal, removals: removals, producer: producer, templates: templates, workerTemplates: workerTemplates, compute: global.Compute, environment: environment, cluster: cluster, generation: uint64(session.Lease.Epoch), targets: targets.Read, now: time.Now}
 	brokers := slices.Clone(config.BrokerIDs)
 	projection.publishGrants = func(ctx context.Context) error {
 		state, err := journal.Read(ctx)
@@ -172,7 +184,11 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 	if !ok {
 		return result, errors.New("runtime enrollment: Region template missing")
 	}
-	result = ocireconcile.ComputeDeclared{Region: region, ImageID: p.compute.ImageID, FallbackImageID: p.compute.FallbackImageID, CloudInitByMember: map[int]string{}, MemberBindings: map[int]ocireconcile.MemberBinding{}, CandidatesByMember: map[int][]ocireconcile.MemberLaunchCandidate{}}
+	workerTemplate, workerTemplateOK := p.workerTemplates[region.Code]
+	if region.Workers.Count > 0 && !workerTemplateOK {
+		return result, errors.New("runtime enrollment: worker Region template missing")
+	}
+	result = ocireconcile.ComputeDeclared{Region: region, ImageID: p.compute.ImageID, FallbackImageID: p.compute.FallbackImageID, CloudInitByMember: map[int]string{}, CloudInitByWorker: map[int]string{}, MemberBindings: map[int]ocireconcile.MemberBinding{}, WorkerBindings: map[int]ocireconcile.MemberBinding{}, CandidatesByMember: map[int][]ocireconcile.MemberLaunchCandidate{}, CandidatesByWorker: map[int][]ocireconcile.MemberLaunchCandidate{}}
 	for slot := 1; slot <= int(region.Members.Count); slot++ {
 		now := p.now().UTC().Truncate(time.Second)
 		if completed, ok := targets[region.Code].CompletedRemovals[slot]; ok {
@@ -208,6 +224,36 @@ func (p *productionEnrollmentProjection) Declared(ctx context.Context, region es
 				image = result.FallbackImageID
 			}
 			result.CandidatesByMember[slot] = append(result.CandidatesByMember[slot], ocireconcile.MemberLaunchCandidate{Shape: candidate.Shape, ImageID: image, Architecture: candidate.Architecture, QualificationRef: candidate.QualificationRef, CostRef: candidate.CostRef, CloudInitBase64: byArch[candidate.Architecture]})
+		}
+	}
+	if region.Workers.Count > 0 {
+		workerByArch := map[string]string{}
+		for slot := 1; slot <= int(region.Workers.Count); slot++ {
+			record, public, e := p.producer.Enroll(ctx, enrollment.Record{Environment: p.environment, Cluster: p.cluster, Region: region.Code, Slot: 1000 + slot, Generation: p.generation, IssuedAt: p.now().UTC().Truncate(time.Second), ExpiresAt: p.now().UTC().Truncate(time.Second).Add(24 * time.Hour)}, workerTemplate)
+			if e != nil {
+				return ocireconcile.ComputeDeclared{}, e
+			}
+			result.WorkerBindings[slot] = ocireconcile.MemberBinding{ServerIdentity: enrollment.Identity(record, "regional"), Environment: record.Environment, Cluster: record.Cluster, MemberID: record.MemberID, CellID: record.Region, Generation: record.Generation}
+			for _, arch := range []string{"arm64", "amd64"} {
+				artifact, exists := p.compute.Artifacts[arch]
+				if !exists {
+					return ocireconcile.ComputeDeclared{}, enrollment.ErrInvalid
+				}
+				files := make([]ocireconcile.BootstrapHostFile, 0, len(public.ArchitectureFiles[arch]))
+				for path, content := range public.ArchitectureFiles[arch] {
+					files = append(files, ocireconcile.BootstrapHostFile{Path: path, Content: slices.Clone(content)})
+				}
+				seed, e := ocireconcile.TSNodeCloudInit(artifact.Version, artifact.SHA256, artifact.URL, artifact.URL+".sig", artifact.PublicKey, files)
+				if e != nil {
+					return ocireconcile.ComputeDeclared{}, e
+				}
+				workerByArch[arch] = seed
+			}
+			result.CloudInitByWorker[slot] = workerByArch["arm64"]
+			result.CandidatesByWorker[slot] = []ocireconcile.MemberLaunchCandidate{
+				{Shape: region.Workers.PrimaryShape, ImageID: result.ImageID, Architecture: "arm64", CloudInitBase64: workerByArch["arm64"]},
+				{Shape: region.Workers.FallbackShape, ImageID: result.FallbackImageID, Architecture: "amd64", CloudInitBase64: workerByArch["amd64"]},
+			}
 		}
 	}
 	result.Candidates = slices.Clone(result.CandidatesByMember[1])

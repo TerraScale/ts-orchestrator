@@ -281,6 +281,51 @@ func TestOCIComputeAdapterStartRejectsStaleGeneration(t *testing.T) {
 	}
 }
 
+func TestOCIComputeAdapterResizeIsDurablyIdempotent(t *testing.T) {
+	const instanceID = "ocid1.instance.oc1.resize"
+	ownership := testOwnership(t, instanceID)
+	updates, reads := 0, 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodGet {
+			reads++
+			shape := `"ocpus":1,"memoryInGBs":6`
+			if reads > 1 {
+				shape = `"ocpus":2,"memoryInGBs":12`
+			}
+			headers := make(http.Header)
+			headers.Set("ETag", "etag-1")
+			return testHTTPResponse(http.StatusOK, `{"id":"`+instanceID+`","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING","shape":"VM.Standard.A1.Flex","shapeConfig":{`+shape+`}}`, headers), nil
+		}
+		if request.Method == http.MethodPut {
+			updates++
+			if request.Header.Get("If-Match") != "etag-1" || request.Header.Get("Opc-Retry-Token") == "" {
+				t.Fatalf("resize fence headers = %v", request.Header)
+			}
+			return testHTTPResponse(http.StatusAccepted, "", nil), nil
+		}
+		t.Fatalf("unexpected request %s %s", request.Method, request.URL)
+		return nil, nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = ownership
+	request := ComputeResizeRequest{InstanceID: instanceID, IfMatch: "etag-1", Generation: 1, OCPUs: 2, MemoryGiB: 12}
+	request.Mutation = ProviderMutationIntent{OperationID: ProviderOperationId{Value: "resize-op"}, Scope: ComputeResizeMutationScope(request), Action: "compute.resize", Epoch: ProviderEpoch{Value: 1}, IdempotencyKey: ProviderIdempotencyKey{Value: "resize-key"}}
+	request.Mutation.Fingerprint = ComputeResizeMutationFingerprint(request)
+	if err := adapter.ResizeInstance(context.Background(), request); err != nil {
+		t.Fatalf("initial resize: %v", err)
+	}
+	if err := adapter.ResizeInstance(context.Background(), request); err != nil {
+		t.Fatalf("replayed resize: %v", err)
+	}
+	if updates != 1 {
+		t.Fatalf("resize requests = %d, want one durable submission", updates)
+	}
+}
+
 func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	posts, gets := 0, 0
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {

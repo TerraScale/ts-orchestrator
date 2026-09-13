@@ -11,9 +11,6 @@ import (
 //
 // Hostnames per D-24 (exactly these, no more):
 //
-//	terrascale.tech           zone apex, a proxied placeholder like the
-//	                          other Worker-served names until the landing
-//	                          redirect joins with the site
 //	api.terrascale.tech       ts-proxy REST first-contact Worker (D-58)
 //	sync.api.terrascale.tech  CDN-backed reactive HTTP: Snippet + Cache Rules,
 //	                          never a Worker (D-55)
@@ -88,11 +85,9 @@ func Production(members Members, tailscaleEgressIPs []string) (*Zone, error) {
 		SSL:              SSLSettings{Mode: "strict", MinTLSVersion: "1.2", TLS13: true, AlwaysUseHTTPS: true},
 	}
 
-	// DNS (D-24). The apex and api/app/docs/status are Worker-served
-	// placeholders; the docs, status, and apex-redirect routes join this
-	// declaration when those assets ship (P-8/L-3).
+	// DNS (D-24). api/app/docs/status are Worker-served placeholders; member
+	// addresses provide the regional and sync ingress records below.
 	z.DNSRecords = []DNSRecord{
-		{Type: "A", Name: ZoneName, Content: workerOrigin, TTL: 1, Proxied: true},
 		{Type: "A", Name: "api." + ZoneName, Content: workerOrigin, TTL: 1, Proxied: true},
 		{Type: "A", Name: "app." + ZoneName, Content: workerOrigin, TTL: 1, Proxied: true},
 		{Type: "A", Name: "docs." + ZoneName, Content: workerOrigin, TTL: 1, Proxied: true},

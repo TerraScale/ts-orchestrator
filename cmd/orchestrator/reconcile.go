@@ -822,7 +822,13 @@ func ociActionRef(region string, action ocireconcile.OCIAction) (estate.Resource
 		return estate.ResourceRef{Kind: estate.ResourceNSG, Region: region, Name: value.Name}, true
 	case ocireconcile.ReplaceNSGRulesAction:
 		return estate.ResourceRef{Kind: estate.ResourceNSG, Region: region, Name: value.Name}, true
-	case ocireconcile.LaunchMemberAction, ocireconcile.StartMemberAction, ocireconcile.TerminateMemberAction:
+	case ocireconcile.LaunchMemberAction:
+		name := "members"
+		if value.Spec.Role == "worker" {
+			name = "workers"
+		}
+		return estate.ResourceRef{Kind: estate.ResourceCompute, Region: region, Name: name}, true
+	case ocireconcile.StartMemberAction, ocireconcile.TerminateMemberAction, ocireconcile.ResizeMemberAction:
 		return estate.ResourceRef{Kind: estate.ResourceCompute, Region: region, Name: "members"}, true
 	case ocireconcile.CreateVolumeAction, ocireconcile.ExpandVolumeAction, ocireconcile.AttachVolumeAction, ocireconcile.DetachAttachmentAction:
 		return estate.ResourceRef{Kind: estate.ResourceCompute, Region: region, Name: "members"}, true
@@ -850,6 +856,14 @@ func ociObservedState(region estate.Region, observed *ociRegionObservation) reco
 	liveMembers := 0
 	primaryShape := region.Members.PrimaryShape
 	for _, member := range observed.compute.Members {
+		// Dedicated orchestrator workers share the OCI instance listing with
+		// TerraBase members, but they are a separate pool. Never let worker
+		// hosts inflate the member count or shape projection; doing so leaves
+		// the generic reconcile loop permanently claiming member drift after
+		// workers have been launched.
+		if member.Role == "worker" || strings.HasPrefix(strings.ToLower(member.DisplayName), "terrascale-"+strings.ToLower(region.Code)+"-worker-") {
+			continue
+		}
 		if !ociKnownLiveLifecycle(member.LifecycleState) {
 			continue
 		}
@@ -870,6 +884,30 @@ func ociObservedState(region estate.Region, observed *ociRegionObservation) reco
 				{Name: "member.boot-volume-gib", Value: fmt.Sprint(region.Members.BootVolumeGiB)},
 				{Name: "member.data-volume-gib", Value: observedDataVolumeSize(region, observed.block)},
 				{Name: "member.control-replicas", Value: fmt.Sprint(region.Members.ControlReplicas)},
+			},
+		})
+	}
+	workerLive := 0
+	workerShape := region.Workers.PrimaryShape
+	for _, worker := range observedWorkersForState(observed.compute, region.Code) {
+		if !ociKnownLiveLifecycle(worker.LifecycleState) {
+			continue
+		}
+		workerLive++
+		if worker.Shape != "" {
+			workerShape = worker.Shape
+		}
+	}
+	if workerLive > 0 {
+		state.Resources = append(state.Resources, reconcile.Resource{
+			Ref: estate.ResourceRef{Kind: estate.ResourceCompute, Region: region.Code, Name: "workers"},
+			Attributes: []reconcile.Attribute{
+				{Name: "worker.count", Value: fmt.Sprint(workerLive)},
+				{Name: "worker.primary-shape", Value: workerShape},
+				{Name: "worker.fallback-shape", Value: region.Workers.FallbackShape},
+				{Name: "worker.ocpus", Value: fmt.Sprint(region.Workers.OCPUs)},
+				{Name: "worker.memory-gib", Value: fmt.Sprint(region.Workers.MemoryGiB)},
+				{Name: "worker.boot-volume-gib", Value: fmt.Sprint(region.Workers.BootVolumeGiB)},
 			},
 		})
 	}
@@ -928,6 +966,16 @@ func ociObservedState(region estate.Region, observed *ociRegionObservation) reco
 		}
 	}
 	return state
+}
+
+func observedWorkersForState(observed ocireconcile.ComputeObserved, region string) []ocireconcile.ObservedMember {
+	workers := slices.Clone(observed.Workers)
+	for _, member := range observed.Members {
+		if member.Role == "worker" || strings.HasPrefix(strings.ToLower(member.DisplayName), "terrascale-"+strings.ToLower(region)+"-worker-") {
+			workers = append(workers, member)
+		}
+	}
+	return workers
 }
 
 func ociKnownLiveLifecycle(state string) bool {

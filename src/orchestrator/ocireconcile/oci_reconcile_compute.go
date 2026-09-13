@@ -37,10 +37,15 @@ const MemberIndexTag = "terrascale-member-index"
 
 // ManagedMemberTagValue marks instances this reconciler owns.
 const ManagedMemberTagValue = "member"
+const ManagedWorkerTagValue = "orchestrator-worker"
+const WorkerIndexTag = "terrascale-worker-index"
 
 // MemberDisplayName derives the deterministic display name for a member slot.
 func MemberDisplayName(regionCode string, index int) string {
 	return "terrascale-" + regionCode + "-" + strconv.Itoa(index)
+}
+func WorkerDisplayName(regionCode string, index int) string {
+	return "terrascale-" + regionCode + "-worker-" + strconv.Itoa(index)
 }
 
 type ObservedMember struct {
@@ -53,7 +58,10 @@ type ObservedMember struct {
 	LifecycleState     string
 	AvailabilityDomain string
 	CompartmentID      string
+	OCPUs              float64
+	MemoryGiB          float64
 	FreeformTags       map[string]string
+	Role               string
 }
 
 // MemberLaunchSpec is one member launch request. FallbackShape is tried
@@ -62,6 +70,7 @@ type ObservedMember struct {
 // fallback (A1 arm64 → E5 amd64) refuses to launch without its own image,
 // a same-architecture fallback may reuse ImageID.
 type MemberLaunchSpec struct {
+	Role               string
 	DisplayName        string
 	ServerIdentity     string
 	Environment        string
@@ -97,6 +106,7 @@ type MemberLaunchCandidate struct {
 
 type ComputeDeclared struct {
 	CandidatesByMember map[int][]MemberLaunchCandidate
+	CandidatesByWorker map[int][]MemberLaunchCandidate
 	Region             estate.Region
 	// ImageID boots the primary shape; FallbackImageID boots the fallback
 	// shape whenever the two shapes span architectures (D-69).
@@ -104,7 +114,9 @@ type ComputeDeclared struct {
 	FallbackImageID   string
 	Candidates        []MemberLaunchCandidate
 	CloudInitByMember map[int]string
+	CloudInitByWorker map[int]string
 	MemberBindings    map[int]MemberBinding
+	WorkerBindings    map[int]MemberBinding
 }
 
 type MemberBinding struct {
@@ -114,6 +126,7 @@ type MemberBinding struct {
 
 type ComputeObserved struct {
 	Members             []ObservedMember
+	Workers             []ObservedMember
 	AvailabilityDomains []string
 	Subnets             []ObservedSubnet
 	NSGs                []ObservedNSG
@@ -144,6 +157,17 @@ type MemberRemovalOwner interface {
 	RemoveMember(context.Context, string, ObservedMember, []ObservedMember) error
 }
 
+// MemberResizeAuthorizer owns the engine drain/readiness proof required before
+// a live member is resized. A missing authorizer fails closed: OCI shape
+// updates must never be submitted based on telemetry alone.
+type MemberResizeAuthorizer interface {
+	AuthorizeMemberResize(context.Context, ObservedMember, float64, float64) error
+}
+
+type MemberResizeGateway interface {
+	ResizeMember(context.Context, provider.ComputeResizeRequest) error
+}
+
 type LaunchMemberAction struct {
 	Region estate.Region
 	Spec   MemberLaunchSpec
@@ -159,6 +183,20 @@ type StartMemberAction struct {
 	ETag       string
 	Generation uint64
 	Epoch      uint64
+}
+
+type ResizeMemberAction struct {
+	InstanceID string
+	ETag       string
+	Generation uint64
+	Epoch      uint64
+	OCPUs      float64
+	MemoryGiB  float64
+}
+
+func (a ResizeMemberAction) Kind() OCIActionKind { return OCIActionResizeMember }
+func (a ResizeMemberAction) Summary() string {
+	return "resize member " + a.InstanceID
 }
 
 // DurableMemberStarter receives the complete observed incarnation fence for a
@@ -191,6 +229,9 @@ type ComputeReconciler struct {
 	// RemovalOwner is the lease-owned durable removal choreography. A compute
 	// gateway must never terminate an admitted member without this proof owner.
 	RemovalOwner MemberRemovalOwner
+	// ResizeAuthorizer must provide the engine drain/readiness proof before a
+	// vertical resize is planned. Leave nil to hold resize drift safely.
+	ResizeAuthorizer MemberResizeAuthorizer
 }
 
 func computeScopeCompartment(gateway ComputeGateway) string {
@@ -240,11 +281,17 @@ func (r *ComputeReconciler) Observe(ctx context.Context, declared ComputeDeclare
 	if observed.AvailabilityDomains, err = r.Compute.ListAvailabilityDomains(ctx); err != nil {
 		return ComputeObserved{}, err
 	}
-	if observed.Members, err = r.Compute.ListMembers(ctx); err != nil {
+	instances, err := r.Compute.ListMembers(ctx)
+	if err != nil {
 		return ComputeObserved{}, err
 	}
-	for i := range observed.Members {
-		observed.Members[i].Region = declared.Region.Code
+	for _, instance := range instances {
+		instance.Region = declared.Region.Code
+		if instance.Role == "worker" || workerDisplayName(instance.DisplayName, declared.Region.Code) {
+			observed.Workers = append(observed.Workers, instance)
+			continue
+		}
+		observed.Members = append(observed.Members, instance)
 	}
 	network, err := (&NetworkReconciler{Gateway: r.Network}).Observe(ctx, declared.Region)
 	if err != nil {
@@ -375,7 +422,7 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 	for index := 1; index <= int(pool.Count); index++ {
 		member, exists := live[index]
 		if !exists {
-			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed))
+			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed, false))
 			continue
 		}
 		if observedMemberState(member.LifecycleState) == memberStatePending {
@@ -388,8 +435,17 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 				continue
 			}
 			plan.Actions = append(plan.Actions, TerminateMemberAction{InstanceID: member.ID})
-			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed))
+			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed, false))
 			continue
+		}
+		// Shape configuration drift is repaired only when a caller has supplied
+		// the explicit engine drain/readiness proof owner. Apply rechecks that
+		// proof immediately before submitting the provider mutation.
+		if r.ResizeAuthorizer != nil && observedMemberState(member.LifecycleState) == memberStateActive &&
+			member.OCPUs > 0 && member.MemoryGiB > 0 &&
+			(member.OCPUs != float64(pool.OCPUs) || member.MemoryGiB != float64(pool.MemoryGiB)) {
+			binding := declared.MemberBindings[member.Index]
+			plan.Actions = append(plan.Actions, ResizeMemberAction{InstanceID: member.ID, ETag: member.ETag, Generation: binding.Generation, Epoch: computeProviderEpoch(r.Compute), OCPUs: float64(pool.OCPUs), MemoryGiB: float64(pool.MemoryGiB)})
 		}
 		if member.LifecycleState == "STOPPED" {
 			if memberOwnedInRegion(member, declared.Region.Code) && (computeScopeCompartment(r.Compute) == "" || member.CompartmentID == computeScopeCompartment(r.Compute)) {
@@ -397,15 +453,69 @@ func (r *ComputeReconciler) Reconcile(ctx context.Context, declared ComputeDecla
 			}
 		}
 	}
+	workerPool := declared.Region.Workers
+	workerCloudInit := declared.CloudInitByWorker
+	workerLive := make(map[int]ObservedMember, workerPool.Count)
+	for _, worker := range observedWorkers(observed, declared.Region.Code) {
+		if workerPool.Count == 0 {
+			break
+		}
+		if !workerOwnedInRegion(worker, declared.Region.Code) {
+			continue
+		}
+		if worker.Index < 1 || worker.Index > 1024 || worker.DisplayName != WorkerDisplayName(declared.Region.Code, worker.Index) {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "owned worker is outside the declared worker namespace"}
+		}
+		state := observedMemberState(worker.LifecycleState)
+		if state == memberStateFailed || state == memberStateUnknown {
+			return OCIPlan{}, &provider.InvalidDataError{Message: "observed worker has an unusable lifecycle state"}
+		}
+		if worker.Index <= int(workerPool.Count) {
+			workerLive[worker.Index] = worker
+		}
+	}
+	if workerPool.Count > 0 && len(workerCloudInit) > 0 && workerPool.Count < 2 {
+		return OCIPlan{}, &provider.InvalidDataError{Message: "declared worker pool is below the placement host floor"}
+	}
+	if workerPool.Count > 0 && len(workerCloudInit) == 0 {
+		return OCIPlan{}, &provider.InvalidDataError{Message: "declared worker pool has no dedicated cloud-init"}
+	}
+	for index := 1; index <= int(workerPool.Count) && len(workerCloudInit) > 0; index++ {
+		if _, exists := workerLive[index]; !exists {
+			plan.Actions = append(plan.Actions, r.launchAction(declared, index, subnetID, nsgIDs, observed, true))
+		}
+	}
 	for _, action := range plan.Actions {
-		if _, launch := action.(LaunchMemberAction); launch {
+		if launch, ok := action.(LaunchMemberAction); ok && launch.Spec.Role != "worker" {
 			if err := validateBootstrapHostCloudInit(declared.CloudInitByMember, int(pool.Count)); err != nil {
 				return OCIPlan{}, err
 			}
-			break
+		}
+		if launch, ok := action.(LaunchMemberAction); ok && launch.Spec.Role == "worker" {
+			if err := validateBootstrapHostCloudInit(workerCloudInit, int(workerPool.Count)); err != nil {
+				return OCIPlan{}, err
+			}
 		}
 	}
 	return plan, nil
+}
+
+func workerDisplayName(displayName, region string) bool {
+	return strings.HasPrefix(strings.ToLower(displayName), "terrascale-"+strings.ToLower(region)+"-worker-")
+}
+
+// observedWorkers accepts the explicit worker projection and the legacy
+// combined projection used by provider-neutral callers. This keeps the
+// reconciliation boundary safe while allowing older observations to be
+// upgraded without treating workers as TerraBase members.
+func observedWorkers(observed ComputeObserved, region string) []ObservedMember {
+	workers := slices.Clone(observed.Workers)
+	for _, instance := range observed.Members {
+		if instance.Role == "worker" || workerDisplayName(instance.DisplayName, region) {
+			workers = append(workers, instance)
+		}
+	}
+	return workers
 }
 
 type memberLifecycleState uint8
@@ -474,11 +584,48 @@ func (r *ComputeReconciler) bootstrapConverged(value, declaration any) (bool, er
 			return false, nil
 		}
 	}
+	workerSlots := make(map[int]ObservedMember, len(observed.Workers))
+	for _, worker := range observedWorkers(observed, declared.Region.Code) {
+		if !workerOwnedInRegion(worker, declared.Region.Code) {
+			continue
+		}
+		switch observedMemberState(worker.LifecycleState) {
+		case memberStateFailed:
+			return false, &provider.InvalidDataError{Message: "observed worker " + worker.DisplayName + " failed and cannot be used"}
+		case memberStatePending, memberStateStopped, memberStateAbsent:
+			return false, nil
+		case memberStateUnknown:
+			return false, &provider.InvalidDataError{Message: "observed worker " + worker.DisplayName + " has an unusable lifecycle state"}
+		}
+		if worker.Index < 1 || worker.Index > int(declared.Region.Workers.Count) || worker.DisplayName != WorkerDisplayName(declared.Region.Code, worker.Index) {
+			return false, &provider.InvalidDataError{Message: "observed worker is outside the declared worker namespace"}
+		}
+		if _, duplicate := workerSlots[worker.Index]; duplicate {
+			return false, &provider.InvalidDataError{Message: "multiple instances occupy declared worker slot " + strconv.Itoa(worker.Index)}
+		}
+		workerSlots[worker.Index] = worker
+	}
+	for index := 1; index <= int(declared.Region.Workers.Count); index++ {
+		worker, exists := workerSlots[index]
+		if !exists || observedMemberState(worker.LifecycleState) != memberStateActive {
+			return false, nil
+		}
+		if worker.Shape != declared.Region.Workers.PrimaryShape && worker.Shape != declared.Region.Workers.FallbackShape {
+			return false, nil
+		}
+	}
 	return true, nil
 }
 
 func (declared ComputeDeclared) memberCandidates(index int) []MemberLaunchCandidate {
 	if candidates, ok := declared.CandidatesByMember[index]; ok {
+		return candidates
+	}
+	return declared.Candidates
+}
+
+func (declared ComputeDeclared) workerCandidates(index int) []MemberLaunchCandidate {
+	if candidates, ok := declared.CandidatesByWorker[index]; ok {
 		return candidates
 	}
 	return declared.Candidates
@@ -493,17 +640,30 @@ func (declared ComputeDeclared) acceptsMemberShape(index int, shape string) bool
 	return shape == declared.Region.Members.PrimaryShape || shape == declared.Region.Members.FallbackShape
 }
 
-func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, subnetID string, nsgIDs []string, observed ComputeObserved) LaunchMemberAction {
+func (r *ComputeReconciler) launchAction(declared ComputeDeclared, index int, subnetID string, nsgIDs []string, observed ComputeObserved, worker bool) LaunchMemberAction {
 	pool := declared.Region.Members
+	role := "member"
+	displayName := MemberDisplayName(declared.Region.Code, index)
+	cloudInit := declared.CloudInitByMember[index]
+	if worker {
+		pool = estate.MemberPool{Count: declared.Region.Workers.Count, PrimaryShape: declared.Region.Workers.PrimaryShape, FallbackShape: declared.Region.Workers.FallbackShape, OCPUs: declared.Region.Workers.OCPUs, MemoryGiB: declared.Region.Workers.MemoryGiB}
+		role = "worker"
+		displayName = WorkerDisplayName(declared.Region.Code, index)
+		cloudInit = declared.CloudInitByWorker[index]
+	}
 	domain := ""
 	if len(observed.AvailabilityDomains) > 0 {
 		domain = observed.AvailabilityDomains[(index-1)%len(observed.AvailabilityDomains)]
 	}
-	cloudInit := declared.CloudInitByMember[index]
 	candidates := slices.Clone(declared.memberCandidates(index))
 	binding := declared.MemberBindings[index]
+	if worker {
+		candidates = slices.Clone(declared.workerCandidates(index))
+		binding = declared.WorkerBindings[index]
+	}
 	return LaunchMemberAction{Region: declared.Region, Spec: MemberLaunchSpec{
-		DisplayName:    MemberDisplayName(declared.Region.Code, index),
+		Role:           role,
+		DisplayName:    displayName,
 		ServerIdentity: binding.ServerIdentity, Environment: binding.Environment, Cluster: binding.Cluster, MemberID: binding.MemberID, CellID: binding.CellID, Generation: binding.Generation,
 		Index:              index,
 		Shape:              pool.PrimaryShape,
@@ -563,6 +723,38 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 			if err := r.Compute.StartMember(ctx, a.InstanceID); err != nil {
 				return err
 			}
+		case ResizeMemberAction:
+			if r.ResizeAuthorizer == nil {
+				return &provider.InvalidOperationError{Message: "member resize requires an explicit drain/readiness proof owner"}
+			}
+			var expected ObservedMember
+			found := false
+			for _, member := range observed.Members {
+				if member.ID == a.InstanceID {
+					expected, found = member, true
+					break
+				}
+			}
+			if !found || !memberOwnedInRegion(expected, declared.Region.Code) || expected.ETag != a.ETag || expected.LifecycleState != "RUNNING" {
+				return &provider.InvalidOperationError{Message: "member resize requires an unchanged running owned instance"}
+			}
+			if err := r.ResizeAuthorizer.AuthorizeMemberResize(ctx, expected, a.OCPUs, a.MemoryGiB); err != nil {
+				return err
+			}
+			durable, ok := r.Compute.(MemberResizeGateway)
+			if !ok {
+				return &provider.InvalidOperationError{Message: "member resize requires the durable OCI resize gateway"}
+			}
+			operation, err := provider.NewProviderOperationId("member-resize-" + provider.ProviderMutationFingerprint(a.InstanceID, strconv.FormatUint(a.Generation, 10), strconv.FormatFloat(a.OCPUs, 'f', -1, 64), strconv.FormatFloat(a.MemoryGiB, 'f', -1, 64)))
+			if err != nil {
+				return err
+			}
+			request := provider.ComputeResizeRequest{InstanceID: a.InstanceID, IfMatch: a.ETag, Generation: a.Generation, OCPUs: a.OCPUs, MemoryGiB: a.MemoryGiB}
+			request.Mutation = provider.ProviderMutationIntent{OperationID: operation, Scope: provider.ComputeResizeMutationScope(request), Action: "compute.resize", Epoch: provider.ProviderEpoch{Value: a.Epoch}, IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.resize", a.InstanceID, strconv.FormatUint(a.Generation, 10), strconv.FormatFloat(a.OCPUs, 'f', -1, 64), strconv.FormatFloat(a.MemoryGiB, 'f', -1, 64))}}
+			request.Mutation.Fingerprint = provider.ComputeResizeMutationFingerprint(request)
+			if err := durable.ResizeMember(ctx, request); err != nil {
+				return err
+			}
 		case TerminateMemberAction:
 			if err := r.terminateOwnedMember(ctx, declared.Region.Code, observed, a.InstanceID); err != nil {
 				return err
@@ -576,11 +768,17 @@ func (r *ComputeReconciler) Apply(ctx context.Context, declared ComputeDeclared,
 
 func memberOwnedInRegion(member ObservedMember, region string) bool {
 	return provider.IsOCID(member.ID, "instance") && provider.HasOCIOwnershipTags(member.FreeformTags, ManagedMemberTagValue, region) &&
-		member.DisplayName == MemberDisplayName(region, member.Index)
+		!strings.HasPrefix(strings.ToLower(member.DisplayName), "terrascale-"+strings.ToLower(region)+"-worker-") && member.DisplayName == MemberDisplayName(region, member.Index)
+}
+
+func workerOwnedInRegion(worker ObservedMember, region string) bool {
+	return provider.IsOCID(worker.ID, "instance") &&
+		provider.HasOCIOwnershipTags(worker.FreeformTags, ManagedWorkerTagValue, region) &&
+		worker.DisplayName == WorkerDisplayName(region, worker.Index)
 }
 
 func sameObservedMember(a, b ObservedMember) bool {
-	return a.ID == b.ID && a.DisplayName == b.DisplayName && a.Index == b.Index && a.Shape == b.Shape &&
+	return a.ID == b.ID && a.DisplayName == b.DisplayName && a.Index == b.Index && a.Shape == b.Shape && a.OCPUs == b.OCPUs && a.MemoryGiB == b.MemoryGiB &&
 		a.LifecycleState == b.LifecycleState && a.AvailabilityDomain == b.AvailabilityDomain &&
 		a.CompartmentID == b.CompartmentID && sameStringMap(a.FreeformTags, b.FreeformTags)
 }
@@ -908,7 +1106,7 @@ func (g *ociMemberGateway) ObserveMember(ctx context.Context, id string) (Observ
 	if !found || instance.ID != id || instance.ETag == "" || instance.CompartmentID != g.CompartmentID {
 		return ObservedMember{}, &provider.InvalidDataError{Message: "exact OCI member observation is not owned"}
 	}
-	observed := ObservedMember{ID: instance.ID, ETag: instance.ETag, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, Shape: instance.Shape, CompartmentID: instance.CompartmentID}
+	observed := ObservedMember{ID: instance.ID, ETag: instance.ETag, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, Shape: instance.Shape, OCPUs: instance.OCPUs, MemoryGiB: instance.MemoryGiB, CompartmentID: instance.CompartmentID}
 	if instance.LifecycleState == "TERMINATED" {
 		return observed, ErrMemberTerminated
 	}
@@ -944,11 +1142,15 @@ func NewOCIMemberGateway(core *provider.OCIHTTPTransport, compartmentID, imageID
 var _ ComputeGateway = (*ociMemberGateway)(nil)
 
 type ociMemberDocument struct {
-	ID                 string            `json:"id"`
-	CompartmentID      string            `json:"compartmentId"`
-	DisplayName        string            `json:"displayName"`
-	LifecycleState     string            `json:"lifecycleState"`
-	Shape              string            `json:"shape"`
+	ID             string `json:"id"`
+	CompartmentID  string `json:"compartmentId"`
+	DisplayName    string `json:"displayName"`
+	LifecycleState string `json:"lifecycleState"`
+	Shape          string `json:"shape"`
+	ShapeConfig    struct {
+		OCPUs       float64 `json:"ocpus"`
+		MemoryInGBs float64 `json:"memoryInGBs"`
+	} `json:"shapeConfig"`
 	AvailabilityDomain string            `json:"availabilityDomain"`
 	FreeformTags       map[string]string `json:"freeformTags"`
 }
@@ -986,14 +1188,23 @@ func (g *ociMemberGateway) ListMembers(ctx context.Context) ([]ObservedMember, e
 			return nil, &provider.InvalidDataError{Message: "OCI member instance response has an invalid identity"}
 		}
 		index := 0
+		role := ""
 		if item.FreeformTags[provider.OCIManagedTag] == ManagedMemberTagValue {
+			role = "member"
 			parsed, err := strconv.Atoi(item.FreeformTags[MemberIndexTag])
 			if err != nil || parsed < 1 || parsed > 1024 {
 				return nil, &provider.InvalidDataError{Message: "OCI member instance has an invalid member index"}
 			}
 			index = parsed
+		} else if item.FreeformTags[provider.OCIManagedTag] == ManagedWorkerTagValue {
+			role = "worker"
+			parsed, err := strconv.Atoi(item.FreeformTags[WorkerIndexTag])
+			if err != nil || parsed < 1 || parsed > 1024 {
+				return nil, &provider.InvalidDataError{Message: "OCI worker instance has an invalid worker index"}
+			}
+			index = parsed
 		}
-		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Shape: item.Shape, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
+		members = append(members, ObservedMember{ID: item.ID, DisplayName: item.DisplayName, Index: index, Role: role, Shape: item.Shape, OCPUs: item.ShapeConfig.OCPUs, MemoryGiB: item.ShapeConfig.MemoryInGBs, LifecycleState: item.LifecycleState, AvailabilityDomain: item.AvailabilityDomain, CompartmentID: item.CompartmentID, FreeformTags: provider.CopyOCITags(item.FreeformTags)})
 	}
 	return members, nil
 }
@@ -1025,6 +1236,10 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 	}
 	if !provider.IsOCID(imageID, "image") || (spec.FallbackImageID != "" && !provider.IsOCID(spec.FallbackImageID, "image")) {
 		return ObservedMember{}, &errs.Argument{Message: "member launch request has an invalid boot image"}
+	}
+	managedTag, indexTag := ManagedMemberTagValue, MemberIndexTag
+	if spec.Role == "worker" {
+		managedTag, indexTag = ManagedWorkerTagValue, WorkerIndexTag
 	}
 	payload := struct {
 		CompartmentID string `json:"compartmentId"`
@@ -1065,7 +1280,7 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 			ImageID    string `json:"imageId"`
 		}{SourceType: "image", ImageID: imageID},
 		Metadata:     map[string]string{"user_data": spec.CloudInitBase64},
-		FreeformTags: map[string]string{provider.OCIManagedTag: ManagedMemberTagValue, provider.OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), MemberIndexTag: strconv.Itoa(spec.Index)},
+		FreeformTags: map[string]string{provider.OCIManagedTag: managedTag, provider.OCIScopeTag: strings.TrimSuffix(strings.TrimPrefix(spec.DisplayName, "terrascale-"), "-"+strconv.Itoa(spec.Index)), indexTag: strconv.Itoa(spec.Index)},
 	}
 	var document ociMemberDocument
 	retryToken := spec.DisplayName
@@ -1075,7 +1290,7 @@ func (g *ociMemberGateway) LaunchMember(ctx context.Context, spec MemberLaunchSp
 	if !provider.IsOCID(document.ID, "instance") {
 		return ObservedMember{}, &provider.InvalidDataError{Message: "OCI member launch response is invalid"}
 	}
-	return ObservedMember{ID: document.ID, DisplayName: document.DisplayName, Index: spec.Index, Shape: document.Shape, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain}, nil
+	return ObservedMember{ID: document.ID, DisplayName: document.DisplayName, Index: spec.Index, Role: spec.Role, Shape: document.Shape, LifecycleState: document.LifecycleState, AvailabilityDomain: document.AvailabilityDomain}, nil
 }
 
 func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberLaunchSpec) (ObservedMember, error) {
@@ -1101,16 +1316,22 @@ func (g *ociMemberGateway) launchMemberDurable(ctx context.Context, spec MemberL
 		Action:      "compute.launch", Epoch: g.Epoch,
 		IdempotencyKey: provider.ProviderIdempotencyKey{Value: provider.ProviderMutationFingerprint("compute.launch", g.CompartmentID, spec.DisplayName, incarnation)},
 	}
+	managedTag := ManagedMemberTagValue
+	indexTag := MemberIndexTag
+	if spec.Role == "worker" {
+		managedTag = ManagedWorkerTagValue
+		indexTag = WorkerIndexTag
+	}
 	request := provider.ComputeLaunchRequest{Mutation: intent, CompartmentID: g.CompartmentID, DisplayName: spec.DisplayName,
 		ServerIdentity: spec.ServerIdentity, Environment: spec.Environment, Cluster: spec.Cluster, MemberID: spec.MemberID, CellID: spec.CellID, Generation: spec.Generation,
 		NSGIDs: append([]string(nil), spec.NSGIDs...), BootstrapBase64: spec.CloudInitBase64, Candidates: candidates,
-		Tags: map[string]string{}}
+		Tags: map[string]string{provider.OCIManagedTag: managedTag, provider.OCIScopeTag: strings.TrimPrefix(spec.DisplayName, "terrascale-"), indexTag: strconv.Itoa(spec.Index)}}
 	request.Mutation.Fingerprint = provider.ComputeLaunchMutationFingerprint(request)
 	instance, err := g.Adapter.LaunchInstance(ctx, request)
 	if err != nil {
 		return ObservedMember{}, err
 	}
-	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape,
+	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape, OCPUs: instance.OCPUs, MemoryGiB: instance.MemoryGiB,
 		LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
 }
 
@@ -1133,7 +1354,7 @@ func (g *ociMemberGateway) ReconcileMemberLaunch(ctx context.Context, spec Membe
 	if err != nil {
 		return ObservedMember{}, err
 	}
-	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
+	return ObservedMember{ID: instance.ID, DisplayName: spec.DisplayName, Index: spec.Index, Shape: instance.Shape, OCPUs: instance.OCPUs, MemoryGiB: instance.MemoryGiB, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, CompartmentID: g.CompartmentID}, nil
 }
 
 func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) error {
@@ -1141,6 +1362,13 @@ func (g *ociMemberGateway) StartMember(ctx context.Context, instanceID string) e
 		return &errs.Argument{Message: "member start requires an instance identity"}
 	}
 	return doOCIJSON[struct{}](ctx, g.Core, http.MethodPost, "/20160918/instances/"+url.PathEscape(instanceID)+"/actions/start", struct{}{}, nil, nil)
+}
+
+func (g *ociMemberGateway) ResizeMember(ctx context.Context, request provider.ComputeResizeRequest) error {
+	if g == nil || g.Adapter == nil {
+		return &provider.InvalidOperationError{Message: "member resize requires the durable provider adapter"}
+	}
+	return g.Adapter.ResizeInstance(ctx, request)
 }
 
 func (g *ociMemberGateway) TerminateMember(ctx context.Context, instanceID, ifMatch string) error {

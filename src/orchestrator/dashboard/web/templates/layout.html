@@ -1,0 +1,38 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{{.Page.Title}} · TerraScale</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body data-page="{{.Page.Key}}" data-signals="{connected: false}">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="TerraScale Orchestrator overview">
+      <span class="brand-mark" aria-hidden="true">TS</span>
+      <span>ORCHESTRATOR <small>READ ONLY</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      {{range .Navigation}}<a href="{{.Href}}" aria-label="{{.Label}}"{{if .Active}} aria-current="page" class="active"{{end}}><i class="nav-glyph" data-lucide="{{.Glyph}}" aria-hidden="true"></i><span>{{.Label}}</span></a>{{end}}
+    </nav>
+    <span id="connection" class="connection">OBSERVING</span>
+  </header>
+  <main id="page-content" class="page-shell">
+    <div class="page-heading">
+      <div><p class="eyebrow">{{.Page.Kicker}}</p><h1>{{.Page.Title}}</h1><p class="lede">{{.Page.Description}}</p></div>
+      <div class="observation"><span>LAST OBSERVED</span><strong>{{time .State.ObservedAt}}</strong></div>
+    </div>
+    {{template "content" .}}
+  </main>
+  <footer><span>TerraScale / orchestrator</span><span>Observation only · no mutation endpoints</span></footer>
+  <script src="/vendor/lucide.min.js" defer></script>
+  <script src="/vendor/apexcharts.min.js" defer></script>
+  <script src="/vendor/datastar-runtime.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>{{end}}
+
+{{define "status"}}<span class="status status-{{statusClass .}}">{{or . "UNAVAILABLE"}}</span>{{end}}
+{{define "unknown"}}<span class="unknown">UNAVAILABLE</span>{{end}}
+{{define "meter"}}<span class="meter"><i style="width:{{percent .}}"></i></span><span>{{percent .}}</span>{{end}}

@@ -318,6 +318,12 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 	gateway := &autoscaleLoopGateway{}
 	for slot := 1; slot <= 2; slot++ {
 		gateway.members = append(gateway.members, autoscaleLoopMember(region, slot))
+		worker := autoscaleLoopMember(region, slot)
+		worker.DisplayName = ocireconcile.WorkerDisplayName(region.Code, slot)
+		worker.Role = "worker"
+		worker.Shape = region.Workers.PrimaryShape
+		worker.FreeformTags[provider.OCIManagedTag] = ocireconcile.ManagedWorkerTagValue
+		gateway.members = append(gateway.members, worker)
 	}
 	artifact := "https://git.terrascale.tech/TerraScale/ts-orchestrator/releases/download/v1/ts-node"
 	seed, err := ocireconcile.TSNodeCloudInit("v1", strings.Repeat("a", 64), artifact, artifact+".sig", strings.Repeat("ab", 32), []ocireconcile.BootstrapHostFile{{Path: "/etc/terrascale/ts-node.json", Content: []byte("{}")}, {Path: "/var/lib/terrascale/ts-node/manifest.json", Content: []byte("{}")}})
@@ -349,7 +355,7 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 				Generation:     7,
 			}
 		}
-		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds, MemberBindings: bindings}, nil
+		return ocireconcile.ComputeDeclared{Region: region, ImageID: "ocid1.image.oc1.arm64", FallbackImageID: "ocid1.image.oc1.amd64", CloudInitByMember: seeds, CloudInitByWorker: map[int]string{1: seed, 2: seed}, MemberBindings: bindings}, nil
 	}
 	regional.targetProjection = func(ctx context.Context, region estate.Region) (uint16, error) {
 		target, found, err := targets.Load(ctx, region.Code)
@@ -397,8 +403,8 @@ func TestAutoscaleDurableTargetReachesFirstLoopPassAndConverges(t *testing.T) {
 	if regional.scaleOutTarget != 0 || controller.spec.Regions[0].Members.Count != 2 || spec.Regions[0].Members.Count != 2 {
 		t.Fatal("projection mutated static declaration or depended on autoscale tick")
 	}
-	if len(gateway.members) != 3 {
-		t.Fatal("gateway did not observe launched member")
+	if len(gateway.members) != 5 {
+		t.Fatalf("gateway did not observe launched hosts: %d", len(gateway.members))
 	}
 	plan, err = loop.Pass(ctx)
 	if err != nil || !plan.Empty() || len(gateway.launches) != 1 {
@@ -436,6 +442,14 @@ func (p *autoscaleLoopProvider) Observe(ctx context.Context) (reconcile.State, e
 		for slot := 1; slot <= int(other.Members.Count); slot++ {
 			members = append(members, autoscaleLoopMember(other, slot))
 		}
+		for slot := 1; slot <= int(other.Workers.Count); slot++ {
+			worker := autoscaleLoopMember(other, slot)
+			worker.DisplayName = ocireconcile.WorkerDisplayName(other.Code, slot)
+			worker.Role = "worker"
+			worker.Shape = other.Workers.PrimaryShape
+			worker.FreeformTags[provider.OCIManagedTag] = ocireconcile.ManagedWorkerTagValue
+			members = append(members, worker)
+		}
 		all.Resources = append(all.Resources, ociObservedState(other, &ociRegionObservation{compute: ocireconcile.ComputeObserved{Members: members}}).Resources...)
 	}
 
@@ -460,6 +474,11 @@ func (g *autoscaleLoopGateway) ListMembers(context.Context) ([]ocireconcile.Obse
 func (g *autoscaleLoopGateway) LaunchMember(_ context.Context, launch ocireconcile.MemberLaunchSpec) (ocireconcile.ObservedMember, error) {
 	g.launches = append(g.launches, launch)
 	member := autoscaleLoopMember(estate.Default().Regions[0], launch.Index)
+	if launch.Role == "worker" {
+		member.DisplayName = ocireconcile.WorkerDisplayName(estate.Default().Regions[0].Code, launch.Index)
+		member.Role = "worker"
+		member.FreeformTags[provider.OCIManagedTag] = ocireconcile.ManagedWorkerTagValue
+	}
 	g.members = append(g.members, member)
 	return member, nil
 }

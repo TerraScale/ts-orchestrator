@@ -154,7 +154,7 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 		return errors.New("global compute declaration is incomplete")
 	}
 	enrollment := g.Compute.Enrollment
-	if enrollment == nil || !filepath.IsAbs(enrollment.SignerFile) || !filepath.IsAbs(enrollment.PublicKeyFile) || len(enrollment.BrokerIDs) == 0 || len(enrollment.Templates) != len(spec.Regions) {
+	if enrollment == nil || !filepath.IsAbs(enrollment.SignerFile) || !filepath.IsAbs(enrollment.PublicKeyFile) || len(enrollment.BrokerIDs) == 0 || len(enrollment.Templates) != len(spec.Regions) || len(enrollment.WorkerTemplates) != len(spec.Regions) {
 		return errors.New("global enrollment declaration is incomplete")
 	}
 	if err := g.WriteBudget.validate(); err != nil {
@@ -173,6 +173,9 @@ func (f productionDeploymentFile) validateGlobalRelationships(spec estate.Spec) 
 		}
 		if _, ok := enrollment.Templates[region.Code]; !ok {
 			return fmt.Errorf("global enrollment template for region %s is missing", region.Code)
+		}
+		if _, ok := enrollment.WorkerTemplates[region.Code]; !ok {
+			return fmt.Errorf("global worker enrollment template for region %s is missing", region.Code)
 		}
 	}
 	edge := g.Rotation.Edge

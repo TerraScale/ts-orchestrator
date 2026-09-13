@@ -483,6 +483,7 @@ func runAddRegion(ctx context.Context, args []string, lookup envLookup, output i
 			request := ocireconcile.BootstrapRequest{Region: region}
 			if admission != nil {
 				request.HostCloudInit = admission.provision.HostCloudInit
+				request.WorkerCloudInit = admission.provision.WorkerCloudInit
 			}
 			if err := runAddRegionBootstrap(ctx, lookup, request, output); err != nil {
 				return err

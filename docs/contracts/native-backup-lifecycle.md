@@ -4,7 +4,7 @@ Workspace D-29 and TerraBase ADR 0046 assign backup capture, WAL/checkpoint
 coordination, shared scheduling, uploads, PITR, restore, and branching to
 TerraBase's native Rust subsystem. The orchestrator owns regional OCI buckets,
 lifecycle policy and key authority, and requests engine lifecycle work through
-the admitted TBEP contract. It does not launch an external Litestream binary or
+the admitted TBEP contract. It does not launch an external backup binary or
 supervise a process per database.
 
 The orchestrator previously exposed external-backup terminology in its reaper
@@ -34,8 +34,8 @@ change does not recreate buckets or change residency.
 The NATS reaper envelope now uses schema version 2. `State.Version` remains the
 monotonic state revision counter; it is not the envelope schema version.
 Version-1 envelopes are refused before reconciliation, including active records
-without a completed stop operation. Old `pause/litestream` operations, with or
-without a cycle suffix, are also refused by state validation.
+without a completed stop operation. Legacy external-backup stop operation
+names, with or without a cycle suffix, are also refused by state validation.
 
 The reader does not relabel, delete, or overwrite old state to start fresh. Old
 snapshot and stop acknowledgements cannot establish native-backup completion.

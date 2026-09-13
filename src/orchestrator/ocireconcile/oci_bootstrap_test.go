@@ -136,6 +136,7 @@ func bootstrapTestRequest(t *testing.T) BootstrapRequest {
 	}
 	return BootstrapRequest{
 		HostCloudInit:   map[int]string{1: seed, 2: seed},
+		WorkerCloudInit: map[int]string{1: seed, 2: seed},
 		Region:          region,
 		CompartmentName: "terrascale",
 		ImageID:         "ocid1.image.oc1.x",
@@ -174,8 +175,8 @@ func TestRunOCIBootstrapConvergesFromEmpty(t *testing.T) {
 	if err := RunOCIBootstrap(context.Background(), request, fakes.gateways(), &log); err != nil {
 		t.Fatalf("bootstrap failed: %v\nprogress:\n%s", err, log.String())
 	}
-	if len(fakes.compute.members) != int(request.Region.Members.Count) {
-		t.Fatalf("members = %d, want %d", len(fakes.compute.members), request.Region.Members.Count)
+	if len(fakes.compute.members) != int(request.Region.Members.Count+request.Region.Workers.Count) {
+		t.Fatalf("compute hosts = %d, want %d", len(fakes.compute.members), request.Region.Members.Count+request.Region.Workers.Count)
 	}
 	if len(fakes.block.volumes) != int(request.Region.Members.Count) || len(fakes.block.attachments) != int(request.Region.Members.Count) {
 		t.Fatalf("volumes = %d, attachments = %d, want two of each", len(fakes.block.volumes), len(fakes.block.attachments))

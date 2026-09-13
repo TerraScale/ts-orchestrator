@@ -44,21 +44,25 @@ behavior, arbitrary customer workloads, or a public query proxy.
 ## Launch shape
 
 GRU starts first and hosts the single active global master. Every Region runs
-its own co-hosted regional orchestrator to manage its OCI resources and
-TerraBase members under GRU authority. The GRU, SFO, and FRA processes also
-host the permanent global JetStream R3. Later Regions run regional
-orchestrators without joining that global storage group. Each Region starts
-with two admitted TerraBase member hosts.
+its own dedicated worker pool to manage its OCI resources and TerraBase members
+under GRU authority. The GRU, SFO, and FRA processes also host the permanent
+global JetStream R3. Later Regions run regional workers without joining that
+global storage group. Each Region starts with two admitted TerraBase member
+hosts and two separate orchestrator worker hosts.
 
 Bootstrap uses a temporary pre-customer GRU R1, then admits synchronized SFO
 and FRA replicas and promotes to R3 before customer admission. Existing
 Regions keep serving when the orchestrator, GRU, or NATS is unavailable.
 
-Production hosts are Ubuntu LTS minimal and contain no Docker, Podman,
-containerd, container image, or registry. Cloud-init installs only `ts-node`.
+Production hosts are Ubuntu LTS minimal. Cloud-init installs only `ts-node`.
 It verifies signed binaries, writes hardened systemd units, and performs
 orchestrator-coordinated drain, activation, and rollback. Ampere A1 arm64 is
-the default host shape and E5 amd64 is the automatic capacity fallback.
+the default host shape and E5 amd64 is the automatic capacity fallback. Member
+hosts remain 2 OCPU/12 GiB; dedicated worker hosts use 1 OCPU/1 GiB and scale
+independently, with two workers as the regional floor.
+The current durable autoscale target applies to TerraBase members only; the
+dedicated worker pool stays at its declared floor until a separate worker
+target and termination proof are implemented.
 
 `ts-deploy` builds, signs, publishes, and submits a binary candidate (D-68).
 The orchestrator mirrors it into every Region, deploys one GRU canary, then
@@ -90,7 +94,10 @@ make vm-test
 make vm-clean
 ```
 
-`make vm-test` runs the six-host GRU/SFO/FRA topology and covers bootstrap,
+The production GRU/SFO/FRA topology is twelve hosts (two members and two
+workers per Region). The current `make vm-test` qualification fixture remains
+the existing six-guest member topology while worker guest coverage is added.
+It covers bootstrap,
 `add-region`, R3 control, reconciliation, systemd delivery and rollback,
 placement locks, host and Region failure, partitions and latency, storage
 faults, certificate and key rotation, restore drills, degraded mode, and

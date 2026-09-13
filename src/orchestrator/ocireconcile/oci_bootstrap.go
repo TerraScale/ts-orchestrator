@@ -182,6 +182,7 @@ type BootstrapRequest struct {
 	CompartmentName string
 	ImageID         string
 	HostCloudInit   map[int]string
+	WorkerCloudInit map[int]string
 	Convergence     BootstrapConvergenceConfig
 }
 
@@ -236,6 +237,14 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 	if err := request.validate(); err != nil {
 		return err
 	}
+	if request.Region.Workers.Count > 0 {
+		if len(request.WorkerCloudInit) == 0 {
+			return &errs.Argument{Message: "bootstrap requires a dedicated worker cloud-init map"}
+		}
+		if err := validateBootstrapHostCloudInit(request.WorkerCloudInit, int(request.Region.Workers.Count)); err != nil {
+			return err
+		}
+	}
 	if err := gateways.validate(); err != nil {
 		return err
 	}
@@ -253,7 +262,7 @@ func RunOCIBootstrap(ctx context.Context, request BootstrapRequest, gateways Boo
 	if err := convergeStage(ctx, "buckets", object, request.Region, progress, request.Convergence); err != nil {
 		return err
 	}
-	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitByMember: request.HostCloudInit}, progress, request.Convergence); err != nil {
+	if err := convergeStage(ctx, "hosts", compute, ComputeDeclared{Region: request.Region, ImageID: request.ImageID, CloudInitByMember: request.HostCloudInit, CloudInitByWorker: request.WorkerCloudInit}, progress, request.Convergence); err != nil {
 		return err
 	}
 	return convergeStage(ctx, "volumes", block, request.Region, progress, request.Convergence)

@@ -113,6 +113,8 @@ func sameAttributes(left, right []Attribute) bool {
 //	compute               member.count, member.primary-shape, member.fallback-shape,
 //	                      member.ocpus, member.memory-gib, member.boot-volume-gib,
 //	                      member.data-volume-gib, member.control-replicas
+//	                      worker.count, worker.primary-shape, worker.fallback-shape,
+//	                      worker.ocpus, worker.memory-gib, worker.boot-volume-gib
 //	network               network.cidr
 //	subnet                subnet.cidr
 //	nsg                   nsg.rule = "<direction>|<protocol>|<peer>|<min>-<max>"
@@ -152,6 +154,17 @@ func Declared(spec estate.Spec) (State, error) {
 					{Name: "member.boot-volume-gib", Value: strconv.FormatUint(uint64(region.Members.BootVolumeGiB), 10)},
 					{Name: "member.data-volume-gib", Value: strconv.FormatUint(uint64(region.Members.DataVolumeGiB), 10)},
 					{Name: "member.control-replicas", Value: strconv.FormatUint(uint64(region.Members.ControlReplicas), 10)},
+				},
+			},
+			Resource{
+				Ref: estate.ResourceRef{Kind: estate.ResourceCompute, Region: region.Code, Name: "workers"},
+				Attributes: []Attribute{
+					{Name: "worker.count", Value: strconv.FormatUint(uint64(region.Workers.Count), 10)},
+					{Name: "worker.primary-shape", Value: region.Workers.PrimaryShape},
+					{Name: "worker.fallback-shape", Value: region.Workers.FallbackShape},
+					{Name: "worker.ocpus", Value: strconv.FormatUint(uint64(region.Workers.OCPUs), 10)},
+					{Name: "worker.memory-gib", Value: strconv.FormatUint(uint64(region.Workers.MemoryGiB), 10)},
+					{Name: "worker.boot-volume-gib", Value: strconv.FormatUint(uint64(region.Workers.BootVolumeGiB), 10)},
 				},
 			},
 			Resource{

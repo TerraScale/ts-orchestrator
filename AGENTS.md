@@ -7,8 +7,7 @@ AI IS NOT ALLOWED TO EDIT THIS FILE ONLY HUMANS CAN!
 - GRU will be the master and hold all state and metrics and usages
 
 # Rules
-- This project needs to use GO
-- We must use the go-modern-guidelines plugin
-- Nats must be embedded inside on this project for ease of deployment
+- This project needs to use C#
+- This needs to be deployed as a single binary to be easy to deployed and updated
 - Commit and push often after every major change automatically
 - When the human asks for a commit, commit and push exactly as asked — do not run tests, checks, or builds first

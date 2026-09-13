@@ -101,12 +101,13 @@ func validateBootstrapControlConfiguration(ctx context.Context, lookup envLookup
 	if !ok {
 		return nil, errors.New("control: provisioned region is outside admitted seed")
 	}
+	workerSeeds := loaded.workerSeeds[region]
 	regions, err := selectBootstrapControlStage(&loaded, region)
 	if err != nil {
 		return nil, err
 	}
 	admitted = true
-	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds}, loaded: loaded, credentials: credentials, regions: regions}, nil
+	return &bootstrapControlAdmission{provision: ocireconcile.BootstrapRequest{HostCloudInit: seeds, WorkerCloudInit: workerSeeds}, loaded: loaded, credentials: credentials, regions: regions}, nil
 }
 func bootstrapControlProviderCredentials(lookup envLookup, regions []bootstrapControlRegion) (ocireconcile.BootstrapCredentials, error) {
 	credentials, err := ocireconcile.BootstrapCredentialsFromEnv(lookup)
