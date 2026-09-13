@@ -108,7 +108,7 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
 
         await Assert.That(StorageComputeReplayCorpus.Load().Count).IsEqualTo(8);
         await Assert.That(StorageComputeReplayCorpus.ContentSha256)
-            .IsEqualTo("f0f97770a45ab50329b71b07e8b48921a0ee26d1c3ade443ac8f604b49f557ff");
+            .IsEqualTo("8b07a0c01fb4bf02e1a5e2ba7ce43d1a3d2082f761db179c1849ffdddba7479f");
     }
 
     [Test]
@@ -326,4 +326,3 @@ public sealed class ComputeAcceptedCompletionProvenanceCounterexampleTests
         $"{method.DeclaringType!.FullName}|{method.Name}|{method.IsStatic}|{method.ReturnType.FullName}|{string.Join(',', method.GetParameters().Select(parameter => parameter.ParameterType.FullName))}")
         .Order(StringComparer.Ordinal);
 }
-
